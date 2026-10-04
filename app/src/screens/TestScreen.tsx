@@ -26,7 +26,8 @@ const STATE_STYLE: Record<string, string> = {
 export function TestScreen() {
   const snapshot = useApp((s) => s.snapshot);
   const backend = useApp((s) => s.backend);
-  const [targetValue, setTargetValue] = useState("show");
+  const targetValue = useApp((s) => s.testTarget);
+  const setTargetValue = useApp((s) => s.setTestTarget);
   const [kind, setKind] = useState<PatternKind>("chase");
   const [color, setColor] = useState("#ffffff");
   const [status, setStatus] = useState<OutputStatus | null>(null);
@@ -70,7 +71,11 @@ export function TestScreen() {
   const pattern = PATTERNS.find((p) => p.kind === kind)!;
 
   const start = async () => {
-    const target = targets.find((t) => t.value === targetValue)?.spec ?? { type: "show" };
+    const target = targets.find((t) => t.value === targetValue)?.spec;
+    if (!target) {
+      setError("The chosen target no longer exists. Choose another target.");
+      return;
+    }
     try {
       setStatus(await backend.startOutput({ kind, color: color.replace("#", "") }, target));
       setError(null);
@@ -78,7 +83,14 @@ export function TestScreen() {
       setError(errorMessage(e));
     }
   };
-  const stop = async () => setStatus(await backend.stopOutput());
+  const stop = async () => {
+    try {
+      setStatus(await backend.stopOutput());
+      setError(null);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
   const running = status?.running ?? false;
 
   return (

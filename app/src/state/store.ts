@@ -26,11 +26,17 @@ interface AppState {
   paletteOpen: boolean;
   error: string | null;
   busy: boolean;
+  /** Set when New/Open was asked for while the show has unsaved changes. */
+  pendingReplace: "new" | "open" | null;
+  /** Test screen target selection; kept here so it survives leaving the screen. */
+  testTarget: string;
 
   connect(backend: Backend): Promise<void>;
   setScreen(screen: Screen): void;
   setTheme(theme: Theme): void;
   setPaletteOpen(open: boolean): void;
+  setTestTarget(value: string): void;
+  resolvePendingReplace(choice: "save" | "discard" | "cancel"): Promise<boolean>;
   dismissError(): void;
   /** Runs a backend call that returns a new snapshot; errors become a message. Returns success. */
   run(call: (backend: Backend) => Promise<ShowSnapshot>): Promise<boolean>;
@@ -43,7 +49,24 @@ interface AppState {
   saveAs(): Promise<boolean>;
 }
 
-export const useApp = create<AppState>((set, get) => ({
+export const useApp = create<AppState>((set, get) => {
+  /** Replaces the current show without checking for unsaved changes. */
+  async function replaceShow(kind: "new" | "open"): Promise<boolean> {
+    const backend = get().backend;
+    if (!backend) return false;
+    let ok: boolean;
+    if (kind === "new") {
+      ok = await get().run((b) => b.newShow("Untitled Show"));
+    } else {
+      const path = await backend.pickOpenPath();
+      if (!path) return false;
+      ok = await get().run((b) => b.openShow(path));
+    }
+    if (ok) set({ started: true, screen: "layout" });
+    return ok;
+  }
+
+  return {
   backend: null,
   snapshot: null,
   started: false,
@@ -52,6 +75,8 @@ export const useApp = create<AppState>((set, get) => ({
   paletteOpen: false,
   error: null,
   busy: false,
+  pendingReplace: null,
+  testTarget: "show",
 
   async connect(backend) {
     set({ backend });
@@ -74,6 +99,7 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
+  setTestTarget: (testTarget) => set({ testTarget }),
   dismissError: () => set({ error: null }),
 
   async run(call) {
@@ -97,19 +123,31 @@ export const useApp = create<AppState>((set, get) => ({
   redo: () => get().run((b) => b.redo()),
 
   async newShow() {
-    const ok = await get().run((b) => b.newShow("Untitled Show"));
-    if (ok) set({ started: true, screen: "layout" });
-    return ok;
+    if (get().started && get().snapshot?.dirty) {
+      set({ pendingReplace: "new" });
+      return false;
+    }
+    return replaceShow("new");
   },
 
   async openShow() {
-    const backend = get().backend;
-    if (!backend) return false;
-    const path = await backend.pickOpenPath();
-    if (!path) return false;
-    const ok = await get().run((b) => b.openShow(path));
-    if (ok) set({ started: true, screen: "layout" });
-    return ok;
+    if (get().started && get().snapshot?.dirty) {
+      set({ pendingReplace: "open" });
+      return false;
+    }
+    return replaceShow("open");
+  },
+
+  async resolvePendingReplace(choice) {
+    const kind = get().pendingReplace;
+    if (!kind) return false;
+    if (choice === "cancel") {
+      set({ pendingReplace: null });
+      return false;
+    }
+    if (choice === "save" && !(await get().save())) return false;
+    set({ pendingReplace: null });
+    return replaceShow(kind);
   },
 
   async save() {
@@ -126,4 +164,5 @@ export const useApp = create<AppState>((set, get) => ({
     if (!path) return false;
     return get().run((b) => b.saveShowAs(path));
   },
-}));
+};
+});

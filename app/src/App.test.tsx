@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { App } from "./App";
@@ -173,5 +173,149 @@ describe("theme", () => {
     await user.click(screen.getByRole("button", { name: "Light theme" }));
     expect(document.documentElement.dataset.theme).toBe("light");
     expect(localStorage.getItem("pixelflow.theme")).toBe("light");
+  });
+});
+
+async function addController(user: ReturnType<typeof userEvent.setup>, ip: string) {
+  await user.click(screen.getByRole("button", { name: /add controller/i }));
+  await user.type(screen.getByPlaceholderText("192.168.1.50"), ip);
+  await user.click(screen.getByRole("button", { name: "Add" }));
+}
+
+describe("unsaved changes on new and open", () => {
+  it("asks first; Cancel keeps the show and its undo history", async () => {
+    const user = await startFresh();
+    await user.click(screen.getByRole("button", { name: /add prop/i }));
+    await user.keyboard("{Meta>}n{/Meta}");
+    const dialog = screen.getByRole("dialog", { name: "Save changes to Untitled Show?" });
+    expect(dialog).toHaveTextContent("Your changes will be lost if you don't save them.");
+    expect(backend.calls.filter((c) => c === "newShow").length).toBe(1);
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog", { name: /save changes/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/1 prop/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
+  });
+
+  it("Don't save creates the new show", async () => {
+    const user = await startFresh();
+    await user.click(screen.getByRole("button", { name: /add prop/i }));
+    await user.keyboard("{Meta>}n{/Meta}");
+    await user.click(screen.getByRole("button", { name: "Don't save" }));
+    expect(backend.calls.filter((c) => c === "newShow").length).toBe(2);
+    expect(await screen.findByText("No props yet")).toBeInTheDocument();
+  });
+
+  it("Save asks for a path on a never-saved show, saves, then creates the new show", async () => {
+    const user = await startFresh();
+    await user.click(screen.getByRole("button", { name: /add prop/i }));
+    backend.nextSavePath = "/shows/keep.pixelflow.json";
+    await user.keyboard("{Meta>}n{/Meta}");
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Save" }));
+    expect(backend.calls).toContain("saveShowAs:/shows/keep.pixelflow.json");
+    expect(backend.calls.filter((c) => c === "newShow").length).toBe(2);
+    expect(await screen.findByText("No props yet")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: /save changes/i })).not.toBeInTheDocument();
+  });
+
+  it("Save that is cancelled keeps the dialog open", async () => {
+    const user = await startFresh();
+    await user.click(screen.getByRole("button", { name: /add prop/i }));
+    backend.nextSavePath = null;
+    await user.keyboard("{Meta>}n{/Meta}");
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Save" }));
+    expect(screen.getByRole("dialog", { name: /save changes/i })).toBeInTheDocument();
+    expect(backend.calls.filter((c) => c === "newShow").length).toBe(1);
+  });
+
+  it("Escape cancels", async () => {
+    const user = await startFresh();
+    await user.click(screen.getByRole("button", { name: /add prop/i }));
+    await user.keyboard("{Meta>}n{/Meta}");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: /save changes/i })).not.toBeInTheDocument();
+  });
+
+  it("open asks too, and a clean show is replaced without asking", async () => {
+    const user = await startFresh();
+    await user.keyboard("{Meta>}n{/Meta}");
+    expect(screen.queryByRole("dialog", { name: /save changes/i })).not.toBeInTheDocument();
+    expect(backend.calls.filter((c) => c === "newShow").length).toBe(2);
+
+    await user.click(screen.getByRole("button", { name: /add prop/i }));
+    backend.files.set("/shows/house.pixelflow.json", emptyShow("My House"));
+    backend.nextOpenPath = "/shows/house.pixelflow.json";
+    await user.keyboard("{Meta>}o{/Meta}");
+    await user.click(screen.getByRole("button", { name: "Don't save" }));
+    expect(await screen.findByText("My House")).toBeInTheDocument();
+  });
+});
+
+describe("test output safety", () => {
+  async function wired() {
+    const user = await startFresh();
+    await user.click(screen.getByRole("button", { name: /add prop/i }));
+    await user.click(screen.getByRole("button", { name: "Wiring" }));
+    await addController(user, "10.0.0.20");
+    return user;
+  }
+
+  it("shows an error when stopping fails", async () => {
+    const user = await wired();
+    await user.click(screen.getByRole("button", { name: "Test" }));
+    await user.click(screen.getByRole("button", { name: /^start/i }));
+    expect(await screen.findByText(/Sending/)).toBeInTheDocument();
+    backend.stopOutput = async () => {
+      throw new Error("Could not stop output.");
+    };
+    await user.click(screen.getByRole("button", { name: /^stop$/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not stop output.");
+  });
+
+  it("shows live output in the status bar and can stop it from any screen", async () => {
+    const user = await wired();
+    await user.click(screen.getByRole("button", { name: "Test" }));
+    await user.click(screen.getByRole("button", { name: /^start/i }));
+    expect(await screen.findByText(/Sending/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Layout" }));
+    expect(await screen.findByText("Live output")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Stop live output" }));
+    expect(backend.output.running).toBe(false);
+    await waitFor(() => expect(screen.queryByText("Live output")).not.toBeInTheDocument());
+  });
+
+  it("refuses to start when the chosen target no longer exists", async () => {
+    const user = await wired();
+    await addController(user, "10.0.0.21");
+    await user.click(screen.getByRole("button", { name: "Test" }));
+    await user.selectOptions(screen.getByLabelText("Target"), "Controller 1 · port 1");
+    await user.click(screen.getByRole("button", { name: "Wiring" }));
+    await user.click(screen.getByRole("button", { name: "Delete Controller 1" }));
+    await user.click(screen.getByRole("button", { name: "Test" }));
+    await user.click(screen.getByRole("button", { name: /^start/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The chosen target no longer exists. Choose another target.",
+    );
+    expect(backend.calls).not.toContain("startOutput");
+  });
+});
+
+describe("problems popover", () => {
+  it("toggles aria-expanded, closes on Escape and when problems clear", async () => {
+    const user = await startFresh();
+    const base = useApp.getState().snapshot!;
+    const withIssues = (issues: typeof base.issues) => act(() => useApp.setState({ snapshot: { ...base, issues } }));
+    withIssues([{ severity: "error", message: "Port 1 is over capacity.", fix: "Move a prop." } as (typeof base.issues)[number]]);
+    const btn = screen.getByRole("button", { name: /1 error/i });
+    expect(btn).toHaveAttribute("aria-expanded", "false");
+    await user.click(btn);
+    expect(btn).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Port 1 is over capacity.")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(btn).toHaveAttribute("aria-expanded", "false");
+    await user.click(btn);
+    withIssues([]);
+    expect(screen.getByRole("button", { name: /no problems/i })).toHaveAttribute("aria-expanded", "false");
+    withIssues([{ severity: "error", message: "Again.", fix: null } as (typeof base.issues)[number]]);
+    expect(screen.getByRole("button", { name: /1 error/i })).toHaveAttribute("aria-expanded", "false");
   });
 });

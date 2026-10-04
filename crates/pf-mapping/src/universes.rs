@@ -1,11 +1,17 @@
 //! Packs controller channels into sACN universes and assigns universe numbers.
 
+use crate::layout::{Addressing, UniverseSpan};
+use pf_model::{Issue, IssueCode, Protocol, Show, ValidationReport};
+
 /// Consecutive physical pixels of one size on a controller (used for universe packing).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct PixelRun {
     pub pixels: u32,
     pub channels_per_pixel: u8,
 }
+
+/// Highest valid sACN universe number.
+pub(crate) const MAX_UNIVERSE: u32 = 63_999;
 
 /// Splits a controller's channels into universe-sized chunks `(first_channel, len)`.
 ///
@@ -75,6 +81,99 @@ pub(crate) fn allocate(requests: &[(Option<u16>, u32)]) -> Vec<u32> {
             chosen
         })
         .collect()
+}
+
+/// Packs and numbers universes for every sACN controller. `runs[i]` are controller `i`'s pixels.
+pub(crate) fn assign(show: &Show, runs: &[&[PixelRun]], report: &mut ValidationReport) -> Vec<Addressing> {
+    let chunks: Vec<Vec<(usize, u16)>> = show
+        .controllers
+        .iter()
+        .zip(runs)
+        .map(|(c, r)| match c.protocol {
+            Protocol::Sacn(cfg) => chunk_channels(r, cfg.universe_size.channels(), cfg.allow_pixel_straddle),
+            Protocol::Ddp => Vec::new(),
+        })
+        .collect();
+    let requests: Vec<(Option<u16>, u32)> = show
+        .controllers
+        .iter()
+        .zip(&chunks)
+        .map(|(c, ch)| match c.protocol {
+            Protocol::Sacn(cfg) => (cfg.start_universe, ch.len() as u32),
+            Protocol::Ddp => (None, 0),
+        })
+        .collect();
+    let starts = allocate(&requests);
+
+    let mut ranges: Vec<(usize, u32, u32, bool)> = Vec::new();
+    let addressing = show
+        .controllers
+        .iter()
+        .enumerate()
+        .map(|(i, c)| match c.protocol {
+            Protocol::Ddp => Addressing::Ddp,
+            Protocol::Sacn(cfg) => {
+                let start = starts[i];
+                let count = chunks[i].len() as u32;
+                if count > 0 {
+                    let last = start + count - 1;
+                    if start == 0 || last > MAX_UNIVERSE {
+                        report.push(
+                            Issue::error(
+                                IssueCode::UniverseOutOfRange,
+                                format!(
+                                    "'{}' needs universes {start}–{last}, but sACN universes must be between 1 and {MAX_UNIVERSE}.",
+                                    c.name
+                                ),
+                            )
+                            .with_fix("Choose a lower start universe, or clear it to assign automatically."),
+                        );
+                    }
+                    ranges.push((i, start, start + count, cfg.multicast));
+                }
+                let universes = chunks[i]
+                    .iter()
+                    .enumerate()
+                    .map(|(n, &(channel, len))| UniverseSpan {
+                        universe: u16::try_from(start + n as u32).unwrap_or(u16::MAX),
+                        controller_channel: channel,
+                        len,
+                    })
+                    .collect();
+                Addressing::Sacn {
+                    universes,
+                    multicast: cfg.multicast,
+                }
+            }
+        })
+        .collect();
+
+    check_collisions(show, &ranges, report);
+    addressing
+}
+
+fn check_collisions(show: &Show, ranges: &[(usize, u32, u32, bool)], report: &mut ValidationReport) {
+    for (a, &(ia, sa, ea, ma)) in ranges.iter().enumerate() {
+        for &(ib, sb, eb, mb) in &ranges[a + 1..] {
+            if sa < eb && sb < ea {
+                let (lo, hi) = (sa.max(sb), ea.min(eb) - 1);
+                let (na, nb) = (&show.controllers[ia].name, &show.controllers[ib].name);
+                let message = format!("'{na}' and '{nb}' both use universes {lo}–{hi}.");
+                let fix = "Clear the pinned start universe on one controller so PixelFlow assigns it automatically.";
+                let issue = if ma || mb {
+                    Issue::error(IssueCode::UniverseCollision, message)
+                } else {
+                    Issue::warning(
+                        IssueCode::UniverseCollision,
+                        format!(
+                            "{message} This works over unicast but breaks if either switches to multicast."
+                        ),
+                    )
+                };
+                report.push(issue.with_fix(fix));
+            }
+        }
+    }
 }
 
 #[cfg(test)]

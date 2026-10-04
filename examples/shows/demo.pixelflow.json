@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "name": "Demo House",
+  "settings": { "frameRate": 40 },
+  "props": [
+    {
+      "id": "11111111-0000-4000-8000-000000000001",
+      "name": "Garage Arch",
+      "shape": { "source": "generator", "type": "arch", "nodes": 50, "width": 4.0, "height": 2.0 },
+      "transform": { "position": { "x": -6.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } }
+    },
+    {
+      "id": "11111111-0000-4000-8000-000000000002",
+      "name": "Mega Tree",
+      "shape": { "source": "generator", "type": "tree", "strings": 16, "nodesPerString": 50, "height": 5.0, "baseRadius": 1.5, "topRadius": 0.1, "serpentine": true }
+    },
+    {
+      "id": "11111111-0000-4000-8000-000000000003",
+      "name": "Window Matrix",
+      "colorOrder": "GRB",
+      "shape": { "source": "generator", "type": "matrix", "columns": 20, "rows": 10, "width": 2.0, "height": 1.0 },
+      "regions": [
+        { "name": "Left Half", "kind": "nodes", "ranges": [ { "start": 0, "end": 100 } ] }
+      ]
+    },
+    {
+      "id": "11111111-0000-4000-8000-000000000004",
+      "name": "Porch Star",
+      "colorOrder": "GRBW",
+      "shape": { "source": "generator", "type": "star", "points": 5, "nodes": 100, "outerRadius": 1.0, "innerRadius": 0.4 }
+    }
+  ],
+  "groups": [
+    {
+      "id": "22222222-0000-4000-8000-000000000001",
+      "name": "Yard",
+      "members": ["11111111-0000-4000-8000-000000000001", "11111111-0000-4000-8000-000000000002"]
+    }
+  ],
+  "controllers": [
+    {
+      "id": "33333333-0000-4000-8000-000000000001",
+      "name": "Main FPP",
+      "address": "192.168.1.50",
+      "adapter": "fpp",
+      "protocol": { "type": "sacn" },
+      "ports": [
+        {
+          "number": 1,
+          "maxPixels": 1024,
+          "slots": [
+            { "prop": "11111111-0000-4000-8000-000000000001" },
+            { "prop": "11111111-0000-4000-8000-000000000003", "nullPixels": 1 }
+          ]
+        },
+        {
+          "number": 2,
+          "maxPixels": 1024,
+          "slots": [ { "prop": "11111111-0000-4000-8000-000000000002" } ]
+        }
+      ]
+    },
+    {
+      "id": "33333333-0000-4000-8000-000000000002",
+      "name": "Porch WLED",
+      "address": "192.168.1.60",
+      "adapter": "wled",
+      "protocol": { "type": "ddp" },
+      "ports": [
+        { "number": 1, "slots": [ { "prop": "11111111-0000-4000-8000-000000000004", "reverse": true } ] }
+      ]
+    }
+  ]
+}

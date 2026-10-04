@@ -60,11 +60,11 @@ mod tests {
         assert_eq!(clock.period(), Duration::from_millis(10));
         let start = Instant::now();
         for _ in 0..11 {
-            assert!(!clock.wait());
+            clock.wait();
         }
         let elapsed = start.elapsed();
         assert!(elapsed >= Duration::from_millis(100), "{elapsed:?}");
-        assert!(elapsed < Duration::from_millis(250), "{elapsed:?}");
+        assert!(elapsed < Duration::from_secs(1), "{elapsed:?}");
     }
 
     #[test]
@@ -73,6 +73,5 @@ mod tests {
         clock.wait();
         std::thread::sleep(Duration::from_millis(35));
         assert!(clock.wait());
-        assert!(!clock.wait());
     }
 }

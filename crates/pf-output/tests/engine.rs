@@ -8,6 +8,7 @@ use pf_output::{
     ControllerState, OutputSettings, Recorded, RecordingTransport, build_plan, ddp, sacn, start_output,
 };
 use std::net::SocketAddr;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 const DDP_DEST: &str = "127.0.0.1:4048";
@@ -137,7 +138,7 @@ fn a_failing_controller_degrades_without_stopping_the_others() {
 #[test]
 fn unresolvable_controllers_are_reported_and_skipped() {
     let mut show = show();
-    show.controllers[0].address = "no-such-host.invalid".into();
+    show.controllers[0].address = "bad:port".into();
     let (map, _) = pf_mapping::map_show(&show);
     let plan = build_plan(&show, &map);
     let (_writer, reader) = frame_buffers(plan.frame_len);
@@ -186,31 +187,62 @@ fn blackout_reaches_a_controller_that_is_backing_off() {
     let (transport, recorded) = RecordingTransport::new();
     let transport = transport.fail(DDP_DEST.parse().unwrap());
     let failures = transport.failures();
+    let failed_sends = transport.failed_sends();
     let handle = start_output(plan, settings(), reader, Box::new(transport));
     // The first send fails; the next retry is not due for 250 ms.
-    std::thread::sleep(Duration::from_millis(50));
+    wait_until(|| failed_sends.load(Ordering::Relaxed) >= 1);
     failures.lock().unwrap().clear();
     handle.stop();
 
+    // Nothing but the forced blackout can have reached the controller.
     let ddp_packets = sent_to(&recorded, DDP_DEST);
     assert!(
         !ddp_packets.is_empty(),
         "blackout must reach a backing-off controller"
     );
-    let last = ddp_packets.last().unwrap();
-    assert!(last[ddp::HEADER_LEN..].iter().all(|&b| b == 0));
+    for packet in &ddp_packets {
+        assert!(packet[ddp::HEADER_LEN..].iter().all(|&b| b == 0), "{packet:?}");
+    }
+}
+
+#[test]
+fn transient_send_errors_do_not_degrade_a_controller() {
+    let show = show();
+    let (map, _) = pf_mapping::map_show(&show);
+    let plan = build_plan(&show, &map);
+    let (_writer, reader) = frame_buffers(plan.frame_len);
+    let (transport, recorded) = RecordingTransport::new();
+    let transport = transport.would_block(DDP_DEST.parse().unwrap());
+    let handle = start_output(plan, settings(), reader, Box::new(transport));
+    std::thread::sleep(Duration::from_millis(100));
+    let stats = handle.stop();
+
+    let wled = &stats.controllers[0];
+    assert_eq!(wled.state, ControllerState::Ok);
+    assert!(wled.send_errors > 0);
+    assert_eq!(wled.packets_sent, 0);
+    assert_eq!(
+        wled.last_error.as_deref(),
+        Some("send buffer full; packets dropped")
+    );
+    let fpp = &stats.controllers[1];
+    assert_eq!(fpp.state, ControllerState::Ok);
+    assert!(fpp.packets_sent > 0);
+    assert!(!sent_to(&recorded, SACN_DEST).is_empty());
 }
 
 #[test]
 fn stats_are_available_immediately() {
     let mut show = show();
-    show.controllers[0].address = "no-such-host.invalid".into();
+    // At 1 fps, publishing stats only every 10 frames would take ~10 s, past the wait_until deadline.
+    show.settings.frame_rate = 1;
+    show.controllers[0].address = "bad:port".into();
     let (map, _) = pf_mapping::map_show(&show);
     let plan = build_plan(&show, &map);
     let (_writer, reader) = frame_buffers(plan.frame_len);
     let (transport, _recorded) = RecordingTransport::new();
     let handle = start_output(plan, settings(), reader, Box::new(transport));
-    std::thread::sleep(Duration::from_millis(50));
+    wait_until(|| handle.stats().controllers.len() == 2);
     let stats = handle.stats();
     assert_eq!(stats.controllers.len(), 2);
     assert_eq!(stats.controllers[0].state, ControllerState::Unresolved);

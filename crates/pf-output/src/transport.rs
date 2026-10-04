@@ -1,8 +1,9 @@
 //! Where packets go: real UDP sockets, or an in-memory recorder for tests.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::io;
 use std::net::{SocketAddr, UdpSocket};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Sends one packet to one destination.
@@ -35,11 +36,15 @@ impl Transport for UdpTransport {
 /// Packets captured by a [`RecordingTransport`], shared with the test that reads them.
 pub type Recorded = Arc<Mutex<Vec<(Vec<u8>, SocketAddr)>>>;
 
-/// Records every packet instead of sending it. Destinations in `failing` return an error.
+/// Destinations that currently fail, and with which error kind.
+pub type Failures = Arc<Mutex<HashMap<SocketAddr, io::ErrorKind>>>;
+
+/// Records every packet instead of sending it. Destinations in `failing` return the chosen error kind.
 #[derive(Debug, Default)]
 pub struct RecordingTransport {
     recorded: Recorded,
-    failing: Arc<Mutex<HashSet<SocketAddr>>>,
+    failing: Failures,
+    failed_sends: Arc<AtomicU64>,
 }
 
 impl RecordingTransport {
@@ -52,20 +57,48 @@ impl RecordingTransport {
 
     /// Makes sends to `destination` fail with "host unreachable".
     pub fn fail(self, destination: SocketAddr) -> Self {
-        self.failing.lock().expect("failing lock").insert(destination);
+        self.failing
+            .lock()
+            .expect("failing lock")
+            .insert(destination, io::ErrorKind::HostUnreachable);
         self
     }
 
-    /// The set of failing destinations, shared so a test can heal one while output runs.
-    pub fn failures(&self) -> Arc<Mutex<HashSet<SocketAddr>>> {
+    /// Makes sends to `destination` fail with `WouldBlock` (a full send buffer).
+    pub fn would_block(self, destination: SocketAddr) -> Self {
+        self.failing
+            .lock()
+            .expect("failing lock")
+            .insert(destination, io::ErrorKind::WouldBlock);
+        self
+    }
+
+    /// The failing destinations, shared so a test can heal one while output runs.
+    pub fn failures(&self) -> Failures {
         Arc::clone(&self.failing)
+    }
+
+    /// How many sends have failed so far, shared so a test can wait on it.
+    pub fn failed_sends(&self) -> Arc<AtomicU64> {
+        Arc::clone(&self.failed_sends)
     }
 }
 
 impl Transport for RecordingTransport {
     fn send_to(&mut self, packet: &[u8], destination: SocketAddr) -> io::Result<()> {
-        if self.failing.lock().expect("failing lock").contains(&destination) {
-            return Err(io::Error::new(io::ErrorKind::HostUnreachable, "host unreachable"));
+        let kind = self
+            .failing
+            .lock()
+            .expect("failing lock")
+            .get(&destination)
+            .copied();
+        if let Some(kind) = kind {
+            self.failed_sends.fetch_add(1, Ordering::Relaxed);
+            return Err(if kind == io::ErrorKind::HostUnreachable {
+                io::Error::new(kind, "host unreachable")
+            } else {
+                io::Error::from(kind)
+            });
         }
         self.recorded
             .lock()

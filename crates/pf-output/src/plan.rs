@@ -184,7 +184,9 @@ mod tests {
             Ok("10.0.0.5:9000".parse().unwrap())
         );
         assert_eq!(resolve("localhost", 5568).map(|a| a.port()), Ok(5568));
-        assert!(resolve("no-such-host.invalid", 4048).is_err());
+        // An invalid port fails without a DNS lookup.
+        let error = resolve("bad:port", 4048).unwrap_err();
+        assert!(error.starts_with("could not resolve"), "{error}");
     }
 
     #[test]

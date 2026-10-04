@@ -1,8 +1,10 @@
 //! Real-time output of show frames to pixel controllers over sACN (E1.31) and DDP.
 
+pub mod ddp;
 mod gather;
 mod lut;
 mod plan;
+pub mod sacn;
 mod settings;
 
 pub use gather::render_controller;

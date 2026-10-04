@@ -59,27 +59,29 @@ fn wire_controller(
                 });
                 out.channel_count += slot.null_pixels as usize * cpp as usize;
             }
-            let span = OutputSpan {
-                prop: prop.id,
-                port: port.number,
-                controller_channel: out.channel_count,
-                frame_offset: layout.frame_offset + range.start as usize * cpp as usize,
-                pixels: range.len(),
-                channels_per_pixel: cpp,
-                reverse: slot.reverse,
-                color_order: prop.color_order,
-                brightness: slot.brightness.unwrap_or(port.brightness),
-                gamma: slot.gamma.unwrap_or(port.gamma),
-            };
-            out.channel_count += span.byte_len();
-            out.spans.push(span);
-            out.runs.push(PixelRun {
-                pixels: range.len(),
-                channels_per_pixel: cpp,
-            });
-            for node in range.start..range.end {
-                let hits = &mut coverage[i][node as usize];
-                *hits = hits.saturating_add(1);
+            if !range.is_empty() {
+                let span = OutputSpan {
+                    prop: prop.id,
+                    port: port.number,
+                    controller_channel: out.channel_count,
+                    frame_offset: layout.frame_offset + range.start as usize * cpp as usize,
+                    pixels: range.len(),
+                    channels_per_pixel: cpp,
+                    reverse: slot.reverse,
+                    color_order: prop.color_order,
+                    brightness: slot.brightness.unwrap_or(port.brightness),
+                    gamma: slot.gamma.unwrap_or(port.gamma),
+                };
+                out.channel_count += span.byte_len();
+                out.spans.push(span);
+                out.runs.push(PixelRun {
+                    pixels: range.len(),
+                    channels_per_pixel: cpp,
+                });
+                for node in range.start..range.end {
+                    let hits = &mut coverage[i][node as usize];
+                    *hits = hits.saturating_add(1);
+                }
             }
             port_pixels += u64::from(slot.null_pixels) + u64::from(range.len());
         }

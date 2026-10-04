@@ -229,3 +229,28 @@ fn slots_with_missing_props_or_bad_segments_are_skipped() {
     assert!(map.controllers[0].spans.is_empty());
     assert_eq!(map.controllers[0].channel_count, 0);
 }
+
+#[test]
+fn empty_slots_produce_no_spans_but_keep_their_null_pixels() {
+    let mut show = Show::new("t");
+    let empty = line("Empty", 0);
+    let a = line("A", 5);
+    let mut empty_slot = PortSlot::new(empty.id);
+    empty_slot.null_pixels = 2;
+    let mut empty_segment = PortSlot::new(a.id);
+    empty_segment.segment = Some(NodeRange::new(3, 3));
+    show.controllers = vec![controller(
+        "C",
+        Protocol::Ddp,
+        vec![port(1, vec![empty_slot, empty_segment, PortSlot::new(a.id)])],
+    )];
+    show.props = vec![empty, a.clone()];
+
+    let (map, _) = map_show(&show);
+    let out = &map.controllers[0];
+    assert_eq!(out.spans.len(), 1);
+    assert!(out.spans.iter().all(|s| s.pixels > 0));
+    // 2 null pixels (3 channels each) come before A's 5 pixels.
+    assert_eq!(out.spans[0].controller_channel, 6);
+    assert_eq!(out.channel_count, (2 + 5) * 3);
+}

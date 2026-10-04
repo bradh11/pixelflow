@@ -113,6 +113,9 @@ pub(crate) fn list_history(dir: &Path) -> Vec<HistoryEntry> {
 pub(crate) fn history_dir(data_dir: &Path, show_path: Option<&Path>) -> PathBuf {
     let key = match show_path {
         Some(path) => {
+            // Different spellings of one existing file share a history folder.
+            let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+            let path = canonical.as_path();
             let stem = path
                 .file_name()
                 .map(|n| n.to_string_lossy().replace(HISTORY_SUFFIX, ""))
@@ -207,5 +210,18 @@ mod tests {
         let entries = list_history(dir.path());
         assert_eq!(entries.len(), 1);
         assert!(dir.path().join(&entry.id).exists());
+    }
+
+    #[test]
+    fn history_dirs_match_for_different_spellings_of_one_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("house.pixelflow.json");
+        fs::write(&file, "{}").unwrap();
+        let roundabout = dir.path().join(".").join("house.pixelflow.json");
+        let data = Path::new("/data");
+        assert_eq!(
+            history_dir(data, Some(&file)),
+            history_dir(data, Some(&roundabout))
+        );
     }
 }

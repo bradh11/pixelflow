@@ -1,9 +1,9 @@
 //! Live test-pattern output driven by the engine.
 
 use crate::error::EngineError;
-use pf_mapping::ChannelMap;
-use pf_model::{ControllerId, GroupId, PropId, Show};
-use pf_output::{ControllerState, OutputHandle, OutputPlan, OutputSettings, OutputStats, Transport};
+use pf_mapping::{ChannelMap, ControllerOutput};
+use pf_model::{ControllerId, GroupId, PropId, Protocol, Show};
+use pf_output::{ControllerState, OutputHandle, OutputSettings, OutputStats, Transport};
 use pf_patterns::{Pattern, Preset, Rgbw, Target, TargetRange, render, resolve_target};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -105,10 +105,12 @@ pub struct OutputStatus {
     pub late_frames: u64,
     pub achieved_fps: f32,
     pub controllers: Vec<ControllerStatus>,
+    /// Why output stopped by itself, when it did (cleared by a deliberate stop or a new show).
+    pub stop_reason: Option<String>,
 }
 
 impl OutputStatus {
-    pub(crate) fn stopped(generation: u64) -> Self {
+    pub(crate) fn stopped(generation: u64, stop_reason: Option<String>) -> Self {
         Self {
             running: false,
             generation,
@@ -118,7 +120,29 @@ impl OutputStatus {
             late_frames: 0,
             achieved_fps: 0.0,
             controllers: Vec::new(),
+            stop_reason,
         }
+    }
+}
+
+/// What a running session depends on besides the target pixels. Comparing keys is cheap and
+/// needs no DNS, unlike building a full output plan.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct OutputKey {
+    controllers: Vec<ControllerOutput>,
+    addresses: Vec<(String, Protocol)>,
+    frame_rate: u16,
+}
+
+pub(crate) fn output_key(show: &Show, map: &ChannelMap) -> OutputKey {
+    OutputKey {
+        controllers: map.controllers.clone(),
+        addresses: show
+            .controllers
+            .iter()
+            .map(|c| (c.address.clone(), c.protocol))
+            .collect(),
+        frame_rate: show.settings.frame_rate,
     }
 }
 
@@ -145,7 +169,7 @@ fn controller_status(stats: &OutputStats) -> Vec<ControllerStatus> {
 pub(crate) struct OutputSession {
     pub pattern: PatternSpec,
     pub target: TargetSpec,
-    pub plan: OutputPlan,
+    pub key: OutputKey,
     pub targets: Vec<TargetRange>,
     pub generation: u64,
     handle: Option<OutputHandle>,
@@ -158,20 +182,21 @@ impl OutputSession {
     pub fn start(
         show: &Show,
         map: &ChannelMap,
-        plan: OutputPlan,
         pattern_spec: PatternSpec,
         target: TargetSpec,
         transport: Box<dyn Transport>,
         generation: u64,
+        settings: OutputSettings,
     ) -> Result<Self, EngineError> {
         let pattern = pattern_spec.to_pattern()?;
         let targets = resolve_target(show, map, &Target::from(&target));
+        let plan = pf_output::build_plan(show, map);
         let (mut writer, reader) = pf_frame::frame_buffers(plan.frame_len);
         // Publish the first frame before output starts so controllers never see a black frame first.
         render(&pattern, 0.0, &targets, writer.frame_mut());
         let preview = Arc::new(Mutex::new(writer.frame_mut().to_vec()));
         writer.publish();
-        let handle = pf_output::start_output(plan.clone(), OutputSettings::default(), reader, transport);
+        let handle = pf_output::start_output(plan.clone(), settings, reader, transport);
 
         let stop = Arc::new(AtomicBool::new(false));
         let period = Duration::from_secs_f64(1.0 / f64::from(plan.frame_rate.max(1)));
@@ -179,10 +204,11 @@ impl OutputSession {
             let stop = Arc::clone(&stop);
             let preview = Arc::clone(&preview);
             let targets = targets.clone();
-            std::thread::Builder::new()
+            let spawned = std::thread::Builder::new()
                 .name("pixelflow-content".into())
                 .spawn(move || {
                     let started = Instant::now();
+                    let mut next = started;
                     while !stop.load(Ordering::Relaxed) {
                         let frame = writer.frame_mut();
                         render(&pattern, started.elapsed().as_secs_f32(), &targets, frame);
@@ -191,15 +217,22 @@ impl OutputSession {
                             .unwrap_or_else(PoisonError::into_inner)
                             .copy_from_slice(frame);
                         writer.publish();
-                        std::thread::sleep(period);
+                        // Pace by deadline so render time doesn't stretch the frame period.
+                        next += period;
+                        let now = Instant::now();
+                        if now.saturating_duration_since(next) > period {
+                            next = now + period;
+                        }
+                        std::thread::sleep(next.saturating_duration_since(now));
                     }
-                })
-                .expect("spawn content thread")
+                });
+            // On failure the output handle is dropped, which blacks out the controllers.
+            spawned.map_err(EngineError::Network)?
         };
         Ok(Self {
             pattern: pattern_spec,
             target,
-            plan,
+            key: output_key(show, map),
             targets,
             generation,
             handle: Some(handle),
@@ -220,6 +253,7 @@ impl OutputSession {
             late_frames: stats.late_frames,
             achieved_fps: stats.achieved_fps,
             controllers: controller_status(&stats),
+            stop_reason: None,
         }
     }
 
@@ -281,5 +315,54 @@ mod tests {
             spec.to_pattern().unwrap_err().to_string(),
             "'red' is not a color. Use six or eight hex digits, like ff8000."
         );
+    }
+
+    fn two_controller_show() -> Show {
+        let mut show = Show::new("k");
+        show.props.push(pf_model::Prop::new(
+            "A",
+            pf_model::ShapeSource::Generator(pf_model::Generator::Line {
+                nodes: 4,
+                length: 1.0,
+            }),
+        ));
+        let mut c = pf_model::Controller::new("C", "bad host:x", Protocol::Ddp);
+        let mut port = pf_model::Port::new(1);
+        port.slots.push(pf_model::PortSlot::new(show.props[0].id));
+        c.ports.push(port);
+        show.controllers.push(c);
+        show
+    }
+
+    fn key_of(show: &Show) -> OutputKey {
+        output_key(show, &pf_mapping::map_show(show).0)
+    }
+
+    #[test]
+    fn the_output_key_ignores_layout_but_sees_wiring_and_addresses() {
+        let show = two_controller_show();
+        let base = key_of(&show);
+
+        let mut moved = show.clone();
+        moved.props[0].transform.position = pf_model::Vec3::new(9.0, 1.0, 0.0);
+        assert_eq!(key_of(&moved), base, "moving a prop does not change the key");
+
+        let mut renamed_address = show.clone();
+        renamed_address.controllers[0].address = "other".into();
+        assert_ne!(key_of(&renamed_address), base);
+
+        let mut protocol = show.clone();
+        protocol.controllers[0].protocol = Protocol::Sacn(Default::default());
+        assert_ne!(key_of(&protocol), base);
+
+        let mut wired = show.clone();
+        wired.controllers[0].ports[0]
+            .slots
+            .push(pf_model::PortSlot::new(wired.props[0].id));
+        assert_ne!(key_of(&wired), base, "adding a slot changes the key");
+
+        let mut faster = show.clone();
+        faster.settings.frame_rate += 1;
+        assert_ne!(key_of(&faster), base);
     }
 }

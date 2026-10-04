@@ -3,12 +3,12 @@
 use crate::edit::Edit;
 use crate::error::EngineError;
 use crate::history::History;
-use crate::output::{OutputSession, OutputStatus, PatternSpec, TargetSpec};
+use crate::output::{OutputSession, OutputStatus, PatternSpec, TargetSpec, output_key};
 use crate::persist::{self, HistoryEntry};
 use crate::snapshot::{ShowSnapshot, Summary};
 use pf_mapping::ChannelMap;
 use pf_model::{IssueCode, Severity, Show, ValidationReport};
-use pf_output::{Transport, UdpTransport};
+use pf_output::{OutputSettings, Transport, UdpTransport};
 use pf_patterns::{Target, resolve_target};
 use std::io;
 use std::mem;
@@ -16,6 +16,8 @@ use std::path::{Path, PathBuf};
 
 /// Undo steps kept in memory.
 const UNDO_LIMIT: usize = 200;
+/// Approximate memory the undo stack may hold.
+const UNDO_BYTE_BUDGET: usize = 256 * 1024 * 1024;
 /// Autosaved versions kept on disk per show.
 const AUTOSAVE_KEEP: usize = 50;
 
@@ -32,6 +34,9 @@ pub struct Engine {
     data_dir: PathBuf,
     output: Option<OutputSession>,
     output_generation: u64,
+    stop_reason: Option<String>,
+    /// One sACN identity for the engine's lifetime, so restarts keep the same source.
+    output_settings: OutputSettings,
     transport: TransportFactory,
 }
 
@@ -54,10 +59,12 @@ impl Engine {
             revision: 0,
             saved_revision: 0,
             autosaved_revision: 0,
-            history: History::new(UNDO_LIMIT),
+            history: History::new(UNDO_LIMIT, UNDO_BYTE_BUDGET),
             data_dir: data_dir.into(),
             output: None,
             output_generation: 0,
+            stop_reason: None,
+            output_settings: OutputSettings::default(),
             transport: Box::new(|| {
                 let udp = UdpTransport::bind("0.0.0.0:0".parse().expect("valid address"))?;
                 Ok(Box::new(udp) as Box<dyn Transport>)
@@ -112,6 +119,9 @@ impl Engine {
         if let Some(issue) = report.issues.iter().find(|i| i.code == IssueCode::LimitExceeded) {
             return Err(EngineError::TooLarge(issue.message.clone()));
         }
+        if next == self.show {
+            return Ok(self.snapshot());
+        }
         let before = mem::replace(&mut self.show, next);
         self.history.record(before);
         self.changed();
@@ -119,16 +129,22 @@ impl Engine {
     }
 
     pub fn undo(&mut self) -> ShowSnapshot {
-        if let Some(previous) = self.history.undo(self.show.clone()) {
-            self.show = previous;
+        if self.history.can_undo() {
+            let current = mem::replace(&mut self.show, Show::new(""));
+            if let Some(previous) = self.history.undo(current) {
+                self.show = previous;
+            }
             self.changed();
         }
         self.snapshot()
     }
 
     pub fn redo(&mut self) -> ShowSnapshot {
-        if let Some(next) = self.history.redo(self.show.clone()) {
-            self.show = next;
+        if self.history.can_redo() {
+            let current = mem::replace(&mut self.show, Show::new(""));
+            if let Some(next) = self.history.redo(current) {
+                self.show = next;
+            }
             self.changed();
         }
         self.snapshot()
@@ -158,6 +174,8 @@ impl Engine {
         persist::save_show_atomic(path, &self.show)?;
         self.path = Some(path.to_path_buf());
         self.saved_revision = self.revision;
+        // The history folder follows the file, so the next autosave writes a copy there.
+        self.autosaved_revision = u64::MAX;
         Ok(self.snapshot())
     }
 
@@ -196,36 +214,50 @@ impl Engine {
     ) -> Result<OutputStatus, EngineError> {
         pattern.to_pattern()?;
         let (map, report) = analyze(&self.show);
-        if let Some(error) = report.issues.iter().find(|i| i.severity == Severity::Error) {
+        if let Some(error) = first_error(&report) {
             return Err(EngineError::ShowHasErrors(error.message.clone()));
         }
+        if resolve_target(&self.show, &map, &Target::from(&target)).is_empty() {
+            return Err(EngineError::NothingToLight);
+        }
+        self.launch(map, pattern, target)
+    }
+
+    /// Starts a session for an already-validated show, replacing any running one.
+    fn launch(
+        &mut self,
+        map: ChannelMap,
+        pattern: PatternSpec,
+        target: TargetSpec,
+    ) -> Result<OutputStatus, EngineError> {
         self.stop_session();
         let transport = (self.transport)().map_err(EngineError::Network)?;
-        let plan = pf_output::build_plan(&self.show, &map);
         self.output_generation += 1;
         let session = OutputSession::start(
             &self.show,
             &map,
-            plan,
             pattern,
             target,
             transport,
             self.output_generation,
+            self.output_settings.clone(),
         )?;
         let status = session.status();
         self.output = Some(session);
+        self.stop_reason = None;
         Ok(status)
     }
 
     /// Stops live output (controllers are blacked out).
     pub fn stop_output(&mut self) -> OutputStatus {
         self.stop_session();
-        OutputStatus::stopped(self.output_generation)
+        self.stop_reason = None;
+        OutputStatus::stopped(self.output_generation, None)
     }
 
     pub fn output_status(&self) -> OutputStatus {
         self.output.as_ref().map_or_else(
-            || OutputStatus::stopped(self.output_generation),
+            || OutputStatus::stopped(self.output_generation, self.stop_reason.clone()),
             OutputSession::status,
         )
     }
@@ -241,6 +273,7 @@ impl Engine {
 
     fn replace_show(&mut self, show: Show, path: Option<PathBuf>) {
         self.stop_session();
+        self.stop_reason = None;
         self.show = show;
         self.path = path;
         self.history.clear();
@@ -254,27 +287,41 @@ impl Engine {
         self.sync_output();
     }
 
-    /// Keeps running output in step with the show: restarts it only when the output plan or
-    /// the pattern's target pixels changed (moving props in the layout does neither), and
-    /// stops it if the show now has errors.
+    /// Keeps running output in step with the show: restarts it only when the wiring, addresses,
+    /// frame rate, or the pattern's target pixels changed (moving props in the layout changes
+    /// none of these, so no DNS lookup or restart happens), and stops it, saying why, if the show
+    /// now has errors or the target has no pixels.
     fn sync_output(&mut self) {
         let Some(session) = &self.output else {
             return;
         };
         let (map, report) = analyze(&self.show);
-        if report.has_errors() {
-            self.stop_session();
+        if let Some(error) = first_error(&report) {
+            let reason = format!(
+                "Output stopped because the show now has errors: {}",
+                error.message
+            );
+            self.halt(reason);
             return;
         }
-        let plan = pf_output::build_plan(&self.show, &map);
         let targets = resolve_target(&self.show, &map, &Target::from(&session.target));
-        if plan == session.plan && targets == session.targets {
+        if targets.is_empty() {
+            self.halt("Output stopped because the target no longer has any pixels.".to_string());
+            return;
+        }
+        if output_key(&self.show, &map) == session.key && targets == session.targets {
             return;
         }
         let (pattern, target) = (session.pattern.clone(), session.target.clone());
-        if self.start_output(pattern, target).is_err() {
-            self.stop_session();
+        if let Err(error) = self.launch(map, pattern, target) {
+            self.halt(error.to_string());
         }
+    }
+
+    /// Stops output because of the show, remembering why for the UI.
+    fn halt(&mut self, reason: String) {
+        self.stop_session();
+        self.stop_reason = Some(reason);
     }
 
     fn stop_session(&mut self) {
@@ -290,4 +337,8 @@ fn analyze(show: &Show) -> (ChannelMap, ValidationReport) {
     let (map, wiring) = pf_mapping::map_show(show);
     report.extend(wiring);
     (map, report)
+}
+
+fn first_error(report: &ValidationReport) -> Option<&pf_model::Issue> {
+    report.issues.iter().find(|i| i.severity == Severity::Error)
 }

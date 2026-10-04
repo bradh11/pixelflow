@@ -172,3 +172,30 @@ fn new_show_clears_history() {
     assert_eq!(snap.show.name, "Fresh");
     assert!(!snap.can_undo && !snap.dirty);
 }
+
+#[test]
+fn an_edit_that_changes_nothing_is_not_an_undo_step() {
+    let (mut engine, dir) = engine();
+    let arch = line("Arch", 5);
+    engine.apply(vec![Edit::AddProp { prop: arch.clone() }]).unwrap();
+    let path = dir.path().join("a.pixelflow.json");
+    engine.save_as(&path).unwrap();
+    engine.open(&path).unwrap(); // clean state with no undo history
+    let before = engine.snapshot().revision;
+    let snap = engine.apply(vec![Edit::UpdateProp { prop: arch }]).unwrap();
+    assert!(!snap.can_undo, "no undo step");
+    assert!(!snap.dirty, "still clean");
+    assert_eq!(snap.revision, before, "revision unchanged");
+}
+
+#[test]
+fn save_as_makes_the_next_autosave_write_into_the_new_history() {
+    let (mut engine, dir) = engine();
+    engine.apply(vec![Edit::AddProp { prop: line("A", 3) }]).unwrap();
+    assert!(engine.autosave().unwrap().is_some());
+    assert!(engine.autosave().unwrap().is_none(), "nothing changed");
+    engine.save_as(&dir.path().join("house.pixelflow.json")).unwrap();
+    assert!(engine.history().is_empty());
+    assert!(engine.autosave().unwrap().is_some(), "new file gets a first copy");
+    assert_eq!(engine.history().len(), 1);
+}

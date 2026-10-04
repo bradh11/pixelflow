@@ -152,7 +152,41 @@ fn an_edit_that_introduces_errors_stops_output() {
     engine.start_output(solid_red(), TargetSpec::Show).unwrap();
     controller.ports[0].max_pixels = Some(1);
     engine.apply(vec![Edit::UpdateController { controller }]).unwrap();
+    let status = engine.output_status();
+    assert!(!status.running);
+    let reason = status.stop_reason.clone().expect("a reason is given");
+    assert!(
+        reason.starts_with("Output stopped because the show now has errors"),
+        "{reason}"
+    );
+    let json = serde_json::to_value(&status).unwrap();
+    assert!(json["stopReason"].is_string());
+    // A deliberate stop clears the reason.
+    assert_eq!(engine.stop_output().stop_reason, None);
+    assert_eq!(engine.output_status().stop_reason, None);
+}
+
+#[test]
+fn a_target_with_no_pixels_is_refused_and_one_that_empties_stops_output() {
+    let (mut engine, _recorded, prop, controller, _dir) = engine_with_show();
+    let nowhere = TargetSpec::Port {
+        controller: controller.id,
+        port: 9,
+    };
+    let err = engine.start_output(solid_red(), nowhere).unwrap_err();
+    assert!(matches!(err, EngineError::NothingToLight));
+    assert_eq!(
+        err.to_string(),
+        "The chosen target has no pixels to light. Wire props to it first."
+    );
     assert!(!engine.output_status().running);
+
+    let on_prop = TargetSpec::Prop { id: prop.id };
+    engine.start_output(solid_red(), on_prop).unwrap();
+    engine.apply(vec![Edit::RemoveProp { id: prop.id }]).unwrap();
+    let status = engine.output_status();
+    assert!(!status.running);
+    assert!(status.stop_reason.is_some());
 }
 
 #[test]

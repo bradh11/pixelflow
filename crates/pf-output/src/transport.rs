@@ -39,7 +39,7 @@ pub type Recorded = Arc<Mutex<Vec<(Vec<u8>, SocketAddr)>>>;
 #[derive(Debug, Default)]
 pub struct RecordingTransport {
     recorded: Recorded,
-    failing: HashSet<SocketAddr>,
+    failing: Arc<Mutex<HashSet<SocketAddr>>>,
 }
 
 impl RecordingTransport {
@@ -51,15 +51,20 @@ impl RecordingTransport {
     }
 
     /// Makes sends to `destination` fail with "host unreachable".
-    pub fn fail(mut self, destination: SocketAddr) -> Self {
-        self.failing.insert(destination);
+    pub fn fail(self, destination: SocketAddr) -> Self {
+        self.failing.lock().expect("failing lock").insert(destination);
         self
+    }
+
+    /// The set of failing destinations, shared so a test can heal one while output runs.
+    pub fn failures(&self) -> Arc<Mutex<HashSet<SocketAddr>>> {
+        Arc::clone(&self.failing)
     }
 }
 
 impl Transport for RecordingTransport {
     fn send_to(&mut self, packet: &[u8], destination: SocketAddr) -> io::Result<()> {
-        if self.failing.contains(&destination) {
+        if self.failing.lock().expect("failing lock").contains(&destination) {
             return Err(io::Error::new(io::ErrorKind::HostUnreachable, "host unreachable"));
         }
         self.recorded

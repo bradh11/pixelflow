@@ -174,3 +174,45 @@ fn sync_universe_adds_a_sync_packet_per_frame() {
     let sync = sent_to(&recorded, "239.255.1.244:5568");
     assert_eq!(sync[0].len(), sacn::SYNC_PACKET_LEN);
 }
+
+#[test]
+fn blackout_reaches_a_controller_that_is_backing_off() {
+    let show = show();
+    let (map, _) = pf_mapping::map_show(&show);
+    let plan = build_plan(&show, &map);
+    let (mut writer, reader) = frame_buffers(plan.frame_len);
+    writer.frame_mut().fill(200);
+    writer.publish();
+    let (transport, recorded) = RecordingTransport::new();
+    let transport = transport.fail(DDP_DEST.parse().unwrap());
+    let failures = transport.failures();
+    let handle = start_output(plan, settings(), reader, Box::new(transport));
+    // The first send fails; the next retry is not due for 250 ms.
+    std::thread::sleep(Duration::from_millis(50));
+    failures.lock().unwrap().clear();
+    handle.stop();
+
+    let ddp_packets = sent_to(&recorded, DDP_DEST);
+    assert!(
+        !ddp_packets.is_empty(),
+        "blackout must reach a backing-off controller"
+    );
+    let last = ddp_packets.last().unwrap();
+    assert!(last[ddp::HEADER_LEN..].iter().all(|&b| b == 0));
+}
+
+#[test]
+fn stats_are_available_immediately() {
+    let mut show = show();
+    show.controllers[0].address = "no-such-host.invalid".into();
+    let (map, _) = pf_mapping::map_show(&show);
+    let plan = build_plan(&show, &map);
+    let (_writer, reader) = frame_buffers(plan.frame_len);
+    let (transport, _recorded) = RecordingTransport::new();
+    let handle = start_output(plan, settings(), reader, Box::new(transport));
+    std::thread::sleep(Duration::from_millis(50));
+    let stats = handle.stats();
+    assert_eq!(stats.controllers.len(), 2);
+    assert_eq!(stats.controllers[0].state, ControllerState::Unresolved);
+    handle.stop();
+}

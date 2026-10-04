@@ -15,10 +15,28 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-/// Publish stats to readers every this many frames (keeps the hot loop allocation-free).
-const STATS_EVERY: u64 = 10;
+/// Publish stats to readers at least this often.
+const STATS_INTERVAL: Duration = Duration::from_millis(250);
+
+/// How many times the final blackout frame is sent (UDP is lossy).
+const BLACKOUT_REPEATS: usize = 3;
+
+const BUFFER_FULL_MESSAGE: &str = "send buffer full; packets dropped";
+
+/// Whether a send error means "try again later" rather than "the controller is unreachable".
+fn is_transient(e: &io::Error) -> bool {
+    #[cfg(target_os = "macos")]
+    const ENOBUFS: i32 = 55;
+    #[cfg(target_os = "linux")]
+    const ENOBUFS: i32 = 105;
+    #[cfg(windows)]
+    const ENOBUFS: i32 = 10055;
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+    const ENOBUFS: i32 = -1;
+    e.kind() == io::ErrorKind::WouldBlock || e.raw_os_error() == Some(ENOBUFS)
+}
 
 /// Live counters for one controller.
 #[derive(Debug, Clone, PartialEq)]
@@ -50,9 +68,13 @@ pub struct OutputHandle {
 }
 
 impl OutputHandle {
-    /// The most recently published stats (updated a few times per second).
+    /// The most recently published stats: published once when output starts, then at least
+    /// every 250 ms, and again at stop.
     pub fn stats(&self) -> OutputStats {
-        self.stats.lock().expect("stats lock").clone()
+        self.stats
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     /// Sends one all-black frame, stops the thread, and returns the final stats.
@@ -167,18 +189,40 @@ impl Runtime {
         }
     }
 
-    fn send(&mut self, frame: &[u8], luts: &[[u8; 256]], transport: &mut dyn Transport, now: Instant) {
-        if !self.health.ready(now) {
+    /// Sends one frame. `force` skips the backoff wait for degraded controllers (used for the
+    /// final blackout); unresolved controllers are never sent to.
+    fn send(
+        &mut self,
+        frame: &[u8],
+        luts: &[[u8; 256]],
+        transport: &mut dyn Transport,
+        now: Instant,
+        force: bool,
+    ) {
+        let due = if force {
+            self.health.state != ControllerState::Unresolved
+        } else {
+            self.health.ready(now)
+        };
+        if !due {
             return;
         }
         render_controller(frame, &self.plan, luts, &mut self.buffer);
         self.packets.update(&self.buffer);
         let mut failure = None;
+        let mut sent = 0u64;
+        let mut transient = false;
         for i in 0..self.packets.len() {
             let (packet, destination) = self.packets.packet(i);
             match transport.send_to(packet, destination) {
-                Ok(()) => self.stats.packets_sent += 1,
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => self.stats.send_errors += 1,
+                Ok(()) => {
+                    self.stats.packets_sent += 1;
+                    sent += 1;
+                }
+                Err(e) if is_transient(&e) => {
+                    self.stats.send_errors += 1;
+                    transient = true;
+                }
                 Err(e) => {
                     self.stats.send_errors += 1;
                     failure = Some(e.to_string());
@@ -191,7 +235,14 @@ impl Runtime {
                 self.health.on_failure(now);
                 self.stats.last_error = Some(message);
             }
-            None => self.health.on_success(),
+            None => {
+                if sent > 0 {
+                    self.health.on_success();
+                }
+                if transient && self.stats.last_error.as_deref() != Some(BUFFER_FULL_MESSAGE) {
+                    self.stats.last_error = Some(BUFFER_FULL_MESSAGE.to_string());
+                }
+            }
         }
         self.stats.state = self.health.state;
     }
@@ -228,10 +279,10 @@ pub fn start_output(
             let started = Instant::now();
 
             let mut send_frame =
-                |frame: &[u8], runtimes: &mut Vec<Runtime>, transport: &mut dyn Transport| {
+                |frame: &[u8], runtimes: &mut Vec<Runtime>, transport: &mut dyn Transport, force: bool| {
                     let now = Instant::now();
                     for runtime in runtimes.iter_mut() {
-                        runtime.send(frame, &luts, transport, now);
+                        runtime.send(frame, &luts, transport, now, force);
                     }
                     if let Some(universe) = settings.sync_universe {
                         sync_sequence = sync_sequence.wrapping_add(1);
@@ -240,16 +291,22 @@ pub fn start_output(
                     }
                 };
 
+            publish(&thread_stats, &mut session, &runtimes, started);
+            let mut last_publish = Instant::now();
             while !thread_stop.load(Ordering::Relaxed) {
                 let late = clock.wait();
-                send_frame(reader.latest(), &mut runtimes, transport.as_mut());
+                send_frame(reader.latest(), &mut runtimes, transport.as_mut(), false);
                 session.frames += 1;
                 session.late_frames += u64::from(late);
-                if session.frames % STATS_EVERY == 0 {
+                if last_publish.elapsed() >= STATS_INTERVAL {
                     publish(&thread_stats, &mut session, &runtimes, started);
+                    last_publish = Instant::now();
                 }
             }
-            send_frame(&vec![0; frame_len], &mut runtimes, transport.as_mut());
+            let black = vec![0; frame_len];
+            for _ in 0..BLACKOUT_REPEATS {
+                send_frame(&black, &mut runtimes, transport.as_mut(), true);
+            }
             publish(&thread_stats, &mut session, &runtimes, started);
         })
         .expect("spawn output thread");
@@ -268,5 +325,23 @@ fn publish(shared: &Mutex<OutputStats>, session: &mut OutputStats, runtimes: &[R
         0.0
     };
     session.controllers = runtimes.iter().map(|r| r.stats.clone()).collect();
-    *shared.lock().expect("stats lock") = session.clone();
+    *shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = session.clone();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn buffer_full_and_would_block_are_transient_but_unreachable_is_not() {
+        #[cfg(target_os = "macos")]
+        const ENOBUFS: i32 = 55;
+        #[cfg(target_os = "linux")]
+        const ENOBUFS: i32 = 105;
+        #[cfg(windows)]
+        const ENOBUFS: i32 = 10055;
+        assert!(is_transient(&io::Error::from_raw_os_error(ENOBUFS)));
+        assert!(is_transient(&io::Error::from(io::ErrorKind::WouldBlock)));
+        assert!(!is_transient(&io::Error::from(io::ErrorKind::HostUnreachable)));
+    }
 }

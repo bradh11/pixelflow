@@ -7,13 +7,15 @@ use std::fmt::Write;
 /// One-paragraph overview of a show.
 pub fn summary(show: &Show, map: &ChannelMap) -> String {
     let pixels: u64 = show.props.iter().map(|p| u64::from(p.node_count())).sum();
+    let (props, controllers, universes) = (show.props.len(), show.controllers.len(), map.universe_count());
     format!(
-        "{}\n  {} props · {} pixels · {} controllers · {} universes\n\n",
+        "{}\n  {props} {} · {} {} · {controllers} {} · {universes} {}\n\n",
         show.name,
-        show.props.len(),
+        plural(props, "prop"),
         thousands(pixels),
-        show.controllers.len(),
-        map.universe_count()
+        plural(usize::try_from(pixels).unwrap_or(usize::MAX), "pixel"),
+        plural(controllers, "controller"),
+        plural(universes, "universe"),
     )
 }
 
@@ -117,6 +119,31 @@ fn thousands(n: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pf_model::{Controller, Generator, Port, PortSlot, Prop, Protocol, ShapeSource};
+
+    #[test]
+    fn summary_uses_singular_for_one() {
+        let mut show = Show::new("Tiny");
+        let prop = Prop::new(
+            "A",
+            ShapeSource::Generator(Generator::Line {
+                nodes: 1,
+                length: 1.0,
+            }),
+        );
+        let mut port = Port::new(1);
+        port.slots.push(PortSlot::new(prop.id));
+        let mut controller = Controller::new("C", "10.0.0.2", Protocol::Ddp);
+        controller.ports.push(port);
+        show.props.push(prop);
+        show.controllers.push(controller);
+        let (map, _) = pf_mapping::map_show(&show);
+        let text = summary(&show, &map);
+        assert!(
+            text.contains("1 prop · 1 pixel · 1 controller · 0 universes"),
+            "{text}"
+        );
+    }
 
     #[test]
     fn thousands_separators() {

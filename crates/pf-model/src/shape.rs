@@ -27,7 +27,7 @@ pub enum Orientation {
 
 /// How a matrix's pixels are wired.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct MatrixWiring {
     pub start: Corner,
     pub orientation: Orientation,
@@ -214,6 +214,19 @@ mod tests {
         assert_eq!(shape.node_count(), 2);
         let json = serde_json::to_string(&shape).unwrap();
         assert_eq!(serde_json::from_str::<ShapeSource>(&json).unwrap(), shape);
+    }
+
+    #[test]
+    fn partial_matrix_wiring_fills_defaults() {
+        let wiring: MatrixWiring = serde_json::from_str(r#"{ "start": "topLeft" }"#).unwrap();
+        assert_eq!(
+            wiring,
+            MatrixWiring {
+                start: Corner::TopLeft,
+                ..MatrixWiring::default()
+            }
+        );
+        assert!(wiring.serpentine);
     }
 
     #[test]

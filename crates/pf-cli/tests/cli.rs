@@ -81,3 +81,20 @@ fn missing_file_exits_2_with_message() {
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&output.stderr).contains("could not read /no/such/show.json"));
 }
+
+#[test]
+fn validate_rejects_huge_null_pixel_counts_quickly() {
+    let mut doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(demo_show()).unwrap()).unwrap();
+    doc["controllers"][0]["ports"][0]["slots"][0]["nullPixels"] = 4_294_967_295u64.into();
+    let path = std::env::temp_dir().join(format!("pixelflow-hugenull-{}.json", std::process::id()));
+    std::fs::write(&path, doc.to_string()).unwrap();
+
+    let started = std::time::Instant::now();
+    let output = pixelflow(&["validate", path.to_str().unwrap()]);
+    std::fs::remove_file(&path).ok();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains("at most 1000"), "{stderr}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+}

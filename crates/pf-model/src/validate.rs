@@ -1,8 +1,9 @@
 //! Structural checks: broken references, out-of-range values, duplicate ids.
 //! Wiring checks (capacity, universes) live in `pf-mapping`.
 
-use crate::{Issue, IssueCode, Show, ValidationReport};
-use std::collections::HashSet;
+use crate::{Issue, IssueCode, Show, ValidationReport, limits};
+use crate::{Prop, PropId};
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
 /// Checks a show for structural problems.
@@ -25,11 +26,26 @@ pub fn validate_show(show: &Show) -> ValidationReport {
         show.controllers.iter().map(|c| (c.id, c.name.as_str())),
         &mut report,
     );
+    check_limits(show, &mut report);
     check_props(show, &mut report);
-    check_groups(show, &mut report);
-    check_wiring(show, &mut report);
+    // First occurrence wins, matching `Show::prop`.
+    let mut props: HashMap<PropId, &Prop> = HashMap::with_capacity(show.props.len());
+    for prop in &show.props {
+        props.entry(prop.id).or_insert(prop);
+    }
+    check_groups(show, &props, &mut report);
+    check_controllers(show, &props, &mut report);
 
     report
+}
+
+fn check_limits(show: &Show, report: &mut ValidationReport) {
+    for problem in limits::check_limits(show) {
+        report.push(
+            Issue::error(IssueCode::LimitExceeded, problem)
+                .with_fix("Reduce the size, or split it into smaller props."),
+        );
+    }
 }
 
 fn check_frame_rate(show: &Show, report: &mut ValidationReport) {
@@ -90,20 +106,21 @@ fn check_props(show: &Show, report: &mut ValidationReport) {
     }
 }
 
-fn check_groups(show: &Show, report: &mut ValidationReport) {
+fn check_groups(show: &Show, props: &HashMap<PropId, &Prop>, report: &mut ValidationReport) {
     for group in &show.groups {
-        let missing = group
-            .members
-            .iter()
-            .filter(|id| show.prop(**id).is_none())
-            .count();
+        let missing = group.members.iter().filter(|id| !props.contains_key(*id)).count();
         if missing > 0 {
             report.push(
                 Issue::error(
                     IssueCode::UnknownPropReference,
                     format!(
-                        "The group '{}' includes {missing} prop(s) that no longer exist.",
-                        group.name
+                        "The group '{}' includes {}.",
+                        group.name,
+                        if missing == 1 {
+                            "1 prop that no longer exists".to_string()
+                        } else {
+                            format!("{missing} props that no longer exist")
+                        }
                     ),
                 )
                 .with_fix("Remove the missing props from the group."),
@@ -112,7 +129,7 @@ fn check_groups(show: &Show, report: &mut ValidationReport) {
     }
 }
 
-fn check_wiring(show: &Show, report: &mut ValidationReport) {
+fn check_controllers(show: &Show, props: &HashMap<PropId, &Prop>, report: &mut ValidationReport) {
     for controller in &show.controllers {
         for port in &controller.ports {
             let where_ = format!("port {} on '{}'", port.number, controller.name);
@@ -125,8 +142,20 @@ fn check_wiring(show: &Show, report: &mut ValidationReport) {
                     ),
                 ));
             }
+            if !port.gamma.is_finite() || port.gamma <= 0.0 {
+                report.push(
+                    Issue::error(
+                        IssueCode::InvalidGamma,
+                        format!(
+                            "The gamma of {where_} is {}, but it must be a positive number.",
+                            port.gamma
+                        ),
+                    )
+                    .with_fix("Set gamma to a positive number such as 1.0 or 2.2."),
+                );
+            }
             for slot in &port.slots {
-                let Some(prop) = show.prop(slot.prop) else {
+                let Some(prop) = props.get(&slot.prop).copied() else {
                     report.push(
                         Issue::error(
                             IssueCode::UnknownPropReference,
@@ -150,6 +179,18 @@ fn check_wiring(show: &Show, report: &mut ValidationReport) {
                             ),
                         )
                         .with_fix("Edit the slot's pixel range to fit the prop."),
+                    );
+                }
+                if slot.gamma.is_some_and(|g| !g.is_finite() || g <= 0.0) {
+                    report.push(
+                        Issue::error(
+                            IssueCode::InvalidGamma,
+                            format!(
+                                "The gamma override for '{}' on {where_} must be a positive number.",
+                                prop.name
+                            ),
+                        )
+                        .with_fix("Set gamma to a positive number such as 1.0 or 2.2."),
                     );
                 }
                 if slot.brightness.is_some_and(|b| b > 100) {
@@ -202,7 +243,7 @@ mod tests {
     #[test]
     fn each_structural_problem_is_reported() {
         type Mutate = fn(&mut Show);
-        let cases: [(IssueCode, Mutate); 7] = [
+        let cases: [(IssueCode, Mutate); 12] = [
             (IssueCode::InvalidFrameRate, |s| s.settings.frame_rate = 5),
             (IssueCode::DuplicateId, |s| {
                 let dup = s.props[0].clone();
@@ -228,6 +269,19 @@ mod tests {
             (IssueCode::InvalidBrightness, |s| {
                 s.controllers[0].ports[0].brightness = 150
             }),
+            (IssueCode::InvalidGamma, |s| s.controllers[0].ports[0].gamma = 0.0),
+            (IssueCode::InvalidGamma, |s| {
+                s.controllers[0].ports[0].gamma = f32::NAN
+            }),
+            (IssueCode::InvalidGamma, |s| {
+                s.controllers[0].ports[0].slots[0].gamma = Some(-2.0)
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.controllers[0].ports[0].slots[0].null_pixels = crate::MAX_NULL_PIXELS + 1
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(line("Huge", crate::MAX_PROP_NODES + 1))
+            }),
         ];
         for (code, mutate) in cases {
             let prop = line("A", 10);
@@ -249,5 +303,21 @@ mod tests {
         let report = validate_show(&show);
         assert!(report.has_code(IssueCode::UnknownPropReference));
         assert!(report.issues[0].message.contains("port 1 on 'Main'"));
+    }
+
+    #[test]
+    fn missing_group_members_use_correct_plural() {
+        for (count, expected) in [
+            (1, "1 prop that no longer exists"),
+            (3, "3 props that no longer exist"),
+        ] {
+            let prop = line("A", 10);
+            let mut show = show_with_slot(PortSlot::new(prop.id), prop);
+            let mut group = Group::new("Ghosts");
+            group.members.extend((0..count).map(|_| PropId::new()));
+            show.groups.push(group);
+            let report = validate_show(&show);
+            assert!(report.issues[0].message.contains(expected), "{:?}", report.issues);
+        }
     }
 }

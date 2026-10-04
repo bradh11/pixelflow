@@ -21,6 +21,8 @@ pub enum IssueCode {
     EmptyProp,
     InvalidBrightness,
     InvalidFrameRate,
+    InvalidGamma,
+    LimitExceeded,
     // Wiring checks (pf-mapping).
     PortOverCapacity,
     UnassignedNodes,

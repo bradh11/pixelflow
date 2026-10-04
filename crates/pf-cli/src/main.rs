@@ -1,6 +1,7 @@
 //! `pixelflow` command-line tool.
 
 mod report;
+mod test_pattern;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -30,6 +31,8 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Send a test pattern to the show's controllers. Exits 1 if the show has errors.
+    TestPattern(test_pattern::Args),
 }
 
 fn main() -> ExitCode {
@@ -66,6 +69,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 print!("{}", report::channel_map(&show, &map));
             }
             Ok(ExitCode::SUCCESS)
+        }
+        Command::TestPattern(args) => {
+            let show = load(&args.show)?;
+            test_pattern::run(&show, &args)
         }
     }
 }

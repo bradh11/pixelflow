@@ -292,8 +292,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "pf-frame",
  "pf-mapping",
  "pf-model",
+ "pf-output",
+ "pf-patterns",
  "serde_json",
 ]
 

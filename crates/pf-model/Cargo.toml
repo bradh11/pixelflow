@@ -1,0 +1,19 @@
+[package]
+name = "pf-model"
+description = "PixelFlow show data model: props, regions, controllers, ports, and the versioned show file"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+
+
+[lints]
+workspace = true

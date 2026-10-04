@@ -146,8 +146,24 @@ pub fn run() {
                 })?;
             Ok(())
         })
-        .run(context())
-        .expect("error while running PixelFlow");
+        .build(context())
+        .expect("error while building PixelFlow")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event
+                && let Some(state) = app.try_state::<AppState>()
+            {
+                shut_down(&state);
+            }
+        });
+}
+
+/// Runs when the app quits: keeps unsaved work in the autosave history and blacks out the lights.
+fn shut_down(state: &AppState) {
+    let mut engine = state.engine();
+    if let Err(error) = engine.autosave() {
+        eprintln!("autosave on exit failed: {error}");
+    }
+    engine.stop_output();
 }
 
 #[cfg(test)]
@@ -280,6 +296,29 @@ mod tests {
             "{error}"
         );
         let status = call(&webview, "stop_output", json!({})).unwrap();
+        assert_eq!(status["running"], false);
+    }
+
+    #[test]
+    fn quitting_autosaves_and_stops_output() {
+        let (app, webview, _dir) = app();
+        call(
+            &webview,
+            "apply_edits",
+            json!({ "edits": [{ "type": "renameShow", "name": "Unsaved" }] }),
+        )
+        .unwrap();
+        assert!(
+            call(&webview, "list_history", json!({}))
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        shut_down(&app.state::<AppState>());
+        let history = call(&webview, "list_history", json!({})).unwrap();
+        assert!(!history.as_array().unwrap().is_empty());
+        let status = call(&webview, "output_status", json!({})).unwrap();
         assert_eq!(status["running"], false);
     }
 }

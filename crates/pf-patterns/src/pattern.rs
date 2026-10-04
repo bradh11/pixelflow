@@ -21,6 +21,41 @@ pub enum Pattern {
     PixelWalk { color: Rgbw, speed: f32 },
 }
 
+/// The built-in test patterns, each with standard timing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Preset {
+    Solid,
+    Cycle,
+    Chase,
+    Ramp,
+    Alternate,
+    Identify,
+    Walk,
+}
+
+impl Pattern {
+    /// A built-in pattern. `color` is used by every preset except `Cycle` and `Identify`.
+    pub fn preset(preset: Preset, color: Rgbw) -> Pattern {
+        match preset {
+            Preset::Solid => Pattern::Solid(color),
+            Preset::Cycle => Pattern::RgbwCycle,
+            Preset::Chase => Pattern::Chase {
+                color,
+                width: 5,
+                speed: 30.0,
+            },
+            Preset::Ramp => Pattern::Ramp { color, period: 2.0 },
+            Preset::Alternate => Pattern::Alternate {
+                a: color,
+                b: Rgbw::OFF,
+                period: 1.0,
+            },
+            Preset::Identify => Pattern::Identify,
+            Preset::Walk => Pattern::PixelWalk { color, speed: 10.0 },
+        }
+    }
+}
+
 /// Clears `frame` and paints `pattern` at time `t` onto `targets`.
 ///
 /// Pattern positions count pixels across all target ranges in order, so a chase flows
@@ -193,6 +228,23 @@ mod tests {
         };
         render(&walk, 1.0, &targets, &mut frame);
         assert_eq!(reds(&frame), vec![0, 0, 255, 0]);
+    }
+
+    #[test]
+    fn presets_use_the_color_where_it_applies() {
+        assert_eq!(
+            Pattern::preset(Preset::Solid, Rgbw::RED),
+            Pattern::Solid(Rgbw::RED)
+        );
+        assert_eq!(Pattern::preset(Preset::Identify, Rgbw::RED), Pattern::Identify);
+        assert!(matches!(
+            Pattern::preset(Preset::Chase, Rgbw::BLUE),
+            Pattern::Chase {
+                color: Rgbw::BLUE,
+                width: 5,
+                ..
+            }
+        ));
     }
 
     #[test]

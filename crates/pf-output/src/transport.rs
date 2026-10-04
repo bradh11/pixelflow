@@ -40,7 +40,8 @@ pub type Recorded = Arc<Mutex<Vec<(Vec<u8>, SocketAddr)>>>;
 pub type Failures = Arc<Mutex<HashMap<SocketAddr, io::ErrorKind>>>;
 
 /// Records every packet instead of sending it. Destinations in `failing` return the chosen error kind.
-#[derive(Debug, Default)]
+/// Clones share the recording.
+#[derive(Debug, Default, Clone)]
 pub struct RecordingTransport {
     recorded: Recorded,
     failing: Failures,

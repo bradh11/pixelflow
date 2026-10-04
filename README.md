@@ -54,6 +54,21 @@ Patterns: `solid`, `cycle`, `chase`, `ramp`, `alternate`, `identify`, `walk`. Ta
 `prop:NAME`, `group:NAME`, `controller:NAME`, `port:CONTROLLER:NUMBER`. Use `--bind <local IP>`
 to choose the network interface. Output stops with a blackout frame when the run ends.
 
+### Run the desktop app
+
+Requires [Node.js](https://nodejs.org) 22+ and [pnpm](https://pnpm.io).
+
+```sh
+cd app
+pnpm install
+pnpm tauri dev      # opens PixelFlow with live reload
+pnpm test           # UI tests
+pnpm tauri build    # builds an installable app
+```
+
+For UI-only work in a plain browser, run `pnpm dev` and open `http://localhost:1420/?demo`
+(an in-memory sample show; nothing is sent to your controllers).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for branching, issues, and release workflow.

@@ -124,6 +124,10 @@ pub fn run(show: &Show, args: &Args) -> Result<ExitCode> {
         println!("\nFix these problems before sending output.");
         return Ok(ExitCode::FAILURE);
     }
+    let run_for = Duration::try_from_secs_f32(args.seconds)
+        .ok()
+        .filter(|d| *d <= Duration::from_secs(86_400))
+        .context("--seconds must be a number of seconds between 0 and 86400")?;
     let color = Rgbw::from_hex(&args.color)
         .with_context(|| format!("'{}' is not a color; use rrggbb or rrggbbww hex", args.color))?;
     let pattern = pattern(args.pattern, color);
@@ -139,10 +143,12 @@ pub fn run(show: &Show, args: &Args) -> Result<ExitCode> {
         sync_universe: args.sync_universe,
         ..OutputSettings::default()
     };
+    // Publish frame 0 before output starts, so the first packets are never the empty buffer.
+    let started = Instant::now();
+    render(&pattern, 0.0, &targets, writer.frame_mut());
+    writer.publish();
     let handle = start_output(plan, settings, reader, Box::new(transport));
 
-    let started = Instant::now();
-    let run_for = Duration::from_secs_f32(args.seconds.max(0.0));
     while started.elapsed() < run_for {
         render(
             &pattern,

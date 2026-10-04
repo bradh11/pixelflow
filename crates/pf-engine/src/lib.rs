@@ -8,7 +8,11 @@
 mod edit;
 mod error;
 mod history;
+mod persist;
+mod snapshot;
 
 pub use edit::Edit;
 pub use error::EngineError;
 pub use history::History;
+pub use persist::{HistoryEntry, load_show, save_show_atomic};
+pub use snapshot::{ShowSnapshot, Summary};

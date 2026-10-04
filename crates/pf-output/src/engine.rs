@@ -77,7 +77,7 @@ impl OutputHandle {
             .clone()
     }
 
-    /// Sends one all-black frame, stops the thread, and returns the final stats.
+    /// Sends the black frame three times (`BLACKOUT_REPEATS`), stops the thread, and returns the final stats.
     pub fn stop(mut self) -> OutputStats {
         self.shutdown();
         self.stats()
@@ -249,7 +249,7 @@ impl Runtime {
 }
 
 /// Starts the output thread. It sends the latest published frame every period until the
-/// returned handle is stopped or dropped, then sends one all-black frame.
+/// returned handle is stopped or dropped, then sends the black frame three times (`BLACKOUT_REPEATS`).
 pub fn start_output(
     plan: OutputPlan,
     settings: OutputSettings,

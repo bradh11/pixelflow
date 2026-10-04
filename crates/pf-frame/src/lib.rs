@@ -105,13 +105,19 @@ mod tests {
             }
         });
         let mut last = 0u8;
-        while last < 200 {
+        loop {
+            // Sampled before the read, so a finished producer's last frame is visible to it.
+            let finished = producer.is_finished();
             let frame = reader.latest();
             let first = frame[0];
             assert!(frame.iter().all(|&b| b == first), "torn frame: {frame:?}");
             assert!(first >= last, "frame went backwards: {first} after {last}");
             last = first;
+            if last == 200 || finished {
+                break;
+            }
         }
         producer.join().unwrap();
+        assert!(reader.latest().iter().all(|&b| b == 200));
     }
 }

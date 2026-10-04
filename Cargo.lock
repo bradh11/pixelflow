@@ -301,6 +301,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "pf-engine"
+version = "0.1.0"
+dependencies = [
+ "pf-frame",
+ "pf-mapping",
+ "pf-model",
+ "pf-output",
+ "pf-patterns",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "pf-frame"
 version = "0.1.0"
 dependencies = [

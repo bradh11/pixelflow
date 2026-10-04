@@ -17,12 +17,14 @@ triple_buffer = "9.0.0"
 clap = { version = "4.6.7", features = ["derive"] }
 anyhow = "1.0.104"
 proptest = "1.11.0"
+tempfile = "3.27.0"
 pf-model = { path = "crates/pf-model" }
 pf-geometry = { path = "crates/pf-geometry" }
 pf-mapping = { path = "crates/pf-mapping" }
 pf-frame = { path = "crates/pf-frame" }
 pf-patterns = { path = "crates/pf-patterns" }
 pf-output = { path = "crates/pf-output" }
+pf-engine = { path = "crates/pf-engine" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

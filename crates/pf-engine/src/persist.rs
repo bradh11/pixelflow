@@ -6,9 +6,12 @@ use serde::Serialize;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const HISTORY_SUFFIX: &str = ".pixelflow.json";
+
+static SAVE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Reads and parses a show file (running schema migrations).
 pub fn load_show(path: &Path) -> Result<Show, EngineError> {
@@ -36,7 +39,8 @@ pub fn save_show_atomic(path: &Path, show: &Show) -> Result<(), EngineError> {
         .unwrap_or(Path::new("."));
     fs::create_dir_all(dir).map_err(write_err)?;
     let file_name = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
-    let tmp = dir.join(format!(".{file_name}.{}.tmp", std::process::id()));
+    let n = SAVE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let tmp = dir.join(format!(".{file_name}.{}.{}.tmp", std::process::id(), n));
     let result = (|| {
         let mut file = fs::File::create(&tmp)?;
         file.write_all(json.as_bytes())?;
@@ -73,7 +77,7 @@ pub(crate) fn write_history(dir: &Path, show: &Show, keep: usize) -> Result<Hist
     let path = dir.join(&id);
     save_show_atomic(&path, show)?;
     let entries = list_history(dir);
-    for old in entries.iter().skip(keep) {
+    for old in entries.iter().skip(keep.max(1)) {
         let _ = fs::remove_file(dir.join(&old.id));
     }
     let size_bytes = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
@@ -194,5 +198,14 @@ mod tests {
         );
         assert!(a.to_string_lossy().contains("house-"));
         assert_eq!(history_dir(data, None), Path::new("/data/history/untitled"));
+    }
+
+    #[test]
+    fn history_never_deletes_the_entry_just_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let entry = write_history(dir.path(), &Show::new("x"), 0).unwrap();
+        let entries = list_history(dir.path());
+        assert_eq!(entries.len(), 1);
+        assert!(dir.path().join(&entry.id).exists());
     }
 }

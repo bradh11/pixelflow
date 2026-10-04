@@ -12,7 +12,8 @@ import {
   Sun,
   Undo2,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { errorMessage } from "../api/backend";
 import { fileName, plural, thousands } from "../lib/format";
 import { type Screen, useApp } from "../state/store";
 import { DevicesScreen } from "../screens/DevicesScreen";
@@ -112,9 +113,73 @@ function Sidebar() {
   );
 }
 
+/** Output keeps running when the user leaves the Test screen, so show it everywhere. */
+function LiveOutput() {
+  const backend = useApp((s) => s.backend);
+  const [running, setRunning] = useState(false);
+
+  useEffect(() => {
+    if (!backend) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const next = await backend.outputStatus();
+        if (!cancelled) setRunning(next.running);
+      } catch {
+        // Polling errors are transient; the next poll retries.
+      }
+    };
+    void poll();
+    const timer = setInterval(poll, 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [backend]);
+
+  if (!backend || !running) return null;
+  const stop = async () => {
+    try {
+      const next = await backend.stopOutput();
+      setRunning(next.running);
+    } catch (e) {
+      useApp.setState({ error: errorMessage(e) });
+    }
+  };
+  return (
+    <span className="flex items-center gap-2 text-green-600 dark:text-green-400">
+      <span className="h-2 w-2 animate-pulse rounded-full bg-green-500" />
+      Live output
+      <button
+        type="button"
+        aria-label="Stop live output"
+        onClick={stop}
+        className="rounded border border-current px-1.5 py-0.5 hover:bg-green-500/10"
+      >
+        Stop
+      </button>
+    </span>
+  );
+}
+
 function StatusBar() {
   const snapshot = useApp((s) => s.snapshot);
   const [open, setOpen] = useState(false);
+  const issueCount = snapshot?.issues.length ?? 0;
+
+  useEffect(() => {
+    if (!open) return;
+    if (issueCount === 0) {
+      setOpen(false);
+      return;
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, issueCount]);
+
   if (!snapshot) return null;
   const { summary, issues } = snapshot;
   const errors = issues.filter((i) => i.severity === "error").length;
@@ -125,8 +190,10 @@ function StatusBar() {
         {plural(summary.props, "prop")} · {thousands(summary.pixels)} pixels · {plural(summary.controllers, "controller")} ·{" "}
         {plural(summary.universes, "universe")}
       </span>
+      <LiveOutput />
       <button
         type="button"
+        aria-expanded={open}
         onClick={() => setOpen(!open)}
         className={`ml-auto flex items-center gap-1 rounded px-2 py-0.5 ${
           errors ? "text-red-600 dark:text-red-400" : warnings ? "text-amber-600 dark:text-amber-400" : ""

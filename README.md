@@ -40,6 +40,20 @@ cargo run -p pf-cli -- validate examples/shows/demo.pixelflow.json
 cargo run -p pf-cli -- map examples/shows/demo.pixelflow.json
 ```
 
+### Send a test pattern to real controllers
+
+`test-pattern` sends live sACN/DDP output to the controllers in a show file, so point it at
+your own show (the demo show's addresses are examples):
+
+```sh
+cargo run -p pf-cli -- test-pattern my-show.pixelflow.json --pattern chase --target "prop:Mega Tree"
+cargo run -p pf-cli -- test-pattern my-show.pixelflow.json --pattern identify --target "port:Main FPP:2" --seconds 30
+```
+
+Patterns: `solid`, `cycle`, `chase`, `ramp`, `alternate`, `identify`, `walk`. Targets: `show`,
+`prop:NAME`, `group:NAME`, `controller:NAME`, `port:CONTROLLER:NUMBER`. Use `--bind <local IP>`
+to choose the network interface. Output stops with a blackout frame when the run ends.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for branching, issues, and release workflow.

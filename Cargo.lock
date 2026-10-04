@@ -332,6 +332,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pf-output"
+version = "0.1.0"
+dependencies = [
+ "pf-frame",
+ "pf-mapping",
+ "pf-model",
+ "uuid",
+]
+
+[[package]]
 name = "pf-patterns"
 version = "0.1.0"
 dependencies = [

@@ -19,7 +19,11 @@ pub(crate) fn wire_controllers(
     props: &[PropLayout],
     report: &mut ValidationReport,
 ) -> Vec<WiredController> {
-    let index: HashMap<PropId, usize> = props.iter().enumerate().map(|(i, p)| (p.prop, i)).collect();
+    // First occurrence wins, matching `Show::prop`.
+    let mut index: HashMap<PropId, usize> = HashMap::with_capacity(props.len());
+    for (i, p) in props.iter().enumerate() {
+        index.entry(p.prop).or_insert(i);
+    }
     let mut coverage: Vec<Vec<u8>> = props.iter().map(|p| vec![0; p.nodes as usize]).collect();
     let wired = show
         .controllers

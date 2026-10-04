@@ -254,3 +254,22 @@ fn empty_slots_produce_no_spans_but_keep_their_null_pixels() {
     assert_eq!(out.spans[0].controller_channel, 6);
     assert_eq!(out.channel_count, (2 + 5) * 3);
 }
+
+#[test]
+fn duplicate_prop_ids_resolve_to_the_first_prop() {
+    let mut show = Show::new("t");
+    let first = line("First", 10);
+    let mut second = line("Second", 5);
+    second.id = first.id;
+    show.props = vec![first.clone(), second];
+    show.controllers = vec![controller(
+        "WLED",
+        Protocol::Ddp,
+        vec![port(1, vec![PortSlot::new(first.id)])],
+    )];
+
+    let (map, _) = map_show(&show);
+    let span = &map.controllers[0].spans[0];
+    assert_eq!(span.frame_offset, 0);
+    assert_eq!(span.pixels, 10);
+}

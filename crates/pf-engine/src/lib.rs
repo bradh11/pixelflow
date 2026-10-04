@@ -6,13 +6,17 @@
 //! UI dependencies; the desktop app is a thin bridge over this API.
 
 mod edit;
+mod engine;
 mod error;
 mod history;
+mod output;
 mod persist;
 mod snapshot;
 
 pub use edit::Edit;
+pub use engine::Engine;
 pub use error::EngineError;
 pub use history::History;
+pub use output::{ControllerStatus, OutputStatus, PatternSpec, TargetSpec};
 pub use persist::{HistoryEntry, load_show, save_show_atomic};
 pub use snapshot::{ShowSnapshot, Summary};

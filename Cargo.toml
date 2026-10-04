@@ -21,6 +21,8 @@ pf-model = { path = "crates/pf-model" }
 pf-geometry = { path = "crates/pf-geometry" }
 pf-mapping = { path = "crates/pf-mapping" }
 pf-frame = { path = "crates/pf-frame" }
+pf-patterns = { path = "crates/pf-patterns" }
+pf-output = { path = "crates/pf-output" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

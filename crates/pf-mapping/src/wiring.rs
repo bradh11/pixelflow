@@ -42,9 +42,10 @@ fn wire_controller(
     for port in &controller.ports {
         let mut port_pixels: u64 = 0;
         for slot in &port.slots {
-            let (Some(&i), Some(prop)) = (index.get(&slot.prop), show.prop(slot.prop)) else {
+            let Some(&i) = index.get(&slot.prop) else {
                 continue;
             };
+            let prop = &show.props[i];
             let layout = &props[i];
             let range = slot.node_range(layout.nodes);
             if !range.fits_within(layout.nodes) {

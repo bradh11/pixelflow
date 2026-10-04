@@ -96,16 +96,22 @@ mod tests {
     }
 
     #[test]
-    fn works_across_threads() {
-        let (mut writer, mut reader) = frame_buffers(4);
+    fn reader_never_sees_torn_or_older_frames_while_writer_runs() {
+        let (mut writer, mut reader) = frame_buffers(64);
         let producer = thread::spawn(move || {
-            for value in 0..=200u8 {
+            for value in 1..=200u8 {
                 writer.frame_mut().fill(value);
                 writer.publish();
             }
         });
+        let mut last = 0u8;
+        while last < 200 {
+            let frame = reader.latest();
+            let first = frame[0];
+            assert!(frame.iter().all(|&b| b == first), "torn frame: {frame:?}");
+            assert!(first >= last, "frame went backwards: {first} after {last}");
+            last = first;
+        }
         producer.join().unwrap();
-        let frame = reader.latest();
-        assert!(frame.iter().all(|&b| b == 200), "torn frame: {frame:?}");
     }
 }

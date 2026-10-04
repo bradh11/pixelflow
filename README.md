@@ -26,6 +26,20 @@ A modern, fast, easy-to-use application for designing and running pixel light di
 - **Desktop shell:** Tauri 2
 - **UI:** React + TypeScript + Vite, three.js (WebGPU) preview
 
+## Development
+
+Requires [Rust](https://rustup.rs). The toolchain version is pinned in `rust-toolchain.toml`, and rustup installs it automatically.
+
+```sh
+cargo test --workspace                                   # run all tests
+cargo clippy --workspace --all-targets -- -D warnings    # lint
+cargo fmt --all                                          # format
+
+# Try the CLI on the demo show
+cargo run -p pf-cli -- validate examples/shows/demo.pixelflow.json
+cargo run -p pf-cli -- map examples/shows/demo.pixelflow.json
+```
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for branching, issues, and release workflow.

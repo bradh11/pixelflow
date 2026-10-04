@@ -169,6 +169,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pf-mapping"
+version = "0.1.0"
+dependencies = [
+ "pf-model",
+ "proptest",
+ "serde",
+]
+
+[[package]]
 name = "pf-model"
 version = "0.1.0"
 dependencies = [

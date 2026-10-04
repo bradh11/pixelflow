@@ -210,4 +210,52 @@ mod tests {
             ));
         }
     }
+
+    fn generator_prop(name: &str, body: &str) -> String {
+        format!(
+            r#"{{ "id": "{}", "name": "{name}", "shape": {{ "source": "generator", {body} }} }}"#,
+            crate::PropId::new().0
+        )
+    }
+
+    #[test]
+    fn star_points_and_tree_strings_are_limited() {
+        let star = |points: u64| {
+            generator_prop(
+                "Porch Star",
+                &format!(
+                    r#""type": "star", "points": {points}, "nodes": 1, "outerRadius": 1.0, "innerRadius": 0.5"#
+                ),
+            )
+        };
+        assert!(show_from_json(&show_json(&[star(u64::from(crate::MAX_STAR_POINTS))], "")).is_ok());
+        let err = show_from_json(&show_json(&[star(50_000_000)], "")).unwrap_err();
+        assert!(matches!(err, ModelError::LimitExceeded(_)));
+        assert!(
+            err.to_string().contains("'Porch Star' has 50000000 points"),
+            "{err}"
+        );
+        assert!(err.to_string().contains("at most 100"), "{err}");
+
+        let tree = generator_prop(
+            "Big Tree",
+            r#""type": "tree", "strings": 4000000000, "nodesPerString": 0, "height": 1.0, "baseRadius": 1.0, "topRadius": 0.1"#,
+        );
+        let err = show_from_json(&show_json(&[tree], "")).unwrap_err();
+        assert!(matches!(err, ModelError::LimitExceeded(_)));
+        assert!(
+            err.to_string().contains("'Big Tree' has 4000000000 strings"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn oversized_matrix_message_reports_the_real_count() {
+        let matrix = generator_prop(
+            "Wall",
+            r#""type": "matrix", "columns": 100000, "rows": 100000, "width": 1.0, "height": 1.0"#,
+        );
+        let err = show_from_json(&show_json(&[matrix], "")).unwrap_err();
+        assert!(err.to_string().contains("10000000000"), "{err}");
+    }
 }

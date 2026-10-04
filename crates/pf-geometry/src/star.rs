@@ -4,7 +4,9 @@ use std::f32::consts::{FRAC_PI_2, PI};
 /// Pixels spaced evenly along the closed star outline, starting at the top tip
 /// and running clockwise.
 pub(crate) fn positions(points: u32, nodes: u32, outer_radius: f32, inner_radius: f32) -> Vec<Vec3> {
-    if points == 0 || nodes == 0 {
+    // `points` beyond half of u32::MAX would overflow the vertex count (show files are
+    // limited far below this by `pf-model`).
+    if points == 0 || nodes == 0 || points > u32::MAX / 2 {
         return vec![Vec3::ZERO; nodes as usize];
     }
     let vertex_count = points * 2;
@@ -40,6 +42,11 @@ mod tests {
     use super::*;
     use crate::assert_close;
     use std::f32::consts::PI;
+
+    #[test]
+    fn absurd_point_counts_do_not_overflow() {
+        assert_eq!(positions(u32::MAX, 3, 2.0, 1.0).len(), 3);
+    }
 
     #[test]
     fn first_pixel_is_top_tip_and_all_lie_within_outer_radius() {

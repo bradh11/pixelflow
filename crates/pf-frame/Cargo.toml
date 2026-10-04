@@ -1,0 +1,13 @@
+[package]
+name = "pf-frame"
+description = "Show-wide frame buffer with lock-free triple buffering"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+triple_buffer.workspace = true
+
+[lints]
+workspace = true

@@ -10,10 +10,28 @@ pub const MAX_SHOW_PIXELS: u64 = 10_000_000;
 pub const MAX_STAR_POINTS: u32 = 100;
 /// Most null pixels a single port slot may have.
 pub const MAX_NULL_PIXELS: u32 = 1_000;
+/// Most a sequence's lights may be moved against its music, either way, in milliseconds.
+pub const MAX_SEQUENCE_OFFSET_MS: i32 = 10_000;
 
-/// Returns a plain-language sentence for every limit the show breaks.
+/// Returns a plain-language sentence for every limit the show breaks (and for sequences listed
+/// twice under one id, which a show file must never have).
 pub(crate) fn check_limits(show: &Show) -> Vec<String> {
     let mut problems = Vec::new();
+    let mut sequence_ids = std::collections::HashSet::new();
+    for sequence in &show.sequences {
+        if sequence.offset_ms.unsigned_abs() > MAX_SEQUENCE_OFFSET_MS.unsigned_abs() {
+            problems.push(format!(
+                "The sequence '{}' moves its lights {} ms against its music, but PixelFlow allows at most {MAX_SEQUENCE_OFFSET_MS} ms either way.",
+                sequence.name, sequence.offset_ms
+            ));
+        }
+        if !sequence_ids.insert(sequence.id) {
+            problems.push(format!(
+                "The sequence '{}' has the same id as another sequence in the show.",
+                sequence.name
+            ));
+        }
+    }
     let mut total: u64 = 0;
     for prop in &show.props {
         if let ShapeSource::Generator(Generator::CustomGrid { columns, rows, cells }) = &prop.shape {

@@ -1,10 +1,9 @@
 //! Loudness over time, for drawing a song under the timeline.
 
+use crate::decode::open_decoder;
 use crate::error::AudioError;
-use rodio::{Decoder, Source};
+use rodio::Source;
 use serde::Serialize;
-use std::fs::File;
-use std::io::BufReader;
 use std::path::Path;
 
 /// Samples per block when scanning (per channel-interleaved sample).
@@ -21,15 +20,9 @@ pub struct Waveform {
 
 /// Decodes the whole file at `path` and returns its peaks in `slices` equal slices.
 pub fn waveform(path: &Path, slices: usize) -> Result<Waveform, AudioError> {
-    let shown = path.display().to_string();
-    let file = File::open(path).map_err(|source| AudioError::Open {
-        path: shown.clone(),
-        source,
-    })?;
-    let decoder = Decoder::try_from(BufReader::new(file)).map_err(|e| AudioError::Decode {
-        path: shown,
-        reason: e.to_string(),
-    })?;
+    let decoder = open_decoder(path)?;
+    // The rate and channel count are read once: music files keep them for their whole length
+    // (a file that changed mid-way would get a slightly wrong duration, nothing worse).
     let rate = u64::from(decoder.sample_rate().get());
     let channels = u64::from(decoder.channels().get());
     let mut blocks = Vec::new();

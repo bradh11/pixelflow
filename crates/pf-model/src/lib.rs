@@ -21,7 +21,7 @@ pub use controller::{
 pub use ids::{ControllerId, GroupId, PropId, SequenceId};
 pub use io::{ModelError, check_show, show_from_json, show_to_json};
 pub use issue::{Issue, IssueCode, Severity, ValidationReport};
-pub use limits::{MAX_NULL_PIXELS, MAX_PROP_NODES, MAX_SHOW_PIXELS, MAX_STAR_POINTS};
+pub use limits::{MAX_NULL_PIXELS, MAX_PROP_NODES, MAX_SEQUENCE_OFFSET_MS, MAX_SHOW_PIXELS, MAX_STAR_POINTS};
 pub use primitives::{ColorOrder, Transform, Vec3};
 pub use prop::{Group, Prop};
 pub use region::{FaceDefinition, NodeRange, Phoneme, Region, RegionKind};

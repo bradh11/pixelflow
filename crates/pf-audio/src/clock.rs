@@ -1,10 +1,6 @@
-//! Clocks that sequence playback follows: the music itself, or a silent stopwatch.
+//! Clocks that sequence playback follows: the music itself ([`crate::MusicPlayer`]), or a silent
+//! stopwatch.
 
-use crate::error::AudioError;
-use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player};
-use std::fs::File;
-use std::io::BufReader;
-use std::path::Path;
 use std::time::{Duration, Instant};
 
 /// Something with a play position: lights follow it so they stay in step with the music.
@@ -18,6 +14,14 @@ pub trait AudioClock {
     fn position(&self) -> Duration;
     /// 0.0 (silent) to 1.0 (full).
     fn set_volume(&mut self, volume: f32);
+    /// Whether the music has played to its end. Clocks without music always have.
+    fn finished(&self) -> bool {
+        true
+    }
+    /// Why the music can't be heard, when something went wrong after it started (a plain sentence).
+    fn problem(&self) -> Option<String> {
+        None
+    }
 }
 
 /// A stopwatch that keeps time without sound (sequences with no music, and tests).
@@ -73,64 +77,6 @@ impl AudioClock for SilentClock {
     }
 
     fn set_volume(&mut self, _volume: f32) {}
-}
-
-/// Plays a music file on the default sound output; its play position is the clock.
-pub struct MusicPlayer {
-    // Keeps the output device open for as long as the player lives.
-    _output: MixerDeviceSink,
-    player: Player,
-}
-
-impl MusicPlayer {
-    /// Opens `path` on the default output, paused at the start.
-    pub fn open(path: &Path) -> Result<Self, AudioError> {
-        let shown = path.display().to_string();
-        let file = File::open(path).map_err(|source| AudioError::Open {
-            path: shown.clone(),
-            source,
-        })?;
-        let decoder = Decoder::try_from(BufReader::new(file)).map_err(|e| AudioError::Decode {
-            path: shown.clone(),
-            reason: e.to_string(),
-        })?;
-        let output =
-            DeviceSinkBuilder::open_default_sink().map_err(|e| AudioError::NoOutput(e.to_string()))?;
-        let player = Player::connect_new(output.mixer());
-        player.pause();
-        player.append(decoder);
-        Ok(Self {
-            _output: output,
-            player,
-        })
-    }
-}
-
-impl AudioClock for MusicPlayer {
-    fn start(&mut self, position: Duration) {
-        let _ = self.player.try_seek(position);
-        self.player.play();
-    }
-
-    fn pause(&mut self) {
-        self.player.pause();
-    }
-
-    fn resume(&mut self) {
-        self.player.play();
-    }
-
-    fn seek(&mut self, position: Duration) {
-        let _ = self.player.try_seek(position);
-    }
-
-    fn position(&self) -> Duration {
-        self.player.get_pos()
-    }
-
-    fn set_volume(&mut self, volume: f32) {
-        self.player.set_volume(volume.clamp(0.0, 1.0));
-    }
 }
 
 #[cfg(test)]

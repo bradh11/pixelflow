@@ -280,6 +280,28 @@ mod tests {
     }
 
     #[test]
+    fn sequence_offsets_stay_within_ten_seconds_and_ids_are_unique() {
+        use crate::SequenceEntry;
+        let mut show = Show::new("Music");
+        let mut medley = SequenceEntry::new("Medley", "/shows/medley.fseq");
+        medley.offset_ms = -crate::MAX_SEQUENCE_OFFSET_MS;
+        show.sequences.push(medley.clone());
+        assert_eq!(check_show(&show).unwrap(), show);
+        show.sequences[0].offset_ms = crate::MAX_SEQUENCE_OFFSET_MS + 1;
+        let err = check_show(&show).unwrap_err();
+        assert!(matches!(err, ModelError::LimitExceeded(_)), "{err}");
+        assert!(err.to_string().contains("'Medley'"), "{err}");
+        assert!(err.to_string().contains("10000 ms"), "{err}");
+
+        show.sequences[0].offset_ms = 0;
+        let mut copy = medley.clone();
+        copy.name = "Medley again".into();
+        show.sequences.push(copy);
+        let err = check_show(&show).unwrap_err();
+        assert!(err.to_string().contains("'Medley again'"), "{err}");
+    }
+
+    #[test]
     fn custom_grid_cell_count_must_match_dimensions() {
         let grid = |cols: u32, rows: u32, cells: &str| {
             format!(

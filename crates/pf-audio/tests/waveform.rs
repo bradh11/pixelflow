@@ -66,13 +66,13 @@ fn unreadable_files_are_reported() {
         waveform(&junk, 10)
             .unwrap_err()
             .to_string()
-            .starts_with("Could not play")
+            .starts_with("PixelFlow can't play")
     );
     assert!(
         waveform(&dir.path().join("missing.mp3"), 10)
             .unwrap_err()
             .to_string()
-            .starts_with("Could not open")
+            .starts_with("PixelFlow can't find the music file")
     );
 }
 

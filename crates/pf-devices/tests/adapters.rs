@@ -195,6 +195,56 @@ fn discovery_expands_fpp_peers_and_reports_silent_ones() {
     assert_no_secret_endpoints(&http);
 }
 
+#[test]
+fn discovery_never_probes_peers_that_are_not_plain_addresses() {
+    let sync = r#"{"systems":[
+        {"address":"fpp.local","hostname":"a","local":0},
+        {"address":"10.0.0.5:80","hostname":"b","local":0},
+        {"address":"239.255.0.1","hostname":"c","local":0}]}"#;
+    let outputs = r#"{"channelOutputs":[{"enabled":1,"universes":[
+        {"address":"127.0.0.1","active":1,"description":"d","type":4,"channelCount":3},
+        {"address":"255.255.255.255","active":1,"description":"e","type":4,"channelCount":3}]}]}"#;
+    let http = fpp_only()
+        .with_get(FPP, "/api/fppd/multiSyncSystems", sync)
+        .with_get(FPP, "/api/channel/output/universeOutputs", outputs);
+    let options = DiscoverOptions {
+        ping: false,
+        mdns: false,
+        sweep: false,
+        extra_hosts: vec![FPP.to_string()],
+        ..DiscoverOptions::default()
+    };
+    let found = discover(&http, &http, &options);
+    assert_eq!(found.devices.len(), 1);
+    assert!(found.silent.is_empty());
+    for request in http.requests() {
+        for bad in [
+            "fpp.local",
+            "10.0.0.5",
+            "239.255.0.1",
+            "127.0.0.1",
+            "255.255.255.255",
+        ] {
+            assert!(!request.contains(bad), "{request}");
+        }
+    }
+}
+
+#[test]
+fn a_peer_that_answers_but_is_not_a_controller_is_not_silent() {
+    let http = fpp_only().with_get(FALCON, "/", "<html>some other web page</html>");
+    let options = DiscoverOptions {
+        ping: false,
+        mdns: false,
+        sweep: false,
+        extra_hosts: vec![FPP.to_string()],
+        ..DiscoverOptions::default()
+    };
+    let found = discover(&http, &http, &options);
+    assert_eq!(found.devices.len(), 1);
+    assert!(found.silent.is_empty());
+}
+
 const HAT_STRINGS: &str = "/api/channel/output/co-pixelStrings";
 const LAYOUT: &str = "continuous block";
 

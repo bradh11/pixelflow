@@ -5,7 +5,7 @@ SHELL_CRATE := app/src-tauri
 SHOW ?= examples/shows/demo.pixelflow.json
 
 .DEFAULT_GOAL := help
-.PHONY: help setup run ui test test-rust test-app lint fmt build cli-validate cli-map clean
+.PHONY: help setup run ui test test-rust test-app lint fmt build cli-validate cli-map discover clean
 
 help: ## List the available commands
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -50,6 +50,9 @@ cli-validate: ## Check a show file: make cli-validate SHOW=path/to/show.pixelflo
 
 cli-map: ## Print a show's channel map: make cli-map SHOW=path/to/show.pixelflow.json
 	cargo run -q -p pf-cli -- map $(SHOW)
+
+discover: ## Find FPP, Falcon, and WLED controllers on your network (read-only)
+	cargo run -q -p pf-cli -- discover
 
 clean: ## Remove build outputs (keeps node_modules)
 	cargo clean

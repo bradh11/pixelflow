@@ -64,6 +64,25 @@ Patterns: `solid`, `cycle`, `chase`, `ramp`, `alternate`, `identify`, `walk`. Ta
 `prop:NAME`, `group:NAME`, `controller:NAME`, `port:CONTROLLER:NUMBER`. Use `--bind <local IP>`
 to choose the network interface. Output stops with a blackout frame when the run ends.
 
+### Find your controllers
+
+PixelFlow finds FPP, Falcon, and WLED controllers on your network and reads their pixel
+setup so you can add them to a show. It only reads — nothing on a controller is changed.
+
+```sh
+make discover                                    # or: cargo run -p pf-cli -- discover
+cargo run -p pf-cli -- discover --host 10.0.0.50  # also check an address directly
+cargo run -p pf-cli -- device 10.0.0.50           # one controller's setup and what importing adds
+```
+
+In the app, use **Discover my devices** on the welcome screen or the **Devices** screen.
+
+Discovery listens for FPP's MultiSync ping and mDNS, checks the web page of every address on
+your local (private) subnet, and asks each FPP which controllers it sends to. If a firewall
+blocks the replies (macOS does for unsigned command-line tools), the subnet check and FPP's
+list still find everything; a controller an FPP lists that doesn't answer is reported so you
+can check its power and network cable.
+
 ### Run the desktop app
 
 Requires [Node.js](https://nodejs.org) 22+ and [pnpm](https://pnpm.io).

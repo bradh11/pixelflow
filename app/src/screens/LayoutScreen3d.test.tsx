@@ -360,19 +360,46 @@ describe("the 3D layout", () => {
     expect(orbit().yaw).toBeCloseTo(Math.PI / 2);
   });
 
-  it("fits a tilted house model by its standing size", async () => {
+  it("fits a tilted house model by its standing size, without reading its file again", async () => {
     const show = showWith(line("Gutter", 0, 0));
     show.background = { path: "/house.jpg", x: -10, y: 8, width: 20, opacity: 0.7 };
     // Made lying down (its "up" is the file's -Z after this tilt); 10 wide, 8 tall when stood up.
     show.houseModel = { path: "/models/house.obj", position: { x: 0, y: 0, z: 0 }, rotationDeg: { x: -90, y: 0, z: 0 }, scale: 1, opacity: 1 };
     const user = await setup(show);
     backend.models.set("/models/house.obj", new TextEncoder().encode("v 0 0 0"));
+    const reads = vi.spyOn(backend, "readHouseModel");
     await open3d(user);
     await waitFor(() => expect(scene().calls).toContain("setModel:/models/house.obj"));
     await user.click(screen.getByRole("button", { name: "Fit to display" }));
     await waitFor(() => expect(edits).toHaveLength(1));
     // The file's box (y 0 to 6, z -4 to 4) tilted -90 stands 8 tall (y -4 to 4) and 6 deep (z -6 to 0).
     expect(backend.show.houseModel).toMatchObject({ rotationDeg: { x: -90, y: 0, z: 0 }, scale: 2, position: { x: 0, y: 8, z: -0.02 } });
+    expect(reads).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads an added house model's file once, and can't remove the model while it's still being placed", async () => {
+    const show = showWith(line("Gutter", 0, 0));
+    const user = await setup(show);
+    backend.models.set("/models/house.obj", new TextEncoder().encode("v 0 0 0"));
+    backend.nextModelPath = "/models/house.obj";
+    await open3d(user);
+    const read = backend.readHouseModel.bind(backend);
+    let release = () => {};
+    const reads = vi.spyOn(backend, "readHouseModel").mockImplementation((path) => new Promise((done) => (release = () => done(read(path)))));
+    await user.click(screen.getByRole("button", { name: "Add house model…" }));
+    expect(screen.getByRole("button", { name: "Loading model…" })).toBeDisabled();
+    await act(async () => release());
+    await waitFor(() => expect(scene().calls).toContain("setModel:/models/house.obj"));
+    expect(reads).toHaveBeenCalledTimes(1);
+
+    // Replacing it with another: Remove waits until the new one is placed.
+    backend.models.set("/models/garage.obj", new TextEncoder().encode("v 0 0 0"));
+    backend.nextModelPath = "/models/garage.obj";
+    await user.click(screen.getByRole("button", { name: "Replace…" }));
+    expect(screen.getByRole("button", { name: "Remove model" })).toBeDisabled();
+    await act(async () => release());
+    await waitFor(() => expect(backend.show.houseModel?.path).toBe("/models/garage.obj"));
+    expect(screen.getByRole("button", { name: "Remove model" })).toBeEnabled();
   });
 
   it("sticks a dragged prop to the house model, looking for the surface once a frame however often the pointer moves", async () => {

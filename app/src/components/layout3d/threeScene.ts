@@ -160,7 +160,9 @@ async function parseModel(bytes: Uint8Array, name: string): Promise<Object3D> {
     return new OBJLoader().parse(new TextDecoder().decode(bytes));
   }
   const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
-  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  // parseAsync reads the bytes where they are: a whole buffer needs no copy.
+  const whole = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength;
+  const buffer = (whole ? bytes.buffer : bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)) as ArrayBuffer;
   return (await new GLTFLoader().parseAsync(buffer, "")).scene;
 }
 
@@ -170,12 +172,24 @@ function naturalBox(object: Object3D): Box3 | null {
   return toBox(new ThreeBox3().setFromObject(object));
 }
 
+/** The model `measureModel` read last, kept so a view showing the same bytes next doesn't parse them again. */
+let measured: { bytes: Uint8Array; object: Object3D } | null = null;
+
+/** The kept model if it was read from `bytes`; any other kept model is freed. */
+function takeMeasured(bytes: Uint8Array | null): Object3D | null {
+  const kept = measured;
+  measured = null;
+  if (kept && kept.bytes === bytes) return kept.object;
+  if (kept) disposeTree(kept.object);
+  return null;
+}
+
 /** The box around the model in a file, as the file has it; null when it's empty. */
 export async function measureModel(bytes: Uint8Array, name: string): Promise<Box3 | null> {
   const object = await parseModel(bytes, name);
-  const box = naturalBox(object);
-  disposeTree(object);
-  return box;
+  takeMeasured(null);
+  measured = { bytes, object };
+  return naturalBox(object);
 }
 
 /** How the house model is turned: about X, then Y, then Z (layout axes), as props are ("ZYX" to three.js). */
@@ -500,8 +514,9 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
       }
       modelShadow.clear();
       modelMeshes = [];
+      const kept = takeMeasured(next?.bytes ?? null);
       if (!next) return null;
-      const loaded = await parseModel(next.bytes, next.name);
+      const loaded = kept ?? (await parseModel(next.bytes, next.name));
       if (load !== modelLoads) {
         disposeTree(loaded);
         return null;

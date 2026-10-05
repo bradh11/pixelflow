@@ -6,6 +6,7 @@ import { fileName } from "../../lib/format";
 import { type Box3, fitModelPlacement, v3 } from "../../lib/layout3d";
 import { boxOfPoints, unionBox } from "../../lib/layoutMath";
 import { useApp } from "../../state/store";
+import { useView3d } from "../../state/view3d";
 import { Button } from "../ui";
 import { NumberField, Section } from "../layout/PropertiesPanel";
 import { measureModel } from "./scene";
@@ -22,7 +23,9 @@ function fitTarget(show: Show, preview: PreviewProp[]): Box3 | null {
 async function placedModel(path: string, preview: PreviewProp[], keep: Partial<HouseModel> = {}): Promise<HouseModel> {
   const { backend, snapshot } = useApp.getState();
   const rotationDeg = keep.rotationDeg ?? v3(0, 0, 0);
-  const natural = backend ? await measureModel(await backend.readHouseModel(path), path) : null;
+  // The model the 3D view already shows is measured already; another one is read and measured here.
+  const loaded = useView3d.getState().loadedModel;
+  const natural = loaded?.path === path ? loaded.natural : backend ? await measureModel(await backend.readHouseModel(path), path) : null;
   const fit = natural ? fitModelPlacement(natural, fitTarget(snapshot!.show, preview), rotationDeg) : { position: v3(0, 0, 0), scale: 1 };
   return { path, opacity: 1, ...keep, rotationDeg, position: fit.position, scale: fit.scale };
 }
@@ -110,7 +113,7 @@ export function HouseModelPanel({ preview }: { preview: PreviewProp[] }) {
         <Button onClick={() => void choose()} disabled={busy}>
           Replace…
         </Button>
-        <Button variant="danger" onClick={() => void set(null)}>
+        <Button variant="danger" onClick={() => void set(null)} disabled={busy}>
           Remove model
         </Button>
       </div>

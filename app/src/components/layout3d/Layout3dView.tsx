@@ -42,7 +42,7 @@ import { useApp } from "../../state/store";
 import { type CameraAction, loadShowView, saveShowView, useView3d } from "../../state/view3d";
 import { type LayoutCanvasHandle, SelectionAnnouncer } from "../layout/LayoutCanvas";
 import { type PhotoImage, useLiveFrame } from "../layout/useLayoutData";
-import { type Scene3d, type SceneFactory, loadThreeScene } from "./scene";
+import { type Scene3d, type SceneFactory, loadThreeScene, readModel } from "./scene";
 import { View3dControls } from "./View3dControls";
 
 /** How close (screen pixels) a click must be to a pixel to pick its prop. */
@@ -372,16 +372,18 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
     let cancelled = false;
     modelBox.current = null;
     setModelProblem(null);
+    const forget = () => useView3d.setState({ loadedModel: null });
     if (!modelPath || !backend) {
       void scene.setModel(null).then(invalidate);
-      return;
+      return forget;
     }
     void (async () => {
       try {
-        const bytes = await backend.readHouseModel(modelPath);
+        const bytes = await readModel(backend, modelPath);
         if (cancelled) return;
-        await scene.setModel({ bytes, name: modelPath });
+        const natural = await scene.setModel({ bytes, name: modelPath });
         if (cancelled) return;
+        useView3d.setState({ loadedModel: natural ? { path: modelPath, natural } : null });
         placeModel();
         invalidate();
       } catch (e) {
@@ -390,6 +392,7 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
     })();
     return () => {
       cancelled = true;
+      forget();
     };
   }, [ready, modelPath, backend, invalidate]);
   useEffect(() => {

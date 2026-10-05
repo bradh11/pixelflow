@@ -3,6 +3,7 @@
 // to draw, so the view's behavior is tested without WebGL. The real one is three.js
 // (threeScene.ts), loaded only when a 3D view first opens.
 
+import type { Backend } from "../../api/backend";
 import type { Size } from "../../lib/layoutMath";
 import type { Box3, GizmoHandle, Orbit, Ray, V3 } from "../../lib/layout3d";
 
@@ -47,10 +48,22 @@ export interface Scene3d {
 /** Makes the renderer for a canvas. */
 export type SceneFactory = (canvas: HTMLCanvasElement) => Promise<Scene3d>;
 
+/** A model file just read to measure it, kept for the 3D view so it isn't read again. */
+let handedOver: { path: string; bytes: Uint8Array } | null = null;
+
 /** The box around the model in a file, as the file has it (loads three.js if needed). */
-export async function measureModel(bytes: Uint8Array, name: string): Promise<Box3 | null> {
+export async function measureModel(bytes: Uint8Array, path: string): Promise<Box3 | null> {
   const three = await import("./threeScene");
-  return three.measureModel(bytes, name);
+  const box = await three.measureModel(bytes, path);
+  handedOver = { path, bytes };
+  return box;
+}
+
+/** The house model file's bytes: the ones just measured if they're this file's, otherwise read now. */
+export async function readModel(backend: Pick<Backend, "readHouseModel">, path: string): Promise<Uint8Array> {
+  const kept = handedOver;
+  handedOver = null;
+  return kept?.path === path ? kept.bytes : backend.readHouseModel(path);
 }
 
 /** The three.js renderer, loaded the first time it's needed (it's large, and 2D-only users never need it). */

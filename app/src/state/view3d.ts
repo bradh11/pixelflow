@@ -3,7 +3,7 @@
 // each show file instead.
 
 import { create } from "zustand";
-import { type Orbit, type Preset, parseOrbit } from "../lib/layout3d";
+import { type Box3, type Orbit, type Preset, parseOrbit } from "../lib/layout3d";
 
 export type LayoutMode = "2d" | "3d";
 
@@ -26,6 +26,8 @@ interface View3dState {
   photoDepth: number;
   /** The show's settings last moved to a new key because it was saved under a new name. */
   carried: { from: string; to: string } | null;
+  /** The house model the 3D view has loaded, and its box as its file has it. */
+  loadedModel: { path: string; natural: Box3 } | null;
 
   setMode(mode: LayoutMode): void;
   setPlayMode(mode: LayoutMode): void;
@@ -110,6 +112,7 @@ export const useView3d = create<View3dState>((set, get) => ({
   showKey: null,
   photoDepth: DEFAULT_PHOTO_DEPTH,
   carried: null,
+  loadedModel: null,
 
   setMode(mode) {
     write(MODE_KEY, mode);

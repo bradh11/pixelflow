@@ -54,6 +54,8 @@ export interface Backend {
   playbackStatus(): Promise<PlaybackStatus | null>;
   /** The props' current colors (show frame bytes); empty when nothing is playing or testing. */
   liveFrame(): Promise<Uint8Array>;
+  /** The playing sequence's current frame (every channel, as sent); empty when nothing plays. */
+  sequenceFrame(): Promise<Uint8Array>;
   /** Every prop's pixel positions for the 2D preview. */
   previewProps(): Promise<PreviewProp[]>;
   /** Shows a native "open sequence" dialog; null when cancelled. */

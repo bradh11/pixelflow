@@ -34,6 +34,7 @@ export const tauriBackend: Backend = {
   stopPlayback: () => invoke("stop_playback"),
   playbackStatus: () => invoke("playback_status"),
   liveFrame: async () => new Uint8Array(await invoke<ArrayBuffer>("live_frame")),
+  sequenceFrame: async () => new Uint8Array(await invoke<ArrayBuffer>("sequence_frame")),
   previewProps: () => invoke("preview_props"),
   pickSequencePath: async () => {
     const path = await open({ multiple: false, directory: false, filters: SEQUENCE_FILTER });

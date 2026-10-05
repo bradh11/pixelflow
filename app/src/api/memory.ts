@@ -305,6 +305,16 @@ export class MemoryBackend implements Backend {
     return frame;
   }
 
+  /** Channels for every controller's sequence block: a slow color wash while something plays. */
+  async sequenceFrame() {
+    const status = this.playbackNow();
+    const end = Math.max(0, ...this.show.controllers.map((c) => (c.sequenceChannels ? c.sequenceChannels.start - 1 + c.sequenceChannels.count : 0)));
+    const frame = new Uint8Array(status && status.state !== "ended" ? end : 0);
+    const t = (status?.positionMs ?? 0) / 1000;
+    for (let i = 0; i < frame.length; i++) frame[i] = Math.round(127 + 127 * Math.sin(t * 2 + i / 40 + (i % 3) * 2));
+    return frame;
+  }
+
   /** Each prop as a row of pixels (the engine computes real shapes). */
   async previewProps() {
     let offset = 0;

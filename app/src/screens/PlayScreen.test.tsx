@@ -41,6 +41,8 @@ describe("play", () => {
     expect(within(transport).getByText(/\/ 1:00$/)).toBeInTheDocument();
     expect(within(transport).getByRole("slider", { name: "Position" })).toBeInTheDocument();
 
+    expect(screen.getByLabelText(/^Falcon: 2,049 pixels as received/)).toBeInTheDocument();
+
     await user.click(within(transport).getByRole("button", { name: "Pause" }));
     expect(await within(transport).findByRole("button", { name: "Play" })).toBeInTheDocument();
     await user.click(within(transport).getByRole("button", { name: "Stop" }));

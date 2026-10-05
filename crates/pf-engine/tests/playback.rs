@@ -131,6 +131,10 @@ fn pause_seek_and_preview() {
     engine.set_playback_paused(true).unwrap();
     engine.seek_playback(200).unwrap();
     wait_until(|| engine.live_frame().unwrap() == vec![value(8); 30]);
+    assert_eq!(
+        engine.sequence_frame().unwrap(),
+        vec![value(8); CHANNELS as usize]
+    );
     let status = engine.playback_status().unwrap();
     assert_eq!((status.state, status.position_ms), ("paused", 200));
     wait_until(|| packets(&recorded).last().unwrap()[10] == value(8));

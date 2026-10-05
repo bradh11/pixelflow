@@ -2,9 +2,10 @@ import { AlertTriangle, FolderOpen, Pause, Play, RotateCcw, Square } from "lucid
 import { useCallback, useEffect, useState } from "react";
 import { errorMessage } from "../api/backend";
 import type { PlaybackStatus, PlayerStatus, PreviewProp } from "../api/types";
+import { ChannelGrid } from "../components/ChannelGrid";
 import { PreviewCanvas } from "../components/PreviewCanvas";
 import { Button, EmptyState, PageHeader } from "../components/ui";
-import { clock, fileName } from "../lib/format";
+import { clock, fileName, thousands } from "../lib/format";
 import { useApp } from "../state/store";
 
 /** How often playback state and the preview refresh. */
@@ -64,6 +65,11 @@ export function PlayScreen() {
   const [scrub, setScrub] = useState<number | null>(null);
   const busyFpps = useBusyFpps();
   const known = snapshot?.show.controllers.some((c) => c.sequenceChannels) ?? false;
+  // Controllers that get sequence data but have no strings in PixelFlow yet: shown as raw grids.
+  const unwired = (snapshot?.show.controllers ?? []).filter(
+    (c) => c.sequenceChannels && !c.ports.some((p) => p.slots.length > 0),
+  );
+  const [raw, setRaw] = useState<Uint8Array | null>(null);
 
   const run = useCallback(
     async (action: () => Promise<PlaybackStatus | null | void>) => {
@@ -124,6 +130,33 @@ export function PlayScreen() {
       clearInterval(timer);
     };
   }, [backend, active]);
+
+  const wantRaw = active && unwired.length > 0;
+  useEffect(() => {
+    if (!backend || !wantRaw) {
+      setRaw(null);
+      return;
+    }
+    let cancelled = false;
+    let pending = false;
+    const timer = setInterval(() => {
+      if (pending) return;
+      pending = true;
+      backend.sequenceFrame().then(
+        (f) => {
+          pending = false;
+          if (!cancelled) setRaw(f.length ? f : null);
+        },
+        () => {
+          pending = false;
+        },
+      );
+    }, FRAME_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [backend, wantRaw]);
 
   const open = async () => {
     if (!backend) return;
@@ -247,16 +280,23 @@ export function PlayScreen() {
         </section>
       )}
 
-      {(status || props.length > 0) && (
+      {status && unwired.length > 0 && (
+        <div className="mb-4 flex flex-col gap-3">
+          {unwired.map((c) => (
+            <ChannelGrid
+              key={c.id}
+              frame={raw}
+              start={c.sequenceChannels!.start}
+              count={c.sequenceChannels!.count}
+              label={`${c.name}: ${thousands(Math.ceil(c.sequenceChannels!.count / 3))} pixels as received (import its strings to see them on your props)`}
+            />
+          ))}
+        </div>
+      )}
+
+      {props.length > 0 && (status || known) && (
         <div className="min-h-64 flex-1">
-          {props.length > 0 ? (
-            <PreviewCanvas props={props} frame={frame} />
-          ) : (
-            <EmptyState title="Nothing to preview yet">
-              The sequence is playing on your controllers. Import a controller's strings (or your xLights layout) to see it
-              here too.
-            </EmptyState>
-          )}
+          <PreviewCanvas props={props} frame={frame} />
         </div>
       )}
     </div>

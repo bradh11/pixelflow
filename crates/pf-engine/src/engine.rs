@@ -351,6 +351,11 @@ impl Engine {
             .collect()
     }
 
+    /// The playing sequence's current frame: every channel, as sent to the controllers.
+    pub fn sequence_frame(&self) -> Option<Vec<u8>> {
+        self.playback.as_ref().map(PlaybackSession::sequence_frame)
+    }
+
     fn history_dir(&self) -> PathBuf {
         persist::history_dir(&self.data_dir, self.path.as_deref())
     }

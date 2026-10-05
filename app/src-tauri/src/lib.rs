@@ -135,6 +135,7 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         playback::stop_playback,
         playback::playback_status,
         playback::live_frame,
+        playback::sequence_frame,
         playback::preview_props,
     ])
 }

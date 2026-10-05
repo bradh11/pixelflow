@@ -144,6 +144,8 @@ pub(crate) struct PlaybackSession {
     player: Option<JoinHandle<()>>,
     handle: Option<OutputHandle>,
     preview: Arc<Mutex<Vec<u8>>>,
+    /// The current sequence frame, as sent.
+    raw: Arc<Mutex<Vec<u8>>>,
 }
 
 impl PlaybackSession {
@@ -183,6 +185,7 @@ impl PlaybackSession {
                 .map_err(|e| EngineError::Playback(e.to_string()))?;
             paint_preview(show, map, writer.frame_mut(), &mut preview_frame);
         }
+        let raw = Arc::new(Mutex::new(writer.frame_mut().to_vec()));
         writer.publish();
         let preview = Arc::new(Mutex::new(preview_frame));
         let handle = pf_output::start_output(plan, settings, reader, transport);
@@ -194,6 +197,7 @@ impl PlaybackSession {
         let stop = Arc::new(AtomicBool::new(false));
         let player = {
             let (control, stop, preview) = (Arc::clone(&control), Arc::clone(&stop), Arc::clone(&preview));
+            let raw = Arc::clone(&raw);
             let control_for_reads = Arc::clone(&control);
             let (show, map) = (show.clone(), map.clone());
             let step = Duration::from_millis(u64::from(header.step_ms));
@@ -217,6 +221,9 @@ impl PlaybackSession {
                             writer.frame_mut(),
                             &mut preview.lock().unwrap_or_else(PoisonError::into_inner),
                         );
+                        raw.lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .copy_from_slice(writer.frame_mut());
                         writer.publish();
                         lock(&control_for_reads).frame = frame;
                         true
@@ -255,6 +262,7 @@ impl PlaybackSession {
                                 writer.frame_mut().fill(0);
                                 writer.publish();
                                 preview.lock().unwrap_or_else(PoisonError::into_inner).fill(0);
+                                raw.lock().unwrap_or_else(PoisonError::into_inner).fill(0);
                                 lock(&control).ended = true;
                             }
                             std::thread::sleep(POLL);
@@ -283,6 +291,7 @@ impl PlaybackSession {
             player: Some(player),
             handle: Some(handle),
             preview,
+            raw,
         })
     }
 
@@ -326,6 +335,11 @@ impl PlaybackSession {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
+    }
+
+    /// The current sequence frame (every channel of the sequence, as sent to the controllers).
+    pub fn sequence_frame(&self) -> Vec<u8> {
+        self.raw.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 
     /// Stops the player, then stops output (which blacks out the controllers).

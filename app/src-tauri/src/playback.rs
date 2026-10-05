@@ -51,6 +51,12 @@ pub(crate) async fn live_frame(state: State<'_, AppState>) -> Reply<Response> {
     Ok(Response::new(state.engine().live_frame().unwrap_or_default()))
 }
 
+/// The playing sequence's current frame (every channel, as sent), raw; empty when nothing plays.
+#[tauri::command]
+pub(crate) async fn sequence_frame(state: State<'_, AppState>) -> Reply<Response> {
+    Ok(Response::new(state.engine().sequence_frame().unwrap_or_default()))
+}
+
 /// Every prop's pixel positions for the 2D preview.
 #[tauri::command]
 pub(crate) async fn preview_props(state: State<'_, AppState>) -> Reply<Vec<PreviewProp>> {

@@ -191,3 +191,33 @@ fn preview_props_place_every_pixel() {
         "a line runs left to right: {xs:?}"
     );
 }
+
+/// Set `PIXELFLOW_FSEQ=/path/to/show.fseq` to play a real sequence for a second (to loopback only).
+#[test]
+fn real_sequence_plays_when_provided() {
+    let Ok(path) = std::env::var("PIXELFLOW_FSEQ") else {
+        return;
+    };
+    let (mut engine, recorded, _dir) = engine_with_show(false);
+    let mut controller = engine.show().controllers[0].clone();
+    controller.sequence_channels = Some(SequenceChannels {
+        start: 1,
+        count: 6147,
+    });
+    engine.apply(vec![Edit::UpdateController { controller }]).unwrap();
+    let status = engine.start_playback(Path::new(&path), 60_000).unwrap();
+    eprintln!("{status:?}");
+    std::thread::sleep(Duration::from_secs(1));
+    let sent = packets(&recorded);
+    let lit = sent.iter().filter(|p| p[10..].iter().any(|&b| b != 0)).count();
+    eprintln!(
+        "{} packets in 1 s, {lit} with light; position {} ms",
+        sent.len(),
+        engine.playback_status().unwrap().position_ms
+    );
+    assert!(lit > 0);
+    assert!(
+        engine.live_frame().unwrap().iter().any(|&b| b != 0),
+        "the strip shows light"
+    );
+}

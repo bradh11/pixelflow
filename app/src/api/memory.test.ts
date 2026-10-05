@@ -31,6 +31,20 @@ describe("MemoryBackend", () => {
     expect(snap.show.groups[0].members).toEqual([]);
   });
 
+  it("maps wired props onto controller channels and universes", async () => {
+    const backend = new MemoryBackend();
+    const prop = newProp("arch", backend.show);
+    const controller = newController("C", "10.0.0.1", "sacn", 1);
+    controller.ports[0].slots.push({ prop: prop.id, segment: null, nullPixels: 0, reverse: false, brightness: null, gamma: null, smartReceiver: null });
+    const snap = await backend.applyEdits([
+      { type: "addProp", prop },
+      { type: "addController", controller },
+    ]);
+    expect(snap.channelMap.controllers[0]).toMatchObject({ controller: controller.id, channelCount: 150 });
+    expect(snap.channelMap.controllers[0].spans[0]).toMatchObject({ prop: prop.id, port: 1, controllerChannel: 0, pixels: 50 });
+    expect(snap.summary.universes).toBe(1);
+  });
+
   it("rejects duplicate and unknown ids without changing the show", async () => {
     const backend = new MemoryBackend();
     const prop = newProp("arch", backend.show);

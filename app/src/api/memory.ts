@@ -20,11 +20,13 @@ import type {
   TargetSpec,
 } from "./types";
 import { deepView, frontView } from "../lib/geometry";
+import { mapControllers } from "./memoryMapping";
 import { channelsPerPixel, newController, nodeCount } from "../lib/shows";
 
 /**
  * An in-memory stand-in for the engine, used by tests and when the UI runs in a plain
- * browser. It applies edits and undo/redo like the engine but does not validate wiring.
+ * browser. It applies edits and undo/redo like the engine, and maps channels much like it
+ * (see memoryMapping.ts), but does not validate wiring.
  */
 export class MemoryBackend implements Backend {
   show: Show;
@@ -535,7 +537,7 @@ export class MemoryBackend implements Backend {
   }
 
   private snapshot(): ShowSnapshot {
-    const channelMap = layoutOnly(this.show);
+    const channelMap = { ...layoutOnly(this.show), controllers: mapControllers(this.show) };
     return {
       revision: this.revision,
       path: this.path,
@@ -549,7 +551,7 @@ export class MemoryBackend implements Backend {
         props: this.show.props.length,
         pixels: channelMap.props.reduce((sum, p) => sum + p.nodes, 0),
         controllers: this.show.controllers.length,
-        universes: 0,
+        universes: channelMap.controllers.reduce((sum, c) => sum + (c.addressing.type === "sacn" ? c.addressing.universes.length : 0), 0),
       },
     };
   }

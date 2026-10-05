@@ -92,6 +92,24 @@ fn v6_to_v7(mut doc: Value) -> Result<Value, ModelError> {
     Ok(doc)
 }
 
+/// Development builds of schema 7 (never released) kept a group's submodels in a separate
+/// `submodels` list, drawn after the whole props. Group members are now one ordered list, so
+/// those submodels join the end of `members`, keeping the order they were drawn in.
+fn join_group_submodels(doc: &mut Value) {
+    let Some(groups) = doc.get_mut("groups").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for group in groups.iter_mut().filter_map(Value::as_object_mut) {
+        let Some(Value::Array(submodels)) = group.remove("submodels") else {
+            continue;
+        };
+        let members = group.entry("members").or_insert_with(|| Value::Array(Vec::new()));
+        if let Some(members) = members.as_array_mut() {
+            members.extend(submodels);
+        }
+    }
+}
+
 const _: () = assert!(
     MIGRATIONS.len() + 1 == CURRENT_SCHEMA_VERSION as usize,
     "every schema version bump needs a migration"
@@ -114,6 +132,7 @@ pub fn show_from_json(text: &str) -> Result<Show, ModelError> {
     for migrate in &MIGRATIONS[(version - 1) as usize..] {
         doc = migrate(doc)?;
     }
+    join_group_submodels(&mut doc);
     doc["schemaVersion"] = Value::from(CURRENT_SCHEMA_VERSION);
     let show: Show = serde_json::from_value(doc)?;
     if let Some(problem) = limits::check_limits(&show).into_iter().next() {
@@ -312,8 +331,15 @@ mod tests {
     }
 
     #[test]
-    fn groups_keep_their_submodel_members() {
+    fn groups_keep_props_and_submodels_in_one_ordered_list() {
         let mut show = sample_show();
+        show.props.push(Prop::new(
+            "Other",
+            ShapeSource::Generator(Generator::Line {
+                nodes: 5,
+                length: 1.0,
+            }),
+        ));
         let prop = &mut show.props[0];
         let region = crate::Region::nodes("Left", vec![vec![Some(crate::NodeRun::new(0, 9))]]);
         let member = crate::RegionRef {
@@ -321,15 +347,62 @@ mod tests {
             region: region.id,
         };
         prop.regions.push(region);
-        let mut group = crate::Group::new("Halves");
-        group.submodels.push(member);
+        let (arch, other) = (show.props[0].id, show.props[1].id);
+        let mut group = crate::Group::new("Mixed");
+        group.members = vec![arch.into(), member.into(), other.into()];
         show.groups.push(group);
         let text = show_to_json(&show).unwrap();
-        assert!(text.contains("\"submodels\""), "{text}");
+        let saved: Value = serde_json::from_str(&text).unwrap();
+        // A whole prop is its id, as before; a submodel names its prop and region.
+        assert_eq!(saved["groups"][0]["members"][0], arch.to_string());
+        assert_eq!(
+            saved["groups"][0]["members"][1]["region"],
+            member.region.to_string()
+        );
+        assert_eq!(saved["groups"][0]["members"][2], other.to_string());
+        assert!(!text.contains("\"submodels\""), "{text}");
         assert_eq!(show_from_json(&text).unwrap(), show);
-        // No submodels, nothing written.
-        show.groups[0].submodels.clear();
-        assert!(!show_to_json(&show).unwrap().contains("\"submodels\""));
+    }
+
+    #[test]
+    fn version_6_group_members_read_as_props() {
+        let v6 = r#"{ "schemaVersion": 6, "name": "Old",
+            "groups": [ { "id": "44444444-0000-4000-8000-000000000001", "name": "G",
+              "members": [ "55555555-0000-4000-8000-000000000001", "55555555-0000-4000-8000-000000000002" ] } ] }"#;
+        let show = show_from_json(v6).unwrap();
+        let ids: Vec<String> = show.groups[0]
+            .members
+            .iter()
+            .map(|m| match m {
+                crate::GroupMember::Prop(id) => id.to_string(),
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            ids,
+            [
+                "55555555-0000-4000-8000-000000000001",
+                "55555555-0000-4000-8000-000000000002"
+            ]
+        );
+    }
+
+    /// Development builds of schema 7 kept submodel members in a separate `submodels` list;
+    /// those files still read, with the submodels after the whole props as they were drawn.
+    #[test]
+    fn early_version_7_submodel_lists_join_the_members() {
+        let text = r#"{ "schemaVersion": 7, "name": "Dev",
+            "groups": [ { "id": "44444444-0000-4000-8000-000000000001", "name": "G",
+              "members": [ "55555555-0000-4000-8000-000000000001" ],
+              "submodels": [ { "prop": "55555555-0000-4000-8000-000000000002",
+                               "region": "66666666-0000-4000-8000-000000000001" } ] } ] }"#;
+        let show = show_from_json(text).unwrap();
+        let members = &show.groups[0].members;
+        assert_eq!(members.len(), 2);
+        assert!(matches!(members[0], crate::GroupMember::Prop(_)));
+        assert!(
+            matches!(members[1], crate::GroupMember::Region(r) if r.region.to_string() == "66666666-0000-4000-8000-000000000001")
+        );
     }
 
     #[test]

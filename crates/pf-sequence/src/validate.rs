@@ -60,13 +60,7 @@ fn faces_problem(seq: &Sequence, show: &Show, target: Target, p: &FacesParams) -
             .groups
             .iter()
             .find(|g| g.id == id)
-            .map(|g| {
-                g.members
-                    .iter()
-                    .chain(g.submodels.iter().map(|s| &s.prop))
-                    .filter_map(|id| show.prop(*id))
-                    .collect()
-            })
+            .map(|g| g.props().into_iter().filter_map(|id| show.prop(id)).collect())
             .unwrap_or_default(),
     };
     if props.is_empty() {
@@ -281,7 +275,7 @@ mod tests {
         ));
         show.props.push(prop.clone());
         let mut group = Group::new("Yard");
-        group.members.push(prop.id);
+        group.members.push(prop.id.into());
         show.groups.push(group);
         (show, prop)
     }

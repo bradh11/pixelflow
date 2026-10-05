@@ -1,7 +1,7 @@
 //! Importing a small but complete xLights show folder end to end.
 
 use pf_model::{
-    BufferStyle, ColorOrder, LineLayout, NodeRange, NodeRun, Phoneme, Protocol, RegionKind, RegionRef, Rgb,
+    BufferStyle, ColorOrder, GroupMember, LineLayout, NodeRange, NodeRun, Phoneme, Protocol, RegionKind, Rgb,
     SequenceChannels, ShapeSource,
 };
 use pf_xlights::{ImportSummary, import_folder};
@@ -57,15 +57,27 @@ fn imports_props_controllers_and_groups() {
     assert_eq!(arches.color_order, ColorOrder::Grb);
     assert!(matches!(arches.shape, ShapeSource::Measured { .. }));
     let everything = show.groups.iter().find(|g| g.name == "Everything").unwrap();
-    assert_eq!(everything.members.len(), 4, "nested group flattened");
-    let star = show.props.iter().find(|p| p.name == "Porch Star").unwrap();
+    // The nested group is flattened in place, and the submodel keeps its spot in the list.
+    let names: Vec<String> = everything
+        .members
+        .iter()
+        .map(|m| {
+            let prop = show.prop(m.prop()).unwrap();
+            match m {
+                GroupMember::Prop(_) => prop.name.clone(),
+                GroupMember::Region(r) => format!("{}/{}", prop.name, prop.region(r.region).unwrap().name),
+            }
+        })
+        .collect();
     assert_eq!(
-        everything.submodels,
-        vec![RegionRef {
-            prop: star.id,
-            region: star.regions[0].id,
-        }],
-        "the submodel member is kept"
+        names,
+        [
+            "Roofline",
+            "Arches",
+            "Porch Star/Center",
+            "Mega Tree",
+            "Window Matrix"
+        ]
     );
 }
 

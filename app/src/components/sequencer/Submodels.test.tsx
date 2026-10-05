@@ -7,7 +7,8 @@ import { DEMO_SEQUENCE_PATH, demoSequence } from "../../api/demoSequence";
 import { MemoryBackend } from "../../api/memory";
 import { renderSequenceFrame } from "../../api/memoryRender";
 import { MemorySequencer } from "../../api/memorySequencer";
-import { newEffect } from "../../api/sequence";
+import { newEffect, newRow } from "../../api/sequence";
+import type { Show } from "../../api/types";
 import { channelsPerPixel, nodeCount } from "../../lib/shows";
 import { useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
@@ -30,8 +31,9 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function openScreen({ singing = false } = {}) {
+async function openScreen({ singing = false, prepare = (_show: Show) => {} } = {}) {
   const show = demoShow();
+  prepare(show);
   const backend = new MemoryBackend(show);
   const seq = new MemorySequencer(backend);
   seq.files.set(DEMO_SEQUENCE_PATH, demoSequence(show, 60_000, { singing }));
@@ -97,6 +99,26 @@ describe("submodels in sequences", () => {
     expect(within(panel).getByText(/turned into mouth shapes letter by letter/)).toBeInTheDocument();
     await user.selectOptions(within(panel).getByRole("combobox", { name: "Eyes" }), "closed");
     await waitFor(() => expect(seq.doc!.rows.flatMap((r) => r.layers.flatMap((l) => l.effects)).find((e) => e.id === faces.id)!.params).toMatchObject({ eyes: "closed" }));
+  });
+
+  it("a Faces effect on a group offers the faces of its submodel members' props", async () => {
+    const group = { id: crypto.randomUUID(), name: "Windows", members: [] as Show["groups"][number]["members"] };
+    const { show } = await openScreen({
+      prepare: (show) => {
+        const matrix = show.props.find((p) => p.name === "Window Matrix")!;
+        group.members = [{ prop: matrix.id, region: matrix.regions[0].id }];
+        show.groups.push(group);
+      },
+    });
+    expect(show.groups.at(-1)!.name).toBe("Windows");
+    const row = newRow({ group: group.id });
+    const effect = newEffect("faces", 59_000, 59_500);
+    row.layers[0].effects.push(effect);
+    await act(() => useSequencer.getState().edit([{ type: "addRow", row }]));
+    act(() => useSequencer.getState().select([effect.id]));
+    const panel = screen.getByRole("complementary", { name: "Effect settings" });
+    const face = within(panel).getByRole("combobox", { name: "Face" });
+    expect(within(face).getAllByRole("option").map((o) => o.textContent)).toContain("Singer");
   });
 
   it("warns when the row's prop has no face", async () => {

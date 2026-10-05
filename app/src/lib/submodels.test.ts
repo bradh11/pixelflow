@@ -101,14 +101,23 @@ describe("names", () => {
     expect(targetKey({ prop: prop.id })).toBe(prop.id);
   });
 
-  it("a group's submodels light only their pixels", () => {
-    const prop = arch([lines([[{ first: 0, last: 2 }]])]);
+  it("a group's members light in their listed order, submodels mixed in", () => {
+    const prop = arch([lines([[{ first: 0, last: 2 }]]), { ...lines([[{ first: 4, last: 5 }]]), id: "r2" }]);
     const other = { ...arch(), id: "b" };
-    const show = { ...emptyShow("x"), props: [prop, other], groups: [{ id: "g", name: "G", members: ["b"], submodels: [{ prop: prop.id, region: "r1" }] }] };
+    const members = [{ prop: prop.id, region: "r1" }, "b", { prop: prop.id, region: "r2" }, { prop: prop.id, region: "r1" }];
+    const show = { ...emptyShow("x"), props: [prop, other], groups: [{ id: "g", name: "G", members }] };
     const lit = targetNodes(show, { group: "g" }, () => 50, () => []);
-    expect([...lit]).toEqual([
-      ["b", "all"],
-      [prop.id, [0, 1, 2]],
+    expect(lit).toEqual([
+      { prop: prop.id, nodes: [0, 1, 2] },
+      { prop: "b", nodes: "all" },
+      { prop: prop.id, nodes: [4, 5] },
+    ]);
+    // A whole prop after one of its submodels adds only the pixels not already in.
+    show.groups[0].members = [{ prop: prop.id, region: "r1" }, prop.id];
+    const whole = targetNodes(show, { group: "g" }, () => 5, () => []);
+    expect(whole).toEqual([
+      { prop: prop.id, nodes: [0, 1, 2] },
+      { prop: prop.id, nodes: [3, 4] },
     ]);
   });
 });

@@ -40,7 +40,7 @@
   </models>
   <modelGroups type="rgb_effects">
     <modelGroup name="Outline" models="Roofline,Arches" layout="minimalGrid" GridSize="400" LayoutGroup="Default"/>
-    <modelGroup name="Everything" models="Outline,Mega Tree,Window Matrix,Porch Star/Center" layout="minimalGrid"/>
+    <modelGroup name="Everything" models="Outline,Porch Star/Center,Mega Tree,Window Matrix" layout="minimalGrid"/>
   </modelGroups>
   <settings>
     <previewWidth value="1280"/>

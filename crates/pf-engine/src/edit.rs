@@ -2,8 +2,8 @@
 
 use crate::error::EngineError;
 use pf_model::{
-    Background, Controller, ControllerId, Group, GroupId, HouseModel, Prop, PropId, SequenceEntry,
-    SequenceId, Show,
+    Background, Controller, ControllerId, Group, GroupId, GroupMember, HouseModel, Prop, PropId,
+    SequenceEntry, SequenceId, Show,
 };
 use serde::{Deserialize, Serialize};
 
@@ -88,9 +88,10 @@ impl Edit {
                 *find(&mut show.props, |p| p.id == prop.id, "prop")? = prop.clone();
                 // A deleted submodel leaves the groups it was in.
                 for group in &mut show.groups {
-                    group
-                        .submodels
-                        .retain(|m| m.prop != prop.id || prop.region(m.region).is_some());
+                    group.members.retain(|m| match m {
+                        GroupMember::Region(r) => r.prop != prop.id || prop.region(r.region).is_some(),
+                        GroupMember::Prop(_) => true,
+                    });
                 }
             }
             Edit::RemoveProp { id } => {
@@ -105,8 +106,7 @@ impl Edit {
                     }
                 }
                 for group in &mut show.groups {
-                    group.members.retain(|m| m != id);
-                    group.submodels.retain(|m| m.prop != *id);
+                    group.members.retain(|m| m.prop() != *id);
                 }
             }
             Edit::AddGroup { group } => {
@@ -222,12 +222,15 @@ mod tests {
         port.slots.push(PortSlot::new(a.id));
         controller.ports.push(port);
         let mut group = Group::new("G");
-        group.members.push(a.id);
+        group.members.push(a.id.into());
         let left = pf_model::Region::nodes("Left", vec![]);
-        group.submodels.push(pf_model::RegionRef {
-            prop: a.id,
-            region: left.id,
-        });
+        group.members.push(
+            pf_model::RegionRef {
+                prop: a.id,
+                region: left.id,
+            }
+            .into(),
+        );
         let mut a = a;
         a.regions.push(left);
         show.props.push(a.clone());
@@ -238,7 +241,6 @@ mod tests {
         assert!(show.props.is_empty());
         assert!(show.controllers[0].ports[0].slots.is_empty());
         assert!(show.groups[0].members.is_empty());
-        assert!(show.groups[0].submodels.is_empty());
     }
 
     #[test]
@@ -279,18 +281,20 @@ mod tests {
         let left = pf_model::Region::nodes("Left", vec![]);
         let right = pf_model::Region::nodes("Right", vec![]);
         let id = a.id;
-        let member = |r: &pf_model::Region| pf_model::RegionRef {
-            prop: id,
-            region: r.id,
+        let member = |r: &pf_model::Region| {
+            GroupMember::Region(pf_model::RegionRef {
+                prop: id,
+                region: r.id,
+            })
         };
         let mut group = Group::new("Halves");
-        group.submodels = vec![member(&left), member(&right)];
+        group.members = vec![member(&left), id.into(), member(&right)];
         a.regions = vec![left, right.clone()];
         show.props.push(a.clone());
         show.groups.push(group);
         a.regions.remove(0);
         Edit::UpdateProp { prop: a.clone() }.apply(&mut show).unwrap();
-        assert_eq!(show.groups[0].submodels, vec![member(&right)]);
+        assert_eq!(show.groups[0].members, vec![id.into(), member(&right)]);
     }
 
     #[test]

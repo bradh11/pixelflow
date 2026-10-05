@@ -191,10 +191,10 @@ export function renderSequenceFrame(doc: Sequence, show: Show, ms: number): Uint
   for (const row of doc.rows) {
     const active = row.layers.map((layer) => layer.effects.find((e) => e.startMs <= ms && ms < e.endMs) ?? null);
     if (active.every((e) => e === null)) continue;
-    // Each prop the row lights, with the nodes it lights (submodels light some of a prop's).
+    // The pixels the row lights, prop by prop in order along the target (submodels light some of a prop's).
     const lights = targetNodes(show, row.target, (prop) => layout.get(prop.id)?.nodes ?? 0, (prop) => layout.get(prop.id)?.points ?? []);
-    const props = [...lights]
-      .map(([id, nodes]) => {
+    const props = lights
+      .map(({ prop: id, nodes }) => {
         const p = layout.get(id);
         return p ? { ...p, list: nodes === "all" ? Array.from({ length: p.nodes }, (_, k) => k) : nodes } : undefined;
       })

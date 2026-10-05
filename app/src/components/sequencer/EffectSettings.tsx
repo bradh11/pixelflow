@@ -6,6 +6,7 @@ import { effectBounds, formatTime } from "../../lib/timelineMath";
 import { newGesture, useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
 import { Button } from "../ui";
+import { memberProp } from "../../lib/shows";
 import { facesOf, targetName, targetProp } from "../../lib/submodels";
 
 const BLENDS: { value: Blend; label: string; help: string }[] = [
@@ -199,7 +200,7 @@ function findEffect(
 
 /** The faces a Faces effect on `target` can use: the faces of the props it lights, by name. */
 function faceNames(show: Show | undefined, target: SequenceTarget): string[] {
-  const ids = "group" in target ? (show?.groups.find((g) => g.id === target.group)?.members ?? []) : [targetProp(target)];
+  const ids = "group" in target ? (show?.groups.find((g) => g.id === target.group)?.members ?? []).map(memberProp) : [targetProp(target)];
   const names = ids.flatMap((id) => {
     const prop = show?.props.find((p) => p.id === id);
     return prop ? facesOf(prop).map((r) => r.name) : [];

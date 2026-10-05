@@ -12,8 +12,9 @@ use crate::layout::XLayout;
 use crate::model::XmlModel;
 use crate::networks::{XController, XOutput};
 use pf_model::{
-    ColorOrder, Controller, Group, MAX_NULL_PIXELS, MAX_SHOW_PIXELS, NodeRange, Port, PortSlot, Prop, PropId,
-    Protocol, Provenance, RegionRef, SacnConfig, SequenceChannels, ShapeSource, Show, UniverseSize, Vec3,
+    ColorOrder, Controller, Group, GroupMember, MAX_NULL_PIXELS, MAX_SHOW_PIXELS, NodeRange, Port, PortSlot,
+    Prop, PropId, Protocol, Provenance, RegionRef, SacnConfig, SequenceChannels, ShapeSource, Show,
+    UniverseSize, Vec3,
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -513,23 +514,23 @@ fn build_show_within(
     let mut lost_submodels = Vec::new();
     let mut groups = Vec::new();
     for xgroup in &layout.groups {
-        let mut members = Vec::new();
-        let mut submodels = Vec::new();
+        // One ordered list, whole props and submodels mixed, as xLights lists them.
+        let mut members: Vec<GroupMember> = Vec::new();
         let mut stack: Vec<&str> = xgroup.members.iter().rev().map(String::as_str).collect();
         let mut visited = HashSet::new();
         let mut lost = false;
         while let Some(name) = stack.pop() {
             if let Some(&id) = prop_ids.get(name) {
-                if !members.contains(&id) {
-                    members.push(id);
+                if !members.contains(&GroupMember::Prop(id)) {
+                    members.push(GroupMember::Prop(id));
                 }
             } else if let Some(nested) = group_members.get(name) {
                 if visited.insert(name) {
                     stack.extend(nested.iter().rev().map(String::as_str));
                 }
             } else if let Some(member) = submodel(name) {
-                if !submodels.contains(&member) {
-                    submodels.push(member);
+                if !members.contains(&GroupMember::Region(member)) {
+                    members.push(GroupMember::Region(member));
                 }
             } else if name.contains('/') {
                 lost = true;
@@ -538,12 +539,11 @@ fn build_show_within(
         if lost {
             lost_submodels.push(xgroup.name.clone());
         }
-        if members.is_empty() && submodels.is_empty() {
+        if members.is_empty() {
             continue;
         }
         let mut group = Group::new(xgroup.name.clone());
         group.members = members;
-        group.submodels = submodels;
         groups.push(group);
     }
     show.groups = groups;
@@ -1237,9 +1237,42 @@ mod tests {
             "a group with nothing left isn't imported"
         );
         for group in &result.show.groups {
-            assert!(group.members.is_empty());
-            assert_eq!(group.submodels, vec![left]);
+            assert_eq!(group.members, vec![GroupMember::Region(left)]);
         }
+    }
+
+    #[test]
+    fn groups_keep_xlights_member_order_with_submodels_mixed_in() {
+        let sub = |name: &str, line: &str| -> crate::submodels::Attrs {
+            [("name", name), ("line0", line)]
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let mut arch = model("Arch", "1", 4, None);
+        arch.submodels = vec![sub("Left", "1-2"), sub("Right", "3-4")];
+        let tree = model("Tree", "13", 4, None);
+        let layout = XLayout {
+            models: vec![arch, tree],
+            groups: vec![XGroup {
+                name: "Across".into(),
+                members: vec!["Arch/Left".into(), "Tree".into(), "Arch/Right".into()],
+            }],
+        };
+        let result = build_show("t", &[falcon()], &layout, geometry);
+        let show = &result.show;
+        let arch = show.props.iter().find(|p| p.name == "Arch").unwrap();
+        let tree = show.props.iter().find(|p| p.name == "Tree").unwrap();
+        let part = |i: usize| {
+            GroupMember::Region(RegionRef {
+                prop: arch.id,
+                region: arch.regions[i].id,
+            })
+        };
+        assert_eq!(
+            show.groups[0].members,
+            vec![part(0), GroupMember::Prop(tree.id), part(1)]
+        );
     }
 
     #[test]

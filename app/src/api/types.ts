@@ -108,12 +108,14 @@ export interface Prop {
   tags: string[];
 }
 
+/** A group member: a whole prop (its id) or one of a prop's submodels. */
+export type GroupMember = Uuid | RegionRef;
+
+/** A named, ordered set of props and submodels; effects that run along the group follow this order. */
 export interface Group {
   id: Uuid;
   name: string;
-  members: Uuid[];
-  /** Submodels in the group, after the whole props. */
-  submodels?: RegionRef[];
+  members: GroupMember[];
 }
 
 export interface PortSlot {

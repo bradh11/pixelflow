@@ -3,6 +3,7 @@ import type { Sequence } from "../../api/sequence";
 import type { PreviewProp } from "../../api/types";
 import { backgroundBox, boxOfPoints, fitView, toScreen, unionBox } from "../../lib/layoutMath";
 import { batchPixels, drawBatches } from "../../lib/pixelBatches";
+import { memberProp } from "../../lib/shows";
 import { targetProp } from "../../lib/submodels";
 import { useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
@@ -97,7 +98,7 @@ export function SequencePreview({ doc }: { doc: Sequence }) {
     if (!row) return preview.props;
     const target = row.target;
     const group = "group" in target ? show?.groups.find((g) => g.id === target.group) : undefined;
-    const ids = new Set(group ? [...group.members, ...(group.submodels ?? []).map((s) => s.prop)] : [targetProp(target)]);
+    const ids = new Set(group ? group.members.map(memberProp) : [targetProp(target)]);
     return preview.props.filter((p) => ids.has(p.prop));
   }, [onlyRow, preview.props, doc.rows, activeRow, show?.groups]);
 

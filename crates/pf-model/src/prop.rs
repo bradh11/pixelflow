@@ -52,18 +52,48 @@ impl Prop {
     }
 }
 
-/// A named set of props and submodels.
+/// One member of a group: a whole prop, or one of a prop's submodels.
+///
+/// Serialized as the prop's id (a plain string, as every group member was before submodels)
+/// or as `{ "prop": …, "region": … }`, so older show files read unchanged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum GroupMember {
+    Prop(PropId),
+    Region(RegionRef),
+}
+
+impl GroupMember {
+    /// The prop this member is (or is part of).
+    pub fn prop(&self) -> PropId {
+        match self {
+            GroupMember::Prop(id) => *id,
+            GroupMember::Region(r) => r.prop,
+        }
+    }
+}
+
+impl From<PropId> for GroupMember {
+    fn from(id: PropId) -> Self {
+        GroupMember::Prop(id)
+    }
+}
+
+impl From<RegionRef> for GroupMember {
+    fn from(r: RegionRef) -> Self {
+        GroupMember::Region(r)
+    }
+}
+
+/// A named, ordered set of props and submodels. Order matters: effects that run along the
+/// group (a chase) count pixels member by member, as xLights does.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Group {
     pub id: GroupId,
     pub name: String,
     #[serde(default)]
-    pub members: Vec<PropId>,
-    /// Submodels in the group (an xLights group can list `Prop/Submodel`). They count after the
-    /// whole props in `members` when effects run along the group.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub submodels: Vec<RegionRef>,
+    pub members: Vec<GroupMember>,
 }
 
 impl Group {
@@ -72,8 +102,19 @@ impl Group {
             id: GroupId::new(),
             name: name.into(),
             members: Vec::new(),
-            submodels: Vec::new(),
         }
+    }
+
+    /// The props the group draws on (whole or in part), in member order, each once.
+    pub fn props(&self) -> Vec<PropId> {
+        let mut out: Vec<PropId> = Vec::new();
+        for m in &self.members {
+            let id = m.prop();
+            if !out.contains(&id) {
+                out.push(id);
+            }
+        }
+        out
     }
 }
 

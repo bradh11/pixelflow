@@ -192,23 +192,46 @@ export function targetName(show: Show | undefined, target: SequenceTarget): stri
   return prop && region ? `${prop.name} / ${region.name}` : "Missing submodel";
 }
 
-/** The pixels of each prop a target lights (whole props for a prop or group, the submodel's for a submodel row). */
-export function targetNodes(show: Show, target: SequenceTarget, count: (prop: Prop) => number, points: (prop: Prop) => ArrayLike<number>): Map<string, number[] | "all"> {
-  const out = new Map<string, number[] | "all">();
-  const addRegion = (propId: string, regionId: string) => {
+/** Some of the pixels a target lights: one prop's (all of them, or a list). */
+export interface TargetSegment {
+  prop: string;
+  nodes: number[] | "all";
+}
+
+/**
+ * The pixels a target lights, in order along the target: a whole prop, a submodel's pixels, or a
+ * group's members in their listed order (whole props and submodels mixed, as xLights lists them).
+ * A pixel already in the group keeps its first place.
+ */
+export function targetNodes(show: Show, target: SequenceTarget, count: (prop: Prop) => number, points: (prop: Prop) => ArrayLike<number>): TargetSegment[] {
+  const out: TargetSegment[] = [];
+  const seen = new Map<string, Set<number> | "all">();
+  const add = (propId: string, regionId: string | null) => {
     const prop = show.props.find((p) => p.id === propId);
-    const region = prop?.regions.find((r) => r.id === regionId);
-    if (!prop || !region || out.get(propId) === "all") return;
-    const before = out.get(propId);
-    const nodes = regionNodes(region, count(prop), points(prop));
-    out.set(propId, before && before !== "all" ? uniqueNodes([...before, ...nodes]) : nodes);
+    const before = seen.get(propId);
+    if (!prop || before === "all") return;
+    if (regionId === null) {
+      const nodes: number[] | "all" = before ? Array.from({ length: count(prop) }, (_, k) => k).filter((k) => !before.has(k)) : "all";
+      if (nodes === "all" || nodes.length > 0) out.push({ prop: propId, nodes });
+      seen.set(propId, "all");
+      return;
+    }
+    const region = prop.regions.find((r) => r.id === regionId);
+    if (!region) return;
+    const lit = before ?? new Set<number>();
+    const nodes = regionNodes(region, count(prop), points(prop)).filter((n) => !lit.has(n));
+    nodes.forEach((n) => lit.add(n));
+    seen.set(propId, lit);
+    if (nodes.length > 0) out.push({ prop: propId, nodes });
   };
-  if ("prop" in target) out.set(target.prop, "all");
-  else if ("region" in target) addRegion(target.region.prop, target.region.region);
+  if ("prop" in target) add(target.prop, null);
+  else if ("region" in target) add(target.region.prop, target.region.region);
   else {
     const group = show.groups.find((g) => g.id === target.group);
-    for (const id of group?.members ?? []) out.set(id, "all");
-    for (const member of group?.submodels ?? []) addRegion(member.prop, member.region);
+    for (const m of group?.members ?? []) {
+      if (typeof m === "string") add(m, null);
+      else add(m.prop, m.region);
+    }
   }
   return out;
 }

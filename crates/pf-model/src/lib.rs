@@ -28,7 +28,7 @@ pub use limits::{
     MAX_SHOW_PIXELS, MAX_STAR_POINTS,
 };
 pub use primitives::{ColorOrder, Transform, Vec3};
-pub use prop::{Group, Prop};
+pub use prop::{Group, GroupMember, Prop};
 pub use region::{
     BufferStyle, FaceColors, FaceDefinition, LineLayout, NodeRange, NodeRun, Phoneme, Region, RegionKind,
     RegionRef, SubmodelLine, format_line, parse_line,

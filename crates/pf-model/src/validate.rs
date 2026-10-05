@@ -1,8 +1,8 @@
 //! Structural checks: broken references, out-of-range values, duplicate ids.
 //! Wiring checks (capacity, universes) live in `pf-mapping`.
 
+use crate::{GroupMember, Prop, PropId};
 use crate::{Issue, IssueCode, Show, ValidationReport, limits};
-use crate::{Prop, PropId};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
@@ -176,8 +176,12 @@ fn check_regions(prop: &Prop, report: &mut ValidationReport) {
 fn check_groups(show: &Show, props: &HashMap<PropId, &Prop>, report: &mut ValidationReport) {
     for group in &show.groups {
         let lost = group
-            .submodels
+            .members
             .iter()
+            .filter_map(|m| match m {
+                GroupMember::Region(r) => Some(r),
+                GroupMember::Prop(_) => None,
+            })
             .filter(|m| props.get(&m.prop).and_then(|p| p.region(m.region)).is_none())
             .count();
         if lost > 0 {
@@ -197,7 +201,11 @@ fn check_groups(show: &Show, props: &HashMap<PropId, &Prop>, report: &mut Valida
                 .with_fix("Remove the missing submodels from the group."),
             );
         }
-        let missing = group.members.iter().filter(|id| !props.contains_key(*id)).count();
+        let missing = group
+            .members
+            .iter()
+            .filter(|m| matches!(m, GroupMember::Prop(id) if !props.contains_key(id)))
+            .count();
         if missing > 0 {
             report.push(
                 Issue::error(
@@ -367,15 +375,18 @@ mod tests {
             }),
             (IssueCode::UnknownPropReference, |s| {
                 let mut group = Group::new("Lost");
-                group.submodels.push(RegionRef {
-                    prop: s.props[0].id,
-                    region: RegionId::new(),
-                });
+                group.members.push(
+                    RegionRef {
+                        prop: s.props[0].id,
+                        region: RegionId::new(),
+                    }
+                    .into(),
+                );
                 s.groups.push(group);
             }),
             (IssueCode::UnknownPropReference, |s| {
                 let mut group = Group::new("Ghosts");
-                group.members.push(PropId::new());
+                group.members.push(PropId::new().into());
                 s.groups.push(group);
             }),
             (IssueCode::SegmentOutOfBounds, |s| {
@@ -478,7 +489,7 @@ mod tests {
         prop.regions.push(left);
         let mut show = show_with_slot(PortSlot::new(prop.id), prop);
         let mut group = Group::new("Halves");
-        group.submodels.push(member);
+        group.members.push(member.into());
         show.groups.push(group);
         assert_eq!(validate_show(&show).issues, vec![]);
     }
@@ -501,7 +512,9 @@ mod tests {
             let prop = line("A", 10);
             let mut show = show_with_slot(PortSlot::new(prop.id), prop);
             let mut group = Group::new("Ghosts");
-            group.members.extend((0..count).map(|_| PropId::new()));
+            group
+                .members
+                .extend((0..count).map(|_| GroupMember::Prop(PropId::new())));
             show.groups.push(group);
             let report = validate_show(&show);
             assert!(report.issues[0].message.contains(expected), "{:?}", report.issues);

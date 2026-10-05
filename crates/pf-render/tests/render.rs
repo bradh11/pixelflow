@@ -25,7 +25,7 @@ fn show() -> Show {
     b.color_order = ColorOrder::Grbw;
     show.props.push(b);
     let mut group = Group::new("Both");
-    group.members = vec![show.props[0].id, show.props[1].id];
+    group.members = vec![show.props[0].id.into(), show.props[1].id.into()];
     show.groups.push(group);
     show
 }
@@ -147,6 +147,59 @@ fn submodel_rows_light_only_their_pixels_and_follow_row_order() {
     seq.rows.swap(0, 1);
     let (a, _) = pixels(&render(&show, &seq, 0));
     assert_eq!(a, vec![[0, 0, 255]; 4]);
+}
+
+/// xLights keeps a group's members in the order listed, whole props and submodels mixed: a
+/// chase along [Left, Middle/Centre, Right] runs left, through the centre, then right.
+#[test]
+fn group_chases_follow_interleaved_member_order() {
+    let mut show = Show::new("t");
+    show.props.push(line("Left", 4, 0.0));
+    let mut middle = line("Middle", 4, 2.0);
+    let centre = pf_model::Region::nodes("Centre", vec![vec![Some(pf_model::NodeRun::new(1, 2))]]);
+    let centre_ref = pf_model::RegionRef {
+        prop: middle.id,
+        region: centre.id,
+    };
+    middle.regions.push(centre);
+    show.props.push(middle);
+    show.props.push(line("Right", 4, 4.0));
+    let mut group = Group::new("Across");
+    group.members = vec![
+        pf_model::GroupMember::Prop(show.props[0].id),
+        pf_model::GroupMember::Region(centre_ref),
+        pf_model::GroupMember::Prop(show.props[2].id),
+    ];
+    show.groups.push(group);
+    let mut seq = Sequence::new("s", 1000);
+    let chase = Effect::new(EffectKind::Chase, 0, 1000).with_params(EffectParams::Chase(ChaseParams {
+        width: 0.05,
+        ..ChaseParams::default()
+    }));
+    seq.rows
+        .push(row(Target::Group(show.groups[0].id), vec![vec![chase]]));
+    // Show-wide pixels in member order: Left 0-3, Middle's centre 5-6, Right 8-11.
+    let order = [0usize, 1, 2, 3, 5, 6, 8, 9, 10, 11];
+    let mut visited = Vec::new();
+    for t in (0..1000).step_by(25) {
+        let frame = render(&show, &seq, t);
+        let lit: Vec<usize> = (0..12).filter(|&p| frame[p * 3] > 0).collect();
+        assert!(
+            !lit.contains(&4) && !lit.contains(&7),
+            "only the centre of Middle is in the group: {lit:?}"
+        );
+        if let Some(&first) = lit.first() {
+            let at = order.iter().position(|&p| p == first).unwrap();
+            if visited.last() != Some(&at) {
+                visited.push(at);
+            }
+        }
+    }
+    assert!(
+        visited.windows(2).all(|w| w[0] < w[1]),
+        "the chase runs left, centre, right: {visited:?}"
+    );
+    assert!(visited.contains(&4) || visited.contains(&5), "{visited:?}");
 }
 
 /// A 12-pixel line with a face: mouths AI (pixels 0-1) and rest (2), eyes open (4-5) and
@@ -389,7 +442,7 @@ fn big_show(props: usize) -> Show {
             }),
         );
         prop.transform.position = Vec3::new((i % 10) as f32 * 2.5, (i / 10) as f32 * 1.5, 0.0);
-        group.members.push(prop.id);
+        group.members.push(prop.id.into());
         show.props.push(prop);
     }
     show.groups.push(group);

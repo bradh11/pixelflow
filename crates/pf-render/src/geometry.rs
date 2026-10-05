@@ -12,7 +12,7 @@
 //! fill 0–1 again.
 
 use pf_mapping::ChannelMap;
-use pf_model::{BufferStyle, GroupId, LineLayout, PropId, Region, RegionId, RegionKind, RegionRef, Show};
+use pf_model::{BufferStyle, GroupId, GroupMember, LineLayout, PropId, Region, RegionId, RegionKind, Show};
 use pf_sequence::Target;
 use std::collections::{HashMap, HashSet};
 
@@ -112,7 +112,7 @@ struct Point {
 pub struct SceneGeometry {
     pub(crate) props: Vec<PropGeometry>,
     index: HashMap<PropId, usize>,
-    groups: HashMap<GroupId, (Vec<PropId>, Vec<RegionRef>)>,
+    groups: HashMap<GroupId, Vec<GroupMember>>,
     pub(crate) pixel_count: usize,
     pub(crate) frame_len: usize,
 }
@@ -148,11 +148,7 @@ impl SceneGeometry {
             });
             first_pixel += nodes;
         }
-        let groups = show
-            .groups
-            .iter()
-            .map(|g| (g.id, (g.members.clone(), g.submodels.clone())))
-            .collect();
+        let groups = show.groups.iter().map(|g| (g.id, g.members.clone())).collect();
         Self {
             props,
             index,
@@ -176,7 +172,7 @@ impl SceneGeometry {
         self.index.get(&id).map(|&i| &self.props[i])
     }
 
-    /// The props a target draws on (a group's members, then its submodels' props), each once.
+    /// The props a target draws on (a group's members' props, in member order), each once.
     pub(crate) fn target_props(&self, target: Target) -> Vec<&PropGeometry> {
         let mut seen = HashSet::new();
         let ids: Vec<PropId> = match target {
@@ -184,13 +180,7 @@ impl SceneGeometry {
             Target::Group(id) => self
                 .groups
                 .get(&id)
-                .map(|(members, submodels)| {
-                    members
-                        .iter()
-                        .copied()
-                        .chain(submodels.iter().map(|s| s.prop))
-                        .collect()
-                })
+                .map(|members| members.iter().map(GroupMember::prop).collect())
                 .unwrap_or_default(),
         };
         ids.into_iter()
@@ -209,9 +199,11 @@ impl SceneGeometry {
                 None => PixelBuffer::empty(),
             },
             Target::Group(id) => {
-                let Some((members, submodels)) = self.groups.get(&id) else {
+                let Some(members) = self.groups.get(&id) else {
                     return PixelBuffer::empty();
                 };
+                // Members in order, whole props and submodels mixed, as xLights lists them; a
+                // pixel already in the group keeps its first place.
                 let mut seen = HashSet::new();
                 let mut points = Vec::new();
                 let mut add = |p: Point| {
@@ -219,19 +211,22 @@ impl SceneGeometry {
                         points.push(p);
                     }
                 };
-                for prop in members.iter().filter_map(|m| self.prop(*m)) {
-                    (0..prop.node_count()).for_each(|n| add(prop.point(n)));
-                }
-                for member in submodels {
-                    let Some(prop) = self.prop(member.prop) else {
+                for member in members {
+                    let Some(prop) = self.prop(member.prop()) else {
                         continue;
                     };
-                    let Some(region) = prop.region(member.region) else {
-                        continue;
-                    };
-                    region_nodes(prop, region)
-                        .into_iter()
-                        .for_each(|n| add(prop.point(n)));
+                    match member {
+                        GroupMember::Prop(_) => {
+                            (0..prop.node_count()).for_each(|n| add(prop.point(n)));
+                        }
+                        GroupMember::Region(r) => {
+                            if let Some(region) = prop.region(r.region) {
+                                region_nodes(prop, region)
+                                    .into_iter()
+                                    .for_each(|n| add(prop.point(n)));
+                            }
+                        }
+                    }
                 }
                 build_buffer(&points)
             }
@@ -480,7 +475,7 @@ fn resolution(count: usize, width: f32, height: f32, flat_x: bool, flat_y: bool)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pf_model::{Generator, Group, NodeRun, Prop, ShapeSource, Transform, Vec3};
+    use pf_model::{Generator, Group, NodeRun, Prop, RegionRef, ShapeSource, Transform, Vec3};
 
     fn line(name: &str, nodes: u32, x: f32) -> Prop {
         let mut prop = Prop::new(
@@ -534,7 +529,11 @@ mod tests {
         show.props.push(line("A", 3, 0.0));
         show.props.push(line("B", 3, 3.0));
         let mut group = Group::new("G");
-        group.members = vec![show.props[1].id, show.props[0].id, show.props[1].id];
+        group.members = vec![
+            show.props[1].id.into(),
+            show.props[0].id.into(),
+            show.props[1].id.into(),
+        ];
         let gid = group.id;
         show.groups.push(group);
         let geo = geometry(&show);
@@ -771,7 +770,7 @@ mod tests {
     }
 
     #[test]
-    fn groups_draw_their_submodels_once_after_whole_props() {
+    fn groups_draw_members_in_order_with_submodels_mixed_in() {
         let mut show = Show::new("t");
         let mut a = line("A", 4, 0.0);
         let left = Region::nodes("Left", vec![vec![run(0, 1)]]);
@@ -788,14 +787,15 @@ mod tests {
         };
         b.regions.push(right);
         let mut group = Group::new("G");
-        group.members = vec![a.id];
-        group.submodels = vec![
-            a_left,
-            b_right,
+        group.members = vec![
+            b_right.into(),
+            a.id.into(),
+            a_left.into(),
             RegionRef {
                 prop: b.id,
                 region: RegionId::new(),
-            },
+            }
+            .into(),
         ];
         let gid = group.id;
         show.props = vec![a, b];
@@ -804,8 +804,8 @@ mod tests {
         let buffer = geo.buffer(Target::Group(gid));
         assert_eq!(
             buffer.global,
-            vec![0, 1, 2, 3, 7, 6],
-            "A's left half is already in"
+            vec![7, 6, 0, 1, 2, 3],
+            "B's right half first, then A; A's left half is already in"
         );
         assert_eq!(geo.target_props(Target::Group(gid)).len(), 2);
         assert!(

@@ -265,6 +265,127 @@ pub(crate) async fn detect_beats(state: State<'_, AppState>) -> Reply<SequenceEd
     add_detected_tracks(&mut state.engine(), doc, &music, analysis.timing_tracks())
 }
 
+/// What importing a timing file did: the edit's reply, the tracks added (by name, as they were
+/// named in the sequence), and what didn't come across.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TimingImported {
+    pub result: SequenceEditResult,
+    pub tracks: Vec<String>,
+    pub notes: Vec<String>,
+}
+
+/// Imports the timing tracks in an xLights `.xtiming` file or an Audacity label file (`.txt`)
+/// into the open sequence, after its other tracks, as one undo step. The file is read without
+/// holding the engine; the tracks are only added if the same sequence is still open.
+#[tauri::command]
+pub(crate) async fn import_timing_file(state: State<'_, AppState>, path: PathBuf) -> Reply<TimingImported> {
+    let (doc, duration_ms) = {
+        let engine = state.engine();
+        let doc = engine
+            .sequence_doc_id()
+            .ok_or_else(|| EngineError::NoSequence.to_string())?;
+        let duration = engine.sequence_document().map_or(0, |s| s.duration_ms);
+        (doc, duration)
+    };
+    let import =
+        tauri::async_runtime::spawn_blocking(move || pf_xlights::read_timing_file(&path, duration_ms))
+            .await
+            .map_err(|_| "Something went wrong reading the timing file.".to_string())?
+            .map_err(|e| e.to_string())?;
+    add_imported_tracks(&mut state.engine(), doc, import)
+}
+
+/// Adds tracks read from a timing file, if the sequence `doc` is still the open one.
+pub(crate) fn add_imported_tracks(
+    engine: &mut Engine,
+    doc: u64,
+    import: pf_xlights::TimingFileImport,
+) -> Reply<TimingImported> {
+    if engine.sequence_doc_id() != Some(doc) {
+        return Err(
+            "Another sequence was opened while the timing file was being read. Import it again.".to_string(),
+        );
+    }
+    if import.tracks.is_empty() {
+        return Err("That file has no timing marks PixelFlow can use.".to_string());
+    }
+    let before = engine.sequence_document().map_or(0, |s| s.timing_tracks.len());
+    let result = engine.add_timing_tracks(import.tracks).map_err(message)?;
+    let tracks = engine
+        .sequence_document()
+        .map(|s| s.timing_tracks[before..].iter().map(|t| t.name.clone()).collect())
+        .unwrap_or_default();
+    Ok(TimingImported {
+        result,
+        tracks,
+        notes: import.notes,
+    })
+}
+
+/// The tracks an export of track `id` writes, as xLights layers: a lyrics track takes its words
+/// and phonemes tracks ("Name (words)", "Name (phonemes)") along into `.xtiming` files.
+pub(crate) fn export_layers(
+    seq: &pf_sequence::Sequence,
+    id: pf_sequence::TimingTrackId,
+) -> Option<Vec<TimingTrack>> {
+    let track = seq.timing_track(id)?;
+    let mut layers = vec![track.clone()];
+    if track.kind == pf_sequence::TimingKind::Lyrics {
+        for (suffix, kind) in [
+            ("words", pf_sequence::TimingKind::Words),
+            ("phonemes", pf_sequence::TimingKind::Phonemes),
+        ] {
+            let name = format!("{} ({suffix})", track.name);
+            match seq
+                .timing_tracks
+                .iter()
+                .find(|t| t.name == name && t.kind == kind)
+            {
+                Some(layer) => layers.push(layer.clone()),
+                None => break,
+            }
+        }
+    }
+    Some(layers)
+}
+
+/// Writes timing track `id` to `path`: an xLights `.xtiming` file (a lyrics track with its
+/// words and phonemes), or Audacity labels for any other extension (`.txt`). The track is copied
+/// out of the engine first; the file is written without holding it. Returns how many marks went.
+#[tauri::command]
+pub(crate) async fn export_timing_track(
+    state: State<'_, AppState>,
+    id: pf_sequence::TimingTrackId,
+    path: PathBuf,
+) -> Reply<usize> {
+    let layers = {
+        let engine = state.engine();
+        let seq = engine
+            .sequence_document()
+            .ok_or_else(|| EngineError::NoSequence.to_string())?;
+        export_layers(seq, id)
+            .ok_or_else(|| "That timing track isn't in the sequence anymore.".to_string())?
+    };
+    tauri::async_runtime::spawn_blocking(move || write_timing_file(&path, &layers))
+        .await
+        .map_err(|_| "Something went wrong writing the timing file.".to_string())?
+}
+
+/// Writes `layers` (a track and its further layers) to `path`, by its extension.
+pub(crate) fn write_timing_file(path: &Path, layers: &[TimingTrack]) -> Reply<usize> {
+    let xtiming = path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("xtiming"));
+    let text = if xtiming {
+        pf_xlights::xtiming(&[layers.iter().collect()])
+    } else {
+        pf_sequence::audacity_labels(&layers[0].marks)
+    };
+    std::fs::write(path, text).map_err(|e| format!("Could not save {}: {e}", path.display()))?;
+    Ok(layers[0].marks.len())
+}
+
 /// Adds detected timing tracks, if the sequence `doc` with music `music` is still the open one.
 pub(crate) fn add_detected_tracks(
     engine: &mut Engine,

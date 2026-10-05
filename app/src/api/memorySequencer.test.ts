@@ -10,7 +10,9 @@ import {
   type ExportProgress,
   type Sequence,
   type SequenceEdit,
+  type TimingTrack,
 } from "./sequence";
+import timingCases from "./timingEditCases.json";
 
 async function authored() {
   const seq = new MemorySequencer();
@@ -129,6 +131,66 @@ describe("MemorySequencer", () => {
     const reply = await seq.detectBeats();
     expect(reply.changes.removedTimingTracks).toHaveLength(2);
     expect(seq.doc!.timingTracks.map((t) => t.name)).toEqual(["Beats", "Bars"]);
+  });
+});
+
+interface TimingCase {
+  name: string;
+  tracks: TimingTrack[];
+  edits: SequenceEdit[];
+  expect: { tracks: TimingTrack[] } | { error: string };
+}
+
+describe("MemorySequencer timing tracks", () => {
+  // The same table is run against the engine by the desktop shell's tests.
+  it.each((timingCases as unknown as TimingCase[]).map((c) => [c.name, c] as const))("matches the engine: %s", async (_name, c) => {
+    const seq = new MemorySequencer();
+    await seq.newSequenceDoc("Song", 60_000);
+    if (c.tracks.length > 0) await seq.editSequence(c.tracks.map((track) => ({ type: "addTimingTrack" as const, track })));
+    const before = structuredClone(seq.doc);
+    if ("error" in c.expect) {
+      await expect(seq.editSequence(c.edits)).rejects.toThrow(c.expect.error);
+      expect(seq.doc).toEqual(before);
+    } else {
+      await seq.editSequence(c.edits);
+      expect(seq.doc!.timingTracks).toEqual(c.expect.tracks);
+      // One undo step.
+      await seq.undoSequence();
+      expect(seq.doc).toEqual(before);
+    }
+  });
+
+  it("imports timing files with names of their own, and exports a lyrics track with its words", async () => {
+    const seq = new MemorySequencer();
+    await seq.newSequenceDoc("Song", 60_000);
+    const lyrics: TimingTrack = { id: "l", name: "Vocals", kind: "lyrics", marks: [{ startMs: 0, endMs: 900, label: "Hi there" }] };
+    const words: TimingTrack = { id: "w", name: "Vocals (words)", kind: "words", marks: [{ startMs: 0, endMs: 400, label: "Hi" }] };
+    seq.timingFiles.set("/t/Vocals.xtiming", { tracks: [lyrics, words], notes: ["1 mark was left out."] });
+    const first = await seq.importTimingFile("/t/Vocals.xtiming");
+    expect(first).toMatchObject({ tracks: ["Vocals", "Vocals (words)"], notes: ["1 mark was left out."] });
+    expect(first.result.changes.timingTracks).toHaveLength(2);
+    const again = await seq.importTimingFile("/t/Vocals.xtiming");
+    expect(again.tracks).toEqual(["Vocals (2)", "Vocals (words) (2)"]);
+    await seq.undoSequence();
+    await expect(seq.importTimingFile("/t/missing.xtiming")).rejects.toThrow("Could not read /t/missing.xtiming");
+
+    const id = seq.doc!.timingTracks[0].id;
+    expect(await seq.exportTimingTrack(id, "/t/out.xtiming")).toBe(1);
+    expect(seq.exportedTimingFiles.get("/t/out.xtiming")!.map((t) => t.name)).toEqual(["Vocals", "Vocals (words)"]);
+    await seq.exportTimingTrack(id, "/t/out.txt");
+    expect(seq.exportedTimingFiles.get("/t/out.txt")!.map((t) => t.name)).toEqual(["Vocals"]);
+    await expect(seq.exportTimingTrack("gone", "/t/x.txt")).rejects.toThrow("That timing track isn't in the sequence anymore.");
+  });
+
+  it("doesn't add a file's tracks to a sequence opened while it was read", async () => {
+    const seq = new MemorySequencer();
+    await seq.newSequenceDoc("Song", 60_000);
+    seq.timingFiles.set("/t/a.txt", { tracks: [{ id: "a", name: "a", kind: "custom", marks: [] }], notes: [] });
+    seq.analysisDelayMs = 5;
+    const reading = seq.importTimingFile("/t/a.txt");
+    await seq.newSequenceDoc("Other", 1000);
+    await expect(reading).rejects.toThrow("Another sequence was opened while the timing file was being read. Import it again.");
+    expect(seq.doc!.timingTracks).toEqual([]);
   });
 });
 

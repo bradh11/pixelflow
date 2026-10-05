@@ -754,6 +754,39 @@ impl Engine {
         document_music(open.path.as_deref(), open.doc.audio.as_deref())
     }
 
+    /// The open sequence document, to read (a timing track to export, say). Copy out what's
+    /// needed and let go of the engine before slow work.
+    pub fn sequence_document(&self) -> Option<&Sequence> {
+        self.sequence.as_ref().map(|open| &open.doc)
+    }
+
+    /// Adds timing tracks (from a file, say) after the others, as one undo step. Nothing is
+    /// replaced: a track named like one already there gets a number ("Lyrics (2)").
+    pub fn add_timing_tracks(
+        &mut self,
+        tracks: Vec<pf_sequence::TimingTrack>,
+    ) -> Result<SequenceEditResult, EngineError> {
+        let open = self.sequence.as_ref().ok_or(EngineError::NoSequence)?;
+        let mut taken: std::collections::HashSet<String> =
+            open.doc.timing_tracks.iter().map(|t| t.name.clone()).collect();
+        let edits = tracks
+            .into_iter()
+            .map(|mut track| {
+                if taken.contains(&track.name) {
+                    let base = track.name.clone();
+                    let mut n = 2;
+                    while taken.contains(&format!("{base} ({n})")) {
+                        n += 1;
+                    }
+                    track.name = format!("{base} ({n})");
+                }
+                taken.insert(track.name.clone());
+                SequenceEdit::AddTimingTrack { track }
+            })
+            .collect();
+        self.edit_sequence(edits)
+    }
+
     /// Adds timing tracks (from beat detection, say) as one undo step, replacing any tracks
     /// with the same names so running detection again doesn't pile up copies.
     pub fn replace_timing_tracks(

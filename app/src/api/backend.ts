@@ -4,6 +4,7 @@ import type {
   XlightsImported,
   PlaybackStatus,
   PreviewSet,
+  PreviewSet3d,
   FppSequence,
   PlayerStatus,
   Discovery,
@@ -62,6 +63,8 @@ export interface Backend {
   sequenceFrame(): Promise<Uint8Array>;
   /** Every prop's pixel positions for the 2D preview, and the show revision they're for. */
   previewProps(): Promise<PreviewSet>;
+  /** Every prop's pixel positions in 3D, and the show revision they're for. */
+  previewProps3d(): Promise<PreviewSet3d>;
   /** The bytes of an image file (the layout's background photo). */
   readImage(path: string): Promise<Uint8Array>;
   /** Shows a native "choose photo" dialog; null when cancelled. */

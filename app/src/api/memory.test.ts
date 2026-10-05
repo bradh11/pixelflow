@@ -99,6 +99,30 @@ describe("MemoryBackend", () => {
     expect(second.points).toHaveLength(100);
   });
 
+  it("previews each prop in depth too, as the engine's 3D positions", async () => {
+    const backend = new MemoryBackend();
+    const tree = newProp("tree", backend.show);
+    tree.transform = { ...tree.transform, position: { x: 4, y: 0, z: -2 } };
+    const line = newProp("line", backend.show);
+    await backend.applyEdits([{ type: "addProp", prop: line }, { type: "addProp", prop: tree }]);
+    const flat = await backend.previewProps();
+    const deep = await backend.previewProps3d();
+    expect(deep.revision).toBe(flat.revision);
+    expect(deep.props.map((p) => [p.prop, p.frameOffset, p.channelsPerPixel])).toEqual(
+      flat.props.map((p) => [p.prop, p.frameOffset, p.channelsPerPixel]),
+    );
+    const [, tree3d] = deep.props;
+    const [, tree2d] = flat.props;
+    expect(tree3d.xyz.length).toBe((tree2d.points.length / 2) * 3);
+    for (let i = 0; i * 3 < tree3d.xyz.length; i++) {
+      expect(tree3d.xyz[i * 3]).toBeCloseTo(tree2d.points[i * 2]);
+      expect(tree3d.xyz[i * 3 + 1]).toBeCloseTo(tree2d.points[i * 2 + 1]);
+    }
+    const zs = Array.from(tree3d.xyz).filter((_, i) => i % 3 === 2);
+    expect(Math.max(...zs)).toBeGreaterThan(-2);
+    expect(Math.min(...zs)).toBeLessThan(-2);
+  });
+
   it("sets and removes the background photo like the engine, refusing bad values", async () => {
     const backend = new MemoryBackend();
     expect(backend.show.background).toBeNull();

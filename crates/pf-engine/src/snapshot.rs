@@ -33,14 +33,14 @@ pub struct ShowSnapshot {
     pub summary: Summary,
 }
 
-/// Where a prop's pixels are drawn in the 2D preview (front view) and where their colors sit in
-/// a live frame.
+/// Where a prop's pixels are drawn in the preview (front view, or 3D) and where their colors sit
+/// in a live frame.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreviewProp {
     pub prop: PropId,
     pub frame_offset: usize,
     pub channels_per_pixel: u8,
-    /// x, y pairs, one per pixel, in wiring order.
+    /// x, y pairs (x, y, z triples in the 3D preview), one per pixel, in wiring order.
     pub points: Vec<f32>,
 }

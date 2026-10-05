@@ -220,6 +220,52 @@ fn preview_props_place_every_pixel() {
 }
 
 #[test]
+fn the_3d_preview_keeps_each_pixel_s_depth() {
+    let (mut engine, _recorded, _dir) = engine_with_show(true);
+    let mut tree = Prop::new(
+        "Mega Tree",
+        ShapeSource::Generator(Generator::Tree {
+            strings: 4,
+            nodes_per_string: 3,
+            height: 2.0,
+            base_radius: 1.0,
+            top_radius: 0.0,
+            serpentine: false,
+        }),
+    );
+    tree.transform.position = pf_model::Vec3::new(5.0, 0.0, -2.0);
+    let id = tree.id;
+    engine.apply(vec![Edit::AddProp { prop: tree.clone() }]).unwrap();
+
+    let flat = engine.preview_props();
+    let deep = engine.preview_props_3d();
+    assert_eq!(deep.len(), flat.len());
+    let line = &deep[0];
+    assert_eq!(line.points.len(), 30, "x, y, z for each of 10 pixels");
+    assert_eq!(
+        (line.frame_offset, line.channels_per_pixel),
+        (flat[0].frame_offset, flat[0].channels_per_pixel)
+    );
+    let tree_3d = deep.iter().find(|p| p.prop == id).unwrap();
+    let expected: Vec<f32> = pf_geometry::world_positions(&tree)
+        .into_iter()
+        .flat_map(|p| [p.x, p.y, p.z])
+        .collect();
+    assert_eq!(tree_3d.points, expected);
+    let zs: Vec<f32> = tree_3d.points.iter().skip(2).step_by(3).copied().collect();
+    assert!(
+        zs.iter().any(|&z| z > -1.5) && zs.iter().any(|&z| z < -2.5),
+        "a tree stands around its trunk in depth: {zs:?}"
+    );
+    let tree_2d = flat.iter().find(|p| p.prop == id).unwrap();
+    let xy: Vec<f32> = expected.chunks(3).flat_map(|c| [c[0], c[1]]).collect();
+    assert_eq!(
+        tree_2d.points, xy,
+        "the front view is the same pixels without depth"
+    );
+}
+
+#[test]
 fn props_that_are_not_wired_are_still_drawn_in_the_preview() {
     let (mut engine, _recorded, _dir) = engine_with_show(true);
     let loose = Prop::new(

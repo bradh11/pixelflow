@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type { Backend } from "./backend";
-import { decodePreview } from "./previewBytes";
+import { decodePreview, decodePreview3d } from "./previewBytes";
 
 const SHOW_FILTER = [{ name: "PixelFlow show", extensions: ["json"] }];
 const SEQUENCE_FILTER = [{ name: "FPP sequence", extensions: ["fseq"] }];
@@ -40,6 +40,7 @@ export const tauriBackend: Backend = {
   liveFrame: async () => new Uint8Array(await invoke<ArrayBuffer>("live_frame")),
   sequenceFrame: async () => new Uint8Array(await invoke<ArrayBuffer>("sequence_frame")),
   previewProps: async () => decodePreview(await invoke<ArrayBuffer | number[]>("preview_props")),
+  previewProps3d: async () => decodePreview3d(await invoke<ArrayBuffer | number[]>("preview_props_3d")),
   readImage: async (path) => new Uint8Array(await invoke<ArrayBuffer>("read_image", { path })),
   // Picked by the shell, which then lets the window read that photo (and no other files).
   pickImagePath: () => invoke("pick_image"),

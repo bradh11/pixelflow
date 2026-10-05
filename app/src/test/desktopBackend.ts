@@ -3,7 +3,7 @@
 // since it started) and pixel positions that arrive as raw bytes, packed exactly like
 // `encode_preview` in src-tauri/src/layout.rs and read back with the desktop's `decodePreview`.
 
-import type { Edit, PreviewSet, ShowSnapshot } from "../api/types";
+import type { Edit, PreviewSet, PreviewSet3d, ShowSnapshot } from "../api/types";
 import { MemoryBackend } from "../api/memory";
 import { decodePreview } from "../api/previewBytes";
 
@@ -54,5 +54,10 @@ export class DesktopLikeBackend extends MemoryBackend {
   override async previewProps(): Promise<PreviewSet> {
     const memory = await super.previewProps();
     return decodePreview(encodePreview({ ...memory, revision: memory.revision + ENGINE_REVISION_OFFSET }));
+  }
+
+  override async previewProps3d(): Promise<PreviewSet3d> {
+    const memory = await super.previewProps3d();
+    return { ...memory, revision: memory.revision + ENGINE_REVISION_OFFSET };
   }
 }

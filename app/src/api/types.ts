@@ -420,6 +420,21 @@ export interface PreviewSet {
   props: PreviewProp[];
 }
 
+/** Where a prop's pixels are in 3D (x right, y up, z toward the street) and where their colors sit in a live frame. */
+export interface PreviewProp3d {
+  prop: Uuid;
+  frameOffset: number;
+  channelsPerPixel: number;
+  /** x, y, z triples, one per pixel, in wiring order. */
+  xyz: Float32Array;
+}
+
+/** Every prop's pixel positions in 3D, and the show revision they were worked out for. */
+export interface PreviewSet3d {
+  revision: number;
+  props: PreviewProp3d[];
+}
+
 /** Counts from an xLights import. */
 export interface ImportSummary {
   props: number;

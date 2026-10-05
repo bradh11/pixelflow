@@ -14,11 +14,12 @@ import type {
   OutputStatus,
   PatternSpec,
   PreviewSet,
+  PreviewSet3d,
   Show,
   ShowSnapshot,
   TargetSpec,
 } from "./types";
-import { frontView } from "../lib/geometry";
+import { deepView, frontView } from "../lib/geometry";
 import { channelsPerPixel, newController, nodeCount } from "../lib/shows";
 
 /**
@@ -422,6 +423,18 @@ export class MemoryBackend implements Backend {
       frameOffset: layout.props[i].frameOffset,
       channelsPerPixel: layout.props[i].channelsPerPixel,
       points: frontView(prop).slice(0, layout.props[i].nodes * 2),
+    }));
+    return { revision: this.revision, props };
+  }
+
+  /** Each prop's pixels in 3D, from the same shapes and transforms as the engine. */
+  async previewProps3d(): Promise<PreviewSet3d> {
+    const layout = layoutOnly(this.show);
+    const props = this.show.props.map((prop, i) => ({
+      prop: prop.id,
+      frameOffset: layout.props[i].frameOffset,
+      channelsPerPixel: layout.props[i].channelsPerPixel,
+      xyz: deepView(prop).subarray(0, layout.props[i].nodes * 3),
     }));
     return { revision: this.revision, props };
   }

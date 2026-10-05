@@ -149,6 +149,7 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         playback::audio_waveform,
         xlights::import_xlights,
         layout::preview_props,
+        layout::preview_props_3d,
         layout::pick_image,
         layout::read_image,
     ])
@@ -634,6 +635,8 @@ mod tests {
         assert_eq!(status["positionMs"], 500);
         let preview = call_raw(&webview, "preview_props", json!({})).unwrap();
         assert_eq!(&preview[4..8], &0u32.to_le_bytes(), "no props");
+        let deep = call_raw(&webview, "preview_props_3d", json!({})).unwrap();
+        assert_eq!(&deep[0..4], &2u32.to_le_bytes(), "x, y, z triples");
         call(&webview, "stop_playback", json!({})).unwrap();
         assert_eq!(call(&webview, "playback_status", json!({})).unwrap(), json!(null));
         assert_eq!(

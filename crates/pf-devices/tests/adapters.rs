@@ -1,7 +1,11 @@
-//! Adapters and import planning against recorded and documented device responses.
+//! Adapters, discovery, and import planning against recorded and documented device responses.
 
-use pf_devices::testing::{FALCON, FPP, FPP_HAT, WLED, assert_no_secret_endpoints, falcon_query, network};
-use pf_devices::{DeviceInput, DeviceKind, identify, plan_import, read_config};
+use pf_devices::testing::{
+    FALCON, FPP, FPP_HAT, WLED, assert_no_secret_endpoints, falcon_query, fpp_only, network,
+};
+use pf_devices::{
+    DeviceInput, DeviceKind, DiscoverOptions, FoundBy, discover, identify, plan_import, read_config,
+};
 use pf_model::{AdapterKind, ColorOrder, Protocol, SacnConfig, Show};
 
 #[test]
@@ -141,4 +145,43 @@ fn wled_outputs_including_rgbw() {
         (ColorOrder::Rgbw, true)
     );
     assert!(config.notes.is_empty());
+}
+
+#[test]
+fn discovery_expands_fpp_peers_and_reports_silent_ones() {
+    let http = network();
+    let options = DiscoverOptions {
+        ping: false,
+        mdns: false,
+        sweep: false,
+        extra_hosts: vec![FPP.to_string(), WLED.to_string()],
+        ..DiscoverOptions::default()
+    };
+    let found = discover(&http, &http, &options);
+    let addresses: Vec<_> = found
+        .devices
+        .iter()
+        .map(|d| (d.address.as_str(), d.kind))
+        .collect();
+    assert_eq!(
+        addresses,
+        vec![
+            (FPP, DeviceKind::Fpp),
+            (FALCON, DeviceKind::Falcon),
+            (WLED, DeviceKind::Wled)
+        ]
+    );
+    assert_eq!(found.devices[1].found_by, vec![FoundBy::FppPeer]);
+    assert_eq!(found.devices[0].found_by, vec![FoundBy::Manual]);
+    assert!(found.silent.is_empty());
+
+    // The same FPP, but its Falcon doesn't answer.
+    let quiet = fpp_only();
+    let found = discover(&quiet, &quiet, &options);
+    assert_eq!(found.devices.len(), 1);
+    assert_eq!(found.silent.len(), 1);
+    assert_eq!(found.silent[0].address, FALCON);
+    assert_eq!(found.silent[0].description, "Falcon_F16V5_B9F5");
+    assert_eq!(found.silent[0].listed_by, "FPP");
+    assert_no_secret_endpoints(&http);
 }

@@ -11,6 +11,8 @@ import {
   type Placement,
   type View,
   SNAP_PX,
+  autoScroll,
+  autoScrollSpeed,
   buildIndex,
   clampView,
   effectBounds,
@@ -51,9 +53,23 @@ import { LANE_H, RULER_H, TRACK_H, WAVE_H, drawTimeline, topHeight } from "./dra
 export const DEFAULT_COLORS = ["#ff0000", "#00c000", "#ffffff"];
 /** Presses that move less than this (screen pixels) are clicks. */
 const CLICK_PX = 3;
+/** How often the timeline scrolls while something is held near its edge. */
+const AUTO_SCROLL_MS = 16;
 
 type Drag =
-  | { kind: "move"; primary: string; items: DragItem[]; moved: Placement[]; x: number; y: number; started: boolean; targets: number[] }
+  | {
+      kind: "move";
+      primary: string;
+      items: DragItem[];
+      moved: Placement[];
+      x: number;
+      y: number;
+      /** Where it was grabbed, in time and in the rows (which stay put when the view scrolls). */
+      ms: number;
+      rowsY: number;
+      started: boolean;
+      targets: number[];
+    }
   | {
       kind: "resize";
       item: DragItem;
@@ -75,6 +91,8 @@ type Drag =
       spans: MarkSpan[];
       x: number;
       y: number;
+      /** Where it was grabbed, in time. */
+      ms: number;
       started: boolean;
       targets: number[];
     }
@@ -159,6 +177,9 @@ export function Timeline({ doc }: { doc: Sequence }) {
   const [scrollY, setScrollY] = useState(0);
   const [waveform, setWaveform] = useState<Waveform | null>(null);
   const drag = useRef<Drag | null>(null);
+  /** Where the pointer is during a drag, and the timer scrolling the timeline while it's near an edge. */
+  const pointer = useRef<{ x: number; y: number; alt: boolean } | null>(null);
+  const scrollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   /** A finished move or resize on its way to the engine: drawn where it was dropped until the
    * engine has answered, so the effects don't jump back meanwhile. */
   const pending = useRef<{ key: number; items: DragItem[] } | null>(null);
@@ -179,8 +200,8 @@ export function Timeline({ doc }: { doc: Sequence }) {
   const setView = useCallback((v: View) => setViewState(clampView(v, doc.durationMs, Math.max(1, width))), [doc.durationMs, width]);
 
   // Everything event handlers need, current as of the last render.
-  const latest = useRef({ doc, index, lanes, view: current, top, scrollY, snapping, selection, maxScroll, catalog, activeRow, playheadMs });
-  latest.current = { doc, index, lanes, view: current, top, scrollY, snapping, selection, maxScroll, catalog, activeRow, playheadMs };
+  const latest = useRef({ doc, index, lanes, view: current, top, scrollY, snapping, selection, maxScroll, catalog, activeRow, playheadMs, size });
+  latest.current = { doc, index, lanes, view: current, top, scrollY, snapping, selection, maxScroll, catalog, activeRow, playheadMs, size };
 
   // Fit the song when a different sequence is opened (not when this one is saved somewhere new).
   useEffect(() => setViewState(null), [docKey]);
@@ -422,7 +443,7 @@ export function Timeline({ doc }: { doc: Sequence }) {
     const moving = current.includes(start) ? markIndices(track, current) : [hit.index];
     if (!current.includes(start)) store.selectMarks(track.id, [start]);
     const spans = moving.map((i) => ({ index: i, ...span(i) }));
-    drag.current = { kind: "markMove", track: track.id, primary: span(hit.index), from: moving.map(span), spans, x, y, started: false, targets: targets(moving) };
+    drag.current = { kind: "markMove", track: track.id, primary: span(hit.index), from: moving.map(span), spans, x, y, ms: xToTime(x, v), started: false, targets: targets(moving) };
   };
 
   const onPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -475,16 +496,14 @@ export function Timeline({ doc }: { doc: Sequence }) {
     const ids = sel.includes(hit.id) ? sel.filter((id) => idx.byId.has(id)) : [hit.id];
     if (!sel.includes(hit.id)) store.select(ids);
     const items = ids.map(asItem);
-    drag.current = { kind: "move", primary: hit.id, items, moved: placeMove(idx, ls, items), x, y, started: false, targets: snapFor(ids, e.altKey) };
+    drag.current = { kind: "move", primary: hit.id, items, moved: placeMove(idx, ls, items), x, y, ms: xToTime(x, v), rowsY, started: false, targets: snapFor(ids, e.altKey) };
   };
 
   const onPointerMove = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     const { x, y } = point(e);
-    const d = drag.current;
-    const { view: v, top: tp, scrollY: sy, lanes: ls, index: idx, doc: dd } = latest.current;
-    const threshold = SNAP_PX / v.pxPerMs;
-    if (!d) {
+    if (!drag.current) {
       // Show what a press here would do.
+      const { view: v, top: tp, scrollY: sy, lanes: ls, index: idx } = latest.current;
       const track = trackAt(y);
       if (track) {
         const hit = track.kind === "phonemes" ? null : hitMark(track.marks, x, v);
@@ -496,12 +515,23 @@ export function Timeline({ doc }: { doc: Sequence }) {
       e.currentTarget.style.cursor = y < tp ? "text" : !hit ? "default" : hit.part === "body" ? "grab" : "ew-resize";
       return;
     }
+    pointer.current = { x, y, alt: e.altKey };
+    dragTo(x, y, e.altKey);
+    keepScrolling();
+  };
+
+  /** Follows the pointer at `x`, `y` with the drag, against the view as it is now. */
+  const dragTo = (x: number, y: number, altKey: boolean) => {
+    const d = drag.current;
+    const { view: v, top: tp, scrollY: sy, lanes: ls, index: idx, doc: dd } = latest.current;
+    const threshold = SNAP_PX / v.pxPerMs;
+    if (!d) return;
     if (d.kind === "markResize" || d.kind === "markMove") {
       // The marks as they are now: found by where they were, as other edits land meanwhile.
       const track = dd.timingTracks.find((t) => t.id === d.track);
       const found = track && markMovesToSpans(track, movesOf(d.from, d.from));
       if (!track || !found) return;
-      const snap = e.altKey ? undefined : { targets: d.targets, thresholdMs: threshold };
+      const snap = altKey ? undefined : { targets: d.targets, thresholdMs: threshold };
       if (d.kind === "markResize") {
         const [grabbed, neighbor] = d.from;
         const item = { id: "", startMs: grabbed.startMs, endMs: grabbed.endMs, lane: 0 };
@@ -522,7 +552,7 @@ export function Timeline({ doc }: { doc: Sequence }) {
         d.started = true;
         const moving = found.map((f) => f.index);
         const primary = found[d.from.findIndex((f) => f.startMs === d.primary.startMs)]?.index ?? moving[0];
-        const r = moveMarksDrag({ marks: track.marks, moving, primary, deltaMs: (x - d.x) / v.pxPerMs, durationMs: dd.durationMs, frameMs: dd.frameMs, snap });
+        const r = moveMarksDrag({ marks: track.marks, moving, primary, deltaMs: xToTime(x, v) - d.ms, durationMs: dd.durationMs, frameMs: dd.frameMs, snap });
         d.spans = r.spans;
         (d as Drag & { snappedAt?: number | null }).snappedAt = r.snappedAt;
       }
@@ -535,24 +565,78 @@ export function Timeline({ doc }: { doc: Sequence }) {
       d.x1 = x;
       d.y1 = y - tp + sy;
     } else if (d.kind === "resize") {
-      const snap = e.altKey ? undefined : { targets: d.targets, thresholdMs: threshold };
+      const snap = altKey ? undefined : { targets: d.targets, thresholdMs: threshold };
       const r = resizeDrag({ item: d.item, edge: d.edge, ms: xToTime(x, v), minMs: dd.frameMs, durationMs: dd.durationMs, frameMs: dd.frameMs, bounds: d.bounds, snap });
       d.result = r;
       (d as Drag & { snappedAt?: number | null }).snappedAt = r.snappedAt;
     } else {
       if (!d.started && Math.hypot(x - d.x, y - d.y) < CLICK_PX) return;
       d.started = true;
-      const fromLane = laneAt(ls, d.y - tp + sy);
+      const fromLane = laneAt(ls, d.rowsY);
       const toLane = laneAt(ls, y - tp + sy);
       const deltaLanes = fromLane && toLane ? ls.indexOf(toLane) - ls.indexOf(fromLane) : 0;
-      const snap = e.altKey ? undefined : { targets: d.targets, thresholdMs: threshold };
-      const r = moveDrag({ items: d.items, primary: d.primary, deltaMs: (x - d.x) / v.pxPerMs, deltaLanes, laneCount: ls.length, durationMs: dd.durationMs, frameMs: dd.frameMs, snap });
+      const snap = altKey ? undefined : { targets: d.targets, thresholdMs: threshold };
+      const r = moveDrag({ items: d.items, primary: d.primary, deltaMs: xToTime(x, v) - d.ms, deltaLanes, laneCount: ls.length, durationMs: dd.durationMs, frameMs: dd.frameMs, snap });
       // Drawn where they'll really land: over another effect, that's a free layer.
       d.moved = placeMove(idx, ls, r.items);
       (d as Drag & { snappedAt?: number | null }).snappedAt = r.snappedAt;
     }
     redraw((n) => n + 1);
   };
+
+  const stopScrolling = () => {
+    if (scrollTimer.current !== null) clearInterval(scrollTimer.current);
+    scrollTimer.current = null;
+  };
+
+  /**
+   * While an effect or a mark is held near an edge, scrolls the timeline that way (faster the
+   * further in), carrying the drag along; stops once the pointer leaves the edge, or the drag ends.
+   */
+  const keepScrolling = () => {
+    const tick = () => {
+      const d = drag.current;
+      const p = pointer.current;
+      const { size: sz, top: tp, view: v, scrollY: sy, maxScroll: limit, doc: dd } = latest.current;
+      const scrolls = d !== null && (d.kind === "move" || d.kind === "resize" || d.kind === "markMove" || d.kind === "markResize");
+      const rows = d?.kind === "move";
+      if (!scrolls || !p || (autoScrollSpeed(p.x, 0, sz.width) === 0 && (!rows || autoScrollSpeed(p.y, tp, sz.height) === 0))) {
+        stopScrolling();
+        return;
+      }
+      const step = autoScroll({ x: p.x, y: p.y, width: sz.width, rowsTop: tp, height: sz.height, view: v, scrollY: sy, maxScroll: limit, durationMs: dd.durationMs, rows });
+      // At the song's end (or the last row) there's nowhere to go, but the pointer may come back.
+      if (!step) return;
+      latest.current.view = step.view;
+      latest.current.scrollY = step.scrollY;
+      setViewState(step.view);
+      setScrollY(step.scrollY);
+      dragTo(p.x, p.y, p.alt);
+      redraw((n) => n + 1);
+    };
+    if (scrollTimer.current === null) scrollTimer.current = setInterval(tick, AUTO_SCROLL_MS);
+  };
+  useEffect(() => stopScrolling, []);
+
+  /** Calls the drag off: nothing it did is kept. */
+  const cancelDrag = () => {
+    drag.current = null;
+    pointer.current = null;
+    stopScrolling();
+    redraw((n) => n + 1);
+  };
+
+  // Escape calls off a drag in progress (and only that: the selection stays).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || !drag.current) return;
+      e.preventDefault();
+      e.stopPropagation();
+      cancelDrag();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Sends a dropped move or resize, drawing `items` where they were dropped until it settles. */
   const sendDrop = (items: DragItem[], edits: SequenceEdit[]) => {
@@ -597,6 +681,8 @@ export function Timeline({ doc }: { doc: Sequence }) {
   const onPointerUp = () => {
     const d = drag.current;
     drag.current = null;
+    pointer.current = null;
+    stopScrolling();
     if (!d) return;
     const store = useSequencer.getState();
     const { lanes: ls, index: idx, view: v } = latest.current;
@@ -679,10 +765,7 @@ export function Timeline({ doc }: { doc: Sequence }) {
     return { left, top: RULER_H + WAVE_H + k * TRACK_H, width: Math.min(w, Math.max(120, width - left)) };
   })();
 
-  const onPointerCancel = () => {
-    drag.current = null;
-    redraw((n) => n + 1);
-  };
+  const onPointerCancel = cancelDrag;
 
   const zoomBy = (factor: number) => setView(zoomAt(current, factor, width / 2, doc.durationMs, width));
   const visibleMs = width / current.pxPerMs;

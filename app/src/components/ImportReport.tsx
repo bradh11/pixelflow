@@ -44,8 +44,9 @@ export function ImportReport() {
             <>
               <p className="mb-2 text-neutral-500">These weren't imported exactly:</p>
               <ul className="flex flex-col gap-1.5 text-amber-700 dark:text-amber-400">
-                {notes.map((note) => (
-                  <li key={note} className="flex items-start gap-2">
+                {notes.map((note, i) => (
+                  // Notes can repeat, so they're keyed by position (the list never reorders).
+                  <li key={i} className="flex items-start gap-2">
                     <AlertTriangle size={14} className="mt-0.5 shrink-0" /> {note}
                   </li>
                 ))}

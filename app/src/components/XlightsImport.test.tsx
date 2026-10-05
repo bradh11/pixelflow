@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { demoShow } from "../api/demo";
 import { MemoryBackend } from "../api/memory";
@@ -41,5 +41,17 @@ describe("xLights import", () => {
     await useApp.getState().importXlights();
     expect(await screen.findByRole("dialog", { name: /save changes to/i })).toBeInTheDocument();
     expect(backend.calls.some((c) => c.startsWith("importXlights"))).toBe(false);
+  });
+
+  it("shows every note, even repeated ones", async () => {
+    const { user, backend } = await startApp();
+    const repeated = "Tree: some light positions could not be computed and were placed at the origin";
+    backend.xlightsImport!.notes = [repeated, repeated];
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await user.click(screen.getByRole("button", { name: /import from xlights/i }));
+    const report = await screen.findByRole("dialog", { name: "Imported Haas 2024" });
+    expect(within(report).getAllByText(repeated)).toHaveLength(2);
+    expect(errors.mock.calls.some((c) => String(c[0]).includes("same key"))).toBe(false);
+    errors.mockRestore();
   });
 });

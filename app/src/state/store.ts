@@ -70,10 +70,31 @@ export type KnownDevice = Device & { responding: boolean; lastSeen: number };
 
 const DEVICES_KEY = "pixelflow.devices";
 
+/** A remembered controller read back from storage, or null when the entry isn't usable. */
+function knownDevice(value: unknown): KnownDevice | null {
+  if (typeof value !== "object" || value === null) return null;
+  const d = value as Record<string, unknown>;
+  if (typeof d.address !== "string" || typeof d.kind !== "string" || typeof d.name !== "string") return null;
+  if (!Array.isArray(d.foundBy) || !d.foundBy.every((f) => typeof f === "string")) return null;
+  const text = (v: unknown) => (typeof v === "string" ? v : "");
+  return {
+    address: d.address,
+    kind: d.kind as KnownDevice["kind"],
+    name: d.name,
+    model: text(d.model),
+    firmware: text(d.firmware),
+    mode: typeof d.mode === "string" ? d.mode : null,
+    foundBy: d.foundBy as KnownDevice["foundBy"],
+    responding: d.responding === true,
+    lastSeen: typeof d.lastSeen === "number" && Number.isFinite(d.lastSeen) ? d.lastSeen : 0,
+  };
+}
+
 function loadKnownDevices(): KnownDevice[] {
   try {
-    const saved = JSON.parse(localStorage.getItem(DEVICES_KEY) ?? "[]");
-    return Array.isArray(saved) ? (saved as KnownDevice[]).filter((d) => d && typeof d.address === "string") : [];
+    const saved: unknown = JSON.parse(localStorage.getItem(DEVICES_KEY) ?? "[]");
+    if (!Array.isArray(saved)) return [];
+    return saved.map(knownDevice).filter((d): d is KnownDevice => d !== null);
   } catch {
     return [];
   }
@@ -119,6 +140,9 @@ export const useApp = create<AppState>((set, get) => {
     if (ok) set({ started: true, screen: "layout" });
     return ok;
   }
+
+  /** Controllers forgotten while a scan was running, so its results don't bring them back. */
+  const forgottenDuringScan = new Set<string>();
 
   /** Commits an in-progress text edit (e.g. a prop rename) before saving. */
   function commitFocusedField() {
@@ -229,6 +253,7 @@ export const useApp = create<AppState>((set, get) => {
   },
 
   forgetDevice(address) {
+    if (get().scanning) forgottenDuringScan.add(address);
     const discovery = get().discovery;
     if (!discovery) return;
     const devices = discovery.devices.filter((d) => d.address !== address);
@@ -240,13 +265,16 @@ export const useApp = create<AppState>((set, get) => {
     const backend = get().backend;
     if (!backend) return false;
     set({ scanning: true });
+    forgottenDuringScan.clear();
     try {
-      const known = get().discovery?.devices ?? [];
       const network = hosts.length === 0;
       // A full scan also checks every remembered controller directly, so it's refreshed even
       // if the network sweep misses it.
-      const checking = network ? known.map((d) => d.address) : hosts;
-      const found = await backend.discoverDevices(checking, network);
+      const checking = network ? (get().discovery?.devices ?? []).map((d) => d.address) : hosts;
+      const result = await backend.discoverDevices(checking, network);
+      const found = { ...result, devices: result.devices.filter((d) => !forgottenDuringScan.has(d.address)) };
+      // Merge into the list as it is now: controllers may have been forgotten meanwhile.
+      const known = get().discovery?.devices ?? [];
       const now = Date.now();
       const answered = new Map(found.devices.map((d) => [d.address, d]));
       const devices: KnownDevice[] = known.map((d) => {
@@ -266,6 +294,7 @@ export const useApp = create<AppState>((set, get) => {
       set({ error: errorMessage(e) });
       return false;
     } finally {
+      forgottenDuringScan.clear();
       set({ scanning: false });
     }
   },

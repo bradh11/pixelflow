@@ -23,8 +23,8 @@ const AUTOSAVE_EVERY: Duration = Duration::from_secs(30);
 struct AppState {
     engine: Mutex<Engine>,
     devices: DeviceAccess,
-    /// Decoded music waveforms by (file, slices).
-    waveforms: Mutex<std::collections::HashMap<(PathBuf, usize), pf_audio::Waveform>>,
+    /// Decoded music waveforms by file version and slices.
+    waveforms: Mutex<std::collections::HashMap<playback::WaveformKey, playback::WaveformCell>>,
 }
 
 impl AppState {
@@ -604,8 +604,13 @@ mod tests {
 
     /// A tiny silent 16-bit mono WAV, half a second long.
     fn write_wav(path: &std::path::Path) {
+        write_wav_ms(path, 500);
+    }
+
+    /// A silent 16-bit mono WAV, `ms` long.
+    fn write_wav_ms(path: &std::path::Path, ms: usize) {
         let rate = 8000u32;
-        let data = vec![0u8; (rate as usize) / 2 * 2];
+        let data = vec![0u8; rate as usize * ms / 1000 * 2];
         let mut out = b"RIFF".to_vec();
         out.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
         out.extend_from_slice(b"WAVEfmt ");
@@ -635,6 +640,26 @@ mod tests {
         let waveform = call(&webview, "audio_waveform", json!({ "path": song, "slices": 10 })).unwrap();
         assert_eq!(waveform["durationMs"], 500);
         assert_eq!(waveform["peaks"].as_array().unwrap().len(), 10);
+        // A changed file is read again.
+        write_wav_ms(&song, 750);
+        let waveform = call(&webview, "audio_waveform", json!({ "path": song, "slices": 10 })).unwrap();
+        assert_eq!(waveform["durationMs"], 750);
+        let missing = call(
+            &webview,
+            "audio_waveform",
+            json!({ "path": dir.path().join("gone.mp3"), "slices": 10 }),
+        )
+        .unwrap_err();
+        assert!(
+            missing
+                .as_str()
+                .unwrap()
+                .starts_with("PixelFlow can't find the music file"),
+            "{missing}"
+        );
+        // Adding the same sequence again names it apart.
+        let snapshot = call(&webview, "add_sequence", json!({ "path": path })).unwrap();
+        assert_eq!(snapshot["show"]["sequences"][1]["name"], "show (2)");
 
         // Play without music here (tests must not open the sound output): drop the audio first.
         let mut silent = entry.clone();

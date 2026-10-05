@@ -1,6 +1,6 @@
 [package]
 name = "pf-fseq"
-description = "Read FPP sequence (.fseq) files: rendered channel data for every frame of a show"
+description = "Read and write FPP sequence (.fseq) files: rendered channel data for every frame of a show"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

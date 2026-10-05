@@ -76,6 +76,25 @@ fn unreadable_files_are_reported() {
     );
 }
 
+#[test]
+fn mono_samples_average_the_channels_at_the_source_rate() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("tone.wav");
+    write_wav(&path);
+    let samples = pf_audio::MonoSamples::open(&path).unwrap();
+    assert_eq!(samples.sample_rate(), 8000);
+    let all: Vec<f32> = samples.collect();
+    assert_eq!(all.len(), 16_000, "two seconds of mono");
+    assert!(all[..8000].iter().all(|&s| s == 0.0));
+    let peak = all[8000..].iter().fold(0.0f32, |m, s| m.max(s.abs()));
+    assert!((peak - 0.8).abs() < 0.01, "{peak}");
+    let err = pf_audio::MonoSamples::open(&dir.path().join("missing.wav")).unwrap_err();
+    assert!(
+        err.to_string().starts_with("PixelFlow can't find the music file"),
+        "{err}"
+    );
+}
+
 /// Set `PIXELFLOW_AUDIO=/path/to/song.mp3` to check a real file decodes.
 #[test]
 fn real_audio_decodes_when_provided() {

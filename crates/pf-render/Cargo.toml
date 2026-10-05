@@ -1,0 +1,23 @@
+[package]
+name = "pf-render"
+description = "Renders PixelFlow sequences into show frames, and exports them as FPP sequences (.fseq)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+pf-model.workspace = true
+pf-geometry.workspace = true
+pf-mapping.workspace = true
+pf-sequence.workspace = true
+pf-output.workspace = true
+pf-fseq.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -1,7 +1,9 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
+import { usePaletteDrag } from "../components/sequencer/EffectPalette";
 import { useLayoutEditor } from "../state/layoutEditor";
+import { useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
 import { useView3d } from "../state/view3d";
 
@@ -21,4 +23,6 @@ afterEach(() => {
   useApp.setState(useApp.getInitialState(), true);
   useLayoutEditor.setState(useLayoutEditor.getInitialState(), true);
   useView3d.setState(useView3d.getInitialState(), true);
+  useSequencer.setState(useSequencer.getInitialState(), true);
+  usePaletteDrag.setState(usePaletteDrag.getInitialState(), true);
 });

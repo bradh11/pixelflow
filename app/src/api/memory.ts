@@ -65,6 +65,8 @@ export class MemoryBackend implements Backend {
     since: number | null;
     sequence: string | null;
     music: string | null;
+    /** An authored sequence (see playAuthored), rendered here instead of the rainbow. */
+    authored?: AuthoredPlayback;
   } | null = null;
   private volume = 1;
   /** What a music file's waveform looks like here (a gentle wave), and its length. */
@@ -97,7 +99,7 @@ export class MemoryBackend implements Backend {
 
   /** Like the engine: playback stops, saying why, when no controller can receive the sequence. */
   private syncPlayback() {
-    if (this.playing && !this.show.controllers.some((c) => c.sequenceChannels)) {
+    if (this.playing && !this.playing.authored && !this.show.controllers.some((c) => c.sequenceChannels)) {
       this.playing = null;
       this.playbackStopReason_ = "Playback stopped because no controller has sequence channels anymore.";
     }
@@ -295,15 +297,16 @@ export class MemoryBackend implements Backend {
 
   private playbackNow(): PlaybackStatus | null {
     if (!this.playing) return null;
-    const { path, positionMs, since, sequence, music } = this.playing;
-    const position = Math.min(this.sequenceDurationMs, positionMs + (since === null ? 0 : Date.now() - since));
-    const ended = position >= this.sequenceDurationMs;
+    const { path, positionMs, since, sequence, music, authored } = this.playing;
+    const duration = authored?.durationMs ?? this.sequenceDurationMs;
+    const position = Math.min(duration, positionMs + (since === null ? 0 : Date.now() - since));
+    const ended = position >= duration;
     return {
       state: ended ? "ended" : since === null ? "paused" : "playing",
       path,
       positionMs: position,
-      durationMs: this.sequenceDurationMs,
-      frameMs: 50,
+      durationMs: duration,
+      frameMs: authored?.frameMs ?? 50,
       controllers: this.show.controllers
         .filter((c) => c.sequenceChannels)
         .map((c) => ({ id: c.id, name: c.name, state: "ok" as const, packetsSent: 0, sendErrors: 0, lastError: null })),
@@ -313,6 +316,7 @@ export class MemoryBackend implements Backend {
       music,
       offsetMs: this.show.sequences.find((s) => s.id === sequence)?.offsetMs ?? 0,
       volume: this.volume,
+      authored: authored !== undefined,
     };
   }
 
@@ -348,6 +352,15 @@ export class MemoryBackend implements Backend {
     this.calls.push(`playSequence:${entry.name}@${positionMs}`);
     await this.startPlayback(entry.path, positionMs);
     this.playing = { ...this.playing!, sequence: id, music: entry.audio };
+    return this.playbackNow()!;
+  }
+
+  /** Plays an authored sequence (for MemorySequencer): its frames come from `authored.frame`. */
+  playAuthored(authored: AuthoredPlayback, positionMs: number): PlaybackStatus {
+    this.calls.push(`playAuthored@${positionMs}`);
+    this.output = { ...this.output, running: false };
+    this.playbackStopReason_ = null;
+    this.playing = { path: authored.path, positionMs, since: Date.now(), sequence: null, music: authored.music, authored };
     return this.playbackNow()!;
   }
 
@@ -395,6 +408,7 @@ export class MemoryBackend implements Backend {
   /** A moving rainbow across every prop while something plays. */
   async liveFrame() {
     const status = this.playbackNow();
+    if (this.playing?.authored) return status && status.state !== "ended" ? this.playing.authored.frame(status.positionMs) : new Uint8Array();
     const length = this.show.props.reduce((n, p) => n + nodeCount(p.shape) * channelsPerPixel(p), 0);
     const frame = new Uint8Array(status && status.state !== "ended" ? length : 0);
     const shift = (status?.positionMs ?? 0) / 20;
@@ -483,6 +497,27 @@ export class MemoryBackend implements Backend {
     return this.nextOpenPath;
   }
 
+  /** Window close requests (the close button), for tests: see requestClose. */
+  private closeHandlers: (() => boolean)[] = [];
+
+  async onCloseRequested(allow: () => boolean) {
+    this.closeHandlers.push(allow);
+    return () => {
+      this.closeHandlers = this.closeHandlers.filter((h) => h !== allow);
+    };
+  }
+
+  /** Acts like the window's close button: true (and closes) when nothing held it open. */
+  requestClose(): boolean {
+    const allowed = this.closeHandlers.every((allow) => allow());
+    if (allowed) this.calls.push("closeWindow");
+    return allowed;
+  }
+
+  async closeWindow() {
+    this.calls.push("closeWindow");
+  }
+
   async pickSavePath() {
     return this.nextSavePath;
   }
@@ -534,6 +569,16 @@ function withFreshIds(details: DeviceDetails): DeviceDetails {
     port.slots = port.slots.map((slot) => ({ ...slot, prop: ids.get(slot.prop) ?? slot.prop }));
   }
   return details;
+}
+
+/** An authored sequence playing in the memory backend. */
+export interface AuthoredPlayback {
+  path: string;
+  music: string | null;
+  durationMs: number;
+  frameMs: number;
+  /** The show frame at a moment. */
+  frame(positionMs: number): Uint8Array;
 }
 
 export function emptyShow(name: string): Show {

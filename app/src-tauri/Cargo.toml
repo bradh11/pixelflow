@@ -19,6 +19,8 @@ pf-devices = { path = "../../crates/pf-devices" }
 pf-model = { path = "../../crates/pf-model" }
 pf-xlights = { path = "../../crates/pf-xlights" }
 pf-audio = { path = "../../crates/pf-audio" }
+pf-analysis = { path = "../../crates/pf-analysis" }
+pf-sequence = { path = "../../crates/pf-sequence" }
 serde = { version = "1", features = ["derive"] }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
@@ -28,6 +30,7 @@ libc = "0.2"
 
 [dev-dependencies]
 pf-devices = { path = "../../crates/pf-devices", features = ["test-fixtures"] }
+pf-output = { path = "../../crates/pf-output" }
 tauri = { version = "2", features = ["test"] }
 serde_json = "1"
 tempfile = "3"

@@ -4,7 +4,7 @@
 //! one DDP block) follow the previous controller's, using each output's `MaxChannels`.
 
 use crate::error::XlightsError;
-use roxmltree::{Document, Node};
+use roxmltree::Node;
 
 /// One output of a controller: an sACN/Art-Net universe or a DDP block.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,8 +68,7 @@ fn number(node: Node<'_, '_>, key: &str) -> u32 {
 
 /// Reads every controller in file order and assigns absolute channels.
 pub fn parse_networks(xml: &str) -> Result<Vec<XController>, XlightsError> {
-    let doc =
-        Document::parse(xml).map_err(|e| XlightsError::BadFile("xlights_networks.xml", e.to_string()))?;
+    let doc = crate::xml::parse(xml).map_err(|e| XlightsError::BadFile("xlights_networks.xml", e))?;
     let root = doc.root_element();
     let mut controllers = Vec::new();
     let mut next = 1u32;
@@ -252,5 +251,20 @@ mod tests {
             parse_networks("<Networks"),
             Err(XlightsError::BadFile(..))
         ));
+    }
+
+    #[test]
+    fn deeply_nested_and_dtd_files_are_refused_without_crashing() {
+        let deep = format!(
+            "<Networks>{}{}</Networks>",
+            "<Controller>".repeat(200_000),
+            "</Controller>".repeat(200_000)
+        );
+        assert_eq!(
+            parse_networks(&deep).unwrap_err().to_string(),
+            "xlights_networks.xml isn't a valid xLights file: its elements are nested more than 64 deep"
+        );
+        let dtd = r#"<!DOCTYPE Networks [<!ENTITY a "aaaa">]><Networks>&a;</Networks>"#;
+        assert!(parse_networks(dtd).is_err());
     }
 }

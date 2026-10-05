@@ -6,6 +6,10 @@ use std::io;
 pub enum FseqError {
     #[error("Could not read the sequence file: {0}")]
     Io(#[from] io::Error),
+    #[error("Could not write the sequence file: {0}")]
+    Write(io::Error),
+    #[error("Can't write this sequence: {0}.")]
+    CantWrite(String),
     #[error("This isn't an FPP sequence (.fseq) file.")]
     NotFseq,
     #[error("This sequence uses {0}, which PixelFlow can't read yet.")]

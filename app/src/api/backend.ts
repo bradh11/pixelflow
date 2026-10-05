@@ -93,6 +93,14 @@ export interface Backend {
   pickOpenPath(): Promise<string | null>;
   /** Shows a native "save file" dialog; null when cancelled. */
   pickSavePath(defaultName: string): Promise<string | null>;
+  /**
+   * Calls `allow` when the window is asked to close; when it answers false the window stays open
+   * (the app then asks about unsaved work, and calls closeWindow once that's settled). Resolves with
+   * a function that stops listening.
+   */
+  onCloseRequested(allow: () => boolean): Promise<() => void>;
+  /** Closes the window for good, without asking again. */
+  closeWindow(): Promise<void>;
 }
 
 /** Turns anything thrown by a backend call into a message for the user. */

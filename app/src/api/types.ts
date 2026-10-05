@@ -1,5 +1,7 @@
 // TypeScript mirrors of the engine's JSON (see crates/pf-model and crates/pf-engine).
 
+import type { SequenceSnapshot } from "./sequence";
+
 export type Uuid = string;
 
 export interface Vec3 {
@@ -412,6 +414,8 @@ export interface PlaybackStatus {
   music: string | null;
   offsetMs: number;
   volume: number;
+  /** True when playing an authored sequence document (see api/sequence.ts) rather than a file. */
+  authored: boolean;
 }
 
 /** A song's length and peak loudness (0–1) in equal slices of time. */
@@ -464,5 +468,30 @@ export interface ImportSummary {
 export interface XlightsImported {
   snapshot: ShowSnapshot;
   summary: ImportSummary;
+  notes: string[];
+}
+
+/** Counts from importing an xLights sequence. */
+export interface SequenceImportSummary {
+  rows: number;
+  /** Effects imported: exact + approximate + placeholders. */
+  effects: number;
+  exact: number;
+  approximate: number;
+  /** No PixelFlow equivalent yet: a dim fill in the effect's first color. */
+  placeholders: number;
+  /** xLights effects not imported (models not in the show, submodels, limits). */
+  skipped: number;
+  timingTracks: number;
+  marks: number;
+  lyricMarks: number;
+  /** Timing marks not imported (outside the sequence, limits). */
+  marksSkipped: number;
+}
+
+/** The sequence an xLights sequence import opened, with a report of anything not imported exactly. */
+export interface XlightsSequenceImported {
+  snapshot: SequenceSnapshot;
+  summary: SequenceImportSummary;
   notes: string[];
 }

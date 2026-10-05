@@ -46,6 +46,18 @@ enum Command {
         #[arg(long)]
         save: Option<PathBuf>,
     },
+    /// Import an xLights sequence (.xsq) onto a show: report what comes in, and optionally save
+    /// it as a PixelFlow sequence file.
+    XlightsSequence {
+        /// The xLights sequence (.xsq).
+        file: PathBuf,
+        /// The show it plays on (props and groups are matched by their xLights names).
+        #[arg(long)]
+        show: PathBuf,
+        /// Save the imported sequence here (.pfseq.json).
+        #[arg(long)]
+        save: Option<PathBuf>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -104,6 +116,42 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 let show =
                     pf_model::check_show(&imported.show).context("the imported show can't be saved")?;
                 let json = pf_model::show_to_json(&show)?;
+                std::fs::write(&path, json).with_context(|| format!("could not save {}", path.display()))?;
+                println!("Saved {}", path.display());
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::XlightsSequence { file, show, save } => {
+            let show = load(&show)?;
+            let imported = pf_xlights::import_sequence_file(&file, &show, pf_audio::find_audio)?;
+            let (seq, s) = (&imported.sequence, &imported.summary);
+            println!(
+                "{}: {} long, {} rows, {} effects ({} exact, {} approximated, {} placeholders, {} not imported), {} timing tracks, {} marks ({} lyrics, {} not imported)",
+                seq.name,
+                pf_sequence::format_ms(seq.duration_ms),
+                s.rows,
+                s.effects,
+                s.exact,
+                s.approximate,
+                s.placeholders,
+                s.skipped,
+                s.timing_tracks,
+                s.marks,
+                s.lyric_marks,
+                s.marks_skipped
+            );
+            match &seq.audio {
+                Some(audio) => println!("Music: {audio}"),
+                None => println!("Music: none"),
+            }
+            for note in &imported.notes {
+                println!("  - {note}");
+            }
+            if let Some(path) = save {
+                // Checked as opening the file will check it, so a saved import always opens.
+                let checked =
+                    pf_sequence::check_sequence(seq).context("the imported sequence can't be saved")?;
+                let json = pf_sequence::sequence_to_json(&checked)?;
                 std::fs::write(&path, json).with_context(|| format!("could not save {}", path.display()))?;
                 println!("Saved {}", path.display());
             }

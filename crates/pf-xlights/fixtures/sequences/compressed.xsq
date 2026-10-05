@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The palettes, effect settings, and effects are in a CompressedData block (base64 of zstd). -->
+<xsequence BaseChannel="0" ChanCtrlBasic="0" ChanCtrlColor="0" FixedPointTiming="1">
+  <head>
+    <version>2023.10</version>
+    <song>Compressed</song>
+    <sequenceTiming>25 ms</sequenceTiming>
+    <sequenceType>Media</sequenceType>
+    <mediaFile>compressed.mp3</mediaFile>
+    <sequenceDuration>4.000</sequenceDuration>
+  </head>
+  <CompressedData size="608">KLUv/WRgAf0HAGLMJxlA1wN3bO31V3Cd0kGyrf7cKiU8y8xVFDUu1FZiIOy8+y+9edd/bF/ndZ3SWWsdsu+9LndRdx7KKeu82otS/FE381/MUm/vzPue/uTcn4HevB+OXfL+vfebFrSownD5b2zEjZRxrpJsJYG9n2llsTiuqcQ4kI69piW0oIW9wxDYCjoYnCzYwkGtilIrcK31QDlPh4UNg3/vv3UkghvERScgMELj3PlWddKiuTQ5/MFStJ2A8S4Ro/rcX9iAloQsHQR4gpQ7RnA4eAOVGQNxBW6IJAYSrWTEx3IJo2wbjCCnQGv3BUltXAn+qMOxH/qMKgEEd46wx2ZkhsiB69FTamY=</CompressedData>
+</xsequence>

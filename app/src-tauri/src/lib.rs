@@ -7,6 +7,7 @@
 mod devices;
 mod layout;
 mod playback;
+mod sequencer;
 mod xlights;
 
 use devices::DeviceAccess;
@@ -147,6 +148,21 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         playback::play_sequence,
         playback::set_playback_volume,
         playback::audio_waveform,
+        sequencer::new_sequence_doc,
+        sequencer::open_sequence_doc,
+        sequencer::save_sequence_doc,
+        sequencer::save_sequence_doc_as,
+        sequencer::close_sequence_doc,
+        sequencer::get_sequence_doc,
+        sequencer::edit_sequence,
+        sequencer::undo_sequence,
+        sequencer::redo_sequence,
+        sequencer::sequence_doc_frame,
+        sequencer::play_sequence_doc,
+        sequencer::sequence_export_layout,
+        sequencer::export_sequence_doc,
+        sequencer::analyze_audio,
+        sequencer::detect_beats,
         xlights::import_xlights,
         layout::preview_props,
         layout::pick_image,
@@ -752,5 +768,168 @@ mod tests {
         let status = call(&webview, "set_playback_volume", json!({ "volume": 0.5 })).unwrap();
         assert_eq!(status["volume"], 0.5);
         call(&webview, "stop_playback", json!({})).unwrap();
+    }
+
+    /// Calls a command that answers with raw bytes.
+    fn call_raw(webview: &WebviewWindow<MockRuntime>, cmd: &str, args: Value) -> Vec<u8> {
+        let body = get_ipc_response(
+            webview,
+            InvokeRequest {
+                cmd: cmd.into(),
+                callback: CallbackFn(0),
+                error: CallbackFn(1),
+                url: webview.url().unwrap(),
+                body: InvokeBody::Json(args),
+                headers: Default::default(),
+                invoke_key: INVOKE_KEY.to_string(),
+            },
+        )
+        .unwrap();
+        match body {
+            tauri::ipc::InvokeResponseBody::Raw(bytes) => bytes,
+            tauri::ipc::InvokeResponseBody::Json(text) => panic!("expected raw bytes, got {text}"),
+        }
+    }
+
+    /// A 12 s, 22.05 kHz mono WAV with a click every 500 ms.
+    fn write_clicks(path: &std::path::Path) {
+        let rate = 22_050u32;
+        let mut samples = vec![0i16; rate as usize * 12];
+        for beat in 0..23 {
+            let start = (250 + beat * 500) * rate as usize / 1000;
+            for k in 0..200 {
+                let v = (-(k as f32) / 40.0).exp() * (k as f32 * 0.6).sin() * 0.9;
+                samples[start + k] = (v * i16::MAX as f32) as i16;
+            }
+        }
+        let data_len = (samples.len() * 2) as u32;
+        let mut out = b"RIFF".to_vec();
+        out.extend_from_slice(&(36 + data_len).to_le_bytes());
+        out.extend_from_slice(b"WAVEfmt ");
+        out.extend_from_slice(&16u32.to_le_bytes());
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&rate.to_le_bytes());
+        out.extend_from_slice(&(rate * 2).to_le_bytes());
+        out.extend_from_slice(&2u16.to_le_bytes());
+        out.extend_from_slice(&16u16.to_le_bytes());
+        out.extend_from_slice(b"data");
+        out.extend_from_slice(&data_len.to_le_bytes());
+        for s in samples {
+            out.extend_from_slice(&s.to_le_bytes());
+        }
+        std::fs::write(path, out).unwrap();
+    }
+
+    #[test]
+    fn sequences_are_authored_previewed_played_exported_and_beat_detected() {
+        let (_app, webview, dir) = app();
+        let prop = json!({
+            "id": "11111111-0000-4000-8000-0000000000aa", "name": "Strip",
+            "shape": { "source": "generator", "type": "line", "nodes": 4, "length": 1.0 }
+        });
+        let controller = json!({
+            "id": "33333333-0000-4000-8000-0000000000aa", "name": "Bench", "address": "127.0.0.1:9",
+            "protocol": { "type": "ddp" },
+            "ports": [{ "number": 1, "slots": [{ "prop": "11111111-0000-4000-8000-0000000000aa" }] }]
+        });
+        call(
+            &webview,
+            "apply_edits",
+            json!({ "edits": [{ "type": "addProp", "prop": prop }, { "type": "addController", "controller": controller }] }),
+        )
+        .unwrap();
+        assert_eq!(
+            call(&webview, "get_sequence_doc", json!({})).unwrap(),
+            Value::Null
+        );
+        let error = call(&webview, "edit_sequence", json!({ "edits": [] })).unwrap_err();
+        assert_eq!(error, "No sequence is open. Create or open one first.");
+
+        let snap = call(
+            &webview,
+            "new_sequence_doc",
+            json!({ "name": "Song", "durationMs": 2000 }),
+        )
+        .unwrap();
+        assert_eq!(snap["sequence"]["frameMs"], 25);
+        // The JSON shapes the UI's sequence helpers build.
+        let row = json!({ "id": "44444444-0000-4000-8000-000000000001",
+            "target": { "prop": "11111111-0000-4000-8000-0000000000aa" }, "layers": [{ "effects": [] }] });
+        let effect = json!({ "id": "55555555-0000-4000-8000-000000000001", "startMs": 0, "endMs": 1000,
+            "params": { "kind": "on" }, "palette": { "colors": ["#ff0000"] }, "blend": "normal",
+            "fadeInMs": 0, "fadeOutMs": 0 });
+        let snap = call(
+            &webview,
+            "edit_sequence",
+            json!({ "edits": [
+                { "type": "addRow", "row": row },
+                { "type": "addEffect", "row": "44444444-0000-4000-8000-000000000001", "layer": 0, "effect": effect },
+            ] }),
+        )
+        .unwrap();
+        assert_eq!(snap["canUndo"], true);
+        assert_eq!(snap["issues"], json!([]));
+        let frame = call_raw(&webview, "sequence_doc_frame", json!({ "positionMs": 500 }));
+        assert_eq!(frame, [255, 0, 0].repeat(4));
+        let error = call(
+            &webview,
+            "edit_sequence",
+            json!({ "edits": [{ "type": "setEffectTiming", "id": "55555555-0000-4000-8000-000000000001", "startMs": 9, "endMs": 9 }] }),
+        )
+        .unwrap_err();
+        assert_eq!(error, "An effect must end after it starts.");
+
+        let status = call(&webview, "play_sequence_doc", json!({ "positionMs": 0 })).unwrap();
+        assert_eq!(
+            (status["authored"].clone(), status["state"].clone()),
+            (json!(true), json!("playing"))
+        );
+        call(&webview, "stop_playback", json!({})).unwrap();
+
+        let layout = call(&webview, "sequence_export_layout", json!({})).unwrap();
+        assert_eq!(layout["channels"], 12);
+        let fseq = dir.path().join("song.fseq");
+        let summary = call(&webview, "export_sequence_doc", json!({ "path": fseq })).unwrap();
+        assert_eq!(
+            (summary["frames"].clone(), summary["channels"].clone()),
+            (json!(80), json!(12))
+        );
+        assert!(fseq.exists());
+
+        let saved = dir.path().join("song.pfseq.json");
+        let snap = call(&webview, "save_sequence_doc_as", json!({ "path": saved })).unwrap();
+        assert_eq!(snap["dirty"], false);
+
+        // Beat detection needs music; then it adds timing tracks as one undo step.
+        let error = call(&webview, "detect_beats", json!({})).unwrap_err();
+        assert!(error.as_str().unwrap().contains("no music yet"), "{error}");
+        write_clicks(&dir.path().join("clicks.wav"));
+        let analysis = call(
+            &webview,
+            "analyze_audio",
+            json!({ "path": dir.path().join("clicks.wav") }),
+        )
+        .unwrap();
+        let bpm = analysis["tempoBpm"].as_f64().unwrap();
+        assert!((bpm - 120.0).abs() < 2.0, "{bpm}");
+        call(
+            &webview,
+            "edit_sequence",
+            json!({ "edits": [{ "type": "updateInfo", "name": "Song", "audio": "clicks.wav", "durationMs": 12000, "frameMs": 25 }] }),
+        )
+        .unwrap();
+        let snap = call(&webview, "detect_beats", json!({})).unwrap();
+        let tracks = snap["sequence"]["timingTracks"].as_array().unwrap();
+        let names: Vec<&str> = tracks.iter().map(|t| t["name"].as_str().unwrap()).collect();
+        assert_eq!(names, vec!["Beats", "Bars", "Onsets"]);
+        assert!(tracks[0]["marks"].as_array().unwrap().len() >= 20);
+        let snap = call(&webview, "undo_sequence", json!({})).unwrap();
+        assert_eq!(snap["sequence"]["timingTracks"], json!([]));
+
+        call(&webview, "close_sequence_doc", json!({})).unwrap();
+        let snap = call(&webview, "open_sequence_doc", json!({ "path": saved })).unwrap();
+        assert_eq!(snap["sequence"]["name"], "Song");
+        assert!(call_raw(&webview, "sequence_doc_frame", json!({ "positionMs": 0 })).len() == 12);
     }
 }

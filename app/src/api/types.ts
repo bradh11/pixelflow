@@ -397,6 +397,8 @@ export interface PlaybackStatus {
   music: string | null;
   offsetMs: number;
   volume: number;
+  /** True when playing an authored sequence document (see api/sequence.ts) rather than a file. */
+  authored: boolean;
 }
 
 /** A song's length and peak loudness (0–1) in equal slices of time. */

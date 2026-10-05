@@ -674,7 +674,15 @@ pub fn translate(
         match effect_params(name, s, &colors, duration_ms, frame_ms, &mut diff) {
             Kind::Skip => return None,
             Kind::Params(params) => Translated {
-                params,
+                // PixelFlow's settings table has the final say on ranges (evaluated before
+                // `fidelity`, so a clamp counts as an approximation).
+                params: {
+                    let clamped = params.sanitized();
+                    if clamped != params {
+                        diff.add("settings beyond PixelFlow's range set to the nearest it allows");
+                    }
+                    clamped
+                },
                 palette: Palette::new(colors),
                 blend,
                 fade_in_ms,
@@ -867,6 +875,58 @@ mod tests {
                 "blur, rotation, or zoom not applied",
             ]
         );
+    }
+
+    #[test]
+    fn settings_beyond_pixelflows_ranges_are_clamped_and_reported() {
+        // 25 wraps is more twist than PixelFlow's spiral allows.
+        let s = Settings::parse("E_SLIDER_Spirals_Rotation=250,E_TEXTCTRL_Spirals_Movement=1.0");
+        let t = translate("Spirals", &s, &palette(&[Rgb::RED]), 1000, 25).unwrap();
+        let EffectParams::Spiral(p) = t.params else {
+            panic!("{:?}", t.params)
+        };
+        assert_eq!(p.twist, 10.0);
+        assert_eq!(t.params.setting_problem(), None);
+        assert_eq!(
+            t.fidelity,
+            Fidelity::Approximate(vec![
+                "settings beyond PixelFlow's range set to the nearest it allows".into()
+            ])
+        );
+        // Every kind, with hostile settings, comes out inside the table.
+        let wild = Settings::parse(
+            "E_SLIDER_Bars_BarCount=1e300,E_TEXTCTRL_Bars_Cycles=-1e300,E_TEXTCTRL_Chase_Rotations=1e300,\
+             E_SLIDER_Twinkle_Steps=0,E_SLIDER_Strobe_Duration=0,E_TEXTCTRL_Wave_Speed=1e300,\
+             E_SLIDER_Meteors_Speed=1e300,E_TEXTCTRL_Ripple_Cycles=1e300,E_SLIDER_Ripple_Thickness=0",
+        );
+        for name in [
+            "On",
+            "Off",
+            "Color Wash",
+            "Bars",
+            "Single Strand",
+            "Marquee",
+            "Wave",
+            "Twinkle",
+            "Shimmer",
+            "Strobe",
+            "Spirals",
+            "Fire",
+            "Meteors",
+            "Ripple",
+            "Plasma",
+            "Faces",
+        ] {
+            for duration in [1, 25, 3_600_000] {
+                let t = translate(name, &wild, &palette(&[Rgb::RED]), duration, 10).unwrap();
+                assert_eq!(
+                    t.params.setting_problem(),
+                    None,
+                    "{name} {duration}: {:?}",
+                    t.params
+                );
+            }
+        }
     }
 
     #[test]

@@ -149,6 +149,122 @@ fn submodel_rows_light_only_their_pixels_and_follow_row_order() {
     assert_eq!(a, vec![[0, 0, 255]; 4]);
 }
 
+/// A 12-pixel line with a face: mouths AI (pixels 0-1) and rest (2), eyes open (4-5) and
+/// closed (6), outline (8-11).
+fn singing_show() -> (Show, Sequence, TimingTrackId) {
+    let mut show = Show::new("t");
+    let mut prop = line("Face", 12, 0.0);
+    let mut face = pf_model::FaceDefinition::default();
+    face.mouths
+        .insert(pf_model::Phoneme::Ai, vec![pf_model::NodeRange::new(0, 2)]);
+    face.mouths
+        .insert(pf_model::Phoneme::Rest, vec![pf_model::NodeRange::new(2, 3)]);
+    face.eyes_open = vec![pf_model::NodeRange::new(4, 6)];
+    face.eyes_closed = vec![pf_model::NodeRange::new(6, 7)];
+    face.outline = vec![pf_model::NodeRange::new(8, 12)];
+    prop.regions.push(pf_model::Region::face("Singer", face));
+    show.props.push(prop);
+    let mut seq = Sequence::new("s", 10_000);
+    let track = TimingTrack::new(
+        "Lyrics (phonemes)",
+        TimingKind::Phonemes,
+        vec![Mark::new(0, 500, "AI")],
+    );
+    let id = track.id;
+    seq.timing_tracks.push(track);
+    (show, seq, id)
+}
+
+fn faces(track: TimingTrackId, eyes: FaceEyes, colors: FaceColorSource, outline: bool) -> Effect {
+    Effect::new(EffectKind::Faces, 0, 10_000)
+        .with_palette([Rgb::RED, Rgb::GREEN, Rgb::BLUE])
+        .with_params(EffectParams::Faces(FacesParams {
+            face: "Singer".into(),
+            timing_track: Some(track),
+            eyes,
+            colors,
+            outline,
+        }))
+}
+
+fn lit(frame: &[u8]) -> Vec<[u8; 3]> {
+    frame.chunks(3).map(|p| [p[0], p[1], p[2]]).collect()
+}
+
+#[test]
+fn faces_light_the_mouth_for_the_phoneme_and_the_eyes() {
+    let (show, mut seq, track) = singing_show();
+    let effect = faces(track, FaceEyes::Open, FaceColorSource::Palette, true);
+    seq.rows
+        .push(row(Target::Prop(show.props[0].id), vec![vec![effect]]));
+    const R: [u8; 3] = [255, 0, 0];
+    const G: [u8; 3] = [0, 255, 0];
+    const B: [u8; 3] = [0, 0, 255];
+    const O: [u8; 3] = [0, 0, 0];
+    // Singing "AI": mouth red, open eyes green, outline blue.
+    assert_eq!(
+        lit(&render(&show, &seq, 100)),
+        vec![R, R, O, O, G, G, O, O, B, B, B, B]
+    );
+    // After the mark the mouth is at rest.
+    assert_eq!(
+        lit(&render(&show, &seq, 600)),
+        vec![O, O, R, O, G, G, O, O, B, B, B, B]
+    );
+
+    // Closed eyes, no outline.
+    seq.rows[0].layers[0].effects[0] = faces(track, FaceEyes::Closed, FaceColorSource::Palette, false);
+    assert_eq!(
+        lit(&render(&show, &seq, 100)),
+        vec![R, R, O, O, O, O, G, O, O, O, O, O]
+    );
+}
+
+#[test]
+fn faces_use_their_own_colors_and_work_on_a_submodel_row() {
+    let (mut show, mut seq, track) = singing_show();
+    let pf_model::RegionKind::Face(face) = &mut show.props[0].regions[0].kind else {
+        unreachable!()
+    };
+    face.colors = Some(pf_model::FaceColors {
+        mouths: [(pf_model::Phoneme::Ai, Rgb::new(255, 128, 0))].into(),
+        ..Default::default()
+    });
+    // A submodel of the mouth and eyes only: the outline isn't on it.
+    let half = pf_model::Region::nodes("Half", vec![vec![Some(pf_model::NodeRun::new(0, 6))]]);
+    let target = Target::Region {
+        prop: show.props[0].id,
+        region: half.id,
+    };
+    show.props[0].regions.push(half);
+    seq.rows.push(row(
+        target,
+        vec![vec![faces(track, FaceEyes::Open, FaceColorSource::Face, true)]],
+    ));
+    let frame = lit(&render(&show, &seq, 100));
+    assert_eq!(&frame[..2], &[[255, 128, 0]; 2], "the face's mouth color");
+    assert_eq!(&frame[4..6], &[[255, 255, 255]; 2], "no eye color: white");
+    assert_eq!(&frame[8..], &[[0, 0, 0]; 4], "outside the submodel");
+}
+
+#[test]
+fn blinking_eyes_close_briefly_and_render_the_same_every_time() {
+    let (show, mut seq, track) = singing_show();
+    let effect = faces(track, FaceEyes::Auto, FaceColorSource::Palette, false);
+    let blink = (0..10_000)
+        .step_by(25)
+        .find(|&t| pf_render::faces::blinking(effect.id.seed(), 0, t))
+        .expect("a blink within 10 s");
+    seq.rows
+        .push(row(Target::Prop(show.props[0].id), vec![vec![effect]]));
+    let closed = lit(&render(&show, &seq, blink));
+    assert_eq!(closed[6], [0, 255, 0], "closed eyes lit");
+    assert_eq!(closed[4], [0, 0, 0]);
+    let open = lit(&render(&show, &seq, blink + pf_render::faces::BLINK_MS + 25));
+    assert_eq!((open[4], open[6]), ([0, 255, 0], [0, 0, 0]));
+    assert_eq!(lit(&render(&show, &seq, blink)), closed);
+}
+
 #[test]
 fn layers_blend_bottom_to_top() {
     let show = show();

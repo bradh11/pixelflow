@@ -2,9 +2,10 @@
 
 use pf_model::{Generator, Prop, ShapeSource, Show};
 use pf_sequence::{
-    Axis, BarsParams, Blend, ChaseParams, ColorWashParams, Direction, Effect, EffectParams, FireParams,
-    Gradient, Mark, MeteorDirection, MeteorsParams, OnParams, Rgb, RippleParams, Row, ShimmerParams,
-    SpiralParams, StrobeParams, Target, TimingKind, TwinkleParams, WaveParams,
+    Axis, BarsParams, Blend, ChaseParams, ColorWashParams, Direction, Effect, EffectParams, FaceColorSource,
+    FaceEyes, FacesParams, FireParams, Gradient, Mark, MeteorDirection, MeteorsParams, OnParams, Rgb,
+    RippleParams, Row, ShimmerParams, SpiralParams, StrobeParams, Target, TimingKind, TwinkleParams,
+    WaveParams,
 };
 use pf_xlights::sequence::{SequenceImport, build_sequence, parse_xsq};
 use pf_xlights::{import_folder, import_sequence_file};
@@ -399,7 +400,10 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
     let tree = &row(&i, &show, "Mega Tree").layers[0].effects;
     assert_eq!(tree.len(), 4, "Adjust and Random are left out");
     assert_eq!(tree[0].kind(), pf_sequence::EffectKind::ColorWash, "Butterfly");
-    for placeholder in &tree[1..] {
+    for faces in &tree[1..3] {
+        assert_eq!(faces.params, EffectParams::Faces(FacesParams::default()));
+    }
+    for placeholder in &tree[3..] {
         assert_eq!(
             placeholder.params,
             EffectParams::On(OnParams {
@@ -417,7 +421,7 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
     let s = i.summary;
     assert_eq!(s.rows, 9);
     assert_eq!(s.effects, 23);
-    assert_eq!((s.exact, s.approximate, s.placeholders), (14, 6, 3));
+    assert_eq!((s.exact, s.approximate, s.placeholders), (16, 6, 1));
     assert_eq!(
         s.skipped,
         1 + 3 + 2,
@@ -426,7 +430,7 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
 
     assert_note(
         &i,
-        "PixelFlow has no matching effect yet for these xLights effects, so they are shown as a dim fill in each one's first color: Faces (2), Text (1).",
+        "PixelFlow has no matching effect yet for this xLights effect, so it is shown as a dim fill in its first color: Text (1).",
     );
     assert_note(
         &i,
@@ -459,6 +463,79 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
     );
     assert_note(&i, "1 effect is xLights' Random effect");
     assert!(!has_note(&i, "Wave"), "{:#?}", i.notes);
+}
+
+#[test]
+fn faces_effects_sing_the_lyric_tracks_phonemes() {
+    let show = show();
+    let i = import_sequence_file(&fixture("faces.xsq"), &show, |_, _| None).unwrap();
+    assert_opens(&i);
+    let phonemes = i
+        .sequence
+        .timing_tracks
+        .iter()
+        .find(|t| t.kind == TimingKind::Phonemes)
+        .unwrap()
+        .id;
+    let effects = &row(&i, &show, "Window Matrix").layers[0].effects;
+    assert_eq!(
+        params(effects),
+        vec![
+            EffectParams::Faces(FacesParams {
+                face: "Singer".into(),
+                timing_track: Some(phonemes),
+                eyes: FaceEyes::Open,
+                colors: FaceColorSource::Face,
+                outline: true,
+            }),
+            EffectParams::Faces(FacesParams::default()),
+            EffectParams::Faces(FacesParams {
+                face: "Pictures".into(),
+                timing_track: Some(phonemes),
+                ..FacesParams::default()
+            }),
+        ]
+    );
+    assert_eq!((i.summary.exact, i.summary.approximate), (2, 1));
+    assert_note(
+        &i,
+        "its timing track isn't in the sequence, so the mouth stays at rest",
+    );
+    assert_note(&i, "blinks at PixelFlow's usual pace");
+    let issues = pf_sequence::validate_sequence(&i.sequence, &show);
+    assert!(
+        issues.iter().any(|p| p
+            .message
+            .ends_with("uses the face 'Pictures', but 'Window Matrix' has no face by that name.")),
+        "{issues:#?}"
+    );
+
+    // At 1.2 s the face sings "AI": the AI mouth (pixels 1-4) in its red, the open eyes (61-62,
+    // 79-80) green and the outline (21-40) yellow, as the face's own colors say.
+    let (map, _) = pf_mapping::map_show(&show);
+    let matrix = show.props.iter().find(|p| p.name == "Window Matrix").unwrap();
+    let at = map
+        .props
+        .iter()
+        .find(|p| p.prop == matrix.id)
+        .unwrap()
+        .frame_offset;
+    let mut renderer = pf_render::Renderer::new(&show, &map);
+    let mut frame = vec![0; renderer.frame_len()];
+    renderer.render(&i.sequence, 1_200, &mut frame);
+    let pixel_in = |frame: &[u8], n: usize| [frame[at + 3 * n], frame[at + 3 * n + 1], frame[at + 3 * n + 2]];
+    let pixel = |n: usize| pixel_in(&frame, n);
+    assert_eq!(pixel(0), [255, 0, 0]);
+    assert_eq!(pixel(3), [255, 0, 0]);
+    assert_eq!(pixel(4), [0, 0, 0], "the O mouth is dark");
+    assert_eq!(pixel(60), [0, 255, 0]);
+    assert_eq!(pixel(25), [255, 255, 0]);
+    renderer.render(&i.sequence, 1_700, &mut frame);
+    assert_eq!(
+        (pixel_in(&frame, 0), pixel_in(&frame, 5)),
+        ([0, 0, 0], [255, 255, 255]),
+        "O, which has no color of its own"
+    );
 }
 
 #[test]

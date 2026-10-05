@@ -5,7 +5,7 @@ use crate::effects::{Canvas, EffectTime, Shade, Shader, ShaderVisitor};
 use crate::geometry::{PixelBuffer, SceneGeometry};
 use pf_mapping::ChannelMap;
 use pf_model::Show;
-use pf_sequence::{Blend, Effect, Sequence, Target};
+use pf_sequence::{Blend, Effect, EffectParams, Sequence, Target};
 use std::collections::HashMap;
 
 /// Renders sequences for one show and channel map. Pixel positions are worked out once, when the
@@ -81,7 +81,21 @@ impl Renderer {
                 };
                 // Layers draw bottom (first) to top (last).
                 for effect in active {
-                    draw_effect(effect, t_ms, canvas, buffer, &mut self.row_acc);
+                    let shader = match &effect.params {
+                        EffectParams::Faces(p) => Some(Shader::Faces(crate::effects::Faces::new(
+                            crate::faces::lit_pixels(
+                                p,
+                                effect,
+                                t_ms,
+                                seq,
+                                &self.geometry,
+                                row.target,
+                                buffer,
+                            ),
+                        ))),
+                        _ => None,
+                    };
+                    draw_effect(effect, t_ms, canvas, buffer, shader, &mut self.row_acc);
                 }
                 for (&global, &top) in buffer.global.iter().zip(&self.row_acc) {
                     if top.a > 0.0
@@ -126,19 +140,29 @@ pub(crate) fn fade_level(effect: &Effect, t_ms: u64) -> f32 {
     level.clamp(0.0, 1.0)
 }
 
-fn draw_effect(effect: &Effect, t_ms: u64, canvas: Canvas, buffer: &PixelBuffer, acc: &mut [Acc]) {
+/// Draws one effect onto a row; `shader` is given when the renderer had to work it out (Faces).
+fn draw_effect(
+    effect: &Effect,
+    t_ms: u64,
+    canvas: Canvas,
+    buffer: &PixelBuffer,
+    shader: Option<Shader>,
+    acc: &mut [Acc],
+) {
     let fade = fade_level(effect, t_ms);
     if fade <= 0.0 {
         return;
     }
     let time = EffectTime::within(effect.start_ms, effect.end_ms, t_ms);
-    let shader = Shader::new(
-        &effect.params,
-        &time,
-        Colors::new(&effect.palette.colors),
-        effect.id.seed(),
-        canvas,
-    );
+    let shader = shader.unwrap_or_else(|| {
+        Shader::new(
+            &effect.params,
+            &time,
+            Colors::new(&effect.palette.colors),
+            effect.id.seed(),
+            canvas,
+        )
+    });
     struct Fill<'a> {
         buffer: &'a PixelBuffer,
         acc: &'a mut [Acc],

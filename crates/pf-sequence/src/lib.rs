@@ -17,8 +17,9 @@ mod validate;
 pub use document::{CURRENT_SCHEMA_VERSION, Layer, Mark, Row, Sequence, Target, TimingKind, TimingTrack};
 pub use effect::{
     Axis, BarsParams, Blend, ChaseParams, ColorWashParams, Direction, Effect, EffectKind, EffectParams,
-    FadeDirection, FadeParams, FireParams, Gradient, MeteorDirection, MeteorsParams, OffParams, OnParams,
-    Palette, RippleParams, ShimmerParams, SpiralParams, StrobeParams, TwinkleParams, WaveParams,
+    FaceColorSource, FaceEyes, FacesParams, FadeDirection, FadeParams, FireParams, Gradient, MeteorDirection,
+    MeteorsParams, OffParams, OnParams, Palette, RippleParams, ShimmerParams, SpiralParams, StrobeParams,
+    TwinkleParams, WaveParams,
 };
 pub use ids::{EffectId, RowId, TimingTrackId};
 pub use io::{SequenceError, check_sequence, sequence_from_json, sequence_to_json};

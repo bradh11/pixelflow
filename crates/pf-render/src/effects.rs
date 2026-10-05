@@ -681,6 +681,31 @@ impl Shade for Ripple {
 
 // ---------------------------------------------------------------------------------------------
 
+/// The Faces effect for one frame: the color of each lit pixel, by its place in the target's
+/// buffer. The renderer works it out (it knows the face and the timing track, see `faces.rs`);
+/// made from the settings alone it lights nothing.
+#[derive(Debug, Clone, Default)]
+pub struct Faces {
+    lit: Vec<Option<Rgba>>,
+}
+
+impl Faces {
+    pub(crate) fn new(lit: Vec<Option<Rgba>>) -> Self {
+        Self { lit }
+    }
+}
+
+impl Shade for Faces {
+    #[inline]
+    fn shade(&self, px: &Pixel) -> Rgba {
+        self.lit
+            .get(px.index as usize)
+            .copied()
+            .flatten()
+            .unwrap_or(Rgba::CLEAR)
+    }
+}
+
 /// Any effect, ready to shade pixels for one frame.
 pub enum Shader {
     On(On),
@@ -697,6 +722,7 @@ pub enum Shader {
     Fire(Fire),
     Meteors(Meteors),
     Ripple(Ripple),
+    Faces(Faces),
 }
 
 impl Shader {
@@ -717,6 +743,7 @@ impl Shader {
             EffectParams::Fire(p) => Shader::Fire(Fire::new(p, time, seed)),
             EffectParams::Meteors(p) => Shader::Meteors(Meteors::new(p, time, colors, seed, canvas)),
             EffectParams::Ripple(p) => Shader::Ripple(Ripple::new(p, time, colors)),
+            EffectParams::Faces(_) => Shader::Faces(Faces::default()),
         }
     }
 
@@ -738,6 +765,7 @@ impl Shader {
             Shader::Fire(s) => each.visit(s),
             Shader::Meteors(s) => each.visit(s),
             Shader::Ripple(s) => each.visit(s),
+            Shader::Faces(s) => each.visit(s),
         }
     }
 }

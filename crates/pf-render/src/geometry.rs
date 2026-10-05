@@ -176,6 +176,29 @@ impl SceneGeometry {
         self.index.get(&id).map(|&i| &self.props[i])
     }
 
+    /// The props a target draws on (a group's members, then its submodels' props), each once.
+    pub(crate) fn target_props(&self, target: Target) -> Vec<&PropGeometry> {
+        let mut seen = HashSet::new();
+        let ids: Vec<PropId> = match target {
+            Target::Prop(id) | Target::Region { prop: id, .. } => vec![id],
+            Target::Group(id) => self
+                .groups
+                .get(&id)
+                .map(|(members, submodels)| {
+                    members
+                        .iter()
+                        .copied()
+                        .chain(submodels.iter().map(|s| s.prop))
+                        .collect()
+                })
+                .unwrap_or_default(),
+        };
+        ids.into_iter()
+            .filter(|id| seen.insert(*id))
+            .filter_map(|id| self.prop(id))
+            .collect()
+    }
+
     /// The pixel buffer for a target; empty when the target is unknown or has no pixels.
     pub fn buffer(&self, target: Target) -> PixelBuffer {
         match target {
@@ -784,6 +807,7 @@ mod tests {
             vec![0, 1, 2, 3, 7, 6],
             "A's left half is already in"
         );
+        assert_eq!(geo.target_props(Target::Group(gid)).len(), 2);
         assert!(
             geo.buffer(Target::Region {
                 prop: show.props[0].id,

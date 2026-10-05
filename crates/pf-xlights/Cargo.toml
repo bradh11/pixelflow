@@ -19,3 +19,4 @@ workspace = true
 
 [dev-dependencies]
 pf-mapping.workspace = true
+pf-render.workspace = true

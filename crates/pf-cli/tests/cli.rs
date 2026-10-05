@@ -247,10 +247,10 @@ fn an_xlights_sequence_imports_onto_a_show_and_saves_as_a_sequence_file() {
     std::fs::remove_file(&saved).ok();
     assert!(output.status.success(), "{text}");
     assert!(
-        text.contains("Effects: 0:20.000 long, 8 rows, 22 effects (13 exact, 6 approximated, 3 placeholders"),
+        text.contains("Effects: 0:20.000 long, 8 rows, 22 effects (15 exact, 6 approximated, 1 placeholders"),
         "{text}"
     );
-    assert!(text.contains("Faces (2), Text (1)"), "{text}");
+    assert!(text.contains("first color: Text (1)"), "{text}");
     assert!(text.contains("Saved"), "{text}");
     let doc: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert_eq!(doc["name"], "Effects");

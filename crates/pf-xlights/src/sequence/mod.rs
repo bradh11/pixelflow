@@ -20,9 +20,9 @@ use crate::XlightsError;
 use effects::{Fidelity, Tally};
 use pf_model::Show;
 use pf_sequence::{
-    Effect, EffectId, Layer, MAX_DURATION_MS, MAX_EFFECTS, MAX_FRAME_MS, MAX_LAYERS_PER_ROW, MAX_MARKS,
-    MAX_ROWS, MAX_TEXT_LEN, MAX_TIMING_TRACKS, MIN_FRAME_MS, Mark, Row, RowId, Sequence, Target, TimingKind,
-    TimingTrack,
+    Effect, EffectId, EffectParams, Layer, MAX_DURATION_MS, MAX_EFFECTS, MAX_FRAME_MS, MAX_LAYERS_PER_ROW,
+    MAX_MARKS, MAX_ROWS, MAX_TEXT_LEN, MAX_TIMING_TRACKS, MIN_FRAME_MS, Mark, Row, RowId, Sequence, Target,
+    TimingKind, TimingTrack, TimingTrackId,
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -176,6 +176,9 @@ struct Builder<'a> {
     random: usize,
     over_effect_limit: usize,
     bad_refs: usize,
+    /// The track a Faces effect sings to, by xLights timing track name: its phonemes when it
+    /// has them, else its words, else the track itself.
+    face_tracks: HashMap<String, TimingTrackId>,
 }
 
 impl<'a> Builder<'a> {
@@ -275,12 +278,27 @@ impl<'a> Builder<'a> {
         let settings = self.settings_for(x);
         let palette = self.palette_for(x);
         let frame_ms = self.clock.frame_ms as u32;
-        let Some(translated) = effects::translate(name, &settings, &palette, end_ms - start_ms, frame_ms)
+        let Some(mut translated) = effects::translate(name, &settings, &palette, end_ms - start_ms, frame_ms)
         else {
             self.tally.record(name, &Fidelity::Skipped);
             self.summary.skipped += 1;
             return None;
         };
+        if let EffectParams::Faces(faces) = &mut translated.params {
+            let wanted = unxml_safe(settings.text("E_CHOICE_Faces_TimingTrack", "").trim());
+            faces.timing_track = self.face_tracks.get(wanted.as_str()).copied();
+            if faces.timing_track.is_none() && !wanted.is_empty() {
+                let missing =
+                    "its timing track isn't in the sequence, so the mouth stays at rest".to_string();
+                translated.fidelity = match translated.fidelity {
+                    Fidelity::Approximate(mut reasons) => {
+                        reasons.push(missing);
+                        Fidelity::Approximate(reasons)
+                    }
+                    _ => Fidelity::Approximate(vec![missing]),
+                };
+            }
+        }
         self.tally.record(name, &translated.fidelity);
         self.summary.effects += 1;
         match translated.fidelity {
@@ -499,6 +517,7 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
         random: 0,
         over_effect_limit: 0,
         bad_refs: 0,
+        face_tracks: HashMap::new(),
     };
 
     let mut sequence = Sequence::new(fallback_name, duration_ms);
@@ -553,6 +572,17 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
                 marks_left -= marks.len();
                 tracks.push(TimingTrack::new(track_name, kind, marks));
             }
+        }
+        let sings = [TimingKind::Phonemes, TimingKind::Words, TimingKind::Lyrics]
+            .iter()
+            .find_map(|kind| tracks.iter().find(|t| t.kind == *kind))
+            .or(tracks.first())
+            .map(|t| t.id);
+        let room = MAX_TIMING_TRACKS.saturating_sub(sequence.timing_tracks.len());
+        if let Some(id) = sings
+            && tracks.iter().take(room).any(|t| t.id == id)
+        {
+            b.face_tracks.insert(name.clone(), id);
         }
         for mut track in tracks {
             if sequence.timing_tracks.len() >= MAX_TIMING_TRACKS {

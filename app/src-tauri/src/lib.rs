@@ -907,13 +907,13 @@ mod tests {
         assert_eq!(imported["snapshot"]["dirty"], true);
         assert_eq!(imported["snapshot"]["path"], json!(null));
         assert_eq!(imported["summary"]["rows"], 8);
-        assert_eq!(imported["summary"]["placeholders"], 3);
+        assert_eq!(imported["summary"]["placeholders"], 1);
         assert!(
             imported["notes"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|n| n.as_str().unwrap().contains("Faces (2), Text (1)")),
+                .any(|n| n.as_str().unwrap().contains("first color: Text (1)")),
             "{imported}"
         );
         let open = call(&webview, "get_sequence_doc", json!({})).unwrap();

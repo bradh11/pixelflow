@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronRight, GripVertical, Layers, Maximize2, Plus, Trash2, ZoomIn, ZoomOut } from "lucide-react";
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { defaultParams, newEffect, newRow, type EffectKind, type Sequence, type SequenceTarget } from "../../api/sequence";
+import { defaultParams, newEffect, newRow, type EffectKind, type Sequence, type SequenceEdit, type SequenceTarget } from "../../api/sequence";
 import type { Show, Waveform } from "../../api/types";
 import {
   type DragItem,
@@ -87,6 +87,10 @@ export function Timeline({ doc }: { doc: Sequence }) {
   const [scrollY, setScrollY] = useState(0);
   const [waveform, setWaveform] = useState<Waveform | null>(null);
   const drag = useRef<Drag | null>(null);
+  /** A finished move or resize on its way to the engine: drawn where it was dropped until the
+   * engine has answered, so the effects don't jump back meanwhile. */
+  const pending = useRef<{ key: number; items: DragItem[] } | null>(null);
+  const pendingKey = useRef(0);
   const [, redraw] = useState(0);
   const [ghost, setGhost] = useState<{ lane: number; startMs: number; endMs: number } | null>(null);
 
@@ -160,7 +164,7 @@ export function Timeline({ doc }: { doc: Sequence }) {
       playheadMs,
       waveform,
       labels,
-      drag: d?.kind === "move" && d.started ? d.moved : d?.kind === "resize" ? [{ ...d.item, ...d.result }] : null,
+      drag: d?.kind === "move" && d.started ? d.moved : d?.kind === "resize" ? [{ ...d.item, ...d.result }] : (pending.current?.items ?? null),
       snappedAt: d && (d.kind === "move" || d.kind === "resize") ? snappedOf(d) : null,
       marquee: d?.kind === "marquee" ? d : null,
       ghost,
@@ -328,6 +332,20 @@ export function Timeline({ doc }: { doc: Sequence }) {
     redraw((n) => n + 1);
   };
 
+  /** Sends a dropped move or resize, drawing `items` where they were dropped until it settles. */
+  const sendDrop = (items: DragItem[], edits: SequenceEdit[]) => {
+    const key = ++pendingKey.current;
+    pending.current = { key, items };
+    void useSequencer
+      .getState()
+      .edit(edits)
+      .finally(() => {
+        if (pending.current?.key !== key) return;
+        pending.current = null;
+        redraw((n) => n + 1);
+      });
+  };
+
   const onPointerUp = () => {
     const d = drag.current;
     drag.current = null;
@@ -344,10 +362,12 @@ export function Timeline({ doc }: { doc: Sequence }) {
       }
     } else if (d.kind === "resize") {
       if (d.result.startMs !== d.item.startMs || d.result.endMs !== d.item.endMs) {
-        void store.edit([{ type: "setEffectTiming", id: d.item.id, ...d.result }]);
+        const { startMs, endMs } = d.result;
+        sendDrop([{ ...d.item, startMs, endMs }], [{ type: "setEffectTiming", id: d.item.id, startMs, endMs }]);
       }
     } else if (d.started) {
-      void store.edit(moveEdits(d.moved, d.items, ls));
+      const edits = moveEdits(d.moved, d.items, ls);
+      if (edits.length > 0) sendDrop(d.moved, edits);
     } else {
       store.select([d.primary]);
     }

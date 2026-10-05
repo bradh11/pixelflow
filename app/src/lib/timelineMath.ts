@@ -445,7 +445,52 @@ export function planDrop(args: {
   return { rowId: lane.rowId, layer: freeLayer(row, span.startMs, span.endMs), ...span };
 }
 
+/**
+ * How far an effect's edges may go without running into its neighbors on the same layer (effects
+ * in `ignore` don't count: they're moving too): from the end of the one before it to the start of
+ * the one after it, or the song's ends. Neighbors that already overlap it never make it smaller.
+ */
+export function effectBounds(doc: Sequence, id: string, ignore: ReadonlySet<string> = new Set()): { lo: number; hi: number } | null {
+  for (const row of doc.rows) {
+    for (const layer of row.layers) {
+      const effect = layer.effects.find((e) => e.id === id);
+      if (!effect) continue;
+      let lo = 0;
+      let hi = doc.durationMs;
+      for (const other of layer.effects) {
+        if (other.id === id || ignore.has(other.id)) continue;
+        if (other.startMs < effect.startMs) lo = Math.max(lo, other.endMs);
+        else hi = Math.min(hi, other.startMs);
+      }
+      return { lo: Math.min(lo, effect.startMs), hi: Math.max(hi, effect.endMs) };
+    }
+  }
+  return null;
+}
+
 // --- Keyboard and clipboard -------------------------------------------------------------------
+
+/**
+ * The edits that move effects `ids` one step (a frame, or with `byBeat` to the next or previous
+ * beat), built from `doc` as it is now: every one moves by the same amount, and none goes past the
+ * song's ends or into a neighbor that isn't moving. Empty when they can't move that way.
+ */
+export function nudgeEdits(doc: Sequence, ids: string[], direction: 1 | -1, byBeat: boolean): SequenceEdit[] {
+  const chosen = new Set(ids);
+  const placed: Effect[] = [];
+  for (const row of doc.rows) for (const layer of row.layers) for (const e of layer.effects) if (chosen.has(e.id)) placed.push(e);
+  if (placed.length === 0) return [];
+  const track = doc.timingTracks.find((t) => t.kind === "beats") ?? doc.timingTracks[0];
+  const grid = { frameMs: doc.frameMs, beats: track?.marks.map((m) => m.startMs) ?? [] };
+  const first = Math.min(...placed.map((e) => e.startMs));
+  let delta = stepTime(first, direction, grid, byBeat) - first;
+  for (const e of placed) {
+    const bounds = effectBounds(doc, e.id, chosen) ?? { lo: 0, hi: doc.durationMs };
+    delta = Math.max(bounds.lo - e.startMs, Math.min(bounds.hi - e.endMs, delta));
+  }
+  if (delta === 0 || Math.sign(delta) !== direction) return [];
+  return placed.map((e) => ({ type: "setEffectTiming", id: e.id, startMs: e.startMs + delta, endMs: e.endMs + delta }));
+}
 
 /** One step from `ms`: a frame, or (with `byBeat`) to the next or previous beat. */
 export function stepTime(ms: number, direction: 1 | -1, grid: { frameMs: number; beats?: number[] }, byBeat = false): number {

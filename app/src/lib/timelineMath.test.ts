@@ -4,6 +4,7 @@ import {
   buildIndex,
   clampView,
   createSpan,
+  effectBounds,
   effectsInView,
   fitInLane,
   fitView,
@@ -16,6 +17,7 @@ import {
   marqueeSelect,
   moveDrag,
   moveEdits,
+  nudgeEdits,
   pasteEffects,
   planDrop,
   resizeDrag,
@@ -282,6 +284,33 @@ describe("thousands of effects", () => {
 });
 
 describe("keyboard and clipboard", () => {
+  it("knows how far an effect can go before it runs into a neighbor on its layer", () => {
+    const d = doc([rowA, rowB]);
+    expect(effectBounds(d, "a1")).toEqual({ lo: 0, hi: 2000 });
+    expect(effectBounds(d, "a2")).toEqual({ lo: 1000, hi: 60_000 });
+    // A neighbor that's moving too doesn't count; nor do other layers.
+    expect(effectBounds(d, "a2", new Set(["a1"]))).toEqual({ lo: 0, hi: 60_000 });
+    expect(effectBounds(d, "a3")).toEqual({ lo: 0, hi: 60_000 });
+    // Neighbors already overlapping never shrink it.
+    const overlapped = doc([{ id: "O", target: { prop: "p" }, layers: [{ effects: [fx("o1", 0, 1500), fx("o2", 1000, 2000)] }] }]);
+    expect(effectBounds(overlapped, "o2")).toEqual({ lo: 1000, hi: 60_000 });
+    expect(effectBounds(d, "missing")).toBeNull();
+  });
+
+  it("nudges effects together from where they are now, stopping at neighbors and the song's ends", () => {
+    const d = doc([rowA, rowB]);
+    expect(nudgeEdits(d, ["b1"], 1, false)).toEqual([{ type: "setEffectTiming", id: "b1", startMs: 4025, endMs: 6025 }]);
+    // At the song's start, it can't go any earlier.
+    expect(nudgeEdits(d, ["a1"], -1, false)).toEqual([]);
+    const touching = doc([{ id: "T", target: { prop: "p" }, layers: [{ effects: [fx("t1", 0, 1000), fx("t2", 1000, 2000)] }] }]);
+    expect(nudgeEdits(touching, ["t1"], 1, false)).toEqual([]);
+    // Moving both together, nothing is in the way.
+    expect(nudgeEdits(touching, ["t1", "t2"], 1, false)).toHaveLength(2);
+    // A beat step stops short at the neighbor: a1 can only go 1000 ms before reaching a2.
+    const beats = { id: "bt", name: "Beats", kind: "beats" as const, marks: [0, 1500, 3000].map((t) => ({ startMs: t, endMs: t + 1500, label: "" })) };
+    expect(nudgeEdits(doc([rowA], { timingTracks: [beats] }), ["a1"], 1, true)).toEqual([{ type: "setEffectTiming", id: "a1", startMs: 1000, endMs: 2000 }]);
+  });
+
   it("steps by a frame, or to the next or previous beat", () => {
     const beats = [0, 500, 1000, 1500];
     expect(stepTime(700, 1, { frameMs: 25 })).toBe(725);

@@ -245,12 +245,24 @@ export class MemorySequencer implements SequencerApi {
   /** Calls made, for test assertions. */
   calls: string[] = [];
   private lastGesture: string | null = null;
+  /** Changes with every new or opened document (like the engine's sequence_doc_id). */
+  private docId = 0;
   private exportCancels = 0;
   /** Whether a playing sequence would go out to the controllers. */
   sendToControllers = true;
+  /** How long edit, undo, and redo replies take to come back (tests of a slow engine). The edit
+   * itself lands at once, as in the engine; only the answer is late. */
+  replyDelayMs = 0;
+  /** How long beat detection takes. */
+  analysisDelayMs = 0;
 
   /** With a memory backend, frames are drawn (roughly) from its show and playback runs on its clock. */
   constructor(readonly backend: MemoryBackend | null = null) {}
+
+  private async reply<T>(value: T, delayMs = this.replyDelayMs): Promise<T> {
+    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    return value;
+  }
 
   private open_(): Sequence {
     return this.doc ?? fail(NO_SEQUENCE);
@@ -282,6 +294,7 @@ export class MemorySequencer implements SequencerApi {
   }
 
   private replace(doc: Sequence, path: string | null) {
+    this.docId++;
     this.doc = doc;
     this.path = path;
     this.revision++;
@@ -344,7 +357,7 @@ export class MemorySequencer implements SequencerApi {
     this.redoStack = [];
     this.doc = next;
     this.revision++;
-    return this.result(changes);
+    return this.reply(this.result(changes));
   }
 
   async undoSequence() {
@@ -356,7 +369,7 @@ export class MemorySequencer implements SequencerApi {
     this.doc = step.before;
     this.lastGesture = null;
     this.revision++;
-    return this.result(diffSequences(now, step.before));
+    return this.reply(this.result(diffSequences(now, step.before)));
   }
 
   async redoSequence() {
@@ -368,7 +381,7 @@ export class MemorySequencer implements SequencerApi {
     this.doc = step.after;
     this.lastGesture = null;
     this.revision++;
-    return this.result(diffSequences(now, step.after));
+    return this.reply(this.result(diffSequences(now, step.after)));
   }
 
   async effectCatalog() {
@@ -460,8 +473,13 @@ export class MemorySequencer implements SequencerApi {
 
   async detectBeats() {
     const doc = this.open_();
+    const docId = this.docId;
     if (!doc.audio) fail("This sequence has no music yet. Choose a song for it first.");
-    const analysis = await this.analyzeAudio(doc.audio);
+    const analysis = await this.reply(await this.analyzeAudio(doc.audio), this.analysisDelayMs);
+    if (this.docId !== docId || this.doc?.audio !== doc.audio) {
+      fail("The sequence or its music changed while the beats were being found. Run beat detection again.");
+    }
+    const latest = this.open_();
     const marks = (times: number[], label: (i: number) => string) =>
       times.map((t, i) => ({ startMs: t, endMs: times[i + 1] ?? doc.durationMs, label: label(i) }));
     const tracks: TimingTrack[] = [
@@ -469,7 +487,7 @@ export class MemorySequencer implements SequencerApi {
       { id: crypto.randomUUID(), name: "Bars", kind: "bars", marks: marks(analysis.bars, (i) => String(i + 1)) },
     ];
     const edits: SequenceEdit[] = [
-      ...doc.timingTracks
+      ...latest.timingTracks
         .filter((t) => tracks.some((n) => n.name === t.name))
         .map((t) => ({ type: "removeTimingTrack" as const, id: t.id })),
       ...tracks.map((track) => ({ type: "addTimingTrack" as const, track })),

@@ -40,6 +40,18 @@ function saveRecent(paths: string[]) {
   }
 }
 
+/**
+ * Sequence edits to send: a fixed list, or a function that builds them from the document as it is
+ * when their turn comes (after every earlier edit has landed), so a quick second change never
+ * undoes a first one still on its way.
+ */
+export type SequenceEditsFrom = SequenceEdit[] | ((doc: Sequence) => SequenceEdit[]);
+
+/** A new id for one gesture (a drag, a held key, a slider pull): its edits make one undo step. */
+export function newGesture(): string {
+  return crypto.randomUUID();
+}
+
 /** A copied effect and the row it came from. */
 export interface Copied {
   rowId: string;
@@ -79,8 +91,12 @@ interface SequencerState {
   open(path: string): Promise<boolean>;
   save(): Promise<boolean>;
   saveAs(): Promise<boolean>;
-  /** Applies edits as one undo step (or merged into `gesture`'s step). */
-  edit(edits: SequenceEdit[], gesture?: string): Promise<boolean>;
+  /**
+   * Applies edits as one undo step (or merged into `gesture`'s step), in order after every earlier
+   * call. Edits given as a function are built from the latest document when their turn comes; an
+   * empty build sends nothing and counts as done.
+   */
+  edit(edits: SequenceEditsFrom, gesture?: string): Promise<boolean>;
   undo(): Promise<boolean>;
   redo(): Promise<boolean>;
   detectBeats(): Promise<boolean>;
@@ -139,8 +155,12 @@ export const useSequencer = create<SequencerState>((set, get) => {
   }
 
   /** Brings the copy up to date from a light reply, or fetches the whole document if it fell behind. */
-  async function absorb(result: SequenceEditResult) {
+  async function absorb(result: SequenceEditResult, from: SequencerApi) {
     const { doc, revision, api } = get();
+    // A reply from an engine this store has since let go of.
+    if (api !== from) return;
+    // Older than the copy (a resync already brought it in): nothing to do.
+    if (result.revision < revision || (result.changed && result.revision === revision)) return;
     const meta = { dirty: result.dirty, canUndo: result.canUndo, canRedo: result.canRedo, issues: result.issues };
     if (!result.changed) {
       set(meta);
@@ -190,6 +210,8 @@ export const useSequencer = create<SequencerState>((set, get) => {
     detecting: false,
 
     async connect(api) {
+      // Calls still waiting on a previous engine have nothing to do with this one.
+      queue = Promise.resolve();
       set({ api });
       await guarded(async () => {
         const [catalog, snapshot] = await Promise.all([api.effectCatalog(), api.getSequenceDoc()]);
@@ -211,7 +233,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
           set({ selection: [], playheadMs: 0, collapsed: [], suggestBeats: audio !== null });
           if (audio) {
             const sequence = snapshot.sequence;
-            await absorb(await api.editSequence([{ type: "updateInfo", name: sequence.name, audio, durationMs, frameMs: sequence.frameMs }]));
+            await absorb(await api.editSequence([{ type: "updateInfo", name: sequence.name, audio, durationMs, frameMs: sequence.frameMs }]), api);
           }
           return true;
         }),
@@ -252,22 +274,29 @@ export const useSequencer = create<SequencerState>((set, get) => {
 
     async edit(edits, gesture) {
       const { api } = get();
-      if (!api || edits.length === 0) return false;
-      const ok = await serial(() => guarded(async () => (await absorb(await api.editSequence(edits, gesture)), true)));
+      if (!api || (Array.isArray(edits) && edits.length === 0)) return false;
+      const ok = await serial(() =>
+        guarded(async () => {
+          const doc = get().doc;
+          const batch = typeof edits === "function" ? (doc ? edits(doc) : []) : edits;
+          if (batch.length > 0) await absorb(await api.editSequence(batch, gesture), api);
+          return true;
+        }),
+      );
       return ok === true;
     },
 
     async undo() {
       const { api } = get();
       if (!api || !get().doc) return false;
-      const ok = await serial(() => guarded(async () => (await absorb(await api.undoSequence()), true)));
+      const ok = await serial(() => guarded(async () => (await absorb(await api.undoSequence(), api), true)));
       return ok === true;
     },
 
     async redo() {
       const { api } = get();
       if (!api || !get().doc) return false;
-      const ok = await serial(() => guarded(async () => (await absorb(await api.redoSequence()), true)));
+      const ok = await serial(() => guarded(async () => (await absorb(await api.redoSequence(), api), true)));
       return ok === true;
     },
 
@@ -276,8 +305,12 @@ export const useSequencer = create<SequencerState>((set, get) => {
       if (!api) return false;
       set({ detecting: true, suggestBeats: false });
       try {
-        const ok = await serial(() => guarded(async () => (await absorb(await api.detectBeats()), true)));
-        return ok === true;
+        // Finding the beats takes seconds; edits carry on meanwhile, and the new tracks are taken
+        // in at their turn.
+        const result = await guarded(() => api.detectBeats());
+        if (!result) return false;
+        await serial(() => guarded(() => absorb(result, api)));
+        return true;
       } finally {
         set({ detecting: false });
       }
@@ -373,6 +406,8 @@ export const useSequencer = create<SequencerState>((set, get) => {
       const target = await guarded(() => api.pickExportPath(`${base}.fseq`));
       if (!target) return null;
       set({ exporting: 0 });
+      // Export what's on screen: every edit made so far lands first.
+      await serial(async () => undefined);
       try {
         const summary = await api.exportSequenceDoc(target, (p) => set({ exporting: p.percent }));
         if (addToShow) {

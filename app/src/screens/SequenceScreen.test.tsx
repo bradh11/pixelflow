@@ -199,11 +199,16 @@ describe("sequence screen", () => {
     await user.keyboard("{End}");
     expect(useSequencer.getState().playheadMs).toBe(60_000);
     await user.keyboard("{Home}");
-    // Select the arch's first effect and nudge it a frame later.
-    const first = rowEffects(seq.doc!, "Garage Arch", show)[0];
+    // Select the star's first effect and nudge it a frame later.
+    const first = rowEffects(seq.doc!, "Porch Star", show)[0];
     act(() => useSequencer.getState().select([first.id]));
     await user.keyboard("{ArrowRight}");
-    await waitFor(() => expect(rowEffects(seq.doc!, "Garage Arch", show)[0].startMs).toBe(25));
+    await waitFor(() => expect(rowEffects(seq.doc!, "Porch Star", show)[0].startMs).toBe(25));
+    // The arch's effects sit end to end: nudging one would run into the next, so it stays put.
+    const arch = rowEffects(seq.doc!, "Garage Arch", show)[0];
+    act(() => useSequencer.getState().select([arch.id]));
+    await user.keyboard("{ArrowRight}");
+    expect(rowEffects(seq.doc!, "Garage Arch", show)[0].startMs).toBe(0);
     // Copy, then paste at 58 s.
     await user.keyboard("{Meta>}c{/Meta}");
     act(() => useSequencer.getState().setPlayhead(56_000));
@@ -258,5 +263,155 @@ describe("sequence screen", () => {
     await user.click(screen.getByRole("button", { name: "1 problem" }));
     await user.click(within(screen.getByRole("dialog", { name: "Problems in this sequence" })).getByRole("button", { name: /overlaps the Chase effect/ }));
     expect(useSequencer.getState().selection).toEqual([effect.id]);
+  });
+});
+
+/** Every effect in the engine's copy, by id. */
+function effectIn(seq: MemorySequencer, id: string): Effect {
+  return seq.doc!.rows.flatMap((r) => r.layers.flatMap((l) => l.effects)).find((e) => e.id === id)!;
+}
+
+/** A stand-in for the timeline's 2D canvas that remembers the text drawn on it. */
+function recordTimelineText() {
+  const texts: { text: string; x: number }[] = [];
+  const ctx = new Proxy({} as Record<string | symbol, unknown>, {
+    get(target, prop) {
+      if (prop === "fillText") return (text: string, x: number) => texts.push({ text, x });
+      return prop in target ? target[prop] : () => undefined;
+    },
+    set(target, prop, value) {
+      target[prop] = value;
+      return true;
+    },
+  });
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(function (this: HTMLCanvasElement) {
+    return (this.getAttribute("aria-label") === "Timeline" ? ctx : null) as never;
+  });
+  return texts;
+}
+
+describe("sequence screen with a slow engine", () => {
+  it("types a time into a field without the field fighting back, as one undo step", async () => {
+    const { seq, user, show } = await openScreen();
+    seq.replyDelayMs = 30;
+    const arch = rowEffects(seq.doc!, "Garage Arch", show);
+    const last = arch[arch.length - 1];
+    expect([last.startMs, last.endMs]).toEqual([52_000, 56_000]);
+    act(() => useSequencer.getState().select([last.id]));
+    const panel = screen.getByRole("complementary", { name: "Effect settings" });
+    const ends = within(panel).getByLabelText("Ends (ms)");
+    const before = seq.undoStack.length;
+    const sent = seq.calls.length;
+    await user.clear(ends);
+    await user.type(ends, "58000");
+    // Nothing is sent, or kept in range, while typing.
+    expect(ends).toHaveValue(58_000);
+    expect(seq.calls.length).toBe(sent);
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(effectIn(seq, last.id).endMs).toBe(58_000));
+    expect(ends).toHaveValue(58_000);
+    expect(seq.undoStack.length).toBe(before + 1);
+    // Past the song's end it stops at the end; before the effect ahead of it, at that effect's end.
+    await user.clear(ends);
+    await user.type(ends, "70000{Enter}");
+    await waitFor(() => expect(effectIn(seq, last.id).endMs).toBe(60_000));
+    const starts = within(panel).getByLabelText("Starts (ms)");
+    await user.clear(starts);
+    await user.type(starts, "40000{Enter}");
+    await waitFor(() => expect(effectIn(seq, last.id).startMs).toBe(arch[arch.length - 2].endMs));
+    // Escape puts the value back without sending anything.
+    await waitFor(() => expect(useSequencer.getState().doc).toEqual(seq.doc));
+    const count = seq.undoStack.length;
+    await user.clear(ends);
+    await user.type(ends, "123{Escape}");
+    expect(ends).toHaveValue(60_000);
+    act(() => ends.blur());
+    expect(seq.undoStack.length).toBe(count);
+  });
+
+  it("keeps every quick change, and adds up quick nudges, while replies are on their way", async () => {
+    const { seq, user, show } = await openScreen();
+    seq.replyDelayMs = 40;
+    const wave = rowEffects(seq.doc!, "Garage Arch", show)[0];
+    act(() => useSequencer.getState().select([wave.id]));
+    const panel = screen.getByRole("complementary", { name: "Effect settings" });
+    await user.selectOptions(within(panel).getByRole("combobox", { name: "Direction" }), "reverse");
+    await user.selectOptions(within(panel).getByRole("combobox", { name: "With the layers below" }), "add");
+    const slider = within(panel).getByRole("slider", { name: "Waves" });
+    fireEvent.change(slider, { target: { value: "3" } });
+    fireEvent.pointerUp(slider);
+    await waitFor(() => expect(effectIn(seq, wave.id)).toMatchObject({ blend: "add", params: { direction: "reverse", cycles: 3 } }));
+    await waitFor(() => expect(useSequencer.getState().doc).toEqual(seq.doc));
+
+    const star = rowEffects(seq.doc!, "Porch Star", show)[0];
+    act(() => useSequencer.getState().select([star.id]));
+    timeline().focus();
+    const steps = seq.undoStack.length;
+    await user.keyboard("{ArrowRight}{ArrowRight}{ArrowRight}");
+    await waitFor(() => expect(effectIn(seq, star.id).startMs).toBe(75));
+    expect(seq.undoStack.length).toBe(steps + 3);
+    // Holding the key is one undo step, however many times it repeats.
+    fireEvent.keyDown(timeline(), { key: "ArrowLeft" });
+    fireEvent.keyDown(timeline(), { key: "ArrowLeft", repeat: true });
+    fireEvent.keyDown(timeline(), { key: "ArrowLeft", repeat: true });
+    await waitFor(() => expect(effectIn(seq, star.id).startMs).toBe(0));
+    expect(seq.undoStack.length).toBe(steps + 4);
+  });
+
+  it("keeps a dropped effect where it was dropped while the engine answers", async () => {
+    const texts = recordTimelineText();
+    const { seq, show } = await openScreen();
+    seq.replyDelayMs = 50;
+    const arch = rowEffects(seq.doc!, "Garage Arch", show);
+    const last = arch[arch.length - 1];
+    expect([last.startMs, last.endMs, last.params.kind]).toEqual([52_000, 56_000, "chase"]);
+    // Drag it a second later, into the free space at the end (Alt: no snapping).
+    fireEvent.pointerDown(timeline(), { clientX: x(54_000), clientY: LANE.archTop, button: 0, pointerId: 1, altKey: true });
+    fireEvent.pointerMove(timeline(), { clientX: x(54_500), clientY: LANE.archTop, pointerId: 1, altKey: true });
+    fireEvent.pointerMove(timeline(), { clientX: x(55_000), clientY: LANE.archTop, pointerId: 1, altKey: true });
+    texts.length = 0;
+    fireEvent.pointerUp(timeline(), { clientX: x(55_000), clientY: LANE.archTop, pointerId: 1, altKey: true });
+    const localStart = () => useSequencer.getState().doc!.rows[1].layers[0].effects[13].startMs;
+    const drawnAt = (ms: number) => texts.some((t) => t.text === "Chase" && Math.abs(t.x - (x(ms) + 5)) < 0.01);
+    // Drawn at its new place straight away, before the reply has come back.
+    expect(localStart()).toBe(52_000);
+    expect(drawnAt(53_000)).toBe(true);
+    await waitFor(() => expect(effectIn(seq, last.id).startMs).toBe(53_000));
+    await waitFor(() => expect(localStart()).toBe(53_000));
+    texts.length = 0;
+    act(() => useSequencer.getState().setPlayhead(1));
+    expect(drawnAt(53_000)).toBe(true);
+    expect(drawnAt(52_000)).toBe(false);
+  });
+
+  it("finds beats without holding up edits made meanwhile", async () => {
+    const { seq, user, show } = await openScreen();
+    seq.analysisDelayMs = 400;
+    const wave = rowEffects(seq.doc!, "Garage Arch", show)[0];
+    act(() => useSequencer.getState().select([wave.id]));
+    await user.click(screen.getByRole("button", { name: "Detect beats" }));
+    const panel = screen.getByRole("complementary", { name: "Effect settings" });
+    await user.selectOptions(within(panel).getByRole("combobox", { name: "Direction" }), "reverse");
+    await waitFor(() => expect(useSequencer.getState().detecting && effectIn(seq, wave.id).params).toMatchObject({ direction: "reverse" }), { timeout: 300 });
+    await waitFor(() => expect(useSequencer.getState().detecting).toBe(false), { timeout: 2000 });
+    expect(useSequencer.getState().doc).toEqual(seq.doc);
+  });
+
+  it("makes each slider pull its own undo step, even after the screen is reopened", async () => {
+    const { seq } = await openScreen();
+    const wave = seq.doc!.rows[1].layers[0].effects[0];
+    act(() => useSequencer.getState().select([wave.id]));
+    const before = seq.undoStack.length;
+    const pull = async (value: string) => {
+      const slider = within(screen.getByRole("complementary", { name: "Effect settings" })).getByRole("slider", { name: "Waves" });
+      fireEvent.change(slider, { target: { value } });
+      fireEvent.pointerUp(slider);
+      await waitFor(() => expect(effectIn(seq, wave.id).params).toMatchObject({ cycles: Number(value) }));
+    };
+    await pull("2");
+    act(() => useApp.getState().setScreen("layout"));
+    act(() => useApp.getState().setScreen("sequence"));
+    await pull("3");
+    expect(seq.undoStack.length).toBe(before + 2);
   });
 });

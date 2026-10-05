@@ -25,6 +25,19 @@ describe("raw pixel positions", () => {
     expect(Array.from(props[0].points)).toEqual([1.5, -2, 3, 4.25]);
   });
 
+  it("reads the bytes however Tauri hands them over: a buffer, a view into one, or plain numbers", () => {
+    const bytes = new Uint8Array(packed());
+    const padded = new Uint8Array(bytes.length + 3);
+    padded.set(bytes, 3);
+    for (const data of [bytes, padded.subarray(3), Array.from(bytes)]) {
+      const { revision, props } = decodePreview(data);
+      expect(revision).toBe(7);
+      expect(props[0].prop).toBe("11111111-0000-4000-8000-000000000001");
+      expect(Array.from(props[0].points)).toEqual([1.5, -2, 3, 4.25]);
+    }
+    expect(() => decodePreview({} as ArrayBuffer)).toThrow(/damaged/);
+  });
+
   it("reads a show with no props", () => {
     const data = new ArrayBuffer(16);
     new DataView(data).setUint32(0, 1, true);

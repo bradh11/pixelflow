@@ -51,6 +51,15 @@ describe("layout data", () => {
     expect(result.current.revision).toBe(2);
   });
 
+  it("says when the props' positions can't be read, instead of showing an empty canvas", async () => {
+    const backend = new MemoryBackend();
+    backend.previewProps = () => Promise.reject(new Error("The props' positions came back damaged. Try again."));
+    await connect(backend);
+    const { result } = renderHook(() => usePreviewProps());
+    await waitFor(() => expect(useApp.getState().error).toBe("The props' positions came back damaged. Try again."));
+    expect(result.current.props).toEqual([]);
+  });
+
   it("reports a photo that can't be read, in plain words", async () => {
     const backend = new MemoryBackend();
     await connect(backend);

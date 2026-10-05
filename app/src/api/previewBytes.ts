@@ -10,10 +10,22 @@ const ID_LENGTH = 36;
 
 const littleEndian = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
 
-/** The props' pixel positions from `data`, which the shell packed little-endian. */
-export function decodePreview(data: ArrayBuffer): PreviewSet {
+/**
+ * The bytes as an ArrayBuffer of their own. Tauri hands raw replies over as an ArrayBuffer, but
+ * as a plain array of numbers when its fast channel is unavailable.
+ */
+function ownBuffer(data: ArrayBuffer | ArrayBufferView | number[]): ArrayBuffer | null {
+  if (data instanceof ArrayBuffer) return data;
+  if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength).slice().buffer;
+  if (Array.isArray(data)) return Uint8Array.from(data).buffer;
+  return null;
+}
+
+/** The props' pixel positions from `bytes`, which the shell packed little-endian. */
+export function decodePreview(bytes: ArrayBuffer | ArrayBufferView | number[]): PreviewSet {
   const damaged = () => new Error("The props' positions came back damaged. Try again.");
-  if (data.byteLength < HEADER) throw damaged();
+  const data = ownBuffer(bytes);
+  if (!data || data.byteLength < HEADER) throw damaged();
   const view = new DataView(data);
   if (view.getUint32(0, true) !== 1) throw damaged();
   const count = view.getUint32(4, true);

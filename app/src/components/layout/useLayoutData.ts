@@ -21,7 +21,12 @@ export function usePreviewProps(): PreviewSet {
     let latest = true;
     void backend.previewProps().then(
       (p) => latest && setPreview(p),
-      () => latest && setPreview({ revision: revision ?? -1, props: [] }),
+      (e: unknown) => {
+        if (!latest) return;
+        setPreview({ revision: revision ?? -1, props: [] });
+        // Without positions the canvas can't show (or pick) any prop: say so instead of showing nothing.
+        useApp.setState({ error: errorMessage(e) });
+      },
     );
     return () => {
       latest = false;

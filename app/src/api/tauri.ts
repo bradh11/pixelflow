@@ -39,7 +39,7 @@ export const tauriBackend: Backend = {
   playbackStopReason: () => invoke("playback_stop_reason"),
   liveFrame: async () => new Uint8Array(await invoke<ArrayBuffer>("live_frame")),
   sequenceFrame: async () => new Uint8Array(await invoke<ArrayBuffer>("sequence_frame")),
-  previewProps: async () => decodePreview(await invoke<ArrayBuffer>("preview_props")),
+  previewProps: async () => decodePreview(await invoke<ArrayBuffer | number[]>("preview_props")),
   readImage: async (path) => new Uint8Array(await invoke<ArrayBuffer>("read_image", { path })),
   // Picked by the shell, which then lets the window read that photo (and no other files).
   pickImagePath: () => invoke("pick_image"),

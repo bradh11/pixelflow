@@ -3,6 +3,7 @@ import { type Backend, errorMessage } from "../api/backend";
 import type { Device, Edit, ImportSummary, Show, ShowSnapshot, SilentPeer } from "../api/types";
 import { fileName } from "../lib/format";
 import { useLayoutEditor } from "./layoutEditor";
+import { showViewKey, useView3d } from "./view3d";
 
 /**
  * Edits to send: a fixed list, or a function that builds them from the show as it is when
@@ -375,7 +376,13 @@ export const useApp = create<AppState>((set, get) => {
     const suggested = snapshot.path ? fileName(snapshot.path) : `${snapshot.show.name}.pixelflow.json`;
     const path = await backend.pickSavePath(suggested);
     if (!path) return false;
-    return get().run((b) => b.saveShowAs(path));
+    return get().run(async (b) => {
+      const before = get().snapshot ?? snapshot;
+      const saved = await b.saveShowAs(path);
+      // Before the new path reaches the screens: the 3D camera and photo depth follow the show.
+      useView3d.getState().carryShow(showViewKey(before.path, before.show.name), showViewKey(saved.path, saved.show.name));
+      return saved;
+    });
   },
 };
 });

@@ -24,6 +24,8 @@ interface View3dState {
   /** The show whose view settings these are (see `showViewKey`), and its photo's depth. */
   showKey: string | null;
   photoDepth: number;
+  /** The show's settings last moved to a new key because it was saved under a new name. */
+  carried: { from: string; to: string } | null;
 
   setMode(mode: LayoutMode): void;
   setPlayMode(mode: LayoutMode): void;
@@ -32,6 +34,8 @@ interface View3dState {
   camera(action: CameraAction): void;
   /** Reads the remembered settings for the show `key`. */
   openShow(key: string): void;
+  /** The same show is now kept under `to` (saved for the first time, or with Save As): its settings go with it. */
+  carryShow(from: string, to: string): void;
   setPhotoDepth(depth: number): void;
 }
 
@@ -92,6 +96,12 @@ export function saveShowView(key: string, view: Partial<ShowView3d>) {
   write(showKey(key), JSON.stringify({ ...loadShowView(key), ...view }));
 }
 
+/** Copies what's remembered under `from` to `to`, unless `to` has settings of its own. */
+function copyShowView(from: string, to: string) {
+  const saved = read(showKey(from));
+  if (saved !== null && read(showKey(to)) === null) write(showKey(to), saved);
+}
+
 export const useView3d = create<View3dState>((set, get) => ({
   mode: read(MODE_KEY) === "3d" ? "3d" : "2d",
   playMode: read(PLAY_MODE_KEY) === "3d" ? "3d" : "2d",
@@ -99,6 +109,7 @@ export const useView3d = create<View3dState>((set, get) => ({
   command: null,
   showKey: null,
   photoDepth: DEFAULT_PHOTO_DEPTH,
+  carried: null,
 
   setMode(mode) {
     write(MODE_KEY, mode);
@@ -119,6 +130,16 @@ export const useView3d = create<View3dState>((set, get) => ({
   camera: (action) => set({ command: { seq: (get().command?.seq ?? 0) + 1, action } }),
   openShow(key) {
     if (get().showKey !== key) set({ showKey: key, photoDepth: loadShowView(key).photoDepth });
+  },
+  carryShow(from, to) {
+    if (from === to) return;
+    copyShowView(from, to);
+    // The depth in use is the show's: keep it, and keep it under the new key.
+    if (get().showKey === from) {
+      saveShowView(to, { photoDepth: get().photoDepth });
+      set({ showKey: to });
+    }
+    set({ carried: { from, to } });
   },
   setPhotoDepth(photoDepth) {
     const key = get().showKey;

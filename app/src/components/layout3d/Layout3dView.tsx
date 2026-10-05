@@ -119,6 +119,8 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
   const spaceHeld = useRef(false);
   const tick = useRef<{ request: number | null; last: number }>({ request: null, last: 0 });
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /** The key the view's settings were last read from (see the `storageKey` effect). */
+  const shownKey = useRef(storageKey);
   /** What the renderer has: the preview it was given, each prop's uploaded pixels, and where they start. */
   const uploaded = useRef<{ preview: PreviewSet3d | null; xyz: Map<string, Float32Array>; starts: Map<string, { start: number; count: number }>; colors: Uint8Array }>({
     preview: null,
@@ -316,10 +318,18 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
     invalidate();
   }, [ready, preview, invalidate]);
 
-  // Another show (or the same show saved under a new name): its own remembered camera and photo depth.
+  // Another show: its own remembered camera and photo depth. The same show saved under a new
+  // name keeps the camera it has (its settings were carried to the new key when it was saved).
   useEffect(() => useView3d.getState().openShow(storageKey), [storageKey]);
   useEffect(() => {
     if (!ready) return;
+    const { carried } = useView3d.getState();
+    const saved = carried?.from === shownKey.current && carried.to === storageKey;
+    shownKey.current = storageKey;
+    if (saved && camera.current) {
+      saveShowView(storageKey, { orbit: camera.current.goal });
+      return;
+    }
     camera.current = null;
     placeCameraIfNeeded();
   }, [ready, storageKey]);

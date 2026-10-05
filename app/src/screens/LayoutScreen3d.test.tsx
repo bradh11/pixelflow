@@ -330,6 +330,29 @@ describe("the 3D layout", () => {
     await waitFor(() => expect(scene().calls).toContain("setModel:none"));
   });
 
+  it("keeps the camera and the photo's depth when an unsaved show is saved for the first time", async () => {
+    const show = showWith(line("Gutter", 0, 0));
+    show.background = { path: "/house.jpg", x: -10, y: 8, width: 20, opacity: 0.7 };
+    const user = await setup(show);
+    await open3d(user);
+    fireEvent.change(screen.getByLabelText("Photo depth"), { target: { value: "3.5" } });
+    await user.keyboard("4");
+    await waitFor(() => expect(JSON.parse(localStorage.getItem("pixelflow.view3d:unsaved:Test House") ?? "{}").orbit?.yaw).toBeCloseTo(Math.PI / 2), {
+      timeout: 3000,
+    });
+    const path = "/shows/house.pixelflow.json";
+    backend.nextSavePath = path;
+    await act(async () => void (await useApp.getState().save()));
+    expect(useApp.getState().snapshot!.path).toBe(path);
+    const kept = JSON.parse(localStorage.getItem(`pixelflow.view3d:${path}`)!);
+    expect(kept.photoDepth).toBe(3.5);
+    expect(kept.orbit.yaw).toBeCloseTo(Math.PI / 2);
+    expect(screen.getByText(/Photo depth in 3D: 3.5 behind/)).toBeInTheDocument();
+    // The view stays where it was: no jump back to the starting angle.
+    await new Promise((r) => setTimeout(r, 100));
+    expect(orbit().yaw).toBeCloseTo(Math.PI / 2);
+  });
+
   it("fits a tilted house model by its standing size", async () => {
     const show = showWith(line("Gutter", 0, 0));
     show.background = { path: "/house.jpg", x: -10, y: 8, width: 20, opacity: 0.7 };

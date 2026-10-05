@@ -422,6 +422,29 @@ export function freeLayer(row: Row, startMs: number, endMs: number, extra: { lay
   }
 }
 
+/** Where an effect dropped from the palette at `ms` on `lane` goes: the bar it lands in (or two
+ * seconds), shortened to fit the gap it's dropped in; dropped on top of another effect (or on a
+ * collapsed row), it goes on the first layer with room instead. */
+export function planDrop(args: {
+  doc: Sequence;
+  index: EffectIndex;
+  lane: Lane;
+  ms: number;
+  snap?: Snap;
+}): { rowId: string; layer: number; startMs: number; endMs: number } | null {
+  const { doc, index, lane, ms, snap } = args;
+  const row = index.rows.get(lane.rowId);
+  if (!row || doc.durationMs <= 0) return null;
+  const bars = doc.timingTracks.find((t) => t.kind === "bars")?.marks;
+  const span = createSpan({ ms, durationMs: doc.durationMs, frameMs: doc.frameMs, bars, snap });
+  if (lane.layer >= 0) {
+    const effects = index.layers.get(`${lane.rowId}:${lane.layer}`)?.effects ?? [];
+    const fit = fitInLane(effects, span.startMs, span.endMs, doc.frameMs);
+    if (fit) return { rowId: lane.rowId, layer: lane.layer, ...fit };
+  }
+  return { rowId: lane.rowId, layer: freeLayer(row, span.startMs, span.endMs), ...span };
+}
+
 // --- Keyboard and clipboard -------------------------------------------------------------------
 
 /** One step from `ms`: a frame, or (with `byBeat`) to the next or previous beat. */
@@ -439,16 +462,16 @@ export function stepTime(ms: number, direction: 1 | -1, grid: { frameMs: number;
   return Math.max(0, ms + direction * grid.frameMs);
 }
 
-/** Copies of effects pasted so the earliest starts at `atMs`, each on its own row, on the first
- * layer with room. */
+/** Copies of effects pasted so the earliest starts at `atMs`, each on its own row (if it's still
+ * there), on the first layer with room. */
 export function pasteEffects(
   doc: Sequence,
   index: EffectIndex,
-  ids: string[],
+  copies: { rowId: string; effect: Effect }[],
   atMs: number,
   newId: () => string = () => crypto.randomUUID(),
 ): SequenceEdit[] {
-  const placed = ids.map((id) => index.byId.get(id)).filter((p): p is Placed => p !== undefined);
+  const placed = copies.filter((c) => index.rows.has(c.rowId));
   if (placed.length === 0) return [];
   const offset = Math.round(atMs) - Math.min(...placed.map((p) => p.effect.startMs));
   const added = new Map<string, { layer: number; startMs: number; endMs: number }[]>();

@@ -17,6 +17,7 @@ import {
   moveDrag,
   moveEdits,
   pasteEffects,
+  planDrop,
   resizeDrag,
   rulerTicks,
   snapTargets,
@@ -233,6 +234,53 @@ describe("dragging", () => {
   });
 });
 
+describe("dropping from the palette", () => {
+  const sequence = doc([rowA, rowB], {
+    timingTracks: [{ id: "bars", name: "Bars", kind: "bars", marks: [{ startMs: 0, endMs: 4000, label: "1" }, { startMs: 4000, endMs: 8000, label: "2" }] }],
+  });
+  const index = buildIndex(sequence);
+  const { lanes } = layoutLanes(sequence.rows, new Set(), 30);
+
+  it("fills the gap it lands in, up to a bar", () => {
+    // Row A, layer 0 has 0–1 s and 2–3 s: dropped at 1.2 s, it stops where the next one starts.
+    expect(planDrop({ doc: sequence, index, lane: lanes[0], ms: 1200 })).toEqual({ rowId: "A", layer: 0, startMs: 1200, endMs: 2000 });
+    expect(planDrop({ doc: sequence, index, lane: lanes[2], ms: 6500 })).toEqual({ rowId: "B", layer: 0, startMs: 6500, endMs: 10_500 });
+  });
+
+  it("goes on a layer with room when dropped on another effect or a collapsed row", () => {
+    expect(planDrop({ doc: sequence, index, lane: lanes[0], ms: 500 })).toEqual({ rowId: "A", layer: 2, startMs: 500, endMs: 4500 });
+    const collapsed = layoutLanes(sequence.rows, new Set(["B"]), 30).lanes[2];
+    expect(planDrop({ doc: sequence, index, lane: collapsed, ms: 4100 })?.layer).toBe(1);
+  });
+});
+
+describe("thousands of effects", () => {
+  it("index, draw queries, and hit tests stay well inside a frame", () => {
+    const rows: Row[] = Array.from({ length: 30 }, (_, r) => ({
+      id: `r${r}`,
+      target: { prop: `p${r}` },
+      layers: [{ effects: Array.from({ length: 100 }, (_, i) => fx(`e${r}-${i}`, i * 3000, i * 3000 + 2500)) }],
+    }));
+    const big = doc(rows, { durationMs: 300_000 });
+    let t = performance.now();
+    const index = buildIndex(big);
+    const indexMs = performance.now() - t;
+    const { lanes } = layoutLanes(big.rows, new Set(), 30);
+    const view = { startMs: 60_000, pxPerMs: 0.02 };
+    t = performance.now();
+    let drawn = 0;
+    for (let k = 0; k < 10; k++) for (const lane of lanes) drawn += effectsInView(index, lane, view.startMs, view.startMs + 1200 / view.pxPerMs).length;
+    const queryMs = (performance.now() - t) / 10;
+    t = performance.now();
+    for (let k = 0; k < 1000; k++) hitEffect(index, lanes[k % 30], (k * 7) % 1200, view);
+    const hitMs = (performance.now() - t) / 1000;
+    expect(drawn / 10).toBe(30 * 20);
+    expect(indexMs).toBeLessThan(100);
+    expect(queryMs).toBeLessThan(8);
+    expect(hitMs).toBeLessThan(1);
+  });
+});
+
 describe("keyboard and clipboard", () => {
   it("steps by a frame, or to the next or previous beat", () => {
     const beats = [0, 500, 1000, 1500];
@@ -247,11 +295,15 @@ describe("keyboard and clipboard", () => {
     const sequence = doc([rowA, rowB]);
     const index = buildIndex(sequence);
     let n = 0;
-    const edits = pasteEffects(sequence, index, ["a2", "b1"], 500, () => `new${++n}`);
+    const copies = [
+      { rowId: "A", effect: fx("a2", 2000, 3000) },
+      { rowId: "B", effect: fx("b1", 4000, 6000) },
+    ];
+    const edits = pasteEffects(sequence, index, copies, 500, () => `new${++n}`);
     expect(edits).toEqual([
       { type: "addEffect", row: "A", layer: 2, effect: { ...fx("new1", 500, 1500) } },
       { type: "addEffect", row: "B", layer: 1, effect: { ...fx("new2", 2500, 4500) } },
     ]);
-    expect(pasteEffects(sequence, index, ["gone"], 0)).toEqual([]);
+    expect(pasteEffects(sequence, index, [{ rowId: "gone", effect: fx("x", 0, 10) }], 0)).toEqual([]);
   });
 });

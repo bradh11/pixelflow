@@ -38,6 +38,12 @@ pub struct Geometry {
     pub channels: u32,
     /// Set when the layout could only be approximated, saying how (plain language).
     pub approximate: Option<String>,
+    /// Set when the model's channels can't be worked out exactly, saying why (plain language).
+    /// The model then isn't wired, and models whose start channel refers to it can't be placed.
+    pub channels_unknown: Option<String>,
+    /// Node channels count from the very first channel (0-based, absolute) instead of from the
+    /// model's start channel. xLights does this for a tree with a "first strand" set.
+    pub absolute_channels: bool,
 }
 
 /// Most lights (or strings) imported for one model; larger models are skipped with a note.
@@ -47,7 +53,38 @@ const MAX_LIGHTS: i64 = 1_000_000;
 pub fn geometry(model: &XmlModel) -> Geometry {
     let mut cx = Ctx::new(model);
     let raw = dispatch(&mut cx);
+    if cx.ts > 1 && tail_strings_matter(&cx) {
+        let ts = cx.ts;
+        cx.unknown(format!(
+            "its smart-remote tail strings (ts={ts}) change where xLights puts its channels, which \
+             PixelFlow can't follow yet"
+        ));
+    }
     finish(cx, raw)
+}
+
+/// Whether smart-remote tail strings (`ts > 1`) change a model's channel offsets in xLights:
+/// they multiply `NodesPerString()`, which sets the spacing of string start channels in the
+/// default `CalcChannelsPerString` and the reversed-string offsets of Single Line, Poly Line and
+/// MultiPoint. Arches, Candy Canes, Spinner, Channel Block and Custom compute their own channels
+/// per string, DMX has one node per string, and single-node ("dumb") strings ignore it.
+fn tail_strings_matter(cx: &Ctx) -> bool {
+    let t = cx.m.display_as.trim();
+    if matches!(
+        t,
+        "Arches" | "Candy Canes" | "Spinner" | "Channel Block" | "Custom" | "Image" | "Label" | "ModelGroup"
+    ) || t.starts_with("Dmx")
+    {
+        return false;
+    }
+    if t.contains("MultiPoint") || matches!(t, "Poly Line" | "Cube" | "Window Frame") {
+        return true;
+    }
+    if cx.single_node {
+        return false;
+    }
+    let strings = cx.parm("NumStrings", "parm1", "1");
+    strings > 1 || (t == "Single Line" && !cx.ltor)
 }
 
 /// A 3D point in a model's local space (before the screen-location transform).
@@ -128,6 +165,7 @@ fn dmx(cx: &mut Ctx) -> Raw {
     cx.cpn = 1;
     let n = cx.parm("DmxChannelCount", "parm1", "1").max(0);
     if cx.over_cap(n) {
+        cx.capped_block(|_| n);
         return Raw::empty();
     }
     cx.note("DMX fixture shown as a row of channel dots at its position");
@@ -141,6 +179,7 @@ fn unknown(cx: &mut Ctx) -> Raw {
     let nodes = cx.parm("NodesPerString", "parm2", "0").max(0);
     let total = strings.saturating_mul(nodes);
     if cx.over_cap(total) {
+        cx.capped_block(|cx| total.saturating_mul(cx.cpn));
         return Raw::empty();
     }
     let name = cx.m.display_as.trim().to_string();
@@ -202,12 +241,22 @@ fn finish(mut cx: Ctx, raw: Raw) -> Geometry {
     }
     nodes.sort_by_key(|n| n.channel);
     let cpn = cx.cpn.clamp(1, 255);
-    let channels = nodes
-        .iter()
-        .map(|n| u64::from(n.channel) + cpn as u64)
-        .max()
-        .unwrap_or(0)
-        .min(u64::from(u32::MAX));
+    let channels = if nodes.is_empty() && cx.capped {
+        match cx.capped_block {
+            Some(block) => block.max(0) as u64,
+            None => {
+                cx.unknown("it's too large to import, so where its channels end isn't known");
+                0
+            }
+        }
+    } else {
+        nodes
+            .iter()
+            .map(|n| u64::from(n.channel) + cpn as u64)
+            .max()
+            .unwrap_or(0)
+    }
+    .min(u64::from(u32::MAX));
     Geometry {
         nodes,
         channels_per_node: cpn as u8,
@@ -217,6 +266,8 @@ fn finish(mut cx: Ctx, raw: Raw) -> Geometry {
         } else {
             Some(cx.notes.join("; "))
         },
+        channels_unknown: cx.unknown,
+        absolute_channels: cx.absolute,
     }
 }
 
@@ -234,7 +285,17 @@ struct Ctx<'a> {
     ltor: bool,
     /// `StartSide == "B"`, or missing.
     btot: bool,
+    /// Smart-remote tail strings (`ts` on the controller connection).
+    ts: i64,
     notes: Vec<String>,
+    /// The model was over the size limit, so no nodes were built.
+    capped: bool,
+    /// For a capped model: its channel block length, when it can be worked out without nodes.
+    capped_block: Option<i64>,
+    /// Why the model's channels can't be reproduced exactly (see [`Geometry::channels_unknown`]).
+    unknown: Option<String>,
+    /// See [`Geometry::absolute_channels`].
+    absolute: bool,
 }
 
 impl<'a> Ctx<'a> {
@@ -245,20 +306,46 @@ impl<'a> Ctx<'a> {
         let single_channel = cpn == 1 && st != "Node Single Color";
         let ltor = m.attr("Dir").unwrap_or("L") != "R";
         let btot = m.attr("StartSide").is_none_or(|s| s == "B");
-        let mut cx = Ctx {
+        Ctx {
             m,
             cpn,
             single_node,
             single_channel,
             ltor,
             btot,
+            ts: m.connection.get("ts").map_or(0, |v| strtol0(v)),
             notes: Vec::new(),
-        };
-        let ts = m.connection.get("ts").map_or(0, |v| strtol0(v));
-        if ts > 1 {
-            cx.note("smart-remote tail strings (ts) are not modelled; channel order assumes one tail");
+            capped: false,
+            capped_block: None,
+            unknown: None,
+            absolute: false,
         }
-        cx
+    }
+
+    /// Block length of `strings` strings spaced `cps` channels apart, the last holding
+    /// `last_nodes` nodes.
+    fn strings_block(&self, strings: i64, cps: i64, last_nodes: i64) -> i64 {
+        if strings <= 0 || last_nodes <= 0 {
+            return 0;
+        }
+        (strings - 1)
+            .saturating_mul(cps)
+            .saturating_add(last_nodes.saturating_mul(self.cpn))
+    }
+
+    /// Records why the model's channels can't be reproduced exactly (the first reason wins).
+    fn unknown(&mut self, why: impl Into<String>) {
+        if self.unknown.is_none() {
+            self.unknown = Some(why.into());
+        }
+    }
+
+    /// For a model over the size limit: records its channel block length, worked out without
+    /// building nodes. Individual string start channels (`Advanced`) leave it unknown.
+    fn capped_block(&mut self, block: impl FnOnce(&Ctx) -> i64) {
+        if self.int("Advanced", 0) == 0 {
+            self.capped_block = Some(block(self));
+        }
     }
 
     fn note(&mut self, s: impl Into<String>) {
@@ -271,6 +358,7 @@ impl<'a> Ctx<'a> {
     /// Records a note and returns true when `count` exceeds the per-model import limit.
     fn over_cap(&mut self, count: i64) -> bool {
         if count > MAX_LIGHTS {
+            self.capped = true;
             self.note(format!(
                 "model has {count} lights or strings, more than the {MAX_LIGHTS} imported per model; skipped"
             ));
@@ -342,17 +430,24 @@ impl<'a> Ctx<'a> {
         let n = n_strings.clamp(0, MAX_LIGHTS) as usize;
         let contiguous = |i: usize| (i as i64).saturating_mul(cps);
         if self.int("Advanced", 0) != 0 {
-            let rel: Option<Vec<i64>> = (0..n).map(|i| self.indiv_start(i)).collect();
-            match rel {
-                Some(v) if v.iter().all(|&c| c >= 0) => return v,
-                _ => {
-                    self.note(
-                        "individual string start channels could not be related to the model start; \
-                         strings laid out back to back",
-                    );
-                    return (0..n).map(contiguous).collect();
+            let mut starts = Vec::with_capacity(n);
+            for i in 0..n {
+                match self.indiv_start(i) {
+                    Ok(c) if c >= 0 => starts.push(c),
+                    Ok(_) => {
+                        self.unknown(format!(
+                            "string {} starts before the model's own start channel, which PixelFlow can't follow yet",
+                            i + 1
+                        ));
+                        return (0..n).map(contiguous).collect();
+                    }
+                    Err(why) => {
+                        self.unknown(why);
+                        return (0..n).map(contiguous).collect();
+                    }
                 }
             }
+            return starts;
         }
         (0..n)
             .map(|i| match indiv_nodes.get(i) {
@@ -364,11 +459,31 @@ impl<'a> Ctx<'a> {
 
     /// Offset of `String{i+1}` from the model's `StartChannel`, when both use the same reference
     /// (plain numbers, or the same `!Controller:` / `>Model:` / `@Model:` / `#Universe:` prefix).
-    fn indiv_start(&self, i: usize) -> Option<i64> {
-        let s = self.attr(&format!("String{}", i + 1))?;
-        let (p, n) = split_channel(s)?;
-        let (p0, n0) = split_channel(self.text("StartChannel", "1"))?;
-        (p == p0).then_some(n - n0)
+    ///
+    /// A missing or unreadable `StringN` makes xLights put that string at channel 1 and report
+    /// that it "could not calculate start channels" for the model, so it's an error here too.
+    fn indiv_start(&self, i: usize) -> Result<i64, String> {
+        let s = self.attr(&format!("String{}", i + 1)).unwrap_or("");
+        let missing = || {
+            format!(
+                "string {} has no start channel of its own (individual start channels are on), so \
+                 xLights can't work out its channels either",
+                i + 1
+            )
+        };
+        if s.trim().is_empty() {
+            return Err(missing());
+        }
+        let (p, n) = split_channel(s).ok_or_else(missing)?;
+        let unrelated = || {
+            format!(
+                "string {} uses a different start-channel reference than the model, which PixelFlow \
+                 can't follow yet",
+                i + 1
+            )
+        };
+        let (p0, n0) = split_channel(self.text("StartChannel", "1")).ok_or_else(unrelated)?;
+        if p == p0 { Ok(n - n0) } else { Err(unrelated()) }
     }
 }
 

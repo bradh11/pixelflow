@@ -132,10 +132,12 @@ pub fn parse_networks(xml: &str) -> Result<Vec<XController>, XlightsError> {
                     c.kind == "Legacy"
                         && c.protocol == protocol
                         && c.ip == ip
-                        && c.outputs.last().is_some_and(|o| o.universe + 1 == universe)
+                        && c.outputs
+                            .last()
+                            .is_some_and(|o| o.universe.checked_add(1) == Some(universe))
                 });
                 let outputs: Vec<XOutput> = (0..count.min(64_000))
-                    .map(|i| add_output(universe + i, channels))
+                    .map(|i| add_output(universe.saturating_add(i), channels))
                     .collect();
                 if joins {
                     controllers.last_mut().expect("checked").outputs.extend(outputs);
@@ -228,6 +230,20 @@ mod tests {
             ("Porch", 3)
         );
         assert_eq!(controllers[1].start(), 1531);
+    }
+
+    #[test]
+    fn huge_universe_numbers_dont_overflow() {
+        let xml = r#"<Networks>
+            <network NetworkType="E131" ComPort="192.0.2.5" BaudRate="4294967295" MaxChannels="510" NumUniverses="2"/>
+            <network NetworkType="E131" ComPort="192.0.2.5" BaudRate="99999999999" MaxChannels="510"/>
+        </Networks>"#;
+        let controllers = parse_networks(xml).unwrap();
+        let universes: Vec<u32> = controllers
+            .iter()
+            .flat_map(|c| c.outputs.iter().map(|o| o.universe))
+            .collect();
+        assert_eq!(universes, [u32::MAX, u32::MAX, u32::MAX]);
     }
 
     #[test]

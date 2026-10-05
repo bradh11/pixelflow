@@ -12,7 +12,14 @@ pub(super) fn single_line(cx: &mut Ctx) -> Raw {
     let n = cx.parm("NodesPerString", "parm2", "50").max(0);
     let lpn = cx.parm("LightsPerNode", "parm3", "1").max(0);
     let lights = s.saturating_mul(n).saturating_mul(lpn.max(1));
-    if cx.over_cap(lights.max(s)) || s == 0 || n == 0 {
+    if cx.over_cap(lights.max(s)) {
+        cx.capped_block(|cx| {
+            let nps = if cx.single_node { 1 } else { n };
+            cx.strings_block(s, cx.default_cps(nps), nps)
+        });
+        return Raw::empty();
+    }
+    if s == 0 || n == 0 {
         return Raw::empty();
     }
     let single = cx.single_node;
@@ -58,7 +65,11 @@ pub(super) fn single_line(cx: &mut Ctx) -> Raw {
 pub(super) fn channel_block(cx: &mut Ctx) -> Raw {
     cx.cpn = 1;
     let n = cx.parm("NumChannels", "parm1", "1").max(0);
-    if cx.over_cap(n) || n == 0 {
+    if cx.over_cap(n) {
+        cx.capped_block(|_| n);
+        return Raw::empty();
+    }
+    if n == 0 {
         return Raw::empty();
     }
     let starts = cx.string_starts(n, 1, &[]);
@@ -98,7 +109,13 @@ pub(super) fn arches(cx: &mut Ctx) -> Raw {
     let height = cx.float("Height", 1.0);
     let skew = (skew_degrees(cx, "ArchesSkew") as f64).to_radians();
     let lights = arches.saturating_mul(npa).saturating_mul(lpn.max(1));
-    if cx.over_cap(lights.max(arches).max(npa.saturating_mul(lpn.max(1)))) || npa == 0 {
+    if cx.over_cap(lights.max(arches).max(npa.saturating_mul(lpn.max(1)))) {
+        if layers.is_empty() {
+            cx.capped_block(|cx| cx.strings_block(arches, cx.cpn.saturating_mul(npa), npa));
+        }
+        return Raw::empty();
+    }
+    if npa == 0 {
         return Raw::empty();
     }
     let cpn = cx.cpn;

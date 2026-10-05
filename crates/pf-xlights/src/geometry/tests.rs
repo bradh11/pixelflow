@@ -117,11 +117,99 @@ fn advanced_string_starts_relative_to_the_model_start() {
     assert_eq!(channels(&g), [0, 3, 6, 100, 103, 106]);
     assert_eq!((g.channels, g.approximate), (109, None));
 
+    // A different reference can't be related to the model start: not guessed.
     let mut b = base.to_vec();
     b.extend([("String1", "!Ctl:1"), ("String2", "!Other:1")]);
     let g = geo("Single Line", &b);
-    assert_eq!(channels(&g), [0, 3, 6, 9, 12, 15]);
-    assert!(g.approximate.is_some());
+    assert!(g.channels_unknown.as_deref().unwrap().contains("string 2"));
+}
+
+#[test]
+fn a_missing_advanced_string_start_is_an_error_as_in_xlights() {
+    // xLights reads a missing `StringN` as "" (channel 1) and reports that it could not
+    // calculate the model's start channels.
+    let g = geo(
+        "Single Line",
+        &[
+            ("NumStrings", "3"),
+            ("NodesPerString", "3"),
+            ("X2", "50"),
+            ("Advanced", "1"),
+            ("StartChannel", "10"),
+            ("String1", "10"),
+            ("String3", "40"),
+        ],
+    );
+    assert!(
+        g.channels_unknown.as_deref().unwrap().contains("string 2"),
+        "{g:?}"
+    );
+}
+
+#[test]
+fn smart_remote_tail_strings_only_matter_where_they_move_channels() {
+    let with_ts = |display_as: &str, attrs: &[(&str, &str)]| {
+        let mut m = model(display_as, attrs);
+        m.connection.insert("ts".into(), "2".into());
+        geometry(&m)
+    };
+    // Two strings of a single line: xLights spaces the strings by NodesPerString * ts.
+    let g = with_ts(
+        "Single Line",
+        &[("NumStrings", "2"), ("NodesPerString", "3"), ("X2", "9")],
+    );
+    assert!(g.channels_unknown.as_deref().unwrap().contains("ts=2"));
+    // One left-to-right string: nothing moves.
+    let g = with_ts(
+        "Single Line",
+        &[("NumStrings", "1"), ("NodesPerString", "3"), ("X2", "9")],
+    );
+    assert_eq!((g.channels_unknown, g.approximate), (None, None));
+    // Arches, candy canes and icicle-free types that size their own strings: no effect.
+    for t in ["Arches", "Candy Canes", "Spinner", "Channel Block"] {
+        let g = with_ts(t, &[("parm1", "2"), ("parm2", "3"), ("X2", "9")]);
+        assert_eq!(g.channels_unknown, None, "{t}");
+        assert_eq!(g.approximate.filter(|a| a.contains("tail")), None, "{t}");
+    }
+}
+
+#[test]
+fn a_tree_first_strand_counts_from_channel_one_as_in_xlights() {
+    // xLights' `InitVMatrix` subtracts the first strand's absolute start channel, so the model's
+    // start channel cancels out. 4 strands of 2, first strand 3: strand starts 12, 18, 0, 6.
+    let g = geo(
+        "Tree 360",
+        &[
+            ("parm1", "4"),
+            ("parm2", "2"),
+            ("exportFirstStrand", "3"),
+            ("StartChannel", "100"),
+        ],
+    );
+    assert!(g.absolute_channels);
+    assert_eq!(channels(&g), [0, 3, 6, 9, 12, 15, 18, 21]);
+    assert_eq!((g.channels, g.approximate.as_deref()), (24, None));
+    assert!(!geo("Tree 360", &[("parm1", "4"), ("parm2", "2")]).absolute_channels);
+}
+
+#[test]
+fn models_over_the_size_limit_still_report_where_their_channels_end() {
+    let g = geo(
+        "Single Line",
+        &[("NumStrings", "2"), ("NodesPerString", "600000")],
+    );
+    assert!(g.nodes.is_empty() && g.approximate.is_some());
+    assert_eq!((g.channels, g.channels_unknown), (3_600_000, None));
+    // Matrix with a strands-per-string remainder: 3 strings of 1000001 nodes in 2 strands keeps
+    // xLights' gap: (3 - 1) * 1000001 * 3 + 1000000 * 3.
+    let g = geo(
+        "Vert Matrix",
+        &[("parm1", "3"), ("parm2", "1000001"), ("parm3", "2")],
+    );
+    assert_eq!((g.channels, g.channels_unknown), (9_000_006, None));
+    // Types whose size can't be worked out without nodes say so.
+    let g = geo("Circle", &[("NumStrings", "2"), ("NodesPerString", "600000")]);
+    assert!(g.channels_unknown.is_some());
 }
 
 #[test]

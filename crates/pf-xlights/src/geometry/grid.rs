@@ -34,7 +34,17 @@ fn init_matrix(cx: &mut Ctx, vertical: bool, first_strand: i64) -> Option<MLayou
     let num_strands = strings * sps;
     let pps = nps / sps;
     let ppstring = pps * sps;
+    let rotated = vertical && first_strand > 0 && first_strand < num_strands;
     if cx.over_cap(strings.saturating_mul(ppstring).max(strings)) {
+        if !rotated {
+            cx.capped_block(|cx| {
+                if cx.single_node {
+                    cx.strings_block(strings, cx.default_cps(1), 1)
+                } else {
+                    cx.strings_block(strings, cx.default_cps(nps), ppstring)
+                }
+            });
+        }
         return None;
     }
     let cpn = cx.cpn;
@@ -99,7 +109,11 @@ fn init_matrix(cx: &mut Ctx, vertical: bool, first_strand: i64) -> Option<MLayou
     let mut strand_start: Vec<i64> = (0..num_strands)
         .map(|x| starts[(x / sps) as usize] + (x % sps) * pps * cpn)
         .collect();
-    if vertical && first_strand > 0 && first_strand < num_strands {
+    if rotated {
+        // xLights subtracts the first strand's absolute start channel from every strand's
+        // absolute start, so the model's own start channel cancels out: the tree's channels
+        // count from channel 1, whatever its start channel says. Reproduced as-is.
+        cx.absolute = true;
         let offset = strand_start[first_strand as usize];
         for s in strand_start.iter_mut() {
             *s -= offset;
@@ -204,9 +218,6 @@ pub(super) fn tree(cx: &mut Ctx) -> Raw {
         2 => -1,
         _ => degrees,
     };
-    if first_strand > 0 && vertical {
-        cx.note("tree first-strand channel rotation applied relative to the model start");
-    }
     let Some(mut layout) = init_matrix(cx, vertical, first_strand) else {
         return Raw::empty();
     };

@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { type Backend, errorMessage } from "../api/backend";
 import type { Device, Edit, ImportSummary, ShowSnapshot, SilentPeer } from "../api/types";
 import { fileName } from "../lib/format";
+import { useLayoutEditor } from "./layoutEditor";
 
 export type Screen = "layout" | "wiring" | "devices" | "play" | "test" | "history";
 export type Theme = "dark" | "light";
@@ -140,7 +141,11 @@ export const useApp = create<AppState>((set, get) => {
       if (!path) return false;
       ok = await get().run((b) => b.openShow(path));
     }
-    if (ok) set({ started: true, screen: "layout" });
+    if (ok) {
+      set({ started: true, screen: "layout" });
+      // A different show: start the layout editor fresh, fitted to it.
+      useLayoutEditor.setState({ selected: [], view: null, editPhoto: false, photoDraft: null, tool: "select" });
+    }
     return ok;
   }
 

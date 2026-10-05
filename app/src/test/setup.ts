@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
+import { useLayoutEditor } from "../state/layoutEditor";
 import { useApp } from "../state/store";
 
 // jsdom lacks these browser APIs; the command palette (cmdk) uses them.
@@ -17,4 +18,5 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   useApp.setState(useApp.getInitialState(), true);
+  useLayoutEditor.setState(useLayoutEditor.getInitialState(), true);
 });

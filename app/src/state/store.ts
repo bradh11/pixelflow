@@ -32,6 +32,8 @@ interface AppState {
   importReport: { name: string; summary: ImportSummary; notes: string[] } | null;
   /** Test screen target selection; kept here so it survives leaving the screen. */
   testTarget: string;
+  /** Music volume (0–1) for playback; the engine keeps the same value. */
+  musicVolume: number;
   /** The last device scan's results (kept while moving between screens). */
   /** Every controller found so far (remembered on this computer), plus the last scan's silent peers. */
   discovery: { devices: KnownDevice[]; silent: SilentPeer[] } | null;
@@ -42,6 +44,7 @@ interface AppState {
   setTheme(theme: Theme): void;
   setPaletteOpen(open: boolean): void;
   setTestTarget(value: string): void;
+  setMusicVolume(volume: number): void;
   resolvePendingReplace(choice: "save" | "discard" | "cancel"): Promise<boolean>;
   dismissError(): void;
   /** Runs a backend call that returns a new snapshot; errors become a message. Returns success. */
@@ -163,6 +166,7 @@ export const useApp = create<AppState>((set, get) => {
   pendingReplace: null,
   importReport: null,
   testTarget: "show",
+  musicVolume: 1,
   discovery: null,
   scanning: false,
 
@@ -189,6 +193,7 @@ export const useApp = create<AppState>((set, get) => {
 
   setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
   setTestTarget: (testTarget) => set({ testTarget }),
+  setMusicVolume: (musicVolume) => set({ musicVolume }),
   dismissError: () => set({ error: null }),
 
   async run(call) {

@@ -322,7 +322,11 @@ export class MemoryBackend implements Backend {
 
   async addSequence(path: string) {
     this.calls.push(`addSequence:${path}`);
-    const name = path.split(/[\\/]/).pop()!.replace(/\.fseq$/i, "");
+    const base = path.split(/[\\/]/).pop()!.replace(/\.fseq$/i, "");
+    // Like the engine: a second sequence with the same name gets a number.
+    const taken = (n: string) => this.show.sequences.some((s) => s.name === n);
+    let name = base;
+    for (let n = 2; taken(name); n++) name = `${base} (${n})`;
     const audio = path.replace(/\.fseq$/i, ".mp3");
     return this.applyEdits([
       { type: "addSequence", sequence: { id: crypto.randomUUID(), name, path, audio, offsetMs: 0 } },

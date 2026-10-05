@@ -1,4 +1,5 @@
 import { ArrowDown, ArrowUp, Music, Plus, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import type { SequenceEntry } from "../api/types";
 import { useApp } from "../state/store";
 import { Button } from "./ui";
@@ -17,6 +18,14 @@ export function SequenceList({
   const backend = useApp((s) => s.backend);
   const run = useApp((s) => s.run);
   const apply = useApp((s) => s.apply);
+  // Reorder buttons by "<id>:up" / "<id>:down", so focus can follow a moved sequence.
+  const buttons = useRef(new Map<string, HTMLButtonElement>());
+  const [focusNext, setFocusNext] = useState<string | null>(null);
+  useEffect(() => {
+    if (!focusNext) return;
+    buttons.current.get(focusNext)?.focus();
+    setFocusNext(null);
+  }, [focusNext, sequences]);
 
   const add = async () => {
     const path = await backend?.pickSequencePath();
@@ -25,6 +34,18 @@ export function SequenceList({
       const added = useApp.getState().snapshot?.show.sequences.at(-1);
       if (added) onSelect(added.id);
     }
+  };
+
+  const move = async (s: SequenceEntry, index: number, direction: "up" | "down") => {
+    if (!(await apply([{ type: "moveSequence", id: s.id, index }]))) return;
+    // At the top (or bottom) this button is disabled now: keep focus on the other one.
+    const atEnd = direction === "up" ? index === 0 : index === sequences.length - 1;
+    setFocusNext(`${s.id}:${atEnd ? (direction === "up" ? "down" : "up") : direction}`);
+  };
+
+  const keep = (key: string) => (el: HTMLButtonElement | null) => {
+    if (el) buttons.current.set(key, el);
+    else buttons.current.delete(key);
   };
 
   return (
@@ -44,32 +65,43 @@ export function SequenceList({
           {sequences.map((s: SequenceEntry, i) => (
             <li key={s.id}>
               <div
-                className={`group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
+                className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
                   s.id === selected ? "bg-violet-100 dark:bg-violet-950/50" : "hover:bg-neutral-100 dark:hover:bg-neutral-900"
                 }`}
               >
-                <button className="min-w-0 flex-1 truncate text-left" onClick={() => onSelect(s.id)} aria-current={s.id === selected}>
+                <button
+                  className="min-w-0 flex-1 truncate text-left"
+                  onClick={() => onSelect(s.id)}
+                  aria-current={s.id === selected ? "true" : undefined}
+                >
                   <span className={s.id === playing ? "font-semibold text-violet-700 dark:text-violet-300" : ""}>{s.name}</span>
                 </button>
                 {s.audio && <Music size={13} className="shrink-0 text-neutral-400" aria-label="Has music" />}
-                <span className="hidden shrink-0 gap-0.5 group-hover:flex group-focus-within:flex">
+                {/* Always shown (touch screens have no hover), quiet until pointed at or focused. */}
+                <span className="flex shrink-0 gap-0.5 opacity-60 focus-within:opacity-100 hover:opacity-100">
                   <Button
+                    ref={keep(`${s.id}:up`)}
                     variant="ghost"
                     aria-label={`Move ${s.name} up`}
                     disabled={i === 0}
-                    onClick={() => apply([{ type: "moveSequence", id: s.id, index: i - 1 }])}
+                    onClick={() => move(s, i - 1, "up")}
                   >
                     <ArrowUp size={12} />
                   </Button>
                   <Button
+                    ref={keep(`${s.id}:down`)}
                     variant="ghost"
                     aria-label={`Move ${s.name} down`}
                     disabled={i === sequences.length - 1}
-                    onClick={() => apply([{ type: "moveSequence", id: s.id, index: i + 1 }])}
+                    onClick={() => move(s, i + 1, "down")}
                   >
                     <ArrowDown size={12} />
                   </Button>
-                  <Button variant="ghost" aria-label={`Remove ${s.name}`} onClick={() => apply([{ type: "removeSequence", id: s.id }])}>
+                  <Button
+                    variant="ghost"
+                    aria-label={`Remove ${s.name}`}
+                    onClick={() => apply([{ type: "removeSequence", id: s.id }])}
+                  >
                     <Trash2 size={12} />
                   </Button>
                 </span>

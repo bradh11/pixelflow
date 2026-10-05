@@ -60,3 +60,27 @@ describe("sequencer playback", () => {
     expect(useSequencer.getState().status).toBeNull();
   });
 });
+
+describe("tap to time", () => {
+  it("drops each mark where the music is, between playback polls too", async () => {
+    const { seq } = await connected();
+    await useSequencer.getState().edit([{ type: "addTimingTrack", track: { id: "taps", name: "Taps", kind: "custom", marks: [] } }]);
+    useSequencer.getState().setActiveTrack("taps");
+    const now = vi.spyOn(performance, "now").mockReturnValue(1000);
+    await useSequencer.getState().play();
+    expect(useSequencer.getState().status?.state).toBe("playing");
+    const at = useSequencer.getState().playheadMs;
+    // 300 ms after the player last said where it was.
+    now.mockReturnValue(1300);
+    useSequencer.getState().tap();
+    now.mockReturnValue(1800);
+    useSequencer.getState().tap();
+    await vi.waitFor(() => expect(seq.doc!.timingTracks[2].marks).toHaveLength(2));
+    expect(seq.doc!.timingTracks[2].marks).toEqual([
+      { startMs: at + 300, endMs: at + 800, label: "" },
+      { startMs: at + 800, endMs: at + 1300, label: "" },
+    ]);
+    await useSequencer.getState().stop();
+    now.mockRestore();
+  });
+});

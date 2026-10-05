@@ -19,6 +19,7 @@ import {
 import type { SequencerApi } from "../api/sequencer";
 import type { PlaybackStatus, XlightsSequenceImported } from "../api/types";
 import { clock, fileName, plural } from "../lib/format";
+import { tapEdits } from "../lib/timelineMath";
 import { useApp } from "./store";
 
 const RECENT_KEY = "pixelflow.recentSequences";
@@ -64,6 +65,12 @@ export interface Notice {
   saveShow: boolean;
 }
 
+/** Selected timing marks: on one track, picked by start time. */
+export interface MarkSelection {
+  track: string;
+  starts: number[];
+}
+
 /** A copied effect and the row it came from. */
 export interface Copied {
   rowId: string;
@@ -82,6 +89,10 @@ interface SequencerState {
   issues: SequenceIssue[];
   /** Selected effect ids. */
   selection: string[];
+  /** Selected timing marks (selecting effects clears them, and the other way round). */
+  markSelection: MarkSelection | null;
+  /** The timing track picked last (its header or a mark clicked): T taps marks onto it. */
+  activeTrack: string | null;
   /** The row the keyboard and new effects go to (the last row clicked). */
   activeRow: string | null;
   playheadMs: number;
@@ -136,6 +147,16 @@ interface SequencerState {
   redo(): Promise<boolean>;
   detectBeats(): Promise<boolean>;
   select(ids: string[], activeRow?: string | null): void;
+  /** Selects marks on `track` by their start times (and makes it the active track). */
+  selectMarks(track: string, starts: number[]): void;
+  setActiveTrack(id: string | null): void;
+  /** Tap to time: drops a mark at the playhead on the active timing track (ending the mark the
+   * last tap started). Each tap is one undo step. */
+  tap(): void;
+  /** Imports an .xtiming or Audacity labels file (asking which) as new timing tracks. */
+  importTiming(): Promise<boolean>;
+  /** Exports a timing track (asking where) as .xtiming or Audacity labels. */
+  exportTiming(trackId: string): Promise<boolean>;
   setActiveRow(id: string | null): void;
   setPlayhead(ms: number): void;
   toggleCollapsed(rowId: string): void;
@@ -169,6 +190,10 @@ function report(e: unknown) {
 export const useSequencer = create<SequencerState>((set, get) => {
   /** Bumped by every play, pause, seek, and stop, so an older answer never undoes a newer one. */
   let transport = 0;
+  /** When the playhead last came from the player, to tell where the music is between polls. */
+  let playheadAt = 0;
+  /** The mark the last tap started (tap to time ends it at the next tap). */
+  let lastTap: { track: string; startMs: number } | null = null;
   /** Set when the user cancels the running export, so its failure isn't reported as an error. */
   let cancelled = false;
 
@@ -245,6 +270,8 @@ export const useSequencer = create<SequencerState>((set, get) => {
     canRedo: false,
     issues: [],
     selection: [],
+    markSelection: null,
+    activeTrack: null,
     activeRow: null,
     playheadMs: 0,
     status: null,
@@ -283,7 +310,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
           await get().stop();
           // With its music from the start: nothing to undo, nothing unsaved.
           adopt(await api.newSequenceDoc(name, durationMs, audio));
-          set({ selection: [], playheadMs: 0, collapsed: [], suggestBeats: audio !== null, docKey: get().docKey + 1, notice: null });
+          set({ selection: [], markSelection: null, activeTrack: null, playheadMs: 0, collapsed: [], suggestBeats: audio !== null, docKey: get().docKey + 1, notice: null });
           return true;
         }),
       );
@@ -297,7 +324,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
         try {
           await get().stop();
           adopt(await api.openSequenceDoc(path));
-          set({ selection: [], playheadMs: 0, collapsed: [], suggestBeats: false, docKey: get().docKey + 1, notice: null });
+          set({ selection: [], markSelection: null, activeTrack: null, playheadMs: 0, collapsed: [], suggestBeats: false, docKey: get().docKey + 1, notice: null });
           return true;
         } catch (e) {
           // A recent file that can't be opened any more (moved or deleted) comes off the list.
@@ -325,7 +352,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
           const imported = await api.importXlightsSequence(path);
           // Opened like any other document: unsaved, so it's kept (autosaved) until it's saved.
           adopt(imported.snapshot);
-          set({ selection: [], playheadMs: 0, collapsed: [], suggestBeats: false, docKey: get().docKey + 1, notice: null });
+          set({ selection: [], markSelection: null, activeTrack: null, playheadMs: 0, collapsed: [], suggestBeats: false, docKey: get().docKey + 1, notice: null });
           return imported;
         }),
       );
@@ -414,7 +441,69 @@ export const useSequencer = create<SequencerState>((set, get) => {
       }
     },
 
-    select: (ids, activeRow) => set(activeRow === undefined ? { selection: ids } : { selection: ids, activeRow }),
+    select: (ids, activeRow) => {
+      const marks = { markSelection: null };
+      set(activeRow === undefined ? { selection: ids, ...marks } : { selection: ids, activeRow, ...marks });
+    },
+    selectMarks: (track, starts) =>
+      set({ markSelection: starts.length > 0 ? { track, starts } : null, activeTrack: track, selection: starts.length > 0 ? [] : get().selection }),
+    setActiveTrack: (activeTrack) => set({ activeTrack }),
+
+    tap() {
+      const { doc, activeTrack, status, playheadMs } = get();
+      if (!doc) return;
+      const track = doc.timingTracks.find((t) => t.id === activeTrack);
+      if (!track) {
+        report("Pick a timing track first: click its name, then press T in time with the music.");
+        return;
+      }
+      if (track.kind === "phonemes") {
+        report("Phoneme tracks come from xLights and can't be edited here; tap onto another track.");
+        return;
+      }
+      // Between polls the music has moved on from the last playhead the player reported.
+      const atMs = status?.state === "playing" ? Math.min(doc.durationMs, playheadMs + (performance.now() - playheadAt)) : playheadMs;
+      const id = track.id;
+      void get().edit((latest) => {
+        const now = latest.timingTracks.find((t) => t.id === id);
+        if (!now) return [];
+        const tapped = tapEdits(now, atMs, lastTap?.track === id ? lastTap.startMs : null, latest.durationMs);
+        if (!tapped) return [];
+        lastTap = { track: id, startMs: tapped.startMs };
+        return tapped.edits;
+      });
+    },
+
+    async importTiming() {
+      const { api } = get();
+      if (!api || !get().doc) return false;
+      const path = await guarded(() => api.pickTimingFilePath());
+      if (!path) return false;
+      // Reading the file takes a moment; edits carry on meanwhile, and the tracks are taken in at
+      // their turn.
+      const imported = await guarded(() => api.importTimingFile(path));
+      if (!imported) return false;
+      await serial(() => guarded(() => absorb(imported.result, api)));
+      const names = imported.tracks.map((n) => `'${n}'`).join(", ");
+      set({
+        notice: { tone: "done", text: `Added ${plural(imported.tracks.length, "timing track")} from ${fileName(path)}: ${names}.`, notes: imported.notes, saveShow: false },
+      });
+      return true;
+    },
+
+    async exportTiming(trackId) {
+      const { api, doc } = get();
+      const track = doc?.timingTracks.find((t) => t.id === trackId);
+      if (!api || !track) return false;
+      const target = await guarded(() => api.pickTimingExportPath(`${track.name}.xtiming`));
+      if (!target) return false;
+      // Export what's on screen: every edit made so far lands first.
+      await serial(async () => undefined);
+      const count = await guarded(() => api.exportTimingTrack(trackId, target));
+      if (count === null) return false;
+      set({ notice: { tone: "done", text: `Exported '${track.name}' (${plural(count, "mark")}) to ${fileName(target)}.`, notes: [], saveShow: false } });
+      return true;
+    },
     setActiveRow: (activeRow) => set({ activeRow }),
     setPlayhead: (ms) => {
       const duration = get().doc?.durationMs ?? 0;
@@ -457,7 +546,10 @@ export const useSequencer = create<SequencerState>((set, get) => {
       }
       const from = playheadMs >= doc.durationMs ? 0 : playheadMs;
       const next = await guarded(() => api.playSequenceDoc(from));
-      if (next && turn === transport) set({ status: next, playheadMs: next.positionMs });
+      if (next && turn === transport) {
+        playheadAt = performance.now();
+        set({ status: next, playheadMs: next.positionMs });
+      }
     },
 
     async pause() {
@@ -465,7 +557,10 @@ export const useSequencer = create<SequencerState>((set, get) => {
       if (!backend || !get().status) return;
       const turn = ++transport;
       const next = await guarded(() => backend.pausePlayback(true));
-      if (next && turn === transport) set({ status: next, playheadMs: next.positionMs });
+      if (next && turn === transport) {
+        playheadAt = performance.now();
+        set({ status: next, playheadMs: next.positionMs });
+      }
     },
 
     async stop() {
@@ -479,6 +574,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
 
     async seek(ms) {
       get().setPlayhead(ms);
+      playheadAt = performance.now();
       const backend = useApp.getState().backend;
       if (!backend || !get().status) return;
       const turn = ++transport;
@@ -506,6 +602,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
           await guarded(() => backend.stopPlayback());
           return;
         }
+        playheadAt = performance.now();
         set({ status: next, playheadMs: next.positionMs });
       } catch {
         // The next poll tries again.
@@ -561,6 +658,8 @@ export const useSequencer = create<SequencerState>((set, get) => {
           adopt(await api.recoverSequence(id));
           set({
             selection: [],
+            markSelection: null,
+            activeTrack: null,
             playheadMs: 0,
             collapsed: [],
             suggestBeats: false,

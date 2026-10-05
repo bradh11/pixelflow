@@ -86,6 +86,24 @@ describe("drawing the timeline", () => {
     expect(out.rects.filter((r) => r.y > RULER_H && r.y + r.h < RULER_H + WAVE_H && r.h > 2).every((b) => b.w === 1)).toBe(true);
   });
 
+  it("draws the timing marks in view as spans with their labels, the selected and dragged ones lit", () => {
+    const { ctx, texts, rects } = recorder();
+    const marks = Array.from({ length: 600 }, (_, i) => ({ startMs: i * 100, endMs: i * 100 + 100, label: `w${i}` }));
+    const sequence: Sequence = { ...doc([]), timingTracks: [{ id: "t", name: "Words", kind: "words", marks }] };
+    // 1 px per ms: 1000 px show 1–2 s, marks 10 through 19.
+    drawTimeline(ctx, {
+      ...scene(sequence, { startMs: 1000, pxPerMs: 1 }),
+      markSelection: { track: "t", starts: new Set([1200]) },
+      markDrag: { track: "t", spans: [{ index: 15, startMs: 1550, endMs: 1650 }] },
+      activeTrack: "t",
+    });
+    const labels = texts.map((t) => t.text).filter((t) => t.startsWith("w"));
+    expect(labels).toEqual(["w10", "w11", "w12", "w13", "w14", "w15", "w16", "w17", "w18", "w19", "w15"]);
+    // Each mark's span fills its strip (2 px in, under the music band).
+    const strip = rects.filter((r) => r.y === RULER_H + WAVE_H + 2 && r.w === 100);
+    expect(strip.map((r) => r.x)).toEqual([0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 550]);
+  });
+
   it("labels the ruler readably for long sequences", () => {
     // Four hours in 1000 px.
     const ticks = rulerTicks({ startMs: 0, pxPerMs: 1000 / 14_400_000 }, 1000);

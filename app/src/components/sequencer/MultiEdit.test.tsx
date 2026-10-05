@@ -165,6 +165,11 @@ describe("editing several effects at once", () => {
     await waitFor(() => expect(useApp.getState().error).toMatch(/can't move that way/));
     expect(seq.undoStack.length).toBe(steps + 2);
 
+    // Only part of the way: they go as far as they can, and the screen says so.
+    await user.type(within(p).getByRole("spinbutton", { name: "Move all by (ms)" }), "-5000{Enter}");
+    await waitFor(() => expect([byId(a.id).startMs, byId(b.id).startMs]).toEqual([0, 1000]));
+    expect(screen.getByRole("status")).toHaveTextContent("Moved them 200 ms earlier, not 5000 ms: another effect or an end of the song is in the way.");
+
     // Lengths that differ show as mixed.
     const tree = effects("Mega Tree").slice(0, 2);
     act(() => useSequencer.getState().select(tree.map((e) => e.id)));

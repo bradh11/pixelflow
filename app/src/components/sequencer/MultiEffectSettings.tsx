@@ -150,15 +150,23 @@ export function MultiEffectSettings({ doc, ids }: { doc: Sequence; ids: string[]
             blank
             placeholder="0"
             min={-Number.MAX_SAFE_INTEGER}
-            onCommit={(v) =>
-              edit((latest) => {
+            onCommit={async (v) => {
+              const wanted = Math.round(v);
+              let by = wanted;
+              const ok = await edit((latest) => {
                 const moved = shiftEdits(latest, ids, v);
-                if (moved.edits.length === 0 && Math.round(v) !== 0) {
+                if (moved.edits.length === 0 && wanted !== 0) {
                   throw new Error("The selected effects can't move that way: they'd run into another effect or past an end of the song.");
                 }
+                by = moved.deltaMs;
                 return moved.edits;
-              })
-            }
+              });
+              // Part of the way: say so, as the box empties again.
+              if (ok && by !== wanted && by !== 0) {
+                const text = `Moved them ${Math.abs(by)} ms ${by < 0 ? "earlier" : "later"}, not ${Math.abs(wanted)} ms: another effect or an end of the song is in the way.`;
+                useSequencer.setState({ notice: { tone: "info", text, notes: [], saveShow: false } });
+              }
+            }}
           />
           <MsField
             key={`${fresh}:length`}

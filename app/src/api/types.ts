@@ -289,6 +289,9 @@ export interface Destination {
   description: string;
   protocol: string;
   channels: number;
+  /** The first sequence channel (1-based) sent to this destination. */
+  startChannel: number;
+  startUniverse: number | null;
 }
 
 export interface DeviceConfig {

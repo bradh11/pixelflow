@@ -59,10 +59,12 @@ export function demoDevices(): { details: DeviceDetails[]; silent: SilentPeer[] 
         config: {
           input: { type: "ddp" },
           ports: [],
-          destinations: [{ address: "192.0.2.20", description: "Falcon_F16V5_B9F5", protocol: "DDP", channels: 6147 }],
-          notes: ["This FPP has no pixel outputs of its own; it sends to the controllers listed below. Import those instead."],
+          destinations: [
+            { address: "192.0.2.20", description: "Falcon_F16V5_B9F5", protocol: "DDP", channels: 6147, startChannel: 1, startUniverse: null },
+          ],
+          notes: ["This FPP has no pixel outputs of its own; it sends to the controllers listed below. Add them to your show from here."],
         },
-        plan: { controller: fppController, props: [], notes: ["This FPP has no pixel outputs of its own; it sends to the controllers listed below. Import those instead."], alreadyInShow: false, canImport: false },
+        plan: { controller: fppController, props: [], notes: ["This FPP has no pixel outputs of its own; it sends to the controllers listed below. Add them to your show from here."], alreadyInShow: false, canImport: false },
       },
       {
         device: { address: "192.0.2.20", kind: "falcon", name: "Falcon_F16V5_B9F5", model: "F16v5", firmware: "F16V5 v2.00", mode: null, foundBy: ["fppPeer"] },

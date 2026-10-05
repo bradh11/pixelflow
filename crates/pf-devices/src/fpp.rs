@@ -138,7 +138,14 @@ fn read_destinations(http: &dyn Http, host: &str) -> Result<Vec<Destination>, De
             if int_field(universe, "active") == 0 || address.is_empty() {
                 continue;
             }
-            let protocol = universe_protocol(int_field(universe, "type"));
+            let kind = int_field(universe, "type");
+            let protocol = universe_protocol(kind);
+            let start_channel = u32::try_from(int_field(universe, "startChannel").max(1)).unwrap_or(1);
+            // For sACN entries, FPP's `id` is the universe number.
+            let start_universe = matches!(kind, 0 | 1)
+                .then(|| u16::try_from(int_field(universe, "id")).ok())
+                .flatten()
+                .filter(|u| *u > 0);
             // `channelCount` is per universe; `universeCount` universes run back to back.
             let per_universe = int_field(universe, "channelCount").max(0);
             let count = opt_int_field(universe, "universeCount").map_or(1, |c| c.max(1));
@@ -149,6 +156,11 @@ fn read_destinations(http: &dyn Http, host: &str) -> Result<Vec<Destination>, De
                 .find(|d: &&mut Destination| d.address == address && d.protocol == protocol)
             {
                 existing.channels = existing.channels.saturating_add(channels);
+                existing.start_channel = existing.start_channel.min(start_channel);
+                existing.start_universe = match (existing.start_universe, start_universe) {
+                    (Some(a), Some(b)) => Some(a.min(b)),
+                    (a, b) => a.or(b),
+                };
                 if existing.description.is_empty() {
                     existing.description = str_field(universe, "description").to_string();
                 }
@@ -159,6 +171,8 @@ fn read_destinations(http: &dyn Http, host: &str) -> Result<Vec<Destination>, De
                 description: str_field(universe, "description").to_string(),
                 protocol: protocol.to_string(),
                 channels,
+                start_channel,
+                start_universe,
             });
         }
     }
@@ -260,7 +274,7 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
         notes.push(if destinations.is_empty() {
             "This FPP has no pixel outputs of its own.".to_string()
         } else {
-            "This FPP has no pixel outputs of its own; it sends to the controllers listed below. Import those instead."
+            "This FPP has no pixel outputs of its own; it sends to the controllers listed below. Add them to your show from here."
                 .to_string()
         });
     }

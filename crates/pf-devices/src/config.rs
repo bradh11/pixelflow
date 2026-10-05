@@ -56,6 +56,10 @@ pub struct Destination {
     /// "DDP", "sACN unicast", "sACN multicast", "Art-Net", …
     pub protocol: String,
     pub channels: u32,
+    /// The first sequence channel (1-based) sent to this destination.
+    pub start_channel: u32,
+    /// The first universe, for sACN destinations.
+    pub start_universe: Option<u16>,
 }
 
 /// A device's configuration as PixelFlow understands it.

@@ -14,7 +14,7 @@ import type {
   ShowSnapshot,
   TargetSpec,
 } from "./types";
-import { channelsPerPixel, nodeCount } from "../lib/shows";
+import { channelsPerPixel, newController, nodeCount } from "../lib/shows";
 
 /**
  * An in-memory stand-in for the engine, used by tests and when the UI runs in a plain
@@ -172,10 +172,21 @@ export class MemoryBackend implements Backend {
   async importDevice(address: string) {
     const { device, plan } = await this.inspectDevice(address);
     if (!plan.canImport) throw new Error(`${device.name} has no pixel outputs to import.`);
+    // Like the engine: a port-less controller at this address (added from an FPP) is filled in.
+    const placeholder = this.show.controllers.find((c) => c.address === address && c.ports.length === 0);
+    const controller = placeholder ? { ...plan.controller, id: placeholder.id, name: placeholder.name } : plan.controller;
     return this.applyEdits([
       ...plan.props.map((prop) => ({ type: "addProp" as const, prop })),
-      { type: "addController" as const, controller: plan.controller },
+      placeholder ? { type: "updateController" as const, controller } : { type: "addController" as const, controller },
     ]);
+  }
+
+  async importFppDestination(address: string, destination: string) {
+    const { device, config } = await this.inspectDevice(address);
+    const target = config.destinations.find((d) => d.address === destination);
+    if (!target) throw new Error(`${device.name} doesn't send to ${destination}.`);
+    const controller = newController(target.description || target.address, target.address, "ddp", 0);
+    return this.applyEdits([{ type: "addController", controller }]);
   }
 
   private player(address: string) {

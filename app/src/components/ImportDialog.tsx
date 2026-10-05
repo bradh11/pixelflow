@@ -1,11 +1,13 @@
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle, Loader2, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "../api/backend";
-import type { DeviceDetails, DeviceInput } from "../api/types";
+import type { Controller, DeviceDetails, DeviceInput } from "../api/types";
 import { thousands } from "../lib/format";
 import { useApp } from "../state/store";
 import { FppPanel } from "./FppPanel";
 import { Button } from "./ui";
+
+const NO_CONTROLLERS: Controller[] = [];
 
 function describeInput(input: DeviceInput): string {
   switch (input.type) {
@@ -34,6 +36,7 @@ export function ImportDialog({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const controllers = useApp((s) => s.snapshot?.show.controllers ?? NO_CONTROLLERS);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,6 +68,14 @@ export function ImportDialog({
       );
       onClose();
     }
+  };
+
+  const addDestination = async (destination: string, name: string) => {
+    if (busy) return;
+    setBusy(true);
+    const ok = await run((b) => b.importFppDestination(address, destination));
+    setBusy(false);
+    if (ok) onImported(`Added ${name}. Import it from its own row once it's online to add its strings.`);
   };
 
   return (
@@ -134,11 +145,29 @@ export function ImportDialog({
                   </tbody>
                 </table>
               )}
-              {details.config.destinations.map((d) => (
-                <p key={`${d.address}-${d.protocol}`}>
-                  Sends {thousands(d.channels)} channels by {d.protocol} to {d.description || d.address} ({d.address}).
-                </p>
-              ))}
+              {details.config.destinations.map((d) => {
+                const name = d.description || d.address;
+                const inShow = controllers.some((c) => c.address === d.address);
+                return (
+                  <div key={`${d.address}-${d.protocol}`} className="flex items-center justify-between gap-3">
+                    <p>
+                      Sends {thousands(d.channels)} channels by {d.protocol} to {name} ({d.address}).
+                    </p>
+                    {details.device.kind === "fpp" &&
+                      (inShow ? (
+                        <span className="shrink-0 text-neutral-500">In your show</span>
+                      ) : (
+                        <Button
+                          aria-label={`Add ${name} to show`}
+                          onClick={() => addDestination(d.address, name)}
+                          disabled={busy}
+                        >
+                          <Plus size={14} /> Add to show
+                        </Button>
+                      ))}
+                  </div>
+                );
+              })}
               {details.plan.alreadyInShow && (
                 <p className="flex items-start gap-2 text-amber-700 dark:text-amber-400">
                   <AlertTriangle size={16} className="mt-0.5 shrink-0" />

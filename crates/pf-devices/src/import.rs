@@ -1,6 +1,6 @@
 //! Turning a device's configuration into a controller and starter props.
 
-use crate::config::{DeviceConfig, DeviceInput};
+use crate::config::{Destination, DeviceConfig, DeviceInput};
 use crate::device::{Device, DeviceKind};
 use pf_model::{
     AdapterKind, ColorOrder, Controller, Generator, Port, PortSlot, Prop, Protocol, SacnConfig, ShapeSource,
@@ -157,10 +157,57 @@ pub fn plan_import(device: &Device, config: &DeviceConfig, show: &Show) -> Impor
     }
 }
 
+/// Plans adding a controller that an FPP sends to, from the FPP's output list. Works even when
+/// the controller isn't answering; its strings aren't known, so it has no ports yet. Importing
+/// the controller itself later fills them in.
+pub fn plan_destination_import(destination: &Destination, show: &Show) -> ImportPlan {
+    let mut controller_names: HashSet<String> = show.controllers.iter().map(|c| c.name.clone()).collect();
+    let base = if destination.description.trim().is_empty() {
+        destination.address.as_str()
+    } else {
+        destination.description.trim()
+    };
+    let name = unique(base, &mut controller_names);
+    let sacn = |multicast| {
+        Protocol::Sacn(SacnConfig {
+            start_universe: destination.start_universe,
+            multicast,
+            ..SacnConfig::default()
+        })
+    };
+    let protocol = match destination.protocol.as_str() {
+        "DDP" => Some(Protocol::Ddp),
+        "sACN unicast" => Some(sacn(false)),
+        "sACN multicast" => Some(sacn(true)),
+        _ => None,
+    };
+    let already_in_show = show.controllers.iter().any(|c| c.address == destination.address);
+    let Some(protocol) = protocol else {
+        return ImportPlan {
+            controller: Controller::new(name, destination.address.clone(), Protocol::Ddp),
+            props: Vec::new(),
+            notes: vec![format!("PixelFlow can't send {} yet.", destination.protocol)],
+            already_in_show,
+            can_import: false,
+        };
+    };
+    let notes = vec![format!(
+        "PixelFlow adds {name} from the FPP's output list. Its strings aren't known yet: import the \
+         controller itself once it's online to add them."
+    )];
+    ImportPlan {
+        controller: Controller::new(name, destination.address.clone(), protocol),
+        props: Vec::new(),
+        notes,
+        already_in_show,
+        can_import: true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{PortConfig, StringConfig};
+    use crate::config::{Destination, PortConfig, StringConfig};
     use pf_model::ColorOrder;
 
     fn device() -> Device {
@@ -284,5 +331,58 @@ mod tests {
         let plan = plan_import(&device(), &config, &Show::new("t"));
         assert!(!plan.can_import);
         assert_eq!(plan.controller.protocol, Protocol::Ddp);
+    }
+
+    fn destination(protocol: &str) -> Destination {
+        Destination {
+            address: "192.0.2.20".into(),
+            description: "Falcon_F16V5_B9F5".into(),
+            protocol: protocol.into(),
+            channels: 6147,
+            start_channel: 1,
+            start_universe: Some(7),
+        }
+    }
+
+    #[test]
+    fn an_fpp_destination_becomes_a_controller_without_ports() {
+        let plan = plan_destination_import(&destination("DDP"), &Show::new("t"));
+        assert!(plan.can_import && !plan.already_in_show);
+        assert_eq!(plan.controller.name, "Falcon_F16V5_B9F5");
+        assert_eq!(plan.controller.address, "192.0.2.20");
+        assert_eq!(plan.controller.protocol, Protocol::Ddp);
+        assert!(plan.controller.ports.is_empty() && plan.props.is_empty());
+        assert!(plan.notes[0].contains("once it's online"), "{:?}", plan.notes);
+    }
+
+    #[test]
+    fn sacn_destinations_keep_their_universe_and_unsupported_ones_cant_be_added() {
+        let plan = plan_destination_import(&destination("sACN multicast"), &Show::new("t"));
+        let Protocol::Sacn(sacn) = &plan.controller.protocol else {
+            panic!("expected sACN, got {:?}", plan.controller.protocol);
+        };
+        assert_eq!((sacn.start_universe, sacn.multicast), (Some(7), true));
+
+        let art_net = plan_destination_import(&destination("Art-Net"), &Show::new("t"));
+        assert!(!art_net.can_import);
+        assert_eq!(art_net.notes, vec!["PixelFlow can't send Art-Net yet."]);
+    }
+
+    #[test]
+    fn a_destination_already_in_the_show_is_flagged_and_unnamed_ones_use_the_address() {
+        let mut show = Show::new("t");
+        show.controllers
+            .push(Controller::new("Falcon_F16V5_B9F5", "192.0.2.20", Protocol::Ddp));
+        let plan = plan_destination_import(&destination("DDP"), &show);
+        assert!(plan.already_in_show);
+        assert_eq!(plan.controller.name, "Falcon_F16V5_B9F5 2");
+        let unnamed = Destination {
+            description: String::new(),
+            ..destination("DDP")
+        };
+        assert_eq!(
+            plan_destination_import(&unnamed, &Show::new("t")).controller.name,
+            "192.0.2.20"
+        );
     }
 }

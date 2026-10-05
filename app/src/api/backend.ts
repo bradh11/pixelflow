@@ -33,6 +33,8 @@ export interface Backend {
   inspectDevice(address: string): Promise<DeviceDetails>;
   /** Adds the device as a controller with starter props, as one undo step. */
   importDevice(address: string): Promise<ShowSnapshot>;
+  /** Adds a controller an FPP sends to, from the FPP's output list (works while it's offline). */
+  importFppDestination(address: string, destination: string): Promise<ShowSnapshot>;
   /** What an FPP is playing (changes nothing). */
   fppStatus(address: string): Promise<PlayerStatus>;
   /** The sequences stored on an FPP (changes nothing). */

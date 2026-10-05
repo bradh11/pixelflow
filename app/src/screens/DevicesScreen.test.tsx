@@ -70,7 +70,7 @@ describe("devices", () => {
     await user.click(await screen.findByRole("button", { name: "Review FPP" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText(/Sends 6,147 channels by DDP to Falcon_F16V5_B9F5/)).toBeInTheDocument();
-    expect(within(dialog).getByText(/Import those instead/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Add them to your show from here/)).toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: /import|add to show/i })).not.toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Close" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
@@ -99,6 +99,25 @@ describe("devices", () => {
     await user.click(within(row).getByRole("button", { name: "Play Christmas Medley 2017" }));
     expect(backend.calls).toContain("fppStart:192.0.2.10:Christmas Medley 2017.fseq");
     expect(await within(player).findByText("Playing Christmas Medley 2017.fseq")).toBeInTheDocument();
+  });
+
+  it("adds a controller an FPP sends to, then fills it in when that controller is imported", async () => {
+    const { user } = await openDevices();
+    await user.click(screen.getByRole("button", { name: "Scan network" }));
+    await user.click(await screen.findByRole("button", { name: "Review FPP" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(await within(dialog).findByRole("button", { name: "Add Falcon_F16V5_B9F5 to show" }));
+    expect(await within(dialog).findByText("In your show")).toBeInTheDocument();
+    expect(useApp.getState().snapshot!.show.controllers.map((c) => [c.name, c.ports.length])).toEqual([
+      ["Falcon_F16V5_B9F5", 0],
+    ]);
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+
+    await user.click(screen.getByRole("button", { name: "Review Falcon_F16V5_B9F5" }));
+    await user.click(await screen.findByRole("button", { name: "Add to show" }));
+    const controllers = useApp.getState().snapshot!.show.controllers;
+    expect(controllers).toHaveLength(1);
+    expect(controllers[0].ports.length).toBeGreaterThan(0);
   });
 
   it("checks a typed address and says when nothing answers", async () => {

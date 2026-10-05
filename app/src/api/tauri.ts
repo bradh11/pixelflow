@@ -22,6 +22,7 @@ export const tauriBackend: Backend = {
   discoverDevices: (hosts, network) => invoke("discover_devices", { hosts, network }),
   inspectDevice: (address) => invoke("inspect_device", { address }),
   importDevice: (address) => invoke("import_device", { address }),
+  importFppDestination: (address, destination) => invoke("import_fpp_destination", { address, destination }),
   fppStatus: (address) => invoke("fpp_status", { address }),
   fppSequences: (address) => invoke("fpp_sequences", { address }),
   fppStart: (address, name) => invoke("fpp_start", { address, name }),

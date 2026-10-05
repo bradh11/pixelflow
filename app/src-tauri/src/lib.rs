@@ -123,6 +123,7 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         devices::discover_devices,
         devices::inspect_device,
         devices::import_device,
+        devices::import_fpp_destination,
         devices::fpp_status,
         devices::fpp_sequences,
         devices::fpp_start,
@@ -422,5 +423,39 @@ mod tests {
             error.as_str().unwrap().starts_with("Could not reach 192.0.2.99"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn a_controller_added_from_an_fpp_is_filled_in_when_imported_later() {
+        let (_app, webview, _dir) = app();
+        let (fpp, falcon) = (pf_devices::testing::FPP, pf_devices::testing::FALCON);
+        let snapshot = call(
+            &webview,
+            "import_fpp_destination",
+            json!({ "address": fpp, "destination": falcon }),
+        )
+        .unwrap();
+        assert_eq!(snapshot["summary"]["controllers"], 1);
+        assert_eq!(snapshot["show"]["controllers"][0]["name"], "Falcon_F16V5_B9F5");
+        assert_eq!(snapshot["show"]["controllers"][0]["ports"], json!([]));
+        let id = snapshot["show"]["controllers"][0]["id"].clone();
+
+        let snapshot = call(&webview, "import_device", json!({ "address": falcon })).unwrap();
+        assert_eq!(snapshot["summary"]["controllers"], 1, "filled in, not duplicated");
+        assert_eq!(snapshot["summary"]["props"], 3);
+        assert_eq!(snapshot["show"]["controllers"][0]["id"], id);
+        assert_eq!(snapshot["show"]["controllers"][0]["adapter"], "falcon");
+
+        let snapshot = call(&webview, "undo", json!({})).unwrap();
+        assert_eq!(snapshot["summary"]["props"], 0);
+        assert_eq!(snapshot["show"]["controllers"][0]["ports"], json!([]));
+
+        let error = call(
+            &webview,
+            "import_fpp_destination",
+            json!({ "address": fpp, "destination": "192.0.2.77" }),
+        )
+        .unwrap_err();
+        assert_eq!(error, json!("FPP doesn't send to 192.0.2.77."));
     }
 }

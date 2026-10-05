@@ -106,11 +106,60 @@ pub(crate) async fn import_device(state: State<'_, AppState>, address: String) -
         return Err(format!("{} has no pixel outputs to import.", details.device.name));
     }
     let ImportPlan {
-        controller, props, ..
+        mut controller,
+        props,
+        ..
     } = details.plan;
+    let mut engine = state.engine();
     let mut edits: Vec<Edit> = props.into_iter().map(|prop| Edit::AddProp { prop }).collect();
-    edits.push(Edit::AddController { controller });
-    state.engine().apply(edits).map_err(|e| e.to_string())
+    // A controller added from an FPP's output list (same address, no ports yet) is filled in
+    // rather than duplicated.
+    let placeholder = engine
+        .show()
+        .controllers
+        .iter()
+        .find(|c| c.address == controller.address && c.ports.is_empty())
+        .map(|c| (c.id, c.name.clone()));
+    if let Some((id, name)) = placeholder {
+        controller.id = id;
+        controller.name = name;
+        edits.push(Edit::UpdateController { controller });
+    } else {
+        edits.push(Edit::AddController { controller });
+    }
+    engine.apply(edits).map_err(|e| e.to_string())
+}
+
+/// Adds a controller that an FPP sends to, from the FPP's output list (works even when the
+/// controller isn't answering), as one undo step.
+#[tauri::command]
+pub(crate) async fn import_fpp_destination(
+    state: State<'_, AppState>,
+    address: String,
+    destination: String,
+) -> Reply<ShowSnapshot> {
+    let show = state.engine().show().clone();
+    let http = Arc::clone(&state.devices.http);
+    let plan = off_thread(move || {
+        let fpp = pf_devices::fpp::probe(http.as_ref(), &address).map_err(|e| e.to_string())?;
+        let config = pf_devices::read_config(http.as_ref(), &fpp).map_err(|e| e.to_string())?;
+        let target = config
+            .destinations
+            .iter()
+            .find(|d| d.address == destination)
+            .ok_or_else(|| format!("{} doesn't send to {destination}.", fpp.name))?;
+        Ok(pf_devices::plan_destination_import(target, &show))
+    })
+    .await?;
+    if !plan.can_import {
+        return Err(plan.notes.join(" "));
+    }
+    state
+        .engine()
+        .apply(vec![Edit::AddController {
+            controller: plan.controller,
+        }])
+        .map_err(|e| e.to_string())
 }
 
 /// What an FPP is playing (changes nothing).

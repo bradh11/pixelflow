@@ -43,9 +43,16 @@ fn fpp_player_reports_its_destinations_and_nothing_to_import() {
     assert_eq!(config.destinations[0].address, FALCON);
     assert_eq!(config.destinations[0].protocol, "DDP");
     assert_eq!(config.destinations[0].channels, 6147);
+    assert_eq!(
+        (
+            config.destinations[0].start_channel,
+            config.destinations[0].start_universe
+        ),
+        (1, None)
+    );
     let plan = plan_import(&device, &config, &Show::new("t"));
     assert!(!plan.can_import);
-    assert!(plan.notes[0].contains("Import those instead"));
+    assert!(plan.notes[0].contains("Add them to your show from here"));
     assert_no_secret_endpoints(&http);
 }
 

@@ -1,7 +1,20 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type { PlaybackStatus } from "./types";
-import type { Analysis, ExportLayout, ExportSummary, SequenceEdit, SequenceSnapshot } from "./sequence";
+import type {
+  Analysis,
+  EffectInfo,
+  ExportLayout,
+  ExportProgress,
+  ExportSummary,
+  SequenceEdit,
+  SequenceEditResult,
+  SequenceSnapshot,
+} from "./sequence";
+
+/** The event the engine sends while exporting. */
+export const EXPORT_PROGRESS_EVENT = "sequence-export-progress";
 
 const DOCUMENT_FILTER = [{ name: "PixelFlow sequence", extensions: ["json"] }];
 const FSEQ_FILTER = [{ name: "FPP sequence", extensions: ["fseq"] }];
@@ -14,24 +27,38 @@ export interface SequencerApi {
   saveSequenceDoc(): Promise<SequenceSnapshot>;
   saveSequenceDocAs(path: string): Promise<SequenceSnapshot>;
   closeSequenceDoc(): Promise<void>;
-  /** The open sequence, or null. */
+  /** The whole open sequence, or null: for opening a screen or a full resync. */
   getSequenceDoc(): Promise<SequenceSnapshot | null>;
-  /** Applies edits as one undo step; a playing sequence shows them from its next frame. */
-  editSequence(edits: SequenceEdit[]): Promise<SequenceSnapshot>;
-  undoSequence(): Promise<SequenceSnapshot>;
-  redoSequence(): Promise<SequenceSnapshot>;
+  /**
+   * Applies edits as one undo step; a playing sequence shows them from its next frame. Edits with
+   * the same `gesture` id as the previous edit (one per pointer move in a drag) merge into its undo
+   * step. The reply lists what changed (see applySequenceChanges), not the whole document.
+   */
+  editSequence(edits: SequenceEdit[], gesture?: string): Promise<SequenceEditResult>;
+  undoSequence(): Promise<SequenceEditResult>;
+  redoSequence(): Promise<SequenceEditResult>;
+  /** Every effect kind with its settings' labels, ranges, defaults, and choices. */
+  effectCatalog(): Promise<EffectInfo[]>;
   /** The sequence at `positionMs` as show frame bytes (same layout as liveFrame), for scrubbing. */
   sequenceDocFrame(positionMs: number): Promise<Uint8Array>;
   /** Plays the open sequence live with its music; control it with the playback commands. */
   playSequenceDoc(positionMs: number): Promise<PlaybackStatus>;
   /** How an export would lay out the controllers' channels. */
   sequenceExportLayout(): Promise<ExportLayout>;
-  /** Renders the sequence to an `.fseq` file for FPP. */
-  exportSequenceDoc(path: string): Promise<ExportSummary>;
+  /**
+   * Renders the sequence to an `.fseq` file for FPP, calling `onProgress` about once per percent.
+   * Rejects with "The export was cancelled." after cancelSequenceExport (no file is written).
+   */
+  exportSequenceDoc(path: string, onProgress?: (progress: ExportProgress) => void): Promise<ExportSummary>;
+  /** Stops the exports running now. */
+  cancelSequenceExport(): Promise<void>;
   /** Tempo, beats, bars, and onsets in a music file. */
   analyzeAudio(path: string): Promise<Analysis>;
-  /** Adds Beats, Bars, and Onsets timing tracks from the sequence's music (one undo step). */
-  detectBeats(): Promise<SequenceSnapshot>;
+  /**
+   * Adds Beats, Bars, and Onsets timing tracks from the sequence's music (one undo step). Rejects if
+   * another sequence was opened, or the music changed, while the beats were being found.
+   */
+  detectBeats(): Promise<SequenceEditResult>;
   /** Native dialogs; null when cancelled. */
   pickSequenceDocPath(): Promise<string | null>;
   pickSequenceDocSavePath(defaultName: string): Promise<string | null>;
@@ -46,14 +73,27 @@ export const tauriSequencer: SequencerApi = {
   saveSequenceDocAs: (path) => invoke("save_sequence_doc_as", { path }),
   closeSequenceDoc: () => invoke("close_sequence_doc"),
   getSequenceDoc: () => invoke("get_sequence_doc"),
-  editSequence: (edits) => invoke("edit_sequence", { edits }),
+  editSequence: (edits, gesture) => invoke("edit_sequence", gesture === undefined ? { edits } : { edits, gesture }),
   undoSequence: () => invoke("undo_sequence"),
   redoSequence: () => invoke("redo_sequence"),
+  effectCatalog: () => invoke("effect_catalog"),
   sequenceDocFrame: async (positionMs) =>
     new Uint8Array(await invoke<ArrayBuffer>("sequence_doc_frame", { positionMs })),
   playSequenceDoc: (positionMs) => invoke("play_sequence_doc", { positionMs }),
   sequenceExportLayout: () => invoke("sequence_export_layout"),
-  exportSequenceDoc: (path) => invoke("export_sequence_doc", { path }),
+  exportSequenceDoc: async (path, onProgress) => {
+    const unlisten = onProgress
+      ? await listen<ExportProgress>(EXPORT_PROGRESS_EVENT, (event) => {
+          if (event.payload.path === path) onProgress(event.payload);
+        })
+      : null;
+    try {
+      return await invoke<ExportSummary>("export_sequence_doc", { path });
+    } finally {
+      unlisten?.();
+    }
+  },
+  cancelSequenceExport: () => invoke("cancel_sequence_export"),
   analyzeAudio: (path) => invoke("analyze_audio", { path }),
   detectBeats: () => invoke("detect_beats"),
   pickSequenceDocPath: async () => {

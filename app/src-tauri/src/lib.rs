@@ -29,6 +29,8 @@ struct AppState {
     waveforms: Mutex<std::collections::HashMap<playback::WaveformKey, playback::WaveformCell>>,
     /// Background photos the user picked, which the window may read.
     photos: layout::PickedPhotos,
+    /// Bumped by `cancel_sequence_export`: an export started before the bump stops.
+    export_cancels: std::sync::atomic::AtomicU64,
 }
 
 impl AppState {
@@ -155,6 +157,8 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         sequencer::close_sequence_doc,
         sequencer::get_sequence_doc,
         sequencer::edit_sequence,
+        sequencer::effect_catalog,
+        sequencer::cancel_sequence_export,
         sequencer::undo_sequence,
         sequencer::redo_sequence,
         sequencer::sequence_doc_frame,
@@ -186,6 +190,7 @@ pub fn run() {
                 devices: DeviceAccess::network(),
                 waveforms: Mutex::default(),
                 photos: Default::default(),
+                export_cancels: Default::default(),
             });
             let handle = app.handle().clone();
             std::thread::Builder::new()
@@ -248,6 +253,7 @@ mod tests {
                 devices: DeviceAccess::fake(pf_devices::testing::network()),
                 waveforms: Mutex::default(),
                 photos: Default::default(),
+                export_cancels: Default::default(),
             })
             .build(context())
             .unwrap();
@@ -952,5 +958,211 @@ mod tests {
         let snap = call(&webview, "open_sequence_doc", json!({ "path": saved })).unwrap();
         assert_eq!(snap["sequence"]["name"], "Song");
         assert!(call_raw(&webview, "sequence_doc_frame", json!({ "positionMs": 0 })).len() == 12);
+    }
+
+    /// A strip wired to a controller and a new 2 s sequence with one red effect on it.
+    fn authored(webview: &WebviewWindow<MockRuntime>) {
+        let prop = json!({
+            "id": "11111111-0000-4000-8000-0000000000bb", "name": "Strip",
+            "shape": { "source": "generator", "type": "line", "nodes": 4, "length": 1.0 }
+        });
+        let controller = json!({
+            "id": "33333333-0000-4000-8000-0000000000bb", "name": "Bench", "address": "127.0.0.1:9",
+            "protocol": { "type": "ddp" },
+            "ports": [{ "number": 1, "slots": [{ "prop": "11111111-0000-4000-8000-0000000000bb" }] }]
+        });
+        call(
+            webview,
+            "apply_edits",
+            json!({ "edits": [{ "type": "addProp", "prop": prop }, { "type": "addController", "controller": controller }] }),
+        )
+        .unwrap();
+        call(
+            webview,
+            "new_sequence_doc",
+            json!({ "name": "Song", "durationMs": 2000 }),
+        )
+        .unwrap();
+        let row = json!({ "id": "44444444-0000-4000-8000-0000000000bb",
+            "target": { "prop": "11111111-0000-4000-8000-0000000000bb" }, "layers": [{ "effects": [] }] });
+        let effect = json!({ "id": "55555555-0000-4000-8000-0000000000bb", "startMs": 0, "endMs": 1000,
+            "params": { "kind": "on" }, "palette": { "colors": ["#ff0000"] }, "blend": "normal",
+            "fadeInMs": 0, "fadeOutMs": 0 });
+        call(
+            webview,
+            "edit_sequence",
+            json!({ "edits": [
+                { "type": "addRow", "row": row },
+                { "type": "addEffect", "row": "44444444-0000-4000-8000-0000000000bb", "layer": 0, "effect": effect },
+            ] }),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn the_effect_catalog_comes_from_the_engine_and_matches_the_ui_copy() {
+        let (_app, webview, _dir) = app();
+        let catalog = call(&webview, "effect_catalog", json!({})).unwrap();
+        // (Through text, like the IPC: f32 settings read back as their short decimal forms.)
+        let direct: Value =
+            serde_json::from_str(&serde_json::to_string(&pf_sequence::effect_catalog()).unwrap()).unwrap();
+        assert_eq!(catalog, direct);
+        assert_eq!(catalog[0]["settings"][1]["step"], 0.01);
+        assert_eq!(catalog[4]["settings"][0]["key"], "speed");
+        assert_eq!(catalog[4]["settings"][0]["max"], 50.0);
+        // The browser stand-in (app/src/api/effectCatalog.json) is a copy of this table; it must
+        // not drift. Run with PIXELFLOW_UPDATE_CATALOG=1 to rewrite it.
+        let copy = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/api/effectCatalog.json");
+        let text = serde_json::to_string_pretty(&catalog).unwrap() + "\n";
+        if std::env::var_os("PIXELFLOW_UPDATE_CATALOG").is_some() {
+            std::fs::write(&copy, &text).unwrap();
+        }
+        let saved = std::fs::read_to_string(&copy).unwrap_or_default();
+        assert_eq!(
+            saved, text,
+            "app/src/api/effectCatalog.json is out of date: run `PIXELFLOW_UPDATE_CATALOG=1 cargo test`"
+        );
+    }
+
+    #[test]
+    fn edits_with_one_gesture_id_undo_together() {
+        let (_app, webview, _dir) = app();
+        authored(&webview);
+        for start in [100, 200, 300] {
+            let reply = call(
+                &webview,
+                "edit_sequence",
+                json!({ "edits": [{ "type": "setEffectTiming", "id": "55555555-0000-4000-8000-0000000000bb",
+                    "startMs": start, "endMs": start + 1000 }], "gesture": "drag-7" }),
+            )
+            .unwrap();
+            assert_eq!(reply["changes"]["effects"][0]["effect"]["startMs"], start);
+            assert_eq!(reply["changes"]["rows"], json!([]));
+        }
+        let reply = call(&webview, "undo_sequence", json!({})).unwrap();
+        let effect = &reply["changes"]["rows"][0]["layers"][0]["effects"][0];
+        assert_eq!(effect["startMs"], 0, "the whole drag undoes at once");
+        let error = call(
+            &webview,
+            "edit_sequence",
+            json!({ "edits": [{ "type": "setEffectParams", "id": "55555555-0000-4000-8000-0000000000bb",
+                "params": { "kind": "chase", "speed": 1e39 } }] }),
+        )
+        .unwrap_err();
+        assert!(
+            error.as_str().unwrap().contains("Speed isn't a usable number"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn exports_report_progress_and_can_be_cancelled() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use tauri::Listener;
+        let (app, webview, dir) = app();
+        authored(&webview);
+        let events: std::sync::Arc<Mutex<Vec<Value>>> = Default::default();
+        let seen = events.clone();
+        app.listen_any(sequencer::EXPORT_PROGRESS_EVENT, move |event| {
+            seen.lock()
+                .unwrap()
+                .push(serde_json::from_str(event.payload()).unwrap());
+        });
+        let path = dir.path().join("song.fseq");
+        let summary = call(&webview, "export_sequence_doc", json!({ "path": path })).unwrap();
+        assert_eq!(summary["frames"], 80);
+        let events = events.lock().unwrap().clone();
+        assert!(events.len() >= 2 && events.len() <= 101, "{}", events.len());
+        assert_eq!(
+            events.last().unwrap(),
+            &json!({ "path": path.display().to_string(), "framesDone": 80, "frames": 80, "percent": 100 })
+        );
+        let percents: Vec<u64> = events.iter().map(|e| e["percent"].as_u64().unwrap()).collect();
+        assert!(percents.windows(2).all(|w| w[0] < w[1]), "{percents:?}");
+
+        // Cancelling: the plumbing with a progress collector, cancelled part way.
+        let job = app.state::<AppState>().engine().sequence_export().unwrap();
+        let cancels = AtomicU64::new(0);
+        let mut reports = Vec::new();
+        let cancelled = dir.path().join("cancelled.fseq");
+        let err = sequencer::run_export(&job, &cancelled, &cancels, 0, |p| {
+            if p.percent >= 25 {
+                cancels.fetch_add(1, Ordering::AcqRel);
+            }
+            reports.push(p.percent);
+        })
+        .unwrap_err();
+        assert_eq!(err.to_string(), "The export was cancelled.");
+        assert!(*reports.last().unwrap() < 30, "{reports:?}");
+        assert!(!cancelled.exists());
+
+        // The command bumps the counter; an export started before it stops.
+        call(&webview, "cancel_sequence_export", json!({})).unwrap();
+        assert_eq!(app.state::<AppState>().export_cancels.load(Ordering::Acquire), 1);
+        let err = sequencer::run_export(
+            &job,
+            &cancelled,
+            &app.state::<AppState>().export_cancels,
+            0,
+            |_| {},
+        )
+        .unwrap_err();
+        assert_eq!(err.to_string(), "The export was cancelled.");
+    }
+
+    #[test]
+    fn detected_beats_only_go_to_the_sequence_they_were_found_for() {
+        let (app, webview, dir) = app();
+        authored(&webview);
+        let state = app.state::<AppState>();
+        call(
+            &webview,
+            "edit_sequence",
+            json!({ "edits": [{ "type": "updateInfo", "name": "Song", "audio": "song.wav", "durationMs": 2000, "frameMs": 25 }] }),
+        )
+        .unwrap();
+        let saved = dir.path().join("song.pfseq.json");
+        call(&webview, "save_sequence_doc_as", json!({ "path": saved })).unwrap();
+        let (doc, music) = {
+            let engine = state.engine();
+            (
+                engine.sequence_doc_id().unwrap(),
+                engine.sequence_music().unwrap(),
+            )
+        };
+        let tracks = || {
+            vec![pf_sequence::TimingTrack::new(
+                "Beats",
+                pf_sequence::TimingKind::Beats,
+                vec![],
+            )]
+        };
+        // Another sequence opened meanwhile: nothing is added to it.
+        call(
+            &webview,
+            "new_sequence_doc",
+            json!({ "name": "Other", "durationMs": 1000 }),
+        )
+        .unwrap();
+        let err = sequencer::add_detected_tracks(&mut state.engine(), doc, &music, tracks()).unwrap_err();
+        assert!(err.contains("changed while the beats were being found"), "{err}");
+        // The same sequence, reopened, is a different document too.
+        call(&webview, "open_sequence_doc", json!({ "path": saved })).unwrap();
+        assert!(sequencer::add_detected_tracks(&mut state.engine(), doc, &music, tracks()).is_err());
+        let doc = state.engine().sequence_doc_id().unwrap();
+        let music = dir.path().join("song.wav");
+        call(
+            &webview,
+            "edit_sequence",
+            json!({ "edits": [{ "type": "updateInfo", "name": "Song", "audio": "other.wav", "durationMs": 2000, "frameMs": 25 }] }),
+        )
+        .unwrap();
+        assert!(
+            sequencer::add_detected_tracks(&mut state.engine(), doc, &music, tracks()).is_err(),
+            "new music"
+        );
+        call(&webview, "undo_sequence", json!({})).unwrap();
+        let reply = sequencer::add_detected_tracks(&mut state.engine(), doc, &music, tracks()).unwrap();
+        assert_eq!(reply.changes.timing_tracks.len(), 1);
     }
 }

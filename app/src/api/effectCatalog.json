@@ -1,0 +1,584 @@
+[
+  {
+    "description": "A solid color, or the palette spread across the prop, at a steady or changing brightness.",
+    "kind": "on",
+    "label": "On",
+    "settings": [
+      {
+        "default": "none",
+        "description": "Spread the palette across the prop instead of using the first color.",
+        "key": "gradient",
+        "label": "Gradient",
+        "options": [
+          {
+            "label": "None",
+            "value": "none"
+          },
+          {
+            "label": "Left to right",
+            "value": "horizontal"
+          },
+          {
+            "label": "Bottom to top",
+            "value": "vertical"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": 1.0,
+        "description": "Brightness at the start of the effect (0–1).",
+        "key": "startLevel",
+        "label": "Start brightness",
+        "max": 1.0,
+        "min": 0.0,
+        "step": 0.01,
+        "type": "number"
+      },
+      {
+        "default": 1.0,
+        "description": "Brightness at the end of the effect (0–1).",
+        "key": "endLevel",
+        "label": "End brightness",
+        "max": 1.0,
+        "min": 0.0,
+        "step": 0.01,
+        "type": "number"
+      }
+    ]
+  },
+  {
+    "description": "Black: hides the layers below.",
+    "kind": "off",
+    "label": "Off",
+    "settings": []
+  },
+  {
+    "description": "Blends through the palette over the effect.",
+    "kind": "colorWash",
+    "label": "Color Wash",
+    "settings": [
+      {
+        "default": 1.0,
+        "description": "Times through the palette over the effect.",
+        "key": "cycles",
+        "label": "Cycles",
+        "max": 100.0,
+        "min": 0.0,
+        "step": 0.1,
+        "type": "number"
+      },
+      {
+        "default": "none",
+        "description": "Also spread the colors across the prop.",
+        "key": "gradient",
+        "label": "Gradient",
+        "options": [
+          {
+            "label": "None",
+            "value": "none"
+          },
+          {
+            "label": "Left to right",
+            "value": "horizontal"
+          },
+          {
+            "label": "Bottom to top",
+            "value": "vertical"
+          }
+        ],
+        "type": "choice"
+      }
+    ]
+  },
+  {
+    "description": "The first palette color fading in or out.",
+    "kind": "fade",
+    "label": "Fade",
+    "settings": [
+      {
+        "default": "in",
+        "description": "Fade in or fade out.",
+        "key": "direction",
+        "label": "Direction",
+        "options": [
+          {
+            "label": "Fade in",
+            "value": "in"
+          },
+          {
+            "label": "Fade out",
+            "value": "out"
+          }
+        ],
+        "type": "choice"
+      }
+    ]
+  },
+  {
+    "description": "Bands of light moving along the pixels in wiring order.",
+    "kind": "chase",
+    "label": "Chase",
+    "settings": [
+      {
+        "default": 1.0,
+        "description": "Trips along the whole prop per second.",
+        "key": "speed",
+        "label": "Speed",
+        "max": 50.0,
+        "min": 0.0,
+        "step": 0.1,
+        "type": "number",
+        "unit": "per second"
+      },
+      {
+        "default": 0.2,
+        "description": "Each band's length, as a fraction of the space between bands (0–1).",
+        "key": "width",
+        "label": "Band width",
+        "max": 1.0,
+        "min": 0.0,
+        "step": 0.01,
+        "type": "number"
+      },
+      {
+        "default": 1,
+        "description": "Bands spread evenly along the prop; they take the palette colors in turn.",
+        "key": "bands",
+        "label": "Bands",
+        "max": 1000,
+        "min": 1,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": "forward",
+        "description": "Which way the bands move along the wiring.",
+        "key": "direction",
+        "label": "Direction",
+        "options": [
+          {
+            "label": "Forward",
+            "value": "forward"
+          },
+          {
+            "label": "Reverse",
+            "value": "reverse"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": false,
+        "description": "Go back and forth instead of wrapping around.",
+        "key": "bounce",
+        "label": "Bounce",
+        "type": "bool"
+      }
+    ]
+  },
+  {
+    "description": "Stripes in the palette colors sliding across or up the prop.",
+    "kind": "bars",
+    "label": "Bars",
+    "settings": [
+      {
+        "default": 4,
+        "description": "Bars visible at once.",
+        "key": "count",
+        "label": "Bars",
+        "max": 100,
+        "min": 1,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 0.5,
+        "description": "Prop widths (or heights) moved per second.",
+        "key": "speed",
+        "label": "Speed",
+        "max": 20.0,
+        "min": 0.0,
+        "step": 0.05,
+        "type": "number",
+        "unit": "per second"
+      },
+      {
+        "default": "vertical",
+        "description": "Bars sliding across or up and down.",
+        "key": "axis",
+        "label": "Axis",
+        "options": [
+          {
+            "label": "Across",
+            "value": "horizontal"
+          },
+          {
+            "label": "Up and down",
+            "value": "vertical"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": "forward",
+        "description": "Which way the bars slide.",
+        "key": "direction",
+        "label": "Direction",
+        "options": [
+          {
+            "label": "Forward",
+            "value": "forward"
+          },
+          {
+            "label": "Reverse",
+            "value": "reverse"
+          }
+        ],
+        "type": "choice"
+      }
+    ]
+  },
+  {
+    "description": "A wavy line rolling across the prop.",
+    "kind": "wave",
+    "label": "Wave",
+    "settings": [
+      {
+        "default": 1.0,
+        "description": "Waves across the prop.",
+        "key": "cycles",
+        "label": "Waves",
+        "max": 20.0,
+        "min": 0.0,
+        "step": 0.1,
+        "type": "number"
+      },
+      {
+        "default": 1.0,
+        "description": "Waves passing per second.",
+        "key": "speed",
+        "label": "Speed",
+        "max": 20.0,
+        "min": 0.0,
+        "step": 0.1,
+        "type": "number",
+        "unit": "per second"
+      },
+      {
+        "default": 0.8,
+        "description": "Peak-to-peak height, as a fraction of the prop's height (0–1).",
+        "key": "height",
+        "label": "Height",
+        "max": 1.0,
+        "min": 0.0,
+        "step": 0.01,
+        "type": "number"
+      },
+      {
+        "default": 0.2,
+        "description": "Line thickness, as a fraction of the prop's height.",
+        "key": "thickness",
+        "label": "Thickness",
+        "max": 1.0,
+        "min": 0.0,
+        "step": 0.01,
+        "type": "number"
+      },
+      {
+        "default": "forward",
+        "description": "Which way the wave rolls.",
+        "key": "direction",
+        "label": "Direction",
+        "options": [
+          {
+            "label": "Forward",
+            "value": "forward"
+          },
+          {
+            "label": "Reverse",
+            "value": "reverse"
+          }
+        ],
+        "type": "choice"
+      }
+    ]
+  },
+  {
+    "description": "Random pixels softly brightening and dimming.",
+    "kind": "twinkle",
+    "label": "Twinkle",
+    "settings": [
+      {
+        "default": 0.3,
+        "description": "Fraction of pixels lit at any moment (0–1).",
+        "key": "density",
+        "label": "Density",
+        "max": 1.0,
+        "min": 0.0,
+        "step": 0.01,
+        "type": "number"
+      },
+      {
+        "default": 1.0,
+        "description": "Twinkles per second for each pixel.",
+        "key": "rate",
+        "label": "Rate",
+        "max": 50.0,
+        "min": 0.0,
+        "step": 0.1,
+        "type": "number",
+        "unit": "per second"
+      }
+    ]
+  },
+  {
+    "description": "The whole prop flickering on and off.",
+    "kind": "shimmer",
+    "label": "Shimmer",
+    "settings": [
+      {
+        "default": 10.0,
+        "description": "Flickers per second.",
+        "key": "rate",
+        "label": "Rate",
+        "max": 60.0,
+        "min": 0.0,
+        "step": 0.5,
+        "type": "number",
+        "unit": "per second"
+      },
+      {
+        "default": 0.5,
+        "description": "Fraction of each flicker spent on (0–1).",
+        "key": "duty",
+        "label": "On time",
+        "max": 1.0,
+        "min": 0.0,
+        "step": 0.01,
+        "type": "number"
+      }
+    ]
+  },
+  {
+    "description": "Random pixels flashing, a new set each flash.",
+    "kind": "strobe",
+    "label": "Strobe",
+    "settings": [
+      {
+        "default": 10.0,
+        "description": "Flashes per second.",
+        "key": "rate",
+        "label": "Rate",
+        "max": 60.0,
+        "min": 0.0,
+        "step": 0.5,
+        "type": "number",
+        "unit": "per second"
+      },
+      {
+        "default": 0.2,
+        "description": "Fraction of pixels in each flash (0–1).",
+        "key": "density",
+        "label": "Density",
+        "max": 1.0,
+        "min": 0.0,
+        "step": 0.01,
+        "type": "number"
+      }
+    ]
+  },
+  {
+    "description": "Diagonal stripes turning around the prop (made for trees and matrices).",
+    "kind": "spiral",
+    "label": "Spiral",
+    "settings": [
+      {
+        "default": 3,
+        "description": "Stripes around the prop.",
+        "key": "count",
+        "label": "Stripes",
+        "max": 100,
+        "min": 1,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 0.5,
+        "description": "Turns per second.",
+        "key": "speed",
+        "label": "Speed",
+        "max": 20.0,
+        "min": 0.0,
+        "step": 0.05,
+        "type": "number",
+        "unit": "turns per second"
+      },
+      {
+        "default": 0.5,
+        "description": "Fraction of each stripe's space that is lit (0–1).",
+        "key": "thickness",
+        "label": "Thickness",
+        "max": 1.0,
+        "min": 0.0,
+        "step": 0.01,
+        "type": "number"
+      },
+      {
+        "default": 1.0,
+        "description": "How steeply the stripes slant (0 = straight up; negative slants the other way).",
+        "key": "twist",
+        "label": "Twist",
+        "max": 10.0,
+        "min": -10.0,
+        "step": 0.1,
+        "type": "number"
+      },
+      {
+        "default": "forward",
+        "description": "Which way the stripes turn.",
+        "key": "direction",
+        "label": "Direction",
+        "options": [
+          {
+            "label": "Forward",
+            "value": "forward"
+          },
+          {
+            "label": "Reverse",
+            "value": "reverse"
+          }
+        ],
+        "type": "choice"
+      }
+    ]
+  },
+  {
+    "description": "Flames rising from the bottom of the prop.",
+    "kind": "fire",
+    "label": "Fire",
+    "settings": [
+      {
+        "default": 0.8,
+        "description": "How high the flames reach, as a fraction of the prop's height (0–1).",
+        "key": "height",
+        "label": "Height",
+        "max": 1.0,
+        "min": 0.0,
+        "step": 0.01,
+        "type": "number"
+      },
+      {
+        "default": 0.6,
+        "description": "How often new flames flare up (0–1).",
+        "key": "sparks",
+        "label": "Sparks",
+        "max": 1.0,
+        "min": 0.0,
+        "step": 0.01,
+        "type": "number"
+      }
+    ]
+  },
+  {
+    "description": "Streaks of light with fading tails.",
+    "kind": "meteors",
+    "label": "Meteors",
+    "settings": [
+      {
+        "default": 5,
+        "description": "Meteors on the prop at once.",
+        "key": "count",
+        "label": "Meteors",
+        "max": 100,
+        "min": 1,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 1.0,
+        "description": "Prop heights (or widths) travelled per second.",
+        "key": "speed",
+        "label": "Speed",
+        "max": 20.0,
+        "min": 0.01,
+        "step": 0.01,
+        "type": "number",
+        "unit": "per second"
+      },
+      {
+        "default": 0.25,
+        "description": "Tail length, as a fraction of the prop's height (or width).",
+        "key": "length",
+        "label": "Tail length",
+        "max": 1.0,
+        "min": 0.01,
+        "step": 0.01,
+        "type": "number"
+      },
+      {
+        "default": "down",
+        "description": "Which way the meteors fall.",
+        "key": "direction",
+        "label": "Direction",
+        "options": [
+          {
+            "label": "Down",
+            "value": "down"
+          },
+          {
+            "label": "Up",
+            "value": "up"
+          },
+          {
+            "label": "Left",
+            "value": "left"
+          },
+          {
+            "label": "Right",
+            "value": "right"
+          }
+        ],
+        "type": "choice"
+      }
+    ]
+  },
+  {
+    "description": "Rings spreading out from the center of the prop.",
+    "kind": "ripple",
+    "label": "Ripple",
+    "settings": [
+      {
+        "default": 0.5,
+        "description": "How fast rings grow: center-to-corner distances per second.",
+        "key": "speed",
+        "label": "Speed",
+        "max": 20.0,
+        "min": 0.0,
+        "step": 0.05,
+        "type": "number",
+        "unit": "per second"
+      },
+      {
+        "default": 0.4,
+        "description": "Distance between rings (center-to-corner = 1).",
+        "key": "spacing",
+        "label": "Spacing",
+        "max": 4.0,
+        "min": 0.01,
+        "step": 0.01,
+        "type": "number"
+      },
+      {
+        "default": 0.12,
+        "description": "Ring thickness (center-to-corner = 1).",
+        "key": "thickness",
+        "label": "Thickness",
+        "max": 1.0,
+        "min": 0.01,
+        "step": 0.01,
+        "type": "number"
+      }
+    ]
+  }
+]

@@ -387,6 +387,7 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
         placeModel();
         invalidate();
       } catch (e) {
+        // Messages from reading and parsing the file are already in plain words.
         if (!cancelled) setModelProblem(`The house model can't be shown. ${errorMessage(e)}`);
       }
     })();

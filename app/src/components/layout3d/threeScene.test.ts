@@ -5,7 +5,7 @@ import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { modelPoint, v3 } from "../../lib/layout3d";
-import { createThreeScene, modelEuler } from "./threeScene";
+import { createThreeScene, modelEuler, plainModelError } from "./threeScene";
 
 /** Enough of a WebGLRenderer for the scene to be built, drawn, and taken down without WebGL. */
 function fakeRenderer() {
@@ -121,5 +121,10 @@ describe("the three.js scene", () => {
     // Afterwards, partial updates upload only what changed again.
     scene.updatePixels(0, new Float32Array([5, 5, 5]));
     expect(position.updateRanges).toEqual([{ start: 0, count: 3 }]);
+  });
+
+  it("explains a model it can't read in plain words", () => {
+    expect(plainModelError(new Error('THREE.GLTFLoader: Failed to load buffer "house.bin".'))).toMatch(/files next to it.*single GLB/);
+    expect(plainModelError(new SyntaxError("Unexpected token < in JSON"))).toMatch(/couldn't read this model/);
   });
 });

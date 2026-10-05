@@ -153,17 +153,31 @@ function disposeTree(root: Object3D) {
 const toBox = (b: ThreeBox3): Box3 | null =>
   b.isEmpty() ? null : { min: { x: b.min.x, y: b.min.y, z: b.min.z }, max: { x: b.max.x, y: b.max.y, z: b.max.z } };
 
+/** What to tell the user when a model file can't be shown (the loader's own words go to the console). */
+export function plainModelError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  if (/failed to load (buffer|texture)|couldn't load texture|failed to fetch|load failed/i.test(raw)) {
+    return "This model needs files next to it that PixelFlow can't read. Export it as a single GLB file, or a glTF with everything embedded, and choose that.";
+  }
+  return "PixelFlow couldn't read this model. It may be damaged, or saved in a form PixelFlow doesn't support. Try exporting it as a GLB file.";
+}
+
 /** A model file's contents as three.js objects: glTF (binary or self-contained) or OBJ. */
 async function parseModel(bytes: Uint8Array, name: string): Promise<Object3D> {
-  if (name.split(".").pop()?.toLowerCase() === "obj") {
-    const { OBJLoader } = await import("three/addons/loaders/OBJLoader.js");
-    return new OBJLoader().parse(new TextDecoder().decode(bytes));
+  try {
+    if (name.split(".").pop()?.toLowerCase() === "obj") {
+      const { OBJLoader } = await import("three/addons/loaders/OBJLoader.js");
+      return new OBJLoader().parse(new TextDecoder().decode(bytes));
+    }
+    const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
+    // parseAsync reads the bytes where they are: a whole buffer needs no copy.
+    const whole = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength;
+    const buffer = (whole ? bytes.buffer : bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)) as ArrayBuffer;
+    return (await new GLTFLoader().parseAsync(buffer, "")).scene;
+  } catch (error) {
+    console.error(`The house model ${name} couldn't be read:`, error);
+    throw new Error(plainModelError(error));
   }
-  const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
-  // parseAsync reads the bytes where they are: a whole buffer needs no copy.
-  const whole = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength;
-  const buffer = (whole ? bytes.buffer : bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)) as ArrayBuffer;
-  return (await new GLTFLoader().parseAsync(buffer, "")).scene;
 }
 
 /** The box around a model as its file has it (not placed). */

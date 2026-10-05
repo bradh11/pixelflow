@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xsequence BaseChannel="0" ChanCtrlBasic="0" ChanCtrlColor="0" FixedPointTiming="1" ModelBlending="true">
+  <head>
+    <version>2024.20</version>
+    <author>Test</author>
+    <song>Rock &amp;amp; Roll Christmas</song>
+    <artist>Nobody</artist>
+    <sequenceTiming>25 ms</sequenceTiming>
+    <sequenceType>Media</sequenceType>
+    <mediaFile>C:\Users\someone\Music\rock-and-roll.mp3</mediaFile>
+    <sequenceDuration>10.000</sequenceDuration>
+  </head>
+  <ColorPalettes/>
+  <EffectDB/>
+  <DisplayElements>
+    <Element collapsed="0" type="timing" name="Lyrics" visible="1" views="" active="1"/>
+    <Element collapsed="0" type="timing" name="Half Seconds" visible="1" views="" active="0"/>
+    <Element collapsed="0" type="timing" name="Song Parts" visible="1" views="" active="0"/>
+  </DisplayElements>
+  <ElementEffects>
+    <Element type="timing" name="Lyrics">
+      <EffectLayer>
+        <Effect label="Rock &amp;amp; roll" startTime="1000" endTime="2000"/>
+        <Effect label="all night" startTime="2000" endTime="3010"/>
+      </EffectLayer>
+      <EffectLayer>
+        <Effect label="Rock" startTime="1000" endTime="1250"/>
+        <Effect label="&amp;amp;" startTime="1250" endTime="1500"/>
+        <Effect label="roll" startTime="1500" endTime="2000"/>
+      </EffectLayer>
+      <EffectLayer>
+        <Effect label="R" startTime="1000" endTime="1100"/>
+        <Effect label="AA" startTime="1100" endTime="1250"/>
+        <Effect label="etc" startTime="1250" endTime="1500"/>
+        <Effect label="O" startTime="1500" endTime="1700"/>
+        <Effect label="L" startTime="1700" endTime="2000"/>
+      </EffectLayer>
+    </Element>
+    <Element type="timing" name="Half Seconds" fixed="500">
+      <EffectLayer/>
+    </Element>
+    <Element type="timing" name="Song Parts">
+      <EffectLayer>
+        <Effect label="Intro" startTime="0" endTime="4000"/>
+        <Effect label="Nothing" startTime="4000" endTime="4000"/>
+        <Effect label="Verse &amp;#10;1" startTime="4000" endTime="12000"/>
+        <Effect label="After" startTime="15000" endTime="16000"/>
+      </EffectLayer>
+    </Element>
+  </ElementEffects>
+  <lastView>0</lastView>
+</xsequence>

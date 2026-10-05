@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xsequence BaseChannel="0" ChanCtrlBasic="0" ChanCtrlColor="0">
+  <head>
+    <version>4.2.1</version>
+    <song></song>
+    <sequenceTiming>50 ms</sequenceTiming>
+    <sequenceType>Animation</sequenceType>
+    <mediaFile></mediaFile>
+    <sequenceDuration>8.5</sequenceDuration>
+  </head>
+  <ColorPalettes>
+    <ColorPalette>C_BUTTON_Palette1=#FF0000,C_CHECKBOX_Palette1=1</ColorPalette>
+  </ColorPalettes>
+  <EffectDB>
+    <Effect>E_TEXTCTRL_Eff_On_End=100,E_TEXTCTRL_Eff_On_Start=100</Effect>
+  </EffectDB>
+  <ElementEffects>
+    <Element type="model" name="Roofline">
+      <EffectLayer>
+        <Effect ref="0" name="On" palette="0" startTime="1.5" endTime="2.27"/>
+        <Effect ref="0" name="On" palette="0" startTime="2.3" endTime="8.5"/>
+      </EffectLayer>
+    </Element>
+    <Element type="timing" name="Beats">
+      <EffectLayer>
+        <Effect label="1" startTime="0.0" endTime="0.512"/>
+      </EffectLayer>
+    </Element>
+  </ElementEffects>
+</xsequence>

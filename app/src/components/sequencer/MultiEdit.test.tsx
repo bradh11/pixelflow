@@ -109,6 +109,11 @@ describe("editing several effects at once", () => {
     await waitFor(() => expect([byId(a.id).params, byId(b.id).params]).toMatchObject([{ direction: "forward" }, { direction: "forward" }]));
     expect(edits(seq)).toBe(sent + 1);
     expect(within(direction).queryByRole("option", { name: "Mixed" })).not.toBeInTheDocument();
+    // A click the engine refuses leaves the checkbox showing mixed.
+    vi.spyOn(seq, "editSequence").mockRejectedValueOnce(new Error("Not now."));
+    await user.click(within(panel()).getByRole("checkbox", { name: "Bounce" }));
+    await waitFor(() => expect(useApp.getState().error).toBe("Not now."));
+    expect(within(panel()).getByRole("checkbox", { name: "Bounce" })).toBePartiallyChecked();
   });
 
   it("shows only what effects of different kinds share, and changes colors, mixing, and fades on all of them", async () => {

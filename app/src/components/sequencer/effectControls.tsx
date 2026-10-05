@@ -177,10 +177,22 @@ export function NumberDraft({
 /** A checkbox that can also show "mixed" (some of the selected effects have it on, some off). */
 function MixedCheckbox({ checked, mixed, onChange }: { checked: boolean; mixed: boolean; onChange: (checked: boolean) => void }) {
   const ref = useRef<HTMLInputElement>(null);
+  // Every render: a click clears the browser's mixed state, and a refused change leaves `mixed` as it was.
   useEffect(() => {
     if (ref.current) ref.current.indeterminate = mixed;
-  }, [mixed]);
-  return <input ref={ref} type="checkbox" checked={mixed ? false : checked} onChange={(e) => onChange(e.target.checked)} />;
+  });
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={mixed ? false : checked}
+      onChange={(e) => {
+        onChange(e.target.checked);
+        // Mixed until the change has landed (a refused one changes nothing on screen).
+        e.target.indeterminate = mixed;
+      }}
+    />
+  );
 }
 
 /** "Mixed" at the top of a list whose effects differ (it can't be picked). */

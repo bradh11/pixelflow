@@ -4,7 +4,7 @@
 // mirror of pf-render's `faces.rs`), and names for rows on submodels.
 
 import type { Sequence, SequenceTarget } from "../api/sequence";
-import type { FaceDefinition, NodeRange, NodeRun, Phoneme, Prop, Region, Show, SubmodelLine } from "../api/types";
+import type { FaceDefinition, NodeRange, NodeRun, Phoneme, PreviewProp, PreviewProp3d, Prop, Region, Show, SubmodelLine } from "../api/types";
 import { memberProp } from "./shows";
 
 /** The mouth shapes in menu order, with the names xLights and Papagayo use. */
@@ -265,6 +265,50 @@ export function targetNodes(show: Show, target: SequenceTarget, count: (prop: Pr
     for (const m of group?.members ?? []) {
       if (typeof m === "string") add(m, null);
       else add(m.prop, m.region);
+    }
+  }
+  return out;
+}
+
+/** Values `from` to `to` of a list of numbers (a view, for a typed array). */
+function slice(values: ArrayLike<number>, from: number, to: number): ArrayLike<number> {
+  return ArrayBuffer.isView(values) ? (values as Float32Array).subarray(from, to) : Array.prototype.slice.call(values, from, to);
+}
+
+/**
+ * Just the pixels `segments` light (see {@link targetNodes}), out of every prop's pixels for the
+ * preview (`2d` positions or `3d`): a prop lit whole stays as it is, and a prop lit in part is cut
+ * into runs of neighboring pixels, each still lit from its own place in the frame. Props keep
+ * their order.
+ */
+export function targetPreview<P extends PreviewProp>(props: P[], segments: TargetSegment[], dim: "2d"): P[];
+export function targetPreview<P extends PreviewProp3d>(props: P[], segments: TargetSegment[], dim: "3d"): P[];
+export function targetPreview(props: (PreviewProp | PreviewProp3d)[], segments: TargetSegment[], dim: "2d" | "3d"): (PreviewProp | PreviewProp3d)[] {
+  const lit = new Map<string, Set<number> | "all">();
+  for (const s of segments) {
+    const before = lit.get(s.prop);
+    if (before === "all") continue;
+    if (s.nodes === "all") lit.set(s.prop, "all");
+    else lit.set(s.prop, new Set([...(before ?? []), ...s.nodes]));
+  }
+  const out: (PreviewProp | PreviewProp3d)[] = [];
+  const stride = dim === "2d" ? 2 : 3;
+  for (const p of props) {
+    const nodes = lit.get(p.prop);
+    if (nodes === undefined) continue;
+    if (nodes === "all") {
+      out.push(p);
+      continue;
+    }
+    const sorted = [...nodes].sort((a, b) => a - b);
+    for (let i = 0; i < sorted.length; ) {
+      let end = i + 1;
+      while (end < sorted.length && sorted[end] === sorted[end - 1] + 1) end++;
+      const [first, count] = [sorted[i], end - i];
+      const frameOffset = p.frameOffset + first * p.channelsPerPixel;
+      const part = (values: ArrayLike<number>) => slice(values, first * stride, (first + count) * stride);
+      out.push("xyz" in p ? { ...p, frameOffset, xyz: part(p.xyz) as Float32Array } : { ...p, frameOffset, points: part(p.points) });
+      i = end;
     }
   }
   return out;

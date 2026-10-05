@@ -1,13 +1,12 @@
 //! Reading the parts of an `.xsq` file the import needs, including `<CompressedData>` blocks.
 
 use crate::XlightsError;
-use roxmltree::{Document, Node, ParsingOptions};
+use crate::xml::{self, MAX_XML_BYTES};
+use roxmltree::Node;
 use std::io::Read;
 
-/// Largest `.xsq` file read, in bytes (the same limit as a PixelFlow sequence file).
-pub const MAX_XSQ_BYTES: usize = pf_sequence::MAX_SEQUENCE_BYTES;
-/// Most XML nodes in one file (a 64 MB sequence has a few million).
-const MAX_NODES: u32 = 20_000_000;
+/// Largest `.xsq` file read, in bytes (the same limit as every xLights file).
+pub const MAX_XSQ_BYTES: usize = MAX_XML_BYTES;
 /// Effects and marks read across the whole file before the rest is skipped.
 pub const MAX_ITEMS: usize = 2_000_000;
 
@@ -162,74 +161,6 @@ fn trim_name(name: &str) -> String {
     name.trim_matches([' ', '\t']).to_string()
 }
 
-/// Deepest element nesting accepted (an `.xsq` file nests about 6 deep). The XML parser
-/// recurses per level, so a hostile file could otherwise exhaust the stack.
-const MAX_DEPTH: usize = 64;
-
-/// True when `xml` nests elements deeper than [`MAX_DEPTH`]. A quick scan, not a parse: it
-/// skips comments, CDATA, declarations, and quoted attribute values.
-fn too_deep(xml: &str) -> bool {
-    let b = xml.as_bytes();
-    let mut depth = 0usize;
-    let mut i = 0;
-    while i < b.len() {
-        if b[i] != b'<' {
-            i += 1;
-            continue;
-        }
-        let rest = &xml[i..];
-        let skip_to = |end: &str| rest.find(end).map_or(b.len(), |at| i + at + end.len());
-        if rest.starts_with("<!--") {
-            i = skip_to("-->");
-        } else if rest.starts_with("<![CDATA[") {
-            i = skip_to("]]>");
-        } else if rest.starts_with("<?") {
-            i = skip_to("?>");
-        } else if rest.starts_with("<!") {
-            i = skip_to(">");
-        } else if rest.starts_with("</") {
-            depth = depth.saturating_sub(1);
-            i = skip_to(">");
-        } else {
-            // A start tag: find its end outside quotes; `/>` closes it at once.
-            let mut j = i + 1;
-            let mut quote = None;
-            while j < b.len() {
-                match (quote, b[j]) {
-                    (None, b'"' | b'\'') => quote = Some(b[j]),
-                    (Some(q), c) if c == q => quote = None,
-                    (None, b'>') => break,
-                    _ => {}
-                }
-                j += 1;
-            }
-            if j >= b.len() || b[j - 1] != b'/' {
-                depth += 1;
-                if depth > MAX_DEPTH {
-                    return true;
-                }
-            }
-            i = j + 1;
-        }
-    }
-    false
-}
-
-fn parse_document(xml: &str) -> Result<Document<'_>, String> {
-    if too_deep(xml) {
-        return Err(format!("its elements are nested more than {MAX_DEPTH} deep"));
-    }
-    Document::parse_with_options(xml, parse_options()).map_err(|e| e.to_string())
-}
-
-fn parse_options<'a>() -> ParsingOptions<'a> {
-    ParsingOptions {
-        allow_dtd: false,
-        nodes_limit: MAX_NODES,
-        ..ParsingOptions::default()
-    }
-}
-
 /// The sections of one document (the file, or a decompressed block) read into `out`.
 struct Reader<'o> {
     out: &'o mut XsqFile,
@@ -329,15 +260,8 @@ impl Reader<'_> {
 /// Reads an `.xsq` file's text. Sections are read wherever they are in the file (xLights writes
 /// palettes and effect settings first). `<CompressedData>` blocks are decompressed and read as
 /// if their contents were written in their place at the end of the file, as xLights does.
-pub fn parse_xsq(xml: &str) -> Result<XsqFile, XlightsError> {
-    if xml.len() > MAX_XSQ_BYTES {
-        return Err(bad(format!(
-            "it is {} MB; PixelFlow reads xLights sequences up to {} MB",
-            xml.len() / (1024 * 1024),
-            MAX_XSQ_BYTES / (1024 * 1024)
-        )));
-    }
-    let doc = parse_document(xml).map_err(bad)?;
+pub fn parse_xsq(input: &str) -> Result<XsqFile, XlightsError> {
+    let doc = xml::parse(input).map_err(bad)?;
     let root = doc.root_element();
     if root.tag_name().name() != "xsequence" {
         return Err(bad(format!(
@@ -362,14 +286,14 @@ pub fn parse_xsq(xml: &str) -> Result<XsqFile, XlightsError> {
         }
     }
     // Decompressed data shares the file's size budget.
-    let mut budget = MAX_XSQ_BYTES.saturating_sub(xml.len());
+    let mut budget = MAX_XSQ_BYTES.saturating_sub(input.len() + 64);
     let mut failed = 0;
     for block in blocks {
         let parsed = decompress_block(&block, budget).and_then(|inner| {
             budget = budget.saturating_sub(inner.len());
             // The block holds top-level elements without a single root; wrap them.
             let wrapped = format!("<CompressedData>{inner}</CompressedData>");
-            let doc = parse_document(&wrapped)?;
+            let doc = xml::parse(&wrapped)?;
             for section in doc.root_element().children().filter(Node::is_element) {
                 reader.section(section);
             }
@@ -497,12 +421,6 @@ mod tests {
                 .to_string()
                 .contains("nested more than 64")
         );
-        let flat = format!(
-            "<xsequence><!-- <a><a> --><x a='>' b=\"<\"/>{}<![CDATA[<a><a>]]></xsequence>",
-            "<b/><c></c>".repeat(1000)
-        );
-        assert!(!too_deep(&flat));
-        assert!(parse_xsq(&flat.replace("b=\"<\"", "")).is_ok());
     }
 
     #[test]

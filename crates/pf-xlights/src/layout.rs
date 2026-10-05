@@ -2,7 +2,7 @@
 
 use crate::error::XlightsError;
 use crate::model::XmlModel;
-use roxmltree::{Document, Node};
+use roxmltree::Node;
 
 /// Legacy element names accepted in place of `<model DisplayAs=…>` in old files.
 const LEGACY_ELEMENTS: [(&str, &str); 13] = [
@@ -67,8 +67,7 @@ fn model_from(node: Node<'_, '_>) -> Option<XmlModel> {
 
 /// Reads the models and groups.
 pub fn parse_layout(xml: &str) -> Result<XLayout, XlightsError> {
-    let doc =
-        Document::parse(xml).map_err(|e| XlightsError::BadFile("xlights_rgbeffects.xml", e.to_string()))?;
+    let doc = crate::xml::parse(xml).map_err(|e| XlightsError::BadFile("xlights_rgbeffects.xml", e))?;
     let root = doc.root_element();
     if root.tag_name().name() != "xrgb" {
         return Err(XlightsError::BadFile(
@@ -159,5 +158,20 @@ mod tests {
                 .contains("<xrgb>")
         );
         assert!(parse_layout("<xrgb").is_err());
+    }
+
+    #[test]
+    fn deeply_nested_and_dtd_files_are_refused_without_crashing() {
+        let deep = format!(
+            "<xrgb><models>{}{}</models></xrgb>",
+            "<model>".repeat(200_000),
+            "</model>".repeat(200_000)
+        );
+        assert_eq!(
+            parse_layout(&deep).unwrap_err().to_string(),
+            "xlights_rgbeffects.xml isn't a valid xLights file: its elements are nested more than 64 deep"
+        );
+        let dtd = r#"<!DOCTYPE xrgb [<!ENTITY a "aaaa">]><xrgb>&a;</xrgb>"#;
+        assert!(parse_layout(dtd).is_err());
     }
 }

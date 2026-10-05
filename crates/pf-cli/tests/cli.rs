@@ -214,6 +214,43 @@ fn test_pattern_rejects_a_non_finite_duration_without_panicking() {
 }
 
 #[test]
+fn an_xlights_sequence_imports_onto_a_show_and_saves_as_a_sequence_file() {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../pf-xlights/fixtures");
+    let dir = std::env::temp_dir();
+    let show = dir.join(format!("pixelflow-xsq-show-{}.json", std::process::id()));
+    let saved = dir.join(format!("pixelflow-xsq-{}.pfseq.json", std::process::id()));
+    let imported = pixelflow(&[
+        "xlights",
+        fixtures.join("sample-show").to_str().unwrap(),
+        "--save",
+        show.to_str().unwrap(),
+    ]);
+    assert!(imported.status.success(), "{}", stdout(&imported));
+    let output = pixelflow(&[
+        "xlights-sequence",
+        fixtures.join("sequences/effects.xsq").to_str().unwrap(),
+        "--show",
+        show.to_str().unwrap(),
+        "--save",
+        saved.to_str().unwrap(),
+    ]);
+    let text = stdout(&output);
+    let json = std::fs::read_to_string(&saved).unwrap_or_default();
+    std::fs::remove_file(&show).ok();
+    std::fs::remove_file(&saved).ok();
+    assert!(output.status.success(), "{text}");
+    assert!(
+        text.contains("Effects: 0:20.000 long, 6 rows, 20 effects (11 exact, 6 approximated, 3 placeholders"),
+        "{text}"
+    );
+    assert!(text.contains("Faces (2), Text (1)"), "{text}");
+    assert!(text.contains("Saved"), "{text}");
+    let doc: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(doc["name"], "Effects");
+    assert_eq!(doc["rows"].as_array().unwrap().len(), 6);
+}
+
+#[test]
 fn an_xlights_import_saved_with_save_opens_again() {
     let folder = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../pf-xlights/fixtures/sample-show");
     let path = std::env::temp_dir().join(format!("pixelflow-xlights-{}.json", std::process::id()));

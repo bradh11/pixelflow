@@ -908,12 +908,14 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "pf-audio",
  "pf-devices",
  "pf-frame",
  "pf-mapping",
  "pf-model",
  "pf-output",
  "pf-patterns",
+ "pf-sequence",
  "pf-xlights",
  "serde_json",
 ]

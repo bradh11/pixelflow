@@ -291,7 +291,7 @@ fn single_strand(r: &Reader, duration_ms: u64, diff: &mut Diff) -> Kind {
 fn marquee(r: &Reader, diff: &mut Diff) -> EffectParams {
     let band = r.get("Marquee_Band_Size", 3.0, 1.0, 100.0);
     let skip = r.get("Marquee_Skip_Size", 0.0, 0.0, 100.0);
-    diff.add("marquee shown as a chase along the pixels");
+    diff.add("shown as a chase along the pixels");
     EffectParams::Chase(ChaseParams {
         speed: (r.get("Marquee_Speed", 3.0, 0.0, 50.0) / 10.0) as f32,
         width: unit(if skip > 0.0 { band / (band + skip) } else { 0.5 }),

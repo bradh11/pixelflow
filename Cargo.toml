@@ -25,6 +25,7 @@ if-addrs = "0.15.0"
 mdns-sd = "0.21.4"
 zstd = "0.14.0"
 flate2 = "1.1.10"
+realfft = "3.5.0"
 rodio = { version = "0.22.2", default-features = false, features = ["playback", "mp3", "wav", "flac", "vorbis", "mp4"] }
 pf-model = { path = "crates/pf-model" }
 pf-geometry = { path = "crates/pf-geometry" }
@@ -37,6 +38,9 @@ pf-devices = { path = "crates/pf-devices" }
 pf-fseq = { path = "crates/pf-fseq" }
 pf-xlights = { path = "crates/pf-xlights" }
 pf-audio = { path = "crates/pf-audio" }
+pf-sequence = { path = "crates/pf-sequence" }
+pf-render = { path = "crates/pf-render" }
+pf-analysis = { path = "crates/pf-analysis" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

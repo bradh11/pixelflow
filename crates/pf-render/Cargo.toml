@@ -1,6 +1,6 @@
 [package]
-name = "pf-engine"
-description = "PixelFlow engine: owns the show, applies edits with undo/redo, saves files, and runs live output"
+name = "pf-render"
+description = "Renders PixelFlow sequences into show frames, and exports them as FPP sequences (.fseq)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,17 +8,12 @@ publish.workspace = true
 
 [dependencies]
 pf-model.workspace = true
-pf-mapping.workspace = true
 pf-geometry.workspace = true
-pf-frame.workspace = true
-pf-patterns.workspace = true
+pf-mapping.workspace = true
+pf-sequence.workspace = true
 pf-output.workspace = true
 pf-fseq.workspace = true
-pf-audio.workspace = true
-pf-sequence.workspace = true
-pf-render.workspace = true
 serde.workspace = true
-serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

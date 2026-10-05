@@ -1,0 +1,17 @@
+[package]
+name = "pf-analysis"
+description = "Music analysis for sequencing: onsets, tempo, beats, and bars as timing tracks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+pf-audio.workspace = true
+pf-sequence.workspace = true
+realfft.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

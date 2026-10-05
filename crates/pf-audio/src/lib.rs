@@ -5,11 +5,13 @@ mod clock;
 mod decode;
 mod error;
 mod find;
+mod mono;
 mod music;
 mod waveform;
 
 pub use clock::{AudioClock, SilentClock};
 pub use error::AudioError;
 pub use find::find_audio;
+pub use mono::MonoSamples;
 pub use music::MusicPlayer;
 pub use waveform::{Waveform, waveform};

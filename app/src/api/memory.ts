@@ -309,6 +309,7 @@ export class MemoryBackend implements Backend {
       music,
       offsetMs: this.show.sequences.find((s) => s.id === sequence)?.offsetMs ?? 0,
       volume: this.volume,
+      authored: false,
     };
   }
 

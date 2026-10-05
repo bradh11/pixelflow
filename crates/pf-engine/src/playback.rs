@@ -1,19 +1,25 @@
-//! Playing a rendered sequence (`.fseq`) to the show's controllers, with a preview of the props.
+//! Playing sequences with their music: a rendered sequence (`.fseq`), or an authored sequence
+//! document rendered live, with a preview of the props.
 //!
-//! Each controller that knows where its data sits in a sequence ([`SequenceChannels`]) receives
-//! that block of every frame unchanged, the way FPP sends it. The preview maps the same channels
-//! back through the show's wiring onto the props.
+//! For a file, each controller that knows where its data sits in the sequence
+//! ([`pf_model::SequenceChannels`]) receives that block of every frame unchanged, the way FPP sends
+//! it, and the preview maps the same channels back through the show's wiring onto the props. An
+//! authored sequence is rendered into the show frame and sent through the show's normal output
+//! plan, like a test pattern.
 //!
-//! The lights follow the music: the frame due is the music's position plus the sequence's offset.
+//! Both follow the same clock and player loop: the frame due is the music's position plus the
+//! sequence's offset (the music, or a silent stopwatch when there is none).
 
 use crate::error::EngineError;
-use crate::output::{ControllerStatus, controller_status};
+use crate::output::{ControllerStatus, OutputKey, controller_status, output_key};
 use pf_audio::{AudioClock, AudioError, MusicPlayer, SilentClock};
 use pf_frame::FrameWriter;
 use pf_fseq::Sequence;
 use pf_mapping::ChannelMap;
 use pf_model::{Protocol, SequenceId, Show};
-use pf_output::{OutputHandle, OutputSettings, PassthroughRoute, Transport, wire_order};
+use pf_output::{OutputHandle, OutputPlan, OutputSettings, PassthroughRoute, Transport, wire_order};
+use pf_render::Renderer;
+use pf_sequence::Sequence as SequenceDoc;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -68,6 +74,8 @@ pub struct PlaybackStatus {
     pub music: Option<PathBuf>,
     pub offset_ms: i32,
     pub volume: f32,
+    /// True when playing an authored sequence document rather than a file.
+    pub authored: bool,
 }
 
 /// New controllers and layout to send to, after an edit to the show.
@@ -75,6 +83,8 @@ struct Rebuild {
     show: Show,
     map: ChannelMap,
     writer: FrameWriter,
+    /// For an authored sequence: a renderer for the edited show.
+    renderer: Option<Renderer>,
 }
 
 /// What the player thread and the engine share.
@@ -83,6 +93,10 @@ struct Control {
     /// Where to jump to, in sequence (light) time.
     seek_to: Option<u64>,
     frame: u32,
+    /// Frames in the sequence and the time between them (kept up to date by the player: an
+    /// authored sequence can change length while it plays).
+    frames: u32,
+    frame_ms: u32,
     /// Both the lights and the music are done (or a read error stopped the lights).
     ended: bool,
     /// The lights are past their end (dark) while the music plays on.
@@ -104,6 +118,8 @@ impl Default for Control {
             paused: false,
             seek_to: None,
             frame: 0,
+            frames: 0,
+            frame_ms: 25,
             ended: false,
             lights_done: false,
             error: None,
@@ -395,27 +411,138 @@ impl MusicTime {
     }
 }
 
-/// What the player thread draws with and writes to.
-struct Frames {
+/// Where a playing session's frames come from: a rendered `.fseq` file, or an authored
+/// sequence rendered live.
+trait FrameSource: Send + 'static {
+    /// Frames in the sequence and the time between them. Asked every loop: an authored sequence
+    /// can change length while it plays.
+    fn timing(&mut self) -> (u32, u32);
+    /// Fills `out` (what the output thread sends) with frame `index`. Reading and rendering
+    /// happen here, without holding the preview.
+    fn frame(&mut self, index: u32, out: &mut [u8]) -> Result<(), String>;
+    /// Paints the props' show frame for the preview from the frame in `out` (quick: the preview
+    /// is locked meanwhile).
+    fn paint(&self, out: &[u8], preview: &mut [u8]);
+    /// True when the current frame must be drawn again although time hasn't moved (the
+    /// sequence or the show was edited).
+    fn changed(&mut self) -> bool {
+        false
+    }
+    /// Draws for an edited show (new controllers or layout) from now on.
+    fn relayout(&mut self, show: Show, map: ChannelMap, renderer: Option<Renderer>);
+}
+
+/// Frames read from a rendered sequence file; the preview maps them back onto the props.
+struct FileFrames {
     sequence: Sequence,
-    writer: FrameWriter,
     show: Show,
     map: ChannelMap,
+}
+
+impl FrameSource for FileFrames {
+    fn timing(&mut self) -> (u32, u32) {
+        let header = self.sequence.header();
+        (header.frames, header.step_ms)
+    }
+
+    fn frame(&mut self, index: u32, out: &mut [u8]) -> Result<(), String> {
+        self.sequence.read_frame(index, out).map_err(|e| e.to_string())
+    }
+
+    fn paint(&self, out: &[u8], preview: &mut [u8]) {
+        paint_preview(&self.show, &self.map, out, preview);
+    }
+
+    fn relayout(&mut self, show: Show, map: ChannelMap, _renderer: Option<Renderer>) {
+        self.show = show;
+        self.map = map;
+    }
+}
+
+/// Edits waiting to reach a playing authored sequence.
+#[derive(Default)]
+struct Pending {
+    doc: Option<Arc<SequenceDoc>>,
+    renderer: Option<Renderer>,
+}
+
+/// An edited document or show, handed to the player thread without stopping it.
+#[derive(Default)]
+pub(crate) struct LiveUpdates {
+    waiting: AtomicBool,
+    pending: Mutex<Pending>,
+}
+
+impl LiveUpdates {
+    fn send(&self, update: impl FnOnce(&mut Pending)) {
+        update(&mut self.pending.lock().unwrap_or_else(PoisonError::into_inner));
+        self.waiting.store(true, Ordering::Release);
+    }
+}
+
+/// Frames rendered from an authored sequence, straight into the show frame.
+struct RenderedFrames {
+    doc: Arc<SequenceDoc>,
+    renderer: Renderer,
+    updates: Arc<LiveUpdates>,
+}
+
+impl FrameSource for RenderedFrames {
+    fn timing(&mut self) -> (u32, u32) {
+        let frames = u32::try_from(self.doc.frame_count()).unwrap_or(u32::MAX);
+        (frames, self.doc.frame_ms.max(1))
+    }
+
+    fn frame(&mut self, index: u32, out: &mut [u8]) -> Result<(), String> {
+        self.renderer.render_frame(&self.doc, u64::from(index), out);
+        Ok(())
+    }
+
+    fn paint(&self, out: &[u8], preview: &mut [u8]) {
+        preview.copy_from_slice(out);
+    }
+
+    fn changed(&mut self) -> bool {
+        if !self.updates.waiting.swap(false, Ordering::Acquire) {
+            return false;
+        }
+        let mut pending = self
+            .updates
+            .pending
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(doc) = pending.doc.take() {
+            self.doc = doc;
+        }
+        if let Some(renderer) = pending.renderer.take() {
+            self.renderer = renderer;
+        }
+        true
+    }
+
+    fn relayout(&mut self, show: Show, map: ChannelMap, renderer: Option<Renderer>) {
+        self.renderer = renderer.unwrap_or_else(|| Renderer::new(&show, &map));
+    }
+}
+
+/// What the player thread draws with and writes to.
+struct Frames {
+    source: Box<dyn FrameSource>,
+    writer: FrameWriter,
     preview: Arc<Mutex<Vec<u8>>>,
+    /// The current frame, as sent.
     raw: Arc<Mutex<Vec<u8>>>,
 }
 
 impl Frames {
-    /// Reads `frame` and sends it, updating the preview. On a read error it goes dark and returns
+    /// Draws `frame` and sends it, updating the preview. On an error it goes dark and returns
     /// the error.
     fn show(&mut self, frame: u32) -> Result<(), String> {
-        if let Err(error) = self.sequence.read_frame(frame, self.writer.frame_mut()) {
+        if let Err(error) = self.source.frame(frame, self.writer.frame_mut()) {
             self.dark();
-            return Err(error.to_string());
+            return Err(error);
         }
-        paint_preview(
-            &self.show,
-            &self.map,
+        self.source.paint(
             self.writer.frame_mut(),
             &mut self.preview.lock().unwrap_or_else(PoisonError::into_inner),
         );
@@ -438,10 +565,20 @@ impl Frames {
     }
 
     fn rebuild(&mut self, rebuild: Rebuild) {
-        *self.preview.lock().unwrap_or_else(PoisonError::into_inner) = vec![0; rebuild.map.frame_len];
-        self.show = rebuild.show;
-        self.map = rebuild.map;
-        self.writer = rebuild.writer;
+        let Rebuild {
+            show,
+            map,
+            mut writer,
+            renderer,
+        } = rebuild;
+        *self.preview.lock().unwrap_or_else(PoisonError::into_inner) = vec![0; map.frame_len];
+        // An authored sequence's frame is the show frame, so its size follows the layout.
+        self.raw
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .resize(writer.frame_mut().len(), 0);
+        self.writer = writer;
+        self.source.relayout(show, map, renderer);
     }
 }
 
@@ -486,15 +623,19 @@ fn run_player(
     let mut time = MusicTime::start(clock, music_for(start_ms, offset), paused);
     time.clock.set_volume(volume);
     let _ = ready.send(());
-    let step_ms = u64::from(frames.sequence.header().step_ms.max(1));
-    let total = frames.sequence.header().frames;
-    let mut shown = Some(u32::try_from(start_ms / step_ms).unwrap_or(u32::MAX));
+    let (_, first_step) = frames.source.timing();
+    let mut shown = Some(u32::try_from(start_ms / u64::from(first_step.max(1))).unwrap_or(u32::MAX));
     let mut dark = false;
     let mut applied_volume = volume;
     let mut note: Option<String> = None;
     while !stop.load(Ordering::Relaxed) {
+        let (total, step) = frames.source.timing();
+        let step = step.max(1);
+        let step_ms = u64::from(step);
         let (paused, seek, offset, volume, ended, rebuild) = {
             let mut c = lock(control);
+            c.frames = total;
+            c.frame_ms = step;
             (
                 c.paused,
                 c.seek_to.take(),
@@ -536,10 +677,13 @@ fn run_player(
             _ => light_for(music_ms, offset),
         };
         let due = light / step_ms;
+        // An edited sequence or show redraws the current frame, even while paused.
+        let changed = frames.source.changed();
         if due >= u64::from(total) {
             if !dark {
                 frames.dark();
                 dark = true;
+                shown = None;
                 lock(control).lights_done = true;
             }
             if !ended && time.music_done() {
@@ -554,7 +698,7 @@ fn run_player(
             lock(control).lights_done = false;
         }
         let due = due as u32;
-        if shown != Some(due) {
+        if shown != Some(due) || changed {
             if let Err(error) = frames.show(due) {
                 let mut c = lock(control);
                 c.error = Some(error);
@@ -577,16 +721,81 @@ fn send_rate(step_ms: u32) -> u16 {
     u16::try_from((2000 / step_ms.max(1)).clamp(1, MAX_SEND_RATE)).unwrap_or(1)
 }
 
-/// A sequence playing: a player thread reading frames on time and the output thread sending them.
-pub(crate) struct PlaybackSession {
-    request: PlayRequest,
-    path: PathBuf,
-    /// What the session was built from: when an edit changes either, it must restart.
-    routes: Vec<PassthroughRoute>,
-    map: ChannelMap,
-    channels: usize,
-    frames: u32,
+/// The output plan for an authored sequence: the show's normal plan (like a test pattern), or
+/// nothing to send when the show has errors, with notes saying why only the preview plays.
+fn document_plan(
+    show: &Show,
+    map: &ChannelMap,
+    show_error: Option<&str>,
     frame_ms: u32,
+) -> (OutputPlan, Vec<String>) {
+    let mut notes = Vec::new();
+    let mut plan = if let Some(error) = show_error {
+        notes.push(format!(
+            "The show has errors, so only the preview plays (nothing is sent to controllers): {error}"
+        ));
+        OutputPlan {
+            frame_len: map.frame_len,
+            frame_rate: 1,
+            controllers: Vec::new(),
+            luts: Vec::new(),
+        }
+    } else {
+        pf_output::build_plan(show, map)
+    };
+    if show_error.is_none() && plan.controllers.iter().all(|c| c.spans.is_empty()) {
+        notes.push("No props are wired to a controller, so only the preview shows the sequence.".to_string());
+    }
+    plan.frame_rate = send_rate(frame_ms);
+    (plan, notes)
+}
+
+/// What a session plays, and what it was built from (when an edit changes that, its output is
+/// rebuilt or it restarts).
+pub(crate) enum SessionKind {
+    File {
+        request: PlayRequest,
+        routes: Vec<PassthroughRoute>,
+        map: ChannelMap,
+        channels: usize,
+    },
+    Document {
+        music: Option<PathBuf>,
+        key: OutputKey,
+        map: ChannelMap,
+        /// Whether the show had errors (then only the preview plays).
+        preview_only: bool,
+        /// The frame time the output's send rate was chosen for.
+        frame_ms: u32,
+        updates: Arc<LiveUpdates>,
+    },
+}
+
+/// What an authored sequence session plays.
+pub(crate) struct DocumentRequest {
+    pub doc: Arc<SequenceDoc>,
+    /// The document's file, if it has been saved.
+    pub path: Option<PathBuf>,
+    pub music: Option<PathBuf>,
+    /// The show's first error, if it has any (then only the preview plays).
+    pub show_error: Option<String>,
+    pub volume: f32,
+}
+
+/// Everything [`PlaybackSession::launch`] needs besides the frames.
+struct Launch {
+    plan: OutputPlan,
+    out_len: usize,
+    preview_len: usize,
+    music: Option<PathBuf>,
+    offset_ms: i32,
+    volume: f32,
+}
+
+/// A sequence playing: a player thread producing frames on time and the output thread sending them.
+pub(crate) struct PlaybackSession {
+    kind: SessionKind,
+    path: PathBuf,
     notes: Vec<String>,
     control: Arc<Mutex<Control>>,
     stop: Arc<AtomicBool>,
@@ -594,13 +803,14 @@ pub(crate) struct PlaybackSession {
     ready: Option<Receiver<()>>,
     handle: Option<OutputHandle>,
     preview: Arc<Mutex<Vec<u8>>>,
-    /// The current sequence frame, as sent.
+    /// The current frame, as sent.
     raw: Arc<Mutex<Vec<u8>>>,
 }
 
 impl PlaybackSession {
-    /// Starts playing from `position_ms` (paused there, with `paused`). Returns before the music
-    /// is open: see [`PlaybackSession::take_ready`].
+    /// Plays a rendered sequence file to the controllers that know their sequence channels, from
+    /// `position_ms` (paused there, with `paused`). Returns before the music is open: see
+    /// [`PlaybackSession::take_ready`].
     #[allow(clippy::too_many_arguments)]
     pub fn start(
         show: &Show,
@@ -612,8 +822,7 @@ impl PlaybackSession {
         settings: OutputSettings,
         clocks: &ClockFactory,
     ) -> Result<Self, EngineError> {
-        let path = request.path.as_path();
-        let mut sequence = Sequence::open(path).map_err(|e| EngineError::Playback(e.to_string()))?;
+        let sequence = Sequence::open(&request.path).map_err(|e| EngineError::Playback(e.to_string()))?;
         let header = sequence.header().clone();
         let channels = header.channels as usize;
         let (routes, notes) = routes(show, channels);
@@ -625,45 +834,153 @@ impl PlaybackSession {
             ));
         }
         let plan = pf_output::build_passthrough_plan(&routes, channels, send_rate(header.step_ms));
-        let step_ms = u64::from(header.step_ms.max(1));
+        let source = FileFrames {
+            sequence,
+            show: show.clone(),
+            map: map.clone(),
+        };
+        let launch = Launch {
+            plan,
+            out_len: channels,
+            preview_len: map.frame_len,
+            music: request.music.clone(),
+            offset_ms: request.offset_ms,
+            volume: request.volume,
+        };
+        let kind = SessionKind::File {
+            request: request.clone(),
+            routes,
+            map: map.clone(),
+            channels,
+        };
+        Self::launch(
+            Box::new(source),
+            launch,
+            kind,
+            request.path.clone(),
+            notes,
+            position_ms,
+            paused,
+            transport,
+            settings,
+            clocks,
+        )
+    }
+
+    /// Plays an authored sequence, rendered live into the show frame and sent through the show's
+    /// normal output plan (like a test pattern), from `position_ms` (paused there, with `paused`).
+    /// When the show has errors, only the preview plays. Returns before the music is open: see
+    /// [`PlaybackSession::take_ready`].
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_document(
+        show: &Show,
+        map: &ChannelMap,
+        request: DocumentRequest,
+        position_ms: u64,
+        paused: bool,
+        transport: Box<dyn Transport>,
+        settings: OutputSettings,
+        clocks: &ClockFactory,
+    ) -> Result<Self, EngineError> {
+        let DocumentRequest {
+            doc,
+            path,
+            music,
+            show_error,
+            volume,
+        } = request;
+        let (plan, notes) = document_plan(show, map, show_error.as_deref(), doc.frame_ms);
+        let updates = Arc::new(LiveUpdates::default());
+        let frame_ms = doc.frame_ms;
+        let source = RenderedFrames {
+            doc,
+            renderer: Renderer::new(show, map),
+            updates: Arc::clone(&updates),
+        };
+        let launch = Launch {
+            plan,
+            out_len: map.frame_len,
+            preview_len: map.frame_len,
+            music: music.clone(),
+            offset_ms: 0,
+            volume,
+        };
+        let kind = SessionKind::Document {
+            music,
+            key: output_key(show, map),
+            map: map.clone(),
+            preview_only: show_error.is_some(),
+            frame_ms,
+            updates,
+        };
+        Self::launch(
+            Box::new(source),
+            launch,
+            kind,
+            path.unwrap_or_default(),
+            notes,
+            position_ms,
+            paused,
+            transport,
+            settings,
+            clocks,
+        )
+    }
+
+    /// Shows the first frame, starts the output, and starts the player thread on the clock.
+    #[allow(clippy::too_many_arguments)]
+    fn launch(
+        mut source: Box<dyn FrameSource>,
+        launch: Launch,
+        kind: SessionKind,
+        path: PathBuf,
+        notes: Vec<String>,
+        position_ms: u64,
+        paused: bool,
+        transport: Box<dyn Transport>,
+        settings: OutputSettings,
+        clocks: &ClockFactory,
+    ) -> Result<Self, EngineError> {
+        let (frames, step_ms) = source.timing();
+        let step_ms = u64::from(step_ms.max(1));
         let start_frame = u32::try_from(position_ms / step_ms)
             .unwrap_or(u32::MAX)
-            .min(header.frames.saturating_sub(1));
+            .min(frames.saturating_sub(1));
 
-        let (mut writer, reader) = pf_frame::frame_buffers(channels);
-        let mut preview_frame = vec![0u8; map.frame_len];
+        let (mut writer, reader) = pf_frame::frame_buffers(launch.out_len);
+        let mut preview_frame = vec![0u8; launch.preview_len];
         // Publish the first frame before output starts so controllers never see a black frame first.
-        if header.frames > 0 {
-            sequence
-                .read_frame(start_frame, writer.frame_mut())
-                .map_err(|e| EngineError::Playback(e.to_string()))?;
-            paint_preview(show, map, writer.frame_mut(), &mut preview_frame);
+        if frames > 0 {
+            source
+                .frame(start_frame, writer.frame_mut())
+                .map_err(EngineError::Playback)?;
+            source.paint(writer.frame_mut(), &mut preview_frame);
         }
         let raw = Arc::new(Mutex::new(writer.frame_mut().to_vec()));
         writer.publish();
         let preview = Arc::new(Mutex::new(preview_frame));
-        let handle = pf_output::start_output(plan, settings, reader, transport);
+        let handle = pf_output::start_output(launch.plan, settings, reader, transport);
 
         let control = Arc::new(Mutex::new(Control {
             paused,
             frame: start_frame,
-            offset_ms: request.offset_ms,
-            volume: request.volume,
+            frames,
+            frame_ms: step_ms as u32,
+            offset_ms: launch.offset_ms,
+            volume: launch.volume,
             ..Control::default()
         }));
         let stop = Arc::new(AtomicBool::new(false));
         let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
         let player = {
             let frames = Frames {
-                sequence,
+                source,
                 writer,
-                show: show.clone(),
-                map: map.clone(),
                 preview: Arc::clone(&preview),
                 raw: Arc::clone(&raw),
             };
             let (control, stop, clocks) = (Arc::clone(&control), Arc::clone(&stop), Arc::clone(clocks));
-            let music = request.music.clone();
+            let music = launch.music;
             let start_ms = u64::from(start_frame) * step_ms;
             std::thread::Builder::new()
                 .name("pixelflow-playback".into())
@@ -681,13 +998,8 @@ impl PlaybackSession {
                 .map_err(EngineError::Network)?
         };
         Ok(Self {
-            request: request.clone(),
-            path: path.to_path_buf(),
-            routes,
-            map: map.clone(),
-            channels,
-            frames: header.frames,
-            frame_ms: header.step_ms,
+            kind,
+            path,
             notes,
             control,
             stop,
@@ -704,8 +1016,8 @@ impl PlaybackSession {
         PlaybackReady(self.ready.take())
     }
 
-    /// Sends to new controllers or a new layout from the same place, without reopening the
-    /// sequence or the music (they keep playing).
+    /// For a file: sends to new controllers or a new layout from the same place, without
+    /// reopening the sequence or the music (they keep playing).
     pub fn rebuild(
         &mut self,
         show: &Show,
@@ -714,8 +1026,18 @@ impl PlaybackSession {
         transport: Box<dyn Transport>,
         settings: OutputSettings,
     ) {
-        let plan = pf_output::build_passthrough_plan(&routes, self.channels, send_rate(self.frame_ms));
-        let (mut writer, reader) = pf_frame::frame_buffers(self.channels);
+        let frame_ms = lock(&self.control).frame_ms;
+        let SessionKind::File {
+            routes: built_routes,
+            map: built_map,
+            channels,
+            ..
+        } = &mut self.kind
+        else {
+            return;
+        };
+        let plan = pf_output::build_passthrough_plan(&routes, *channels, send_rate(frame_ms));
+        let (mut writer, reader) = pf_frame::frame_buffers(*channels);
         // Start the new output on the frame showing now, not a black one.
         writer
             .frame_mut()
@@ -726,12 +1048,70 @@ impl PlaybackSession {
             show: show.clone(),
             map: map.clone(),
             writer,
+            renderer: None,
         });
         if let Some(old) = self.handle.replace(handle) {
             old.stop();
         }
-        self.routes = routes;
-        self.map = map.clone();
+        *built_routes = routes;
+        *built_map = map.clone();
+    }
+
+    /// For an authored sequence: sends through the edited show's output plan (new wiring,
+    /// addresses, or layout; errors appearing or fixed; a new frame time) from the same place,
+    /// without reopening the music (it keeps playing).
+    pub fn rebuild_document(
+        &mut self,
+        show: &Show,
+        map: &ChannelMap,
+        doc: &SequenceDoc,
+        show_error: Option<&str>,
+        transport: Box<dyn Transport>,
+        settings: OutputSettings,
+    ) {
+        let SessionKind::Document {
+            key,
+            map: built_map,
+            preview_only,
+            frame_ms,
+            updates,
+            ..
+        } = &mut self.kind
+        else {
+            return;
+        };
+        // A renderer still waiting for the player (from a move just before) was made for the old
+        // layout: drop it, or it would replace this rebuild's newer one.
+        updates
+            .pending
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .renderer = None;
+        let (plan, notes) = document_plan(show, map, show_error, doc.frame_ms);
+        let mut renderer = Renderer::new(show, map);
+        let (mut writer, reader) = pf_frame::frame_buffers(map.frame_len);
+        // Start the new output on the moment showing now, not a black frame.
+        let position_ms = {
+            let c = lock(&self.control);
+            u64::from(c.frame) * u64::from(c.frame_ms)
+        };
+        renderer.render(doc, position_ms, writer.frame_mut());
+        writer.publish();
+        let handle = pf_output::start_output(plan, settings, reader, transport);
+        lock(&self.control).rebuild = Some(Rebuild {
+            show: show.clone(),
+            map: map.clone(),
+            writer,
+            renderer: Some(renderer),
+        });
+        if let Some(old) = self.handle.replace(handle) {
+            old.stop();
+        }
+        *key = output_key(show, map);
+        *built_map = map.clone();
+        *preview_only = show_error.is_some();
+        *frame_ms = doc.frame_ms;
+        self.notes = notes;
     }
 
     pub fn set_paused(&self, paused: bool) {
@@ -740,10 +1120,11 @@ impl PlaybackSession {
 
     /// Jumps to `position_ms` (clamped to the sequence).
     pub fn seek(&self, position_ms: u64) {
-        let frame = u32::try_from(position_ms / u64::from(self.frame_ms.max(1))).unwrap_or(u32::MAX);
-        let frame = frame.min(self.frames.saturating_sub(1));
         let mut c = lock(&self.control);
-        c.seek_to = Some(u64::from(frame) * u64::from(self.frame_ms));
+        let frame_ms = c.frame_ms.max(1);
+        let frame = u32::try_from(position_ms / u64::from(frame_ms)).unwrap_or(u32::MAX);
+        let frame = frame.min(c.frames.saturating_sub(1));
+        c.seek_to = Some(u64::from(frame) * u64::from(frame_ms));
         c.frame = frame;
         if c.error.is_none() {
             // Seeking after the end plays again (the player thread is still running).
@@ -762,24 +1143,37 @@ impl PlaybackSession {
         lock(&self.control).volume = volume.clamp(0.0, 1.0);
     }
 
-    /// What this session plays, with the current offset and volume.
-    pub fn request(&self) -> PlayRequest {
+    /// What the session plays and what it was built from.
+    pub fn kind(&self) -> &SessionKind {
+        &self.kind
+    }
+
+    /// For a file: what this session plays, with the current offset and volume.
+    pub fn request(&self) -> Option<PlayRequest> {
+        let SessionKind::File { request, .. } = &self.kind else {
+            return None;
+        };
         let c = lock(&self.control);
-        PlayRequest {
+        Some(PlayRequest {
             offset_ms: c.offset_ms,
             volume: c.volume,
-            ..self.request.clone()
+            ..request.clone()
+        })
+    }
+
+    /// For an authored sequence: shows the edited document from the next frame on.
+    pub fn update_document(&self, doc: Arc<SequenceDoc>) {
+        if let SessionKind::Document { updates, .. } = &self.kind {
+            updates.send(|p| p.doc = Some(doc));
         }
     }
 
-    /// The controller blocks and channel layout this session was built from.
-    pub fn built_from(&self) -> (&[PassthroughRoute], &ChannelMap) {
-        (&self.routes, &self.map)
-    }
-
-    /// Channels in each frame of the sequence.
-    pub fn channels(&self) -> usize {
-        self.channels
+    /// For an authored sequence: draws with a renderer for the edited show (props moved, say)
+    /// from the next frame on.
+    pub fn update_renderer(&self, renderer: Renderer) {
+        if let SessionKind::Document { updates, .. } = &self.kind {
+            updates.send(|p| p.renderer = Some(renderer));
+        }
     }
 
     pub fn status(&self) -> PlaybackStatus {
@@ -788,7 +1182,11 @@ impl PlaybackSession {
         // The player thread stopped without saying why: it crashed.
         let crashed = !c.ended && self.player.as_ref().is_some_and(JoinHandle::is_finished);
         let error = c.error.clone().or_else(|| crashed.then(|| CRASHED.to_string()));
-        let duration_ms = u64::from(self.frames) * u64::from(self.frame_ms);
+        let duration_ms = u64::from(c.frames) * u64::from(c.frame_ms);
+        let (sequence, music, authored) = match &self.kind {
+            SessionKind::File { request, .. } => (request.sequence, request.music.clone(), false),
+            SessionKind::Document { music, .. } => (None, music.clone(), true),
+        };
         PlaybackStatus {
             state: if c.ended || crashed {
                 "ended"
@@ -801,10 +1199,10 @@ impl PlaybackSession {
             position_ms: if (c.ended || c.lights_done) && error.is_none() {
                 duration_ms
             } else {
-                u64::from(c.frame) * u64::from(self.frame_ms)
+                u64::from(c.frame) * u64::from(c.frame_ms)
             },
             duration_ms,
-            frame_ms: self.frame_ms,
+            frame_ms: c.frame_ms,
             controllers: controller_status(&stats),
             notes: self
                 .notes
@@ -814,10 +1212,11 @@ impl PlaybackSession {
                 .chain(c.clock_note.clone())
                 .collect(),
             error,
-            sequence: self.request.sequence,
-            music: self.request.music.clone().filter(|_| c.music_note.is_none()),
+            sequence,
+            music: music.filter(|_| c.music_note.is_none()),
             offset_ms: c.offset_ms,
             volume: c.volume,
+            authored,
         }
     }
 
@@ -829,9 +1228,10 @@ impl PlaybackSession {
             .clone()
     }
 
-    /// The current sequence frame (every channel of the sequence, as sent to the controllers).
-    pub fn sequence_frame(&self) -> Vec<u8> {
-        self.raw.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    /// For a file: the current sequence frame (every channel of the sequence, as sent).
+    pub fn sequence_frame(&self) -> Option<Vec<u8>> {
+        matches!(self.kind, SessionKind::File { .. })
+            .then(|| self.raw.lock().unwrap_or_else(PoisonError::into_inner).clone())
     }
 
     /// Stops the player, then stops output (which blacks out the controllers).
@@ -862,6 +1262,17 @@ impl Drop for PlaybackSession {
     fn drop(&mut self) {
         self.shutdown();
     }
+}
+
+/// Resolves a document's music path: relative paths are relative to the document's folder.
+pub(crate) fn document_music(doc_path: Option<&Path>, audio: Option<&str>) -> Option<PathBuf> {
+    let audio = PathBuf::from(audio.filter(|a| !a.is_empty())?);
+    if audio.is_absolute() {
+        return Some(audio);
+    }
+    // Relative music is next to the document; an unsaved document has no folder yet, so its
+    // relative music isn't looked for (not in whatever folder the app happens to run in).
+    doc_path.and_then(Path::parent).map(|dir| dir.join(audio))
 }
 
 /// A show entry for the sequence file at `path`: named after the file, with its music when it

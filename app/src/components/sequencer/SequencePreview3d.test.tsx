@@ -175,6 +175,28 @@ describe("the Sequence screen's 3D preview", () => {
     expect(pane().style.height).toBe("360px");
   });
 
+  it("says the divider's range, goes back on a cancelled drag, and drags from the size shown when bigger", async () => {
+    const { user } = await openScreen();
+    const pane = () => preview().parentElement!;
+    const divider = screen.getByRole("separator", { name: "Preview size" });
+    // In pixels, for a 600 px column: at least 120, leaving the timeline 240.
+    expect(divider).toHaveAttribute("aria-valuemin", "120");
+    expect(divider).toHaveAttribute("aria-valuemax", "360");
+    expect(divider).toHaveAttribute("aria-valuenow", "204");
+    fireEvent.pointerDown(divider, { clientY: 200, pointerId: 1, button: 0 });
+    fireEvent.pointerMove(divider, { clientY: 260, pointerId: 1 });
+    expect(pane().style.height).toBe("264px");
+    fireEvent.pointerCancel(divider, { pointerId: 1 });
+    expect(pane().style.height, "back to where it was").toBe("34%");
+    // Bigger, the pane may be smaller than its share (the timeline keeps its room): a drag starts
+    // from the pane as it is (here the whole 600 px stand-in), not from 75%.
+    await user.click(within(preview()).getByRole("button", { name: "Bigger preview" }));
+    fireEvent.pointerDown(divider, { clientY: 500, pointerId: 1, button: 0 });
+    fireEvent.pointerMove(divider, { clientY: 200, pointerId: 1 });
+    fireEvent.pointerUp(divider, { clientY: 200, pointerId: 1 });
+    expect(pane().style.height).toBe("300px");
+  });
+
   it("still opens when this computer won't store the preview's size", async () => {
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new Error("denied");

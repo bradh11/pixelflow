@@ -1,5 +1,5 @@
 import { AlertTriangle, AudioLines, CheckCircle2, Download, FileInput, FilePlus, FolderOpen, History, Info, ListMusic, ListPlus, Magnet, Pause, Play, Save, Send, Square, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { errorMessage } from "../api/backend";
 import { EffectPalette } from "../components/sequencer/EffectPalette";
@@ -104,7 +104,20 @@ function Workspace() {
   const [adding, setAdding] = useState(false);
   const column = useRef<HTMLDivElement>(null);
   const [pane, setPane] = useState(loadPane);
-  const resizing = useRef<{ startY: number; from: number } | null>(null);
+  const paneRef = useRef<HTMLDivElement>(null);
+  /** The column's height, for the divider's range (kept up to date as the window changes). */
+  const [columnHeight, setColumnHeight] = useState(0);
+  useLayoutEffect(() => {
+    const el = column.current;
+    if (!el) return;
+    const measure = () => setColumnHeight(Math.round(el.getBoundingClientRect().height));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  /** A divider drag: where it started, from what height, and the size to go back to if it's called off. */
+  const resizing = useRef<{ startY: number; from: number; before: PaneSize } | null>(null);
   const update = (next: PaneSize) => {
     setPane(next);
     savePane(next);
@@ -121,7 +134,7 @@ function Workspace() {
       <EffectPalette />
       <div ref={column} className="flex min-w-0 flex-1 flex-col">
         <BeatsBanner />
-        <div className="min-h-30 shrink px-2 pt-2 pb-1" style={{ height: pane.big ? `${BIG_SHARE * 100}%` : pane.height !== null ? `${pane.height}px` : `${DEFAULT_SHARE * 100}%` }}>
+        <div ref={paneRef} className="min-h-30 shrink px-2 pt-2 pb-1" style={{ height: pane.big ? `${BIG_SHARE * 100}%` : pane.height !== null ? `${pane.height}px` : `${DEFAULT_SHARE * 100}%` }}>
           <SequencePreview doc={doc} expanded={pane.big} onExpand={(big) => update({ ...pane, big })} />
         </div>
         {/* Drag (or use the arrow keys) to share the room between the preview and the timeline;
@@ -130,14 +143,19 @@ function Workspace() {
           role="separator"
           aria-orientation="horizontal"
           aria-label="Preview size"
-          aria-valuenow={pane.big ? undefined : (pane.height ?? undefined)}
+          aria-valuemin={MIN_PREVIEW_PX}
+          aria-valuemax={Math.max(MIN_PREVIEW_PX, columnHeight - MIN_TIMELINE_PX)}
+          aria-valuenow={shown()}
           tabIndex={0}
           title="Drag to resize the preview (double-click to reset)"
           className="h-1.5 shrink-0 cursor-row-resize touch-none border-b border-neutral-200 outline-none hover:bg-accent-400/40 focus-visible:bg-accent-400/40 dark:border-neutral-800"
           onPointerDown={(e) => {
             if (e.button !== 0) return;
             e.currentTarget.setPointerCapture?.(e.pointerId);
-            resizing.current = { startY: e.clientY, from: shown() };
+            // Bigger, the pane may be smaller than its share (the timeline keeps its room): start
+            // from the height it really has.
+            const from = pane.big ? Math.round(paneRef.current?.getBoundingClientRect().height ?? shown()) : shown();
+            resizing.current = { startY: e.clientY, from, before: pane };
           }}
           onPointerMove={(e) => {
             const height = resizedTo(e);
@@ -148,7 +166,11 @@ function Workspace() {
             resizing.current = null;
             if (height !== null) update({ height, big: false });
           }}
-          onPointerCancel={() => (resizing.current = null)}
+          onPointerCancel={() => {
+            const r = resizing.current;
+            resizing.current = null;
+            if (r) setPane(r.before);
+          }}
           onDoubleClick={() => update({ height: null, big: false })}
           onKeyDown={(e) => {
             if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;

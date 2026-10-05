@@ -26,6 +26,7 @@ export class MemoryBackend implements Backend {
   files = new Map<string, Show>();
   history: { entry: HistoryEntry; show: Show }[] = [];
   output: OutputStatus = stoppedOutput(0);
+  lastTarget: TargetSpec | null = null;
   /** What the next file dialogs return. */
   nextOpenPath: string | null = null;
   nextSavePath: string | null = null;
@@ -115,6 +116,7 @@ export class MemoryBackend implements Backend {
 
   async startOutput(pattern: PatternSpec, target: TargetSpec) {
     this.calls.push("startOutput");
+    this.lastTarget = target;
     this.output = {
       ...stoppedOutput(this.output.generation + 1),
       running: true,

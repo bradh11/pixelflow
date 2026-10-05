@@ -32,6 +32,7 @@ export function TestScreen() {
   const [color, setColor] = useState("#ffffff");
   const [status, setStatus] = useState<OutputStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [removed, setRemoved] = useState(false);
 
   useEffect(() => {
     if (!backend) return;
@@ -52,14 +53,12 @@ export function TestScreen() {
     };
   }, [backend]);
 
-  if (!snapshot || !backend) return null;
-  const { show } = snapshot;
-
+  const show = snapshot?.show;
   const targets: { value: string; label: string; spec: TargetSpec }[] = [
     { value: "show", label: "Whole show", spec: { type: "show" } },
-    ...show.props.map((p) => ({ value: `prop:${p.id}`, label: `Prop: ${p.name}`, spec: { type: "prop", id: p.id } as TargetSpec })),
-    ...show.groups.map((g) => ({ value: `group:${g.id}`, label: `Group: ${g.name}`, spec: { type: "group", id: g.id } as TargetSpec })),
-    ...show.controllers.flatMap((c) => [
+    ...(show?.props ?? []).map((p) => ({ value: `prop:${p.id}`, label: `Prop: ${p.name}`, spec: { type: "prop", id: p.id } as TargetSpec })),
+    ...(show?.groups ?? []).map((g) => ({ value: `group:${g.id}`, label: `Group: ${g.name}`, spec: { type: "group", id: g.id } as TargetSpec })),
+    ...(show?.controllers ?? []).flatMap((c) => [
       { value: `controller:${c.id}`, label: `Controller: ${c.name}`, spec: { type: "controller", id: c.id } as TargetSpec },
       ...c.ports.map((p) => ({
         value: `port:${c.id}:${p.number}`,
@@ -68,17 +67,22 @@ export function TestScreen() {
       })),
     ]),
   ];
+  const targetMissing = !targets.some((t) => t.value === targetValue);
+  useEffect(() => {
+    if (!targetMissing || !show) return;
+    setTargetValue("show");
+    setRemoved(true);
+  }, [targetMissing, show, setTargetValue]);
+
+  if (!snapshot || !backend || !show) return null;
   const pattern = PATTERNS.find((p) => p.kind === kind)!;
 
   const start = async () => {
-    const target = targets.find((t) => t.value === targetValue)?.spec;
-    if (!target) {
-      setError("The chosen target no longer exists. Choose another target.");
-      return;
-    }
+    const target = (targets.find((t) => t.value === targetValue) ?? targets[0]).spec;
     try {
       setStatus(await backend.startOutput({ kind, color: color.replace("#", "") }, target));
       setError(null);
+      setRemoved(false);
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -106,7 +110,10 @@ export function TestScreen() {
           <Card className="mb-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
               <Field label="Target">
-                <Select value={targetValue} onChange={(e) => setTargetValue(e.target.value)}>
+                <Select value={targetValue} onChange={(e) => {
+                    setTargetValue(e.target.value);
+                    setRemoved(false);
+                  }}>
                   {targets.map((t) => (
                     <option key={t.value} value={t.value}>
                       {t.label}
@@ -142,6 +149,11 @@ export function TestScreen() {
                 </Button>
               </div>
             </div>
+            {removed && (
+              <p role="status" className="mt-3 text-sm text-amber-600 dark:text-amber-400">
+                The chosen target was removed; testing the whole show.
+              </p>
+            )}
             {error && (
               <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">
                 {error}

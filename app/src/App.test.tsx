@@ -283,7 +283,7 @@ describe("test output safety", () => {
     await waitFor(() => expect(screen.queryByText("Live output")).not.toBeInTheDocument());
   });
 
-  it("refuses to start when the chosen target no longer exists", async () => {
+  it("falls back to the whole show with a notice when the chosen target disappears", async () => {
     const user = await wired();
     await addController(user, "10.0.0.21");
     await user.click(screen.getByRole("button", { name: "Test" }));
@@ -291,11 +291,39 @@ describe("test output safety", () => {
     await user.click(screen.getByRole("button", { name: "Wiring" }));
     await user.click(screen.getByRole("button", { name: "Delete Controller 1" }));
     await user.click(screen.getByRole("button", { name: "Test" }));
-    await user.click(screen.getByRole("button", { name: /^start/i }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "The chosen target no longer exists. Choose another target.",
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "The chosen target was removed; testing the whole show.",
     );
-    expect(backend.calls).not.toContain("startOutput");
+    expect(screen.getByLabelText("Target")).toHaveValue("show");
+    await user.click(screen.getByRole("button", { name: /^start/i }));
+    await waitFor(() => expect(backend.calls).toContain("startOutput"));
+    expect(backend.lastTarget).toEqual({ type: "show" });
+  });
+});
+
+describe("confirm dialog safety", () => {
+  it("ignores shortcuts while the dialog is open", async () => {
+    const user = await startFresh();
+    await user.click(screen.getByRole("button", { name: /add prop/i }));
+    await user.keyboard("{Meta>}n{/Meta}");
+    expect(screen.getByRole("dialog", { name: /save changes/i })).toBeInTheDocument();
+    await user.keyboard("{Meta>}z{/Meta}");
+    expect(backend.calls).not.toContain("undo");
+  });
+
+  it("a double-click on Don't save creates the new show once", async () => {
+    const user = await startFresh();
+    await user.click(screen.getByRole("button", { name: /add prop/i }));
+    await user.keyboard("{Meta>}n{/Meta}");
+    const original = backend.newShow.bind(backend);
+    backend.newShow = async (name: string) => {
+      await new Promise((r) => setTimeout(r, 50));
+      return original(name);
+    };
+    await user.dblClick(screen.getByRole("button", { name: "Don't save" }));
+    await waitFor(() => expect(backend.calls.filter((c) => c === "newShow").length).toBe(2));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(backend.calls.filter((c) => c === "newShow").length).toBe(2);
   });
 });
 

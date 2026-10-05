@@ -7,6 +7,7 @@ export function useShortcuts() {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
       const state = useApp.getState();
+      if (state.pendingReplace) return;
       const key = e.key.toLowerCase();
       const inField = e.target instanceof HTMLElement && ["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName);
       const handlers: Record<string, () => unknown> = {

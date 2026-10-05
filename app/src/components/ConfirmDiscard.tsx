@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useApp } from "../state/store";
 import { Button } from "./ui";
 
@@ -8,16 +8,27 @@ export function ConfirmDiscard() {
   const name = useApp((s) => s.snapshot?.show.name ?? "this show");
   const resolve = useApp((s) => s.resolvePendingReplace);
   const saveRef = useRef<HTMLButtonElement>(null);
+  const [busy, setBusy] = useState(false);
+
+  const choose = async (choice: "save" | "discard" | "cancel") => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await resolve(choice);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (!pending) return;
     saveRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") void resolve("cancel");
+      if (e.key === "Escape") void choose("cancel");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pending, resolve]);
+  }, [pending, busy]);
 
   if (!pending) return null;
   return (
@@ -35,11 +46,11 @@ export function ConfirmDiscard() {
           Your changes will be lost if you don&apos;t save them.
         </p>
         <div className="mt-5 flex justify-end gap-2">
-          <Button onClick={() => void resolve("cancel")}>Cancel</Button>
-          <Button variant="danger" onClick={() => void resolve("discard")}>
+          <Button disabled={busy} onClick={() => void choose("cancel")}>Cancel</Button>
+          <Button variant="danger" disabled={busy} onClick={() => void choose("discard")}>
             Don&apos;t save
           </Button>
-          <Button ref={saveRef} variant="primary" onClick={() => void resolve("save")}>
+          <Button ref={saveRef} variant="primary" disabled={busy} onClick={() => void choose("save")}>
             Save
           </Button>
         </div>

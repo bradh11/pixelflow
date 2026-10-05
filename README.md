@@ -28,6 +28,16 @@ A modern, fast, easy-to-use application for designing and running pixel light di
 
 ## Development
 
+Common tasks have `make` shortcuts — run `make` to list them. The most useful:
+
+```sh
+make setup   # install the app's dependencies (once)
+make run     # run the desktop app with live reload
+make test    # run every test
+make lint    # formatting and lint checks (same as CI)
+make build   # build an installable app
+```
+
 Requires [Rust](https://rustup.rs). The toolchain version is pinned in `rust-toolchain.toml`, and rustup installs it automatically.
 
 ```sh

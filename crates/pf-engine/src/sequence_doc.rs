@@ -6,8 +6,8 @@ use crate::error::EngineError;
 use crate::persist::write_atomic;
 use pf_model::Show;
 use pf_sequence::{
-    Effect, EffectId, EffectParams, MAX_SEQUENCE_BYTES, Row, RowId, Sequence, SequenceIssue, TimingTrack,
-    TimingTrackId,
+    Effect, EffectId, EffectParams, MAX_SEQUENCE_BYTES, Mark, Row, RowId, Sequence, SequenceIssue,
+    TimingKind, TimingTrack, TimingTrackId,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -97,6 +97,75 @@ pub enum SequenceEdit {
     RemoveTimingTrack {
         id: TimingTrackId,
     },
+    RenameTimingTrack {
+        id: TimingTrackId,
+        name: String,
+    },
+    /// Moves a timing track to `index` (clamped to the end).
+    MoveTimingTrack {
+        id: TimingTrackId,
+        index: usize,
+    },
+    /// Adds marks to a track, each where it belongs in time. Marks on a track never overlap.
+    AddMarks {
+        track: TimingTrackId,
+        marks: Vec<Mark>,
+    },
+    /// Replaces the mark at `index` (moves it, resizes it, or changes its label).
+    SetMark {
+        track: TimingTrackId,
+        index: usize,
+        mark: Mark,
+    },
+    RemoveMarks {
+        track: TimingTrackId,
+        indices: Vec<usize>,
+    },
+    /// Splits the mark at `index` in two at `at_ms`; the first part keeps the label.
+    SplitMark {
+        track: TimingTrackId,
+        index: usize,
+        at_ms: u64,
+    },
+    /// Joins the mark at `index` with the one after it (their labels joined with a space).
+    MergeMarks {
+        track: TimingTrackId,
+        index: usize,
+    },
+    /// A mark every `every_ms` from `from_ms` to `to_ms`, replacing the marks there.
+    GenerateMarks {
+        track: TimingTrackId,
+        every_ms: u64,
+        from_ms: u64,
+        to_ms: u64,
+    },
+    /// Replaces a track's marks with every `every`th mark of `from` (1 = a copy).
+    CopyMarks {
+        from: TimingTrackId,
+        to: TimingTrackId,
+        every: usize,
+    },
+    /// One mark per line of lyrics, spread over `from_ms..to_ms` by letter count, replacing the
+    /// marks there.
+    SpreadLyrics {
+        track: TimingTrackId,
+        lines: Vec<String>,
+        from_ms: u64,
+        to_ms: u64,
+    },
+    /// Labels the marks at `indices` with `labels`, in order (as many labels as marks).
+    LabelMarks {
+        track: TimingTrackId,
+        indices: Vec<usize>,
+        labels: Vec<String>,
+    },
+    /// Breaks each phrase mark at `indices` of `track` into word marks on `words` (by letter
+    /// count), replacing the marks there under each phrase.
+    BreakIntoWords {
+        track: TimingTrackId,
+        indices: Vec<usize>,
+        words: TimingTrackId,
+    },
 }
 
 /// Something an edit names is gone (the UI's copy is out of date, or it was just removed).
@@ -111,6 +180,69 @@ fn check_timing(start_ms: u64, end_ms: u64) -> Result<(), EngineError> {
         ));
     }
     Ok(())
+}
+
+fn track_index(doc: &Sequence, id: TimingTrackId) -> Result<usize, EngineError> {
+    doc.timing_tracks
+        .iter()
+        .position(|t| t.id == id)
+        .ok_or_else(|| not_found("timing track"))
+}
+
+/// A timing track whose marks may be changed (phonemes come from xLights and stay as they are).
+fn marks_mut(doc: &mut Sequence, id: TimingTrackId) -> Result<&mut TimingTrack, EngineError> {
+    let at = track_index(doc, id)?;
+    let track = &mut doc.timing_tracks[at];
+    if track.kind == TimingKind::Phonemes {
+        return Err(invalid(
+            "Phoneme tracks come from xLights and can't be edited here; edit the words instead.".to_string(),
+        ));
+    }
+    Ok(track)
+}
+
+fn mark_gone() -> EngineError {
+    invalid("That mark isn't on the timing track anymore.".to_string())
+}
+
+fn invalid(message: String) -> EngineError {
+    EngineError::InvalidEdit(message)
+}
+
+/// "1 thing" or "3 things".
+fn count(n: usize, one: &str, many: &str) -> String {
+    if n == 1 {
+        format!("1 {one}")
+    } else {
+        format!("{n} {many}")
+    }
+}
+
+/// Puts `mark` in place of the mark at `index`, keeping the track in order; refused when it has
+/// no length or would overlap another mark.
+fn set_mark(track: &mut TimingTrack, index: usize, mark: &Mark) -> Result<(), EngineError> {
+    if index >= track.marks.len() {
+        return Err(mark_gone());
+    }
+    pf_sequence::check_mark(mark).map_err(invalid)?;
+    if let Some(other) = track.overlap_with(mark, &[index]) {
+        return Err(invalid(track.overlap_message(&track.marks[other])));
+    }
+    track.marks.remove(index);
+    let at = track.insert_index(mark.start_ms);
+    track.marks.insert(at, mark.clone());
+    Ok(())
+}
+
+/// Replaces the marks of `track` that share time with `from..to` with `marks`.
+fn replace_range(
+    track: &mut TimingTrack,
+    from_ms: u64,
+    to_ms: u64,
+    marks: &[Mark],
+) -> Result<(), EngineError> {
+    track.clear_range(from_ms, to_ms);
+    track.add_marks(marks).map_err(invalid)
 }
 
 fn row_mut(doc: &mut Sequence, id: RowId) -> Result<&mut Row, EngineError> {
@@ -246,12 +378,148 @@ impl SequenceEdit {
                 *existing = track.clone();
             }
             SequenceEdit::RemoveTimingTrack { id } => {
-                let at = doc
-                    .timing_tracks
-                    .iter()
-                    .position(|t| t.id == *id)
-                    .ok_or_else(|| not_found("timing track"))?;
+                let at = track_index(doc, *id)?;
                 doc.timing_tracks.remove(at);
+            }
+            SequenceEdit::RenameTimingTrack { id, name } => {
+                let name = name.trim();
+                if name.is_empty() {
+                    return Err(invalid("A timing track needs a name.".to_string()));
+                }
+                let at = track_index(doc, *id)?;
+                doc.timing_tracks[at].name = name.to_string();
+            }
+            SequenceEdit::MoveTimingTrack { id, index } => {
+                let at = track_index(doc, *id)?;
+                let track = doc.timing_tracks.remove(at);
+                let to = (*index).min(doc.timing_tracks.len());
+                doc.timing_tracks.insert(to, track);
+            }
+            SequenceEdit::AddMarks { track, marks } => {
+                marks_mut(doc, *track)?.add_marks(marks).map_err(invalid)?;
+            }
+            SequenceEdit::SetMark { track, index, mark } => {
+                set_mark(marks_mut(doc, *track)?, *index, mark)?;
+            }
+            SequenceEdit::RemoveMarks { track, indices } => {
+                let track = marks_mut(doc, *track)?;
+                if indices.iter().any(|&i| i >= track.marks.len()) {
+                    return Err(mark_gone());
+                }
+                let gone: HashSet<usize> = indices.iter().copied().collect();
+                let mut i = 0;
+                track.marks.retain(|_| {
+                    i += 1;
+                    !gone.contains(&(i - 1))
+                });
+            }
+            SequenceEdit::SplitMark { track, index, at_ms } => {
+                let track = marks_mut(doc, *track)?;
+                let mark = track.marks.get(*index).ok_or_else(mark_gone)?.clone();
+                if *at_ms <= mark.start_ms || *at_ms >= mark.end_ms {
+                    return Err(invalid(format!(
+                        "Split a mark at a time inside it (between {} and {}).",
+                        pf_sequence::format_ms(mark.start_ms),
+                        pf_sequence::format_ms(mark.end_ms)
+                    )));
+                }
+                track.marks[*index].end_ms = *at_ms;
+                track.marks.insert(index + 1, Mark::new(*at_ms, mark.end_ms, ""));
+            }
+            SequenceEdit::MergeMarks { track, index } => {
+                let track = marks_mut(doc, *track)?;
+                if *index >= track.marks.len() {
+                    return Err(mark_gone());
+                }
+                let Some(next) = track.marks.get(index + 1).cloned() else {
+                    return Err(invalid(
+                        "There's no mark after that one to merge it with.".to_string(),
+                    ));
+                };
+                let first = &mut track.marks[*index];
+                first.end_ms = first.end_ms.max(next.end_ms);
+                first.label = [first.label.trim(), next.label.trim()]
+                    .into_iter()
+                    .filter(|l| !l.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                track.marks.remove(index + 1);
+            }
+            SequenceEdit::GenerateMarks {
+                track,
+                every_ms,
+                from_ms,
+                to_ms,
+            } => {
+                let marks = pf_sequence::fixed_marks(*every_ms, *from_ms, *to_ms).map_err(invalid)?;
+                replace_range(marks_mut(doc, *track)?, *from_ms, *to_ms, &marks)?;
+            }
+            SequenceEdit::CopyMarks { from, to, every } => {
+                let source = &doc.timing_tracks[track_index(doc, *from)?];
+                let marks = pf_sequence::every_nth_mark(&source.marks, *every).map_err(invalid)?;
+                let track = marks_mut(doc, *to)?;
+                track.marks.clear();
+                track.add_marks(&marks).map_err(invalid)?;
+            }
+            SequenceEdit::SpreadLyrics {
+                track,
+                lines,
+                from_ms,
+                to_ms,
+            } => {
+                let marks = pf_sequence::spread_phrases(lines, *from_ms, *to_ms).map_err(invalid)?;
+                replace_range(marks_mut(doc, *track)?, *from_ms, *to_ms, &marks)?;
+            }
+            SequenceEdit::LabelMarks {
+                track,
+                indices,
+                labels,
+            } => {
+                let track = marks_mut(doc, *track)?;
+                if indices.len() != labels.len() {
+                    return Err(invalid(format!(
+                        "There are {} and {}; choose one mark per line, or spread the lyrics over a time range instead.",
+                        count(labels.len(), "line of lyrics", "lines of lyrics"),
+                        count(indices.len(), "chosen mark", "chosen marks")
+                    )));
+                }
+                if indices.iter().any(|&i| i >= track.marks.len()) {
+                    return Err(mark_gone());
+                }
+                for (&i, label) in indices.iter().zip(labels) {
+                    track.marks[i].label = label.trim().to_string();
+                }
+            }
+            SequenceEdit::BreakIntoWords {
+                track,
+                indices,
+                words,
+            } => {
+                if track == words {
+                    return Err(invalid(
+                        "Put the words on a different timing track from the phrases.".to_string(),
+                    ));
+                }
+                let phrases = &doc.timing_tracks[track_index(doc, *track)?];
+                let chosen: Vec<Mark> = indices
+                    .iter()
+                    .map(|&i| phrases.marks.get(i).cloned().ok_or_else(mark_gone))
+                    .collect::<Result<_, _>>()?;
+                let target = marks_mut(doc, *words)?;
+                let mut made = 0;
+                for phrase in &chosen {
+                    let split = pf_sequence::split_words(phrase).map_err(invalid)?;
+                    if split.is_empty() {
+                        continue;
+                    }
+                    made += split.len();
+                    replace_range(target, phrase.start_ms, phrase.end_ms, &split)?;
+                }
+                if made == 0 {
+                    return Err(invalid(
+                        "Those marks have no words in them yet. Give them lyrics first.".to_string(),
+                    ));
+                }
             }
         }
         Ok(())
@@ -701,6 +969,20 @@ fn touch(edit: &SequenceEdit, doc: &Sequence, parts: &mut Parts, touched: &mut T
         SequenceEdit::RemoveTimingTrack { id } => {
             parts.tracks.capture(&doc.timing_tracks, *id);
             parts.tracks.capture_order(&doc.timing_tracks);
+        }
+        SequenceEdit::MoveTimingTrack { .. } => parts.tracks.capture_order(&doc.timing_tracks),
+        SequenceEdit::RenameTimingTrack { id: track, .. }
+        | SequenceEdit::AddMarks { track, .. }
+        | SequenceEdit::SetMark { track, .. }
+        | SequenceEdit::RemoveMarks { track, .. }
+        | SequenceEdit::SplitMark { track, .. }
+        | SequenceEdit::MergeMarks { track, .. }
+        | SequenceEdit::GenerateMarks { track, .. }
+        | SequenceEdit::CopyMarks { to: track, .. }
+        | SequenceEdit::SpreadLyrics { track, .. }
+        | SequenceEdit::LabelMarks { track, .. }
+        | SequenceEdit::BreakIntoWords { words: track, .. } => {
+            parts.tracks.capture(&doc.timing_tracks, *track)
         }
     }
 }
@@ -1618,6 +1900,418 @@ mod tests {
         assert_eq!(err.to_string(), "That row isn't in the sequence anymore.");
         assert_eq!(open.doc, before);
         assert_eq!(open.undo.len(), 1);
+    }
+
+    fn spans(track: &TimingTrack) -> Vec<(u64, u64, &str)> {
+        track
+            .marks
+            .iter()
+            .map(|m| (m.start_ms, m.end_ms, m.label.as_str()))
+            .collect()
+    }
+
+    /// An open sequence with one empty track of `kind`.
+    fn with_track(kind: pf_sequence::TimingKind) -> (OpenSequence, TimingTrackId) {
+        let (mut open, _) = open();
+        let track = TimingTrack::new("Lyrics", kind, vec![]);
+        let id = track.id;
+        open.apply(&[SequenceEdit::AddTimingTrack { track }], None)
+            .unwrap();
+        (open, id)
+    }
+
+    fn err(open: &mut OpenSequence, edit: SequenceEdit) -> String {
+        let before = open.doc.clone();
+        let message = open.apply(&[edit], None).unwrap_err().to_string();
+        assert_eq!(open.doc, before, "a refused edit changes nothing");
+        message
+    }
+
+    #[test]
+    fn marks_are_added_moved_split_merged_and_removed_with_undo() {
+        let (mut open, track) = with_track(pf_sequence::TimingKind::Lyrics);
+        let t = |open: &OpenSequence| open.doc.timing_track(track).unwrap().clone();
+        open.apply(
+            &[SequenceEdit::AddMarks {
+                track,
+                marks: vec![Mark::new(2000, 3000, "two"), Mark::new(0, 1000, "one")],
+            }],
+            None,
+        )
+        .unwrap();
+        assert_eq!(spans(&t(&open)), vec![(0, 1000, "one"), (2000, 3000, "two")]);
+
+        // A drag on one mark is one undo step.
+        for start in [100, 200, 300] {
+            open.apply(
+                &[SequenceEdit::SetMark {
+                    track,
+                    index: 0,
+                    mark: Mark::new(start, start + 1000, "one"),
+                }],
+                Some("drag"),
+            )
+            .unwrap();
+        }
+        assert_eq!(spans(&t(&open))[0], (300, 1300, "one"));
+        open.undo().unwrap();
+        assert_eq!(spans(&t(&open))[0], (0, 1000, "one"));
+        open.redo().unwrap();
+
+        open.apply(
+            &[SequenceEdit::SplitMark {
+                track,
+                index: 1,
+                at_ms: 2400,
+            }],
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            spans(&t(&open)),
+            vec![(300, 1300, "one"), (2000, 2400, "two"), (2400, 3000, "")]
+        );
+        open.apply(&[SequenceEdit::MergeMarks { track, index: 0 }], None)
+            .unwrap();
+        assert_eq!(spans(&t(&open)), vec![(300, 2400, "one two"), (2400, 3000, "")]);
+        open.apply(
+            &[SequenceEdit::RemoveMarks {
+                track,
+                indices: vec![1, 0],
+            }],
+            None,
+        )
+        .unwrap();
+        assert!(t(&open).marks.is_empty());
+        // Each step undoes on its own, back to the two marks.
+        for _ in 0..3 {
+            open.undo().unwrap();
+        }
+        assert_eq!(spans(&t(&open)), vec![(300, 1300, "one"), (2000, 3000, "two")]);
+    }
+
+    #[test]
+    fn bad_mark_edits_are_explained_and_change_nothing() {
+        let (mut open, track) = with_track(pf_sequence::TimingKind::Lyrics);
+        open.apply(
+            &[SequenceEdit::AddMarks {
+                track,
+                marks: vec![Mark::new(0, 1000, "a"), Mark::new(1000, 2000, "b")],
+            }],
+            None,
+        )
+        .unwrap();
+        let overlap = |index, start, end| SequenceEdit::SetMark {
+            track,
+            index,
+            mark: Mark::new(start, end, ""),
+        };
+        assert_eq!(
+            err(&mut open, overlap(0, 500, 1500)),
+            "That would overlap the mark at 0:01.000 on 'Lyrics'; marks on a timing track can't overlap."
+        );
+        assert_eq!(
+            err(&mut open, overlap(1, 1500, 1500)),
+            "A mark must end after it starts."
+        );
+        assert_eq!(
+            err(&mut open, overlap(5, 3000, 4000)),
+            "That mark isn't on the timing track anymore."
+        );
+        assert_eq!(
+            err(
+                &mut open,
+                SequenceEdit::AddMarks {
+                    track,
+                    marks: vec![Mark::new(1900, 2100, "")]
+                }
+            ),
+            "That would overlap the mark at 0:01.000 on 'Lyrics'; marks on a timing track can't overlap."
+        );
+        assert_eq!(
+            err(
+                &mut open,
+                SequenceEdit::SplitMark {
+                    track,
+                    index: 0,
+                    at_ms: 1000
+                }
+            ),
+            "Split a mark at a time inside it (between 0:00.000 and 0:01.000)."
+        );
+        assert_eq!(
+            err(&mut open, SequenceEdit::MergeMarks { track, index: 1 }),
+            "There's no mark after that one to merge it with."
+        );
+        assert_eq!(
+            err(
+                &mut open,
+                SequenceEdit::RemoveMarks {
+                    track,
+                    indices: vec![0, 2]
+                }
+            ),
+            "That mark isn't on the timing track anymore."
+        );
+        assert_eq!(
+            err(
+                &mut open,
+                SequenceEdit::RenameTimingTrack {
+                    id: track,
+                    name: "  ".into()
+                }
+            ),
+            "A timing track needs a name."
+        );
+        assert_eq!(
+            err(
+                &mut open,
+                SequenceEdit::AddMarks {
+                    track: TimingTrackId::new(),
+                    marks: vec![]
+                }
+            ),
+            "That timing track isn't in the sequence anymore."
+        );
+        // A long label is refused like any other text that's too long.
+        let long = "x".repeat(pf_sequence::MAX_TEXT_LEN + 1);
+        assert!(
+            err(
+                &mut open,
+                SequenceEdit::LabelMarks {
+                    track,
+                    indices: vec![0],
+                    labels: vec![long]
+                }
+            )
+            .contains("longer than 4096 characters")
+        );
+        // Phonemes from xLights stay as they are.
+        let (mut phonemes, id) = with_track(pf_sequence::TimingKind::Phonemes);
+        assert_eq!(
+            err(
+                &mut phonemes,
+                SequenceEdit::AddMarks {
+                    track: id,
+                    marks: vec![Mark::new(0, 10, "AI")]
+                }
+            ),
+            "Phoneme tracks come from xLights and can't be edited here; edit the words instead."
+        );
+    }
+
+    #[test]
+    fn tracks_are_renamed_and_reordered_with_undo() {
+        let (mut open, first) = with_track(pf_sequence::TimingKind::Beats);
+        let second = TimingTrack::new("Words", pf_sequence::TimingKind::Words, vec![]);
+        let second_id = second.id;
+        open.apply(&[SequenceEdit::AddTimingTrack { track: second }], None)
+            .unwrap();
+        let mut copy = open.doc.clone();
+        let changes = open
+            .apply(
+                &[
+                    SequenceEdit::RenameTimingTrack {
+                        id: first,
+                        name: " Beat ".into(),
+                    },
+                    SequenceEdit::MoveTimingTrack {
+                        id: second_id,
+                        index: 0,
+                    },
+                ],
+                None,
+            )
+            .unwrap()
+            .unwrap();
+        apply_changes(&mut copy, &changes);
+        assert_eq!(copy, open.doc);
+        let names: Vec<&str> = open.doc.timing_tracks.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, vec!["Words", "Beat"]);
+        let changes = open.undo().unwrap();
+        apply_changes(&mut copy, &changes);
+        assert_eq!(copy, open.doc);
+        assert_eq!(open.doc.timing_tracks[0].name, "Lyrics");
+    }
+
+    #[test]
+    fn marks_are_generated_copied_and_lyrics_spread_and_broken_into_words() {
+        let (mut open, lyrics) = with_track(pf_sequence::TimingKind::Lyrics);
+        let words = TimingTrack::new(
+            "Lyrics (words)",
+            pf_sequence::TimingKind::Words,
+            vec![Mark::new(0, 100, "old")],
+        );
+        let words_id = words.id;
+        let beats = TimingTrack::new("Beats", pf_sequence::TimingKind::Beats, vec![]);
+        let beats_id = beats.id;
+        let bars = TimingTrack::new("Bars", pf_sequence::TimingKind::Bars, vec![]);
+        let bars_id = bars.id;
+        open.apply(
+            &[
+                SequenceEdit::AddTimingTrack { track: words },
+                SequenceEdit::AddTimingTrack { track: beats },
+                SequenceEdit::AddTimingTrack { track: bars },
+            ],
+            None,
+        )
+        .unwrap();
+        let t = |open: &OpenSequence, id| open.doc.timing_track(id).unwrap().clone();
+
+        open.apply(
+            &[SequenceEdit::GenerateMarks {
+                track: beats_id,
+                every_ms: 500,
+                from_ms: 0,
+                to_ms: 4000,
+            }],
+            None,
+        )
+        .unwrap();
+        assert_eq!(t(&open, beats_id).marks.len(), 8);
+        open.apply(
+            &[SequenceEdit::CopyMarks {
+                from: beats_id,
+                to: bars_id,
+                every: 4,
+            }],
+            None,
+        )
+        .unwrap();
+        assert_eq!(spans(&t(&open, bars_id)), vec![(0, 2000, ""), (2000, 4000, "")]);
+        // Generating again over part of the song replaces the marks there.
+        open.apply(
+            &[SequenceEdit::GenerateMarks {
+                track: beats_id,
+                every_ms: 1000,
+                from_ms: 2000,
+                to_ms: 4000,
+            }],
+            None,
+        )
+        .unwrap();
+        assert_eq!(t(&open, beats_id).marks.len(), 6);
+
+        open.apply(
+            &[SequenceEdit::SpreadLyrics {
+                track: lyrics,
+                lines: vec!["Deck the halls".into(), "fa la".into()],
+                from_ms: 0,
+                to_ms: 2000,
+            }],
+            None,
+        )
+        .unwrap();
+        // 12 + 4 letters over two seconds.
+        assert_eq!(
+            spans(&t(&open, lyrics)),
+            vec![(0, 1500, "Deck the halls"), (1500, 2000, "fa la")]
+        );
+        open.apply(
+            &[SequenceEdit::BreakIntoWords {
+                track: lyrics,
+                indices: vec![0, 1],
+                words: words_id,
+            }],
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            spans(&t(&open, words_id)),
+            vec![
+                (0, 500, "Deck"),
+                (500, 875, "the"),
+                (875, 1500, "halls"),
+                (1500, 1750, "fa"),
+                (1750, 2000, "la")
+            ],
+            "the old word under the phrase is replaced"
+        );
+        // Lyrics typed onto marks tapped out by ear.
+        open.apply(
+            &[SequenceEdit::LabelMarks {
+                track: bars_id,
+                indices: vec![0, 1],
+                labels: vec![" Jingle bells ".into(), "jingle all the way".into()],
+            }],
+            None,
+        )
+        .unwrap();
+        assert_eq!(t(&open, bars_id).marks[0].label, "Jingle bells");
+
+        assert_eq!(
+            err(
+                &mut open,
+                SequenceEdit::LabelMarks {
+                    track: bars_id,
+                    indices: vec![0],
+                    labels: vec!["a".into(), "b".into()]
+                }
+            ),
+            "There are 2 lines of lyrics and 1 chosen mark; choose one mark per line, or spread the lyrics over a time range instead."
+        );
+        assert_eq!(
+            err(
+                &mut open,
+                SequenceEdit::BreakIntoWords {
+                    track: beats_id,
+                    indices: vec![0],
+                    words: words_id
+                }
+            ),
+            "Those marks have no words in them yet. Give them lyrics first."
+        );
+        assert_eq!(
+            err(
+                &mut open,
+                SequenceEdit::BreakIntoWords {
+                    track: lyrics,
+                    indices: vec![0],
+                    words: lyrics
+                }
+            ),
+            "Put the words on a different timing track from the phrases."
+        );
+        assert_eq!(
+            err(
+                &mut open,
+                SequenceEdit::GenerateMarks {
+                    track: beats_id,
+                    every_ms: 1,
+                    from_ms: 0,
+                    to_ms: 100
+                }
+            ),
+            "Marks must be at least 10 ms apart."
+        );
+        assert_eq!(
+            err(
+                &mut open,
+                SequenceEdit::SpreadLyrics {
+                    track: lyrics,
+                    lines: vec![],
+                    from_ms: 0,
+                    to_ms: 100
+                }
+            ),
+            "Paste at least one line of lyrics."
+        );
+        // Each was one undo step: undo them all back to the empty tracks.
+        while open.undo().is_some() {}
+        assert!(open.doc.timing_tracks.is_empty());
+    }
+
+    #[test]
+    fn mark_edits_round_trip_as_ui_json() {
+        let json = serde_json::json!({ "type": "splitMark",
+            "track": "33333333-0000-4000-8000-000000000001", "index": 2, "atMs": 1500 });
+        let edit: SequenceEdit = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&edit).unwrap(), json);
+        let json = serde_json::json!({ "type": "setMark",
+            "track": "33333333-0000-4000-8000-000000000001", "index": 0,
+            "mark": { "startMs": 0, "endMs": 10, "label": "Hi" } });
+        let edit: SequenceEdit = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&edit).unwrap(), json);
     }
 
     #[test]

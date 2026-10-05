@@ -30,6 +30,7 @@ libc = "0.2"
 
 [dev-dependencies]
 pf-devices = { path = "../../crates/pf-devices", features = ["test-fixtures"] }
+pf-output = { path = "../../crates/pf-output" }
 tauri = { version = "2", features = ["test"] }
 serde_json = "1"
 tempfile = "3"

@@ -233,9 +233,18 @@ mod tests {
 
     fn app() -> (App<MockRuntime>, WebviewWindow<MockRuntime>, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
+        // Nothing reaches the network or a sound device: packets are recorded and music is timed
+        // by a silent stopwatch.
+        let (transport, _recorded) = pf_output::RecordingTransport::new();
+        let silent: pf_engine::ClockFactory = std::sync::Arc::new(|_| {
+            Ok(Box::new(pf_audio::SilentClock::new()) as Box<dyn pf_audio::AudioClock>)
+        });
+        let engine = Engine::new(dir.path())
+            .with_transport(move || Ok(Box::new(transport.clone()) as Box<dyn pf_output::Transport>))
+            .with_clocks(silent);
         let app = with_commands(mock_builder())
             .manage(AppState {
-                engine: Mutex::new(Engine::new(dir.path())),
+                engine: Mutex::new(engine),
                 devices: DeviceAccess::fake(pf_devices::testing::network()),
                 waveforms: Mutex::default(),
                 photos: Default::default(),

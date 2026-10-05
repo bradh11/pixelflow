@@ -2653,6 +2653,7 @@ dependencies = [
  "pf-devices",
  "pf-engine",
  "pf-model",
+ "pf-output",
  "pf-sequence",
  "pf-xlights",
  "serde",

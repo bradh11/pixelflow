@@ -19,6 +19,7 @@ import { useShallow } from "zustand/react/shallow";
 import { DEFAULT_VIEW, MAX_ZOOM, MIN_ZOOM } from "../../lib/layoutMath";
 import { type Tool, useLayoutEditor } from "../../state/layoutEditor";
 import { useView3d } from "../../state/view3d";
+import { ModeSwitch } from "../layout3d/ModeSwitch";
 import { drawsProps, setLayoutMode } from "../layout3d/useLayout3dKeys";
 
 const TOOLS: { tool: Tool; label: string; hint: string; icon: LucideIcon }[] = [
@@ -74,29 +75,6 @@ const Divider = () => <span aria-hidden className="mx-1 h-6 w-px bg-neutral-300 
 /** Draw tools are 2D only (for now): what their buttons say in 3D. */
 const DRAW_IN_2D = "Drawing works in the 2D view — switch with V";
 
-/** The 2D | 3D switch. */
-function ModeSwitch() {
-  const mode = useView3d((s) => s.mode);
-  return (
-    <div role="group" aria-label="View" className="mr-1 inline-flex rounded-md bg-neutral-100 p-0.5 dark:bg-neutral-800">
-      {(["2d", "3d"] as const).map((m) => (
-        <button
-          key={m}
-          type="button"
-          aria-pressed={mode === m}
-          title={`${m.toUpperCase()} view (V switches)`}
-          onClick={() => setLayoutMode(m)}
-          className={`rounded px-2 py-1 text-sm font-medium ${
-            mode === m ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-600 dark:text-white" : "text-neutral-600 dark:text-neutral-400"
-          }`}
-        >
-          {m.toUpperCase()}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 /** Tools for drawing and arranging, plus snap, zoom, and the background photo. */
 export function LayoutToolbar({ hasPhoto, onChoosePhoto }: { hasPhoto: boolean; onChoosePhoto: () => void }) {
   // Not the view: panning and zooming don't need the tool bar redrawn.
@@ -111,7 +89,8 @@ export function LayoutToolbar({ hasPhoto, onChoosePhoto }: { hasPhoto: boolean; 
       setView: s.setView,
     })),
   );
-  const in3d = useView3d((s) => s.mode === "3d");
+  const mode = useView3d((s) => s.mode);
+  const in3d = mode === "3d";
   const camera = useView3d((s) => s.camera);
   const zoom = (factor: number) => {
     if (in3d) return camera({ kind: "zoom", factor });
@@ -124,7 +103,9 @@ export function LayoutToolbar({ hasPhoto, onChoosePhoto }: { hasPhoto: boolean; 
       aria-label="Layout tools"
       className="mb-3 flex flex-wrap items-center gap-0.5 rounded-lg border border-neutral-200 bg-white p-1 dark:border-neutral-800 dark:bg-neutral-900"
     >
-      <ModeSwitch />
+      <span className="mr-1">
+        <ModeSwitch mode={mode} onChange={setLayoutMode} hint="V switches" />
+      </span>
       {TOOLS.map(({ tool: t, label, hint, icon: Icon }) => {
         const off = in3d && drawsProps(t);
         return (

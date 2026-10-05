@@ -198,9 +198,10 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
   function drawSelection(scene: Scene3d, o: Orbit) {
     const { editable } = latest.current;
     const st = useLayoutEditor.getState();
-    const box = selectedBox(effective());
+    // Only the editor shows what's selected.
+    const box = editable ? selectedBox(effective()) : null;
     scene.setSelectionBox(box);
-    if (!editable || !box || st.tool === "pan") return scene.setGizmo(null);
+    if (!box || st.tool === "pan") return scene.setGizmo(null);
     const d = drag.current;
     const origin = d?.kind === "move" && !d.grab ? v3(d.origin.x + d.delta.x, d.origin.y + d.delta.y, d.origin.z + d.delta.z) : boxCenter3(box);
     const active = d?.kind === "move" && !d.grab ? d.handle : hover.current;
@@ -239,7 +240,8 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
     if (!scene) return;
     const up = uploaded.current;
     const f = latest.current.frame !== undefined ? latest.current.frame : liveFrame.current;
-    fillColors(latest.current.preview.props, f ?? null, new Set(useLayoutEditor.getState().selected), PALETTE, up.colors);
+    const selected = new Set(latest.current.editable ? useLayoutEditor.getState().selected : []);
+    fillColors(latest.current.preview.props, f ?? null, selected, PALETTE, up.colors);
     scene.setColors(up.colors, !!f);
   };
 

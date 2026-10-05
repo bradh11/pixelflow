@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub enum AdapterKind {
     Fpp,
+    Falcon,
     Wled,
     #[default]
     Generic,

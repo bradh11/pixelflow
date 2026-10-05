@@ -14,11 +14,12 @@ import type {
   OutputStatus,
   PatternSpec,
   PreviewSet,
+  PreviewSet3d,
   Show,
   ShowSnapshot,
   TargetSpec,
 } from "./types";
-import { frontView } from "../lib/geometry";
+import { deepView, frontView } from "../lib/geometry";
 import { channelsPerPixel, newController, nodeCount } from "../lib/shows";
 
 /**
@@ -54,6 +55,9 @@ export class MemoryBackend implements Backend {
   /** Image files "on disk", keyed by path, and what the photo dialog returns. */
   images = new Map<string, Uint8Array>();
   nextImagePath: string | null = null;
+  /** House model files by path, and the path the "choose model" dialog returns. */
+  models = new Map<string, Uint8Array>();
+  nextModelPath: string | null = null;
   private playbackStopReason_: string | null = null;
   private playing: {
     path: string;
@@ -440,6 +444,18 @@ export class MemoryBackend implements Backend {
     return { revision: this.revision, props };
   }
 
+  /** Each prop's pixels in 3D, from the same shapes and transforms as the engine. */
+  async previewProps3d(): Promise<PreviewSet3d> {
+    const layout = layoutOnly(this.show);
+    const props = this.show.props.map((prop, i) => ({
+      prop: prop.id,
+      frameOffset: layout.props[i].frameOffset,
+      channelsPerPixel: layout.props[i].channelsPerPixel,
+      xyz: deepView(prop).subarray(0, layout.props[i].nodes * 3),
+    }));
+    return { revision: this.revision, props };
+  }
+
   async readImage(path: string) {
     const image = this.images.get(path);
     if (!image) throw new Error("This photo was moved or deleted. Choose it again with Replace…");
@@ -448,6 +464,16 @@ export class MemoryBackend implements Backend {
 
   async pickImagePath() {
     return this.nextImagePath;
+  }
+
+  async readHouseModel(path: string) {
+    const model = this.models.get(path);
+    if (!model) throw new Error("This model was moved or deleted. Choose it again with Replace…");
+    return model.slice();
+  }
+
+  async pickHouseModelPath() {
+    return this.nextModelPath;
   }
 
   async importXlights(folder: string) {
@@ -557,7 +583,7 @@ export interface AuthoredPlayback {
 
 export function emptyShow(name: string): Show {
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     name,
     settings: { frameRate: 40 },
     props: [],
@@ -670,6 +696,19 @@ function applyEdit(show: Show, edit: Edit): void {
         if (!(bg.opacity >= 0 && bg.opacity <= 1)) throw new Error("The background photo's strength must be between 0% and 100%.");
       }
       show.background = bg ? structuredClone(bg) : null;
+      break;
+    }
+    case "setHouseModel": {
+      const m = edit.houseModel;
+      // The same checks as the engine.
+      if (m) {
+        const finite = (v: { x: number; y: number; z: number }) => [v.x, v.y, v.z].every(Number.isFinite);
+        if (!m.path.trim()) throw new Error("Choose a model file for the house.");
+        if (!finite(m.position) || !finite(m.rotationDeg)) throw new Error("The house model's position and rotation must be numbers.");
+        if (!Number.isFinite(m.scale) || m.scale <= 0) throw new Error("The house model's scale must be more than zero.");
+        if (!(m.opacity >= 0 && m.opacity <= 1)) throw new Error("The house model's strength must be between 0% and 100%.");
+      }
+      show.houseModel = m ? structuredClone(m) : null;
       break;
     }
   }

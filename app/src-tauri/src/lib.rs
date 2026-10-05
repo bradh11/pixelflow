@@ -5,6 +5,7 @@
 //! can take a moment).
 
 mod devices;
+mod house;
 mod layout;
 mod playback;
 mod sequencer;
@@ -14,6 +15,7 @@ use devices::DeviceAccess;
 use pf_engine::{
     Edit, Engine, EngineError, HistoryEntry, OutputStatus, PatternSpec, ShowSnapshot, TargetSpec,
 };
+use pf_model::Show;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -27,8 +29,11 @@ struct AppState {
     devices: DeviceAccess,
     /// Decoded music waveforms by file version and slices.
     waveforms: Mutex<std::collections::HashMap<playback::WaveformKey, playback::WaveformCell>>,
-    /// Background photos the user picked, which the window may read.
+    /// Background photos the window may read: ones the user picked this session, and those of
+    /// shows read from disk.
     photos: layout::PickedPhotos,
+    /// House models the window may read, likewise.
+    models: house::PickedModels,
     /// Bumped by `cancel_sequence_export`: an export started before the bump stops.
     export_cancels: std::sync::atomic::AtomicU64,
 }
@@ -36,6 +41,24 @@ struct AppState {
 impl AppState {
     fn engine(&self) -> MutexGuard<'_, Engine> {
         self.engine.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Lets the window read the photo and house model of a show read from disk (opened,
+    /// restored, or imported). Files named only by an edit from the window never become
+    /// readable this way: the allowlist lives here, not in the show the window can change.
+    fn trust_files_of(&self, show: &Show) {
+        if let Some(background) = &show.background {
+            self.photos.add(PathBuf::from(&background.path));
+        }
+        if let Some(model) = &show.house_model {
+            self.models.add(PathBuf::from(&model.path));
+        }
+    }
+
+    /// Like [`Self::trust_files_of`] for a snapshot just read from disk, passing it on.
+    fn trusting(&self, snapshot: ShowSnapshot) -> ShowSnapshot {
+        self.trust_files_of(&snapshot.show);
+        snapshot
     }
 }
 
@@ -72,7 +95,8 @@ async fn new_show(state: State<'_, AppState>, name: String) -> Reply<ShowSnapsho
 
 #[tauri::command]
 async fn open_show(state: State<'_, AppState>, path: PathBuf) -> Reply<ShowSnapshot> {
-    state.engine().open(&path).map_err(message)
+    let snapshot = state.engine().open(&path).map_err(message)?;
+    Ok(state.trusting(snapshot))
 }
 
 #[tauri::command]
@@ -92,7 +116,8 @@ async fn list_history(state: State<'_, AppState>) -> Reply<Vec<HistoryEntry>> {
 
 #[tauri::command]
 async fn restore_history(state: State<'_, AppState>, id: String) -> Reply<ShowSnapshot> {
-    state.engine().restore(&id).map_err(message)
+    let snapshot = state.engine().restore(&id).map_err(message)?;
+    Ok(state.trusting(snapshot))
 }
 
 #[tauri::command]
@@ -177,8 +202,11 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         xlights::import_xlights,
         xlights::import_xlights_sequence,
         layout::preview_props,
+        layout::preview_props_3d,
         layout::pick_image,
         layout::read_image,
+        house::pick_house_model,
+        house::read_house_model,
     ])
 }
 
@@ -198,6 +226,7 @@ pub fn run() {
                 devices: DeviceAccess::network(),
                 waveforms: Mutex::default(),
                 photos: Default::default(),
+                models: Default::default(),
                 export_cancels: Default::default(),
             });
             let handle = app.handle().clone();
@@ -272,6 +301,7 @@ mod tests {
                 devices: DeviceAccess::fake(pf_devices::testing::network()),
                 waveforms: Mutex::default(),
                 photos: Default::default(),
+                models: Default::default(),
                 export_cancels: Default::default(),
             })
             .build(context())
@@ -355,7 +385,7 @@ mod tests {
     }
 
     #[test]
-    fn the_background_photo_is_set_from_the_ui_and_its_bytes_come_back_raw() {
+    fn a_photo_set_from_the_ui_is_read_only_once_picked() {
         let (app, webview, dir) = app();
         let photo = dir.path().join("house.png");
         std::fs::write(&photo, [0x89, b'P', b'N', b'G']).unwrap();
@@ -369,12 +399,98 @@ mod tests {
         assert_eq!(snapshot["show"]["background"]["width"], 20.0);
         assert_eq!(snapshot["canUndo"], true);
 
+        // Naming a file in an edit doesn't make it readable: only picking it does.
+        let error = call(&webview, "read_image", json!({ "path": photo })).unwrap_err();
+        assert!(
+            error
+                .as_str()
+                .unwrap()
+                .contains("can only show a photo you picked"),
+            "{error}"
+        );
+        app.state::<AppState>().photos.add(photo.clone());
         let bytes = call_raw(&webview, "read_image", json!({ "path": photo })).unwrap();
         assert_eq!(bytes, vec![0x89, b'P', b'N', b'G']);
+    }
 
-        // Only the show's photo, or one the user picked, can be read.
-        let other = dir.path().join("elsewhere.png");
-        std::fs::write(&other, [0x89, b'P', b'N', b'G']).unwrap();
+    #[test]
+    fn a_house_model_set_from_the_ui_is_read_only_once_picked() {
+        let (app, webview, dir) = app();
+        let model = dir.path().join("house.glb");
+        std::fs::write(&model, b"glTF\x02\0\0\0").unwrap();
+        let house_model = json!({ "path": model, "position": { "x": 0, "y": 0, "z": -3 }, "rotationDeg": { "x": 0, "y": 0, "z": 0 }, "scale": 1, "opacity": 0.8 });
+        let snapshot = call(
+            &webview,
+            "apply_edits",
+            json!({ "edits": [{ "type": "setHouseModel", "houseModel": house_model }] }),
+        )
+        .unwrap();
+        assert_eq!(snapshot["show"]["houseModel"]["opacity"], 0.8);
+
+        // Naming any file in an edit doesn't make it readable.
+        let error = call(&webview, "read_house_model", json!({ "path": model })).unwrap_err();
+        assert!(
+            error
+                .as_str()
+                .unwrap()
+                .contains("can only show a model you picked"),
+            "{error}"
+        );
+        app.state::<AppState>().models.add(model.clone());
+        let bytes = call_raw(&webview, "read_house_model", json!({ "path": model })).unwrap();
+        assert_eq!(&bytes[..4], b"glTF");
+    }
+
+    #[test]
+    fn a_shows_own_photo_and_model_are_readable_once_it_is_opened_from_disk() {
+        let (app, webview, dir) = app();
+        let photo = dir.path().join("house.png");
+        std::fs::write(&photo, [0x89, b'P', b'N', b'G']).unwrap();
+        let model = dir.path().join("house.obj");
+        std::fs::write(&model, b"v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n").unwrap();
+        let path = dir.path().join("house.pixelflow.json");
+        // A show saved earlier (here by another session: nothing is picked in this one).
+        {
+            let mut engine = Engine::new(dir.path());
+            let background =
+                serde_json::from_value(json!({ "path": photo, "x": 0, "y": 0, "width": 10, "opacity": 1 }))
+                    .unwrap();
+            let house_model = serde_json::from_value(json!({ "path": model, "position": { "x": 0, "y": 0, "z": 0 }, "rotationDeg": { "x": 0, "y": 0, "z": 0 }, "scale": 1, "opacity": 1 })).unwrap();
+            engine
+                .apply(vec![
+                    Edit::SetBackground {
+                        background: Some(background),
+                    },
+                    Edit::SetHouseModel {
+                        house_model: Some(house_model),
+                    },
+                ])
+                .unwrap();
+            engine.save_as(&path).unwrap();
+        }
+        assert!(call(&webview, "read_house_model", json!({ "path": model })).is_err());
+        call(&webview, "open_show", json!({ "path": path })).unwrap();
+        assert!(call_raw(&webview, "read_image", json!({ "path": photo })).is_ok());
+        assert!(call_raw(&webview, "read_house_model", json!({ "path": model })).is_ok());
+
+        // Pointing the open show at another file from the UI still doesn't make that one readable.
+        let other = dir.path().join("secret.obj");
+        std::fs::write(&other, b"password\n").unwrap();
+        let house_model = json!({ "path": other, "position": { "x": 0, "y": 0, "z": 0 }, "rotationDeg": { "x": 0, "y": 0, "z": 0 }, "scale": 1, "opacity": 1 });
+        call(
+            &webview,
+            "apply_edits",
+            json!({ "edits": [{ "type": "setHouseModel", "houseModel": house_model }] }),
+        )
+        .unwrap();
+        let error = call(&webview, "read_house_model", json!({ "path": other })).unwrap_err();
+        assert!(
+            error
+                .as_str()
+                .unwrap()
+                .contains("can only show a model you picked"),
+            "{error}"
+        );
         let error = call(&webview, "read_image", json!({ "path": other })).unwrap_err();
         assert!(
             error
@@ -383,8 +499,7 @@ mod tests {
                 .contains("can only show a photo you picked"),
             "{error}"
         );
-        app.state::<AppState>().photos.add(other.clone());
-        assert!(call_raw(&webview, "read_image", json!({ "path": other })).is_ok());
+        drop(app);
     }
 
     #[test]
@@ -740,6 +855,8 @@ mod tests {
         assert_eq!(status["positionMs"], 500);
         let preview = call_raw(&webview, "preview_props", json!({})).unwrap();
         assert_eq!(&preview[4..8], &0u32.to_le_bytes(), "no props");
+        let deep = call_raw(&webview, "preview_props_3d", json!({})).unwrap();
+        assert_eq!(&deep[0..4], &2u32.to_le_bytes(), "x, y, z triples");
         call(&webview, "stop_playback", json!({})).unwrap();
         assert_eq!(call(&webview, "playback_status", json!({})).unwrap(), json!(null));
         assert_eq!(

@@ -136,6 +136,18 @@ export interface Background {
   opacity: number;
 }
 
+/** A 3D model of the house (glTF/GLB or OBJ) for the 3D view, placed in layout units. */
+export interface HouseModel {
+  /** The model file. */
+  path: string;
+  position: Vec3;
+  rotationDeg: Vec3;
+  /** One factor for all three axes. */
+  scale: number;
+  /** 0 (hidden) to 1 (solid). */
+  opacity: number;
+}
+
 export interface Show {
   schemaVersion: number;
   name: string;
@@ -146,6 +158,8 @@ export interface Show {
   sequences: SequenceEntry[];
   /** Missing in shows from before the layout editor. */
   background?: Background | null;
+  /** Missing unless a house model was chosen. */
+  houseModel?: HouseModel | null;
 }
 
 export interface Issue {
@@ -229,7 +243,8 @@ export type Edit =
   | { type: "updateSequence"; sequence: SequenceEntry }
   | { type: "removeSequence"; id: Uuid }
   | { type: "moveSequence"; id: Uuid; index: number }
-  | { type: "setBackground"; background: Background | null };
+  | { type: "setBackground"; background: Background | null }
+  | { type: "setHouseModel"; houseModel: HouseModel | null };
 
 export type PatternKind = "solid" | "cycle" | "chase" | "ramp" | "alternate" | "identify" | "walk";
 
@@ -422,6 +437,21 @@ export interface PreviewProp {
 export interface PreviewSet {
   revision: number;
   props: PreviewProp[];
+}
+
+/** Where a prop's pixels are in 3D (x right, y up, z toward the street) and where their colors sit in a live frame. */
+export interface PreviewProp3d {
+  prop: Uuid;
+  frameOffset: number;
+  channelsPerPixel: number;
+  /** x, y, z triples, one per pixel, in wiring order. */
+  xyz: Float32Array;
+}
+
+/** Every prop's pixel positions in 3D, and the show revision they were worked out for. */
+export interface PreviewSet3d {
+  revision: number;
+  props: PreviewProp3d[];
 }
 
 /** Counts from an xLights import. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodePreview } from "./previewBytes";
+import { decodePreview, decodePreview3d } from "./previewBytes";
 
 /** The same bytes the shell's `preview_positions_are_packed_for_the_window` test checks. */
 function packed(): ArrayBuffer {
@@ -47,5 +47,24 @@ describe("raw pixel positions", () => {
   it("refuses bytes that don't add up", () => {
     expect(() => decodePreview(new ArrayBuffer(4))).toThrow(/damaged/);
     expect(() => decodePreview(packed().slice(0, 70))).toThrow(/damaged/);
+  });
+
+  it("reads positions in depth as x, y, z triples (format 2), and refuses a mix-up", () => {
+    // The same bytes the shell's `preview_positions_in_depth_are_packed_as_triples` test checks.
+    const data = new ArrayBuffer(16 + 48 + 24);
+    const view = new DataView(data);
+    view.setUint32(0, 2, true);
+    view.setUint32(4, 1, true);
+    view.setFloat64(8, 9, true);
+    new Uint8Array(data, 16, 36).set(new TextEncoder().encode("11111111-0000-4000-8000-000000000001"));
+    view.setUint32(56, 4, true);
+    view.setUint32(60, 2, true);
+    [1, 2, -3.5, 4, 5, 6.25].forEach((v, i) => view.setFloat32(64 + i * 4, v, true));
+    const { revision, props } = decodePreview3d(data);
+    expect(revision).toBe(9);
+    expect(props[0]).toMatchObject({ prop: "11111111-0000-4000-8000-000000000001", frameOffset: 0, channelsPerPixel: 4 });
+    expect(Array.from(props[0].xyz)).toEqual([1, 2, -3.5, 4, 5, 6.25]);
+    expect(() => decodePreview(data)).toThrow(/damaged/);
+    expect(() => decodePreview3d(packed())).toThrow(/damaged/);
   });
 });

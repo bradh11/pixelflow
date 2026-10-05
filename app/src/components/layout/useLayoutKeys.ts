@@ -21,7 +21,7 @@ const NUDGE_IDLE_MS = 500;
 const KEPT_INPUT_TYPES = new Set(["checkbox", "radio", "button", "submit", "reset", "image", "color", "file"]);
 
 /** True while focus is somewhere typing (or a slider or menu) needs the keys. */
-function typing(target: EventTarget | null): boolean {
+export function typing(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable || target.tagName === "TEXTAREA" || target.tagName === "SELECT") return true;
   return target instanceof HTMLInputElement && !KEPT_INPUT_TYPES.has(target.type);

@@ -36,6 +36,7 @@ pub fn validate_show(show: &Show) -> ValidationReport {
     check_groups(show, &props, &mut report);
     check_controllers(show, &props, &mut report);
     check_background(show, &mut report);
+    check_house_model(show, &mut report);
 
     report
 }
@@ -47,6 +48,16 @@ fn check_background(show: &Show, report: &mut ValidationReport) {
         report.push(
             Issue::warning(IssueCode::InvalidBackground, problem)
                 .with_fix("Choose the photo again on the Layout screen, or remove it."),
+        );
+    }
+}
+
+/// Like the photo, a damaged house model is only a warning.
+fn check_house_model(show: &Show, report: &mut ValidationReport) {
+    if let Some(problem) = show.house_model.as_ref().and_then(|m| m.problem()) {
+        report.push(
+            Issue::warning(IssueCode::InvalidHouseModel, problem)
+                .with_fix("Choose the model again in the 3D view, or remove it."),
         );
     }
 }
@@ -325,6 +336,20 @@ mod tests {
             "{}",
             issues[0].message
         );
+    }
+
+    #[test]
+    fn a_damaged_house_model_is_a_warning() {
+        let prop = line("A", 10);
+        let mut show = show_with_slot(PortSlot::new(prop.id), prop);
+        show.house_model = Some(crate::HouseModel::new("/models/house.glb"));
+        assert_eq!(validate_show(&show).issues, vec![]);
+
+        show.house_model.as_mut().unwrap().opacity = 2.0;
+        let issues = validate_show(&show).issues;
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].code, IssueCode::InvalidHouseModel);
+        assert_eq!(issues[0].severity, crate::Severity::Warning);
     }
 
     #[test]

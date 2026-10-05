@@ -2,7 +2,8 @@
 
 use crate::error::EngineError;
 use pf_model::{
-    Background, Controller, ControllerId, Group, GroupId, Prop, PropId, SequenceEntry, SequenceId, Show,
+    Background, Controller, ControllerId, Group, GroupId, HouseModel, Prop, PropId, SequenceEntry,
+    SequenceId, Show,
 };
 use serde::{Deserialize, Serialize};
 
@@ -64,6 +65,10 @@ pub enum Edit {
     /// Sets, moves, dims, or (with `None`) removes the photo behind the layout.
     SetBackground {
         background: Option<Background>,
+    },
+    /// Sets, places, or (with `None`) removes the house model in the 3D view.
+    SetHouseModel {
+        house_model: Option<HouseModel>,
     },
 }
 
@@ -142,6 +147,12 @@ impl Edit {
                     return Err(EngineError::InvalidEdit(problem));
                 }
                 show.background = background.clone();
+            }
+            Edit::SetHouseModel { house_model } => {
+                if let Some(problem) = house_model.as_ref().and_then(HouseModel::problem) {
+                    return Err(EngineError::InvalidEdit(problem));
+                }
+                show.house_model = house_model.clone();
             }
         }
         Ok(())
@@ -305,5 +316,43 @@ mod tests {
 
         Edit::SetBackground { background: None }.apply(&mut show).unwrap();
         assert_eq!(show.background, None);
+    }
+
+    #[test]
+    fn the_house_model_can_be_set_placed_and_removed_but_not_made_invalid() {
+        let mut show = Show::new("t");
+        let model = HouseModel::new("/models/house.glb");
+        let edit = Edit::SetHouseModel {
+            house_model: Some(model.clone()),
+        };
+        let json = serde_json::to_value(&edit).unwrap();
+        assert_eq!(json["type"], "setHouseModel");
+        assert_eq!(json["houseModel"]["path"], "/models/house.glb");
+        edit.apply(&mut show).unwrap();
+        assert_eq!(show.house_model, Some(model.clone()));
+
+        let placed = HouseModel {
+            scale: 0.5,
+            ..model.clone()
+        };
+        Edit::SetHouseModel {
+            house_model: Some(placed.clone()),
+        }
+        .apply(&mut show)
+        .unwrap();
+        assert_eq!(show.house_model, Some(placed));
+
+        let err = Edit::SetHouseModel {
+            house_model: Some(HouseModel { scale: -1.0, ..model }),
+        }
+        .apply(&mut show)
+        .unwrap_err();
+        assert_eq!(err.to_string(), "The house model's scale must be more than zero.");
+        assert_eq!(show.house_model.as_ref().unwrap().scale, 0.5, "unchanged");
+
+        Edit::SetHouseModel { house_model: None }
+            .apply(&mut show)
+            .unwrap();
+        assert_eq!(show.house_model, None);
     }
 }

@@ -16,8 +16,8 @@ const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "bmp"];
 /// Larger photos are refused rather than loaded into the window.
 const MAX_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
 
-/// Photos the window may read: ones the user picked in the photo dialog this session. The
-/// show's own background photo is always allowed too (see [`read_image`]).
+/// Photos the window may read: ones the user picked in the photo dialog this session, and the
+/// background photos of shows read from disk (see `AppState::trust_files_of`).
 #[derive(Default)]
 pub(crate) struct PickedPhotos(Mutex<HashSet<PathBuf>>);
 
@@ -26,7 +26,7 @@ impl PickedPhotos {
         self.0.lock().unwrap_or_else(PoisonError::into_inner).insert(path);
     }
 
-    fn contains(&self, path: &Path) -> bool {
+    pub(crate) fn contains(&self, path: &Path) -> bool {
         self.0
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -58,17 +58,12 @@ pub(crate) async fn pick_image<R: tauri::Runtime>(
 }
 
 /// The bytes of a background photo, sent raw so the window can show it without any file access
-/// of its own. Only photos the user picked, or the show's own background photo, are read, and
-/// only if they really are image files.
+/// of its own. Only photos the user picked, or that came with a show read from disk, are read,
+/// and only if they really are image files. A path the window put in the show with an edit is
+/// not enough on its own.
 #[tauri::command]
 pub(crate) async fn read_image(state: State<'_, AppState>, path: PathBuf) -> Reply<Response> {
-    let is_background = state
-        .engine()
-        .show()
-        .background
-        .as_ref()
-        .is_some_and(|b| Path::new(&b.path) == path);
-    if !is_background && !state.photos.contains(&path) {
+    if !state.photos.contains(&path) {
         return Err(
             "PixelFlow can only show a photo you picked. Choose it with Choose photo… or Replace…".into(),
         );
@@ -80,7 +75,7 @@ pub(crate) async fn read_image(state: State<'_, AppState>, path: PathBuf) -> Rep
 }
 
 /// The file's name for messages (its whole path if it has no name).
-fn label(path: &Path) -> String {
+pub(crate) fn label(path: &Path) -> String {
     path.file_name().map_or_else(
         || path.display().to_string(),
         |n| n.to_string_lossy().into_owned(),
@@ -89,7 +84,7 @@ fn label(path: &Path) -> String {
 
 /// Opens a file for reading without ever waiting: a pipe or device named like a photo would
 /// otherwise block until something writes to it.
-fn open_without_waiting(path: &Path) -> io::Result<File> {
+pub(crate) fn open_without_waiting(path: &Path) -> io::Result<File> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
@@ -173,6 +168,18 @@ pub(crate) async fn preview_props(state: State<'_, AppState>) -> Reply<Response>
     Ok(Response::new(encode_preview(
         engine.revision(),
         &engine.preview_props(),
+        Dims::Flat,
+    )))
+}
+
+/// Every prop's pixel positions for the 3D view, raw (see [`encode_preview`]).
+#[tauri::command]
+pub(crate) async fn preview_props_3d(state: State<'_, AppState>) -> Reply<Response> {
+    let engine = state.engine();
+    Ok(Response::new(encode_preview(
+        engine.revision(),
+        &engine.preview_props_3d(),
+        Dims::Deep,
     )))
 }
 
@@ -180,24 +187,50 @@ pub(crate) async fn preview_props(state: State<'_, AppState>) -> Reply<Response>
 const PREVIEW_HEADER: usize = 16;
 const PREVIEW_ENTRY: usize = 48;
 
+/// Whether preview positions are front-view x, y pairs or x, y, z triples.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Dims {
+    /// x, y pairs (format 1).
+    Flat,
+    /// x, y, z triples (format 2).
+    Deep,
+}
+
+impl Dims {
+    fn format(self) -> u32 {
+        match self {
+            Dims::Flat => 1,
+            Dims::Deep => 2,
+        }
+    }
+
+    fn per_pixel(self) -> usize {
+        match self {
+            Dims::Flat => 2,
+            Dims::Deep => 3,
+        }
+    }
+}
+
 /// Packs the props' pixel positions into bytes the window reads without parsing (a large
 /// show's positions as JSON would be megabytes of text after every edit). Little-endian:
 ///
-/// - header: format `u32` (1), prop count `u32`, the show revision the positions are for `f64`
+/// - header: format `u32` (1: x, y pairs; 2: x, y, z triples), prop count `u32`, the show
+///   revision the positions are for `f64`
 /// - one 48-byte entry per prop: its id as 36 ASCII characters, frame offset `u32`, channels
 ///   per pixel `u32`, pixel count `u32`
-/// - then every prop's x, y pairs as `f32`, props in the same order
-pub(crate) fn encode_preview(revision: u64, props: &[PreviewProp]) -> Vec<u8> {
+/// - then every prop's coordinates as `f32`, props in the same order
+pub(crate) fn encode_preview(revision: u64, props: &[PreviewProp], dims: Dims) -> Vec<u8> {
     let floats: usize = props.iter().map(|p| p.points.len()).sum();
     let mut out = Vec::with_capacity(PREVIEW_HEADER + PREVIEW_ENTRY * props.len() + 4 * floats);
-    out.extend_from_slice(&1u32.to_le_bytes());
+    out.extend_from_slice(&dims.format().to_le_bytes());
     out.extend_from_slice(&(props.len() as u32).to_le_bytes());
     out.extend_from_slice(&(revision as f64).to_le_bytes());
     for p in props {
         out.extend_from_slice(p.prop.to_string().as_bytes());
         out.extend_from_slice(&(p.frame_offset as u32).to_le_bytes());
         out.extend_from_slice(&u32::from(p.channels_per_pixel).to_le_bytes());
-        out.extend_from_slice(&((p.points.len() / 2) as u32).to_le_bytes());
+        out.extend_from_slice(&((p.points.len() / dims.per_pixel()) as u32).to_le_bytes());
     }
     for p in props {
         for v in &p.points {
@@ -290,7 +323,7 @@ mod tests {
             channels_per_pixel: 3,
             points: vec![1.5, -2.0, 3.0, 4.25],
         }];
-        let bytes = encode_preview(7, &props);
+        let bytes = encode_preview(7, &props, Dims::Flat);
         assert_eq!(bytes.len(), 16 + 48 + 4 * 4);
         assert_eq!(&bytes[0..4], &1u32.to_le_bytes());
         assert_eq!(&bytes[4..8], &1u32.to_le_bytes());
@@ -301,6 +334,25 @@ mod tests {
         assert_eq!(&bytes[60..64], &2u32.to_le_bytes(), "two pixels");
         assert_eq!(&bytes[64..68], &1.5f32.to_le_bytes());
         assert_eq!(&bytes[76..80], &4.25f32.to_le_bytes());
-        assert_eq!(encode_preview(0, &[]).len(), 16);
+        assert_eq!(encode_preview(0, &[], Dims::Flat).len(), 16);
+    }
+
+    #[test]
+    fn preview_positions_in_depth_are_packed_as_triples() {
+        let id: pf_model::PropId = serde_json::from_str("\"11111111-0000-4000-8000-000000000001\"").unwrap();
+        let props = [PreviewProp {
+            prop: id,
+            frame_offset: 0,
+            channels_per_pixel: 4,
+            points: vec![1.0, 2.0, -3.5, 4.0, 5.0, 6.25],
+        }];
+        let bytes = encode_preview(9, &props, Dims::Deep);
+        assert_eq!(bytes.len(), 16 + 48 + 6 * 4);
+        assert_eq!(&bytes[0..4], &2u32.to_le_bytes(), "format 2: x, y, z");
+        assert_eq!(&bytes[8..16], &9f64.to_le_bytes());
+        assert_eq!(&bytes[56..60], &4u32.to_le_bytes());
+        assert_eq!(&bytes[60..64], &2u32.to_le_bytes(), "two pixels, not three");
+        assert_eq!(&bytes[72..76], &(-3.5f32).to_le_bytes());
+        assert_eq!(&bytes[84..88], &6.25f32.to_le_bytes());
     }
 }

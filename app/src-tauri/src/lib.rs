@@ -5,6 +5,7 @@
 //! can take a moment).
 
 mod devices;
+mod layout;
 mod playback;
 mod xlights;
 
@@ -146,6 +147,7 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         playback::set_playback_volume,
         playback::audio_waveform,
         xlights::import_xlights,
+        layout::read_image,
     ])
 }
 
@@ -204,7 +206,7 @@ fn shut_down(state: &AppState) {
 mod tests {
     use super::*;
     use serde_json::{Value, json};
-    use tauri::ipc::{CallbackFn, InvokeBody};
+    use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponseBody};
     use tauri::test::{INVOKE_KEY, MockRuntime, get_ipc_response, mock_builder};
     use tauri::webview::InvokeRequest;
     use tauri::{App, WebviewWindow, WebviewWindowBuilder};
@@ -275,6 +277,47 @@ mod tests {
         assert_eq!(snapshot["summary"]["props"], 0);
         let snapshot = call(&webview, "redo", json!({})).unwrap();
         assert_eq!(snapshot["summary"]["props"], 1);
+    }
+
+    #[test]
+    fn the_background_photo_is_set_from_the_ui_and_its_bytes_come_back_raw() {
+        let (_app, webview, dir) = app();
+        let photo = dir.path().join("house.png");
+        std::fs::write(&photo, [0x89, b'P', b'N', b'G']).unwrap();
+        let background = json!({ "path": photo, "x": -10, "y": 8, "width": 20, "opacity": 0.6 });
+        let snapshot = call(
+            &webview,
+            "apply_edits",
+            json!({ "edits": [{ "type": "setBackground", "background": background }] }),
+        )
+        .unwrap();
+        assert_eq!(snapshot["show"]["background"]["width"], 20.0);
+        assert_eq!(snapshot["canUndo"], true);
+
+        let reply = get_ipc_response(
+            &webview,
+            InvokeRequest {
+                cmd: "read_image".into(),
+                callback: CallbackFn(0),
+                error: CallbackFn(1),
+                url: webview.url().unwrap(),
+                body: InvokeBody::Json(json!({ "path": photo })),
+                headers: Default::default(),
+                invoke_key: INVOKE_KEY.to_string(),
+            },
+        )
+        .unwrap();
+        match reply {
+            InvokeResponseBody::Raw(bytes) => assert_eq!(bytes, vec![0x89, b'P', b'N', b'G']),
+            other => panic!("expected raw bytes, got {other:?}"),
+        }
+        let error = call(
+            &webview,
+            "read_image",
+            json!({ "path": dir.path().join("notes.txt") }),
+        )
+        .unwrap_err();
+        assert!(error.as_str().unwrap().contains("isn't a photo"), "{error}");
     }
 
     #[test]

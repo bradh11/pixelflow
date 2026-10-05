@@ -17,6 +17,7 @@ mod layout;
 mod model;
 mod networks;
 pub mod sequence;
+mod submodels;
 mod timing;
 mod xml;
 

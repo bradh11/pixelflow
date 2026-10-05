@@ -1,6 +1,9 @@
 //! Importing a small but complete xLights show folder end to end.
 
-use pf_model::{ColorOrder, Protocol, SequenceChannels, ShapeSource};
+use pf_model::{
+    BufferStyle, ColorOrder, LineLayout, NodeRange, NodeRun, Phoneme, Protocol, RegionKind, RegionRef, Rgb,
+    SequenceChannels, ShapeSource,
+};
 use pf_xlights::{ImportSummary, import_folder};
 use std::path::Path;
 
@@ -12,10 +15,9 @@ fn sample() -> pf_xlights::XlightsImport {
 fn imports_props_controllers_and_groups() {
     let imported = sample();
     assert!(
-        imported
-            .notes
-            .iter()
-            .all(|n| !n.contains("isn't wired") && !n.contains("Not wired")),
+        imported.notes.iter().all(|n| !n.contains("isn't wired")
+            && !n.contains("Not wired")
+            && !n.contains("submodels that aren't")),
         "{:#?}",
         imported.notes
     );
@@ -55,10 +57,87 @@ fn imports_props_controllers_and_groups() {
     assert_eq!(arches.color_order, ColorOrder::Grb);
     assert!(matches!(arches.shape, ShapeSource::Measured { .. }));
     let everything = show.groups.iter().find(|g| g.name == "Everything").unwrap();
+    assert_eq!(everything.members.len(), 4, "nested group flattened");
+    let star = show.props.iter().find(|p| p.name == "Porch Star").unwrap();
     assert_eq!(
-        everything.members.len(),
-        4,
-        "nested group flattened, submodel skipped"
+        everything.submodels,
+        vec![RegionRef {
+            prop: star.id,
+            region: star.regions[0].id,
+        }],
+        "the submodel member is kept"
+    );
+}
+
+#[test]
+fn imports_submodels_and_faces() {
+    let imported = sample();
+    let show = &imported.show;
+    let prop = |name: &str| show.props.iter().find(|p| p.name == name).unwrap();
+    let run = |a, b| Some(NodeRun::new(a, b));
+
+    let arches = prop("Arches");
+    let names: Vec<_> = arches.regions.iter().map(|r| r.name.as_str()).collect();
+    assert_eq!(names, ["Arch 1", "Tops", "Ends"]);
+    assert_eq!(
+        arches.regions[1].kind,
+        RegionKind::Nodes {
+            lines: vec![vec![run(19, 29)], vec![run(69, 79)], vec![run(119, 129)]],
+            layout: LineLayout::Vertical,
+            buffer: BufferStyle::StackedStrands,
+        }
+    );
+    assert_eq!(
+        arches.regions[2].kind,
+        RegionKind::Nodes {
+            lines: vec![
+                vec![run(0, 4), run(45, 49)],
+                vec![run(100, 104), None, run(149, 145)]
+            ],
+            layout: LineLayout::Horizontal,
+            buffer: BufferStyle::KeepXy,
+        }
+    );
+
+    let matrix = prop("Window Matrix");
+    assert_eq!(
+        matrix.regions[0].kind,
+        RegionKind::SubBuffer {
+            x1: 0.0,
+            y1: 50.0,
+            x2: 100.0,
+            y2: 100.0
+        }
+    );
+    assert_eq!(matrix.regions[1].name, "Singer");
+    let RegionKind::Face(face) = &matrix.regions[1].kind else {
+        panic!("Singer is a face")
+    };
+    assert_eq!(face.mouths[&Phoneme::Ai], vec![NodeRange::new(0, 4)]);
+    assert_eq!(face.mouths[&Phoneme::Rest], vec![NodeRange::new(8, 10)]);
+    assert_eq!(
+        face.eyes_open,
+        vec![NodeRange::new(60, 62), NodeRange::new(78, 80)]
+    );
+    assert_eq!(face.outline, vec![NodeRange::new(20, 40)]);
+    let colors = face.colors.as_ref().unwrap();
+    assert_eq!(colors.outline, Some(Rgb::new(255, 255, 0)));
+    assert_eq!(colors.mouths.get(&Phoneme::O), None, "no color: white");
+
+    let notes = imported.notes.join("\n");
+    assert!(
+        notes.contains("picture faces yet, so these weren't imported: Pictures (on Window Matrix)."),
+        "{notes}"
+    );
+    assert!(
+        notes.contains("states yet, so these weren't imported: Lights (on Window Matrix)."),
+        "{notes}"
+    );
+    assert!(
+        pf_model::validate_show(show)
+            .issues
+            .iter()
+            .all(|i| i.code != pf_model::IssueCode::RegionOutOfBounds)
     );
 }
 

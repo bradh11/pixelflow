@@ -22,11 +22,11 @@ async function startFresh() {
 }
 
 describe("first run", () => {
-  it("offers start, open, and upcoming import/discovery choices", async () => {
+  it("offers start, open, and discovery, with xLights import still to come", async () => {
     await startApp();
     expect(screen.getByRole("heading", { name: "Welcome to PixelFlow" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /import from xlights/i })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /discover my devices/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /discover my devices/i })).toBeEnabled();
   });
 
   it("start fresh opens an empty show", async () => {

@@ -1,5 +1,6 @@
 //! `pixelflow` command-line tool.
 
+mod devices;
 mod report;
 mod test_pattern;
 
@@ -33,6 +34,10 @@ enum Command {
     },
     /// Send a test pattern to the show's controllers. Exits 1 if the show has errors.
     TestPattern(test_pattern::Args),
+    /// Find FPP, Falcon, and WLED controllers on the local network (read-only).
+    Discover(devices::DiscoverArgs),
+    /// Show a controller's identity and configuration, and what importing it would add (read-only).
+    Device(devices::DeviceArgs),
 }
 
 fn main() -> ExitCode {
@@ -74,6 +79,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let show = load(&args.show)?;
             test_pattern::run(&show, &args)
         }
+        Command::Discover(args) => devices::discover(&args),
+        Command::Device(args) => devices::device(&args),
     }
 }
 

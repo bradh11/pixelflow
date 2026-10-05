@@ -1,0 +1,8 @@
+{"channelOutputs": [{"type": "DPIPixels", "subType": "PiHat", "enabled": 1, "startChannel": 1, "channelCount": -1, "outputCount": 2,
+  "outputs": [
+    {"portNumber": 0, "protocol": "ws2811", "differentialType": 0, "virtualStrings": [
+      {"description": "Roof Line", "startChannel": 0, "pixelCount": 150, "groupCount": 0, "reverse": 0, "colorOrder": "RGB", "nullNodes": 1, "zigZag": 0, "brightness": 100, "gamma": "1.0"},
+      {"description": "Gutter", "startChannel": 450, "pixelCount": 50, "groupCount": 0, "reverse": 1, "colorOrder": "GRB", "nullNodes": 0, "zigZag": 0, "brightness": 50, "gamma": "2.2"}]},
+    {"portNumber": 1, "protocol": "ws2811", "differentialType": 0, "virtualStrings": [
+      {"description": "", "startChannel": 600, "pixelCount": 0, "colorOrder": "RGB"}]}
+  ]}], "status": "OK"}

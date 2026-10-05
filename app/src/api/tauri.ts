@@ -19,6 +19,9 @@ export const tauriBackend: Backend = {
   startOutput: (pattern, target) => invoke("start_output", { pattern, target }),
   stopOutput: () => invoke("stop_output"),
   outputStatus: () => invoke("output_status"),
+  discoverDevices: (hosts, network) => invoke("discover_devices", { hosts, network }),
+  inspectDevice: (address) => invoke("inspect_device", { address }),
+  importDevice: (address) => invoke("import_device", { address }),
   pickOpenPath: async () => {
     const path = await open({ multiple: false, directory: false, filters: SHOW_FILTER });
     return typeof path === "string" ? path : null;

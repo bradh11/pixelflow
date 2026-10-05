@@ -37,6 +37,7 @@ function Choice({
 export function Welcome() {
   const newShow = useApp((s) => s.newShow);
   const openShow = useApp((s) => s.openShow);
+  const discover = useApp((s) => s.discoverFromWelcome);
   return (
     <div className="flex h-full items-center justify-center p-8">
       <div className="w-full max-w-2xl">
@@ -66,8 +67,8 @@ export function Welcome() {
           <Choice
             icon={<Network size={20} />}
             title="Discover my devices"
-            description="Coming in a later update."
-            disabled
+            description="Find FPP, Falcon, and WLED controllers on your network and import them."
+            onClick={discover}
           />
         </div>
       </div>

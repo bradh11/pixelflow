@@ -1,0 +1,27 @@
+{
+    "Message": "",
+    "Status": "OK",
+    "respCode": 200,
+    "systems": [
+        {
+            "HostDescription": "FPP",
+            "address": "192.0.2.10",
+            "channelRanges": "0-6147",
+            "fppMode": 2,
+            "fppModeString": "player",
+            "hostname": "fpp",
+            "lastSeen": 1791157116,
+            "lastSeenStr": "2026-10-04 19:38:36",
+            "local": 1,
+            "majorVersion": 9,
+            "minorVersion": 3,
+            "model": "Raspberry Pi 3 Model B Plus Rev 1.3",
+            "multiSyncCapable": 1,
+            "multisync": false,
+            "type": "Raspberry Pi 3 B+",
+            "typeId": 9,
+            "uuid": "M1-0000000012345678",
+            "version": "9.3-4-g97360ca2"
+        }
+    ]
+}

@@ -1,0 +1,1 @@
+{"ver":"0.15.0","vid":2412100,"leds":{"count":120,"pwr":0,"fps":42,"maxpwr":850,"maxseg":32},"name":"Porch WLED","udpport":21324,"live":false,"lm":"","arch":"esp32","brand":"WLED","product":"FOSS","mac":"aabbccddeeff","ip":"192.0.2.40"}

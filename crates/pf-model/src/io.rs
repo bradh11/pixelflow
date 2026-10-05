@@ -29,7 +29,12 @@ impl From<serde_json::Error> for ModelError {
 type Migration = fn(Value) -> Result<Value, ModelError>;
 
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
-const MIGRATIONS: &[Migration] = &[];
+const MIGRATIONS: &[Migration] = &[v1_to_v2];
+
+/// Version 2 only adds the `falcon` adapter value, so version 1 documents are already valid.
+fn v1_to_v2(doc: Value) -> Result<Value, ModelError> {
+    Ok(doc)
+}
 
 const _: () = assert!(
     MIGRATIONS.len() + 1 == CURRENT_SCHEMA_VERSION as usize,
@@ -118,6 +123,18 @@ mod tests {
                 other => panic!("{raw}: unexpected {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn version_1_files_upgrade_to_the_current_version() {
+        let v1 = r#"{ "schemaVersion": 1, "name": "Old", "controllers": [
+            { "id": "33333333-0000-4000-8000-000000000001", "name": "C", "address": "10.0.0.1",
+              "adapter": "fpp", "protocol": { "type": "ddp" } } ] }"#;
+        let show = show_from_json(v1).unwrap();
+        assert_eq!(show.schema_version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(show.name, "Old");
+        let saved: Value = serde_json::from_str(&show_to_json(&show).unwrap()).unwrap();
+        assert_eq!(saved["schemaVersion"], 2);
     }
 
     #[test]

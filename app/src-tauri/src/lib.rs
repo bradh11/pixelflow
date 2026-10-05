@@ -1,8 +1,12 @@
-//! The PixelFlow desktop shell: a thin bridge between the React UI and `pf-engine`.
+//! The PixelFlow desktop shell: a thin bridge between the React UI, `pf-engine`, and
+//! `pf-devices`.
 //! Every command locks the engine, calls it, and returns its result as JSON. Commands are
 //! `async` so they run off the UI thread (opening files and resolving controller addresses
 //! can take a moment).
 
+mod devices;
+
+use devices::DeviceAccess;
 use pf_engine::{
     Edit, Engine, EngineError, HistoryEntry, OutputStatus, PatternSpec, ShowSnapshot, TargetSpec,
 };
@@ -16,6 +20,7 @@ const AUTOSAVE_EVERY: Duration = Duration::from_secs(30);
 
 struct AppState {
     engine: Mutex<Engine>,
+    devices: DeviceAccess,
 }
 
 impl AppState {
@@ -115,6 +120,9 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         start_output,
         stop_output,
         output_status,
+        devices::discover_devices,
+        devices::inspect_device,
+        devices::import_device,
     ])
 }
 
@@ -131,6 +139,7 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?;
             app.manage(AppState {
                 engine: Mutex::new(Engine::new(data_dir)),
+                devices: DeviceAccess::network(),
             });
             let handle = app.handle().clone();
             std::thread::Builder::new()
@@ -180,6 +189,7 @@ mod tests {
         let app = with_commands(mock_builder())
             .manage(AppState {
                 engine: Mutex::new(Engine::new(dir.path())),
+                devices: DeviceAccess::fake(pf_devices::testing::network()),
             })
             .build(context())
             .unwrap();
@@ -320,5 +330,61 @@ mod tests {
         assert!(!history.as_array().unwrap().is_empty());
         let status = call(&webview, "output_status", json!({})).unwrap();
         assert_eq!(status["running"], false);
+    }
+
+    #[test]
+    fn discovery_finds_typed_hosts_and_the_controllers_an_fpp_lists() {
+        let (_app, webview, _dir) = app();
+        let found = call(
+            &webview,
+            "discover_devices",
+            json!({ "hosts": [pf_devices::testing::FPP], "network": false }),
+        )
+        .unwrap();
+        let kinds: Vec<_> = found["devices"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|d| d["kind"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(kinds, vec!["fpp", "falcon"]);
+        assert_eq!(found["devices"][1]["foundBy"], json!(["fppPeer"]));
+        assert_eq!(found["silent"], json!([]));
+    }
+
+    #[test]
+    fn inspecting_and_importing_a_falcon_adds_one_undo_step() {
+        let (_app, webview, _dir) = app();
+        let falcon = pf_devices::testing::FALCON;
+        let details = call(&webview, "inspect_device", json!({ "address": falcon })).unwrap();
+        assert_eq!(details["device"]["model"], "F16v5");
+        assert_eq!(details["plan"]["canImport"], true);
+        assert_eq!(details["plan"]["props"].as_array().unwrap().len(), 3);
+
+        let snapshot = call(&webview, "import_device", json!({ "address": falcon })).unwrap();
+        assert_eq!(snapshot["summary"]["props"], 3);
+        assert_eq!(snapshot["summary"]["controllers"], 1);
+        assert_eq!(snapshot["show"]["controllers"][0]["adapter"], "falcon");
+        assert_eq!(snapshot["show"]["controllers"][0]["address"], falcon);
+        let snapshot = call(&webview, "undo", json!({})).unwrap();
+        assert_eq!(snapshot["summary"]["props"], 0);
+        assert_eq!(snapshot["summary"]["controllers"], 0);
+    }
+
+    #[test]
+    fn devices_with_nothing_to_import_and_unknown_hosts_get_plain_errors() {
+        let (_app, webview, _dir) = app();
+        let error = call(
+            &webview,
+            "import_device",
+            json!({ "address": pf_devices::testing::FPP }),
+        )
+        .unwrap_err();
+        assert_eq!(error, json!("FPP has no pixel outputs to import."));
+        let error = call(&webview, "inspect_device", json!({ "address": "192.0.2.99" })).unwrap_err();
+        assert!(
+            error.as_str().unwrap().starts_with("Could not reach 192.0.2.99"),
+            "{error}"
+        );
     }
 }

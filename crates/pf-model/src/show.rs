@@ -3,9 +3,14 @@
 use crate::{Controller, ControllerId, Group, Prop, PropId};
 use serde::{Deserialize, Serialize};
 
-/// Schema version written by this build. Bump it and add a migration in `io.rs`
-/// whenever the show file format changes.
-pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+/// Schema version written by this build.
+///
+/// Policy: bump this for **every** change to the show file format, even an additive one with
+/// a no-op migration, so an older PixelFlow refuses a newer file instead of silently dropping
+/// fields it doesn't know on save. Add the migration in `io.rs` in the same change.
+///
+/// History: 1 = initial format; 2 = adds the `falcon` controller adapter.
+pub const CURRENT_SCHEMA_VERSION: u32 = 2;
 
 /// Show-wide settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

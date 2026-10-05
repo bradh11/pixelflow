@@ -25,8 +25,8 @@ pub const MAX_PALETTE_COLORS: usize = 32;
 /// Characters in a name, label, or file path.
 pub const MAX_TEXT_LEN: usize = 4_096;
 
-/// Every limit the sequence exceeds, in plain language.
-pub(crate) fn check_limits(seq: &Sequence) -> Vec<String> {
+/// Every size limit the sequence exceeds, in plain language (empty when it fits).
+pub fn limit_problems(seq: &Sequence) -> Vec<String> {
     let mut problems = Vec::new();
     if seq.duration_ms > MAX_DURATION_MS {
         problems.push(format!(

@@ -64,7 +64,7 @@ pub fn sequence_from_json(text: &str) -> Result<Sequence, SequenceError> {
     }
     doc["schemaVersion"] = Value::from(CURRENT_SCHEMA_VERSION);
     let seq: Sequence = serde_json::from_value(doc)?;
-    if let Some(problem) = limits::check_limits(&seq).into_iter().next() {
+    if let Some(problem) = limits::limit_problems(&seq).into_iter().next() {
         return Err(SequenceError::LimitExceeded(problem));
     }
     Ok(seq)
@@ -78,7 +78,7 @@ pub fn sequence_to_json(seq: &Sequence) -> Result<String, SequenceError> {
 /// Checks a sequence built in memory exactly as opening a sequence file would (size limits
 /// included) and returns the checked copy.
 pub fn check_sequence(seq: &Sequence) -> Result<Sequence, SequenceError> {
-    if let Some(problem) = limits::check_limits(seq).into_iter().next() {
+    if let Some(problem) = limits::limit_problems(seq).into_iter().next() {
         return Err(SequenceError::LimitExceeded(problem));
     }
     sequence_from_json(&sequence_to_json(seq)?)

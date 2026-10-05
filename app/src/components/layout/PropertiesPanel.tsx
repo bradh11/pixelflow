@@ -12,10 +12,11 @@ import {
   Trash2,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
-import type { Background, ColorOrder, PreviewProp, Prop, ShapeSource } from "../../api/types";
+import { useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
+import type { Background, ColorOrder, PreviewProp, Prop, ShapeSource, Show } from "../../api/types";
 import { fileName, thousands } from "../../lib/format";
-import { alignEdits, distributeEdits, duplicateEdits, removeEdits, wiringOf } from "../../lib/layoutEdits";
+import { alignEdits, distributeEdits, duplicateEdits, removeEdits, updateEdits, wiringOf } from "../../lib/layoutEdits";
 import { type Align, tidy } from "../../lib/layoutMath";
 import { nodeCount, shapeLabel } from "../../lib/shows";
 import { useLayoutEditor } from "../../state/layoutEditor";
@@ -57,19 +58,22 @@ export function NumberField({
   onCommit,
   min = -Infinity,
   integer = false,
+  nonZero = false,
 }: {
   label: string;
   value: number;
   onCommit: (value: number) => void;
   min?: number;
   integer?: boolean;
+  /** Any number but zero (a negative scale mirrors the prop). */
+  nonZero?: boolean;
 }) {
   const shown = String(integer ? value : tidy(value));
   const [draft, setDraft] = useState(shown);
   useEffect(() => setDraft(shown), [shown]);
   const commit = () => {
     const n = Number(draft);
-    if (draft.trim() === "" || !Number.isFinite(n) || n < min || (integer && !Number.isInteger(n))) {
+    if (draft.trim() === "" || !Number.isFinite(n) || n < min || (integer && !Number.isInteger(n)) || (nonZero && n === 0)) {
       setDraft(shown);
       return;
     }
@@ -112,23 +116,27 @@ function OnePropPanel({ prop }: { prop: Prop }) {
   const clear = useLayoutEditor((s) => s.clear);
   const [name, setName] = useState(prop.name);
   useEffect(() => setName(prop.name), [prop.name]);
-  const update = (next: Prop) => void apply([{ type: "updateProp", prop: next }]);
+  // Each change applies to the prop as it is when the edit is sent, so it can't undo a move on its way.
+  const update = (change: (p: Prop) => Prop) => void apply(updateEdits(prop.id, change));
   const t = prop.transform;
   const setTransform = (patch: Partial<{ x: number; y: number; rotation: number; sx: number; sy: number }>) =>
-    update({
-      ...prop,
-      transform: {
-        position: { ...t.position, x: patch.x ?? t.position.x, y: patch.y ?? t.position.y },
-        rotationDeg: { ...t.rotationDeg, z: patch.rotation ?? t.rotationDeg.z },
-        scale: { ...t.scale, x: patch.sx ?? t.scale.x, y: patch.sy ?? t.scale.y },
-      },
+    update((p) => {
+      const { position, rotationDeg, scale } = p.transform;
+      return {
+        ...p,
+        transform: {
+          position: { ...position, x: patch.x ?? position.x, y: patch.y ?? position.y },
+          rotationDeg: { ...rotationDeg, z: patch.rotation ?? rotationDeg.z },
+          scale: { ...scale, x: patch.sx ?? scale.x, y: patch.sy ?? scale.y },
+        },
+      };
     });
   const shape = prop.shape;
   const fields = shape.source === "generator" ? (SHAPE_FIELDS[shape.type] ?? []) : [];
   const wiring = wiringOf(show, prop.id);
   const commitName = () => {
     const trimmed = name.trim();
-    if (trimmed && trimmed !== prop.name) update({ ...prop, name: trimmed });
+    if (trimmed && trimmed !== prop.name) update((p) => ({ ...p, name: trimmed }));
     else setName(prop.name);
   };
 
@@ -158,7 +166,7 @@ function OnePropPanel({ prop }: { prop: Prop }) {
                 value={(shape as unknown as Record<string, number>)[f.key]}
                 min={f.min}
                 integer={f.integer}
-                onCommit={(v) => update({ ...prop, shape: { ...shape, [f.key]: v } as ShapeSource })}
+                onCommit={(v) => update((p) => ({ ...p, shape: { ...p.shape, [f.key]: v } as ShapeSource }))}
               />
             ))}
           </div>
@@ -171,7 +179,13 @@ function OnePropPanel({ prop }: { prop: Prop }) {
         )}
         <label className="mt-2 flex flex-col gap-1 text-xs">
           <span className="text-neutral-500 dark:text-neutral-400">Color order</span>
-          <Select value={prop.colorOrder} onChange={(e) => update({ ...prop, colorOrder: e.target.value as ColorOrder })}>
+          <Select
+            value={prop.colorOrder}
+            onChange={(e) => {
+              const colorOrder = e.target.value as ColorOrder;
+              update((p) => ({ ...p, colorOrder }));
+            }}
+          >
             {COLOR_ORDERS.map((o) => (
               <option key={o} value={o}>
                 {o}
@@ -186,8 +200,8 @@ function OnePropPanel({ prop }: { prop: Prop }) {
           <NumberField label="Position Y" value={t.position.y} onCommit={(y) => setTransform({ y })} />
           <NumberField label="Rotation (degrees)" value={t.rotationDeg.z} onCommit={(rotation) => setTransform({ rotation })} />
           <div />
-          <NumberField label="Scale X" value={t.scale.x} min={0.001} onCommit={(sx) => setTransform({ sx })} />
-          <NumberField label="Scale Y" value={t.scale.y} min={0.001} onCommit={(sy) => setTransform({ sy })} />
+          <NumberField label="Scale X" value={t.scale.x} nonZero onCommit={(sx) => setTransform({ sx })} />
+          <NumberField label="Scale Y" value={t.scale.y} nonZero onCommit={(sy) => setTransform({ sy })} />
         </div>
       </Section>
       <Section title="Wiring">
@@ -225,14 +239,18 @@ function OnePropPanel({ prop }: { prop: Prop }) {
 
 function DuplicateButton({ ids }: { ids: string[] }) {
   const apply = useApp((s) => s.apply);
-  const show = useApp((s) => s.snapshot!.show);
   const select = useLayoutEditor((s) => s.select);
   return (
     <Button
       title="Duplicate (⌘D)"
       onClick={async () => {
-        const copies = duplicateEdits(show, ids);
-        if (await apply(copies.edits)) select(copies.ids);
+        let copies: string[] = [];
+        const duplicate = (show: Show) => {
+          const made = duplicateEdits(show, ids);
+          copies = made.ids;
+          return made.edits;
+        };
+        if (await apply(duplicate)) select(copies);
       }}
     >
       <Copy size={16} aria-hidden /> Duplicate
@@ -251,7 +269,6 @@ const ALIGNS: { how: Align; label: string; icon: LucideIcon }[] = [
 
 function ManyPropsPanel({ ids, preview }: { ids: string[]; preview: PreviewProp[] }) {
   const apply = useApp((s) => s.apply);
-  const show = useApp((s) => s.snapshot!.show);
   const clear = useLayoutEditor((s) => s.clear);
   const iconButton = "rounded-md border border-neutral-300 p-1.5 hover:bg-neutral-100 disabled:opacity-40 dark:border-neutral-700 dark:hover:bg-neutral-800";
   return (
@@ -262,7 +279,7 @@ function ManyPropsPanel({ ids, preview }: { ids: string[]; preview: PreviewProp[
       <Section title="Line up">
         <div className="flex flex-wrap gap-1">
           {ALIGNS.map(({ how, label, icon: Icon }) => (
-            <button key={how} type="button" aria-label={label} title={label} className={iconButton} onClick={() => void apply(alignEdits(show, preview, ids, how))}>
+            <button key={how} type="button" aria-label={label} title={label} className={iconButton} onClick={() => void apply((show) => alignEdits(show, preview, ids, how))}>
               <Icon size={16} aria-hidden />
             </button>
           ))}
@@ -274,7 +291,7 @@ function ManyPropsPanel({ ids, preview }: { ids: string[]; preview: PreviewProp[
             title={ids.length < 3 ? "Select three or more props to space them evenly" : "Space evenly left to right"}
             disabled={ids.length < 3}
             className={iconButton}
-            onClick={() => void apply(distributeEdits(show, preview, ids, "horizontal"))}
+            onClick={() => void apply((show) => distributeEdits(show, preview, ids, "horizontal"))}
           >
             <AlignHorizontalDistributeCenter size={16} aria-hidden />
           </button>
@@ -284,7 +301,7 @@ function ManyPropsPanel({ ids, preview }: { ids: string[]; preview: PreviewProp[
             title={ids.length < 3 ? "Select three or more props to space them evenly" : "Space evenly bottom to top"}
             disabled={ids.length < 3}
             className={iconButton}
-            onClick={() => void apply(distributeEdits(show, preview, ids, "vertical"))}
+            onClick={() => void apply((show) => distributeEdits(show, preview, ids, "vertical"))}
           >
             <AlignVerticalDistributeCenter size={16} aria-hidden />
           </button>
@@ -307,10 +324,14 @@ function ManyPropsPanel({ ids, preview }: { ids: string[]; preview: PreviewProp[
   );
 }
 
-function PhotoPanel({ problem, onChoosePhoto }: { problem: string | null; onChoosePhoto: () => void }) {
+function PhotoPanel({ problem, onRetry, onChoosePhoto }: { problem: string | null; onRetry: () => void; onChoosePhoto: () => void }) {
   const apply = useApp((s) => s.apply);
   const background = useApp((s) => s.snapshot!.show.background ?? null);
-  const { editPhoto, setEditPhoto, photoDraft, setPhotoDraft } = useLayoutEditor();
+  const { editPhoto, setEditPhoto, photoDraft, setPhotoDraft } = useLayoutEditor(
+    useShallow((s) => ({ editPhoto: s.editPhoto, setEditPhoto: s.setEditPhoto, photoDraft: s.photoDraft, setPhotoDraft: s.setPhotoDraft })),
+  );
+  /** The draft last sent: releasing the slider, a key, and leaving it can all fire for one change. */
+  const sent = useRef<Background | null>(null);
   if (!background) {
     return (
       <Section title="Background photo">
@@ -325,15 +346,28 @@ function PhotoPanel({ problem, onChoosePhoto }: { problem: string | null; onChoo
   const slide = (percent: number) => setPhotoDraft({ ...(photoDraft ?? background), opacity: percent / 100 });
   const commit = () => {
     const draft: Background | null = useLayoutEditor.getState().photoDraft;
-    if (!draft || draft.opacity === background.opacity) return setPhotoDraft(null);
-    void apply([{ type: "setBackground", background: { ...background, opacity: draft.opacity } }]).then(() => setPhotoDraft(null));
+    if (!draft || draft === sent.current) return;
+    if (draft.opacity === background.opacity) return setPhotoDraft(null);
+    sent.current = draft;
+    const { opacity } = draft;
+    void apply((show) => (show.background ? [{ type: "setBackground", background: { ...show.background, opacity } }] : [])).then(() => {
+      // Keep a newer slide that started meanwhile.
+      if (useLayoutEditor.getState().photoDraft === draft) setPhotoDraft(null);
+    });
   };
   return (
     <Section title="Background photo">
       <p className="mb-2 truncate text-sm" title={background.path}>
         {fileName(background.path)}
       </p>
-      {problem && <p className="mb-2 text-sm text-red-600 dark:text-red-400">{problem}</p>}
+      {problem && (
+        <div className="mb-2 text-sm text-red-600 dark:text-red-400">
+          <p>{problem}</p>
+          <button type="button" className="mt-1 text-accent-500 underline" onClick={onRetry}>
+            Try again
+          </button>
+        </div>
+      )}
       <label className="flex flex-col gap-1 text-xs">
         <span className="text-neutral-500 dark:text-neutral-400">Photo strength: {strength}%</span>
         <input
@@ -366,10 +400,12 @@ function PhotoPanel({ problem, onChoosePhoto }: { problem: string | null; onChoo
 export function PropertiesPanel({
   preview,
   photoProblem,
+  onRetryPhoto,
   onChoosePhoto,
 }: {
   preview: PreviewProp[];
   photoProblem: string | null;
+  onRetryPhoto: () => void;
   onChoosePhoto: () => void;
 }) {
   const show = useApp((s) => s.snapshot?.show);
@@ -384,13 +420,14 @@ export function PropertiesPanel({
         <ManyPropsPanel ids={ids} preview={preview} />
       ) : (
         <div>
-          <PhotoPanel problem={photoProblem} onChoosePhoto={onChoosePhoto} />
+          <PhotoPanel problem={photoProblem} onRetry={onRetryPhoto} onChoosePhoto={onChoosePhoto} />
           <Section title="Tips">
             <ul className="list-disc space-y-1 pl-4 text-sm text-neutral-600 dark:text-neutral-400">
               <li>Pick a tool above and drag on the canvas to draw a prop.</li>
               <li>Click a prop to select it; shift-click or drag a box to select more.</li>
               <li>Drag corners to resize, the round handle to turn. Hold Shift for free stretching or 15° steps.</li>
               <li>Arrow keys nudge, ⌘D duplicates, Delete removes, ⌘Z undoes.</li>
+              <li>Scroll or Space-drag to move around; pinch or hold ⌘ and scroll to zoom.</li>
             </ul>
           </Section>
         </div>

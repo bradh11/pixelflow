@@ -1,15 +1,15 @@
 import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
-import { useRef, useState } from "react";
+import { memo, useRef, useState } from "react";
 import { errorMessage } from "../api/backend";
 import type { Prop } from "../api/types";
 import { LayoutCanvas, type LayoutCanvasHandle } from "../components/layout/LayoutCanvas";
 import { LayoutToolbar } from "../components/layout/LayoutToolbar";
 import { PropertiesPanel } from "../components/layout/PropertiesPanel";
-import { FALLBACK_ASPECT, imageAspect, useBackgroundImage, useLiveFrame, usePreviewProps } from "../components/layout/useLayoutData";
+import { FALLBACK_ASPECT, imageAspect, useBackgroundImage, usePreviewProps } from "../components/layout/useLayoutData";
 import { useLayoutKeys } from "../components/layout/useLayoutKeys";
 import { Button, EmptyState, Input, PageHeader, Select } from "../components/ui";
 import { thousands } from "../lib/format";
-import { besideOthers } from "../lib/layoutEdits";
+import { besideOthers, updateEdits } from "../lib/layoutEdits";
 import { boxOfPoints, defaultBackground, unionBox } from "../lib/layoutMath";
 import { PROP_KINDS, type PropKind, newProp, shapeLabel } from "../lib/shows";
 import { useLayoutEditor } from "../state/layoutEditor";
@@ -21,7 +21,7 @@ function PropRow({ prop, pixels, selected }: { prop: Prop; pixels: number; selec
   const [name, setName] = useState(prop.name);
   const commit = () => {
     const trimmed = name.trim();
-    if (trimmed && trimmed !== prop.name) void apply([{ type: "updateProp", prop: { ...prop, name: trimmed } }]);
+    if (trimmed && trimmed !== prop.name) void apply(updateEdits(prop.id, (p) => ({ ...p, name: trimmed })));
     else setName(prop.name);
   };
   return (
@@ -52,7 +52,7 @@ function PropRow({ prop, pixels, selected }: { prop: Prop; pixels: number; selec
 }
 
 /** Every prop as a table: names, pixel counts, and a checkbox to select it (for keyboard users too). */
-function PropsList() {
+const PropsList = memo(function PropsList() {
   const snapshot = useApp((s) => s.snapshot!);
   const selected = useLayoutEditor((s) => s.selected);
   const [open, setOpen] = useState(true);
@@ -95,7 +95,7 @@ function PropsList() {
         ))}
     </section>
   );
-}
+});
 
 /** Draw the display: props over a photo of the house, with a properties panel and a props list. */
 export function LayoutScreen() {
@@ -104,14 +104,13 @@ export function LayoutScreen() {
   const backend = useApp((s) => s.backend);
   const [kind, setKind] = useState<PropKind>("arch");
   const preview = usePreviewProps();
-  const frame = useLiveFrame();
   const photo = useBackgroundImage(snapshot?.show.background?.path);
   const canvas = useRef<LayoutCanvasHandle>(null);
   useLayoutKeys(canvas);
   if (!snapshot) return null;
   const show = snapshot.show;
 
-  const add = () => apply([{ type: "addProp", prop: besideOthers(newProp(kind, show), show) }]);
+  const add = () => apply((latest) => [{ type: "addProp", prop: besideOthers(newProp(kind, latest), latest, preview.props) }]);
 
   const choosePhoto = async () => {
     if (!backend) return;
@@ -124,10 +123,13 @@ export function LayoutScreen() {
       useApp.setState({ error: errorMessage(e) });
       return;
     }
-    const current = useApp.getState().snapshot?.show.background;
-    const props = unionBox(preview.map((p) => boxOfPoints(p.points)));
-    const background = current ? { ...current, path } : defaultBackground(path, props, aspect);
-    await apply([{ type: "setBackground", background }]);
+    const props = unionBox(preview.props.map((p) => boxOfPoints(p.points)));
+    const same = path === useApp.getState().snapshot?.show.background?.path;
+    await apply((latest) => [
+      { type: "setBackground", background: latest.background ? { ...latest.background, path } : defaultBackground(path, props, aspect) },
+    ]);
+    // The same file chosen again (it may have changed on disk): show it afresh.
+    if (same) photo.reload();
   };
 
   return (
@@ -153,7 +155,7 @@ export function LayoutScreen() {
       <LayoutToolbar hasPhoto={!!show.background} onChoosePhoto={() => void choosePhoto()} />
       <div className="flex h-[max(26rem,calc(100vh-17rem))] gap-3">
         <div className="relative min-w-0 flex-1">
-          <LayoutCanvas ref={canvas} preview={preview} frame={frame} show={show} photo={photo} apply={apply} />
+          <LayoutCanvas ref={canvas} preview={preview} show={show} photo={photo} />
           {show.props.length === 0 && (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-neutral-300">
               <p className="max-w-sm rounded-lg bg-black/60 px-4 py-3">
@@ -165,7 +167,7 @@ export function LayoutScreen() {
           )}
         </div>
         <div className="w-72 shrink-0">
-          <PropertiesPanel preview={preview} photoProblem={photo.problem} onChoosePhoto={() => void choosePhoto()} />
+          <PropertiesPanel preview={preview.props} photoProblem={photo.problem} onRetryPhoto={photo.reload} onChoosePhoto={() => void choosePhoto()} />
         </div>
       </div>
       <PropsList />

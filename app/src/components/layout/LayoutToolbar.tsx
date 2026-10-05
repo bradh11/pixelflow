@@ -15,6 +15,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { DEFAULT_VIEW, MAX_ZOOM, MIN_ZOOM } from "../../lib/layoutMath";
 import { type Tool, useLayoutEditor } from "../../state/layoutEditor";
 
@@ -64,9 +65,20 @@ const Divider = () => <span aria-hidden className="mx-1 h-6 w-px bg-neutral-300 
 
 /** Tools for drawing and arranging, plus snap, zoom, and the background photo. */
 export function LayoutToolbar({ hasPhoto, onChoosePhoto }: { hasPhoto: boolean; onChoosePhoto: () => void }) {
-  const { tool, setTool, snap, setSnap, editPhoto, setEditPhoto, view, setView } = useLayoutEditor();
+  // Not the view: panning and zooming don't need the tool bar redrawn.
+  const { tool, setTool, snap, setSnap, editPhoto, setEditPhoto, setView } = useLayoutEditor(
+    useShallow((s) => ({
+      tool: s.tool,
+      setTool: s.setTool,
+      snap: s.snap,
+      setSnap: s.setSnap,
+      editPhoto: s.editPhoto,
+      setEditPhoto: s.setEditPhoto,
+      setView: s.setView,
+    })),
+  );
   const zoom = (factor: number) => {
-    const v = view ?? DEFAULT_VIEW;
+    const v = useLayoutEditor.getState().view ?? DEFAULT_VIEW;
     setView({ ...v, zoom: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, v.zoom * factor)) });
   };
   return (

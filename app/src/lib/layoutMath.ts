@@ -77,17 +77,33 @@ export function fitView(box: Box | null, size: Size, pad = 40): View {
 
 export type WheelLike = { deltaX: number; deltaY: number; deltaMode: number; ctrlKey: boolean; metaKey: boolean };
 
-/** Pinches and ⌘/Ctrl-scrolls zoom, as do mouse wheel clicks; two-finger scrolling pans. */
+/**
+ * ⌘/Ctrl-scrolling zooms, and so do trackpad pinches in Chromium and WebView2 (they arrive as
+ * Ctrl-scrolls), as do mouse wheels that scroll by lines or pages. Every other scroll pans.
+ * Pinches in Safari and the macOS app arrive as gesture events instead (see `pinchFactor`).
+ *
+ * Mouse wheels that scroll by pixels pan too: there's no telling them from a fast two-finger
+ * flick on a trackpad (WebKit sends both as whole-pixel vertical steps), and zooming by surprise
+ * mid-flick is worse than panning. Mouse users zoom with ⌘/Ctrl-scroll or the zoom buttons.
+ */
 export function wheelIntent(e: WheelLike): "zoom" | "pan" {
   if (e.ctrlKey || e.metaKey) return "zoom";
-  if (e.deltaMode !== 0) return "zoom"; // line or page steps: a mouse wheel
-  return e.deltaX === 0 && Number.isInteger(e.deltaY) && Math.abs(e.deltaY) >= 50 ? "zoom" : "pan";
+  return e.deltaMode !== 0 ? "zoom" : "pan";
 }
 
 /** How much one wheel event zooms (above 1 zooms in). Pinches send small, frequent steps. */
 export function wheelZoomFactor(e: WheelLike): number {
   const step = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
   return Math.exp(-clamp(step, -120, 120) * (e.ctrlKey ? 0.01 : 0.002));
+}
+
+/**
+ * How much to zoom for one step of a WebKit pinch, whose `scale` is measured from the start of
+ * the pinch (1 at the start). Odd values are ignored, and one step never more than doubles.
+ */
+export function pinchFactor(previousScale: number, scale: number): number {
+  if (!(previousScale > 0) || !(scale > 0) || !Number.isFinite(scale)) return 1;
+  return clamp(scale / previousScale, 0.5, 2);
 }
 
 // ---- Boxes -----------------------------------------------------------------------------
@@ -221,6 +237,40 @@ export function gestureTransform(g: Gesture, t: Transform): Transform {
       return { ...t, position, scale: { ...t.scale, x: tidy(t.scale.x * fx), y: tidy(t.scale.y * fy) } };
     }
   }
+}
+
+/** Each prop's pixels moved by every gesture in `layers` that lists it, in order. */
+export function composeGestures(props: PreviewProp[], layers: { ids: string[]; gesture: Gesture }[]): PreviewProp[] {
+  if (layers.length === 0) return props;
+  const sets = layers.map((l) => new Set(l.ids));
+  return props.map((p) => {
+    const mine = layers.filter((_, i) => sets[i].has(p.prop));
+    if (mine.length === 0) return p;
+    const pts = p.points;
+    const out = new Float64Array(pts.length);
+    for (let i = 0; i + 1 < pts.length; i += 2) {
+      let q = { x: pts[i], y: pts[i + 1] };
+      for (const { gesture } of mine) q = gesturePoint(gesture, q);
+      out[i] = q.x;
+      out[i + 1] = q.y;
+    }
+    return { ...p, points: out };
+  });
+}
+
+/** True when `deg` is a whole number of `step`s (within rounding). */
+const multipleOf = (deg: number, step: number) => {
+  const r = ((deg % step) + step) % step;
+  return r < 1e-3 || step - r < 1e-3;
+};
+
+/**
+ * Whether props can be stretched (resized with different width and height factors) exactly:
+ * only when none is turned at an angle other than a quarter turn. A transform can't skew, so a
+ * prop turned at, say, 30° would end up somewhere other than where the drag showed it.
+ */
+export function canStretchFreely(props: Prop[]): boolean {
+  return props.every(({ transform: { rotationDeg: r } }) => multipleOf(r.z, 90) && multipleOf(r.x, 180) && multipleOf(r.y, 180));
 }
 
 export function isNoop(g: Gesture): boolean {

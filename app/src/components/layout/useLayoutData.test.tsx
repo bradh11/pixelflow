@@ -1,5 +1,5 @@
-import { act, renderHook } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryBackend } from "../../api/memory";
 import type { PreviewProp, PreviewSet } from "../../api/types";
 import { useApp } from "../../state/store";
@@ -23,16 +23,17 @@ describe("layout data", () => {
     const liveFrame = vi.fn(async () => new Uint8Array(lit ? 3 : 0));
     backend.liveFrame = liveFrame;
     await connect(backend);
-    const { result } = renderHook(() => useLiveFrame());
+    const frames: (Uint8Array | null)[] = [];
+    renderHook(() => useLiveFrame((f) => frames.push(f)));
     await act(() => vi.advanceTimersByTimeAsync(3000));
     expect(liveFrame.mock.calls.length).toBeLessThanOrEqual(4);
-    expect(result.current).toBeNull();
+    expect(frames.every((f) => f === null)).toBe(true);
     lit = true;
     await act(() => vi.advanceTimersByTimeAsync(1000));
     const afterIdle = liveFrame.mock.calls.length;
     await act(() => vi.advanceTimersByTimeAsync(1000));
     expect(liveFrame.mock.calls.length - afterIdle).toBeGreaterThanOrEqual(9);
-    expect(result.current).toHaveLength(3);
+    expect(frames.at(-1)).toHaveLength(3);
   });
 
   it("ignores pixel positions that arrive after newer ones were asked for", async () => {
@@ -46,7 +47,8 @@ describe("layout data", () => {
     expect(answers).toHaveLength(2);
     await act(async () => answers[1]({ revision: 2, props: [prop("new")] }));
     await act(async () => answers[0]({ revision: 1, props: [] }));
-    expect(result.current.map((p) => p.prop)).toEqual(["new"]);
+    expect(result.current.props.map((p) => p.prop)).toEqual(["new"]);
+    expect(result.current.revision).toBe(2);
   });
 
   it("reports a photo that can't be read, in plain words", async () => {
@@ -56,6 +58,91 @@ describe("layout data", () => {
     await act(async () => {});
     expect(result.current.problem).toBe("This photo was moved or deleted. Choose it again with Replace…");
     expect(result.current.image).toBeNull();
+  });
+
+  describe("the background photo", () => {
+    let created: string[];
+    let revoked: string[];
+    /** Images "load" with this width (and half as tall). */
+    let width: number;
+
+    beforeEach(() => {
+      created = [];
+      revoked = [];
+      width = 800;
+      vi.stubGlobal("URL", {
+        ...URL,
+        createObjectURL: () => {
+          const url = `blob:${created.length}`;
+          created.push(url);
+          return url;
+        },
+        revokeObjectURL: (url: string) => revoked.push(url),
+      });
+      vi.stubGlobal(
+        "Image",
+        class {
+          naturalWidth = 0;
+          naturalHeight = 0;
+          onload: (() => void) | null = null;
+          onerror: (() => void) | null = null;
+          set src(_: string) {
+            this.naturalWidth = width;
+            this.naturalHeight = width / 2;
+            queueMicrotask(() => this.onload?.());
+          }
+        },
+      );
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    it("loads the photo, then lets go of its temporary address", async () => {
+      const backend = new MemoryBackend();
+      backend.images.set("/house.png", new Uint8Array([1]));
+      await connect(backend);
+      const { result } = renderHook(() => useBackgroundImage("/house.png"));
+      await waitFor(() => expect(result.current.image).not.toBeNull());
+      expect(result.current.aspect).toBe(0.5);
+      expect(revoked).toEqual(created);
+    });
+
+    it("makes no temporary address for a photo that arrives after it's no longer wanted", async () => {
+      const backend = new MemoryBackend();
+      let finish!: (bytes: Uint8Array<ArrayBuffer>) => void;
+      backend.readImage = () => new Promise((resolve) => (finish = resolve));
+      await connect(backend);
+      const { unmount } = renderHook(() => useBackgroundImage("/house.png"));
+      unmount();
+      await act(async () => finish(new Uint8Array([1])));
+      expect(created).toEqual([]);
+    });
+
+    it("tries again when asked, and when the same file is chosen again", async () => {
+      const backend = new MemoryBackend();
+      const reads = vi.spyOn(backend, "readImage");
+      await connect(backend);
+      const { result } = renderHook(() => useBackgroundImage("/house.png"));
+      await waitFor(() => expect(result.current.problem).toMatch(/moved or deleted/));
+      backend.images.set("/house.png", new Uint8Array([1]));
+      act(() => result.current.reload());
+      await waitFor(() => expect(result.current.image).not.toBeNull());
+      expect(result.current.problem).toBeNull();
+      expect(reads).toHaveBeenCalledTimes(2);
+    });
+
+    it("scales a huge photo down once", async () => {
+      width = 12000;
+      const bitmap = { width: 4096 } as ImageBitmap;
+      const createImageBitmap = vi.fn(async () => bitmap);
+      vi.stubGlobal("createImageBitmap", createImageBitmap);
+      const backend = new MemoryBackend();
+      backend.images.set("/huge.jpg", new Uint8Array([1]));
+      await connect(backend);
+      const { result } = renderHook(() => useBackgroundImage("/huge.jpg"));
+      await waitFor(() => expect(result.current.image).toBe(bitmap));
+      expect(createImageBitmap).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ resizeWidth: 4096 }));
+      expect(result.current.aspect).toBe(0.5);
+    });
   });
 
   it("knows image types by file name", () => {

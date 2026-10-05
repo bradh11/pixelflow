@@ -24,6 +24,14 @@ export function gestureEdits(show: Show, ids: string[], gesture: Gesture): Edit[
     .map((prop) => ({ type: "updateProp" as const, prop: { ...prop, transform: gestureTransform(gesture, prop.transform) } }));
 }
 
+/** The prop `id` changed by `change`, built from the show when the edit's turn comes (see `EditsFrom`). */
+export function updateEdits(id: string, change: (prop: Prop) => Prop): (show: Show) => Edit[] {
+  return (show) => {
+    const prop = show.props.find((p) => p.id === id);
+    return prop ? [{ type: "updateProp", prop: change(prop) }] : [];
+  };
+}
+
 export function removeEdits(ids: string[]): Edit[] {
   return ids.map((id) => ({ type: "removeProp" as const, id }));
 }
@@ -76,9 +84,14 @@ export function distributeEdits(show: Show, preview: PreviewProp[], ids: string[
   return movesToEdits(show, distributeMoves(selectedBoxes(preview, ids), axis));
 }
 
-/** A new prop moved just right of everything already in the show (instead of on top of it). */
-export function besideOthers(prop: Prop, show: Show): Prop {
-  const existing = unionBox(show.props.map((p) => boxOfPoints(frontView(p))));
+/**
+ * A new prop moved just right of everything already in the show (instead of on top of it).
+ * The other props' boxes come from the engine's `preview` where it has them, and are worked
+ * out here otherwise.
+ */
+export function besideOthers(prop: Prop, show: Show, preview: PreviewProp[] = []): Prop {
+  const drawn = new Map(preview.map((p) => [p.prop, p.points]));
+  const existing = unionBox(show.props.map((p) => boxOfPoints(drawn.get(p.id) ?? frontView(p))));
   const at = besideBox(existing, boxOfPoints(frontView(prop)));
   return { ...prop, transform: { ...prop.transform, position: { ...prop.transform.position, ...at } } };
 }

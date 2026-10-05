@@ -33,6 +33,9 @@ import {
   unionBox,
   wheelIntent,
   wheelZoomFactor,
+  canStretchFreely,
+  composeGestures,
+  pinchFactor,
   zoomAt,
   type Gesture,
   type View,
@@ -61,6 +64,15 @@ describe("the view", () => {
     expect(zoomAt(view, size, cursor, 1e9).zoom).toBe(2000);
   });
 
+  it("zooms by each step of a WebKit pinch, ignoring odd values", () => {
+    expect(pinchFactor(1, 1.1)).toBeCloseTo(1.1);
+    expect(pinchFactor(1.1, 1.21)).toBeCloseTo(1.1);
+    expect(pinchFactor(1, 0.8)).toBeCloseTo(0.8);
+    expect(pinchFactor(1, 10)).toBe(2);
+    expect(pinchFactor(0, 1.5)).toBe(1);
+    expect(pinchFactor(1, Number.NaN)).toBe(1);
+  });
+
   it("pans so the picture follows the drag", () => {
     const moved = panBy(view, 50, -20);
     expect(toScreen(moved, size, { x: 0, y: 0 })).toEqual({ x: 450, y: 280 });
@@ -74,12 +86,13 @@ describe("the view", () => {
     expect(fitView({ minX: 2, minY: 3, maxX: 4, maxY: 5 }, { width: 0, height: 0 })).toMatchObject({ cx: 3, cy: 4 });
   });
 
-  it("zooms for pinches, ⌘-scroll, and mouse wheels, and pans for two-finger scrolls", () => {
+  it("zooms for pinches, ⌘-scroll, and line-by-line mouse wheels, and pans for every other scroll", () => {
     const wheel = { deltaX: 0, deltaY: 0, deltaMode: 0, ctrlKey: false, metaKey: false };
     expect(wheelIntent({ ...wheel, deltaY: 3.5, ctrlKey: true })).toBe("zoom");
     expect(wheelIntent({ ...wheel, deltaY: 10, metaKey: true })).toBe("zoom");
-    expect(wheelIntent({ ...wheel, deltaY: 100 })).toBe("zoom");
     expect(wheelIntent({ ...wheel, deltaY: 3, deltaMode: 1 })).toBe("zoom");
+    // A whole-pixel vertical step could be a mouse wheel or a fast trackpad flick: it pans.
+    expect(wheelIntent({ ...wheel, deltaY: 100 })).toBe("pan");
     expect(wheelIntent({ ...wheel, deltaY: 12.5, deltaX: 2 })).toBe("pan");
     expect(wheelIntent({ ...wheel, deltaY: 4 })).toBe("pan");
     expect(wheelZoomFactor({ ...wheel, deltaY: -100 })).toBeGreaterThan(1);
@@ -298,5 +311,35 @@ describe("the background photo", () => {
     expect((box.minY + box.maxY) / 2).toBeCloseTo(2.5);
     expect(box.maxX - box.minX).toBeCloseTo(28);
     expect(defaultBackground("/p.jpg", null, 0.5)).toMatchObject({ width: 20, opacity: 0.7 });
+  });
+});
+
+describe("gestures on their way", () => {
+  it("draws each prop moved by every gesture that lists it, in order", () => {
+    const props = [preview("a", [0, 0, 1, 0]), preview("b", [5, 5])];
+    const layers: { ids: string[]; gesture: Gesture }[] = [
+      { ids: ["a"], gesture: { kind: "move", dx: 1, dy: 0 } },
+      { ids: ["a", "b"], gesture: { kind: "rotate", cx: 0, cy: 0, deg: 90 } },
+    ];
+    const [a, b] = composeGestures(props, layers);
+    const pts = Array.from(a.points);
+    [0, 1, 0, 2].forEach((v, i) => expect(pts[i]).toBeCloseTo(v));
+    const q = Array.from(b.points);
+    expect(q[0]).toBeCloseTo(-5);
+    expect(q[1]).toBeCloseTo(5);
+    expect(composeGestures(props, [])).toBe(props);
+    expect(composeGestures(props, [layers[0]])[1]).toBe(props[1]);
+  });
+
+  it("stretches freely only props that aren't turned at an odd angle", () => {
+    const turned = (z: number, x = 0) => {
+      const prop = newProp("line", emptyShow("x"));
+      prop.transform.rotationDeg = { x, y: 0, z };
+      return prop;
+    };
+    expect(canStretchFreely([turned(0), turned(90), turned(-180), turned(270.0004)])).toBe(true);
+    expect(canStretchFreely([turned(0), turned(30)])).toBe(false);
+    expect(canStretchFreely([turned(0, 45)])).toBe(false);
+    expect(canStretchFreely([])).toBe(true);
   });
 });

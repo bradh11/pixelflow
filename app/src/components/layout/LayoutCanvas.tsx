@@ -1,7 +1,6 @@
 import { type PointerEvent as ReactPointerEvent, type Ref, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import type { Background, Edit, PreviewProp, Show } from "../../api/types";
+import type { Background, PreviewProp, PreviewSet, Show } from "../../api/types";
 import { frontView } from "../../lib/geometry";
-import { gestureEdits } from "../../lib/layoutEdits";
 import {
   type Box,
   type Gesture,
@@ -14,16 +13,19 @@ import {
   boxCenter,
   boxFrom,
   boxOfPoints,
+  canStretchFreely,
+  composeGestures,
   drawnProp,
   fitView,
-  gesturePoint,
   handleAt,
   handlePositions,
   hitTest,
   inBox,
+  isNoop,
   moveBackground,
   moveGesture,
   panBy,
+  pinchFactor,
   placedProp,
   propsInBox,
   resizeBackground,
@@ -37,26 +39,34 @@ import {
   wheelZoomFactor,
   zoomAt,
 } from "../../lib/layoutMath";
+import { batchPixels, drawBatches } from "../../lib/pixelBatches";
 import { type PropKind, newProp } from "../../lib/shows";
 import { useLayoutEditor } from "../../state/layoutEditor";
+import { commitGesture, settlePending, unsettled } from "../../state/layoutGestures";
 import { useApp } from "../../state/store";
-import type { PhotoImage } from "./useLayoutData";
+import { type PhotoImage, useLiveFrame } from "./useLayoutData";
 
 /** How close (screen pixels) a click must be to a pixel to pick its prop. */
 const HIT_PX = 8;
 /** Drags shorter than this (screen pixels) count as clicks. */
 const CLICK_PX = 4;
+
+// The canvas stays dark in both themes on purpose: lights are judged against a night sky.
+// Selection marks get a dark outline underneath, so they read over a bright photo as well.
 const BACKDROP = "#0a0a0c";
-const UNLIT = "rgba(220, 220, 220, 0.7)";
 const ACCENT = "#a78bfa";
-const DARK_PIXEL = "rgba(90, 90, 90, 0.6)";
+const HALO = "rgba(0, 0, 0, 0.65)";
+const GRID = "rgba(160, 160, 160, 0.22)";
+const GROUND = "rgba(200, 200, 200, 0.4)";
+const PIXEL_COLORS = { unlit: "rgba(220, 220, 220, 0.7)", selected: ACCENT, dark: "rgba(90, 90, 90, 0.6)" };
 
 type Corner = Exclude<Handle, "rotate">;
 
 type Drag =
   | { kind: "pan"; last: Pt }
-  | { kind: "move"; ids: string[]; from: Pt; origin: Pt | null; gesture: Gesture }
-  | { kind: "scale"; ids: string[]; box: Box; handle: Corner; from: Pt; gesture: Gesture }
+  /** `narrowTo`: pressed on one prop of several selected; a click (no drag) selects just it. */
+  | { kind: "move"; ids: string[]; from: Pt; fromScreen: Pt; origin: Pt | null; gesture: Gesture; narrowTo: string | null }
+  | { kind: "scale"; ids: string[]; box: Box; handle: Corner; from: Pt; gesture: Gesture; stretchable: boolean }
   | { kind: "rotate"; ids: string[]; center: Pt; from: Pt; gesture: Gesture }
   | { kind: "marquee"; from: Pt; to: Pt; fromScreen: Pt; toScreen: Pt; additive: string[] }
   | { kind: "draw"; tool: PropKind; from: Pt; to: Pt; fromScreen: Pt; toScreen: Pt }
@@ -68,22 +78,10 @@ export interface LayoutCanvasHandle {
 }
 
 interface LayoutCanvasProps {
-  preview: PreviewProp[];
-  frame: Uint8Array | null;
+  preview: PreviewSet;
   show: Show;
   photo: PhotoImage;
-  apply(edits: Edit[]): Promise<boolean>;
   ref?: Ref<LayoutCanvasHandle>;
-}
-
-function movedPoints(points: ArrayLike<number>, g: Gesture): number[] {
-  const out = new Array<number>(points.length);
-  for (let i = 0; i + 1 < points.length; i += 2) {
-    const p = gesturePoint(g, { x: points[i], y: points[i + 1] });
-    out[i] = p.x;
-    out[i + 1] = p.y;
-  }
-  return out;
 }
 
 const CURSORS: Record<Handle, string> = {
@@ -94,57 +92,74 @@ const CURSORS: Record<Handle, string> = {
   rotate: "grab",
 };
 
+/** WebKit's pinch events (Safari and the macOS app); other browsers send Ctrl-scrolls instead. */
+type PinchEvent = Event & { scale: number; clientX: number; clientY: number };
+
+/** Says what's selected, for screen readers. */
+function SelectionAnnouncer({ show }: { show: Show }) {
+  const selected = useLayoutEditor((s) => s.selected);
+  const names = selected.map((id) => show.props.find((p) => p.id === id)?.name).filter(Boolean);
+  const message = names.length === 0 ? "Nothing selected" : names.length === 1 ? `${names[0]} selected` : `${names.length} props selected`;
+  return (
+    <p className="sr-only" aria-live="polite" data-testid="selection-announcer">
+      {message}
+    </p>
+  );
+}
+
 /**
  * The layout drawn over the background photo, where props are selected, moved, turned,
  * resized, and drawn. Every finished drag is sent as one batch of edits (one undo step); while
- * dragging, the props are only redrawn here.
+ * dragging, the props are only redrawn here. Panning, zooming, selecting, and live colors only
+ * redraw the canvas; they never re-render React.
  */
-export function LayoutCanvas({ preview, frame, show, photo, apply, ref }: LayoutCanvasProps) {
+export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drag = useRef<Drag | null>(null);
-  /** A finished gesture still drawn until the engine's new positions arrive. */
-  const pending = useRef<{ ids: string[]; gesture: Gesture; preview: PreviewProp[] } | null>(null);
+  const frame = useRef<Uint8Array | null>(null);
   const spaceHeld = useRef(false);
   const frameRequest = useRef<number | null>(null);
   const [cursor, setCursor] = useState("default");
   const [hovered, setHovered] = useState<string | null>(null);
 
-  const editor = useLayoutEditor();
   // Everything the drawing and pointer handlers need, current as of the last render.
-  const latest = useRef({ preview, frame, show, photo, editor, apply });
-  latest.current = { preview, frame, show, photo, editor, apply };
+  const latest = useRef({ preview, show, photo });
+  latest.current = { preview, show, photo };
 
   const size = (): Size => {
     const canvas = canvasRef.current;
     return { width: canvas?.clientWidth ?? 0, height: canvas?.clientHeight ?? 0 };
   };
 
-  const background = (): Background | null => {
-    const { editor, show } = latest.current;
-    return editor.photoDraft ?? show.background ?? null;
-  };
+  const background = (): Background | null => useLayoutEditor.getState().photoDraft ?? latest.current.show.background ?? null;
 
   /** Everything worth showing: the props and the photo. */
   const contentBox = (): Box | null => {
     const { preview, photo } = latest.current;
     const bg = background();
-    return unionBox([...preview.map((p) => boxOfPoints(p.points)), bg ? backgroundBox(bg, photo.aspect) : null]);
+    return unionBox([...preview.props.map((p) => boxOfPoints(p.points)), bg ? backgroundBox(bg, photo.aspect) : null]);
   };
 
   const currentView = (): View => useLayoutEditor.getState().view ?? fitView(contentBox(), size());
 
-  const liveGesture = (): { ids: string[]; gesture: Gesture } | null => {
-    const d = drag.current;
-    if (d && (d.kind === "move" || d.kind === "scale" || d.kind === "rotate")) return d;
-    return pending.current;
+  /** Fits everything in when nothing has set the view yet, once there's a size and something to show. */
+  const fitIfNeeded = () => {
+    if (useLayoutEditor.getState().view) return;
+    const s = size();
+    const { show, preview } = latest.current;
+    const ready = show.props.length === 0 || preview.props.length > 0;
+    if (s.width > 0 && ready) useLayoutEditor.getState().setView(fitView(contentBox(), s));
   };
 
-  /** The props as they should look now, with any dragged ones where they're being dragged. */
+  /** The props as they should look now: with gestures still on their way, held arrow keys, and any drag. */
   const effectivePreview = (): PreviewProp[] => {
     const { preview } = latest.current;
-    const live = liveGesture();
-    if (!live) return preview;
-    return preview.map((p) => (live.ids.includes(p.prop) ? { ...p, points: movedPoints(p.points, live.gesture) } : p));
+    const st = useLayoutEditor.getState();
+    const layers: { ids: string[]; gesture: Gesture }[] = unsettled(st.pending, preview.revision);
+    if (st.nudge) layers.push({ ids: st.nudge.ids, gesture: { kind: "move", dx: st.nudge.dx, dy: st.nudge.dy } });
+    const d = drag.current;
+    if (d && (d.kind === "move" || d.kind === "scale" || d.kind === "rotate")) layers.push(d);
+    return composeGestures(preview.props, layers);
   };
 
   const selectionBox = (props: PreviewProp[]): Box | null => {
@@ -157,7 +172,8 @@ export function LayoutCanvas({ preview, frame, show, photo, apply, ref }: Layout
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
-    const { frame, photo, editor } = latest.current;
+    const { photo } = latest.current;
+    const editor = useLayoutEditor.getState();
     const ratio = window.devicePixelRatio || 1;
     const s = size();
     if (canvas.width !== Math.round(s.width * ratio) || canvas.height !== Math.round(s.height * ratio)) {
@@ -181,11 +197,15 @@ export function LayoutCanvas({ preview, frame, show, photo, apply, ref }: Layout
         ctx.globalAlpha = 1;
       }
       if (editor.editPhoto || !photo.image) {
-        ctx.setLineDash(editor.editPhoto ? [] : [6, 4]);
-        ctx.strokeStyle = editor.editPhoto ? ACCENT : "rgba(255,255,255,0.3)";
-        ctx.lineWidth = editor.editPhoto ? 2 : 1;
-        ctx.strokeRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
-        ctx.setLineDash([]);
+        const rect = () => ctx.strokeRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
+        if (editor.editPhoto) strokeWithHalo(ctx, 2, [], rect);
+        else {
+          ctx.setLineDash([6, 4]);
+          ctx.strokeStyle = "rgba(255,255,255,0.3)";
+          ctx.lineWidth = 1;
+          rect();
+          ctx.setLineDash([]);
+        }
       }
       if (editor.editPhoto) {
         const handles = handlePositions(box, view, s);
@@ -198,74 +218,46 @@ export function LayoutCanvas({ preview, frame, show, photo, apply, ref }: Layout
     const props = effectivePreview();
     const selected = new Set(editor.selected);
     const radius = Math.min(4.5, Math.max(1.3, view.zoom * 0.05));
-    for (const p of props) {
-      const pts = p.points;
-      if (!frame) {
-        ctx.fillStyle = selected.has(p.prop) ? ACCENT : UNLIT;
-        ctx.beginPath();
-        for (let i = 0; i + 1 < pts.length; i += 2) {
-          const q = at({ x: pts[i], y: pts[i + 1] });
-          ctx.moveTo(q.x + radius, q.y);
-          ctx.arc(q.x, q.y, radius, 0, Math.PI * 2);
-        }
-        ctx.fill();
-        continue;
-      }
-      for (let i = 0, n = 0; i + 1 < pts.length; i += 2, n++) {
-        const q = at({ x: pts[i], y: pts[i + 1] });
-        const o = p.frameOffset + n * p.channelsPerPixel;
-        const [r, g, b] = o + 2 < frame.length ? [frame[o], frame[o + 1], frame[o + 2]] : [0, 0, 0];
-        ctx.fillStyle = r + g + b === 0 ? DARK_PIXEL : `rgb(${r}, ${g}, ${b})`;
-        ctx.beginPath();
-        ctx.arc(q.x, q.y, radius, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
+    drawBatches(ctx, batchPixels(props, frame.current, view, s, selected, PIXEL_COLORS, radius), radius, ratio);
 
     const d = drag.current;
     if (d?.kind === "draw") {
       const draft = draftProp(d);
       if (draft) {
         const pts = frontView(draft);
-        ctx.fillStyle = ACCENT;
-        ctx.beginPath();
-        for (let i = 0; i + 1 < pts.length; i += 2) {
-          const q = at({ x: pts[i], y: pts[i + 1] });
-          ctx.moveTo(q.x + radius, q.y);
-          ctx.arc(q.x, q.y, radius, 0, Math.PI * 2);
-        }
-        ctx.fill();
+        const outline = batchPixels([{ prop: draft.id, frameOffset: 0, channelsPerPixel: 3, points: pts }], null, view, s, new Set([draft.id]), PIXEL_COLORS, radius);
+        drawBatches(ctx, outline, radius, ratio);
       }
-      ctx.setLineDash([5, 4]);
-      ctx.strokeStyle = ACCENT;
-      ctx.lineWidth = 1;
       const [a, b] = [at(d.from), at(d.to)];
-      if (DRAWN_BY_ENDS.includes(d.tool)) {
-        ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
-        ctx.stroke();
-      } else {
-        ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
-      }
-      ctx.setLineDash([]);
+      strokeWithHalo(ctx, 1, [5, 4], () => {
+        if (DRAWN_BY_ENDS.includes(d.tool)) {
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+        } else {
+          ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+        }
+      });
     }
 
     if (!editor.editPhoto && selected.size > 0) {
       const box = selectionBox(props);
       if (box) {
         const handles = handlePositions(box, view, s);
-        ctx.strokeStyle = ACCENT;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([5, 4]);
-        ctx.strokeRect(handles.nw.x, handles.nw.y, handles.se.x - handles.nw.x, handles.se.y - handles.nw.y);
-        ctx.setLineDash([]);
-        ctx.beginPath();
-        ctx.moveTo(handles.rotate.x, handles.nw.y);
-        ctx.lineTo(handles.rotate.x, handles.rotate.y);
-        ctx.stroke();
+        strokeWithHalo(ctx, 1, [5, 4], () =>
+          ctx.strokeRect(handles.nw.x, handles.nw.y, handles.se.x - handles.nw.x, handles.se.y - handles.nw.y),
+        );
+        strokeWithHalo(ctx, 1, [], () => {
+          ctx.beginPath();
+          ctx.moveTo(handles.rotate.x, handles.nw.y);
+          ctx.lineTo(handles.rotate.x, handles.rotate.y);
+          ctx.stroke();
+        });
         for (const h of ["nw", "ne", "sw", "se"] as Corner[]) drawHandle(ctx, handles[h]);
         ctx.fillStyle = "#fff";
+        ctx.strokeStyle = ACCENT;
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.arc(handles.rotate.x, handles.rotate.y, 5, 0, Math.PI * 2);
         ctx.fill();
@@ -275,45 +267,65 @@ export function LayoutCanvas({ preview, frame, show, photo, apply, ref }: Layout
 
     if (d?.kind === "marquee") {
       const [a, b] = [d.fromScreen, d.toScreen];
+      const [x, y, w, h] = [Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y)];
       ctx.fillStyle = "rgba(167, 139, 250, 0.12)";
-      ctx.strokeStyle = ACCENT;
-      ctx.lineWidth = 1;
-      ctx.fillRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
-      ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+      ctx.fillRect(x, y, w, h);
+      strokeWithHalo(ctx, 1, [], () => ctx.strokeRect(x, y, w, h));
     }
-    // Every helper used here reads `latest`, so the function never needs to change.
+    // Every helper used here reads `latest` or the stores, so the function never needs to change.
   }, []);
 
+  /** Draws on the next animation frame; any number of calls before then draw once. */
   const redraw = useCallback(() => {
     if (frameRequest.current !== null) return;
     if (typeof requestAnimationFrame === "function") frameRequest.current = requestAnimationFrame(draw);
     else draw();
   }, [draw]);
 
-  // Redraw after every render: new positions, colors, selection, photo, or tool.
+  useEffect(
+    () => () => {
+      if (frameRequest.current !== null && typeof cancelAnimationFrame === "function") cancelAnimationFrame(frameRequest.current);
+      frameRequest.current = null;
+    },
+    [],
+  );
+
+  // Redraw after every render: new positions or photo.
   useEffect(redraw);
 
-  // A finished gesture is drawn locally until the engine's positions for it arrive.
-  useEffect(() => {
-    if (pending.current && pending.current.preview !== preview) pending.current = null;
-  }, [preview]);
+  // Live colors go straight to the canvas.
+  useLiveFrame(
+    useCallback(
+      (f: Uint8Array | null) => {
+        if (f === null && frame.current === null) return;
+        frame.current = f;
+        redraw();
+      },
+      [redraw],
+    ),
+  );
+
+  // The editor's state (view, selection, tool, gestures on their way) only needs a redraw.
+  useEffect(
+    () =>
+      useLayoutEditor.subscribe(() => {
+        fitIfNeeded();
+        redraw();
+      }),
+    [redraw],
+  );
+
+  // Gestures the engine's new positions include no longer need drawing on top.
+  useEffect(() => settlePending(preview.revision), [preview]);
 
   // Fit everything in once the canvas has a size and the props have arrived.
-  const view = editor.view;
-  useEffect(() => {
-    if (view) return;
-    const s = size();
-    const ready = show.props.length === 0 || preview.length > 0;
-    if (s.width > 0 && ready) useLayoutEditor.getState().setView(fitView(contentBox(), s));
-  }, [view, preview, show.props.length, photo.aspect]);
+  useEffect(fitIfNeeded, [preview, show.props.length, photo.aspect]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const observer = new ResizeObserver(() => {
-      if (!useLayoutEditor.getState().view && size().width > 0) {
-        useLayoutEditor.getState().setView(fitView(contentBox(), size()));
-      }
+      fitIfNeeded();
       redraw();
     });
     observer.observe(canvas);
@@ -325,19 +337,50 @@ export function LayoutCanvas({ preview, frame, show, photo, apply, ref }: Layout
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   };
 
-  // Wheel: zoom about the cursor, or pan (a passive React listener can't stop page scrolling).
+  // Wheel and pinch: zoom about the cursor, or pan (a passive React listener can't stop page
+  // scrolling). See `wheelIntent` for which scrolls zoom.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    let pinching = false;
+    let lastScale = 1;
+    const setView = (v: View) => useLayoutEditor.getState().setView(v);
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      // While a WebKit pinch is under way its gesture events do the zooming.
+      if (pinching && e.ctrlKey) return;
       const v = currentView();
-      const setView = useLayoutEditor.getState().setView;
       if (wheelIntent(e) === "zoom") setView(zoomAt(v, size(), point(e), wheelZoomFactor(e)));
       else setView(panBy(v, -e.deltaX, -e.deltaY));
     };
+    const onPinchStart = (e: Event) => {
+      e.preventDefault();
+      pinching = true;
+      lastScale = 1;
+    };
+    const onPinch = (e: Event) => {
+      e.preventDefault();
+      const { scale, clientX, clientY } = e as PinchEvent;
+      const factor = pinchFactor(lastScale, scale);
+      if (scale > 0) lastScale = scale;
+      const s = size();
+      const at = Number.isFinite(clientX) && Number.isFinite(clientY) ? point({ clientX, clientY }) : { x: s.width / 2, y: s.height / 2 };
+      setView(zoomAt(currentView(), s, at, factor));
+    };
+    const onPinchEnd = (e: Event) => {
+      e.preventDefault();
+      pinching = false;
+    };
     canvas.addEventListener("wheel", onWheel, { passive: false });
-    return () => canvas.removeEventListener("wheel", onWheel);
+    canvas.addEventListener("gesturestart", onPinchStart);
+    canvas.addEventListener("gesturechange", onPinch);
+    canvas.addEventListener("gestureend", onPinchEnd);
+    return () => {
+      canvas.removeEventListener("wheel", onWheel);
+      canvas.removeEventListener("gesturestart", onPinchStart);
+      canvas.removeEventListener("gesturechange", onPinch);
+      canvas.removeEventListener("gestureend", onPinchEnd);
+    };
   }, []);
 
   // Space held: drag to move the view.
@@ -426,14 +469,15 @@ export function LayoutCanvas({ preview, frame, show, photo, apply, ref }: Layout
         return;
       }
       if (handle) {
-        drag.current = { kind: "scale", ids, box, handle, from: w, gesture: { kind: "scale", ax: 0, ay: 0, fx: 1, fy: 1 } };
+        const stretchable = canStretchFreely(show.props.filter((p) => ids.includes(p.id)));
+        drag.current = { kind: "scale", ids, box, handle, from: w, gesture: { kind: "scale", ax: 0, ay: 0, fx: 1, fy: 1 }, stretchable };
         return;
       }
     }
-    const startMove = (ids: string[]) => {
+    const startMove = (ids: string[], narrowTo: string | null = null) => {
       const first = show.props.find((p) => p.id === ids[0]);
       const origin = first ? { x: first.transform.position.x, y: first.transform.position.y } : null;
-      drag.current = { kind: "move", ids, from: w, origin, gesture: { kind: "move", dx: 0, dy: 0 } };
+      drag.current = { kind: "move", ids, from: w, fromScreen: s, origin, gesture: { kind: "move", dx: 0, dy: 0 }, narrowTo };
     };
     const hit = hitTest(props, w, HIT_PX / v.zoom);
     if (hit) {
@@ -441,8 +485,10 @@ export function LayoutCanvas({ preview, frame, show, photo, apply, ref }: Layout
         st.toggle(hit);
         return;
       }
-      if (!st.selected.includes(hit)) st.select([hit]);
-      startMove(st.selected.includes(hit) ? st.selected : [hit]);
+      if (!st.selected.includes(hit)) {
+        st.select([hit]);
+        startMove([hit]);
+      } else startMove(st.selected, st.selected.length > 1 ? hit : null);
       return;
     }
     if (box && !e.shiftKey && inBox(box, w)) {
@@ -486,10 +532,12 @@ export function LayoutCanvas({ preview, frame, show, photo, apply, ref }: Layout
         d.last = s;
         break;
       case "move":
+        // Until the pointer has really moved, it's still a click.
+        if (Math.hypot(s.x - d.fromScreen.x, s.y - d.fromScreen.y) < CLICK_PX && isNoop(d.gesture)) break;
         d.gesture = moveGesture(d.from, w, d.origin, st.snap ? st.grid : null);
         break;
       case "scale":
-        d.gesture = scaleGesture(d.box, d.handle, d.from, w, e.shiftKey);
+        d.gesture = scaleGesture(d.box, d.handle, d.from, w, e.shiftKey && d.stretchable);
         break;
       case "rotate":
         d.gesture = rotateGesture(d.center, d.from, w, e.shiftKey);
@@ -517,25 +565,22 @@ export function LayoutCanvas({ preview, frame, show, photo, apply, ref }: Layout
     drag.current = null;
     if (!d) return;
     const st = useLayoutEditor.getState();
-    const { show, preview, apply } = latest.current;
+    const { apply } = useApp.getState();
     switch (d.kind) {
       case "pan":
         setCursor(spaceHeld.current || st.tool === "pan" ? "grab" : "default");
         break;
       case "move":
-      case "scale":
-      case "rotate": {
-        const edits = gestureEdits(show, d.ids, d.gesture);
-        if (edits.length === 0) break;
-        pending.current = { ids: d.ids, gesture: d.gesture, preview };
-        const revision = useApp.getState().snapshot?.revision;
-        void apply(edits).then((ok) => {
-          // Refused, or too small to change anything: no new positions are coming.
-          if (!ok || useApp.getState().snapshot?.revision === revision) pending.current = null;
-          redraw();
-        });
+        if (isNoop(d.gesture)) {
+          if (d.narrowTo) st.select([d.narrowTo]);
+          break;
+        }
+        void commitGesture(d.ids, d.gesture);
         break;
-      }
+      case "scale":
+      case "rotate":
+        void commitGesture(d.ids, d.gesture);
+        break;
       case "marquee": {
         const dragged = Math.hypot(d.toScreen.x - d.fromScreen.x, d.toScreen.y - d.fromScreen.y) >= CLICK_PX;
         if (dragged) st.select([...d.additive, ...propsInBox(effectivePreview(), boxFrom(d.from, d.to))]);
@@ -576,7 +621,8 @@ export function LayoutCanvas({ preview, frame, show, photo, apply, ref }: Layout
         tabIndex={0}
         data-testid="layout-canvas"
         className="block h-full w-full touch-none select-none"
-        style={{ cursor: drag.current?.kind === "pan" ? "grabbing" : cursor }}
+        // Inside the edge, so the rounded frame around the canvas doesn't cut the focus ring off.
+        style={{ cursor: drag.current?.kind === "pan" ? "grabbing" : cursor, outlineOffset: -3 }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -584,11 +630,14 @@ export function LayoutCanvas({ preview, frame, show, photo, apply, ref }: Layout
         onPointerLeave={() => setHovered(null)}
       />
       <p id="layout-canvas-help" className="sr-only">
-        Click a prop to select it, or shift-click to select more. Drag across empty space to select everything inside. Drag
-        selected props to move them, drag a corner handle to resize them, or drag the round handle above them to turn them.
-        Arrow keys move the selection, Delete removes it, and Escape clears it. Hold Space and drag, or scroll with two
-        fingers, to move around; pinch or hold Command and scroll to zoom. Every prop is also in the props list below.
+        Click a prop to select it, or shift-click to select more. Drag across empty space to select everything inside, or
+        press Command-A to select every prop. Drag selected props to move them, drag a corner handle to resize them, or drag
+        the round handle above them to turn them. Arrow keys move the selection (hold Shift to move it further), Command-D
+        duplicates it, Delete removes it, and Escape clears it. To draw a new prop, pick Line, Arch, Matrix, Tree, Circle, or
+        Star in the tool bar and drag here. Hold Space and drag, or scroll with two fingers, to move around; pinch, or hold
+        Command and scroll, to zoom. Every prop is also in the props list below.
       </p>
+      <SelectionAnnouncer show={show} />
       {hoveredName && (
         <div className="pointer-events-none absolute bottom-2 left-2 rounded bg-black/70 px-2 py-0.5 text-xs text-white">
           {hoveredName}
@@ -598,11 +647,26 @@ export function LayoutCanvas({ preview, frame, show, photo, apply, ref }: Layout
   );
 }
 
+/** Strokes whatever `path` draws in the accent color over a dark outline, readable on any background. */
+function strokeWithHalo(ctx: CanvasRenderingContext2D, width: number, dash: number[], path: () => void) {
+  ctx.setLineDash(dash);
+  ctx.strokeStyle = HALO;
+  ctx.lineWidth = width + 2;
+  path();
+  ctx.strokeStyle = ACCENT;
+  ctx.lineWidth = width;
+  path();
+  ctx.setLineDash([]);
+}
+
 function drawHandle(ctx: CanvasRenderingContext2D, p: Pt) {
   ctx.fillStyle = "#fff";
+  ctx.strokeStyle = HALO;
+  ctx.lineWidth = 3;
+  ctx.strokeRect(p.x - 4, p.y - 4, 8, 8);
+  ctx.fillRect(p.x - 4, p.y - 4, 8, 8);
   ctx.strokeStyle = ACCENT;
   ctx.lineWidth = 1.5;
-  ctx.fillRect(p.x - 4, p.y - 4, 8, 8);
   ctx.strokeRect(p.x - 4, p.y - 4, 8, 8);
 }
 
@@ -612,7 +676,7 @@ function drawGrid(ctx: CanvasRenderingContext2D, view: View, size: Size, grid: n
   while (step * view.zoom < 8) step *= 2;
   const tl = toWorld(view, size, { x: 0, y: 0 });
   const br = toWorld(view, size, { x: size.width, y: size.height });
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.07)";
+  ctx.strokeStyle = GRID;
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let x = Math.ceil(tl.x / step) * step; x <= br.x; x += step) {
@@ -628,10 +692,9 @@ function drawGrid(ctx: CanvasRenderingContext2D, view: View, size: Size, grid: n
   ctx.stroke();
   // The ground line (y = 0) a little stronger.
   const ground = Math.round(toScreen(view, size, { x: 0, y: 0 }).y) + 0.5;
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
+  ctx.strokeStyle = GROUND;
   ctx.beginPath();
   ctx.moveTo(0, ground);
   ctx.lineTo(size.width, ground);
   ctx.stroke();
 }
-

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { demoShow } from "../api/demo";
 import { MemoryBackend, emptyShow } from "../api/memory";
 import type { Edit, Prop } from "../api/types";
-import { alignEdits, besideOthers, distributeEdits, duplicateEdits, gestureEdits, removeEdits, wiringOf } from "./layoutEdits";
+import { alignEdits, besideOthers, distributeEdits, duplicateEdits, gestureEdits, removeEdits, updateEdits, wiringOf } from "./layoutEdits";
 import { newProp } from "./shows";
 
 const props = (edits: Edit[]) => edits.map((e) => (e.type === "updateProp" || e.type === "addProp" ? e.prop : null)) as Prop[];
@@ -56,6 +56,25 @@ describe("layout edits", () => {
     // The mega tree's right edge is at x = 9.5; a 5-unit line centered on its origin starts 1 unit later.
     expect(placed.transform.position.x).toBeCloseTo(13, 1);
     expect(besideOthers(newProp("line", emptyShow("x")), emptyShow("x")).transform.position).toMatchObject({ x: 0, y: 0 });
+  });
+
+  it("goes by the engine's positions for the others where it has them", () => {
+    const show = demoShow();
+    // The engine draws the first prop far out to the right (say, an imported shape).
+    const preview = [{ prop: show.props[0].id, frameOffset: 0, channelsPerPixel: 3, points: [40, 0, 50, 2] }];
+    const placed = besideOthers(newProp("line", show), show, preview);
+    expect(placed.transform.position.x).toBeCloseTo(53.5, 1);
+  });
+
+  it("builds a prop's update from the show as it is when sent", () => {
+    const show = demoShow();
+    const id = show.props[1].id;
+    const rename = updateEdits(id, (p) => ({ ...p, name: "Renamed" }));
+    const moved = structuredClone(show);
+    moved.props[1].transform.position.x = 42;
+    const [edit] = rename(moved);
+    expect(edit).toMatchObject({ type: "updateProp", prop: { name: "Renamed", transform: { position: { x: 42 } } } });
+    expect(rename({ ...show, props: [] })).toEqual([]);
   });
 
   it("says where a prop is wired", () => {

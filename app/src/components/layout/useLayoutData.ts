@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
-import type { PreviewProp } from "../../api/types";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { errorMessage } from "../../api/backend";
+import type { PreviewSet } from "../../api/types";
 import { useApp } from "../../state/store";
 
 /** How often the canvas picks up colors while a test pattern or sequence is running. */
@@ -7,30 +8,38 @@ const FRAME_MS = 100;
 /** How often it checks whether something started, while nothing is running. */
 const IDLE_MS = 1000;
 
+const NO_PREVIEW: PreviewSet = { revision: -1, props: [] };
+
 /** Every prop's pixels from the engine, fetched again after each change to the show. */
-export function usePreviewProps(): PreviewProp[] {
+export function usePreviewProps(): PreviewSet {
   const backend = useApp((s) => s.backend);
   const revision = useApp((s) => s.snapshot?.revision);
-  const [props, setProps] = useState<PreviewProp[]>([]);
+  const [preview, setPreview] = useState<PreviewSet>(NO_PREVIEW);
   useEffect(() => {
     if (!backend) return;
     // Only the latest request counts: an older answer arriving late is ignored.
     let latest = true;
     void backend.previewProps().then(
-      (p) => latest && setProps(p.props),
-      () => latest && setProps([]),
+      (p) => latest && setPreview(p),
+      () => latest && setPreview({ revision: revision ?? -1, props: [] }),
     );
     return () => {
       latest = false;
     };
   }, [backend, revision]);
-  return props;
+  return preview;
 }
 
-/** The props' current colors while something plays: checked quickly while frames arrive, slowly otherwise. */
-export function useLiveFrame(): Uint8Array | null {
+/**
+ * Hands the props' current colors to `onFrame` while something plays (null when nothing is):
+ * checked quickly while frames arrive, slowly otherwise. Nothing re-renders.
+ */
+export function useLiveFrame(onFrame: (frame: Uint8Array | null) => void) {
   const backend = useApp((s) => s.backend);
-  const [frame, setFrame] = useState<Uint8Array | null>(null);
+  const callback = useRef(onFrame);
+  useEffect(() => {
+    callback.current = onFrame;
+  }, [onFrame]);
   useEffect(() => {
     if (!backend) return;
     let cancelled = false;
@@ -40,7 +49,7 @@ export function useLiveFrame(): Uint8Array | null {
         (f) => {
           if (cancelled) return;
           const lit = f.length > 0;
-          setFrame(lit ? f : null);
+          callback.current(lit ? f : null);
           timer = setTimeout(poll, lit ? FRAME_MS : IDLE_MS);
         },
         () => {
@@ -54,7 +63,6 @@ export function useLiveFrame(): Uint8Array | null {
       clearTimeout(timer);
     };
   }, [backend]);
-  return frame;
 }
 
 const IMAGE_TYPES: Record<string, string> = {
@@ -108,19 +116,35 @@ export async function imageAspect(bytes: Uint8Array, path: string): Promise<numb
 }
 
 export interface PhotoImage {
-  image: HTMLImageElement | null;
+  image: HTMLImageElement | ImageBitmap | null;
   /** Height divided by width; a typical photo's until the image has loaded. */
   aspect: number;
   /** Why the photo can't be shown, in plain language. */
   problem: string | null;
+  /** Reads the photo again: after fixing a problem, or choosing a file with the same name. */
+  reload(): void;
 }
 
 export const FALLBACK_ASPECT = 0.75;
+/** Wider photos are scaled down once to this width: the canvas never needs more, and it draws faster. */
+export const MAX_PHOTO_WIDTH = 4096;
+
+/** The image, scaled down to `MAX_PHOTO_WIDTH` when it's wider (where the browser can). */
+async function shrink(image: HTMLImageElement): Promise<HTMLImageElement | ImageBitmap> {
+  if (image.naturalWidth <= MAX_PHOTO_WIDTH || typeof createImageBitmap !== "function") return image;
+  try {
+    return await createImageBitmap(image, { resizeWidth: MAX_PHOTO_WIDTH, resizeQuality: "high" });
+  } catch {
+    return image;
+  }
+}
 
 /** The background photo at `path`, loaded through the backend (no file access in the window). */
 export function useBackgroundImage(path: string | null | undefined): PhotoImage {
   const backend = useApp((s) => s.backend);
-  const [state, setState] = useState<PhotoImage & { path: string | null }>({
+  const [attempt, setAttempt] = useState(0);
+  const reload = useCallback(() => setAttempt((a) => a + 1), []);
+  const [state, setState] = useState<Omit<PhotoImage, "reload"> & { path: string | null }>({
     path: null,
     image: null,
     aspect: FALLBACK_ASPECT,
@@ -129,31 +153,34 @@ export function useBackgroundImage(path: string | null | undefined): PhotoImage 
   useEffect(() => {
     if (!backend || !path) return;
     let cancelled = false;
-    let url: string | null = null;
-    void backend.readImage(path).then(
-      async (bytes) => {
-        url = blobUrl(bytes, path);
-        if (!url || cancelled) return;
-        const image = await loadImage(url);
+    // Trying again: the old problem no longer stands while the photo is read.
+    setState((s) => (s.path === path && s.problem ? { ...s, problem: null } : s));
+    void (async () => {
+      let url: string | null = null;
+      try {
+        const bytes = await backend.readImage(path);
         if (cancelled) return;
-        setState(
-          image
-            ? { path, image, aspect: image.naturalHeight / image.naturalWidth, problem: null }
-            : { path, image: null, aspect: FALLBACK_ASPECT, problem: "This photo couldn't be shown. Try a PNG or JPEG." },
-        );
-      },
-      (e: unknown) => {
-        if (!cancelled) {
-          const problem = e instanceof Error ? e.message : String(e);
-          setState({ path, image: null, aspect: FALLBACK_ASPECT, problem });
+        url = blobUrl(bytes, path);
+        if (!url) return;
+        const loaded = await loadImage(url);
+        if (cancelled) return;
+        if (!loaded) {
+          setState({ path, image: null, aspect: FALLBACK_ASPECT, problem: "This photo couldn't be shown. Try a PNG or JPEG." });
+          return;
         }
-      },
-    );
+        const image = await shrink(loaded);
+        if (!cancelled) setState({ path, image, aspect: loaded.naturalHeight / loaded.naturalWidth, problem: null });
+      } catch (e) {
+        if (!cancelled) setState({ path, image: null, aspect: FALLBACK_ASPECT, problem: errorMessage(e) });
+      } finally {
+        // A loaded image keeps its picture; the URL isn't needed any more.
+        if (url) URL.revokeObjectURL(url);
+      }
+    })();
     return () => {
       cancelled = true;
-      if (url) URL.revokeObjectURL(url);
     };
-  }, [backend, path]);
-  if (!path || state.path !== path) return { image: null, aspect: FALLBACK_ASPECT, problem: null };
-  return state;
+  }, [backend, path, attempt]);
+  if (!path || state.path !== path) return { image: null, aspect: FALLBACK_ASPECT, problem: null, reload };
+  return { ...state, reload };
 }

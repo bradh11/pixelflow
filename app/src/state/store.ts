@@ -1,8 +1,15 @@
 import { create } from "zustand";
 import { type Backend, errorMessage } from "../api/backend";
-import type { Device, Edit, ImportSummary, ShowSnapshot, SilentPeer } from "../api/types";
+import type { Device, Edit, ImportSummary, Show, ShowSnapshot, SilentPeer } from "../api/types";
 import { fileName } from "../lib/format";
 import { useLayoutEditor } from "./layoutEditor";
+
+/**
+ * Edits to send: a fixed list, or a function that builds them from the show as it is when
+ * their turn comes (after every earlier change has landed), so they never undo a change that
+ * was still on its way.
+ */
+export type EditsFrom = Edit[] | ((show: Show) => Edit[]);
 
 export type Screen = "layout" | "wiring" | "devices" | "play" | "test" | "history";
 export type Theme = "dark" | "light";
@@ -48,9 +55,18 @@ interface AppState {
   setMusicVolume(volume: number): void;
   resolvePendingReplace(choice: "save" | "discard" | "cancel"): Promise<boolean>;
   dismissError(): void;
-  /** Runs a backend call that returns a new snapshot; errors become a message. Returns success. */
+  /**
+   * Runs a backend call that returns a new snapshot; errors become a message. Returns success.
+   * Calls run one at a time, in the order they were made, so each starts from the show the
+   * previous one left.
+   */
   run(call: (backend: Backend) => Promise<ShowSnapshot>): Promise<boolean>;
-  apply(edits: Edit[]): Promise<boolean>;
+  apply(edits: EditsFrom): Promise<boolean>;
+  /**
+   * Like `apply`, but resolves with the revision of the show that includes the edits (the
+   * current one when there was nothing to change), or null when they were refused.
+   */
+  edit(edits: EditsFrom): Promise<number | null>;
   undo(): Promise<boolean>;
   redo(): Promise<boolean>;
   newShow(): Promise<boolean>;
@@ -144,13 +160,57 @@ export const useApp = create<AppState>((set, get) => {
     if (ok) {
       set({ started: true, screen: "layout" });
       // A different show: start the layout editor fresh, fitted to it.
-      useLayoutEditor.setState({ selected: [], view: null, editPhoto: false, photoDraft: null, tool: "select" });
+      useLayoutEditor.setState({ selected: [], view: null, editPhoto: false, photoDraft: null, tool: "select", nudge: null });
     }
     return ok;
   }
 
   /** Controllers forgotten while a scan was running, so its results don't bring them back. */
   const forgottenDuringScan = new Set<string>();
+
+  /** The end of the line of backend calls; each new call waits for the one before it. */
+  let queue: Promise<unknown> = Promise.resolve();
+
+  /** Runs `call` once every earlier call has finished; resolves with its snapshot, or null on failure. */
+  function runInTurn(call: (backend: Backend) => Promise<ShowSnapshot>): Promise<ShowSnapshot | null> {
+    const turn = queue.then(async () => {
+      const backend = get().backend;
+      if (!backend) return null;
+      set({ busy: true });
+      try {
+        const snapshot = await call(backend);
+        const current = get().snapshot;
+        // Engine revisions only increase, so never go backwards.
+        if (!current || snapshot.revision >= current.revision) {
+          set({ snapshot });
+          // The photo was removed (or its adding undone): there's nothing left to move.
+          const editor = useLayoutEditor.getState();
+          if (!snapshot.show.background && (editor.editPhoto || editor.photoDraft)) {
+            useLayoutEditor.setState({ editPhoto: false, photoDraft: null });
+          }
+        }
+        set({ error: null });
+        return snapshot;
+      } catch (e) {
+        set({ error: errorMessage(e) });
+        return null;
+      } finally {
+        set({ busy: false });
+      }
+    });
+    queue = turn;
+    return turn;
+  }
+
+  /** Sends the edits (built from the latest show, if they're a function) when their turn comes. */
+  function sendEdits(edits: EditsFrom): Promise<ShowSnapshot | null> {
+    return runInTurn(async (backend) => {
+      const current = get().snapshot;
+      const batch = typeof edits === "function" ? (current ? edits(current.show) : []) : edits;
+      if (batch.length === 0 && current) return current;
+      return backend.applyEdits(batch);
+    });
+  }
 
   /** Commits an in-progress text edit (e.g. a prop rename) before saving. */
   function commitFocusedField() {
@@ -176,6 +236,8 @@ export const useApp = create<AppState>((set, get) => {
   scanning: false,
 
   async connect(backend) {
+    // Calls still waiting on a previous backend have nothing to do with this one.
+    queue = Promise.resolve();
     const known = loadKnownDevices();
     set({ backend, discovery: known.length ? { devices: known.sort(byKindThenAddress), silent: [] } : get().discovery });
     try {
@@ -201,26 +263,9 @@ export const useApp = create<AppState>((set, get) => {
   setMusicVolume: (musicVolume) => set({ musicVolume }),
   dismissError: () => set({ error: null }),
 
-  async run(call) {
-    const backend = get().backend;
-    if (!backend) return false;
-    set({ busy: true });
-    try {
-      const snapshot = await call(backend);
-      const current = get().snapshot;
-      // Calls can resolve out of order; engine revisions only increase, so never go backwards.
-      if (!current || snapshot.revision >= current.revision) set({ snapshot });
-      set({ error: null });
-      return true;
-    } catch (e) {
-      set({ error: errorMessage(e) });
-      return false;
-    } finally {
-      set({ busy: false });
-    }
-  },
-
-  apply: (edits) => get().run((b) => b.applyEdits(edits)),
+  run: async (call) => (await runInTurn(call)) !== null,
+  apply: async (edits) => (await sendEdits(edits)) !== null,
+  edit: async (edits) => (await sendEdits(edits))?.revision ?? null,
   undo: () => get().run((b) => b.undo()),
   redo: () => get().run((b) => b.redo()),
 

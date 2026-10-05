@@ -1,10 +1,21 @@
 import { create } from "zustand";
 import type { Background } from "../api/types";
-import type { View } from "../lib/layoutMath";
+import type { Gesture, View } from "../lib/layoutMath";
 import type { PropKind } from "../lib/shows";
 
 /** Select and move props, move the view, or draw a new prop of a kind. */
 export type Tool = "select" | "pan" | PropKind;
+
+/**
+ * A finished gesture on its way to the engine. The canvas keeps drawing it until the engine's
+ * pixel positions include it: `revision` is the show revision that holds it, once known.
+ */
+export interface PendingGesture {
+  key: number;
+  ids: string[];
+  gesture: Gesture;
+  revision: number | null;
+}
 
 interface LayoutEditorState {
   tool: Tool;
@@ -20,6 +31,10 @@ interface LayoutEditorState {
   photoDraft: Background | null;
   /** What the canvas shows; null fits everything in on the next draw. */
   view: View | null;
+  /** Gestures sent but not yet in the engine's pixel positions, oldest first. */
+  pending: PendingGesture[];
+  /** Arrow-key moves while a key is held, sent as one move when it's let go. */
+  nudge: { ids: string[]; dx: number; dy: number } | null;
 
   setTool(tool: Tool): void;
   select(ids: string[]): void;
@@ -40,6 +55,8 @@ export const useLayoutEditor = create<LayoutEditorState>((set, get) => ({
   editPhoto: false,
   photoDraft: null,
   view: null,
+  pending: [],
+  nudge: null,
 
   setTool: (tool) => set({ tool, editPhoto: false }),
   select: (ids) => set({ selected: [...new Set(ids)] }),

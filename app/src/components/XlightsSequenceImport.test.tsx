@@ -5,6 +5,8 @@ import { App } from "../App";
 import { demoShow } from "../api/demo";
 import { MemoryBackend } from "../api/memory";
 import { MemorySequencer } from "../api/memorySequencer";
+import { demoSequence } from "../api/demoSequence";
+import { unsavedWork } from "../state/closeGuard";
 import { useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
 
@@ -36,6 +38,14 @@ function sequencer(): MemorySequencer {
     notes: ["PixelFlow has no matching effect yet for this xLights effect: Faces (40)."],
   };
   return sequencer;
+}
+
+/** The one "Save changes to …?" question (New, Open, Recover, and the import all use it). */
+async function askedAbout(name: string) {
+  const ask = await screen.findByRole("dialog", { name: "Unsaved changes" });
+  expect(ask).toHaveTextContent(`Save changes to ${name}?`);
+  expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  return ask;
 }
 
 async function startApp() {
@@ -78,8 +88,38 @@ describe("xLights sequence import", () => {
     await user.click(screen.getByRole("button", { name: "Done" }));
     // Now the toolbar has the action too; the imported sequence is unsaved, so it asks first.
     await user.click(screen.getByRole("button", { name: "Import xLights sequence…" }));
-    await screen.findByRole("dialog", { name: "Save changes to Carol of the Bells?" });
+    await askedAbout("Carol of the Bells");
     expect(seq.calls.filter((c) => c.startsWith("importXlightsSequence"))).toHaveLength(1);
+  });
+
+  it("asks once when a sequence with unsaved changes is open, then treats the import as the open unsaved work", async () => {
+    const { user, seq } = await startApp();
+    // A saved sequence, then an unsaved change to it.
+    const show = useApp.getState().snapshot!.show;
+    seq.files.set("/Shows/Medley.pfseq.json", demoSequence(show, 60_000));
+    await act(() => useSequencer.getState().open("/Shows/Medley.pfseq.json"));
+    await act(() => useSequencer.getState().edit((doc) => [{ type: "removeRow", id: doc.rows[0].id }]));
+    const medley = useSequencer.getState().doc!.name;
+    expect(unsavedWork().sequence).toBe(medley);
+    act(() => useApp.getState().setScreen("sequence"));
+    const imports = () => seq.calls.filter((c) => c.startsWith("importXlightsSequence")).length;
+
+    // From the toolbar: one question (not a second, app-wide one), and nothing imported yet.
+    await user.click(await screen.findByRole("button", { name: "Import xLights sequence…" }));
+    const ask = await askedAbout(medley);
+    expect(imports()).toBe(0);
+    expect(useApp.getState().pendingReplace).toBeNull();
+    await user.click(within(ask).getByRole("button", { name: "Don't save" }));
+    await screen.findByRole("dialog", { name: "Imported Carol of the Bells" });
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(imports()).toBe(1);
+    expect(seq.files.get("/Shows/Medley.pfseq.json")!.rows.length).toBe(demoSequence(show, 60_000).rows.length);
+
+    // The import is now the open, unsaved sequence: closing asks about it, and the engine keeps it
+    // (autosaves it) like any unsaved sequence until it's saved.
+    expect(useSequencer.getState()).toMatchObject({ path: null, dirty: true, doc: { name: "Carol of the Bells" } });
+    expect(unsavedWork().sequence).toBe("Carol of the Bells");
+    expect(await seq.getSequenceDoc()).toMatchObject({ dirty: true, path: null });
   });
 
   it("asks before a second import replaces an unsaved one, and can save it first", async () => {
@@ -90,14 +130,14 @@ describe("xLights sequence import", () => {
 
     // Cancel: nothing changes.
     expect(await act(() => useApp.getState().importXlightsSequence())).toBe(false);
-    let ask = await screen.findByRole("dialog", { name: "Save changes to Carol of the Bells?" });
+    let ask = await askedAbout("Carol of the Bells");
     await user.click(within(ask).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(imports()).toBe(1);
 
     // Don't save: the import goes ahead.
     await act(() => useApp.getState().importXlightsSequence());
-    ask = await screen.findByRole("dialog", { name: "Save changes to Carol of the Bells?" });
+    ask = await askedAbout("Carol of the Bells");
     await user.click(within(ask).getByRole("button", { name: "Don't save" }));
     await screen.findByRole("dialog", { name: "Imported Carol of the Bells" });
     expect(imports()).toBe(2);
@@ -106,7 +146,7 @@ describe("xLights sequence import", () => {
     // Save: asks where (it has no file yet), saves, then imports.
     seq.nextSavePath = "/Shows/Carol.pfseq.json";
     await act(() => useApp.getState().importXlightsSequence());
-    ask = await screen.findByRole("dialog", { name: "Save changes to Carol of the Bells?" });
+    ask = await askedAbout("Carol of the Bells");
     await user.click(within(ask).getByRole("button", { name: "Save" }));
     await screen.findByRole("dialog", { name: "Imported Carol of the Bells" });
     expect(seq.calls).toContain("saveSequenceDocAs");

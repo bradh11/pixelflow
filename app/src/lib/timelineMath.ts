@@ -62,9 +62,11 @@ export function formatTime(ms: number, stepMs = 1): string {
   return decimals === 0 ? text : `${text}.${String(fraction).padStart(decimals, "0")}`;
 }
 
-const NICE_STEPS = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10_000, 15_000, 30_000, 60_000, 120_000, 300_000, 600_000];
+const NICE_STEPS = [
+  10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10_000, 15_000, 30_000, 60_000, 120_000, 300_000, 600_000, 900_000, 1_800_000, 3_600_000,
+];
 /** Minor ticks per major tick, by the major step's leading digit. */
-const MINOR_DIVISIONS: Record<string, number> = { "1": 5, "2": 4, "5": 5, "1.5": 3, "3": 3, "6": 6 };
+const MINOR_DIVISIONS: Record<string, number> = { "1": 5, "2": 4, "5": 5, "1.5": 3, "3": 3, "6": 6, "9": 3, "1.8": 6, "3.6": 4 };
 
 export interface RulerTicks {
   major: { ms: number; x: number; label: string }[];
@@ -302,8 +304,14 @@ export interface DragItem {
   lane: number;
 }
 
+/** `ms` on the frame grid (whole milliseconds without one). */
+export function onGrid(ms: number, frameMs = 1): number {
+  return Math.round(ms / Math.max(1, frameMs)) * Math.max(1, frameMs);
+}
+
 /** Moves every dragged effect by the same amount: the grabbed one (`primary`) snaps by either
- * edge, and none goes before the start, past the end, or off the lanes. */
+ * edge (or, not snapping, starts on the frame grid), and none goes before the start, past the end,
+ * or off the lanes. */
 export function moveDrag(args: {
   items: DragItem[];
   primary: string;
@@ -311,15 +319,17 @@ export function moveDrag(args: {
   deltaLanes: number;
   laneCount: number;
   durationMs: number;
+  frameMs?: number;
   snap?: Snap;
 }): { items: DragItem[]; snappedAt: number | null } {
   const { items, primary, laneCount, durationMs, snap } = args;
   const lo = -Math.min(...items.map((i) => i.startMs));
   const hi = durationMs - Math.max(...items.map((i) => i.endMs));
   const clamp = (d: number) => Math.max(lo, Math.min(hi, d));
-  let delta = clamp(Math.round(args.deltaMs));
-  let snappedAt: number | null = null;
   const grabbed = items.find((i) => i.id === primary);
+  const start = grabbed?.startMs ?? 0;
+  let delta = clamp(onGrid(start + args.deltaMs, args.frameMs) - start);
+  let snappedAt: number | null = null;
   if (snap && grabbed) {
     const byStart = snapTime(grabbed.startMs + delta, snap.targets, snap.thresholdMs);
     const byEnd = snapTime(grabbed.endMs + delta, snap.targets, snap.thresholdMs);
@@ -344,40 +354,81 @@ export function moveDrag(args: {
   };
 }
 
-/** The edits for a finished move: new times, plus a new row or layer for effects that changed lane. */
-export function moveEdits(moved: DragItem[], original: DragItem[], lanes: Lane[]): SequenceEdit[] {
-  const edits: SequenceEdit[] = [];
-  moved.forEach((item, i) => {
-    const before = original[i];
-    if (item.lane === before.lane) {
-      if (item.startMs !== before.startMs || item.endMs !== before.endMs) {
-        edits.push({ type: "setEffectTiming", id: item.id, startMs: item.startMs, endMs: item.endMs });
-      }
-      return;
-    }
+/** Where a moved effect lands: its row and layer (and the lane showing it, to draw it there). */
+export interface Placement extends DragItem {
+  rowId: string;
+  layer: number;
+}
+
+/**
+ * Where dragged effects land: on the layer they were dropped on, unless that would overlap an
+ * effect that isn't moving (or one placed before it); then on the row's first layer with room,
+ * or a new layer on top, like a drop from the palette. A collapsed row keeps an effect on its own
+ * layer when it can. `lane` is the lane showing the layer (the dropped-on lane for a new layer).
+ */
+export function placeMove(index: EffectIndex, lanes: Lane[], moved: DragItem[]): Placement[] {
+  const moving = new Set(moved.map((m) => m.id));
+  const placed: Placement[] = [];
+  for (const item of moved) {
     const lane = lanes[item.lane];
-    edits.push({ type: "moveEffect", id: item.id, row: lane.rowId, layer: Math.max(0, lane.layer), startMs: item.startMs, endMs: item.endMs });
-  });
+    const row = lane && index.rows.get(lane.rowId);
+    const from = index.byId.get(item.id);
+    if (!lane || !row || !from) continue;
+    const overlaps = (s: number, e: number) => s < item.endMs && item.startMs < e;
+    const busy = (layer: number) =>
+      (row.layers[layer]?.effects ?? []).some((e) => !moving.has(e.id) && overlaps(e.startMs, e.endMs)) ||
+      placed.some((p) => p.rowId === row.id && p.layer === layer && overlaps(p.startMs, p.endMs));
+    let layer = lane.layer >= 0 ? lane.layer : from.rowId === row.id ? from.layer : 0;
+    if (busy(layer)) {
+      layer = 0;
+      while (busy(layer)) layer++;
+    }
+    const shown = laneOf(lanes, row.id, layer);
+    placed.push({ ...item, rowId: row.id, layer, lane: shown >= 0 ? shown : item.lane });
+  }
+  return placed;
+}
+
+/** The edits for a finished move: new times, plus a new row or layer for effects that changed
+ * place (new layers in order, so each one's layer exists when it's reached). */
+export function moveEdits(placements: Placement[], index: EffectIndex): SequenceEdit[] {
+  const edits: SequenceEdit[] = [];
+  for (const p of [...placements].sort((a, b) => a.layer - b.layer)) {
+    const from = index.byId.get(p.id);
+    if (!from) continue;
+    if (from.rowId === p.rowId && from.layer === p.layer) {
+      if (p.startMs !== from.effect.startMs || p.endMs !== from.effect.endMs) {
+        edits.push({ type: "setEffectTiming", id: p.id, startMs: p.startMs, endMs: p.endMs });
+      }
+    } else {
+      edits.push({ type: "moveEffect", id: p.id, row: p.rowId, layer: p.layer, startMs: p.startMs, endMs: p.endMs });
+    }
+  }
   return edits;
 }
 
-/** Drags one edge of an effect to `ms` (snapped), keeping at least `minMs` and staying in the song. */
+/** Drags one edge of an effect to `ms` (snapped, or else on the frame grid), keeping at least
+ * `minMs`, staying in the song, and stopping at the neighbors (`bounds`, see effectBounds). */
 export function resizeDrag(args: {
   item: DragItem;
   edge: "start" | "end";
   ms: number;
   minMs: number;
   durationMs: number;
+  frameMs?: number;
+  bounds?: { lo: number; hi: number };
   snap?: Snap;
 }): { startMs: number; endMs: number; snappedAt: number | null } {
   const { item, edge, minMs, durationMs, snap } = args;
   const snapped = snap ? snapTime(args.ms, snap.targets, snap.thresholdMs) : { ms: args.ms, snapped: false };
-  const t = Math.round(snapped.ms);
+  const t = snapped.snapped ? Math.round(snapped.ms) : onGrid(snapped.ms, args.frameMs);
+  const lo = Math.max(0, args.bounds?.lo ?? 0);
+  const hi = Math.min(durationMs, args.bounds?.hi ?? durationMs);
   if (edge === "end") {
-    const endMs = Math.max(item.startMs + minMs, Math.min(durationMs, t));
+    const endMs = Math.max(item.startMs + minMs, Math.min(hi, t));
     return { startMs: item.startMs, endMs, snappedAt: snapped.snapped && endMs === t ? t : null };
   }
-  const startMs = Math.min(item.endMs - minMs, Math.max(0, t));
+  const startMs = Math.min(item.endMs - minMs, Math.max(lo, t));
   return { startMs, endMs: item.endMs, snappedAt: snapped.snapped && startMs === t ? t : null };
 }
 
@@ -392,8 +443,9 @@ export function createSpan(args: {
   snap?: Snap;
 }): { startMs: number; endMs: number } {
   const { durationMs, frameMs, bars, defaultMs = 2000, snap } = args;
-  const at = snap ? snapTime(args.ms, snap.targets, snap.thresholdMs).ms : args.ms;
-  const startMs = Math.max(0, Math.min(Math.round(at), durationMs - frameMs));
+  const snapped = snap ? snapTime(args.ms, snap.targets, snap.thresholdMs) : { ms: args.ms, snapped: false };
+  const at = snapped.snapped ? Math.round(snapped.ms) : onGrid(snapped.ms, frameMs);
+  const startMs = Math.max(0, Math.min(at, durationMs - frameMs));
   const bar = bars?.find((b) => b.startMs <= startMs && startMs < b.endMs);
   const length = bar ? bar.endMs - bar.startMs : defaultMs;
   return { startMs, endMs: Math.min(durationMs, startMs + Math.max(length, frameMs)) };
@@ -445,7 +497,52 @@ export function planDrop(args: {
   return { rowId: lane.rowId, layer: freeLayer(row, span.startMs, span.endMs), ...span };
 }
 
+/**
+ * How far an effect's edges may go without running into its neighbors on the same layer (effects
+ * in `ignore` don't count: they're moving too): from the end of the one before it to the start of
+ * the one after it, or the song's ends. Neighbors that already overlap it never make it smaller.
+ */
+export function effectBounds(doc: Sequence, id: string, ignore: ReadonlySet<string> = new Set()): { lo: number; hi: number } | null {
+  for (const row of doc.rows) {
+    for (const layer of row.layers) {
+      const effect = layer.effects.find((e) => e.id === id);
+      if (!effect) continue;
+      let lo = 0;
+      let hi = doc.durationMs;
+      for (const other of layer.effects) {
+        if (other.id === id || ignore.has(other.id)) continue;
+        if (other.startMs < effect.startMs) lo = Math.max(lo, other.endMs);
+        else hi = Math.min(hi, other.startMs);
+      }
+      return { lo: Math.min(lo, effect.startMs), hi: Math.max(hi, effect.endMs) };
+    }
+  }
+  return null;
+}
+
 // --- Keyboard and clipboard -------------------------------------------------------------------
+
+/**
+ * The edits that move effects `ids` one step (a frame, or with `byBeat` to the next or previous
+ * beat), built from `doc` as it is now: every one moves by the same amount, and none goes past the
+ * song's ends or into a neighbor that isn't moving. Empty when they can't move that way.
+ */
+export function nudgeEdits(doc: Sequence, ids: string[], direction: 1 | -1, byBeat: boolean): SequenceEdit[] {
+  const chosen = new Set(ids);
+  const placed: Effect[] = [];
+  for (const row of doc.rows) for (const layer of row.layers) for (const e of layer.effects) if (chosen.has(e.id)) placed.push(e);
+  if (placed.length === 0) return [];
+  const track = doc.timingTracks.find((t) => t.kind === "beats") ?? doc.timingTracks[0];
+  const grid = { frameMs: doc.frameMs, beats: track?.marks.map((m) => m.startMs) ?? [] };
+  const first = Math.min(...placed.map((e) => e.startMs));
+  let delta = stepTime(first, direction, grid, byBeat) - first;
+  for (const e of placed) {
+    const bounds = effectBounds(doc, e.id, chosen) ?? { lo: 0, hi: doc.durationMs };
+    delta = Math.max(bounds.lo - e.startMs, Math.min(bounds.hi - e.endMs, delta));
+  }
+  if (delta === 0 || Math.sign(delta) !== direction) return [];
+  return placed.map((e) => ({ type: "setEffectTiming", id: e.id, startMs: e.startMs + delta, endMs: e.endMs + delta }));
+}
 
 /** One step from `ms`: a frame, or (with `byBeat`) to the next or previous beat. */
 export function stepTime(ms: number, direction: 1 | -1, grid: { frameMs: number; beats?: number[] }, byBeat = false): number {

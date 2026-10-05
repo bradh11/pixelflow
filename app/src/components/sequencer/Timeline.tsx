@@ -1,14 +1,16 @@
 import { ChevronDown, ChevronRight, GripVertical, Layers, Maximize2, Plus, Trash2, ZoomIn, ZoomOut } from "lucide-react";
-import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { defaultParams, newEffect, newRow, type EffectKind, type Sequence, type SequenceTarget } from "../../api/sequence";
+import { type PointerEvent as ReactPointerEvent, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { defaultParams, newEffect, newRow, type EffectKind, type Sequence, type SequenceEdit, type SequenceTarget } from "../../api/sequence";
 import type { Show, Waveform } from "../../api/types";
 import {
   type DragItem,
   type Lane,
+  type Placement,
   type View,
   SNAP_PX,
   buildIndex,
   clampView,
+  effectBounds,
   fitView,
   followPlayhead,
   formatTime,
@@ -19,6 +21,7 @@ import {
   marqueeSelect,
   moveDrag,
   moveEdits,
+  placeMove,
   planDrop,
   resizeDrag,
   snapTargets,
@@ -37,10 +40,21 @@ export const DEFAULT_COLORS = ["#ff0000", "#00c000", "#ffffff"];
 const CLICK_PX = 3;
 
 type Drag =
-  | { kind: "move"; primary: string; items: DragItem[]; moved: DragItem[]; x: number; y: number; started: boolean; targets: number[] }
-  | { kind: "resize"; item: DragItem; edge: "start" | "end"; result: { startMs: number; endMs: number }; targets: number[] }
+  | { kind: "move"; primary: string; items: DragItem[]; moved: Placement[]; x: number; y: number; started: boolean; targets: number[] }
+  | {
+      kind: "resize";
+      item: DragItem;
+      edge: "start" | "end";
+      result: { startMs: number; endMs: number };
+      targets: number[];
+      /** How far the edge may go before it runs into a neighbor. */
+      bounds: { lo: number; hi: number };
+    }
   | { kind: "marquee"; x0: number; y0: number; x1: number; y1: number; additive: string[] }
   | { kind: "scrub" };
+
+/** Where a palette drop would land; `newLayer` when it would go on a new layer of the row. */
+type Ghost = { lane: number; startMs: number; endMs: number; newLayer: boolean };
 
 /** A target's name, from the show. */
 export function targetName(show: Show | undefined, target: SequenceTarget): string {
@@ -78,7 +92,16 @@ export function Timeline({ doc }: { doc: Sequence }) {
   const show = useApp((s) => s.snapshot?.show);
   const backend = useApp((s) => s.backend);
   const theme = useApp((s) => s.theme);
-  const { selection, playheadMs, status, collapsed, snapping, catalog, path, activeRow } = useSequencer();
+  const selection = useSequencer((s) => s.selection);
+  const playheadMs = useSequencer((s) => s.playheadMs);
+  const playing = useSequencer((s) => s.status?.state === "playing");
+  const collapsed = useSequencer((s) => s.collapsed);
+  const snapping = useSequencer((s) => s.snapping);
+  const catalog = useSequencer((s) => s.catalog);
+  const path = useSequencer((s) => s.path);
+  const activeRow = useSequencer((s) => s.activeRow);
+  const docKey = useSequencer((s) => s.docKey);
+  const revealAt = useSequencer((s) => s.revealAt);
   const bodyRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const size = useSize(bodyRef);
@@ -87,8 +110,12 @@ export function Timeline({ doc }: { doc: Sequence }) {
   const [scrollY, setScrollY] = useState(0);
   const [waveform, setWaveform] = useState<Waveform | null>(null);
   const drag = useRef<Drag | null>(null);
+  /** A finished move or resize on its way to the engine: drawn where it was dropped until the
+   * engine has answered, so the effects don't jump back meanwhile. */
+  const pending = useRef<{ key: number; items: DragItem[] } | null>(null);
+  const pendingKey = useRef(0);
   const [, redraw] = useState(0);
-  const [ghost, setGhost] = useState<{ lane: number; startMs: number; endMs: number } | null>(null);
+  const [ghost, setGhost] = useState<Ghost | null>(null);
 
   const index = useMemo(() => buildIndex(doc), [doc]);
   const collapsedSet = useMemo(() => new Set(collapsed), [collapsed]);
@@ -106,16 +133,41 @@ export function Timeline({ doc }: { doc: Sequence }) {
   const latest = useRef({ doc, index, lanes, view: current, top, scrollY, snapping, selection, maxScroll, catalog, activeRow, playheadMs });
   latest.current = { doc, index, lanes, view: current, top, scrollY, snapping, selection, maxScroll, catalog, activeRow, playheadMs };
 
-  // Fit the song when a different sequence (or length) comes in.
-  useEffect(() => setViewState(null), [doc.durationMs, path]);
+  // Fit the song when a different sequence is opened (not when this one is saved somewhere new).
+  useEffect(() => setViewState(null), [docKey]);
   useEffect(() => setScrollY((y) => Math.min(y, maxScroll)), [maxScroll]);
+
+  // After a keyboard or problem-list pick: scroll the rows to the active row (or the selected
+  // effect's lane) and the time to the selected effect, or else to the playhead.
+  useEffect(() => {
+    if (revealAt === 0 || size.width === 0) return;
+    const s = useSequencer.getState();
+    const placed = s.selection.length > 0 ? index.byId.get(s.selection[0]) : undefined;
+    const laneIndex = placed ? laneOf(lanes, placed.rowId, placed.layer) : lanes.findIndex((l) => l.rowId === s.activeRow);
+    const lane = lanes[laneIndex];
+    if (lane) {
+      setScrollY((y) => {
+        const next = lane.y < y ? lane.y : lane.y + lane.h > y + rowsViewport ? lane.y + lane.h - rowsViewport : y;
+        return Math.max(0, Math.min(maxScroll, next));
+      });
+    }
+    const visible = width / current.pxPerMs;
+    if (placed) {
+      const { startMs, endMs } = placed.effect;
+      const inView = startMs < current.startMs + visible && endMs > current.startMs;
+      if (!inView) setViewState(clampView({ ...current, startMs: startMs - visible * 0.1 }, doc.durationMs, width));
+    } else {
+      const next = followPlayhead(current, s.playheadMs, width, doc.durationMs);
+      if (next !== current) setViewState(next);
+    }
+  }, [revealAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // While playing, turn the page to keep the playhead in view.
   useEffect(() => {
-    if (status?.state !== "playing" || size.width === 0) return;
+    if (!playing || size.width === 0) return;
     const next = followPlayhead(current, playheadMs, width, doc.durationMs);
     if (next !== current) setViewState(next);
-  }, [playheadMs, status?.state]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [playheadMs, playing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The music's loudness, about one value per 10 ms.
   const audio = resolveAudio(doc.audio, path);
@@ -160,7 +212,7 @@ export function Timeline({ doc }: { doc: Sequence }) {
       playheadMs,
       waveform,
       labels,
-      drag: d?.kind === "move" && d.started ? d.moved : d?.kind === "resize" ? [{ ...d.item, ...d.result }] : null,
+      drag: d?.kind === "move" && d.started ? d.moved : d?.kind === "resize" ? [{ ...d.item, ...d.result }] : (pending.current?.items ?? null),
       snappedAt: d && (d.kind === "move" || d.kind === "resize") ? snappedOf(d) : null,
       marquee: d?.kind === "marquee" ? d : null,
       ghost,
@@ -189,8 +241,9 @@ export function Timeline({ doc }: { doc: Sequence }) {
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
 
-  /** Places a new effect of `kind` where the palette dropped it; true if it landed on a row. */
-  const dropAt = useCallback((kind: EffectKind, clientX: number, clientY: number, place: boolean) => {
+  /** Places a new effect of `kind` where the palette dropped it (snapping unless Alt is held);
+   * returns where it goes, or null when that's not over a row. */
+  const dropAt = useCallback((kind: EffectKind, clientX: number, clientY: number, alt: boolean, place: boolean): Ghost | null => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
     const rect = canvas.getBoundingClientRect();
@@ -199,11 +252,14 @@ export function Timeline({ doc }: { doc: Sequence }) {
     if (x < 0 || x > rect.width || y < tp || y > rect.height) return null;
     const lane = laneAt(ls, y - tp + sy);
     if (!lane) return null;
-    const snap = latest.current.snapping ? { targets: snapTargets(d, new Set()), thresholdMs: SNAP_PX / v.pxPerMs } : undefined;
+    const snap = latest.current.snapping && !alt ? { targets: snapTargets(d, new Set()), thresholdMs: SNAP_PX / v.pxPerMs } : undefined;
     const plan = planDrop({ doc: d, index: idx, lane, ms: xToTime(x, v), snap });
     if (!plan) return null;
     if (place) void addEffect(kind, plan);
-    return { lane: ls.indexOf(lane), ...plan };
+    // Show it on the lane it will really go to; a new layer shows on the row's last lane.
+    const shown = laneOf(ls, plan.rowId, plan.layer);
+    const rowLanes = ls.filter((l) => l.rowId === plan.rowId);
+    return { lane: shown >= 0 ? shown : ls.indexOf(rowLanes[rowLanes.length - 1]), startMs: plan.startMs, endMs: plan.endMs, newLayer: shown < 0 };
   }, []);
 
   async function addEffect(kind: EffectKind, plan: { rowId: string; layer: number; startMs: number; endMs: number }) {
@@ -216,7 +272,7 @@ export function Timeline({ doc }: { doc: Sequence }) {
   // The palette drops onto (and adds at the playhead on) this timeline.
   useEffect(() => {
     usePaletteDrag.setState({
-      drop: (kind, x, y) => dropAt(kind, x, y, true) !== null,
+      drop: (kind, x, y, alt) => dropAt(kind, x, y, alt, true) !== null,
       addAtPlayhead: (kind) => {
         const { doc: d, index: idx, lanes: ls, activeRow: row, playheadMs: at } = latest.current;
         const lane = ls.find((l) => l.rowId === row) ?? ls[0];
@@ -235,8 +291,7 @@ export function Timeline({ doc }: { doc: Sequence }) {
   useEffect(
     () =>
       usePaletteDrag.subscribe((s) => {
-        const plan = s.kind ? dropAt(s.kind, s.x, s.y, false) : null;
-        setGhost(plan ? { lane: plan.lane, startMs: plan.startMs, endMs: plan.endMs } : null);
+        setGhost(s.kind ? dropAt(s.kind, s.x, s.y, s.alt, false) : null);
       }),
     [dropAt],
   );
@@ -283,13 +338,14 @@ export function Timeline({ doc }: { doc: Sequence }) {
     if (hit.part !== "body") {
       store.select([hit.id]);
       const item = asItem(hit.id);
-      drag.current = { kind: "resize", item, edge: hit.part, result: { startMs: item.startMs, endMs: item.endMs }, targets: snapFor([hit.id], e.altKey) };
+      const bounds = effectBounds(latest.current.doc, hit.id) ?? { lo: 0, hi: latest.current.doc.durationMs };
+      drag.current = { kind: "resize", item, edge: hit.part, result: { startMs: item.startMs, endMs: item.endMs }, targets: snapFor([hit.id], e.altKey), bounds };
       return;
     }
     const ids = sel.includes(hit.id) ? sel.filter((id) => idx.byId.has(id)) : [hit.id];
     if (!sel.includes(hit.id)) store.select(ids);
     const items = ids.map(asItem);
-    drag.current = { kind: "move", primary: hit.id, items, moved: items, x, y, started: false, targets: snapFor(ids, e.altKey) };
+    drag.current = { kind: "move", primary: hit.id, items, moved: placeMove(idx, ls, items), x, y, started: false, targets: snapFor(ids, e.altKey) };
   };
 
   const onPointerMove = (e: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -311,7 +367,7 @@ export function Timeline({ doc }: { doc: Sequence }) {
       d.y1 = y - tp + sy;
     } else if (d.kind === "resize") {
       const snap = e.altKey ? undefined : { targets: d.targets, thresholdMs: threshold };
-      const r = resizeDrag({ item: d.item, edge: d.edge, ms: xToTime(x, v), minMs: dd.frameMs, durationMs: dd.durationMs, snap });
+      const r = resizeDrag({ item: d.item, edge: d.edge, ms: xToTime(x, v), minMs: dd.frameMs, durationMs: dd.durationMs, frameMs: dd.frameMs, bounds: d.bounds, snap });
       d.result = r;
       (d as Drag & { snappedAt?: number | null }).snappedAt = r.snappedAt;
     } else {
@@ -321,11 +377,26 @@ export function Timeline({ doc }: { doc: Sequence }) {
       const toLane = laneAt(ls, y - tp + sy);
       const deltaLanes = fromLane && toLane ? ls.indexOf(toLane) - ls.indexOf(fromLane) : 0;
       const snap = e.altKey ? undefined : { targets: d.targets, thresholdMs: threshold };
-      const r = moveDrag({ items: d.items, primary: d.primary, deltaMs: (x - d.x) / v.pxPerMs, deltaLanes, laneCount: ls.length, durationMs: dd.durationMs, snap });
-      d.moved = r.items;
+      const r = moveDrag({ items: d.items, primary: d.primary, deltaMs: (x - d.x) / v.pxPerMs, deltaLanes, laneCount: ls.length, durationMs: dd.durationMs, frameMs: dd.frameMs, snap });
+      // Drawn where they'll really land: over another effect, that's a free layer.
+      d.moved = placeMove(idx, ls, r.items);
       (d as Drag & { snappedAt?: number | null }).snappedAt = r.snappedAt;
     }
     redraw((n) => n + 1);
+  };
+
+  /** Sends a dropped move or resize, drawing `items` where they were dropped until it settles. */
+  const sendDrop = (items: DragItem[], edits: SequenceEdit[]) => {
+    const key = ++pendingKey.current;
+    pending.current = { key, items };
+    void useSequencer
+      .getState()
+      .edit(edits)
+      .finally(() => {
+        if (pending.current?.key !== key) return;
+        pending.current = null;
+        redraw((n) => n + 1);
+      });
   };
 
   const onPointerUp = () => {
@@ -344,10 +415,12 @@ export function Timeline({ doc }: { doc: Sequence }) {
       }
     } else if (d.kind === "resize") {
       if (d.result.startMs !== d.item.startMs || d.result.endMs !== d.item.endMs) {
-        void store.edit([{ type: "setEffectTiming", id: d.item.id, ...d.result }]);
+        const { startMs, endMs } = d.result;
+        sendDrop([{ ...d.item, startMs, endMs }], [{ type: "setEffectTiming", id: d.item.id, startMs, endMs }]);
       }
     } else if (d.started) {
-      void store.edit(moveEdits(d.moved, d.items, ls));
+      const edits = moveEdits(d.moved, idx);
+      if (edits.length > 0) sendDrop(d.moved, edits);
     } else {
       store.select([d.primary]);
     }
@@ -457,8 +530,9 @@ function ToolButton({ label, onClick, children }: { label: string; onClick: () =
   );
 }
 
-/** Row names beside the lanes, with ways to collapse, reorder, add layers to, and remove rows. */
-function RowHeaders({
+/** Row names beside the lanes, with ways to collapse, reorder, add layers to, and remove rows.
+ * (Memoized: the timeline redraws with the playhead many times a second; the names don't.) */
+const RowHeaders = memo(function RowHeaders({
   doc,
   show,
   lanes,
@@ -473,7 +547,9 @@ function RowHeaders({
   scrollY: number;
   rowsViewport: number;
 }) {
-  const { collapsed, toggleCollapsed, edit, activeRow, setActiveRow } = useSequencer();
+  const collapsed = useSequencer((s) => s.collapsed);
+  const activeRow = useSequencer((s) => s.activeRow);
+  const { toggleCollapsed, edit, setActiveRow } = useSequencer.getState();
   const [adding, setAdding] = useState(false);
   const reorder = useRef<{ rowId: string; startY: number; to: number } | null>(null);
   const [dragTo, setDragTo] = useState<number | null>(null);
@@ -593,7 +669,7 @@ function RowHeaders({
       {adding && <AddRowMenu doc={doc} show={show} onClose={() => setAdding(false)} />}
     </div>
   );
-}
+});
 
 function RowButton({ label, onClick, disabled, children }: { label: string; onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
   return (
@@ -624,13 +700,27 @@ export function AddRowMenu({ doc, show, onClose }: { doc: Sequence; show: Show |
     onClose();
     await edit(targets.map((target) => ({ type: "addRow" as const, row: newRow(target) })));
   };
+  const menu = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
+  // The menu takes the focus (and gives it back when it closes); Escape closes it.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    menu.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      close.current();
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (opener?.isConnected) opener.focus();
+    };
+  }, []);
   return (
     <div
+      ref={menu}
       role="dialog"
       aria-label="Add a row"
       className="absolute bottom-2 left-2 z-30 flex max-h-96 w-64 flex-col rounded-lg border border-neutral-200 bg-white p-2 text-sm shadow-xl dark:border-neutral-800 dark:bg-neutral-900"

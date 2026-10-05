@@ -1,5 +1,6 @@
-import { AlertTriangle, AudioLines, Download, FileInput, FilePlus, FolderOpen, ListMusic, Magnet, Pause, Play, Save, Send, Square, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { AlertTriangle, AudioLines, CheckCircle2, Download, FileInput, FilePlus, FolderOpen, History, Info, ListMusic, Magnet, Pause, Play, Save, Send, Square, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { errorMessage } from "../api/backend";
 import { EffectPalette } from "../components/sequencer/EffectPalette";
 import { EffectSettings } from "../components/sequencer/EffectSettings";
@@ -7,7 +8,7 @@ import { SequencePreview } from "../components/sequencer/SequencePreview";
 import { AddRowMenu, Timeline } from "../components/sequencer/Timeline";
 import { useSequenceKeys } from "../components/sequencer/useSequenceKeys";
 import { Button, EmptyState, Input } from "../components/ui";
-import { fileName } from "../lib/format";
+import { ago, fileName } from "../lib/format";
 import { formatTime } from "../lib/timelineMath";
 import { useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
@@ -20,9 +21,15 @@ export function SequenceScreen() {
   const doc = useSequencer((s) => s.doc);
   const status = useSequencer((s) => s.status);
   const pollPlayback = useSequencer((s) => s.pollPlayback);
+  const showRevision = useApp((s) => s.snapshot?.revision);
   const [creating, setCreating] = useState(false);
-  const [confirm, setConfirm] = useState<null | (() => void)>(null);
   useSequenceKeys();
+
+  // The sequence's problems depend on the show (props removed or added): check again when the
+  // show changes, and when the screen opens.
+  useEffect(() => {
+    void useSequencer.getState().refreshIssues();
+  }, [showRevision]);
 
   useEffect(() => {
     if (!status) return;
@@ -31,10 +38,7 @@ export function SequenceScreen() {
   }, [status !== null, pollPlayback]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Runs `action` now, or after asking when the open sequence has unsaved changes. */
-  const guard = (action: () => void) => {
-    if (useSequencer.getState().dirty) setConfirm(() => action);
-    else action();
-  };
+  const guard = (action: () => void) => void useSequencer.getState().replaceAfterAsking(action);
   const openFile = async (path?: string) => {
     const api = useSequencer.getState().api;
     const target = path ?? (await api?.pickSequenceDocPath());
@@ -44,25 +48,10 @@ export function SequenceScreen() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <Toolbar onNew={() => guard(() => setCreating(true))} onOpen={() => guard(() => void openFile())} />
+      <NoticeLine />
+      <RecoveryOffer onRecover={(id) => guard(() => void useSequencer.getState().recover(id))} />
       {doc ? <Workspace /> : <Start onNew={() => setCreating(true)} onOpen={openFile} />}
       {creating && <NewSequenceDialog onClose={() => setCreating(false)} />}
-      {confirm && (
-        <DiscardDialog
-          onCancel={() => setConfirm(null)}
-          onDiscard={() => {
-            const action = confirm;
-            setConfirm(null);
-            action();
-          }}
-          onSave={async () => {
-            const action = confirm;
-            if (await useSequencer.getState().save()) {
-              setConfirm(null);
-              action();
-            }
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -118,10 +107,27 @@ function ToolButton({ label, onClick, disabled, children, pressed }: { label: st
   );
 }
 
+/** "Alt" in tooltips, or "Option" on a Mac keyboard. */
+const ALT_KEY = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent) ? "Option" : "Alt";
+
 function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
-  const s = useSequencer();
-  const doc = s.doc;
-  const playing = s.status?.state === "playing";
+  // Only what the buttons show: the playhead and export progress change many times a second and
+  // have components of their own.
+  const s = useSequencer(
+    useShallow((st) => ({
+      name: st.doc?.name ?? null,
+      durationMs: st.doc?.durationMs ?? 0,
+      hasMusic: Boolean(st.doc?.audio),
+      path: st.path,
+      dirty: st.dirty,
+      playing: st.status?.state === "playing",
+      active: st.status !== null,
+      detecting: st.detecting,
+      snapping: st.snapping,
+      sendToControllers: st.sendToControllers,
+    })),
+  );
+  const act = useSequencer.getState;
   return (
     <div role="toolbar" aria-label="Sequence" className="flex shrink-0 flex-wrap items-center gap-1 border-b border-neutral-200 px-2 py-1.5 dark:border-neutral-800">
       <ToolButton label="New sequence" onClick={onNew}>
@@ -130,60 +136,84 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
       <ToolButton label="Open sequence" onClick={onOpen}>
         <FolderOpen size={16} /> <span className="hidden xl:inline">Open</span>
       </ToolButton>
-      {/* The store asks about unsaved changes itself (the app's Save / Don't save dialog). */}
+      {/* Asks about unsaved changes like New and Open do (the import goes through the same question). */}
       <ToolButton label="Import xLights sequence…" onClick={() => void useApp.getState().importXlightsSequence()}>
         <FileInput size={16} /> <span className="hidden xl:inline">Import</span>
       </ToolButton>
-      <ToolButton label="Save sequence" onClick={() => void s.save()} disabled={!doc}>
+      <ToolButton label="Save sequence" onClick={() => void act().save()} disabled={s.name === null}>
         <Save size={16} />
       </ToolButton>
-      {doc && (
+      {s.name !== null && (
         <>
           <span className="mx-1 max-w-48 truncate font-medium" title={s.path ?? undefined}>
-            {doc.name}
-            {s.dirty && <span className="ml-1 text-xs text-neutral-500" aria-label="Unsaved changes">●</span>}
+            {s.name}
+            {s.dirty && (
+              <>
+                <span className="ml-1 text-xs text-neutral-500" aria-hidden>
+                  ●
+                </span>
+                <span className="sr-only"> (not saved)</span>
+              </>
+            )}
           </span>
           <span className="mx-1 h-5 w-px bg-neutral-200 dark:bg-neutral-800" />
-          <ToolButton label={playing ? "Pause" : "Play"} onClick={() => void (playing ? s.pause() : s.play())}>
-            {playing ? <Pause size={16} /> : <Play size={16} />}
+          <ToolButton label={s.playing ? "Pause" : "Play"} onClick={() => void (s.playing ? act().pause() : act().play())}>
+            {s.playing ? <Pause size={16} /> : <Play size={16} />}
           </ToolButton>
-          <ToolButton label="Stop" onClick={() => void s.stop()} disabled={!s.status}>
+          <ToolButton label="Stop" onClick={() => void act().stop()} disabled={!s.active}>
             <Square size={15} />
           </ToolButton>
-          <span className="w-36 text-sm text-neutral-600 tabular-nums dark:text-neutral-300" aria-label="Playhead">
-            {formatTime(s.playheadMs)} <span className="text-neutral-400">/ {formatTime(doc.durationMs, 1000)}</span>
-          </span>
+          <PlayheadTime durationMs={s.durationMs} />
           <span className="mx-1 h-5 w-px bg-neutral-200 dark:bg-neutral-800" />
-          <ToolButton label={s.detecting ? "Finding the beats…" : "Detect beats"} onClick={() => void s.detectBeats()} disabled={!doc.audio || s.detecting}>
+          <ToolButton label={s.detecting ? "Finding the beats…" : "Detect beats"} onClick={() => void act().detectBeats()} disabled={!s.hasMusic || s.detecting}>
             <AudioLines size={16} /> <span className="hidden lg:inline">{s.detecting ? "Finding beats…" : "Detect beats"}</span>
           </ToolButton>
-          <ToolButton label="Snap to beats and effect edges (hold Alt while dragging to turn off)" pressed={s.snapping} onClick={() => s.setSnapping(!s.snapping)}>
+          <ToolButton label={`Snap to beats and effect edges (hold ${ALT_KEY} while dragging to turn off)`} pressed={s.snapping} onClick={() => act().setSnapping(!s.snapping)}>
             <Magnet size={16} /> <span className="hidden lg:inline">Snap</span>
           </ToolButton>
-          <ToolButton label="Send to controllers while playing" pressed={s.sendToControllers} onClick={() => void s.setSendToControllers(!s.sendToControllers)}>
+          <ToolButton label="Send to controllers while playing" pressed={s.sendToControllers} onClick={() => void act().setSendToControllers(!s.sendToControllers)}>
             <Send size={16} /> <span className="hidden lg:inline">Send to controllers</span>
           </ToolButton>
           <SequenceIssues />
-          <div className="ml-auto flex items-center gap-1">
-            {s.exporting !== null ? (
-              <span className="flex items-center gap-2 text-sm" role="status">
-                Exporting… {s.exporting}%
-                <progress className="w-24 accent-violet-600" max={100} value={s.exporting} />
-                <Button variant="ghost" onClick={() => void s.cancelExport()}>
-                  Cancel
-                </Button>
-              </span>
-            ) : (
-              <>
-                <ToolButton label="Export .fseq for FPP" onClick={() => void s.exportFseq(false)}>
-                  <Download size={16} /> <span className="hidden lg:inline">Export .fseq…</span>
-                </ToolButton>
-                <ToolButton label="Export and add to the show's playlist" onClick={() => void exportToPlaylist()}>
-                  <ListMusic size={16} /> <span className="hidden lg:inline">Add to show playlist…</span>
-                </ToolButton>
-              </>
-            )}
-          </div>
+          <ExportControls />
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Where the playhead is (its own component: it changes many times a second while playing). */
+function PlayheadTime({ durationMs }: { durationMs: number }) {
+  const playheadMs = useSequencer((s) => s.playheadMs);
+  return (
+    <span className="w-36 text-sm text-neutral-600 tabular-nums dark:text-neutral-300">
+      <span className="sr-only">Playhead at </span>
+      {formatTime(playheadMs)} <span className="text-neutral-500">/ {formatTime(durationMs, 1000)}</span>
+    </span>
+  );
+}
+
+/** Export and add-to-playlist, or an export's progress with Cancel. */
+function ExportControls() {
+  const exporting = useSequencer((s) => s.exporting);
+  return (
+    <div className="ml-auto flex items-center gap-1">
+      {exporting !== null ? (
+        <span className="flex items-center gap-2 text-sm" role="status">
+          Exporting… {exporting}%
+          <progress className="w-24 accent-violet-600" max={100} value={exporting} />
+          <Button variant="ghost" onClick={() => void useSequencer.getState().cancelExport()}>
+            Cancel
+          </Button>
+        </span>
+      ) : (
+        <>
+          <ToolButton label="Export .fseq for FPP" onClick={() => void useSequencer.getState().exportFseq(false)}>
+            <Download size={16} /> <span className="hidden lg:inline">Export .fseq…</span>
+          </ToolButton>
+          <ToolButton label="Export and add to the show's playlist" onClick={() => void exportToPlaylist()}>
+            <ListMusic size={16} /> <span className="hidden lg:inline">Add to show playlist…</span>
+          </ToolButton>
         </>
       )}
     </div>
@@ -191,15 +221,30 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
 }
 
 /** Problems the engine found in the sequence (overlapping effects, missing props); clicking one
- * selects its effect. */
+ * selects its effect. The list takes the focus and closes with Escape. */
 function SequenceIssues() {
-  const { issues, select } = useSequencer();
+  const issues = useSequencer((s) => s.issues);
   const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    list.current?.querySelector("button")?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      setOpen(false);
+      trigger.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
   if (issues.length === 0) return null;
   const errors = issues.filter((i) => i.severity === "error").length;
   return (
     <span className="relative">
       <button
+        ref={trigger}
         type="button"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
@@ -209,6 +254,7 @@ function SequenceIssues() {
       </button>
       {open && (
         <div
+          ref={list}
           role="dialog"
           aria-label="Problems in this sequence"
           className="absolute top-9 left-0 z-30 max-h-80 w-[26rem] overflow-auto rounded-lg border border-neutral-200 bg-white p-3 text-sm shadow-xl dark:border-neutral-800 dark:bg-neutral-900"
@@ -220,8 +266,11 @@ function SequenceIssues() {
                   type="button"
                   className="text-left hover:underline"
                   onClick={() => {
-                    if (issue.effect) select([issue.effect], issue.row ?? null);
+                    const st = useSequencer.getState();
+                    if (issue.effect) st.select([issue.effect], issue.row ?? null);
+                    else if (issue.row) st.setActiveRow(issue.row);
                     setOpen(false);
+                    st.reveal();
                   }}
                 >
                   <span className={issue.severity === "error" ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}>
@@ -238,13 +287,81 @@ function SequenceIssues() {
   );
 }
 
+/** What an export (or adding to the playlist) did, until dismissed. */
+function NoticeLine() {
+  const notice = useSequencer((s) => s.notice);
+  const dismiss = useSequencer((s) => s.dismissNotice);
+  const showDirty = useApp((s) => s.snapshot?.dirty ?? false);
+  if (!notice) return null;
+  const done = notice.tone === "done";
+  return (
+    <div
+      role="status"
+      className={`flex items-start gap-3 border-b px-3 py-2 text-sm ${
+        done ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/30" : "border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900"
+      }`}
+    >
+      {done ? (
+        <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
+      ) : (
+        <Info size={16} className="mt-0.5 shrink-0 text-neutral-500" aria-hidden />
+      )}
+      <div className="min-w-0 flex-1">
+        <p>{notice.text}</p>
+        {notice.notes.length > 0 && (
+          <ul className="mt-1 list-disc pl-5 text-xs text-neutral-600 dark:text-neutral-400">
+            {notice.notes.map((note, i) => (
+              <li key={i}>{note}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+      {notice.saveShow && showDirty && (
+        <Button variant="primary" onClick={() => void useApp.getState().save()}>
+          Save show
+        </Button>
+      )}
+      <button type="button" aria-label="Dismiss" className="rounded p-1 hover:bg-neutral-200/70 dark:hover:bg-neutral-800" onClick={dismiss}>
+        <X size={14} />
+      </button>
+    </div>
+  );
+}
+
+/** Unsaved sequences PixelFlow kept when it last closed, to open again or throw away. */
+function RecoveryOffer({ onRecover }: { onRecover: (id: string) => void }) {
+  const recoveries = useSequencer((s) => s.recoveries);
+  const discard = useSequencer((s) => s.discardRecovery);
+  if (recoveries.length === 0) return null;
+  return (
+    <section aria-label="Unsaved sequences from last time" className="flex flex-col gap-2 border-b border-amber-200 bg-amber-50 px-3 py-2 text-sm dark:border-amber-900 dark:bg-amber-950/30">
+      {recoveries.map((r) => (
+        <div key={r.id} className="flex flex-wrap items-center gap-3">
+          <History size={16} className="shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+          <span className="min-w-0 flex-1">
+            PixelFlow kept unsaved changes to <strong>{r.name}</strong> from {ago(r.savedAtMs)}
+            {r.path ? ` (${fileName(r.path)})` : " (never saved)"}.
+          </span>
+          <Button variant="primary" aria-label={`Recover unsaved sequence ${r.name}`} onClick={() => onRecover(r.id)}>
+            Recover
+          </Button>
+          <Button variant="ghost" aria-label={`Discard unsaved sequence ${r.name}`} onClick={() => void discard(r.id)}>
+            Discard
+          </Button>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 async function exportToPlaylist() {
-  const summary = await useSequencer.getState().exportFseq(true);
-  if (summary) useApp.setState({ error: null });
+  await useSequencer.getState().exportFseq(true);
 }
 
 function BeatsBanner() {
-  const { suggestBeats, detectBeats, dismissBeats, detecting } = useSequencer();
+  const suggestBeats = useSequencer((s) => s.suggestBeats);
+  const detecting = useSequencer((s) => s.detecting);
+  const { detectBeats, dismissBeats } = useSequencer.getState();
   if (!suggestBeats) return null;
   return (
     <div role="status" className="flex items-center gap-3 border-b border-violet-200 bg-violet-50 px-3 py-2 text-sm dark:border-violet-900 dark:bg-violet-950/30">
@@ -387,27 +504,6 @@ function NewSequenceDialog({ onClose }: { onClose: () => void }) {
         </Button>
         <Button variant="primary" onClick={() => void create()} disabled={reading}>
           Create
-        </Button>
-      </div>
-    </Modal>
-  );
-}
-
-function DiscardDialog({ onSave, onDiscard, onCancel }: { onSave: () => void; onDiscard: () => void; onCancel: () => void }) {
-  const name = useSequencer((s) => s.doc?.name ?? "this sequence");
-  return (
-    <Modal label="Unsaved changes">
-      <h2 className="text-lg font-semibold">Save changes to {name}?</h2>
-      <p className="mt-2 text-sm text-neutral-500">Your changes are lost if you don't save them.</p>
-      <div className="mt-5 flex justify-end gap-2">
-        <Button variant="ghost" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button variant="danger" onClick={onDiscard}>
-          Don't save
-        </Button>
-        <Button variant="primary" onClick={onSave}>
-          Save
         </Button>
       </div>
     </Modal>

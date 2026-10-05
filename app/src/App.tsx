@@ -1,18 +1,34 @@
 import { useEffect } from "react";
 import { AppShell } from "./components/AppShell";
 import { CommandPalette } from "./components/CommandPalette";
-import { ConfirmDiscard } from "./components/ConfirmDiscard";
+import { ConfirmClose, ConfirmDiscard, ConfirmReplaceSequence } from "./components/ConfirmDiscard";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { ImportReport } from "./components/ImportReport";
 import { SequenceImportReport } from "./components/SequenceImportReport";
 import { Welcome } from "./components/Welcome";
 import { useShortcuts } from "./components/useShortcuts";
+import { useCloseGuard } from "./state/closeGuard";
 import { useApp } from "./state/store";
 
 export function App() {
   const started = useApp((s) => s.started);
   const theme = useApp((s) => s.theme);
+  const backend = useApp((s) => s.backend);
   useShortcuts();
+  // Closing the window with unsaved work asks first.
+  useEffect(() => {
+    if (!backend) return;
+    let stop: (() => void) | null = null;
+    let gone = false;
+    void backend.onCloseRequested(() => useCloseGuard.getState().request()).then(
+      (unlisten) => (gone ? unlisten() : (stop = unlisten)),
+      () => undefined,
+    );
+    return () => {
+      gone = true;
+      stop?.();
+    };
+  }, [backend]);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
@@ -21,6 +37,8 @@ export function App() {
       {started ? <AppShell /> : <Welcome />}
       <CommandPalette />
       <ConfirmDiscard />
+      <ConfirmReplaceSequence />
+      <ConfirmClose />
       <ErrorBanner />
       <ImportReport />
       <SequenceImportReport />

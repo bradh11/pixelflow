@@ -35,11 +35,9 @@ interface AppState {
   paletteOpen: boolean;
   error: string | null;
   busy: boolean;
-  /** Set when New/Open was asked for while the show has unsaved changes, or an xLights
-   * sequence import while the open sequence has unsaved changes ("xlightsSequence"). */
-  pendingReplace: "new" | "open" | "xlights" | "xlightsSequence" | null;
-  /** The open sequence's name while asking about its unsaved changes. */
-  pendingSequenceName: string | null;
+  /** Set when New/Open was asked for while the show has unsaved changes. (Replacing the open
+   * sequence asks through the sequencer's own question: see `useSequencer.replaceAfterAsking`.) */
+  pendingReplace: "new" | "open" | "xlights" | null;
   /** What the last xLights import brought in, shown until dismissed. */
   importReport: { name: string; summary: ImportSummary; notes: string[] } | null;
   /** What the last xLights sequence import brought in, shown until dismissed. */
@@ -80,7 +78,8 @@ interface AppState {
   /** Imports an xLights show folder as a new show (asks about unsaved changes first). */
   importXlights(): Promise<boolean>;
   dismissImportReport(): void;
-  /** Imports an xLights sequence onto the open show and opens it in the sequence editor. */
+  /** Imports an xLights sequence onto the open show and opens it in the sequence editor (asks
+   * about the open sequence's unsaved changes first, like New and Open on the Sequence screen). */
   importXlightsSequence(): Promise<boolean>;
   dismissSequenceImportReport(): void;
   save(): Promise<boolean>;
@@ -271,7 +270,6 @@ export const useApp = create<AppState>((set, get) => {
   error: null,
   busy: false,
   pendingReplace: null,
-  pendingSequenceName: null,
   importReport: null,
   sequenceImportReport: null,
   testTarget: "show",
@@ -340,12 +338,8 @@ export const useApp = create<AppState>((set, get) => {
   dismissImportReport: () => set({ importReport: null }),
 
   async importXlightsSequence() {
-    const { doc, dirty } = useSequencer.getState();
-    if (doc && dirty) {
-      set({ pendingReplace: "xlightsSequence", pendingSequenceName: doc.name });
-      return false;
-    }
-    return replaceSequenceWithImport();
+    // False while asking: the import then runs once the answer allows it.
+    return (await useSequencer.getState().replaceAfterAsking(replaceSequenceWithImport)) ?? false;
   },
 
   dismissSequenceImportReport: () => set({ sequenceImportReport: null }),
@@ -354,13 +348,8 @@ export const useApp = create<AppState>((set, get) => {
     const kind = get().pendingReplace;
     if (!kind) return false;
     if (choice === "cancel") {
-      set({ pendingReplace: null, pendingSequenceName: null });
+      set({ pendingReplace: null });
       return false;
-    }
-    if (kind === "xlightsSequence") {
-      if (choice === "save" && !(await useSequencer.getState().save())) return false;
-      set({ pendingReplace: null, pendingSequenceName: null });
-      return replaceSequenceWithImport();
     }
     if (choice === "save" && !(await get().save())) return false;
     set({ pendingReplace: null });

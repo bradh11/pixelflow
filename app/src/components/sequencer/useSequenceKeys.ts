@@ -1,7 +1,7 @@
 import { useEffect } from "react";
-import type { SequenceEdit } from "../../api/sequence";
-import { buildIndex, pasteEffects, stepTime } from "../../lib/timelineMath";
-import { useSequencer } from "../../state/sequencer";
+import type { Sequence, SequenceEdit } from "../../api/sequence";
+import { buildIndex, nudgeEdits, pasteEffects, stepTime } from "../../lib/timelineMath";
+import { type Copied, newGesture, useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
 
 /** Beat times from the sequence's beats track (or its first track), for Shift-steps. */
@@ -20,19 +20,42 @@ function beatTimes(): number[] {
  */
 export function useSequenceKeys() {
   useEffect(() => {
-    let nudges = 0;
+    /** The arrow key being held: its repeats make one undo step. */
+    let nudge = "";
+    /** Pastes copies built from the document as it is when the paste's turn comes, then selects them. */
+    const pasteAt = (copies: (doc: Sequence) => { copies: Copied[]; atMs: number }) => {
+      const s = useSequencer.getState();
+      let made: string[] = [];
+      void s
+        .edit((doc) => {
+          const { copies: chosen, atMs } = copies(doc);
+          const edits = pasteEffects(doc, buildIndex(doc), chosen, atMs);
+          made = edits.flatMap((x) => (x.type === "addEffect" ? [x.effect.id] : []));
+          return edits;
+        })
+        .then((ok) => {
+          if (!ok || made.length === 0) return;
+          useSequencer.getState().select(made);
+          useSequencer.getState().reveal();
+        });
+    };
     const onKey = (e: KeyboardEvent) => {
+      // Something else already took the key (a palette item adding an effect, a dialog closing).
+      if (e.defaultPrevented) return;
       const target = e.target as HTMLElement | null;
       if (target && (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.isContentEditable)) return;
       if (target?.closest?.("[role=dialog]")) return;
-      if (useApp.getState().paletteOpen) return;
+      const app = useApp.getState();
+      if (app.paletteOpen || app.pendingReplace) return;
       const s = useSequencer.getState();
+      if (s.replacing) return;
       const doc = s.doc;
       if (!doc) return;
       const mod = e.metaKey || e.ctrlKey;
       const key = e.key;
       if (key === " " && !mod) {
-        // A focused button would also take Space as a click.
+        // Space on a focused button presses that button instead.
+        if (target?.closest?.("button, a, [role=button], [role=checkbox], [role=menuitem]")) return;
         e.preventDefault();
         void (s.status?.state === "playing" ? s.pause() : s.play());
         return;
@@ -43,20 +66,15 @@ export function useSequenceKeys() {
         const grid = { frameMs: doc.frameMs, beats: beatTimes() };
         if (s.selection.length === 0) {
           void s.seek(stepTime(s.playheadMs, direction, grid, e.shiftKey));
+          s.reveal();
           return;
         }
-        const index = buildIndex(doc);
-        const placed = s.selection.map((id) => index.byId.get(id)).filter((p) => p !== undefined);
-        if (placed.length === 0) return;
-        const first = Math.min(...placed.map((p) => p.effect.startMs));
-        const last = Math.max(...placed.map((p) => p.effect.endMs));
-        let delta = stepTime(first, direction, grid, e.shiftKey) - first;
-        delta = Math.max(-first, Math.min(doc.durationMs - last, delta));
-        if (delta === 0) return;
-        // Holding the key down is one step to undo.
-        if (!e.repeat) nudges++;
-        const edits: SequenceEdit[] = placed.map((p) => ({ type: "setEffectTiming", id: p.effect.id, startMs: p.effect.startMs + delta, endMs: p.effect.endMs + delta }));
-        void s.edit(edits, `nudge:${nudges}`);
+        // Holding the key down is one step to undo. Each step is worked out from where the effects
+        // are when its turn comes, so quick presses add up even while the engine is answering.
+        if (!e.repeat || !nudge) nudge = newGesture();
+        const ids = s.selection;
+        const byBeat = e.shiftKey;
+        void s.edit((latest) => nudgeEdits(latest, ids, direction, byBeat), nudge).then((ok) => ok && useSequencer.getState().reveal());
         return;
       }
       if ((key === "ArrowUp" || key === "ArrowDown") && !mod && doc.rows.length > 0) {
@@ -67,16 +85,22 @@ export function useSequenceKeys() {
         const row = doc.rows[next];
         const under = [...row.layers].reverse().flatMap((l) => l.effects).find((x) => x.startMs <= s.playheadMs && s.playheadMs < x.endMs);
         s.select(under ? [under.id] : [], row.id);
+        s.reveal();
         return;
       }
       if (key === "Home" || key === "End") {
         e.preventDefault();
         void s.seek(key === "Home" ? 0 : doc.durationMs);
+        s.reveal();
         return;
       }
       if ((key === "Delete" || key === "Backspace") && s.selection.length > 0) {
         e.preventDefault();
-        void s.edit(s.selection.map((id) => ({ type: "removeEffect" as const, id })));
+        const ids = s.selection;
+        void s.edit((latest) => {
+          const index = buildIndex(latest);
+          return ids.filter((id) => index.byId.has(id)).map((id): SequenceEdit => ({ type: "removeEffect", id }));
+        });
         return;
       }
       if (key === "Escape" && s.selection.length > 0) {
@@ -93,18 +117,19 @@ export function useSequenceKeys() {
         s.copy();
       } else if (lower === "v" && s.clipboard.length > 0) {
         e.preventDefault();
-        const edits = pasteEffects(doc, buildIndex(doc), s.clipboard, s.playheadMs);
-        void s.edit(edits).then((ok) => ok && s.select(edits.map((x) => (x.type === "addEffect" ? x.effect.id : ""))));
+        const { clipboard, playheadMs } = s;
+        pasteAt(() => ({ copies: clipboard, atMs: playheadMs }));
       } else if (lower === "d" && s.selection.length > 0) {
         e.preventDefault();
-        const index = buildIndex(doc);
-        const copies = s.selection
-          .map((id) => index.byId.get(id))
-          .filter((p) => p !== undefined)
-          .map((p) => ({ rowId: p.rowId, effect: p.effect }));
-        const end = Math.max(...copies.map((c) => c.effect.endMs));
-        const edits = pasteEffects(doc, index, copies, end);
-        void s.edit(edits).then((ok) => ok && s.select(edits.map((x) => (x.type === "addEffect" ? x.effect.id : ""))));
+        const ids = s.selection;
+        pasteAt((latest) => {
+          const index = buildIndex(latest);
+          const copies = ids.flatMap((id) => {
+            const p = index.byId.get(id);
+            return p ? [{ rowId: p.rowId, effect: p.effect }] : [];
+          });
+          return { copies, atMs: Math.max(0, ...copies.map((c) => c.effect.endMs)) };
+        });
       }
     };
     window.addEventListener("keydown", onKey);

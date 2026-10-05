@@ -4,6 +4,7 @@ import {
   buildIndex,
   clampView,
   createSpan,
+  effectBounds,
   effectsInView,
   fitInLane,
   fitView,
@@ -16,6 +17,8 @@ import {
   marqueeSelect,
   moveDrag,
   moveEdits,
+  nudgeEdits,
+  placeMove,
   pasteEffects,
   planDrop,
   resizeDrag,
@@ -188,21 +191,56 @@ describe("dragging", () => {
   });
 
   it("turns a move into timing edits, or moves to another row or layer", () => {
-    const edits = moveEdits(
-      [
-        { id: "a1", startMs: 100, endMs: 1100, lane: 0 },
-        { id: "a3", startMs: 600, endMs: 1600, lane: 2 },
-      ],
-      [
-        { id: "a1", startMs: 0, endMs: 1000, lane: 0 },
-        { id: "a3", startMs: 500, endMs: 1500, lane: 1 },
-      ],
-      lanes,
-    );
-    expect(edits).toEqual([
+    const index = buildIndex(sequence);
+    const placed = placeMove(index, lanes, [
+      { id: "a1", startMs: 100, endMs: 1100, lane: 0 },
+      { id: "a3", startMs: 600, endMs: 1600, lane: 2 },
+    ]);
+    expect(moveEdits(placed, index)).toEqual([
       { type: "setEffectTiming", id: "a1", startMs: 100, endMs: 1100 },
       { type: "moveEffect", id: "a3", row: "B", layer: 0, startMs: 600, endMs: 1600 },
     ]);
+  });
+
+  it("lands a moved effect on a layer with room instead of over another effect", () => {
+    const index = buildIndex(sequence);
+    // a3 dropped on layer 1 of A at 1800–2800 is fine; on layer 0 it would cover a2, so it stays
+    // on the free layer 1 (shown in lane 1).
+    expect(placeMove(index, lanes, [{ id: "a3", startMs: 1800, endMs: 2800, lane: 0 }])).toEqual([
+      { id: "a3", startMs: 1800, endMs: 2800, lane: 1, rowId: "A", layer: 1 },
+    ]);
+    // Onto B over b1: B has one layer, so a new one on top (drawn in the lane it was dropped on).
+    const onB = placeMove(index, lanes, [{ id: "a1", startMs: 4500, endMs: 5500, lane: 2 }]);
+    expect(onB).toEqual([{ id: "a1", startMs: 4500, endMs: 5500, lane: 2, rowId: "B", layer: 1 }]);
+    expect(moveEdits(onB, index)).toEqual([{ type: "moveEffect", id: "a1", row: "B", layer: 1, startMs: 4500, endMs: 5500 }]);
+    // Effects moving together don't block each other, and their old places are free.
+    const both = placeMove(index, lanes, [
+      { id: "a1", startMs: 1000, endMs: 2000, lane: 0 },
+      { id: "a2", startMs: 2000, endMs: 3000, lane: 0 },
+    ]);
+    expect(both.map((p) => p.layer)).toEqual([0, 0]);
+    // Two landing on each other: the second goes up a layer.
+    const stacked = placeMove(index, lanes, [
+      { id: "a1", startMs: 7000, endMs: 8000, lane: 2 },
+      { id: "a2", startMs: 7500, endMs: 8500, lane: 2 },
+    ]);
+    expect(stacked.map((p) => p.layer)).toEqual([0, 1]);
+    // A collapsed row keeps an effect on its own layer when it can.
+    const folded = layoutLanes(sequence.rows, new Set(["A"]), 30).lanes;
+    expect(placeMove(index, folded, [{ id: "a3", startMs: 3500, endMs: 4500, lane: 0 }])[0]).toMatchObject({ rowId: "A", layer: 1, lane: 0 });
+  });
+
+  it("keeps drags on the frame grid unless they snap, and resizes stop at the neighbors", () => {
+    const items = [{ id: "a2", startMs: 2000, endMs: 3000, lane: 0 }];
+    expect(moveDrag({ items, primary: "a2", deltaMs: 337, deltaLanes: 0, laneCount: 3, durationMs: 60_000, frameMs: 25 }).items[0]).toMatchObject({ startMs: 2325, endMs: 3325 });
+    const item = items[0];
+    expect(resizeDrag({ item, edge: "end", ms: 3337, minMs: 25, durationMs: 60_000, frameMs: 25 }).endMs).toBe(3325);
+    expect(resizeDrag({ item, edge: "start", ms: 1337, minMs: 25, durationMs: 60_000, frameMs: 25, bounds: { lo: 1000, hi: 60_000 } }).startMs).toBe(1325);
+    expect(resizeDrag({ item, edge: "start", ms: 400, minMs: 25, durationMs: 60_000, frameMs: 25, bounds: { lo: 1000, hi: 60_000 } }).startMs).toBe(1000);
+    expect(resizeDrag({ item, edge: "end", ms: 9000, minMs: 25, durationMs: 60_000, bounds: { lo: 0, hi: 4000 } }).endMs).toBe(4000);
+    // A snap target past the neighbor doesn't pull it through.
+    expect(resizeDrag({ item, edge: "end", ms: 4010, minMs: 25, durationMs: 60_000, bounds: { lo: 0, hi: 4000 }, snap: { targets: [4020], thresholdMs: 30 } })).toEqual({ startMs: 2000, endMs: 4000, snappedAt: null });
+    expect(createSpan({ ms: 1337, durationMs: 60_000, frameMs: 25 }).startMs).toBe(1325);
   });
 
   it("resizes from either edge, snapping and keeping at least one frame", () => {
@@ -282,6 +320,33 @@ describe("thousands of effects", () => {
 });
 
 describe("keyboard and clipboard", () => {
+  it("knows how far an effect can go before it runs into a neighbor on its layer", () => {
+    const d = doc([rowA, rowB]);
+    expect(effectBounds(d, "a1")).toEqual({ lo: 0, hi: 2000 });
+    expect(effectBounds(d, "a2")).toEqual({ lo: 1000, hi: 60_000 });
+    // A neighbor that's moving too doesn't count; nor do other layers.
+    expect(effectBounds(d, "a2", new Set(["a1"]))).toEqual({ lo: 0, hi: 60_000 });
+    expect(effectBounds(d, "a3")).toEqual({ lo: 0, hi: 60_000 });
+    // Neighbors already overlapping never shrink it.
+    const overlapped = doc([{ id: "O", target: { prop: "p" }, layers: [{ effects: [fx("o1", 0, 1500), fx("o2", 1000, 2000)] }] }]);
+    expect(effectBounds(overlapped, "o2")).toEqual({ lo: 1000, hi: 60_000 });
+    expect(effectBounds(d, "missing")).toBeNull();
+  });
+
+  it("nudges effects together from where they are now, stopping at neighbors and the song's ends", () => {
+    const d = doc([rowA, rowB]);
+    expect(nudgeEdits(d, ["b1"], 1, false)).toEqual([{ type: "setEffectTiming", id: "b1", startMs: 4025, endMs: 6025 }]);
+    // At the song's start, it can't go any earlier.
+    expect(nudgeEdits(d, ["a1"], -1, false)).toEqual([]);
+    const touching = doc([{ id: "T", target: { prop: "p" }, layers: [{ effects: [fx("t1", 0, 1000), fx("t2", 1000, 2000)] }] }]);
+    expect(nudgeEdits(touching, ["t1"], 1, false)).toEqual([]);
+    // Moving both together, nothing is in the way.
+    expect(nudgeEdits(touching, ["t1", "t2"], 1, false)).toHaveLength(2);
+    // A beat step stops short at the neighbor: a1 can only go 1000 ms before reaching a2.
+    const beats = { id: "bt", name: "Beats", kind: "beats" as const, marks: [0, 1500, 3000].map((t) => ({ startMs: t, endMs: t + 1500, label: "" })) };
+    expect(nudgeEdits(doc([rowA], { timingTracks: [beats] }), ["a1"], 1, true)).toEqual([{ type: "setEffectTiming", id: "a1", startMs: 1000, endMs: 2000 }]);
+  });
+
   it("steps by a frame, or to the next or previous beat", () => {
     const beats = [0, 500, 1000, 1500];
     expect(stepTime(700, 1, { frameMs: 25 })).toBe(725);

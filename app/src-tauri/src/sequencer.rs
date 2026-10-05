@@ -5,7 +5,7 @@ use crate::{AppState, Reply, message};
 use pf_analysis::Analysis;
 use pf_engine::{
     Engine, EngineError, ExportLayout, ExportSummary, PlaybackStatus, SequenceEdit, SequenceEditResult,
-    SequenceExport, SequenceSnapshot, ShowSnapshot,
+    SequenceExport, SequenceRecovery, SequenceSnapshot, ShowSnapshot,
 };
 use pf_sequence::{EffectInfo, TimingTrack};
 use serde::Serialize;
@@ -30,17 +30,39 @@ pub(crate) struct ExportProgress {
     pub percent: u32,
 }
 
-/// Starts a new, unsaved sequence (replacing the open one; the UI asks first if it has changes).
+/// Starts a new, unsaved sequence with its music, if any (replacing the open one; the UI asks
+/// first if it has changes). It starts with nothing to undo and no unsaved changes.
 #[tauri::command]
 pub(crate) async fn new_sequence_doc(
     state: State<'_, AppState>,
     name: String,
     duration_ms: u64,
+    audio: Option<String>,
 ) -> Reply<SequenceSnapshot> {
     state
         .engine()
-        .new_sequence_doc(&name, duration_ms)
+        .new_sequence_doc(&name, duration_ms, audio.as_deref())
         .map_err(message)
+}
+
+/// Unsaved sequences an earlier run of PixelFlow kept (newest first), to offer back.
+#[tauri::command]
+pub(crate) async fn sequence_recoveries(state: State<'_, AppState>) -> Reply<Vec<SequenceRecovery>> {
+    Ok(state.engine().sequence_recoveries())
+}
+
+/// Opens a kept unsaved sequence, with unsaved changes (replacing the open one; the UI asks
+/// first if it has changes).
+#[tauri::command]
+pub(crate) async fn recover_sequence(state: State<'_, AppState>, id: String) -> Reply<SequenceSnapshot> {
+    state.engine().recover_sequence(&id).map_err(message)
+}
+
+/// Throws away a kept unsaved sequence.
+#[tauri::command]
+pub(crate) async fn discard_sequence_recovery(state: State<'_, AppState>, id: String) -> Reply<()> {
+    state.engine().discard_sequence_recovery(&id);
+    Ok(())
 }
 
 #[tauri::command]

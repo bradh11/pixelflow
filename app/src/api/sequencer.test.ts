@@ -80,7 +80,10 @@ describe("tauriSequencer", () => {
   it("calls the shell's commands with camelCase arguments", async () => {
     invoke.mockResolvedValue(null);
     const edits: SequenceEdit[] = [{ type: "setEffectTiming", id: "e1", startMs: 0, endMs: 500 }];
-    await tauriSequencer.newSequenceDoc("Song", 180_000);
+    await tauriSequencer.newSequenceDoc("Song", 180_000, "/music/song.mp3");
+    await tauriSequencer.sequenceRecoveries();
+    await tauriSequencer.recoverSequence("123-4-0");
+    await tauriSequencer.discardSequenceRecovery("123-4-0");
     await tauriSequencer.editSequence(edits);
     await tauriSequencer.editSequence(edits, "drag-3");
     await tauriSequencer.playSequenceDoc(2500);
@@ -91,7 +94,10 @@ describe("tauriSequencer", () => {
     await tauriSequencer.setSequenceDocOutput(false);
     await tauriSequencer.addSequenceDocToShow("/shows/song.fseq");
     expect(invoke.mock.calls).toEqual([
-      ["new_sequence_doc", { name: "Song", durationMs: 180_000 }],
+      ["new_sequence_doc", { name: "Song", durationMs: 180_000, audio: "/music/song.mp3" }],
+      ["sequence_recoveries"],
+      ["recover_sequence", { id: "123-4-0" }],
+      ["discard_sequence_recovery", { id: "123-4-0" }],
       ["edit_sequence", { edits }],
       ["edit_sequence", { edits, gesture: "drag-3" }],
       ["play_sequence_doc", { positionMs: 2500 }],

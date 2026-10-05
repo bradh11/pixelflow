@@ -847,7 +847,7 @@ impl OpenSequence {
     /// A document that has never been saved and has unsaved changes (an import).
     pub fn unsaved(doc: Sequence, revision: u64) -> Self {
         let mut open = Self::new(doc, None, revision);
-        open.saved_revision = revision.wrapping_sub(1);
+        open.mark_unsaved();
         open
     }
 
@@ -999,6 +999,17 @@ impl OpenSequence {
 
     pub fn snapshot_revision(&self) -> u64 {
         self.revision
+    }
+
+    /// Whether there are changes since the document was opened or last saved.
+    pub fn is_dirty(&self) -> bool {
+        self.revision != self.saved_revision
+    }
+
+    /// Marks the document as having unsaved changes (one recovered after a crash, or an
+    /// import). Revisions start at 1, so 0 never matches.
+    pub fn mark_unsaved(&mut self) {
+        self.saved_revision = 0;
     }
 
     pub fn mark_saved(&mut self, path: &Path) {

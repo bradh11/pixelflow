@@ -1,7 +1,9 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Profiler } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
+import { EffectSettings } from "../components/sequencer/EffectSettings";
 import { demoShow } from "../api/demo";
 import { DEMO_MUSIC, DEMO_SEQUENCE_PATH, demoSequence } from "../api/demoSequence";
 import { MemoryBackend } from "../api/memory";
@@ -80,6 +82,9 @@ describe("sequence screen", () => {
     await user.click(within(dialog).getByRole("button", { name: "Create" }));
     await waitFor(() => expect(seq.doc?.audio).toBe(DEMO_MUSIC));
     expect(seq.doc?.durationMs).toBe(60_000);
+    // It starts clean: nothing to save, and undo doesn't take the music away.
+    expect(useSequencer.getState()).toMatchObject({ dirty: false, canUndo: false });
+    expect(screen.getByRole("button", { name: "Undo (sequence)" })).toBeDisabled();
     // A new sequence needs rows: add every prop at once.
     await user.click(screen.getByRole("button", { name: "Add a row" }));
     await user.click(screen.getByRole("button", { name: "Add every prop (4)" }));
@@ -113,32 +118,46 @@ describe("sequence screen", () => {
   });
 
   it("adds an effect at the playhead from the keyboard", async () => {
-    const { seq, user, show } = await openScreen();
+    const { seq, user, show, backend } = await openScreen();
     useSequencer.getState().setPlayhead(57_000);
     act(() => useSequencer.getState().setActiveRow(seq.doc!.rows[3].id));
     screen.getByRole("button", { name: "Strobe effect" }).focus();
     await user.keyboard("{Enter}");
     await waitFor(() => expect(rowEffects(seq.doc!, "Porch Star", show).some((e) => e.params.kind === "strobe")).toBe(true));
+    // Space on a palette item adds it too, without starting playback.
+    act(() => useSequencer.getState().setPlayhead(58_500));
+    screen.getByRole("button", { name: "Fire effect" }).focus();
+    await user.keyboard(" ");
+    await waitFor(() => expect(rowEffects(seq.doc!, "Porch Star", show).some((e) => e.params.kind === "fire")).toBe(true));
+    expect(backend.calls.some((c) => c.startsWith("playAuthored"))).toBe(false);
+    expect(useSequencer.getState().status).toBeNull();
   });
 
   it("moves effects to other rows, snapping, and resizes them by their edges", async () => {
     const { seq, show } = await openScreen();
     const wave = rowEffects(seq.doc!, "Garage Arch", show)[0];
     expect([wave.startMs, wave.endMs]).toEqual([0, 4000]);
-    // Down onto Window Matrix, a little later: snaps to the half-second beat.
+    // Down onto Window Matrix, a little later: snaps to the half-second beat. The matrix's only
+    // layer is full there, so it lands on a new layer instead of covering what's there.
     drag(timeline(), [x(1000), LANE.archTop], [x(1000) + 30, LANE.matrix]);
     await waitFor(() => expect(rowEffects(seq.doc!, "Window Matrix", show).some((e) => e.id === wave.id)).toBe(true));
-    const moved = rowEffects(seq.doc!, "Window Matrix", show).find((e) => e.id === wave.id)!;
-    expect([moved.startMs, moved.endMs]).toEqual([2000, 6000]);
-    expect(moved.startMs % 500).toBe(0);
-    // Holding Alt turns snapping off.
+    const matrix = seq.doc!.rows[2];
+    expect(matrix.layers).toHaveLength(2);
+    expect(matrix.layers[1].effects.map((e) => [e.id, e.startMs, e.endMs])).toEqual([[wave.id, 2000, 6000]]);
+    // Holding Alt turns snapping off; the move stays on the frame grid (11 px is 660 ms: 650).
     const chase = rowEffects(seq.doc!, "Garage Arch", show)[0];
-    drag(timeline(), [x(chase.startMs + 1000), LANE.archTop], [x(chase.startMs + 1000) + 11, LANE.archTop], { altKey: true });
-    await waitFor(() => expect(rowEffects(seq.doc!, "Garage Arch", show)[0].startMs).toBe(chase.startMs + 660));
-    // Dragging the end edge changes the length, snapping to a beat.
+    expect(chase.startMs).toBe(4000);
+    drag(timeline(), [x(chase.startMs + 1000), LANE.archTop], [x(chase.startMs + 1000) - 11, LANE.archTop], { altKey: true });
+    await waitFor(() => expect(rowEffects(seq.doc!, "Garage Arch", show)[0].startMs).toBe(chase.startMs - 650));
+    // Dragging the end edge changes the length, snapping to a beat. The matrix now has two lanes:
+    // its new layer is at 224–254.
     const target = rowEffects(seq.doc!, "Window Matrix", show).find((e) => e.id === wave.id)!;
-    drag(timeline(), [x(target.endMs) - 2, LANE.matrix], [x(7_020), LANE.matrix]);
+    drag(timeline(), [x(target.endMs) - 2, 239], [x(7_020), 239]);
     await waitFor(() => expect(rowEffects(seq.doc!, "Window Matrix", show).find((e) => e.id === wave.id)!.endMs).toBe(7000));
+    // An edge stops at the next effect on its layer.
+    const next = rowEffects(seq.doc!, "Garage Arch", show)[1];
+    drag(timeline(), [x(chase.endMs - 650) - 2, LANE.archTop], [x(next.startMs + 2000), LANE.archTop], { altKey: true });
+    await waitFor(() => expect(rowEffects(seq.doc!, "Garage Arch", show)[0].endMs).toBe(next.startMs));
   });
 
   it("selects with a click, Shift-click, and a marquee, and deletes with the keyboard", async () => {
@@ -199,11 +218,16 @@ describe("sequence screen", () => {
     await user.keyboard("{End}");
     expect(useSequencer.getState().playheadMs).toBe(60_000);
     await user.keyboard("{Home}");
-    // Select the arch's first effect and nudge it a frame later.
-    const first = rowEffects(seq.doc!, "Garage Arch", show)[0];
+    // Select the star's first effect and nudge it a frame later.
+    const first = rowEffects(seq.doc!, "Porch Star", show)[0];
     act(() => useSequencer.getState().select([first.id]));
     await user.keyboard("{ArrowRight}");
-    await waitFor(() => expect(rowEffects(seq.doc!, "Garage Arch", show)[0].startMs).toBe(25));
+    await waitFor(() => expect(rowEffects(seq.doc!, "Porch Star", show)[0].startMs).toBe(25));
+    // The arch's effects sit end to end: nudging one would run into the next, so it stays put.
+    const arch = rowEffects(seq.doc!, "Garage Arch", show)[0];
+    act(() => useSequencer.getState().select([arch.id]));
+    await user.keyboard("{ArrowRight}");
+    expect(rowEffects(seq.doc!, "Garage Arch", show)[0].startMs).toBe(0);
     // Copy, then paste at 58 s.
     await user.keyboard("{Meta>}c{/Meta}");
     act(() => useSequencer.getState().setPlayhead(56_000));
@@ -226,12 +250,43 @@ describe("sequence screen", () => {
     await waitFor(() => expect(useSequencer.getState().status).toBeNull());
   });
 
-  it("exports an .fseq and adds it to the show's playlist", async () => {
-    const { seq, user } = await openScreen();
+  it("exports an .fseq and adds it to the show's playlist, saying what happened", async () => {
+    const { backend, seq, user } = await openScreen();
+    await user.click(screen.getByRole("button", { name: "Export .fseq for FPP" }));
+    expect(await screen.findByText("Exported 2,400 frames (1:00) to Medley.fseq.")).toBeInTheDocument();
+    expect(useApp.getState().snapshot?.show.sequences).toHaveLength(0);
+
     await user.click(screen.getByRole("button", { name: "Export and add to the show's playlist" }));
     await waitFor(() => expect(useApp.getState().snapshot?.show.sequences).toHaveLength(1));
     expect(seq.calls).toContain("exportSequenceDoc");
     expect(useApp.getState().snapshot?.show.sequences[0]).toMatchObject({ name: "Christmas Medley 2017", path: "/Shows/Medley.fseq", audio: DEMO_MUSIC });
+    // The show changed (one undo step on the show): the top bar and the notice say it needs saving.
+    expect(await screen.findByText(/It's on the show's playlist; save the show to keep it there/)).toBeInTheDocument();
+    expect(screen.getByText("● Show not saved")).toBeInTheDocument();
+    expect(useApp.getState().snapshot?.canUndo).toBe(true);
+    // Adding the same file again doesn't list it twice.
+    await user.click(screen.getByRole("button", { name: "Export and add to the show's playlist" }));
+    await waitFor(() => expect(seq.calls.filter((c) => c.startsWith("addSequenceDocToShow"))).toHaveLength(2));
+    expect(useApp.getState().snapshot?.show.sequences).toHaveLength(1);
+    backend.nextSavePath = "/Shows/House.pixelflow.json";
+    await user.click(screen.getByRole("button", { name: "Save show" }));
+    await waitFor(() => expect(useApp.getState().snapshot?.dirty).toBe(false));
+    expect(screen.queryByText("● Show not saved")).not.toBeInTheDocument();
+  });
+
+  it("says plainly that a cancelled export wrote nothing", async () => {
+    const { seq } = await openScreen();
+    const real = seq.exportSequenceDoc.bind(seq);
+    vi.spyOn(seq, "exportSequenceDoc").mockImplementation((path, onProgress) =>
+      real(path, (p) => {
+        onProgress?.(p);
+        if (p.percent === 50) void useSequencer.getState().cancelExport();
+      }),
+    );
+    await act(() => useSequencer.getState().exportFseq(true));
+    expect(screen.getByText("Export cancelled. No file was written.")).toBeInTheDocument();
+    expect(useApp.getState().error).toBeNull();
+    expect(useApp.getState().snapshot?.show.sequences).toHaveLength(0);
   });
 
   it("walks rows with Up and Down, saying what's selected", async () => {
@@ -247,16 +302,392 @@ describe("sequence screen", () => {
     expect(screen.getByTestId("timeline-announcer")).toHaveTextContent("No effect selected");
   });
 
+  it("stops at the song's end and lets go of the music", async () => {
+    const { backend } = await openScreen();
+    await act(() => useSequencer.getState().play());
+    await act(() => useSequencer.getState().seek(59_980));
+    await waitFor(() => expect(useSequencer.getState().status).toBeNull());
+    expect(useSequencer.getState().playheadMs).toBe(60_000);
+    expect(within(screen.getByRole("toolbar", { name: "Sequence" })).getByRole("button", { name: "Play" })).toBeInTheDocument();
+    // Clicking the ruler now only moves the playhead.
+    fireEvent.pointerDown(timeline(), { clientX: x(6000), clientY: 10, button: 0, pointerId: 1 });
+    fireEvent.pointerUp(timeline(), { clientX: x(6000), clientY: 10, pointerId: 1 });
+    expect(useSequencer.getState().playheadMs).toBe(6000);
+    expect(await backend.playbackStatus()).toBeNull();
+  });
+
+  it("brings rows and effects picked from the keyboard or the problem list into view", async () => {
+    const { seq, user } = await openScreen();
+    // Many layers on the first row push the others below the fold.
+    await act(() => useSequencer.getState().edit(Array.from({ length: 20 }, () => ({ type: "addLayer" as const, row: seq.doc!.rows[0].id }))));
+    const rows = screen.getByRole("slider", { name: "Scroll rows" });
+    expect(rows).toHaveValue("0");
+    act(() => useSequencer.getState().setActiveRow(seq.doc!.rows[0].id));
+    timeline().focus();
+    await user.keyboard("{ArrowDown}");
+    // Garage Arch's lane is at 660–690 in a 496 px view.
+    expect(Number((rows as HTMLInputElement).value)).toBeGreaterThanOrEqual(690 - 496);
+    expect(screen.getByRole("listitem", { name: "Garage Arch" })).toHaveAttribute("aria-current", "true");
+    // Zoomed in on the start, a problem near the end scrolls the time to it.
+    for (let i = 0; i < 5; i++) await user.click(screen.getByRole("button", { name: "Zoom in" }));
+    const time = screen.getByRole("slider", { name: "Scroll in time" });
+    fireEvent.change(time, { target: { value: "0" } });
+    expect(time).toHaveValue("0");
+    const late = seq.doc!.rows[1 + 0].layers[0].effects.find((e) => e.startMs >= 50_000)!;
+    seq.issues = [{ severity: "warning", message: "Something about the effect at 0:52.000.", row: seq.doc!.rows[1].id, effect: late.id }];
+    await act(() => useSequencer.getState().refreshIssues());
+    await user.click(screen.getByRole("button", { name: "1 problem" }));
+    await user.click(screen.getByRole("button", { name: /Something about/ }));
+    const start = Number((time as HTMLInputElement).value);
+    expect(start).toBeLessThanOrEqual(late.startMs);
+    expect(start).toBeGreaterThan(late.startMs - 10_000);
+  });
+
+  it("keeps the zoom when a sequence is first saved", async () => {
+    const { seq, user } = await openScreen();
+    await user.click(screen.getByRole("button", { name: "Zoom in" }));
+    await user.click(screen.getByRole("button", { name: "Zoom in" }));
+    const time = screen.getByRole("slider", { name: "Scroll in time" });
+    expect(time).not.toBeDisabled();
+    seq.nextSavePath = "/Shows/Copy.pfseq.json";
+    await act(() => useSequencer.getState().saveAs());
+    expect(useSequencer.getState().path).toBe("/Shows/Copy.pfseq.json");
+    expect(time).not.toBeDisabled();
+    // Opening a different sequence fits the whole song again.
+    seq.nextOpenPath = DEMO_SEQUENCE_PATH;
+    await act(() => useSequencer.getState().open(DEMO_SEQUENCE_PATH));
+    expect(screen.getByRole("slider", { name: "Scroll in time" })).toBeDisabled();
+  });
+
+  it("drags from the palette honestly: the ghost shows a new layer, Alt skips snapping, Escape cancels", async () => {
+    const texts = recordTimelineText();
+    const { seq, show } = await openScreen();
+    const fire = screen.getByRole("button", { name: "Fire effect" });
+    // Over the arch's effects: there's no room on its layer, so a new layer is shown.
+    fireEvent.pointerDown(fire, { clientX: 20, clientY: 20, button: 0, pointerId: 1 });
+    texts.length = 0;
+    fireEvent.pointerMove(fire, { clientX: x(10_000), clientY: LANE.archTop, pointerId: 1 });
+    expect(texts.some((t) => t.text === "+ New layer")).toBe(true);
+    // Escape lets go: releasing over a row adds nothing.
+    const before = seq.undoStack.length;
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.pointerUp(fire, { clientX: x(10_000), clientY: LANE.archTop, pointerId: 1 });
+    expect(seq.undoStack.length).toBe(before);
+    expect(useSequencer.getState().selection).toEqual([]);
+    // With Alt, a drop near a beat stays where it was dropped (on the frame grid): 57.1 s.
+    fireEvent.pointerDown(fire, { clientX: 20, clientY: 20, button: 0, pointerId: 1 });
+    fireEvent.pointerMove(fire, { clientX: x(57_120), clientY: LANE.matrix, pointerId: 1, altKey: true });
+    fireEvent.pointerUp(fire, { clientX: x(57_120), clientY: LANE.matrix, pointerId: 1, altKey: true });
+    await waitFor(() => expect(rowEffects(seq.doc!, "Window Matrix", show).some((e) => e.params.kind === "fire" && e.startMs === 57_125)).toBe(true));
+  });
+
   it("lists the sequence's problems, and a click selects the effect", async () => {
     const { seq, user } = await openScreen();
     const effect = seq.doc!.rows[1].layers[0].effects[2];
-    act(() =>
-      useSequencer.setState({
-        issues: [{ severity: "warning", message: "The Wave effect at 0:08.000 on 'Garage Arch' overlaps the Chase effect.", row: seq.doc!.rows[1].id, effect: effect.id }],
-      }),
-    );
-    await user.click(screen.getByRole("button", { name: "1 problem" }));
+    expect(screen.queryByRole("button", { name: /^\d+ problems?$/ })).not.toBeInTheDocument();
+    // The engine finds a problem once the show changes: the list is checked again.
+    seq.issues = [{ severity: "warning", message: "The Wave effect at 0:08.000 on 'Garage Arch' overlaps the Chase effect.", row: seq.doc!.rows[1].id, effect: effect.id }];
+    await act(() => useApp.getState().apply([{ type: "renameShow", name: "Renamed" }]));
+    const trigger = await screen.findByRole("button", { name: "1 problem" });
+    await user.click(trigger);
+    // The list takes the focus, and Escape gives it back.
+    const item = within(screen.getByRole("dialog", { name: "Problems in this sequence" })).getByRole("button", { name: /overlaps the Chase effect/ });
+    expect(item).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Problems in this sequence" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+    await user.click(trigger);
     await user.click(within(screen.getByRole("dialog", { name: "Problems in this sequence" })).getByRole("button", { name: /overlaps the Chase effect/ }));
     expect(useSequencer.getState().selection).toEqual([effect.id]);
+  });
+
+  it("opens the add-row menu with the focus in it, and Escape closes it", async () => {
+    const { user } = await openScreen();
+    const add = screen.getByRole("button", { name: "Add row" });
+    await user.click(add);
+    const menu = screen.getByRole("dialog", { name: "Add a row" });
+    expect(within(menu).getAllByRole("button")[0]).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Add a row" })).not.toBeInTheDocument();
+    expect(add).toHaveFocus();
+  });
+
+  it("names the playhead and the snapping key in words", async () => {
+    await openScreen();
+    const toolbar = screen.getByRole("toolbar", { name: "Sequence" });
+    expect(toolbar).toHaveTextContent("Playhead at 0:00.000");
+    expect(within(toolbar).getByRole("button", { name: /hold (Alt|Option) while dragging/ })).toBeInTheDocument();
+  });
+
+  it("scrubbing asks for one preview frame at a time, then the latest", async () => {
+    const { seq } = await openScreen();
+    // Let the first still frame (at 0) come back.
+    await act(async () => undefined);
+    const pending: (() => void)[] = [];
+    const asked: number[] = [];
+    const real = seq.sequenceDocFrame.bind(seq);
+    vi.spyOn(seq, "sequenceDocFrame").mockImplementation((ms) => {
+      asked.push(ms);
+      return new Promise((resolve) => pending.push(() => void real(ms).then(resolve)));
+    });
+    for (let ms = 1000; ms <= 10_000; ms += 1000) act(() => useSequencer.getState().setPlayhead(ms));
+    expect(asked).toEqual([1000]);
+    await act(async () => pending.shift()!());
+    await waitFor(() => expect(asked).toEqual([1000, 10_000]));
+    await act(async () => pending.shift()!());
+    expect(asked).toEqual([1000, 10_000]);
+  });
+
+  it("doesn't redraw the settings panel as the playhead moves", async () => {
+    const { seq } = await openScreen();
+    const wave = seq.doc!.rows[1].layers[0].effects[0];
+    act(() => useSequencer.getState().select([wave.id]));
+    const renders = vi.fn();
+    render(
+      <Profiler id="settings" onRender={renders}>
+        <EffectSettings doc={useSequencer.getState().doc!} />
+      </Profiler>,
+    );
+    const before = renders.mock.calls.length;
+    for (let ms = 0; ms < 2000; ms += 100) act(() => useSequencer.getState().setPlayhead(ms));
+    act(() => useSequencer.setState({ exporting: 40 }));
+    expect(renders.mock.calls.length).toBe(before);
+  });
+});
+
+/** Every effect in the engine's copy, by id. */
+function effectIn(seq: MemorySequencer, id: string): Effect {
+  return seq.doc!.rows.flatMap((r) => r.layers.flatMap((l) => l.effects)).find((e) => e.id === id)!;
+}
+
+/** A stand-in for the timeline's 2D canvas that remembers the text drawn on it. */
+function recordTimelineText() {
+  const texts: { text: string; x: number }[] = [];
+  const ctx = new Proxy({} as Record<string | symbol, unknown>, {
+    get(target, prop) {
+      if (prop === "fillText") return (text: string, x: number) => texts.push({ text, x });
+      return prop in target ? target[prop] : () => undefined;
+    },
+    set(target, prop, value) {
+      target[prop] = value;
+      return true;
+    },
+  });
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(function (this: HTMLCanvasElement) {
+    return (this.getAttribute("aria-label") === "Timeline" ? ctx : null) as never;
+  });
+  return texts;
+}
+
+describe("unsaved work", () => {
+  it("offers back a sequence kept from last time, asking before it replaces unsaved changes", async () => {
+    const show = demoShow();
+    const backend = new MemoryBackend(show);
+    const seq = new MemorySequencer(backend);
+    const kept = demoSequence(show, 60_000);
+    seq.recoveries = [{ id: "r1", name: "Christmas Medley 2017", path: DEMO_SEQUENCE_PATH, savedAtMs: Date.now() - 5 * 60_000, doc: kept }];
+    await useApp.getState().connect(backend);
+    useApp.setState({ started: true, screen: "sequence" });
+    await useSequencer.getState().connect(seq);
+    const user = userEvent.setup();
+    render(<App />);
+    const offer = screen.getByRole("region", { name: "Unsaved sequences from last time" });
+    expect(offer).toHaveTextContent("PixelFlow kept unsaved changes to Christmas Medley 2017 from 5 min ago (Christmas Medley 2017.pfseq.json).");
+    await user.click(within(offer).getByRole("button", { name: "Recover unsaved sequence Christmas Medley 2017" }));
+    await waitFor(() => expect(useSequencer.getState().doc?.rows).toHaveLength(4));
+    expect(useSequencer.getState()).toMatchObject({ dirty: true, path: DEMO_SEQUENCE_PATH });
+    expect(screen.queryByRole("region", { name: "Unsaved sequences from last time" })).not.toBeInTheDocument();
+    expect(screen.getByText("● Sequence not saved")).toBeInTheDocument();
+
+    // Another kept one, while this one has unsaved changes: asked first; Escape cancels.
+    seq.recoveries = [{ id: "r2", name: "Older", path: null, savedAtMs: Date.now() - 3 * 86_400_000, doc: { ...kept, name: "Older" } }];
+    await act(() => useSequencer.getState().connect(seq));
+    await user.click(screen.getByRole("button", { name: "Recover unsaved sequence Older" }));
+    expect(screen.getByRole("dialog", { name: "Unsaved changes" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Unsaved changes" })).not.toBeInTheDocument();
+    expect(useSequencer.getState().doc?.name).toBe("Christmas Medley 2017");
+    // Thrown away instead.
+    await user.click(screen.getByRole("button", { name: "Discard unsaved sequence Older" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Unsaved sequences from last time" })).not.toBeInTheDocument());
+    expect(seq.calls).toContain("discardSequenceRecovery:r2");
+  });
+
+  it("asks before the window closes with an unsaved show or sequence", async () => {
+    const { backend, seq, user } = await openScreen();
+    // Nothing unsaved: the window just closes.
+    expect(backend.requestClose()).toBe(true);
+    backend.calls.length = 0;
+    await act(() => useSequencer.getState().edit((doc) => [{ type: "removeRow", id: doc.rows[3].id }]));
+    expect(backend.requestClose()).toBe(false);
+    const dialog = await screen.findByRole("dialog", { name: "Save your changes before closing?" });
+    expect(dialog).toHaveTextContent("There are unsaved changes to the sequence “Christmas Medley 2017”.");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Save your changes before closing?" })).not.toBeInTheDocument();
+    expect(backend.calls).not.toContain("closeWindow");
+
+    // Save saves both the sequence and the show, then closes.
+    await act(() => useApp.getState().apply([{ type: "renameShow", name: "House" }]));
+    act(() => void backend.requestClose());
+    const both = await screen.findByRole("dialog", { name: "Save your changes before closing?" });
+    expect(both).toHaveTextContent("the show “House” and the sequence “Christmas Medley 2017”");
+    backend.nextSavePath = "/Shows/House.pixelflow.json";
+    await user.click(within(both).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(backend.calls).toContain("closeWindow"));
+    expect(useSequencer.getState().dirty).toBe(false);
+    expect(useApp.getState().snapshot?.dirty).toBe(false);
+    expect(seq.files.get(DEMO_SEQUENCE_PATH)!.rows).toHaveLength(3);
+  });
+
+  it("closes without saving when asked, and a cancelled save keeps the window open", async () => {
+    const { backend, user } = await openScreen();
+    await act(() => useSequencer.getState().edit((doc) => [{ type: "removeRow", id: doc.rows[3].id }]));
+    await act(() => useApp.getState().apply([{ type: "renameShow", name: "House" }]));
+    act(() => void backend.requestClose());
+    // The show has no file yet; closing the save dialog keeps the question up.
+    backend.nextSavePath = null;
+    const dialog = await screen.findByRole("dialog", { name: "Save your changes before closing?" });
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(useSequencer.getState().dirty).toBe(false));
+    expect(screen.getByRole("dialog", { name: "Save your changes before closing?" })).toBeInTheDocument();
+    expect(backend.calls).not.toContain("closeWindow");
+    await user.click(within(dialog).getByRole("button", { name: "Don't save" }));
+    await waitFor(() => expect(backend.calls).toContain("closeWindow"));
+  });
+
+  it("takes a recent sequence that can't be opened off the list", async () => {
+    const { user } = await openScreen(false);
+    act(() => useSequencer.setState({ recent: ["/Shows/Gone.pfseq.json"] }));
+    await user.click(screen.getByRole("button", { name: "Gone.pfseq.json" }));
+    await waitFor(() => expect(useApp.getState().error).toMatch(/Gone.pfseq.json.*It's been taken off your recent sequences\./));
+    expect(useSequencer.getState().recent).toEqual([]);
+    expect(screen.queryByRole("region", { name: "Recent sequences" })).not.toBeInTheDocument();
+  });
+});
+
+describe("sequence screen with a slow engine", () => {
+  it("types a time into a field without the field fighting back, as one undo step", async () => {
+    const { seq, user, show } = await openScreen();
+    seq.replyDelayMs = 30;
+    const arch = rowEffects(seq.doc!, "Garage Arch", show);
+    const last = arch[arch.length - 1];
+    expect([last.startMs, last.endMs]).toEqual([52_000, 56_000]);
+    act(() => useSequencer.getState().select([last.id]));
+    const panel = screen.getByRole("complementary", { name: "Effect settings" });
+    const ends = within(panel).getByLabelText("Ends (ms)");
+    const before = seq.undoStack.length;
+    const sent = seq.calls.length;
+    await user.clear(ends);
+    await user.type(ends, "58000");
+    // Nothing is sent, or kept in range, while typing.
+    expect(ends).toHaveValue(58_000);
+    expect(seq.calls.length).toBe(sent);
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(effectIn(seq, last.id).endMs).toBe(58_000));
+    expect(ends).toHaveValue(58_000);
+    expect(seq.undoStack.length).toBe(before + 1);
+    // Past the song's end it stops at the end; before the effect ahead of it, at that effect's end.
+    await user.clear(ends);
+    await user.type(ends, "70000{Enter}");
+    await waitFor(() => expect(effectIn(seq, last.id).endMs).toBe(60_000));
+    const starts = within(panel).getByLabelText("Starts (ms)");
+    await user.clear(starts);
+    await user.type(starts, "40000{Enter}");
+    await waitFor(() => expect(effectIn(seq, last.id).startMs).toBe(arch[arch.length - 2].endMs));
+    // Escape puts the value back without sending anything.
+    await waitFor(() => expect(useSequencer.getState().doc).toEqual(seq.doc));
+    const count = seq.undoStack.length;
+    await user.clear(ends);
+    await user.type(ends, "123{Escape}");
+    expect(ends).toHaveValue(60_000);
+    act(() => ends.blur());
+    expect(seq.undoStack.length).toBe(count);
+  });
+
+  it("keeps every quick change, and adds up quick nudges, while replies are on their way", async () => {
+    const { seq, user, show } = await openScreen();
+    seq.replyDelayMs = 40;
+    const wave = rowEffects(seq.doc!, "Garage Arch", show)[0];
+    act(() => useSequencer.getState().select([wave.id]));
+    const panel = screen.getByRole("complementary", { name: "Effect settings" });
+    await user.selectOptions(within(panel).getByRole("combobox", { name: "Direction" }), "reverse");
+    await user.selectOptions(within(panel).getByRole("combobox", { name: "With the layers below" }), "add");
+    const slider = within(panel).getByRole("slider", { name: "Waves" });
+    fireEvent.change(slider, { target: { value: "3" } });
+    fireEvent.pointerUp(slider);
+    await waitFor(() => expect(effectIn(seq, wave.id)).toMatchObject({ blend: "add", params: { direction: "reverse", cycles: 3 } }));
+    await waitFor(() => expect(useSequencer.getState().doc).toEqual(seq.doc));
+
+    const star = rowEffects(seq.doc!, "Porch Star", show)[0];
+    act(() => useSequencer.getState().select([star.id]));
+    timeline().focus();
+    const steps = seq.undoStack.length;
+    await user.keyboard("{ArrowRight}{ArrowRight}{ArrowRight}");
+    await waitFor(() => expect(effectIn(seq, star.id).startMs).toBe(75));
+    expect(seq.undoStack.length).toBe(steps + 3);
+    // Holding the key is one undo step, however many times it repeats.
+    fireEvent.keyDown(timeline(), { key: "ArrowLeft" });
+    fireEvent.keyDown(timeline(), { key: "ArrowLeft", repeat: true });
+    fireEvent.keyDown(timeline(), { key: "ArrowLeft", repeat: true });
+    await waitFor(() => expect(effectIn(seq, star.id).startMs).toBe(0));
+    expect(seq.undoStack.length).toBe(steps + 4);
+  });
+
+  it("keeps a dropped effect where it was dropped while the engine answers", async () => {
+    const texts = recordTimelineText();
+    const { seq, show } = await openScreen();
+    seq.replyDelayMs = 50;
+    const arch = rowEffects(seq.doc!, "Garage Arch", show);
+    const last = arch[arch.length - 1];
+    expect([last.startMs, last.endMs, last.params.kind]).toEqual([52_000, 56_000, "chase"]);
+    // Drag it a second later, into the free space at the end (Alt: no snapping).
+    fireEvent.pointerDown(timeline(), { clientX: x(54_000), clientY: LANE.archTop, button: 0, pointerId: 1, altKey: true });
+    fireEvent.pointerMove(timeline(), { clientX: x(54_500), clientY: LANE.archTop, pointerId: 1, altKey: true });
+    fireEvent.pointerMove(timeline(), { clientX: x(55_000), clientY: LANE.archTop, pointerId: 1, altKey: true });
+    texts.length = 0;
+    fireEvent.pointerUp(timeline(), { clientX: x(55_000), clientY: LANE.archTop, pointerId: 1, altKey: true });
+    const localStart = () => useSequencer.getState().doc!.rows[1].layers[0].effects[13].startMs;
+    const drawnAt = (ms: number) => texts.some((t) => t.text === "Chase" && Math.abs(t.x - (x(ms) + 5)) < 0.01);
+    // Drawn at its new place straight away, before the reply has come back.
+    expect(localStart()).toBe(52_000);
+    expect(drawnAt(53_000)).toBe(true);
+    await waitFor(() => expect(effectIn(seq, last.id).startMs).toBe(53_000));
+    await waitFor(() => expect(localStart()).toBe(53_000));
+    texts.length = 0;
+    act(() => useSequencer.getState().setPlayhead(1));
+    expect(drawnAt(53_000)).toBe(true);
+    expect(drawnAt(52_000)).toBe(false);
+  });
+
+  it("finds beats without holding up edits made meanwhile", async () => {
+    const { seq, user, show } = await openScreen();
+    seq.analysisDelayMs = 400;
+    const wave = rowEffects(seq.doc!, "Garage Arch", show)[0];
+    act(() => useSequencer.getState().select([wave.id]));
+    await user.click(screen.getByRole("button", { name: "Detect beats" }));
+    const panel = screen.getByRole("complementary", { name: "Effect settings" });
+    await user.selectOptions(within(panel).getByRole("combobox", { name: "Direction" }), "reverse");
+    await waitFor(() => expect(useSequencer.getState().detecting && effectIn(seq, wave.id).params).toMatchObject({ direction: "reverse" }), { timeout: 300 });
+    await waitFor(() => expect(useSequencer.getState().detecting).toBe(false), { timeout: 2000 });
+    expect(useSequencer.getState().doc).toEqual(seq.doc);
+  });
+
+  it("makes each slider pull its own undo step, even after the screen is reopened", async () => {
+    const { seq } = await openScreen();
+    const wave = seq.doc!.rows[1].layers[0].effects[0];
+    act(() => useSequencer.getState().select([wave.id]));
+    const before = seq.undoStack.length;
+    const pull = async (value: string) => {
+      const slider = within(screen.getByRole("complementary", { name: "Effect settings" })).getByRole("slider", { name: "Waves" });
+      fireEvent.change(slider, { target: { value } });
+      fireEvent.pointerUp(slider);
+      await waitFor(() => expect(effectIn(seq, wave.id).params).toMatchObject({ cycles: Number(value) }));
+    };
+    await pull("2");
+    act(() => useApp.getState().setScreen("layout"));
+    act(() => useApp.getState().setScreen("sequence"));
+    await pull("3");
+    expect(seq.undoStack.length).toBe(before + 2);
   });
 });

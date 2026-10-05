@@ -75,13 +75,13 @@ export function SubmodelsSection({ prop, points }: { prop: Prop; points: ArrayLi
       </Button>
       {picked && (
         <div className="mt-3 rounded-md border border-neutral-200 p-2 dark:border-neutral-800">
-          <NameField key={picked.id} prop={prop} region={picked} rename={(name) => update((rs) => rs.map((r) => (r.id === picked.id ? { ...r, name } : r)))} />
+          <NameField key={`name:${picked.id}`} prop={prop} region={picked} rename={(name) => update((rs) => rs.map((r) => (r.id === picked.id ? { ...r, name } : r)))} />
           {picked.kind === "face" ? (
             <FaceDetails region={picked} phoneme={highlight?.phoneme ?? null} show={(phoneme) => setHighlight({ prop: prop.id, region: picked.id, phoneme })} />
           ) : picked.kind === "subBuffer" ? (
             <RectangleEditor region={picked} update={(next) => update((rs) => rs.map((r) => (r.id === picked.id ? next : r)))} />
           ) : (
-            <LinesEditor key={picked.id} region={picked} update={(next) => update((rs) => rs.map((r) => (r.id === picked.id ? next : r)))} />
+            <LinesEditor key={`lines:${picked.id}`} region={picked} update={(next) => update((rs) => rs.map((r) => (r.id === picked.id ? next : r)))} />
           )}
           <Button
             variant="danger"

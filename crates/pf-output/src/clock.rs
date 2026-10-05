@@ -56,9 +56,10 @@ mod tests {
 
     #[test]
     fn paces_frames_at_the_requested_rate() {
+        // Start timing before the clock exists: its first deadline is its creation time.
+        let start = Instant::now();
         let mut clock = FrameClock::new(100);
         assert_eq!(clock.period(), Duration::from_millis(10));
-        let start = Instant::now();
         for _ in 0..11 {
             clock.wait();
         }

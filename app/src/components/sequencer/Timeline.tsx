@@ -573,7 +573,9 @@ export function Timeline({ doc }: { doc: Sequence }) {
       if (!d.started && Math.hypot(x - d.x, y - d.y) < CLICK_PX) return;
       d.started = true;
       const fromLane = laneAt(ls, d.rowsY);
-      const toLane = laneAt(ls, y - tp + sy);
+      // Above the first row or below the last, the nearest row (not back to where it came from).
+      const last = ls[ls.length - 1];
+      const toLane = last ? laneAt(ls, Math.max(0, Math.min(last.y + last.h - 1, y - tp + sy))) : null;
       const deltaLanes = fromLane && toLane ? ls.indexOf(toLane) - ls.indexOf(fromLane) : 0;
       const snap = altKey ? undefined : { targets: d.targets, thresholdMs: threshold };
       const r = moveDrag({ items: d.items, primary: d.primary, deltaMs: xToTime(x, v) - d.ms, deltaLanes, laneCount: ls.length, durationMs: dd.durationMs, frameMs: dd.frameMs, snap });

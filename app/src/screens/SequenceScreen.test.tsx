@@ -160,6 +160,18 @@ describe("sequence screen", () => {
     await waitFor(() => expect(rowEffects(seq.doc!, "Garage Arch", show)[0].endMs).toBe(next.startMs));
   });
 
+  it("moves an effect dragged below the last row onto the last row, and above the first onto the first", async () => {
+    const { seq, show } = await openScreen();
+    const wave = rowEffects(seq.doc!, "Garage Arch", show)[0];
+    // Below the rows (they end at 254 px): the last row, Porch Star.
+    drag(timeline(), [x(1000), LANE.archTop], [x(1000), 450]);
+    await waitFor(() => expect(rowEffects(seq.doc!, "Porch Star", show).some((e) => e.id === wave.id)).toBe(true));
+    // It went on a new layer of the star's row (254–284 px, the star's own effects being in the way).
+    // Up over the timing tracks: the first row, Mega Tree.
+    drag(timeline(), [x(1000), 269], [x(1000), 80]);
+    await waitFor(() => expect(rowEffects(seq.doc!, "Mega Tree", show).some((e) => e.id === wave.id)).toBe(true));
+  });
+
   it("selects with a click, Shift-click, and a marquee, and deletes with the keyboard", async () => {
     const { seq, user, show } = await openScreen();
     const arch = rowEffects(seq.doc!, "Garage Arch", show);

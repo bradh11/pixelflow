@@ -1,6 +1,6 @@
 import { Plus, X } from "lucide-react";
-import { useId, useRef, useState } from "react";
-import type { Blend, Effect, EffectInfo, EffectSetting, Sequence, SequenceTarget, TimingTrack } from "../../api/sequence";
+import { useEffect, useId, useRef, useState } from "react";
+import type { Blend, Effect, EffectSetting, Sequence, SequenceTarget, TimingTrack } from "../../api/sequence";
 import type { Show } from "../../api/types";
 import { memberProp } from "../../lib/shows";
 import { facesOf, targetProp } from "../../lib/submodels";
@@ -107,19 +107,29 @@ export function useLiveValue<T>(send: (value: T, gesture: string) => Promise<unk
   };
 }
 
+/** What a field shows when the selected effects have different values in it. */
+export const MIXED = "Mixed";
+/** A list's value while the selected effects have different values in it (never a real value). */
+export const MIXED_OPTION = "\u0000mixed";
+
 /**
  * A number typed into a box: nothing is sent while typing; Enter or leaving the box sends it (the
- * caller keeps it in range), and Escape puts back the current value.
+ * caller keeps it in range), and Escape puts back the current value. A `blank` box shows no value
+ * (the selected effects differ, or it takes an amount to apply), and any number typed is sent.
  */
 export function NumberDraft({
   value,
   onCommit,
   className,
+  blank = false,
+  placeholder,
   ...props
 }: {
   value: number;
   onCommit: (value: number) => Promise<unknown>;
   className: string;
+  blank?: boolean;
+  placeholder?: string;
   "aria-label"?: string;
   id?: string;
   step?: number;
@@ -130,7 +140,7 @@ export function NumberDraft({
   const commit = () => {
     if (draft === null) return;
     const n = Number(draft);
-    if (draft.trim() === "" || !Number.isFinite(n) || n === value) {
+    if (draft.trim() === "" || !Number.isFinite(n) || (!blank && n === value)) {
       setDraft(null);
       return;
     }
@@ -142,7 +152,8 @@ export function NumberDraft({
       {...props}
       type="number"
       className={className}
-      value={draft ?? String(value)}
+      placeholder={placeholder}
+      value={draft ?? (blank ? "" : String(value))}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => {
@@ -156,13 +167,36 @@ export function NumberDraft({
   );
 }
 
-/** One setting from the catalog: a slider with a number box, a checkbox, or a list. */
+/** A checkbox that can also show "mixed" (some of the selected effects have it on, some off). */
+function MixedCheckbox({ checked, mixed, onChange }: { checked: boolean; mixed: boolean; onChange: (checked: boolean) => void }) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = mixed;
+  }, [mixed]);
+  return <input ref={ref} type="checkbox" checked={mixed ? false : checked} onChange={(e) => onChange(e.target.checked)} />;
+}
+
+/** "Mixed" at the top of a list whose effects differ (it can't be picked). */
+export function MixedOption({ mixed }: { mixed: boolean }) {
+  return mixed ? (
+    <option value={MIXED_OPTION} disabled>
+      {MIXED}
+    </option>
+  ) : null;
+}
+
+/**
+ * One setting from the catalog: a slider with a number box, a checkbox, or a list. With `mixed`,
+ * the selected effects have different values in it: the field says so, and only a change to it
+ * is sent.
+ */
 export function SettingControl({
   setting,
   value,
   onChange,
   faces,
   tracks,
+  mixed = false,
 }: {
   setting: EffectSetting;
   value: unknown;
@@ -171,14 +205,16 @@ export function SettingControl({
   faces: string[];
   /** The sequence's timing tracks, for a timing track setting. */
   tracks: TimingTrack[];
+  mixed?: boolean;
 }) {
   if (setting.type === "face") {
     const current = typeof value === "string" ? value : setting.default;
-    const known = current === "" || faces.some((f) => f.toLowerCase() === current.trim().toLowerCase());
+    const known = mixed || current === "" || faces.some((f) => f.toLowerCase() === current.trim().toLowerCase());
     return (
       <label className="flex flex-col gap-1 text-sm" title={setting.description}>
         <span className="text-neutral-600 dark:text-neutral-400">{setting.label}</span>
-        <select className={FIELD} value={current} onChange={(e) => void onChange(e.target.value)}>
+        <select className={FIELD} value={mixed ? MIXED_OPTION : current} onChange={(e) => void onChange(e.target.value)}>
+          <MixedOption mixed={mixed} />
           <option value="">{faces.length > 0 ? `The first face (${faces[0]})` : "The first face"}</option>
           {faces.map((f) => (
             <option key={f} value={f}>
@@ -198,7 +234,8 @@ export function SettingControl({
     return (
       <label className="flex flex-col gap-1 text-sm" title={setting.description}>
         <span className="text-neutral-600 dark:text-neutral-400">{setting.label}</span>
-        <select className={FIELD} value={current} onChange={(e) => void onChange(e.target.value === "" ? null : e.target.value)}>
+        <select className={FIELD} value={mixed ? MIXED_OPTION : current} onChange={(e) => void onChange(e.target.value === "" ? null : e.target.value)}>
+          <MixedOption mixed={mixed} />
           <option value="">None (mouth at rest)</option>
           {[...lyrics, ...others].map((t) => (
             <option key={t.id} value={t.id}>
@@ -208,7 +245,7 @@ export function SettingControl({
         </select>
         {(() => {
           const kind = tracks.find((t) => t.id === current)?.kind;
-          if (current === "" || kind === undefined || kind === "phonemes") return null;
+          if (mixed || current === "" || kind === undefined || kind === "phonemes") return null;
           if (kind === "words" || kind === "lyrics")
             return <span className="text-xs text-neutral-500">Words are turned into mouth shapes letter by letter, so lips move roughly; a phonemes track from xLights is exact.</span>;
           return <span className="text-xs text-neutral-500">This track has no words, so the mouth stays at rest. Pick a lyrics track to sing.</span>;
@@ -219,7 +256,7 @@ export function SettingControl({
   if (setting.type === "bool") {
     return (
       <label className="flex items-center gap-2 text-sm" title={setting.description}>
-        <input type="checkbox" checked={typeof value === "boolean" ? value : setting.default} onChange={(e) => void onChange(e.target.checked)} />
+        <MixedCheckbox checked={typeof value === "boolean" ? value : setting.default} mixed={mixed} onChange={(checked) => void onChange(checked)} />
         {setting.label}
       </label>
     );
@@ -228,7 +265,8 @@ export function SettingControl({
     return (
       <label className="flex flex-col gap-1 text-sm" title={setting.description}>
         <span className="text-neutral-600 dark:text-neutral-400">{setting.label}</span>
-        <select className={FIELD} value={typeof value === "string" ? value : setting.default} onChange={(e) => void onChange(e.target.value)}>
+        <select className={FIELD} value={mixed ? MIXED_OPTION : typeof value === "string" ? value : setting.default} onChange={(e) => void onChange(e.target.value)}>
+          <MixedOption mixed={mixed} />
           {setting.options.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
@@ -238,7 +276,7 @@ export function SettingControl({
       </label>
     );
   }
-  return <NumberSetting setting={setting} value={typeof value === "number" ? value : setting.default} onChange={onChange} />;
+  return <NumberSetting setting={setting} value={typeof value === "number" ? value : setting.default} onChange={onChange} mixed={mixed} />;
 }
 
 /** A number setting: a slider (one undo step per pull) and a box to type an exact value. */
@@ -246,13 +284,17 @@ export function NumberSetting({
   setting,
   value,
   onChange,
+  mixed = false,
 }: {
   setting: Extract<EffectSetting, { type: "number" | "int" }>;
   value: number;
   onChange: (value: unknown, gesture?: string) => Promise<boolean>;
+  mixed?: boolean;
 }) {
   const slider = useLiveValue<number>((v, gesture) => onChange(v, gesture));
   const current = slider.live ?? value;
+  // Once the slider is pulled, every effect has its value.
+  const differs = mixed && slider.live === null;
   const places = setting.type === "int" ? 0 : decimals(setting.step);
   const fit = (v: number) => Math.min(setting.max, Math.max(setting.min, setting.type === "int" ? Math.round(v) : v));
   const id = `setting-${setting.key}`;
@@ -271,7 +313,7 @@ export function NumberSetting({
           max={setting.max}
           step={setting.step}
           value={current}
-          aria-valuetext={`${current.toFixed(places)}${setting.unit ? ` ${setting.unit}` : ""}`}
+          aria-valuetext={differs ? MIXED : `${current.toFixed(places)}${setting.unit ? ` ${setting.unit}` : ""}`}
           onChange={(e) => slider.push(fit(Number(e.target.value)))}
           onPointerUp={slider.end}
           onKeyUp={slider.end}
@@ -284,6 +326,8 @@ export function NumberSetting({
           max={setting.max}
           step={setting.step}
           value={Number(current.toFixed(places))}
+          blank={differs}
+          placeholder={differs ? MIXED : undefined}
           onCommit={(v) => onChange(fit(v))}
         />
       </div>
@@ -292,37 +336,68 @@ export function NumberSetting({
 }
 
 /** A time in milliseconds, typed in and sent on Enter or when the box is left. */
-export function MsField({ label, value, hint, onCommit }: { label: string; value: number; hint?: string; onCommit: (v: number) => Promise<unknown> }) {
+export function MsField({
+  label,
+  value,
+  hint,
+  onCommit,
+  mixed = false,
+  blank = false,
+  placeholder,
+  min = 0,
+}: {
+  label: string;
+  value: number;
+  hint?: string;
+  onCommit: (v: number) => Promise<unknown>;
+  /** The selected effects have different values here. */
+  mixed?: boolean;
+  /** The box takes an amount to apply, and shows none. */
+  blank?: boolean;
+  placeholder?: string;
+  min?: number;
+}) {
   const id = useId();
   return (
     <div className="flex flex-col gap-1 text-sm">
       <label htmlFor={id} className="text-neutral-600 dark:text-neutral-400" title={hint}>
         {label}
       </label>
-      <NumberDraft id={id} className={`${FIELD} tabular-nums`} min={0} step={25} value={value} onCommit={onCommit} />
+      <NumberDraft id={id} className={`${FIELD} tabular-nums`} min={min} step={25} value={value} blank={mixed || blank} placeholder={mixed ? MIXED : placeholder} onCommit={onCommit} />
     </div>
   );
 }
 
-/** The effect's colors: change one with the color picker, add, or remove. */
-export function ColorList({ effect, info, change }: { effect: Effect; info: EffectInfo | undefined; change: Change }) {
-  const colors = effect.palette.colors;
-  const usesOne = info && ["fade"].includes(info.kind);
-  const setColors = (next: (colors: string[]) => string[], gesture?: string) =>
-    change((e) => ({ ...e, palette: { colors: next(e.palette.colors) } }), gesture);
+/**
+ * Colors: change one with the color picker, add, or remove. `onChange` gets how the list changes
+ * (applied to the colors as they are when its turn comes). With `mixed`, the selected effects
+ * have different colors; these are the first one's, and a change gives all of them the result.
+ */
+export function ColorList({
+  colors,
+  usesOne,
+  mixed = false,
+  onChange,
+}: {
+  colors: string[];
+  usesOne: boolean;
+  mixed?: boolean;
+  onChange: (next: (colors: string[]) => string[], gesture?: string) => Promise<boolean>;
+}) {
   return (
     <div className="flex flex-col gap-2">
+      {mixed && <p className="text-xs text-neutral-500">These effects have different colors. Changing them gives every one of them these colors.</p>}
       {usesOne && <p className="text-xs text-neutral-500">This effect uses the first color.</p>}
       <ul className="flex flex-wrap gap-2" aria-label="Colors">
         {colors.map((color, i) => (
           <li key={i} className="group relative">
-            <ColorPicker index={i} color={color} onPick={(value, gesture) => setColors((cs) => cs.map((c, k) => (k === i ? value : c)), gesture)} />
+            <ColorPicker index={i} color={color} onPick={(value, gesture) => onChange((cs) => cs.map((c, k) => (k === i ? value : c)), gesture)} />
             {colors.length > 1 && (
               <button
                 type="button"
                 aria-label={`Remove color ${i + 1}`}
                 className="absolute -top-1.5 -right-1.5 hidden rounded-full bg-neutral-700 p-0.5 text-white group-focus-within:block group-hover:block"
-                onClick={() => void setColors((cs) => (cs.length > 1 ? cs.filter((_, k) => k !== i) : cs))}
+                onClick={() => void onChange((cs) => (cs.length > 1 ? cs.filter((_, k) => k !== i) : cs))}
               >
                 <X size={10} />
               </button>
@@ -336,7 +411,7 @@ export function ColorList({ effect, info, change }: { effect: Effect; info: Effe
               aria-label="Add a color"
               title="Add a color"
               className="flex h-8 w-8 items-center justify-center rounded border border-dashed border-neutral-400 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"
-              onClick={() => void setColors((cs) => (cs.length < MAX_COLORS ? [...cs, cs[cs.length - 1] ?? "#ffffff"] : cs))}
+              onClick={() => void onChange((cs) => (cs.length < MAX_COLORS ? [...cs, cs[cs.length - 1] ?? "#ffffff"] : cs))}
             >
               <Plus size={14} />
             </button>

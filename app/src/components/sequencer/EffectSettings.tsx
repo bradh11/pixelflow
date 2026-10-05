@@ -5,8 +5,8 @@ import { effectBounds, formatTime } from "../../lib/timelineMath";
 import { targetName } from "../../lib/submodels";
 import { useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
-import { Button } from "../ui";
 import { BLENDS, type Change, ColorList, FIELD, MsField, Panel, Section, SettingControl, clamp, faceNames } from "./effectControls";
+import { MultiEffectSettings } from "./MultiEffectSettings";
 
 /**
  * The selected effect's settings, built from the engine's effect catalog: its kind's settings,
@@ -21,17 +21,7 @@ export function EffectSettings({ doc }: { doc: Sequence }) {
   const show = useApp((s) => s.snapshot?.show);
 
   const found = selection.length === 1 ? findEffect(doc, selection[0]) : null;
-  if (selection.length > 1) {
-    return (
-      <Panel>
-        <p className="text-sm">{selection.length} effects selected.</p>
-        <p className="mt-1 text-xs text-neutral-500">Drag them together on the timeline, or press Delete to remove them.</p>
-        <Button className="mt-3" variant="danger" onClick={() => edit(selection.map((id) => ({ type: "removeEffect" as const, id })))}>
-          <Trash2 size={14} /> Delete {selection.length} effects
-        </Button>
-      </Panel>
-    );
-  }
+  if (selection.length > 1) return <MultiEffectSettings doc={doc} ids={selection} />;
   if (!found) {
     return (
       <Panel>
@@ -90,7 +80,12 @@ export function EffectSettings({ doc }: { doc: Sequence }) {
 
       {effect.params.kind !== "off" && effect.params.kind !== "fire" && (
         <Section title="Colors">
-          <ColorList key={id} effect={effect} info={info} change={change} />
+          <ColorList
+            key={id}
+            colors={effect.palette.colors}
+            usesOne={effect.params.kind === "fade"}
+            onChange={(next, gesture) => change((e) => ({ ...e, palette: { colors: next(e.palette.colors) } }), gesture)}
+          />
         </Section>
       )}
 

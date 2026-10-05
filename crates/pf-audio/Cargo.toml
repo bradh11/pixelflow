@@ -1,0 +1,18 @@
+[package]
+name = "pf-audio"
+description = "A show's music: playback that sequences follow, waveforms, and finding a sequence's audio file"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+rodio.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

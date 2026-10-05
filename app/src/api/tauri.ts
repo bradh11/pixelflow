@@ -4,6 +4,7 @@ import type { Backend } from "./backend";
 
 const SHOW_FILTER = [{ name: "PixelFlow show", extensions: ["json"] }];
 const SEQUENCE_FILTER = [{ name: "FPP sequence", extensions: ["fseq"] }];
+const AUDIO_FILTER = [{ name: "Music", extensions: ["mp3", "m4a", "wav", "ogg", "flac"] }];
 
 /** The real engine, running in the Tauri desktop shell. */
 export const tauriBackend: Backend = {
@@ -41,6 +42,14 @@ export const tauriBackend: Backend = {
   importXlights: (folder) => invoke("import_xlights", { folder }),
   pickShowFolder: async () => {
     const path = await open({ multiple: false, directory: true, title: "Choose your xLights show folder" });
+    return typeof path === "string" ? path : null;
+  },
+  addSequence: (path) => invoke("add_sequence", { path }),
+  playSequence: (id, positionMs) => invoke("play_sequence", { id, positionMs }),
+  setPlaybackVolume: (volume) => invoke("set_playback_volume", { volume }),
+  audioWaveform: (path, slices) => invoke("audio_waveform", { path, slices }),
+  pickAudioPath: async () => {
+    const path = await open({ multiple: false, directory: false, filters: AUDIO_FILTER });
     return typeof path === "string" ? path : null;
   },
   pickSequencePath: async () => {

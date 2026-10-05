@@ -6,6 +6,7 @@ import type {
   PlayerStatus,
   PlaybackStatus,
   ImportSummary,
+  Waveform,
   Discovery,
   SilentPeer,
   Edit,
@@ -47,8 +48,21 @@ export class MemoryBackend implements Backend {
   /** Length of any sequence "played" here, and the path the sequence dialog returns. */
   sequenceDurationMs = 60_000;
   nextSequencePath: string | null = null;
+  nextAudioPath: string | null = null;
   private playbackStopReason_: string | null = null;
-  private playing: { path: string; positionMs: number; since: number | null } | null = null;
+  private playing: {
+    path: string;
+    positionMs: number;
+    since: number | null;
+    sequence: string | null;
+    music: string | null;
+  } | null = null;
+  private volume = 1;
+  /** What a music file's waveform looks like here (a gentle wave), and its length. */
+  waveformFor = (_path: string, slices: number): Waveform => ({
+    durationMs: this.sequenceDurationMs,
+    peaks: Array.from({ length: slices }, (_, i) => 0.35 + 0.3 * Math.abs(Math.sin(i / 7))),
+  });
   /** Fake FPP players by address: what each is playing and the sequences stored on it. */
   fppPlayers: Record<string, { status: PlayerStatus; sequences: FppSequence[] }> = {};
 
@@ -272,7 +286,7 @@ export class MemoryBackend implements Backend {
 
   private playbackNow(): PlaybackStatus | null {
     if (!this.playing) return null;
-    const { path, positionMs, since } = this.playing;
+    const { path, positionMs, since, sequence, music } = this.playing;
     const position = Math.min(this.sequenceDurationMs, positionMs + (since === null ? 0 : Date.now() - since));
     const ended = position >= this.sequenceDurationMs;
     return {
@@ -286,6 +300,10 @@ export class MemoryBackend implements Backend {
         .map((c) => ({ id: c.id, name: c.name, state: "ok" as const, packetsSent: 0, sendErrors: 0, lastError: null })),
       notes: [],
       error: null,
+      sequence,
+      music,
+      offsetMs: this.show.sequences.find((s) => s.id === sequence)?.offsetMs ?? 0,
+      volume: this.volume,
     };
   }
 
@@ -298,8 +316,43 @@ export class MemoryBackend implements Backend {
     }
     this.output = { ...this.output, running: false };
     this.playbackStopReason_ = null;
-    this.playing = { path, positionMs, since: Date.now() };
+    this.playing = { path, positionMs, since: Date.now(), sequence: null, music: null };
     return this.playbackNow()!;
+  }
+
+  async addSequence(path: string) {
+    this.calls.push(`addSequence:${path}`);
+    const base = path.split(/[\\/]/).pop()!.replace(/\.fseq$/i, "");
+    // Like the engine: a second sequence with the same name gets a number.
+    const taken = (n: string) => this.show.sequences.some((s) => s.name === n);
+    let name = base;
+    for (let n = 2; taken(name); n++) name = `${base} (${n})`;
+    const audio = path.replace(/\.fseq$/i, ".mp3");
+    return this.applyEdits([
+      { type: "addSequence", sequence: { id: crypto.randomUUID(), name, path, audio, offsetMs: 0 } },
+    ]);
+  }
+
+  async playSequence(id: string, positionMs: number) {
+    const entry = this.show.sequences.find((s) => s.id === id);
+    if (!entry) throw new Error("There is no sequence with that id.");
+    this.calls.push(`playSequence:${entry.name}@${positionMs}`);
+    await this.startPlayback(entry.path, positionMs);
+    this.playing = { ...this.playing!, sequence: id, music: entry.audio };
+    return this.playbackNow()!;
+  }
+
+  async setPlaybackVolume(volume: number) {
+    this.volume = Math.min(1, Math.max(0, volume));
+    return this.playbackNow();
+  }
+
+  async audioWaveform(path: string, slices: number) {
+    return this.waveformFor(path, slices);
+  }
+
+  async pickAudioPath() {
+    return this.nextAudioPath;
   }
 
   async pausePlayback(paused: boolean) {
@@ -443,7 +496,7 @@ function withFreshIds(details: DeviceDetails): DeviceDetails {
 }
 
 export function emptyShow(name: string): Show {
-  return { schemaVersion: 3, name, settings: { frameRate: 40 }, props: [], groups: [], controllers: [] };
+  return { schemaVersion: 4, name, settings: { frameRate: 40 }, props: [], groups: [], controllers: [], sequences: [] };
 }
 
 function stoppedOutput(generation: number): OutputStatus {
@@ -522,5 +575,21 @@ function applyEdit(show: Show, edit: Edit): void {
     case "removeController":
       removeById(show.controllers, edit.id, "controller");
       break;
+    case "addSequence":
+      addUnique(show.sequences, edit.sequence, "sequence");
+      break;
+    case "updateSequence":
+      replaceById(show.sequences, edit.sequence, "sequence");
+      break;
+    case "removeSequence":
+      removeById(show.sequences, edit.id, "sequence");
+      break;
+    case "moveSequence": {
+      const from = show.sequences.findIndex((s) => s.id === edit.id);
+      if (from < 0) throw new Error("There is no sequence with that id.");
+      const [moved] = show.sequences.splice(from, 1);
+      show.sequences.splice(Math.min(edit.index, show.sequences.length), 0, moved);
+      break;
+    }
   }
 }

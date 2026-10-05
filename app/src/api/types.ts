@@ -109,6 +109,18 @@ export interface Controller {
   sequenceChannels: { start: number; count: number; rawDdpOffsets?: boolean } | null;
 }
 
+/** A rendered sequence in the show, with its music. */
+export interface SequenceEntry {
+  id: Uuid;
+  name: string;
+  /** The .fseq file. */
+  path: string;
+  /** The music file, when the sequence has one. */
+  audio: string | null;
+  /** How far the lights run ahead of the music, in ms (negative: behind). */
+  offsetMs: number;
+}
+
 export interface Show {
   schemaVersion: number;
   name: string;
@@ -116,6 +128,7 @@ export interface Show {
   props: Prop[];
   groups: Group[];
   controllers: Controller[];
+  sequences: SequenceEntry[];
 }
 
 export interface Issue {
@@ -194,7 +207,11 @@ export type Edit =
   | { type: "removeGroup"; id: Uuid }
   | { type: "addController"; controller: Controller }
   | { type: "updateController"; controller: Controller }
-  | { type: "removeController"; id: Uuid };
+  | { type: "removeController"; id: Uuid }
+  | { type: "addSequence"; sequence: SequenceEntry }
+  | { type: "updateSequence"; sequence: SequenceEntry }
+  | { type: "removeSequence"; id: Uuid }
+  | { type: "moveSequence"; id: Uuid; index: number };
 
 export type PatternKind = "solid" | "cycle" | "chase" | "ramp" | "alternate" | "identify" | "walk";
 
@@ -358,6 +375,18 @@ export interface PlaybackStatus {
   notes: string[];
   /** Why playback stopped by itself (a damaged file, for example). */
   error: string | null;
+  /** The show's sequence being played, if any. */
+  sequence: Uuid | null;
+  /** The music playing along, if any. */
+  music: string | null;
+  offsetMs: number;
+  volume: number;
+}
+
+/** A song's length and peak loudness (0–1) in equal slices of time. */
+export interface Waveform {
+  durationMs: number;
+  peaks: number[];
 }
 
 /** Where a prop's pixels are drawn in the preview (x, y pairs) and where their colors sit in a live frame. */

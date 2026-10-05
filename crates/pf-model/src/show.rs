@@ -1,6 +1,6 @@
 //! The top-level show document.
 
-use crate::{Controller, ControllerId, Group, Prop, PropId};
+use crate::{Controller, ControllerId, Group, Prop, PropId, SequenceId};
 use serde::{Deserialize, Serialize};
 
 /// Schema version written by this build.
@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 /// fields it doesn't know on save. Add the migration in `io.rs` in the same change.
 ///
 /// History: 1 = initial format; 2 = adds the `falcon` controller adapter; 3 = adds a
-/// controller's `sequenceChannels`.
-pub const CURRENT_SCHEMA_VERSION: u32 = 3;
+/// controller's `sequenceChannels`; 4 = adds the show's `sequences`.
+pub const CURRENT_SCHEMA_VERSION: u32 = 4;
 
 /// Show-wide settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,6 +48,37 @@ pub struct Show {
     pub groups: Vec<Group>,
     #[serde(default)]
     pub controllers: Vec<Controller>,
+    /// Rendered sequences in the show, in playlist order.
+    #[serde(default)]
+    pub sequences: Vec<SequenceEntry>,
+}
+
+/// A rendered sequence (`.fseq`) in the show, with its music.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SequenceEntry {
+    pub id: SequenceId,
+    pub name: String,
+    /// The `.fseq` file.
+    pub path: String,
+    /// The music file, when the sequence has one.
+    #[serde(default)]
+    pub audio: Option<String>,
+    /// How far the lights run ahead of the music, in milliseconds (negative: behind).
+    #[serde(default)]
+    pub offset_ms: i32,
+}
+
+impl SequenceEntry {
+    pub fn new(name: impl Into<String>, path: impl Into<String>) -> Self {
+        Self {
+            id: SequenceId::new(),
+            name: name.into(),
+            path: path.into(),
+            audio: None,
+            offset_ms: 0,
+        }
+    }
 }
 
 impl Show {
@@ -60,6 +91,7 @@ impl Show {
             props: Vec::new(),
             groups: Vec::new(),
             controllers: Vec::new(),
+            sequences: Vec::new(),
         }
     }
 

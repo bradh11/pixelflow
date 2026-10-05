@@ -18,6 +18,8 @@ jobs:
           toolchain: 1.98.1
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: Install sound headers (for music playback)
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
       - name: Format
         run: cargo fmt --all --check
       - name: Lint

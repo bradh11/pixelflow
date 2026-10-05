@@ -1,7 +1,7 @@
 //! Edits: the only way the show changes.
 
 use crate::error::EngineError;
-use pf_model::{Controller, ControllerId, Group, GroupId, Prop, PropId, Show};
+use pf_model::{Controller, ControllerId, Group, GroupId, Prop, PropId, SequenceEntry, SequenceId, Show};
 use serde::{Deserialize, Serialize};
 
 /// One change to the show. Batches of edits are applied atomically by [`crate::Engine::apply`].
@@ -43,6 +43,21 @@ pub enum Edit {
     },
     RemoveController {
         id: ControllerId,
+    },
+    AddSequence {
+        sequence: SequenceEntry,
+    },
+    /// Replaces the sequence with the same id (name, files, offset).
+    UpdateSequence {
+        sequence: SequenceEntry,
+    },
+    RemoveSequence {
+        id: SequenceId,
+    },
+    /// Moves a sequence to `index` in the playlist (clamped to the end).
+    MoveSequence {
+        id: SequenceId,
+        index: usize,
     },
 }
 
@@ -96,6 +111,26 @@ impl Edit {
                 *find(&mut show.controllers, |c| c.id == controller.id, "controller")? = controller.clone();
             }
             Edit::RemoveController { id } => remove(&mut show.controllers, |c| c.id == *id, "controller")?,
+            Edit::AddSequence { sequence } => {
+                if show.sequences.iter().any(|s| s.id == sequence.id) {
+                    return Err(EngineError::DuplicateId { kind: "sequence" });
+                }
+                show.sequences.push(sequence.clone());
+            }
+            Edit::UpdateSequence { sequence } => {
+                *find(&mut show.sequences, |s| s.id == sequence.id, "sequence")? = sequence.clone();
+            }
+            Edit::RemoveSequence { id } => remove(&mut show.sequences, |s| s.id == *id, "sequence")?,
+            Edit::MoveSequence { id, index } => {
+                let from = show
+                    .sequences
+                    .iter()
+                    .position(|s| s.id == *id)
+                    .ok_or(EngineError::NotFound { kind: "sequence" })?;
+                let sequence = show.sequences.remove(from);
+                let to = (*index).min(show.sequences.len());
+                show.sequences.insert(to, sequence);
+            }
         }
         Ok(())
     }
@@ -197,5 +232,40 @@ mod tests {
         a.name = "Renamed".into();
         Edit::UpdateProp { prop: a }.apply(&mut show).unwrap();
         assert_eq!(show.props[0].name, "Renamed");
+    }
+
+    #[test]
+    fn sequences_can_be_added_updated_moved_and_removed() {
+        use pf_model::SequenceEntry;
+        let mut show = Show::new("t");
+        let a = SequenceEntry::new("Medley", "/shows/medley.fseq");
+        let b = SequenceEntry::new("Wizards", "/shows/wizards.fseq");
+        Edit::AddSequence { sequence: a.clone() }
+            .apply(&mut show)
+            .unwrap();
+        Edit::AddSequence { sequence: b.clone() }
+            .apply(&mut show)
+            .unwrap();
+        assert!(matches!(
+            Edit::AddSequence { sequence: a.clone() }.apply(&mut show),
+            Err(EngineError::DuplicateId { .. })
+        ));
+        let mut changed = a.clone();
+        changed.offset_ms = -120;
+        changed.audio = Some("/shows/medley.mp3".into());
+        Edit::UpdateSequence { sequence: changed }
+            .apply(&mut show)
+            .unwrap();
+        assert_eq!(show.sequences[0].offset_ms, -120);
+        Edit::MoveSequence { id: a.id, index: 9 }
+            .apply(&mut show)
+            .unwrap();
+        assert_eq!(
+            show.sequences.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
+            ["Wizards", "Medley"]
+        );
+        Edit::RemoveSequence { id: b.id }.apply(&mut show).unwrap();
+        assert_eq!(show.sequences.len(), 1);
+        assert!(Edit::RemoveSequence { id: b.id }.apply(&mut show).is_err());
     }
 }

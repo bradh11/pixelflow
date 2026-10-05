@@ -1,5 +1,6 @@
 import type {
   DeviceDetails,
+  Waveform,
   XlightsImported,
   PlaybackStatus,
   PreviewProp,
@@ -65,6 +66,16 @@ export interface Backend {
   importXlights(folder: string): Promise<XlightsImported>;
   /** Shows a native folder picker for an xLights show folder; null when cancelled. */
   pickShowFolder(): Promise<string | null>;
+  /** Adds the sequence file at `path` to the show, finding its music next to it (one undo step). */
+  addSequence(path: string): Promise<ShowSnapshot>;
+  /** Plays one of the show's sequences with its music. */
+  playSequence(id: string, positionMs: number): Promise<PlaybackStatus>;
+  /** Music volume (0–1) for playback. */
+  setPlaybackVolume(volume: number): Promise<PlaybackStatus | null>;
+  /** A music file's loudness over time, in `slices` slices. */
+  audioWaveform(path: string, slices: number): Promise<Waveform>;
+  /** Shows a native "choose music" dialog; null when cancelled. */
+  pickAudioPath(): Promise<string | null>;
   /** Shows a native "open sequence" dialog; null when cancelled. */
   pickSequencePath(): Promise<string | null>;
   /** Shows a native "open file" dialog; null when cancelled. */

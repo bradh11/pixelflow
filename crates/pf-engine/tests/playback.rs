@@ -338,3 +338,403 @@ fn real_sequence_plays_when_provided() {
         "the strip shows light"
     );
 }
+
+/// The music a test plays along with.
+#[derive(Clone, Copy, Debug)]
+enum Music {
+    /// Keeps going for as long as the lights need.
+    Endless,
+    /// A song this many ms long: its clock stops there and it says it's finished.
+    Song(u64),
+    /// A sound device that stops calling back this many ms in: the clock stands still, unfinished.
+    Stuck(u64),
+    /// The music can't be opened.
+    Broken,
+    /// Opening the music crashes the player thread.
+    Panics,
+    /// Closing the music hangs for a long time (a stalled sound device).
+    SlowToClose,
+}
+
+/// A clock that keeps silent time and records what playback asked of it.
+struct LoggingClock {
+    inner: pf_audio::SilentClock,
+    log: Log,
+    music: Music,
+}
+
+impl LoggingClock {
+    fn song_ms(&self) -> Option<u64> {
+        match self.music {
+            Music::Song(ms) | Music::Stuck(ms) => Some(ms),
+            _ => None,
+        }
+    }
+}
+
+impl pf_audio::AudioClock for LoggingClock {
+    fn start(&mut self, position: Duration) {
+        self.log
+            .lock()
+            .unwrap()
+            .push(format!("start {}", position.as_millis()));
+        self.inner.start(position);
+    }
+    fn pause(&mut self) {
+        self.log.lock().unwrap().push("pause".into());
+        self.inner.pause();
+    }
+    fn resume(&mut self) {
+        self.log.lock().unwrap().push("resume".into());
+        self.inner.resume();
+    }
+    fn seek(&mut self, position: Duration) {
+        self.log
+            .lock()
+            .unwrap()
+            .push(format!("seek {}", position.as_millis()));
+        self.inner.seek(position);
+    }
+    fn position(&self) -> Duration {
+        let now = self.inner.position();
+        self.song_ms()
+            .map_or(now, |ms| now.min(Duration::from_millis(ms)))
+    }
+    fn set_volume(&mut self, volume: f32) {
+        self.log.lock().unwrap().push(format!("volume {volume}"));
+    }
+    fn finished(&self) -> bool {
+        match self.music {
+            Music::Song(ms) => self.inner.position() >= Duration::from_millis(ms),
+            Music::Stuck(_) => false,
+            _ => true,
+        }
+    }
+}
+
+impl Drop for LoggingClock {
+    fn drop(&mut self) {
+        if let Music::SlowToClose = self.music {
+            std::thread::sleep(Duration::from_secs(5));
+        }
+    }
+}
+
+type Log = std::sync::Arc<std::sync::Mutex<Vec<String>>>;
+
+/// An engine whose show has one sequence (`frames` long) with music played by a logging clock.
+fn engine_with(
+    music: Music,
+    offset_ms: i32,
+    frames: u32,
+) -> (Engine, Log, pf_model::SequenceEntry, tempfile::TempDir) {
+    let (engine, _recorded, dir) = engine_with_show(true);
+    let (engine, log, entry) = with_music(engine, music, offset_ms, frames, dir.path());
+    (engine, log, entry, dir)
+}
+
+fn with_music(
+    engine: Engine,
+    music: Music,
+    offset_ms: i32,
+    frames: u32,
+    dir: &Path,
+) -> (Engine, Log, pf_model::SequenceEntry) {
+    let log: Log = Default::default();
+    let opened = log.clone();
+    let clocks: pf_engine::ClockFactory = std::sync::Arc::new(move |path: Option<&Path>| {
+        opened.lock().unwrap().push(format!(
+            "open {}",
+            path.map_or("none".into(), |m| m.display().to_string())
+        ));
+        match music {
+            Music::Broken => return Err(pf_audio::AudioError::NoOutput("no speakers".into())),
+            Music::Panics => panic!("the sound system crashed"),
+            _ => {}
+        }
+        Ok(Box::new(LoggingClock {
+            inner: pf_audio::SilentClock::new(),
+            log: opened.clone(),
+            music,
+        }) as Box<dyn pf_audio::AudioClock>)
+    });
+    let mut engine = engine.with_clocks(clocks);
+    let path = write_sequence_of(dir, "medley.fseq", frames);
+    let mut entry = pf_model::SequenceEntry::new("Medley", path.display().to_string());
+    entry.audio = Some("/music/medley.mp3".into());
+    entry.offset_ms = offset_ms;
+    engine
+        .apply(vec![Edit::AddSequence {
+            sequence: entry.clone(),
+        }])
+        .unwrap();
+    (engine, log, entry)
+}
+
+fn logged(log: &Log, line: &str) -> bool {
+    log.lock().unwrap().iter().any(|l| l == line)
+}
+
+#[test]
+fn sequences_play_with_their_music_lined_up_by_the_offset() {
+    let (mut engine, log, entry, _dir) = engine_with(Music::Endless, 100, FRAMES);
+    let status = engine.play_sequence(entry.id, 0).unwrap();
+    assert_eq!(status.sequence, Some(entry.id));
+    assert_eq!(status.music.as_deref(), Some(Path::new("/music/medley.mp3")));
+    assert_eq!(status.offset_ms, 100);
+    assert!(status.notes.is_empty(), "{:?}", status.notes);
+    // The lights run 100 ms ahead, so the song starts once they're 100 ms in.
+    wait_until(|| logged(&log, "start 0"));
+    engine.set_playback_paused(true).unwrap();
+    engine.seek_playback(250).unwrap();
+    // Lights at 250 ms means music at 150 ms when the lights run 100 ms ahead.
+    wait_until(|| logged(&log, "seek 150"));
+    let entries = log.lock().unwrap().clone();
+    assert_eq!(entries[0], "open /music/medley.mp3");
+    assert!(entries.contains(&"pause".to_string()), "{entries:?}");
+
+    engine.set_playback_volume(0.4).unwrap();
+    wait_until(|| logged(&log, "volume 0.4"));
+}
+
+#[test]
+fn lights_ahead_of_the_music_play_their_first_frames_before_the_song_starts() {
+    let (engine, recorded, dir) = engine_with_show(true);
+    let (mut engine, log, entry) = with_music(engine, Music::Endless, 100, FRAMES, dir.path());
+    engine.play_sequence(entry.id, 0).unwrap();
+    wait_until(|| logged(&log, "start 0"));
+    let starts: Vec<String> = log
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|l| l.starts_with("start"))
+        .cloned()
+        .collect();
+    assert_eq!(starts, vec!["start 0"]);
+    wait_until(|| engine.playback_status().unwrap().state == "ended");
+    let sent: Vec<u8> = packets(&recorded).iter().map(|p| p[10]).collect();
+    assert!(
+        [value(1), value(2), value(3)].iter().any(|v| sent.contains(v)),
+        "frames before the song starts are shown: {sent:?}"
+    );
+}
+
+#[test]
+fn starting_from_the_top_plays_the_whole_song_when_the_lights_run_behind() {
+    let (mut engine, log, entry, _dir) = engine_with(Music::Endless, -100, FRAMES);
+    engine.play_sequence(entry.id, 0).unwrap();
+    wait_until(|| log.lock().unwrap().iter().any(|l| l.starts_with("start")));
+    assert!(logged(&log, "start 0"), "{:?}", log.lock().unwrap());
+    // Restarting from the top does the same.
+    engine.seek_playback(0).unwrap();
+    wait_until(|| logged(&log, "seek 0"));
+    assert!(!logged(&log, "seek 100"), "{:?}", log.lock().unwrap());
+}
+
+#[test]
+fn music_shorter_than_the_lights_still_ends() {
+    // The song stops at 150 ms; the lights go on to 300 ms on their own, then end.
+    let (mut engine, _log, entry, _dir) = engine_with(Music::Song(150), 0, FRAMES);
+    engine.play_sequence(entry.id, 0).unwrap();
+    wait_until(|| engine.playback_status().unwrap().state == "ended");
+    let status = engine.playback_status().unwrap();
+    assert_eq!((status.position_ms, status.error), (300, None));
+    assert!(status.notes.is_empty(), "{:?}", status.notes);
+}
+
+#[test]
+fn music_longer_than_the_lights_plays_out_then_stays_stopped() {
+    let (mut engine, log, entry, _dir) = engine_with(Music::Song(500), 0, FRAMES);
+    engine.play_sequence(entry.id, 0).unwrap();
+    // The lights are done at 300 ms, but the song plays on to 500 ms.
+    wait_until(|| engine.playback_status().unwrap().position_ms == 300);
+    assert_eq!(engine.playback_status().unwrap().state, "playing");
+    wait_until(|| engine.playback_status().unwrap().state == "ended");
+    std::thread::sleep(Duration::from_millis(60));
+    let entries = log.lock().unwrap().clone();
+    let last = entries
+        .iter()
+        .rev()
+        .find(|l| *l == "pause" || *l == "resume")
+        .cloned();
+    assert_eq!(
+        last.as_deref(),
+        Some("pause"),
+        "the music stays stopped: {entries:?}"
+    );
+    assert_eq!(engine.playback_status().unwrap().state, "ended");
+
+    // Seeking after the end plays again.
+    engine.seek_playback(0).unwrap();
+    wait_until(|| log.lock().unwrap().last().is_some_and(|l| l == "resume"));
+    assert_eq!(engine.playback_status().unwrap().state, "playing");
+}
+
+#[test]
+fn a_stalled_sound_device_does_not_freeze_the_lights() {
+    let (mut engine, _log, entry, _dir) = engine_with(Music::Stuck(100), 0, 800);
+    engine.play_sequence(entry.id, 0).unwrap();
+    wait_until(|| engine.playback_status().unwrap().position_ms > 1200);
+    let status = engine.playback_status().unwrap();
+    assert_eq!(status.state, "playing");
+    assert_eq!(
+        status.notes,
+        vec!["The sound output stopped responding, so the lights are keeping time on their own."]
+    );
+}
+
+#[test]
+fn stopping_never_waits_long_for_the_sound_device() {
+    let (mut engine, _log, entry, _dir) = engine_with(Music::SlowToClose, 0, FRAMES);
+    engine.play_sequence(entry.id, 0).unwrap();
+    let started = Instant::now();
+    engine.stop_playback();
+    assert!(engine.playback_status().is_none());
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
+fn a_crashed_player_says_so_instead_of_playing_forever() {
+    let (mut engine, _log, entry, _dir) = engine_with(Music::Panics, 0, FRAMES);
+    let status = engine.play_sequence(entry.id, 0).unwrap();
+    assert_eq!(status.state, "ended");
+    assert!(
+        status
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("stopped unexpectedly"),
+        "{status:?}"
+    );
+}
+
+#[test]
+fn editing_the_offset_applies_live_and_removing_the_sequence_stops_it() {
+    let (mut engine, _log, entry, _dir) = engine_with(Music::Endless, 100, FRAMES);
+    engine.play_sequence(entry.id, 0).unwrap();
+    let generation = engine.playback_generation();
+    let mut later = entry.clone();
+    later.offset_ms = -80;
+    engine
+        .apply(vec![Edit::UpdateSequence { sequence: later }])
+        .unwrap();
+    assert_eq!(engine.playback_status().unwrap().offset_ms, -80);
+    assert_eq!(
+        engine.playback_generation(),
+        generation,
+        "no restart for an offset change"
+    );
+
+    engine.apply(vec![Edit::RemoveSequence { id: entry.id }]).unwrap();
+    assert!(engine.playback_status().is_none());
+    assert!(engine.playback_stop_reason().unwrap().contains("removed"));
+}
+
+#[test]
+fn offsets_stay_within_ten_seconds() {
+    let (mut engine, _log, entry, _dir) = engine_with(Music::Endless, 0, FRAMES);
+    let mut far = entry.clone();
+    far.offset_ms = 10_001;
+    let error = engine
+        .apply(vec![Edit::UpdateSequence { sequence: far }])
+        .unwrap_err();
+    assert!(error.to_string().contains("at most 10000 ms"), "{error}");
+    assert_eq!(engine.show().sequences[0].offset_ms, 0);
+}
+
+#[test]
+fn a_controller_edit_keeps_the_music_playing_without_reopening_it() {
+    let (mut engine, log, entry, _dir) = engine_with(Music::Endless, 0, 800);
+    engine.play_sequence(entry.id, 0).unwrap();
+    let generation = engine.playback_generation();
+    set_address(&mut engine, "127.0.0.2:4048");
+    assert_eq!(
+        engine.playback_generation(),
+        generation + 1,
+        "sends to the new address"
+    );
+    assert_eq!(engine.playback_status().unwrap().state, "playing");
+    let opens = log
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|l| l.starts_with("open"))
+        .count();
+    assert_eq!(opens, 1, "{:?}", log.lock().unwrap());
+    let before = engine.playback_status().unwrap().position_ms;
+    wait_until(|| engine.playback_status().unwrap().position_ms > before + 50);
+}
+
+#[test]
+fn new_music_while_paused_restarts_paused_without_playing() {
+    let (mut engine, log, entry, _dir) = engine_with(Music::Endless, 0, 800);
+    engine.play_sequence(entry.id, 0).unwrap();
+    engine.set_playback_paused(true).unwrap();
+    engine.seek_playback(1000).unwrap();
+    wait_until(|| logged(&log, "seek 1000"));
+    let mut changed = entry.clone();
+    changed.audio = Some("/music/other.mp3".into());
+    engine
+        .apply(vec![Edit::UpdateSequence { sequence: changed }])
+        .unwrap();
+    let status = engine.playback_status().unwrap();
+    assert_eq!((status.state, status.position_ms), ("paused", 1000));
+    std::thread::sleep(Duration::from_millis(50));
+    let entries = log.lock().unwrap().clone();
+    let reopened = entries
+        .iter()
+        .position(|l| l == "open /music/other.mp3")
+        .expect("opened the new music");
+    let after = &entries[reopened..];
+    assert!(after.contains(&"seek 1000".to_string()), "{after:?}");
+    assert!(
+        !after.iter().any(|l| l.starts_with("start") || l == "resume"),
+        "never plays: {after:?}"
+    );
+}
+
+#[test]
+fn without_working_music_only_the_lights_play() {
+    let (mut engine, _log, entry, _dir) = engine_with(Music::Broken, 100, FRAMES);
+    let status = engine.play_sequence(entry.id, 0).unwrap();
+    assert_eq!(status.state, "playing");
+    assert_eq!(status.music, None);
+    assert_eq!(
+        status.notes,
+        vec!["No sound output is available. Only the lights are playing."]
+    );
+}
+
+#[test]
+fn a_sequence_added_twice_gets_a_different_name() {
+    let (mut engine, _log, entry, _dir) = engine_with(Music::Endless, 0, FRAMES);
+    let mut again = pf_model::SequenceEntry::new("Medley", entry.path.clone());
+    again.audio = entry.audio.clone();
+    engine.add_sequence(again.clone()).unwrap();
+    again.id = pf_model::SequenceId::new();
+    let snapshot = engine.add_sequence(again).unwrap();
+    let names: Vec<&str> = snapshot.show.sequences.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, vec!["Medley", "Medley (2)", "Medley (3)"]);
+}
+
+#[test]
+fn a_sequence_entry_finds_its_music() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_sequence(dir.path());
+    let entry = pf_engine::sequence_entry_for(&path).unwrap();
+    assert_eq!(
+        (entry.name.as_str(), entry.audio.as_deref(), entry.offset_ms),
+        ("medley", None, 0)
+    );
+    let song = dir.path().join("medley.mp3");
+    std::fs::write(&song, b"x").unwrap();
+    assert_eq!(
+        pf_engine::sequence_entry_for(&path).unwrap().audio,
+        Some(song.display().to_string())
+    );
+    assert!(pf_engine::sequence_entry_for(&dir.path().join("nope.fseq")).is_err());
+}

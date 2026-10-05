@@ -59,8 +59,11 @@ export function NumberField({
   min = -Infinity,
   integer = false,
   nonZero = false,
+  hint,
 }: {
   label: string;
+  /** More about the field, shown on hover. */
+  hint?: string;
   value: number;
   onCommit: (value: number) => void;
   min?: number;
@@ -80,8 +83,8 @@ export function NumberField({
     if (n !== Number(shown)) onCommit(n);
   };
   return (
-    <label className="flex flex-col gap-1 text-xs">
-      <span className="text-neutral-500 dark:text-neutral-400">{label}</span>
+    <label className="flex flex-col gap-1 text-xs" title={hint}>
+      <span className="truncate text-neutral-500 dark:text-neutral-400">{label}</span>
       <Input
         inputMode="decimal"
         value={draft}
@@ -119,14 +122,14 @@ function OnePropPanel({ prop }: { prop: Prop }) {
   // Each change applies to the prop as it is when the edit is sent, so it can't undo a move on its way.
   const update = (change: (p: Prop) => Prop) => void apply(updateEdits(prop.id, change));
   const t = prop.transform;
-  const setTransform = (patch: Partial<{ x: number; y: number; rotation: number; sx: number; sy: number }>) =>
+  const setTransform = (patch: Partial<{ x: number; y: number; z: number; rotation: number; tilt: number; turn: number; sx: number; sy: number }>) =>
     update((p) => {
       const { position, rotationDeg, scale } = p.transform;
       return {
         ...p,
         transform: {
-          position: { ...position, x: patch.x ?? position.x, y: patch.y ?? position.y },
-          rotationDeg: { ...rotationDeg, z: patch.rotation ?? rotationDeg.z },
+          position: { x: patch.x ?? position.x, y: patch.y ?? position.y, z: patch.z ?? position.z },
+          rotationDeg: { x: patch.tilt ?? rotationDeg.x, y: patch.turn ?? rotationDeg.y, z: patch.rotation ?? rotationDeg.z },
           scale: { ...scale, x: patch.sx ?? scale.x, y: patch.sy ?? scale.y },
         },
       };
@@ -195,11 +198,17 @@ function OnePropPanel({ prop }: { prop: Prop }) {
         </label>
       </Section>
       <Section title="Placement">
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <NumberField label="Position X" value={t.position.x} onCommit={(x) => setTransform({ x })} />
           <NumberField label="Position Y" value={t.position.y} onCommit={(y) => setTransform({ y })} />
-          <NumberField label="Rotation (degrees)" value={t.rotationDeg.z} onCommit={(rotation) => setTransform({ rotation })} />
-          <div />
+          <NumberField label="Position Z" hint="Depth: toward the street" value={t.position.z} onCommit={(z) => setTransform({ z })} />
+        </div>
+        <div className="mt-2 grid grid-cols-3 gap-2">
+          <NumberField label="Rotation (degrees)" hint="Turned in the front view (around Z)" value={t.rotationDeg.z} onCommit={(rotation) => setTransform({ rotation })} />
+          <NumberField label="Tilt (X°)" hint="Tipped forward or back (around X)" value={t.rotationDeg.x} onCommit={(tilt) => setTransform({ tilt })} />
+          <NumberField label="Turn (Y°)" hint="Turned to face left or right (around Y)" value={t.rotationDeg.y} onCommit={(turn) => setTransform({ turn })} />
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-2">
           <NumberField label="Scale X" value={t.scale.x} nonZero onCommit={(sx) => setTransform({ sx })} />
           <NumberField label="Scale Y" value={t.scale.y} nonZero onCommit={(sy) => setTransform({ sy })} />
         </div>

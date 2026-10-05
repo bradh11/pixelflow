@@ -222,6 +222,17 @@ describe("LayoutScreen", () => {
     await user.clear(rotation);
     await user.type(rotation, "45{Enter}");
     expect(backend.show.props[0].transform.rotationDeg.z).toBe(45);
+    for (const [label, value] of [
+      ["Position Z", "1.5"],
+      ["Tilt (X°)", "-10"],
+      ["Turn (Y°)", "30"],
+    ]) {
+      const field = screen.getByLabelText(label);
+      await user.clear(field);
+      await user.type(field, `${value}{Enter}`);
+    }
+    expect(backend.show.props[0].transform.position).toEqual({ x: 7.5, y: 0, z: 1.5 });
+    expect(backend.show.props[0].transform.rotationDeg).toEqual({ x: -10, y: 30, z: 45 });
     const before = edits.length;
     await user.clear(pixels);
     await user.type(pixels, "lots{Enter}");

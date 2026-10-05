@@ -163,6 +163,18 @@ impl Engine {
         self.snapshot()
     }
 
+    /// Replaces the open show with `show` (one imported from xLights, for example) as a new,
+    /// unsaved show. It's checked like a file being opened; on failure nothing changes.
+    pub fn adopt_show(&mut self, show: Show) -> Result<ShowSnapshot, EngineError> {
+        let checked = pf_model::show_to_json(&show)
+            .and_then(|json| pf_model::show_from_json(&json))
+            .map_err(|e| EngineError::TooLarge(e.to_string()))?;
+        self.replace_show(checked, None);
+        // Unsaved, so the user is asked before it's discarded.
+        self.changed();
+        Ok(self.snapshot())
+    }
+
     /// Opens a show file. On failure the current show is left untouched.
     pub fn open(&mut self, path: &Path) -> Result<ShowSnapshot, EngineError> {
         let show = persist::load_show(path)?;

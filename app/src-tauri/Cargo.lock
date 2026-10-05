@@ -2302,6 +2302,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pf-xlights"
+version = "0.1.0"
+dependencies = [
+ "pf-model",
+ "roxmltree",
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "phf"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2367,6 +2377,7 @@ dependencies = [
  "pf-devices",
  "pf-engine",
  "pf-model",
+ "pf-xlights",
  "serde",
  "serde_json",
  "tauri",

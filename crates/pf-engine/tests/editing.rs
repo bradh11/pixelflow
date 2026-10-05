@@ -199,3 +199,21 @@ fn save_as_makes_the_next_autosave_write_into_the_new_history() {
     assert!(engine.autosave().unwrap().is_some(), "new file gets a first copy");
     assert_eq!(engine.history().len(), 1);
 }
+
+#[test]
+fn an_adopted_show_is_new_and_unsaved() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = Engine::new(dir.path());
+    let mut show = pf_model::Show::new("Imported");
+    show.props.push(pf_model::Prop::new(
+        "Roof",
+        pf_model::ShapeSource::Generator(pf_model::Generator::Line {
+            nodes: 10,
+            length: 1.0,
+        }),
+    ));
+    let snapshot = engine.adopt_show(show).unwrap();
+    assert_eq!(snapshot.show.name, "Imported");
+    assert_eq!(snapshot.summary.props, 1);
+    assert!(snapshot.dirty && snapshot.path.is_none() && !snapshot.can_undo);
+}

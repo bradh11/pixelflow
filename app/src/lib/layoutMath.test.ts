@@ -3,6 +3,7 @@ import { emptyShow } from "../api/memory";
 import type { Background, PreviewProp, Transform } from "../api/types";
 import { applyTransform, frontView, localPositions } from "./geometry";
 import {
+  resizeView,
   alignMoves,
   backgroundBox,
   besideBox,
@@ -463,5 +464,19 @@ describe("gestures on their way", () => {
     expect(q[1]).toBeCloseTo(5);
     expect(composeGestures(props, [])).toBe(props);
     expect(composeGestures(props, [layers[0]])[1]).toBe(props[1]);
+  });
+});
+
+describe("resizing the canvas", () => {
+  it("keeps the same part of the layout in view, scaled to the new size", () => {
+    const view = { cx: 3, cy: 2, zoom: 40 };
+    const bigger = resizeView(view, { width: 800, height: 400 }, { width: 1600, height: 800 });
+    expect(bigger).toEqual({ cx: 3, cy: 2, zoom: 80 });
+    // Narrower than it is tall: the tighter direction decides, so nothing that was visible is cut off.
+    const narrower = resizeView(view, { width: 800, height: 400 }, { width: 400, height: 400 });
+    expect(narrower.zoom).toBe(20);
+    // A zero-size moment (window minimized) leaves the view alone.
+    expect(resizeView(view, { width: 0, height: 0 }, { width: 800, height: 400 })).toBe(view);
+    expect(resizeView(view, { width: 800, height: 400 }, { width: 0, height: 300 })).toBe(view);
   });
 });

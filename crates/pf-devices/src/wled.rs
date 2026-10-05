@@ -1,14 +1,23 @@
 //! WLED over its JSON API — read-only (`/json/info` and `/json/cfg`; never `/wsec.json`).
 
-use crate::config::{DeviceConfig, DeviceInput, PortConfig, StringConfig};
+use crate::config::{DeviceConfig, DeviceInput, PortConfig, StringConfig, bounded_nulls, bounded_pixels};
 use crate::device::{Device, DeviceKind};
 use crate::error::DeviceError;
 use crate::http::Http;
 use pf_model::ColorOrder;
 use serde_json::Value;
 
-/// WLED bus types that are RGBW (SK6812 RGBW, TM1814).
-const RGBW_BUS_TYPES: [i64; 2] = [30, 31];
+/// WLED bus types (`wled00/const.h`) that are RGBW: UCS8904, SK6812 RGBW, TM1814.
+const RGBW_BUS_TYPES: [i64; 3] = [29, 30, 31];
+
+/// Pixel buses with extra white channels (white-only, white + amber, RGB + CCT/WWA) that need
+/// 5 or 6 channels per pixel, which PixelFlow can't send yet.
+const EXTRA_WHITE_BUS_TYPES: [i64; 6] = [18, 19, 21, 28, 32, 34];
+
+/// Pixel buses: one-wire types 16–39 and two-wire types 48–63.
+fn is_pixel_bus(bus_type: i64) -> bool {
+    (16..=39).contains(&bus_type) || (48..=63).contains(&bus_type)
+}
 
 fn get_json(http: &dyn Http, host: &str, path: &str) -> Result<Value, DeviceError> {
     let body = http.get(host, path)?;
@@ -54,40 +63,58 @@ fn color_order(order: i64, rgbw: bool) -> Option<ColorOrder> {
 pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceError> {
     let cfg = get_json(http, host, "/json/cfg")?;
     let mut notes = Vec::new();
-    let ports = cfg["hw"]["led"]["ins"]
+    let mut ports = Vec::new();
+    for (i, bus) in cfg["hw"]["led"]["ins"]
         .as_array()
         .into_iter()
         .flatten()
         .enumerate()
-        .filter_map(|(i, bus)| {
-            let pixels = bus["len"].as_i64().unwrap_or(0);
-            if pixels <= 0 {
-                return None;
-            }
-            let number = u16::try_from(i + 1).unwrap_or(0);
-            let rgbw = RGBW_BUS_TYPES.contains(&bus["type"].as_i64().unwrap_or(22));
-            let order = bus["order"].as_i64().unwrap_or(0);
-            let color_order = color_order(order, rgbw).unwrap_or_else(|| {
-                notes.push(format!(
-                    "Output {number}: color order code {order} isn't supported yet; using GRB."
-                ));
-                ColorOrder::Grb
-            });
-            Some(PortConfig {
-                number,
-                strings: vec![StringConfig {
-                    name: None,
-                    pixels: u32::try_from(pixels).unwrap_or(0),
-                    color_order,
-                    null_pixels: u32::try_from(bus["skip"].as_i64().unwrap_or(0)).unwrap_or(0),
-                    reverse: bus["rev"].as_bool().unwrap_or(false),
-                    brightness: 100,
-                    gamma: 1.0,
-                    smart_receiver: None,
-                }],
-            })
-        })
-        .collect();
+    {
+        let raw_pixels = bus["len"].as_i64().unwrap_or(0);
+        if raw_pixels <= 0 {
+            continue;
+        }
+        let number =
+            u16::try_from(i + 1).map_err(|_| DeviceError::bad(host, "/json/cfg", "too many LED outputs"))?;
+        let bus_type = bus["type"].as_i64().unwrap_or(22);
+        if EXTRA_WHITE_BUS_TYPES.contains(&bus_type) {
+            notes.push(format!(
+                "Output {number} uses LEDs with extra white channels that PixelFlow doesn't support yet; it was skipped."
+            ));
+            continue;
+        }
+        if !is_pixel_bus(bus_type) {
+            notes.push(format!(
+                "Output {number} isn't a pixel output (type {bus_type}); it was skipped."
+            ));
+            continue;
+        }
+        let label = format!("Output {number}");
+        let Some(pixels) = bounded_pixels(&label, raw_pixels, &mut notes) else {
+            continue;
+        };
+        let rgbw = RGBW_BUS_TYPES.contains(&bus_type);
+        let order = bus["order"].as_i64().unwrap_or(0);
+        let color_order = color_order(order, rgbw).unwrap_or_else(|| {
+            notes.push(format!(
+                "Output {number}: color order code {order} isn't supported yet; using GRB."
+            ));
+            ColorOrder::Grb
+        });
+        ports.push(PortConfig {
+            number,
+            strings: vec![StringConfig {
+                name: None,
+                pixels,
+                color_order,
+                null_pixels: bounded_nulls(&label, bus["skip"].as_i64().unwrap_or(0), &mut notes),
+                reverse: bus["rev"].as_bool().unwrap_or(false),
+                brightness: 100,
+                gamma: 1.0,
+                smart_receiver: None,
+            }],
+        });
+    }
     if cfg["if"]["live"]["en"].as_bool() == Some(false) {
         notes.push("Realtime receive is turned off in WLED (Config → Sync Interfaces); turn it on to see PixelFlow's output.".to_string());
     }

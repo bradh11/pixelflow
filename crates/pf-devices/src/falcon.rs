@@ -4,7 +4,10 @@
 //! *query* requests only (`"T":"Q"`), following xLights' `Falcon.cpp`. The status reply also
 //! carries Wi-Fi fields (`WS`, `WP`, `CP`); they are never read or kept.
 
-use crate::config::{DeviceConfig, DeviceInput, PortConfig, StringConfig};
+use crate::config::{
+    DeviceConfig, DeviceInput, LAYOUT_NOTE, Placed, PortConfig, StringConfig, bounded_nulls, bounded_pixels,
+    layout_is_contiguous, valid_port,
+};
 use crate::device::{Device, DeviceKind};
 use crate::error::DeviceError;
 use crate::http::Http;
@@ -145,6 +148,18 @@ fn color_order(code: i64) -> Option<ColorOrder> {
 /// Reads the controller mode, input universes, and every string port (V4/V5 JSON API).
 pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceError> {
     let mut notes = Vec::new();
+    let status = read_status_xml(http, host)?;
+    // Product codes below 128 are pre-V4 boards, which don't speak the JSON API used below.
+    if (1..128).contains(&status.product) {
+        let name = if status.name.is_empty() {
+            format!("Falcon {host}")
+        } else {
+            status.name
+        };
+        return Err(DeviceError::bad_plain(format!(
+            "{name} is an older Falcon controller that PixelFlow can't read yet."
+        )));
+    }
     let (settings, _) = query(http, host, "ST", 1)?;
     let mode = int(&settings, "O");
     let input = match mode {
@@ -177,34 +192,39 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
         ));
     }
 
-    let mut ports: BTreeMap<i64, Vec<(i64, i64, StringConfig)>> = BTreeMap::new();
+    // Strings per port, keyed by (smart receiver, index) so a repeated page can't add a string twice
+    // and the order is the wiring order. Each also keeps the controller's start channel (`sc`).
+    type Entry = (Option<i64>, StringConfig);
+    let mut ports: BTreeMap<i64, BTreeMap<(i64, i64), Entry>> = BTreeMap::new();
     let mut page = 0;
     loop {
         let (payload, last) = query(http, host, "SP", page)?;
         for s in payload["A"].as_array().into_iter().flatten() {
-            let pixels = int(s, "n");
-            if pixels <= 0 {
-                continue;
-            }
             let port = int(s, "p");
+            let Some(number) = valid_port(port + 1, &mut notes) else {
+                continue;
+            };
+            let label = format!("Port {number}");
+            // `n` is read as the string's total pixels including null pixels (`ns`): in the recorded
+            // data each `sc` is the previous string's `sc` plus `n` times the channels per pixel.
+            let Some(pixels) = bounded_pixels(&label, int(s, "n"), &mut notes) else {
+                continue;
+            };
             let order_code = int(s, "o");
             let color_order = color_order(order_code).unwrap_or_else(|| {
                 notes.push(format!(
-                    "Port {}: white-first color order (code {order_code}) isn't supported yet; using RGB.",
-                    port + 1
+                    "Port {number}: white-first color order (code {order_code}) isn't supported yet; using RGB."
                 ));
                 ColorOrder::Rgb
             });
             if int(s, "gp") > 1 {
                 notes.push(format!(
-                    "Port {}: pixel grouping isn't supported yet; imported ungrouped.",
-                    port + 1
+                    "Port {number}: pixel grouping isn't supported yet; imported ungrouped."
                 ));
             }
             if int(s, "z") > 0 {
                 notes.push(format!(
-                    "Port {}: zig-zag isn't supported yet; imported straight.",
-                    port + 1
+                    "Port {number}: zig-zag isn't supported yet; imported straight."
                 ));
             }
             let smart = u8::try_from(int(s, "r")).ok().filter(|r| *r > 0);
@@ -213,36 +233,61 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
                 .map(str::trim)
                 .filter(|n| !n.is_empty())
                 .map(String::from);
+            // Tenths of a gamma value; 0 or missing means no correction.
+            let gamma = match int(s, "g") {
+                g if g > 0 => g as f32 / 10.0,
+                _ => 1.0,
+            };
             let config = StringConfig {
                 name,
-                pixels: u32::try_from(pixels).unwrap_or(0),
+                pixels,
                 color_order,
-                null_pixels: u32::try_from(int(s, "ns")).unwrap_or(0),
+                null_pixels: bounded_nulls(&label, int(s, "ns"), &mut notes),
                 reverse: int(s, "v") == 1,
-                brightness: u8::try_from(int(s, "b").clamp(0, 100)).unwrap_or(100),
-                gamma: (int(s, "g").max(1) as f32) / 10.0,
+                // A missing brightness means full brightness, not off.
+                brightness: u8::try_from(s.get("b").and_then(Value::as_i64).unwrap_or(100).clamp(0, 100))
+                    .unwrap_or(100),
+                gamma,
                 smart_receiver: smart,
             };
             ports
                 .entry(port)
                 .or_default()
-                .push((int(s, "r"), int(s, "s"), config));
+                .entry((int(s, "r"), int(s, "s")))
+                .or_insert((s.get("sc").and_then(Value::as_i64), config));
         }
         page += 1;
-        if last || page >= MAX_PAGES {
+        if last {
+            break;
+        }
+        if page >= MAX_PAGES {
+            notes.push(
+                "The controller kept sending string pages; the list of strings may be incomplete."
+                    .to_string(),
+            );
             break;
         }
     }
+    let mut placed = Vec::new();
     let ports = ports
         .into_iter()
-        .map(|(port, mut strings)| {
-            strings.sort_by_key(|(remote, index, _)| (*remote, *index));
-            PortConfig {
-                number: u16::try_from(port + 1).unwrap_or(0),
-                strings: strings.into_iter().map(|(_, _, s)| s).collect(),
-            }
+        .filter_map(|(port, strings)| {
+            let number = u16::try_from(port + 1).ok()?;
+            let strings: Vec<_> = strings.into_values().collect();
+            placed.extend(strings.iter().map(|(start, s)| Placed {
+                start: *start,
+                pixels: s.pixels,
+                color_order: s.color_order,
+            }));
+            Some(PortConfig {
+                number,
+                strings: strings.into_iter().map(|(_, s)| s).collect(),
+            })
         })
         .collect();
+    if !layout_is_contiguous(&placed) {
+        notes.push(LAYOUT_NOTE.to_string());
+    }
     notes.sort();
     notes.dedup();
     Ok(DeviceConfig {

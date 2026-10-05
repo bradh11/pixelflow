@@ -16,11 +16,18 @@ pub enum DeviceError {
         path: String,
         reason: String,
     },
+    /// A ready-made plain-language message.
+    #[error("{0}")]
+    Message(String),
     #[error("{0} doesn't look like an FPP, Falcon, or WLED controller.")]
     Unrecognized(String),
 }
 
 impl DeviceError {
+    pub(crate) fn bad_plain(message: impl Into<String>) -> Self {
+        DeviceError::Message(message.into())
+    }
+
     pub(crate) fn bad(address: &str, path: &str, reason: impl Into<String>) -> Self {
         DeviceError::BadResponse {
             address: address.to_string(),

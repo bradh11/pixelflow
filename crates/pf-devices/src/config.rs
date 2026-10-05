@@ -81,9 +81,141 @@ pub(crate) fn color_order_from_name(name: &str) -> Option<ColorOrder> {
     }
 }
 
+/// Shown when a controller's own start channels don't line up with the order strings are imported in.
+pub(crate) const LAYOUT_NOTE: &str = "This controller's strings don't use one continuous block of channels. PixelFlow sends each string's data right after the previous one, so check the channel layout on the controller before running a show.";
+
+/// One string's place in the controller's own channel map, in import order.
+pub(crate) struct Placed {
+    /// The device's start channel for the string, if it reported one (any base).
+    pub start: Option<i64>,
+    /// Pixels on the string, including null pixels (both FPP and Falcon count them in the total).
+    pub pixels: u32,
+    pub color_order: ColorOrder,
+}
+
+/// True when every string that follows another starts exactly where the previous one ends.
+/// Compared relatively, so it doesn't matter whether the device counts channels from 0 or 1.
+/// Pairs where either start channel is missing are not checked.
+pub(crate) fn layout_is_contiguous(strings: &[Placed]) -> bool {
+    strings
+        .windows(2)
+        .all(|pair| match (pair[0].start, pair[1].start) {
+            (Some(a), Some(b)) => {
+                b - a == i64::from(pair[0].pixels) * i64::from(pair[0].color_order.channels_per_pixel())
+            }
+            _ => true,
+        })
+}
+
+/// 5000000 -> "5,000,000".
+fn with_commas(n: i64) -> String {
+    let digits = n.unsigned_abs().to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    if n < 0 { format!("-{out}") } else { out }
+}
+
+/// A usable pixel count, or `None` (with a note) when it is more than PixelFlow supports.
+/// Zero or negative counts are an empty string and are skipped without a note.
+pub(crate) fn bounded_pixels(label: &str, raw: i64, notes: &mut Vec<String>) -> Option<u32> {
+    if raw <= 0 {
+        return None;
+    }
+    match u32::try_from(raw).ok().filter(|p| *p <= pf_model::MAX_PROP_NODES) {
+        Some(pixels) => Some(pixels),
+        None => {
+            notes.push(format!(
+                "{label} reports {} pixels, more than PixelFlow supports on one string; it was skipped.",
+                with_commas(raw)
+            ));
+            None
+        }
+    }
+}
+
+/// Null pixels, clamped to what PixelFlow supports (with a note when clamped). Negative is 0.
+pub(crate) fn bounded_nulls(label: &str, raw: i64, notes: &mut Vec<String>) -> u32 {
+    let max = pf_model::MAX_NULL_PIXELS;
+    match u32::try_from(raw.max(0)).ok().filter(|n| *n <= max) {
+        Some(nulls) => nulls,
+        None => {
+            notes.push(format!(
+                "{label} reports {} null pixels; PixelFlow keeps at most {}.",
+                with_commas(raw),
+                with_commas(i64::from(max))
+            ));
+            max
+        }
+    }
+}
+
+/// A port number that fits `u16` and is at least 1, or `None` (with a note).
+pub(crate) fn valid_port(raw: i64, notes: &mut Vec<String>) -> Option<u16> {
+    let number = u16::try_from(raw).ok().filter(|n| *n > 0);
+    if number.is_none() {
+        notes.push(format!(
+            "A string on port number {raw} was skipped; PixelFlow can't use that port number."
+        ));
+    }
+    number
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn placed(start: Option<i64>, pixels: u32) -> Placed {
+        Placed {
+            start,
+            pixels,
+            color_order: ColorOrder::Rgb,
+        }
+    }
+
+    #[test]
+    fn layout_check_is_relative_and_skips_missing_starts() {
+        assert!(layout_is_contiguous(&[
+            placed(Some(1), 10),
+            placed(Some(31), 5),
+            placed(Some(46), 1)
+        ]));
+        assert!(
+            !layout_is_contiguous(&[placed(Some(0), 10), placed(Some(40), 5)]),
+            "gap"
+        );
+        assert!(
+            !layout_is_contiguous(&[placed(Some(0), 10), placed(Some(0), 5)]),
+            "overlap"
+        );
+        assert!(layout_is_contiguous(&[
+            placed(Some(0), 10),
+            placed(None, 5),
+            placed(Some(99), 1)
+        ]));
+    }
+
+    #[test]
+    fn bounds_helpers_note_what_they_change() {
+        let mut notes = Vec::new();
+        assert_eq!(bounded_pixels("Port 3", 5_000_000, &mut notes), None);
+        assert_eq!(bounded_pixels("Port 3", 0, &mut notes), None);
+        assert_eq!(bounded_pixels("Port 3", 50, &mut notes), Some(50));
+        assert_eq!(notes.len(), 1);
+        assert!(notes[0].starts_with("Port 3 reports 5,000,000 pixels"));
+        assert_eq!(
+            bounded_nulls("Port 3", 5_000, &mut notes),
+            pf_model::MAX_NULL_PIXELS
+        );
+        assert_eq!(notes.len(), 2);
+        assert_eq!(valid_port(0, &mut notes), None);
+        assert_eq!(valid_port(70_000, &mut notes), None);
+        assert_eq!(valid_port(4, &mut notes), Some(4));
+    }
 
     #[test]
     fn color_order_names() {

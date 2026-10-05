@@ -6,7 +6,8 @@
 //! return Wi-Fi and other passwords.
 
 use crate::config::{
-    Destination, DeviceConfig, DeviceInput, PortConfig, StringConfig, color_order_from_name,
+    Destination, DeviceConfig, DeviceInput, LAYOUT_NOTE, Placed, PortConfig, StringConfig, bounded_nulls,
+    bounded_pixels, color_order_from_name, layout_is_contiguous, valid_port,
 };
 use crate::device::{Device, DeviceKind};
 use crate::error::DeviceError;
@@ -30,6 +31,22 @@ fn int_field(v: &Value, key: &str) -> i64 {
                 .or_else(|| x.as_str().and_then(|s| s.trim().parse().ok()))
         })
         .unwrap_or(0)
+}
+
+fn opt_int_field(v: &Value, key: &str) -> Option<i64> {
+    v.get(key).and_then(|x| {
+        x.as_i64()
+            .or_else(|| x.as_str().and_then(|s| s.trim().parse().ok()))
+    })
+}
+
+/// A listing that FPP doesn't have (HTTP 404) is empty; any other failure is a real error.
+fn get_json_or_none(http: &dyn Http, host: &str, path: &str) -> Result<Option<Value>, DeviceError> {
+    match get_json(http, host, path) {
+        Ok(doc) => Ok(Some(doc)),
+        Err(DeviceError::Http { status: 404, .. }) => Ok(None),
+        Err(e) => Err(e),
+    }
 }
 
 /// Identifies an FPP from `/api/system/info`.
@@ -77,7 +94,8 @@ pub fn peers(http: &dyn Http, host: &str) -> Vec<(String, String)> {
         found.push((destination.address, destination.description));
     }
     found.retain(|(address, _)| address != host);
-    found.sort();
+    // Same address listed twice: keep the entry that has a description.
+    found.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| b.1.cmp(&a.1)));
     found.dedup_by(|a, b| a.0 == b.0);
     found
 }
@@ -95,7 +113,9 @@ fn universe_protocol(kind: i64) -> &'static str {
 }
 
 fn read_destinations(http: &dyn Http, host: &str) -> Result<Vec<Destination>, DeviceError> {
-    let doc = get_json(http, host, "/api/channel/output/universeOutputs")?;
+    let Some(doc) = get_json_or_none(http, host, "/api/channel/output/universeOutputs")? else {
+        return Ok(Vec::new());
+    };
     let mut destinations = Vec::new();
     for output in doc["channelOutputs"].as_array().into_iter().flatten() {
         if int_field(output, "enabled") == 0 {
@@ -127,50 +147,87 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
     };
     let mut notes = Vec::new();
     let mut ports = Vec::new();
-    if let Ok(strings) = get_json(http, host, &format!("/api/channel/output/{file}")) {
-        for output in strings["channelOutputs"].as_array().into_iter().flatten() {
-            if int_field(output, "enabled") == 0 {
-                continue;
+    // Every kept string in import order, for the channel layout check.
+    let mut placed = Vec::new();
+    let strings_doc = get_json_or_none(http, host, &format!("/api/channel/output/{file}"))?;
+    for output in strings_doc
+        .as_ref()
+        .map(|d| &d["channelOutputs"])
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        if int_field(output, "enabled") == 0 {
+            continue;
+        }
+        for port in output["outputs"].as_array().into_iter().flatten() {
+            let raw_number = int_field(port, "portNumber") + 1;
+            let mut strings = Vec::new();
+            for vs in port["virtualStrings"].as_array().into_iter().flatten() {
+                if int_field(vs, "pixelCount") <= 0 {
+                    continue;
+                }
+                let Some(number) = valid_port(raw_number, &mut notes) else {
+                    continue;
+                };
+                let label = format!("Port {number}");
+                let Some(pixels) = bounded_pixels(&label, int_field(vs, "pixelCount"), &mut notes) else {
+                    continue;
+                };
+                let order_name = str_field(vs, "colorOrder");
+                let color_order = color_order_from_name(order_name).unwrap_or_else(|| {
+                    notes.push(format!(
+                        "Port {number}: color order {order_name} isn't supported yet; using RGB."
+                    ));
+                    ColorOrder::Rgb
+                });
+                if int_field(vs, "groupCount") > 1 {
+                    notes.push(format!(
+                        "Port {number}: pixel grouping isn't supported yet; imported ungrouped."
+                    ));
+                }
+                if int_field(vs, "zigZag") > 0 {
+                    notes.push(format!(
+                        "Port {number}: zig-zag isn't supported yet; imported straight."
+                    ));
+                }
+                placed.push(Placed {
+                    start: opt_int_field(vs, "startChannel"),
+                    pixels,
+                    color_order,
+                });
+                let gamma = str_field(vs, "gamma")
+                    .trim()
+                    .parse::<f64>()
+                    .ok()
+                    .or_else(|| vs["gamma"].as_f64())
+                    .filter(|g| g.is_finite() && *g > 0.0)
+                    .map_or(1.0, |g| g as f32);
+                strings.push(StringConfig {
+                    name: Some(str_field(vs, "description").to_string()).filter(|s| !s.is_empty()),
+                    pixels,
+                    color_order,
+                    null_pixels: bounded_nulls(&label, int_field(vs, "nullNodes"), &mut notes),
+                    reverse: int_field(vs, "reverse") != 0,
+                    // A missing brightness means full brightness, not off.
+                    brightness: u8::try_from(opt_int_field(vs, "brightness").unwrap_or(100).clamp(0, 100))
+                        .unwrap_or(100),
+                    gamma,
+                    smart_receiver: None,
+                });
             }
-            for port in output["outputs"].as_array().into_iter().flatten() {
-                let number = u16::try_from(int_field(port, "portNumber") + 1).unwrap_or(0);
-                let strings: Vec<StringConfig> = port["virtualStrings"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter(|vs| int_field(vs, "pixelCount") > 0)
-                    .map(|vs| {
-                        let order_name = str_field(vs, "colorOrder");
-                        let color_order = color_order_from_name(order_name).unwrap_or_else(|| {
-                            notes.push(format!(
-                                "Port {number}: color order {order_name} isn't supported yet; using RGB."
-                            ));
-                            ColorOrder::Rgb
-                        });
-                        StringConfig {
-                            name: Some(str_field(vs, "description").to_string()).filter(|s| !s.is_empty()),
-                            pixels: u32::try_from(int_field(vs, "pixelCount")).unwrap_or(0),
-                            color_order,
-                            null_pixels: u32::try_from(int_field(vs, "nullNodes")).unwrap_or(0),
-                            reverse: int_field(vs, "reverse") != 0,
-                            brightness: u8::try_from(int_field(vs, "brightness").clamp(0, 100))
-                                .unwrap_or(100),
-                            gamma: str_field(vs, "gamma")
-                                .parse()
-                                .ok()
-                                .or_else(|| vs["gamma"].as_f64().map(|g| g as f32))
-                                .unwrap_or(1.0),
-                            smart_receiver: None,
-                        }
-                    })
-                    .collect();
-                if !strings.is_empty() {
+            if !strings.is_empty() {
+                // `strings` is non-empty only when `valid_port` passed.
+                if let Ok(number) = u16::try_from(raw_number) {
                     ports.push(PortConfig { number, strings });
                 }
             }
         }
     }
-    let destinations = read_destinations(http, host).unwrap_or_default();
+    if !layout_is_contiguous(&placed) {
+        notes.push(LAYOUT_NOTE.to_string());
+    }
+    let destinations = read_destinations(http, host)?;
     if ports.is_empty() {
         notes.push(if destinations.is_empty() {
             "This FPP has no pixel outputs of its own.".to_string()
@@ -185,6 +242,9 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
             "FPP is in {mode} mode. Switch it to bridge mode to show PixelFlow's live output."
         ));
     }
+    // Several strings can raise the same note; say each once, in the order first seen.
+    let mut seen = std::collections::HashSet::new();
+    notes.retain(|n| seen.insert(n.clone()));
     Ok(DeviceConfig {
         input: DeviceInput::Ddp,
         ports,

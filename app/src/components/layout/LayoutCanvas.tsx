@@ -70,7 +70,8 @@ const GROUND = "rgba(200, 200, 200, 0.4)";
 const PIXEL_COLORS = { unlit: "rgba(220, 220, 220, 0.7)", selected: ACCENT, dark: "rgba(90, 90, 90, 0.6)" };
 
 type Drag =
-  | { kind: "pan"; last: Pt }
+  /** `from`/`clear`: pressed on empty space; a click there (no drag) clears the selection. */
+  | { kind: "pan"; last: Pt; from: Pt; clear: boolean }
   /**
    * `narrowTo`: pressed on one prop of several selected; a click (no drag) selects just it.
    * `deselect`: Shift-pressed on a selected prop; a click takes it out of the selection.
@@ -474,7 +475,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
   }
 
   const onPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
-    if (e.button !== 0 && e.button !== 1) return;
+    if (e.button !== 0 && e.button !== 1 && e.button !== 2) return;
     const canvas = canvasRef.current!;
     // Keyboard shortcuts (Delete, ⌘C, arrows) work on the canvas right after a click.
     canvas.focus({ preventScroll: true });
@@ -490,8 +491,8 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     const st = useLayoutEditor.getState();
     const { show, photo } = latest.current;
 
-    if (e.button === 1 || spaceHeld.current || st.tool === "pan") {
-      drag.current = { kind: "pan", last: s };
+    if (e.button !== 0 || spaceHeld.current) {
+      drag.current = { kind: "pan", last: s, from: s, clear: false };
       setCursor("grabbing");
       return;
     }
@@ -501,7 +502,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
       const handle = box ? handleAt(box, v, size(), s, CORNERS) : null;
       if (bg && handle && handle !== "rotate") drag.current = { kind: "photo", corner: handle, from: w, start: bg };
       else if (bg && box && inBox(box, w)) drag.current = { kind: "photo", corner: null, from: w, start: bg };
-      else drag.current = { kind: "pan", last: s };
+      else drag.current = { kind: "pan", last: s, from: s, clear: false };
       return;
     }
     if (st.tool !== "select") {
@@ -556,15 +557,19 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
       startMove(st.selected);
       return;
     }
-    if (!e.shiftKey) st.clear();
-    drag.current = { kind: "marquee", from: w, to: w, fromScreen: s, toScreen: s, additive: e.shiftKey ? st.selected : [] };
+    // Empty space: drag to move the view (a click clears the selection), Shift-drag to box-select.
+    if (e.shiftKey) drag.current = { kind: "marquee", from: w, to: w, fromScreen: s, toScreen: s, additive: st.selected };
+    else {
+      drag.current = { kind: "pan", last: s, from: s, clear: true };
+      setCursor("grabbing");
+    }
   };
 
   const updateHover = (s: Pt) => {
     const st = useLayoutEditor.getState();
     const v = currentView();
     const w = toWorld(v, size(), s);
-    if (spaceHeld.current || st.tool === "pan") return setCursor("grab");
+    if (spaceHeld.current) return setCursor("grab");
     if (st.editPhoto) {
       const bg = background();
       const box = bg ? backgroundBox(bg, latest.current.photo.aspect) : null;
@@ -577,7 +582,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     const handle = sel ? handleAt(sel.frame, v, size(), s, visibleHandles(sel.frame, v, sel.stretchable)) : null;
     const hit = hitProp(props, w, v);
     setHovered(hit);
-    setCursor(handle && sel ? handleCursor(handle, sel.frame.deg) : hit || (sel && inFrame(sel.frame, w)) ? "move" : "default");
+    setCursor(handle && sel ? handleCursor(handle, sel.frame.deg) : hit || (sel && inFrame(sel.frame, w)) ? "move" : "grab");
   };
 
   /** Follows the pointer at screen point `s`; `straight` (Shift) keeps lines and moves straight, and resizes in proportion. */
@@ -643,7 +648,8 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     const { apply } = useApp.getState();
     switch (d.kind) {
       case "pan":
-        setCursor(spaceHeld.current || st.tool === "pan" ? "grab" : "default");
+        if (d.clear && Math.hypot(d.last.x - d.from.x, d.last.y - d.from.y) < CLICK_PX) st.clear();
+        setCursor("grab");
         break;
       case "move":
         if (isNoop(d.gesture)) {
@@ -704,15 +710,16 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
         onPointerUp={onPointerUp}
         onPointerCancel={() => cancel()}
         onPointerLeave={() => setHovered(null)}
+        onContextMenu={(e) => e.preventDefault()}
       />
       <p id="layout-canvas-help" className="sr-only">
-        Click a prop to select it, or shift-click to select more. Drag across empty space to select everything inside, or
-        press Command-A to select every prop. Drag selected props to move them (hold Shift to keep straight across or up and
+        Click a prop to select it, or shift-click to select more. Shift-drag across empty space to select everything inside,
+        or press Command-A to select every prop. Drag selected props to move them (hold Shift to keep straight across or up and
         down). Drag a corner handle to resize them (hold Shift to keep their proportions), a side handle to stretch them one
         way, or the round handle above them to turn them. Arrow keys move the selection (hold Shift to move it further),
         Command-C copies it, Command-X cuts it, Command-V pastes, Command-D duplicates it, Delete removes it, and Escape
         clears it. To draw a new prop, pick Line, Arch, Matrix, Tree, Circle, or Star in the tool bar and drag here; hold Shift
-        to keep a line or arch level, upright, or at 45 degrees. Hold Space and drag, or scroll with two fingers, to move
+        to keep a line or arch level, upright, or at 45 degrees. Drag empty space, or scroll with two fingers, to move
         around; pinch, or hold Command and scroll, to zoom. Every prop is also in the props list below.
       </p>
       <SelectionAnnouncer show={show} />

@@ -430,10 +430,10 @@ function PhotoDepth() {
 
 const TIPS_2D = [
   "Pick a tool above and drag on the canvas to draw a prop.",
-  "Click a prop to select it; shift-click or drag a box to select more.",
+  "Click a prop to select it; shift-click or Shift-drag a box to select more.",
   "Drag corners to resize, the round handle to turn. Hold Shift for free stretching or 15° steps.",
   "Arrow keys nudge, ⌘D duplicates, Delete removes, ⌘Z undoes.",
-  "Scroll or Space-drag to move around; pinch or hold ⌘ and scroll to zoom.",
+  "Drag empty space or scroll to move around; pinch or hold ⌘ and scroll to zoom.",
 ];
 
 const TIPS_3D = [

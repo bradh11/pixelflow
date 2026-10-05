@@ -1,7 +1,6 @@
 import {
   Circle,
   Grid3x3,
-  Hand,
   ImagePlus,
   Magnet,
   Maximize,
@@ -24,7 +23,6 @@ import { drawsProps, setLayoutMode } from "../layout3d/useLayout3dKeys";
 
 const TOOLS: { tool: Tool; label: string; hint: string; icon: LucideIcon }[] = [
   { tool: "select", label: "Select", hint: "Select, move, resize, and turn props", icon: MousePointer2 },
-  { tool: "pan", label: "Move view", hint: "Drag to move around the layout", icon: Hand },
   { tool: "line", label: "Line", hint: "Drag from one end of a light string to the other", icon: Slash },
   { tool: "arch", label: "Arch", hint: "Drag from one foot of the arch to the other", icon: Rainbow },
   { tool: "matrix", label: "Matrix", hint: "Drag a box where the matrix goes", icon: Grid3x3 },

@@ -203,11 +203,10 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
   /** The selection outline and the gizmo, sized for the camera `o`. */
   function drawSelection(scene: Scene3d, o: Orbit) {
     const { editable } = latest.current;
-    const st = useLayoutEditor.getState();
     // Only the editor shows what's selected.
     const box = editable ? selectedBox(effective()) : null;
     scene.setSelectionBox(box);
-    if (!box || st.tool === "pan") return scene.setGizmo(null);
+    if (!box) return scene.setGizmo(null);
     const d = drag.current;
     const origin = d?.kind === "move" && !d.grab ? v3(d.origin.x + d.delta.x, d.origin.y + d.delta.y, d.origin.z + d.delta.z) : boxCenter3(box);
     const active = d?.kind === "move" && !d.grab ? d.handle : hover.current;
@@ -543,7 +542,7 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
     const st = useLayoutEditor.getState();
     const { editable, show } = latest.current;
     const sz = size();
-    if (e.button !== 0 || spaceHeld.current || st.tool === "pan") {
+    if (e.button !== 0 || spaceHeld.current) {
       drag.current = { kind: "pan", last: s };
       setCursor("grabbing");
       return;

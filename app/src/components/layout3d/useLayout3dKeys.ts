@@ -6,7 +6,7 @@ import { useView3d } from "../../state/view3d";
 import { typing } from "../layout/useLayoutKeys";
 
 /** Tools that draw props: 2D only (for now). */
-export const drawsProps = (tool: string) => tool !== "select" && tool !== "pan";
+export const drawsProps = (tool: string) => tool !== "select";
 
 /** Switches the Layout screen between 2D and 3D; drawing tools put down for 3D. */
 export function setLayoutMode(mode: "2d" | "3d") {

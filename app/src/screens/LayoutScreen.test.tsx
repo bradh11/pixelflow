@@ -147,12 +147,43 @@ describe("LayoutScreen", () => {
     expect(screen.getByTestId("selection-announcer")).toHaveTextContent("Nothing selected");
   });
 
-  it("box-selects everything with a pixel inside the dragged box", async () => {
+  it("box-selects everything with a pixel inside a Shift-dragged box", async () => {
     await setup(showWith(line("Gutter", 0, 0), line("Fence", 0, 4), line("Far", 20, 0)));
-    await drag({ x: -6, y: 6 }, { x: 3, y: -1 });
+    await drag({ x: -6, y: 6 }, { x: 3, y: -1 }, { shiftKey: true });
     const names = useLayoutEditor.getState().selected.map((id) => backend.show.props.find((p) => p.id === id)!.name);
     expect(names.sort()).toEqual(["Fence", "Gutter"]);
     expect(edits).toEqual([]);
+  });
+
+  it("moves the view by dragging empty space, keeping the selection; a click there clears it", async () => {
+    await setup(showWith(line("Gutter", 0, 0), line("Fence", 0, 4)));
+    await click({ x: 1, y: 0.02 });
+    const gutter = backend.show.props[0].id;
+    expect(useLayoutEditor.getState().selected).toEqual([gutter]);
+    const before = useLayoutEditor.getState().view!;
+    const [a, b] = [screenAt({ x: 10, y: -5 }), screenAt({ x: 12, y: -5 })];
+    await act(async () => {
+      fireEvent.pointerDown(canvas(), { clientX: a.x, clientY: a.y, button: 0, pointerId: 1 });
+      fireEvent.pointerMove(canvas(), { clientX: b.x, clientY: b.y, pointerId: 1 });
+      fireEvent.pointerUp(canvas(), { clientX: b.x, clientY: b.y, pointerId: 1 });
+    });
+    const after = useLayoutEditor.getState().view!;
+    expect(after.zoom).toBe(before.zoom);
+    expect(after.cx).toBeCloseTo(before.cx - 2, 5);
+    expect(after.cy).toBeCloseTo(before.cy, 5);
+    expect(useLayoutEditor.getState().selected).toEqual([gutter]);
+    expect(edits).toEqual([]);
+    await click({ x: 10, y: -5 });
+    expect(useLayoutEditor.getState().selected).toEqual([]);
+  });
+
+  it("moves the view with a right-button drag, even over a prop", async () => {
+    await setup(showWith(line("Gutter", 0, 0)));
+    const before = useLayoutEditor.getState().view!;
+    await drag({ x: 0, y: 0 }, { x: 1, y: 0 }, { button: 2 });
+    expect(useLayoutEditor.getState().view!.cx).toBeCloseTo(before.cx - 1, 5);
+    expect(position("Gutter")).toMatchObject({ x: 0, y: 0 });
+    expect(useLayoutEditor.getState().selected).toEqual([]);
   });
 
   it("moves selected props with one undoable edit per drag, snapping to the grid when on", async () => {

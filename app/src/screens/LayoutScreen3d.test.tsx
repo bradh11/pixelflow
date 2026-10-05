@@ -156,7 +156,7 @@ describe("the 3D layout", () => {
     expect(within(tools).getByRole("button", { name: "Select" })).toHaveAttribute("aria-pressed", "true");
     await user.click(arch);
     expect(useLayoutEditor.getState().tool).toBe("select");
-    expect(within(tools).getByRole("button", { name: "Move view" })).not.toHaveAttribute("aria-disabled");
+    expect(within(tools).queryByRole("button", { name: "Move view" })).not.toBeInTheDocument();
   });
 
   it("draws every pixel at its 3D position in one batch, unlit until something plays, then in live colors", async () => {

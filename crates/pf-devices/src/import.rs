@@ -80,11 +80,17 @@ pub fn plan_import(device: &Device, config: &DeviceConfig, show: &Show) -> Impor
     let mut controller = Controller::new(controller_name.clone(), device.address.clone(), protocol);
     controller.adapter = adapter;
 
+    // The port's pixel limit, when the board's model says what it is.
+    let max_pixels = match device.kind {
+        DeviceKind::Falcon => crate::falcon::pixels_per_port(&device.model),
+        DeviceKind::Fpp | DeviceKind::Wled => None,
+    };
     let mut props = Vec::new();
     let mut skipped_nulls = Vec::new();
     let mut controller_applied = Vec::new();
     for port_config in &config.ports {
         let mut port = Port::new(port_config.number);
+        port.max_pixels = max_pixels;
         let several = port_config.strings.len() > 1;
         for (i, string) in port_config.strings.iter().enumerate() {
             let fallback = if several {
@@ -342,6 +348,27 @@ mod tests {
             plan.notes[2],
             "The controller applies its own settings (Port 1 \"Arch\": reversed, 50% brightness, gamma 2.2; Port 3 \"Garage Falcon Port 3 String 1\": reversed, 50% brightness, gamma 2.2; Port 3 \"Garage Falcon Port 3 String 2\": reversed, 50% brightness, gamma 2.2), so PixelFlow sends unadjusted data."
         );
+    }
+
+    #[test]
+    fn falcon_ports_know_their_pixel_limit_and_other_controllers_dont_guess() {
+        let plan = plan_import(&device(), &config(), &Show::new("t"));
+        assert!(plan.controller.ports.iter().all(|p| p.max_pixels == Some(1024)));
+
+        let older = Device {
+            model: "F16v3".into(),
+            ..device()
+        };
+        let plan = plan_import(&older, &config(), &Show::new("t"));
+        assert!(plan.controller.ports.iter().all(|p| p.max_pixels.is_none()));
+
+        let wled = Device {
+            kind: DeviceKind::Wled,
+            model: "WLED (esp32)".into(),
+            ..device()
+        };
+        let plan = plan_import(&wled, &config(), &Show::new("t"));
+        assert!(plan.controller.ports.iter().all(|p| p.max_pixels.is_none()));
     }
 
     #[test]

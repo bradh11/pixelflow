@@ -35,6 +35,13 @@ fn model_for_product(code: u32) -> Option<&'static str> {
     })
 }
 
+/// Most pixels one string port drives on a Falcon of this model (at 40 frames a second), when
+/// known: 1,024 on the V4 and V5 boards. Older boards vary with their settings, so no guess.
+pub fn pixels_per_port(model: &str) -> Option<u32> {
+    let generation = model.strip_prefix('F')?.split_once('v')?.1;
+    matches!(generation, "4" | "5").then_some(1024)
+}
+
 struct Status {
     name: String,
     firmware: String,
@@ -320,5 +327,15 @@ mod tests {
         assert_eq!(color_order(2), Some(ColorOrder::Grb));
         assert_eq!(color_order(8), None);
         assert_eq!(mode_name(2), "DDP");
+    }
+
+    #[test]
+    fn v4_and_v5_boards_drive_1024_pixels_a_port() {
+        for model in ["F16v4", "F48v4", "F16v5", "F32v5", "F48v5"] {
+            assert_eq!(pixels_per_port(model), Some(1024), "{model}");
+        }
+        for model in ["F16v3", "F4v2", "F48", "Falcon", ""] {
+            assert_eq!(pixels_per_port(model), None, "{model}");
+        }
     }
 }

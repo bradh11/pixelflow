@@ -81,6 +81,8 @@ export function demoDevices(): { details: DeviceDetails[]; silent: SilentPeer[] 
   const arch = { ...newProp("arch", empty), name: "Falcon Arch" };
   const falcon = newController("Falcon_F16V5_B9F5", "192.0.2.20", "ddp", 2);
   falcon.adapter = "falcon";
+  // Like the engine's import: a V5 Falcon's ports drive up to 1,024 pixels each.
+  for (const port of falcon.ports) port.maxPixels = 1024;
   falcon.ports[0].slots = [slotFor(tree)];
   falcon.ports[1].slots = [slotFor(arch)];
   const strip = { ...newProp("line", empty), name: "Porch Strip" };

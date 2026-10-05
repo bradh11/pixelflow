@@ -1,7 +1,9 @@
 //! Edits: the only way the show changes.
 
 use crate::error::EngineError;
-use pf_model::{Controller, ControllerId, Group, GroupId, Prop, PropId, SequenceEntry, SequenceId, Show};
+use pf_model::{
+    Background, Controller, ControllerId, Group, GroupId, Prop, PropId, SequenceEntry, SequenceId, Show,
+};
 use serde::{Deserialize, Serialize};
 
 /// One change to the show. Batches of edits are applied atomically by [`crate::Engine::apply`].
@@ -58,6 +60,10 @@ pub enum Edit {
     MoveSequence {
         id: SequenceId,
         index: usize,
+    },
+    /// Sets, moves, dims, or (with `None`) removes the photo behind the layout.
+    SetBackground {
+        background: Option<Background>,
     },
 }
 
@@ -130,6 +136,12 @@ impl Edit {
                 let sequence = show.sequences.remove(from);
                 let to = (*index).min(show.sequences.len());
                 show.sequences.insert(to, sequence);
+            }
+            Edit::SetBackground { background } => {
+                if let Some(problem) = background.as_ref().and_then(Background::problem) {
+                    return Err(EngineError::InvalidEdit(problem));
+                }
+                show.background = background.clone();
             }
         }
         Ok(())
@@ -267,5 +279,31 @@ mod tests {
         Edit::RemoveSequence { id: b.id }.apply(&mut show).unwrap();
         assert_eq!(show.sequences.len(), 1);
         assert!(Edit::RemoveSequence { id: b.id }.apply(&mut show).is_err());
+    }
+
+    #[test]
+    fn the_background_photo_can_be_set_and_removed_but_not_made_invalid() {
+        let mut show = Show::new("t");
+        let photo = Background::new("/photos/house.jpg", -10.0, 8.0, 20.0);
+        let edit = Edit::SetBackground {
+            background: Some(photo.clone()),
+        };
+        let json = serde_json::to_value(&edit).unwrap();
+        assert_eq!(json["type"], "setBackground");
+        assert_eq!(json["background"]["width"], 20.0);
+        edit.apply(&mut show).unwrap();
+        assert_eq!(show.background, Some(photo.clone()));
+
+        let flat = Background { width: 0.0, ..photo };
+        let err = Edit::SetBackground {
+            background: Some(flat),
+        }
+        .apply(&mut show)
+        .unwrap_err();
+        assert_eq!(err.to_string(), "The background photo must be wider than zero.");
+        assert_eq!(show.background.as_ref().unwrap().width, 20.0, "unchanged");
+
+        Edit::SetBackground { background: None }.apply(&mut show).unwrap();
+        assert_eq!(show.background, None);
     }
 }

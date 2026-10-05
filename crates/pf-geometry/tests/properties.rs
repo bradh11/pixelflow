@@ -1,7 +1,10 @@
-//! Every generator yields exactly `node_count()` finite positions.
+//! Every generator yields exactly `node_count()` finite positions, and transforms place them as
+//! the layout editor expects.
 
-use pf_geometry::local_positions;
-use pf_model::{Corner, Generator, MatrixWiring, Orientation, ShapeSource};
+use pf_geometry::{local_positions, world_positions};
+use pf_model::{
+    Corner, Generator, MatrixWiring, Orientation, Prop, Provenance, ShapeSource, Transform, Vec3,
+};
 use proptest::prelude::*;
 
 fn corner() -> impl Strategy<Value = Corner> {
@@ -91,5 +94,108 @@ proptest! {
         let points = local_positions(&shape);
         prop_assert_eq!(points.len(), shape.node_count() as usize);
         prop_assert!(points.iter().all(|p| p.is_finite()));
+    }
+}
+
+fn shape() -> impl Strategy<Value = ShapeSource> {
+    prop_oneof![
+        generator().prop_map(ShapeSource::Generator),
+        proptest::collection::vec((-50f32..50.0, -50f32..50.0, -5f32..5.0), 0..60).prop_map(|points| {
+            ShapeSource::Measured {
+                points: points.into_iter().map(|(x, y, z)| Vec3::new(x, y, z)).collect(),
+                provenance: Provenance::Import,
+            }
+        }),
+    ]
+}
+
+fn close(a: Vec3, b: Vec3, scale: f32) -> bool {
+    (a - b).length() <= 1e-3 * (1.0 + scale)
+}
+
+proptest! {
+    /// What the layout editor relies on: a prop's transform scales its local points about the
+    /// prop's origin, turns them about that origin (Z: counter-clockwise in the front view), then
+    /// moves them, for every kind of shape.
+    #[test]
+    fn transforms_scale_and_rotate_about_the_prop_origin(
+        shape in shape(),
+        degrees in -360f32..360.0,
+        sx in 0.1f32..5.0,
+        sy in 0.1f32..5.0,
+        x in -100f32..100.0,
+        y in -100f32..100.0,
+    ) {
+        let mut prop = Prop::new("P", shape);
+        prop.transform = Transform {
+            position: Vec3::new(x, y, 0.0),
+            rotation_deg: Vec3::new(0.0, 0.0, degrees),
+            scale: Vec3::new(sx, sy, 1.0),
+        };
+        let local = local_positions(&prop.shape);
+        let world = world_positions(&prop);
+        prop_assert_eq!(local.len(), world.len());
+        let (s, c) = degrees.to_radians().sin_cos();
+        for (l, w) in local.iter().zip(&world) {
+            let (px, py) = (l.x * sx, l.y * sy);
+            let expected = Vec3::new(x + px * c - py * s, y + px * s + py * c, l.z);
+            let size = l.length() * sx.max(sy) + x.abs().max(y.abs());
+            prop_assert!(close(*w, expected, size), "{:?} vs {:?}", w, expected);
+        }
+    }
+}
+
+#[test]
+fn a_quarter_turn_maps_right_to_up_for_every_generator() {
+    let generators = [
+        Generator::Line {
+            nodes: 5,
+            length: 4.0,
+        },
+        Generator::Arch {
+            nodes: 7,
+            width: 4.0,
+            height: 2.0,
+        },
+        Generator::Circle {
+            nodes: 8,
+            radius: 1.5,
+        },
+        Generator::Matrix {
+            columns: 4,
+            rows: 3,
+            width: 4.0,
+            height: 2.0,
+            wiring: MatrixWiring::default(),
+        },
+        Generator::Tree {
+            strings: 4,
+            nodes_per_string: 5,
+            height: 5.0,
+            base_radius: 1.5,
+            top_radius: 0.2,
+            serpentine: true,
+        },
+        Generator::Star {
+            points: 5,
+            nodes: 20,
+            outer_radius: 1.0,
+            inner_radius: 0.4,
+        },
+        Generator::CustomGrid {
+            columns: 3,
+            rows: 2,
+            cells: vec![1, 0, 2, 0, 3, 0],
+        },
+    ];
+    for generator in generators {
+        let mut prop = Prop::new("P", ShapeSource::Generator(generator.clone()));
+        prop.transform.position = Vec3::new(10.0, 20.0, 0.0);
+        prop.transform.rotation_deg = Vec3::new(0.0, 0.0, 90.0);
+        prop.transform.scale = Vec3::new(2.0, 2.0, 2.0);
+        for (l, w) in local_positions(&prop.shape).iter().zip(world_positions(&prop)) {
+            let expected = Vec3::new(10.0 - 2.0 * l.y, 20.0 + 2.0 * l.x, 2.0 * l.z);
+            assert!(close(w, expected, 30.0), "{generator:?}: {w:?} vs {expected:?}");
+        }
     }
 }

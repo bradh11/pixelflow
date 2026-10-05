@@ -147,6 +147,30 @@ fn moving_a_prop_keeps_output_running_but_rewiring_restarts_it() {
 }
 
 #[test]
+fn rotating_scaling_and_the_background_photo_keep_output_running() {
+    let (mut engine, _recorded, mut prop, _controller, _dir) = engine_with_show();
+    let generation = engine
+        .start_output(solid_red(), TargetSpec::Show)
+        .unwrap()
+        .generation;
+    prop.transform.rotation_deg = Vec3::new(0.0, 0.0, 30.0);
+    prop.transform.scale = Vec3::new(2.0, 0.5, 1.0);
+    engine
+        .apply(vec![
+            Edit::UpdateProp { prop },
+            Edit::SetBackground {
+                background: Some(pf_model::Background::new("/photos/house.jpg", 0.0, 5.0, 10.0)),
+            },
+        ])
+        .unwrap();
+    let status = engine.output_status();
+    assert!(status.running);
+    assert_eq!(status.generation, generation, "layout-only edits");
+    engine.undo();
+    assert_eq!(engine.output_status().generation, generation);
+}
+
+#[test]
 fn an_edit_that_introduces_errors_stops_output() {
     let (mut engine, _recorded, _prop, mut controller, _dir) = engine_with_show();
     engine.start_output(solid_red(), TargetSpec::Show).unwrap();

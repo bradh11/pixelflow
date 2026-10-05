@@ -97,12 +97,17 @@ fn reads_the_head_and_timing_tracks() {
     assert_eq!(i.summary.timing_tracks, 5);
     assert_eq!(i.summary.marks, 2 + 3 + 5 + 20 + 2);
     assert_eq!(i.summary.lyric_marks, 10);
+    assert_eq!(
+        (i.summary.skipped, i.summary.marks_skipped),
+        (0, 1),
+        "marks are counted apart"
+    );
     assert_note(
         &i,
-        "1 effect or mark ran past the end of the sequence and was cut off there.",
+        "1 timing mark ran past the end of the sequence and was cut off there.",
     );
-    assert_note(&i, "1 effect or mark started after the end of the sequence");
-    assert_note(&i, "1 effect or mark had no length");
+    assert_note(&i, "1 timing mark started after the end of the sequence");
+    assert_note(&i, "1 timing mark had no length");
 }
 
 #[test]
@@ -419,4 +424,102 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
     );
     assert_note(&i, "1 effect is xLights' Random effect");
     assert!(!has_note(&i, "Wave"), "{:#?}", i.notes);
+}
+
+#[test]
+fn elements_xlights_would_not_read_as_models_are_counted_with_a_note() {
+    let xml = r#"<xsequence FixedPointTiming="1">
+      <head><sequenceTiming>25 ms</sequenceTiming><sequenceDuration>10</sequenceDuration></head>
+      <ElementEffects>
+        <Element type="timing" name="Roofline"><EffectLayer><Effect label="a" startTime="0" endTime="500"/></EffectLayer></Element>
+        <Element type="model" name="Roofline"><EffectLayer><Effect name="On" startTime="0" endTime="500"/><Effect name="On" startTime="500" endTime="900"/></EffectLayer></Element>
+        <Element type="view" name="Arches"><EffectLayer><Effect name="On" startTime="0" endTime="500"/></EffectLayer></Element>
+      </ElementEffects>
+    </xsequence>"#;
+    let i = build_sequence(&parse_xsq(xml).unwrap(), &show(), "x");
+    assert!(i.sequence.rows.is_empty());
+    assert_eq!(i.summary.skipped, 3);
+    assert_note(
+        &i,
+        "These models have the same name as a timing track, so xLights reads them as that track and their effects weren't imported: Roofline (2 effects).",
+    );
+    assert_note(
+        &i,
+        "1 element in the sequence is neither a model nor a timing track, so it was left out (1 effect).",
+    );
+}
+
+#[test]
+fn only_nested_labelled_layers_are_lyrics_and_other_layers_keep_their_number() {
+    let xml = r#"<xsequence FixedPointTiming="1">
+      <head><sequenceTiming>25 ms</sequenceTiming><sequenceDuration>10</sequenceDuration></head>
+      <ElementEffects>
+        <Element type="timing" name="Cues">
+          <EffectLayer><Effect label="" startTime="0" endTime="1000"/></EffectLayer>
+          <EffectLayer><Effect label="x" startTime="2000" endTime="3000"/></EffectLayer>
+          <EffectLayer/>
+          <EffectLayer><Effect label="y" startTime="0" endTime="500"/></EffectLayer>
+        </Element>
+        <Element type="timing" name="Song">
+          <EffectLayer><Effect label="la la" startTime="0" endTime="1000"/></EffectLayer>
+          <EffectLayer><Effect label="la" startTime="0" endTime="500"/><Effect label="la" startTime="500" endTime="1000"/></EffectLayer>
+          <EffectLayer><Effect label="L" startTime="0" endTime="250"/></EffectLayer>
+          <EffectLayer><Effect label="extra" startTime="0" endTime="250"/></EffectLayer>
+        </Element>
+      </ElementEffects>
+    </xsequence>"#;
+    let i = build_sequence(&parse_xsq(xml).unwrap(), &show(), "x");
+    let tracks: Vec<(&str, TimingKind)> = i
+        .sequence
+        .timing_tracks
+        .iter()
+        .map(|t| (t.name.as_str(), t.kind))
+        .collect();
+    assert_eq!(
+        tracks,
+        vec![
+            ("Cues", TimingKind::Custom),
+            ("Cues layer 2", TimingKind::Custom),
+            ("Cues layer 4", TimingKind::Custom),
+            ("Song", TimingKind::Lyrics),
+            ("Song (words)", TimingKind::Words),
+            ("Song (phonemes)", TimingKind::Phonemes),
+            ("Song layer 4", TimingKind::Custom),
+        ]
+    );
+    assert_eq!(i.summary.lyric_marks, 4);
+}
+
+#[test]
+fn many_elements_import_quickly() {
+    use std::fmt::Write;
+    let mut xml = String::from(
+        r#"<xsequence FixedPointTiming="1"><head><sequenceTiming>25 ms</sequenceTiming><sequenceDuration>10</sequenceDuration></head><ElementEffects>"#,
+    );
+    for n in 0..800 {
+        write!(
+            xml,
+            r#"<Element type="timing" name="T{n}"><EffectLayer/></Element>"#
+        )
+        .unwrap();
+    }
+    for n in 0..40_000 {
+        write!(
+            xml,
+            r#"<Element type="model" name="Missing {n}"><EffectLayer><Effect name="On" startTime="0" endTime="500"/></EffectLayer></Element>"#
+        )
+        .unwrap();
+    }
+    xml.push_str("</ElementEffects></xsequence>");
+    let file = parse_xsq(&xml).unwrap();
+    let started = std::time::Instant::now();
+    let i = build_sequence(&file, &show(), "x");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(i.summary.skipped, 40_000);
+    assert_note(&i, "Missing 0 (1 effect), Missing 1 (1 effect)");
+    assert_note(&i, "and 39980 more");
 }

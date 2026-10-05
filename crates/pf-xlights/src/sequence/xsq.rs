@@ -76,8 +76,10 @@ pub struct XsqFile {
     pub palettes: Vec<String>,
     pub effect_db: Vec<String>,
     pub elements: Vec<XsqElement>,
-    /// Effects and marks not read because the file has more than [`MAX_ITEMS`].
-    pub items_skipped: usize,
+    /// Effects (on models) and timing marks not read because the file has more than
+    /// [`MAX_ITEMS`] of them.
+    pub effects_unread: usize,
+    pub marks_unread: usize,
     /// Notes from reading the file (compressed blocks that couldn't be read, ...).
     pub notes: Vec<String>,
 }
@@ -200,7 +202,10 @@ impl Reader<'_> {
 
     fn effect(&mut self, node: Node<'_, '_>, kind: ElementKind) -> Option<XsqEffect> {
         if self.items >= MAX_ITEMS {
-            self.out.items_skipped += 1;
+            match kind {
+                ElementKind::Timing => self.out.marks_unread += 1,
+                _ => self.out.effects_unread += 1,
+            }
             return None;
         }
         self.items += 1;

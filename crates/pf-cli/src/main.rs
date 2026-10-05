@@ -126,7 +126,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let imported = pf_xlights::import_sequence_file(&file, &show, pf_audio::find_audio)?;
             let (seq, s) = (&imported.sequence, &imported.summary);
             println!(
-                "{}: {} long, {} rows, {} effects ({} exact, {} approximated, {} placeholders, {} not imported), {} timing tracks, {} marks ({} lyrics)",
+                "{}: {} long, {} rows, {} effects ({} exact, {} approximated, {} placeholders, {} not imported), {} timing tracks, {} marks ({} lyrics, {} not imported)",
                 seq.name,
                 pf_sequence::format_ms(seq.duration_ms),
                 s.rows,
@@ -137,7 +137,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 s.skipped,
                 s.timing_tracks,
                 s.marks,
-                s.lyric_marks
+                s.lyric_marks,
+                s.marks_skipped
             );
             match &seq.audio {
                 Some(audio) => println!("Music: {audio}"),

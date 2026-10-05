@@ -22,7 +22,7 @@ use pf_sequence::{
     TimingTrack,
 };
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// Most names listed in one note.
@@ -43,12 +43,15 @@ pub struct SequenceImportSummary {
     pub approximate: usize,
     /// No PixelFlow equivalent yet: kept as a dim fill in the effect's first color.
     pub placeholders: usize,
-    /// xLights effects not imported (models not in the show, submodels, limits).
+    /// xLights effects not imported (models not in the show, submodels, outside the sequence,
+    /// limits). Timing marks are counted in `marks_skipped`.
     pub skipped: usize,
     pub timing_tracks: usize,
     pub marks: usize,
     /// Marks in lyric tracks (phrases, words, and phonemes).
     pub lyric_marks: usize,
+    /// Timing marks not imported (outside the sequence, limits).
+    pub marks_skipped: usize,
 }
 
 /// The imported sequence and a plain-language report of anything not imported exactly.
@@ -110,6 +113,49 @@ impl Clock {
     }
 }
 
+/// Effects (or marks) that don't fit the sequence's time span.
+#[derive(Debug, Default)]
+struct Drops {
+    /// Ran past the end and were cut there.
+    cut: usize,
+    /// Started after the end (or beyond PixelFlow's longest sequence): left out.
+    outside: usize,
+    /// No length (xLights drops these too): left out.
+    no_length: usize,
+}
+
+impl Drops {
+    /// Notes about these drops; `what` is "effect" or "mark".
+    fn notes(&self, what: &str, notes: &mut Vec<String>) {
+        if self.cut > 0 {
+            notes.push(format!(
+                "{} ran past the end of the sequence and {} cut off there.",
+                plural(self.cut, what),
+                if self.cut == 1 { "was" } else { "were" }
+            ));
+        }
+        if self.outside > 0 {
+            notes.push(format!(
+                "{} started after the end of the sequence, so {} left out.",
+                plural(self.outside, what),
+                if self.outside == 1 { "it was" } else { "they were" }
+            ));
+        }
+        if self.no_length > 0 {
+            notes.push(format!(
+                "{} had no length (xLights skips {} too), so {} left out.",
+                plural(self.no_length, what),
+                if self.no_length == 1 { "it" } else { "them" },
+                if self.no_length == 1 {
+                    "it was"
+                } else {
+                    "they were"
+                }
+            ));
+        }
+    }
+}
+
 /// Builds the import while reading the file.
 struct Builder<'a> {
     file: &'a XsqFile,
@@ -122,11 +168,8 @@ struct Builder<'a> {
     summary: SequenceImportSummary,
     notes: Vec<String>,
     names_cut: usize,
-    /// Effects cut at the end of the sequence / dropped because they start after it.
-    effects_cut: usize,
-    effects_after_end: usize,
-    effects_too_late: usize,
-    no_length: usize,
+    effect_drops: Drops,
+    mark_drops: Drops,
     random: usize,
     over_effect_limit: usize,
     bad_refs: usize,
@@ -188,24 +231,29 @@ impl<'a> Builder<'a> {
         }
     }
 
-    /// The span of an effect or mark, clipped to the sequence; `None` (counted) when it has no
-    /// length or lies outside the sequence.
-    fn span(&mut self, effect: &XsqEffect) -> Option<(u64, u64)> {
+    /// The span of an effect (or a timing mark, when `mark`), clipped to the sequence; `None`
+    /// (counted) when it has no length or lies outside the sequence.
+    fn span(&mut self, effect: &XsqEffect, mark: bool) -> Option<(u64, u64)> {
+        let drops = if mark {
+            &mut self.mark_drops
+        } else {
+            &mut self.effect_drops
+        };
         let (Some(start), end) = (self.clock.ms(&effect.start), self.clock.ms(&effect.end)) else {
-            self.effects_too_late += 1;
+            drops.outside += 1;
             return None;
         };
         let end = end.unwrap_or(u64::MAX);
         if start >= end {
-            self.no_length += 1;
+            drops.no_length += 1;
             return None;
         }
         if start >= self.duration_ms {
-            self.effects_after_end += 1;
+            drops.outside += 1;
             return None;
         }
         if end > self.duration_ms {
-            self.effects_cut += 1;
+            drops.cut += 1;
         }
         Some((start, end.min(self.duration_ms)))
     }
@@ -216,7 +264,7 @@ impl<'a> Builder<'a> {
             self.random += 1;
             return None;
         }
-        let (start_ms, end_ms) = self.span(x)?;
+        let (start_ms, end_ms) = self.span(x, false)?;
         if self.summary.effects >= MAX_EFFECTS {
             self.over_effect_limit += 1;
             return None;
@@ -253,7 +301,7 @@ impl<'a> Builder<'a> {
     fn marks(&mut self, layer: &XsqLayer, budget: usize, lost: &mut usize) -> Vec<Mark> {
         let mut marks = Vec::new();
         for x in &layer.effects {
-            let Some((start, end)) = self.span(x) else {
+            let Some((start, end)) = self.span(x, true) else {
                 continue;
             };
             if marks.len() >= budget {
@@ -265,6 +313,72 @@ impl<'a> Builder<'a> {
         }
         marks
     }
+}
+
+/// Names with counts, in first-seen order, each name once.
+#[derive(Debug, Default)]
+struct Named {
+    entries: Vec<(String, usize)>,
+    index: HashMap<String, usize>,
+}
+
+impl Named {
+    fn add(&mut self, name: String, count: usize) {
+        match self.index.get(&name) {
+            Some(&at) => self.entries[at].1 += count,
+            None => {
+                self.index.insert(name.clone(), self.entries.len());
+                self.entries.push((name, count));
+            }
+        }
+    }
+
+    fn contains(&self, name: &str) -> bool {
+        self.index.contains_key(name)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// "A (2 effects), B (1 effect)", cut short after [`MAX_LISTED`].
+    fn list(&self, what: &str) -> String {
+        let names: Vec<String> = self
+            .entries
+            .iter()
+            .map(|(n, c)| format!("{n} ({})", plural(*c, what)))
+            .collect();
+        list(&names)
+    }
+}
+
+/// True when every mark of `inner` lies within a mark of `outer` (as lyric words lie within
+/// phrases, and phonemes within words). An empty `inner` doesn't count as nested.
+fn nested(inner: &XsqLayer, outer: &XsqLayer, clock: &Clock) -> bool {
+    let span = |e: &XsqEffect| Some((clock.ms(&e.start)?, clock.ms(&e.end)?));
+    let mut outer: Vec<(u64, u64)> = outer.effects.iter().filter_map(span).collect();
+    outer.sort_unstable();
+    !inner.effects.is_empty()
+        && inner.effects.iter().all(|e| {
+            span(e).is_some_and(|(start, end)| {
+                let at = outer.partition_point(|&(s, _)| s <= start);
+                // Marks on one layer don't overlap, so only the last one starting before can
+                // hold it.
+                at > 0 && end <= outer[at - 1].1
+            })
+        })
+}
+
+/// A lyric track as xLights' Papagayo import makes it: labelled phrases on the first layer,
+/// words within them on the second, and (optionally) phonemes within the words on the third.
+fn is_lyric_track(element: &XsqElement, clock: &Clock) -> bool {
+    let layers = &element.layers;
+    layers.len() >= 2
+        && layers[0].effects.iter().any(|e| !e.name.trim().is_empty())
+        && nested(&layers[1], &layers[0], clock)
+        && layers
+            .get(2)
+            .is_none_or(|l| l.effects.is_empty() || nested(l, &layers[1], clock))
 }
 
 /// Builds a PixelFlow sequence from a parsed `.xsq` file for `show` (rows target its props and
@@ -345,10 +459,8 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
         summary: SequenceImportSummary::default(),
         notes: Vec::new(),
         names_cut: 0,
-        effects_cut: 0,
-        effects_after_end: 0,
-        effects_too_late: 0,
-        no_length: 0,
+        effect_drops: Drops::default(),
+        mark_drops: Drops::default(),
         random: 0,
         over_effect_limit: 0,
         bad_refs: 0,
@@ -366,10 +478,10 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
     let mut marks_left = MAX_MARKS;
     let mut marks_lost = 0;
     let mut tracks_lost = 0;
-    let mut timing_names: Vec<&str> = Vec::new();
+    let mut timing_names: HashSet<&str> = HashSet::new();
     for element in file.elements.iter().filter(|e| e.kind == ElementKind::Timing) {
         let name = unxml_safe(&element.name);
-        timing_names.push(&element.name);
+        timing_names.insert(&element.name);
         let mut tracks = Vec::new();
         let interval = element
             .fixed
@@ -390,33 +502,27 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
                 .collect();
             tracks.push(TimingTrack::new(name.clone(), TimingKind::Custom, marks));
         } else {
-            let lyric = element.layers.len() > 1;
-            for (i, layer) in element.layers.iter().enumerate().take(3) {
+            let lyric = is_lyric_track(element, &b.clock);
+            for (i, layer) in element.layers.iter().enumerate() {
                 if i > 0 && layer.effects.is_empty() {
                     continue;
                 }
                 let (kind, track_name) = match (lyric, i) {
-                    (false, _) => (TimingKind::Custom, name.clone()),
+                    (_, 0) if !lyric => (TimingKind::Custom, name.clone()),
                     (true, 0) => (TimingKind::Lyrics, name.clone()),
                     (true, 1) => (TimingKind::Words, format!("{name} (words)")),
-                    _ => (TimingKind::Phonemes, format!("{name} (phonemes)")),
+                    (true, 2) => (TimingKind::Phonemes, format!("{name} (phonemes)")),
+                    _ => (TimingKind::Custom, format!("{name} layer {}", i + 1)),
                 };
                 let marks = b.marks(layer, marks_left, &mut marks_lost);
                 marks_left -= marks.len();
                 tracks.push(TimingTrack::new(track_name, kind, marks));
             }
-            let extra: usize = element.layers.iter().skip(3).map(|l| l.effects.len()).sum();
-            if extra > 0 {
-                b.notes.push(format!(
-                    "Timing track \"{name}\" has more than 3 layers; {} on the extra layers {} left out.",
-                    plural(extra, "mark"),
-                    if extra == 1 { "was" } else { "were" }
-                ));
-            }
         }
         for mut track in tracks {
             if sequence.timing_tracks.len() >= MAX_TIMING_TRACKS {
                 tracks_lost += 1;
+                marks_lost += track.marks.len();
                 continue;
             }
             track.name = bounded(track.name, &mut b.names_cut);
@@ -432,6 +538,7 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
         }
     }
     if marks_lost > 0 {
+        b.summary.marks_skipped += marks_lost;
         b.notes.push(format!(
             "The sequence has more timing marks than PixelFlow's limit of {MAX_MARKS}; {} were left out.",
             plural(marks_lost, "mark")
@@ -446,27 +553,40 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
     b.summary.timing_tracks = sequence.timing_tracks.len();
 
     // Rows.
-    let mut unmatched: Vec<(String, usize)> = Vec::new();
+    let mut unmatched = Named::default();
     let mut unmatched_empty = 0;
+    let mut shadowed = Named::default();
     let mut submodels: Vec<(String, usize)> = Vec::new();
     let mut rows_lost = 0;
     let mut layers_lost = 0;
     let mut row_index: HashMap<Target, usize> = HashMap::new();
-    for element in file.elements.iter().filter(|e| e.kind == ElementKind::Model) {
+    let mut other_elements = 0;
+    let mut other_effects = 0;
+    for element in &file.elements {
         let count: usize = element.layers.iter().map(|l| l.effects.len()).sum();
-        if timing_names.contains(&element.name.as_str()) {
+        match element.kind {
+            ElementKind::Timing => continue,
+            ElementKind::Other => {
+                other_elements += 1;
+                other_effects += count + element.sub_effects;
+                b.summary.skipped += count + element.sub_effects;
+                continue;
+            }
+            ElementKind::Model => {}
+        }
+        if timing_names.contains(element.name.as_str()) {
             // xLights reads such an element as the timing track of the same name.
+            shadowed.add(unxml_safe(&element.name), count + element.sub_effects);
+            b.summary.skipped += count + element.sub_effects;
             continue;
         }
         let Some(target) = b.target(&element.name) else {
             let total = count + element.sub_effects;
             let name = unxml_safe(&element.name);
-            if let Some(entry) = unmatched.iter_mut().find(|(n, _)| *n == name) {
-                entry.1 += total;
-            } else if total == 0 {
+            if total == 0 && !unmatched.contains(&name) {
                 unmatched_empty += 1;
             } else {
-                unmatched.push((name, total));
+                unmatched.add(name, total);
             }
             b.summary.skipped += total;
             continue;
@@ -518,15 +638,11 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
     let tally_notes = b.tally.notes();
     b.notes.splice(0..0, tally_notes);
     if !unmatched.is_empty() {
-        let names: Vec<String> = unmatched
-            .iter()
-            .map(|(n, c)| format!("{n} ({})", plural(*c, "effect")))
-            .collect();
         b.notes.insert(
             0,
             format!(
                 "These xLights models aren't in the show, so their effects weren't imported: {}.",
-                list(&names)
+                unmatched.list("effect")
             ),
         );
     }
@@ -540,6 +656,25 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
             } else {
                 "they had"
             }
+        ));
+    }
+    if !shadowed.is_empty() {
+        b.notes.push(format!(
+            "These models have the same name as a timing track, so xLights reads them as that track and their effects weren't imported: {}.",
+            shadowed.list("effect")
+        ));
+    }
+    if other_elements > 0 {
+        b.notes.push(format!(
+            "{} in the sequence {} neither a model nor a timing track, so {} left out ({}).",
+            plural(other_elements, "element"),
+            if other_elements == 1 { "is" } else { "are" },
+            if other_elements == 1 {
+                "it was"
+            } else {
+                "they were"
+            },
+            plural(other_effects, "effect")
         ));
     }
     if !submodels.is_empty() {
@@ -571,37 +706,19 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
             plural(b.over_effect_limit, "effect")
         ));
     }
-    if file.items_skipped > 0 {
-        b.summary.skipped += file.items_skipped;
+    if file.effects_unread + file.marks_unread > 0 {
+        b.summary.skipped += file.effects_unread;
+        b.summary.marks_skipped += file.marks_unread;
         b.notes.push(format!(
-            "The sequence is too large to read completely; {} weren't imported.",
-            plural(file.items_skipped, "effect or mark")
+            "The sequence is too large to read completely; {} and {} weren't imported.",
+            plural(file.effects_unread, "effect"),
+            plural(file.marks_unread, "timing mark")
         ));
     }
-    if b.effects_cut > 0 {
-        b.notes.push(format!(
-            "{} ran past the end of the sequence and {} cut off there.",
-            plural(b.effects_cut, "effect or mark"),
-            if b.effects_cut == 1 { "was" } else { "were" }
-        ));
-    }
-    let outside = b.effects_after_end + b.effects_too_late;
-    if outside > 0 {
-        b.summary.skipped += outside;
-        b.notes.push(format!(
-            "{} started after the end of the sequence, so {} left out.",
-            plural(outside, "effect or mark"),
-            if outside == 1 { "it was" } else { "they were" }
-        ));
-    }
-    if b.no_length > 0 {
-        b.notes.push(format!(
-            "{} had no length (xLights skips {} too), so {} left out.",
-            plural(b.no_length, "effect or mark"),
-            if b.no_length == 1 { "it" } else { "them" },
-            if b.no_length == 1 { "it was" } else { "they were" }
-        ));
-    }
+    b.summary.skipped += b.effect_drops.outside;
+    b.summary.marks_skipped += b.mark_drops.outside;
+    b.effect_drops.notes("effect", &mut b.notes);
+    b.mark_drops.notes("timing mark", &mut b.notes);
     if b.random > 0 {
         b.notes.push(format!(
             "{} xLights' Random effect (xLights doesn't load {} either), so {} left out.",

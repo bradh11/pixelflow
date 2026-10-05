@@ -645,8 +645,14 @@ fn palette_colors(palette: &ParsedPalette, diff: &mut Diff) -> Vec<Rgb> {
         diff.add("brightness above 100% shown at 100%");
     }
     let scale = (brightness / 100.0).min(1.0);
-    palette
-        .colors
+    // With no colors enabled xLights draws white, so say so explicitly (PixelFlow's renderer
+    // also draws an empty palette white, but the timeline shows what's in the palette).
+    let colors: &[Rgb] = if palette.colors.is_empty() {
+        &[Rgb::WHITE]
+    } else {
+        &palette.colors
+    };
+    colors
         .iter()
         .take(pf_sequence::MAX_PALETTE_COLORS)
         .map(|c| {
@@ -836,6 +842,15 @@ mod tests {
                 end_level: PLACEHOLDER_LEVEL,
             })
         );
+    }
+
+    #[test]
+    fn an_empty_palette_is_white_like_in_xlights() {
+        let t = translate("Color Wash", &Settings::default(), &palette(&[]), 1000, 25).unwrap();
+        assert_eq!(t.palette.colors, vec![Rgb::WHITE]);
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        let t = translate("Faces", &Settings::default(), &palette(&[]), 1000, 25).unwrap();
+        assert_eq!(t.palette.colors, vec![Rgb::WHITE], "placeholders too");
     }
 
     #[test]

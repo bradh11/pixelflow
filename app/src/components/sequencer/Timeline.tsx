@@ -517,7 +517,7 @@ export function Timeline({ doc }: { doc: Sequence }) {
     }
     pointer.current = { x, y, alt: e.altKey };
     dragTo(x, y, e.altKey);
-    keepScrolling();
+    if (scrollsNow(drag.current)) keepScrolling();
   };
 
   /** Follows the pointer at `x`, `y` with the drag, against the view as it is now. */
@@ -598,7 +598,7 @@ export function Timeline({ doc }: { doc: Sequence }) {
       const d = drag.current;
       const p = pointer.current;
       const { size: sz, top: tp, view: v, scrollY: sy, maxScroll: limit, doc: dd } = latest.current;
-      const scrolls = d !== null && (d.kind === "move" || d.kind === "resize" || d.kind === "markMove" || d.kind === "markResize");
+      const scrolls = scrollsNow(d);
       const rows = d?.kind === "move";
       if (!scrolls || !p || (autoScrollSpeed(p.x, 0, sz.width) === 0 && (!rows || autoScrollSpeed(p.y, tp, sz.height) === 0))) {
         stopScrolling();
@@ -876,6 +876,14 @@ function describeMarks(doc: Sequence, selection: { track: string; starts: number
   const m = track.marks.find((x) => x.startMs === selection.starts[0]);
   if (!m) return "No mark selected";
   return `Mark ${m.label ? `'${m.label}' ` : ""}on ${track.name}, ${formatTime(m.startMs)} to ${formatTime(m.endMs)}, selected`;
+}
+
+/** Whether a drag scrolls the timeline near its edges: resizes at once, moves once they've started
+ * (a press that hasn't moved far enough to be a drag is still a click). */
+function scrollsNow(d: Drag | null): boolean {
+  if (!d) return false;
+  if (d.kind === "move" || d.kind === "markMove") return d.started;
+  return d.kind === "resize" || d.kind === "markResize";
 }
 
 function snappedOf(d: Drag): number | null {

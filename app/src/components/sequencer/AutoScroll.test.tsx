@@ -73,6 +73,24 @@ describe("scrolling the timeline while dragging", () => {
     expect(moved.startMs).toBeGreaterThan(15_000);
   });
 
+  it("doesn't scroll for a press near the edge that hasn't become a drag yet", async () => {
+    await openZoomed();
+    // A page further on, so the view could scroll back to the start.
+    fireEvent.change(timeInput(), { target: { value: "900" } });
+    const from = startMs();
+    expect(from).toBeGreaterThan(0);
+    // 3 zoom-ins of 1.6 from the whole minute in 1000 px.
+    const x = (ms: number) => (ms - from) * (1000 / 60_000) * 1.6 ** 3;
+    // The star's effect at 1 s and the beat at 1 s both start just inside the left edge.
+    for (const y of [239, 77]) {
+      fireEvent.pointerDown(timeline(), { clientX: x(1000) + 10, clientY: y, button: 0, pointerId: 1 });
+      fireEvent.pointerMove(timeline(), { clientX: x(1000) + 11, clientY: y, pointerId: 1 });
+      ticks(10);
+      expect(startMs(), "a press with a little jitter").toBe(from);
+      fireEvent.pointerUp(timeline(), { clientX: x(1000) + 11, clientY: y, pointerId: 1 });
+    }
+  });
+
   it("stops scrolling on Escape, which also calls the drag off", async () => {
     const { effects } = await openZoomed();
     const first = effects("Porch Star")[0];

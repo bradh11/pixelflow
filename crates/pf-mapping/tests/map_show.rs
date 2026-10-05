@@ -273,3 +273,71 @@ fn duplicate_prop_ids_resolve_to_the_first_prop() {
     assert_eq!(span.frame_offset, 0);
     assert_eq!(span.pixels, 10);
 }
+
+#[test]
+fn each_smart_receiver_on_a_port_has_its_own_pixel_budget() {
+    // Port 17 feeds receivers A, B and C, 600 pixels each: legal on a Falcon, so no problem.
+    let mut show = Show::new("t");
+    let props: Vec<Prop> = ["A", "B", "C"].iter().map(|n| line(n, 600)).collect();
+    let slots = props
+        .iter()
+        .zip(1u8..)
+        .map(|(p, r)| {
+            let mut slot = PortSlot::new(p.id);
+            slot.smart_receiver = Some(r);
+            slot
+        })
+        .collect();
+    let mut p = port(17, slots);
+    p.max_pixels = Some(1024);
+    show.props = props;
+    show.controllers = vec![controller("Falcon", Protocol::Ddp, vec![p])];
+    let (_, report) = map_show(&show);
+    assert!(
+        !report.has_code(IssueCode::PortOverCapacity),
+        "{:?}",
+        report.issues
+    );
+
+    // One receiver over its own budget is named.
+    let big = line("Big", 1100);
+    let mut slot = PortSlot::new(big.id);
+    slot.smart_receiver = Some(2);
+    show.controllers[0].ports[0].slots[1] = slot;
+    show.props.push(big);
+    let (_, report) = map_show(&show);
+    let over: Vec<_> = report
+        .issues
+        .iter()
+        .filter(|i| i.code == IssueCode::PortOverCapacity)
+        .collect();
+    assert_eq!(over.len(), 1, "{:?}", report.issues);
+    assert_eq!(
+        over[0].message,
+        "Port 17 (smart receiver B) on 'Falcon' is over capacity by 76 pixels (1100 of 1024)."
+    );
+}
+
+#[test]
+fn over_capacity_is_a_warning_that_counts_rgbw_pixels_by_their_channels() {
+    // The board's limit is in channels (3 per pixel): 80 RGBW pixels take the time of 107 RGB ones.
+    let mut show = Show::new("t");
+    let mut a = line("Icicles", 80);
+    a.color_order = ColorOrder::Grbw;
+    let mut p = port(2, vec![PortSlot::new(a.id)]);
+    p.max_pixels = Some(100);
+    show.props = vec![a];
+    show.controllers = vec![controller("Falcon", Protocol::Ddp, vec![p])];
+    let (_, report) = map_show(&show);
+    let issue = report
+        .issues
+        .iter()
+        .find(|i| i.code == IssueCode::PortOverCapacity)
+        .expect("over capacity");
+    assert_eq!(issue.severity, pf_model::Severity::Warning);
+    assert!(!report.has_errors(), "a full port never stops output");
+    assert_eq!(
+        issue.message,
+        "Port 2 on 'Falcon' is over capacity by 7 pixels (107 of 100, counting each RGBW pixel as 1⅓ because it carries 4 channels)."
+    );
+}

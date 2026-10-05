@@ -44,7 +44,7 @@ fn wire_controller(
 ) -> WiredController {
     let mut out = WiredController::default();
     for port in &controller.ports {
-        let mut port_pixels: u64 = 0;
+        let mut loads: Vec<OutputLoad> = Vec::new();
         for slot in &port.slots {
             let Some(&i) = index.get(&slot.prop) else {
                 continue;
@@ -87,28 +87,84 @@ fn wire_controller(
                     *hits = hits.saturating_add(1);
                 }
             }
-            port_pixels += u64::from(slot.null_pixels) + u64::from(range.len());
+            let pixels = u64::from(slot.null_pixels) + u64::from(range.len());
+            let load = match loads.iter_mut().find(|l| l.receiver == slot.smart_receiver) {
+                Some(load) => load,
+                None => {
+                    loads.push(OutputLoad {
+                        receiver: slot.smart_receiver,
+                        channels: 0,
+                        wide: false,
+                    });
+                    loads.last_mut().expect("just pushed")
+                }
+            };
+            load.channels += pixels * u64::from(cpp);
+            load.wide |= pixels > 0 && cpp > 3;
         }
-        if let Some(max) = port.max_pixels
-            && port_pixels > u64::from(max)
-        {
-            report.push(
-                Issue::error(
-                    IssueCode::PortOverCapacity,
-                    format!(
-                        "Port {} on '{}' is over capacity by {} pixels ({} of {}).",
-                        port.number,
-                        controller.name,
-                        port_pixels - u64::from(max),
-                        port_pixels,
-                        max
-                    ),
-                )
-                .with_fix("Move a prop to another port, or raise the port's pixel limit."),
-            );
+        if let Some(max) = port.max_pixels {
+            for load in &loads {
+                check_capacity(controller, port.number, max, load, report);
+            }
         }
     }
     out
+}
+
+/// Pixels on one physical output: a port, or one smart receiver's output on that port.
+struct OutputLoad {
+    receiver: Option<u8>,
+    channels: u64,
+    /// Some pixels carry more than 3 channels (RGBW).
+    wide: bool,
+}
+
+/// Port limits are counted the way the boards (and xLights) count them: in channels, three per
+/// pixel, so an RGBW pixel takes the time of 1⅓ RGB pixels. Each smart receiver hanging off a port
+/// drives its own output, so each gets the port's whole limit. Over the limit is a warning, not an
+/// error: PixelFlow still sends every channel; the board just can't drive (or refresh) them all.
+fn check_capacity(
+    controller: &Controller,
+    port: u16,
+    max: u32,
+    load: &OutputLoad,
+    report: &mut ValidationReport,
+) {
+    let pixels = load.channels.div_ceil(3);
+    if pixels <= u64::from(max) {
+        return;
+    }
+    let output = match load.receiver {
+        Some(r) => format!(
+            "Port {port} (smart receiver {}) on '{}'",
+            receiver_name(r),
+            controller.name
+        ),
+        None => format!("Port {port} on '{}'", controller.name),
+    };
+    let counting = if load.wide {
+        ", counting each RGBW pixel as 1⅓ because it carries 4 channels"
+    } else {
+        ""
+    };
+    report.push(
+        Issue::warning(
+            IssueCode::PortOverCapacity,
+            format!(
+                "{output} is over capacity by {} pixels ({pixels} of {max}{counting}).",
+                pixels - u64::from(max)
+            ),
+        )
+        .with_fix("Move a prop to another port, or raise the port's pixel limit."),
+    );
+}
+
+/// Smart receivers are lettered on the boards: 1 is A, 2 is B, …
+fn receiver_name(receiver: u8) -> String {
+    match receiver {
+        1..=26 => char::from(b'A' + receiver - 1).to_string(),
+        other => other.to_string(),
+    }
 }
 
 fn check_coverage(show: &Show, coverage: &[Vec<u8>], report: &mut ValidationReport) {

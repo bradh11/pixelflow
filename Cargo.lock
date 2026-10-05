@@ -941,6 +941,7 @@ name = "pf-engine"
 version = "0.1.0"
 dependencies = [
  "pf-audio",
+ "pf-devices",
  "pf-frame",
  "pf-fseq",
  "pf-geometry",

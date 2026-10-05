@@ -23,6 +23,7 @@ thiserror.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+pf-devices = { workspace = true, features = ["test-fixtures"] }
 
 [lints]
 workspace = true

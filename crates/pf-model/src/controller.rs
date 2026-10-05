@@ -124,7 +124,9 @@ impl PortSlot {
 pub struct Port {
     /// Physical port number as printed on the controller (1-based).
     pub number: u16,
-    /// Most pixels (including null pixels) the port can drive, if known.
+    /// Most pixels (including null pixels) the port can drive, if known. Counted as boards count
+    /// it, in RGB pixels (three channels each), so an RGBW pixel uses 1⅓. When the port feeds
+    /// smart receivers, each receiver's output has this limit.
     #[serde(default)]
     pub max_pixels: Option<u32>,
     /// Brightness in percent (0–100).

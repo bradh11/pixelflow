@@ -490,6 +490,7 @@ version = "0.1.0"
 dependencies = [
  "pf-frame",
  "pf-fseq",
+ "pf-geometry",
  "pf-mapping",
  "pf-model",
  "pf-output",

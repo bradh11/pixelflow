@@ -177,3 +177,17 @@ fn explains_when_nothing_can_play() {
         "{missing}"
     );
 }
+
+#[test]
+fn preview_props_place_every_pixel() {
+    let (engine, _recorded, _dir) = engine_with_show(true);
+    let props = engine.preview_props();
+    assert_eq!(props.len(), 1);
+    assert_eq!((props[0].frame_offset, props[0].channels_per_pixel), (0, 3));
+    assert_eq!(props[0].points.len(), 20, "x, y for each of 10 pixels");
+    let xs: Vec<f32> = props[0].points.iter().step_by(2).copied().collect();
+    assert!(
+        xs.windows(2).all(|w| w[1] > w[0]),
+        "a line runs left to right: {xs:?}"
+    );
+}

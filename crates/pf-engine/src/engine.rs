@@ -6,7 +6,7 @@ use crate::history::History;
 use crate::output::{OutputSession, OutputStatus, PatternSpec, TargetSpec, output_key};
 use crate::persist::{self, HistoryEntry};
 use crate::playback::{PlaybackSession, PlaybackStatus};
-use crate::snapshot::{ShowSnapshot, Summary};
+use crate::snapshot::{PreviewProp, ShowSnapshot, Summary};
 use pf_mapping::ChannelMap;
 use pf_model::{IssueCode, Severity, Show, ValidationReport};
 use pf_output::{OutputSettings, Transport, UdpTransport};
@@ -325,6 +325,30 @@ impl Engine {
             .as_ref()
             .map(PlaybackSession::preview)
             .or_else(|| self.preview_frame())
+    }
+
+    /// Every prop's pixel positions for the 2D preview (front view: x right, y up), with where
+    /// its colors sit in [`Engine::live_frame`].
+    pub fn preview_props(&self) -> Vec<PreviewProp> {
+        let (map, _) = analyze(&self.show);
+        self.show
+            .props
+            .iter()
+            .filter_map(|prop| {
+                let layout = map.prop_layout(prop.id)?;
+                let points = pf_geometry::world_positions(prop)
+                    .into_iter()
+                    .take(layout.nodes as usize)
+                    .flat_map(|p| [p.x, p.y])
+                    .collect();
+                Some(PreviewProp {
+                    prop: prop.id,
+                    frame_offset: layout.frame_offset,
+                    channels_per_pixel: layout.channels_per_pixel,
+                    points,
+                })
+            })
+            .collect()
     }
 
     fn history_dir(&self) -> PathBuf {

@@ -21,4 +21,4 @@ pub use history::History;
 pub use output::{ControllerStatus, OutputStatus, PatternSpec, TargetSpec};
 pub use persist::{HistoryEntry, load_show, save_show_atomic};
 pub use playback::PlaybackStatus;
-pub use snapshot::{ShowSnapshot, Summary};
+pub use snapshot::{PreviewProp, ShowSnapshot, Summary};

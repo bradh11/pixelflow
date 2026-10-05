@@ -233,7 +233,10 @@ fn submodel(attrs: &Attrs, nodes: u32, label: &str, notes: &mut RegionNotes) -> 
     } else {
         LineLayout::Horizontal
     };
-    let buffer = match get("bufferStyle").unwrap_or("Default") {
+    // xLights reads and writes `bufferstyle` (`XmlNodeKeys::BufferStyleAttribute`); attribute
+    // names are case-sensitive, so the camelCase spelling is only a fallback for hand-made files.
+    let style = get("bufferstyle").or_else(|| get("bufferStyle"));
+    let buffer = match style.unwrap_or("Default") {
         "Default" => BufferStyle::Default,
         "Keep XY" => BufferStyle::KeepXy,
         "Stacked Strands" => BufferStyle::StackedStrands,
@@ -447,7 +450,7 @@ mod tests {
                 attrs(&[
                     ("name", "Tops"),
                     ("type", "ranges"),
-                    ("bufferStyle", "Stacked Strands"),
+                    ("bufferstyle", "Stacked Strands"),
                     ("line0", "20-30"),
                     ("line1", "70-80"),
                     ("line2", "120-130"),
@@ -455,10 +458,10 @@ mod tests {
                 attrs(&[
                     ("name", "Ends"),
                     ("layout", "horizontal"),
-                    ("bufferStyle", "Keep XY"),
+                    ("bufferstyle", "Keep XY"),
                     ("line0", "1-5,46-50"),
                 ]),
-                attrs(&[("name", "Odd"), ("bufferStyle", "Wavy"), ("line0", "1")]),
+                attrs(&[("name", "Odd"), ("bufferstyle", "Wavy"), ("line0", "1")]),
                 attrs(&[
                     ("name", "Window"),
                     ("type", "subbuffer"),
@@ -554,6 +557,57 @@ mod tests {
         ] {
             assert!(text.contains(expected), "{expected}\n{text}");
         }
+    }
+
+    /// Attributes exactly as xLights writes them (`BaseSerializingVisitor::WriteSubmodels`:
+    /// `name` first, then sorted, with the buffer style as all-lowercase `bufferstyle`).
+    #[test]
+    fn real_xlights_attribute_casing_keeps_the_buffer_style() {
+        let mut notes = RegionNotes::default();
+        let regions = regions(
+            "Star",
+            &[
+                attrs(&[
+                    ("name", "Rings"),
+                    ("bufferstyle", "Stacked Strands"),
+                    ("layout", "horizontal"),
+                    ("line0", "1-10"),
+                    ("line1", "11-20"),
+                    ("type", "ranges"),
+                ]),
+                attrs(&[
+                    ("name", "Points"),
+                    ("bufferstyle", "Keep XY"),
+                    ("layout", "vertical"),
+                    ("line0", "1,5,9"),
+                    ("type", "ranges"),
+                ]),
+                attrs(&[
+                    ("name", "Middle"),
+                    ("bufferstyle", "Default"),
+                    ("layout", "horizontal"),
+                    ("subBuffer", "25x25x75x75"),
+                    ("type", "subbuffer"),
+                ]),
+                // Older hand-edited files: the camelCase spelling still reads.
+                attrs(&[("name", "Old"), ("bufferStyle", "Keep XY"), ("line0", "2")]),
+            ],
+            &[],
+            &[],
+            20,
+            &mut notes,
+        );
+        let style = |i: usize| match &regions[i].kind {
+            RegionKind::Nodes { buffer, .. } => *buffer,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(style(0), BufferStyle::StackedStrands);
+        assert_eq!(style(1), BufferStyle::KeepXy);
+        assert!(matches!(regions[2].kind, RegionKind::SubBuffer { x1, .. } if x1 == 25.0));
+        assert_eq!(style(3), BufferStyle::KeepXy);
+        let mut text = Vec::new();
+        notes.into_notes(&mut text);
+        assert!(text.is_empty(), "{text:?}");
     }
 
     #[test]

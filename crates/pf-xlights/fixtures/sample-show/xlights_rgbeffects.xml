@@ -10,9 +10,9 @@
            WorldPosX="150.0" WorldPosY="100.0" X2="600.0" Y2="0.0" Height="1.0" StartChannel="!Falcon_F16V5_B9F5:301"
            Controller="Falcon_F16V5_B9F5" LayoutGroup="Default" versionNumber="8">
       <ControllerConnection Port="2" Protocol="ws2811"/>
-      <subModel name="Arch 1" layout="horizontal" type="ranges" line0="1-50"/>
-      <subModel name="Tops" layout="vertical" type="ranges" bufferStyle="Stacked Strands" line0="20-30" line1="70-80" line2="120-130"/>
-      <subModel name="Ends" layout="horizontal" type="ranges" bufferStyle="Keep XY" line0="1-5,46-50" line1="101-105,0,150-146"/>
+      <subModel name="Arch 1" bufferstyle="Default" layout="horizontal" line0="1-50" type="ranges"/>
+      <subModel name="Tops" bufferstyle="Stacked Strands" layout="vertical" line0="20-30" line1="70-80" line2="120-130" type="ranges"/>
+      <subModel name="Ends" bufferstyle="Keep XY" layout="horizontal" line0="1-5,46-50" line1="101-105,0,150-146" type="ranges"/>
     </model>
     <model name="Mega Tree" DisplayAs="Tree 360" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="8" parm2="50" parm3="1"
            WorldPosX="900.0" WorldPosY="300.0" ScaleX="4.0" ScaleY="2.0" ScaleZ="4.0" StartChannel="!Falcon_F16V5_B9F5:751"
@@ -23,7 +23,7 @@
            WorldPosX="400.0" WorldPosY="350.0" ScaleX="8.0" ScaleY="8.0" StartChannel="&gt;Mega Tree:1"
            Controller="Falcon_F16V5_B9F5" LayoutGroup="Default" versionNumber="7">
       <ControllerConnection Port="13" Protocol="ws2811"/>
-      <subModel name="Top Half" layout="horizontal" type="subbuffer" subBuffer="0x50x100x100"/>
+      <subModel name="Top Half" bufferstyle="Default" layout="horizontal" subBuffer="0x50x100x100" type="subbuffer"/>
       <faceInfo Name="Singer" Type="NodeRange" CustomColors="1" Mouth-AI="1-4" Mouth-AI-Color="#FF0000" Mouth-O="5-8"
                 Mouth-rest="9-10" Eyes-Open="61-62,79-80" Eyes-Open-Color="#00FF00" Eyes-Closed="63,78"
                 FaceOutline="21-40" FaceOutline-Color="#FFFF00"/>
@@ -32,7 +32,7 @@
     </model>
     <model name="Porch Star" DisplayAs="Custom" StringType="RGB Nodes" parm1="5" parm2="5" CustomModel=",1,,,;2,,3,,;,4,,5,;,,6,,;,,,7,"
            WorldPosX="700.0" WorldPosY="200.0" ScaleX="10.0" ScaleY="10.0" StartChannel="#192.0.2.30:20:1" LayoutGroup="Default" versionNumber="7">
-      <subModel name="Center" layout="horizontal" type="ranges" line0="4"/>
+      <subModel name="Center" bufferstyle="Default" layout="horizontal" line0="4" type="ranges"/>
     </model>
     <model name="Candy Canes" DisplayAs="Candy Canes" StringType="RGB Nodes" NumCanes="2" NodesPerCane="18"
            WorldPosX="300.0" WorldPosY="80.0" X2="120.0" Y2="0.0" Height="1.0" StartChannel="@Porch Star:22" LayoutGroup="Default"/>

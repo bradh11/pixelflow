@@ -54,6 +54,8 @@ pub(crate) struct PropGeometry {
     pub first_pixel: usize,
     /// Front-view positions (x right, y up), in wiring order.
     pub points: Vec<[f32; 2]>,
+    /// How many of `points` came from the shape; the rest are padding (see [`SceneGeometry::new`]).
+    pub real: usize,
 }
 
 /// Every prop's pixel positions and frame location, computed once per show and channel map.
@@ -81,7 +83,10 @@ impl SceneGeometry {
                 .take(nodes)
                 .map(|p| [finite(p.x), finite(p.y)])
                 .collect();
-            // A shape with fewer points than nodes still gets every pixel (at the origin).
+            // A shape with fewer points than nodes still gets every pixel. The padding doesn't
+            // count toward the bounding box (it would stretch it to the origin); those pixels
+            // draw at the middle of the box.
+            let real = points.len();
             points.resize(nodes, [0.0, 0.0]);
             index.entry(layout.prop).or_insert(props.len());
             props.push(PropGeometry {
@@ -89,6 +94,7 @@ impl SceneGeometry {
                 channels_per_pixel: layout.channels_per_pixel,
                 first_pixel,
                 points,
+                real,
             });
             first_pixel += nodes;
         }
@@ -138,11 +144,15 @@ fn finite(v: f32) -> f32 {
 fn build_buffer(members: &[&PropGeometry]) -> PixelBuffer {
     let count: usize = members.iter().map(|p| p.points.len()).sum();
     let (mut min_x, mut min_y, mut max_x, mut max_y) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
-    for p in members.iter().flat_map(|p| &p.points) {
+    for p in members.iter().flat_map(|p| &p.points[..p.real]) {
         min_x = min_x.min(p[0]);
         min_y = min_y.min(p[1]);
         max_x = max_x.max(p[0]);
         max_y = max_y.max(p[1]);
+    }
+    if min_x > max_x {
+        // Nothing but padding: every pixel at the middle.
+        (min_x, min_y, max_x, max_y) = (0.0, 0.0, 0.0, 0.0);
     }
     let (width, height) = ((max_x - min_x).max(0.0), (max_y - min_y).max(0.0));
     // A flat side (a straight horizontal line has no height) puts every pixel in the middle.
@@ -154,8 +164,17 @@ fn build_buffer(members: &[&PropGeometry]) -> PixelBuffer {
     let mut global = Vec::with_capacity(count);
     for prop in members {
         for (node, p) in prop.points.iter().enumerate() {
-            let u = if flat_x { 0.5 } else { (p[0] - min_x) / width };
-            let v = if flat_y { 0.5 } else { (p[1] - min_y) / height };
+            let padded = node >= prop.real;
+            let u = if flat_x || padded {
+                0.5
+            } else {
+                (p[0] - min_x) / width
+            };
+            let v = if flat_y || padded {
+                0.5
+            } else {
+                (p[1] - min_y) / height
+            };
             pixels.push(Pixel {
                 u,
                 v,
@@ -288,5 +307,31 @@ mod tests {
         assert_eq!((dot.columns, dot.rows), (1, 1));
         assert_eq!(geo.pixel_count(), 1);
         assert_eq!(geo.frame_len(), 3);
+    }
+
+    #[test]
+    fn padded_points_dont_stretch_the_box() {
+        // Two real points far from the origin, plus two padding pixels.
+        let prop = PropGeometry {
+            frame_offset: 0,
+            channels_per_pixel: 3,
+            first_pixel: 0,
+            points: vec![[10.0, 5.0], [12.0, 7.0], [0.0, 0.0], [0.0, 0.0]],
+            real: 2,
+        };
+        let buffer = build_buffer(&[&prop]);
+        let uv: Vec<(f32, f32)> = buffer.pixels.iter().map(|p| (p.u, p.v)).collect();
+        assert_eq!(uv, vec![(0.0, 0.0), (1.0, 1.0), (0.5, 0.5), (0.5, 0.5)]);
+        let nothing = PropGeometry {
+            real: 0,
+            points: vec![[0.0, 0.0]; 3],
+            ..prop
+        };
+        assert!(
+            build_buffer(&[&nothing])
+                .pixels
+                .iter()
+                .all(|p| (p.u, p.v) == (0.5, 0.5))
+        );
     }
 }

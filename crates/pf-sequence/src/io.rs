@@ -63,7 +63,8 @@ pub fn sequence_from_json(text: &str) -> Result<Sequence, SequenceError> {
         doc = migrate(doc)?;
     }
     doc["schemaVersion"] = Value::from(CURRENT_SCHEMA_VERSION);
-    let seq: Sequence = serde_json::from_value(doc)?;
+    let mut seq: Sequence = serde_json::from_value(doc)?;
+    seq.sanitize_settings();
     if let Some(problem) = limits::limit_problems(&seq).into_iter().next() {
         return Err(SequenceError::LimitExceeded(problem));
     }
@@ -212,6 +213,68 @@ mod tests {
         let huge = " ".repeat(MAX_SEQUENCE_BYTES + 1);
         let err = sequence_from_json(&huge).unwrap_err();
         assert!(err.to_string().contains("up to 64 MB"), "{err}");
+    }
+
+    #[test]
+    fn out_of_range_settings_are_clamped_on_open_so_the_file_saves_and_reopens() {
+        // 1e39 is too big for an f32: it reads as infinity, which JSON can't write back.
+        let text = r#"{ "schemaVersion": 1, "name": "x", "durationMs": 1000, "rows": [
+            { "id": "11111111-0000-4000-8000-000000000001",
+              "target": { "prop": "22222222-0000-4000-8000-000000000001" },
+              "layers": [ { "effects": [
+                { "id": "33333333-0000-4000-8000-000000000001", "startMs": 0, "endMs": 500,
+                  "params": { "kind": "chase", "speed": 1e39, "width": -1e39, "bands": 4000000000 } },
+                { "id": "33333333-0000-4000-8000-000000000002", "startMs": 500, "endMs": 900,
+                  "params": { "kind": "ripple", "spacing": 0 } } ] } ] } ] }"#;
+        let seq = sequence_from_json(text).unwrap();
+        let EffectParams::Chase(chase) = seq.rows[0].layers[0].effects[0].params else {
+            panic!("a chase")
+        };
+        assert_eq!((chase.speed, chase.width, chase.bands), (50.0, 0.0, 1000));
+        let EffectParams::Ripple(ripple) = seq.rows[0].layers[0].effects[1].params else {
+            panic!("a ripple")
+        };
+        assert_eq!(ripple.spacing, 0.01);
+        let saved = sequence_to_json(&seq).unwrap();
+        let json: Value = serde_json::from_str(&saved).unwrap();
+        assert_eq!(
+            json["rows"][0]["layers"][0]["effects"][0]["params"]["speed"],
+            50.0
+        );
+        assert_eq!(sequence_from_json(&saved).unwrap(), seq);
+    }
+
+    #[test]
+    fn sequences_built_in_memory_with_bad_settings_are_refused_plainly() {
+        let mut seq = Sequence::new("x", 1000);
+        let mut row = Row::new(Target::Prop(PropId::new()));
+        row.layers[0]
+            .effects
+            .push(
+                Effect::new(EffectKind::Twinkle, 1000, 2000).with_params(EffectParams::Twinkle(
+                    TwinkleParams {
+                        rate: f32::INFINITY,
+                        ..TwinkleParams::default()
+                    },
+                )),
+            );
+        seq.rows.push(row);
+        let problems = limit_problems(&seq);
+        assert_eq!(
+            problems,
+            vec![
+                "The Twinkle effect at 0:01.000 has a setting PixelFlow can't use: Rate isn't a usable number; use 0 to 50."
+                    .to_string()
+            ]
+        );
+        assert!(matches!(
+            check_sequence(&seq),
+            Err(SequenceError::LimitExceeded(_))
+        ));
+        let mut fixed = seq.clone();
+        fixed.sanitize_settings();
+        assert!(limit_problems(&fixed).is_empty());
+        assert_eq!(check_sequence(&fixed).unwrap(), fixed);
     }
 
     #[test]

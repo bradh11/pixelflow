@@ -61,6 +61,20 @@ impl Sequence {
         self.rows.iter().flat_map(|r| &r.layers).flat_map(|l| &l.effects)
     }
 
+    /// Pulls every effect setting into the range its kind allows (see
+    /// [`crate::EffectParams::sanitize`]). Opening a file does this, so a value JSON can't hold
+    /// (an overflowing number reads as infinity) never makes a file impossible to save and reopen.
+    pub fn sanitize_settings(&mut self) {
+        for effect in self
+            .rows
+            .iter_mut()
+            .flat_map(|r| &mut r.layers)
+            .flat_map(|l| &mut l.effects)
+        {
+            effect.params.sanitize();
+        }
+    }
+
     pub fn effect_count(&self) -> usize {
         self.rows
             .iter()
@@ -111,7 +125,8 @@ pub enum Target {
 pub struct Row {
     pub id: RowId,
     pub target: Target,
-    /// Drawn bottom (first) to top (last).
+    /// Drawn bottom (first, index 0) to top (last); the opposite of xLights' numbering. Each
+    /// effect's [`crate::Blend`] mixes with the layers below it on this row only.
     #[serde(default)]
     pub layers: Vec<Layer>,
 }

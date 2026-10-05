@@ -1,5 +1,6 @@
 //! Effects: what lights up, when, and how it mixes with what's underneath.
 
+use crate::settings::{SettingSpec, choices, effect_params};
 use crate::{EffectId, Rgb};
 use serde::{Deserialize, Serialize};
 
@@ -27,7 +28,9 @@ impl Palette {
     }
 }
 
-/// How an effect's colors combine with the layers below it.
+/// How an effect's colors combine with the layers below it **on the same row**. Rows don't
+/// blend with each other: a later row covers an earlier one by coverage (where it's lit).
+/// Layer 0 is the bottom layer (the opposite of xLights, where layer 1 is drawn on top).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Blend {
@@ -164,6 +167,48 @@ impl EffectKind {
             EffectKind::Ripple => "Ripple",
         }
     }
+
+    /// What the effect looks like, in a sentence.
+    pub fn description(self) -> &'static str {
+        match self {
+            EffectKind::On => {
+                "A solid color, or the palette spread across the prop, at a steady or changing brightness."
+            }
+            EffectKind::Off => "Black: hides the layers below.",
+            EffectKind::ColorWash => "Blends through the palette over the effect.",
+            EffectKind::Fade => "The first palette color fading in or out.",
+            EffectKind::Chase => "Bands of light moving along the pixels in wiring order.",
+            EffectKind::Bars => "Stripes in the palette colors sliding across or up the prop.",
+            EffectKind::Wave => "A wavy line rolling across the prop.",
+            EffectKind::Twinkle => "Random pixels softly brightening and dimming.",
+            EffectKind::Shimmer => "The whole prop flickering on and off.",
+            EffectKind::Strobe => "Random pixels flashing, a new set each flash.",
+            EffectKind::Spiral => "Diagonal stripes turning around the prop (made for trees and matrices).",
+            EffectKind::Fire => "Flames rising from the bottom of the prop.",
+            EffectKind::Meteors => "Streaks of light with fading tails.",
+            EffectKind::Ripple => "Rings spreading out from the center of the prop.",
+        }
+    }
+
+    /// The kind's settings table: keys, labels, ranges (see [`crate::effect_catalog`]).
+    pub fn settings(self) -> &'static [SettingSpec] {
+        match self {
+            EffectKind::On => OnParams::SETTINGS,
+            EffectKind::Off => OffParams::SETTINGS,
+            EffectKind::ColorWash => ColorWashParams::SETTINGS,
+            EffectKind::Fade => FadeParams::SETTINGS,
+            EffectKind::Chase => ChaseParams::SETTINGS,
+            EffectKind::Bars => BarsParams::SETTINGS,
+            EffectKind::Wave => WaveParams::SETTINGS,
+            EffectKind::Twinkle => TwinkleParams::SETTINGS,
+            EffectKind::Shimmer => ShimmerParams::SETTINGS,
+            EffectKind::Strobe => StrobeParams::SETTINGS,
+            EffectKind::Spiral => SpiralParams::SETTINGS,
+            EffectKind::Fire => FireParams::SETTINGS,
+            EffectKind::Meteors => MeteorsParams::SETTINGS,
+            EffectKind::Ripple => RippleParams::SETTINGS,
+        }
+    }
 }
 
 /// Settings for each kind of effect. Missing settings take their defaults, so
@@ -226,6 +271,55 @@ impl EffectParams {
             EffectKind::Ripple => EffectParams::Ripple(RippleParams::default()),
         }
     }
+
+    /// Pulls every setting into the range its kind's table allows (NaN becomes the default).
+    /// Files are clamped like this when they open, and the renderer draws clamped settings.
+    pub fn sanitize(&mut self) {
+        match self {
+            EffectParams::On(p) => p.sanitize(),
+            EffectParams::Off(p) => p.sanitize(),
+            EffectParams::ColorWash(p) => p.sanitize(),
+            EffectParams::Fade(p) => p.sanitize(),
+            EffectParams::Chase(p) => p.sanitize(),
+            EffectParams::Bars(p) => p.sanitize(),
+            EffectParams::Wave(p) => p.sanitize(),
+            EffectParams::Twinkle(p) => p.sanitize(),
+            EffectParams::Shimmer(p) => p.sanitize(),
+            EffectParams::Strobe(p) => p.sanitize(),
+            EffectParams::Spiral(p) => p.sanitize(),
+            EffectParams::Fire(p) => p.sanitize(),
+            EffectParams::Meteors(p) => p.sanitize(),
+            EffectParams::Ripple(p) => p.sanitize(),
+        }
+    }
+
+    /// A clamped copy (see [`EffectParams::sanitize`]).
+    pub fn sanitized(&self) -> Self {
+        let mut copy = self.clone();
+        copy.sanitize();
+        copy
+    }
+
+    /// The first setting outside its range, in plain words (e.g. "Speed is 70; use 0 to 50").
+    pub fn setting_problem(&self) -> Option<String> {
+        let found = match self {
+            EffectParams::On(p) => p.setting_problem(),
+            EffectParams::Off(p) => p.setting_problem(),
+            EffectParams::ColorWash(p) => p.setting_problem(),
+            EffectParams::Fade(p) => p.setting_problem(),
+            EffectParams::Chase(p) => p.setting_problem(),
+            EffectParams::Bars(p) => p.setting_problem(),
+            EffectParams::Wave(p) => p.setting_problem(),
+            EffectParams::Twinkle(p) => p.setting_problem(),
+            EffectParams::Shimmer(p) => p.setting_problem(),
+            EffectParams::Strobe(p) => p.setting_problem(),
+            EffectParams::Spiral(p) => p.setting_problem(),
+            EffectParams::Fire(p) => p.setting_problem(),
+            EffectParams::Meteors(p) => p.setting_problem(),
+            EffectParams::Ripple(p) => p.setting_problem(),
+        };
+        found.map(|(spec, why)| format!("{} {why}", spec.label))
+    }
 }
 
 /// Spreads the palette across the prop instead of using one color.
@@ -240,6 +334,8 @@ pub enum Gradient {
     Vertical,
 }
 
+choices!(Gradient { "none" => "None", "horizontal" => "Left to right", "vertical" => "Bottom to top" });
+
 /// Which way something moves along the pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -250,6 +346,8 @@ pub enum Direction {
     Reverse,
 }
 
+choices!(Direction { "forward" => "Forward", "reverse" => "Reverse" });
+
 /// Across (horizontal) or up and down (vertical).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -259,6 +357,8 @@ pub enum Axis {
     Vertical,
 }
 
+choices!(Axis { "horizontal" => "Across", "vertical" => "Up and down" });
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum FadeDirection {
@@ -266,6 +366,8 @@ pub enum FadeDirection {
     In,
     Out,
 }
+
+choices!(FadeDirection { "in" => "Fade in", "out" => "Fade out" });
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -277,278 +379,174 @@ pub enum MeteorDirection {
     Right,
 }
 
-/// Solid color (the first palette color), or the palette spread across the prop, with the
-/// brightness going from `start_level` to `end_level` over the effect.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct OnParams {
-    pub gradient: Gradient,
-    pub start_level: f32,
-    pub end_level: f32,
-}
+choices!(MeteorDirection { "down" => "Down", "up" => "Up", "left" => "Left", "right" => "Right" });
 
-impl Default for OnParams {
-    fn default() -> Self {
-        Self {
-            gradient: Gradient::None,
-            start_level: 1.0,
-            end_level: 1.0,
-        }
+// Each settings struct below is the single table for its kind: type, default, JSON key, label,
+// and range (see `settings.rs`). The renderer clamps to these ranges, files are clamped to them
+// on open, and edits outside them are refused.
+
+effect_params! {
+    /// Solid color (the first palette color), or the palette spread across the prop, with the
+    /// brightness going from `start_level` to `end_level` over the effect.
+    pub struct OnParams {
+        /// Spread the palette across the prop instead of using the first color.
+        gradient: Gradient = Gradient::None => "gradient", "Gradient", choice;
+        /// Brightness at the start of the effect (0–1).
+        start_level: f32 = 1.0 => "startLevel", "Start brightness", number(0.0, 1.0, 0.01);
+        /// Brightness at the end of the effect (0–1).
+        end_level: f32 = 1.0 => "endLevel", "End brightness", number(0.0, 1.0, 0.01);
     }
 }
 
-/// Black: hides the layers below.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct OffParams {}
-
-/// Blends through the palette over the effect, `cycles` times; with a gradient, the colors
-/// also spread across the prop.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct ColorWashParams {
-    pub cycles: f32,
-    pub gradient: Gradient,
+effect_params! {
+    /// Black: hides the layers below.
+    pub struct OffParams {}
 }
 
-impl Default for ColorWashParams {
-    fn default() -> Self {
-        Self {
-            cycles: 1.0,
-            gradient: Gradient::None,
-        }
+effect_params! {
+    /// Blends through the palette over the effect, `cycles` times; with a gradient, the colors
+    /// also spread across the prop.
+    pub struct ColorWashParams {
+        /// Times through the palette over the effect.
+        cycles: f32 = 1.0 => "cycles", "Cycles", number(0.0, 100.0, 0.1);
+        /// Also spread the colors across the prop.
+        gradient: Gradient = Gradient::None => "gradient", "Gradient", choice;
     }
 }
 
-/// The first palette color fading in (or out) over the effect.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct FadeParams {
-    pub direction: FadeDirection,
-}
-
-/// Bands of light moving along the pixels in wiring order (several bands make a marquee).
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct ChaseParams {
-    /// Trips along the whole prop per second.
-    pub speed: f32,
-    /// Each band's length, as a fraction of the space between bands (0–1).
-    pub width: f32,
-    /// Bands spread evenly along the prop; they take the palette colors in turn.
-    pub bands: u32,
-    pub direction: Direction,
-    /// Go back and forth instead of wrapping around.
-    pub bounce: bool,
-}
-
-impl Default for ChaseParams {
-    fn default() -> Self {
-        Self {
-            speed: 1.0,
-            width: 0.2,
-            bands: 1,
-            direction: Direction::Forward,
-            bounce: false,
-        }
+effect_params! {
+    /// The first palette color fading in (or out) over the effect.
+    pub struct FadeParams {
+        /// Fade in or fade out.
+        direction: FadeDirection = FadeDirection::In => "direction", "Direction", choice;
     }
 }
 
-/// Stripes in the palette colors sliding across or up the prop.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct BarsParams {
-    /// Bars visible at once.
-    pub count: u32,
-    /// Prop widths (or heights) moved per second.
-    pub speed: f32,
-    pub axis: Axis,
-    pub direction: Direction,
-}
-
-impl Default for BarsParams {
-    fn default() -> Self {
-        Self {
-            count: 4,
-            speed: 0.5,
-            axis: Axis::Vertical,
-            direction: Direction::Forward,
-        }
+effect_params! {
+    /// Bands of light moving along the pixels in wiring order (several bands make a marquee).
+    pub struct ChaseParams {
+        /// Trips along the whole prop per second.
+        speed: f32 = 1.0 => "speed", "Speed", number(0.0, 50.0, 0.1, "per second");
+        /// Each band's length, as a fraction of the space between bands (0–1).
+        width: f32 = 0.2 => "width", "Band width", number(0.0, 1.0, 0.01);
+        /// Bands spread evenly along the prop; they take the palette colors in turn.
+        bands: u32 = 1 => "bands", "Bands", int(1, 1000);
+        /// Which way the bands move along the wiring.
+        direction: Direction = Direction::Forward => "direction", "Direction", choice;
+        /// Go back and forth instead of wrapping around.
+        bounce: bool = false => "bounce", "Bounce", toggle;
     }
 }
 
-/// A sine wave line across the prop, rolling sideways.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct WaveParams {
-    /// Waves across the prop.
-    pub cycles: f32,
-    /// Waves passing per second.
-    pub speed: f32,
-    /// Peak-to-peak height, as a fraction of the prop's height (0–1).
-    pub height: f32,
-    /// Line thickness, as a fraction of the prop's height.
-    pub thickness: f32,
-    pub direction: Direction,
-}
-
-impl Default for WaveParams {
-    fn default() -> Self {
-        Self {
-            cycles: 1.0,
-            speed: 1.0,
-            height: 0.8,
-            thickness: 0.2,
-            direction: Direction::Forward,
-        }
+effect_params! {
+    /// Stripes in the palette colors sliding across or up the prop.
+    pub struct BarsParams {
+        /// Bars visible at once.
+        count: u32 = 4 => "count", "Bars", int(1, 100);
+        /// Prop widths (or heights) moved per second.
+        speed: f32 = 0.5 => "speed", "Speed", number(0.0, 20.0, 0.05, "per second");
+        /// Bars sliding across or up and down.
+        axis: Axis = Axis::Vertical => "axis", "Axis", choice;
+        /// Which way the bars slide.
+        direction: Direction = Direction::Forward => "direction", "Direction", choice;
     }
 }
 
-/// Random pixels softly brightening and dimming.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct TwinkleParams {
-    /// Fraction of pixels lit at any moment (0–1).
-    pub density: f32,
-    /// Twinkles per second for each pixel.
-    pub rate: f32,
-}
-
-impl Default for TwinkleParams {
-    fn default() -> Self {
-        Self {
-            density: 0.3,
-            rate: 1.0,
-        }
+effect_params! {
+    /// A sine wave line across the prop, rolling sideways.
+    pub struct WaveParams {
+        /// Waves across the prop.
+        cycles: f32 = 1.0 => "cycles", "Waves", number(0.0, 20.0, 0.1);
+        /// Waves passing per second.
+        speed: f32 = 1.0 => "speed", "Speed", number(0.0, 20.0, 0.1, "per second");
+        /// Peak-to-peak height, as a fraction of the prop's height (0–1).
+        height: f32 = 0.8 => "height", "Height", number(0.0, 1.0, 0.01);
+        /// Line thickness, as a fraction of the prop's height.
+        thickness: f32 = 0.2 => "thickness", "Thickness", number(0.0, 1.0, 0.01);
+        /// Which way the wave rolls.
+        direction: Direction = Direction::Forward => "direction", "Direction", choice;
     }
 }
 
-/// The whole prop flickering on and off.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct ShimmerParams {
-    /// Flickers per second.
-    pub rate: f32,
-    /// Fraction of each flicker spent on (0–1).
-    pub duty: f32,
-}
-
-impl Default for ShimmerParams {
-    fn default() -> Self {
-        Self {
-            rate: 10.0,
-            duty: 0.5,
-        }
+effect_params! {
+    /// Random pixels softly brightening and dimming.
+    pub struct TwinkleParams {
+        /// Fraction of pixels lit at any moment (0–1).
+        density: f32 = 0.3 => "density", "Density", number(0.0, 1.0, 0.01);
+        /// Twinkles per second for each pixel.
+        rate: f32 = 1.0 => "rate", "Rate", number(0.0, 50.0, 0.1, "per second");
     }
 }
 
-/// Random pixels flashing, a new set each flash.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct StrobeParams {
-    /// Flashes per second.
-    pub rate: f32,
-    /// Fraction of pixels in each flash (0–1).
-    pub density: f32,
-}
-
-impl Default for StrobeParams {
-    fn default() -> Self {
-        Self {
-            rate: 10.0,
-            density: 0.2,
-        }
+effect_params! {
+    /// The whole prop flickering on and off.
+    pub struct ShimmerParams {
+        /// Flickers per second.
+        rate: f32 = 10.0 => "rate", "Rate", number(0.0, 60.0, 0.5, "per second");
+        /// Fraction of each flicker spent on (0–1).
+        duty: f32 = 0.5 => "duty", "On time", number(0.0, 1.0, 0.01);
     }
 }
 
-/// Diagonal stripes rotating around the prop (made for trees and matrices).
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct SpiralParams {
-    /// Stripes around the prop.
-    pub count: u32,
-    /// Turns per second.
-    pub speed: f32,
-    /// Fraction of each stripe's space that is lit (0–1).
-    pub thickness: f32,
-    /// How steeply the stripes slant (0 = straight up).
-    pub twist: f32,
-    pub direction: Direction,
-}
-
-impl Default for SpiralParams {
-    fn default() -> Self {
-        Self {
-            count: 3,
-            speed: 0.5,
-            thickness: 0.5,
-            twist: 1.0,
-            direction: Direction::Forward,
-        }
+effect_params! {
+    /// Random pixels flashing, a new set each flash.
+    pub struct StrobeParams {
+        /// Flashes per second.
+        rate: f32 = 10.0 => "rate", "Rate", number(0.0, 60.0, 0.5, "per second");
+        /// Fraction of pixels in each flash (0–1).
+        density: f32 = 0.2 => "density", "Density", number(0.0, 1.0, 0.01);
     }
 }
 
-/// Flames rising from the bottom of the prop.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct FireParams {
-    /// How high the flames reach, as a fraction of the prop's height (0–1).
-    pub height: f32,
-    /// How often new flames flare up (0–1).
-    pub sparks: f32,
-}
-
-impl Default for FireParams {
-    fn default() -> Self {
-        Self {
-            height: 0.8,
-            sparks: 0.6,
-        }
+effect_params! {
+    /// Diagonal stripes rotating around the prop (made for trees and matrices).
+    pub struct SpiralParams {
+        /// Stripes around the prop.
+        count: u32 = 3 => "count", "Stripes", int(1, 100);
+        /// Turns per second.
+        speed: f32 = 0.5 => "speed", "Speed", number(0.0, 20.0, 0.05, "turns per second");
+        /// Fraction of each stripe's space that is lit (0–1).
+        thickness: f32 = 0.5 => "thickness", "Thickness", number(0.0, 1.0, 0.01);
+        /// How steeply the stripes slant (0 = straight up; negative slants the other way).
+        twist: f32 = 1.0 => "twist", "Twist", number(-10.0, 10.0, 0.1);
+        /// Which way the stripes turn.
+        direction: Direction = Direction::Forward => "direction", "Direction", choice;
     }
 }
 
-/// Streaks of light with fading tails.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct MeteorsParams {
-    /// Meteors on the prop at once.
-    pub count: u32,
-    /// Prop heights (or widths) travelled per second.
-    pub speed: f32,
-    /// Tail length, as a fraction of the prop's height (or width).
-    pub length: f32,
-    pub direction: MeteorDirection,
-}
-
-impl Default for MeteorsParams {
-    fn default() -> Self {
-        Self {
-            count: 5,
-            speed: 1.0,
-            length: 0.25,
-            direction: MeteorDirection::Down,
-        }
+effect_params! {
+    /// Flames rising from the bottom of the prop.
+    pub struct FireParams {
+        /// How high the flames reach, as a fraction of the prop's height (0–1).
+        height: f32 = 0.8 => "height", "Height", number(0.0, 1.0, 0.01);
+        /// How often new flames flare up (0–1).
+        sparks: f32 = 0.6 => "sparks", "Sparks", number(0.0, 1.0, 0.01);
     }
 }
 
-/// Rings spreading out from the center of the prop.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct RippleParams {
-    /// How fast rings grow: center-to-corner distances per second.
-    pub speed: f32,
-    /// Distance between rings (center-to-corner = 1).
-    pub spacing: f32,
-    /// Ring thickness (center-to-corner = 1).
-    pub thickness: f32,
+effect_params! {
+    /// Streaks of light with fading tails.
+    pub struct MeteorsParams {
+        /// Meteors on the prop at once.
+        count: u32 = 5 => "count", "Meteors", int(1, 100);
+        /// Prop heights (or widths) travelled per second.
+        speed: f32 = 1.0 => "speed", "Speed", number(0.01, 20.0, 0.01, "per second");
+        /// Tail length, as a fraction of the prop's height (or width).
+        length: f32 = 0.25 => "length", "Tail length", number(0.01, 1.0, 0.01);
+        /// Which way the meteors fall.
+        direction: MeteorDirection = MeteorDirection::Down => "direction", "Direction", choice;
+    }
 }
 
-impl Default for RippleParams {
-    fn default() -> Self {
-        Self {
-            speed: 0.5,
-            spacing: 0.4,
-            thickness: 0.12,
-        }
+effect_params! {
+    /// Rings spreading out from the center of the prop.
+    pub struct RippleParams {
+        /// How fast rings grow: center-to-corner distances per second.
+        speed: f32 = 0.5 => "speed", "Speed", number(0.0, 20.0, 0.05, "per second");
+        /// Distance between rings (center-to-corner = 1).
+        spacing: f32 = 0.4 => "spacing", "Spacing", number(0.01, 4.0, 0.01);
+        /// Ring thickness (center-to-corner = 1).
+        thickness: f32 = 0.12 => "thickness", "Thickness", number(0.01, 1.0, 0.01);
     }
 }
 

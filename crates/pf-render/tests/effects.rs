@@ -551,3 +551,65 @@ fn hostile_settings_never_panic_or_produce_garbage() {
         }
     }
 }
+
+#[test]
+fn ripple_rings_stay_crisp_hours_into_an_effect() {
+    // Rings 25 ms apart in time: 400,000 ring periods later (about 2.8 hours) the picture is the
+    // same. With an f32 front the ring position drifts by more than the ring thickness.
+    let ripple = EffectParams::Ripple(RippleParams {
+        speed: 20.0,
+        spacing: 0.5,
+        thickness: 0.01,
+    });
+    let length = 4 * 60 * 60 * 1000;
+    let coverage = |ms: u64| -> Vec<f32> {
+        (0..200)
+            .map(|i| {
+                let r = i as f32 / 200.0;
+                shade(
+                    &ripple,
+                    time(ms, length),
+                    at(0.5 + r * 0.5, 0.5 + r * 0.5),
+                    &[Rgb::WHITE],
+                    GRID,
+                )
+                .a
+            })
+            .collect()
+    };
+    let early = coverage(1013);
+    assert!(early.iter().any(|&a| a > 0.5), "rings are drawn");
+    let later = coverage(1013 + 400_000 * 25);
+    assert!(
+        early.iter().zip(&later).all(|(a, b)| (a - b).abs() < 1e-3),
+        "{early:?}\n{later:?}"
+    );
+}
+
+#[test]
+fn the_renderer_clamps_to_the_settings_table() {
+    let at_max = EffectParams::Chase(ChaseParams {
+        speed: 50.0,
+        bands: 1000,
+        ..ChaseParams::default()
+    });
+    let beyond = EffectParams::Chase(ChaseParams {
+        speed: 5000.0,
+        bands: 100_000,
+        ..ChaseParams::default()
+    });
+    for ms in [0, 7, 333, 1234] {
+        for i in 0..10 {
+            assert_eq!(
+                shade(&beyond, time(ms, 5000), strip(i), &[Rgb::RED], STRIP),
+                shade(&at_max, time(ms, 5000), strip(i), &[Rgb::RED], STRIP)
+            );
+        }
+    }
+    let count = MeteorsParams::SETTINGS
+        .iter()
+        .find(|s| s.key == "count")
+        .unwrap()
+        .range;
+    assert!(matches!(count, SettingRange::Int { max, .. } if max == pf_render::MAX_METEORS));
+}

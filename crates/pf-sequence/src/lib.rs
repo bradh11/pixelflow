@@ -11,6 +11,7 @@ mod effect;
 mod ids;
 mod io;
 mod limits;
+mod settings;
 mod validate;
 
 pub use color::Rgb;
@@ -25,5 +26,8 @@ pub use io::{SequenceError, check_sequence, sequence_from_json, sequence_to_json
 pub use limits::{
     MAX_DURATION_MS, MAX_EFFECTS, MAX_FRAME_MS, MAX_LAYERS_PER_ROW, MAX_MARKS, MAX_PALETTE_COLORS, MAX_ROWS,
     MAX_SEQUENCE_BYTES, MAX_TEXT_LEN, MAX_TIMING_TRACKS, MIN_FRAME_MS, limit_problems,
+};
+pub use settings::{
+    ChoiceOption, EffectInfo, SettingInfo, SettingRange, SettingSpec, SettingValue, effect_catalog,
 };
 pub use validate::{SequenceIssue, format_ms, validate_sequence};

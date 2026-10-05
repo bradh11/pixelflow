@@ -4,6 +4,10 @@
 //!
 //! Time-dependent values are worked out once per frame (in `new`, in double precision so long
 //! effects stay smooth), then [`Shade::shade`] runs for every pixel.
+//!
+//! Settings are clamped to the ranges in each kind's settings table (`pf_sequence`, see
+//! `EffectParams::sanitize`) before an effect is drawn, so the settings panel, file loading, and
+//! the renderer all agree on what a setting can be. The constructors below rely on that.
 
 use crate::color::{Colors, Rgba, unit};
 use crate::geometry::Pixel;
@@ -14,10 +18,8 @@ use pf_sequence::{
 };
 use std::f32::consts::TAU;
 
-/// Most meteors drawn at once on one target.
+/// Most meteors drawn at once on one target (the top of the Meteors "count" setting's range).
 pub const MAX_METEORS: u32 = 100;
-/// Most bands, bars, or stripes drawn on one target.
-const MAX_REPEATS: u32 = 10_000;
 
 /// Where an effect is in its own time.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -46,7 +48,7 @@ impl EffectTime {
     /// How many times something happening `per_second` times a second has happened: whole
     /// count and fraction of the current one.
     fn cycles(&self, per_second: f32) -> (u64, f32) {
-        let x = self.seconds() * f64::from(sane(per_second, 0.0, 1e6)).abs();
+        let x = self.seconds() * f64::from(per_second.max(0.0));
         (x.floor() as u64, x.fract() as f32)
     }
 }
@@ -56,11 +58,6 @@ impl EffectTime {
 pub struct Canvas {
     pub columns: u32,
     pub rows: u32,
-}
-
-/// Turns NaN and infinities into `fallback`, and clamps to `lo..=hi`.
-fn sane(v: f32, fallback: f32, hi: f32) -> f32 {
-    if v.is_finite() { v.clamp(-hi, hi) } else { fallback }
 }
 
 /// Deterministic randomness: a well-mixed 64-bit hash of a seed and two numbers.
@@ -151,11 +148,10 @@ pub struct ColorWash {
 
 impl ColorWash {
     pub fn new(p: &ColorWashParams, time: &EffectTime, colors: Colors) -> Self {
-        let cycles = sane(p.cycles, 1.0, 1e4).abs();
         Self {
             colors,
             gradient: p.gradient,
-            position: (f64::from(time.t_norm) * f64::from(cycles)).rem_euclid(2.0) as f32,
+            position: (f64::from(time.t_norm) * f64::from(p.cycles)).rem_euclid(2.0) as f32,
         }
     }
 }
@@ -212,8 +208,8 @@ impl Chase {
         Self {
             colors,
             head: flip(head, p.direction),
-            bands: p.bands.clamp(1, MAX_REPEATS) as f32,
-            width: unit(p.width),
+            bands: p.bands.max(1) as f32,
+            width: p.width,
         }
     }
 }
@@ -249,7 +245,7 @@ impl Bars {
             axis: p.axis,
             direction: p.direction,
             offset,
-            count: p.count.clamp(1, MAX_REPEATS) as f32,
+            count: p.count.max(1) as f32,
         }
     }
 }
@@ -287,10 +283,10 @@ impl Wave {
         Self {
             colors,
             direction: p.direction,
-            cycles: sane(p.cycles, 1.0, 1e4),
+            cycles: p.cycles,
             phase,
-            amplitude: unit(p.height) / 2.0,
-            half_thickness: unit(p.thickness) / 2.0,
+            amplitude: p.height / 2.0,
+            half_thickness: p.thickness / 2.0,
         }
     }
 }
@@ -423,10 +419,10 @@ impl Spiral {
         let (_, rotation) = time.cycles(p.speed);
         Self {
             colors,
-            count: p.count.clamp(1, MAX_REPEATS) as f32,
+            count: p.count.max(1) as f32,
             rotation: flip(rotation, p.direction),
-            thickness: unit(p.thickness),
-            twist: sane(p.twist, 1.0, 1e3),
+            thickness: p.thickness,
+            twist: p.twist,
         }
     }
 }
@@ -573,8 +569,8 @@ impl Meteors {
             MeteorDirection::Left | MeteorDirection::Right => canvas.rows,
         }
         .max(1);
-        let length = unit(p.length).max(0.01);
-        let speed = sane(p.speed, 1.0, 1e4).abs().max(1e-3);
+        let length = p.length.max(0.01);
+        let speed = p.speed.max(0.01);
         // Each meteor crosses (plus its tail) once per period, starting at its own random time.
         let period = f64::from(1.0 + length) / f64::from(speed);
         let meteors = (0..p.count.min(MAX_METEORS))
@@ -600,6 +596,8 @@ impl Meteors {
 }
 
 impl Shade for Meteors {
+    /// Looks at every meteor for every pixel: at most [`MAX_METEORS`] cheap lane checks (about
+    /// 0.3 ms per 100k pixels in the benchmark), so lanes aren't bucketed.
     #[inline]
     fn shade(&self, px: &Pixel) -> Rgba {
         let (travel, cross) = match self.direction {
@@ -628,19 +626,28 @@ impl Shade for Meteors {
 
 pub struct Ripple {
     colors: Colors,
+    /// How far the first ring has travelled, capped (beyond the corners every pixel is reached).
     front: f32,
+    /// Rings born so far, and where the newest one is: worked out in double precision, so rings
+    /// stay crisp hours into an effect (an f32 front loses the ring thickness after a while).
+    born: u64,
+    phase: f32,
     spacing: f32,
     half_thickness: f32,
 }
 
 impl Ripple {
     pub fn new(p: &RippleParams, time: &EffectTime, colors: Colors) -> Self {
-        let speed = sane(p.speed, 0.5, 1e4).abs();
+        let front = time.seconds() * f64::from(p.speed.max(0.0));
+        let spacing = f64::from(p.spacing.max(0.01));
+        let born = (front / spacing).floor();
         Self {
             colors,
-            front: (time.seconds() * f64::from(speed)) as f32,
-            spacing: sane(p.spacing, 0.4, 1e4).abs().max(0.01),
-            half_thickness: unit(p.thickness).max(0.001) / 2.0,
+            front: front.min(8.0) as f32,
+            born: born as u64,
+            phase: (front - born * spacing) as f32,
+            spacing: spacing as f32,
+            half_thickness: p.thickness.max(0.001) / 2.0,
         }
     }
 }
@@ -652,17 +659,20 @@ impl Shade for Ripple {
         let (dx, dy) = (px.u - 0.5, px.v - 0.5);
         let r = (dx * dx + dy * dy).sqrt() / std::f32::consts::FRAC_1_SQRT_2;
         // Ring j was born j * spacing ago (in distance) and is now at front - j * spacing.
-        let x = self.front - r;
-        if x < -self.half_thickness {
+        if self.front - r < -self.half_thickness {
             return Rgba::CLEAR;
         }
-        let ring = (x / self.spacing).round().max(0.0);
-        let off = (x - ring * self.spacing).abs();
+        // The nearest ring j sits at front - j * spacing = phase - k * spacing, j = born + k.
+        let k = ((self.phase - r) / self.spacing).round();
+        let j = self.born as i64 + k as i64;
+        let (ring, off) = if j < 0 {
+            // Early on (`front` is exact then): the first ring is the nearest.
+            (0, (self.front - r).abs())
+        } else {
+            (j as u64, (self.phase - r - k * self.spacing).abs())
+        };
         if off <= self.half_thickness {
-            Rgba::with_alpha(
-                self.colors.get(ring as u64),
-                1.0 - off / self.half_thickness * 0.5,
-            )
+            Rgba::with_alpha(self.colors.get(ring), 1.0 - off / self.half_thickness * 0.5)
         } else {
             Rgba::CLEAR
         }
@@ -690,9 +700,9 @@ pub enum Shader {
 }
 
 impl Shader {
-    /// Prepares `params` for one frame.
+    /// Prepares `params` for one frame, clamped to their kind's settings table first.
     pub fn new(params: &EffectParams, time: &EffectTime, colors: Colors, seed: u64, canvas: Canvas) -> Self {
-        match params {
+        match &params.sanitized() {
             EffectParams::On(p) => Shader::On(On::new(p, time, colors)),
             EffectParams::Off(_) => Shader::Off(Off),
             EffectParams::ColorWash(p) => Shader::ColorWash(ColorWash::new(p, time, colors)),

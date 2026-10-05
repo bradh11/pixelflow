@@ -1,4 +1,5 @@
-//! Size limits on sequence files, so a damaged or hostile file can't exhaust memory or time.
+//! Size limits on sequence files, so a damaged or hostile file can't exhaust memory or time, plus
+//! effect settings outside their kind's ranges (non-finite numbers included).
 
 use crate::Sequence;
 
@@ -25,7 +26,8 @@ pub const MAX_PALETTE_COLORS: usize = 32;
 /// Characters in a name, label, or file path.
 pub const MAX_TEXT_LEN: usize = 4_096;
 
-/// Every size limit the sequence exceeds, in plain language (empty when it fits).
+/// Every size limit the sequence exceeds, and the first effect setting outside its range (see
+/// [`crate::effect_catalog`]), in plain language (empty when it fits).
 pub fn limit_problems(seq: &Sequence) -> Vec<String> {
     let mut problems = Vec::new();
     if seq.duration_ms > MAX_DURATION_MS {
@@ -65,6 +67,16 @@ pub fn limit_problems(seq: &Sequence) -> Vec<String> {
         problems.push(format!(
             "An effect's palette has {} colors; at most {MAX_PALETTE_COLORS} are allowed.",
             effect.palette.colors.len()
+        ));
+    }
+    if let Some((effect, why)) = seq
+        .effects()
+        .find_map(|e| e.params.setting_problem().map(|why| (e, why)))
+    {
+        problems.push(format!(
+            "The {} effect at {} has a setting PixelFlow can't use: {why}.",
+            effect.kind().label(),
+            crate::format_ms(effect.start_ms)
         ));
     }
     if seq.timing_tracks.len() > MAX_TIMING_TRACKS {

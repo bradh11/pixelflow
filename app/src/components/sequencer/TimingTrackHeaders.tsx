@@ -67,7 +67,10 @@ export function TimingTrackHeaders({ doc }: { doc: Sequence }) {
                 {track.name}
               </span>
             )}
-            <span className="shrink-0 text-[10px] text-neutral-400 group-hover:hidden">{kindLabel(track.kind)}</span>
+            {/* What it marks, unless its name already says so. */}
+            {!track.name.toLowerCase().includes(kindLabel(track.kind).toLowerCase()) && (
+              <span className="shrink-0 text-[10px] text-neutral-400 group-hover:hidden">{kindLabel(track.kind)}</span>
+            )}
             <button
               type="button"
               aria-label={`${track.name} menu`}

@@ -266,7 +266,9 @@ export function PasteLyricsDialog({ doc, track, onClose }: { doc: Sequence; trac
         {badTime && <p className="ml-6 text-red-600 dark:text-red-400">{TIME_HINT}</p>}
         <label className={`flex items-center gap-2 ${chosen.length === 0 ? "opacity-50" : ""}`}>
           <input type="radio" name="spread" disabled={chosen.length === 0} checked={mode === "marks"} onChange={() => setMode("marks")} />
-          Onto the {chosen.length === 1 ? "selected mark" : `${chosen.length} selected marks`}, one line each
+          {chosen.length === 0
+            ? "Onto selected marks, one line each (select marks on this track first)"
+            : `Onto the ${chosen.length === 1 ? "selected mark" : `${chosen.length} selected marks`}, one line each`}
         </label>
         {mismatch && (
           <p className="ml-6 text-amber-700 dark:text-amber-400">

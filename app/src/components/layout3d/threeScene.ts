@@ -305,6 +305,8 @@ export function createThreeScene(canvas: HTMLCanvasElement): Scene3d {
   const model = new Group();
   scene.add(model);
   let modelOpacity = 1;
+  /** Counts model loads, so a slow one finishing after a newer one is dropped. */
+  let modelLoads = 0;
 
   const selectionBox = new Box3Helper(new ThreeBox3(), ACCENT);
   (selectionBox.material as Material).depthTest = false;
@@ -472,6 +474,7 @@ export function createThreeScene(canvas: HTMLCanvasElement): Scene3d {
     },
 
     async setModel(next) {
+      const load = ++modelLoads;
       for (const child of [...model.children]) {
         model.remove(child);
         disposeTree(child);
@@ -479,6 +482,10 @@ export function createThreeScene(canvas: HTMLCanvasElement): Scene3d {
       modelShadow.clear();
       if (!next) return null;
       const loaded = await parseModel(next.bytes, next.name);
+      if (load !== modelLoads) {
+        disposeTree(loaded);
+        return null;
+      }
       const box = naturalBox(loaded);
       model.add(loaded);
       shadowModel();

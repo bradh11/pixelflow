@@ -6,16 +6,17 @@
 
 use crate::error::EngineError;
 use crate::output::{ControllerStatus, controller_status};
+use pf_audio::{AudioClock, AudioError, MusicPlayer, SilentClock};
 use pf_fseq::Sequence;
 use pf_mapping::ChannelMap;
-use pf_model::{Protocol, Show};
+use pf_model::{Protocol, SequenceId, Show};
 use pf_output::{OutputHandle, OutputSettings, PassthroughRoute, Transport, wire_order};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// Highest output send rate, in packets per controller per second.
 const MAX_SEND_RATE: u32 = 120;
@@ -42,16 +43,77 @@ pub struct PlaybackStatus {
     pub notes: Vec<String>,
     /// Why playback stopped by itself (a damaged file, for example).
     pub error: Option<String>,
+    /// The show's sequence entry being played, if any.
+    pub sequence: Option<SequenceId>,
+    /// The music playing along, if any.
+    pub music: Option<PathBuf>,
+    pub offset_ms: i32,
+    pub volume: f32,
 }
 
 /// What the player thread and the engine share.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct Control {
     paused: bool,
-    seek_to: Option<u32>,
+    /// Where to jump to, in sequence (light) time.
+    seek_to: Option<u64>,
     frame: u32,
     ended: bool,
     error: Option<String>,
+    /// How far the lights run ahead of the music.
+    offset_ms: i32,
+    volume: f32,
+    /// Why the music isn't playing, when it should be.
+    music_note: Option<String>,
+}
+
+impl Default for Control {
+    fn default() -> Self {
+        Self {
+            paused: false,
+            seek_to: None,
+            frame: 0,
+            ended: false,
+            error: None,
+            offset_ms: 0,
+            volume: 1.0,
+            music_note: None,
+        }
+    }
+}
+
+/// Makes the clock playback follows: the music when there is a file, else a silent stopwatch.
+pub type ClockFactory = Arc<dyn Fn(Option<&Path>) -> Result<Box<dyn AudioClock>, AudioError> + Send + Sync>;
+
+/// The real clock: plays the music on the default sound output.
+pub fn music_clocks() -> ClockFactory {
+    Arc::new(|music: Option<&Path>| match music {
+        Some(path) => MusicPlayer::open(path).map(|p| Box::new(p) as Box<dyn AudioClock>),
+        None => Ok(Box::new(SilentClock::new()) as Box<dyn AudioClock>),
+    })
+}
+
+/// Lights time for a music position: `music + offset`, never below zero.
+fn light_ms(music: Duration, offset_ms: i32) -> u64 {
+    let ms = i128::try_from(music.as_millis()).unwrap_or(i128::MAX) + i128::from(offset_ms);
+    u64::try_from(ms.max(0)).unwrap_or(u64::MAX)
+}
+
+/// Music position for a lights time: `light - offset`, never below zero.
+fn music_at(light: u64, offset_ms: i32) -> Duration {
+    let ms = i128::from(light) - i128::from(offset_ms);
+    Duration::from_millis(u64::try_from(ms.max(0)).unwrap_or(u64::MAX))
+}
+
+/// What to play: the sequence file, its music, and how they line up.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlayRequest {
+    pub path: PathBuf,
+    pub music: Option<PathBuf>,
+    pub offset_ms: i32,
+    pub volume: f32,
+    /// The show's sequence entry, when playing one.
+    pub sequence: Option<SequenceId>,
 }
 
 fn lock(control: &Mutex<Control>) -> std::sync::MutexGuard<'_, Control> {
@@ -167,6 +229,7 @@ fn paint_preview(show: &Show, map: &ChannelMap, sequence_frame: &[u8], preview: 
 
 /// A sequence playing: a player thread reading frames on time and the output thread sending them.
 pub(crate) struct PlaybackSession {
+    request: PlayRequest,
     path: PathBuf,
     /// What the session was built from: when an edit changes either, it must restart.
     routes: Vec<PassthroughRoute>,
@@ -188,11 +251,13 @@ impl PlaybackSession {
     pub fn start(
         show: &Show,
         map: &ChannelMap,
-        path: &Path,
+        request: &PlayRequest,
         position_ms: u64,
         transport: Box<dyn Transport>,
         settings: OutputSettings,
+        clocks: &ClockFactory,
     ) -> Result<Self, EngineError> {
+        let path = request.path.as_path();
         let mut sequence = Sequence::open(path).map_err(|e| EngineError::Playback(e.to_string()))?;
         let header = sequence.header().clone();
         let channels = header.channels as usize;
@@ -230,22 +295,44 @@ impl PlaybackSession {
 
         let control = Arc::new(Mutex::new(Control {
             frame: start_frame,
+            offset_ms: request.offset_ms,
+            volume: request.volume,
             ..Control::default()
         }));
         let stop = Arc::new(AtomicBool::new(false));
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
         let player = {
             let (control, stop, preview) = (Arc::clone(&control), Arc::clone(&stop), Arc::clone(&preview));
             let raw = Arc::clone(&raw);
             let control_for_reads = Arc::clone(&control);
             let (show, map) = (show.clone(), map.clone());
-            let step = Duration::from_millis(u64::from(header.step_ms));
+            let step_ms = u64::from(header.step_ms.max(1));
             let frames = header.frames;
+            let music = request.music.clone();
+            let clocks = Arc::clone(clocks);
+            let start_ms = u64::from(start_frame) * step_ms;
             std::thread::Builder::new()
                 .name("pixelflow-playback".into())
                 .spawn(move || {
-                    // Frame `base_frame` was due at `base_time`; later frames follow every `step`.
-                    let (mut base_frame, mut base_time) = (start_frame, Instant::now());
+                    // The clock lives on this thread (sound devices needn't be shareable). Without
+                    // working music, a silent stopwatch keeps time instead.
+                    let mut clock: Box<dyn AudioClock> = match clocks(music.as_deref()) {
+                        Ok(clock) => clock,
+                        Err(error) => {
+                            lock(&control).music_note = Some(format!("{error} Only the lights are playing."));
+                            Box::new(SilentClock::new())
+                        }
+                    };
+                    let (offset, volume) = {
+                        let c = lock(&control);
+                        (c.offset_ms, c.volume)
+                    };
+                    clock.set_volume(volume);
+                    clock.start(music_at(start_ms, offset));
+                    let _ = ready_tx.send(());
                     let mut shown = Some(start_frame);
+                    let mut clock_paused = false;
+                    let mut applied_volume = volume;
                     let mut show_frame = |frame: u32, writer: &mut pf_frame::FrameWriter| -> bool {
                         if let Err(error) = sequence.read_frame(frame, writer.frame_mut()) {
                             // Go dark, like the end of the sequence, before the player exits.
@@ -272,34 +359,37 @@ impl PlaybackSession {
                         true
                     };
                     while !stop.load(Ordering::Relaxed) {
-                        let (paused, seek, current) = {
+                        let (paused, seek, offset, volume, ended) = {
                             let mut c = lock(&control);
-                            (c.paused, c.seek_to.take(), c.frame)
+                            (c.paused, c.seek_to.take(), c.offset_ms, c.volume, c.ended)
                         };
+                        if volume != applied_volume {
+                            clock.set_volume(volume);
+                            applied_volume = volume;
+                        }
                         if let Some(target) = seek {
-                            base_frame = target.min(frames.saturating_sub(1));
+                            clock.seek(music_at(target, offset));
                             shown = None;
                             lock(&control).ended = false;
-                        }
-                        if paused {
-                            // Hold the current frame (or show where a seek landed), and resume from it.
-                            let hold = if seek.is_some() { base_frame } else { current };
-                            if shown != Some(hold) {
-                                if !show_frame(hold, &mut writer) {
-                                    return;
-                                }
-                                shown = Some(hold);
+                            if ended && !paused {
+                                clock.resume();
+                                clock_paused = false;
                             }
-                            base_frame = hold;
-                            base_time = Instant::now();
-                            std::thread::sleep(POLL);
-                            continue;
                         }
-                        if seek.is_some() {
-                            base_time = Instant::now();
+                        if paused != clock_paused {
+                            if paused {
+                                clock.pause();
+                            } else {
+                                clock.resume();
+                            }
+                            clock_paused = paused;
                         }
-                        let elapsed = base_time.elapsed().as_millis() / step.as_millis().max(1);
-                        let due = u64::from(base_frame) + u64::try_from(elapsed).unwrap_or(u64::MAX);
+                        // Lights follow the music: the frame due is (music position + offset) / step.
+                        let light = match seek {
+                            Some(target) if paused => target,
+                            _ => light_ms(clock.position(), offset),
+                        };
+                        let due = light / step_ms;
                         if due >= u64::from(frames) {
                             if !lock(&control).ended {
                                 writer.frame_mut().fill(0);
@@ -307,6 +397,8 @@ impl PlaybackSession {
                                 preview.lock().unwrap_or_else(PoisonError::into_inner).fill(0);
                                 raw.lock().unwrap_or_else(PoisonError::into_inner).fill(0);
                                 lock(&control).ended = true;
+                                clock.pause();
+                                clock_paused = true;
                             }
                             std::thread::sleep(POLL);
                             continue;
@@ -318,13 +410,17 @@ impl PlaybackSession {
                             }
                             shown = Some(due);
                         }
-                        let next_due = base_time + step * (due - base_frame + 1);
-                        std::thread::sleep(next_due.saturating_duration_since(Instant::now()).min(POLL));
+                        // Wake at the next frame boundary (or sooner, to notice pause/seek/stop).
+                        let until_next = step_ms - light % step_ms;
+                        std::thread::sleep(Duration::from_millis(until_next).min(POLL));
                     }
                 })
                 .map_err(EngineError::Network)?
         };
+        // Wait until the music is open and playing (or known to be unavailable) before reporting.
+        let _ = ready_rx.recv_timeout(Duration::from_secs(5));
         Ok(Self {
+            request: request.clone(),
             path: path.to_path_buf(),
             routes,
             map: map.clone(),
@@ -350,11 +446,31 @@ impl PlaybackSession {
         let frame = u32::try_from(position_ms / u64::from(self.frame_ms.max(1))).unwrap_or(u32::MAX);
         let frame = frame.min(self.frames.saturating_sub(1));
         let mut c = lock(&self.control);
-        c.seek_to = Some(frame);
+        c.seek_to = Some(u64::from(frame) * u64::from(self.frame_ms));
         c.frame = frame;
         if c.error.is_none() {
             // Seeking after the end plays again (the player thread is still running).
             c.ended = false;
+        }
+    }
+
+    /// Shifts the lights against the music (positive: lights ahead), live.
+    pub fn set_offset(&self, offset_ms: i32) {
+        lock(&self.control).offset_ms = offset_ms;
+    }
+
+    /// Sets the music volume (0.0–1.0), live.
+    pub fn set_volume(&self, volume: f32) {
+        lock(&self.control).volume = volume.clamp(0.0, 1.0);
+    }
+
+    /// What this session plays, with the current offset and volume.
+    pub fn request(&self) -> PlayRequest {
+        let c = lock(&self.control);
+        PlayRequest {
+            offset_ms: c.offset_ms,
+            volume: c.volume,
+            ..self.request.clone()
         }
     }
 
@@ -388,8 +504,12 @@ impl PlaybackSession {
             duration_ms: u64::from(self.frames) * u64::from(self.frame_ms),
             frame_ms: self.frame_ms,
             controllers: controller_status(&stats),
-            notes: self.notes.clone(),
+            notes: self.notes.iter().cloned().chain(c.music_note.clone()).collect(),
             error: c.error.clone(),
+            sequence: self.request.sequence,
+            music: self.request.music.clone().filter(|_| c.music_note.is_none()),
+            offset_ms: c.offset_ms,
+            volume: c.volume,
         }
     }
 
@@ -519,4 +639,18 @@ mod tests {
         paint_preview(&show, &map, &sequence, &mut preview);
         assert_eq!(preview, vec![9, 9, 9, 9, 9, 9, 0, 0, 0, 0, 0, 0]);
     }
+}
+
+/// A show entry for the sequence file at `path`: named after the file, with its music when it
+/// can be found next to it (by the file name recorded in the sequence, or the sequence's own name).
+pub fn sequence_entry_for(path: &Path) -> Result<pf_model::SequenceEntry, EngineError> {
+    let sequence = Sequence::open(path).map_err(|e| EngineError::Playback(e.to_string()))?;
+    let name = path
+        .file_stem()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "Sequence".to_string());
+    let mut entry = pf_model::SequenceEntry::new(name, path.display().to_string());
+    entry.audio =
+        pf_audio::find_audio(path, sequence.header().media.as_deref()).map(|p| p.display().to_string());
+    Ok(entry)
 }

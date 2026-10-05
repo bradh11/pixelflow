@@ -338,3 +338,145 @@ fn real_sequence_plays_when_provided() {
         "the strip shows light"
     );
 }
+
+/// A clock that keeps silent time and records what playback asked of it.
+struct LoggingClock {
+    inner: pf_audio::SilentClock,
+    log: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+impl pf_audio::AudioClock for LoggingClock {
+    fn start(&mut self, position: Duration) {
+        self.log
+            .lock()
+            .unwrap()
+            .push(format!("start {}", position.as_millis()));
+        self.inner.start(position);
+    }
+    fn pause(&mut self) {
+        self.log.lock().unwrap().push("pause".into());
+        self.inner.pause();
+    }
+    fn resume(&mut self) {
+        self.log.lock().unwrap().push("resume".into());
+        self.inner.resume();
+    }
+    fn seek(&mut self, position: Duration) {
+        self.log
+            .lock()
+            .unwrap()
+            .push(format!("seek {}", position.as_millis()));
+        self.inner.seek(position);
+    }
+    fn position(&self) -> Duration {
+        self.inner.position()
+    }
+    fn set_volume(&mut self, volume: f32) {
+        self.log.lock().unwrap().push(format!("volume {volume}"));
+    }
+}
+
+type Log = std::sync::Arc<std::sync::Mutex<Vec<String>>>;
+
+/// An engine whose music is a logging clock (or fails to open, with `broken`).
+fn engine_with_music(broken: bool) -> (Engine, Log, pf_model::SequenceEntry, tempfile::TempDir) {
+    let (engine, _recorded, dir) = engine_with_show(true);
+    let log: Log = Default::default();
+    let opened = log.clone();
+    let clocks: pf_engine::ClockFactory = std::sync::Arc::new(move |music: Option<&Path>| {
+        opened.lock().unwrap().push(format!(
+            "open {}",
+            music.map_or("none".into(), |m| m.display().to_string())
+        ));
+        if broken {
+            return Err(pf_audio::AudioError::NoOutput("no speakers".into()));
+        }
+        Ok(Box::new(LoggingClock {
+            inner: pf_audio::SilentClock::new(),
+            log: opened.clone(),
+        }) as Box<dyn pf_audio::AudioClock>)
+    });
+    let mut engine = engine.with_clocks(clocks);
+    let mut entry = pf_model::SequenceEntry::new("Medley", write_sequence(dir.path()).display().to_string());
+    entry.audio = Some("/music/medley.mp3".into());
+    entry.offset_ms = 100;
+    engine
+        .apply(vec![Edit::AddSequence {
+            sequence: entry.clone(),
+        }])
+        .unwrap();
+    (engine, log, entry, dir)
+}
+
+#[test]
+fn sequences_play_with_their_music_lined_up_by_the_offset() {
+    let (mut engine, log, entry, _dir) = engine_with_music(false);
+    let status = engine.play_sequence(entry.id, 0).unwrap();
+    assert_eq!(status.sequence, Some(entry.id));
+    assert_eq!(status.music.as_deref(), Some(Path::new("/music/medley.mp3")));
+    assert_eq!(status.offset_ms, 100);
+    assert!(status.notes.is_empty(), "{:?}", status.notes);
+    engine.set_playback_paused(true).unwrap();
+    engine.seek_playback(250).unwrap();
+    wait_until(|| log.lock().unwrap().iter().any(|l| l == "seek 150"));
+    // Lights at 250 ms means music at 150 ms when the lights run 100 ms ahead.
+    let entries = log.lock().unwrap().clone();
+    assert_eq!(entries[0], "open /music/medley.mp3");
+    assert!(entries.contains(&"start 0".to_string()), "{entries:?}");
+    assert!(entries.contains(&"pause".to_string()), "{entries:?}");
+
+    engine.set_playback_volume(0.4).unwrap();
+    wait_until(|| log.lock().unwrap().iter().any(|l| l == "volume 0.4"));
+}
+
+#[test]
+fn editing_the_offset_applies_live_and_removing_the_sequence_stops_it() {
+    let (mut engine, _log, entry, _dir) = engine_with_music(false);
+    engine.play_sequence(entry.id, 0).unwrap();
+    let generation = engine.playback_generation();
+    let mut later = entry.clone();
+    later.offset_ms = -80;
+    engine
+        .apply(vec![Edit::UpdateSequence { sequence: later }])
+        .unwrap();
+    assert_eq!(engine.playback_status().unwrap().offset_ms, -80);
+    assert_eq!(
+        engine.playback_generation(),
+        generation,
+        "no restart for an offset change"
+    );
+
+    engine.apply(vec![Edit::RemoveSequence { id: entry.id }]).unwrap();
+    assert!(engine.playback_status().is_none());
+    assert!(engine.playback_stop_reason().unwrap().contains("removed"));
+}
+
+#[test]
+fn without_working_music_only_the_lights_play() {
+    let (mut engine, _log, entry, _dir) = engine_with_music(true);
+    let status = engine.play_sequence(entry.id, 0).unwrap();
+    assert_eq!(status.state, "playing");
+    assert_eq!(status.music, None);
+    assert_eq!(
+        status.notes,
+        vec!["No sound output is available: no speakers Only the lights are playing."]
+    );
+}
+
+#[test]
+fn a_sequence_entry_finds_its_music() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_sequence(dir.path());
+    let entry = pf_engine::sequence_entry_for(&path).unwrap();
+    assert_eq!(
+        (entry.name.as_str(), entry.audio.as_deref(), entry.offset_ms),
+        ("medley", None, 0)
+    );
+    let song = dir.path().join("medley.mp3");
+    std::fs::write(&song, b"x").unwrap();
+    assert_eq!(
+        pf_engine::sequence_entry_for(&path).unwrap().audio,
+        Some(song.display().to_string())
+    );
+    assert!(pf_engine::sequence_entry_for(&dir.path().join("nope.fseq")).is_err());
+}

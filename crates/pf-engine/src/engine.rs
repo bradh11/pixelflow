@@ -5,10 +5,10 @@ use crate::error::EngineError;
 use crate::history::History;
 use crate::output::{OutputSession, OutputStatus, PatternSpec, TargetSpec, output_key};
 use crate::persist::{self, HistoryEntry};
-use crate::playback::{self, PlaybackSession, PlaybackStatus};
+use crate::playback::{self, ClockFactory, PlayRequest, PlaybackSession, PlaybackStatus};
 use crate::snapshot::{PreviewProp, ShowSnapshot, Summary};
 use pf_mapping::ChannelMap;
-use pf_model::{IssueCode, Severity, Show, ValidationReport};
+use pf_model::{IssueCode, SequenceId, Severity, Show, ValidationReport};
 use pf_output::{OutputSettings, Transport, UdpTransport};
 use pf_patterns::{Target, resolve_target};
 use std::io;
@@ -56,6 +56,9 @@ pub struct Engine {
     /// One sACN identity for the engine's lifetime, so restarts keep the same source.
     output_settings: OutputSettings,
     transport: TransportFactory,
+    clocks: ClockFactory,
+    /// Music volume for playback (0.0–1.0), kept across sequences.
+    volume: f32,
 }
 
 impl std::fmt::Debug for Engine {
@@ -90,7 +93,15 @@ impl Engine {
                 let udp = UdpTransport::bind("0.0.0.0:0".parse().expect("valid address"))?;
                 Ok(Box::new(udp) as Box<dyn Transport>)
             }),
+            clocks: playback::music_clocks(),
+            volume: 1.0,
         }
+    }
+
+    /// Replaces how playback keeps time (tests use a silent clock instead of the sound output).
+    pub fn with_clocks(mut self, clocks: ClockFactory) -> Self {
+        self.clocks = clocks;
+        self
     }
 
     /// Replaces how output sockets are created (tests use an in-memory recorder).
@@ -299,8 +310,38 @@ impl Engine {
     }
 
     /// Plays a rendered sequence (`.fseq`) from `position_ms` to every controller that knows
-    /// its sequence channels. Stops a running test pattern or sequence first.
+    /// its sequence channels, without music. Stops a running test pattern or sequence first.
     pub fn start_playback(&mut self, path: &Path, position_ms: u64) -> Result<PlaybackStatus, EngineError> {
+        let request = PlayRequest {
+            path: path.to_path_buf(),
+            music: None,
+            offset_ms: 0,
+            volume: self.volume,
+            sequence: None,
+        };
+        self.play(&request, position_ms)
+    }
+
+    /// Plays one of the show's sequences with its music, lined up by its offset.
+    pub fn play_sequence(&mut self, id: SequenceId, position_ms: u64) -> Result<PlaybackStatus, EngineError> {
+        let entry = self
+            .show
+            .sequences
+            .iter()
+            .find(|s| s.id == id)
+            .ok_or(EngineError::NotFound { kind: "sequence" })?
+            .clone();
+        let request = PlayRequest {
+            path: PathBuf::from(&entry.path),
+            music: entry.audio.as_ref().map(PathBuf::from),
+            offset_ms: entry.offset_ms,
+            volume: self.volume,
+            sequence: Some(entry.id),
+        };
+        self.play(&request, position_ms)
+    }
+
+    fn play(&mut self, request: &PlayRequest, position_ms: u64) -> Result<PlaybackStatus, EngineError> {
         self.stop_session();
         self.stop_reason = None;
         self.stop_playback();
@@ -310,15 +351,24 @@ impl Engine {
         let session = PlaybackSession::start(
             &self.show,
             &map,
-            path,
+            request,
             position_ms,
             transport,
             self.output_settings.clone(),
+            &self.clocks,
         )?;
         let status = session.status();
         self.playback = Some(session);
         self.playback_stop_reason = None;
         Ok(status)
+    }
+
+    /// Sets the music volume (0.0–1.0) for playback, now and later.
+    pub fn set_playback_volume(&mut self, volume: f32) -> Option<PlaybackStatus> {
+        self.volume = volume.clamp(0.0, 1.0);
+        let session = self.playback.as_ref()?;
+        session.set_volume(self.volume);
+        Some(session.status())
     }
 
     /// Pauses or resumes playback (controllers keep showing the paused frame).
@@ -434,7 +484,29 @@ impl Engine {
             self.halt_playback("Playback stopped because no controller has sequence channels anymore.");
             return;
         }
-        if routes == old_routes && map == *old_map {
+        let mut request = session.request();
+        // A playing sequence entry that was edited: its offset applies live; new files restart.
+        let mut files_changed = false;
+        if let Some(id) = request.sequence {
+            match self.show.sequences.iter().find(|s| s.id == id) {
+                None => {
+                    self.halt_playback("Playback stopped because its sequence was removed from the show.");
+                    return;
+                }
+                Some(entry) => {
+                    if entry.offset_ms != request.offset_ms {
+                        session.set_offset(entry.offset_ms);
+                        request.offset_ms = entry.offset_ms;
+                    }
+                    let music = entry.audio.as_ref().map(PathBuf::from);
+                    let path = PathBuf::from(&entry.path);
+                    files_changed = music != request.music || path != request.path;
+                    request.music = music;
+                    request.path = path;
+                }
+            }
+        }
+        if routes == old_routes && map == *old_map && !files_changed {
             return;
         }
         let status = session.status();
@@ -442,7 +514,7 @@ impl Engine {
             // Nothing is sending; the next play builds a fresh session from the edited show.
             return;
         }
-        match self.start_playback(&status.path, status.position_ms) {
+        match self.play(&request, status.position_ms) {
             Ok(_) => {
                 if status.state == "paused" {
                     self.set_playback_paused(true);

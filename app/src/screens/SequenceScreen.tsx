@@ -17,6 +17,47 @@ import { useApp } from "../state/store";
 /** How often playback is checked while a sequence plays. */
 const POLL_MS = 50;
 
+/** The preview's size, remembered on this computer. */
+const PANE_KEY = "pixelflow.sequencePreview";
+/** The preview's share of the column until it's resized, and when made bigger. */
+const DEFAULT_SHARE = 0.34;
+const BIG_SHARE = 0.75;
+/** The least room the preview and the timeline each keep. */
+const MIN_PREVIEW_PX = 120;
+const MIN_TIMELINE_PX = 160;
+/** How far an arrow key moves the divider. */
+const STEP_PX = 20;
+
+interface PaneSize {
+  /** The preview's height (px), or null for its share of the column. */
+  height: number | null;
+  /** Made bigger: the preview takes most of the column. */
+  big: boolean;
+}
+
+function loadPane(): PaneSize {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PANE_KEY) ?? "{}") as Record<string, unknown>;
+    const height = typeof saved.height === "number" && Number.isFinite(saved.height) ? saved.height : null;
+    return { height, big: saved.big === true };
+  } catch {
+    return { height: null, big: false };
+  }
+}
+
+function savePane(pane: PaneSize) {
+  try {
+    localStorage.setItem(PANE_KEY, JSON.stringify(pane));
+  } catch {
+    // Storage unavailable: the size still applies until the screen closes.
+  }
+}
+
+/** A preview height that leaves both the preview and the timeline usable in a column `total` px tall. */
+function fitPreview(height: number, total: number): number {
+  return Math.round(Math.max(MIN_PREVIEW_PX, Math.min(Math.max(MIN_PREVIEW_PX, total - MIN_TIMELINE_PX), height)));
+}
+
 /** The screen where a show is made: effects on props, timed to music. */
 export function SequenceScreen() {
   const doc = useSequencer((s) => s.doc);
@@ -61,14 +102,62 @@ function Workspace() {
   const doc = useSequencer((s) => s.doc)!;
   const show = useApp((s) => s.snapshot?.show);
   const [adding, setAdding] = useState(false);
+  const column = useRef<HTMLDivElement>(null);
+  const [pane, setPane] = useState(loadPane);
+  const resizing = useRef<{ startY: number; from: number } | null>(null);
+  const update = (next: PaneSize) => {
+    setPane(next);
+    savePane(next);
+  };
+  const total = () => column.current?.getBoundingClientRect().height ?? 0;
+  /** The preview's height now, in pixels. */
+  const shown = () => (pane.big ? Math.round(total() * BIG_SHARE) : (pane.height ?? Math.round(total() * DEFAULT_SHARE)));
+  const resizedTo = (e: { clientY: number }) => {
+    const r = resizing.current;
+    return r ? fitPreview(r.from + e.clientY - r.startY, total()) : null;
+  };
   return (
     <div className="flex min-h-0 flex-1">
       <EffectPalette />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div ref={column} className="flex min-w-0 flex-1 flex-col">
         <BeatsBanner />
-        <div className="h-[34%] min-h-40 shrink-0 border-b border-neutral-200 p-2 dark:border-neutral-800">
-          <SequencePreview doc={doc} />
+        <div className="shrink-0 px-2 pt-2 pb-1" style={{ height: pane.big ? `${BIG_SHARE * 100}%` : pane.height !== null ? `${pane.height}px` : `${DEFAULT_SHARE * 100}%` }}>
+          <SequencePreview doc={doc} expanded={pane.big} onExpand={(big) => update({ ...pane, big })} />
         </div>
+        {/* Drag (or use the arrow keys) to share the room between the preview and the timeline;
+            a double-click puts it back. */}
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Preview size"
+          aria-valuenow={pane.big ? undefined : (pane.height ?? undefined)}
+          tabIndex={0}
+          title="Drag to resize the preview (double-click to reset)"
+          className="h-1.5 shrink-0 cursor-row-resize touch-none border-b border-neutral-200 outline-none hover:bg-accent-400/40 focus-visible:bg-accent-400/40 dark:border-neutral-800"
+          onPointerDown={(e) => {
+            if (e.button !== 0) return;
+            e.currentTarget.setPointerCapture?.(e.pointerId);
+            resizing.current = { startY: e.clientY, from: shown() };
+          }}
+          onPointerMove={(e) => {
+            const height = resizedTo(e);
+            if (height !== null) setPane({ height, big: false });
+          }}
+          onPointerUp={(e) => {
+            const height = resizedTo(e);
+            resizing.current = null;
+            if (height !== null) update({ height, big: false });
+          }}
+          onPointerCancel={() => (resizing.current = null)}
+          onDoubleClick={() => update({ height: null, big: false })}
+          onKeyDown={(e) => {
+            if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+            // The arrows move the divider here, not the selected row.
+            e.preventDefault();
+            e.stopPropagation();
+            update({ height: fitPreview(shown() + (e.key === "ArrowDown" ? STEP_PX : -STEP_PX), total()), big: false });
+          }}
+        />
         {doc.rows.length === 0 && doc.timingTracks.length === 0 ? (
           <div className="relative flex-1 p-6">
             <EmptyState title="Add rows for your props">

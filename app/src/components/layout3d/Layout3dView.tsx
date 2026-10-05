@@ -512,9 +512,11 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
     };
   }, []);
 
-  // Space held: drag to pan.
+  // Space held: drag to pan (in the editor; a look-only view leaves Space to its screen, which may
+  // play and pause with it).
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
+      if (!latest.current.editable) return;
       if (e.key === " " && (e.target === canvasRef.current || e.target === document.body) && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         spaceHeld.current = true;

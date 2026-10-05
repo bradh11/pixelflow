@@ -15,6 +15,8 @@ interface View3dState {
   mode: LayoutMode;
   /** The Play screen's preview. */
   playMode: LayoutMode;
+  /** The Sequence screen's preview. */
+  sequenceMode: LayoutMode;
   /** Glow around lit pixels. */
   bloom: boolean;
   /** The ground and its grid. */
@@ -31,6 +33,7 @@ interface View3dState {
 
   setMode(mode: LayoutMode): void;
   setPlayMode(mode: LayoutMode): void;
+  setSequenceMode(mode: LayoutMode): void;
   setBloom(on: boolean): void;
   setGround(on: boolean): void;
   camera(action: CameraAction): void;
@@ -43,6 +46,7 @@ interface View3dState {
 
 const MODE_KEY = "pixelflow.layoutMode";
 const PLAY_MODE_KEY = "pixelflow.playMode";
+const SEQUENCE_MODE_KEY = "pixelflow.sequenceMode";
 const OPTIONS_KEY = "pixelflow.view3dOptions";
 
 function read(key: string): string | null {
@@ -107,6 +111,7 @@ function copyShowView(from: string, to: string) {
 export const useView3d = create<View3dState>((set, get) => ({
   mode: read(MODE_KEY) === "3d" ? "3d" : "2d",
   playMode: read(PLAY_MODE_KEY) === "3d" ? "3d" : "2d",
+  sequenceMode: read(SEQUENCE_MODE_KEY) === "3d" ? "3d" : "2d",
   ...storedOptions(),
   command: null,
   showKey: null,
@@ -121,6 +126,10 @@ export const useView3d = create<View3dState>((set, get) => ({
   setPlayMode(playMode) {
     write(PLAY_MODE_KEY, playMode);
     set({ playMode });
+  },
+  setSequenceMode(sequenceMode) {
+    write(SEQUENCE_MODE_KEY, sequenceMode);
+    set({ sequenceMode });
   },
   setBloom(bloom) {
     write(OPTIONS_KEY, JSON.stringify({ bloom, ground: get().ground }));

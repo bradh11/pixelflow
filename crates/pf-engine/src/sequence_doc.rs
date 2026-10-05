@@ -1927,6 +1927,92 @@ mod tests {
         assert_eq!(open.undo.len(), 1);
     }
 
+    #[test]
+    fn several_effects_changed_together_are_one_undo_step_or_refused_together() {
+        let (mut open, row) = open();
+        let effects: Vec<Effect> = (0..3)
+            .map(|i| Effect::new(EffectKind::Chase, i * 2000, i * 2000 + 1000))
+            .collect();
+        let ids: Vec<EffectId> = effects.iter().map(|e| e.id).collect();
+        let adds: Vec<SequenceEdit> = effects
+            .iter()
+            .map(|effect| SequenceEdit::AddEffect {
+                row,
+                layer: 0,
+                effect: effect.clone(),
+            })
+            .collect();
+        open.apply(&adds, None).unwrap();
+        let steps = open.undo.len();
+
+        // One change from the settings panel: every selected effect gets new colors and a fade.
+        let recolor = |e: &Effect| {
+            let mut changed = e
+                .clone()
+                .with_palette(vec![pf_sequence::Rgb::RED, pf_sequence::Rgb::BLUE]);
+            changed.fade_in_ms = 250;
+            SequenceEdit::UpdateEffect { effect: changed }
+        };
+        let batch: Vec<SequenceEdit> = ids
+            .iter()
+            .map(|id| recolor(open.doc.effect(*id).unwrap()))
+            .collect();
+        let changes = open.apply(&batch, None).unwrap().unwrap();
+        assert_eq!(changes.effects.len(), 3);
+        assert_eq!(open.undo.len(), steps + 1, "one undo step for all three");
+        assert!(
+            ids.iter()
+                .all(|id| open.doc.effect(*id).unwrap().fade_in_ms == 250)
+        );
+        open.undo().unwrap();
+        assert!(
+            ids.iter().all(|id| open.doc.effect(*id).unwrap().fade_in_ms == 0),
+            "one undo takes back every effect's change"
+        );
+        open.redo().unwrap();
+
+        // One effect in the batch can't take the change: none of them changes.
+        let before = open.doc.clone();
+        let mut batch: Vec<SequenceEdit> = ids
+            .iter()
+            .map(|id| {
+                let mut e = open.doc.effect(*id).unwrap().clone();
+                e.blend = pf_sequence::Blend::Add;
+                SequenceEdit::UpdateEffect { effect: e }
+            })
+            .collect();
+        let bad = open.doc.effect(ids[2]).unwrap();
+        batch[2] = serde_json::from_value(serde_json::json!({ "type": "updateEffect", "effect": {
+            "id": bad.id, "startMs": bad.start_ms, "endMs": bad.end_ms,
+            "params": { "kind": "chase", "speed": 1e39 }, "blend": "add" } }))
+        .unwrap();
+        let err = open.apply(&batch, None).unwrap_err().to_string();
+        assert_eq!(
+            err,
+            "The Chase effect at 0:04.000 has a setting PixelFlow can't use: Speed isn't a usable number; use 0 to 50."
+        );
+        assert_eq!(open.doc, before, "the whole batch is refused");
+        assert_eq!(open.undo.len(), steps + 1);
+
+        // Timing is checked per effect too.
+        let mut batch: Vec<SequenceEdit> = ids
+            .iter()
+            .map(|id| SequenceEdit::SetEffectTiming {
+                id: *id,
+                start_ms: open.doc.effect(*id).unwrap().start_ms + 100,
+                end_ms: open.doc.effect(*id).unwrap().end_ms + 100,
+            })
+            .collect();
+        batch[1] = SequenceEdit::SetEffectTiming {
+            id: ids[1],
+            start_ms: 3000,
+            end_ms: 3000,
+        };
+        let err = open.apply(&batch, None).unwrap_err().to_string();
+        assert_eq!(err, "An effect must end after it starts.");
+        assert_eq!(open.doc, before);
+    }
+
     fn spans(track: &TimingTrack) -> Vec<(u64, u64, &str)> {
         track
             .marks

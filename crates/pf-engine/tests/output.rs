@@ -101,11 +101,11 @@ fn output_status_reports_controllers() {
 #[test]
 fn refuses_to_start_when_the_show_has_errors_or_the_color_is_bad() {
     let (mut engine, _recorded, _prop, mut controller, _dir) = engine_with_show();
-    controller.ports[0].max_pixels = Some(1);
+    controller.ports[0].brightness = 200;
     engine.apply(vec![Edit::UpdateController { controller }]).unwrap();
     let err = engine.start_output(solid_red(), TargetSpec::Show).unwrap_err();
     assert!(matches!(err, EngineError::ShowHasErrors(_)));
-    assert!(err.to_string().contains("over capacity"), "{err}");
+    assert!(err.to_string().contains("must be 0–100%"), "{err}");
 
     let bad = PatternSpec {
         color: "nope".into(),
@@ -174,7 +174,7 @@ fn rotating_scaling_and_the_background_photo_keep_output_running() {
 fn an_edit_that_introduces_errors_stops_output() {
     let (mut engine, _recorded, _prop, mut controller, _dir) = engine_with_show();
     engine.start_output(solid_red(), TargetSpec::Show).unwrap();
-    controller.ports[0].max_pixels = Some(1);
+    controller.ports[0].brightness = 200;
     engine.apply(vec![Edit::UpdateController { controller }]).unwrap();
     let status = engine.output_status();
     assert!(!status.running);
@@ -188,6 +188,31 @@ fn an_edit_that_introduces_errors_stops_output() {
     // A deliberate stop clears the reason.
     assert_eq!(engine.stop_output().stop_reason, None);
     assert_eq!(engine.output_status().stop_reason, None);
+}
+
+#[test]
+fn a_port_over_its_pixel_limit_is_a_warning_and_never_stops_output() {
+    let (mut engine, recorded, _prop, mut controller, _dir) = engine_with_show();
+    controller.ports[0].max_pixels = Some(1);
+    engine
+        .apply(vec![Edit::UpdateController {
+            controller: controller.clone(),
+        }])
+        .unwrap();
+    // Starting is allowed, and an edit that pushes a running port over its limit keeps it running.
+    engine.start_output(solid_red(), TargetSpec::Show).unwrap();
+    controller.ports[0].max_pixels = Some(2);
+    engine.apply(vec![Edit::UpdateController { controller }]).unwrap();
+    let status = engine.output_status();
+    assert!(status.running, "{:?}", status.stop_reason);
+    let snapshot = engine.snapshot();
+    let issue = snapshot
+        .issues
+        .iter()
+        .find(|i| i.code == pf_model::IssueCode::PortOverCapacity)
+        .expect("still reported");
+    assert_eq!(issue.severity, pf_model::Severity::Warning);
+    wait_until(|| !packets_to(&recorded, "127.0.0.1:4048").is_empty());
 }
 
 #[test]

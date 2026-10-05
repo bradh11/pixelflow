@@ -32,7 +32,7 @@ fn validate_demo_show_reports_summary_and_no_problems() {
 }
 
 #[test]
-fn validate_reports_wiring_errors_and_exits_1() {
+fn validate_reports_a_full_port_as_a_warning_and_errors_with_exit_1() {
     let mut doc: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(demo_show()).unwrap()).unwrap();
     doc["controllers"][0]["ports"][0]["maxPixels"] = 100.into();
@@ -41,14 +41,21 @@ fn validate_reports_wiring_errors_and_exits_1() {
 
     let output = pixelflow(&["validate", path.to_str().unwrap()]);
     let text = stdout(&output);
-    std::fs::remove_file(&path).ok();
-    assert_eq!(output.status.code(), Some(1), "{text}");
-    assert!(text.contains("1 error, 0 warnings"), "{text}");
+    assert_eq!(output.status.code(), Some(0), "{text}");
+    assert!(text.contains("0 errors, 1 warning"), "{text}");
     assert!(
         text.contains("Port 1 on 'Main FPP' is over capacity by 151 pixels (251 of 100)."),
         "{text}"
     );
     assert!(text.contains("Fix: Move a prop to another port"), "{text}");
+
+    doc["controllers"][0]["ports"][0]["brightness"] = 200.into();
+    std::fs::write(&path, doc.to_string()).unwrap();
+    let output = pixelflow(&["validate", path.to_str().unwrap()]);
+    let text = stdout(&output);
+    std::fs::remove_file(&path).ok();
+    assert_eq!(output.status.code(), Some(1), "{text}");
+    assert!(text.contains("1 error, 1 warning"), "{text}");
 }
 
 #[test]
@@ -170,7 +177,7 @@ fn test_pattern_sends_ddp_frames_to_a_controller() {
 fn test_pattern_refuses_shows_with_errors() {
     let mut doc: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(demo_show()).unwrap()).unwrap();
-    doc["controllers"][0]["ports"][0]["maxPixels"] = 100.into();
+    doc["controllers"][0]["ports"][0]["brightness"] = 200.into();
     let path = std::env::temp_dir().join(format!("pixelflow-refuse-{}.json", std::process::id()));
     std::fs::write(&path, doc.to_string()).unwrap();
     let output = pixelflow(&[

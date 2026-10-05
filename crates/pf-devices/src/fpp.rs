@@ -283,7 +283,11 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
             if !strings.is_empty() {
                 // `strings` is non-empty only when `valid_port` passed.
                 if let Ok(number) = u16::try_from(raw_number) {
-                    ports.push(PortConfig { number, strings });
+                    ports.push(PortConfig {
+                        number,
+                        strings,
+                        max_pixels: None,
+                    });
                 }
             }
         }

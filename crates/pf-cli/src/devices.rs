@@ -217,6 +217,7 @@ mod tests {
                     gamma: 1.0,
                     smart_receiver: None,
                 }],
+                max_pixels: None,
             }],
             destinations: vec![],
             notes: vec![],

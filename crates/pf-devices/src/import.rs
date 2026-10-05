@@ -85,6 +85,8 @@ pub fn plan_import(device: &Device, config: &DeviceConfig, show: &Show) -> Impor
     let mut controller_applied = Vec::new();
     for port_config in &config.ports {
         let mut port = Port::new(port_config.number);
+        // The port's pixel limit, when the device said what it is.
+        port.max_pixels = port_config.max_pixels;
         let several = port_config.strings.len() > 1;
         for (i, string) in port_config.strings.iter().enumerate() {
             let fallback = if several {
@@ -285,10 +287,12 @@ mod tests {
                 PortConfig {
                     number: 1,
                     strings: vec![string(Some("Arch"), 50)],
+                    max_pixels: None,
                 },
                 PortConfig {
                     number: 3,
                     strings: vec![string(None, 100), string(None, 20)],
+                    max_pixels: None,
                 },
             ],
             destinations: vec![],
@@ -342,6 +346,15 @@ mod tests {
             plan.notes[2],
             "The controller applies its own settings (Port 1 \"Arch\": reversed, 50% brightness, gamma 2.2; Port 3 \"Garage Falcon Port 3 String 1\": reversed, 50% brightness, gamma 2.2; Port 3 \"Garage Falcon Port 3 String 2\": reversed, 50% brightness, gamma 2.2), so PixelFlow sends unadjusted data."
         );
+    }
+
+    #[test]
+    fn ports_take_the_pixel_limit_the_device_reported() {
+        let mut config = config();
+        config.ports[0].max_pixels = Some(704);
+        let plan = plan_import(&device(), &config, &Show::new("t"));
+        let limits: Vec<_> = plan.controller.ports.iter().map(|p| p.max_pixels).collect();
+        assert_eq!(limits, vec![Some(704), None], "no limit is guessed");
     }
 
     #[test]

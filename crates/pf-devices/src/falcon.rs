@@ -35,6 +35,42 @@ fn model_for_product(code: u32) -> Option<&'static str> {
     })
 }
 
+/// Most RGB pixels one string port drives (WS2811 pixels), the board's own maximum, when known.
+///
+/// From xLights' Falcon definitions: `resources/controllers/falcon.xcontroller` gives each board a
+/// `MaxPixelPortChannels` (2,040 channels on V2 boards, 3,072 on V3 and F48, and 3,072 or 2,112 on
+/// V4/V5 depending on the board mode), counted three channels to a pixel; `Falcon.cpp`
+/// (`V4_GetMaxPortPixels`) gives V4/V5 boards 1,024 WS2811 pixels a port with up to 32 ports in
+/// use and 704 with more. This is the board's maximum, reached at about 20 frames a second; at
+/// 40 frames xLights expects about 704 (V4/V5) or 680 (older boards) — the Wiring screen warns
+/// about that from the show's frame rate.
+///
+/// `board_mode` is the V4/V5 `B` setting; when it's missing or unknown, the highest port in use
+/// decides. RGBW pixels count as 1⅓, as the board counts channels (see `pf-mapping`).
+pub fn pixels_per_port(product: u32, board_mode: Option<i64>, highest_port: u16) -> Option<u32> {
+    match product {
+        1..=4 => Some(680),
+        5..=7 => Some(1024),
+        128..=132 => {
+            let ports = board_mode.and_then(board_ports).unwrap_or(highest_port);
+            Some(if ports > 32 { 704 } else { 1024 })
+        }
+        _ => None,
+    }
+}
+
+/// Pixel ports on a V4/V5 board in this board mode (xLights' `Falcon::V4_GetBoardPorts`).
+fn board_ports(mode: i64) -> Option<u16> {
+    Some(match mode {
+        0 => 16,
+        1 => 24,
+        2 | 4 | 11 => 32,
+        3 | 5 => 40,
+        6..=10 => 48,
+        _ => return None,
+    })
+}
+
 struct Status {
     name: String,
     firmware: String,
@@ -162,6 +198,7 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
     }
     let (settings, _) = query(http, host, "ST", 1)?;
     let mode = int(&settings, "O");
+    let board_mode = settings.get("B").and_then(Value::as_i64);
     // TODO(falcon-recording): `sc` may be 0- or 1-based; once a real F16V5 response confirms the base,
     // note when the first string doesn't start at PixelFlow's channel 1 (as the FPP adapter does).
     let input = match mode {
@@ -292,8 +329,15 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
             Some(PortConfig {
                 number,
                 strings: strings.into_iter().map(|(_, s)| s).collect(),
+                max_pixels: None,
             })
         })
+        .collect::<Vec<_>>();
+    let highest = ports.iter().map(|p| p.number).max().unwrap_or(0);
+    let max_pixels = pixels_per_port(status.product, board_mode, highest);
+    let ports = ports
+        .into_iter()
+        .map(|p| PortConfig { max_pixels, ..p })
         .collect();
     if !layout_is_contiguous(&placed) {
         notes.push(LAYOUT_NOTE.to_string());
@@ -320,5 +364,33 @@ mod tests {
         assert_eq!(color_order(2), Some(ColorOrder::Grb));
         assert_eq!(color_order(8), None);
         assert_eq!(mode_name(2), "DDP");
+    }
+
+    #[test]
+    fn port_limits_follow_xlights_falcon_definitions() {
+        // V4/V5 (product codes 128–132): 1,024 pixels a port with up to 32 ports in use, 704 with more.
+        for (product, mode, highest, want) in [
+            (130, Some(0), 16, 1024),  // F16V5, 16 local ports
+            (130, Some(4), 32, 1024),  // F16V5, 16 local + 4 smart receiver chains
+            (128, Some(6), 16, 704),   // F16V4, 16 + 16 + 16: limited even if only 16 are used
+            (131, Some(10), 48, 704),  // F48V5, 4 + 4 + 4 smart receiver chains
+            (131, Some(11), 32, 1024), // F48V5, 4 + 4 smart receiver chains
+            (132, None, 32, 1024),     // F32V5, mode not reported: by the ports in use
+            (129, None, 40, 704),
+            (129, Some(99), 40, 704), // unknown mode: by the ports in use
+        ] {
+            assert_eq!(
+                pixels_per_port(product, mode, highest),
+                Some(want),
+                "{product} {mode:?} {highest}"
+            );
+        }
+        // Older boards: V2 2,040 channels (680 pixels), V3 and F48 3,072 (1,024).
+        assert_eq!(pixels_per_port(1, None, 16), Some(680));
+        assert_eq!(pixels_per_port(4, None, 4), Some(680));
+        assert_eq!(pixels_per_port(5, None, 16), Some(1024));
+        assert_eq!(pixels_per_port(7, None, 48), Some(1024));
+        assert_eq!(pixels_per_port(99, None, 16), None);
+        assert_eq!(pixels_per_port(0, None, 16), None);
     }
 }

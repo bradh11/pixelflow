@@ -45,6 +45,9 @@ pub struct PortConfig {
     /// Port number as printed on the controller (1-based).
     pub number: u16,
     pub strings: Vec<StringConfig>,
+    /// Most RGB pixels the port drives as the board is set up, when known (Falcon). Each smart
+    /// receiver on the port has this limit for its own output.
+    pub max_pixels: Option<u32>,
 }
 
 /// Another controller this device sends data to (FPP's channel outputs).

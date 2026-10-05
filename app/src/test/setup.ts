@@ -6,6 +6,7 @@ import { useLayoutEditor } from "../state/layoutEditor";
 import { useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
 import { useView3d } from "../state/view3d";
+import { useWiring } from "../state/wiring";
 
 // jsdom lacks these browser APIs; the command palette (cmdk) uses them.
 globalThis.ResizeObserver ??= class {
@@ -25,4 +26,5 @@ afterEach(() => {
   useView3d.setState(useView3d.getInitialState(), true);
   useSequencer.setState(useSequencer.getInitialState(), true);
   usePaletteDrag.setState(usePaletteDrag.getInitialState(), true);
+  useWiring.setState(useWiring.getInitialState(), true);
 });

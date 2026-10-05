@@ -334,6 +334,8 @@ export interface StringConfig {
 export interface PortConfig {
   number: number;
   strings: StringConfig[];
+  /** Most RGB pixels the port drives as the board is set up, when known (Falcon). */
+  maxPixels: number | null;
 }
 
 export interface Destination {

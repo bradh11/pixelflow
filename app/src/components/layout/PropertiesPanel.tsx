@@ -59,6 +59,7 @@ export function NumberField({
   value,
   onCommit,
   min = -Infinity,
+  max = Infinity,
   integer = false,
   nonZero = false,
   hint,
@@ -69,6 +70,7 @@ export function NumberField({
   value: number;
   onCommit: (value: number) => void;
   min?: number;
+  max?: number;
   integer?: boolean;
   /** Any number but zero (a negative scale mirrors the prop). */
   nonZero?: boolean;
@@ -78,7 +80,7 @@ export function NumberField({
   useEffect(() => setDraft(shown), [shown]);
   const commit = () => {
     const n = Number(draft);
-    if (draft.trim() === "" || !Number.isFinite(n) || n < min || (integer && !Number.isInteger(n)) || (nonZero && n === 0)) {
+    if (draft.trim() === "" || !Number.isFinite(n) || n < min || n > max || (integer && !Number.isInteger(n)) || (nonZero && n === 0)) {
       setDraft(shown);
       return;
     }

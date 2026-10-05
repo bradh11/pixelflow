@@ -217,7 +217,9 @@ function SequenceIssues() {
                   className="text-left hover:underline"
                   onClick={() => {
                     if (issue.effect) select([issue.effect], issue.row ?? null);
+                    else if (issue.row) useSequencer.getState().setActiveRow(issue.row);
                     setOpen(false);
+                    useSequencer.getState().reveal();
                   }}
                 >
                   <span className={issue.severity === "error" ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}>

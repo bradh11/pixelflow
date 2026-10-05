@@ -33,20 +33,28 @@ export function useSequenceKeys() {
           made = edits.flatMap((x) => (x.type === "addEffect" ? [x.effect.id] : []));
           return edits;
         })
-        .then((ok) => ok && made.length > 0 && useSequencer.getState().select(made));
+        .then((ok) => {
+          if (!ok || made.length === 0) return;
+          useSequencer.getState().select(made);
+          useSequencer.getState().reveal();
+        });
     };
     const onKey = (e: KeyboardEvent) => {
+      // Something else already took the key (a palette item adding an effect, a dialog closing).
+      if (e.defaultPrevented) return;
       const target = e.target as HTMLElement | null;
       if (target && (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.isContentEditable)) return;
       if (target?.closest?.("[role=dialog]")) return;
-      if (useApp.getState().paletteOpen) return;
+      const app = useApp.getState();
+      if (app.paletteOpen || app.pendingReplace) return;
       const s = useSequencer.getState();
       const doc = s.doc;
       if (!doc) return;
       const mod = e.metaKey || e.ctrlKey;
       const key = e.key;
       if (key === " " && !mod) {
-        // A focused button would also take Space as a click.
+        // Space on a focused button presses that button instead.
+        if (target?.closest?.("button, a, [role=button], [role=checkbox], [role=menuitem]")) return;
         e.preventDefault();
         void (s.status?.state === "playing" ? s.pause() : s.play());
         return;
@@ -57,6 +65,7 @@ export function useSequenceKeys() {
         const grid = { frameMs: doc.frameMs, beats: beatTimes() };
         if (s.selection.length === 0) {
           void s.seek(stepTime(s.playheadMs, direction, grid, e.shiftKey));
+          s.reveal();
           return;
         }
         // Holding the key down is one step to undo. Each step is worked out from where the effects
@@ -64,7 +73,7 @@ export function useSequenceKeys() {
         if (!e.repeat || !nudge) nudge = newGesture();
         const ids = s.selection;
         const byBeat = e.shiftKey;
-        void s.edit((latest) => nudgeEdits(latest, ids, direction, byBeat), nudge);
+        void s.edit((latest) => nudgeEdits(latest, ids, direction, byBeat), nudge).then((ok) => ok && useSequencer.getState().reveal());
         return;
       }
       if ((key === "ArrowUp" || key === "ArrowDown") && !mod && doc.rows.length > 0) {
@@ -75,11 +84,13 @@ export function useSequenceKeys() {
         const row = doc.rows[next];
         const under = [...row.layers].reverse().flatMap((l) => l.effects).find((x) => x.startMs <= s.playheadMs && s.playheadMs < x.endMs);
         s.select(under ? [under.id] : [], row.id);
+        s.reveal();
         return;
       }
       if (key === "Home" || key === "End") {
         e.preventDefault();
         void s.seek(key === "Home" ? 0 : doc.durationMs);
+        s.reveal();
         return;
       }
       if ((key === "Delete" || key === "Backspace") && s.selection.length > 0) {

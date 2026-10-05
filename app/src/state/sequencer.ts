@@ -85,6 +85,10 @@ interface SequencerState {
   /** Set right after a new sequence with music: offer to find its beats. */
   suggestBeats: boolean;
   detecting: boolean;
+  /** Changes when a different document is opened or started (not when it's saved). */
+  docKey: number;
+  /** Bumped to ask the timeline to bring the selection (or the playhead) and the active row into view. */
+  revealAt: number;
 
   connect(api: SequencerApi): Promise<void>;
   newSequence(name: string, durationMs: number, audio: string | null): Promise<boolean>;
@@ -117,6 +121,8 @@ interface SequencerState {
   exportFseq(addToShow: boolean): Promise<ExportSummary | null>;
   cancelExport(): Promise<void>;
   dismissBeats(): void;
+  /** Brings the selected effect (or else the playhead) and the active row into view on the timeline. */
+  reveal(): void;
 }
 
 function report(e: unknown) {
@@ -124,6 +130,9 @@ function report(e: unknown) {
 }
 
 export const useSequencer = create<SequencerState>((set, get) => {
+  /** Bumped by every play, pause, seek, and stop, so an older answer never undoes a newer one. */
+  let transport = 0;
+
   /** Engine calls that change the document run one at a time, in order. */
   let queue: Promise<unknown> = Promise.resolve();
   function serial<T>(task: () => Promise<T>): Promise<T> {
@@ -208,6 +217,8 @@ export const useSequencer = create<SequencerState>((set, get) => {
     exporting: null,
     suggestBeats: false,
     detecting: false,
+    docKey: 0,
+    revealAt: 0,
 
     async connect(api) {
       // Calls still waiting on a previous engine have nothing to do with this one.
@@ -230,7 +241,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
           await get().stop();
           const snapshot = await api.newSequenceDoc(name, durationMs);
           adopt(snapshot);
-          set({ selection: [], playheadMs: 0, collapsed: [], suggestBeats: audio !== null });
+          set({ selection: [], playheadMs: 0, collapsed: [], suggestBeats: audio !== null, docKey: get().docKey + 1 });
           if (audio) {
             const sequence = snapshot.sequence;
             await absorb(await api.editSequence([{ type: "updateInfo", name: sequence.name, audio, durationMs, frameMs: sequence.frameMs }]), api);
@@ -248,7 +259,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
         guarded(async () => {
           await get().stop();
           adopt(await api.openSequenceDoc(path));
-          set({ selection: [], playheadMs: 0, collapsed: [], suggestBeats: false });
+          set({ selection: [], playheadMs: 0, collapsed: [], suggestBeats: false, docKey: get().docKey + 1 });
           return true;
         }),
       );
@@ -351,46 +362,61 @@ export const useSequencer = create<SequencerState>((set, get) => {
       const { api, doc, playheadMs, status } = get();
       const backend = useApp.getState().backend;
       if (!api || !doc || !backend) return;
+      const turn = ++transport;
       if (status && status.state === "paused") {
         const next = await guarded(() => backend.pausePlayback(false));
-        if (next) set({ status: next });
+        if (next && turn === transport) set({ status: next });
         return;
       }
       const from = playheadMs >= doc.durationMs ? 0 : playheadMs;
       const next = await guarded(() => api.playSequenceDoc(from));
-      if (next) set({ status: next, playheadMs: next.positionMs });
+      if (next && turn === transport) set({ status: next, playheadMs: next.positionMs });
     },
 
     async pause() {
       const backend = useApp.getState().backend;
       if (!backend || !get().status) return;
+      const turn = ++transport;
       const next = await guarded(() => backend.pausePlayback(true));
-      if (next) set({ status: next, playheadMs: next.positionMs });
+      if (next && turn === transport) set({ status: next, playheadMs: next.positionMs });
     },
 
     async stop() {
       const backend = useApp.getState().backend;
       if (!backend || !get().status) return;
-      await guarded(() => backend.stopPlayback());
+      ++transport;
+      // Stopped as far as the screen is concerned at once; late answers are ignored.
       set({ status: null });
+      await guarded(() => backend.stopPlayback());
     },
 
     async seek(ms) {
       get().setPlayhead(ms);
       const backend = useApp.getState().backend;
       if (!backend || !get().status) return;
+      const turn = ++transport;
       const next = await guarded(() => backend.seekPlayback(get().playheadMs));
-      if (next) set({ status: next });
+      if (next && turn === transport) set({ status: next });
     },
 
     async pollPlayback() {
       const backend = useApp.getState().backend;
       if (!backend || !get().status) return;
+      const turn = transport;
       try {
         const next = await backend.playbackStatus();
-        if (!get().status) return;
+        // Play, pause, seek, or stop since the question: this answer is out of date.
+        if (turn !== transport || !get().status) return;
         if (!next || !next.authored) {
           set({ status: null });
+          return;
+        }
+        if (next.state === "ended") {
+          // The song is over: let go of the player, so a seek or a click on the ruler only moves
+          // the playhead (and Play starts again from the top).
+          ++transport;
+          set({ status: null, playheadMs: next.positionMs });
+          await guarded(() => backend.stopPlayback());
           return;
         }
         set({ status: next, playheadMs: next.positionMs });
@@ -428,5 +454,6 @@ export const useSequencer = create<SequencerState>((set, get) => {
     },
 
     dismissBeats: () => set({ suggestBeats: false }),
+    reveal: () => set({ revealAt: get().revealAt + 1 }),
   };
 });

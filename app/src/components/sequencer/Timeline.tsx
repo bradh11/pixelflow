@@ -5,10 +5,12 @@ import type { Show, Waveform } from "../../api/types";
 import {
   type DragItem,
   type Lane,
+  type Placement,
   type View,
   SNAP_PX,
   buildIndex,
   clampView,
+  effectBounds,
   fitView,
   followPlayhead,
   formatTime,
@@ -19,6 +21,7 @@ import {
   marqueeSelect,
   moveDrag,
   moveEdits,
+  placeMove,
   planDrop,
   resizeDrag,
   snapTargets,
@@ -37,10 +40,21 @@ export const DEFAULT_COLORS = ["#ff0000", "#00c000", "#ffffff"];
 const CLICK_PX = 3;
 
 type Drag =
-  | { kind: "move"; primary: string; items: DragItem[]; moved: DragItem[]; x: number; y: number; started: boolean; targets: number[] }
-  | { kind: "resize"; item: DragItem; edge: "start" | "end"; result: { startMs: number; endMs: number }; targets: number[] }
+  | { kind: "move"; primary: string; items: DragItem[]; moved: Placement[]; x: number; y: number; started: boolean; targets: number[] }
+  | {
+      kind: "resize";
+      item: DragItem;
+      edge: "start" | "end";
+      result: { startMs: number; endMs: number };
+      targets: number[];
+      /** How far the edge may go before it runs into a neighbor. */
+      bounds: { lo: number; hi: number };
+    }
   | { kind: "marquee"; x0: number; y0: number; x1: number; y1: number; additive: string[] }
   | { kind: "scrub" };
+
+/** Where a palette drop would land; `newLayer` when it would go on a new layer of the row. */
+type Ghost = { lane: number; startMs: number; endMs: number; newLayer: boolean };
 
 /** A target's name, from the show. */
 export function targetName(show: Show | undefined, target: SequenceTarget): string {
@@ -78,7 +92,7 @@ export function Timeline({ doc }: { doc: Sequence }) {
   const show = useApp((s) => s.snapshot?.show);
   const backend = useApp((s) => s.backend);
   const theme = useApp((s) => s.theme);
-  const { selection, playheadMs, status, collapsed, snapping, catalog, path, activeRow } = useSequencer();
+  const { selection, playheadMs, status, collapsed, snapping, catalog, path, activeRow, docKey, revealAt } = useSequencer();
   const bodyRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const size = useSize(bodyRef);
@@ -92,7 +106,7 @@ export function Timeline({ doc }: { doc: Sequence }) {
   const pending = useRef<{ key: number; items: DragItem[] } | null>(null);
   const pendingKey = useRef(0);
   const [, redraw] = useState(0);
-  const [ghost, setGhost] = useState<{ lane: number; startMs: number; endMs: number } | null>(null);
+  const [ghost, setGhost] = useState<Ghost | null>(null);
 
   const index = useMemo(() => buildIndex(doc), [doc]);
   const collapsedSet = useMemo(() => new Set(collapsed), [collapsed]);
@@ -110,9 +124,34 @@ export function Timeline({ doc }: { doc: Sequence }) {
   const latest = useRef({ doc, index, lanes, view: current, top, scrollY, snapping, selection, maxScroll, catalog, activeRow, playheadMs });
   latest.current = { doc, index, lanes, view: current, top, scrollY, snapping, selection, maxScroll, catalog, activeRow, playheadMs };
 
-  // Fit the song when a different sequence (or length) comes in.
-  useEffect(() => setViewState(null), [doc.durationMs, path]);
+  // Fit the song when a different sequence is opened (not when this one is saved somewhere new).
+  useEffect(() => setViewState(null), [docKey]);
   useEffect(() => setScrollY((y) => Math.min(y, maxScroll)), [maxScroll]);
+
+  // After a keyboard or problem-list pick: scroll the rows to the active row (or the selected
+  // effect's lane) and the time to the selected effect, or else to the playhead.
+  useEffect(() => {
+    if (revealAt === 0 || size.width === 0) return;
+    const s = useSequencer.getState();
+    const placed = s.selection.length > 0 ? index.byId.get(s.selection[0]) : undefined;
+    const laneIndex = placed ? laneOf(lanes, placed.rowId, placed.layer) : lanes.findIndex((l) => l.rowId === s.activeRow);
+    const lane = lanes[laneIndex];
+    if (lane) {
+      setScrollY((y) => {
+        const next = lane.y < y ? lane.y : lane.y + lane.h > y + rowsViewport ? lane.y + lane.h - rowsViewport : y;
+        return Math.max(0, Math.min(maxScroll, next));
+      });
+    }
+    const visible = width / current.pxPerMs;
+    if (placed) {
+      const { startMs, endMs } = placed.effect;
+      const inView = startMs < current.startMs + visible && endMs > current.startMs;
+      if (!inView) setViewState(clampView({ ...current, startMs: startMs - visible * 0.1 }, doc.durationMs, width));
+    } else {
+      const next = followPlayhead(current, s.playheadMs, width, doc.durationMs);
+      if (next !== current) setViewState(next);
+    }
+  }, [revealAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // While playing, turn the page to keep the playhead in view.
   useEffect(() => {
@@ -193,8 +232,9 @@ export function Timeline({ doc }: { doc: Sequence }) {
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
 
-  /** Places a new effect of `kind` where the palette dropped it; true if it landed on a row. */
-  const dropAt = useCallback((kind: EffectKind, clientX: number, clientY: number, place: boolean) => {
+  /** Places a new effect of `kind` where the palette dropped it (snapping unless Alt is held);
+   * returns where it goes, or null when that's not over a row. */
+  const dropAt = useCallback((kind: EffectKind, clientX: number, clientY: number, alt: boolean, place: boolean): Ghost | null => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
     const rect = canvas.getBoundingClientRect();
@@ -203,11 +243,14 @@ export function Timeline({ doc }: { doc: Sequence }) {
     if (x < 0 || x > rect.width || y < tp || y > rect.height) return null;
     const lane = laneAt(ls, y - tp + sy);
     if (!lane) return null;
-    const snap = latest.current.snapping ? { targets: snapTargets(d, new Set()), thresholdMs: SNAP_PX / v.pxPerMs } : undefined;
+    const snap = latest.current.snapping && !alt ? { targets: snapTargets(d, new Set()), thresholdMs: SNAP_PX / v.pxPerMs } : undefined;
     const plan = planDrop({ doc: d, index: idx, lane, ms: xToTime(x, v), snap });
     if (!plan) return null;
     if (place) void addEffect(kind, plan);
-    return { lane: ls.indexOf(lane), ...plan };
+    // Show it on the lane it will really go to; a new layer shows on the row's last lane.
+    const shown = laneOf(ls, plan.rowId, plan.layer);
+    const rowLanes = ls.filter((l) => l.rowId === plan.rowId);
+    return { lane: shown >= 0 ? shown : ls.indexOf(rowLanes[rowLanes.length - 1]), startMs: plan.startMs, endMs: plan.endMs, newLayer: shown < 0 };
   }, []);
 
   async function addEffect(kind: EffectKind, plan: { rowId: string; layer: number; startMs: number; endMs: number }) {
@@ -220,7 +263,7 @@ export function Timeline({ doc }: { doc: Sequence }) {
   // The palette drops onto (and adds at the playhead on) this timeline.
   useEffect(() => {
     usePaletteDrag.setState({
-      drop: (kind, x, y) => dropAt(kind, x, y, true) !== null,
+      drop: (kind, x, y, alt) => dropAt(kind, x, y, alt, true) !== null,
       addAtPlayhead: (kind) => {
         const { doc: d, index: idx, lanes: ls, activeRow: row, playheadMs: at } = latest.current;
         const lane = ls.find((l) => l.rowId === row) ?? ls[0];
@@ -239,8 +282,7 @@ export function Timeline({ doc }: { doc: Sequence }) {
   useEffect(
     () =>
       usePaletteDrag.subscribe((s) => {
-        const plan = s.kind ? dropAt(s.kind, s.x, s.y, false) : null;
-        setGhost(plan ? { lane: plan.lane, startMs: plan.startMs, endMs: plan.endMs } : null);
+        setGhost(s.kind ? dropAt(s.kind, s.x, s.y, s.alt, false) : null);
       }),
     [dropAt],
   );
@@ -287,13 +329,14 @@ export function Timeline({ doc }: { doc: Sequence }) {
     if (hit.part !== "body") {
       store.select([hit.id]);
       const item = asItem(hit.id);
-      drag.current = { kind: "resize", item, edge: hit.part, result: { startMs: item.startMs, endMs: item.endMs }, targets: snapFor([hit.id], e.altKey) };
+      const bounds = effectBounds(latest.current.doc, hit.id) ?? { lo: 0, hi: latest.current.doc.durationMs };
+      drag.current = { kind: "resize", item, edge: hit.part, result: { startMs: item.startMs, endMs: item.endMs }, targets: snapFor([hit.id], e.altKey), bounds };
       return;
     }
     const ids = sel.includes(hit.id) ? sel.filter((id) => idx.byId.has(id)) : [hit.id];
     if (!sel.includes(hit.id)) store.select(ids);
     const items = ids.map(asItem);
-    drag.current = { kind: "move", primary: hit.id, items, moved: items, x, y, started: false, targets: snapFor(ids, e.altKey) };
+    drag.current = { kind: "move", primary: hit.id, items, moved: placeMove(idx, ls, items), x, y, started: false, targets: snapFor(ids, e.altKey) };
   };
 
   const onPointerMove = (e: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -315,7 +358,7 @@ export function Timeline({ doc }: { doc: Sequence }) {
       d.y1 = y - tp + sy;
     } else if (d.kind === "resize") {
       const snap = e.altKey ? undefined : { targets: d.targets, thresholdMs: threshold };
-      const r = resizeDrag({ item: d.item, edge: d.edge, ms: xToTime(x, v), minMs: dd.frameMs, durationMs: dd.durationMs, snap });
+      const r = resizeDrag({ item: d.item, edge: d.edge, ms: xToTime(x, v), minMs: dd.frameMs, durationMs: dd.durationMs, frameMs: dd.frameMs, bounds: d.bounds, snap });
       d.result = r;
       (d as Drag & { snappedAt?: number | null }).snappedAt = r.snappedAt;
     } else {
@@ -325,8 +368,9 @@ export function Timeline({ doc }: { doc: Sequence }) {
       const toLane = laneAt(ls, y - tp + sy);
       const deltaLanes = fromLane && toLane ? ls.indexOf(toLane) - ls.indexOf(fromLane) : 0;
       const snap = e.altKey ? undefined : { targets: d.targets, thresholdMs: threshold };
-      const r = moveDrag({ items: d.items, primary: d.primary, deltaMs: (x - d.x) / v.pxPerMs, deltaLanes, laneCount: ls.length, durationMs: dd.durationMs, snap });
-      d.moved = r.items;
+      const r = moveDrag({ items: d.items, primary: d.primary, deltaMs: (x - d.x) / v.pxPerMs, deltaLanes, laneCount: ls.length, durationMs: dd.durationMs, frameMs: dd.frameMs, snap });
+      // Drawn where they'll really land: over another effect, that's a free layer.
+      d.moved = placeMove(idx, ls, r.items);
       (d as Drag & { snappedAt?: number | null }).snappedAt = r.snappedAt;
     }
     redraw((n) => n + 1);
@@ -366,7 +410,7 @@ export function Timeline({ doc }: { doc: Sequence }) {
         sendDrop([{ ...d.item, startMs, endMs }], [{ type: "setEffectTiming", id: d.item.id, startMs, endMs }]);
       }
     } else if (d.started) {
-      const edits = moveEdits(d.moved, d.items, ls);
+      const edits = moveEdits(d.moved, idx);
       if (edits.length > 0) sendDrop(d.moved, edits);
     } else {
       store.select([d.primary]);

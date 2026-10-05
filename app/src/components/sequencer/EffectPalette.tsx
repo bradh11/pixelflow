@@ -16,7 +16,7 @@ import {
   MoveRight,
   Snowflake,
 } from "lucide-react";
-import { type PointerEvent as ReactPointerEvent, useRef } from "react";
+import { type PointerEvent as ReactPointerEvent, useEffect, useRef } from "react";
 import { create } from "zustand";
 import type { EffectKind } from "../../api/sequence";
 import { useSequencer } from "../../state/sequencer";
@@ -46,19 +46,34 @@ interface PaletteDrag {
   kind: EffectKind | null;
   x: number;
   y: number;
+  /** Alt (Option) is held: no snapping. */
+  alt: boolean;
   /** Set by the timeline: places the effect if (x, y) is over a row, and says whether it did. */
-  drop: ((kind: EffectKind, x: number, y: number) => boolean) | null;
+  drop: ((kind: EffectKind, x: number, y: number, alt: boolean) => boolean) | null;
   /** Set by the timeline: adds the effect at the playhead on the chosen row (keyboard). */
   addAtPlayhead: ((kind: EffectKind) => void) | null;
 }
 
-export const usePaletteDrag = create<PaletteDrag>(() => ({ kind: null, x: 0, y: 0, drop: null, addAtPlayhead: null }));
+export const usePaletteDrag = create<PaletteDrag>(() => ({ kind: null, x: 0, y: 0, alt: false, drop: null, addAtPlayhead: null }));
 
 /** The effect kinds, to drag onto a row of the timeline (or press Enter to add at the playhead). */
 export function EffectPalette() {
   const catalog = useSequencer((s) => s.catalog);
   const dragging = usePaletteDrag((s) => s.kind);
   const press = useRef<{ kind: EffectKind; x: number; y: number; moved: boolean } | null>(null);
+
+  // Escape lets go of an effect being dragged without adding it.
+  useEffect(() => {
+    if (!dragging) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      press.current = null;
+      usePaletteDrag.setState({ kind: null });
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [dragging]);
 
   const onPointerDown = (kind: EffectKind, e: ReactPointerEvent<HTMLButtonElement>) => {
     if (e.button !== 0) return;
@@ -70,7 +85,7 @@ export function EffectPalette() {
     if (!p) return;
     if (!p.moved && Math.hypot(e.clientX - p.x, e.clientY - p.y) < DRAG_PX) return;
     p.moved = true;
-    usePaletteDrag.setState({ kind: p.kind, x: e.clientX, y: e.clientY });
+    usePaletteDrag.setState({ kind: p.kind, x: e.clientX, y: e.clientY, alt: e.altKey });
   };
   const onPointerUp = (e: ReactPointerEvent<HTMLButtonElement>) => {
     const p = press.current;
@@ -78,7 +93,7 @@ export function EffectPalette() {
     if (!p?.moved) return;
     const { drop } = usePaletteDrag.getState();
     usePaletteDrag.setState({ kind: null });
-    drop?.(p.kind, e.clientX, e.clientY);
+    drop?.(p.kind, e.clientX, e.clientY, e.altKey);
   };
   const onPointerCancel = () => {
     press.current = null;
@@ -88,7 +103,7 @@ export function EffectPalette() {
   return (
     <aside aria-label="Effects" className="flex w-40 shrink-0 flex-col border-r border-neutral-200 dark:border-neutral-800">
       <h2 className="px-3 pt-3 pb-1 text-xs font-semibold tracking-wide text-neutral-500 uppercase">Effects</h2>
-      <p className="px-3 pb-2 text-xs text-neutral-500">Drag onto a row, or press Enter to add at the playhead.</p>
+      <p className="px-3 pb-2 text-xs text-neutral-500">Drag onto a row (Escape cancels), or press Enter to add at the playhead.</p>
       <ul className="flex-1 overflow-auto px-1.5 pb-2">
         {catalog.map((info) => {
           const Icon = EFFECT_ICONS[info.kind] ?? Activity;

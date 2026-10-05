@@ -98,8 +98,8 @@ export interface TimelineScene {
   snappedAt: number | null;
   /** A marquee being drawn (rows area coordinates). */
   marquee: { x0: number; y0: number; x1: number; y1: number } | null;
-  /** Where a palette drop would land. */
-  ghost: { lane: number; startMs: number; endMs: number } | null;
+  /** Where a palette drop would land (`newLayer`: on a new layer of that lane's row). */
+  ghost: { lane: number; startMs: number; endMs: number; newLayer?: boolean } | null;
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -187,8 +187,14 @@ export function drawTimeline(ctx: CanvasRenderingContext2D, s: TimelineScene) {
       ctx.strokeStyle = t.accent;
       ctx.lineWidth = 1.5;
       const x0 = timeToX(s.ghost.startMs, view);
-      ctx.strokeRect(x0 + 0.5, y + 0.5, Math.max(2, timeToX(s.ghost.endMs, view) - x0 - 1), lane.h - 5);
+      const w = Math.max(2, timeToX(s.ghost.endMs, view) - x0 - 1);
+      ctx.strokeRect(x0 + 0.5, y + 0.5, w, lane.h - 5);
       ctx.setLineDash([]);
+      if (s.ghost.newLayer) {
+        ctx.fillStyle = t.accent;
+        ctx.textBaseline = "middle";
+        ctx.fillText("+ New layer", Math.max(0, x0) + 5, y + (lane.h - 5) / 2);
+      }
     }
   }
   if (s.marquee) {

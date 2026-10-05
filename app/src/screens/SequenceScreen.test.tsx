@@ -113,32 +113,46 @@ describe("sequence screen", () => {
   });
 
   it("adds an effect at the playhead from the keyboard", async () => {
-    const { seq, user, show } = await openScreen();
+    const { seq, user, show, backend } = await openScreen();
     useSequencer.getState().setPlayhead(57_000);
     act(() => useSequencer.getState().setActiveRow(seq.doc!.rows[3].id));
     screen.getByRole("button", { name: "Strobe effect" }).focus();
     await user.keyboard("{Enter}");
     await waitFor(() => expect(rowEffects(seq.doc!, "Porch Star", show).some((e) => e.params.kind === "strobe")).toBe(true));
+    // Space on a palette item adds it too, without starting playback.
+    act(() => useSequencer.getState().setPlayhead(58_500));
+    screen.getByRole("button", { name: "Fire effect" }).focus();
+    await user.keyboard(" ");
+    await waitFor(() => expect(rowEffects(seq.doc!, "Porch Star", show).some((e) => e.params.kind === "fire")).toBe(true));
+    expect(backend.calls.some((c) => c.startsWith("playAuthored"))).toBe(false);
+    expect(useSequencer.getState().status).toBeNull();
   });
 
   it("moves effects to other rows, snapping, and resizes them by their edges", async () => {
     const { seq, show } = await openScreen();
     const wave = rowEffects(seq.doc!, "Garage Arch", show)[0];
     expect([wave.startMs, wave.endMs]).toEqual([0, 4000]);
-    // Down onto Window Matrix, a little later: snaps to the half-second beat.
+    // Down onto Window Matrix, a little later: snaps to the half-second beat. The matrix's only
+    // layer is full there, so it lands on a new layer instead of covering what's there.
     drag(timeline(), [x(1000), LANE.archTop], [x(1000) + 30, LANE.matrix]);
     await waitFor(() => expect(rowEffects(seq.doc!, "Window Matrix", show).some((e) => e.id === wave.id)).toBe(true));
-    const moved = rowEffects(seq.doc!, "Window Matrix", show).find((e) => e.id === wave.id)!;
-    expect([moved.startMs, moved.endMs]).toEqual([2000, 6000]);
-    expect(moved.startMs % 500).toBe(0);
-    // Holding Alt turns snapping off.
+    const matrix = seq.doc!.rows[2];
+    expect(matrix.layers).toHaveLength(2);
+    expect(matrix.layers[1].effects.map((e) => [e.id, e.startMs, e.endMs])).toEqual([[wave.id, 2000, 6000]]);
+    // Holding Alt turns snapping off; the move stays on the frame grid (11 px is 660 ms: 650).
     const chase = rowEffects(seq.doc!, "Garage Arch", show)[0];
-    drag(timeline(), [x(chase.startMs + 1000), LANE.archTop], [x(chase.startMs + 1000) + 11, LANE.archTop], { altKey: true });
-    await waitFor(() => expect(rowEffects(seq.doc!, "Garage Arch", show)[0].startMs).toBe(chase.startMs + 660));
-    // Dragging the end edge changes the length, snapping to a beat.
+    expect(chase.startMs).toBe(4000);
+    drag(timeline(), [x(chase.startMs + 1000), LANE.archTop], [x(chase.startMs + 1000) - 11, LANE.archTop], { altKey: true });
+    await waitFor(() => expect(rowEffects(seq.doc!, "Garage Arch", show)[0].startMs).toBe(chase.startMs - 650));
+    // Dragging the end edge changes the length, snapping to a beat. The matrix now has two lanes:
+    // its new layer is at 224–254.
     const target = rowEffects(seq.doc!, "Window Matrix", show).find((e) => e.id === wave.id)!;
-    drag(timeline(), [x(target.endMs) - 2, LANE.matrix], [x(7_020), LANE.matrix]);
+    drag(timeline(), [x(target.endMs) - 2, 239], [x(7_020), 239]);
     await waitFor(() => expect(rowEffects(seq.doc!, "Window Matrix", show).find((e) => e.id === wave.id)!.endMs).toBe(7000));
+    // An edge stops at the next effect on its layer.
+    const next = rowEffects(seq.doc!, "Garage Arch", show)[1];
+    drag(timeline(), [x(chase.endMs - 650) - 2, LANE.archTop], [x(next.startMs + 2000), LANE.archTop], { altKey: true });
+    await waitFor(() => expect(rowEffects(seq.doc!, "Garage Arch", show)[0].endMs).toBe(next.startMs));
   });
 
   it("selects with a click, Shift-click, and a marquee, and deletes with the keyboard", async () => {
@@ -250,6 +264,86 @@ describe("sequence screen", () => {
     expect(screen.getByTestId("timeline-announcer")).toHaveTextContent("Chase on Garage Arch, 0:20.000 to 0:24.000, selected");
     await user.keyboard("{ArrowUp}{Escape}");
     expect(screen.getByTestId("timeline-announcer")).toHaveTextContent("No effect selected");
+  });
+
+  it("stops at the song's end and lets go of the music", async () => {
+    const { backend } = await openScreen();
+    await act(() => useSequencer.getState().play());
+    await act(() => useSequencer.getState().seek(59_980));
+    await waitFor(() => expect(useSequencer.getState().status).toBeNull());
+    expect(useSequencer.getState().playheadMs).toBe(60_000);
+    expect(within(screen.getByRole("toolbar", { name: "Sequence" })).getByRole("button", { name: "Play" })).toBeInTheDocument();
+    // Clicking the ruler now only moves the playhead.
+    fireEvent.pointerDown(timeline(), { clientX: x(6000), clientY: 10, button: 0, pointerId: 1 });
+    fireEvent.pointerUp(timeline(), { clientX: x(6000), clientY: 10, pointerId: 1 });
+    expect(useSequencer.getState().playheadMs).toBe(6000);
+    expect(await backend.playbackStatus()).toBeNull();
+  });
+
+  it("brings rows and effects picked from the keyboard or the problem list into view", async () => {
+    const { seq, user } = await openScreen();
+    // Many layers on the first row push the others below the fold.
+    await act(() => useSequencer.getState().edit(Array.from({ length: 20 }, () => ({ type: "addLayer" as const, row: seq.doc!.rows[0].id }))));
+    const rows = screen.getByRole("slider", { name: "Scroll rows" });
+    expect(rows).toHaveValue("0");
+    act(() => useSequencer.getState().setActiveRow(seq.doc!.rows[0].id));
+    timeline().focus();
+    await user.keyboard("{ArrowDown}");
+    // Garage Arch's lane is at 660–690 in a 496 px view.
+    expect(Number((rows as HTMLInputElement).value)).toBeGreaterThanOrEqual(690 - 496);
+    expect(screen.getByRole("listitem", { name: "Garage Arch" })).toHaveAttribute("aria-current", "true");
+    // Zoomed in on the start, a problem near the end scrolls the time to it.
+    for (let i = 0; i < 5; i++) await user.click(screen.getByRole("button", { name: "Zoom in" }));
+    const time = screen.getByRole("slider", { name: "Scroll in time" });
+    fireEvent.change(time, { target: { value: "0" } });
+    expect(time).toHaveValue("0");
+    const late = seq.doc!.rows[1 + 0].layers[0].effects.find((e) => e.startMs >= 50_000)!;
+    act(() =>
+      useSequencer.setState({ issues: [{ severity: "warning", message: "Something about the effect at 0:52.000.", row: seq.doc!.rows[1].id, effect: late.id }] }),
+    );
+    await user.click(screen.getByRole("button", { name: "1 problem" }));
+    await user.click(screen.getByRole("button", { name: /Something about/ }));
+    const start = Number((time as HTMLInputElement).value);
+    expect(start).toBeLessThanOrEqual(late.startMs);
+    expect(start).toBeGreaterThan(late.startMs - 10_000);
+  });
+
+  it("keeps the zoom when a sequence is first saved", async () => {
+    const { seq, user } = await openScreen();
+    await user.click(screen.getByRole("button", { name: "Zoom in" }));
+    await user.click(screen.getByRole("button", { name: "Zoom in" }));
+    const time = screen.getByRole("slider", { name: "Scroll in time" });
+    expect(time).not.toBeDisabled();
+    seq.nextSavePath = "/Shows/Copy.pfseq.json";
+    await act(() => useSequencer.getState().saveAs());
+    expect(useSequencer.getState().path).toBe("/Shows/Copy.pfseq.json");
+    expect(time).not.toBeDisabled();
+    // Opening a different sequence fits the whole song again.
+    seq.nextOpenPath = DEMO_SEQUENCE_PATH;
+    await act(() => useSequencer.getState().open(DEMO_SEQUENCE_PATH));
+    expect(screen.getByRole("slider", { name: "Scroll in time" })).toBeDisabled();
+  });
+
+  it("drags from the palette honestly: the ghost shows a new layer, Alt skips snapping, Escape cancels", async () => {
+    const texts = recordTimelineText();
+    const { seq, show } = await openScreen();
+    const fire = screen.getByRole("button", { name: "Fire effect" });
+    // Over the arch's effects: there's no room on its layer, so a new layer is shown.
+    fireEvent.pointerDown(fire, { clientX: 20, clientY: 20, button: 0, pointerId: 1 });
+    texts.length = 0;
+    fireEvent.pointerMove(fire, { clientX: x(10_000), clientY: LANE.archTop, pointerId: 1 });
+    expect(texts.some((t) => t.text === "+ New layer")).toBe(true);
+    // Escape lets go: releasing over a row adds nothing.
+    const before = seq.undoStack.length;
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.pointerUp(fire, { clientX: x(10_000), clientY: LANE.archTop, pointerId: 1 });
+    expect(seq.undoStack.length).toBe(before);
+    expect(useSequencer.getState().selection).toEqual([]);
+    // With Alt, a drop near a beat stays where it was dropped (on the frame grid): 57.1 s.
+    fireEvent.pointerDown(fire, { clientX: 20, clientY: 20, button: 0, pointerId: 1 });
+    fireEvent.pointerMove(fire, { clientX: x(57_120), clientY: LANE.matrix, pointerId: 1, altKey: true });
+    fireEvent.pointerUp(fire, { clientX: x(57_120), clientY: LANE.matrix, pointerId: 1, altKey: true });
+    await waitFor(() => expect(rowEffects(seq.doc!, "Window Matrix", show).some((e) => e.params.kind === "fire" && e.startMs === 57_125)).toBe(true));
   });
 
   it("lists the sequence's problems, and a click selects the effect", async () => {

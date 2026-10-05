@@ -18,6 +18,7 @@ import {
   moveDrag,
   moveEdits,
   nudgeEdits,
+  placeMove,
   pasteEffects,
   planDrop,
   resizeDrag,
@@ -190,21 +191,56 @@ describe("dragging", () => {
   });
 
   it("turns a move into timing edits, or moves to another row or layer", () => {
-    const edits = moveEdits(
-      [
-        { id: "a1", startMs: 100, endMs: 1100, lane: 0 },
-        { id: "a3", startMs: 600, endMs: 1600, lane: 2 },
-      ],
-      [
-        { id: "a1", startMs: 0, endMs: 1000, lane: 0 },
-        { id: "a3", startMs: 500, endMs: 1500, lane: 1 },
-      ],
-      lanes,
-    );
-    expect(edits).toEqual([
+    const index = buildIndex(sequence);
+    const placed = placeMove(index, lanes, [
+      { id: "a1", startMs: 100, endMs: 1100, lane: 0 },
+      { id: "a3", startMs: 600, endMs: 1600, lane: 2 },
+    ]);
+    expect(moveEdits(placed, index)).toEqual([
       { type: "setEffectTiming", id: "a1", startMs: 100, endMs: 1100 },
       { type: "moveEffect", id: "a3", row: "B", layer: 0, startMs: 600, endMs: 1600 },
     ]);
+  });
+
+  it("lands a moved effect on a layer with room instead of over another effect", () => {
+    const index = buildIndex(sequence);
+    // a3 dropped on layer 1 of A at 1800–2800 is fine; on layer 0 it would cover a2, so it stays
+    // on the free layer 1 (shown in lane 1).
+    expect(placeMove(index, lanes, [{ id: "a3", startMs: 1800, endMs: 2800, lane: 0 }])).toEqual([
+      { id: "a3", startMs: 1800, endMs: 2800, lane: 1, rowId: "A", layer: 1 },
+    ]);
+    // Onto B over b1: B has one layer, so a new one on top (drawn in the lane it was dropped on).
+    const onB = placeMove(index, lanes, [{ id: "a1", startMs: 4500, endMs: 5500, lane: 2 }]);
+    expect(onB).toEqual([{ id: "a1", startMs: 4500, endMs: 5500, lane: 2, rowId: "B", layer: 1 }]);
+    expect(moveEdits(onB, index)).toEqual([{ type: "moveEffect", id: "a1", row: "B", layer: 1, startMs: 4500, endMs: 5500 }]);
+    // Effects moving together don't block each other, and their old places are free.
+    const both = placeMove(index, lanes, [
+      { id: "a1", startMs: 1000, endMs: 2000, lane: 0 },
+      { id: "a2", startMs: 2000, endMs: 3000, lane: 0 },
+    ]);
+    expect(both.map((p) => p.layer)).toEqual([0, 0]);
+    // Two landing on each other: the second goes up a layer.
+    const stacked = placeMove(index, lanes, [
+      { id: "a1", startMs: 7000, endMs: 8000, lane: 2 },
+      { id: "a2", startMs: 7500, endMs: 8500, lane: 2 },
+    ]);
+    expect(stacked.map((p) => p.layer)).toEqual([0, 1]);
+    // A collapsed row keeps an effect on its own layer when it can.
+    const folded = layoutLanes(sequence.rows, new Set(["A"]), 30).lanes;
+    expect(placeMove(index, folded, [{ id: "a3", startMs: 3500, endMs: 4500, lane: 0 }])[0]).toMatchObject({ rowId: "A", layer: 1, lane: 0 });
+  });
+
+  it("keeps drags on the frame grid unless they snap, and resizes stop at the neighbors", () => {
+    const items = [{ id: "a2", startMs: 2000, endMs: 3000, lane: 0 }];
+    expect(moveDrag({ items, primary: "a2", deltaMs: 337, deltaLanes: 0, laneCount: 3, durationMs: 60_000, frameMs: 25 }).items[0]).toMatchObject({ startMs: 2325, endMs: 3325 });
+    const item = items[0];
+    expect(resizeDrag({ item, edge: "end", ms: 3337, minMs: 25, durationMs: 60_000, frameMs: 25 }).endMs).toBe(3325);
+    expect(resizeDrag({ item, edge: "start", ms: 1337, minMs: 25, durationMs: 60_000, frameMs: 25, bounds: { lo: 1000, hi: 60_000 } }).startMs).toBe(1325);
+    expect(resizeDrag({ item, edge: "start", ms: 400, minMs: 25, durationMs: 60_000, frameMs: 25, bounds: { lo: 1000, hi: 60_000 } }).startMs).toBe(1000);
+    expect(resizeDrag({ item, edge: "end", ms: 9000, minMs: 25, durationMs: 60_000, bounds: { lo: 0, hi: 4000 } }).endMs).toBe(4000);
+    // A snap target past the neighbor doesn't pull it through.
+    expect(resizeDrag({ item, edge: "end", ms: 4010, minMs: 25, durationMs: 60_000, bounds: { lo: 0, hi: 4000 }, snap: { targets: [4020], thresholdMs: 30 } })).toEqual({ startMs: 2000, endMs: 4000, snappedAt: null });
+    expect(createSpan({ ms: 1337, durationMs: 60_000, frameMs: 25 }).startMs).toBe(1325);
   });
 
   it("resizes from either edge, snapping and keeping at least one frame", () => {

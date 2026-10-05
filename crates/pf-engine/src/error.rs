@@ -47,4 +47,6 @@ pub enum EngineError {
     SequenceNoPath,
     #[error("{0}")]
     Export(String),
+    #[error("That unsaved sequence isn't there anymore.")]
+    UnknownRecovery,
 }

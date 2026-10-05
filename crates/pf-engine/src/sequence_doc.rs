@@ -994,6 +994,17 @@ impl OpenSequence {
         self.revision
     }
 
+    /// Whether there are changes since the document was opened or last saved.
+    pub fn is_dirty(&self) -> bool {
+        self.revision != self.saved_revision
+    }
+
+    /// Marks the document as having unsaved changes (one recovered after a crash). Revisions
+    /// start at 1, so 0 never matches.
+    pub fn mark_unsaved(&mut self) {
+        self.saved_revision = 0;
+    }
+
     pub fn mark_saved(&mut self, path: &Path) {
         self.path = Some(path.to_path_buf());
         self.saved_revision = self.revision;

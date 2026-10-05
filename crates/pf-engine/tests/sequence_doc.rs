@@ -37,7 +37,7 @@ fn engine() -> (Engine, Recorded, tempfile::TempDir) {
 
 /// Opens a new sequence with one row on the strip; returns the row id.
 fn new_doc(engine: &mut Engine, duration_ms: u64) -> pf_sequence::RowId {
-    engine.new_sequence_doc("Song", duration_ms).unwrap();
+    engine.new_sequence_doc("Song", duration_ms, None).unwrap();
     let row = Row::new(Target::Prop(engine.show().props[0].id));
     let id = row.id;
     engine
@@ -347,7 +347,7 @@ fn the_music_is_found_next_to_the_document_and_playback_follows_its_clock() {
     assert_eq!(opened.lock().unwrap().len(), 2, "{:?}", opened.lock().unwrap());
 
     // Opening another sequence stops the playing one.
-    engine.new_sequence_doc("Next", 1000).unwrap();
+    engine.new_sequence_doc("Next", 1000, None).unwrap();
     assert!(engine.playback_status().is_none());
 }
 
@@ -401,8 +401,26 @@ fn exports_the_open_sequence() {
         Some(dir.path().join("song.mp3").display().to_string())
     );
     assert!(snapshot.can_undo);
+    // Adding the same file again updates its entry rather than listing it twice.
+    let id = entry.id;
+    engine
+        .edit_sequence(vec![SequenceEdit::UpdateInfo {
+            name: "Song v2".into(),
+            audio: None,
+            duration_ms: 1000,
+            frame_ms: 25,
+        }])
+        .unwrap();
     let again = engine.add_sequence_doc_to_show(&path).unwrap();
-    assert_eq!(again.show.sequences[1].name, "Song (2)");
+    assert_eq!(again.show.sequences.len(), 1);
+    assert_eq!(again.show.sequences[0].id, id);
+    assert_eq!(again.show.sequences[0].name, "Song v2");
+    assert_eq!(again.show.sequences[0].audio, None);
+    // Another file with the same name gets a number.
+    let other = engine
+        .add_sequence_doc_to_show(&dir.path().join("other.fseq"))
+        .unwrap();
+    assert_eq!(other.show.sequences[1].name, "Song v2 (2)");
 
     // A show with errors still exports, saying so.
     engine.apply(vec![Edit::SetFrameRate { fps: 5 }]).unwrap();
@@ -636,4 +654,121 @@ fn sending_to_controllers_can_be_turned_off_while_editing() {
     std::thread::sleep(Duration::from_millis(60));
     assert!(packets(&recorded).len() <= sent + 2, "stopped sending");
     engine.stop_playback();
+}
+
+#[test]
+fn a_new_sequence_can_start_with_its_music_and_nothing_to_undo() {
+    let (mut engine, _recorded, _dir) = engine();
+    let snapshot = engine
+        .new_sequence_doc("Song", 60_000, Some("/music/song.mp3"))
+        .unwrap();
+    assert_eq!(snapshot.sequence.audio.as_deref(), Some("/music/song.mp3"));
+    assert!(!snapshot.dirty);
+    assert!(!snapshot.can_undo);
+    assert_eq!(
+        engine.sequence_music().as_deref(),
+        Some(Path::new("/music/song.mp3"))
+    );
+    let silent = engine.new_sequence_doc("Quiet", 1000, None).unwrap();
+    assert_eq!(silent.sequence.audio, None);
+}
+
+#[test]
+fn unsaved_sequences_are_kept_and_offered_back_after_a_restart() {
+    let (mut engine, _recorded, dir) = engine();
+    let row = new_doc(&mut engine, 2000);
+    engine
+        .edit_sequence(vec![SequenceEdit::AddEffect {
+            row,
+            layer: 0,
+            effect: on(Rgb::RED, 0, 500),
+        }])
+        .unwrap();
+    assert!(engine.autosave_sequence().unwrap());
+    // Unchanged since: nothing to write.
+    assert!(!engine.autosave_sequence().unwrap());
+    // A run doesn't offer its own work back.
+    assert!(engine.sequence_recoveries().is_empty());
+    let kept = engine.sequence_doc().unwrap().sequence;
+
+    // The app quit without saving; the next run finds the work.
+    let mut next = Engine::new(dir.path());
+    let offered = next.sequence_recoveries();
+    assert_eq!(offered.len(), 1);
+    assert_eq!(offered[0].name, "Song");
+    assert_eq!(offered[0].path, None);
+    assert!(offered[0].saved_at_ms > 0);
+    let snapshot = next.recover_sequence(&offered[0].id).unwrap();
+    assert_eq!(snapshot.sequence, kept);
+    assert!(snapshot.dirty, "recovered work is unsaved");
+    assert!(!snapshot.can_undo);
+    assert_eq!(snapshot.path, None);
+    // It's now this run's to keep: a third run sees it under a new name, once.
+    assert!(next.sequence_recoveries().is_empty());
+    let third = Engine::new(dir.path());
+    let again = third.sequence_recoveries();
+    assert_eq!(again.len(), 1);
+    assert_ne!(again[0].id, offered[0].id);
+
+    // Saving it leaves nothing to recover.
+    let saved = dir.path().join("song.pfseq.json");
+    next.save_sequence_doc_as(&saved).unwrap();
+    assert!(third.sequence_recoveries().is_empty());
+    assert!(!next.autosave_sequence().unwrap());
+    assert!(third.sequence_recoveries().is_empty());
+}
+
+#[test]
+fn recovered_work_saves_back_to_its_file_and_can_be_thrown_away() {
+    let (mut engine, _recorded, dir) = engine();
+    let file = dir.path().join("show.pfseq.json");
+    let row = new_doc(&mut engine, 2000);
+    engine.save_sequence_doc_as(&file).unwrap();
+    // Saved and unchanged: nothing is kept.
+    assert!(!engine.autosave_sequence().unwrap());
+    assert!(Engine::new(dir.path()).sequence_recoveries().is_empty());
+    engine
+        .edit_sequence(vec![SequenceEdit::AddEffect {
+            row,
+            layer: 0,
+            effect: on(Rgb::BLUE, 0, 500),
+        }])
+        .unwrap();
+    assert!(engine.autosave_sequence().unwrap());
+
+    let mut next = Engine::new(dir.path());
+    let offered = next.sequence_recoveries();
+    assert_eq!(offered[0].path, Some(file.display().to_string()));
+    next.recover_sequence(&offered[0].id).unwrap();
+    let snapshot = next.save_sequence_doc().unwrap();
+    assert!(!snapshot.dirty);
+    let on_disk = pf_engine::load_sequence(&file).unwrap();
+    assert_eq!(on_disk.rows[0].layers[0].effects.len(), 1);
+
+    // Thrown away: gone for good, and asking for it again is answered plainly.
+    engine
+        .edit_sequence(vec![SequenceEdit::RemoveRow { id: row }])
+        .unwrap();
+    assert!(engine.autosave_sequence().unwrap());
+    let mut later = Engine::new(dir.path());
+    let offered = later.sequence_recoveries();
+    assert_eq!(offered.len(), 1);
+    later.discard_sequence_recovery(&offered[0].id);
+    assert!(later.sequence_recoveries().is_empty());
+    let err = later.recover_sequence(&offered[0].id).unwrap_err();
+    assert_eq!(err.to_string(), "That unsaved sequence isn't there anymore.");
+    assert!(matches!(
+        later.recover_sequence("../../etc"),
+        Err(EngineError::UnknownRecovery)
+    ));
+
+    // Closing or replacing a sequence drops its kept copy (the UI asks first).
+    let row = new_doc(&mut engine, 1000);
+    engine
+        .edit_sequence(vec![SequenceEdit::RemoveRow { id: row }])
+        .unwrap();
+    assert!(engine.autosave_sequence().unwrap());
+    assert_eq!(Engine::new(dir.path()).sequence_recoveries().len(), 1);
+    engine.close_sequence_doc();
+    assert!(Engine::new(dir.path()).sequence_recoveries().is_empty());
 }

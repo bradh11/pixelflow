@@ -12,6 +12,7 @@ mod ids;
 mod io;
 mod limits;
 mod settings;
+mod timing;
 mod validate;
 
 pub use color::Rgb;
@@ -29,5 +30,9 @@ pub use limits::{
 };
 pub use settings::{
     ChoiceOption, EffectInfo, SettingInfo, SettingRange, SettingSpec, SettingValue, effect_catalog,
+};
+pub use timing::{
+    MAX_TIMING_FILE_BYTES, MIN_MARK_INTERVAL_MS, TidyReport, audacity_labels, check_mark, every_nth_mark,
+    fixed_marks, lyric_lines, marks_overlap, parse_audacity_labels, split_words, spread_phrases, tidy_marks,
 };
 pub use validate::{SequenceIssue, format_ms, validate_sequence};

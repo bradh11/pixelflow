@@ -14,6 +14,7 @@ import {
   distributeMoves,
   gestureTransform,
   isNoop,
+  tidy,
 } from "./layoutMath";
 
 /** Each listed prop changed by the gesture, as one batch; nothing when it changes nothing. */
@@ -38,20 +39,31 @@ export function removeEdits(ids: string[]): Edit[] {
 
 /** Copies of the props, a little to the right and below, unwired and named "… copy". */
 export function duplicateEdits(show: Show, ids: string[], offset = 0.5): { edits: Edit[]; ids: string[] } {
+  return pasteEdits(
+    show,
+    show.props.filter((p) => ids.includes(p.id)),
+    offset,
+  );
+}
+
+/**
+ * New props copied from `props` (copied earlier, maybe from another show), `offset` to the right
+ * and as far down, with new ids, named "… copy" where the name is taken. Props aren't wired, so
+ * the copies aren't either.
+ */
+export function pasteEdits(show: Show, props: Prop[], offset: number): { edits: Edit[]; ids: string[] } {
   const taken = show.props.map((p) => p.name);
-  const copies: Prop[] = show.props
-    .filter((p) => ids.includes(p.id))
-    .map((prop) => {
-      const name = copyName(prop.name, taken);
-      taken.push(name);
-      const { position } = prop.transform;
-      return {
-        ...structuredClone(prop),
-        id: crypto.randomUUID(),
-        name,
-        transform: { ...prop.transform, position: { ...position, x: position.x + offset, y: position.y - offset } },
-      };
-    });
+  const copies: Prop[] = props.map((prop) => {
+    const name = taken.includes(prop.name) ? copyName(prop.name, taken) : prop.name;
+    taken.push(name);
+    const { position } = prop.transform;
+    return {
+      ...structuredClone(prop),
+      id: crypto.randomUUID(),
+      name,
+      transform: { ...structuredClone(prop.transform), position: { ...position, x: tidy(position.x + offset), y: tidy(position.y - offset) } },
+    };
+  });
   return { edits: copies.map((prop) => ({ type: "addProp" as const, prop })), ids: copies.map((p) => p.id) };
 }
 

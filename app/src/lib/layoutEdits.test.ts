@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { demoShow } from "../api/demo";
 import { MemoryBackend, emptyShow } from "../api/memory";
 import type { Edit, Prop } from "../api/types";
-import { alignEdits, besideOthers, distributeEdits, duplicateEdits, gestureEdits, removeEdits, updateEdits, wiringOf } from "./layoutEdits";
+import { alignEdits, besideOthers, distributeEdits, duplicateEdits, gestureEdits, pasteEdits, removeEdits, updateEdits, wiringOf } from "./layoutEdits";
 import { newProp } from "./shows";
 
 const props = (edits: Edit[]) => edits.map((e) => (e.type === "updateProp" || e.type === "addProp" ? e.prop : null)) as Prop[];
@@ -35,6 +35,29 @@ describe("layout edits", () => {
     expect(copy.transform.position.x).toBeCloseTo(arch.transform.position.x + 0.5);
     expect(copy.transform.position.y).toBeCloseTo(arch.transform.position.y - 0.5);
     expect(copy.shape).toEqual(arch.shape);
+  });
+
+  it("pastes copied props as new ones, offset, renamed only where the name is taken", () => {
+    const show = demoShow();
+    const [arch, star] = show.props;
+    const copied = structuredClone([arch, star]);
+    // Pasted into a show where the arch is gone: it keeps its own name there.
+    const other = { ...show, props: show.props.filter((p) => p.id !== arch.id) };
+    const { edits, ids } = pasteEdits(other, copied, 1);
+    const [a, b] = props(edits);
+    expect(edits.map((e) => e.type)).toEqual(["addProp", "addProp"]);
+    expect(ids).toEqual([a.id, b.id]);
+    expect([a.id, b.id]).not.toContain(arch.id);
+    expect(a.name).toBe(arch.name);
+    expect(b.name).toBe(`${star.name} copy`);
+    expect(a.transform.position).toMatchObject({ x: arch.transform.position.x + 1, y: arch.transform.position.y - 1 });
+    expect(pasteEdits(show, copied, 0).edits.map((e) => (e as { prop: Prop }).prop.transform.position)).toEqual([
+      arch.transform.position,
+      star.transform.position,
+    ]);
+    // The copies are separate objects: changing one doesn't touch what was copied.
+    a.transform.scale.x = 9;
+    expect(copied[0].transform.scale.x).toBe(arch.transform.scale.x);
   });
 
   it("aligns and distributes by the props' pixels", async () => {

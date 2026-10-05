@@ -563,6 +563,60 @@ describe("LayoutScreen", () => {
     });
   });
 
+  describe("copy, cut, paste, and delete", () => {
+    it("copies and pastes the selection as offset copies, selected, one undo step each (⌘ or Ctrl)", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0), line("Fence", 0, 4)));
+      await click({ x: 1, y: 0 });
+      expect(canvas()).toHaveFocus();
+      await user.keyboard("{Meta>}c{/Meta}");
+      expect(edits).toEqual([]);
+      await user.keyboard("{Meta>}v{/Meta}");
+      expect(edits).toHaveLength(1);
+      expect(backend.show.props.map((p) => p.name)).toEqual(["Gutter", "Fence", "Gutter copy"]);
+      expect(position("Gutter copy")).toMatchObject({ x: 0.5, y: -0.5 });
+      await waitFor(() => expect(useLayoutEditor.getState().selected).toEqual([backend.show.props[2].id]));
+
+      await user.keyboard("{Control>}v{/Control}");
+      expect(edits).toHaveLength(2);
+      expect(position("Gutter copy 2")).toMatchObject({ x: 1, y: -1 });
+      await act(() => useApp.getState().undo());
+      expect(backend.show.props.map((p) => p.name)).toEqual(["Gutter", "Fence", "Gutter copy"]);
+    });
+
+    it("cuts the selection, and pastes it back where it was", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0), line("Fence", 0, 4)));
+      await click({ x: 1, y: 4 });
+      const fence = backend.show.props[1];
+      await user.keyboard("{Meta>}x{/Meta}");
+      expect(edits).toHaveLength(1);
+      expect(backend.show.props.map((p) => p.name)).toEqual(["Gutter"]);
+      await waitFor(() => expect(useLayoutEditor.getState().selected).toEqual([]));
+      await user.keyboard("{Control>}v{/Control}");
+      expect(edits).toHaveLength(2);
+      const pasted = backend.show.props[1];
+      expect(pasted).toMatchObject({ name: "Fence", transform: fence.transform, shape: fence.shape });
+      expect(pasted.id).not.toBe(fence.id);
+      await waitFor(() => expect(useLayoutEditor.getState().selected).toEqual([pasted.id]));
+    });
+
+    it("deletes the selection with Backspace (the Mac's delete key) right after clicking it, or from the props list", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0), line("Fence", 0, 4)));
+      await click({ x: 1, y: 0 });
+      expect(canvas()).toHaveFocus();
+      await user.keyboard("{Backspace}");
+      expect(edits).toHaveLength(1);
+      expect(backend.show.props.map((p) => p.name)).toEqual(["Fence"]);
+
+      await user.click(screen.getByLabelText("Select Fence"));
+      await user.keyboard("{Delete}");
+      expect(edits).toHaveLength(2);
+      expect(backend.show.props).toEqual([]);
+      // Nothing selected: nothing more to delete.
+      await user.keyboard("{Backspace}");
+      expect(edits).toHaveLength(2);
+    });
+  });
+
   it("narrows a selection to the prop clicked without dragging", async () => {
     await setup(showWith(line("Gutter", 0, 0), line("Fence", 0, 4)));
     act(() => useLayoutEditor.getState().select(backend.show.props.map((p) => p.id)));

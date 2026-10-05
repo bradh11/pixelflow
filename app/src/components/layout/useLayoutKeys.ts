@@ -1,5 +1,6 @@
 import { type RefObject, useEffect } from "react";
-import { duplicateEdits, removeEdits } from "../../lib/layoutEdits";
+import type { Edit, Show } from "../../api/types";
+import { duplicateEdits, pasteEdits, removeEdits } from "../../lib/layoutEdits";
 import { nudgeStep } from "../../lib/layoutMath";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { addNudge, flushNudge } from "../../state/layoutGestures";
@@ -26,9 +27,19 @@ function typing(target: EventTarget | null): boolean {
   return target instanceof HTMLInputElement && !KEPT_INPUT_TYPES.has(target.type);
 }
 
+/** True when some text on the page is picked out (outside any field). */
+function textSelected(): boolean {
+  const selection = typeof window.getSelection === "function" ? window.getSelection() : null;
+  return !!selection && !selection.isCollapsed && selection.toString().trim() !== "";
+}
+
+/** How far (layout units, right and down) each paste lands from the last. */
+const PASTE_OFFSET = 0.5;
+
 /**
  * Layout editor keys while the Layout screen is open: Escape, Delete/Backspace, arrow keys
- * (Shift: ten times as far), ⌘A select all, ⌘D duplicate. Typing in a field is left alone.
+ * (Shift: ten times as far), ⌘A select all, ⌘D duplicate, ⌘C copy, ⌘X cut, ⌘V paste (Ctrl
+ * works for ⌘ too). Typing in a field is left alone.
  * Holding an arrow key moves the selection as it repeats and sends one move (one undo step)
  * when the key is let go.
  */
@@ -56,19 +67,36 @@ export function useLayoutKeys(canvas: RefObject<LayoutCanvasHandle | null>) {
       const key = e.key.toLowerCase();
 
       if (e.metaKey || e.ctrlKey) {
+        if (e.altKey) return;
+        /** Adds props built from the latest show, then selects them (one undo step). */
+        const addAndSelect = (build: (latest: Show) => { edits: Edit[]; ids: string[] }) => {
+          let made: string[] = [];
+          const edits = (latest: Show) => {
+            const built = build(latest);
+            made = built.ids;
+            return built.edits;
+          };
+          void app.apply(edits).then((ok) => ok && made.length > 0 && useLayoutEditor.getState().select(made));
+        };
         if (key === "a") {
           e.preventDefault();
           editor.select(show.props.map((p) => p.id));
         } else if (key === "d") {
           e.preventDefault();
-          if (ids.length === 0) return;
-          let copies: string[] = [];
-          const duplicate = (latest: typeof show) => {
-            const made = duplicateEdits(latest, ids);
-            copies = made.ids;
-            return made.edits;
-          };
-          void app.apply(duplicate).then((ok) => ok && useLayoutEditor.getState().select(copies));
+          if (ids.length > 0) addAndSelect((latest) => duplicateEdits(latest, ids));
+        } else if (key === "c" || key === "x") {
+          // Text picked out on the page is copied as text, as usual.
+          if (ids.length === 0 || textSelected()) return;
+          e.preventDefault();
+          const props = structuredClone(show.props.filter((p) => ids.includes(p.id)));
+          useLayoutEditor.setState({ clipboard: { props, nextOffset: key === "x" ? 0 : PASTE_OFFSET } });
+          if (key === "x") void app.apply(removeEdits(ids)).then((ok) => ok && useLayoutEditor.getState().clear());
+        } else if (key === "v") {
+          const clipboard = editor.clipboard;
+          if (!clipboard) return;
+          e.preventDefault();
+          useLayoutEditor.setState({ clipboard: { ...clipboard, nextOffset: clipboard.nextOffset + PASTE_OFFSET } });
+          addAndSelect((latest) => pasteEdits(latest, clipboard.props, clipboard.nextOffset));
         }
         return;
       }

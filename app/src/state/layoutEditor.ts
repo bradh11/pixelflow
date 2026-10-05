@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Background } from "../api/types";
+import type { Background, Prop } from "../api/types";
 import type { Gesture, View } from "../lib/layoutMath";
 import type { PropKind } from "../lib/shows";
 
@@ -35,6 +35,11 @@ interface LayoutEditorState {
   pending: PendingGesture[];
   /** Arrow-key moves while a key is held, sent as one move when it's let go. */
   nudge: { ids: string[]; dx: number; dy: number } | null;
+  /**
+   * Props copied (⌘C) or cut (⌘X), and how many steps along the next paste lands: cut props
+   * paste back where they were, copies a little to the side, and each paste a little further.
+   */
+  clipboard: { props: Prop[]; nextOffset: number } | null;
 
   setTool(tool: Tool): void;
   select(ids: string[]): void;
@@ -57,6 +62,7 @@ export const useLayoutEditor = create<LayoutEditorState>((set, get) => ({
   view: null,
   pending: [],
   nudge: null,
+  clipboard: null,
 
   setTool: (tool) => set({ tool, editPhoto: false }),
   select: (ids) => set({ selected: [...new Set(ids)] }),

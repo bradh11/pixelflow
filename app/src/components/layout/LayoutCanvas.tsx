@@ -699,7 +699,8 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
         press Command-A to select every prop. Drag selected props to move them (hold Shift to keep straight across or up and
         down). Drag a corner handle to resize them (hold Shift to keep their proportions), a side handle to stretch them one
         way, or the round handle above them to turn them. Arrow keys move the selection (hold Shift to move it further),
-        Command-D duplicates it, Delete removes it, and Escape clears it. To draw a new prop, pick Line, Arch, Matrix, Tree, Circle, or Star in the tool bar and drag here; hold Shift
+        Command-C copies it, Command-X cuts it, Command-V pastes, Command-D duplicates it, Delete removes it, and Escape
+        clears it. To draw a new prop, pick Line, Arch, Matrix, Tree, Circle, or Star in the tool bar and drag here; hold Shift
         to keep a line or arch level, upright, or at 45 degrees. Hold Space and drag, or scroll with two fingers, to move
         around; pinch, or hold Command and scroll, to zoom. Every prop is also in the props list below.
       </p>

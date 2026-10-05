@@ -24,6 +24,8 @@ const fake = vi.hoisted(() => {
 });
 
 vi.mock("../components/layout3d/threeScene", () => ({
+  // A model 10 wide, 6 tall, and 8 deep, standing on its base.
+  measureModel: async () => ({ min: { x: -5, y: 0, z: -4 }, max: { x: 5, y: 6, z: 4 } }),
   createThreeScene: (): Scene3d => {
     const record = { pixels: null as Float32Array | null, colors: null as { rgb: Uint8Array; lit: boolean } | null, orbit: null as unknown, gizmo: null as unknown, selectionBox: null as unknown, calls: [] as string[] };
     fake.made.push(record);
@@ -40,8 +42,14 @@ vi.mock("../components/layout3d/threeScene", () => ({
       setColors: (rgb, lit) => (record.colors = { rgb: rgb.slice(), lit }),
       setBulbSize: () => {},
       setBackdrop: () => {},
-      setModel: async () => null,
-      placeModel: () => null,
+      setModel: async (model) => {
+        record.calls.push(model ? `setModel:${model.name}` : "setModel:none");
+        return model ? { min: { x: -5, y: 0, z: -4 }, max: { x: 5, y: 6, z: 4 } } : null;
+      },
+      placeModel: (p) => {
+        record.calls.push(`placeModel:${p.scale}`);
+        return null;
+      },
       surfaceAt: () => null,
       setSelectionBox: (box) => (record.selectionBox = box),
       setGizmo: (gizmo) => (record.gizmo = gizmo),
@@ -273,6 +281,35 @@ describe("the 3D layout", () => {
     fireEvent.change(screen.getByLabelText("Photo depth"), { target: { value: "3.5" } });
     expect(screen.getByText(/Photo depth in 3D: 3.5 behind/)).toBeInTheDocument();
     expect(JSON.parse(localStorage.getItem("pixelflow.view3d:unsaved:Test House")!).photoDepth).toBe(3.5);
+  });
+
+  it("adds a house model sized to the photo and standing behind the props, then places and removes it", async () => {
+    const show = showWith(line("Gutter", 0, 0));
+    show.background = { path: "/house.jpg", x: -10, y: 8, width: 20, opacity: 0.7 };
+    const user = await setup(show);
+    backend.models.set("/models/house.obj", new TextEncoder().encode("v 0 0 0"));
+    backend.nextModelPath = "/models/house.obj";
+    await open3d(user);
+    await user.click(screen.getByRole("button", { name: "Add house model…" }));
+    await waitFor(() => expect(backend.show.houseModel).toBeTruthy());
+    expect(backend.show.houseModel).toEqual({
+      path: "/models/house.obj",
+      position: { x: 0, y: 0, z: -8.02 },
+      rotationDeg: { x: 0, y: 0, z: 0 },
+      scale: 2,
+      opacity: 1,
+    });
+    expect(edits).toHaveLength(1);
+    await waitFor(() => expect(scene().calls).toContain("setModel:/models/house.obj"));
+    expect(scene().calls).toContain("placeModel:2");
+
+    const turn = screen.getByLabelText("Model turn (Y°)");
+    await user.clear(turn);
+    await user.type(turn, "15{Enter}");
+    expect(backend.show.houseModel!.rotationDeg.y).toBe(15);
+    await user.click(screen.getByRole("button", { name: "Remove model" }));
+    await waitFor(() => expect(backend.show.houseModel ?? null).toBeNull());
+    await waitFor(() => expect(scene().calls).toContain("setModel:none"));
   });
 
   it("explains when 3D can't be shown", async () => {

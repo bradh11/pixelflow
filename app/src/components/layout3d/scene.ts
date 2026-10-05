@@ -27,7 +27,7 @@ export interface Scene3d {
   setBulbSize(size: number): void;
   /** The photo as an upright picture filling `box` (a flat box at its depth), or none. */
   setBackdrop(backdrop: { image: TexImageSource; box: Box3; opacity: number } | null): void;
-  /** Loads a house model from a file's bytes, replacing any other; resolves with its box. */
+  /** Loads a house model from a file's bytes, replacing any other; resolves with its box as the file has it. */
   setModel(model: { bytes: Uint8Array; name: string } | null): Promise<Box3 | null>;
   /** Places the loaded house model; resolves to its new box. */
   placeModel(placement: ModelPlacement): Box3 | null;
@@ -46,6 +46,12 @@ export interface Scene3d {
 
 /** Makes the renderer for a canvas. */
 export type SceneFactory = (canvas: HTMLCanvasElement) => Promise<Scene3d>;
+
+/** The box around the model in a file, as the file has it (loads three.js if needed). */
+export async function measureModel(bytes: Uint8Array, name: string): Promise<Box3 | null> {
+  const three = await import("./threeScene");
+  return three.measureModel(bytes, name);
+}
 
 /** The three.js renderer, loaded the first time it's needed (it's large, and 2D-only users never need it). */
 export const loadThreeScene: SceneFactory = async (canvas) => {

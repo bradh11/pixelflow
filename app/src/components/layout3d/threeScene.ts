@@ -150,6 +150,31 @@ function disposeTree(root: Object3D) {
 const toBox = (b: ThreeBox3): Box3 | null =>
   b.isEmpty() ? null : { min: { x: b.min.x, y: b.min.y, z: b.min.z }, max: { x: b.max.x, y: b.max.y, z: b.max.z } };
 
+/** A model file's contents as three.js objects: glTF (binary or self-contained) or OBJ. */
+async function parseModel(bytes: Uint8Array, name: string): Promise<Object3D> {
+  if (name.split(".").pop()?.toLowerCase() === "obj") {
+    const { OBJLoader } = await import("three/addons/loaders/OBJLoader.js");
+    return new OBJLoader().parse(new TextDecoder().decode(bytes));
+  }
+  const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  return (await new GLTFLoader().parseAsync(buffer, "")).scene;
+}
+
+/** The box around a model as its file has it (not placed). */
+function naturalBox(object: Object3D): Box3 | null {
+  object.updateMatrixWorld(true);
+  return toBox(new ThreeBox3().setFromObject(object));
+}
+
+/** The box around the model in a file, as the file has it; null when it's empty. */
+export async function measureModel(bytes: Uint8Array, name: string): Promise<Box3 | null> {
+  const object = await parseModel(bytes, name);
+  const box = naturalBox(object);
+  disposeTree(object);
+  return box;
+}
+
 /** The move gizmo, one unit long: three arrows and three plane squares. */
 function buildGizmo() {
   const group = new Group();
@@ -231,9 +256,9 @@ export function createThreeScene(canvas: HTMLCanvasElement): Scene3d {
   ground.add(groundPlane, grid);
   scene.add(ground);
 
-  const moon = new DirectionalLight(0xa9b8ff, 0.7);
+  const moon = new DirectionalLight(0xa9b8ff, 0.45);
   moon.position.set(-30, 60, 40);
-  scene.add(new HemisphereLight(0x8a9bc4, 0x0b0d10, 0.9), moon);
+  scene.add(new HemisphereLight(0x8a9bc4, 0x0b0d10, 0.55), moon);
 
   // Every pixel: one Points object, positions and colors updated in place.
   const pixelMaterial = new ShaderMaterial({
@@ -446,21 +471,12 @@ export function createThreeScene(canvas: HTMLCanvasElement): Scene3d {
       }
       modelShadow.clear();
       if (!next) return null;
-      const extension = next.name.split(".").pop()?.toLowerCase();
-      const buffer = next.bytes.buffer.slice(next.bytes.byteOffset, next.bytes.byteOffset + next.bytes.byteLength) as ArrayBuffer;
-      let loaded: Object3D;
-      if (extension === "obj") {
-        const { OBJLoader } = await import("three/addons/loaders/OBJLoader.js");
-        loaded = new OBJLoader().parse(new TextDecoder().decode(next.bytes));
-      } else {
-        const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
-        const gltf = await new GLTFLoader().parseAsync(buffer, "");
-        loaded = gltf.scene;
-      }
+      const loaded = await parseModel(next.bytes, next.name);
+      const box = naturalBox(loaded);
       model.add(loaded);
       shadowModel();
       applyModelOpacity();
-      return toBox(new ThreeBox3().setFromObject(model));
+      return box;
     },
 
     placeModel(p) {

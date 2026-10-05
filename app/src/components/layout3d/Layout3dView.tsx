@@ -1,4 +1,5 @@
 import { type PointerEvent as ReactPointerEvent, type Ref, useCallback, useEffect, useId, useImperativeHandle, useRef, useState } from "react";
+import { errorMessage } from "../../api/backend";
 import type { PreviewProp3d, PreviewSet3d, Show } from "../../api/types";
 import {
   type Box3,
@@ -37,6 +38,7 @@ import {
 import { type Gesture, type Pt, type Size, pinchFactor, wheelIntent, wheelZoomFactor } from "../../lib/layoutMath";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { commitGesture, settlePending, unsettled } from "../../state/layoutGestures";
+import { useApp } from "../../state/store";
 import { type CameraAction, loadShowView, saveShowView, useView3d } from "../../state/view3d";
 import type { LayoutCanvasHandle } from "../layout/LayoutCanvas";
 import { type PhotoImage, useLiveFrame } from "../layout/useLayoutData";
@@ -106,6 +108,10 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
   const sceneRef = useRef<Scene3d | null>(null);
   const [ready, setReady] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const [modelProblem, setModelProblem] = useState<string | null>(null);
+  const backend = useApp((s) => s.backend);
+  /** The house model's box where it's placed, once loaded. */
+  const modelBox = useRef<Box3 | null>(null);
   const camera = useRef<{ current: Orbit; goal: Orbit } | null>(null);
   const drag = useRef<Drag | null>(null);
   const liveFrame = useRef<Uint8Array | null>(null);
@@ -147,7 +153,7 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
   };
 
   /** Everything worth showing: the props, the photo, and the house model. */
-  const contentBox = (props = effective()): Box3 | null => unionBox3([boundsOfXyz(props.map((p) => p.xyz)), backdrop()]);
+  const contentBox = (props = effective()): Box3 | null => unionBox3([boundsOfXyz(props.map((p) => p.xyz)), backdrop(), modelBox.current]);
 
   const selectedBox = (props: PreviewProp3d[]): Box3 | null => {
     const selected = new Set(useLayoutEditor.getState().selected);
@@ -324,6 +330,44 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
     syncBackdrop();
     invalidate();
   }, [ready, photo.image, photo.aspect, show.background, invalidate]);
+
+  // The house model: loaded when it changes, placed whenever it moves.
+  const modelPath = show.houseModel?.path ?? null;
+  const placeModel = () => {
+    const m = latest.current.show.houseModel;
+    if (m && sceneRef.current) modelBox.current = sceneRef.current.placeModel(m);
+  };
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!ready || !scene) return;
+    let cancelled = false;
+    modelBox.current = null;
+    setModelProblem(null);
+    if (!modelPath || !backend) {
+      void scene.setModel(null).then(invalidate);
+      return;
+    }
+    void (async () => {
+      try {
+        const bytes = await backend.readHouseModel(modelPath);
+        if (cancelled) return;
+        await scene.setModel({ bytes, name: modelPath });
+        if (cancelled) return;
+        placeModel();
+        invalidate();
+      } catch (e) {
+        if (!cancelled) setModelProblem(`The house model can't be shown. ${errorMessage(e)}`);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, modelPath, backend, invalidate]);
+  useEffect(() => {
+    if (!ready) return;
+    placeModel();
+    invalidate();
+  }, [ready, show.houseModel, invalidate]);
 
   // Colors handed in by the screen.
   useEffect(() => {
@@ -675,6 +719,7 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
       </p>
       <div ref={marqueeRef} aria-hidden className="pointer-events-none absolute hidden border border-accent-400 bg-accent-400/10" />
       <View3dControls />
+      {modelProblem && <p className="absolute bottom-2 left-2 max-w-md rounded-md bg-black/60 px-3 py-2 text-xs text-amber-300">{modelProblem}</p>}
       {problem && (
         <div className="absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-neutral-300">
           <p className="max-w-sm rounded-lg bg-black/60 px-4 py-3">{problem}</p>

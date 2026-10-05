@@ -22,6 +22,7 @@ import { nodeCount, shapeLabel } from "../../lib/shows";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { useApp } from "../../state/store";
 import { useView3d } from "../../state/view3d";
+import { HouseModelPanel } from "../layout3d/HouseModelPanel";
 import { Button, Input, Select } from "../ui";
 
 const COLOR_ORDERS: ColorOrder[] = ["RGB", "RBG", "GRB", "GBR", "BRG", "BGR", "RGBW", "GRBW"];
@@ -104,7 +105,7 @@ export function NumberField({
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+export function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="border-t border-neutral-200 py-3 first:border-t-0 first:pt-0 dark:border-neutral-800">
       <h3 className="mb-2 text-xs font-medium tracking-wide text-neutral-500 uppercase">{title}</h3>
@@ -440,6 +441,7 @@ const TIPS_3D = [
   "1–5 pick the Front, Top, Left, Right, and Street views; F fits everything in.",
   "Click a prop to select it; shift-click or Shift-drag a box to select more.",
   "Drag the arrows to move along one direction, or the squares across a plane. Drag a prop itself to slide it over the ground.",
+  "With a house model, a dragged prop sticks to its walls and roof; hold Alt to drag it freely.",
   "Set depth and tilt exactly under Placement. V switches back to 2D for drawing.",
 ];
 
@@ -470,6 +472,7 @@ export function PropertiesPanel({
         <div>
           <PhotoPanel problem={photoProblem} onRetry={onRetryPhoto} onChoosePhoto={onChoosePhoto} />
           {in3d && show.background && <PhotoDepth />}
+          {in3d && <HouseModelPanel preview={preview} />}
           <Section title="Tips">
             <ul className="list-disc space-y-1 pl-4 text-sm text-neutral-600 dark:text-neutral-400">
               {(in3d ? TIPS_3D : TIPS_2D).map((tip) => (

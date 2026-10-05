@@ -341,6 +341,24 @@ export function parseOrbit(value: unknown): Orbit | null {
   return { target: v3(x, y, z), yaw, pitch: clamp(pitch, MIN_PITCH, MAX_PITCH), distance: clamp(distance, MIN_DISTANCE, MAX_DISTANCE) };
 }
 
+/**
+ * Where to put a house model so it stands on the ground under the display: scaled so it's as
+ * wide as `target` (the photo, or the props) when there is one, centered on it left to right,
+ * and with its front face just behind the props (z = 0). `natural` is the model's box as its
+ * file has it. Models are taken as Y-up, as glTF files are.
+ */
+export function fitModelPlacement(natural: Box3, target: Box3 | null): { position: V3; scale: number } {
+  const width = natural.max.x - natural.min.x;
+  const scaled = target && width > 0 ? (target.max.x - target.min.x) / width : 1;
+  const s = Number.isFinite(scaled) && scaled > 0 ? scaled : 1;
+  const cx = target ? (target.min.x + target.max.x) / 2 : 0;
+  const round = (v: number) => tidy(v) || 0;
+  return {
+    scale: Number(s.toPrecision(4)),
+    position: v3(round(cx - ((natural.min.x + natural.max.x) / 2) * s), round(-natural.min.y * s), round(-natural.max.z * s - 0.02)),
+  };
+}
+
 // ---- Picking ---------------------------------------------------------------------------
 
 /**

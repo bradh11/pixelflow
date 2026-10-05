@@ -15,6 +15,7 @@ import {
   dollyAt,
   dragDelta,
   fillColors,
+  fitModelPlacement,
   fitOrbit,
   focusOrbit,
   freeDragHandle,
@@ -205,6 +206,24 @@ describe("the 3D camera", () => {
     expect(parseOrbit({ ...orbit, yaw: "x" })).toBeNull();
     expect(parseOrbit(null)).toBeNull();
     expect(parseOrbit({ ...orbit, pitch: 9 })!.pitch).toBe(MAX_PITCH);
+  });
+});
+
+describe("placing a house model", () => {
+  it("scales it to the photo's width, stands it on the ground, and puts its front just behind the props", () => {
+    const natural: Box3 = { min: v3(-5, -1, -4), max: v3(5, 6, 4) };
+    const photo: Box3 = { min: v3(-12, 0, 0), max: v3(12, 12, 0) };
+    const { position, scale } = fitModelPlacement(natural, photo);
+    expect(scale).toBeCloseTo(2.4);
+    expect(position.x).toBeCloseTo(0);
+    expect(position.y).toBeCloseTo(2.4); // its bottom (-1 × 2.4) lifted to the ground
+    expect(position.z).toBeCloseTo(-9.62); // its front (4 × 2.4) just behind z = 0
+  });
+
+  it("keeps a model's own size when there's nothing to match", () => {
+    const { position, scale } = fitModelPlacement({ min: v3(2, 0, -1), max: v3(4, 3, 1) }, null);
+    expect(scale).toBe(1);
+    expect(position).toEqual(v3(-3, 0, -1.02));
   });
 });
 

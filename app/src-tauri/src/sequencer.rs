@@ -3,7 +3,9 @@
 
 use crate::{AppState, Reply, message};
 use pf_analysis::Analysis;
-use pf_engine::{ExportLayout, ExportSummary, PlaybackStatus, SequenceEdit, SequenceSnapshot};
+use pf_engine::{
+    ExportLayout, ExportSummary, PlaybackStatus, SequenceEdit, SequenceEditResult, SequenceSnapshot,
+};
 use std::path::PathBuf;
 use tauri::State;
 use tauri::ipc::Response;
@@ -56,17 +58,17 @@ pub(crate) async fn get_sequence_doc(state: State<'_, AppState>) -> Reply<Option
 pub(crate) async fn edit_sequence(
     state: State<'_, AppState>,
     edits: Vec<SequenceEdit>,
-) -> Reply<SequenceSnapshot> {
+) -> Reply<SequenceEditResult> {
     state.engine().edit_sequence(edits).map_err(message)
 }
 
 #[tauri::command]
-pub(crate) async fn undo_sequence(state: State<'_, AppState>) -> Reply<SequenceSnapshot> {
+pub(crate) async fn undo_sequence(state: State<'_, AppState>) -> Reply<SequenceEditResult> {
     state.engine().undo_sequence().map_err(message)
 }
 
 #[tauri::command]
-pub(crate) async fn redo_sequence(state: State<'_, AppState>) -> Reply<SequenceSnapshot> {
+pub(crate) async fn redo_sequence(state: State<'_, AppState>) -> Reply<SequenceEditResult> {
     state.engine().redo_sequence().map_err(message)
 }
 
@@ -122,7 +124,7 @@ pub(crate) async fn analyze_audio(path: PathBuf) -> Reply<Analysis> {
 /// Detects beats in the open sequence's music and adds Beats, Bars, and Onsets timing tracks
 /// (replacing earlier ones), as one undo step.
 #[tauri::command]
-pub(crate) async fn detect_beats(state: State<'_, AppState>) -> Reply<SequenceSnapshot> {
+pub(crate) async fn detect_beats(state: State<'_, AppState>) -> Reply<SequenceEditResult> {
     let music = {
         let engine = state.engine();
         if engine.sequence_doc().is_none() {

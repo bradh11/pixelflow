@@ -6,7 +6,7 @@ use serde_json::Value;
 /// Errors from reading or writing a sequence file.
 #[derive(Debug, thiserror::Error)]
 pub enum SequenceError {
-    #[error("the sequence file is not valid: {0}")]
+    #[error("it isn't a PixelFlow sequence, or it's damaged ({0})")]
     Json(serde_json::Error),
     #[error("the sequence file has no schemaVersion field")]
     MissingSchemaVersion,

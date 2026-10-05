@@ -879,6 +879,12 @@ mod tests {
         .unwrap();
         assert_eq!(snap["canUndo"], true);
         assert_eq!(snap["issues"], json!([]));
+        // The reply lists what changed, not the whole document.
+        assert!(snap.get("sequence").is_none());
+        assert_eq!(
+            snap["changes"]["rows"][0]["id"],
+            "44444444-0000-4000-8000-000000000001"
+        );
         let frame = call_raw(&webview, "sequence_doc_frame", json!({ "positionMs": 500 }));
         assert_eq!(frame, [255, 0, 0].repeat(4));
         let error = call(
@@ -928,13 +934,19 @@ mod tests {
             json!({ "edits": [{ "type": "updateInfo", "name": "Song", "audio": "clicks.wav", "durationMs": 12000, "frameMs": 25 }] }),
         )
         .unwrap();
-        let snap = call(&webview, "detect_beats", json!({})).unwrap();
-        let tracks = snap["sequence"]["timingTracks"].as_array().unwrap();
+        call(&webview, "detect_beats", json!({})).unwrap();
+        let doc = call(&webview, "get_sequence_doc", json!({})).unwrap();
+        let tracks = doc["sequence"]["timingTracks"].as_array().unwrap();
         let names: Vec<&str> = tracks.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert_eq!(names, vec!["Beats", "Bars", "Onsets"]);
         assert!(tracks[0]["marks"].as_array().unwrap().len() >= 20);
         let snap = call(&webview, "undo_sequence", json!({})).unwrap();
-        assert_eq!(snap["sequence"]["timingTracks"], json!([]));
+        assert_eq!(
+            snap["changes"]["removedTimingTracks"].as_array().unwrap().len(),
+            3
+        );
+        let doc = call(&webview, "get_sequence_doc", json!({})).unwrap();
+        assert_eq!(doc["sequence"]["timingTracks"], json!([]));
 
         call(&webview, "close_sequence_doc", json!({})).unwrap();
         let snap = call(&webview, "open_sequence_doc", json!({ "path": saved })).unwrap();

@@ -417,9 +417,12 @@ trait FrameSource: Send + 'static {
     /// Frames in the sequence and the time between them. Asked every loop: an authored sequence
     /// can change length while it plays.
     fn timing(&mut self) -> (u32, u32);
-    /// Fills `out` (what the output thread sends) and `preview` (the props' show frame) with
-    /// frame `index`.
-    fn frame(&mut self, index: u32, out: &mut [u8], preview: &mut [u8]) -> Result<(), String>;
+    /// Fills `out` (what the output thread sends) with frame `index`. Reading and rendering
+    /// happen here, without holding the preview.
+    fn frame(&mut self, index: u32, out: &mut [u8]) -> Result<(), String>;
+    /// Paints the props' show frame for the preview from the frame in `out` (quick: the preview
+    /// is locked meanwhile).
+    fn paint(&self, out: &[u8], preview: &mut [u8]);
     /// True when the current frame must be drawn again although time hasn't moved (the
     /// sequence or the show was edited).
     fn changed(&mut self) -> bool {
@@ -442,10 +445,12 @@ impl FrameSource for FileFrames {
         (header.frames, header.step_ms)
     }
 
-    fn frame(&mut self, index: u32, out: &mut [u8], preview: &mut [u8]) -> Result<(), String> {
-        self.sequence.read_frame(index, out).map_err(|e| e.to_string())?;
+    fn frame(&mut self, index: u32, out: &mut [u8]) -> Result<(), String> {
+        self.sequence.read_frame(index, out).map_err(|e| e.to_string())
+    }
+
+    fn paint(&self, out: &[u8], preview: &mut [u8]) {
         paint_preview(&self.show, &self.map, out, preview);
-        Ok(())
     }
 
     fn relayout(&mut self, show: Show, map: ChannelMap, _renderer: Option<Renderer>) {
@@ -488,10 +493,13 @@ impl FrameSource for RenderedFrames {
         (frames, self.doc.frame_ms.max(1))
     }
 
-    fn frame(&mut self, index: u32, out: &mut [u8], preview: &mut [u8]) -> Result<(), String> {
+    fn frame(&mut self, index: u32, out: &mut [u8]) -> Result<(), String> {
         self.renderer.render_frame(&self.doc, u64::from(index), out);
-        preview.copy_from_slice(out);
         Ok(())
+    }
+
+    fn paint(&self, out: &[u8], preview: &mut [u8]) {
+        preview.copy_from_slice(out);
     }
 
     fn changed(&mut self) -> bool {
@@ -530,14 +538,14 @@ impl Frames {
     /// Draws `frame` and sends it, updating the preview. On an error it goes dark and returns
     /// the error.
     fn show(&mut self, frame: u32) -> Result<(), String> {
-        let result = {
-            let mut preview = self.preview.lock().unwrap_or_else(PoisonError::into_inner);
-            self.source.frame(frame, self.writer.frame_mut(), &mut preview)
-        };
-        if let Err(error) = result {
+        if let Err(error) = self.source.frame(frame, self.writer.frame_mut()) {
             self.dark();
             return Err(error);
         }
+        self.source.paint(
+            self.writer.frame_mut(),
+            &mut self.preview.lock().unwrap_or_else(PoisonError::into_inner),
+        );
         self.raw
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -944,8 +952,9 @@ impl PlaybackSession {
         // Publish the first frame before output starts so controllers never see a black frame first.
         if frames > 0 {
             source
-                .frame(start_frame, writer.frame_mut(), &mut preview_frame)
+                .frame(start_frame, writer.frame_mut())
                 .map_err(EngineError::Playback)?;
+            source.paint(writer.frame_mut(), &mut preview_frame);
         }
         let raw = Arc::new(Mutex::new(writer.frame_mut().to_vec()));
         writer.publish();
@@ -1065,11 +1074,19 @@ impl PlaybackSession {
             map: built_map,
             preview_only,
             frame_ms,
+            updates,
             ..
         } = &mut self.kind
         else {
             return;
         };
+        // A renderer still waiting for the player (from a move just before) was made for the old
+        // layout: drop it, or it would replace this rebuild's newer one.
+        updates
+            .pending
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .renderer = None;
         let (plan, notes) = document_plan(show, map, show_error, doc.frame_ms);
         let mut renderer = Renderer::new(show, map);
         let (mut writer, reader) = pf_frame::frame_buffers(map.frame_len);
@@ -1253,10 +1270,9 @@ pub(crate) fn document_music(doc_path: Option<&Path>, audio: Option<&str>) -> Op
     if audio.is_absolute() {
         return Some(audio);
     }
-    match doc_path.and_then(Path::parent) {
-        Some(dir) => Some(dir.join(audio)),
-        None => Some(audio),
-    }
+    // Relative music is next to the document; an unsaved document has no folder yet, so its
+    // relative music isn't looked for (not in whatever folder the app happens to run in).
+    doc_path.and_then(Path::parent).map(|dir| dir.join(audio))
 }
 
 /// A show entry for the sequence file at `path`: named after the file, with its music when it

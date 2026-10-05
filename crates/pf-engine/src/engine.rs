@@ -9,7 +9,7 @@ use crate::playback::{
     self, ClockFactory, DocumentRequest, PlayRequest, PlaybackReady, PlaybackSession, PlaybackStatus,
     SessionKind, document_music,
 };
-use crate::sequence_doc::{self, OpenSequence, SequenceEdit, SequenceSnapshot};
+use crate::sequence_doc::{self, OpenSequence, SequenceEdit, SequenceEditResult, SequenceSnapshot};
 use crate::snapshot::{PreviewProp, ShowSnapshot, Summary};
 use pf_mapping::ChannelMap;
 use pf_model::{IssueCode, SequenceId, Severity, Show, ValidationReport};
@@ -82,6 +82,8 @@ pub struct SequenceExport {
     show: Show,
     map: ChannelMap,
     sequence: Sequence,
+    /// The show's first error, if it has any (noted in the summary).
+    show_error: Option<String>,
 }
 
 impl SequenceExport {
@@ -97,8 +99,18 @@ impl SequenceExport {
         path: &Path,
         progress: impl FnMut(u32, u32) -> bool,
     ) -> Result<ExportSummary, EngineError> {
-        pf_render::export::export_fseq_file(&self.show, &self.map, &self.sequence, path, progress)
-            .map_err(|e| EngineError::Export(e.to_string()))
+        let mut summary =
+            pf_render::export::export_fseq_file(&self.show, &self.map, &self.sequence, path, progress)
+                .map_err(|e| EngineError::Export(e.to_string()))?;
+        if let Some(error) = &self.show_error {
+            summary.notes.insert(
+                0,
+                format!(
+                    "The show has errors, so some props may be missing or wrong in this file. Fix them and export again: {error}"
+                ),
+            );
+        }
+        Ok(summary)
     }
 }
 
@@ -567,10 +579,16 @@ impl Engine {
         self.save_sequence_doc_as(&path)
     }
 
-    /// Saves the open sequence to `path` and makes it the sequence's file.
+    /// Saves the open sequence to `path` and makes it the sequence's file. Music given relative
+    /// to the old file's folder is rewritten to stay the same file (relative to the new folder
+    /// when it's inside it, otherwise as a full path); an unsaved sequence's relative music is
+    /// taken to be next to the new file.
     pub fn save_sequence_doc_as(&mut self, path: &Path) -> Result<SequenceSnapshot, EngineError> {
         let open = self.sequence.as_mut().ok_or(EngineError::NoSequence)?;
-        sequence_doc::save_sequence_atomic(path, &open.doc)?;
+        let mut moved = open.clone();
+        moved.rebase_audio(path);
+        sequence_doc::save_sequence_atomic(path, &moved.doc)?;
+        *open = moved;
         open.mark_saved(path);
         Ok(self.sequence_snapshot_unchecked())
     }
@@ -581,7 +599,14 @@ impl Engine {
         self.sequence = None;
     }
 
-    /// The open sequence, for the UI.
+    /// Identifies the open sequence document: it stays the same across edits and changes when
+    /// another document is opened or created (to tell, after a slow job, whether it's still the
+    /// one the job started on).
+    pub fn sequence_doc_id(&self) -> Option<u64> {
+        self.sequence.as_ref().map(OpenSequence::id)
+    }
+
+    /// The whole open sequence, for the UI (when it opens one, or to resync).
     pub fn sequence_doc(&self) -> Option<SequenceSnapshot> {
         self.sequence.as_ref().map(|open| open.snapshot(&self.show))
     }
@@ -591,30 +616,52 @@ impl Engine {
     }
 
     /// Applies a batch of edits to the open sequence as one undo step. Nothing changes if any
-    /// edit fails or the result would exceed the size limits. A playing sequence shows the change
-    /// from its next frame.
-    pub fn edit_sequence(&mut self, edits: Vec<SequenceEdit>) -> Result<SequenceSnapshot, EngineError> {
-        let open = self.sequence.as_mut().ok_or(EngineError::NoSequence)?;
-        if open.apply(&edits)? {
-            self.sequence_changed();
-        }
-        Ok(self.sequence_snapshot_unchecked())
+    /// edit fails, a setting is outside its range, or the result would exceed the size limits.
+    /// A playing sequence shows the change from its next frame. The reply lists what changed,
+    /// not the whole document (see [`Engine::sequence_doc`] for that).
+    pub fn edit_sequence(&mut self, edits: Vec<SequenceEdit>) -> Result<SequenceEditResult, EngineError> {
+        self.edit_sequence_gesture(edits, None)
     }
 
-    pub fn undo_sequence(&mut self) -> Result<SequenceSnapshot, EngineError> {
+    /// Like [`Engine::edit_sequence`], as part of a gesture (a drag, say): consecutive edits with
+    /// the same `gesture` id merge into one undo step, so undo takes back the whole gesture. Any
+    /// other edit, an undo, or a redo in between ends the gesture.
+    pub fn edit_sequence_gesture(
+        &mut self,
+        edits: Vec<SequenceEdit>,
+        gesture: Option<&str>,
+    ) -> Result<SequenceEditResult, EngineError> {
         let open = self.sequence.as_mut().ok_or(EngineError::NoSequence)?;
-        if open.undo() {
+        let changes = open.apply(&edits, gesture)?;
+        if changes.is_some() {
             self.sequence_changed();
         }
-        Ok(self.sequence_snapshot_unchecked())
+        Ok(self.sequence_result(changes))
     }
 
-    pub fn redo_sequence(&mut self) -> Result<SequenceSnapshot, EngineError> {
+    pub fn undo_sequence(&mut self) -> Result<SequenceEditResult, EngineError> {
         let open = self.sequence.as_mut().ok_or(EngineError::NoSequence)?;
-        if open.redo() {
+        let changes = open.undo();
+        if changes.is_some() {
             self.sequence_changed();
         }
-        Ok(self.sequence_snapshot_unchecked())
+        Ok(self.sequence_result(changes))
+    }
+
+    pub fn redo_sequence(&mut self) -> Result<SequenceEditResult, EngineError> {
+        let open = self.sequence.as_mut().ok_or(EngineError::NoSequence)?;
+        let changes = open.redo();
+        if changes.is_some() {
+            self.sequence_changed();
+        }
+        Ok(self.sequence_result(changes))
+    }
+
+    fn sequence_result(&self, changes: Option<sequence_doc::SequenceChanges>) -> SequenceEditResult {
+        self.sequence
+            .as_ref()
+            .expect("a sequence is open")
+            .edit_result(changes, &self.show)
     }
 
     /// The open sequence's music file (relative paths resolved next to the document), if any.
@@ -628,7 +675,7 @@ impl Engine {
     pub fn replace_timing_tracks(
         &mut self,
         tracks: Vec<pf_sequence::TimingTrack>,
-    ) -> Result<SequenceSnapshot, EngineError> {
+    ) -> Result<SequenceEditResult, EngineError> {
         let open = self.sequence.as_ref().ok_or(EngineError::NoSequence)?;
         let mut edits: Vec<SequenceEdit> = open
             .doc
@@ -716,11 +763,12 @@ impl Engine {
     /// What exporting the open sequence needs, to run without holding the engine.
     pub fn sequence_export(&self) -> Result<SequenceExport, EngineError> {
         let open = self.sequence.as_ref().ok_or(EngineError::NoSequence)?;
-        let (map, _) = analyze(&self.show);
+        let (map, report) = analyze(&self.show);
         Ok(SequenceExport {
             show: self.show.clone(),
             map,
             sequence: open.doc.clone(),
+            show_error: first_error(&report).map(|i| i.message.clone()),
         })
     }
 

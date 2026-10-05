@@ -36,6 +36,11 @@ impl Iterator for MonoSamples {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
+        // The channel count and rate are read once, when the file opens. A file whose format
+        // changes part way (chained Ogg streams, rare in music files) is then averaged with the
+        // first part's channel count and timed at its rate: channels may pair up wrongly and
+        // times drift for the rest of the file. Beat detection only needs the loudness envelope,
+        // so this is accepted rather than handled; playback decodes separately and isn't affected.
         let first = self.decoder.next()?;
         let mut sum = first;
         for _ in 1..self.channels {

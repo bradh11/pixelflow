@@ -31,5 +31,8 @@ pub use pf_render::export::{ExportBlock, ExportLayout, ExportSummary};
 pub use playback::{
     ClockFactory, PlayRequest, PlaybackReady, PlaybackStatus, music_clocks, sequence_entry_for,
 };
-pub use sequence_doc::{SequenceEdit, SequenceSnapshot, load_sequence, save_sequence_atomic};
+pub use sequence_doc::{
+    PlacedEffect, SequenceChanges, SequenceEdit, SequenceEditResult, SequenceInfo, SequenceSnapshot,
+    load_sequence, save_sequence_atomic,
+};
 pub use snapshot::{PreviewProp, ShowSnapshot, Summary};

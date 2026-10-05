@@ -90,15 +90,32 @@ fn edits_undo_redo_and_files() {
             effect,
         }])
         .unwrap();
-    assert!(snap.dirty && snap.can_undo && !snap.can_redo);
-    assert_eq!(snap.sequence.effect_count(), 1);
+    assert!(snap.dirty && snap.can_undo && !snap.can_redo && snap.changed);
+    assert_eq!(snap.changes.effects.len(), 1, "the reply lists the new effect");
+    assert_eq!(snap.changes.effects[0].effect.id, id);
+    assert!(snap.changes.rows.is_empty());
+    assert_eq!(engine.sequence_doc().unwrap().sequence.effect_count(), 1);
     assert!(snap.issues.is_empty(), "{:?}", snap.issues);
 
     let snap = engine.undo_sequence().unwrap();
-    assert_eq!(snap.sequence.effect_count(), 0);
+    assert!(
+        snap.changed && snap.can_undo && snap.can_redo,
+        "the added row is still undoable"
+    );
+    assert_eq!(
+        snap.changes.rows[0].layers[0].effects.len(),
+        0,
+        "undo sends the restored row"
+    );
+    assert_eq!(engine.sequence_doc().unwrap().sequence.effect_count(), 0);
     let snap = engine.redo_sequence().unwrap();
-    assert_eq!(snap.sequence.effect(id).unwrap().kind(), EffectKind::On);
+    assert_eq!(
+        engine.sequence_doc().unwrap().sequence.effect(id).unwrap().kind(),
+        EffectKind::On
+    );
     let revision = snap.revision;
+    let nothing = engine.redo_sequence().unwrap();
+    assert!(!nothing.changed && nothing.revision == revision);
 
     assert!(matches!(
         engine.save_sequence_doc(),
@@ -360,6 +377,25 @@ fn exports_the_open_sequence() {
     assert_eq!(frame, solid([255, 0, 0]));
     file.read_frame(30, &mut frame).unwrap();
     assert_eq!(frame, vec![0; 30]);
+    assert!(summary.notes.is_empty(), "{:?}", summary.notes);
+
+    // A show with errors still exports, saying so.
+    engine.apply(vec![Edit::SetFrameRate { fps: 5 }]).unwrap();
+    let summary = engine.export_sequence_doc(&path).unwrap();
+    assert!(
+        summary.notes[0].starts_with("The show has errors, so some props may be missing or wrong"),
+        "{:?}",
+        summary.notes
+    );
+    // A cancelled export says so and writes nothing.
+    let cancelled = dir.path().join("cancelled.fseq");
+    let err = engine
+        .sequence_export()
+        .unwrap()
+        .run(&cancelled, |done, _| done < 3)
+        .unwrap_err();
+    assert_eq!(err.to_string(), "The export was cancelled.");
+    assert!(!cancelled.exists());
 
     let empty = pf_model::Show::new("empty");
     engine.new_show("empty");
@@ -428,15 +464,23 @@ fn detected_timing_tracks_replace_earlier_ones_in_one_undo_step() {
         .replace_timing_tracks(vec![lyrics.clone(), beats(4)])
         .unwrap();
     let snap = engine.replace_timing_tracks(vec![beats(8)]).unwrap();
-    let tracks: Vec<(&str, usize)> = snap
-        .sequence
+    assert_eq!(snap.changes.timing_tracks.len(), 1);
+    assert_eq!(snap.changes.removed_timing_tracks.len(), 1);
+    let doc = engine.sequence_doc().unwrap().sequence;
+    let tracks: Vec<(&str, usize)> = doc
         .timing_tracks
         .iter()
         .map(|t| (t.name.as_str(), t.marks.len()))
         .collect();
     assert_eq!(tracks, vec![("Lyrics", 1), ("Beats", 8)]);
-    let snap = engine.undo_sequence().unwrap();
-    assert_eq!(snap.sequence.timing_tracks[1].marks.len(), 4, "one undo step");
+    engine.undo_sequence().unwrap();
+    assert_eq!(
+        engine.sequence_doc().unwrap().sequence.timing_tracks[1]
+            .marks
+            .len(),
+        4,
+        "one undo step"
+    );
 
     engine
         .edit_sequence(vec![SequenceEdit::UpdateInfo {
@@ -446,7 +490,79 @@ fn detected_timing_tracks_replace_earlier_ones_in_one_undo_step() {
             frame_ms: 25,
         }])
         .unwrap();
+    // Unsaved, relative music has no folder to be in (it isn't looked for where the app runs).
+    assert_eq!(engine.sequence_music(), None);
     let path = dir.path().join("song.pfseq.json");
     engine.save_sequence_doc_as(&path).unwrap();
     assert_eq!(engine.sequence_music(), Some(dir.path().join("song.mp3")));
+    // Saving somewhere else keeps the same music file.
+    let elsewhere = dir.path().join("copies").join("song.pfseq.json");
+    std::fs::create_dir_all(elsewhere.parent().unwrap()).unwrap();
+    let snap = engine.save_sequence_doc_as(&elsewhere).unwrap();
+    assert_eq!(
+        snap.sequence.audio,
+        Some(dir.path().join("song.mp3").display().to_string())
+    );
+    assert_eq!(engine.sequence_music(), Some(dir.path().join("song.mp3")));
+    assert!(!snap.dirty);
+}
+
+#[test]
+fn a_layout_change_right_after_a_move_draws_with_the_newest_layout() {
+    let (mut engine, _recorded, _dir) = engine();
+    let row = new_doc(&mut engine, 20_000);
+    // A second strip, not in the show yet, already has a green row.
+    let second = Prop::new(
+        "Second",
+        ShapeSource::Generator(Generator::Line {
+            nodes: 5,
+            length: 1.0,
+        }),
+    );
+    let second_row = Row::new(Target::Prop(second.id));
+    let second_row_id = second_row.id;
+    engine
+        .edit_sequence(vec![
+            SequenceEdit::AddEffect {
+                row,
+                layer: 0,
+                effect: on(Rgb::RED, 0, 20_000),
+            },
+            SequenceEdit::AddRow {
+                row: second_row,
+                index: None,
+            },
+            SequenceEdit::AddEffect {
+                row: second_row_id,
+                layer: 0,
+                effect: on(Rgb::GREEN, 0, 20_000),
+            },
+        ])
+        .unwrap();
+    for _ in 0..20 {
+        engine.play_sequence_doc(1000).unwrap();
+        engine.set_playback_paused(true).unwrap();
+        // A move (new renderer queued for the player) and, at once, new wiring (a rebuild): the
+        // queued renderer is older than the rebuild's and must not replace it.
+        let mut prop = engine.show().props[0].clone();
+        prop.transform.position.x += 1.0;
+        engine.apply(vec![Edit::UpdateProp { prop }]).unwrap();
+        let mut controller = engine.show().controllers[0].clone();
+        controller.ports[0].slots.push(PortSlot::new(second.id));
+        engine
+            .apply(vec![
+                Edit::AddProp { prop: second.clone() },
+                Edit::UpdateController { controller },
+            ])
+            .unwrap();
+        let mut expected = solid([255, 0, 0]);
+        expected.extend([0, 255, 0].repeat(5));
+        wait_until(|| engine.live_frame().unwrap() == expected);
+        // Let any stale renderer arrive, then check again.
+        std::thread::sleep(Duration::from_millis(30));
+        assert_eq!(engine.live_frame().unwrap(), expected);
+        engine.stop_playback();
+        engine.undo();
+        engine.undo();
+    }
 }

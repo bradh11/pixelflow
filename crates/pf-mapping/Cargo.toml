@@ -1,0 +1,17 @@
+[package]
+name = "pf-mapping"
+description = "Automatic channel mapping: props and wiring to frame layout, controller channels, and universes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+pf-model.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

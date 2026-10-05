@@ -16,7 +16,7 @@ import {
   type SequenceSnapshot,
 } from "../api/sequence";
 import type { SequencerApi } from "../api/sequencer";
-import type { PlaybackStatus } from "../api/types";
+import type { PlaybackStatus, XlightsSequenceImported } from "../api/types";
 import { fileName } from "../lib/format";
 import { useApp } from "./store";
 
@@ -77,6 +77,9 @@ interface SequencerState {
   connect(api: SequencerApi): Promise<void>;
   newSequence(name: string, durationMs: number, audio: string | null): Promise<boolean>;
   open(path: string): Promise<boolean>;
+  /** Imports the xLights sequence at `path` and opens it (unsaved), replacing the open one
+   * without asking; the import report, or null when it failed (the error is shown). */
+  importXlights(path: string): Promise<XlightsSequenceImported | null>;
   save(): Promise<boolean>;
   saveAs(): Promise<boolean>;
   /** Applies edits as one undo step (or merged into `gesture`'s step). */
@@ -231,6 +234,20 @@ export const useSequencer = create<SequencerState>((set, get) => {
         }),
       );
       return ok === true;
+    },
+
+    async importXlights(path) {
+      const { api } = get();
+      if (!api) return null;
+      return serial(() =>
+        guarded(async () => {
+          await get().stop();
+          const imported = await api.importXlightsSequence(path);
+          adopt(imported.snapshot);
+          set({ selection: [], playheadMs: 0, collapsed: [], suggestBeats: false });
+          return imported;
+        }),
+      );
     },
 
     async save() {

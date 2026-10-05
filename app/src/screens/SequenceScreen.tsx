@@ -1,4 +1,4 @@
-import { AlertTriangle, AudioLines, Download, FilePlus, FolderOpen, ListMusic, Magnet, Pause, Play, Save, Send, Square, X } from "lucide-react";
+import { AlertTriangle, AudioLines, Download, FileInput, FilePlus, FolderOpen, ListMusic, Magnet, Pause, Play, Save, Send, Square, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { errorMessage } from "../api/backend";
 import { EffectPalette } from "../components/sequencer/EffectPalette";
@@ -129,6 +129,10 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
       </ToolButton>
       <ToolButton label="Open sequence" onClick={onOpen}>
         <FolderOpen size={16} /> <span className="hidden xl:inline">Open</span>
+      </ToolButton>
+      {/* The store asks about unsaved changes itself (the app's Save / Don't save dialog). */}
+      <ToolButton label="Import xLights sequence…" onClick={() => void useApp.getState().importXlightsSequence()}>
+        <FileInput size={16} /> <span className="hidden xl:inline">Import</span>
       </ToolButton>
       <ToolButton label="Save sequence" onClick={() => void s.save()} disabled={!doc}>
         <Save size={16} />
@@ -273,6 +277,15 @@ function Start({ onNew, onOpen }: { onNew: () => void; onOpen: (path?: string) =
             <FolderOpen size={20} className="text-accent-600 dark:text-accent-400" />
             <span className="font-medium">Open a sequence</span>
             <span className="text-sm text-neutral-500">A .pfseq.json file you saved.</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => void useApp.getState().importXlightsSequence()}
+            className="col-span-2 flex flex-col items-start gap-1 rounded-lg border border-neutral-200 p-4 text-left hover:border-accent-500 dark:border-neutral-800"
+          >
+            <FileInput size={20} className="text-accent-600 dark:text-accent-400" />
+            <span className="font-medium">Import an xLights sequence</span>
+            <span className="text-sm text-neutral-500">An .xsq file, onto this show&apos;s props and groups.</span>
           </button>
         </div>
         {recent.length > 0 && (

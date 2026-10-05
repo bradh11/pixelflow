@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { type Backend, errorMessage } from "../api/backend";
-import type { SequencerApi } from "../api/sequencer";
+import { useSequencer } from "./sequencer";
 import type { Device, Edit, ImportSummary, SequenceImportSummary, Show, ShowSnapshot, SilentPeer } from "../api/types";
 import { fileName } from "../lib/format";
 import { useLayoutEditor } from "./layoutEditor";
@@ -44,8 +44,6 @@ interface AppState {
   importReport: { name: string; summary: ImportSummary; notes: string[] } | null;
   /** What the last xLights sequence import brought in, shown until dismissed. */
   sequenceImportReport: { name: string; summary: SequenceImportSummary; notes: string[] } | null;
-  /** The sequencer side of the engine (authored sequences), once connected. */
-  sequencer: SequencerApi | null;
   /** Test screen target selection; kept here so it survives leaving the screen. */
   testTarget: string;
   /** Music volume (0–1) for playback; the engine keeps the same value. */
@@ -56,7 +54,6 @@ interface AppState {
   scanning: boolean;
 
   connect(backend: Backend): Promise<void>;
-  connectSequencer(sequencer: SequencerApi): void;
   setScreen(screen: Screen): void;
   setTheme(theme: Theme): void;
   setPaletteOpen(open: boolean): void;
@@ -177,16 +174,23 @@ export const useApp = create<AppState>((set, get) => {
     return ok;
   }
 
-  /** Picks an xLights sequence and opens its import, replacing the open sequence without
-   * checking for unsaved changes. */
+  /** Picks an xLights sequence and opens its import on the Sequence screen, replacing the open
+   * sequence without checking for unsaved changes. */
   async function replaceSequenceWithImport(): Promise<boolean> {
-    const sequencer = get().sequencer;
-    if (!sequencer) return false;
-    const path = await sequencer.pickXlightsSequencePath();
+    const sequencer = useSequencer.getState();
+    if (!sequencer.api) return false;
+    let path: string | null;
+    try {
+      path = await sequencer.api.pickXlightsSequencePath();
+    } catch (e) {
+      set({ error: errorMessage(e) });
+      return false;
+    }
     if (!path) return false;
     set({ busy: true });
     try {
-      const imported = await sequencer.importXlightsSequence(path);
+      const imported = await sequencer.importXlights(path);
+      if (!imported) return false;
       set({
         sequenceImportReport: {
           name: imported.snapshot.sequence.name,
@@ -194,34 +198,12 @@ export const useApp = create<AppState>((set, get) => {
           notes: imported.notes,
         },
         error: null,
+        started: true,
+        screen: "sequence",
       });
       return true;
-    } catch (e) {
-      set({ error: errorMessage(e) });
-      return false;
     } finally {
       set({ busy: false });
-    }
-  }
-
-  /** Saves the open sequence document (asking where, if it has no file yet). */
-  async function saveOpenSequence(): Promise<boolean> {
-    const sequencer = get().sequencer;
-    if (!sequencer) return false;
-    try {
-      const open = await sequencer.getSequenceDoc();
-      if (!open) return true;
-      if (open.path) {
-        await sequencer.saveSequenceDoc();
-        return true;
-      }
-      const path = await sequencer.pickSequenceDocSavePath(`${open.sequence.name}.pfseq.json`);
-      if (!path) return false;
-      await sequencer.saveSequenceDocAs(path);
-      return true;
-    } catch (e) {
-      set({ error: errorMessage(e) });
-      return false;
     }
   }
 
@@ -292,7 +274,6 @@ export const useApp = create<AppState>((set, get) => {
   pendingSequenceName: null,
   importReport: null,
   sequenceImportReport: null,
-  sequencer: null,
   testTarget: "show",
   musicVolume: 1,
   discovery: null,
@@ -358,19 +339,10 @@ export const useApp = create<AppState>((set, get) => {
 
   dismissImportReport: () => set({ importReport: null }),
 
-  connectSequencer: (sequencer) => set({ sequencer }),
-
   async importXlightsSequence() {
-    const sequencer = get().sequencer;
-    if (!sequencer) return false;
-    try {
-      const open = await sequencer.getSequenceDoc();
-      if (open?.dirty) {
-        set({ pendingReplace: "xlightsSequence", pendingSequenceName: open.sequence.name });
-        return false;
-      }
-    } catch (e) {
-      set({ error: errorMessage(e) });
+    const { doc, dirty } = useSequencer.getState();
+    if (doc && dirty) {
+      set({ pendingReplace: "xlightsSequence", pendingSequenceName: doc.name });
       return false;
     }
     return replaceSequenceWithImport();
@@ -386,7 +358,7 @@ export const useApp = create<AppState>((set, get) => {
       return false;
     }
     if (kind === "xlightsSequence") {
-      if (choice === "save" && !(await saveOpenSequence())) return false;
+      if (choice === "save" && !(await useSequencer.getState().save())) return false;
       set({ pendingReplace: null, pendingSequenceName: null });
       return replaceSequenceWithImport();
     }

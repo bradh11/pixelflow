@@ -59,9 +59,8 @@ export function SequenceImportReport() {
               </ul>
             </>
           )}
-          {/* TODO: link to the Sequence screen once the timeline UI lands. */}
           <p className="mt-4 text-neutral-500">
-            It&apos;s open as an unsaved sequence. Open the Sequence screen to see and save it.
+            It&apos;s open on the Sequence screen as an unsaved sequence. Save it to keep it.
           </p>
         </div>
         <div className="flex justify-end border-t border-neutral-200 p-4 dark:border-neutral-800">

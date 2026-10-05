@@ -5,6 +5,7 @@ import { App } from "../App";
 import { demoShow } from "../api/demo";
 import { MemoryBackend } from "../api/memory";
 import { MemorySequencer } from "../api/memorySequencer";
+import { useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
 
 function sequencer(): MemorySequencer {
@@ -40,7 +41,7 @@ function sequencer(): MemorySequencer {
 async function startApp() {
   await useApp.getState().connect(new MemoryBackend(demoShow()));
   const seq = sequencer();
-  useApp.getState().connectSequencer(seq);
+  await useSequencer.getState().connect(seq);
   useApp.setState({ started: true, sequenceImportReport: null, error: null });
   const user = userEvent.setup();
   render(<App />);
@@ -57,13 +58,28 @@ describe("xLights sequence import", () => {
     expect(
       within(report).getByText(/12 rows · 840 effects · 3 timing tracks · 1,234 marks \(2 not imported\)/),
     ).toBeInTheDocument();
-    expect(within(report).getByText(/It's open as an unsaved sequence/)).toBeInTheDocument();
+    expect(within(report).getByText(/It's open on the Sequence screen as an unsaved sequence/)).toBeInTheDocument();
     expect(within(report).getByText(/600 exact · 200 approximated · 40 placeholders · 5 not imported/)).toBeInTheDocument();
     expect(within(report).getByText(/Faces \(40\)/)).toBeInTheDocument();
     const open = await seq.getSequenceDoc();
     expect(open).toMatchObject({ path: null, dirty: true, canUndo: false, sequence: { name: "Carol of the Bells" } });
+    // Open in the timeline's state, on the Sequence screen.
+    expect(useSequencer.getState()).toMatchObject({ path: null, dirty: true, doc: { name: "Carol of the Bells" } });
+    expect(useApp.getState().screen).toBe("sequence");
     await user.click(within(report).getByRole("button", { name: "Done" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("runs from the Sequence screen", async () => {
+    const { user, seq } = await startApp();
+    act(() => useApp.getState().setScreen("sequence"));
+    await user.click(await screen.findByRole("button", { name: /Import an xLights sequence/ }));
+    await screen.findByRole("dialog", { name: "Imported Carol of the Bells" });
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    // Now the toolbar has the action too; the imported sequence is unsaved, so it asks first.
+    await user.click(screen.getByRole("button", { name: "Import xLights sequence…" }));
+    await screen.findByRole("dialog", { name: "Save changes to Carol of the Bells?" });
+    expect(seq.calls.filter((c) => c.startsWith("importXlightsSequence"))).toHaveLength(1);
   });
 
   it("asks before a second import replaces an unsaved one, and can save it first", async () => {

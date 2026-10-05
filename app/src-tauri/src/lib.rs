@@ -5,6 +5,7 @@
 //! can take a moment).
 
 mod devices;
+mod layout;
 mod playback;
 mod xlights;
 
@@ -25,6 +26,8 @@ struct AppState {
     devices: DeviceAccess,
     /// Decoded music waveforms by file version and slices.
     waveforms: Mutex<std::collections::HashMap<playback::WaveformKey, playback::WaveformCell>>,
+    /// Background photos the user picked, which the window may read.
+    photos: layout::PickedPhotos,
 }
 
 impl AppState {
@@ -140,12 +143,14 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         playback::playback_stop_reason,
         playback::live_frame,
         playback::sequence_frame,
-        playback::preview_props,
         playback::add_sequence,
         playback::play_sequence,
         playback::set_playback_volume,
         playback::audio_waveform,
         xlights::import_xlights,
+        layout::preview_props,
+        layout::pick_image,
+        layout::read_image,
     ])
 }
 
@@ -164,6 +169,7 @@ pub fn run() {
                 engine: Mutex::new(Engine::new(data_dir)),
                 devices: DeviceAccess::network(),
                 waveforms: Mutex::default(),
+                photos: Default::default(),
             });
             let handle = app.handle().clone();
             std::thread::Builder::new()
@@ -204,7 +210,7 @@ fn shut_down(state: &AppState) {
 mod tests {
     use super::*;
     use serde_json::{Value, json};
-    use tauri::ipc::{CallbackFn, InvokeBody};
+    use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponseBody};
     use tauri::test::{INVOKE_KEY, MockRuntime, get_ipc_response, mock_builder};
     use tauri::webview::InvokeRequest;
     use tauri::{App, WebviewWindow, WebviewWindowBuilder};
@@ -216,6 +222,7 @@ mod tests {
                 engine: Mutex::new(Engine::new(dir.path())),
                 devices: DeviceAccess::fake(pf_devices::testing::network()),
                 waveforms: Mutex::default(),
+                photos: Default::default(),
             })
             .build(context())
             .unwrap();
@@ -240,6 +247,26 @@ mod tests {
             },
         )
         .map(|body| body.deserialize::<Value>().unwrap())
+    }
+
+    /// Calls a command that answers with raw bytes.
+    fn call_raw(webview: &WebviewWindow<MockRuntime>, cmd: &str, args: Value) -> Result<Vec<u8>, Value> {
+        let reply = get_ipc_response(
+            webview,
+            InvokeRequest {
+                cmd: cmd.into(),
+                callback: CallbackFn(0),
+                error: CallbackFn(1),
+                url: webview.url().unwrap(),
+                body: InvokeBody::Json(args),
+                headers: Default::default(),
+                invoke_key: INVOKE_KEY.to_string(),
+            },
+        )?;
+        match reply {
+            InvokeResponseBody::Raw(bytes) => Ok(bytes.to_vec()),
+            other => panic!("expected raw bytes, got {other:?}"),
+        }
     }
 
     #[test]
@@ -275,6 +302,39 @@ mod tests {
         assert_eq!(snapshot["summary"]["props"], 0);
         let snapshot = call(&webview, "redo", json!({})).unwrap();
         assert_eq!(snapshot["summary"]["props"], 1);
+    }
+
+    #[test]
+    fn the_background_photo_is_set_from_the_ui_and_its_bytes_come_back_raw() {
+        let (app, webview, dir) = app();
+        let photo = dir.path().join("house.png");
+        std::fs::write(&photo, [0x89, b'P', b'N', b'G']).unwrap();
+        let background = json!({ "path": photo, "x": -10, "y": 8, "width": 20, "opacity": 0.6 });
+        let snapshot = call(
+            &webview,
+            "apply_edits",
+            json!({ "edits": [{ "type": "setBackground", "background": background }] }),
+        )
+        .unwrap();
+        assert_eq!(snapshot["show"]["background"]["width"], 20.0);
+        assert_eq!(snapshot["canUndo"], true);
+
+        let bytes = call_raw(&webview, "read_image", json!({ "path": photo })).unwrap();
+        assert_eq!(bytes, vec![0x89, b'P', b'N', b'G']);
+
+        // Only the show's photo, or one the user picked, can be read.
+        let other = dir.path().join("elsewhere.png");
+        std::fs::write(&other, [0x89, b'P', b'N', b'G']).unwrap();
+        let error = call(&webview, "read_image", json!({ "path": other })).unwrap_err();
+        assert!(
+            error
+                .as_str()
+                .unwrap()
+                .contains("can only show a photo you picked"),
+            "{error}"
+        );
+        app.state::<AppState>().photos.add(other.clone());
+        assert!(call_raw(&webview, "read_image", json!({ "path": other })).is_ok());
     }
 
     #[test]
@@ -572,7 +632,8 @@ mod tests {
         assert_eq!(status["state"], "paused");
         let status = call(&webview, "seek_playback", json!({ "positionMs": 500 })).unwrap();
         assert_eq!(status["positionMs"], 500);
-        assert_eq!(call(&webview, "preview_props", json!({})).unwrap(), json!([]));
+        let preview = call_raw(&webview, "preview_props", json!({})).unwrap();
+        assert_eq!(&preview[4..8], &0u32.to_le_bytes(), "no props");
         call(&webview, "stop_playback", json!({})).unwrap();
         assert_eq!(call(&webview, "playback_status", json!({})).unwrap(), json!(null));
         assert_eq!(

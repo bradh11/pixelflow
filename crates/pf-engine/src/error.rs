@@ -10,6 +10,9 @@ pub enum EngineError {
     DuplicateId { kind: &'static str },
     #[error("{0}")]
     TooLarge(String),
+    /// An edit with a value the show can't hold, explained in plain language.
+    #[error("{0}")]
+    InvalidEdit(String),
     /// A show built in memory (an import, for example) that a show file couldn't hold.
     #[error("This show can't be opened: {0}")]
     InvalidShow(String),

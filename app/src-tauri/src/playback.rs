@@ -2,7 +2,7 @@
 
 use crate::{AppState, Reply, message};
 use pf_audio::Waveform;
-use pf_engine::{PlaybackStatus, PreviewProp, ShowSnapshot};
+use pf_engine::{PlaybackStatus, ShowSnapshot};
 use pf_model::SequenceId;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, PoisonError};
@@ -65,12 +65,6 @@ pub(crate) async fn live_frame(state: State<'_, AppState>) -> Reply<Response> {
 #[tauri::command]
 pub(crate) async fn sequence_frame(state: State<'_, AppState>) -> Reply<Response> {
     Ok(Response::new(state.engine().sequence_frame().unwrap_or_default()))
-}
-
-/// Every prop's pixel positions for the 2D preview.
-#[tauri::command]
-pub(crate) async fn preview_props(state: State<'_, AppState>) -> Reply<Vec<PreviewProp>> {
-    Ok(state.engine().preview_props())
 }
 
 /// Adds the sequence file at `path` to the show (finding its music next to it), as one undo step.

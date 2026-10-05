@@ -165,6 +165,58 @@ fn autosave_writes_history_only_when_changed_and_restore_is_undoable() {
 }
 
 #[test]
+fn the_background_photo_is_undoable_and_saved_with_the_show() {
+    let (mut engine, dir) = engine();
+    let photo = pf_model::Background::new("/photos/house.jpg", -10.0, 8.0, 20.0);
+    let snap = engine
+        .apply(vec![Edit::SetBackground {
+            background: Some(photo.clone()),
+        }])
+        .unwrap();
+    assert_eq!(snap.show.background, Some(photo.clone()));
+    assert!(snap.dirty && snap.can_undo);
+    let path = dir.path().join("house.pixelflow.json");
+    engine.save_as(&path).unwrap();
+    assert_eq!(engine.undo().show.background, None);
+    assert_eq!(engine.redo().show.background, Some(photo.clone()));
+
+    let err = engine
+        .apply(vec![Edit::SetBackground {
+            background: Some(pf_model::Background {
+                opacity: -1.0,
+                ..photo.clone()
+            }),
+        }])
+        .unwrap_err();
+    assert!(err.to_string().contains("between 0% and 100%"), "{err}");
+
+    let (mut other, _d) = self::engine();
+    assert_eq!(other.open(&path).unwrap().show.background, Some(photo));
+}
+
+#[test]
+fn moving_rotating_and_scaling_a_prop_moves_its_preview_pixels() {
+    let (mut engine, _dir) = engine();
+    let mut prop = line("Strip", 3);
+    engine.apply(vec![Edit::AddProp { prop: prop.clone() }]).unwrap();
+    let points = |engine: &Engine| engine.preview_props()[0].points.clone();
+    assert_eq!(points(&engine), vec![-0.5, 0.0, 0.0, 0.0, 0.5, 0.0]);
+    prop.transform.position = pf_model::Vec3::new(10.0, 2.0, 0.0);
+    prop.transform.rotation_deg = pf_model::Vec3::new(0.0, 0.0, 90.0);
+    prop.transform.scale = pf_model::Vec3::new(4.0, 4.0, 1.0);
+    engine.apply(vec![Edit::UpdateProp { prop }]).unwrap();
+    let moved = points(&engine);
+    let expected = [10.0, 0.0, 10.0, 2.0, 10.0, 4.0];
+    for (got, want) in moved.iter().zip(expected) {
+        assert!((got - want).abs() < 1e-4, "{moved:?}");
+    }
+    assert_eq!(
+        engine.undo().show.props[0].transform,
+        pf_model::Transform::default()
+    );
+}
+
+#[test]
 fn new_show_clears_history() {
     let (mut engine, _dir) = engine();
     engine.apply(vec![Edit::AddProp { prop: line("A", 1) }]).unwrap();

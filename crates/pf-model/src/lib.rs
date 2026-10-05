@@ -26,5 +26,5 @@ pub use primitives::{ColorOrder, Transform, Vec3};
 pub use prop::{Group, Prop};
 pub use region::{FaceDefinition, NodeRange, Phoneme, Region, RegionKind};
 pub use shape::{Corner, Generator, MatrixWiring, Orientation, Provenance, ShapeSource};
-pub use show::{CURRENT_SCHEMA_VERSION, SequenceEntry, Show, ShowSettings};
+pub use show::{Background, CURRENT_SCHEMA_VERSION, SequenceEntry, Show, ShowSettings};
 pub use validate::validate_show;

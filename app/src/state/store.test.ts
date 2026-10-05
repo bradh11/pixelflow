@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { MemoryBackend } from "../api/memory";
-import type { Device, Discovery } from "../api/types";
+import { MemoryBackend, emptyShow } from "../api/memory";
+import type { Device, Discovery, Show, ShowSnapshot } from "../api/types";
+import { gestureEdits } from "../lib/layoutEdits";
+import { newProp } from "../lib/shows";
+import { useLayoutEditor } from "./layoutEditor";
 import { useApp } from "./store";
 
 async function connected() {
@@ -32,17 +35,71 @@ describe("app store", () => {
     expect(useApp.getState().snapshot?.path).toBe("/shows/a.json");
   });
 
-  it("keeps the newer snapshot when an older call resolves last", async () => {
+  it("runs backend calls one at a time, in the order they were made", async () => {
     const backend = await connected();
     const base = await backend.getSnapshot();
-    const older = { ...base, revision: base.revision + 1 };
-    const newer = { ...base, revision: base.revision + 2 };
-    let finishFirst!: (s: typeof older) => void;
-    const first = useApp.getState().run(() => new Promise((resolve) => (finishFirst = resolve)));
-    expect(await useApp.getState().run(async () => newer)).toBe(true);
-    finishFirst(older);
+    const started: string[] = [];
+    let finishFirst!: (s: ShowSnapshot) => void;
+    const first = useApp.getState().run(() => {
+      started.push("first");
+      return new Promise((resolve) => (finishFirst = resolve));
+    });
+    const second = useApp.getState().run(async () => {
+      started.push("second");
+      return { ...base, revision: base.revision + 2 };
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(started).toEqual(["first"]);
+    finishFirst({ ...base, revision: base.revision + 1 });
     expect(await first).toBe(true);
-    expect(useApp.getState().snapshot?.revision).toBe(newer.revision);
+    expect(await second).toBe(true);
+    expect(started).toEqual(["first", "second"]);
+    expect(useApp.getState().snapshot?.revision).toBe(base.revision + 2);
+  });
+
+  it("builds edits from the show as it is when their turn comes, so none is lost", async () => {
+    const prop = newProp("line", emptyShow("x"));
+    const backend = new MemoryBackend({ ...emptyShow("Test"), props: [prop] });
+    const applyEdits = backend.applyEdits.bind(backend);
+    // A slow engine: the second edit is asked for while the first is still on its way.
+    backend.applyEdits = async (edits) => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return applyEdits(edits);
+    };
+    await useApp.getState().connect(backend);
+    const nudge = (show: Show) => gestureEdits(show, [prop.id], { kind: "move", dx: 0.1, dy: 0 });
+    const results = await Promise.all([useApp.getState().apply(nudge), useApp.getState().apply(nudge)]);
+    expect(results).toEqual([true, true]);
+    expect(backend.show.props[0].transform.position.x).toBeCloseTo(0.2);
+    expect(backend.undoStack).toHaveLength(2);
+  });
+
+  it("says which revision holds an edit, and skips the engine when there's nothing to change", async () => {
+    const backend = await connected();
+    const prop = newProp("line", backend.show);
+    const revision = await useApp.getState().edit([{ type: "addProp", prop }]);
+    expect(revision).toBe(backend.revision);
+    const calls = backend.calls.length;
+    expect(await useApp.getState().edit(() => [])).toBe(revision);
+    expect(backend.calls).toHaveLength(calls);
+    backend.applyEdits = async () => {
+      throw new Error("Refused.");
+    };
+    expect(await useApp.getState().edit([{ type: "removeProp", id: prop.id }])).toBeNull();
+  });
+
+  it("leaves photo editing when the photo goes away", async () => {
+    const backend = await connected();
+    backend.images.set("/house.jpg", new Uint8Array([1]));
+    const background = { path: "/house.jpg", x: 0, y: 5, width: 10, opacity: 0.7 };
+    await useApp.getState().apply([{ type: "setBackground", background }]);
+    useLayoutEditor.getState().setEditPhoto(true);
+    await useApp.getState().undo();
+    expect(useLayoutEditor.getState().editPhoto).toBe(false);
+    await useApp.getState().redo();
+    useLayoutEditor.getState().setEditPhoto(true);
+    await useApp.getState().apply([{ type: "setBackground", background: null }]);
+    expect(useLayoutEditor.getState().editPhoto).toBe(false);
   });
 
   it("turns backend failures into a dismissable message", async () => {

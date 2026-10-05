@@ -1,5 +1,6 @@
 import { Command } from "cmdk";
 import { useEffect } from "react";
+import { besideOthers } from "../lib/layoutEdits";
 import { PROP_KINDS, newProp } from "../lib/shows";
 import { type Screen, useApp } from "../state/store";
 
@@ -50,7 +51,7 @@ export function CommandPalette() {
       label: `Add prop: ${label}`,
       run: () => {
         const show = useApp.getState().snapshot?.show;
-        if (show) void state.apply([{ type: "addProp", prop: newProp(kind, show) }]);
+        if (show) void state.apply([{ type: "addProp", prop: besideOthers(newProp(kind, show), show) }]);
       },
     })),
     {

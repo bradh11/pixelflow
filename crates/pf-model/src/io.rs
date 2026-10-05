@@ -29,7 +29,7 @@ impl From<serde_json::Error> for ModelError {
 type Migration = fn(Value) -> Result<Value, ModelError>;
 
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
-const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4];
+const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5];
 
 /// Version 2 only adds the `falcon` adapter value, so version 1 documents are already valid.
 fn v1_to_v2(doc: Value) -> Result<Value, ModelError> {
@@ -43,6 +43,11 @@ fn v2_to_v3(doc: Value) -> Result<Value, ModelError> {
 
 /// Version 4 only adds the optional `sequences` list, so version 3 documents are already valid.
 fn v3_to_v4(doc: Value) -> Result<Value, ModelError> {
+    Ok(doc)
+}
+
+/// Version 5 only adds the optional `background` photo, so version 4 documents are already valid.
+fn v4_to_v5(doc: Value) -> Result<Value, ModelError> {
     Ok(doc)
 }
 
@@ -179,6 +184,25 @@ mod tests {
                 raw_ddp_offsets: false,
             })
         );
+    }
+
+    #[test]
+    fn version_4_files_open_without_a_background_and_keep_one_once_set() {
+        let v4 = r#"{ "schemaVersion": 4, "name": "Old", "sequences": [] }"#;
+        let mut show = show_from_json(v4).unwrap();
+        assert_eq!(show.schema_version, 5);
+        assert_eq!(show.background, None);
+        show.background = Some(crate::Background {
+            opacity: 0.5,
+            ..crate::Background::new("/photos/house.jpg", -12.5, 9.0, 25.0)
+        });
+        let text = show_to_json(&show).unwrap();
+        let saved: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(
+            saved["background"],
+            serde_json::json!({ "path": "/photos/house.jpg", "x": -12.5, "y": 9.0, "width": 25.0, "opacity": 0.5 })
+        );
+        assert_eq!(show_from_json(&text).unwrap(), show);
     }
 
     #[test]

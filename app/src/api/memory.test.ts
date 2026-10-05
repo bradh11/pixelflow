@@ -82,4 +82,36 @@ describe("MemoryBackend", () => {
     expect(details.plan.alreadyInShow).toBe(false);
     expect(details.plan.notes).toContain("Fills in Falcon_F16V5_B9F5, added from your FPP's output list.");
   });
+
+  it("previews each prop's real shape where its transform puts it", async () => {
+    const backend = new MemoryBackend();
+    const prop = newProp("line", backend.show);
+    prop.shape = { source: "generator", type: "line", nodes: 3, length: 2 };
+    prop.transform = { position: { x: 10, y: 2, z: 0 }, rotationDeg: { x: 0, y: 0, z: 90 }, scale: { x: 2, y: 2, z: 1 } };
+    const arch = newProp("arch", backend.show);
+    await backend.applyEdits([{ type: "addProp", prop }, { type: "addProp", prop: arch }]);
+    const { revision, props } = await backend.previewProps();
+    expect(revision).toBe(backend.revision);
+    const [line, second] = props;
+    const expected = [10, 0, 10, 2, 10, 4];
+    Array.from(line.points).forEach((v, i) => expect(v).toBeCloseTo(expected[i]));
+    expect(second.frameOffset).toBe(9);
+    expect(second.points).toHaveLength(100);
+  });
+
+  it("sets and removes the background photo like the engine, refusing bad values", async () => {
+    const backend = new MemoryBackend();
+    expect(backend.show.background).toBeNull();
+    const photo = { path: "/house.jpg", x: -10, y: 8, width: 20, opacity: 0.7 };
+    let snap = await backend.applyEdits([{ type: "setBackground", background: photo }]);
+    expect(snap.show.background).toEqual(photo);
+    await expect(backend.applyEdits([{ type: "setBackground", background: { ...photo, width: 0 } }])).rejects.toThrow(
+      "The background photo must be wider than zero.",
+    );
+    snap = await backend.undo();
+    expect(snap.show.background).toBeNull();
+    backend.images.set("/house.jpg", new Uint8Array([7]));
+    expect(await backend.readImage("/house.jpg")).toEqual(new Uint8Array([7]));
+    await expect(backend.readImage("/missing.png")).rejects.toThrow("This photo was moved or deleted.");
+  });
 });

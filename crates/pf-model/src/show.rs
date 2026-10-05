@@ -10,8 +10,9 @@ use serde::{Deserialize, Serialize};
 /// fields it doesn't know on save. Add the migration in `io.rs` in the same change.
 ///
 /// History: 1 = initial format; 2 = adds the `falcon` controller adapter; 3 = adds a
-/// controller's `sequenceChannels`; 4 = adds the show's `sequences`.
-pub const CURRENT_SCHEMA_VERSION: u32 = 4;
+/// controller's `sequenceChannels`; 4 = adds the show's `sequences`; 5 = adds the show's
+/// `background` photo.
+pub const CURRENT_SCHEMA_VERSION: u32 = 5;
 
 /// Show-wide settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,6 +52,62 @@ pub struct Show {
     /// Rendered sequences in the show, in playlist order.
     #[serde(default)]
     pub sequences: Vec<SequenceEntry>,
+    /// A photo of the house drawn behind the layout, if the user chose one.
+    #[serde(default)]
+    pub background: Option<Background>,
+}
+
+/// A photo drawn behind the layout so props can be placed over the real house.
+///
+/// Its height follows the image's own shape, so only the width is stored.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Background {
+    /// The image file.
+    pub path: String,
+    /// Layout position of the photo's top-left corner.
+    pub x: f32,
+    pub y: f32,
+    /// Width in layout units.
+    pub width: f32,
+    /// How strongly the photo shows, from 0 (hidden) to 1 (full strength).
+    #[serde(default = "default_opacity")]
+    pub opacity: f32,
+}
+
+fn default_opacity() -> f32 {
+    1.0
+}
+
+impl Background {
+    /// A photo at `path` with its top-left corner at (`x`, `y`), `width` units wide, at full
+    /// strength.
+    pub fn new(path: impl Into<String>, x: f32, y: f32, width: f32) -> Self {
+        Self {
+            path: path.into(),
+            x,
+            y,
+            width,
+            opacity: 1.0,
+        }
+    }
+
+    /// Why this background can't be used, in plain language, or `None` when it's fine.
+    pub fn problem(&self) -> Option<String> {
+        if self.path.trim().is_empty() {
+            return Some("Choose a photo file for the background.".into());
+        }
+        if !(self.x.is_finite() && self.y.is_finite()) {
+            return Some("The background photo's position must be a number.".into());
+        }
+        if !(self.width.is_finite() && self.width > 0.0) {
+            return Some("The background photo must be wider than zero.".into());
+        }
+        if !(0.0..=1.0).contains(&self.opacity) {
+            return Some("The background photo's strength must be between 0% and 100%.".into());
+        }
+        None
+    }
 }
 
 /// A rendered sequence (`.fseq`) in the show, with its music.
@@ -92,6 +149,7 @@ impl Show {
             groups: Vec::new(),
             controllers: Vec::new(),
             sequences: Vec::new(),
+            background: None,
         }
     }
 
@@ -131,5 +189,61 @@ mod tests {
         show.props.push(prop);
         assert_eq!(show.prop(id).unwrap().name, "Line");
         assert!(show.prop(PropId::new()).is_none());
+    }
+
+    #[test]
+    fn background_problems_are_explained() {
+        let ok = Background::new("/photos/house.jpg", -10.0, 8.0, 20.0);
+        assert_eq!(ok.problem(), None);
+        let cases = [
+            (
+                Background {
+                    path: " ".into(),
+                    ..ok.clone()
+                },
+                "Choose a photo",
+            ),
+            (
+                Background {
+                    x: f32::NAN,
+                    ..ok.clone()
+                },
+                "position",
+            ),
+            (
+                Background {
+                    width: 0.0,
+                    ..ok.clone()
+                },
+                "wider than zero",
+            ),
+            (
+                Background {
+                    width: f32::INFINITY,
+                    ..ok.clone()
+                },
+                "wider than zero",
+            ),
+            (
+                Background {
+                    opacity: 1.5,
+                    ..ok.clone()
+                },
+                "between 0% and 100%",
+            ),
+        ];
+        for (background, expected) in cases {
+            let problem = background.problem().expect("a problem");
+            assert!(problem.contains(expected), "{problem}");
+        }
+    }
+
+    #[test]
+    fn background_json_is_camel_case_and_opacity_defaults_to_full() {
+        let json = r#"{ "path": "/p.jpg", "x": 1, "y": 2, "width": 3 }"#;
+        let background: Background = serde_json::from_str(json).unwrap();
+        assert_eq!(background, Background::new("/p.jpg", 1.0, 2.0, 3.0));
+        let value = serde_json::to_value(Show::new("x")).unwrap();
+        assert_eq!(value["background"], serde_json::Value::Null);
     }
 }

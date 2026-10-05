@@ -626,7 +626,8 @@ export function Timeline({ doc }: { doc: Sequence }) {
     redraw((n) => n + 1);
   };
 
-  // Escape calls off a drag in progress (and only that: the selection stays).
+  // Escape calls off a drag in progress (and only that: the selection stays), and so does leaving
+  // the window mid-drag (the release may never come back here).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || !drag.current) return;
@@ -634,8 +635,13 @@ export function Timeline({ doc }: { doc: Sequence }) {
       e.stopPropagation();
       cancelDrag();
     };
+    const onBlur = () => drag.current && cancelDrag();
     window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("blur", onBlur);
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Sends a dropped move or resize, drawing `items` where they were dropped until it settles. */

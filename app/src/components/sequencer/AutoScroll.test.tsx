@@ -109,6 +109,18 @@ describe("scrolling the timeline while dragging", () => {
     expect(useSequencer.getState().selection, "Escape only called off the drag").toEqual([first.id]);
   });
 
+  it("stops scrolling when the window loses the focus mid-drag", async () => {
+    await openZoomed();
+    fireEvent.pointerDown(timeline(), { clientX: 10, clientY: 239, button: 0, pointerId: 1 });
+    fireEvent.pointerMove(timeline(), { clientX: 995, clientY: 239, pointerId: 1 });
+    ticks(5);
+    const scrolled = startMs();
+    expect(scrolled).toBeGreaterThan(0);
+    fireEvent.blur(window);
+    ticks(20);
+    expect(startMs()).toBe(scrolled);
+  });
+
   it("scrolls the rows while an effect is held near the bottom", async () => {
     // 220 px tall: the rows show from 104 to 220, so the star's row is out of sight.
     await openZoomed(220);

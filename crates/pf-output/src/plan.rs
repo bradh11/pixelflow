@@ -82,6 +82,21 @@ pub fn wire_order(order: ColorOrder) -> [u8; 4] {
 /// Builds the output plan. Controller addresses are resolved here, once; a controller
 /// whose address cannot be resolved keeps the reason in [`ControllerPlan::destination`].
 pub fn build_plan(show: &Show, map: &ChannelMap) -> OutputPlan {
+    plan_with(show, map, resolve)
+}
+
+/// Builds the output plan without looking up any addresses (no network or DNS): for turning
+/// show frames into controller channels offline, such as exporting a sequence. Every
+/// [`ControllerPlan::destination`] is an error saying it wasn't resolved.
+pub fn build_offline_plan(show: &Show, map: &ChannelMap) -> OutputPlan {
+    plan_with(show, map, |_, _| Err("not resolved (offline plan)".to_string()))
+}
+
+fn plan_with(
+    show: &Show,
+    map: &ChannelMap,
+    resolve: impl Fn(&str, u16) -> Result<SocketAddr, String>,
+) -> OutputPlan {
     let mut luts: Vec<[u8; 256]> = Vec::new();
     let mut lut_index: HashMap<(u8, u32), usize> = HashMap::new();
     let controllers = show
@@ -311,6 +326,18 @@ mod tests {
         assert_eq!(sacn.spans[0].order, [1, 0, 2, 3]);
         assert_ne!(sacn.spans[0].lut, sacn.spans[1].lut);
         assert!(matches!(&sacn.wire, Wire::Sacn { universes, multicast: false } if universes.len() == 1));
+
+        // The offline plan is the same apart from addresses, which it never looks up.
+        show.controllers[1].address = "no-such-host.invalid".into();
+        let offline = build_offline_plan(&show, &map);
+        assert_eq!(offline.luts, plan.luts);
+        for (a, b) in offline.controllers.iter().zip(&plan.controllers) {
+            assert_eq!(
+                (&a.spans, &a.wire, a.channel_count),
+                (&b.spans, &b.wire, b.channel_count)
+            );
+            assert_eq!(a.destination, Err("not resolved (offline plan)".to_string()));
+        }
     }
 
     #[test]

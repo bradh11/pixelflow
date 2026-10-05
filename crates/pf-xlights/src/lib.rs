@@ -17,6 +17,7 @@ mod layout;
 mod model;
 mod networks;
 pub mod sequence;
+mod timing;
 mod xml;
 
 pub use channels::{ChannelRequest, Resolved, resolve};
@@ -27,6 +28,7 @@ pub use layout::{XGroup, XLayout, parse_layout};
 pub use model::XmlModel;
 pub use networks::{XController, XOutput, parse_networks};
 pub use sequence::{SequenceImport, SequenceImportSummary, build_sequence, import_sequence_file};
+pub use timing::{TimingFileImport, kind_for_name, parse_audacity, parse_xtiming, read_timing_file, xtiming};
 
 use std::path::Path;
 

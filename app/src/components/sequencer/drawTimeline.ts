@@ -4,7 +4,7 @@
 
 import type { EffectKind, Sequence } from "../../api/sequence";
 import type { Waveform } from "../../api/types";
-import { type DragItem, type EffectIndex, type Lane, type View, effectsInView, rulerTicks, timeToX } from "../../lib/timelineMath";
+import { type DragItem, type EffectIndex, type Lane, type MarkSpan, type View, effectsInView, marksInView, rulerTicks, timeToX } from "../../lib/timelineMath";
 
 export const RULER_H = 24;
 export const WAVE_H = 44;
@@ -47,6 +47,10 @@ interface Theme {
   playhead: string;
   accent: string;
   mark: string;
+  markSpanA: string;
+  markSpanB: string;
+  markSelected: string;
+  activeTrack: string;
 }
 
 const DARK: Theme = {
@@ -62,6 +66,10 @@ const DARK: Theme = {
   playhead: "#f5f5f5",
   accent: "#a78bfa",
   mark: "rgba(167,139,250,0.75)",
+  markSpanA: "rgba(167,139,250,0.10)",
+  markSpanB: "rgba(167,139,250,0.18)",
+  markSelected: "rgba(167,139,250,0.45)",
+  activeTrack: "rgba(167,139,250,0.08)",
 };
 
 const LIGHT: Theme = {
@@ -77,6 +85,10 @@ const LIGHT: Theme = {
   playhead: "#18181b",
   accent: "#7c3aed",
   mark: "rgba(124,58,237,0.7)",
+  markSpanA: "rgba(124,58,237,0.07)",
+  markSpanB: "rgba(124,58,237,0.14)",
+  markSelected: "rgba(124,58,237,0.35)",
+  activeTrack: "rgba(124,58,237,0.06)",
 };
 
 export interface TimelineScene {
@@ -100,6 +112,12 @@ export interface TimelineScene {
   marquee: { x0: number; y0: number; x1: number; y1: number } | null;
   /** Where a palette drop would land (`newLayer`: on a new layer of that lane's row). */
   ghost: { lane: number; startMs: number; endMs: number; newLayer?: boolean } | null;
+  /** Selected timing marks (by start time) on one track. */
+  markSelection?: { track: string; starts: ReadonlySet<number> } | null;
+  /** The timing track taps go to, shaded. */
+  activeTrack?: string | null;
+  /** Timing marks being dragged, drawn where they'd land. */
+  markDrag?: { track: string; spans: MarkSpan[] } | null;
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -272,23 +290,55 @@ export function drawTimeline(ctx: CanvasRenderingContext2D, s: TimelineScene) {
     }
   }
 
-  // Timing tracks.
+  // Timing tracks: each mark a span with a tick at its start and its label inside.
   ctx.textBaseline = "middle";
   doc.timingTracks.forEach((track, k) => {
     const y = RULER_H + WAVE_H + k * TRACK_H;
-    ctx.fillStyle = t.mark;
+    if (track.id === s.activeTrack) {
+      ctx.fillStyle = t.activeTrack;
+      ctx.fillRect(0, y, width, TRACK_H);
+    }
+    const selected = s.markSelection?.track === track.id ? s.markSelection.starts : null;
+    const dragging = s.markDrag?.track === track.id ? s.markDrag.spans : null;
+    const moving = new Set(dragging?.map((d) => d.index) ?? []);
     const dense = track.marks.length > 0 && (track.marks.length * 4) / Math.max(1, doc.durationMs * view.pxPerMs) > 1;
+    const [first, end] = marksInView(track.marks, t0, t1);
     let lastLabel = -Infinity;
-    for (const m of track.marks) {
-      if (m.startMs < t0 - 1 || m.startMs > t1) continue;
-      const x = Math.round(timeToX(m.startMs, view));
-      ctx.fillRect(x, y + 3, 1, TRACK_H - 6);
-      if (!dense && m.label && x - lastLabel > 24) {
-        ctx.fillStyle = t.muted;
-        ctx.fillText(m.label, x + 3, y + TRACK_H / 2);
-        ctx.fillStyle = t.mark;
-        lastLabel = x;
+    const drawMark = (i: number, startMs: number, endMs: number, label: string, highlighted: boolean) => {
+      const x0 = Math.round(timeToX(startMs, view));
+      const x1 = Math.round(timeToX(endMs, view));
+      const w = Math.max(1, x1 - x0);
+      if (!dense || highlighted) {
+        ctx.fillStyle = highlighted ? t.markSelected : i % 2 === 0 ? t.markSpanA : t.markSpanB;
+        ctx.fillRect(x0, y + 2, w, TRACK_H - 4);
       }
+      ctx.fillStyle = highlighted ? t.accent : t.mark;
+      ctx.fillRect(x0, y + 2, 1, TRACK_H - 4);
+      if (!dense && label && x0 - lastLabel > 24 && w > 14) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x0, y, w, TRACK_H);
+        ctx.clip();
+        ctx.fillStyle = highlighted ? t.text : t.muted;
+        ctx.fillText(label, Math.max(x0, 0) + 3, y + TRACK_H / 2);
+        ctx.restore();
+        lastLabel = x0;
+      }
+    };
+    for (let i = first; i < end; i++) {
+      const m = track.marks[i];
+      if (moving.has(i)) {
+        ctx.globalAlpha = 0.35;
+        drawMark(i, m.startMs, m.endMs, m.label, false);
+        ctx.globalAlpha = 1;
+        continue;
+      }
+      drawMark(i, m.startMs, m.endMs, m.label, selected?.has(m.startMs) ?? false);
+    }
+    lastLabel = -Infinity;
+    for (const d of dragging ?? []) {
+      const m = track.marks[d.index];
+      if (m) drawMark(d.index, d.startMs, d.endMs, m.label, true);
     }
   });
 

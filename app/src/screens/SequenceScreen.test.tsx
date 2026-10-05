@@ -92,7 +92,7 @@ describe("sequence screen", () => {
     const banner = screen.getByText(/Find the beats and bars in this song/).closest("[role=status]")!;
     await user.click(within(banner as HTMLElement).getByRole("button", { name: "Detect beats" }));
     await waitFor(() => expect(useSequencer.getState().doc?.timingTracks.map((t) => t.name)).toEqual(["Beats", "Bars"]));
-    expect(screen.getByText("Beats")).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Timing track Beats" })).toBeInTheDocument();
   });
 
   it("drags an effect from the palette onto a row, as one undo step", async () => {

@@ -65,6 +65,7 @@ pub fn sequence_from_json(text: &str) -> Result<Sequence, SequenceError> {
     doc["schemaVersion"] = Value::from(CURRENT_SCHEMA_VERSION);
     let mut seq: Sequence = serde_json::from_value(doc)?;
     seq.sanitize_settings();
+    seq.tidy_timing_tracks();
     if let Some(problem) = limits::limit_problems(&seq).into_iter().next() {
         return Err(SequenceError::LimitExceeded(problem));
     }

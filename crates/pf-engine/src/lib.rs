@@ -27,7 +27,7 @@ pub use engine::{CheckedShow, Engine};
 pub use error::EngineError;
 pub use history::History;
 pub use output::{ControllerStatus, OutputStatus, PatternSpec, TargetSpec};
-pub use persist::{HistoryEntry, load_show, save_show_atomic};
+pub use persist::{HistoryEntry, load_show, save_show_atomic, write_atomic};
 pub use pf_render::export::{ExportBlock, ExportLayout, ExportSummary};
 pub use playback::{
     ClockFactory, PlayRequest, PlaybackReady, PlaybackStatus, music_clocks, sequence_entry_for,

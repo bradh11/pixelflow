@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Effect, Row, Sequence } from "../api/sequence";
+import type { Effect, Mark, Row, Sequence, TimingTrack } from "../api/sequence";
 import {
   buildIndex,
   clampView,
@@ -12,6 +12,18 @@ import {
   formatTime,
   freeLayer,
   hitEffect,
+  hitMark,
+  markBounds,
+  markIndices,
+  markMoveEdits,
+  markMovesToSpans,
+  marksInView,
+  moveMarksDrag,
+  newMarkSpan,
+  parseTime,
+  tapEdits,
+  touchingEdge,
+  wordsTrackFor,
   laneAt,
   layoutLanes,
   marqueeSelect,
@@ -370,5 +382,122 @@ describe("keyboard and clipboard", () => {
       { type: "addEffect", row: "B", layer: 1, effect: { ...fx("new2", 2500, 4500) } },
     ]);
     expect(pasteEffects(sequence, index, [{ rowId: "gone", effect: fx("x", 0, 10) }], 0)).toEqual([]);
+  });
+});
+
+function mark(startMs: number, endMs: number, label = ""): Mark {
+  return { startMs, endMs, label };
+}
+
+const lyrics: TimingTrack = { id: "L", name: "Lyrics", kind: "lyrics", marks: [mark(1000, 2000, "a"), mark(2000, 3000, "b"), mark(5000, 6000, "c")] };
+
+describe("timing marks", () => {
+  // 10 px per 100 ms.
+  const view = { startMs: 0, pxPerMs: 0.1 };
+
+  it("finds the marks in view and the one under the pointer", () => {
+    expect(marksInView(lyrics.marks, 0, 1000)).toEqual([0, 0]);
+    expect(marksInView(lyrics.marks, 1500, 5500)).toEqual([0, 3]);
+    expect(marksInView(lyrics.marks, 3000, 4000)).toEqual([2, 2]);
+    expect(hitMark(lyrics.marks, 150, view)).toEqual({ index: 0, part: "body" });
+    expect(hitMark(lyrics.marks, 101, view)).toEqual({ index: 0, part: "start" });
+    // Where two marks touch, the nearer edge: just right of 2000 ms is b's start.
+    expect(hitMark(lyrics.marks, 201, view)).toEqual({ index: 1, part: "start" });
+    expect(hitMark(lyrics.marks, 199, view)).toEqual({ index: 0, part: "end" });
+    expect(hitMark(lyrics.marks, 400, view)).toBeNull();
+    expect(markIndices(lyrics, [5000, 1000, 42])).toEqual([0, 2]);
+  });
+
+  it("drags marks without running into their neighbors, snapping by either edge", () => {
+    expect(markBounds(lyrics.marks, 1, 60_000)).toEqual({ lo: 2000, hi: 5000 });
+    expect(markBounds(lyrics.marks, 0, 60_000, new Set([1]))).toEqual({ lo: 0, hi: 5000 });
+    // b alone can't move left (a touches it) and stops at c.
+    expect(moveMarksDrag({ marks: lyrics.marks, moving: [1], primary: 1, deltaMs: -500, durationMs: 60_000 }).spans).toEqual([{ index: 1, startMs: 2000, endMs: 3000 }]);
+    expect(moveMarksDrag({ marks: lyrics.marks, moving: [1], primary: 1, deltaMs: 4000, durationMs: 60_000 }).spans[0]).toEqual({ index: 1, startMs: 4000, endMs: 5000 });
+    // a and b together, onto the frame grid, then snapping b's end to 4000.
+    const moved = moveMarksDrag({ marks: lyrics.marks, moving: [0, 1], primary: 1, deltaMs: 512, durationMs: 60_000, frameMs: 25 });
+    expect(moved.spans.map((s) => s.startMs)).toEqual([1500, 2500]);
+    const snapped = moveMarksDrag({ marks: lyrics.marks, moving: [0, 1], primary: 1, deltaMs: 950, durationMs: 60_000, snap: { targets: [4000], thresholdMs: 100 } });
+    expect(snapped).toEqual({ spans: [{ index: 0, startMs: 2000, endMs: 3000 }, { index: 1, startMs: 3000, endMs: 4000 }], snappedAt: 4000 });
+    // Moving right, the later mark lands first so neither overlaps on the way.
+    expect(markMoveEdits(lyrics, snapped.spans).map((e) => (e.type === "setMark" ? e.index : -1))).toEqual([1, 0]);
+    expect(markMoveEdits(lyrics, [{ index: 2, startMs: 5000, endMs: 6000 }])).toEqual([]);
+    expect(markMoveEdits(lyrics, [{ index: 2, startMs: 4500, endMs: 6000 }])).toEqual([{ type: "setMark", track: "L", index: 2, mark: mark(4500, 6000, "c") }]);
+    // Marks being dragged aren't snap targets for themselves.
+    expect(snapTargets(doc([], { timingTracks: [lyrics] }), new Set(), { track: "L", indices: new Set([0]) })).toEqual([0, 2000, 3000, 5000, 6000]);
+  });
+
+  it("adds a mark a beat long in the gap it's in", () => {
+    const beats: TimingTrack = { id: "B", name: "Beats", kind: "beats", marks: [mark(4000, 4400), mark(4400, 4800)] };
+    const sequence = doc([], { timingTracks: [lyrics, beats] });
+    expect(newMarkSpan({ doc: sequence, track: lyrics, ms: 4010 })).toEqual({ startMs: 4000, endMs: 4400 });
+    expect(newMarkSpan({ doc: sequence, track: lyrics, ms: 3200 })).toEqual({ startMs: 3200, endMs: 3700 });
+    expect(newMarkSpan({ doc: sequence, track: lyrics, ms: 4800 })).toEqual({ startMs: 4800, endMs: 5000 });
+    expect(newMarkSpan({ doc: sequence, track: lyrics, ms: 1500 })).toBeNull();
+    expect(newMarkSpan({ doc: sequence, track: lyrics, ms: 70_000 })).toBeNull();
+  });
+
+  it("taps end the last tapped mark and start a new one", () => {
+    const track: TimingTrack = { id: "T", name: "Taps", kind: "custom", marks: [mark(10_000, 11_000, "x")] };
+    const first = tapEdits(track, 1000.4, null, 60_000)!;
+    expect(first).toEqual({ startMs: 1000, edits: [{ type: "addMarks", track: "T", marks: [mark(1000, 1500)] }] });
+    track.marks = [mark(1000, 1500), mark(10_000, 11_000, "x")];
+    // A slower tap stretches the last mark to it; a quicker one would shorten it.
+    expect(tapEdits(track, 2200, 1000, 60_000)!.edits).toEqual([
+      { type: "setMark", track: "T", index: 0, mark: mark(1000, 2200) },
+      { type: "addMarks", track: "T", marks: [mark(2200, 2700)] },
+    ]);
+    // Near the next mark the new one stops there; inside a mark, the tap splits it.
+    expect(tapEdits(track, 9800, null, 60_000)!.edits).toEqual([{ type: "addMarks", track: "T", marks: [mark(9800, 10_000)] }]);
+    expect(tapEdits(track, 10_400, null, 60_000)!.edits).toEqual([{ type: "splitMark", track: "T", index: 1, atMs: 10_400 }]);
+    expect(tapEdits(track, 10_000, null, 60_000)).toBeNull();
+    expect(tapEdits(track, 60_000, null, 60_000)).toBeNull();
+  });
+
+  it("reads times people type, and finds where a lyrics track's words go", () => {
+    expect(parseTime("1:05.250")).toBe(65_250);
+    expect(parseTime(" 65.25 ")).toBe(65_250);
+    expect(parseTime("90")).toBe(90_000);
+    expect(parseTime("1:75")).toBeNull();
+    expect(parseTime("soon")).toBeNull();
+    const words: TimingTrack = { id: "W", name: "Lyrics (words)", kind: "words", marks: [] };
+    const other: TimingTrack = { id: "X", name: "Other words", kind: "words", marks: [] };
+    expect(wordsTrackFor(doc([], { timingTracks: [lyrics, other, words] }), lyrics)).toBe(words);
+    expect(wordsTrackFor(doc([], { timingTracks: [other, lyrics] }), lyrics)).toBeNull();
+    // Only the track named for it: never another words track, nor another lyrics track's words.
+    expect(wordsTrackFor(doc([], { timingTracks: [lyrics, other] }), lyrics)).toBeNull();
+    const backing: TimingTrack = { id: "K", name: "Backing", kind: "lyrics", marks: [] };
+    const lead: TimingTrack = { id: "D", name: "Lead", kind: "lyrics", marks: [] };
+    const leadWords: TimingTrack = { id: "DW", name: "Lead (words)", kind: "words", marks: [] };
+    expect(wordsTrackFor(doc([], { timingTracks: [backing, lead, leadWords] }), backing)).toBeNull();
+    expect(wordsTrackFor(doc([], { timingTracks: [backing, lead, leadWords] }), lead)).toBe(leadWords);
+  });
+
+  it("finds dropped marks by where they were, and gives up when one has gone or changed", () => {
+    const moves = [{ fromStartMs: 2000, fromEndMs: 3000, startMs: 3000, endMs: 4000 }];
+    expect(markMovesToSpans(lyrics, moves)).toEqual([{ index: 1, startMs: 3000, endMs: 4000 }]);
+    // A mark before it went meanwhile: still found, at its new index.
+    expect(markMovesToSpans({ ...lyrics, marks: lyrics.marks.slice(1) }, moves)).toEqual([{ index: 0, startMs: 3000, endMs: 4000 }]);
+    expect(markMovesToSpans({ ...lyrics, marks: [mark(1000, 2000, "a"), mark(2000, 2500, "b")] }, moves)).toBeNull();
+    expect(markMovesToSpans({ ...lyrics, marks: [] }, moves)).toBeNull();
+  });
+
+  it("moves the shared edge of two touching marks together", () => {
+    // a (1000–2000) touches b (2000–3000); c (5000–6000) touches nothing.
+    expect(touchingEdge(lyrics.marks, 0, "end", 10)).toEqual({ neighbor: 1, bounds: { lo: 1010, hi: 2990 } });
+    expect(touchingEdge(lyrics.marks, 1, "start", 10)).toEqual({ neighbor: 0, bounds: { lo: 1010, hi: 2990 } });
+    expect(touchingEdge(lyrics.marks, 0, "start", 10)).toBeNull();
+    expect(touchingEdge(lyrics.marks, 2, "start", 10)).toBeNull();
+    // The shared edge moving right: b shrinks first, so a never overlaps it on the way.
+    const right = markMoveEdits(lyrics, [
+      { index: 0, startMs: 1000, endMs: 2500 },
+      { index: 1, startMs: 2500, endMs: 3000 },
+    ]);
+    expect(right.map((e) => (e.type === "setMark" ? e.index : -1))).toEqual([1, 0]);
+    const left = markMoveEdits(lyrics, [
+      { index: 0, startMs: 1000, endMs: 1500 },
+      { index: 1, startMs: 1500, endMs: 3000 },
+    ]);
+    expect(left.map((e) => (e.type === "setMark" ? e.index : -1))).toEqual([0, 1]);
   });
 });

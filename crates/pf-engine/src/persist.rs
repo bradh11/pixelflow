@@ -37,7 +37,7 @@ pub fn save_show_atomic(path: &Path, show: &Show) -> Result<(), EngineError> {
 
 /// Writes `bytes` to `path` atomically: a temporary file in the same folder, flushed to disk,
 /// then renamed over the target.
-pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), EngineError> {
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), EngineError> {
     let write_err = |source| EngineError::Write {
         path: path.to_path_buf(),
         source,

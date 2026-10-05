@@ -1,10 +1,11 @@
-import { AlertTriangle, AudioLines, CheckCircle2, Download, FileInput, FilePlus, FolderOpen, History, Info, ListMusic, Magnet, Pause, Play, Save, Send, Square, X } from "lucide-react";
+import { AlertTriangle, AudioLines, CheckCircle2, Download, FileInput, FilePlus, FolderOpen, History, Info, ListMusic, ListPlus, Magnet, Pause, Play, Save, Send, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { errorMessage } from "../api/backend";
 import { EffectPalette } from "../components/sequencer/EffectPalette";
 import { EffectSettings } from "../components/sequencer/EffectSettings";
 import { SequencePreview } from "../components/sequencer/SequencePreview";
+import { AddTimingTrackDialog } from "../components/sequencer/TimingDialogs";
 import { AddRowMenu, Timeline } from "../components/sequencer/Timeline";
 import { useSequenceKeys } from "../components/sequencer/useSequenceKeys";
 import { Button, EmptyState, Input } from "../components/ui";
@@ -68,7 +69,7 @@ function Workspace() {
         <div className="h-[34%] min-h-40 shrink-0 border-b border-neutral-200 p-2 dark:border-neutral-800">
           <SequencePreview doc={doc} />
         </div>
-        {doc.rows.length === 0 ? (
+        {doc.rows.length === 0 && doc.timingTracks.length === 0 ? (
           <div className="relative flex-1 p-6">
             <EmptyState title="Add rows for your props">
               <p>Each row lights one prop or a group of props. Drag effects onto a row to make it light up.</p>
@@ -128,6 +129,7 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
     })),
   );
   const act = useSequencer.getState;
+  const [addingTrack, setAddingTrack] = useState(false);
   return (
     <div role="toolbar" aria-label="Sequence" className="flex shrink-0 flex-wrap items-center gap-1 border-b border-neutral-200 px-2 py-1.5 dark:border-neutral-800">
       <ToolButton label="New sequence" onClick={onNew}>
@@ -168,6 +170,10 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
           <ToolButton label={s.detecting ? "Finding the beats…" : "Detect beats"} onClick={() => void act().detectBeats()} disabled={!s.hasMusic || s.detecting}>
             <AudioLines size={16} /> <span className="hidden lg:inline">{s.detecting ? "Finding beats…" : "Detect beats"}</span>
           </ToolButton>
+          <ToolButton label="Add timing track" onClick={() => setAddingTrack(true)}>
+            <ListPlus size={16} /> <span className="hidden lg:inline">Add timing track</span>
+          </ToolButton>
+          {addingTrack && <AddTrack onClose={() => setAddingTrack(false)} />}
           <ToolButton label={`Snap to beats and effect edges (hold ${ALT_KEY} while dragging to turn off)`} pressed={s.snapping} onClick={() => act().setSnapping(!s.snapping)}>
             <Magnet size={16} /> <span className="hidden lg:inline">Snap</span>
           </ToolButton>
@@ -180,6 +186,12 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
       )}
     </div>
   );
+}
+
+/** The Add timing track dialog, for the open sequence. */
+function AddTrack({ onClose }: { onClose: () => void }) {
+  const doc = useSequencer((s) => s.doc);
+  return doc ? <AddTimingTrackDialog doc={doc} onClose={onClose} /> : null;
 }
 
 /** Where the playhead is (its own component: it changes many times a second while playing). */

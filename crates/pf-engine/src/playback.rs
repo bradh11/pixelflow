@@ -722,28 +722,33 @@ fn send_rate(step_ms: u32) -> u16 {
 }
 
 /// The output plan for an authored sequence: the show's normal plan (like a test pattern), or
-/// nothing to send when the show has errors, with notes saying why only the preview plays.
+/// nothing to send when the show has errors (with notes saying why only the preview plays) or
+/// sending is turned off (`send` false: the preview alone, while editing).
 fn document_plan(
     show: &Show,
     map: &ChannelMap,
     show_error: Option<&str>,
+    send: bool,
     frame_ms: u32,
 ) -> (OutputPlan, Vec<String>) {
     let mut notes = Vec::new();
+    let nothing = || OutputPlan {
+        frame_len: map.frame_len,
+        frame_rate: 1,
+        controllers: Vec::new(),
+        luts: Vec::new(),
+    };
     let mut plan = if let Some(error) = show_error {
         notes.push(format!(
             "The show has errors, so only the preview plays (nothing is sent to controllers): {error}"
         ));
-        OutputPlan {
-            frame_len: map.frame_len,
-            frame_rate: 1,
-            controllers: Vec::new(),
-            luts: Vec::new(),
-        }
+        nothing()
+    } else if !send {
+        nothing()
     } else {
         pf_output::build_plan(show, map)
     };
-    if show_error.is_none() && plan.controllers.iter().all(|c| c.spans.is_empty()) {
+    if show_error.is_none() && send && plan.controllers.iter().all(|c| c.spans.is_empty()) {
         notes.push("No props are wired to a controller, so only the preview shows the sequence.".to_string());
     }
     plan.frame_rate = send_rate(frame_ms);
@@ -765,6 +770,8 @@ pub(crate) enum SessionKind {
         map: ChannelMap,
         /// Whether the show had errors (then only the preview plays).
         preview_only: bool,
+        /// Whether sending to controllers was turned on.
+        sending: bool,
         /// The frame time the output's send rate was chosen for.
         frame_ms: u32,
         updates: Arc<LiveUpdates>,
@@ -779,6 +786,8 @@ pub(crate) struct DocumentRequest {
     pub music: Option<PathBuf>,
     /// The show's first error, if it has any (then only the preview plays).
     pub show_error: Option<String>,
+    /// Send to the controllers (false: only the preview plays).
+    pub send: bool,
     pub volume: f32,
 }
 
@@ -887,9 +896,10 @@ impl PlaybackSession {
             path,
             music,
             show_error,
+            send,
             volume,
         } = request;
-        let (plan, notes) = document_plan(show, map, show_error.as_deref(), doc.frame_ms);
+        let (plan, notes) = document_plan(show, map, show_error.as_deref(), send, doc.frame_ms);
         let updates = Arc::new(LiveUpdates::default());
         let frame_ms = doc.frame_ms;
         let source = RenderedFrames {
@@ -910,6 +920,7 @@ impl PlaybackSession {
             key: output_key(show, map),
             map: map.clone(),
             preview_only: show_error.is_some(),
+            sending: send,
             frame_ms,
             updates,
         };
@@ -1059,13 +1070,16 @@ impl PlaybackSession {
 
     /// For an authored sequence: sends through the edited show's output plan (new wiring,
     /// addresses, or layout; errors appearing or fixed; a new frame time) from the same place,
-    /// without reopening the music (it keeps playing).
+    /// without reopening the music (it keeps playing). `send` false sends nothing (the preview
+    /// alone).
+    #[allow(clippy::too_many_arguments)]
     pub fn rebuild_document(
         &mut self,
         show: &Show,
         map: &ChannelMap,
         doc: &SequenceDoc,
         show_error: Option<&str>,
+        send: bool,
         transport: Box<dyn Transport>,
         settings: OutputSettings,
     ) {
@@ -1073,6 +1087,7 @@ impl PlaybackSession {
             key,
             map: built_map,
             preview_only,
+            sending,
             frame_ms,
             updates,
             ..
@@ -1087,7 +1102,7 @@ impl PlaybackSession {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .renderer = None;
-        let (plan, notes) = document_plan(show, map, show_error, doc.frame_ms);
+        let (plan, notes) = document_plan(show, map, show_error, send, doc.frame_ms);
         let mut renderer = Renderer::new(show, map);
         let (mut writer, reader) = pf_frame::frame_buffers(map.frame_len);
         // Start the new output on the moment showing now, not a black frame.
@@ -1110,6 +1125,7 @@ impl PlaybackSession {
         *key = output_key(show, map);
         *built_map = map.clone();
         *preview_only = show_error.is_some();
+        *sending = send;
         *frame_ms = doc.frame_ms;
         self.notes = notes;
     }

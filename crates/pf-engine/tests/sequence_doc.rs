@@ -566,3 +566,49 @@ fn a_layout_change_right_after_a_move_draws_with_the_newest_layout() {
         engine.undo();
     }
 }
+
+#[test]
+fn sending_to_controllers_can_be_turned_off_while_editing() {
+    let (mut engine, recorded, _dir) = engine();
+    let row = new_doc(&mut engine, 10_000);
+    engine
+        .edit_sequence(vec![SequenceEdit::AddEffect {
+            row,
+            layer: 0,
+            effect: on(Rgb::GREEN, 0, 10_000),
+        }])
+        .unwrap();
+    assert!(engine.sequence_doc_output(), "on by default");
+    assert!(engine.set_sequence_doc_output(false).is_none(), "nothing playing");
+    let status = engine.play_sequence_doc(0).unwrap();
+    assert!(status.notes.is_empty(), "{:?}", status.notes);
+    assert_eq!(
+        engine.live_frame().unwrap(),
+        solid([0, 255, 0]),
+        "the preview plays"
+    );
+    std::thread::sleep(Duration::from_millis(60));
+    assert!(packets(&recorded).is_empty(), "nothing sent");
+
+    // Turning it on sends from where it is, without restarting the music.
+    let generation = engine.playback_generation();
+    let status = engine.set_sequence_doc_output(true).unwrap();
+    assert_eq!(status.state, "playing");
+    assert_eq!(engine.playback_generation(), generation + 1);
+    wait_until(|| {
+        packets(&recorded)
+            .iter()
+            .any(|p| p[10..40] == solid([0, 255, 0])[..])
+    });
+
+    // Editing the show keeps it as chosen.
+    engine.set_sequence_doc_output(false);
+    std::thread::sleep(Duration::from_millis(30));
+    let sent = packets(&recorded).len();
+    let mut prop = engine.show().props[0].clone();
+    prop.transform.position.x = 2.0;
+    engine.apply(vec![Edit::UpdateProp { prop }]).unwrap();
+    std::thread::sleep(Duration::from_millis(60));
+    assert!(packets(&recorded).len() <= sent + 2, "stopped sending");
+    engine.stop_playback();
+}

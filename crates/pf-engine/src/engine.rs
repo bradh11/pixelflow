@@ -73,6 +73,8 @@ pub struct Engine {
     sequence_revision: u64,
     /// A renderer for previewing the open sequence, and the show revision it was made for.
     preview_renderer: Option<(u64, Renderer)>,
+    /// Whether a playing sequence document is sent to the controllers (else only the preview).
+    send_sequence_doc: bool,
 }
 
 /// Everything needed to export the open sequence, copied out of the engine so a long export
@@ -151,6 +153,7 @@ impl Engine {
             sequence: None,
             sequence_revision: 0,
             preview_renderer: None,
+            send_sequence_doc: true,
         }
     }
 
@@ -740,6 +743,7 @@ impl Engine {
             path,
             music,
             show_error: first_error(&report).map(|i| i.message.clone()),
+            send: self.send_sequence_doc,
             volume: self.volume,
         };
         let transport = (self.transport)().map_err(EngineError::Network)?;
@@ -758,6 +762,26 @@ impl Engine {
         self.playback = Some(session);
         self.playback_stop_reason = None;
         Ok(ready)
+    }
+
+    /// Whether a playing sequence document goes out to the controllers (on by default) or only
+    /// to the preview, for editing without lighting up the house. A playing document switches
+    /// at once, without restarting its music.
+    pub fn set_sequence_doc_output(&mut self, send: bool) -> Option<PlaybackStatus> {
+        self.send_sequence_doc = send;
+        if self
+            .playback
+            .as_ref()
+            .is_some_and(|s| matches!(s.kind(), SessionKind::Document { .. }))
+        {
+            self.sync_document_playback();
+        }
+        self.playback_status()
+    }
+
+    /// Whether a playing sequence document goes out to the controllers.
+    pub fn sequence_doc_output(&self) -> bool {
+        self.send_sequence_doc
     }
 
     /// What exporting the open sequence needs, to run without holding the engine.
@@ -864,6 +888,7 @@ impl Engine {
             &map,
             &open.doc,
             show_error.as_deref(),
+            self.send_sequence_doc,
             transport,
             self.output_settings.clone(),
         );
@@ -985,6 +1010,7 @@ impl Engine {
             key,
             map: old_map,
             preview_only,
+            sending,
             ..
         } = session.kind()
         else {
@@ -992,7 +1018,11 @@ impl Engine {
         };
         let (map, report) = analyze(&self.show);
         let has_errors = first_error(&report).is_some();
-        if has_errors == *preview_only && output_key(&self.show, &map) == *key && map == *old_map {
+        if has_errors == *preview_only
+            && *sending == self.send_sequence_doc
+            && output_key(&self.show, &map) == *key
+            && map == *old_map
+        {
             session.update_renderer(Renderer::new(&self.show, &map));
         } else {
             self.rebuild_document_output();

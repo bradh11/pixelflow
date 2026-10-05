@@ -17,7 +17,6 @@ import type {
   Show,
   ShowSnapshot,
   TargetSpec,
-  XlightsSequenceImported,
 } from "./types";
 import { frontView } from "../lib/geometry";
 import { channelsPerPixel, newController, nodeCount } from "../lib/shows";
@@ -48,9 +47,6 @@ export class MemoryBackend implements Backend {
   /** What the folder picker returns, and what importing any xLights folder produces. */
   nextShowFolder: string | null = null;
   xlightsImport: { show: Show; summary: ImportSummary; notes: string[] } | null = null;
-  /** What the xLights sequence dialog returns, and what importing any sequence produces. */
-  nextXlightsSequencePath: string | null = null;
-  xlightsSequenceImport: XlightsSequenceImported | null = null;
   /** Length of any sequence "played" here, and the path the sequence dialog returns. */
   sequenceDurationMs = 60_000;
   nextSequencePath: string | null = null;
@@ -465,16 +461,6 @@ export class MemoryBackend implements Backend {
 
   async pickShowFolder() {
     return this.nextShowFolder;
-  }
-
-  async importXlightsSequence(path: string) {
-    this.calls.push(`importXlightsSequence:${path}`);
-    if (!this.xlightsSequenceImport) throw new Error(`Could not read ${path}.`);
-    return structuredClone(this.xlightsSequenceImport);
-  }
-
-  async pickXlightsSequencePath() {
-    return this.nextXlightsSequencePath;
   }
 
   async pickSequencePath() {

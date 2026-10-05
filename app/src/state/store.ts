@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { type Backend, errorMessage } from "../api/backend";
+import type { SequencerApi } from "../api/sequencer";
 import type { Device, Edit, ImportSummary, SequenceImportSummary, Show, ShowSnapshot, SilentPeer } from "../api/types";
 import { fileName } from "../lib/format";
 import { useLayoutEditor } from "./layoutEditor";
@@ -40,6 +41,8 @@ interface AppState {
   importReport: { name: string; summary: ImportSummary; notes: string[] } | null;
   /** What the last xLights sequence import brought in, shown until dismissed. */
   sequenceImportReport: { name: string; summary: SequenceImportSummary; notes: string[] } | null;
+  /** The sequencer side of the engine (authored sequences), once connected. */
+  sequencer: SequencerApi | null;
   /** Test screen target selection; kept here so it survives leaving the screen. */
   testTarget: string;
   /** Music volume (0–1) for playback; the engine keeps the same value. */
@@ -50,6 +53,7 @@ interface AppState {
   scanning: boolean;
 
   connect(backend: Backend): Promise<void>;
+  connectSequencer(sequencer: SequencerApi): void;
   setScreen(screen: Screen): void;
   setTheme(theme: Theme): void;
   setPaletteOpen(open: boolean): void;
@@ -236,6 +240,7 @@ export const useApp = create<AppState>((set, get) => {
   pendingReplace: null,
   importReport: null,
   sequenceImportReport: null,
+  sequencer: null,
   testTarget: "show",
   musicVolume: 1,
   discovery: null,
@@ -301,14 +306,16 @@ export const useApp = create<AppState>((set, get) => {
 
   dismissImportReport: () => set({ importReport: null }),
 
+  connectSequencer: (sequencer) => set({ sequencer }),
+
   async importXlightsSequence() {
-    const backend = get().backend;
-    if (!backend) return false;
-    const path = await backend.pickXlightsSequencePath();
+    const sequencer = get().sequencer;
+    if (!sequencer) return false;
+    const path = await sequencer.pickXlightsSequencePath();
     if (!path) return false;
     set({ busy: true });
     try {
-      const imported = await backend.importXlightsSequence(path);
+      const imported = await sequencer.importXlightsSequence(path);
       set({
         sequenceImportReport: {
           name: imported.snapshot.sequence.name,

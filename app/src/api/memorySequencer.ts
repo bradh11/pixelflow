@@ -7,7 +7,7 @@
 import catalogJson from "./effectCatalog.json";
 import type { MemoryBackend } from "./memory";
 import { renderSequenceFrame } from "./memoryRender";
-import type { PlaybackStatus, ShowSnapshot } from "./types";
+import type { PlaybackStatus, SequenceImportSummary, ShowSnapshot } from "./types";
 import {
   noChanges,
   type Analysis,
@@ -244,6 +244,9 @@ export class MemorySequencer implements SequencerApi {
   nextSavePath: string | null = null;
   /** Calls made, for test assertions. */
   calls: string[] = [];
+  /** What the xLights sequence dialog returns, and what importing any .xsq produces. */
+  nextXlightsSequencePath: string | null = null;
+  xlightsSequenceImport: { sequence: Sequence; summary: SequenceImportSummary; notes: string[] } | null = null;
   private lastGesture: string | null = null;
   private exportCancels = 0;
   /** Whether a playing sequence would go out to the controllers. */
@@ -475,6 +478,18 @@ export class MemorySequencer implements SequencerApi {
       ...tracks.map((track) => ({ type: "addTimingTrack" as const, track })),
     ];
     return this.editSequence(edits);
+  }
+
+  async importXlightsSequence(path: string) {
+    this.calls.push(`importXlightsSequence:${path}`);
+    const imported = this.xlightsSequenceImport ?? fail(`Could not read ${path}: no such file`);
+    this.replace(structuredClone(imported.sequence), null);
+    this.savedRevision = this.revision - 1; // an import has unsaved changes
+    return { snapshot: this.snapshot(), summary: { ...imported.summary }, notes: [...imported.notes] };
+  }
+
+  async pickXlightsSequencePath() {
+    return this.nextXlightsSequencePath;
   }
 
   async pickSequenceDocPath() {

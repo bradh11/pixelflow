@@ -533,19 +533,31 @@ export function effectBounds(doc: Sequence, id: string, ignore: ReadonlySet<stri
  */
 export function nudgeEdits(doc: Sequence, ids: string[], direction: 1 | -1, byBeat: boolean): SequenceEdit[] {
   const chosen = new Set(ids);
-  const placed: Effect[] = [];
-  for (const row of doc.rows) for (const layer of row.layers) for (const e of layer.effects) if (chosen.has(e.id)) placed.push(e);
-  if (placed.length === 0) return [];
+  const starts: number[] = [];
+  for (const row of doc.rows) for (const layer of row.layers) for (const e of layer.effects) if (chosen.has(e.id)) starts.push(e.startMs);
+  if (starts.length === 0) return [];
   const track = doc.timingTracks.find((t) => t.kind === "beats") ?? doc.timingTracks[0];
   const grid = { frameMs: doc.frameMs, beats: track?.marks.map((m) => m.startMs) ?? [] };
-  const first = Math.min(...placed.map((e) => e.startMs));
-  let delta = stepTime(first, direction, grid, byBeat) - first;
+  const first = Math.min(...starts);
+  return shiftEdits(doc, ids, stepTime(first, direction, grid, byBeat) - first).edits;
+}
+
+/**
+ * Moves every effect `ids` by the same amount, as near to `deltaMs` as they can go: none goes past
+ * the song's ends or into an effect that isn't moving. Gives the amount they move by.
+ */
+export function shiftEdits(doc: Sequence, ids: readonly string[], deltaMs: number): { deltaMs: number; edits: SequenceEdit[] } {
+  const chosen = new Set(ids);
+  const placed: Effect[] = [];
+  for (const row of doc.rows) for (const layer of row.layers) for (const e of layer.effects) if (chosen.has(e.id)) placed.push(e);
+  let delta = Math.round(deltaMs);
   for (const e of placed) {
     const bounds = effectBounds(doc, e.id, chosen) ?? { lo: 0, hi: doc.durationMs };
     delta = Math.max(bounds.lo - e.startMs, Math.min(bounds.hi - e.endMs, delta));
   }
-  if (delta === 0 || Math.sign(delta) !== direction) return [];
-  return placed.map((e) => ({ type: "setEffectTiming", id: e.id, startMs: e.startMs + delta, endMs: e.endMs + delta }));
+  // Pulled back past nothing (they're already against something): don't move the other way.
+  if (delta === 0 || Math.sign(delta) !== Math.sign(deltaMs)) return { deltaMs: 0, edits: [] };
+  return { deltaMs: delta, edits: placed.map((e) => ({ type: "setEffectTiming", id: e.id, startMs: e.startMs + delta, endMs: e.endMs + delta })) };
 }
 
 /** One step from `ms`: a frame, or (with `byBeat`) to the next or previous beat. */

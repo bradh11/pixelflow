@@ -1,4 +1,4 @@
-import type { DeviceDetails, PortSlot, Prop, Show, SilentPeer, StringConfig } from "./types";
+import type { DeviceDetails, FppSequence, PlayerStatus, PortSlot, Prop, Show, SilentPeer, StringConfig } from "./types";
 import { emptyShow } from "./memory";
 import { newController, newProp } from "../lib/shows";
 
@@ -93,5 +93,24 @@ export function demoDevices(): { details: DeviceDetails[]; silent: SilentPeer[] 
       },
     ],
     silent: [{ address: "192.0.2.21", description: "Falcon_F16V5_Garage", listedBy: "FPP" }],
+  };
+}
+
+/** The demo FPP is playing its one sequence, and can't reach one of its controllers. */
+export function demoPlayers(): Record<string, { status: PlayerStatus; sequences: FppSequence[] }> {
+  return {
+    "192.0.2.10": {
+      status: {
+        state: "playing",
+        playlist: "Christmas Medley 2017.fseq",
+        sequence: "Christmas Medley 2017.fseq",
+        secondsElapsed: 109,
+        secondsRemaining: 456,
+        nextPlaylist: "Christmas Medley 2017.fseq",
+        nextStart: "Mon Oct  5 @ 06:48 PM - (Everyday)",
+        warnings: ["Cannot Ping DDP Channel Data Target 192.0.2.21 Falcon_F16V5_Garage"],
+      },
+      sequences: [{ name: "Christmas Medley 2017", frames: 11332, stepMs: 50, channels: 6148 }],
+    },
   };
 }

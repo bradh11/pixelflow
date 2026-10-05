@@ -4,6 +4,7 @@ import { errorMessage } from "../api/backend";
 import type { DeviceDetails, DeviceInput } from "../api/types";
 import { thousands } from "../lib/format";
 import { useApp } from "../state/store";
+import { FppPanel } from "./FppPanel";
 import { Button } from "./ui";
 
 function describeInput(input: DeviceInput): string {
@@ -76,7 +77,7 @@ export function ImportDialog({
       >
         <div className="border-b border-neutral-200 p-5 dark:border-neutral-800">
           <h2 id="import-title" className="text-lg font-semibold">
-            {details ? `Import ${details.device.name}` : `Reading ${address}…`}
+            {details ? (details.device.kind === "fpp" ? details.device.name : `Import ${details.device.name}`) : `Reading ${address}…`}
           </h2>
           {details && (
             <p className="mt-1 text-sm text-neutral-500">
@@ -97,6 +98,7 @@ export function ImportDialog({
           )}
           {details && (
             <div className="flex flex-col gap-4">
+              {details.device.kind === "fpp" && <FppPanel address={details.device.address} />}
               <p>
                 <span className="text-neutral-500">Receives:</span> {describeInput(details.config.input)}
               </p>
@@ -160,12 +162,20 @@ export function ImportDialog({
           )}
         </div>
         <div className="flex justify-end gap-2 border-t border-neutral-200 p-4 dark:border-neutral-800">
-          <Button ref={cancelRef} onClick={onClose}>
-            Cancel
-          </Button>
-          <Button variant="primary" onClick={add} disabled={!details?.plan.canImport || busy}>
-            {details && !details.plan.canImport ? "Nothing to import" : "Add to show"}
-          </Button>
+          {details?.device.kind === "fpp" && !details.plan.canImport ? (
+            <Button ref={cancelRef} onClick={onClose}>
+              Close
+            </Button>
+          ) : (
+            <>
+              <Button ref={cancelRef} onClick={onClose}>
+                Cancel
+              </Button>
+              <Button variant="primary" onClick={add} disabled={!details?.plan.canImport || busy}>
+                {details && !details.plan.canImport ? "Nothing to import" : "Add to show"}
+              </Button>
+            </>
+          )}
         </div>
       </div>
     </div>

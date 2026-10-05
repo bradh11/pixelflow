@@ -2,6 +2,8 @@ import type { Backend } from "./backend";
 import type {
   ChannelMap,
   DeviceDetails,
+  FppSequence,
+  PlayerStatus,
   Discovery,
   SilentPeer,
   Edit,
@@ -37,6 +39,8 @@ export class MemoryBackend implements Backend {
   calls: string[] = [];
   /** Devices "on the network" (see `demoDevices()`); empty by default. */
   deviceNetwork: { details: DeviceDetails[]; silent: SilentPeer[] } = { details: [], silent: [] };
+  /** Fake FPP players by address: what each is playing and the sequences stored on it. */
+  fppPlayers: Record<string, { status: PlayerStatus; sequences: FppSequence[] }> = {};
 
   constructor(show?: Show) {
     this.show = show ?? emptyShow("Untitled Show");
@@ -172,6 +176,42 @@ export class MemoryBackend implements Backend {
       ...plan.props.map((prop) => ({ type: "addProp" as const, prop })),
       { type: "addController" as const, controller: plan.controller },
     ]);
+  }
+
+  private player(address: string) {
+    const player = this.fppPlayers[address];
+    if (!player) throw new Error(`Could not reach ${address}: no response`);
+    return player;
+  }
+
+  async fppStatus(address: string) {
+    return structuredClone(this.player(address).status);
+  }
+
+  async fppSequences(address: string) {
+    return structuredClone(this.player(address).sequences);
+  }
+
+  async fppStart(address: string, name: string) {
+    this.calls.push(`fppStart:${address}:${name}`);
+    const player = this.player(address);
+    const sequence = player.sequences.find((s) => `${s.name}.fseq` === name);
+    player.status = {
+      ...player.status,
+      state: "playing",
+      playlist: name,
+      sequence: name,
+      secondsElapsed: 0,
+      secondsRemaining: sequence ? Math.round((sequence.frames * sequence.stepMs) / 1000) : 0,
+    };
+  }
+
+  async fppStop(address: string, gracefully: boolean) {
+    this.calls.push(`fppStop:${address}:${gracefully ? "gracefully" : "now"}`);
+    const player = this.player(address);
+    player.status = gracefully
+      ? { ...player.status, state: "stopping" }
+      : { ...player.status, state: "idle", playlist: null, sequence: null, secondsElapsed: 0, secondsRemaining: 0 };
   }
 
   async pickOpenPath() {

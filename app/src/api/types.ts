@@ -311,3 +311,26 @@ export interface DeviceDetails {
   config: DeviceConfig;
   plan: ImportPlan;
 }
+
+export type PlayerState = "idle" | "playing" | "paused" | "stopping" | "other";
+
+/** What an FPP is playing. */
+export interface PlayerStatus {
+  state: PlayerState;
+  playlist: string | null;
+  sequence: string | null;
+  secondsElapsed: number;
+  secondsRemaining: number;
+  nextPlaylist: string | null;
+  nextStart: string | null;
+  /** Problems FPP itself reports, such as an output target it can't reach. */
+  warnings: string[];
+}
+
+/** A sequence stored on an FPP. */
+export interface FppSequence {
+  name: string;
+  frames: number;
+  stepMs: number;
+  channels: number;
+}

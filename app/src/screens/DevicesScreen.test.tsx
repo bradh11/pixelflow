@@ -2,13 +2,14 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { App } from "../App";
-import { demoDevices } from "../api/demo";
+import { demoDevices, demoPlayers } from "../api/demo";
 import { MemoryBackend } from "../api/memory";
 import { useApp } from "../state/store";
 
 async function startApp() {
   const backend = new MemoryBackend();
   backend.deviceNetwork = demoDevices();
+  backend.fppPlayers = demoPlayers();
   await useApp.getState().connect(backend);
   const user = userEvent.setup();
   render(<App />);
@@ -70,9 +71,34 @@ describe("devices", () => {
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText(/Sends 6,147 channels by DDP to Falcon_F16V5_B9F5/)).toBeInTheDocument();
     expect(within(dialog).getByText(/Import those instead/)).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Nothing to import" })).toBeDisabled();
+    expect(within(dialog).queryByRole("button", { name: /import|add to show/i })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Close" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("shows what an FPP is playing and lets you stop and start it", async () => {
+    const { user, backend } = await openDevices();
+    await user.click(screen.getByRole("button", { name: "Scan network" }));
+    await user.click(await screen.findByRole("button", { name: "Review FPP" }));
+    const dialog = await screen.findByRole("dialog");
+    const player = await within(dialog).findByRole("region", { name: "Player" });
+    expect(within(player).getByText("Playing Christmas Medley 2017.fseq")).toBeInTheDocument();
+    expect(within(player).getByText("7:36 left")).toBeInTheDocument();
+    expect(within(player).getByText(/Cannot Ping DDP Channel Data Target 192.0.2.21/)).toBeInTheDocument();
+    expect(within(player).getByText(/Next: Christmas Medley 2017.fseq, Mon Oct 5 @ 06:48 PM/)).toBeInTheDocument();
+
+    await user.click(within(player).getByRole("button", { name: "Stop now" }));
+    expect(backend.calls).toContain("fppStop:192.0.2.10:now");
+    expect(await within(player).findByText("Idle")).toBeInTheDocument();
+    expect(within(player).queryByRole("button", { name: "Stop now" })).not.toBeInTheDocument();
+
+    const row = within(player).getByRole("row", { name: /Christmas Medley 2017/ });
+    expect(within(row).getByText("9:27")).toBeInTheDocument();
+    expect(within(row).getByText("6,148")).toBeInTheDocument();
+    await user.click(within(row).getByRole("button", { name: "Play Christmas Medley 2017" }));
+    expect(backend.calls).toContain("fppStart:192.0.2.10:Christmas Medley 2017.fseq");
+    expect(await within(player).findByText("Playing Christmas Medley 2017.fseq")).toBeInTheDocument();
   });
 
   it("checks a typed address and says when nothing answers", async () => {

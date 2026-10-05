@@ -1,5 +1,7 @@
 import type {
   DeviceDetails,
+  FppSequence,
+  PlayerStatus,
   Discovery,
   Edit,
   HistoryEntry,
@@ -31,6 +33,14 @@ export interface Backend {
   inspectDevice(address: string): Promise<DeviceDetails>;
   /** Adds the device as a controller with starter props, as one undo step. */
   importDevice(address: string): Promise<ShowSnapshot>;
+  /** What an FPP is playing (changes nothing). */
+  fppStatus(address: string): Promise<PlayerStatus>;
+  /** The sequences stored on an FPP (changes nothing). */
+  fppSequences(address: string): Promise<FppSequence[]>;
+  /** Starts a playlist or sequence (e.g. "Show.fseq") on an FPP. Only when the user asks. */
+  fppStart(address: string, name: string): Promise<void>;
+  /** Stops an FPP now, or after the current sequence. Only when the user asks. */
+  fppStop(address: string, gracefully: boolean): Promise<void>;
   /** Shows a native "open file" dialog; null when cancelled. */
   pickOpenPath(): Promise<string | null>;
   /** Shows a native "save file" dialog; null when cancelled. */

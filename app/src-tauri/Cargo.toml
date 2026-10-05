@@ -18,6 +18,7 @@ pf-engine = { path = "../../crates/pf-engine" }
 pf-devices = { path = "../../crates/pf-devices" }
 pf-model = { path = "../../crates/pf-model" }
 pf-xlights = { path = "../../crates/pf-xlights" }
+pf-audio = { path = "../../crates/pf-audio" }
 serde = { version = "1", features = ["derive"] }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"

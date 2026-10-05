@@ -23,6 +23,8 @@ const AUTOSAVE_EVERY: Duration = Duration::from_secs(30);
 struct AppState {
     engine: Mutex<Engine>,
     devices: DeviceAccess,
+    /// Decoded music waveforms by (file, slices).
+    waveforms: Mutex<std::collections::HashMap<(PathBuf, usize), pf_audio::Waveform>>,
 }
 
 impl AppState {
@@ -139,6 +141,10 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         playback::live_frame,
         playback::sequence_frame,
         playback::preview_props,
+        playback::add_sequence,
+        playback::play_sequence,
+        playback::set_playback_volume,
+        playback::audio_waveform,
         xlights::import_xlights,
     ])
 }
@@ -157,6 +163,7 @@ pub fn run() {
             app.manage(AppState {
                 engine: Mutex::new(Engine::new(data_dir)),
                 devices: DeviceAccess::network(),
+                waveforms: Mutex::default(),
             });
             let handle = app.handle().clone();
             std::thread::Builder::new()
@@ -208,6 +215,7 @@ mod tests {
             .manage(AppState {
                 engine: Mutex::new(Engine::new(dir.path())),
                 devices: DeviceAccess::fake(pf_devices::testing::network()),
+                waveforms: Mutex::default(),
             })
             .build(context())
             .unwrap();
@@ -592,5 +600,71 @@ mod tests {
                 .contains("doesn't look like an xLights show folder"),
             "{error}"
         );
+    }
+
+    /// A tiny silent 16-bit mono WAV, half a second long.
+    fn write_wav(path: &std::path::Path) {
+        let rate = 8000u32;
+        let data = vec![0u8; (rate as usize) / 2 * 2];
+        let mut out = b"RIFF".to_vec();
+        out.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
+        out.extend_from_slice(b"WAVEfmt ");
+        out.extend_from_slice(&16u32.to_le_bytes());
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&rate.to_le_bytes());
+        out.extend_from_slice(&(rate * 2).to_le_bytes());
+        out.extend_from_slice(&2u16.to_le_bytes());
+        out.extend_from_slice(&16u16.to_le_bytes());
+        out.extend_from_slice(b"data");
+        out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        out.extend(data);
+        std::fs::write(path, out).unwrap();
+    }
+
+    #[test]
+    fn sequences_are_added_with_their_music_and_played() {
+        let (_app, webview, dir) = app();
+        let path = write_sequence(dir.path());
+        let song = dir.path().join("show.wav");
+        write_wav(&song);
+        let snapshot = call(&webview, "add_sequence", json!({ "path": path })).unwrap();
+        let entry = snapshot["show"]["sequences"][0].clone();
+        assert_eq!(entry["name"], "show");
+        assert_eq!(entry["audio"], json!(song.display().to_string()));
+        let waveform = call(&webview, "audio_waveform", json!({ "path": song, "slices": 10 })).unwrap();
+        assert_eq!(waveform["durationMs"], 500);
+        assert_eq!(waveform["peaks"].as_array().unwrap().len(), 10);
+
+        // Play without music here (tests must not open the sound output): drop the audio first.
+        let mut silent = entry.clone();
+        silent["audio"] = json!(null);
+        call(
+            &webview,
+            "apply_edits",
+            json!({ "edits": [{ "type": "updateSequence", "sequence": silent }] }),
+        )
+        .unwrap();
+        let controller = json!({
+            "id": "33333333-0000-4000-8000-000000000009", "name": "Bench", "address": "127.0.0.1:9",
+            "protocol": { "type": "ddp" }, "ports": [], "sequenceChannels": { "start": 1, "count": 6 }
+        });
+        call(
+            &webview,
+            "apply_edits",
+            json!({ "edits": [{ "type": "addController", "controller": controller }] }),
+        )
+        .unwrap();
+        let status = call(
+            &webview,
+            "play_sequence",
+            json!({ "id": entry["id"], "positionMs": 0 }),
+        )
+        .unwrap();
+        assert_eq!(status["sequence"], entry["id"]);
+        assert_eq!(status["state"], "playing");
+        let status = call(&webview, "set_playback_volume", json!({ "volume": 0.5 })).unwrap();
+        assert_eq!(status["volume"], 0.5);
+        call(&webview, "stop_playback", json!({})).unwrap();
     }
 }

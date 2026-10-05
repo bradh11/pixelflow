@@ -31,6 +31,19 @@ describe("app store", () => {
     expect(useApp.getState().snapshot?.path).toBe("/shows/a.json");
   });
 
+  it("keeps the newer snapshot when an older call resolves last", async () => {
+    const backend = await connected();
+    const base = await backend.getSnapshot();
+    const older = { ...base, revision: base.revision + 1 };
+    const newer = { ...base, revision: base.revision + 2 };
+    let finishFirst!: (s: typeof older) => void;
+    const first = useApp.getState().run(() => new Promise((resolve) => (finishFirst = resolve)));
+    expect(await useApp.getState().run(async () => newer)).toBe(true);
+    finishFirst(older);
+    expect(await first).toBe(true);
+    expect(useApp.getState().snapshot?.revision).toBe(newer.revision);
+  });
+
   it("turns backend failures into a dismissable message", async () => {
     const backend = await connected();
     backend.undo = async () => {

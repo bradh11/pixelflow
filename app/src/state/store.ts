@@ -66,6 +66,13 @@ export const useApp = create<AppState>((set, get) => {
     return ok;
   }
 
+  /** Commits an in-progress text edit (e.g. a prop rename) before saving. */
+  function commitFocusedField() {
+    if (typeof document === "undefined") return;
+    const active = document.activeElement as HTMLElement | null;
+    if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) active.blur();
+  }
+
   return {
   backend: null,
   snapshot: null,
@@ -108,7 +115,10 @@ export const useApp = create<AppState>((set, get) => {
     set({ busy: true });
     try {
       const snapshot = await call(backend);
-      set({ snapshot, error: null });
+      const current = get().snapshot;
+      // Calls can resolve out of order; engine revisions only increase, so never go backwards.
+      if (!current || snapshot.revision >= current.revision) set({ snapshot });
+      set({ error: null });
       return true;
     } catch (e) {
       set({ error: errorMessage(e) });
@@ -151,11 +161,13 @@ export const useApp = create<AppState>((set, get) => {
   },
 
   async save() {
+    commitFocusedField();
     if (!get().snapshot?.path) return get().saveAs();
     return get().run((b) => b.saveShow());
   },
 
   async saveAs() {
+    commitFocusedField();
     const backend = get().backend;
     const snapshot = get().snapshot;
     if (!backend || !snapshot) return false;

@@ -5,6 +5,7 @@
 //! can take a moment).
 
 mod devices;
+mod playback;
 
 use devices::DeviceAccess;
 use pf_engine::{
@@ -128,6 +129,13 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         devices::fpp_sequences,
         devices::fpp_start,
         devices::fpp_stop,
+        playback::start_playback,
+        playback::pause_playback,
+        playback::seek_playback,
+        playback::stop_playback,
+        playback::playback_status,
+        playback::live_frame,
+        playback::preview_props,
     ])
 }
 
@@ -178,6 +186,7 @@ fn shut_down(state: &AppState) {
         eprintln!("autosave on exit failed: {error}");
     }
     engine.stop_output();
+    engine.stop_playback();
 }
 
 #[cfg(test)]
@@ -461,5 +470,67 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(error, json!("FPP doesn't send to 192.0.2.77."));
+    }
+
+    /// A tiny uncompressed sequence: 6 channels, 40 frames, 25 ms apart; every channel of frame
+    /// `n` holds `n + 1`.
+    fn write_sequence(dir: &std::path::Path) -> PathBuf {
+        let mut out = b"PSEQ".to_vec();
+        out.extend_from_slice(&28u16.to_le_bytes());
+        out.extend_from_slice(&[0, 1]);
+        out.extend_from_slice(&28u16.to_le_bytes());
+        out.extend_from_slice(&6u32.to_le_bytes());
+        out.extend_from_slice(&40u32.to_le_bytes());
+        out.push(25);
+        out.extend_from_slice(&[0; 9]);
+        for frame in 0..40u8 {
+            out.extend_from_slice(&[frame + 1; 6]);
+        }
+        let path = dir.join("show.fseq");
+        std::fs::write(&path, out).unwrap();
+        path
+    }
+
+    #[test]
+    fn plays_a_sequence_with_pause_seek_and_stop() {
+        let (_app, webview, dir) = app();
+        let path = write_sequence(dir.path());
+        let error = call(
+            &webview,
+            "start_playback",
+            json!({ "path": path, "positionMs": 0 }),
+        )
+        .unwrap_err();
+        assert!(error.as_str().unwrap().contains("Devices screen"), "{error}");
+
+        // Loopback only: nothing leaves this machine.
+        let controller = json!({
+            "id": "33333333-0000-4000-8000-000000000009", "name": "Bench", "address": "127.0.0.1:9",
+            "protocol": { "type": "ddp" }, "ports": [], "sequenceChannels": { "start": 1, "count": 6 }
+        });
+        call(
+            &webview,
+            "apply_edits",
+            json!({ "edits": [{ "type": "addController", "controller": controller }] }),
+        )
+        .unwrap();
+        let status = call(
+            &webview,
+            "start_playback",
+            json!({ "path": path, "positionMs": 100 }),
+        )
+        .unwrap();
+        assert_eq!(status["state"], "playing");
+        assert_eq!(
+            (status["positionMs"].clone(), status["durationMs"].clone()),
+            (json!(100), json!(1000))
+        );
+        let status = call(&webview, "pause_playback", json!({ "paused": true })).unwrap();
+        assert_eq!(status["state"], "paused");
+        let status = call(&webview, "seek_playback", json!({ "positionMs": 500 })).unwrap();
+        assert_eq!(status["positionMs"], 500);
+        assert_eq!(call(&webview, "preview_props", json!({})).unwrap(), json!([]));
+        call(&webview, "stop_playback", json!({})).unwrap();
+        assert_eq!(call(&webview, "playback_status", json!({})).unwrap(), json!(null));
     }
 }

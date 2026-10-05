@@ -995,6 +995,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pf-render"
+version = "0.1.0"
+dependencies = [
+ "pf-geometry",
+ "pf-mapping",
+ "pf-model",
+ "pf-sequence",
+]
+
+[[package]]
 name = "pf-sequence"
 version = "0.1.0"
 dependencies = [

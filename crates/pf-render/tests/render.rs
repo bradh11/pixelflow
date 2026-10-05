@@ -1,0 +1,329 @@
+//! Rendering whole sequences into the show frame.
+
+use pf_model::{ColorOrder, Generator, Group, Prop, ShapeSource, Show, Transform, Vec3};
+use pf_render::Renderer;
+use pf_sequence::*;
+use std::time::Instant;
+
+fn line(name: &str, nodes: u32, x: f32) -> Prop {
+    let mut prop = Prop::new(
+        name,
+        ShapeSource::Generator(Generator::Line { nodes, length: 1.0 }),
+    );
+    prop.transform = Transform {
+        position: Vec3::new(x, 0.0, 0.0),
+        ..Transform::default()
+    };
+    prop
+}
+
+/// Two 4-pixel strips side by side (A is RGB, B is RGBW), in a group.
+fn show() -> Show {
+    let mut show = Show::new("t");
+    show.props.push(line("A", 4, 0.0));
+    let mut b = line("B", 4, 2.0);
+    b.color_order = ColorOrder::Grbw;
+    show.props.push(b);
+    let mut group = Group::new("Both");
+    group.members = vec![show.props[0].id, show.props[1].id];
+    show.groups.push(group);
+    show
+}
+
+fn renderer(show: &Show) -> Renderer {
+    Renderer::new(show, &pf_mapping::map_show(show).0)
+}
+
+fn render(show: &Show, seq: &Sequence, t_ms: u64) -> Vec<u8> {
+    let mut r = renderer(show);
+    let mut frame = vec![0xAA; r.frame_len()];
+    r.render(seq, t_ms, &mut frame);
+    frame
+}
+
+fn row(target: Target, layers: Vec<Vec<Effect>>) -> Row {
+    let mut row = Row::new(target);
+    row.layers = layers.into_iter().map(|effects| Layer { effects }).collect();
+    row
+}
+
+fn on(color: Rgb, start: u64, end: u64) -> Effect {
+    Effect::new(EffectKind::On, start, end).with_palette([color])
+}
+
+/// Prop A's four pixels (RGB) and prop B's four (RGBW) from a frame.
+fn pixels(frame: &[u8]) -> (Vec<[u8; 3]>, Vec<[u8; 4]>) {
+    let a = frame[..12].chunks(3).map(|p| [p[0], p[1], p[2]]).collect();
+    let b = frame[12..].chunks(4).map(|p| [p[0], p[1], p[2], p[3]]).collect();
+    (a, b)
+}
+
+#[test]
+fn unlit_pixels_and_times_outside_the_sequence_are_black() {
+    let show = show();
+    let mut seq = Sequence::new("s", 1000);
+    seq.rows.push(row(
+        Target::Prop(show.props[0].id),
+        vec![vec![on(Rgb::RED, 0, 1000)]],
+    ));
+    let frame = render(&show, &seq, 500);
+    assert_eq!(frame.len(), 12 + 16);
+    let (a, b) = pixels(&frame);
+    assert_eq!(a, vec![[255, 0, 0]; 4]);
+    assert_eq!(
+        b,
+        vec![[0, 0, 0, 0]; 4],
+        "every pixel is written, even unlit ones"
+    );
+    assert!(
+        render(&show, &seq, 1000).iter().all(|&b| b == 0),
+        "the end is dark"
+    );
+}
+
+#[test]
+fn rgbw_pixels_get_canonical_rgb_with_white_off() {
+    let show = show();
+    let mut seq = Sequence::new("s", 1000);
+    seq.rows.push(row(
+        Target::Prop(show.props[1].id),
+        vec![vec![on(Rgb::new(10, 20, 30), 0, 1000)]],
+    ));
+    let (_, b) = pixels(&render(&show, &seq, 0));
+    assert_eq!(
+        b,
+        vec![[10, 20, 30, 0]; 4],
+        "color order is applied at output, not here"
+    );
+}
+
+#[test]
+fn groups_draw_across_all_members_as_one_canvas() {
+    let show = show();
+    let mut seq = Sequence::new("s", 1000);
+    let ramp = Effect::new(EffectKind::On, 0, 1000)
+        .with_palette([Rgb::BLACK, Rgb::WHITE])
+        .with_params(EffectParams::On(OnParams {
+            gradient: Gradient::Horizontal,
+            ..OnParams::default()
+        }));
+    seq.rows
+        .push(row(Target::Group(show.groups[0].id), vec![vec![ramp]]));
+    let (a, b) = pixels(&render(&show, &seq, 0));
+    // The group spans x from -0.5 to 2.5: A's pixels are at u 0, 1/9, 2/9, 3/9; B's at 6/9..1.
+    let reds: Vec<u8> = a.iter().map(|p| p[0]).chain(b.iter().map(|p| p[0])).collect();
+    assert_eq!(reds, vec![0, 28, 57, 85, 170, 198, 227, 255]);
+
+    // A chase counts pixels across the members in order.
+    let chase = Effect::new(EffectKind::Chase, 0, 1000).with_params(EffectParams::Chase(ChaseParams {
+        width: 0.25,
+        ..ChaseParams::default()
+    }));
+    seq.rows[0].layers[0].effects = vec![chase];
+    let (a, b) = pixels(&render(&show, &seq, 500));
+    assert_eq!(a.iter().map(|p| p[0]).collect::<Vec<_>>(), vec![0, 0, 0, 0]);
+    assert_eq!(b.iter().map(|p| p[0]).collect::<Vec<_>>(), vec![255, 255, 0, 0]);
+}
+
+#[test]
+fn layers_blend_bottom_to_top() {
+    let show = show();
+    let a = Target::Prop(show.props[0].id);
+    let check = |blend: Blend, expected: [u8; 3]| {
+        let mut top = on(Rgb::new(0, 100, 200), 0, 1000);
+        top.blend = blend;
+        let mut seq = Sequence::new("s", 1000);
+        seq.rows
+            .push(row(a, vec![vec![on(Rgb::new(200, 100, 0), 0, 1000)], vec![top]]));
+        let (pixels, _) = pixels(&render(&show, &seq, 0));
+        assert_eq!(pixels[0], expected, "{blend:?}");
+    };
+    check(Blend::Normal, [0, 100, 200]);
+    check(Blend::Add, [200, 200, 200]);
+    check(Blend::Max, [200, 100, 200]);
+    check(Blend::Multiply, [0, 39, 0]);
+
+    // A top layer that lights only some pixels lets the bottom show through elsewhere.
+    let mut seq = Sequence::new("s", 1000);
+    let chase = Effect::new(EffectKind::Chase, 0, 1000)
+        .with_palette([Rgb::BLUE])
+        .with_params(EffectParams::Chase(ChaseParams {
+            width: 0.25,
+            speed: 0.0,
+            ..ChaseParams::default()
+        }));
+    seq.rows
+        .push(row(a, vec![vec![on(Rgb::RED, 0, 1000)], vec![chase]]));
+    let (pixels, _) = pixels(&render(&show, &seq, 0));
+    assert_eq!(pixels, vec![[0, 0, 255], [255, 0, 0], [255, 0, 0], [255, 0, 0]]);
+}
+
+#[test]
+fn fades_scale_the_effect_and_later_rows_cover_earlier_ones() {
+    let show = show();
+    let a = Target::Prop(show.props[0].id);
+    let mut fading = on(Rgb::WHITE, 1000, 2000);
+    fading.fade_in_ms = 400;
+    fading.fade_out_ms = 200;
+    let mut seq = Sequence::new("s", 5000);
+    seq.rows.push(row(a, vec![vec![fading]]));
+    let red_at = |seq: &Sequence, t: u64| pixels(&render(&show, seq, t)).0[0][0];
+    assert_eq!(red_at(&seq, 1000), 0);
+    assert_eq!(red_at(&seq, 1200), 128);
+    assert_eq!(red_at(&seq, 1500), 255);
+    assert_eq!(red_at(&seq, 1900), 128);
+    assert_eq!(red_at(&seq, 2000), 0, "ended");
+
+    // A later row covers an earlier one on the same pixels: the group row draws over prop A's row.
+    let mut seq = Sequence::new("s", 5000);
+    seq.rows.push(row(a, vec![vec![on(Rgb::RED, 0, 5000)]]));
+    let mut half = on(Rgb::BLUE, 0, 5000);
+    half.params = EffectParams::On(OnParams {
+        start_level: 0.5,
+        end_level: 0.5,
+        ..OnParams::default()
+    });
+    seq.rows
+        .push(row(Target::Group(show.groups[0].id), vec![vec![half]]));
+    let (a_pixels, b_pixels) = pixels(&render(&show, &seq, 0));
+    assert_eq!(a_pixels[0], [128, 0, 128], "half-covered red");
+    assert_eq!(b_pixels[0], [0, 0, 128, 0]);
+}
+
+#[test]
+fn broken_effects_and_unknown_targets_are_skipped() {
+    let show = show();
+    let mut seq = Sequence::new("s", 1000);
+    seq.rows.push(row(
+        Target::Prop(pf_model::PropId::new()),
+        vec![vec![on(Rgb::RED, 0, 1000)]],
+    ));
+    seq.rows.push(row(
+        Target::Prop(show.props[0].id),
+        vec![vec![on(Rgb::RED, 600, 400)]],
+    ));
+    seq.rows
+        .push(row(Target::Group(pf_model::GroupId::new()), vec![]));
+    assert!(render(&show, &seq, 500).iter().all(|&b| b == 0));
+}
+
+#[test]
+fn frames_are_reproducible_in_any_order() {
+    let show = show();
+    let mut seq = Sequence::new("s", 10_000);
+    let g = Target::Group(show.groups[0].id);
+    seq.rows.push(row(
+        g,
+        vec![
+            vec![Effect::new(EffectKind::Fire, 0, 10_000)],
+            vec![Effect::new(EffectKind::Twinkle, 0, 10_000).with_palette([Rgb::BLUE])],
+        ],
+    ));
+    let mut r = renderer(&show);
+    let mut forward = Vec::new();
+    let mut frame = vec![0; r.frame_len()];
+    for i in 0..40 {
+        r.render_frame(&seq, i, &mut frame);
+        forward.push(frame.clone());
+    }
+    let mut fresh = renderer(&show);
+    for i in (0..40).rev() {
+        fresh.render_frame(&seq, i, &mut frame);
+        assert_eq!(frame, forward[i as usize], "frame {i}");
+    }
+}
+
+/// A synthetic show of `props` matrices of 50 × 20 pixels (1000 each).
+fn big_show(props: usize) -> Show {
+    let mut show = Show::new("big");
+    let mut group = Group::new("All");
+    for i in 0..props {
+        let mut prop = Prop::new(
+            format!("M{i}"),
+            ShapeSource::Generator(Generator::Matrix {
+                columns: 50,
+                rows: 20,
+                width: 2.0,
+                height: 1.0,
+                wiring: Default::default(),
+            }),
+        );
+        prop.transform.position = Vec3::new((i % 10) as f32 * 2.5, (i / 10) as f32 * 1.5, 0.0);
+        group.members.push(prop.id);
+        show.props.push(prop);
+    }
+    show.groups.push(group);
+    show
+}
+
+/// Run with `cargo test -p pf-render --release -- --ignored --nocapture`.
+#[test]
+#[ignore = "benchmark; run with --release --ignored --nocapture"]
+fn benchmark_100k_pixels() {
+    let show = big_show(100);
+    let map = pf_mapping::map_show(&show).0;
+    let started = Instant::now();
+    let mut r = Renderer::new(&show, &map);
+    println!(
+        "geometry for 100k pixels: {:.1} ms",
+        started.elapsed().as_secs_f64() * 1000.0
+    );
+    let mut frame = vec![0; r.frame_len()];
+    let group = Target::Group(show.groups[0].id);
+    let props: Vec<Target> = show.props.iter().map(|p| Target::Prop(p.id)).collect();
+
+    let cases: Vec<(&str, Sequence)> = vec![
+        ("on (group)", one_effect(group, EffectKind::On)),
+        ("color wash (group)", one_effect(group, EffectKind::ColorWash)),
+        ("chase (group)", one_effect(group, EffectKind::Chase)),
+        ("bars (group)", one_effect(group, EffectKind::Bars)),
+        ("wave (group)", one_effect(group, EffectKind::Wave)),
+        ("twinkle (group)", one_effect(group, EffectKind::Twinkle)),
+        ("spiral (group)", one_effect(group, EffectKind::Spiral)),
+        ("ripple (group)", one_effect(group, EffectKind::Ripple)),
+        ("meteors x5 (group)", one_effect(group, EffectKind::Meteors)),
+        ("fire (group)", one_effect(group, EffectKind::Fire)),
+        ("fire on each of 100 props", {
+            let mut seq = Sequence::new("b", 60_000);
+            for &t in &props {
+                seq.rows
+                    .push(row(t, vec![vec![Effect::new(EffectKind::Fire, 0, 60_000)]]));
+            }
+            seq
+        }),
+        ("on + twinkle (add) + chase, 2 rows", {
+            let mut seq = one_effect(group, EffectKind::On);
+            let mut tw = Effect::new(EffectKind::Twinkle, 0, 60_000);
+            tw.blend = Blend::Add;
+            seq.rows[0].layers.push(Layer { effects: vec![tw] });
+            seq.rows
+                .push(row(group, vec![vec![Effect::new(EffectKind::Chase, 0, 60_000)]]));
+            seq
+        }),
+    ];
+    for (name, seq) in cases {
+        let frames = 200;
+        let started = Instant::now();
+        for i in 0..frames {
+            r.render_frame(&seq, i, &mut frame);
+        }
+        let ms = started.elapsed().as_secs_f64() * 1000.0 / frames as f64;
+        println!(
+            "{name:40} {ms:7.2} ms/frame  ({:.0} fps at 200k pixels)",
+            1000.0 / (ms * 2.0)
+        );
+    }
+}
+
+fn one_effect(target: Target, kind: EffectKind) -> Sequence {
+    let mut seq = Sequence::new("b", 60_000);
+    seq.rows.push(row(
+        target,
+        vec![vec![Effect::new(kind, 0, 60_000).with_palette([
+            Rgb::RED,
+            Rgb::GREEN,
+            Rgb::BLUE,
+        ])]],
+    ));
+    seq
+}

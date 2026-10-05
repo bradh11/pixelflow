@@ -38,6 +38,7 @@ pf-fseq = { path = "crates/pf-fseq" }
 pf-xlights = { path = "crates/pf-xlights" }
 pf-audio = { path = "crates/pf-audio" }
 pf-sequence = { path = "crates/pf-sequence" }
+pf-render = { path = "crates/pf-render" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

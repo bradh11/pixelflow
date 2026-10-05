@@ -5,13 +5,24 @@
 //! credentials (FPP's per-interface network config, `/api/system/status`, config-file
 //! downloads; Falcon Wi-Fi fields) are never read or kept.
 
+mod config;
 mod device;
 mod error;
+pub mod falcon;
 mod fingerprint;
+pub mod fpp;
 pub mod fpp_ping;
 mod http;
+mod identify;
+mod import;
+#[cfg(feature = "test-fixtures")]
+pub mod testing;
+pub mod wled;
 
+pub use config::{Destination, DeviceConfig, DeviceInput, PortConfig, StringConfig};
 pub use device::{Device, DeviceKind, FoundBy};
 pub use error::DeviceError;
 pub use fingerprint::classify_home_page;
 pub use http::{FakeHttp, Http, HttpClient};
+pub use identify::{identify, read_config};
+pub use import::{ImportPlan, plan_import};

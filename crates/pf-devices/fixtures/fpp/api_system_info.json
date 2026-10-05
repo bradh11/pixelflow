@@ -1,0 +1,42 @@
+{
+    "HostName": "FPP",
+    "HostDescription": "",
+    "Platform": "Raspberry Pi",
+    "Variant": "Pi 3 Model B+",
+    "SubPlatform": "Raspberry Pi 3 Model B Plus Rev 1.3",
+    "backgroundColor": "",
+    "Mode": "player",
+    "Logo": "Raspberry_Pi_3B+.png",
+    "Version": "9.3-4-g97360ca2",
+    "Branch": "v9.3",
+    "multisync": false,
+    "OSVersion": "v2025-11",
+    "OSRelease": "Raspbian GNU/Linux 12 (bookworm)",
+    "channelRanges": "0-6147",
+    "majorVersion": 9,
+    "minorVersion": 3,
+    "typeId": 9,
+    "uuid": "M1-0000000012345678",
+    "Utilization": {
+        "CPU": 1.8972425170869656,
+        "Memory": 18.412374654063186,
+        "Uptime": "23 days 11:4",
+        "Disk": {
+            "Media": {
+                "Free": 26424807424,
+                "Total": 30941622272
+            },
+            "Root": {
+                "Free": 26424807424,
+                "Total": 30941622272
+            }
+        }
+    },
+    "Kernel": "6.12.57-v7+",
+    "LocalGitVersion": "97360ca23",
+    "RemoteGitVersion": "9f9176e7c",
+    "UpgradeSource": "github.com",
+    "IPs": [
+        "192.0.2.10"
+    ]
+}

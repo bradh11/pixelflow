@@ -1,0 +1,26 @@
+{
+    "channelOutputs": [
+        {
+            "channelCount": -1,
+            "enabled": 1,
+            "startChannel": 1,
+            "timeout": 1000,
+            "type": "universes",
+            "universes": [
+                {
+                    "active": 1,
+                    "address": "192.0.2.20",
+                    "channelCount": 6147,
+                    "deDuplicate": 1,
+                    "description": "Falcon_F16V5_B9F5",
+                    "id": 1,
+                    "monitor": 1,
+                    "priority": 0,
+                    "startChannel": 1,
+                    "type": 4
+                }
+            ]
+        }
+    ],
+    "status": "OK"
+}

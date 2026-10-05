@@ -1,0 +1,4 @@
+{"hw":{"led":{"total":120,"maxpwr":850,"ins":[
+  {"start":0,"len":60,"pin":[2],"order":0,"rev":false,"skip":1,"type":22},
+  {"start":60,"len":60,"pin":[4],"order":1,"rev":true,"skip":0,"type":30}]}},
+ "if":{"live":{"en":true,"mso":false,"port":5568,"mc":false,"dmx":{"uni":1,"addr":1}}}}

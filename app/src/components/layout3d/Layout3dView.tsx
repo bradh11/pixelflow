@@ -78,30 +78,34 @@ type Drag =
   | { kind: "marquee"; from: Pt; to: Pt; additive: string[] };
 
 /**
- * Renderers by canvas, with how many views use each. A renderer takes its canvas's one WebGL
+ * A canvas's renderer, with how many views use it. A renderer takes its canvas's one WebGL
  * context, so a canvas only ever gets one: React's development check mounts a view twice on the
  * same canvas, and a second renderer would share the context that letting go of the first one
- * loses. A renderer is let go of once no view has used it for a moment.
+ * loses. A renderer is let go of once no view has used it for a moment. It's kept on the canvas
+ * itself, so a hot reload of this file (which keeps the canvas) finds it too.
  */
-const renderers = new WeakMap<HTMLCanvasElement, { scene: Promise<Scene3d>; users: number }>();
+type RendererEntry = { scene: Promise<Scene3d>; users: number };
+const RENDERER = Symbol.for("pixelflow.renderer");
+type WithRenderer = HTMLCanvasElement & { [RENDERER]?: RendererEntry };
 
-function takeRenderer(canvas: HTMLCanvasElement, make: SceneFactory): Promise<Scene3d> {
-  let entry = renderers.get(canvas);
-  if (!entry) {
-    entry = { scene: make(canvas), users: 0 };
-    renderers.set(canvas, entry);
-  }
+/** Takes the canvas's renderer, making it with `make` the first time (the renderer is reused after
+ * that, whatever factory a later view passes). Exported for tests. */
+export function takeRenderer(canvas: HTMLCanvasElement, make: SceneFactory): Promise<Scene3d> {
+  const holder = canvas as WithRenderer;
+  const entry = (holder[RENDERER] ??= { scene: make(canvas), users: 0 });
   entry.users++;
   return entry.scene;
 }
 
-function releaseRenderer(canvas: HTMLCanvasElement) {
-  const entry = renderers.get(canvas);
+/** Lets go of the canvas's renderer once no view has taken it back. Exported for tests. */
+export function releaseRenderer(canvas: HTMLCanvasElement) {
+  const holder = canvas as WithRenderer;
+  const entry = holder[RENDERER];
   if (!entry || --entry.users > 0) return;
-  // Mounted again straight away (the development check): keep it.
+  // Taken again straight away (the development check, or a hot reload): keep it.
   queueMicrotask(() => {
-    if (entry.users > 0 || renderers.get(canvas) !== entry) return;
-    renderers.delete(canvas);
+    if (entry.users > 0 || holder[RENDERER] !== entry) return;
+    delete holder[RENDERER];
     entry.scene.then(
       (scene) => scene.dispose(),
       () => {},

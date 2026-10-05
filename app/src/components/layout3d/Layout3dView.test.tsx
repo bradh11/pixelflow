@@ -1,6 +1,6 @@
 import { act, render, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { emptyShow } from "../../api/memory";
 import { Layout3dView } from "./Layout3dView";
 import type { Scene3d, SceneFactory } from "./scene";
@@ -45,5 +45,27 @@ describe("the 3D view's renderer", () => {
     expect(made[0].disposed, "still in use").toBe(0);
     unmount();
     await waitFor(() => expect(made[0].disposed).toBe(1));
+  });
+
+  it("is kept when the view's code is hot-reloaded while it's shown (development)", async () => {
+    // A hot reload keeps the canvas: the old code lets go of the renderer and the new code takes it
+    // straight away. Two copies of the module stand in for before and after.
+    const canvas = document.createElement("canvas");
+    let [made, disposed] = [0, 0];
+    const factory: SceneFactory = async () => {
+      made++;
+      return { ...stub, dispose: () => void disposed++ };
+    };
+    const before = await import("./Layout3dView");
+    vi.resetModules();
+    const after = await import("./Layout3dView");
+    expect(after).not.toBe(before);
+    await before.takeRenderer(canvas, factory);
+    before.releaseRenderer(canvas);
+    await after.takeRenderer(canvas, factory);
+    await act(async () => {});
+    expect([made, disposed]).toEqual([1, 0]);
+    after.releaseRenderer(canvas);
+    await waitFor(() => expect(disposed).toBe(1));
   });
 });

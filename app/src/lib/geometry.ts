@@ -145,3 +145,14 @@ export function frontView(prop: Prop): number[] {
   }
   return out;
 }
+
+/** A prop's pixels in 3D (x, y, z triples in layout units), in wiring order. */
+export function deepView(prop: Prop): Float32Array {
+  const local = localPositions(prop.shape);
+  const out = new Float32Array(local.length * 3);
+  local.forEach((p, i) => {
+    const w = applyTransform(p, prop.transform);
+    out.set([w.x, w.y, w.z], i * 3);
+  });
+  return out;
+}

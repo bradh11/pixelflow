@@ -529,6 +529,19 @@ impl Engine {
     /// Every prop's pixel positions for the 2D preview (front view: x right, y up), with where
     /// its colors sit in [`Engine::live_frame`].
     pub fn preview_props(&self) -> Vec<PreviewProp> {
+        self.preview_with(|p| [p.x, p.y].into_iter())
+    }
+
+    /// Every prop's pixel positions for the 3D view (x right, y up, z toward the street), as
+    /// x, y, z triples, with where its colors sit in [`Engine::live_frame`].
+    pub fn preview_props_3d(&self) -> Vec<PreviewProp> {
+        self.preview_with(|p| [p.x, p.y, p.z].into_iter())
+    }
+
+    fn preview_with<I: Iterator<Item = f32>>(
+        &self,
+        coords: impl Fn(pf_model::Vec3) -> I,
+    ) -> Vec<PreviewProp> {
         let (map, _) = analyze(&self.show);
         self.show
             .props
@@ -538,7 +551,7 @@ impl Engine {
                 let points = pf_geometry::world_positions(prop)
                     .into_iter()
                     .take(layout.nodes as usize)
-                    .flat_map(|p| [p.x, p.y])
+                    .flat_map(&coords)
                     .collect();
                 Some(PreviewProp {
                     prop: prop.id,

@@ -4,7 +4,7 @@ import type { Gesture, View } from "../lib/layoutMath";
 import type { PropKind } from "../lib/shows";
 
 /** Select and move props, move the view, or draw a new prop of a kind. */
-export type Tool = "select" | "pan" | PropKind;
+export type Tool = "select" | PropKind;
 
 /**
  * A finished gesture on its way to the engine. The canvas keeps drawing it until the engine's

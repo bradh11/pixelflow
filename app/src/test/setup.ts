@@ -5,6 +5,7 @@ import { usePaletteDrag } from "../components/sequencer/EffectPalette";
 import { useLayoutEditor } from "../state/layoutEditor";
 import { useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
+import { useView3d } from "../state/view3d";
 
 // jsdom lacks these browser APIs; the command palette (cmdk) uses them.
 globalThis.ResizeObserver ??= class {
@@ -21,6 +22,7 @@ afterEach(() => {
   localStorage.clear();
   useApp.setState(useApp.getInitialState(), true);
   useLayoutEditor.setState(useLayoutEditor.getInitialState(), true);
+  useView3d.setState(useView3d.getInitialState(), true);
   useSequencer.setState(useSequencer.getInitialState(), true);
   usePaletteDrag.setState(usePaletteDrag.getInitialState(), true);
 });

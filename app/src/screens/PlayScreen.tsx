@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../api/backend";
 import type { PlaybackStatus, PlayerStatus, PreviewProp, SequenceEntry, Waveform } from "../api/types";
 import { ChannelGrid } from "../components/ChannelGrid";
-import { PreviewCanvas } from "../components/PreviewCanvas";
+import { LivePreview } from "../components/layout3d/LivePreview";
 import { SequenceList } from "../components/SequenceList";
 import { WaveformView } from "../components/WaveformView";
 import { Button, EmptyState, PageHeader } from "../components/ui";
@@ -602,7 +602,7 @@ export function PlayScreen() {
 
       {props.length > 0 && (status || known) && (
         <div className="min-h-64 flex-1">
-          <PreviewCanvas props={props} frame={frame} />
+          <LivePreview props={props} frame={frame} />
         </div>
       )}
         </div>

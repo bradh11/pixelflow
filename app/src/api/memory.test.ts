@@ -99,6 +99,45 @@ describe("MemoryBackend", () => {
     expect(second.points).toHaveLength(100);
   });
 
+  it("previews each prop in depth too, as the engine's 3D positions", async () => {
+    const backend = new MemoryBackend();
+    const tree = newProp("tree", backend.show);
+    tree.transform = { ...tree.transform, position: { x: 4, y: 0, z: -2 } };
+    const line = newProp("line", backend.show);
+    await backend.applyEdits([{ type: "addProp", prop: line }, { type: "addProp", prop: tree }]);
+    const flat = await backend.previewProps();
+    const deep = await backend.previewProps3d();
+    expect(deep.revision).toBe(flat.revision);
+    expect(deep.props.map((p) => [p.prop, p.frameOffset, p.channelsPerPixel])).toEqual(
+      flat.props.map((p) => [p.prop, p.frameOffset, p.channelsPerPixel]),
+    );
+    const [, tree3d] = deep.props;
+    const [, tree2d] = flat.props;
+    expect(tree3d.xyz.length).toBe((tree2d.points.length / 2) * 3);
+    for (let i = 0; i * 3 < tree3d.xyz.length; i++) {
+      expect(tree3d.xyz[i * 3]).toBeCloseTo(tree2d.points[i * 2]);
+      expect(tree3d.xyz[i * 3 + 1]).toBeCloseTo(tree2d.points[i * 2 + 1]);
+    }
+    const zs = Array.from(tree3d.xyz).filter((_, i) => i % 3 === 2);
+    expect(Math.max(...zs)).toBeGreaterThan(-2);
+    expect(Math.min(...zs)).toBeLessThan(-2);
+  });
+
+  it("sets, places, and removes the house model like the engine, refusing bad values", async () => {
+    const backend = new MemoryBackend();
+    const model = { path: "/house.glb", position: { x: 0, y: 0, z: -3 }, rotationDeg: { x: 0, y: 90, z: 0 }, scale: 0.5, opacity: 1 };
+    let snap = await backend.applyEdits([{ type: "setHouseModel", houseModel: model }]);
+    expect(snap.show.houseModel).toEqual(model);
+    await expect(backend.applyEdits([{ type: "setHouseModel", houseModel: { ...model, scale: 0 } }])).rejects.toThrow(
+      "The house model's scale must be more than zero.",
+    );
+    snap = await backend.undo();
+    expect(snap.show.houseModel ?? null).toBeNull();
+    backend.models.set("/house.glb", new Uint8Array([1, 2]));
+    expect(await backend.readHouseModel("/house.glb")).toEqual(new Uint8Array([1, 2]));
+    await expect(backend.readHouseModel("/gone.glb")).rejects.toThrow("This model was moved or deleted.");
+  });
+
   it("sets and removes the background photo like the engine, refusing bad values", async () => {
     const backend = new MemoryBackend();
     expect(backend.show.background).toBeNull();

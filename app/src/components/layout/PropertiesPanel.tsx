@@ -21,6 +21,8 @@ import { type Align, tidy } from "../../lib/layoutMath";
 import { nodeCount, shapeLabel } from "../../lib/shows";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { useApp } from "../../state/store";
+import { useView3d } from "../../state/view3d";
+import { HouseModelPanel } from "../layout3d/HouseModelPanel";
 import { Button, Input, Select } from "../ui";
 
 const COLOR_ORDERS: ColorOrder[] = ["RGB", "RBG", "GRB", "GBR", "BRG", "BGR", "RGBW", "GRBW"];
@@ -59,8 +61,11 @@ export function NumberField({
   min = -Infinity,
   integer = false,
   nonZero = false,
+  hint,
 }: {
   label: string;
+  /** More about the field, shown on hover. */
+  hint?: string;
   value: number;
   onCommit: (value: number) => void;
   min?: number;
@@ -80,8 +85,8 @@ export function NumberField({
     if (n !== Number(shown)) onCommit(n);
   };
   return (
-    <label className="flex flex-col gap-1 text-xs">
-      <span className="text-neutral-500 dark:text-neutral-400">{label}</span>
+    <label className="flex flex-col gap-1 text-xs" title={hint}>
+      <span className="truncate text-neutral-500 dark:text-neutral-400">{label}</span>
       <Input
         inputMode="decimal"
         value={draft}
@@ -100,7 +105,7 @@ export function NumberField({
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+export function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="border-t border-neutral-200 py-3 first:border-t-0 first:pt-0 dark:border-neutral-800">
       <h3 className="mb-2 text-xs font-medium tracking-wide text-neutral-500 uppercase">{title}</h3>
@@ -119,14 +124,14 @@ function OnePropPanel({ prop }: { prop: Prop }) {
   // Each change applies to the prop as it is when the edit is sent, so it can't undo a move on its way.
   const update = (change: (p: Prop) => Prop) => void apply(updateEdits(prop.id, change));
   const t = prop.transform;
-  const setTransform = (patch: Partial<{ x: number; y: number; rotation: number; sx: number; sy: number }>) =>
+  const setTransform = (patch: Partial<{ x: number; y: number; z: number; rotation: number; tilt: number; turn: number; sx: number; sy: number }>) =>
     update((p) => {
       const { position, rotationDeg, scale } = p.transform;
       return {
         ...p,
         transform: {
-          position: { ...position, x: patch.x ?? position.x, y: patch.y ?? position.y },
-          rotationDeg: { ...rotationDeg, z: patch.rotation ?? rotationDeg.z },
+          position: { x: patch.x ?? position.x, y: patch.y ?? position.y, z: patch.z ?? position.z },
+          rotationDeg: { x: patch.tilt ?? rotationDeg.x, y: patch.turn ?? rotationDeg.y, z: patch.rotation ?? rotationDeg.z },
           scale: { ...scale, x: patch.sx ?? scale.x, y: patch.sy ?? scale.y },
         },
       };
@@ -195,11 +200,17 @@ function OnePropPanel({ prop }: { prop: Prop }) {
         </label>
       </Section>
       <Section title="Placement">
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <NumberField label="Position X" value={t.position.x} onCommit={(x) => setTransform({ x })} />
           <NumberField label="Position Y" value={t.position.y} onCommit={(y) => setTransform({ y })} />
-          <NumberField label="Rotation (degrees)" value={t.rotationDeg.z} onCommit={(rotation) => setTransform({ rotation })} />
-          <div />
+          <NumberField label="Position Z" hint="Depth: toward the street" value={t.position.z} onCommit={(z) => setTransform({ z })} />
+        </div>
+        <div className="mt-2 grid grid-cols-3 gap-2">
+          <NumberField label="Rotation (degrees)" hint="Turned in the front view (around Z)" value={t.rotationDeg.z} onCommit={(rotation) => setTransform({ rotation })} />
+          <NumberField label="Tilt (X°)" hint="Tipped forward or back (around X)" value={t.rotationDeg.x} onCommit={(tilt) => setTransform({ tilt })} />
+          <NumberField label="Turn (Y°)" hint="Turned to face left or right (around Y)" value={t.rotationDeg.y} onCommit={(turn) => setTransform({ turn })} />
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-2">
           <NumberField label="Scale X" value={t.scale.x} nonZero onCommit={(sx) => setTransform({ sx })} />
           <NumberField label="Scale Y" value={t.scale.y} nonZero onCommit={(sy) => setTransform({ sy })} />
         </div>
@@ -396,6 +407,44 @@ function PhotoPanel({ problem, onRetry, onChoosePhoto }: { problem: string | nul
   );
 }
 
+/** How far behind the props the photo stands in 3D (remembered on this computer). */
+function PhotoDepth() {
+  const depth = useView3d((s) => s.photoDepth);
+  const setDepth = useView3d((s) => s.setPhotoDepth);
+  return (
+    <label className="mt-3 flex flex-col gap-1 text-xs">
+      <span className="text-neutral-500 dark:text-neutral-400">Photo depth in 3D: {tidy(depth)} behind the props</span>
+      <input
+        type="range"
+        min={0}
+        max={20}
+        step={0.05}
+        value={depth}
+        aria-label="Photo depth"
+        onChange={(e) => setDepth(Number(e.target.value))}
+        className="accent-accent-500"
+      />
+    </label>
+  );
+}
+
+const TIPS_2D = [
+  "Pick a tool above and drag on the canvas to draw a prop.",
+  "Click a prop to select it; shift-click or Shift-drag a box to select more.",
+  "Drag corners to resize, the round handle to turn. Hold Shift for free stretching or 15° steps.",
+  "Arrow keys nudge, ⌘D duplicates, Delete removes, ⌘Z undoes.",
+  "Drag empty space or scroll to move around; pinch or hold ⌘ and scroll to zoom.",
+];
+
+const TIPS_3D = [
+  "Drag to orbit, right-drag or Space-drag to pan, scroll or pinch to zoom. Double-click a prop to zoom to it.",
+  "1–5 pick the Front, Top, Left, Right, and Street views; F fits everything in.",
+  "Click a prop to select it; shift-click or Shift-drag a box to select more.",
+  "Drag the arrows to move along one direction, or the squares across a plane. Drag a prop itself to slide it over the ground.",
+  "With a house model, a dragged prop sticks to its walls and roof; hold Alt to drag it freely.",
+  "Set depth and tilt exactly under Placement. V switches back to 2D for drawing.",
+];
+
 /** Details of what's selected, or the photo settings and tips when nothing is. */
 export function PropertiesPanel({
   preview,
@@ -410,6 +459,7 @@ export function PropertiesPanel({
 }) {
   const show = useApp((s) => s.snapshot?.show);
   const selected = useLayoutEditor((s) => s.selected);
+  const in3d = useView3d((s) => s.mode === "3d");
   if (!show) return null;
   const ids = selected.filter((id) => show.props.some((p) => p.id === id));
   return (
@@ -421,13 +471,13 @@ export function PropertiesPanel({
       ) : (
         <div>
           <PhotoPanel problem={photoProblem} onRetry={onRetryPhoto} onChoosePhoto={onChoosePhoto} />
+          {in3d && show.background && <PhotoDepth />}
+          {in3d && <HouseModelPanel preview={preview} />}
           <Section title="Tips">
             <ul className="list-disc space-y-1 pl-4 text-sm text-neutral-600 dark:text-neutral-400">
-              <li>Pick a tool above and drag on the canvas to draw a prop.</li>
-              <li>Click a prop to select it; shift-click or drag a box to select more.</li>
-              <li>Drag corners to resize, the round handle to turn. Hold Shift for free stretching or 15° steps.</li>
-              <li>Arrow keys nudge, ⌘D duplicates, Delete removes, ⌘Z undoes.</li>
-              <li>Scroll or Space-drag to move around; pinch or hold ⌘ and scroll to zoom.</li>
+              {(in3d ? TIPS_3D : TIPS_2D).map((tip) => (
+                <li key={tip}>{tip}</li>
+              ))}
             </ul>
           </Section>
         </div>

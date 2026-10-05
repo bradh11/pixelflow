@@ -1,6 +1,6 @@
 //! The top-level show document.
 
-use crate::{Controller, ControllerId, Group, Prop, PropId, SequenceId};
+use crate::{Controller, ControllerId, Group, Prop, PropId, SequenceId, Vec3};
 use serde::{Deserialize, Serialize};
 
 /// Schema version written by this build.
@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 ///
 /// History: 1 = initial format; 2 = adds the `falcon` controller adapter; 3 = adds a
 /// controller's `sequenceChannels`; 4 = adds the show's `sequences`; 5 = adds the show's
-/// `background` photo.
-pub const CURRENT_SCHEMA_VERSION: u32 = 5;
+/// `background` photo; 6 = adds the show's `houseModel`.
+pub const CURRENT_SCHEMA_VERSION: u32 = 6;
 
 /// Show-wide settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,6 +55,9 @@ pub struct Show {
     /// A photo of the house drawn behind the layout, if the user chose one.
     #[serde(default)]
     pub background: Option<Background>,
+    /// A 3D model of the house shown in the 3D view, if the user chose one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub house_model: Option<HouseModel>,
 }
 
 /// A photo drawn behind the layout so props can be placed over the real house.
@@ -110,6 +113,60 @@ impl Background {
     }
 }
 
+/// A 3D model of the house (glTF/GLB or OBJ file) for the 3D view, placed in layout units.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HouseModel {
+    /// The model file.
+    pub path: String,
+    #[serde(default)]
+    pub position: Vec3,
+    /// Rotation about X, Y, Z in degrees.
+    #[serde(default)]
+    pub rotation_deg: Vec3,
+    /// One factor for all three axes (a model's units rarely match the layout's).
+    #[serde(default = "default_scale")]
+    pub scale: f32,
+    /// How solid the model looks, from 0 (hidden) to 1 (solid).
+    #[serde(default = "default_opacity")]
+    pub opacity: f32,
+}
+
+fn default_scale() -> f32 {
+    1.0
+}
+
+impl HouseModel {
+    /// The model at `path`, where its file puts it, solid.
+    pub fn new(path: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            position: Vec3::default(),
+            rotation_deg: Vec3::default(),
+            scale: 1.0,
+            opacity: 1.0,
+        }
+    }
+
+    /// Why this model can't be used, in plain language, or `None` when it's fine.
+    pub fn problem(&self) -> Option<String> {
+        let finite = |v: Vec3| v.x.is_finite() && v.y.is_finite() && v.z.is_finite();
+        if self.path.trim().is_empty() {
+            return Some("Choose a model file for the house.".into());
+        }
+        if !finite(self.position) || !finite(self.rotation_deg) {
+            return Some("The house model's position and rotation must be numbers.".into());
+        }
+        if !(self.scale.is_finite() && self.scale > 0.0) {
+            return Some("The house model's scale must be more than zero.".into());
+        }
+        if !(0.0..=1.0).contains(&self.opacity) {
+            return Some("The house model's strength must be between 0% and 100%.".into());
+        }
+        None
+    }
+}
+
 /// A rendered sequence (`.fseq`) in the show, with its music.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -150,6 +207,7 @@ impl Show {
             controllers: Vec::new(),
             sequences: Vec::new(),
             background: None,
+            house_model: None,
         }
     }
 
@@ -189,6 +247,46 @@ mod tests {
         show.props.push(prop);
         assert_eq!(show.prop(id).unwrap().name, "Line");
         assert!(show.prop(PropId::new()).is_none());
+    }
+
+    #[test]
+    fn house_model_problems_are_explained() {
+        let ok = HouseModel::new("/models/house.glb");
+        assert_eq!(ok.problem(), None);
+        let cases = [
+            (
+                HouseModel {
+                    path: "".into(),
+                    ..ok.clone()
+                },
+                "Choose a model",
+            ),
+            (
+                HouseModel {
+                    position: Vec3::new(f32::NAN, 0.0, 0.0),
+                    ..ok.clone()
+                },
+                "must be numbers",
+            ),
+            (
+                HouseModel {
+                    scale: 0.0,
+                    ..ok.clone()
+                },
+                "more than zero",
+            ),
+            (
+                HouseModel {
+                    opacity: -0.1,
+                    ..ok.clone()
+                },
+                "between 0% and 100%",
+            ),
+        ];
+        for (model, expected) in cases {
+            let problem = model.problem().expect("a problem");
+            assert!(problem.contains(expected), "{problem}");
+        }
     }
 
     #[test]

@@ -2,7 +2,7 @@
 // src-tauri/src/layout.rs). A big show's positions as JSON would be megabytes of text to parse
 // after every edit; these are read in place.
 
-import type { PreviewProp, PreviewSet } from "./types";
+import type { PreviewProp, PreviewProp3d, PreviewSet, PreviewSet3d } from "./types";
 
 const HEADER = 16;
 const ENTRY = 48;
@@ -21,20 +21,32 @@ function ownBuffer(data: ArrayBuffer | ArrayBufferView | number[]): ArrayBuffer 
   return null;
 }
 
-/** The props' pixel positions from `bytes`, which the shell packed little-endian. */
-export function decodePreview(bytes: ArrayBuffer | ArrayBufferView | number[]): PreviewSet {
+interface Entry {
+  prop: string;
+  frameOffset: number;
+  channelsPerPixel: number;
+}
+
+type Bytes = ArrayBuffer | ArrayBufferView | number[];
+
+/**
+ * Each prop's entry and coordinates from `bytes` in `format` (1: x, y pairs; 2: x, y, z triples),
+ * which the shell packed little-endian.
+ */
+function decode(bytes: Bytes, format: 1 | 2): { revision: number; entries: (Entry & { coords: Float32Array })[] } {
   const damaged = () => new Error("The props' positions came back damaged. Try again.");
+  const per = format === 1 ? 2 : 3;
   const data = ownBuffer(bytes);
   if (!data || data.byteLength < HEADER) throw damaged();
   const view = new DataView(data);
-  if (view.getUint32(0, true) !== 1) throw damaged();
+  if (view.getUint32(0, true) !== format) throw damaged();
   const count = view.getUint32(4, true);
   const revision = view.getFloat64(8, true);
   const floatsAt = HEADER + ENTRY * count;
   if (data.byteLength < floatsAt) throw damaged();
 
   const ascii = new TextDecoder("ascii");
-  const entries: { prop: string; frameOffset: number; channelsPerPixel: number; pixels: number }[] = [];
+  const entries: (Entry & { pixels: number })[] = [];
   let pixels = 0;
   for (let i = 0; i < count; i++) {
     const at = HEADER + ENTRY * i;
@@ -47,21 +59,37 @@ export function decodePreview(bytes: ArrayBuffer | ArrayBufferView | number[]): 
     entries.push(entry);
     pixels += entry.pixels;
   }
-  if (data.byteLength !== floatsAt + pixels * 8) throw damaged();
+  if (data.byteLength !== floatsAt + pixels * per * 4) throw damaged();
 
   // Read in place on little-endian machines (all of them, in practice); copied otherwise.
   let floats: Float32Array;
   if (littleEndian) {
-    floats = new Float32Array(data, floatsAt, pixels * 2);
+    floats = new Float32Array(data, floatsAt, pixels * per);
   } else {
-    floats = new Float32Array(pixels * 2);
+    floats = new Float32Array(pixels * per);
     for (let i = 0; i < floats.length; i++) floats[i] = view.getFloat32(floatsAt + i * 4, true);
   }
-  const props: PreviewProp[] = [];
   let next = 0;
-  for (const { pixels: n, ...entry } of entries) {
-    props.push({ ...entry, points: floats.subarray(next, next + n * 2) });
-    next += n * 2;
-  }
+  return {
+    revision,
+    entries: entries.map(({ pixels: n, ...entry }) => {
+      const coords = floats.subarray(next, next + n * per);
+      next += n * per;
+      return { ...entry, coords };
+    }),
+  };
+}
+
+/** The props' pixel positions (front view) from `bytes`, which the shell packed little-endian. */
+export function decodePreview(bytes: Bytes): PreviewSet {
+  const { revision, entries } = decode(bytes, 1);
+  const props: PreviewProp[] = entries.map(({ coords, ...entry }) => ({ ...entry, points: coords }));
+  return { revision, props };
+}
+
+/** The props' pixel positions in depth (x, y, z) from `bytes`, which the shell packed little-endian. */
+export function decodePreview3d(bytes: Bytes): PreviewSet3d {
+  const { revision, entries } = decode(bytes, 2);
+  const props: PreviewProp3d[] = entries.map(({ coords, ...entry }) => ({ ...entry, xyz: coords }));
   return { revision, props };
 }

@@ -65,11 +65,39 @@ describe("which pixels a region lights", () => {
   it("takes a rectangle's pixels by where they are on the prop", () => {
     // A 3 × 2 grid of pixels, 0–2 along the bottom row.
     const points = [0, 0, 1, 0, 2, 0, 0, 1, 1, 1, 2, 1];
+    // 50% of 3 columns is 1.5, which rounds to column 2 for a start edge.
     const right: Region = { id: "r", name: "Right", kind: "subBuffer", x1: 50, y1: 0, x2: 100, y2: 100 };
-    expect(regionNodes(right, 6, points)).toEqual([1, 2, 4, 5]);
+    expect(regionNodes(right, 6, points)).toEqual([2, 5]);
     const top: Region = { ...right, x1: 0, y1: 60 };
     expect(regionNodes(top, 6, points)).toEqual([3, 4, 5]);
     expect(regionNodes(top, 6), "no positions yet").toEqual([]);
+  });
+
+  // Worked through xLights' SubModel::initSubbufferRange and Model::IsNodeInBufferRange: an
+  // edge's percent scales to the prop's buffer cells, the start rounds, the end truncates, and
+  // both ends are in. Same cases as pf-render's geometry tests.
+  it.each([
+    [10, 0, 50, [0, 5]],
+    [10, 50, 100, [5, 9]],
+    [10, 0, 33, [0, 3]],
+    [10, 33, 66, [3, 6]],
+    [10, 66, 100, [7, 9]],
+    [7, 0, 50, [0, 3]],
+    [7, 50, 100, [4, 6]],
+    [7, 0, 33, [0, 2]],
+    [7, 33, 66, [2, 4]],
+    [7, 66, 100, [5, 6]],
+    [10, 50, 0, [0, 5]],
+  ])("a %i-wide grid, %i to %i percent across, takes columns %j", (width, x1, x2, [lo, hi]) => {
+    // A width × 5 grid, wired row by row from the bottom left, spaced so its cells are square.
+    const rows = 5;
+    const points: number[] = [];
+    for (let r = 0; r < rows; r++) for (let c = 0; c < width; c++) points.push((c * width) / (width - 1), (r * rows) / (rows - 1));
+    const region: Region = { id: "w", name: "Window", kind: "subBuffer", x1, y1: 0, x2, y2: 50 };
+    const expected: number[] = [];
+    // Rows 0 to trunc(2.5) = 2.
+    for (let r = 0; r <= 2; r++) for (let c = lo; c <= hi; c++) expected.push(r * width + c);
+    expect(regionNodes(region, width * rows, points)).toEqual(expected);
   });
 
   it("lists every part of a face", () => {

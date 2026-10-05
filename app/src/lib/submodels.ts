@@ -91,14 +91,20 @@ export function regionNodes(region: Region, count: number, points?: ArrayLike<nu
   if (region.kind === "face") return faceNodes(region, count);
   if (region.kind === "subBuffer") {
     if (!points) return [];
+    // As pf-render does: each pixel sits in the nearest cell of the prop's rough buffer grid,
+    // and is in when that cell is in the rectangle's span on both axes (see `cellSpan`).
     const box = bounds(points, count);
+    const extent = Math.max(box.w, box.h);
+    const flat = (size: number) => size <= extent * 1e-6 || size <= 1e-38;
+    const [cols, rows] = resolution(count, box.w, box.h, flat(box.w), flat(box.h));
+    const [left, right] = cellSpan(region.x1, region.x2, cols);
+    const [bottom, top] = cellSpan(region.y1, region.y2, rows);
     const out: number[] = [];
     for (let n = 0; n < count && 2 * n + 1 < points.length; n++) {
-      const u = box.w > 1e-9 ? (points[2 * n] - box.minX) / box.w : 0.5;
-      const v = box.h > 1e-9 ? (points[2 * n + 1] - box.minY) / box.h : 0.5;
-      const [lo, hi] = [Math.min(region.x1, region.x2) - 1e-3, Math.max(region.x1, region.x2) + 1e-3];
-      const [bottom, top] = [Math.min(region.y1, region.y2) - 1e-3, Math.max(region.y1, region.y2) + 1e-3];
-      if (u * 100 >= lo && u * 100 <= hi && v * 100 >= bottom && v * 100 <= top) out.push(n);
+      const u = flat(box.w) ? 0.5 : (points[2 * n] - box.minX) / box.w;
+      const v = flat(box.h) ? 0.5 : (points[2 * n + 1] - box.minY) / box.h;
+      const [col, row] = [Math.round(u * (cols - 1)), Math.round(v * (rows - 1))];
+      if (col >= left && col <= right && row >= bottom && row <= top) out.push(n);
     }
     return out;
   }
@@ -116,6 +122,26 @@ export function regionNodes(region: Region, count: number, points?: ArrayLike<nu
     }
   }
   return out;
+}
+
+/**
+ * A sub-buffer's edge pair as a span of buffer cells, as xLights' `SubModel::initSubbufferRange`
+ * computes it (in single precision, like xLights): each percent scales to `cells`, the start edge
+ * rounds, the end edge truncates, and both ends are in.
+ */
+function cellSpan(a: number, b: number, cells: number): [number, number] {
+  const scale = (pct: number) => Math.fround(Math.fround(Math.fround(pct) * cells) / 100);
+  return [Math.round(scale(Math.min(a, b))), Math.trunc(scale(Math.max(a, b)))];
+}
+
+/** Rough columns × rows for `count` pixels over a `w` × `h` box (pf-render's `resolution`). */
+function resolution(count: number, w: number, h: number, flatX: boolean, flatY: boolean): [number, number] {
+  const n = Math.max(count, 1);
+  if (flatX && flatY) return [1, 1];
+  if (flatX) return [1, n];
+  if (flatY) return [n, 1];
+  const columns = Math.min(Math.max(Math.round(Math.sqrt((n * w) / h)), 1), n);
+  return [columns, Math.max(Math.round(n / columns), 1)];
 }
 
 function bounds(points: ArrayLike<number>, count: number) {

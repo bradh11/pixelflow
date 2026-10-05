@@ -248,25 +248,61 @@ fn finite(v: f32) -> f32 {
 /// pixels inside its rectangle, in wiring order.
 fn region_nodes(prop: &PropGeometry, region: &Region) -> Vec<u32> {
     match region.kind {
-        RegionKind::SubBuffer { x1, y1, x2, y2 } => {
-            let whole = build_buffer(&(0..prop.node_count()).map(|n| prop.point(n)).collect::<Vec<_>>());
-            whole
-                .pixels
-                .iter()
-                .enumerate()
-                .filter(|(_, px)| in_rect(px, x1, y1, x2, y2))
-                .map(|(n, _)| n as u32)
-                .collect()
-        }
+        RegionKind::SubBuffer { x1, y1, x2, y2 } => sub_buffer_cells(prop, [x1, y1, x2, y2])
+            .1
+            .into_iter()
+            .map(|c| c.node)
+            .collect(),
         _ => region.node_list(prop.node_count()),
     }
 }
 
-/// True when a pixel of the prop's buffer lies in a sub-buffer rectangle (percentages).
-fn in_rect(px: &Pixel, x1: f32, y1: f32, x2: f32, y2: f32) -> bool {
-    const EPS: f32 = 1e-3;
-    let (u, v) = (px.u * 100.0, px.v * 100.0);
-    u >= x1.min(x2) - EPS && u <= x1.max(x2) + EPS && v >= y1.min(y2) - EPS && v <= y1.max(y2) + EPS
+/// A sub-buffer edge pair as a span of buffer cells, the way xLights'
+/// `SubModel::initSubbufferRange` computes it: each percent scales to `cells` (the parent
+/// buffer's width or height), the start edge rounds, and the end edge truncates (it is passed
+/// to `Model::IsNodeInBufferRange` as an int). Both ends are inside.
+fn cell_span(a: f32, b: f32, cells: u32) -> (i64, i64) {
+    let (lo, hi) = (a.min(b), a.max(b));
+    // xLights: `x *= (float)W; x /= 100.0;` (the division in double, stored back as float).
+    let scale = |pct: f32| (f64::from(pct * cells as f32) / 100.0) as f32;
+    (scale(lo).round() as i64, scale(hi).trunc() as i64)
+}
+
+/// One of the prop's pixels in a sub-buffer: its node, its cell on the prop's buffer grid, and
+/// its show-wide index.
+#[derive(Debug, Clone, Copy)]
+struct Cell {
+    node: u32,
+    col: i64,
+    row: i64,
+    global: u32,
+}
+
+/// The prop's pixels inside a sub-buffer rectangle (percent edges `[x1, y1, x2, y2]`), in
+/// wiring order. Each pixel sits in the cell of the prop's buffer grid nearest its (u, v), and
+/// is in when that cell is in the rectangle's span on both axes (`Model::IsNodeInBufferRange`).
+/// Also returns the prop's whole buffer.
+fn sub_buffer_cells(prop: &PropGeometry, edges: [f32; 4]) -> (PixelBuffer, Vec<Cell>) {
+    let whole = build_buffer(&(0..prop.node_count()).map(|n| prop.point(n)).collect::<Vec<_>>());
+    let [x1, y1, x2, y2] = edges;
+    let (cols, rows) = (whole.columns.max(1), whole.rows.max(1));
+    let (lo_x, hi_x) = cell_span(x1, x2, cols);
+    let (lo_y, hi_y) = cell_span(y1, y2, rows);
+    let cell = |at: f32, cells: u32| (at * (cells - 1) as f32).round() as i64;
+    let inside = whole
+        .pixels
+        .iter()
+        .zip(&whole.global)
+        .enumerate()
+        .map(|(n, (px, &global))| Cell {
+            node: n as u32,
+            col: cell(px.u, cols),
+            row: cell(px.v, rows),
+            global,
+        })
+        .filter(|c| (lo_x..=hi_x).contains(&c.col) && (lo_y..=hi_y).contains(&c.row))
+        .collect();
+    (whole, inside)
 }
 
 /// A submodel's (or face's) pixel buffer.
@@ -280,37 +316,40 @@ fn region_buffer(prop: &PropGeometry, region: &Region) -> PixelBuffer {
             grid_buffer(prop, lines, *layout, *buffer == BufferStyle::StackedStrands)
         }
         RegionKind::SubBuffer { x1, y1, x2, y2 } => {
-            let whole = build_buffer(&(0..prop.node_count()).map(|n| prop.point(n)).collect::<Vec<_>>());
-            let (lo_x, hi_x) = (x1.min(*x2), x1.max(*x2));
-            let (lo_y, hi_y) = (y1.min(*y2), y1.max(*y2));
-            let stretch = |value: f32, lo: f32, hi: f32| {
-                if hi - lo <= f32::EPSILON {
+            // As xLights does: the cells taken, shifted to start at 0, make a buffer just big
+            // enough to hold them.
+            let (_, cells) = sub_buffer_cells(prop, [*x1, *y1, *x2, *y2]);
+            if cells.is_empty() {
+                return PixelBuffer::empty();
+            }
+            let (min_c, max_c) = cells
+                .iter()
+                .fold((i64::MAX, i64::MIN), |(lo, hi), c| (lo.min(c.col), hi.max(c.col)));
+            let (min_r, max_r) = cells
+                .iter()
+                .fold((i64::MAX, i64::MIN), |(lo, hi), c| (lo.min(c.row), hi.max(c.row)));
+            let stretch = |at: i64, lo: i64, hi: i64| {
+                if hi <= lo {
                     0.5
                 } else {
-                    ((value * 100.0 - lo) / (hi - lo)).clamp(0.0, 1.0)
+                    (at - lo) as f32 / (hi - lo) as f32
                 }
             };
-            let mut pixels = Vec::new();
-            let mut global = Vec::new();
-            for (px, &g) in whole.pixels.iter().zip(&whole.global) {
-                if in_rect(px, *x1, *y1, *x2, *y2) {
-                    pixels.push(Pixel {
-                        u: stretch(px.u, lo_x, hi_x),
-                        v: stretch(px.v, lo_y, hi_y),
-                        index: pixels.len() as u32,
-                        count: 0,
-                    });
-                    global.push(g);
-                }
-            }
-            let count = pixels.len() as u32;
-            pixels.iter_mut().for_each(|p| p.count = count);
-            let share = |n: u32, part: f32| ((n as f32 * part / 100.0).round() as u32).clamp(1, count.max(1));
+            let count = u32::try_from(cells.len()).unwrap_or(u32::MAX);
             PixelBuffer {
-                columns: share(whole.columns, hi_x - lo_x),
-                rows: share(whole.rows, hi_y - lo_y),
-                pixels,
-                global,
+                pixels: cells
+                    .iter()
+                    .enumerate()
+                    .map(|(i, c)| Pixel {
+                        u: stretch(c.col, min_c, max_c),
+                        v: stretch(c.row, min_r, max_r),
+                        index: i as u32,
+                        count,
+                    })
+                    .collect(),
+                global: cells.iter().map(|c| c.global).collect(),
+                columns: u32::try_from(max_c - min_c + 1).unwrap_or(1),
+                rows: u32::try_from(max_r - min_r + 1).unwrap_or(1),
             }
         }
         // Keep XY and faces: the pixels where they are on the prop.
@@ -738,35 +777,139 @@ mod tests {
         assert_eq!(geo.buffer(target).global, vec![4, 5, 6]);
     }
 
-    #[test]
-    fn sub_buffers_crop_the_prop_and_stretch_back_to_fill() {
+    /// A `columns` × `rows` matrix whose rough buffer grid is exactly its cells.
+    fn grid_with(
+        columns: u32,
+        rows: u32,
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+    ) -> (SceneGeometry, PropId, Target) {
         let mut show = Show::new("t");
-        let mut grid = matrix(5, 5);
+        let mut grid = Prop::new(
+            "Grid",
+            ShapeSource::Generator(Generator::Matrix {
+                columns,
+                rows,
+                width: columns as f32,
+                height: rows as f32,
+                wiring: Default::default(),
+            }),
+        );
         let window = Region {
-            kind: RegionKind::SubBuffer {
-                x1: 50.0,
-                y1: 0.0,
-                x2: 100.0,
-                y2: 50.0,
-            },
+            kind: RegionKind::SubBuffer { x1, y1, x2, y2 },
             ..Region::nodes("Window", vec![])
         };
         let target = Target::Region {
             prop: grid.id,
             region: window.id,
         };
+        let id = grid.id;
         grid.regions.push(window);
         show.props.push(grid);
-        let buffer = geometry(&show).buffer(target);
-        // The lower-right 3×3 of a 5×5 grid (the middle row and column are on the edges).
-        assert_eq!(buffer.len(), 9);
-        // Half of the prop's rough 7 × 4 (a 5 × 5 grid twice as wide as it is tall).
-        assert_eq!((buffer.columns, buffer.rows), (4, 2));
+        (geometry(&show), id, target)
+    }
+
+    /// The (column, row) cells a sub-buffer takes, read off the whole prop's buffer.
+    fn cells(geo: &SceneGeometry, prop: PropId, target: Target) -> Vec<(u32, u32)> {
+        let whole = geo.buffer(Target::Prop(prop));
+        let at: HashMap<u32, (u32, u32)> = whole
+            .global
+            .iter()
+            .zip(&whole.pixels)
+            .map(|(g, p)| {
+                let col = (p.u * (whole.columns - 1) as f32).round() as u32;
+                let row = (p.v * (whole.rows - 1) as f32).round() as u32;
+                (*g, (col, row))
+            })
+            .collect();
+        let mut out: Vec<(u32, u32)> = geo.buffer(target).global.iter().map(|g| at[g]).collect();
+        out.sort();
+        out
+    }
+
+    #[test]
+    fn sub_buffers_crop_the_prop_and_stretch_back_to_fill() {
+        // The lower right of a 5 × 5 grid: columns round(2.5)=3 to 5, rows 0 to trunc(2.5)=2.
+        let (geo, prop, target) = grid_with(5, 5, 50.0, 0.0, 100.0, 50.0);
+        let buffer = geo.buffer(target);
+        assert_eq!(buffer.len(), 6);
+        assert_eq!((buffer.columns, buffer.rows), (2, 3));
+        assert_eq!(
+            cells(&geo, prop, target),
+            vec![(3, 0), (3, 1), (3, 2), (4, 0), (4, 1), (4, 2)]
+        );
         let mut us: Vec<f32> = buffer.pixels.iter().map(|p| p.u).collect();
         us.sort_by(f32::total_cmp);
         us.dedup();
-        assert_eq!(us, vec![0.0, 0.5, 1.0]);
+        assert_eq!(us, vec![0.0, 1.0]);
         assert!(buffer.pixels.iter().all(|p| (0.0..=1.0).contains(&p.v)));
+        // A thin rectangle still takes the cell its start edge rounds to.
+        let (geo, _, target) = grid_with(5, 5, 0.0, 0.0, 10.0, 10.0);
+        assert_eq!(geo.buffer(target).len(), 1, "the corner cell (0, 0)");
+    }
+
+    #[test]
+    fn sub_buffer_edges_follow_xlights() {
+        let cases: &[(u32, f32, f32, (u32, u32))] = &[
+            // 10 wide: halves share column 5; thirds give 0-3, 3-6, 7-9.
+            (10, 0.0, 50.0, (0, 5)),
+            (10, 50.0, 100.0, (5, 9)),
+            (10, 0.0, 33.0, (0, 3)),
+            (10, 33.0, 66.0, (3, 6)),
+            (10, 66.0, 100.0, (7, 9)),
+            // 7 wide: 3.5 rounds up to 4 for a start, truncates to 3 for an end.
+            (7, 0.0, 50.0, (0, 3)),
+            (7, 50.0, 100.0, (4, 6)),
+            (7, 0.0, 33.0, (0, 2)),
+            (7, 33.0, 66.0, (2, 4)),
+            (7, 66.0, 100.0, (5, 6)),
+            // Reversed edges are swapped first.
+            (10, 50.0, 0.0, (0, 5)),
+        ];
+        for &(width, x1, x2, (lo, hi)) in cases {
+            // Rows: 5 tall, bottom half 0-50% gives rows 0-2 (2.5 truncates to 2).
+            let (geo, prop, target) = grid_with(width, 5, x1, 0.0, x2, 50.0);
+            let expected: Vec<(u32, u32)> = (lo..=hi).flat_map(|c| (0..=2).map(move |r| (c, r))).collect();
+            assert_eq!(cells(&geo, prop, target), expected, "{width} wide, {x1}-{x2}%");
+            let buffer = geo.buffer(target);
+            assert_eq!(
+                (buffer.columns, buffer.rows),
+                (hi - lo + 1, 3),
+                "{width} wide, {x1}-{x2}%: sized to the cells it takes"
+            );
+        }
+        // The top half of 5 rows: 2.5 rounds up to 3 for the start.
+        let (geo, prop, target) = grid_with(4, 5, 0.0, 50.0, 100.0, 100.0);
+        let rows: HashSet<u32> = cells(&geo, prop, target).into_iter().map(|(_, r)| r).collect();
+        assert_eq!(rows, HashSet::from([3, 4]));
+    }
+
+    #[test]
+    fn a_sub_buffer_stretches_its_cells_to_fill() {
+        // Columns 0-5 of 10, rows 0-2 of 5: u steps by 1/5, v by 1/2.
+        let (geo, _, target) = grid_with(10, 5, 0.0, 0.0, 50.0, 50.0);
+        let buffer = geo.buffer(target);
+        let mut us: Vec<f32> = buffer.pixels.iter().map(|p| p.u).collect();
+        us.sort_by(f32::total_cmp);
+        us.dedup_by(|a, b| (*a - *b).abs() < 1e-6);
+        let expected: Vec<f32> = (0..=5).map(|c| c as f32 / 5.0).collect();
+        assert!(
+            us.iter().zip(&expected).all(|(a, b)| (a - b).abs() < 1e-6) && us.len() == 6,
+            "{us:?}"
+        );
+        let mut vs: Vec<f32> = buffer.pixels.iter().map(|p| p.v).collect();
+        vs.sort_by(f32::total_cmp);
+        vs.dedup_by(|a, b| (*a - *b).abs() < 1e-6);
+        assert_eq!(vs, vec![0.0, 0.5, 1.0]);
+        assert!(
+            buffer
+                .pixels
+                .iter()
+                .enumerate()
+                .all(|(i, p)| p.index == i as u32 && p.count == 18)
+        );
     }
 
     #[test]

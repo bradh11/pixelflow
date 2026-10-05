@@ -761,7 +761,7 @@ impl Engine {
     }
 
     /// Adds timing tracks (from a file, say) after the others, as one undo step. Nothing is
-    /// replaced: a track named like one already there gets a number ("Lyrics (2)").
+    /// replaced: a track named like one already there gets a number ("Lyrics 2", "Lyrics 2 (words)").
     pub fn add_timing_tracks(
         &mut self,
         tracks: Vec<pf_sequence::TimingTrack>,
@@ -769,17 +769,35 @@ impl Engine {
         let open = self.sequence.as_ref().ok_or(EngineError::NoSequence)?;
         let mut taken: std::collections::HashSet<String> =
             open.doc.timing_tracks.iter().map(|t| t.name.clone()).collect();
+        // A lyrics timing comes as "Name", "Name (words)" and "Name (phonemes)"; a taken name
+        // gets its number on the shared part ("Name 2 (words)"), so the layers stay paired.
+        const LAYERS: [&str; 3] = ["", " (words)", " (phonemes)"];
+        let mut renamed: std::collections::HashMap<String, String> = Default::default();
         let edits = tracks
             .into_iter()
             .map(|mut track| {
-                if taken.contains(&track.name) {
-                    let base = track.name.clone();
+                let suffix = LAYERS[1..]
+                    .iter()
+                    .copied()
+                    .find(|s| track.name.ends_with(s) && track.name.len() > s.len())
+                    .unwrap_or("");
+                let base = track.name[..track.name.len() - suffix.len()].to_string();
+                let reuse = renamed
+                    .get(&base)
+                    .filter(|b| !taken.contains(&format!("{b}{suffix}")))
+                    .cloned();
+                let new_base = reuse.unwrap_or_else(|| {
+                    let free = |b: &str| LAYERS.iter().all(|l| !taken.contains(&format!("{b}{l}")));
+                    let mut name = base.clone();
                     let mut n = 2;
-                    while taken.contains(&format!("{base} ({n})")) {
+                    while !free(&name) {
+                        name = format!("{base} {n}");
                         n += 1;
                     }
-                    track.name = format!("{base} ({n})");
-                }
+                    renamed.insert(base.clone(), name.clone());
+                    name
+                });
+                track.name = format!("{new_base}{suffix}");
                 taken.insert(track.name.clone());
                 SequenceEdit::AddTimingTrack { track }
             })

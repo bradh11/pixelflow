@@ -49,25 +49,60 @@ export function insertIndex(marks: Mark[], startMs: number): number {
   return lo;
 }
 
-/** The first mark (by index) overlapping `mark`, skipping the marks at `skip`; -1 when none. */
+/** The first mark (by index) overlapping `mark`, skipping the marks at `skip`; -1 when none. The
+ * marks are in order without overlaps, so only the ones around `mark`'s time are looked at. */
 export function overlapWith(marks: Mark[], mark: { startMs: number; endMs: number }, skip: number[] = []): number {
-  return marks.findIndex((m, i) => !skip.includes(i) && marksOverlap(m, mark));
+  let lo = 0;
+  let hi = marks.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (marks[mid].endMs <= mark.startMs) lo = mid + 1;
+    else hi = mid;
+  }
+  for (let i = lo; i < marks.length && marks[i].startMs < mark.endMs; i++) {
+    if (!skip.includes(i) && marksOverlap(marks[i], mark)) return i;
+  }
+  return -1;
 }
 
 export function overlapMessage(track: TimingTrack, other: Mark): string {
   return `That would overlap the mark at ${formatMs(other.startMs)} on '${track.name}'; marks on a timing track can't overlap.`;
 }
 
-/** Adds `marks` to `track` in place, each where it belongs; nothing changes when one is refused. */
+/** Adds `marks` to `track` in place, each where it belongs; nothing changes when one is refused
+ * (the message names the earliest mark it runs into). Sorted once and merged in, so a large batch
+ * stays quick. */
 export function addMarks(track: TimingTrack, marks: Mark[]) {
-  const next = [...track.marks];
-  for (const mark of marks) {
-    checkMark(mark);
-    const at = overlapWith(next, mark);
-    if (at >= 0) fail(overlapMessage(track, next[at]));
-    next.splice(insertIndex(next, mark.startMs), 0, { ...mark });
+  for (const mark of marks) checkMark(mark);
+  const added = [...marks].sort((a, b) => a.startMs - b.startMs);
+  let previous: Mark | null = null;
+  for (const mark of added) {
+    const at = overlapWith(track.marks, mark);
+    const existing = at >= 0 ? track.marks[at] : null;
+    const earlier = previous && marksOverlap(previous, mark) ? previous : null;
+    const first = existing && earlier ? (earlier.startMs < existing.startMs ? earlier : existing) : (existing ?? earlier);
+    if (first) fail(overlapMessage(track, first));
+    previous = mark;
   }
-  track.marks = next;
+  const merged: Mark[] = [];
+  let i = 0;
+  for (const mark of added) {
+    while (i < track.marks.length && track.marks[i].startMs <= mark.startMs) merged.push(track.marks[i++]);
+    merged.push({ ...mark });
+  }
+  while (i < track.marks.length) merged.push(track.marks[i++]);
+  track.marks = merged;
+}
+
+/** Refused unless the marks are in order, each has some length, and none overlaps the next. */
+export function checkMarks(track: TimingTrack) {
+  const tidy = track.marks.every((m, i) => m.endMs > m.startMs && (i === 0 || track.marks[i - 1].endMs <= m.startMs));
+  if (!tidy) fail(`The marks on '${track.name}' must be in order, each with some length, and not overlap.`);
+}
+
+/** Refused when something would end after the sequence does. */
+export function checkInside(endMs: number, durationMs: number) {
+  if (endMs > durationMs) fail(`That would run past the end of the sequence at ${formatMs(durationMs)}.`);
 }
 
 /** Takes out every mark of `track` sharing time with `fromMs..toMs`. */
@@ -105,9 +140,12 @@ export function everyNthMark(source: Mark[], every: number): Mark[] {
   return marks;
 }
 
+/** Letters and digits as the engine counts them (Rust's `char::is_alphanumeric`). */
+const LETTER = /[\p{Alphabetic}\p{N}]/gu;
+
 /** How much time a piece of text gets: its letters and digits (at least one). */
 function weight(text: string): number {
-  return Math.max(1, (text.match(/[\p{L}\p{N}]/gu) ?? []).length);
+  return Math.max(1, (text.match(LETTER) ?? []).length);
 }
 
 /** `fromMs..toMs` in one span per weight, by share, each at least 1 ms; null when too short. */
@@ -148,9 +186,28 @@ export function spreadPhrases(lines: string[], fromMs: number, toMs: number): Ma
   return spans.map(([startMs, endMs], i) => ({ startMs, endMs, label: kept[i] }));
 }
 
-/** One mark per word of a phrase (its label split on spaces), sharing its time by letter count. */
+/** The words of a phrase, split on spaces. Punctuation standing on its own ("-", "…") isn't a
+ * word: it stays with the word before it (or, at the start, the word after it). */
+function wordsOf(phrase: string): string[] {
+  const words: string[] = [];
+  let leading = "";
+  for (const token of phrase.split(/\p{White_Space}+/u)) {
+    if (!token) continue;
+    if (!/[\p{Alphabetic}\p{N}]/u.test(token)) {
+      if (words.length > 0) words[words.length - 1] += ` ${token}`;
+      else leading = leading ? `${leading} ${token}` : token;
+    } else {
+      words.push(leading ? `${leading} ${token}` : token);
+      leading = "";
+    }
+  }
+  return words;
+}
+
+/** One mark per word of a phrase (its label split on spaces), sharing its time by letter count
+ * (punctuation takes no time). */
 export function splitWords(phrase: Mark): Mark[] {
-  const words = phrase.label.split(/\s+/).filter((w) => w.length > 0);
+  const words = wordsOf(phrase.label);
   if (words.length === 0) return [];
   const spans =
     divide(phrase.startMs, phrase.endMs, words.map(weight)) ??

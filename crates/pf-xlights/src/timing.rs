@@ -104,12 +104,17 @@ pub fn parse_xtiming(text: &str, duration_ms: u64, file: &str) -> Result<TimingF
             })
             .collect();
         let lyric = layers.len() >= 2;
+        // PixelFlow writes the kind down; other files say it in the name, if at all.
+        let single_kind = timing
+            .attribute("pfKind")
+            .and_then(kind_named)
+            .unwrap_or_else(|| kind_for_name(&name));
         for (i, marks) in layers.into_iter().enumerate() {
             if i > 0 && marks.is_empty() {
                 continue;
             }
             let (kind, track_name) = match (lyric, i) {
-                (false, _) => (kind_for_name(&name), name.clone()),
+                (false, _) => (single_kind, name.clone()),
                 (true, 0) => (TimingKind::Lyrics, name.clone()),
                 (true, 1) => (TimingKind::Words, format!("{name} (words)")),
                 (true, 2) => (TimingKind::Phonemes, format!("{name} (phonemes)")),
@@ -201,11 +206,40 @@ pub fn read_timing_file(path: &Path, duration_ms: u64) -> Result<TimingFileImpor
     }
 }
 
+/// The name PixelFlow writes a kind under (`pfKind`, which xLights ignores).
+fn kind_name(kind: TimingKind) -> &'static str {
+    match kind {
+        TimingKind::Beats => "beats",
+        TimingKind::Bars => "bars",
+        TimingKind::Sections => "sections",
+        TimingKind::Lyrics => "lyrics",
+        TimingKind::Words => "words",
+        TimingKind::Phonemes => "phonemes",
+        TimingKind::Custom => "custom",
+    }
+}
+
+fn kind_named(name: &str) -> Option<TimingKind> {
+    [
+        TimingKind::Beats,
+        TimingKind::Bars,
+        TimingKind::Sections,
+        TimingKind::Lyrics,
+        TimingKind::Words,
+        TimingKind::Phonemes,
+        TimingKind::Custom,
+    ]
+    .into_iter()
+    .find(|&k| kind_name(k) == name)
+}
+
+/// Text for an attribute xLights reads: XML-escaped, with '&' encoded once more, because
+/// xLights (and [`parse_xtiming`]) decode its own XmlSafe entities after the XML's.
 fn escape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
         match c {
-            '&' => out.push_str("&amp;"),
+            '&' => out.push_str("&amp;amp;"),
             '<' => out.push_str("&lt;"),
             '>' => out.push_str("&gt;"),
             '"' => out.push_str("&quot;"),
@@ -229,9 +263,10 @@ pub fn xtiming(timings: &[Vec<&TimingTrack>]) -> String {
     for layers in timings {
         let Some(first) = layers.first() else { continue };
         out.push_str(&format!(
-            "<timing name=\"{}\" subType=\"Generic\" SourceVersion=\"PixelFlow {}\">\n",
+            "<timing name=\"{}\" subType=\"Generic\" SourceVersion=\"PixelFlow {}\" pfKind=\"{}\">\n",
             escape(&first.name),
-            env!("CARGO_PKG_VERSION")
+            env!("CARGO_PKG_VERSION"),
+            kind_name(first.kind)
         ));
         for layer in layers {
             out.push_str("   <EffectLayer>\n");
@@ -328,11 +363,10 @@ mod tests {
         let beats = TimingTrack::new("Beats", TimingKind::Beats, vec![Mark::new(0, 500, "1")]);
         let text = xtiming(&[vec![&lyrics, &words], vec![&beats]]);
         assert!(text.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<timings>\n<timing name=\"Song &lt;1&gt;\" subType=\"Generic\""));
-        assert!(
-            text.contains(
-                "<Effect label=\"Rock &amp; &quot;roll&quot;\" starttime=\"0\" endtime=\"1500\" />"
-            )
-        );
+        // xLights decodes labels twice (the XML, then its own XmlSafe), so '&' is encoded twice.
+        assert!(text.contains(
+            "<Effect label=\"Rock &amp;amp; &quot;roll&quot;\" starttime=\"0\" endtime=\"1500\" />"
+        ));
         let back = parse_xtiming(&text, 60_000, "x.xtiming").unwrap();
         assert_eq!(back.tracks.len(), 3);
         for (read, wrote) in back.tracks.iter().zip([&lyrics, &words, &beats]) {
@@ -348,6 +382,27 @@ mod tests {
             parse_xtiming(&single, 60_000, "b.xtiming").unwrap().tracks[0].marks,
             beats.marks
         );
+    }
+
+    #[test]
+    fn labels_and_kinds_survive_a_round_trip() {
+        // Text that looks like an entity comes back as it was typed.
+        let odd = TimingTrack::new(
+            "Fish &amp; chips",
+            TimingKind::Custom,
+            vec![Mark::new(0, 500, "a &amp; b &#44; c & d")],
+        );
+        // A kind the name doesn't say (and one the name gets wrong) comes back too.
+        let song = TimingTrack::new("Song", TimingKind::Lyrics, vec![Mark::new(0, 500, "la")]);
+        let drops = TimingTrack::new("Beat drops", TimingKind::Custom, vec![Mark::new(0, 500, "")]);
+        for track in [&odd, &song, &drops] {
+            let back = parse_xtiming(&xtiming(&[vec![track]]), 60_000, "x.xtiming").unwrap();
+            let read = &back.tracks[0];
+            assert_eq!(
+                (&read.name, read.kind, &read.marks),
+                (&track.name, track.kind, &track.marks)
+            );
+        }
     }
 
     #[test]

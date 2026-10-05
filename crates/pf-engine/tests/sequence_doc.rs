@@ -534,9 +534,38 @@ fn imported_timing_tracks_are_added_with_their_own_names_in_one_undo_step() {
         .iter()
         .map(|t| t.name.as_str())
         .collect();
-    assert_eq!(names, vec!["Lyrics", "Lyrics (2)", "Lyrics (3)"]);
+    assert_eq!(names, vec!["Lyrics", "Lyrics 2", "Lyrics 3"]);
     engine.undo_sequence().unwrap();
     assert_eq!(engine.sequence_document().unwrap().timing_tracks.len(), 1);
+    // A lyrics timing's layers keep their pairing: the number goes on the shared name.
+    let layer = |name: &str, kind| TimingTrack::new(name, kind, vec![Mark::new(0, 900, "Ding")]);
+    engine
+        .add_timing_tracks(vec![
+            layer("Lyrics", TimingKind::Lyrics),
+            layer("Lyrics (words)", TimingKind::Words),
+            layer("Lyrics (phonemes)", TimingKind::Phonemes),
+        ])
+        .unwrap();
+    engine
+        .add_timing_tracks(vec![layer("Lyrics (words)", TimingKind::Words)])
+        .unwrap();
+    let names: Vec<&str> = engine
+        .sequence_document()
+        .unwrap()
+        .timing_tracks
+        .iter()
+        .map(|t| t.name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            "Lyrics",
+            "Lyrics 2",
+            "Lyrics 2 (words)",
+            "Lyrics 2 (phonemes)",
+            "Lyrics 3 (words)"
+        ]
+    );
 }
 
 #[test]

@@ -30,29 +30,66 @@ impl TimingTrack {
         self.marks.partition_point(|m| m.start_ms <= start_ms)
     }
 
-    /// The first mark (by index) that overlaps `mark`, skipping the marks at `skip`.
+    /// The first mark (by index) that overlaps `mark`, skipping the marks at `skip`. The marks are
+    /// in order without overlaps, so only the ones around `mark`'s time are looked at.
     pub fn overlap_with(&self, mark: &Mark, skip: &[usize]) -> Option<usize> {
-        self.marks
+        let first = self.marks.partition_point(|m| m.end_ms <= mark.start_ms);
+        self.marks[first..]
             .iter()
+            .take_while(|m| m.start_ms < mark.end_ms)
             .enumerate()
+            .map(|(k, m)| (first + k, m))
             .find(|(i, m)| !skip.contains(i) && marks_overlap(m, mark))
             .map(|(i, _)| i)
     }
 
     /// Adds `marks`, each where it belongs in time. Refused (nothing changes) when one has no
-    /// length or overlaps a mark already there or another new one.
+    /// length or overlaps a mark already there or another new one; the message names the
+    /// earliest mark it runs into. Sorted once and merged in, so a large batch stays quick.
     pub fn add_marks(&mut self, marks: &[Mark]) -> Result<(), String> {
-        let mut next = self.clone();
         for mark in marks {
             check_mark(mark)?;
-            if let Some(i) = next.overlap_with(mark, &[]) {
-                return Err(self.overlap_message(&next.marks[i]));
-            }
-            let at = next.insert_index(mark.start_ms);
-            next.marks.insert(at, mark.clone());
         }
-        *self = next;
+        let mut added: Vec<&Mark> = marks.iter().collect();
+        added.sort_by_key(|m| m.start_ms);
+        let mut previous: Option<&Mark> = None;
+        for &mark in &added {
+            let existing = self.overlap_with(mark, &[]).map(|i| &self.marks[i]);
+            let earlier = previous.filter(|p| marks_overlap(p, mark));
+            let first = match (existing, earlier) {
+                (Some(a), Some(b)) if b.start_ms < a.start_ms => Some(b),
+                (a, b) => a.or(b),
+            };
+            if let Some(other) = first {
+                return Err(self.overlap_message(other));
+            }
+            previous = Some(mark);
+        }
+        let mut merged = Vec::with_capacity(self.marks.len() + added.len());
+        let mut old = std::mem::take(&mut self.marks).into_iter().peekable();
+        for mark in added {
+            while let Some(m) = old.next_if(|m| m.start_ms <= mark.start_ms) {
+                merged.push(m);
+            }
+            merged.push(mark.clone());
+        }
+        merged.extend(old);
+        self.marks = merged;
         Ok(())
+    }
+
+    /// Refused unless the marks are in order, each has some length, and none overlaps the next.
+    pub fn check_marks(&self) -> Result<(), String> {
+        let tidy = self.marks.iter().all(|m| m.end_ms > m.start_ms)
+            && self.marks.windows(2).all(|w| w[0].end_ms <= w[1].start_ms);
+        if tidy {
+            Ok(())
+        } else {
+            Err(format!(
+                "The marks on '{}' must be in order, each with some length, and not overlap.",
+                self.name
+            ))
+        }
     }
 
     /// Takes out every mark that shares time with `from..to`.
@@ -96,7 +133,7 @@ pub fn fixed_marks(every_ms: u64, from_ms: u64, to_ms: u64) -> Result<Vec<Mark>,
     check_count((to_ms - from_ms).div_ceil(every_ms))?;
     Ok((from_ms..to_ms)
         .step_by(every_ms as usize)
-        .map(|start| Mark::new(start, (start + every_ms).min(to_ms), ""))
+        .map(|start| Mark::new(start, start.saturating_add(every_ms).min(to_ms), ""))
         .collect())
 }
 
@@ -186,10 +223,31 @@ pub fn spread_phrases(lines: &[String], from_ms: u64, to_ms: u64) -> Result<Vec<
         .collect())
 }
 
+/// The words of a phrase, split on spaces. Punctuation standing on its own ("-", "…") isn't a
+/// word: it stays with the word before it (or, at the start, the word after it).
+fn words_of(phrase: &str) -> Vec<String> {
+    let mut words: Vec<String> = Vec::new();
+    let mut leading = String::new();
+    for token in phrase.split_whitespace() {
+        if !token.chars().any(char::is_alphanumeric) {
+            let to = words.last_mut().unwrap_or(&mut leading);
+            if !to.is_empty() {
+                to.push(' ');
+            }
+            to.push_str(token);
+        } else if leading.is_empty() {
+            words.push(token.to_string());
+        } else {
+            words.push(format!("{} {token}", std::mem::take(&mut leading)));
+        }
+    }
+    words
+}
+
 /// One mark per word of a phrase mark (its label split on spaces), sharing the phrase's time by
-/// letter count. Empty when the phrase has no words.
+/// letter count (punctuation takes no time). Empty when the phrase has no words.
 pub fn split_words(phrase: &Mark) -> Result<Vec<Mark>, String> {
-    let words: Vec<&str> = phrase.label.split_whitespace().collect();
+    let words = words_of(&phrase.label);
     if words.is_empty() {
         return Ok(Vec::new());
     }
@@ -292,13 +350,30 @@ pub fn tidy_marks(mut marks: Vec<Mark>, end_ms: u64) -> (Vec<Mark>, TidyReport) 
     (kept, report)
 }
 
-/// Seconds as Audacity writes them ("1.500000") → milliseconds; `None` when it's not a time.
-fn seconds_to_ms(text: &str) -> Option<u64> {
+impl crate::Sequence {
+    /// Puts every timing track's marks in order, leaving out marks with no length and marks that
+    /// overlap an earlier one (a hand-edited file). Tracks that are already tidy aren't touched.
+    pub fn tidy_timing_tracks(&mut self) {
+        for track in &mut self.timing_tracks {
+            if track.check_marks().is_err() {
+                let marks = std::mem::take(&mut track.marks);
+                track.marks = tidy_marks(marks, u64::MAX).0;
+            }
+        }
+    }
+}
+
+/// Seconds as Audacity writes them ("1.500000") → milliseconds; `None` when it's not a time,
+/// `Some(Err(()))` when it's a time past the longest sequence.
+fn seconds_to_ms(text: &str) -> Option<Result<u64, ()>> {
     let seconds: f64 = text.trim().parse().ok()?;
-    if !seconds.is_finite() || seconds < 0.0 || seconds > crate::MAX_DURATION_MS as f64 / 1000.0 {
+    if !seconds.is_finite() || seconds < 0.0 {
         return None;
     }
-    Some((seconds * 1000.0).round() as u64)
+    if seconds > crate::MAX_DURATION_MS as f64 / 1000.0 {
+        return Some(Err(()));
+    }
+    Some(Ok((seconds * 1000.0).round() as u64))
 }
 
 /// An Audacity label file: one label per line, `start<TAB>end<TAB>label` in seconds. Lines that
@@ -322,9 +397,15 @@ pub fn parse_audacity_labels(text: &str) -> Result<Vec<Mark>, String> {
         let mut parts = line.splitn(3, '\t');
         let start = parts.next().and_then(seconds_to_ms);
         let end = parts.next().and_then(seconds_to_ms);
-        let (Some(start_ms), Some(end_ms)) = (start, end) else {
+        let (Some(start), Some(end)) = (start, end) else {
             return Err(format!(
                 "line {} isn't an Audacity label (start and end in seconds, then the label, separated by tabs)",
+                number + 1
+            ));
+        };
+        let (Ok(start_ms), Ok(end_ms)) = (start, end) else {
+            return Err(format!(
+                "line {} has a time past 4 hours, longer than any sequence can be",
                 number + 1
             ));
         };
@@ -342,8 +423,8 @@ pub fn parse_audacity_labels(text: &str) -> Result<Vec<Mark>, String> {
     starts.sort_unstable();
     for mark in &mut marks {
         if mark.end_ms == mark.start_ms {
-            let next = starts.iter().copied().find(|&s| s > mark.start_ms);
-            mark.end_ms = next.unwrap_or(mark.start_ms + 500);
+            let next = starts.get(starts.partition_point(|&s| s <= mark.start_ms));
+            mark.end_ms = next.copied().unwrap_or(mark.start_ms + 500);
         }
     }
     Ok(marks)
@@ -413,6 +494,82 @@ mod tests {
     }
 
     #[test]
+    fn adding_many_marks_is_fast_and_keeps_the_track_in_order() {
+        // 100k marks already there and 100k new ones in the gaps, given back to front: the old
+        // one-at-a-time insert took many seconds here (the engine is locked meanwhile).
+        let existing: Vec<Mark> = (0..100_000u64)
+            .map(|i| Mark::new(i * 20, i * 20 + 10, ""))
+            .collect();
+        let mut track = TimingTrack::new("Beats", TimingKind::Beats, existing);
+        let added: Vec<Mark> = (0..100_000u64)
+            .rev()
+            .map(|i| Mark::new(i * 20 + 10, i * 20 + 20, "x"))
+            .collect();
+        let started = std::time::Instant::now();
+        track.add_marks(&added).unwrap();
+        let took = started.elapsed();
+        assert!(took < std::time::Duration::from_secs(3), "took {took:?}");
+        assert_eq!(track.marks.len(), 200_000);
+        assert!(track.marks.windows(2).all(|w| w[0].end_ms <= w[1].start_ms));
+        assert_eq!(track.marks[1], Mark::new(10, 20, "x"));
+        // One overlap anywhere refuses the lot, naming the earliest mark it runs into.
+        let before = track.marks.len();
+        let err = track
+            .add_marks(&[
+                Mark::new(4_000_000, 4_000_010, ""),
+                Mark::new(1_999_995, 2_000_005, ""),
+            ])
+            .unwrap_err();
+        assert!(err.contains("0:33:19.990") || err.contains("33:19.990"), "{err}");
+        assert_eq!(track.marks.len(), before);
+        // Moving one mark only looks at its neighbors.
+        assert_eq!(track.overlap_with(&Mark::new(15, 25, ""), &[1]), Some(2));
+        assert_eq!(track.overlap_with(&Mark::new(12, 18, ""), &[1]), None);
+    }
+
+    #[test]
+    fn bad_mark_lists_are_named() {
+        let ok = TimingTrack::new(
+            "T",
+            TimingKind::Custom,
+            vec![Mark::new(0, 10, ""), Mark::new(10, 20, "")],
+        );
+        assert!(ok.check_marks().is_ok());
+        for marks in [
+            vec![Mark::new(10, 20, ""), Mark::new(0, 10, "")],
+            vec![Mark::new(0, 15, ""), Mark::new(10, 20, "")],
+            vec![Mark::new(5, 5, "")],
+        ] {
+            assert_eq!(
+                TimingTrack::new("T", TimingKind::Custom, marks)
+                    .check_marks()
+                    .unwrap_err(),
+                "The marks on 'T' must be in order, each with some length, and not overlap."
+            );
+        }
+    }
+
+    #[test]
+    fn opening_a_document_puts_its_marks_in_order() {
+        let mut seq = crate::Sequence::new("Song", 10_000);
+        seq.timing_tracks.push(TimingTrack::new(
+            "Lyrics",
+            TimingKind::Lyrics,
+            vec![
+                Mark::new(2000, 3000, "b"),
+                Mark::new(0, 1000, "a"),
+                Mark::new(500, 1500, "overlaps a"),
+                Mark::new(4000, 4000, "no length"),
+            ],
+        ));
+        let back = crate::sequence_from_json(&crate::sequence_to_json(&seq).unwrap()).unwrap();
+        assert_eq!(
+            spans(&back.timing_tracks[0].marks),
+            vec![(0, 1000, "a"), (2000, 3000, "b")]
+        );
+    }
+
+    #[test]
     fn fixed_marks_fill_the_range() {
         assert_eq!(
             spans(&fixed_marks(400, 1000, 2000).unwrap()),
@@ -431,6 +588,9 @@ mod tests {
                 .unwrap_err()
                 .contains("at most 500000 are allowed")
         );
+        // Times near the top of the range don't overflow.
+        let top = fixed_marks(10, u64::MAX - 15, u64::MAX).unwrap();
+        assert_eq!(top.last().unwrap().end_ms, u64::MAX);
     }
 
     #[test]
@@ -486,6 +646,24 @@ mod tests {
         assert_eq!(
             split_words(&Mark::new(0, 2, "a b c")).unwrap_err(),
             "The phrase at 0:00.000 is too short to split into 3 words."
+        );
+        // Punctuation on its own isn't a word: it goes with the word before it (or, first, the one
+        // after), and it takes no time of its own.
+        assert_eq!(
+            spans(&split_words(&Mark::new(0, 1600, "— Deck the halls - fa la,")).unwrap()),
+            vec![
+                (0, 400, "— Deck"),
+                (400, 700, "the"),
+                (700, 1200, "halls -"),
+                (1200, 1400, "fa"),
+                (1400, 1600, "la,")
+            ]
+        );
+        assert!(split_words(&Mark::new(0, 100, "- … !")).unwrap().is_empty());
+        // Vowel signs count as letters (the browser stand-in counts them the same way).
+        assert_eq!(
+            spans(&split_words(&Mark::new(0, 1600, "नमस्ते a")).unwrap()),
+            vec![(0, 1333, "नमस्ते"), (1333, 1600, "a")]
         );
         // Every word gets at least a millisecond, however lopsided the letters.
         let tight = split_words(&Mark::new(0, 3, "a b supercalifragilistic")).unwrap();
@@ -569,5 +747,30 @@ mod tests {
         );
         let huge = "x".repeat(MAX_TIMING_FILE_BYTES + 1);
         assert!(parse_audacity_labels(&huge).unwrap_err().contains("up to 16 MB"));
+        assert_eq!(
+            parse_audacity_labels("1\t2\tok\n15000\t15001\tlate\n").unwrap_err(),
+            "line 2 has a time past 4 hours, longer than any sequence can be"
+        );
+    }
+
+    #[test]
+    fn many_point_labels_read_quickly() {
+        let text: String = (0..100_000u64)
+            .map(|i| {
+                format!(
+                    "{}.{:03}\t{}.{:03}\tp\n",
+                    i / 100,
+                    (i % 100) * 10,
+                    i / 100,
+                    (i % 100) * 10
+                )
+            })
+            .collect();
+        let started = std::time::Instant::now();
+        let marks = parse_audacity_labels(&text).unwrap();
+        let took = started.elapsed();
+        assert!(took < std::time::Duration::from_secs(3), "took {took:?}");
+        assert_eq!(marks[0], Mark::new(0, 10, "p"));
+        assert_eq!(marks.last().unwrap().end_ms, 999_990 + 500);
     }
 }

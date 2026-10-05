@@ -170,7 +170,8 @@ describe("MemorySequencer timing tracks", () => {
     expect(first).toMatchObject({ tracks: ["Vocals", "Vocals (words)"], notes: ["1 mark was left out."] });
     expect(first.result.changes.timingTracks).toHaveLength(2);
     const again = await seq.importTimingFile("/t/Vocals.xtiming");
-    expect(again.tracks).toEqual(["Vocals (2)", "Vocals (words) (2)"]);
+    // The number goes on the shared name, so the layers stay paired.
+    expect(again.tracks).toEqual(["Vocals 2", "Vocals 2 (words)"]);
     await seq.undoSequence();
     await expect(seq.importTimingFile("/t/missing.xtiming")).rejects.toThrow("Could not read /t/missing.xtiming");
 
@@ -180,6 +181,7 @@ describe("MemorySequencer timing tracks", () => {
     await seq.exportTimingTrack(id, "/t/out.txt");
     expect(seq.exportedTimingFiles.get("/t/out.txt")!.map((t) => t.name)).toEqual(["Vocals"]);
     await expect(seq.exportTimingTrack("gone", "/t/x.txt")).rejects.toThrow("That timing track isn't in the sequence anymore.");
+    await expect(seq.exportTimingTrack(id, "/t/evil.sh")).rejects.toThrow("Timing tracks are saved as xLights timing files (.xtiming) or Audacity labels (.txt).");
   });
 
   it("doesn't add a file's tracks to a sequence opened while it was read", async () => {

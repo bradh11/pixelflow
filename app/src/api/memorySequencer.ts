@@ -182,10 +182,12 @@ export function applySequenceEdit(doc: Sequence, edit: SequenceEdit) {
       return;
     }
     case "addTimingTrack":
+      marks.checkMarks(edit.track);
       if (doc.timingTracks.some((t) => t.id === edit.track.id)) fail("A timing track with that id already exists.");
       doc.timingTracks.push(structuredClone(edit.track));
       return;
     case "updateTimingTrack": {
+      marks.checkMarks(edit.track);
       const at = doc.timingTracks.findIndex((t) => t.id === edit.track.id);
       if (at < 0) gone("timing track");
       doc.timingTracks[at] = structuredClone(edit.track);
@@ -207,13 +209,18 @@ export function applySequenceEdit(doc: Sequence, edit: SequenceEdit) {
       doc.timingTracks.splice(Math.min(edit.index, doc.timingTracks.length), 0, track);
       return;
     }
-    case "addMarks":
-      marks.addMarks(editableTrack(doc, edit.track), edit.marks);
+    case "addMarks": {
+      const track = editableTrack(doc, edit.track);
+      if (edit.marks.length > 0) marks.checkInside(Math.max(...edit.marks.map((m) => m.endMs)), doc.durationMs);
+      marks.addMarks(track, edit.marks);
       return;
+    }
     case "setMark": {
       const track = editableTrack(doc, edit.track);
       if (edit.index >= track.marks.length) markGone();
       marks.checkMark(edit.mark);
+      // A mark already past the end (the sequence was shortened) can still be relabelled.
+      if (edit.mark.endMs > track.marks[edit.index].endMs) marks.checkInside(edit.mark.endMs, doc.durationMs);
       const other = marks.overlapWith(track.marks, edit.mark, [edit.index]);
       if (other >= 0) fail(marks.overlapMessage(track, track.marks[other]));
       track.marks.splice(edit.index, 1);
@@ -245,6 +252,7 @@ export function applySequenceEdit(doc: Sequence, edit: SequenceEdit) {
       return;
     }
     case "generateMarks": {
+      marks.checkInside(edit.toMs, doc.durationMs);
       const made = marks.fixedMarks(edit.everyMs, edit.fromMs, edit.toMs);
       replaceRange(editableTrack(doc, edit.track), edit.fromMs, edit.toMs, made);
       return;
@@ -257,6 +265,7 @@ export function applySequenceEdit(doc: Sequence, edit: SequenceEdit) {
       return;
     }
     case "spreadLyrics": {
+      marks.checkInside(edit.toMs, doc.durationMs);
       const made = marks.spreadPhrases(edit.lines, edit.fromMs, edit.toMs);
       replaceRange(editableTrack(doc, edit.track), edit.fromMs, edit.toMs, made);
       return;
@@ -668,10 +677,22 @@ export class MemorySequencer implements SequencerApi {
     await this.reply(undefined, this.analysisDelayMs);
     if (this.docId !== docId) fail("Another sequence was opened while the timing file was being read. Import it again.");
     if (file.tracks.length === 0) fail("That file has no timing marks PixelFlow can use.");
+    // Named as the engine names them: a taken name gets its number on the part a lyrics timing's
+    // layers share ("Vocals 2", "Vocals 2 (words)"), so they stay paired.
     const taken = new Set(this.open_().timingTracks.map((t) => t.name));
+    const layers = ["", " (words)", " (phonemes)"];
+    const renamed = new Map<string, string>();
     const tracks = file.tracks.map((track) => {
-      let name = track.name;
-      for (let n = 2; taken.has(name); n++) name = `${track.name} (${n})`;
+      const suffix = layers.slice(1).find((l) => track.name.endsWith(l) && track.name.length > l.length) ?? "";
+      const base = track.name.slice(0, track.name.length - suffix.length);
+      let next = renamed.get(base);
+      if (next === undefined || taken.has(`${next}${suffix}`)) {
+        const free = (b: string) => layers.every((l) => !taken.has(`${b}${l}`));
+        next = base;
+        for (let n = 2; !free(next); n++) next = `${base} ${n}`;
+        renamed.set(base, next);
+      }
+      const name = `${next}${suffix}`;
       taken.add(name);
       return { ...structuredClone(track), id: crypto.randomUUID(), name };
     });
@@ -683,8 +704,9 @@ export class MemorySequencer implements SequencerApi {
     this.calls.push(`exportTimingTrack:${path}`);
     const doc = this.open_();
     const track = doc.timingTracks.find((t) => t.id === id) ?? fail("That timing track isn't in the sequence anymore.");
+    if (!/\.(xtiming|xml|txt)$/i.test(path)) fail("Timing tracks are saved as xLights timing files (.xtiming) or Audacity labels (.txt).");
     const layers = [track];
-    if (track.kind === "lyrics" && /\.xtiming$/i.test(path)) {
+    if (track.kind === "lyrics" && /\.(xtiming|xml)$/i.test(path)) {
       for (const [suffix, kind] of [
         ["words", "words"],
         ["phonemes", "phonemes"],

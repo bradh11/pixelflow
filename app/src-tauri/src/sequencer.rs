@@ -350,9 +350,10 @@ pub(crate) fn export_layers(
     Some(layers)
 }
 
-/// Writes timing track `id` to `path`: an xLights `.xtiming` file (a lyrics track with its
-/// words and phonemes), or Audacity labels for any other extension (`.txt`). The track is copied
-/// out of the engine first; the file is written without holding it. Returns how many marks went.
+/// Writes timing track `id` to `path`: an xLights timing file (`.xtiming` or `.xml`; a lyrics
+/// track with its words and phonemes), or Audacity labels (`.txt`). Nothing else is written. The
+/// track is copied out of the engine first; the file is written without holding it, all at once
+/// (a failed write leaves any earlier file as it was). Returns how many marks went.
 #[tauri::command]
 pub(crate) async fn export_timing_track(
     state: State<'_, AppState>,
@@ -374,15 +375,21 @@ pub(crate) async fn export_timing_track(
 
 /// Writes `layers` (a track and its further layers) to `path`, by its extension.
 pub(crate) fn write_timing_file(path: &Path, layers: &[TimingTrack]) -> Reply<usize> {
-    let xtiming = path
+    let extension = path
         .extension()
-        .is_some_and(|e| e.eq_ignore_ascii_case("xtiming"));
-    let text = if xtiming {
-        pf_xlights::xtiming(&[layers.iter().collect()])
-    } else {
-        pf_sequence::audacity_labels(&layers[0].marks)
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    let text = match extension.as_str() {
+        "xtiming" | "xml" => pf_xlights::xtiming(&[layers.iter().collect()]),
+        "txt" => pf_sequence::audacity_labels(&layers[0].marks),
+        _ => {
+            return Err(
+                "Timing tracks are saved as xLights timing files (.xtiming) or Audacity labels (.txt)."
+                    .to_string(),
+            );
+        }
     };
-    std::fs::write(path, text).map_err(|e| format!("Could not save {}: {e}", path.display()))?;
+    pf_engine::write_atomic(path, text.as_bytes()).map_err(message)?;
     Ok(layers[0].marks.len())
 }
 

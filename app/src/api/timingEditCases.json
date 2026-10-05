@@ -180,5 +180,49 @@
     "tracks": [],
     "edits": [{ "type": "addMarks", "track": "a0000000-0000-4000-8000-000000000009", "marks": [] }],
     "expect": { "error": "That timing track isn't in the sequence anymore." }
+  },
+  {
+    "name": "punctuation on its own takes no time and stays with a word",
+    "tracks": [
+      {"id": "a0000000-0000-4000-8000-000000000001", "name": "Lyrics", "kind": "lyrics", "marks": [{"startMs": 0, "endMs": 1600, "label": "— Deck the halls - fa la,"}]},
+      {"id": "a0000000-0000-4000-8000-000000000002", "name": "Lyrics (words)", "kind": "words", "marks": []}
+    ],
+    "edits": [{"type": "breakIntoWords", "track": "a0000000-0000-4000-8000-000000000001", "indices": [0], "words": "a0000000-0000-4000-8000-000000000002"}],
+    "expect": { "tracks": [
+      {"id": "a0000000-0000-4000-8000-000000000001", "name": "Lyrics", "kind": "lyrics", "marks": [{"startMs": 0, "endMs": 1600, "label": "— Deck the halls - fa la,"}]},
+      {"id": "a0000000-0000-4000-8000-000000000002", "name": "Lyrics (words)", "kind": "words", "marks": [{"startMs": 0, "endMs": 400, "label": "— Deck"}, {"startMs": 400, "endMs": 700, "label": "the"}, {"startMs": 700, "endMs": 1200, "label": "halls -"}, {"startMs": 1200, "endMs": 1400, "label": "fa"}, {"startMs": 1400, "endMs": 1600, "label": "la,"}]}
+    ] }
+  },
+  {
+    "name": "many new marks are merged in order",
+    "tracks": [{"id": "a0000000-0000-4000-8000-000000000001", "name": "T", "kind": "custom", "marks": [{"startMs": 100, "endMs": 200, "label": "b"}, {"startMs": 400, "endMs": 500, "label": "d"}]}],
+    "edits": [{"type": "addMarks", "track": "a0000000-0000-4000-8000-000000000001", "marks": [{"startMs": 500, "endMs": 600, "label": "e"}, {"startMs": 0, "endMs": 100, "label": "a"}, {"startMs": 200, "endMs": 400, "label": "c"}]}],
+    "expect": { "tracks": [
+      {"id": "a0000000-0000-4000-8000-000000000001", "name": "T", "kind": "custom", "marks": [{"startMs": 0, "endMs": 100, "label": "a"}, {"startMs": 100, "endMs": 200, "label": "b"}, {"startMs": 200, "endMs": 400, "label": "c"}, {"startMs": 400, "endMs": 500, "label": "d"}, {"startMs": 500, "endMs": 600, "label": "e"}]}
+    ] }
+  },
+  {
+    "name": "new marks overlapping each other name the earliest",
+    "tracks": [{"id": "a0000000-0000-4000-8000-000000000001", "name": "T", "kind": "custom", "marks": [{"startMs": 1000, "endMs": 2000, "label": ""}]}],
+    "edits": [{"type": "addMarks", "track": "a0000000-0000-4000-8000-000000000001", "marks": [{"startMs": 3500, "endMs": 4500, "label": ""}, {"startMs": 3000, "endMs": 4000, "label": ""}]}],
+    "expect": {"error": "That would overlap the mark at 0:03.000 on 'T'; marks on a timing track can't overlap."}
+  },
+  {
+    "name": "a mark past the end of the sequence",
+    "tracks": [{"id": "a0000000-0000-4000-8000-000000000001", "name": "T", "kind": "custom", "marks": []}],
+    "edits": [{"type": "addMarks", "track": "a0000000-0000-4000-8000-000000000001", "marks": [{"startMs": 59500, "endMs": 60500, "label": ""}]}],
+    "expect": {"error": "That would run past the end of the sequence at 1:00.000."}
+  },
+  {
+    "name": "lyrics spread past the end of the sequence",
+    "tracks": [{"id": "a0000000-0000-4000-8000-000000000001", "name": "T", "kind": "lyrics", "marks": []}],
+    "edits": [{"type": "spreadLyrics", "track": "a0000000-0000-4000-8000-000000000001", "lines": ["la"], "fromMs": 0, "toMs": 61000}],
+    "expect": {"error": "That would run past the end of the sequence at 1:00.000."}
+  },
+  {
+    "name": "a track's marks must be in order without overlaps",
+    "tracks": [],
+    "edits": [{"type": "addTimingTrack", "track": {"id": "a0000000-0000-4000-8000-000000000001", "name": "Messy", "kind": "custom", "marks": [{"startMs": 1000, "endMs": 2000, "label": ""}, {"startMs": 0, "endMs": 1500, "label": ""}]}}],
+    "expect": {"error": "The marks on 'Messy' must be in order, each with some length, and not overlap."}
   }
 ]

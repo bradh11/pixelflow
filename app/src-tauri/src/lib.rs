@@ -1305,7 +1305,7 @@ mod tests {
         );
         // Imported again, the copies get their own names; one undo takes them back out.
         let again = call(&webview, "import_timing_file", json!({ "path": xtiming })).unwrap();
-        assert_eq!(again["tracks"], json!(["Vocals (2)", "Vocals (words) (2)"]));
+        assert_eq!(again["tracks"], json!(["Vocals 2", "Vocals 2 (words)"]));
         call(&webview, "undo_sequence", json!({})).unwrap();
 
         // A lyrics track goes out with its words, and comes back the same.
@@ -1333,6 +1333,22 @@ mod tests {
             std::fs::read_to_string(&labels).unwrap(),
             "0.000000\t1.000000\tHi there\n"
         );
+        // .xml is read as xLights XML, so it's written that way too.
+        let xml = dir.path().join("out.xml");
+        call(&webview, "export_timing_track", json!({ "id": id, "path": xml })).unwrap();
+        assert_eq!(pf_xlights::read_timing_file(&xml, 2000).unwrap().tracks.len(), 2);
+        // Nothing but timing files is written.
+        let script = dir.path().join("evil.sh");
+        assert_eq!(
+            call(
+                &webview,
+                "export_timing_track",
+                json!({ "id": id, "path": script })
+            )
+            .unwrap_err(),
+            "Timing tracks are saved as xLights timing files (.xtiming) or Audacity labels (.txt)."
+        );
+        assert!(!script.exists());
 
         let err = call(
             &webview,

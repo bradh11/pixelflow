@@ -218,13 +218,28 @@ fn count(n: usize, one: &str, many: &str) -> String {
     }
 }
 
-/// Puts `mark` in place of the mark at `index`, keeping the track in order; refused when it has
-/// no length or would overlap another mark.
-fn set_mark(track: &mut TimingTrack, index: usize, mark: &Mark) -> Result<(), EngineError> {
-    if index >= track.marks.len() {
-        return Err(mark_gone());
+/// Refused when something would end after the sequence does (at `duration_ms`).
+fn check_inside(end_ms: u64, duration_ms: u64) -> Result<(), EngineError> {
+    if end_ms > duration_ms {
+        return Err(invalid(format!(
+            "That would run past the end of the sequence at {}.",
+            pf_sequence::format_ms(duration_ms)
+        )));
     }
+    Ok(())
+}
+
+/// Puts `mark` in place of the mark at `index`, keeping the track in order; refused when it has
+/// no length, would overlap another mark, or would newly run past the end (at `duration_ms`).
+fn set_mark(track: &mut TimingTrack, index: usize, mark: &Mark, duration_ms: u64) -> Result<(), EngineError> {
+    let Some(old) = track.marks.get(index) else {
+        return Err(mark_gone());
+    };
     pf_sequence::check_mark(mark).map_err(invalid)?;
+    // A mark already past the end (the sequence was shortened) can still be relabelled.
+    if mark.end_ms > old.end_ms {
+        check_inside(mark.end_ms, duration_ms)?;
+    }
     if let Some(other) = track.overlap_with(mark, &[index]) {
         return Err(invalid(track.overlap_message(&track.marks[other])));
     }
@@ -364,12 +379,14 @@ impl SequenceEdit {
                 doc.rows[r].layers[l].effects.remove(e);
             }
             SequenceEdit::AddTimingTrack { track } => {
+                track.check_marks().map_err(invalid)?;
                 if doc.timing_track(track.id).is_some() {
                     return Err(EngineError::DuplicateId { kind: "timing track" });
                 }
                 doc.timing_tracks.push(track.clone());
             }
             SequenceEdit::UpdateTimingTrack { track } => {
+                track.check_marks().map_err(invalid)?;
                 let existing = doc
                     .timing_tracks
                     .iter_mut()
@@ -396,10 +413,16 @@ impl SequenceEdit {
                 doc.timing_tracks.insert(to, track);
             }
             SequenceEdit::AddMarks { track, marks } => {
-                marks_mut(doc, *track)?.add_marks(marks).map_err(invalid)?;
+                let duration_ms = doc.duration_ms;
+                let track = marks_mut(doc, *track)?;
+                if let Some(end) = marks.iter().map(|m| m.end_ms).max() {
+                    check_inside(end, duration_ms)?;
+                }
+                track.add_marks(marks).map_err(invalid)?;
             }
             SequenceEdit::SetMark { track, index, mark } => {
-                set_mark(marks_mut(doc, *track)?, *index, mark)?;
+                let duration_ms = doc.duration_ms;
+                set_mark(marks_mut(doc, *track)?, *index, mark, duration_ms)?;
             }
             SequenceEdit::RemoveMarks { track, indices } => {
                 let track = marks_mut(doc, *track)?;
@@ -451,6 +474,7 @@ impl SequenceEdit {
                 from_ms,
                 to_ms,
             } => {
+                check_inside(*to_ms, doc.duration_ms)?;
                 let marks = pf_sequence::fixed_marks(*every_ms, *from_ms, *to_ms).map_err(invalid)?;
                 replace_range(marks_mut(doc, *track)?, *from_ms, *to_ms, &marks)?;
             }
@@ -467,6 +491,7 @@ impl SequenceEdit {
                 from_ms,
                 to_ms,
             } => {
+                check_inside(*to_ms, doc.duration_ms)?;
                 let marks = pf_sequence::spread_phrases(lines, *from_ms, *to_ms).map_err(invalid)?;
                 replace_range(marks_mut(doc, *track)?, *from_ms, *to_ms, &marks)?;
             }
@@ -2097,6 +2122,82 @@ mod tests {
                 }
             ),
             "Phoneme tracks come from xLights and can't be edited here; edit the words instead."
+        );
+    }
+
+    #[test]
+    fn marks_stay_inside_the_sequence_and_tracks_come_in_tidy() {
+        // The sequence is 10 s long.
+        let (mut open, track) = with_track(pf_sequence::TimingKind::Lyrics);
+        let past = "That would run past the end of the sequence at 0:10.000.";
+        assert_eq!(
+            err(
+                &mut open,
+                SequenceEdit::AddMarks {
+                    track,
+                    marks: vec![Mark::new(9500, 10_500, "")]
+                }
+            ),
+            past
+        );
+        for edit in [
+            SequenceEdit::GenerateMarks {
+                track,
+                every_ms: 500,
+                from_ms: 0,
+                to_ms: 12_000,
+            },
+            SequenceEdit::SpreadLyrics {
+                track,
+                lines: vec!["la".into()],
+                from_ms: 0,
+                to_ms: 12_000,
+            },
+            // Times near the top of the range are refused, not overflowed.
+            SequenceEdit::GenerateMarks {
+                track,
+                every_ms: 10,
+                from_ms: u64::MAX - 15,
+                to_ms: u64::MAX,
+            },
+        ] {
+            assert_eq!(err(&mut open, edit), past);
+        }
+        open.apply(
+            &[SequenceEdit::AddMarks {
+                track,
+                marks: vec![Mark::new(9000, 10_000, "end")],
+            }],
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            err(
+                &mut open,
+                SequenceEdit::SetMark {
+                    track,
+                    index: 0,
+                    mark: Mark::new(9500, 10_500, "end")
+                }
+            ),
+            past
+        );
+        // A new or replaced track must have its marks in order, without overlaps.
+        let messy = TimingTrack::new(
+            "Messy",
+            pf_sequence::TimingKind::Custom,
+            vec![Mark::new(1000, 2000, ""), Mark::new(0, 1500, "")],
+        );
+        let refused = "The marks on 'Messy' must be in order, each with some length, and not overlap.";
+        assert_eq!(
+            err(&mut open, SequenceEdit::AddTimingTrack { track: messy.clone() }),
+            refused
+        );
+        let mut replaced = messy.clone();
+        replaced.id = track;
+        assert_eq!(
+            err(&mut open, SequenceEdit::UpdateTimingTrack { track: replaced }),
+            refused
         );
     }
 

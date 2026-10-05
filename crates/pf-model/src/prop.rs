@@ -1,6 +1,6 @@
 //! Props (physical light elements) and groups of props.
 
-use crate::{ColorOrder, GroupId, PropId, Region, ShapeSource, Transform};
+use crate::{ColorOrder, GroupId, PropId, Region, RegionId, RegionRef, ShapeSource, Transform};
 use serde::{Deserialize, Serialize};
 
 /// A physical light element: an arch, a matrix, a tree, etc.
@@ -46,9 +46,13 @@ impl Prop {
     pub fn channel_count(&self) -> usize {
         self.node_count() as usize * self.channels_per_pixel() as usize
     }
+
+    pub fn region(&self, id: RegionId) -> Option<&Region> {
+        self.regions.iter().find(|r| r.id == id)
+    }
 }
 
-/// A named set of props.
+/// A named set of props and submodels.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Group {
@@ -56,6 +60,10 @@ pub struct Group {
     pub name: String,
     #[serde(default)]
     pub members: Vec<PropId>,
+    /// Submodels in the group (an xLights group can list `Prop/Submodel`). They count after the
+    /// whole props in `members` when effects run along the group.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub submodels: Vec<RegionRef>,
 }
 
 impl Group {
@@ -64,6 +72,7 @@ impl Group {
             id: GroupId::new(),
             name: name.into(),
             members: Vec::new(),
+            submodels: Vec::new(),
         }
     }
 }

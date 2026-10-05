@@ -5,7 +5,6 @@
 //! to line effects up with the music. Pure data: JSON conversion with schema migrations, size
 //! limits, and validation; rendering lives in `pf-render`.
 
-mod color;
 mod document;
 mod effect;
 mod ids;
@@ -15,7 +14,6 @@ mod settings;
 mod timing;
 mod validate;
 
-pub use color::Rgb;
 pub use document::{CURRENT_SCHEMA_VERSION, Layer, Mark, Row, Sequence, Target, TimingKind, TimingTrack};
 pub use effect::{
     Axis, BarsParams, Blend, ChaseParams, ColorWashParams, Direction, Effect, EffectKind, EffectParams,
@@ -28,6 +26,7 @@ pub use limits::{
     MAX_DURATION_MS, MAX_EFFECTS, MAX_FRAME_MS, MAX_LAYERS_PER_ROW, MAX_MARKS, MAX_PALETTE_COLORS, MAX_ROWS,
     MAX_SEQUENCE_BYTES, MAX_TEXT_LEN, MAX_TIMING_TRACKS, MIN_FRAME_MS, limit_problems,
 };
+pub use pf_model::Rgb;
 pub use settings::{
     ChoiceOption, EffectInfo, SettingInfo, SettingRange, SettingSpec, SettingValue, effect_catalog,
 };

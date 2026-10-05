@@ -1,4 +1,4 @@
-//! Palette colors, stored as `#rrggbb` text.
+//! Colors (effect palettes, singing-face features), stored as `#rrggbb` text.
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;

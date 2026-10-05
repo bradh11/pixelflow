@@ -13,7 +13,12 @@ pub fn estimated_bytes(show: &Show) -> usize {
                 ShapeSource::Generator(Generator::CustomGrid { cells, .. }) => 4 * cells.len(),
                 ShapeSource::Generator(_) => 0,
             };
-            256 + shape + 64 * prop.regions.len()
+            let regions: u64 = prop
+                .regions
+                .iter()
+                .map(|r| r.entry_count(prop.node_count()))
+                .sum();
+            256 + shape + 64 * prop.regions.len() + 8 * regions as usize
         })
         .sum();
     let controllers: usize = show
@@ -21,7 +26,11 @@ pub fn estimated_bytes(show: &Show) -> usize {
         .iter()
         .map(|c| 128 + c.ports.iter().map(|p| 32 * p.slots.len()).sum::<usize>())
         .sum();
-    let groups: usize = show.groups.iter().map(|g| 16 * g.members.len()).sum();
+    let groups: usize = show
+        .groups
+        .iter()
+        .map(|g| 16 * g.members.len() + 32 * g.submodels.len())
+        .sum();
     props + controllers + groups
 }
 

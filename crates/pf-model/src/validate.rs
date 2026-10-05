@@ -112,25 +112,91 @@ fn check_props(show: &Show, report: &mut ValidationReport) {
                 .with_fix("Give the prop at least one pixel, or delete it."),
             );
         }
-        for region in &prop.regions {
-            if region.ranges().iter().any(|r| !r.fits_within(nodes)) {
-                report.push(
-                    Issue::error(
-                        IssueCode::RegionOutOfBounds,
-                        format!(
-                            "The region '{}' on prop '{}' refers to pixels outside the prop's {nodes} pixels.",
-                            region.name, prop.name
-                        ),
-                    )
-                    .with_fix("Edit the region so it only uses the prop's pixels."),
-                );
-            }
+        check_regions(prop, report);
+    }
+}
+
+/// A prop's submodels and faces: named, unique by name and id, and inside the prop.
+fn check_regions(prop: &Prop, report: &mut ValidationReport) {
+    let nodes = prop.node_count();
+    let mut names = HashSet::new();
+    let mut ids = HashSet::new();
+    for region in &prop.regions {
+        let what = region.kind_word();
+        if !ids.insert(region.id) {
+            report.push(Issue::error(
+                IssueCode::DuplicateId,
+                format!(
+                    "The {what} '{}' on '{}' has the same id as another one on the prop.",
+                    region.name, prop.name
+                ),
+            ));
+        }
+        if let Some(problem) = region.problem() {
+            let problem = if region.name.trim().is_empty() {
+                format!("{} (on '{}')", problem.trim_end_matches('.'), prop.name) + "."
+            } else {
+                problem
+            };
+            report.push(
+                Issue::error(IssueCode::InvalidRegion, problem)
+                    .with_fix(format!("Edit the {what} in the prop's Submodels & faces.")),
+            );
+        } else if !names.insert(region.name.trim().to_lowercase()) {
+            report.push(
+                Issue::error(
+                    IssueCode::DuplicateRegionName,
+                    format!(
+                        "'{}' has two submodels or faces named '{}'.",
+                        prop.name, region.name
+                    ),
+                )
+                .with_fix("Rename one of them; names must be different on each prop."),
+            );
+        }
+        if let Some(&(_, high)) = region.node_bounds().iter().max_by_key(|(_, high)| *high)
+            && high >= nodes
+        {
+            report.push(
+                Issue::error(
+                    IssueCode::RegionOutOfBounds,
+                    format!(
+                        "The {what} '{}' on '{}' uses pixel {}, but the prop only has {nodes} pixels.",
+                        region.name,
+                        prop.name,
+                        u64::from(high) + 1
+                    ),
+                )
+                .with_fix(format!("Edit the {what} so it only uses the prop's pixels.")),
+            );
         }
     }
 }
 
 fn check_groups(show: &Show, props: &HashMap<PropId, &Prop>, report: &mut ValidationReport) {
     for group in &show.groups {
+        let lost = group
+            .submodels
+            .iter()
+            .filter(|m| props.get(&m.prop).and_then(|p| p.region(m.region)).is_none())
+            .count();
+        if lost > 0 {
+            report.push(
+                Issue::error(
+                    IssueCode::UnknownPropReference,
+                    format!(
+                        "The group '{}' includes {}.",
+                        group.name,
+                        if lost == 1 {
+                            "1 submodel that no longer exists".to_string()
+                        } else {
+                            format!("{lost} submodels that no longer exist")
+                        }
+                    ),
+                )
+                .with_fix("Remove the missing submodels from the group."),
+            );
+        }
         let missing = group.members.iter().filter(|id| !props.contains_key(*id)).count();
         if missing > 0 {
             report.push(
@@ -234,8 +300,8 @@ fn check_controllers(show: &Show, props: &HashMap<PropId, &Prop>, report: &mut V
 mod tests {
     use super::*;
     use crate::{
-        Controller, Generator, Group, NodeRange, Port, PortSlot, Prop, PropId, Protocol, Region, RegionKind,
-        ShapeSource,
+        Controller, FaceDefinition, Generator, Group, NodeRange, NodeRun, Port, PortSlot, Prop, PropId,
+        Protocol, Region, RegionId, RegionKind, RegionRef, ShapeSource,
     };
 
     fn line(name: &str, nodes: u32) -> Prop {
@@ -266,7 +332,7 @@ mod tests {
     #[test]
     fn each_structural_problem_is_reported() {
         type Mutate = fn(&mut Show);
-        let cases: [(IssueCode, Mutate); 12] = [
+        let cases: [(IssueCode, Mutate); 16] = [
             (IssueCode::InvalidFrameRate, |s| s.settings.frame_rate = 5),
             (IssueCode::DuplicateId, |s| {
                 let dup = s.props[0].clone();
@@ -274,12 +340,38 @@ mod tests {
             }),
             (IssueCode::EmptyProp, |s| s.props.push(line("Empty", 0))),
             (IssueCode::RegionOutOfBounds, |s| {
+                s.props[0]
+                    .regions
+                    .push(Region::nodes("Too far", vec![vec![Some(NodeRun::new(5, 10))]]))
+            }),
+            (IssueCode::RegionOutOfBounds, |s| {
+                let mut face = FaceDefinition::default();
+                face.outline.push(NodeRange::new(8, 11));
+                s.props[0].regions.push(Region::face("Face", face))
+            }),
+            (IssueCode::DuplicateRegionName, |s| {
+                s.props[0].regions.push(Region::nodes("Left", vec![]));
+                s.props[0].regions.push(Region::nodes("left ", vec![]));
+            }),
+            (IssueCode::InvalidRegion, |s| {
                 s.props[0].regions.push(Region {
-                    name: "Too far".into(),
-                    kind: RegionKind::Nodes {
-                        ranges: vec![NodeRange::new(5, 11)],
+                    id: RegionId::new(),
+                    name: "Window".into(),
+                    kind: RegionKind::SubBuffer {
+                        x1: 0.0,
+                        y1: 0.0,
+                        x2: 150.0,
+                        y2: 100.0,
                     },
                 })
+            }),
+            (IssueCode::UnknownPropReference, |s| {
+                let mut group = Group::new("Lost");
+                group.submodels.push(RegionRef {
+                    prop: s.props[0].id,
+                    region: RegionId::new(),
+                });
+                s.groups.push(group);
             }),
             (IssueCode::UnknownPropReference, |s| {
                 let mut group = Group::new("Ghosts");
@@ -350,6 +442,45 @@ mod tests {
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].code, IssueCode::InvalidHouseModel);
         assert_eq!(issues[0].severity, crate::Severity::Warning);
+    }
+
+    #[test]
+    fn region_problems_name_the_prop_and_the_pixel() {
+        let mut prop = line("Arch", 10);
+        prop.regions.push(Region::nodes(
+            "Right",
+            vec![vec![Some(NodeRun::new(4, 9))], vec![Some(NodeRun::new(12, 11))]],
+        ));
+        prop.regions.push(Region::nodes("", vec![]));
+        let show = show_with_slot(PortSlot::new(prop.id), prop);
+        let messages: Vec<String> = validate_show(&show)
+            .issues
+            .into_iter()
+            .map(|i| i.message)
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "The submodel 'Right' on 'Arch' uses pixel 13, but the prop only has 10 pixels.".to_string(),
+                "A submodel has no name (on 'Arch').".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn valid_submodels_and_group_members_have_no_issues() {
+        let mut prop = line("Arch", 10);
+        let left = Region::nodes("Left", vec![vec![Some(NodeRun::new(0, 4))]]);
+        let member = RegionRef {
+            prop: prop.id,
+            region: left.id,
+        };
+        prop.regions.push(left);
+        let mut show = show_with_slot(PortSlot::new(prop.id), prop);
+        let mut group = Group::new("Halves");
+        group.submodels.push(member);
+        show.groups.push(group);
+        assert_eq!(validate_show(&show).issues, vec![]);
     }
 
     #[test]

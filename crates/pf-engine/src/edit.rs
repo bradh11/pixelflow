@@ -20,11 +20,11 @@ pub enum Edit {
     AddProp {
         prop: Prop,
     },
-    /// Replaces the prop with the same id.
+    /// Replaces the prop with the same id (submodels it no longer has leave their groups).
     UpdateProp {
         prop: Prop,
     },
-    /// Removes the prop, its port slots, and its group memberships.
+    /// Removes the prop, its port slots, and its group memberships (its submodels' too).
     RemoveProp {
         id: PropId,
     },
@@ -86,6 +86,12 @@ impl Edit {
             }
             Edit::UpdateProp { prop } => {
                 *find(&mut show.props, |p| p.id == prop.id, "prop")? = prop.clone();
+                // A deleted submodel leaves the groups it was in.
+                for group in &mut show.groups {
+                    group
+                        .submodels
+                        .retain(|m| m.prop != prop.id || prop.region(m.region).is_some());
+                }
             }
             Edit::RemoveProp { id } => {
                 let before = show.props.len();
@@ -100,6 +106,7 @@ impl Edit {
                 }
                 for group in &mut show.groups {
                     group.members.retain(|m| m != id);
+                    group.submodels.retain(|m| m.prop != *id);
                 }
             }
             Edit::AddGroup { group } => {
@@ -216,6 +223,13 @@ mod tests {
         controller.ports.push(port);
         let mut group = Group::new("G");
         group.members.push(a.id);
+        let left = pf_model::Region::nodes("Left", vec![]);
+        group.submodels.push(pf_model::RegionRef {
+            prop: a.id,
+            region: left.id,
+        });
+        let mut a = a;
+        a.regions.push(left);
         show.props.push(a.clone());
         show.controllers.push(controller);
         show.groups.push(group);
@@ -224,6 +238,7 @@ mod tests {
         assert!(show.props.is_empty());
         assert!(show.controllers[0].ports[0].slots.is_empty());
         assert!(show.groups[0].members.is_empty());
+        assert!(show.groups[0].submodels.is_empty());
     }
 
     #[test]
@@ -255,6 +270,27 @@ mod tests {
         a.name = "Renamed".into();
         Edit::UpdateProp { prop: a }.apply(&mut show).unwrap();
         assert_eq!(show.props[0].name, "Renamed");
+    }
+
+    #[test]
+    fn deleting_a_submodel_takes_it_out_of_groups() {
+        let mut show = Show::new("t");
+        let mut a = line("A");
+        let left = pf_model::Region::nodes("Left", vec![]);
+        let right = pf_model::Region::nodes("Right", vec![]);
+        let id = a.id;
+        let member = |r: &pf_model::Region| pf_model::RegionRef {
+            prop: id,
+            region: r.id,
+        };
+        let mut group = Group::new("Halves");
+        group.submodels = vec![member(&left), member(&right)];
+        a.regions = vec![left, right.clone()];
+        show.props.push(a.clone());
+        show.groups.push(group);
+        a.regions.remove(0);
+        Edit::UpdateProp { prop: a.clone() }.apply(&mut show).unwrap();
+        assert_eq!(show.groups[0].submodels, vec![member(&right)]);
     }
 
     #[test]

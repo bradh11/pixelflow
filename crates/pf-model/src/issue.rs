@@ -17,6 +17,8 @@ pub enum IssueCode {
     DuplicateId,
     UnknownPropReference,
     RegionOutOfBounds,
+    DuplicateRegionName,
+    InvalidRegion,
     SegmentOutOfBounds,
     EmptyProp,
     InvalidBrightness,

@@ -1,0 +1,2 @@
+# Supply-chain safety: only install package versions that have been public for at least a day.
+minimumReleaseAge: 1440

@@ -292,8 +292,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "pf-frame",
  "pf-mapping",
  "pf-model",
+ "pf-output",
+ "pf-patterns",
  "serde_json",
 ]
 
@@ -329,6 +332,24 @@ dependencies = [
  "serde_json",
  "thiserror",
  "uuid",
+]
+
+[[package]]
+name = "pf-output"
+version = "0.1.0"
+dependencies = [
+ "pf-frame",
+ "pf-mapping",
+ "pf-model",
+ "uuid",
+]
+
+[[package]]
+name = "pf-patterns"
+version = "0.1.0"
+dependencies = [
+ "pf-mapping",
+ "pf-model",
 ]
 
 [[package]]

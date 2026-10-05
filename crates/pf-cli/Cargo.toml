@@ -13,6 +13,9 @@ path = "src/main.rs"
 [dependencies]
 pf-model.workspace = true
 pf-mapping.workspace = true
+pf-frame.workspace = true
+pf-patterns.workspace = true
+pf-output.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 serde_json.workspace = true

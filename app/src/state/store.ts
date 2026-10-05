@@ -35,8 +35,11 @@ interface AppState {
   paletteOpen: boolean;
   error: string | null;
   busy: boolean;
-  /** Set when New/Open was asked for while the show has unsaved changes. */
-  pendingReplace: "new" | "open" | "xlights" | null;
+  /** Set when New/Open was asked for while the show has unsaved changes, or an xLights
+   * sequence import while the open sequence has unsaved changes ("xlightsSequence"). */
+  pendingReplace: "new" | "open" | "xlights" | "xlightsSequence" | null;
+  /** The open sequence's name while asking about its unsaved changes. */
+  pendingSequenceName: string | null;
   /** What the last xLights import brought in, shown until dismissed. */
   importReport: { name: string; summary: ImportSummary; notes: string[] } | null;
   /** What the last xLights sequence import brought in, shown until dismissed. */
@@ -174,6 +177,54 @@ export const useApp = create<AppState>((set, get) => {
     return ok;
   }
 
+  /** Picks an xLights sequence and opens its import, replacing the open sequence without
+   * checking for unsaved changes. */
+  async function replaceSequenceWithImport(): Promise<boolean> {
+    const sequencer = get().sequencer;
+    if (!sequencer) return false;
+    const path = await sequencer.pickXlightsSequencePath();
+    if (!path) return false;
+    set({ busy: true });
+    try {
+      const imported = await sequencer.importXlightsSequence(path);
+      set({
+        sequenceImportReport: {
+          name: imported.snapshot.sequence.name,
+          summary: imported.summary,
+          notes: imported.notes,
+        },
+        error: null,
+      });
+      return true;
+    } catch (e) {
+      set({ error: errorMessage(e) });
+      return false;
+    } finally {
+      set({ busy: false });
+    }
+  }
+
+  /** Saves the open sequence document (asking where, if it has no file yet). */
+  async function saveOpenSequence(): Promise<boolean> {
+    const sequencer = get().sequencer;
+    if (!sequencer) return false;
+    try {
+      const open = await sequencer.getSequenceDoc();
+      if (!open) return true;
+      if (open.path) {
+        await sequencer.saveSequenceDoc();
+        return true;
+      }
+      const path = await sequencer.pickSequenceDocSavePath(`${open.sequence.name}.pfseq.json`);
+      if (!path) return false;
+      await sequencer.saveSequenceDocAs(path);
+      return true;
+    } catch (e) {
+      set({ error: errorMessage(e) });
+      return false;
+    }
+  }
+
   /** Controllers forgotten while a scan was running, so its results don't bring them back. */
   const forgottenDuringScan = new Set<string>();
 
@@ -238,6 +289,7 @@ export const useApp = create<AppState>((set, get) => {
   error: null,
   busy: false,
   pendingReplace: null,
+  pendingSequenceName: null,
   importReport: null,
   sequenceImportReport: null,
   sequencer: null,
@@ -311,26 +363,17 @@ export const useApp = create<AppState>((set, get) => {
   async importXlightsSequence() {
     const sequencer = get().sequencer;
     if (!sequencer) return false;
-    const path = await sequencer.pickXlightsSequencePath();
-    if (!path) return false;
-    set({ busy: true });
     try {
-      const imported = await sequencer.importXlightsSequence(path);
-      set({
-        sequenceImportReport: {
-          name: imported.snapshot.sequence.name,
-          summary: imported.summary,
-          notes: imported.notes,
-        },
-        error: null,
-      });
-      return true;
+      const open = await sequencer.getSequenceDoc();
+      if (open?.dirty) {
+        set({ pendingReplace: "xlightsSequence", pendingSequenceName: open.sequence.name });
+        return false;
+      }
     } catch (e) {
       set({ error: errorMessage(e) });
       return false;
-    } finally {
-      set({ busy: false });
     }
+    return replaceSequenceWithImport();
   },
 
   dismissSequenceImportReport: () => set({ sequenceImportReport: null }),
@@ -339,8 +382,13 @@ export const useApp = create<AppState>((set, get) => {
     const kind = get().pendingReplace;
     if (!kind) return false;
     if (choice === "cancel") {
-      set({ pendingReplace: null });
+      set({ pendingReplace: null, pendingSequenceName: null });
       return false;
+    }
+    if (kind === "xlightsSequence") {
+      if (choice === "save" && !(await saveOpenSequence())) return false;
+      set({ pendingReplace: null, pendingSequenceName: null });
+      return replaceSequenceWithImport();
     }
     if (choice === "save" && !(await get().save())) return false;
     set({ pendingReplace: null });

@@ -2,10 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { useApp } from "../state/store";
 import { Button } from "./ui";
 
-/** Asks what to do with unsaved changes before New or Open replaces the show. */
+/** Asks what to do with unsaved changes before New or Open replaces the show (or an import
+ * replaces the open sequence). */
 export function ConfirmDiscard() {
   const pending = useApp((s) => s.pendingReplace);
-  const name = useApp((s) => s.snapshot?.show.name ?? "this show");
+  const showName = useApp((s) => s.snapshot?.show.name ?? "this show");
+  const sequenceName = useApp((s) => s.pendingSequenceName ?? "this sequence");
+  const name = pending === "xlightsSequence" ? sequenceName : showName;
   const resolve = useApp((s) => s.resolvePendingReplace);
   const saveRef = useRef<HTMLButtonElement>(null);
   const [busy, setBusy] = useState(false);

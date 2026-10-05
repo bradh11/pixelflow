@@ -65,7 +65,8 @@ export interface SequencerApi {
    */
   detectBeats(): Promise<SequenceEditResult>;
   /** Imports the xLights sequence (.xsq) at `path` onto the open show and opens it as a new,
-   * unsaved sequence, replacing the open one (ask before discarding changes). */
+   * unsaved sequence. It replaces the open sequence without asking: check `getSequenceDoc()`
+   * for unsaved changes first (the store's importXlightsSequence does). */
   importXlightsSequence(path: string): Promise<XlightsSequenceImported>;
   /** Native dialogs; null when cancelled. */
   pickXlightsSequencePath(): Promise<string | null>;

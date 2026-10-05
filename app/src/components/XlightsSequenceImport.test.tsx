@@ -30,6 +30,7 @@ function sequencer(): MemorySequencer {
       timingTracks: 3,
       marks: 1234,
       lyricMarks: 300,
+      marksSkipped: 2,
     },
     notes: ["PixelFlow has no matching effect yet for this xLights effect: Faces (40)."],
   };
@@ -53,13 +54,48 @@ describe("xLights sequence import", () => {
     await user.click(await screen.findByRole("option", { name: "Import xLights sequence…" }));
     expect(seq.calls).toContain("importXlightsSequence:/Shows/Carol.xsq");
     const report = await screen.findByRole("dialog", { name: "Imported Carol of the Bells" });
-    expect(within(report).getByText(/12 rows · 840 effects · 3 timing tracks · 1,234 marks/)).toBeInTheDocument();
+    expect(
+      within(report).getByText(/12 rows · 840 effects · 3 timing tracks · 1,234 marks \(2 not imported\)/),
+    ).toBeInTheDocument();
+    expect(within(report).getByText(/It's open as an unsaved sequence/)).toBeInTheDocument();
     expect(within(report).getByText(/600 exact · 200 approximated · 40 placeholders · 5 not imported/)).toBeInTheDocument();
     expect(within(report).getByText(/Faces \(40\)/)).toBeInTheDocument();
     const open = await seq.getSequenceDoc();
     expect(open).toMatchObject({ path: null, dirty: true, canUndo: false, sequence: { name: "Carol of the Bells" } });
     await user.click(within(report).getByRole("button", { name: "Done" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("asks before a second import replaces an unsaved one, and can save it first", async () => {
+    const { user, seq } = await startApp();
+    expect(await act(() => useApp.getState().importXlightsSequence())).toBe(true);
+    act(() => useApp.getState().dismissSequenceImportReport());
+    const imports = () => seq.calls.filter((c) => c.startsWith("importXlightsSequence")).length;
+
+    // Cancel: nothing changes.
+    expect(await act(() => useApp.getState().importXlightsSequence())).toBe(false);
+    let ask = await screen.findByRole("dialog", { name: "Save changes to Carol of the Bells?" });
+    await user.click(within(ask).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(imports()).toBe(1);
+
+    // Don't save: the import goes ahead.
+    await act(() => useApp.getState().importXlightsSequence());
+    ask = await screen.findByRole("dialog", { name: "Save changes to Carol of the Bells?" });
+    await user.click(within(ask).getByRole("button", { name: "Don't save" }));
+    await screen.findByRole("dialog", { name: "Imported Carol of the Bells" });
+    expect(imports()).toBe(2);
+    act(() => useApp.getState().dismissSequenceImportReport());
+
+    // Save: asks where (it has no file yet), saves, then imports.
+    seq.nextSavePath = "/Shows/Carol.pfseq.json";
+    await act(() => useApp.getState().importXlightsSequence());
+    ask = await screen.findByRole("dialog", { name: "Save changes to Carol of the Bells?" });
+    await user.click(within(ask).getByRole("button", { name: "Save" }));
+    await screen.findByRole("dialog", { name: "Imported Carol of the Bells" });
+    expect(seq.calls).toContain("saveSequenceDocAs");
+    expect(seq.files.has("/Shows/Carol.pfseq.json")).toBe(true);
+    expect(imports()).toBe(3);
   });
 
   it("shows a failed import as an error and does nothing when cancelled", async () => {

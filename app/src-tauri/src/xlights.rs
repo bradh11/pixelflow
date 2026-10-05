@@ -45,8 +45,9 @@ pub(crate) struct XlightsSequenceImported {
 }
 
 /// Imports the xLights sequence (`.xsq`) at `path` onto the open show and opens it as a new,
-/// unsaved sequence (replacing the open one; the UI asks first if it has changes). Reading and
-/// converting happen off the engine lock.
+/// unsaved sequence. It replaces the open sequence without asking, so callers check for unsaved
+/// changes first (the app's store does, through `get_sequence_doc`). Reading and converting
+/// happen off the engine lock.
 #[tauri::command]
 pub(crate) async fn import_xlights_sequence(
     state: State<'_, AppState>,

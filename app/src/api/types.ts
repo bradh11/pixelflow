@@ -455,6 +455,8 @@ export interface SequenceImportSummary {
   timingTracks: number;
   marks: number;
   lyricMarks: number;
+  /** Timing marks not imported (outside the sequence, limits). */
+  marksSkipped: number;
 }
 
 /** The sequence an xLights sequence import opened, with a report of anything not imported exactly. */

@@ -35,6 +35,7 @@ export function SequenceImportReport() {
           <p className="mt-1 text-sm text-neutral-500">
             {plural(summary.rows, "row")} · {plural(summary.effects, "effect")} · {plural(summary.timingTracks, "timing track")}{" "}
             · {thousands(summary.marks)} marks
+            {summary.marksSkipped > 0 && ` (${thousands(summary.marksSkipped)} not imported)`}
           </p>
           <p className="mt-1 text-sm text-neutral-500">
             {thousands(summary.exact)} exact · {thousands(summary.approximate)} approximated ·{" "}
@@ -58,8 +59,9 @@ export function SequenceImportReport() {
               </ul>
             </>
           )}
+          {/* TODO: link to the Sequence screen once the timeline UI lands. */}
           <p className="mt-4 text-neutral-500">
-            The sequence is open but not saved yet. Save it to keep it.
+            It&apos;s open as an unsaved sequence. Open the Sequence screen to see and save it.
           </p>
         </div>
         <div className="flex justify-end border-t border-neutral-200 p-4 dark:border-neutral-800">

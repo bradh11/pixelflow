@@ -57,7 +57,7 @@ export function MultiEffectSettings({ doc, ids }: { doc: Sequence; ids: string[]
           aria-label={`Delete ${effects.length} effects`}
           title={`Delete ${effects.length} effects`}
           className="rounded p-1 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/60"
-          onClick={() => edit(effects.map((e) => ({ type: "removeEffect" as const, id: e.id })))}
+          onClick={() => edit((latest) => effectsById(latest, ids).map((e) => ({ type: "removeEffect" as const, id: e.id })))}
         >
           <Trash2 size={15} />
         </button>

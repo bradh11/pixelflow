@@ -171,12 +171,34 @@ describe("editing several effects at once", () => {
     expect(within(panel()).getByRole("spinbutton", { name: "Length of each (ms)" })).toHaveAttribute("placeholder", "Mixed");
   });
 
-  it("deletes them all", async () => {
-    const { user, effects } = await openScreen();
+  it("moves them once when the box is left before the engine has answered the Enter", async () => {
+    const { seq, user, effects, byId } = await openScreen();
+    seq.replyDelayMs = 100;
     const [a, b] = effects("Porch Star");
     act(() => useSequencer.getState().select([a.id, b.id]));
+    const steps = seq.undoStack.length;
+    const sent = edits(seq);
+    await user.type(within(panel()).getByRole("spinbutton", { name: "Move all by (ms)" }), "100{Enter}");
+    // Leaving the box (Tab) while the move is on its way doesn't send it again.
+    await user.tab();
+    await waitFor(() => expect([byId(a.id).startMs, byId(b.id).startMs]).toEqual([100, 1100]));
+    await act(() => new Promise((r) => setTimeout(r, 250)));
+    expect([byId(a.id).startMs, byId(b.id).startMs]).toEqual([100, 1100]);
+    expect(edits(seq)).toBe(sent + 1);
+    expect(seq.undoStack.length).toBe(steps + 1);
+  });
+
+  it("deletes them all, as they are when the delete's turn comes", async () => {
+    const { seq, user, effects } = await openScreen();
+    const [a, b, c] = effects("Porch Star");
+    act(() => useSequencer.getState().select([a.id, b.id, c.id]));
     const count = effects("Porch Star").length;
-    await user.click(within(panel()).getByRole("button", { name: "Delete 2 effects" }));
-    await waitFor(() => expect(effects("Porch Star")).toHaveLength(count - 2));
+    // An earlier edit, still on its way, removes one of them first.
+    seq.replyDelayMs = 50;
+    const earlier = useSequencer.getState().edit([{ type: "removeEffect", id: a.id }]);
+    await user.click(within(panel()).getByRole("button", { name: "Delete 3 effects" }));
+    await earlier;
+    await waitFor(() => expect(effects("Porch Star")).toHaveLength(count - 3));
+    expect(useApp.getState().error).toBeNull();
   });
 });

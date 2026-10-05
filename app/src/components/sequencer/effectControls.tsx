@@ -137,15 +137,22 @@ export function NumberDraft({
   max?: number;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
+  /** The draft on its way to the engine: Enter and then leaving the box send it once, not twice
+   * (twice would move effects twice in a box that takes an amount). */
+  const sending = useRef<string | null>(null);
   const commit = () => {
-    if (draft === null) return;
+    if (draft === null || draft === sending.current) return;
     const n = Number(draft);
     if (draft.trim() === "" || !Number.isFinite(n) || (!blank && n === value)) {
       setDraft(null);
       return;
     }
+    sending.current = draft;
     // Keep showing what was typed until the engine answers.
-    void onCommit(n).finally(() => setDraft((d) => (d === draft ? null : d)));
+    void onCommit(n).finally(() => {
+      if (sending.current === draft) sending.current = null;
+      setDraft((d) => (d === draft ? null : d));
+    });
   };
   return (
     <input

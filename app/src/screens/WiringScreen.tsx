@@ -1,10 +1,16 @@
-import { Plus, Trash2, X } from "lucide-react";
-import { useState } from "react";
-import type { Controller, Port, Prop } from "../api/types";
+import { AlertTriangle, Plus } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { usePreviewProps } from "../components/layout/useLayoutData";
+import { ControllerCard, type WiringData } from "../components/wiring/ControllerCard";
+import { PropsPanel } from "../components/wiring/PropsPanel";
+import { SlotSettings } from "../components/wiring/SlotSettings";
+import { WiringPreview } from "../components/wiring/WiringPreview";
 import { Button, Card, EmptyState, Field, Input, PageHeader, Select } from "../components/ui";
-import { thousands } from "../lib/format";
-import { newController, newPort, uniqueName } from "../lib/shows";
+import { CONTROLLER_KINDS, controllerOfKind, kindById } from "../lib/controllerKinds";
+import { uniqueName } from "../lib/shows";
+import { nodeCounts, propWiring, slotLabel, unwiredInLayoutOrder, wiringProblems } from "../lib/wiringMath";
 import { useApp } from "../state/store";
+import { useWiring } from "../state/wiring";
 
 function AddControllerForm({ onDone }: { onDone: () => void }) {
   const snapshot = useApp((s) => s.snapshot);
@@ -12,16 +18,18 @@ function AddControllerForm({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState(() => uniqueName("Controller", snapshot?.show.controllers.map((c) => c.name) ?? []));
   const [address, setAddress] = useState("");
   const [protocol, setProtocol] = useState<"ddp" | "sacn">("ddp");
+  const [kind, setKind] = useState("other");
   const [ports, setPorts] = useState(4);
+  const known = kindById(kind);
   const submit = async () => {
     if (!name.trim() || !address.trim()) return;
-    const ok = await apply([{ type: "addController", controller: newController(name.trim(), address.trim(), protocol, ports) }]);
+    const ok = await apply([{ type: "addController", controller: controllerOfKind(kind, name.trim(), address.trim(), protocol, ports) }]);
     if (ok) onDone();
   };
   return (
     <Card className="mb-6">
       <form
-        className="grid grid-cols-2 gap-3 md:grid-cols-5"
+        className="grid grid-cols-2 gap-3 md:grid-cols-6"
         onSubmit={(e) => {
           e.preventDefault();
           void submit();
@@ -29,6 +37,22 @@ function AddControllerForm({ onDone }: { onDone: () => void }) {
       >
         <Field label="Name">
           <Input value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <Field label="Controller type">
+          <Select
+            value={kind}
+            onChange={(e) => {
+              setKind(e.target.value);
+              const k = kindById(e.target.value);
+              if (k.ports) setPorts(k.ports);
+            }}
+          >
+            {CONTROLLER_KINDS.map((k) => (
+              <option key={k.id} value={k.id}>
+                {k.label}
+              </option>
+            ))}
+          </Select>
         </Field>
         <Field label="IP address">
           <Input value={address} placeholder="192.168.1.50" onChange={(e) => setAddress(e.target.value)} />
@@ -40,7 +64,7 @@ function AddControllerForm({ onDone }: { onDone: () => void }) {
           </Select>
         </Field>
         <Field label="Ports">
-          <Input type="number" min={1} max={48} value={ports} onChange={(e) => setPorts(Number(e.target.value) || 1)} />
+          <Input type="number" min={1} max={48} value={ports} disabled={known.ports !== null} onChange={(e) => setPorts(Number(e.target.value) || 1)} />
         </Field>
         <div className="flex items-end gap-2">
           <Button type="submit" variant="primary" disabled={!name.trim() || !address.trim()}>
@@ -50,112 +74,67 @@ function AddControllerForm({ onDone }: { onDone: () => void }) {
             Cancel
           </Button>
         </div>
+        {known.maxPixels !== null && (
+          <p className="col-span-full text-xs text-neutral-500">
+            Each port drives up to {known.maxPixels.toLocaleString("en-US")} pixels; the Wiring screen warns when a port gets close.
+          </p>
+        )}
       </form>
     </Card>
   );
 }
 
-function PortRow({ controller, port, props, pixels }: { controller: Controller; port: Port; props: Prop[]; pixels: Map<string, number> }) {
-  const apply = useApp((s) => s.apply);
-  const update = (next: Port) =>
-    apply([
-      {
-        type: "updateController",
-        controller: { ...controller, ports: controller.ports.map((p) => (p.number === port.number ? next : p)) },
-      },
-    ]);
-  const used = port.slots.reduce((sum, s) => sum + s.nullPixels + (pixels.get(s.prop) ?? 0), 0);
-  const name = (id: string) => props.find((p) => p.id === id)?.name ?? "Missing prop";
+/** The chip being dragged, following the pointer. */
+function DragGhost({ data }: { data: WiringData }) {
+  const drag = useWiring((s) => s.drag);
+  if (!drag) return null;
+  const item = drag.item;
+  const prop = data.show.props.find((p) => p.id === item.prop);
+  const slot =
+    item.kind === "slot" ? data.show.controllers.find((c) => c.id === item.from.controller)?.ports.find((p) => p.number === item.from.port)?.slots[item.from.index] : null;
+  const name = prop?.name ?? "Missing prop";
+  const hint = drag.over?.kind === "props" ? (item.kind === "slot" ? "Unwire" : null) : drag.over ? `Port ${drag.over.port}` : null;
   return (
-    <li className="flex flex-wrap items-center gap-2 border-t border-neutral-200 py-2 dark:border-neutral-800">
-      <span className="w-16 text-sm font-medium">Port {port.number}</span>
-      {port.slots.map((slot, i) => (
-        <span key={i} className="flex items-center gap-1 rounded-full bg-neutral-100 py-0.5 pr-1 pl-3 text-sm dark:bg-neutral-800">
-          {name(slot.prop)}
-          <button
-            type="button"
-            aria-label={`Unwire ${name(slot.prop)} from port ${port.number}`}
-            onClick={() => update({ ...port, slots: port.slots.filter((_, j) => j !== i) })}
-            className="rounded-full p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-700"
-          >
-            <X size={12} />
-          </button>
-        </span>
-      ))}
-      <Select
-        aria-label={`Add a prop to port ${port.number}`}
-        value=""
-        onChange={(e) => {
-          if (!e.target.value) return;
-          void update({
-            ...port,
-            slots: [
-              ...port.slots,
-              { prop: e.target.value, segment: null, nullPixels: 0, reverse: false, brightness: null, gamma: null, smartReceiver: null },
-            ],
-          });
-        }}
-      >
-        <option value="">+ Add prop…</option>
-        {props.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-          </option>
-        ))}
-      </Select>
-      <span className="ml-auto text-xs text-neutral-500 tabular-nums">{thousands(used)} px</span>
-    </li>
+    <div
+      aria-hidden
+      className="pointer-events-none fixed z-50 rounded-full bg-accent-600 px-2.5 py-0.5 text-xs font-medium text-white shadow-lg"
+      style={{ left: drag.x + 12, top: drag.y + 8 }}
+    >
+      {slot ? slotLabel(name, slot) : name}
+      {hint && <span className="ml-1.5 font-normal opacity-80">→ {hint}</span>}
+    </div>
   );
 }
 
-function ControllerCard({ controller }: { controller: Controller }) {
-  const snapshot = useApp((s) => s.snapshot);
-  const apply = useApp((s) => s.apply);
-  if (!snapshot) return null;
-  const pixels = new Map(snapshot.channelMap.props.map((p) => [p.prop, p.nodes]));
-  const addPort = () =>
-    apply([
-      {
-        type: "updateController",
-        controller: { ...controller, ports: [...controller.ports, newPort(controller.ports.length + 1)] },
-      },
-    ]);
-  return (
-    <Card>
-      <div className="mb-2 flex items-center gap-3">
-        <h2 className="font-semibold">{controller.name}</h2>
-        <span className="text-sm text-neutral-500">{controller.address}</span>
-        <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs dark:bg-neutral-800">
-          {controller.protocol.type === "ddp" ? "DDP" : "sACN"}
-        </span>
-        <div className="ml-auto flex gap-1">
-          <Button variant="ghost" onClick={addPort}>
-            <Plus size={14} /> Port
-          </Button>
-          <Button variant="danger" aria-label={`Delete ${controller.name}`} onClick={() => apply([{ type: "removeController", id: controller.id }])}>
-            <Trash2 size={16} />
-          </Button>
-        </div>
-      </div>
-      <ul>
-        {controller.ports.map((port) => (
-          <PortRow key={port.number} controller={controller} port={port} props={snapshot.show.props} pixels={pixels} />
-        ))}
-      </ul>
-    </Card>
-  );
-}
-
-/** Controllers, their ports, and which props each port drives (in wiring order). */
+/** Controllers, their ports, and which props each port drives (in wiring order), wired by dragging. */
 export function WiringScreen() {
   const snapshot = useApp((s) => s.snapshot);
+  const selected = useWiring((s) => s.selected);
+  const preview = usePreviewProps();
   const [adding, setAdding] = useState(false);
-  if (!snapshot) return null;
+
+  const data = useMemo<WiringData | null>(() => {
+    if (!snapshot) return null;
+    const nodes = nodeCounts(snapshot.channelMap);
+    const wiring = propWiring(snapshot.show, nodes);
+    return { show: snapshot.show, nodes, wiring, channelMap: snapshot.channelMap, unwired: unwiredInLayoutOrder(snapshot.show, preview.props, wiring) };
+  }, [snapshot, preview]);
+
+  // A selected chip that's gone (undone, or its port removed) closes its settings.
+  const selectedGone = !!selected && !!data && !data.show.controllers.find((c) => c.id === selected.controller)?.ports.find((p) => p.number === selected.port)?.slots[selected.index];
+  useEffect(() => {
+    if (selectedGone) useWiring.getState().select(null);
+  }, [selectedGone]);
+
+  if (!snapshot || !data) return null;
+  const problems = wiringProblems(data.show, data.nodes);
+  const controllers = data.show.controllers;
+
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="mx-auto max-w-[110rem]">
       <PageHeader
         title="Wiring"
-        description="Add your controllers and choose which props each port drives. Channels and universes are assigned automatically."
+        description="Drag each prop onto the controller port it's plugged into, in the order the wire reaches them. Channels and universes are assigned automatically."
         actions={
           !adding && (
             <Button variant="primary" onClick={() => setAdding(true)}>
@@ -165,15 +144,39 @@ export function WiringScreen() {
         }
       />
       {adding && <AddControllerForm onDone={() => setAdding(false)} />}
-      {snapshot.show.controllers.length === 0 && !adding ? (
-        <EmptyState title="No controllers yet">Add a controller, then wire props to its ports.</EmptyState>
-      ) : (
-        <div className="flex flex-col gap-4">
-          {snapshot.show.controllers.map((c) => (
-            <ControllerCard key={c.id} controller={c} />
-          ))}
+      <p id="wiring-chip-help" className="sr-only">
+        Drag to another place or port, or onto the props list to unwire. Arrow keys move between props; Option or Alt with the up
+        and down arrows moves this prop earlier or later on its port; Delete unwires it; Enter opens its settings.
+      </p>
+      <div className="grid items-start gap-4 lg:grid-cols-[16rem_minmax(0,1fr)] xl:grid-cols-[16rem_minmax(0,1fr)_21rem]">
+        <PropsPanel props={data.show.props} wiring={data.wiring} />
+        <div className="flex min-w-0 flex-col gap-4">
+          {problems.length > 0 && (
+            <div role="region" aria-label="Wiring problems" className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm dark:border-red-900 dark:bg-red-950/40">
+              <h2 className="mb-1 flex items-center gap-1.5 font-medium text-red-700 dark:text-red-300">
+                <AlertTriangle size={14} aria-hidden /> {problems.length === 1 ? "1 thing to fix" : `${problems.length} things to fix`}
+              </h2>
+              <ul className="flex flex-col gap-1">
+                {problems.map((p, i) => (
+                  <li key={i}>
+                    <span className="text-neutral-800 dark:text-neutral-200">{p.message}</span> <span className="text-neutral-500">{p.fix}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {controllers.length === 0 && !adding ? (
+            <EmptyState title="No controllers yet">Add a controller (or import one on the Devices screen), then drag props onto its ports.</EmptyState>
+          ) : (
+            controllers.map((c) => <ControllerCard key={c.id} controller={c} data={data} />)
+          )}
         </div>
-      )}
+        <div className="flex min-w-0 flex-col gap-4 lg:col-span-2 xl:sticky xl:top-0 xl:col-span-1">
+          {selected && !selectedGone && <SlotSettings selected={selected} data={data} />}
+          <WiringPreview show={data.show} props={preview.props} />
+        </div>
+      </div>
+      <DragGhost data={data} />
     </div>
   );
 }

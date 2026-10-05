@@ -1,4 +1,4 @@
-import type { ComponentProps, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
+import type { ComponentProps, InputHTMLAttributes, ReactNode } from "react";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger";
 
@@ -59,7 +59,7 @@ export function Input({ className = "", ...props }: InputHTMLAttributes<HTMLInpu
   return <input className={`${CONTROL} ${className}`} {...props} />;
 }
 
-export function Select({ className = "", ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
+export function Select({ className = "", ...props }: ComponentProps<"select">) {
   return <select className={`${CONTROL} ${className}`} {...props} />;
 }
 

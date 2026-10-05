@@ -1,0 +1,31 @@
+[package]
+name = "pixelflow-app"
+description = "PixelFlow desktop app (Tauri shell over pf-engine)"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+publish = false
+
+[lib]
+name = "pixelflow_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+pf-engine = { path = "../../crates/pf-engine" }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
+serde_json = "1"
+tempfile = "3"
+
+# The desktop shell is its own workspace so the core crates build and test without
+# Tauri's system dependencies.
+[workspace]
+
+[lints.rust]
+unsafe_code = "forbid"

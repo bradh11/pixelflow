@@ -5,7 +5,7 @@ use anyhow::{Context, Result, bail};
 use clap::ValueEnum;
 use pf_model::Show;
 use pf_output::{ControllerState, OutputSettings, OutputStats, UdpTransport, build_plan, start_output};
-use pf_patterns::{Pattern, Rgbw, Target, render, resolve_target};
+use pf_patterns::{Pattern, Preset, Rgbw, Target, render, resolve_target};
 use std::fmt::Write;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -49,23 +49,16 @@ pub enum PatternKind {
 
 /// Builds the pattern from the command-line choices.
 pub fn pattern(kind: PatternKind, color: Rgbw) -> Pattern {
-    match kind {
-        PatternKind::Solid => Pattern::Solid(color),
-        PatternKind::Cycle => Pattern::RgbwCycle,
-        PatternKind::Chase => Pattern::Chase {
-            color,
-            width: 5,
-            speed: 30.0,
-        },
-        PatternKind::Ramp => Pattern::Ramp { color, period: 2.0 },
-        PatternKind::Alternate => Pattern::Alternate {
-            a: color,
-            b: Rgbw::OFF,
-            period: 1.0,
-        },
-        PatternKind::Identify => Pattern::Identify,
-        PatternKind::Walk => Pattern::PixelWalk { color, speed: 10.0 },
-    }
+    let preset = match kind {
+        PatternKind::Solid => Preset::Solid,
+        PatternKind::Cycle => Preset::Cycle,
+        PatternKind::Chase => Preset::Chase,
+        PatternKind::Ramp => Preset::Ramp,
+        PatternKind::Alternate => Preset::Alternate,
+        PatternKind::Identify => Preset::Identify,
+        PatternKind::Walk => Preset::Walk,
+    };
+    Pattern::preset(preset, color)
 }
 
 /// Parses `show`, `prop:NAME`, `group:NAME`, `controller:NAME`, or `port:CONTROLLER:NUMBER`.

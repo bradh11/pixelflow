@@ -1,0 +1,23 @@
+[package]
+name = "pf-engine"
+description = "PixelFlow engine: owns the show, applies edits with undo/redo, saves files, and runs live output"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+pf-model.workspace = true
+pf-mapping.workspace = true
+pf-frame.workspace = true
+pf-patterns.workspace = true
+pf-output.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -9,5 +9,5 @@ mod pattern;
 mod target;
 
 pub use color::Rgbw;
-pub use pattern::{Pattern, render};
+pub use pattern::{Pattern, Preset, render};
 pub use target::{Target, TargetRange, resolve_target};

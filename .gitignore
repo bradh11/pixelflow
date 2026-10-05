@@ -24,7 +24,7 @@ dist/
 # Tauri
 src-tauri/target/
 app/target/
-app/gen/
+app/src-tauri/gen/
 
 # Test / coverage output
 coverage/

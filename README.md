@@ -28,6 +28,16 @@ A modern, fast, easy-to-use application for designing and running pixel light di
 
 ## Development
 
+Common tasks have `make` shortcuts — run `make` to list them. The most useful:
+
+```sh
+make setup   # install the app's dependencies (once)
+make run     # run the desktop app with live reload
+make test    # run every test
+make lint    # formatting and lint checks (same as CI)
+make build   # build an installable app
+```
+
 Requires [Rust](https://rustup.rs). The toolchain version is pinned in `rust-toolchain.toml`, and rustup installs it automatically.
 
 ```sh
@@ -53,6 +63,21 @@ cargo run -p pf-cli -- test-pattern my-show.pixelflow.json --pattern identify --
 Patterns: `solid`, `cycle`, `chase`, `ramp`, `alternate`, `identify`, `walk`. Targets: `show`,
 `prop:NAME`, `group:NAME`, `controller:NAME`, `port:CONTROLLER:NUMBER`. Use `--bind <local IP>`
 to choose the network interface. Output stops with a blackout frame when the run ends.
+
+### Run the desktop app
+
+Requires [Node.js](https://nodejs.org) 22+ and [pnpm](https://pnpm.io).
+
+```sh
+cd app
+pnpm install
+pnpm tauri dev      # opens PixelFlow with live reload
+pnpm test           # UI tests
+pnpm tauri build    # builds an installable app
+```
+
+For UI-only work in a plain browser, run `pnpm dev` and open `http://localhost:1420/?demo`
+(an in-memory sample show; nothing is sent to your controllers).
 
 ## Contributing
 

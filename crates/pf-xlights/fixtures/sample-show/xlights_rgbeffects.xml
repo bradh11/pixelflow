@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xrgb>
+  <models type="rgb_effects">
+    <model name="Roofline" DisplayAs="Single Line" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="1" parm2="100" parm3="1"
+           WorldPosX="100.0" WorldPosY="600.0" WorldPosZ="0.0" X2="1000.0" Y2="0.0" Z2="0.0" StartChannel="!Falcon_F16V5_B9F5:1"
+           Controller="Falcon_F16V5_B9F5" LayoutGroup="Default" versionNumber="7">
+      <ControllerConnection Port="1" Protocol="ws2811"/>
+    </model>
+    <model name="Arches" DisplayAs="Arches" StringType="GRB Nodes" StartSide="B" Dir="L" NumArches="3" NodesPerArch="50"
+           WorldPosX="150.0" WorldPosY="100.0" X2="600.0" Y2="0.0" Height="1.0" StartChannel="!Falcon_F16V5_B9F5:301"
+           Controller="Falcon_F16V5_B9F5" LayoutGroup="Default" versionNumber="8">
+      <ControllerConnection Port="2" Protocol="ws2811"/>
+    </model>
+    <model name="Mega Tree" DisplayAs="Tree 360" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="8" parm2="50" parm3="1"
+           WorldPosX="900.0" WorldPosY="300.0" ScaleX="4.0" ScaleY="2.0" ScaleZ="4.0" StartChannel="!Falcon_F16V5_B9F5:751"
+           Controller="Falcon_F16V5_B9F5" LayoutGroup="Default" versionNumber="7">
+      <ControllerConnection Port="5" Protocol="ws2811"/>
+    </model>
+    <model name="Window Matrix" DisplayAs="Vert Matrix" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="4" parm2="20" parm3="1"
+           WorldPosX="400.0" WorldPosY="350.0" ScaleX="8.0" ScaleY="8.0" StartChannel="&gt;Mega Tree:1"
+           Controller="Falcon_F16V5_B9F5" LayoutGroup="Default" versionNumber="7">
+      <ControllerConnection Port="13" Protocol="ws2811"/>
+    </model>
+    <model name="Porch Star" DisplayAs="Custom" StringType="RGB Nodes" parm1="5" parm2="5" CustomModel=",1,,,;2,,3,,;,4,,5,;,,6,,;,,,7,"
+           WorldPosX="700.0" WorldPosY="200.0" ScaleX="10.0" ScaleY="10.0" StartChannel="#192.0.2.30:20:1" LayoutGroup="Default" versionNumber="7"/>
+    <model name="Candy Canes" DisplayAs="Candy Canes" StringType="RGB Nodes" NumCanes="2" NodesPerCane="18"
+           WorldPosX="300.0" WorldPosY="80.0" X2="120.0" Y2="0.0" Height="1.0" StartChannel="@Porch Star:22" LayoutGroup="Default"/>
+    <model name="House Photo" DisplayAs="Image" Image="house.jpg" WorldPosX="640" WorldPosY="360" LayoutGroup="Default"/>
+  </models>
+  <modelGroups type="rgb_effects">
+    <modelGroup name="Outline" models="Roofline,Arches" layout="minimalGrid" GridSize="400" LayoutGroup="Default"/>
+    <modelGroup name="Everything" models="Outline,Mega Tree,Window Matrix,Porch Star/Center" layout="minimalGrid"/>
+  </modelGroups>
+  <settings>
+    <previewWidth value="1280"/>
+    <previewHeight value="720"/>
+  </settings>
+</xrgb>

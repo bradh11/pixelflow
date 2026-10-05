@@ -1,4 +1,4 @@
-import type { DeviceDetails, FppSequence, PlayerStatus, PortSlot, Prop, Show, SilentPeer, StringConfig } from "./types";
+import type { DeviceDetails, FppSequence, NodeRange, Phoneme, PlayerStatus, PortSlot, Prop, Region, Show, SilentPeer, StringConfig } from "./types";
 import { emptyShow } from "./memory";
 import { newController, newProp } from "../lib/shows";
 
@@ -13,6 +13,19 @@ export function demoShow(): Show {
   const tree = at({ ...newProp("tree", show), name: "Mega Tree" }, 8, 0);
   const matrix = at({ ...newProp("matrix", show), name: "Window Matrix", colorOrder: "GRB" as const }, 0.5, 3.8);
   const star = at({ ...newProp("star", show), name: "Porch Star" }, -3, 8.2);
+  arch.regions = [
+    { id: crypto.randomUUID(), name: "Left half", kind: "nodes", lines: [[{ first: 0, last: 24 }]], layout: "horizontal", buffer: "default" },
+    { id: crypto.randomUUID(), name: "Right half", kind: "nodes", lines: [[{ first: 49, last: 25 }]], layout: "horizontal", buffer: "default" },
+    {
+      id: crypto.randomUUID(),
+      name: "Ends",
+      kind: "nodes",
+      lines: [[{ first: 0, last: 5 }], [{ first: 49, last: 44 }]],
+      layout: "horizontal",
+      buffer: "stackedStrands",
+    },
+  ];
+  matrix.regions = [{ id: crypto.randomUUID(), name: "Top half", kind: "subBuffer", x1: 0, y1: 50, x2: 100, y2: 100 }, demoFace()];
   show.props = [arch, tree, matrix, star];
   show.background = { path: DEMO_PHOTO, x: -12, y: 12, width: 24, opacity: 0.8 };
   const fpp = newController("Main FPP", "192.168.1.50", "sacn", 4);
@@ -32,6 +45,44 @@ export function demoShow(): Show {
   const wled = newController("Porch WLED", "192.168.1.60", "ddp", 1);
   show.controllers = [fpp, wled];
   return show;
+}
+
+/**
+ * A singing face drawn on the demo's 32 × 16 window matrix (wired in rows from the bottom left,
+ * back and forth): eyes, an outline, and a mouth for every sound.
+ */
+function demoFace(): Region {
+  const node = (col: number, row: number) => row * 32 + (row % 2 === 0 ? col : 31 - col);
+  /** Pixels in columns `from`–`to` on each row in `rows`, as one range per row. */
+  const block = (from: number, to: number, rows: number[]): NodeRange[] =>
+    rows.map((row) => {
+      const [a, b] = [node(from, row), node(to, row)];
+      return { start: Math.min(a, b), end: Math.max(a, b) + 1 };
+    });
+  const span = (lo: number, hi: number) => Array.from({ length: hi - lo + 1 }, (_, i) => lo + i);
+  const mouth = (from: number, to: number, lo: number, hi: number) => block(from, to, span(lo, hi));
+  const mouths: Partial<Record<Phoneme, NodeRange[]>> = {
+    AI: mouth(11, 20, 2, 6),
+    E: mouth(9, 22, 3, 5),
+    ETC: mouth(12, 19, 3, 5),
+    FV: mouth(12, 19, 4, 5),
+    L: mouth(12, 19, 3, 6),
+    MBP: mouth(10, 21, 4, 4),
+    O: mouth(13, 18, 1, 7),
+    REST: mouth(12, 19, 4, 4),
+    U: mouth(14, 17, 3, 5),
+    WQ: mouth(14, 17, 2, 6),
+  };
+  return {
+    id: crypto.randomUUID(),
+    name: "Singer",
+    kind: "face",
+    mouths,
+    eyesOpen: [...block(8, 10, [10, 11, 12]), ...block(21, 23, [10, 11, 12])],
+    eyesClosed: [...block(8, 10, [11]), ...block(21, 23, [11])],
+    outline: [...block(0, 31, [0, 15]), ...span(1, 14).flatMap((row) => block(0, 0, [row]).concat(block(31, 31, [row])))],
+    colors: { mouths: Object.fromEntries(Object.keys(mouths).map((p) => [p, "#ff2d2d"])), eyesOpen: "#3cb4ff", eyesClosed: "#3cb4ff", outline: "#1fbf4f" },
+  };
 }
 
 /** Where the demo show's house photo "is". */

@@ -20,7 +20,8 @@ export type EffectKind =
   | "spiral"
   | "fire"
   | "meteors"
-  | "ripple";
+  | "ripple"
+  | "faces";
 
 export type Gradient = "none" | "horizontal" | "vertical";
 export type Direction = "forward" | "reverse";
@@ -42,7 +43,16 @@ export type EffectParams =
   | { kind: "spiral"; count?: number; speed?: number; thickness?: number; twist?: number; direction?: Direction }
   | { kind: "fire"; height?: number; sparks?: number }
   | { kind: "meteors"; count?: number; speed?: number; length?: number; direction?: "down" | "up" | "left" | "right" }
-  | { kind: "ripple"; speed?: number; spacing?: number; thickness?: number };
+  | { kind: "ripple"; speed?: number; spacing?: number; thickness?: number }
+  | {
+      kind: "faces";
+      /** One of the prop's faces by name; blank: its first face. */
+      face?: string;
+      timingTrack?: Uuid | null;
+      eyes?: "open" | "auto" | "closed";
+      colors?: "face" | "palette";
+      outline?: boolean;
+    };
 
 export interface Palette {
   colors: Rgb[];
@@ -69,7 +79,7 @@ export interface Layer {
   effects: Effect[];
 }
 
-export type SequenceTarget = { prop: Uuid } | { group: Uuid };
+export type SequenceTarget = { prop: Uuid } | { group: Uuid } | { region: { prop: Uuid; region: Uuid } };
 
 export interface Row {
   id: Uuid;
@@ -262,6 +272,10 @@ export type EffectSetting = SettingBase &
     | { type: "int"; min: number; max: number; step: number; default: number; unit?: string }
     | { type: "bool"; default: boolean }
     | { type: "choice"; default: string; options: ChoiceOption[] }
+    /** One of the row's prop's faces, by name ("" = its first face). */
+    | { type: "face"; default: string }
+    /** One of the sequence's timing tracks, by id. */
+    | { type: "timingTrack"; default: Uuid | null }
   );
 
 /**

@@ -14,6 +14,7 @@ import {
   Waves,
   Zap,
   MoveRight,
+  Smile,
   Snowflake,
 } from "lucide-react";
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef } from "react";
@@ -36,6 +37,7 @@ export const EFFECT_ICONS: Record<EffectKind, LucideIcon> = {
   fire: Flame,
   meteors: Snowflake,
   ripple: CircleDot,
+  faces: Smile,
 };
 
 /** Drags this far (screen pixels) before a press on the palette becomes a drag. */

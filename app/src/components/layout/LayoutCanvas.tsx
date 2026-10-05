@@ -49,7 +49,8 @@ import {
   resizeView,
 } from "../../lib/layoutMath";
 import { batchPixels, drawBatches } from "../../lib/pixelBatches";
-import { type PropKind, newProp } from "../../lib/shows";
+import { type PropKind, newProp, nodeCount } from "../../lib/shows";
+import { highlightPixels } from "../../lib/submodels";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { commitGesture, settlePending, unsettled } from "../../state/layoutGestures";
 import { useApp } from "../../state/store";
@@ -247,6 +248,17 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     const selected = new Set(editor.selected);
     const radius = Math.min(4.5, Math.max(1.3, view.zoom * 0.05));
     drawBatches(ctx, batchPixels(props, frame.current, view, s, selected, PIXEL_COLORS, radius), radius, ratio);
+
+    // A submodel or face picked in the properties panel, drawn over its prop a little bigger.
+    const hl = editor.highlight;
+    const hlProp = hl && latest.current.show.props.find((p) => p.id === hl.prop);
+    const hlRegion = hl && hlProp?.regions.find((r) => r.id === hl.region);
+    const hlPoints = hl && props.find((p) => p.prop === hl.prop)?.points;
+    if (hl && hlProp && hlRegion && hlPoints) {
+      const { points, rgb } = highlightPixels(hlRegion, nodeCount(hlProp.shape), hlPoints, hl.phoneme);
+      const big = radius * 1.4;
+      drawBatches(ctx, batchPixels([{ prop: hl.region, frameOffset: 0, channelsPerPixel: 3, points }], rgb, view, s, new Set(), PIXEL_COLORS, big), big, ratio);
+    }
 
     const d = drag.current;
     if (d?.kind === "draw") {

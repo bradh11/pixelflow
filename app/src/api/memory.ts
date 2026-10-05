@@ -646,13 +646,20 @@ function applyEdit(show: Show, edit: Edit): void {
     case "addProp":
       addUnique(show.props, edit.prop, "prop");
       break;
-    case "updateProp":
+    case "updateProp": {
       replaceById(show.props, edit.prop, "prop");
+      // A deleted submodel leaves the groups it was in.
+      const regions = new Set(edit.prop.regions.map((r) => r.id));
+      for (const g of show.groups) if (g.submodels) g.submodels = g.submodels.filter((m) => m.prop !== edit.prop.id || regions.has(m.region));
       break;
+    }
     case "removeProp":
       removeById(show.props, edit.id, "prop");
       for (const c of show.controllers) for (const p of c.ports) p.slots = p.slots.filter((s) => s.prop !== edit.id);
-      for (const g of show.groups) g.members = g.members.filter((m) => m !== edit.id);
+      for (const g of show.groups) {
+        g.members = g.members.filter((m) => m !== edit.id);
+        if (g.submodels) g.submodels = g.submodels.filter((m) => m.prop !== edit.id);
+      }
       break;
     case "addGroup":
       addUnique(show.groups, edit.group, "group");

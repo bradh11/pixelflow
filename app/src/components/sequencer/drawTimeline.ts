@@ -32,6 +32,7 @@ const HUES: Record<EffectKind, number> = {
   fire: 15,
   meteors: 190,
   ripple: 140,
+  faces: 340,
 };
 
 interface Theme {

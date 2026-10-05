@@ -5,8 +5,9 @@
 
 import { frontView } from "../lib/geometry";
 import { channelsPerPixel, nodeCount } from "../lib/shows";
+import { facePartColor, faceParts, facesOf, phonemeAt, targetNodes } from "../lib/submodels";
 import type { Effect, Sequence } from "./sequence";
-import type { Show } from "./types";
+import type { FaceDefinition, Prop, Show } from "./types";
 
 type Rgb = [number, number, number];
 
@@ -135,6 +136,38 @@ function shade(effect: Effect, ms: number, px: Px, seed: number): [Rgb, number] 
   }
 }
 
+/** A repeatable number for an effect id, standing in for the engine's seed. */
+function idSeed(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 0x01000193);
+  return h >>> 0;
+}
+
+/** Blinking eyes: shut for 150 ms every 3–5 s, the first 1–3 s in (like the engine's, not the same times). */
+function blinking(seed: number, startMs: number, ms: number): boolean {
+  let at = startMs + 1000 + Math.floor(hash(seed, 0) * 2001);
+  for (let k = 1; at + 150 <= ms; k++) at += 3000 + Math.floor(hash(seed, k) * 2001);
+  return ms >= at;
+}
+
+/** A Faces effect's colors for one prop's nodes at `ms` (node → color). */
+function faceColors(effect: Effect, doc: Sequence, prop: Prop, ms: number): Map<number, Rgb> {
+  const p = effect.params as Extract<Effect["params"], { kind: "faces" }>;
+  const lit = new Map<number, Rgb>();
+  const wanted = (p.face ?? "").trim().toLowerCase();
+  const region = facesOf(prop).find((r) => wanted === "" || r.name.trim().toLowerCase() === wanted);
+  if (!region || region.kind !== "face") return lit;
+  const face: FaceDefinition = region;
+  const phoneme = phonemeAt(doc.timingTracks.find((t) => t.id === p.timingTrack), ms);
+  const eyes = p.eyes ?? "auto";
+  const closed = eyes === "closed" || (eyes === "auto" && blinking(idSeed(effect.id), effect.startMs, ms));
+  for (const { part, ranges } of faceParts(face, phoneme, closed, p.outline ?? false)) {
+    const color = parseColor(facePartColor(face, part, phoneme, closed, (p.colors ?? "face") === "face", effect.palette.colors));
+    for (const r of ranges) for (let n = r.start; n < r.end; n++) lit.set(n, color);
+  }
+  return lit;
+}
+
 /** How much an effect's fades leave of it at `ms` (0–1). */
 function fadeLevel(effect: Effect, ms: number): number {
   let level = 1;
@@ -145,12 +178,12 @@ function fadeLevel(effect: Effect, ms: number): number {
 
 /** The sequence at `ms` as show frame bytes (prop order, like the engine's layout). */
 export function renderSequenceFrame(doc: Sequence, show: Show, ms: number): Uint8Array {
-  const layout = new Map<string, { offset: number; nodes: number; cpp: number; points: number[] }>();
+  const layout = new Map<string, { prop: Prop; offset: number; nodes: number; cpp: number; points: number[] }>();
   let length = 0;
   for (const prop of show.props) {
     const nodes = nodeCount(prop.shape);
     const cpp = channelsPerPixel(prop);
-    layout.set(prop.id, { offset: length, nodes, cpp, points: frontView(prop) });
+    layout.set(prop.id, { prop, offset: length, nodes, cpp, points: frontView(prop) });
     length += nodes * cpp;
   }
   const frame = new Uint8Array(length);
@@ -158,33 +191,43 @@ export function renderSequenceFrame(doc: Sequence, show: Show, ms: number): Uint
   for (const row of doc.rows) {
     const active = row.layers.map((layer) => layer.effects.find((e) => e.startMs <= ms && ms < e.endMs) ?? null);
     if (active.every((e) => e === null)) continue;
-    const members =
-      "prop" in row.target ? [row.target.prop] : (show.groups.find((g) => "group" in row.target && g.id === row.target.group)?.members ?? []);
-    const props = members.map((id) => layout.get(id)).filter((p) => p !== undefined);
+    // Each prop the row lights, with the nodes it lights (submodels light some of a prop's).
+    const lights = targetNodes(show, row.target, (prop) => layout.get(prop.id)?.nodes ?? 0, (prop) => layout.get(prop.id)?.points ?? []);
+    const props = [...lights]
+      .map(([id, nodes]) => {
+        const p = layout.get(id);
+        return p ? { ...p, list: nodes === "all" ? Array.from({ length: p.nodes }, (_, k) => k) : nodes } : undefined;
+      })
+      .filter((p) => p !== undefined);
     let [minX, minY, maxX, maxY] = [Infinity, Infinity, -Infinity, -Infinity];
     for (const p of props) {
-      for (let i = 0; i + 1 < Math.min(p.points.length, p.nodes * 2); i += 2) {
-        minX = Math.min(minX, p.points[i]);
-        maxX = Math.max(maxX, p.points[i]);
-        minY = Math.min(minY, p.points[i + 1]);
-        maxY = Math.max(maxY, p.points[i + 1]);
+      for (const k of p.list) {
+        if (2 * k + 1 >= p.points.length) continue;
+        minX = Math.min(minX, p.points[2 * k]);
+        maxX = Math.max(maxX, p.points[2 * k]);
+        minY = Math.min(minY, p.points[2 * k + 1]);
+        maxY = Math.max(maxY, p.points[2 * k + 1]);
       }
     }
-    const total = props.reduce((n, p) => n + p.nodes, 0);
+    const total = props.reduce((n, p) => n + p.list.length, 0);
+    const faces = new Map(active.map((e) => [e, e?.params.kind === "faces" ? new Map(props.map((p) => [p.prop.id, faceColors(e, doc, p.prop, ms)])) : null]));
     let index = 0;
     for (const p of props) {
-      for (let k = 0; k < p.nodes; k++, index++) {
+      for (const k of p.list) {
+        index++;
         const [x, y] = [p.points[k * 2] ?? 0, p.points[k * 2 + 1] ?? 0];
         const px: Px = {
           u: maxX > minX ? (x - minX) / (maxX - minX) : 0.5,
           v: maxY > minY ? (y - minY) / (maxY - minY) : 0.5,
-          i: index,
+          i: index - 1,
           n: total,
         };
         let [r, g, b, a] = [0, 0, 0, 0];
         active.forEach((effect, layer) => {
           if (!effect) return;
-          const [rgb, coverage] = shade(effect, ms, px, hash(layer, effect.id.length + effect.startMs));
+          const face = faces.get(effect)?.get(p.prop.id);
+          const lit = face?.get(k);
+          const [rgb, coverage] = face ? (lit ? [lit, 1] : [[0, 0, 0] as Rgb, 0]) : shade(effect, ms, px, hash(layer, effect.id.length + effect.startMs));
           const alpha = coverage * fadeLevel(effect, ms);
           if (alpha <= 0) return;
           r = r * (1 - alpha) + rgb[0] * alpha;

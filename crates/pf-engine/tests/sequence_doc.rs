@@ -405,3 +405,48 @@ fn an_exported_file_plays_back_looking_like_the_document() {
         wait_until(|| engine.live_frame().unwrap() == expected);
     }
 }
+
+#[test]
+fn detected_timing_tracks_replace_earlier_ones_in_one_undo_step() {
+    use pf_sequence::{Mark, TimingKind, TimingTrack};
+    let (mut engine, _recorded, dir) = engine();
+    assert!(matches!(
+        engine.replace_timing_tracks(vec![]),
+        Err(EngineError::NoSequence)
+    ));
+    new_doc(&mut engine, 10_000);
+    assert_eq!(engine.sequence_music(), None);
+    let lyrics = TimingTrack::new("Lyrics", TimingKind::Lyrics, vec![Mark::new(0, 900, "Ding")]);
+    let beats = |n: u64| {
+        TimingTrack::new(
+            "Beats",
+            TimingKind::Beats,
+            (0..n).map(|i| Mark::new(i * 500, i * 500 + 500, "")).collect(),
+        )
+    };
+    engine
+        .replace_timing_tracks(vec![lyrics.clone(), beats(4)])
+        .unwrap();
+    let snap = engine.replace_timing_tracks(vec![beats(8)]).unwrap();
+    let tracks: Vec<(&str, usize)> = snap
+        .sequence
+        .timing_tracks
+        .iter()
+        .map(|t| (t.name.as_str(), t.marks.len()))
+        .collect();
+    assert_eq!(tracks, vec![("Lyrics", 1), ("Beats", 8)]);
+    let snap = engine.undo_sequence().unwrap();
+    assert_eq!(snap.sequence.timing_tracks[1].marks.len(), 4, "one undo step");
+
+    engine
+        .edit_sequence(vec![SequenceEdit::UpdateInfo {
+            name: "Song".into(),
+            audio: Some("song.mp3".into()),
+            duration_ms: 10_000,
+            frame_ms: 25,
+        }])
+        .unwrap();
+    let path = dir.path().join("song.pfseq.json");
+    engine.save_sequence_doc_as(&path).unwrap();
+    assert_eq!(engine.sequence_music(), Some(dir.path().join("song.mp3")));
+}

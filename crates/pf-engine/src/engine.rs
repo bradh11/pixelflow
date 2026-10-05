@@ -613,6 +613,34 @@ impl Engine {
         Ok(self.sequence_snapshot_unchecked())
     }
 
+    /// The open sequence's music file (relative paths resolved next to the document), if any.
+    pub fn sequence_music(&self) -> Option<PathBuf> {
+        let open = self.sequence.as_ref()?;
+        document_music(open.path.as_deref(), open.doc.audio.as_deref())
+    }
+
+    /// Adds timing tracks (from beat detection, say) as one undo step, replacing any tracks
+    /// with the same names so running detection again doesn't pile up copies.
+    pub fn replace_timing_tracks(
+        &mut self,
+        tracks: Vec<pf_sequence::TimingTrack>,
+    ) -> Result<SequenceSnapshot, EngineError> {
+        let open = self.sequence.as_ref().ok_or(EngineError::NoSequence)?;
+        let mut edits: Vec<SequenceEdit> = open
+            .doc
+            .timing_tracks
+            .iter()
+            .filter(|t| tracks.iter().any(|n| n.name == t.name))
+            .map(|t| SequenceEdit::RemoveTimingTrack { id: t.id })
+            .collect();
+        edits.extend(
+            tracks
+                .into_iter()
+                .map(|track| SequenceEdit::AddTimingTrack { track }),
+        );
+        self.edit_sequence(edits)
+    }
+
     /// The open sequence as it looks at `position_ms` (a show frame: prop order, RGB/RGBW per
     /// pixel), for scrubbing the timeline without playing.
     pub fn sequence_doc_frame(&mut self, position_ms: u64) -> Option<Vec<u8>> {

@@ -779,6 +779,19 @@ impl Engine {
         self.playback_status()
     }
 
+    /// Adds an export of the open sequence (the `.fseq` file at `fseq`) to the show's sequences,
+    /// named after the sequence and with its music, as one undo step on the show.
+    pub fn add_sequence_doc_to_show(&mut self, fseq: &Path) -> Result<ShowSnapshot, EngineError> {
+        let open = self.sequence.as_ref().ok_or(EngineError::NoSequence)?;
+        let name = match open.doc.name.trim() {
+            "" => "Sequence".to_string(),
+            name => name.to_string(),
+        };
+        let mut entry = pf_model::SequenceEntry::new(name, fseq.display().to_string());
+        entry.audio = self.sequence_music().map(|p| p.display().to_string());
+        self.add_sequence(entry)
+    }
+
     /// Whether a playing sequence document goes out to the controllers.
     pub fn sequence_doc_output(&self) -> bool {
         self.send_sequence_doc

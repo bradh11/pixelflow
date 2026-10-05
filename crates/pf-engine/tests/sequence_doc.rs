@@ -379,6 +379,31 @@ fn exports_the_open_sequence() {
     assert_eq!(frame, vec![0; 30]);
     assert!(summary.notes.is_empty(), "{:?}", summary.notes);
 
+    // The export joins the show's sequences, named after the sequence, with its music.
+    let saved = dir.path().join("song.pfseq.json");
+    let mut info = engine.sequence_doc().unwrap().sequence;
+    info.audio = Some("song.mp3".into());
+    engine
+        .edit_sequence(vec![SequenceEdit::UpdateInfo {
+            name: info.name,
+            audio: info.audio,
+            duration_ms: info.duration_ms,
+            frame_ms: info.frame_ms,
+        }])
+        .unwrap();
+    engine.save_sequence_doc_as(&saved).unwrap();
+    let snapshot = engine.add_sequence_doc_to_show(&path).unwrap();
+    let entry = &snapshot.show.sequences[0];
+    assert_eq!(entry.name, "Song");
+    assert_eq!(entry.path, path.display().to_string());
+    assert_eq!(
+        entry.audio,
+        Some(dir.path().join("song.mp3").display().to_string())
+    );
+    assert!(snapshot.can_undo);
+    let again = engine.add_sequence_doc_to_show(&path).unwrap();
+    assert_eq!(again.show.sequences[1].name, "Song (2)");
+
     // A show with errors still exports, saying so.
     engine.apply(vec![Edit::SetFrameRate { fps: 5 }]).unwrap();
     let summary = engine.export_sequence_doc(&path).unwrap();

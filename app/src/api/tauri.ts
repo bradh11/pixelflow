@@ -5,6 +5,7 @@ import type { Backend } from "./backend";
 const SHOW_FILTER = [{ name: "PixelFlow show", extensions: ["json"] }];
 const SEQUENCE_FILTER = [{ name: "FPP sequence", extensions: ["fseq"] }];
 const AUDIO_FILTER = [{ name: "Music", extensions: ["mp3", "m4a", "wav", "ogg", "flac"] }];
+const IMAGE_FILTER = [{ name: "Photo", extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp"] }];
 
 /** The real engine, running in the Tauri desktop shell. */
 export const tauriBackend: Backend = {
@@ -39,6 +40,11 @@ export const tauriBackend: Backend = {
   liveFrame: async () => new Uint8Array(await invoke<ArrayBuffer>("live_frame")),
   sequenceFrame: async () => new Uint8Array(await invoke<ArrayBuffer>("sequence_frame")),
   previewProps: () => invoke("preview_props"),
+  readImage: async (path) => new Uint8Array(await invoke<ArrayBuffer>("read_image", { path })),
+  pickImagePath: async () => {
+    const path = await open({ multiple: false, directory: false, filters: IMAGE_FILTER, title: "Choose a photo of your house" });
+    return typeof path === "string" ? path : null;
+  },
   importXlights: (folder) => invoke("import_xlights", { folder }),
   pickShowFolder: async () => {
     const path = await open({ multiple: false, directory: true, title: "Choose your xLights show folder" });

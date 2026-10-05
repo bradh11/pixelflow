@@ -5,11 +5,16 @@ import { newController, newProp } from "../lib/shows";
 /** A small sample show for browser-only UI development (`?demo`). */
 export function demoShow(): Show {
   const show = emptyShow("Demo House");
-  const arch = { ...newProp("arch", show), name: "Garage Arch" };
-  const tree = { ...newProp("tree", show), name: "Mega Tree" };
-  const matrix = { ...newProp("matrix", show), name: "Window Matrix", colorOrder: "GRB" as const };
-  const star = { ...newProp("star", show), name: "Porch Star" };
+  const at = (prop: Prop, x: number, y: number): Prop => ({
+    ...prop,
+    transform: { ...prop.transform, position: { x, y, z: 0 } },
+  });
+  const arch = at({ ...newProp("arch", show), name: "Garage Arch" }, -6, 0);
+  const tree = at({ ...newProp("tree", show), name: "Mega Tree" }, 8, 0);
+  const matrix = at({ ...newProp("matrix", show), name: "Window Matrix", colorOrder: "GRB" as const }, 0.5, 3.8);
+  const star = at({ ...newProp("star", show), name: "Porch Star" }, -3, 8.2);
   show.props = [arch, tree, matrix, star];
+  show.background = { path: DEMO_PHOTO, x: -12, y: 12, width: 24, opacity: 0.8 };
   const fpp = newController("Main FPP", "192.168.1.50", "sacn", 4);
   fpp.ports[0].slots = [arch, matrix].map((p) => ({
     prop: p.id,
@@ -27,6 +32,37 @@ export function demoShow(): Show {
   const wled = newController("Porch WLED", "192.168.1.60", "ddp", 1);
   show.controllers = [fpp, wled];
   return show;
+}
+
+/** Where the demo show's house photo "is". */
+export const DEMO_PHOTO = "/Photos/Demo House.svg";
+
+/**
+ * A drawing of a house at night (1600 × 1000), standing in for a photo in the demo. Layout
+ * units map to it as x: -12…12 and y: 12…-3, so the ground (y = 0) is 800 px down.
+ */
+export function demoHousePhoto(): Uint8Array {
+  const stars = Array.from({ length: 40 }, (_, i) => {
+    const x = (i * 397) % 1600;
+    const y = (i * 151) % 320;
+    return `<circle cx="${x}" cy="${y}" r="${1 + (i % 3) * 0.6}" fill="#fff" opacity="${0.3 + (i % 4) * 0.15}"/>`;
+  }).join("");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+<defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0b1026"/><stop offset="1" stop-color="#26304f"/></linearGradient></defs>
+<rect width="1600" height="1000" fill="url(#sky)"/>${stars}
+<circle cx="1380" cy="140" r="48" fill="#f3efd8" opacity="0.85"/>
+<rect y="790" width="1600" height="210" fill="#1d2b22"/>
+<rect x="133" y="400" width="934" height="400" fill="#5b4a3f"/>
+<polygon points="67,410 600,100 1133,410" fill="#3a2f2a"/>
+<rect x="250" y="590" width="300" height="210" fill="#8c8478"/>
+<g stroke="#6d665c" stroke-width="4">${[630, 670, 710, 750].map((y) => `<line x1="250" y1="${y}" x2="550" y2="${y}"/>`).join("")}</g>
+<rect x="700" y="480" width="267" height="133" fill="#e9c46a" opacity="0.75"/>
+<path d="M833 480v133M700 547h267" stroke="#5b4a3f" stroke-width="8"/>
+<rect x="600" y="640" width="70" height="160" fill="#3b2b22"/>
+<rect x="540" y="200" width="120" height="90" fill="#e9c46a" opacity="0.6"/>
+<rect x="1313" y="785" width="40" height="25" fill="#3b2b22"/>
+</svg>`;
+  return new TextEncoder().encode(svg);
 }
 
 function slotFor(prop: Prop, overrides: Partial<PortSlot> = {}): PortSlot {

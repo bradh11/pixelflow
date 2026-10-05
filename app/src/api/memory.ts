@@ -17,6 +17,7 @@ import type {
   ShowSnapshot,
   TargetSpec,
 } from "./types";
+import { frontView } from "../lib/geometry";
 import { channelsPerPixel, newController, nodeCount } from "../lib/shows";
 
 /**
@@ -49,6 +50,9 @@ export class MemoryBackend implements Backend {
   sequenceDurationMs = 60_000;
   nextSequencePath: string | null = null;
   nextAudioPath: string | null = null;
+  /** Image files "on disk", keyed by path, and what the photo dialog returns. */
+  images = new Map<string, Uint8Array>();
+  nextImagePath: string | null = null;
   private playbackStopReason_: string | null = null;
   private playing: {
     path: string;
@@ -409,16 +413,25 @@ export class MemoryBackend implements Backend {
     return frame;
   }
 
-  /** Each prop as a row of pixels (the engine computes real shapes). */
+  /** Each prop's pixels in the front view, from the same shapes and transforms as the engine. */
   async previewProps() {
-    let offset = 0;
-    return this.show.props.map((prop, row) => {
-      const nodes = nodeCount(prop.shape);
-      const points = Array.from({ length: nodes }, (_, i) => [i * 0.1, -row]).flat();
-      const entry = { prop: prop.id, frameOffset: offset, channelsPerPixel: channelsPerPixel(prop), points };
-      offset += nodes * channelsPerPixel(prop);
-      return entry;
-    });
+    const layout = layoutOnly(this.show);
+    return this.show.props.map((prop, i) => ({
+      prop: prop.id,
+      frameOffset: layout.props[i].frameOffset,
+      channelsPerPixel: layout.props[i].channelsPerPixel,
+      points: frontView(prop).slice(0, layout.props[i].nodes * 2),
+    }));
+  }
+
+  async readImage(path: string) {
+    const image = this.images.get(path);
+    if (!image) throw new Error(`Could not read ${path}: file not found`);
+    return image.slice();
+  }
+
+  async pickImagePath() {
+    return this.nextImagePath;
   }
 
   async importXlights(folder: string) {
@@ -496,7 +509,16 @@ function withFreshIds(details: DeviceDetails): DeviceDetails {
 }
 
 export function emptyShow(name: string): Show {
-  return { schemaVersion: 4, name, settings: { frameRate: 40 }, props: [], groups: [], controllers: [], sequences: [] };
+  return {
+    schemaVersion: 5,
+    name,
+    settings: { frameRate: 40 },
+    props: [],
+    groups: [],
+    controllers: [],
+    sequences: [],
+    background: null,
+  };
 }
 
 function stoppedOutput(generation: number): OutputStatus {
@@ -589,6 +611,18 @@ function applyEdit(show: Show, edit: Edit): void {
       if (from < 0) throw new Error("There is no sequence with that id.");
       const [moved] = show.sequences.splice(from, 1);
       show.sequences.splice(Math.min(edit.index, show.sequences.length), 0, moved);
+      break;
+    }
+    case "setBackground": {
+      const bg = edit.background;
+      // The same checks as the engine.
+      if (bg) {
+        if (!bg.path.trim()) throw new Error("Choose a photo file for the background.");
+        if (!Number.isFinite(bg.x) || !Number.isFinite(bg.y)) throw new Error("The background photo's position must be a number.");
+        if (!Number.isFinite(bg.width) || bg.width <= 0) throw new Error("The background photo must be wider than zero.");
+        if (!(bg.opacity >= 0 && bg.opacity <= 1)) throw new Error("The background photo's strength must be between 0% and 100%.");
+      }
+      show.background = bg ? structuredClone(bg) : null;
       break;
     }
   }

@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
-import { demoDevices, demoPlayers, demoShow } from "./api/demo";
+import { DEMO_PHOTO, demoDevices, demoHousePhoto, demoPlayers, demoShow } from "./api/demo";
 import { MemoryBackend } from "./api/memory";
 import { inTauri, tauriBackend } from "./api/tauri";
 import { useApp } from "./state/store";
@@ -18,6 +18,8 @@ if (inTauri()) {
     backend.deviceNetwork = demoDevices();
     backend.fppPlayers = demoPlayers();
     backend.nextSequencePath = "/Shows/Christmas Medley 2017.fseq";
+    backend.images.set(DEMO_PHOTO, demoHousePhoto());
+    backend.nextImagePath = DEMO_PHOTO;
   }
   void useApp.getState().connect(backend);
   if (demo) useApp.setState({ started: true });

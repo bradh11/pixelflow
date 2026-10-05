@@ -360,6 +360,16 @@ describe("the move gizmo", () => {
     expect(dragDelta("z", v3(0, 0, 0), ray, ray)).toBeNull();
   });
 
+  it("won't throw a prop toward the horizon when dragged over the ground looking almost flat across it", () => {
+    const low: Orbit = { target: v3(0, 0, 0), yaw: 0, pitch: 0.4, distance: 10 };
+    const start = screenRay(low, size, project(viewProjection(low, size), size, v3(0, 0, 0))!);
+    // A ray only a degree below the horizon meets the ground hundreds of units away.
+    const grazing = { origin: start.origin, dir: { x: 0, y: -Math.sin(Math.PI / 180), z: -Math.cos(Math.PI / 180) } };
+    expect(dragDelta("xz", v3(0, 0, 0), start, grazing)).toBeNull();
+    const steep = { origin: start.origin, dir: { x: 0, y: -Math.sin(0.3), z: -Math.cos(0.3) } };
+    expect(dragDelta("xz", v3(0, 0, 0), start, steep)).not.toBeNull();
+  });
+
   it("drags props over the ground from above, and up the house from street level", () => {
     expect(freeDragHandle({ ...o, pitch: 0.8 })).toBe("xz");
     expect(freeDragHandle({ ...o, pitch: 0.1 })).toBe("xy");

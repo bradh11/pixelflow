@@ -546,6 +546,9 @@ export function gizmoHit(o: Orbit, size: Size, origin: V3, s: Pt, tolerance = 7)
   return best;
 }
 
+/** Drags on a plane follow rays at least this steep to it (sine of the angle: about 3°). */
+const MIN_PLANE_ANGLE = 0.05;
+
 /**
  * How far a drag on a gizmo handle (or on the ground, "xz") moves the selection, from where it
  * was grabbed (`start`) to where the pointer is now (`now`), both rays from the camera. Moves
@@ -561,6 +564,9 @@ export function dragDelta(handle: GizmoHandle, origin: V3, start: Ray, now: Ray,
     delta = scale(axis, t1 - t0);
   } else {
     const normal = PLANE_NORMALS[handle];
+    // A ray almost along the plane meets it very far away: following it would throw the
+    // selection toward the horizon, so such a drag waits for a steadier angle.
+    if (Math.abs(dot(start.dir, normal)) < MIN_PLANE_ANGLE || Math.abs(dot(now.dir, normal)) < MIN_PLANE_ANGLE) return null;
     const [a, b] = [rayPlane(start, origin, normal), rayPlane(now, origin, normal)];
     if (!a || !b) return null;
     delta = sub(b, a);

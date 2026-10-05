@@ -41,14 +41,15 @@ export function updateEach(doc: Sequence, ids: readonly string[], change: (effec
 }
 
 /**
- * Makes every effect `ids` `lengthMs` long from where it starts: at least a frame, and no further
- * than the next effect on its layer or the song's end. Fades longer than the new length are cut
- * to it.
+ * Makes every effect `ids` `lengthMs` long from where it starts: at least a frame (room allowing),
+ * and no further than the next effect on its layer or the song's end. Fades longer than the new
+ * length are cut to it.
  */
 export function lengthEdits(doc: Sequence, ids: readonly string[], lengthMs: number): SequenceEdit[] {
   return updateEach(doc, ids, (e, latest) => {
     const hi = Math.min(latest.durationMs, effectBounds(latest, e.id)?.hi ?? latest.durationMs);
-    const endMs = Math.max(e.startMs + latest.frameMs, Math.min(hi, e.startMs + Math.round(lengthMs)));
+    // At least a frame, but never into the next effect or past the end (both win over the frame).
+    const endMs = Math.min(hi, Math.max(e.startMs + latest.frameMs, e.startMs + Math.round(lengthMs)));
     const length = endMs - e.startMs;
     return { ...e, endMs, fadeInMs: Math.min(e.fadeInMs, length), fadeOutMs: Math.min(e.fadeOutMs, length) };
   });

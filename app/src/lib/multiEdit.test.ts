@@ -85,6 +85,12 @@ describe("editing several effects at once", () => {
     ]);
     // Never shorter than a frame.
     expect(lengthEdits(d, ["b"], 0).map((e) => (e.type === "updateEffect" ? e.effect.endMs : null))).toEqual([1525]);
+    // Less than a frame of room: it stops at the next effect or the song's end all the same.
+    const tight = doc([[fx("x", "on", 0, 10), fx("wall", "on", 20, 100), fx("last", "on", 9990, 9995)]], 10_000);
+    expect(lengthEdits(tight, ["x", "last"], 0).map((e) => (e.type === "updateEffect" ? [e.effect.id, e.effect.endMs] : null))).toEqual([
+      ["x", 20],
+      ["last", 10_000],
+    ]);
     // Already that long: nothing to send.
     expect(lengthEdits(d, ["b"], 500)).toEqual([]);
   });

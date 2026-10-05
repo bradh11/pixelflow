@@ -44,6 +44,12 @@ pub(crate) async fn playback_status(state: State<'_, AppState>) -> Reply<Option<
     Ok(state.engine().playback_status())
 }
 
+/// Why playback was stopped by an edit to the show (a plain sentence), if it was.
+#[tauri::command]
+pub(crate) async fn playback_stop_reason(state: State<'_, AppState>) -> Reply<Option<String>> {
+    Ok(state.engine().playback_stop_reason().map(str::to_string))
+}
+
 /// The props' current colors (show frame bytes), sent raw rather than as JSON; empty when
 /// nothing is playing or testing.
 #[tauri::command]

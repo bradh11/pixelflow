@@ -70,10 +70,10 @@ export function ImportDialog({
     }
   };
 
-  const addDestination = async (destination: string, name: string) => {
+  const addDestination = async (destination: string, protocol: string, name: string) => {
     if (busy) return;
     setBusy(true);
-    const ok = await run((b) => b.importFppDestination(address, destination));
+    const ok = await run((b) => b.importFppDestination(address, destination, protocol));
     setBusy(false);
     if (ok) onImported(`Added ${name}. Import it from its own row once it's online to add its strings.`);
   };
@@ -148,18 +148,21 @@ export function ImportDialog({
               {details.config.destinations.map((d) => {
                 const name = d.description || d.address;
                 const inShow = controllers.some((c) => c.address === d.address);
+                const supported = d.protocol === "DDP" || d.protocol.startsWith("sACN");
                 return (
                   <div key={`${d.address}-${d.protocol}`} className="flex items-center justify-between gap-3">
                     <p>
                       Sends {thousands(d.channels)} channels by {d.protocol} to {name} ({d.address}).
                     </p>
                     {details.device.kind === "fpp" &&
-                      (inShow ? (
+                      (!supported ? (
+                        <span className="shrink-0 text-neutral-500">Not supported yet</span>
+                      ) : inShow ? (
                         <span className="shrink-0 text-neutral-500">In your show</span>
                       ) : (
                         <Button
                           aria-label={`Add ${name} to show`}
-                          onClick={() => addDestination(d.address, name)}
+                          onClick={() => addDestination(d.address, d.protocol, name)}
                           disabled={busy}
                         >
                           <Plus size={14} /> Add to show

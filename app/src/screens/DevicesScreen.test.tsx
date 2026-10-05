@@ -114,10 +114,23 @@ describe("devices", () => {
     await user.click(within(dialog).getByRole("button", { name: "Close" }));
 
     await user.click(screen.getByRole("button", { name: "Review Falcon_F16V5_B9F5" }));
+    const review = await screen.findByRole("dialog");
+    expect(await within(review).findByText("Fills in Falcon_F16V5_B9F5, added from your FPP's output list.")).toBeInTheDocument();
+    expect(within(review).queryByText(/already in your show/)).not.toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: "Add to show" }));
     const controllers = useApp.getState().snapshot!.show.controllers;
     expect(controllers).toHaveLength(1);
     expect(controllers[0].ports.length).toBeGreaterThan(0);
+  });
+
+  it("doesn't offer to add a destination PixelFlow can't send to", async () => {
+    const { user, backend } = await openDevices();
+    backend.deviceNetwork.details[0].config.destinations[0].protocol = "Art-Net";
+    await user.click(screen.getByRole("button", { name: "Scan network" }));
+    await user.click(await screen.findByRole("button", { name: "Review FPP" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByText("Not supported yet")).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: /to show/ })).not.toBeInTheDocument();
   });
 
   it("clicking a device's row opens it", async () => {

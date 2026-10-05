@@ -106,7 +106,7 @@ export interface Controller {
   protocol: Protocol;
   ports: Port[];
   /** Where this controller's data sits in a rendered sequence (channels from 1), when known. */
-  sequenceChannels: { start: number; count: number } | null;
+  sequenceChannels: { start: number; count: number; rawDdpOffsets?: boolean } | null;
 }
 
 export interface Show {
@@ -294,6 +294,12 @@ export interface Destination {
   /** The first sequence channel (1-based) sent to this destination. */
   startChannel: number;
   startUniverse: number | null;
+  /** Channels per universe, for sACN destinations; null for DDP. */
+  universeSize: number | null;
+  /** DDP only: the FPP sends raw channel numbers (packet offsets are absolute channels). */
+  ddpRaw: boolean;
+  /** Merged sACN ranges that aren't one back-to-back run of equal-sized universes. */
+  unevenUniverses: boolean;
 }
 
 export interface DeviceConfig {

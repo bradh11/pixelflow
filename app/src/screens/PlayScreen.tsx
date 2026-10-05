@@ -1,5 +1,5 @@
 import { AlertTriangle, FolderOpen, Pause, Play, RotateCcw, Square } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../api/backend";
 import type { PlaybackStatus, PlayerStatus, PreviewProp } from "../api/types";
 import { ChannelGrid } from "../components/ChannelGrid";
@@ -20,10 +20,15 @@ const STATE_STYLE: Record<string, string> = {
 };
 
 /** FPPs found by discovery that are playing right now (they override PixelFlow's output). */
-function useBusyFpps(): { address: string; name: string; status: PlayerStatus }[] {
+function useBusyFpps(): {
+  busy: { address: string; name: string; status: PlayerStatus }[];
+  /** Checks the FPPs again now (after the user stops one). */
+  recheck: () => Promise<void>;
+} {
   const backend = useApp((s) => s.backend);
   const discovery = useApp((s) => s.discovery);
   const [busy, setBusy] = useState<{ address: string; name: string; status: PlayerStatus }[]>([]);
+  const checkRef = useRef<() => Promise<void>>(async () => {});
   useEffect(() => {
     const fpps = discovery?.devices.filter((d) => d.kind === "fpp") ?? [];
     if (!backend || fpps.length === 0) {
@@ -43,14 +48,17 @@ function useBusyFpps(): { address: string; name: string; status: PlayerStatus }[
       );
       if (!cancelled) setBusy(results.filter((r) => r !== null && r.status.state === "playing") as typeof busy);
     };
+    checkRef.current = check;
     void check();
     const timer = setInterval(() => void check(), FPP_MS);
     return () => {
       cancelled = true;
+      checkRef.current = async () => {};
       clearInterval(timer);
     };
   }, [backend, discovery]);
-  return busy;
+  const recheck = useCallback(() => checkRef.current(), []);
+  return { busy, recheck };
 }
 
 /** Plays a rendered sequence (.fseq) on the controllers and shows it on the props. */
@@ -63,7 +71,14 @@ export function PlayScreen() {
   const [frame, setFrame] = useState<Uint8Array | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scrub, setScrub] = useState<number | null>(null);
-  const busyFpps = useBusyFpps();
+  const { busy: busyFpps, recheck: recheckFpps } = useBusyFpps();
+  const [stopping, setStopping] = useState<string | null>(null);
+  // What the screen last showed, and when the user last did something: answers to status polls
+  // that started before the user's last action are out of date and ignored.
+  const [notice, setNotice] = useState<string | null>(null);
+  const statusRef = useRef<PlaybackStatus | null>(null);
+  const actions = useRef(0);
+  statusRef.current = status;
   const known = snapshot?.show.controllers.some((c) => c.sequenceChannels) ?? false;
   // Controllers that get sequence data but have no strings in PixelFlow yet: shown as raw grids.
   const unwired = (snapshot?.show.controllers ?? []).filter(
@@ -73,12 +88,16 @@ export function PlayScreen() {
 
   const run = useCallback(
     async (action: () => Promise<PlaybackStatus | null | void>) => {
+      actions.current++;
       try {
         const next = await action();
         if (next !== undefined) setStatus(next);
+        setNotice(null);
         setError(null);
       } catch (e) {
         setError(errorMessage(e));
+      } finally {
+        actions.current++;
       }
     },
     [],
@@ -88,10 +107,29 @@ export function PlayScreen() {
   useEffect(() => {
     if (!backend) return;
     let cancelled = false;
-    void backend.playbackStatus().then((s) => !cancelled && setStatus(s));
-    const timer = setInterval(() => {
-      void backend.playbackStatus().then((s) => !cancelled && setStatus(s), () => {});
-    }, STATUS_MS);
+    let polling = false;
+    const poll = async () => {
+      if (polling) return;
+      polling = true;
+      const startedAt = actions.current;
+      try {
+        const s = await backend.playbackStatus();
+        if (cancelled || startedAt !== actions.current) return;
+        if (s === null && statusRef.current !== null) {
+          // Playback ended without the user stopping it: an edit to the show may be why.
+          const reason = await backend.playbackStopReason().catch(() => null);
+          if (cancelled || startedAt !== actions.current) return;
+          setNotice(reason);
+        }
+        setStatus(s);
+      } catch {
+        // The next poll tries again.
+      } finally {
+        polling = false;
+      }
+    };
+    void poll();
+    const timer = setInterval(() => void poll(), STATUS_MS);
     return () => {
       cancelled = true;
       clearInterval(timer);
@@ -164,6 +202,17 @@ export function PlayScreen() {
     if (path) await run(() => backend.startPlayback(path, 0));
   };
 
+  const scrubRef = useRef<number | null>(null);
+  scrubRef.current = scrub;
+  /** Jumps to where the slider was left (pointer release, key release, or leaving the slider). */
+  const commitSeek = () => {
+    const target = scrubRef.current;
+    if (target === null) return;
+    scrubRef.current = null;
+    setScrub(null);
+    void run(() => backend!.seekPlayback(target));
+  };
+
   const stop = () => run(async () => {
     await backend!.stopPlayback();
     setStatus(null);
@@ -193,7 +242,20 @@ export function PlayScreen() {
             {fpp.name} is playing {fpp.status.sequence ?? fpp.status.playlist}. While it plays, it overrides PixelFlow on
             the same controllers.
           </p>
-          <Button onClick={() => run(async () => backend!.fppStop(fpp.address, false))}>Stop FPP</Button>
+          <Button
+            disabled={stopping === fpp.address}
+            onClick={async () => {
+              setStopping(fpp.address);
+              try {
+                await run(async () => backend!.fppStop(fpp.address, false));
+                await recheckFpps();
+              } finally {
+                setStopping(null);
+              }
+            }}
+          >
+            {stopping === fpp.address ? "Stopping…" : "Stop FPP"}
+          </Button>
         </div>
       ))}
 
@@ -202,6 +264,7 @@ export function PlayScreen() {
           {error}
         </p>
       )}
+      {notice && !status && <p className="mb-4 text-sm text-amber-700 dark:text-amber-400">{notice}</p>}
 
       {!known && !status && (
         <EmptyState title="Add your controllers first">
@@ -245,22 +308,29 @@ export function PlayScreen() {
                 max={status.durationMs}
                 step={status.frameMs}
                 value={scrub ?? status.positionMs}
+                aria-valuetext={clock((scrub ?? status.positionMs) / 1000)}
                 onChange={(e) => setScrub(Number(e.target.value))}
-                onPointerUp={() => {
-                  if (scrub !== null) void run(() => backend!.seekPlayback(scrub));
-                  setScrub(null);
+                onKeyDown={(e) => {
+                  // Dragging moves frame by frame; the keyboard jumps a second at a time.
+                  const keys: Record<string, number> = { ArrowRight: 1000, ArrowUp: 1000, ArrowLeft: -1000, ArrowDown: -1000, PageUp: 10000, PageDown: -10000 };
+                  const here = scrubRef.current ?? status.positionMs;
+                  const next =
+                    e.key === "Home" ? 0 : e.key === "End" ? status.durationMs : e.key in keys ? here + keys[e.key] : null;
+                  if (next === null) return;
+                  e.preventDefault();
+                  scrubRef.current = Math.min(status.durationMs, Math.max(0, next));
+                  setScrub(scrubRef.current);
                 }}
-                onKeyUp={() => {
-                  if (scrub !== null) void run(() => backend!.seekPlayback(scrub));
-                  setScrub(null);
-                }}
+                onPointerUp={commitSeek}
+                onKeyUp={commitSeek}
+                onBlur={commitSeek}
               />
             </div>
             <p className="shrink-0 text-sm text-neutral-500 tabular-nums">
               {clock((scrub ?? status.positionMs) / 1000)} / {clock(status.durationMs / 1000)}
             </p>
           </div>
-          {status.state === "ended" && <p className="text-sm text-neutral-500">Finished. Press play to start again.</p>}
+          {status.state === "ended" && !status.error && <p className="text-sm text-neutral-500">Finished. Press play to start again.</p>}
           {status.error && <p className="text-sm text-red-600 dark:text-red-400">{status.error}</p>}
           {status.notes.map((note) => (
             <p key={note} className="text-sm text-amber-700 dark:text-amber-400">

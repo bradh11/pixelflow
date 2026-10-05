@@ -43,6 +43,7 @@ export function ChannelGrid({
       <figcaption className="text-sm text-neutral-500">{label}</figcaption>
       <canvas
         ref={canvasRef}
+        role="img"
         aria-label={label}
         className="w-full max-w-2xl rounded bg-black [image-rendering:pixelated]"
         style={{ aspectRatio: `${COLUMNS} / ${rows}` }}

@@ -1,5 +1,5 @@
 import { AlertTriangle, Loader2, Play, Square, StepForward } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../api/backend";
 import type { FppSequence, PlayerStatus } from "../api/types";
 import { clock, thousands } from "../lib/format";
@@ -34,12 +34,22 @@ export function FppPanel({ address }: { address: string }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Only the newest status answer is used, so a slow older one can't undo a newer one.
+  const latest = useRef(0);
+  const polling = useRef(false);
+
   const refresh = useCallback(async () => {
     if (!backend) return;
+    const mine = ++latest.current;
     try {
-      setStatus(await backend.fppStatus(address));
+      const next = await backend.fppStatus(address);
+      if (mine !== latest.current) return;
+      setStatus(next);
       setError(null);
     } catch (e) {
+      if (mine !== latest.current) return;
+      // Don't keep showing (or offering to stop) a state we can no longer confirm.
+      setStatus(null);
       setError(errorMessage(e));
     }
   }, [backend, address]);
@@ -47,7 +57,13 @@ export function FppPanel({ address }: { address: string }) {
   useEffect(() => {
     void refresh();
     backend?.fppSequences(address).then(setSequences, () => setSequences([]));
-    const timer = setInterval(() => void refresh(), REFRESH_MS);
+    const timer = setInterval(() => {
+      if (polling.current) return;
+      polling.current = true;
+      void refresh().finally(() => {
+        polling.current = false;
+      });
+    }, REFRESH_MS);
     return () => clearInterval(timer);
   }, [backend, address, refresh]);
 

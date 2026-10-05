@@ -43,6 +43,7 @@ export class MemoryBackend implements Backend {
   /** Length of any sequence "played" here, and the path the sequence dialog returns. */
   sequenceDurationMs = 60_000;
   nextSequencePath: string | null = null;
+  private playbackStopReason_: string | null = null;
   private playing: { path: string; positionMs: number; since: number | null } | null = null;
   /** Fake FPP players by address: what each is playing and the sequences stored on it. */
   fppPlayers: Record<string, { status: PlayerStatus; sequences: FppSequence[] }> = {};
@@ -63,7 +64,16 @@ export class MemoryBackend implements Backend {
     this.redoStack = [];
     this.show = next;
     this.revision++;
+    this.syncPlayback();
     return this.snapshot();
+  }
+
+  /** Like the engine: playback stops, saying why, when no controller can receive the sequence. */
+  private syncPlayback() {
+    if (this.playing && !this.show.controllers.some((c) => c.sequenceChannels)) {
+      this.playing = null;
+      this.playbackStopReason_ = "Playback stopped because no controller has sequence channels anymore.";
+    }
   }
 
   async undo() {
@@ -73,6 +83,7 @@ export class MemoryBackend implements Backend {
       this.redoStack.push(this.show);
       this.show = previous;
       this.revision++;
+      this.syncPlayback();
     }
     return this.snapshot();
   }
@@ -84,6 +95,7 @@ export class MemoryBackend implements Backend {
       this.undoStack.push(this.show);
       this.show = next;
       this.revision++;
+      this.syncPlayback();
     }
     return this.snapshot();
   }
@@ -131,6 +143,8 @@ export class MemoryBackend implements Backend {
   async startOutput(pattern: PatternSpec, target: TargetSpec) {
     this.calls.push("startOutput");
     this.lastTarget = target;
+    this.playing = null; // a test pattern stops playback, like the engine
+    this.playbackStopReason_ = null;
     this.output = {
       ...stoppedOutput(this.output.generation + 1),
       running: true,
@@ -170,7 +184,12 @@ export class MemoryBackend implements Backend {
     const found = this.deviceNetwork.details.find((d) => d.device.address === address);
     if (!found) throw new Error(`Could not reach ${address}: no response`);
     const details = structuredClone(found);
-    details.plan.alreadyInShow = this.show.controllers.some((c) => c.address === address);
+    // Like the engine: a controller that came from an FPP's output list is filled in, not copied.
+    const here = this.show.controllers.filter((c) => c.address === address);
+    details.plan.alreadyInShow = here.some((c) => !isPlaceholder(c));
+    if (!details.plan.alreadyInShow && here.length > 0) {
+      details.plan.notes.push(`Fills in ${here[0].name}, added from your FPP's output list.`);
+    }
     return withFreshIds(details);
   }
 
@@ -178,7 +197,7 @@ export class MemoryBackend implements Backend {
     const { device, plan } = await this.inspectDevice(address);
     if (!plan.canImport) throw new Error(`${device.name} has no pixel outputs to import.`);
     // Like the engine: a port-less controller at this address (added from an FPP) is filled in.
-    const placeholder = this.show.controllers.find((c) => c.address === address && c.ports.length === 0);
+    const placeholder = this.show.controllers.find((c) => c.address === address && isPlaceholder(c));
     const controller = placeholder
       ? { ...plan.controller, id: placeholder.id, name: placeholder.name, sequenceChannels: placeholder.sequenceChannels }
       : plan.controller;
@@ -188,13 +207,25 @@ export class MemoryBackend implements Backend {
     ]);
   }
 
-  async importFppDestination(address: string, destination: string) {
+  async importFppDestination(address: string, destination: string, protocol: string) {
     const { device, config } = await this.inspectDevice(address);
-    const target = config.destinations.find((d) => d.address === destination);
+    const target = config.destinations.find((d) => d.address === destination && d.protocol === protocol);
     if (!target) throw new Error(`${device.name} doesn't send to ${destination}.`);
+    if (protocol !== "DDP" && !protocol.startsWith("sACN")) throw new Error(`PixelFlow can't send ${protocol} yet.`);
+    const existing = this.show.controllers.find((c) => c.address === destination);
+    if (existing) {
+      throw new Error(`${target.description || target.address} is already in your show as ${existing.name}.`);
+    }
     const controller = {
-      ...newController(target.description || target.address, target.address, "ddp", 0),
-      sequenceChannels: target.channels > 0 ? { start: Math.max(1, target.startChannel), count: target.channels } : null,
+      ...newController(target.description || target.address, target.address, protocol === "DDP" ? "ddp" : "sacn", 0),
+      sequenceChannels:
+        target.channels > 0
+          ? {
+              start: Math.max(1, target.startChannel),
+              count: target.channels,
+              ...(target.ddpRaw && protocol === "DDP" ? { rawDdpOffsets: true } : {}),
+            }
+          : null,
     };
     return this.applyEdits([{ type: "addController", controller }]);
   }
@@ -262,6 +293,7 @@ export class MemoryBackend implements Backend {
       );
     }
     this.output = { ...this.output, running: false };
+    this.playbackStopReason_ = null;
     this.playing = { path, positionMs, since: Date.now() };
     return this.playbackNow()!;
   }
@@ -283,10 +315,15 @@ export class MemoryBackend implements Backend {
   async stopPlayback() {
     this.calls.push("stopPlayback");
     this.playing = null;
+    this.playbackStopReason_ = null;
   }
 
   async playbackStatus() {
     return this.playbackNow();
+  }
+
+  async playbackStopReason() {
+    return this.playbackStopReason_;
   }
 
   /** A moving rainbow across every prop while something plays. */
@@ -347,6 +384,8 @@ export class MemoryBackend implements Backend {
     this.revision++;
     this.savedRevision = this.revision;
     this.output = stoppedOutput(this.output.generation);
+    this.playing = null;
+    this.playbackStopReason_ = null;
   }
 
   private snapshot(): ShowSnapshot {
@@ -371,6 +410,11 @@ export class MemoryBackend implements Backend {
 }
 
 /** New ids for an import plan's controller and props, as the engine creates for each import. */
+/** A controller added from an FPP's output list: no ports yet, but it knows its sequence channels. */
+function isPlaceholder(c: Show["controllers"][number]): boolean {
+  return c.ports.length === 0 && c.sequenceChannels !== null;
+}
+
 function withFreshIds(details: DeviceDetails): DeviceDetails {
   const ids = new Map(details.plan.props.map((p) => [p.id, crypto.randomUUID()]));
   details.plan.props = details.plan.props.map((p) => ({ ...p, id: ids.get(p.id)! }));

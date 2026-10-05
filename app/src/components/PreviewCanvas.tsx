@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { PreviewProp } from "../api/types";
 
 /** Color for pixels that have no live data. */
@@ -30,7 +30,7 @@ export function PreviewCanvas({ props, frame }: { props: PreviewProp[]; frame: U
   const bounds = useMemo(() => boundsOf(props), [props]);
   const pixelCount = useMemo(() => props.reduce((n, p) => n + p.points.length / 2, 0), [props]);
 
-  useEffect(() => {
+  const draw = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
@@ -73,5 +73,16 @@ export function PreviewCanvas({ props, frame }: { props: PreviewProp[]; frame: U
     ctx.globalCompositeOperation = "source-over";
   }, [props, frame, bounds, pixelCount]);
 
-  return <canvas ref={canvasRef} aria-label="Preview" className="h-full w-full rounded-lg" />;
+  useEffect(draw, [draw]);
+
+  // Redraw when the canvas changes size (window resize, side panels opening).
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const observer = new ResizeObserver(() => draw());
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, [draw]);
+
+  return <canvas ref={canvasRef} role="img" aria-label="Preview" className="h-full w-full rounded-lg" />;
 }

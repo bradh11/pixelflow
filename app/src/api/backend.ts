@@ -36,7 +36,7 @@ export interface Backend {
   /** Adds the device as a controller with starter props, as one undo step. */
   importDevice(address: string): Promise<ShowSnapshot>;
   /** Adds a controller an FPP sends to, from the FPP's output list (works while it's offline). */
-  importFppDestination(address: string, destination: string): Promise<ShowSnapshot>;
+  importFppDestination(address: string, destination: string, protocol: string): Promise<ShowSnapshot>;
   /** What an FPP is playing (changes nothing). */
   fppStatus(address: string): Promise<PlayerStatus>;
   /** The sequences stored on an FPP (changes nothing). */
@@ -52,6 +52,8 @@ export interface Backend {
   stopPlayback(): Promise<void>;
   /** The playing sequence, or null when nothing is playing. */
   playbackStatus(): Promise<PlaybackStatus | null>;
+  /** Why playback was stopped by an edit to the show (a plain sentence), or null. */
+  playbackStopReason(): Promise<string | null>;
   /** The props' current colors (show frame bytes); empty when nothing is playing or testing. */
   liveFrame(): Promise<Uint8Array>;
   /** The playing sequence's current frame (every channel, as sent); empty when nothing plays. */

@@ -134,6 +134,7 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         playback::seek_playback,
         playback::stop_playback,
         playback::playback_status,
+        playback::playback_stop_reason,
         playback::live_frame,
         playback::sequence_frame,
         playback::preview_props,
@@ -442,7 +443,7 @@ mod tests {
         let snapshot = call(
             &webview,
             "import_fpp_destination",
-            json!({ "address": fpp, "destination": falcon }),
+            json!({ "address": fpp, "destination": falcon, "protocol": "DDP" }),
         )
         .unwrap();
         assert_eq!(snapshot["summary"]["controllers"], 1);
@@ -457,7 +458,7 @@ mod tests {
         assert_eq!(snapshot["show"]["controllers"][0]["adapter"], "falcon");
         assert_eq!(
             snapshot["show"]["controllers"][0]["sequenceChannels"],
-            json!({ "start": 1, "count": 6147 })
+            json!({ "start": 1, "count": 6147, "rawDdpOffsets": true })
         );
 
         let snapshot = call(&webview, "undo", json!({})).unwrap();
@@ -467,10 +468,41 @@ mod tests {
         let error = call(
             &webview,
             "import_fpp_destination",
-            json!({ "address": fpp, "destination": "192.0.2.77" }),
+            json!({ "address": fpp, "destination": "192.0.2.77", "protocol": "DDP" }),
         )
         .unwrap_err();
         assert_eq!(error, json!("FPP doesn't send to 192.0.2.77."));
+
+        // The destination is picked by address and protocol; an existing controller is never doubled.
+        let error = call(
+            &webview,
+            "import_fpp_destination",
+            json!({ "address": fpp, "destination": falcon, "protocol": "sACN unicast" }),
+        )
+        .unwrap_err();
+        assert_eq!(error, json!(format!("FPP doesn't send to {falcon}.")));
+        let error = call(
+            &webview,
+            "import_fpp_destination",
+            json!({ "address": fpp, "destination": falcon, "protocol": "DDP" }),
+        )
+        .unwrap_err();
+        assert_eq!(
+            error,
+            json!("Falcon_F16V5_B9F5 is already in your show as Falcon_F16V5_B9F5.")
+        );
+
+        // Inspecting the real device says it will fill the placeholder in.
+        let details = call(&webview, "inspect_device", json!({ "address": falcon })).unwrap();
+        assert_eq!(details["plan"]["alreadyInShow"], false);
+        assert!(
+            details["plan"]["notes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|n| n == "Fills in Falcon_F16V5_B9F5, added from your FPP's output list."),
+            "{details}"
+        );
     }
 
     /// A tiny uncompressed sequence: 6 channels, 40 frames, 25 ms apart; every channel of frame
@@ -533,5 +565,9 @@ mod tests {
         assert_eq!(call(&webview, "preview_props", json!({})).unwrap(), json!([]));
         call(&webview, "stop_playback", json!({})).unwrap();
         assert_eq!(call(&webview, "playback_status", json!({})).unwrap(), json!(null));
+        assert_eq!(
+            call(&webview, "playback_stop_reason", json!({})).unwrap(),
+            json!(null)
+        );
     }
 }

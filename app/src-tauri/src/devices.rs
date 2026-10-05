@@ -118,7 +118,7 @@ pub(crate) async fn import_device(state: State<'_, AppState>, address: String) -
         .show()
         .controllers
         .iter()
-        .find(|c| c.address == controller.address && c.ports.is_empty())
+        .find(|c| c.address == controller.address && pf_devices::is_placeholder(c))
         .map(|c| (c.id, c.name.clone(), c.sequence_channels));
     if let Some((id, name, sequence_channels)) = placeholder {
         controller.id = id;
@@ -132,35 +132,59 @@ pub(crate) async fn import_device(state: State<'_, AppState>, address: String) -
 }
 
 /// Adds a controller that an FPP sends to, from the FPP's output list (works even when the
-/// controller isn't answering), as one undo step.
+/// controller isn't answering), as one undo step. `protocol` is the destination's protocol as the
+/// FPP lists it ("DDP", "sACN unicast", ...), since one address can be listed more than once.
 #[tauri::command]
 pub(crate) async fn import_fpp_destination(
     state: State<'_, AppState>,
     address: String,
     destination: String,
+    protocol: String,
 ) -> Reply<ShowSnapshot> {
-    let show = state.engine().show().clone();
     let http = Arc::clone(&state.devices.http);
-    let plan = off_thread(move || {
+    let target = off_thread(move || {
         let fpp = pf_devices::fpp::probe(http.as_ref(), &address).map_err(|e| e.to_string())?;
         let config = pf_devices::read_config(http.as_ref(), &fpp).map_err(|e| e.to_string())?;
         let target = config
             .destinations
-            .iter()
-            .find(|d| d.address == destination)
+            .into_iter()
+            .find(|d| d.address == destination && d.protocol == protocol)
             .ok_or_else(|| format!("{} doesn't send to {destination}.", fpp.name))?;
-        Ok(pf_devices::plan_destination_import(target, &show))
+        Ok(target)
     })
     .await?;
+    // Plan against the show as it is now, under the same lock that applies the change, so names
+    // and the duplicate check can't go stale while the FPP was being read.
+    let mut engine = state.engine();
+    if let Some(existing) = engine
+        .show()
+        .controllers
+        .iter()
+        .find(|c| c.address == target.address)
+    {
+        return Err(format!(
+            "{} is already in your show as {}.",
+            fpp_name_or_address(&target.address, &target.description),
+            existing.name
+        ));
+    }
+    let plan = pf_devices::plan_destination_import(&target, engine.show());
     if !plan.can_import {
         return Err(plan.notes.join(" "));
     }
-    state
-        .engine()
+    engine
         .apply(vec![Edit::AddController {
             controller: plan.controller,
         }])
         .map_err(|e| e.to_string())
+}
+
+fn fpp_name_or_address(address: &str, description: &str) -> String {
+    if description.trim().is_empty() {
+        address.to_string()
+    } else {
+        description.trim().to_string()
+    }
 }
 
 /// What an FPP is playing (changes nothing).

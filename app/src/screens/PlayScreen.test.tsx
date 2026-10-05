@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { App } from "../App";
@@ -57,5 +57,37 @@ describe("play", () => {
     expect(within(warning).getByText(/FPP is playing Christmas Medley 2017.fseq/)).toBeInTheDocument();
     await user.click(within(warning).getByRole("button", { name: "Stop FPP" }));
     expect(backend.calls).toContain("fppStop:192.0.2.10:now");
+  });
+
+  it("moves the slider a second at a time by keyboard and seeks when you leave it", async () => {
+    const { user, backend } = await openPlay(true);
+    await user.click(screen.getByRole("button", { name: /open sequence/i }));
+    const slider = await screen.findByRole("slider", { name: "Position" });
+    slider.focus();
+    await user.keyboard("{ArrowRight}{ArrowRight}");
+    expect(slider).toHaveAttribute("aria-valuetext", "0:02");
+    await user.tab();
+    const position = (await backend.playbackStatus())!.positionMs;
+    expect(position).toBeGreaterThanOrEqual(2000);
+    expect(position).toBeLessThan(3000);
+  });
+
+  it("says why playback stopped when an edit to the show ended it", async () => {
+    const { user, backend } = await openPlay(true);
+    await user.click(screen.getByRole("button", { name: /open sequence/i }));
+    await screen.findByRole("region", { name: "Transport" });
+    const id = useApp.getState().snapshot!.show.controllers[0].id;
+    await backend.applyEdits([{ type: "removeController", id }]);
+    expect(await screen.findByText("Playback stopped because no controller has sequence channels anymore.")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Transport" })).not.toBeInTheDocument();
+  });
+
+  it("disables Stop FPP while stopping and checks again right away", async () => {
+    const { user, backend } = await openPlay(true);
+    await useApp.getState().scan();
+    const warning = await screen.findByRole("alert", { name: "FPP is playing" });
+    await user.click(within(warning).getByRole("button", { name: "Stop FPP" }));
+    expect(backend.calls).toContain("fppStop:192.0.2.10:now");
+    await waitFor(() => expect(screen.queryByRole("alert", { name: "FPP is playing" })).not.toBeInTheDocument());
   });
 });

@@ -23,7 +23,8 @@ export const tauriBackend: Backend = {
   discoverDevices: (hosts, network) => invoke("discover_devices", { hosts, network }),
   inspectDevice: (address) => invoke("inspect_device", { address }),
   importDevice: (address) => invoke("import_device", { address }),
-  importFppDestination: (address, destination) => invoke("import_fpp_destination", { address, destination }),
+  importFppDestination: (address, destination, protocol) =>
+    invoke("import_fpp_destination", { address, destination, protocol }),
   fppStatus: (address) => invoke("fpp_status", { address }),
   fppSequences: (address) => invoke("fpp_sequences", { address }),
   fppStart: (address, name) => invoke("fpp_start", { address, name }),
@@ -33,6 +34,7 @@ export const tauriBackend: Backend = {
   seekPlayback: (positionMs) => invoke("seek_playback", { positionMs }),
   stopPlayback: () => invoke("stop_playback"),
   playbackStatus: () => invoke("playback_status"),
+  playbackStopReason: () => invoke("playback_stop_reason"),
   liveFrame: async () => new Uint8Array(await invoke<ArrayBuffer>("live_frame")),
   sequenceFrame: async () => new Uint8Array(await invoke<ArrayBuffer>("sequence_frame")),
   previewProps: () => invoke("preview_props"),

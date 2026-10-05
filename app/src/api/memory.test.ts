@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { demoDevices } from "./demo";
 import { MemoryBackend, emptyShow } from "./memory";
 import { newController, newProp } from "../lib/shows";
 
@@ -57,5 +58,28 @@ describe("MemoryBackend", () => {
     expect(status.running).toBe(true);
     expect(status.generation).toBe(1);
     expect((await backend.stopOutput()).running).toBe(false);
+  });
+
+  it("a test pattern stops playback, like the engine", async () => {
+    const backend = new MemoryBackend();
+    const controller = { ...newController("C", "10.0.0.1", "ddp", 0), sequenceChannels: { start: 1, count: 30 } };
+    await backend.applyEdits([{ type: "addController", controller }]);
+    await backend.startPlayback("/Shows/a.fseq", 0);
+    expect(await backend.playbackStatus()).not.toBeNull();
+    await backend.startOutput({ kind: "chase", color: "ffffff" }, { type: "show" });
+    expect(await backend.playbackStatus()).toBeNull();
+  });
+
+  it("adding an FPP destination picks it by protocol and never doubles an address", async () => {
+    const backend = new MemoryBackend();
+    backend.deviceNetwork = demoDevices();
+    await expect(backend.importFppDestination("192.0.2.10", "192.0.2.20", "sACN unicast")).rejects.toThrow("doesn't send to");
+    const snap = await backend.importFppDestination("192.0.2.10", "192.0.2.20", "DDP");
+    expect(snap.show.controllers).toHaveLength(1);
+    await expect(backend.importFppDestination("192.0.2.10", "192.0.2.20", "DDP")).rejects.toThrow("already in your show");
+    // Importing the controller itself fills in the placeholder and says so first.
+    const details = await backend.inspectDevice("192.0.2.20");
+    expect(details.plan.alreadyInShow).toBe(false);
+    expect(details.plan.notes).toContain("Fills in Falcon_F16V5_B9F5, added from your FPP's output list.");
   });
 });

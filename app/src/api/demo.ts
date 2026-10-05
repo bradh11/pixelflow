@@ -61,7 +61,7 @@ export function demoDevices(): { details: DeviceDetails[]; silent: SilentPeer[] 
           input: { type: "ddp" },
           ports: [],
           destinations: [
-            { address: "192.0.2.20", description: "Falcon_F16V5_B9F5", protocol: "DDP", channels: 6147, startChannel: 1, startUniverse: null },
+            { address: "192.0.2.20", description: "Falcon_F16V5_B9F5", protocol: "DDP", channels: 6147, startChannel: 1, startUniverse: null, universeSize: null, ddpRaw: false, unevenUniverses: false },
           ],
           notes: ["This FPP has no pixel outputs of its own; it sends to the controllers listed below. Add them to your show from here."],
         },

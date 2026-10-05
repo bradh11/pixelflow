@@ -3,8 +3,8 @@
 use crate::config::{DeviceConfig, DeviceInput};
 use crate::device::{Device, DeviceKind};
 use pf_model::{
-    AdapterKind, Controller, Generator, Port, PortSlot, Prop, Protocol, SacnConfig, ShapeSource, Show,
-    UniverseSize, Vec3,
+    AdapterKind, ColorOrder, Controller, Generator, Port, PortSlot, Prop, Protocol, SacnConfig, ShapeSource,
+    Show, UniverseSize, Vec3,
 };
 use serde::Serialize;
 use std::collections::HashSet;
@@ -94,7 +94,13 @@ pub fn plan_import(device: &Device, config: &DeviceConfig, show: &Show) -> Impor
                     length: (string.pixels as f32 * 0.05).max(1.0),
                 }),
             );
-            prop.color_order = string.color_order;
+            // The controller reorders colors for its own strings, so PixelFlow sends plain RGB
+            // (RGBW for 4-channel strings) rather than reordering a second time.
+            prop.color_order = if string.color_order.channels_per_pixel() == 4 {
+                ColorOrder::Rgbw
+            } else {
+                ColorOrder::Rgb
+            };
             prop.transform.position = Vec3::new(0.0, -(props.len() as f32) * 0.5, 0.0);
             let mut slot = PortSlot::new(prop.id);
             // The controller skips its own null pixels; sending dark pixels too would shift every later one.
@@ -231,7 +237,8 @@ mod tests {
             ]
         );
         assert_eq!(plan.props[1].node_count(), 100);
-        assert_eq!(plan.props[1].color_order, ColorOrder::Grb);
+        // The controller reorders colors for its strings, so PixelFlow sends plain RGB.
+        assert_eq!(plan.props[1].color_order, ColorOrder::Rgb);
         let slot = &c.ports[0].slots[0];
         assert_eq!(slot.prop, plan.props[0].id);
         assert_eq!(

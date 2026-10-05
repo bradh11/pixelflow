@@ -40,13 +40,13 @@ function stringConfig(prop: Prop, pixels: number, overrides: Partial<StringConfi
  * Falcon, the Falcon itself, a WLED, and one Falcon the FPP lists that isn't answering. */
 export function demoDevices(): { details: DeviceDetails[]; silent: SilentPeer[] } {
   const empty = emptyShow("Devices");
-  const tree = { ...newProp("tree", empty), name: "Falcon Mega Tree", colorOrder: "GRB" as const };
+  const tree = { ...newProp("tree", empty), name: "Falcon Mega Tree" };
   const arch = { ...newProp("arch", empty), name: "Falcon Arch" };
   const falcon = newController("Falcon_F16V5_B9F5", "192.0.2.20", "ddp", 2);
   falcon.adapter = "falcon";
   falcon.ports[0].slots = [slotFor(tree)];
   falcon.ports[1].slots = [slotFor(arch)];
-  const strip = { ...newProp("line", empty), name: "Porch Strip", colorOrder: "GRB" as const };
+  const strip = { ...newProp("line", empty), name: "Porch Strip" };
   const wled = newController("Porch WLED", "192.0.2.40", "ddp", 1);
   wled.adapter = "wled";
   wled.ports[0].slots = [slotFor(strip)];
@@ -69,7 +69,7 @@ export function demoDevices(): { details: DeviceDetails[]; silent: SilentPeer[] 
         config: {
           input: { type: "ddp" },
           ports: [
-            { number: 1, strings: [stringConfig(tree, 800)] },
+            { number: 1, strings: [stringConfig(tree, 800, { colorOrder: "GRB" })] },
             { number: 2, strings: [stringConfig(arch, 50, { reverse: true, nullPixels: 1 })] },
           ],
           destinations: [],
@@ -88,7 +88,7 @@ export function demoDevices(): { details: DeviceDetails[]; silent: SilentPeer[] 
       },
       {
         device: { address: "192.0.2.40", kind: "wled", name: "Porch WLED", model: "WLED (esp32)", firmware: "WLED 0.15.0", mode: null, foundBy: ["mdns"] },
-        config: { input: { type: "ddp" }, ports: [{ number: 1, strings: [stringConfig(strip, 50)] }], destinations: [], notes: [] },
+        config: { input: { type: "ddp" }, ports: [{ number: 1, strings: [stringConfig(strip, 50, { colorOrder: "GRB" })] }], destinations: [], notes: [] },
         plan: { controller: wled, props: [strip], notes: [], alreadyInShow: false, canImport: true },
       },
     ],

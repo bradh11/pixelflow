@@ -3,30 +3,37 @@ import type { Background, PreviewProp, PreviewSet, Show } from "../../api/types"
 import { frontView } from "../../lib/geometry";
 import {
   type Box,
+  type Frame,
   type Gesture,
-  type Handle,
   type Pt,
+  type ResizeHandle,
   type Size,
   type View,
+  CORNERS,
   DRAWN_BY_ENDS,
   backgroundBox,
-  boxCenter,
   boxFrom,
   boxOfPoints,
-  canStretchFreely,
   composeGestures,
+  constrainAngle,
   drawnProp,
   fitView,
+  frameAngle,
+  frameCenter,
+  frameOfPoints,
   handleAt,
+  handleCursor,
   handlePositions,
   hitTest,
   inBox,
+  inFrame,
   isNoop,
   moveBackground,
   moveGesture,
   panBy,
   pinchFactor,
   placedProp,
+  propAngles,
   propsInBox,
   resizeBackground,
   rotateGesture,
@@ -35,6 +42,7 @@ import {
   toScreen,
   toWorld,
   unionBox,
+  visibleHandles,
   wheelIntent,
   wheelZoomFactor,
   zoomAt,
@@ -60,17 +68,33 @@ const GRID = "rgba(160, 160, 160, 0.22)";
 const GROUND = "rgba(200, 200, 200, 0.4)";
 const PIXEL_COLORS = { unlit: "rgba(220, 220, 220, 0.7)", selected: ACCENT, dark: "rgba(90, 90, 90, 0.6)" };
 
-type Corner = Exclude<Handle, "rotate">;
-
 type Drag =
   | { kind: "pan"; last: Pt }
-  /** `narrowTo`: pressed on one prop of several selected; a click (no drag) selects just it. */
-  | { kind: "move"; ids: string[]; from: Pt; fromScreen: Pt; origin: Pt | null; gesture: Gesture; narrowTo: string | null }
-  | { kind: "scale"; ids: string[]; box: Box; handle: Corner; from: Pt; gesture: Gesture; stretchable: boolean }
+  /**
+   * `narrowTo`: pressed on one prop of several selected; a click (no drag) selects just it.
+   * `deselect`: Shift-pressed on a selected prop; a click takes it out of the selection.
+   */
+  | {
+      kind: "move";
+      ids: string[];
+      from: Pt;
+      fromScreen: Pt;
+      origin: Pt | null;
+      gesture: Gesture;
+      narrowTo: string | null;
+      deselect: string | null;
+    }
+  | { kind: "scale"; ids: string[]; frame: Frame; handle: ResizeHandle; from: Pt; gesture: Gesture; stretchable: boolean }
   | { kind: "rotate"; ids: string[]; center: Pt; from: Pt; gesture: Gesture }
   | { kind: "marquee"; from: Pt; to: Pt; fromScreen: Pt; toScreen: Pt; additive: string[] }
   | { kind: "draw"; tool: PropKind; from: Pt; to: Pt; fromScreen: Pt; toScreen: Pt }
-  | { kind: "photo"; corner: Corner | null; from: Pt; start: Background };
+  | { kind: "photo"; corner: ResizeHandle | null; from: Pt; start: Background };
+
+/** The selection's outline along the props' own axes, and whether it can be stretched. */
+interface Selection {
+  frame: Frame;
+  stretchable: boolean;
+}
 
 export interface LayoutCanvasHandle {
   /** Stops a drag in progress, leaving everything as it was. True if there was one. */
@@ -83,14 +107,6 @@ interface LayoutCanvasProps {
   photo: PhotoImage;
   ref?: Ref<LayoutCanvasHandle>;
 }
-
-const CURSORS: Record<Handle, string> = {
-  nw: "nwse-resize",
-  se: "nwse-resize",
-  ne: "nesw-resize",
-  sw: "nesw-resize",
-  rotate: "grab",
-};
 
 /** WebKit's pinch events (Safari and the macOS app); other browsers send Ctrl-scrolls instead. */
 type PinchEvent = Event & { scale: number; clientX: number; clientY: number };
@@ -118,6 +134,8 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
   const drag = useRef<Drag | null>(null);
   const frame = useRef<Uint8Array | null>(null);
   const spaceHeld = useRef(false);
+  /** Where the pointer last was on the canvas (screen pixels), so Shift can take effect mid-drag. */
+  const lastPointer = useRef<Pt | null>(null);
   const frameRequest = useRef<number | null>(null);
   const [cursor, setCursor] = useState("default");
   const [hovered, setHovered] = useState<string | null>(null);
@@ -162,10 +180,18 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     return composeGestures(preview.props, layers);
   };
 
-  const selectionBox = (props: PreviewProp[]): Box | null => {
+  /** The selected props' frame: along their own axes when they're all turned alike. */
+  const selection = (props: PreviewProp[]): Selection | null => {
     const selected = new Set(useLayoutEditor.getState().selected);
-    return unionBox(props.filter((p) => selected.has(p.prop)).map((p) => boxOfPoints(p.points)));
+    const { deg, stretchable } = frameAngle(latest.current.show.props.filter((p) => selected.has(p.id)));
+    const frame = frameOfPoints(
+      props.filter((p) => selected.has(p.prop)).map((p) => p.points),
+      deg,
+    );
+    return frame && { frame, stretchable };
   };
+
+  const hitProp = (props: PreviewProp[], w: Pt, v: View) => hitTest(props, w, HIT_PX / v.zoom, propAngles(latest.current.show.props));
 
   const draw = useCallback(() => {
     frameRequest.current = null;
@@ -209,7 +235,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
       }
       if (editor.editPhoto) {
         const handles = handlePositions(box, view, s);
-        for (const h of ["nw", "ne", "sw", "se"] as Corner[]) drawHandle(ctx, handles[h]);
+        for (const h of CORNERS) drawHandle(ctx, handles[h]);
       }
     }
 
@@ -242,19 +268,22 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     }
 
     if (!editor.editPhoto && selected.size > 0) {
-      const box = selectionBox(props);
-      if (box) {
-        const handles = handlePositions(box, view, s);
-        strokeWithHalo(ctx, 1, [5, 4], () =>
-          ctx.strokeRect(handles.nw.x, handles.nw.y, handles.se.x - handles.nw.x, handles.se.y - handles.nw.y),
-        );
+      const sel = selection(props);
+      if (sel) {
+        const handles = handlePositions(sel.frame, view, s);
+        strokeWithHalo(ctx, 1, [5, 4], () => {
+          ctx.beginPath();
+          for (const h of ["nw", "ne", "se", "sw"] as const) ctx.lineTo(handles[h].x, handles[h].y);
+          ctx.closePath();
+          ctx.stroke();
+        });
         strokeWithHalo(ctx, 1, [], () => {
           ctx.beginPath();
-          ctx.moveTo(handles.rotate.x, handles.nw.y);
+          ctx.moveTo(handles.n.x, handles.n.y);
           ctx.lineTo(handles.rotate.x, handles.rotate.y);
           ctx.stroke();
         });
-        for (const h of ["nw", "ne", "sw", "se"] as Corner[]) drawHandle(ctx, handles[h]);
+        for (const h of visibleHandles(sel.frame, view, sel.stretchable)) if (h !== "rotate") drawHandle(ctx, handles[h]);
         ctx.fillStyle = "#fff";
         ctx.strokeStyle = ACCENT;
         ctx.lineWidth = 1.5;
@@ -387,7 +416,9 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
   useEffect(() => {
     const quietTarget = (t: EventTarget | null) => t === canvasRef.current || t === document.body;
     const down = (e: KeyboardEvent) => {
-      if (e.key === " " && quietTarget(e.target)) {
+      if (e.key === "Shift") return shiftChanged(true);
+      // ⌘-Space and the like belong to the system, which may keep the key's release to itself.
+      if (e.key === " " && quietTarget(e.target) && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         if (!spaceHeld.current) {
           spaceHeld.current = true;
@@ -395,17 +426,23 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
         }
       }
     };
-    const up = (e: KeyboardEvent) => {
-      if (e.key === " ") {
-        spaceHeld.current = false;
-        setCursor("default");
-      }
+    const releaseSpace = () => {
+      if (!spaceHeld.current) return;
+      spaceHeld.current = false;
+      setCursor("default");
     };
+    const up = (e: KeyboardEvent) => {
+      if (e.key === "Shift") shiftChanged(false);
+      if (e.key === " ") releaseSpace();
+    };
+    // A key let go while the window is in the background never says so: forget Space then.
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
+    window.addEventListener("blur", releaseSpace);
     return () => {
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", releaseSpace);
     };
   }, []);
 
@@ -428,9 +465,15 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
   const onPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     if (e.button !== 0 && e.button !== 1) return;
     const canvas = canvasRef.current!;
-    canvas.focus();
-    canvas.setPointerCapture?.(e.pointerId);
+    // Keyboard shortcuts (Delete, ⌘C, arrows) work on the canvas right after a click.
+    canvas.focus({ preventScroll: true });
+    try {
+      canvas.setPointerCapture?.(e.pointerId);
+    } catch {
+      // A pointer the browser no longer tracks can't be captured; the drag still works inside the canvas.
+    }
     const s = point(e);
+    lastPointer.current = s;
     const v = currentView();
     const w = toWorld(v, size(), s);
     const st = useLayoutEditor.getState();
@@ -444,7 +487,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     if (st.editPhoto) {
       const bg = background();
       const box = bg ? backgroundBox(bg, photo.aspect) : null;
-      const handle = box ? handleAt(box, v, size(), s) : null;
+      const handle = box ? handleAt(box, v, size(), s, CORNERS) : null;
       if (bg && handle && handle !== "rotate") drag.current = { kind: "photo", corner: handle, from: w, start: bg };
       else if (bg && box && inBox(box, w)) drag.current = { kind: "photo", corner: null, from: w, start: bg };
       else drag.current = { kind: "pan", last: s };
@@ -458,31 +501,38 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     }
 
     const props = effectivePreview();
-    const box = selectionBox(props);
-    // Handles work with Shift held from the start (Shift picks free resizing or 15° steps).
-    if (box) {
-      const handle = handleAt(box, v, size(), s);
+    const sel = selection(props);
+    // Handles work with Shift held from the start (Shift keeps proportions, or turns in 15° steps).
+    if (sel) {
+      const handle = handleAt(sel.frame, v, size(), s, visibleHandles(sel.frame, v, sel.stretchable));
       const ids = st.selected;
       if (handle === "rotate") {
-        const { cx, cy } = boxCenter(box);
-        drag.current = { kind: "rotate", ids, center: { x: cx, y: cy }, from: w, gesture: { kind: "rotate", cx, cy, deg: 0 } };
+        const center = frameCenter(sel.frame);
+        drag.current = { kind: "rotate", ids, center, from: w, gesture: { kind: "rotate", cx: center.x, cy: center.y, deg: 0 } };
         return;
       }
       if (handle) {
-        const stretchable = canStretchFreely(show.props.filter((p) => ids.includes(p.id)));
-        drag.current = { kind: "scale", ids, box, handle, from: w, gesture: { kind: "scale", ax: 0, ay: 0, fx: 1, fy: 1 }, stretchable };
+        const gesture: Gesture = { kind: "scale", ax: 0, ay: 0, fx: 1, fy: 1 };
+        drag.current = { kind: "scale", ids, frame: sel.frame, handle, from: w, gesture, stretchable: sel.stretchable };
         return;
       }
     }
-    const startMove = (ids: string[], narrowTo: string | null = null) => {
+    const startMove = (ids: string[], narrowTo: string | null = null, deselect: string | null = null) => {
       const first = show.props.find((p) => p.id === ids[0]);
       const origin = first ? { x: first.transform.position.x, y: first.transform.position.y } : null;
-      drag.current = { kind: "move", ids, from: w, fromScreen: s, origin, gesture: { kind: "move", dx: 0, dy: 0 }, narrowTo };
+      const gesture: Gesture = { kind: "move", dx: 0, dy: 0 };
+      drag.current = { kind: "move", ids, from: w, fromScreen: s, origin, gesture, narrowTo, deselect };
     };
-    const hit = hitTest(props, w, HIT_PX / v.zoom);
+    const hit = hitProp(props, w, v);
     if (hit) {
+      // Shift adds the prop at once, so Shift-dragging it moves it straight with the rest; a
+      // Shift-click (no drag) on a selected prop takes it out.
       if (e.shiftKey) {
-        st.toggle(hit);
+        if (st.selected.includes(hit)) startMove(st.selected, null, hit);
+        else {
+          st.toggle(hit);
+          startMove(useLayoutEditor.getState().selected);
+        }
         return;
       }
       if (!st.selected.includes(hit)) {
@@ -491,7 +541,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
       } else startMove(st.selected, st.selected.length > 1 ? hit : null);
       return;
     }
-    if (box && !e.shiftKey && inBox(box, w)) {
+    if (sel && !e.shiftKey && inFrame(sel.frame, w)) {
       startMove(st.selected);
       return;
     }
@@ -507,22 +557,20 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     if (st.editPhoto) {
       const bg = background();
       const box = bg ? backgroundBox(bg, latest.current.photo.aspect) : null;
-      const handle = box ? handleAt(box, v, size(), s) : null;
-      return setCursor(handle && handle !== "rotate" ? CURSORS[handle] : box && inBox(box, w) ? "move" : "grab");
+      const handle = box ? handleAt(box, v, size(), s, CORNERS) : null;
+      return setCursor(handle ? handleCursor(handle, 0) : box && inBox(box, w) ? "move" : "grab");
     }
     if (st.tool !== "select") return setCursor("crosshair");
     const props = effectivePreview();
-    const box = selectionBox(props);
-    const handle = box ? handleAt(box, v, size(), s) : null;
-    const hit = hitTest(props, w, HIT_PX / v.zoom);
+    const sel = selection(props);
+    const handle = sel ? handleAt(sel.frame, v, size(), s, visibleHandles(sel.frame, v, sel.stretchable)) : null;
+    const hit = hitProp(props, w, v);
     setHovered(hit);
-    setCursor(handle ? CURSORS[handle] : hit || (box && inBox(box, w)) ? "move" : "default");
+    setCursor(handle && sel ? handleCursor(handle, sel.frame.deg) : hit || (sel && inFrame(sel.frame, w)) ? "move" : "default");
   };
 
-  const onPointerMove = (e: ReactPointerEvent<HTMLCanvasElement>) => {
-    const s = point(e);
-    const d = drag.current;
-    if (!d) return updateHover(s);
+  /** Follows the pointer at screen point `s`; `straight` (Shift) keeps lines and moves straight, and resizes in proportion. */
+  const follow = (d: Drag, s: Pt, straight: boolean) => {
     const v = currentView();
     const w = toWorld(v, size(), s);
     const st = useLayoutEditor.getState();
@@ -534,22 +582,24 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
       case "move":
         // Until the pointer has really moved, it's still a click.
         if (Math.hypot(s.x - d.fromScreen.x, s.y - d.fromScreen.y) < CLICK_PX && isNoop(d.gesture)) break;
-        d.gesture = moveGesture(d.from, w, d.origin, st.snap ? st.grid : null);
+        d.gesture = moveGesture(d.from, w, d.origin, st.snap ? st.grid : null, straight);
         break;
       case "scale":
-        d.gesture = scaleGesture(d.box, d.handle, d.from, w, e.shiftKey && d.stretchable);
+        d.gesture = scaleGesture(d.frame, d.handle, d.from, w, straight || !d.stretchable);
         break;
       case "rotate":
-        d.gesture = rotateGesture(d.center, d.from, w, e.shiftKey);
+        d.gesture = rotateGesture(d.center, d.from, w, straight);
         break;
       case "marquee":
         d.to = w;
         d.toScreen = s;
         break;
-      case "draw":
-        d.to = st.snap ? snapPoint(w, st.grid) : w;
+      case "draw": {
+        const to = st.snap ? snapPoint(w, st.grid) : w;
+        d.to = straight && DRAWN_BY_ENDS.includes(d.tool) ? constrainAngle(d.from, to) : to;
         d.toScreen = s;
         break;
+      }
       case "photo": {
         const aspect = latest.current.photo.aspect;
         st.setPhotoDraft(d.corner ? resizeBackground(d.start, aspect, d.corner, w) : moveBackground(d.start, w.x - d.from.x, w.y - d.from.y));
@@ -557,6 +607,20 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
       }
     }
     redraw();
+  };
+
+  /** Shift pressed or let go mid-drag takes effect at once, without waiting for the pointer to move. */
+  function shiftChanged(held: boolean) {
+    const d = drag.current;
+    if (d && d.kind !== "pan" && lastPointer.current) follow(d, lastPointer.current, held);
+  }
+
+  const onPointerMove = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    const s = point(e);
+    lastPointer.current = s;
+    const d = drag.current;
+    if (!d) return updateHover(s);
+    follow(d, s, e.shiftKey);
   };
 
   const onPointerUp = (e: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -573,6 +637,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
       case "move":
         if (isNoop(d.gesture)) {
           if (d.narrowTo) st.select([d.narrowTo]);
+          if (d.deselect) st.toggle(d.deselect);
           break;
         }
         void commitGesture(d.ids, d.gesture);
@@ -631,11 +696,12 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
       />
       <p id="layout-canvas-help" className="sr-only">
         Click a prop to select it, or shift-click to select more. Drag across empty space to select everything inside, or
-        press Command-A to select every prop. Drag selected props to move them, drag a corner handle to resize them, or drag
-        the round handle above them to turn them. Arrow keys move the selection (hold Shift to move it further), Command-D
-        duplicates it, Delete removes it, and Escape clears it. To draw a new prop, pick Line, Arch, Matrix, Tree, Circle, or
-        Star in the tool bar and drag here. Hold Space and drag, or scroll with two fingers, to move around; pinch, or hold
-        Command and scroll, to zoom. Every prop is also in the props list below.
+        press Command-A to select every prop. Drag selected props to move them (hold Shift to keep straight across or up and
+        down). Drag a corner handle to resize them (hold Shift to keep their proportions), a side handle to stretch them one
+        way, or the round handle above them to turn them. Arrow keys move the selection (hold Shift to move it further),
+        Command-D duplicates it, Delete removes it, and Escape clears it. To draw a new prop, pick Line, Arch, Matrix, Tree, Circle, or Star in the tool bar and drag here; hold Shift
+        to keep a line or arch level, upright, or at 45 degrees. Hold Space and drag, or scroll with two fingers, to move
+        around; pinch, or hold Command and scroll, to zoom. Every prop is also in the props list below.
       </p>
       <SelectionAnnouncer show={show} />
       {hoveredName && (

@@ -5,10 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryBackend, emptyShow } from "../api/memory";
 import type { Edit, Prop, Show } from "../api/types";
 import { newController } from "../lib/shows";
-import { type Pt, toScreen } from "../lib/layoutMath";
+import { type Handle, type Pt, frameOfPoints, handlePositions, toScreen, toWorld } from "../lib/layoutMath";
 import { newProp } from "../lib/shows";
 import { useLayoutEditor } from "../state/layoutEditor";
 import { useApp } from "../state/store";
+import { DesktopLikeBackend } from "../test/desktopBackend";
 import { LayoutScreen } from "./LayoutScreen";
 
 vi.mock("../components/layout/useLayoutData", async (original) => ({
@@ -27,6 +28,14 @@ function line(name: string, x: number, y: number): Prop {
   return prop;
 }
 
+/** A prop of the kind with its default size, its origin at (x, y), turned `deg`. */
+function placed(kind: "arch" | "matrix", name: string, x: number, y: number, deg = 0): Prop {
+  const prop = { ...newProp(kind, emptyShow("x")), name };
+  prop.transform.position = { x, y, z: 0 };
+  prop.transform.rotationDeg.z = deg;
+  return prop;
+}
+
 function showWith(...props: Prop[]): Show {
   return { ...emptyShow("Test House"), props };
 }
@@ -35,8 +44,8 @@ let backend: MemoryBackend;
 let edits: Edit[][];
 
 /** `delayMs`: how long the engine takes to apply each batch of edits. */
-async function setup(show: Show, delayMs = 0) {
-  backend = new MemoryBackend(show);
+async function setup(show: Show, delayMs = 0, Engine: typeof MemoryBackend = MemoryBackend) {
+  backend = new Engine(show);
   edits = [];
   const applyEdits = backend.applyEdits.bind(backend);
   backend.applyEdits = async (batch: Edit[]) => {
@@ -129,6 +138,9 @@ describe("LayoutScreen", () => {
     await click({ x: -1, y: 4 }, { shiftKey: true });
     expect(within(screen.getByRole("complementary", { name: "Properties" })).getByText("2 props selected")).toBeInTheDocument();
     expect(screen.getByTestId("selection-announcer")).toHaveTextContent("2 props selected");
+    await click({ x: 1, y: 0.02 }, { shiftKey: true });
+    expect(useLayoutEditor.getState().selected).toEqual([backend.show.props[1].id]);
+    expect(edits).toEqual([]);
     await user.keyboard("{Escape}");
     expect(useLayoutEditor.getState().selected).toEqual([]);
     expect(screen.getByText("Background photo")).toBeInTheDocument();
@@ -383,6 +395,171 @@ describe("LayoutScreen", () => {
       await waitFor(() => expect(position("Gutter")).toMatchObject({ x: expect.closeTo(3, 1), y: expect.closeTo(1, 1) }));
       expect(useLayoutEditor.getState().pending.every((p) => p.revision !== null)).toBe(true);
       await waitFor(() => expect(useLayoutEditor.getState().pending).toEqual([]));
+    });
+  });
+
+  describe("in the desktop app (positions as raw bytes, engine revisions)", () => {
+    // WebKit sends the pressed buttons and pointer type with every pointer event.
+    const mouse = { pointerType: "mouse", buttons: 1 };
+
+    it("selects an existing prop by clicking it, and moves it by dragging", async () => {
+      await setup(showWith(line("Gutter", 0, 0), line("Fence", 0, 4)), 0, DesktopLikeBackend);
+      await click({ x: 1, y: 4.02 }, mouse);
+      expect(useLayoutEditor.getState().selected).toEqual([backend.show.props[1].id]);
+      expect(screen.getByLabelText("Name")).toHaveValue("Fence");
+
+      await drag({ x: 1, y: 4 }, { x: 3, y: 5 }, mouse);
+      expect(edits).toHaveLength(1);
+      expect(position("Fence")).toMatchObject({ x: expect.closeTo(2, 1), y: expect.closeTo(5, 1) });
+      await waitFor(() => expect(useLayoutEditor.getState().pending).toEqual([]));
+
+      // Again, from where it is now, with the engine's positions for the new revision.
+      await drag({ x: 2, y: 5 }, { x: 2, y: 2 }, mouse);
+      expect(edits).toHaveLength(2);
+      expect(position("Fence")).toMatchObject({ x: expect.closeTo(2, 1), y: expect.closeTo(2, 1) });
+      expect(useLayoutEditor.getState().selected).toEqual([backend.show.props[1].id]);
+    });
+
+    it("selects a prop by clicking inside it, not only on its pixels", async () => {
+      await setup(showWith(placed("arch", "Garage Arch", 0, 0), line("Fence", 0, 4)), 0, DesktopLikeBackend);
+      // Under the arch's curve, well away from any of its pixels.
+      await click({ x: 0, y: 0.8 }, mouse);
+      expect(useLayoutEditor.getState().selected).toEqual([backend.show.props[0].id]);
+      await drag({ x: 0.3, y: 0.8 }, { x: 1.3, y: 0.8 }, mouse);
+      expect(position("Garage Arch").x).toBeCloseTo(1, 1);
+      // Outside everything: clears the selection.
+      await click({ x: 6, y: -3 }, mouse);
+      expect(useLayoutEditor.getState().selected).toEqual([]);
+    });
+
+    it("never gets stuck moving the view after Space was let go out of sight", async () => {
+      await setup(showWith(line("Gutter", 0, 0)), 0, DesktopLikeBackend);
+      canvas().focus();
+      // Space held, then the window loses focus (its release goes elsewhere).
+      fireEvent.keyDown(canvas(), { key: " " });
+      fireEvent.blur(window);
+      await click({ x: 1, y: 0 }, mouse);
+      expect(useLayoutEditor.getState().selected).toEqual([backend.show.props[0].id]);
+      // ⌘-Space belongs to the system (Spotlight), which keeps the release to itself.
+      act(() => useLayoutEditor.getState().clear());
+      fireEvent.keyDown(canvas(), { key: " ", metaKey: true });
+      await click({ x: 1, y: 0 }, mouse);
+      expect(useLayoutEditor.getState().selected).toEqual([backend.show.props[0].id]);
+    });
+
+    it("selects props that were already in the show, with a slow engine", async () => {
+      await setup(showWith(line("Gutter", 0, 0), line("Fence", 0, 4)), 30, DesktopLikeBackend);
+      await click({ x: -2, y: 0 }, mouse);
+      expect(useLayoutEditor.getState().selected).toEqual([backend.show.props[0].id]);
+      await drag({ x: -2, y: 0 }, { x: -2, y: -3 }, mouse);
+      await waitFor(() => expect(position("Gutter").y).toBeCloseTo(-3, 1));
+      await waitFor(() => expect(useLayoutEditor.getState().pending).toEqual([]));
+      await click({ x: 0, y: -3 }, mouse);
+      expect(useLayoutEditor.getState().selected).toEqual([backend.show.props[0].id]);
+    });
+  });
+
+  describe("Shift keeps things straight", () => {
+    it("draws a line level and an arch at 45°", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      await user.click(screen.getByRole("button", { name: "Line" }));
+      await drag({ x: 5, y: 0 }, { x: 9, y: 0.7 }, { shiftKey: true });
+      const added = () => (edits.at(-1)![0] as { prop: Prop }).prop;
+      expect(added().transform.rotationDeg.z).toBe(0);
+      expect(added().shape).toMatchObject({ length: expect.closeTo(4, 1) });
+      await waitFor(() => expect(screen.getByRole("button", { name: "Select" })).toHaveAttribute("aria-pressed", "true"));
+
+      await user.click(screen.getByRole("button", { name: "Arch" }));
+      await drag({ x: 5, y: 0 }, { x: 8, y: 3.4 }, { shiftKey: true });
+      expect(added().transform.rotationDeg.z).toBe(45);
+      await user.click(screen.getByRole("button", { name: "Line" }));
+      await drag({ x: 5, y: 0 }, { x: 5.3, y: -3 }, { shiftKey: true });
+      expect(added().transform.rotationDeg.z).toBe(-90);
+    });
+
+    it("moves props straight across or up and down, even when Shift is pressed mid-drag", async () => {
+      await setup(showWith(line("Gutter", 0, 0)));
+      await click({ x: 0, y: 0 });
+      await drag({ x: 0, y: 0 }, { x: 2, y: 0.6 }, { shiftKey: true });
+      expect(position("Gutter")).toMatchObject({ x: expect.closeTo(2, 1), y: 0 });
+
+      const [a, b] = [screenAt({ x: 2, y: 0 }), screenAt({ x: 2.4, y: 3 })];
+      await act(async () => {
+        fireEvent.pointerDown(canvas(), { clientX: a.x, clientY: a.y, button: 0, pointerId: 1 });
+        fireEvent.pointerMove(canvas(), { clientX: b.x, clientY: b.y, pointerId: 1 });
+        fireEvent.keyDown(window, { key: "Shift", shiftKey: true });
+        fireEvent.pointerUp(canvas(), { clientX: b.x, clientY: b.y, pointerId: 1, shiftKey: true });
+      });
+      expect(edits).toHaveLength(2);
+      expect(position("Gutter")).toMatchObject({ x: expect.closeTo(2, 1), y: expect.closeTo(3, 1) });
+    });
+  });
+
+  describe("resizing", () => {
+    /** Where a handle of the prop's frame (along axes turned `deg`) is, in world units. */
+    async function handle(name: string, h: Handle, deg = 0): Promise<Pt> {
+      const id = backend.show.props.find((p) => p.name === name)!.id;
+      const points = (await backend.previewProps()).props.find((p) => p.prop === id)!.points;
+      const view = useLayoutEditor.getState().view!;
+      return toWorld(view, SIZE, handlePositions(frameOfPoints([points], deg)!, view, SIZE)[h]);
+    }
+    async function frameOf(name: string, deg = 0) {
+      const id = backend.show.props.find((p) => p.name === name)!.id;
+      return frameOfPoints([(await backend.previewProps()).props.find((p) => p.prop === id)!.points], deg)!.box;
+    }
+    const scaleOf = (name: string) => backend.show.props.find((p) => p.name === name)!.transform.scale;
+
+    it("stretches width and height separately from a corner, or in proportion with Shift", async () => {
+      await setup(showWith(placed("matrix", "Window", 0, 0)));
+      await click({ x: 0, y: 0 });
+      const box = await frameOf("Window");
+      const [w, h] = [box.maxX - box.minX, box.maxY - box.minY];
+      const ne = await handle("Window", "ne");
+      await drag(ne, { x: ne.x + 1, y: ne.y + 1 });
+      expect(edits).toHaveLength(1);
+      expect(scaleOf("Window").x).toBeCloseTo((w + 1) / w, 2);
+      expect(scaleOf("Window").y).toBeCloseTo((h + 1) / h, 2);
+      // The opposite corner stays put.
+      const after = await frameOf("Window");
+      expect(after.minX).toBeCloseTo(box.minX, 2);
+      expect(after.minY).toBeCloseTo(box.minY, 2);
+
+      await act(() => useApp.getState().undo());
+      const corner = await handle("Window", "ne");
+      await drag(corner, { x: corner.x + 1, y: corner.y + 0.1 }, { shiftKey: true });
+      expect(scaleOf("Window").x).toBeCloseTo(scaleOf("Window").y, 5);
+      expect(scaleOf("Window").x).toBeGreaterThan(1.1);
+    });
+
+    it("stretches one way from a side handle", async () => {
+      await setup(showWith(placed("matrix", "Window", 0, 0)));
+      await click({ x: 0, y: 0 });
+      const box = await frameOf("Window");
+      const n = await handle("Window", "n");
+      await drag(n, { x: n.x + 3, y: n.y + 1 });
+      expect(edits).toHaveLength(1);
+      expect(scaleOf("Window").x).toBe(1);
+      expect(scaleOf("Window").y).toBeCloseTo((box.maxY - box.minY + 1) / (box.maxY - box.minY), 2);
+      expect((await frameOf("Window")).minY).toBeCloseTo(box.minY, 2);
+    });
+
+    it("stretches a turned arch along its own width, exactly where the drag showed it", async () => {
+      await setup(showWith(placed("arch", "Garage Arch", 1, 1, 30)));
+      act(() => useLayoutEditor.getState().select([backend.show.props[0].id]));
+      const box = await frameOf("Garage Arch", 30);
+      const e = await handle("Garage Arch", "e", 30);
+      const [c, s] = [Math.cos(Math.PI / 6), Math.sin(Math.PI / 6)];
+      // One unit out along the arch's width, with a little wobble across it.
+      await drag(e, { x: e.x + c - 0.2 * s, y: e.y + s + 0.2 * c });
+      expect(edits).toHaveLength(1);
+      const t = backend.show.props[0].transform;
+      expect(t.rotationDeg.z).toBe(30);
+      expect(t.scale.x).toBeCloseTo((box.maxX - box.minX + 1) / (box.maxX - box.minX), 2);
+      expect(t.scale.y).toBe(1);
+      const after = await frameOf("Garage Arch", 30);
+      expect(after.minX).toBeCloseTo(box.minX, 2);
+      expect(after.maxX).toBeCloseTo(box.maxX + 1, 2);
+      expect(after.maxY - after.minY).toBeCloseTo(box.maxY - box.minY, 2);
     });
   });
 

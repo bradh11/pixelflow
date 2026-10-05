@@ -33,8 +33,14 @@ import {
   unionBox,
   wheelIntent,
   wheelZoomFactor,
-  canStretchFreely,
   composeGestures,
+  constrainAngle,
+  frameAngle,
+  frameOfPoints,
+  handleCursor,
+  handlePositions,
+  propAngles,
+  visibleHandles,
   pinchFactor,
   zoomAt,
   type Gesture,
@@ -120,6 +126,33 @@ describe("boxes and picking", () => {
     expect(hitTest(props, { x: 5, y: 5 }, 0.5)).toBeNull();
   });
 
+  it("picks a prop by a click inside its outline, the smallest one when outlines overlap", () => {
+    // A big ring of pixels with a small square of pixels inside it.
+    const ring = preview("ring", [-5, 0, 0, 5, 5, 0, 0, -5]);
+    const square = preview("square", [1, 1, 2, 1, 2, 2, 1, 2]);
+    expect(hitTest([ring, square], { x: -2, y: -2 }, 0.2)).toBe("ring");
+    expect(hitTest([ring, square], { x: 1.5, y: 1.5 }, 0.2)).toBe("square");
+    expect(hitTest([square, ring], { x: 1.5, y: 1.5 }, 0.2)).toBe("square");
+    expect(hitTest([ring, square], { x: 6, y: 6 }, 0.2)).toBeNull();
+    // A pixel within reach still beats an outline.
+    expect(hitTest([square, ring], { x: 0.1, y: 4.9 }, 0.2)).toBe("ring");
+
+    // A line turned 45°: its outline is the line itself, not the square around it.
+    const diagonal = preview("diagonal", [0, 0, 1, 1, 2, 2, 3, 3]);
+    const angles = new Map([["diagonal", 45]]);
+    expect(hitTest([diagonal], { x: 2.5, y: 0.5 }, 0.2, angles)).toBeNull();
+    expect(hitTest([diagonal], { x: 2.5, y: 0.5 }, 0.2)).toBe("diagonal");
+    expect(hitTest([diagonal], { x: 1.6, y: 1.5 }, 0.2, angles)).toBe("diagonal");
+  });
+
+  it("lists the angles of turned props", () => {
+    const show = emptyShow("x");
+    const [a, b, c] = [newProp("line", show), newProp("line", show), newProp("line", show)];
+    b.transform.rotationDeg.z = 30;
+    c.transform.rotationDeg = { x: 40, y: 0, z: 10 };
+    expect([...propAngles([a, b, c])]).toEqual([[b.id, 30]]);
+  });
+
   it("box-selects props with any pixel inside", () => {
     const props = [preview("a", [0, 0, 5, 5]), preview("b", [10, 10])];
     expect(propsInBox(props, { minX: 4, minY: 4, maxX: 6, maxY: 6 })).toEqual(["a"]);
@@ -147,8 +180,8 @@ const transform = (x: number, y: number, rz: number, sx = 1, sy = 1): Transform 
 });
 
 /** The gesture moved every pixel of a prop exactly where it was drawn during the drag. */
-function expectConsistent(g: Gesture, t: Transform) {
-  const prop = { ...newProp("matrix", emptyShow("x")), transform: t };
+function expectConsistent(g: Gesture, t: Transform, kind: "matrix" | "arch" = "matrix") {
+  const prop = { ...newProp(kind, emptyShow("x")), transform: t };
   const before = frontView(prop);
   const after = frontView({ ...prop, transform: gestureTransform(g, t) });
   for (let i = 0; i < before.length; i += 2) {
@@ -176,14 +209,92 @@ describe("gestures", () => {
     expect(gestureTransform({ kind: "rotate", cx: 0, cy: 0, deg: 100 }, transform(0, 0, 100)).rotationDeg.z).toBe(-160);
   });
 
-  it("resizes from a corner with the opposite corner fixed, proportionally unless free", () => {
+  it("resizes from a corner with the opposite corner fixed, freely unless keeping proportions", () => {
     const box = { minX: 0, minY: 0, maxX: 4, maxY: 2 };
     // Dragging the top-right corner twice as far from the bottom-left corner doubles the size.
-    expect(scaleGesture(box, "ne", { x: 4, y: 2 }, { x: 8, y: 4 }, false)).toEqual({ kind: "scale", ax: 0, ay: 0, fx: 2, fy: 2 });
-    expect(scaleGesture(box, "ne", { x: 4, y: 2 }, { x: 8, y: 2 }, true)).toEqual({ kind: "scale", ax: 0, ay: 0, fx: 2, fy: 1 });
-    const flipped = scaleGesture(box, "sw", { x: 0, y: 0 }, { x: 10, y: 10 }, false);
+    expect(scaleGesture(box, "ne", { x: 4, y: 2 }, { x: 8, y: 4 }, true)).toEqual({ kind: "scale", ax: 0, ay: 0, fx: 2, fy: 2 });
+    expect(scaleGesture(box, "ne", { x: 4, y: 2 }, { x: 8, y: 3 }, true)).toMatchObject({ fx: expect.closeTo(1.9, 5), fy: expect.closeTo(1.9, 5) });
+    expect(scaleGesture(box, "ne", { x: 4, y: 2 }, { x: 8, y: 2 }, false)).toEqual({ kind: "scale", ax: 0, ay: 0, fx: 2, fy: 1 });
+    expect(scaleGesture(box, "ne", { x: 4, y: 2 }, { x: 6, y: 5 }, false)).toEqual({ kind: "scale", ax: 0, ay: 0, fx: 1.5, fy: 2.5 });
+    const flipped = scaleGesture(box, "sw", { x: 0, y: 0 }, { x: 10, y: 10 }, true);
     expect(flipped).toMatchObject({ ax: 4, ay: 2 });
     expect((flipped as { fx: number }).fx).toBeGreaterThan(0);
+  });
+
+  it("stretches one way from a side handle, the opposite side fixed", () => {
+    const box = { minX: 0, minY: 0, maxX: 4, maxY: 2 };
+    expect(scaleGesture(box, "n", { x: 2, y: 2 }, { x: 9, y: 3 }, false)).toEqual({ kind: "scale", ax: 2, ay: 0, fx: 1, fy: 1.5 });
+    expect(scaleGesture(box, "w", { x: 0, y: 1 }, { x: 2, y: 7 }, true)).toEqual({ kind: "scale", ax: 4, ay: 1, fx: 0.5, fy: 1 });
+    // A line's box has no height: only its length changes.
+    expect(scaleGesture({ minX: 0, minY: 1, maxX: 4, maxY: 1 }, "ne", { x: 4, y: 1 }, { x: 6, y: 3 }, false)).toMatchObject({ fx: 1.5, fy: 1 });
+  });
+
+  it("resizes a turned prop along its own axes, exactly as drawn", () => {
+    const t = transform(2, 1, 30, 1, 1);
+    const prop = { ...newProp("arch", emptyShow("x")), transform: t };
+    const frame = frameOfPoints([frontView(prop)], 30)!;
+    // The arch's own width runs along its 30° axis; its frame is as snug as when it wasn't turned.
+    const plain = frameOfPoints([frontView({ ...prop, transform: transform(2, 1, 0) })], 0)!;
+    expect(frame.box.maxX - frame.box.minX).toBeCloseTo(plain.box.maxX - plain.box.minX, 4);
+    expect(frame.box.maxY - frame.box.minY).toBeCloseTo(plain.box.maxY - plain.box.minY, 4);
+
+    // Drag the top-right corner out by 2 along the arch's width and 1 along its height.
+    const at = handlePositions(frame, view, size);
+    const ne = toWorld(view, size, at.ne);
+    const to = { x: ne.x + 2 * Math.cos(Math.PI / 6) - Math.sin(Math.PI / 6), y: ne.y + 2 * Math.sin(Math.PI / 6) + Math.cos(Math.PI / 6) };
+    const g = scaleGesture(frame, "ne", ne, to, false);
+    const w = frame.box.maxX - frame.box.minX;
+    const h = frame.box.maxY - frame.box.minY;
+    expect(g).toMatchObject({ deg: 30, fx: expect.closeTo((w + 2) / w, 3), fy: expect.closeTo((h + 1) / h, 3) });
+    expectConsistent(g, t, "arch");
+    const after = gestureTransform(g, t);
+    expect(after.rotationDeg.z).toBe(30);
+    expect(after.scale.x).toBeCloseTo((w + 2) / w, 3);
+    expect(after.scale.y).toBeCloseTo((h + 1) / h, 3);
+
+    // A side handle of a prop turned a quarter turn and a bit stretches the right way too.
+    const quarter = transform(0, 0, 120);
+    expectConsistent({ kind: "scale", ax: 1, ay: 2, fx: 1, fy: 1.7, deg: 30 }, quarter, "arch");
+    expectConsistent({ kind: "scale", ax: 1, ay: 2, fx: 0.6, fy: 1.2, deg: -15 }, transform(0, 0, -105, -1, 2), "matrix");
+  });
+
+  it("knows which turned props can be stretched, and along which axes", () => {
+    const turned = (z: number, x = 0) => {
+      const prop = newProp("line", emptyShow("x"));
+      prop.transform.rotationDeg = { x, y: 0, z };
+      return prop;
+    };
+    expect(frameAngle([])).toEqual({ deg: 0, stretchable: true });
+    expect(frameAngle([turned(0), turned(90), turned(-180), turned(270.0004)])).toEqual({ deg: 0, stretchable: true });
+    expect(frameAngle([turned(30)])).toEqual({ deg: 30, stretchable: true });
+    expect(frameAngle([turned(120), turned(-60), turned(30)])).toEqual({ deg: 30, stretchable: true });
+    expect(frameAngle([turned(80)])).toEqual({ deg: -10, stretchable: true });
+    expect(frameAngle([turned(0), turned(30)])).toEqual({ deg: 0, stretchable: false });
+    expect(frameAngle([turned(0, 45)])).toEqual({ deg: 0, stretchable: false });
+    expect(frameAngle([turned(10, 180)])).toEqual({ deg: 10, stretchable: true });
+  });
+
+  it("puts side handles on long enough edges of boxes that can stretch, and turns handles with the frame", () => {
+    const box = { minX: 0, minY: 0, maxX: 10, maxY: 5 };
+    expect(visibleHandles(box, view, true).sort()).toEqual(["e", "n", "ne", "nw", "rotate", "s", "se", "sw", "w"]);
+    expect(visibleHandles(box, view, false).sort()).toEqual(["ne", "nw", "rotate", "se", "sw"]);
+    // 10 × 1 units is 100 × 10 pixels: too short for side handles on the left and right.
+    expect(visibleHandles({ minX: 0, minY: 0, maxX: 10, maxY: 1 }, view, true)).not.toContain("e");
+    expect(visibleHandles({ minX: 0, minY: 0, maxX: 10, maxY: 0 }, view, true)).not.toContain("n");
+    expect(handleAt(box, view, size, { x: 450, y: 251 }, visibleHandles(box, view, true))).toBe("n");
+    expect(handleAt(box, view, size, { x: 500, y: 275 }, visibleHandles(box, view, true))).toBe("e");
+
+    const frame = { box: { minX: -5, minY: -2, maxX: 5, maxY: 2 }, deg: 90 };
+    const at = handlePositions(frame, view, size);
+    // Turned a quarter turn, the frame's top edge is on the left of the screen.
+    expect(at.n.x).toBeCloseTo(380);
+    expect(at.n.y).toBeCloseTo(300);
+    expect(at.rotate.x).toBeCloseTo(380 - 28);
+    expect(handleCursor("n", 0)).toBe("ns-resize");
+    expect(handleCursor("n", 90)).toBe("ew-resize");
+    expect(handleCursor("ne", 0)).toBe("nesw-resize");
+    expect(handleCursor("nw", 0)).toBe("nwse-resize");
+    expect(handleCursor("e", 30)).toBe("nesw-resize");
   });
 
   it("turns by the swept angle, in 15° steps with shift", () => {
@@ -195,6 +306,29 @@ describe("gestures", () => {
   it("moves freely, or so the first prop's origin lands on the grid", () => {
     expect(moveGesture({ x: 0, y: 0 }, { x: 1.23, y: 0.4 }, null, null)).toEqual({ kind: "move", dx: 1.23, dy: 0.4 });
     expect(moveGesture({ x: 0, y: 0 }, { x: 1.23, y: 0.4 }, { x: 0.1, y: 0 }, 0.5)).toEqual({ kind: "move", dx: 1.4, dy: 0.5 });
+  });
+
+  it("moves straight across or straight up and down with Shift, whichever the drag went further", () => {
+    expect(moveGesture({ x: 0, y: 0 }, { x: 1.23, y: 0.4 }, null, null, true)).toEqual({ kind: "move", dx: 1.23, dy: 0 });
+    expect(moveGesture({ x: 0, y: 0 }, { x: -0.3, y: -2 }, null, null, true)).toEqual({ kind: "move", dx: 0, dy: -2 });
+    // With snap on, only the axis it moves along snaps: the other stays exactly where it was.
+    expect(moveGesture({ x: 0, y: 0 }, { x: 1.23, y: 0.4 }, { x: 0.1, y: 0.13 }, 0.5, true)).toEqual({ kind: "move", dx: 1.4, dy: 0 });
+  });
+
+  it("keeps a drawn line to multiples of 45° with Shift", () => {
+    const from = { x: 1, y: 1 };
+    expect(constrainAngle(from, { x: 5, y: 1.4 })).toEqual({ x: 5, y: 1 });
+    expect(constrainAngle(from, { x: 0.8, y: -3 })).toEqual({ x: 1, y: -3 });
+    const diagonal = constrainAngle(from, { x: 4, y: 3.6 });
+    expect(diagonal.x - from.x).toBeCloseTo(diagonal.y - from.y, 10);
+    expect(diagonal.x - from.x).toBeCloseTo(2.8, 5);
+    expect(constrainAngle(from, { x: -2, y: 4.2 })).toMatchObject({ x: expect.closeTo(-2.1, 5), y: expect.closeTo(4.1, 5) });
+    expect(constrainAngle(from, from)).toEqual(from);
+    // The line drawn there runs at exactly that angle.
+    const line = drawnProp("line", from, constrainAngle(from, { x: 1.3, y: 6 }), newProp("line", emptyShow("x")));
+    expect(line.transform.rotationDeg.z).toBe(90);
+    const arch = drawnProp("arch", from, constrainAngle(from, { x: -3, y: -3.4 }), newProp("arch", emptyShow("x")));
+    expect(arch.transform.rotationDeg.z).toBe(-135);
   });
 
   it("knows a gesture that changes nothing", () => {
@@ -329,17 +463,5 @@ describe("gestures on their way", () => {
     expect(q[1]).toBeCloseTo(5);
     expect(composeGestures(props, [])).toBe(props);
     expect(composeGestures(props, [layers[0]])[1]).toBe(props[1]);
-  });
-
-  it("stretches freely only props that aren't turned at an odd angle", () => {
-    const turned = (z: number, x = 0) => {
-      const prop = newProp("line", emptyShow("x"));
-      prop.transform.rotationDeg = { x, y: 0, z };
-      return prop;
-    };
-    expect(canStretchFreely([turned(0), turned(90), turned(-180), turned(270.0004)])).toBe(true);
-    expect(canStretchFreely([turned(0), turned(30)])).toBe(false);
-    expect(canStretchFreely([turned(0, 45)])).toBe(false);
-    expect(canStretchFreely([])).toBe(true);
   });
 });

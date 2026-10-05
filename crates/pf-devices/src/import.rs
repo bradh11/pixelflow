@@ -80,17 +80,13 @@ pub fn plan_import(device: &Device, config: &DeviceConfig, show: &Show) -> Impor
     let mut controller = Controller::new(controller_name.clone(), device.address.clone(), protocol);
     controller.adapter = adapter;
 
-    // The port's pixel limit, when the board's model says what it is.
-    let max_pixels = match device.kind {
-        DeviceKind::Falcon => crate::falcon::pixels_per_port(&device.model),
-        DeviceKind::Fpp | DeviceKind::Wled => None,
-    };
     let mut props = Vec::new();
     let mut skipped_nulls = Vec::new();
     let mut controller_applied = Vec::new();
     for port_config in &config.ports {
         let mut port = Port::new(port_config.number);
-        port.max_pixels = max_pixels;
+        // The port's pixel limit, when the device said what it is.
+        port.max_pixels = port_config.max_pixels;
         let several = port_config.strings.len() > 1;
         for (i, string) in port_config.strings.iter().enumerate() {
             let fallback = if several {
@@ -291,10 +287,12 @@ mod tests {
                 PortConfig {
                     number: 1,
                     strings: vec![string(Some("Arch"), 50)],
+                    max_pixels: None,
                 },
                 PortConfig {
                     number: 3,
                     strings: vec![string(None, 100), string(None, 20)],
+                    max_pixels: None,
                 },
             ],
             destinations: vec![],
@@ -351,24 +349,12 @@ mod tests {
     }
 
     #[test]
-    fn falcon_ports_know_their_pixel_limit_and_other_controllers_dont_guess() {
-        let plan = plan_import(&device(), &config(), &Show::new("t"));
-        assert!(plan.controller.ports.iter().all(|p| p.max_pixels == Some(1024)));
-
-        let older = Device {
-            model: "F16v3".into(),
-            ..device()
-        };
-        let plan = plan_import(&older, &config(), &Show::new("t"));
-        assert!(plan.controller.ports.iter().all(|p| p.max_pixels.is_none()));
-
-        let wled = Device {
-            kind: DeviceKind::Wled,
-            model: "WLED (esp32)".into(),
-            ..device()
-        };
-        let plan = plan_import(&wled, &config(), &Show::new("t"));
-        assert!(plan.controller.ports.iter().all(|p| p.max_pixels.is_none()));
+    fn ports_take_the_pixel_limit_the_device_reported() {
+        let mut config = config();
+        config.ports[0].max_pixels = Some(704);
+        let plan = plan_import(&device(), &config, &Show::new("t"));
+        let limits: Vec<_> = plan.controller.ports.iter().map(|p| p.max_pixels).collect();
+        assert_eq!(limits, vec![Some(704), None], "no limit is guessed");
     }
 
     #[test]

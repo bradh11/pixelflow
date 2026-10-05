@@ -113,6 +113,7 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
                 gamma: 1.0,
                 smart_receiver: None,
             }],
+            max_pixels: None,
         });
     }
     if cfg["if"]["live"]["en"].as_bool() == Some(false) {

@@ -652,3 +652,32 @@ fn falcon_without_a_product_code_is_treated_as_older_and_never_queried() {
     assert!(err.contains("older Falcon controller"), "{err}");
     assert!(http.requests()[before..].iter().all(|r| !r.starts_with("POST")));
 }
+
+#[test]
+fn falcon_ports_carry_the_boards_pixel_limit_for_its_board_mode() {
+    // Board mode 0 (16 local ports): xLights' 3,072 channels a port, 1,024 RGB pixels.
+    let config = falcon_config(&network()).unwrap();
+    assert!(
+        config.ports.iter().all(|p| p.max_pixels == Some(1024)),
+        "{:?}",
+        config.ports
+    );
+
+    // Board mode 10 (4 + 4 + 4 smart receiver chains, 48 ports): 2,112 channels, 704 pixels.
+    let st1 = include_str!("../fixtures/falcon/st1.json");
+    assert!(st1.contains(r#""A":0,"B":0"#), "fixture changed");
+    let http = network().with_post(
+        FALCON,
+        "/api",
+        &falcon_query("ST", 1),
+        &st1.replace(r#""A":0,"B":0"#, r#""A":0,"B":10"#),
+    );
+    let config = falcon_config(&http).unwrap();
+    assert!(
+        config.ports.iter().all(|p| p.max_pixels == Some(704)),
+        "{:?}",
+        config.ports
+    );
+    let plan = plan_import(&identify(&http, FALCON, None).unwrap(), &config, &Show::new("t"));
+    assert!(plan.controller.ports.iter().all(|p| p.max_pixels == Some(704)));
+}

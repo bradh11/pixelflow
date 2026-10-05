@@ -81,7 +81,7 @@ export function demoDevices(): { details: DeviceDetails[]; silent: SilentPeer[] 
   const arch = { ...newProp("arch", empty), name: "Falcon Arch" };
   const falcon = newController("Falcon_F16V5_B9F5", "192.0.2.20", "ddp", 2);
   falcon.adapter = "falcon";
-  // Like the engine's import: a V5 Falcon's ports drive up to 1,024 pixels each.
+  // Like the engine's import of an F16V5 in its 16-port board mode: 1,024 pixels a port.
   for (const port of falcon.ports) port.maxPixels = 1024;
   falcon.ports[0].slots = [slotFor(tree)];
   falcon.ports[1].slots = [slotFor(arch)];
@@ -110,8 +110,8 @@ export function demoDevices(): { details: DeviceDetails[]; silent: SilentPeer[] 
         config: {
           input: { type: "ddp" },
           ports: [
-            { number: 1, strings: [stringConfig(tree, 800, { colorOrder: "GRB" })] },
-            { number: 2, strings: [stringConfig(arch, 50, { reverse: true, nullPixels: 1 })] },
+            { number: 1, strings: [stringConfig(tree, 800, { colorOrder: "GRB" })], maxPixels: 1024 },
+            { number: 2, strings: [stringConfig(arch, 50, { reverse: true, nullPixels: 1 })], maxPixels: 1024 },
           ],
           destinations: [],
           notes: [],
@@ -129,7 +129,7 @@ export function demoDevices(): { details: DeviceDetails[]; silent: SilentPeer[] 
       },
       {
         device: { address: "192.0.2.40", kind: "wled", name: "Porch WLED", model: "WLED (esp32)", firmware: "WLED 0.15.0", mode: null, foundBy: ["mdns"] },
-        config: { input: { type: "ddp" }, ports: [{ number: 1, strings: [stringConfig(strip, 50, { colorOrder: "GRB" })] }], destinations: [], notes: [] },
+        config: { input: { type: "ddp" }, ports: [{ number: 1, strings: [stringConfig(strip, 50, { colorOrder: "GRB" })], maxPixels: null }], destinations: [], notes: [] },
         plan: { controller: wled, props: [strip], notes: [], alreadyInShow: false, canImport: true },
       },
     ],

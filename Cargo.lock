@@ -489,6 +489,7 @@ name = "pf-engine"
 version = "0.1.0"
 dependencies = [
  "pf-frame",
+ "pf-fseq",
  "pf-mapping",
  "pf-model",
  "pf-output",

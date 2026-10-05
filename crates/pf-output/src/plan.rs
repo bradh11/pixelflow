@@ -2,7 +2,7 @@
 
 use crate::lut::build_lut;
 use pf_mapping::{Addressing, ChannelMap, UniverseSpan};
-use pf_model::{ColorOrder, ControllerId, Show};
+use pf_model::{ColorOrder, ControllerId, Protocol, Show};
 use std::collections::HashMap;
 use std::net::{SocketAddr, ToSocketAddrs};
 
@@ -139,6 +139,77 @@ pub fn build_plan(show: &Show, map: &ChannelMap) -> OutputPlan {
     }
 }
 
+/// A controller that receives a block of a rendered sequence's channels unchanged.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PassthroughRoute {
+    pub id: ControllerId,
+    pub name: String,
+    pub address: String,
+    pub protocol: Protocol,
+    /// First sequence channel (0-based) sent to this controller.
+    pub start: usize,
+    pub count: usize,
+}
+
+/// Builds an output plan that sends each route's block of the frame (a whole rendered sequence
+/// frame, `frame_len` channels) to its controller as-is: no reordering, brightness, or gamma,
+/// because the sequence was already rendered for the controllers.
+pub fn build_passthrough_plan(routes: &[PassthroughRoute], frame_len: usize, frame_rate: u16) -> OutputPlan {
+    let controllers = routes
+        .iter()
+        .map(|route| {
+            let (wire, port) = match &route.protocol {
+                Protocol::Ddp => (
+                    Wire::Ddp {
+                        data_type: DDP_TYPE_RGB24,
+                    },
+                    DDP_PORT,
+                ),
+                Protocol::Sacn(sacn) => {
+                    let size = usize::from(sacn.universe_size.channels());
+                    let first = sacn.start_universe.unwrap_or(1);
+                    let universes = (0..route.count.div_ceil(size))
+                        .map(|i| UniverseSpan {
+                            universe: first.saturating_add(u16::try_from(i).unwrap_or(u16::MAX)),
+                            controller_channel: i * size,
+                            len: u16::try_from(size.min(route.count - i * size)).unwrap_or(u16::MAX),
+                        })
+                        .collect();
+                    (
+                        Wire::Sacn {
+                            universes,
+                            multicast: sacn.multicast,
+                        },
+                        SACN_PORT,
+                    )
+                }
+            };
+            ControllerPlan {
+                id: route.id,
+                name: route.name.clone(),
+                destination: resolve(&route.address, port),
+                channel_count: route.count,
+                spans: vec![GatherSpan {
+                    frame_offset: route.start,
+                    controller_channel: 0,
+                    pixels: u32::try_from(route.count).unwrap_or(u32::MAX),
+                    channels_per_pixel: 1,
+                    reverse: false,
+                    order: [0, 1, 2, 3],
+                    lut: 0,
+                }],
+                wire,
+            }
+        })
+        .collect();
+    OutputPlan {
+        frame_len,
+        frame_rate,
+        controllers,
+        luts: vec![build_lut(100, 1.0)],
+    }
+}
+
 /// Resolves `ip`, `ip:port`, `host`, or `host:port` to an IPv4 socket address.
 fn resolve(address: &str, default_port: u16) -> Result<SocketAddr, String> {
     if let Ok(addr) = address.parse::<SocketAddr>() {
@@ -222,5 +293,56 @@ mod tests {
         assert_eq!(sacn.spans[0].order, [1, 0, 2, 3]);
         assert_ne!(sacn.spans[0].lut, sacn.spans[1].lut);
         assert!(matches!(&sacn.wire, Wire::Sacn { universes, multicast: false } if universes.len() == 1));
+    }
+
+    #[test]
+    fn passthrough_plans_send_each_block_unchanged() {
+        use pf_model::{SacnConfig, UniverseSize};
+        let routes = [
+            PassthroughRoute {
+                id: ControllerId::new(),
+                name: "Falcon".into(),
+                address: "127.0.0.1".into(),
+                protocol: Protocol::Ddp,
+                start: 0,
+                count: 6147,
+            },
+            PassthroughRoute {
+                id: ControllerId::new(),
+                name: "Arches".into(),
+                address: "127.0.0.2".into(),
+                protocol: Protocol::Sacn(SacnConfig {
+                    start_universe: Some(10),
+                    universe_size: UniverseSize::Channels512,
+                    ..SacnConfig::default()
+                }),
+                start: 6147,
+                count: 1100,
+            },
+        ];
+        let plan = build_passthrough_plan(&routes, 7247, 20);
+        assert_eq!((plan.frame_len, plan.frame_rate, plan.luts.len()), (7247, 20, 1));
+        assert!(
+            plan.luts[0].iter().enumerate().all(|(i, &v)| usize::from(v) == i),
+            "identity LUT"
+        );
+        let falcon = &plan.controllers[0];
+        assert_eq!(falcon.destination, Ok("127.0.0.1:4048".parse().unwrap()));
+        assert_eq!((falcon.channel_count, falcon.spans[0].frame_offset), (6147, 0));
+        let arches = &plan.controllers[1];
+        assert_eq!(arches.spans[0].frame_offset, 6147);
+        let Wire::Sacn { universes, .. } = &arches.wire else {
+            panic!("sACN")
+        };
+        let spans: Vec<_> = universes
+            .iter()
+            .map(|u| (u.universe, u.controller_channel, u.len))
+            .collect();
+        assert_eq!(spans, vec![(10, 0, 512), (11, 512, 512), (12, 1024, 76)]);
+
+        let mut out = vec![0u8; 1100];
+        let frame: Vec<u8> = (0..7247).map(|i| (i % 251) as u8).collect();
+        crate::render_controller(&frame, arches, &plan.luts, &mut out);
+        assert_eq!(&out[..], &frame[6147..]);
     }
 }

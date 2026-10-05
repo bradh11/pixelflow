@@ -146,7 +146,7 @@ pub(crate) fn output_key(show: &Show, map: &ChannelMap) -> OutputKey {
     }
 }
 
-fn controller_status(stats: &OutputStats) -> Vec<ControllerStatus> {
+pub(crate) fn controller_status(stats: &OutputStats) -> Vec<ControllerStatus> {
     stats
         .controllers
         .iter()

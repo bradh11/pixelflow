@@ -22,6 +22,9 @@ pub use engine::{ControllerStats, OutputHandle, OutputStats, start_output};
 pub use gather::render_controller;
 pub use health::ControllerState;
 pub use lut::build_lut;
-pub use plan::{ControllerPlan, DDP_PORT, GatherSpan, OutputPlan, SACN_PORT, Wire, build_plan, wire_order};
+pub use plan::{
+    ControllerPlan, DDP_PORT, GatherSpan, OutputPlan, PassthroughRoute, SACN_PORT, Wire,
+    build_passthrough_plan, build_plan, wire_order,
+};
 pub use settings::OutputSettings;
 pub use transport::{Recorded, RecordingTransport, Transport, UdpTransport};

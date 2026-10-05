@@ -5,6 +5,7 @@ use crate::error::EngineError;
 use crate::history::History;
 use crate::output::{OutputSession, OutputStatus, PatternSpec, TargetSpec, output_key};
 use crate::persist::{self, HistoryEntry};
+use crate::playback::{PlaybackSession, PlaybackStatus};
 use crate::snapshot::{ShowSnapshot, Summary};
 use pf_mapping::ChannelMap;
 use pf_model::{IssueCode, Severity, Show, ValidationReport};
@@ -33,6 +34,7 @@ pub struct Engine {
     history: History,
     data_dir: PathBuf,
     output: Option<OutputSession>,
+    playback: Option<PlaybackSession>,
     output_generation: u64,
     stop_reason: Option<String>,
     /// One sACN identity for the engine's lifetime, so restarts keep the same source.
@@ -62,6 +64,7 @@ impl Engine {
             history: History::new(UNDO_LIMIT, UNDO_BYTE_BUDGET),
             data_dir: data_dir.into(),
             output: None,
+            playback: None,
             output_generation: 0,
             stop_reason: None,
             output_settings: OutputSettings::default(),
@@ -231,6 +234,7 @@ impl Engine {
         target: TargetSpec,
     ) -> Result<OutputStatus, EngineError> {
         self.stop_session();
+        self.stop_playback();
         let transport = (self.transport)().map_err(EngineError::Network)?;
         self.output_generation += 1;
         let session = OutputSession::start(
@@ -267,12 +271,69 @@ impl Engine {
         self.output.as_ref().map(OutputSession::preview)
     }
 
+    /// Plays a rendered sequence (`.fseq`) from `position_ms` to every controller that knows
+    /// its sequence channels. Stops a running test pattern or sequence first.
+    pub fn start_playback(&mut self, path: &Path, position_ms: u64) -> Result<PlaybackStatus, EngineError> {
+        self.stop_session();
+        self.stop_reason = None;
+        self.stop_playback();
+        let (map, _) = analyze(&self.show);
+        let transport = (self.transport)().map_err(EngineError::Network)?;
+        let session = PlaybackSession::start(
+            &self.show,
+            &map,
+            path,
+            position_ms,
+            transport,
+            self.output_settings.clone(),
+        )?;
+        let status = session.status();
+        self.playback = Some(session);
+        Ok(status)
+    }
+
+    /// Pauses or resumes playback (controllers keep showing the paused frame).
+    pub fn set_playback_paused(&mut self, paused: bool) -> Option<PlaybackStatus> {
+        let session = self.playback.as_ref()?;
+        session.set_paused(paused);
+        Some(session.status())
+    }
+
+    /// Jumps to `position_ms` in the playing sequence.
+    pub fn seek_playback(&mut self, position_ms: u64) -> Option<PlaybackStatus> {
+        let session = self.playback.as_ref()?;
+        session.seek(position_ms);
+        Some(session.status())
+    }
+
+    /// Stops playback (controllers are blacked out).
+    pub fn stop_playback(&mut self) {
+        if let Some(session) = self.playback.take() {
+            session.stop();
+        }
+    }
+
+    /// The playing sequence's state, or `None` when nothing is playing.
+    pub fn playback_status(&self) -> Option<PlaybackStatus> {
+        self.playback.as_ref().map(PlaybackSession::status)
+    }
+
+    /// The props as they look right now: the playing sequence's frame, else the test pattern's
+    /// (prop order, RGB/RGBW per pixel).
+    pub fn live_frame(&self) -> Option<Vec<u8>> {
+        self.playback
+            .as_ref()
+            .map(PlaybackSession::preview)
+            .or_else(|| self.preview_frame())
+    }
+
     fn history_dir(&self) -> PathBuf {
         persist::history_dir(&self.data_dir, self.path.as_deref())
     }
 
     fn replace_show(&mut self, show: Show, path: Option<PathBuf>) {
         self.stop_session();
+        self.stop_playback();
         self.stop_reason = None;
         self.show = show;
         self.path = path;

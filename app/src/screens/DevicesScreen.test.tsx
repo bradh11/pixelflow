@@ -120,6 +120,14 @@ describe("devices", () => {
     expect(controllers[0].ports.length).toBeGreaterThan(0);
   });
 
+  it("clicking a device's row opens it", async () => {
+    const { user } = await openDevices();
+    await user.click(screen.getByRole("button", { name: "Scan network" }));
+    await user.click(await screen.findByText("Porch WLED"));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Import Porch WLED" })).toBeInTheDocument();
+  });
+
   it("checks a typed address and says when nothing answers", async () => {
     const { user, backend } = await openDevices();
     await user.type(screen.getByLabelText("Controller address"), "10.9.9.9");

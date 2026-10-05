@@ -294,6 +294,8 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
     blending: AdditiveBlending,
   });
   let pixelGeometry = new BufferGeometry();
+  /** Every position must reach the GPU at the next frame, so partial updates add no ranges until then. */
+  let fullUpload = false;
   const pixels = new Points(pixelGeometry, pixelMaterial);
   pixels.frustumCulled = false;
   pixels.renderOrder = 10;
@@ -395,9 +397,8 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
       composer.setPixelRatio(ratio);
       composer.setSize(size.width, size.height);
       bloomComposer.setPixelRatio(ratio);
+      // The bloom pass sizes its own targets from this, at half resolution and smaller.
       bloomComposer.setSize(size.width, size.height);
-      // The glow is soft: half resolution is plenty, and much cheaper.
-      bloom.resolution.set((size.width * ratio) / 2, (size.height * ratio) / 2);
       camera.aspect = size.width / size.height;
     },
 
@@ -408,8 +409,10 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
         (current.array as Float32Array).set(xyz);
         current.clearUpdateRanges();
         current.needsUpdate = true;
+        fullUpload = true;
         return;
       }
+      fullUpload = true;
       pixelGeometry.dispose();
       pixelGeometry = new BufferGeometry();
       const position = new BufferAttribute(new Float32Array(xyz), 3);
@@ -426,7 +429,7 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
       const position = pixelGeometry.getAttribute("position") as BufferAttribute | undefined;
       if (!position || start * 3 + xyz.length > position.array.length) return;
       (position.array as Float32Array).set(xyz, start * 3);
-      position.addUpdateRange(start * 3, xyz.length);
+      if (!fullUpload) position.addUpdateRange(start * 3, xyz.length);
       position.needsUpdate = true;
     },
 
@@ -562,6 +565,7 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
         bloomComposer.render();
         composer.render();
       } else renderer.render(scene, camera);
+      fullUpload = false;
       if (selectionBox.visible || gizmo.group.visible) {
         renderer.autoClear = false;
         renderer.clearDepth();

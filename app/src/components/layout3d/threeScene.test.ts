@@ -1,4 +1,4 @@
-import { type Object3D, type Scene, Vector3, WebGLRenderTarget, type WebGLRenderer } from "three";
+import { BufferAttribute, type Object3D, Points, type Scene, Vector3, WebGLRenderTarget, type WebGLRenderer } from "three";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { Pass } from "three/addons/postprocessing/Pass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
@@ -94,5 +94,32 @@ describe("the three.js scene", () => {
     });
     scene.dispose();
     for (const thing of things) expect(freed.has(thing)).toBe(true);
+  });
+
+  it("uploads every position after a full update, even when a partial one follows before the next frame", () => {
+    const renderer = fakeRenderer();
+    const scene = createThreeScene({} as HTMLCanvasElement, () => renderer as unknown as WebGLRenderer);
+    scene.setOptions({ bloom: false, ground: true });
+    scene.setPixels(new Float32Array(9));
+    scene.render(ORBIT);
+    const points = () => {
+      let found: Points | null = null;
+      renderer.drawn.at(-1)!.traverse((o) => {
+        if (o instanceof Points) found = o;
+      });
+      return found! as Points;
+    };
+    const position = points().geometry.getAttribute("position") as BufferAttribute;
+    position.clearUpdateRanges();
+    // New positions for every pixel (an undo, say), then a drag moves the last pixel in the same frame.
+    scene.setPixels(new Float32Array([1, 1, 1, 2, 2, 2, 3, 3, 3]));
+    scene.updatePixels(2, new Float32Array([4, 4, 4]));
+    scene.render(ORBIT);
+    // No ranges: three uploads the whole buffer.
+    expect(position.updateRanges).toEqual([]);
+    expect(Array.from(position.array)).toEqual([1, 1, 1, 2, 2, 2, 4, 4, 4]);
+    // Afterwards, partial updates upload only what changed again.
+    scene.updatePixels(0, new Float32Array([5, 5, 5]));
+    expect(position.updateRanges).toEqual([{ start: 0, count: 3 }]);
   });
 });

@@ -1,7 +1,7 @@
 //! The sequence document: rows of layered effects, and timing tracks.
 
 use crate::{Effect, EffectId, RowId, TimingTrackId};
-use pf_model::{GroupId, PropId};
+use pf_model::{GroupId, PropId, RegionId};
 use serde::{Deserialize, Serialize};
 
 /// Schema version written by this build.
@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 /// even an additive one, so an older PixelFlow refuses a newer file instead of silently dropping
 /// what it doesn't know on save. Add the migration in `io.rs` in the same change.
 ///
-/// History: 1 = initial format.
-pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+/// History: 1 = initial format; 2 = rows can target a submodel (`{ "region": { "prop", "region" } }`).
+pub const CURRENT_SCHEMA_VERSION: u32 = 2;
 
 fn default_frame_ms() -> u32 {
     25
@@ -111,12 +111,24 @@ impl Sequence {
     }
 }
 
-/// What a row lights: one prop, or a group of props treated as one canvas.
+/// What a row lights: one prop, a group of props treated as one canvas, or one of a prop's
+/// submodels (or faces).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Target {
     Prop(PropId),
     Group(GroupId),
+    Region { prop: PropId, region: RegionId },
+}
+
+impl Target {
+    /// The prop a prop or submodel row belongs to (`None` for a group).
+    pub fn prop(self) -> Option<PropId> {
+        match self {
+            Target::Prop(id) | Target::Region { prop: id, .. } => Some(id),
+            Target::Group(_) => None,
+        }
+    }
 }
 
 /// A row on the timeline: layers of effects on one target.
@@ -219,6 +231,21 @@ mod tests {
             serde_json::json!({ "prop": "00000000-0000-0000-0000-000000000000" })
         );
         assert_eq!(serde_json::from_value::<Target>(json).unwrap(), Target::Prop(id));
+        let region = Target::Region {
+            prop: id,
+            region: RegionId(uuid::Uuid::nil()),
+        };
+        let json = serde_json::to_value(region).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({ "region": {
+                "prop": "00000000-0000-0000-0000-000000000000",
+                "region": "00000000-0000-0000-0000-000000000000"
+            } })
+        );
+        assert_eq!(serde_json::from_value::<Target>(json).unwrap(), region);
+        assert_eq!(region.prop(), Some(id));
+        assert_eq!(Target::Group(GroupId(uuid::Uuid::nil())).prop(), None);
     }
 
     #[test]

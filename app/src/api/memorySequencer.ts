@@ -363,7 +363,7 @@ export function diffSequences(before: Sequence, after: Sequence): SequenceChange
 }
 
 function newSequence(name: string, durationMs: number): Sequence {
-  return { schemaVersion: 1, name, audio: null, durationMs, frameMs: 25, timingTracks: [], rows: [] };
+  return { schemaVersion: 2, name, audio: null, durationMs, frameMs: 25, timingTracks: [], rows: [] };
 }
 
 /** The sequencer in memory. Each instance holds one open sequence, like the engine. */

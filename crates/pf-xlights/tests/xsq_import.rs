@@ -292,6 +292,37 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
     );
     assert_eq!(bars.blend, Blend::Add);
 
+    // Submodel layers become rows on the submodels, right after their model's row.
+    let arches = show.props.iter().find(|p| p.name == "Arches").unwrap();
+    let on_submodel = |name: &str| {
+        let region = arches.regions.iter().find(|r| r.name == name).unwrap();
+        let target = Target::Region {
+            prop: arches.id,
+            region: region.id,
+        };
+        let at = i.sequence.rows.iter().position(|r| r.target == target).unwrap();
+        (at, &i.sequence.rows[at])
+    };
+    let model_at = i
+        .sequence
+        .rows
+        .iter()
+        .position(|r| r.target == Target::Prop(arches.id))
+        .unwrap();
+    let (at, arch_1) = on_submodel("Arch 1");
+    assert_eq!(at, model_at + 1);
+    assert_eq!(arch_1.layers.len(), 1);
+    assert_eq!(arch_1.layers[0].effects[0].kind(), pf_sequence::EffectKind::On);
+    let (at, tops) = on_submodel("Tops");
+    assert_eq!(at, model_at + 2);
+    // xLights' layer 1 is below its (empty) layer 0.
+    assert_eq!(tops.layers.len(), 2);
+    assert_eq!(
+        tops.layers[0].effects[0].kind(),
+        pf_sequence::EffectKind::ColorWash
+    );
+    assert!(tops.layers[1].effects.is_empty());
+
     let chase = &row(&i, &show, "Candy Canes").layers[0].effects[0];
     assert_eq!(
         chase.params,
@@ -384,13 +415,13 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
     row(&i, &show, "Santa's Sleigh & Reindeer");
 
     let s = i.summary;
-    assert_eq!(s.rows, 7);
-    assert_eq!(s.effects, 21);
-    assert_eq!((s.exact, s.approximate, s.placeholders), (12, 6, 3));
+    assert_eq!(s.rows, 9);
+    assert_eq!(s.effects, 23);
+    assert_eq!((s.exact, s.approximate, s.placeholders), (14, 6, 3));
     assert_eq!(
         s.skipped,
         1 + 3 + 2,
-        "Adjust, submodel and node effects, Garage Door"
+        "Adjust, effects on a missing submodel and a node, Garage Door"
     );
 
     assert_note(
@@ -420,7 +451,11 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
     );
     assert_note(
         &i,
-        "PixelFlow doesn't import effects on submodels, strands, or single nodes yet; these weren't imported: Mega Tree (3 effects).",
+        "These submodels aren't in the show, so their effects weren't imported: Mega Tree/Star (2 effects).",
+    );
+    assert_note(
+        &i,
+        "PixelFlow doesn't import effects on strands or single nodes yet; these weren't imported: Mega Tree (1 effect).",
     );
     assert_note(&i, "1 effect is xLights' Random effect");
     assert!(!has_note(&i, "Wave"), "{:#?}", i.notes);

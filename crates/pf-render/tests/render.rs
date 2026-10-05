@@ -126,6 +126,30 @@ fn groups_draw_across_all_members_as_one_canvas() {
 }
 
 #[test]
+fn submodel_rows_light_only_their_pixels_and_follow_row_order() {
+    let mut show = show();
+    let middle = pf_model::Region::nodes("Middle", vec![vec![Some(pf_model::NodeRun::new(1, 2))]]);
+    let target = Target::Region {
+        prop: show.props[0].id,
+        region: middle.id,
+    };
+    show.props[0].regions.push(middle);
+    let mut seq = Sequence::new("s", 1000);
+    // The whole prop blue, then its middle red on a later row.
+    seq.rows.push(row(
+        Target::Prop(show.props[0].id),
+        vec![vec![on(Rgb::BLUE, 0, 1000)]],
+    ));
+    seq.rows.push(row(target, vec![vec![on(Rgb::RED, 0, 1000)]]));
+    let (a, _) = pixels(&render(&show, &seq, 0));
+    assert_eq!(a, vec![[0, 0, 255], [255, 0, 0], [255, 0, 0], [0, 0, 255]]);
+    // Rows draw in order: the whole prop now covers its middle.
+    seq.rows.swap(0, 1);
+    let (a, _) = pixels(&render(&show, &seq, 0));
+    assert_eq!(a, vec![[0, 0, 255]; 4]);
+}
+
+#[test]
 fn layers_blend_bottom_to_top() {
     let show = show();
     let a = Target::Prop(show.props[0].id);

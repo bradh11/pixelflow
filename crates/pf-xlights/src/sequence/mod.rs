@@ -11,7 +11,10 @@ mod settings;
 mod xsq;
 
 pub use settings::{ParsedPalette, Settings, leading_number, parse_palette, unxml_safe};
-pub use xsq::{ElementKind, MAX_XSQ_BYTES, XsqEffect, XsqElement, XsqFile, XsqHead, XsqLayer, parse_xsq};
+pub use xsq::{
+    ElementKind, MAX_XSQ_BYTES, XsqEffect, XsqElement, XsqFile, XsqHead, XsqLayer, XsqSubmodelLayer,
+    parse_xsq,
+};
 
 use crate::XlightsError;
 use effects::{Fidelity, Tally};
@@ -43,8 +46,8 @@ pub struct SequenceImportSummary {
     pub approximate: usize,
     /// No PixelFlow equivalent yet: kept as a dim fill in the effect's first color.
     pub placeholders: usize,
-    /// xLights effects not imported (models not in the show, submodels, outside the sequence,
-    /// limits). Timing marks are counted in `marks_skipped`.
+    /// xLights effects not imported (models or submodels not in the show, strands and nodes,
+    /// outside the sequence, limits). Timing marks are counted in `marks_skipped`.
     pub skipped: usize,
     pub timing_tracks: usize,
     pub marks: usize,
@@ -315,6 +318,38 @@ impl<'a> Builder<'a> {
     }
 }
 
+/// Adds a row of `layers` on `target` to the sequence, or (the same model twice) adds them
+/// beneath the existing row's layers, as xLights does.
+fn place_row(
+    sequence: &mut Sequence,
+    row_index: &mut HashMap<Target, usize>,
+    rows_lost: &mut usize,
+    summary: &mut SequenceImportSummary,
+    target: Target,
+    layers: Vec<Layer>,
+) {
+    match row_index.get(&target) {
+        Some(&at) => {
+            let row: &mut Row = &mut sequence.rows[at];
+            let room = MAX_LAYERS_PER_ROW.saturating_sub(row.layers.len());
+            let extra: Vec<Layer> = layers.into_iter().rev().take(room).rev().collect();
+            row.layers.splice(0..0, extra);
+        }
+        None if sequence.rows.len() >= MAX_ROWS => {
+            *rows_lost += 1;
+            summary.skipped += layers.iter().map(|l| l.effects.len()).sum::<usize>();
+        }
+        None => {
+            row_index.insert(target, sequence.rows.len());
+            sequence.rows.push(Row {
+                id: RowId::new(),
+                target,
+                layers,
+            });
+        }
+    }
+}
+
 /// Names with counts, in first-seen order, each name once.
 #[derive(Debug, Default)]
 struct Named {
@@ -556,7 +591,8 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
     let mut unmatched = Named::default();
     let mut unmatched_empty = 0;
     let mut shadowed = Named::default();
-    let mut submodels: Vec<(String, usize)> = Vec::new();
+    let mut strands: Vec<(String, usize)> = Vec::new();
+    let mut missing_submodels = Named::default();
     let mut rows_lost = 0;
     let mut layers_lost = 0;
     let mut row_index: HashMap<Target, usize> = HashMap::new();
@@ -564,24 +600,25 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
     let mut other_effects = 0;
     for element in &file.elements {
         let count: usize = element.layers.iter().map(|l| l.effects.len()).sum();
+        let below = element.sub_effects + element.submodel_effects();
         match element.kind {
             ElementKind::Timing => continue,
             ElementKind::Other => {
                 other_elements += 1;
-                other_effects += count + element.sub_effects;
-                b.summary.skipped += count + element.sub_effects;
+                other_effects += count + below;
+                b.summary.skipped += count + below;
                 continue;
             }
             ElementKind::Model => {}
         }
         if timing_names.contains(element.name.as_str()) {
             // xLights reads such an element as the timing track of the same name.
-            shadowed.add(unxml_safe(&element.name), count + element.sub_effects);
-            b.summary.skipped += count + element.sub_effects;
+            shadowed.add(unxml_safe(&element.name), count + below);
+            b.summary.skipped += count + below;
             continue;
         }
         let Some(target) = b.target(&element.name) else {
-            let total = count + element.sub_effects;
+            let total = count + below;
             let name = unxml_safe(&element.name);
             if total == 0 && !unmatched.contains(&name) {
                 unmatched_empty += 1;
@@ -592,44 +629,87 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
             continue;
         };
         if element.sub_effects > 0 {
-            submodels.push((unxml_safe(&element.name), element.sub_effects));
+            strands.push((unxml_safe(&element.name), element.sub_effects));
             b.summary.skipped += element.sub_effects;
         }
-        // xLights' first layer is drawn on top; PixelFlow draws its last layer on top.
-        let mut layers: Vec<Layer> = Vec::with_capacity(element.layers.len().max(1));
-        for (i, x_layer) in element.layers.iter().enumerate().rev() {
-            if i >= MAX_LAYERS_PER_ROW {
-                layers_lost += x_layer.effects.len();
-                b.summary.skipped += x_layer.effects.len();
-                continue;
+        // The model's row, then one for each of its submodels (drawn over the model, as in
+        // xLights), in the order they first appear.
+        let mut rows: Vec<(Target, Vec<Vec<&XsqEffect>>)> = vec![(
+            target,
+            element
+                .layers
+                .iter()
+                .map(|l| l.effects.iter().collect())
+                .collect(),
+        )];
+        let mut names: Vec<&str> = Vec::new();
+        for sub in &element.submodels {
+            if !names.contains(&sub.name.as_str()) {
+                names.push(&sub.name);
             }
-            let effects = x_layer.effects.iter().filter_map(|x| b.effect(x)).collect();
-            layers.push(Layer { effects });
         }
-        if layers.is_empty() {
-            layers.push(Layer::default());
-        }
-        match row_index.get(&target) {
-            // The same model twice: xLights adds the second one's layers beneath the first's.
-            Some(&at) => {
-                let row: &mut Row = &mut sequence.rows[at];
-                let room = MAX_LAYERS_PER_ROW.saturating_sub(row.layers.len());
-                let extra: Vec<Layer> = layers.into_iter().rev().take(room).rev().collect();
-                row.layers.splice(0..0, extra);
-            }
-            None if sequence.rows.len() >= MAX_ROWS => {
-                rows_lost += 1;
-                let lost: usize = layers.iter().map(|l| l.effects.len()).sum();
+        for name in names {
+            let subs: Vec<&XsqSubmodelLayer> = element.submodels.iter().filter(|s| s.name == name).collect();
+            let region = target.prop().and_then(|prop| {
+                let wanted = unxml_safe(name);
+                let found = show
+                    .prop(prop)?
+                    .regions
+                    .iter()
+                    .find(|r| r.is_submodel() && (r.name == name || r.name == wanted))?;
+                Some(Target::Region {
+                    prop,
+                    region: found.id,
+                })
+            });
+            let Some(region) = region else {
+                let lost: usize = subs.iter().map(|s| s.effects.len()).sum();
+                missing_submodels.add(
+                    format!("{}/{}", unxml_safe(&element.name), unxml_safe(name)),
+                    lost,
+                );
                 b.summary.skipped += lost;
+                continue;
+            };
+            // Layer numbers as xLights numbers them (missing ones are empty layers; the same
+            // number twice is one layer).
+            let mut x_layers: Vec<Vec<&XsqEffect>> = Vec::new();
+            for sub in subs {
+                if sub.layer >= MAX_LAYERS_PER_ROW {
+                    layers_lost += sub.effects.len();
+                    b.summary.skipped += sub.effects.len();
+                    continue;
+                }
+                if x_layers.len() <= sub.layer {
+                    x_layers.resize(sub.layer + 1, Vec::new());
+                }
+                x_layers[sub.layer].extend(&sub.effects);
             }
-            None => {
-                row_index.insert(target, sequence.rows.len());
-                sequence.rows.push(Row {
-                    id: RowId::new(),
-                    target,
-                    layers,
-                });
+            rows.push((region, x_layers));
+        }
+        for (target, x_layers) in rows {
+            // xLights' first layer is drawn on top; PixelFlow draws its last layer on top.
+            let mut layers: Vec<Layer> = Vec::with_capacity(x_layers.len().max(1));
+            for (i, x_layer) in x_layers.iter().enumerate().rev() {
+                if i >= MAX_LAYERS_PER_ROW {
+                    layers_lost += x_layer.len();
+                    b.summary.skipped += x_layer.len();
+                    continue;
+                }
+                let effects = x_layer.iter().filter_map(|x| b.effect(x)).collect();
+                layers.push(Layer { effects });
             }
+            if layers.is_empty() {
+                layers.push(Layer::default());
+            }
+            place_row(
+                &mut sequence,
+                &mut row_index,
+                &mut rows_lost,
+                &mut b.summary,
+                target,
+                layers,
+            );
         }
     }
     b.summary.rows = sequence.rows.len();
@@ -677,13 +757,19 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
             plural(other_effects, "effect")
         ));
     }
-    if !submodels.is_empty() {
-        let names: Vec<String> = submodels
+    if !missing_submodels.is_empty() {
+        b.notes.push(format!(
+            "These submodels aren't in the show, so their effects weren't imported: {}.",
+            missing_submodels.list("effect")
+        ));
+    }
+    if !strands.is_empty() {
+        let names: Vec<String> = strands
             .iter()
             .map(|(n, c)| format!("{n} ({})", plural(*c, "effect")))
             .collect();
         b.notes.push(format!(
-            "PixelFlow doesn't import effects on submodels, strands, or single nodes yet; these weren't imported: {}.",
+            "PixelFlow doesn't import effects on strands or single nodes yet; these weren't imported: {}.",
             list(&names)
         ));
     }

@@ -38,6 +38,9 @@ fn target_name(show: &Show, target: Target) -> Option<String> {
             .iter()
             .find(|g| g.id == id)
             .map(|g| format!("group '{}'", g.name)),
+        Target::Region { prop, region } => show
+            .region(prop, region)
+            .map(|(p, r)| format!("'{} / {}'", p.name, r.name)),
     }
 }
 
@@ -70,6 +73,7 @@ pub fn validate_sequence(seq: &Sequence, show: &Show) -> Vec<SequenceIssue> {
                 let what = match row.target {
                     Target::Prop(_) => "a prop",
                     Target::Group(_) => "a group",
+                    Target::Region { .. } => "a submodel",
                 };
                 push(
                     Severity::Warning,
@@ -200,13 +204,17 @@ mod tests {
 
     fn show() -> (Show, Prop) {
         let mut show = Show::new("t");
-        let prop = Prop::new(
+        let mut prop = Prop::new(
             "Arch",
             ShapeSource::Generator(Generator::Line {
                 nodes: 10,
                 length: 1.0,
             }),
         );
+        prop.regions.push(pf_model::Region::nodes(
+            "Left",
+            vec![vec![Some(pf_model::NodeRun::new(0, 4))]],
+        ));
         show.props.push(prop.clone());
         let mut group = Group::new("Yard");
         group.members.push(prop.id);
@@ -232,7 +240,42 @@ mod tests {
         ];
         seq.rows.push(row);
         seq.rows.push(Row::new(Target::Group(show.groups[0].id)));
+        let left = &show.props[0].regions[0];
+        let mut sub = Row::new(Target::Region {
+            prop: prop.id,
+            region: left.id,
+        });
+        sub.layers[0].effects.push(Effect::new(EffectKind::On, 0, 1000));
+        seq.rows.push(sub);
         assert_eq!(validate_sequence(&seq, &show), vec![]);
+    }
+
+    #[test]
+    fn rows_on_deleted_submodels_are_reported_by_name() {
+        let (show, prop) = show();
+        let mut seq = Sequence::new("s", 10_000);
+        let mut row = Row::new(Target::Region {
+            prop: prop.id,
+            region: show.props[0].regions[0].id,
+        });
+        row.layers[0].effects.push(Effect::new(EffectKind::On, 500, 400));
+        seq.rows.push(row);
+        seq.rows.push(Row::new(Target::Region {
+            prop: prop.id,
+            region: pf_model::RegionId::new(),
+        }));
+        let messages: Vec<String> = validate_sequence(&seq, &show)
+            .into_iter()
+            .map(|i| i.message)
+            .collect();
+        assert!(
+            messages[0].starts_with("The On effect at 0:00.500 on 'Arch / Left' (layer 1)"),
+            "{messages:?}"
+        );
+        assert_eq!(
+            messages[1],
+            "Row 2 lights a submodel that isn't in the show anymore, so it shows nothing."
+        );
     }
 
     #[test]

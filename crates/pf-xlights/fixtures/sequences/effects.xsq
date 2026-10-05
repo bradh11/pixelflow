@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- One of each effect PixelFlow translates (with settings), plus effects it can't, submodel
-     layers, a model that isn't in the show, and a double-escaped model name. -->
+     layers (on submodels in the show and one that isn't), strand and node effects, a model
+     that isn't in the show, and a double-escaped model name. -->
 <xsequence BaseChannel="0" ChanCtrlBasic="0" ChanCtrlColor="0" FixedPointTiming="1" ModelBlending="true">
   <head>
     <version>2025.01</version>
@@ -49,6 +50,12 @@
       <EffectLayer>
         <Effect ref="2" name="Bars" palette="0" startTime="0" endTime="2000"/>
       </EffectLayer>
+      <SubModelEffectLayer name="Arch 1">
+        <Effect ref="0" name="On" palette="2" startTime="0" endTime="1000"/>
+      </SubModelEffectLayer>
+      <SubModelEffectLayer layer="1" name="Tops">
+        <Effect ref="1" name="Color Wash" palette="2" startTime="0" endTime="2000"/>
+      </SubModelEffectLayer>
     </Element>
     <Element type="model" name="Candy Canes">
       <EffectLayer>

@@ -1,12 +1,18 @@
 //! Where every pixel sits, normalized per target, so effects can draw on any shape.
 //!
-//! Each target (a prop, or a group of props) becomes a **pixel buffer**: its pixels with (u, v)
-//! positions scaled to the target's bounding box (0–1, left to right and bottom to top, front
-//! view), plus their order along the target. A group uses the combined bounding box of its
-//! members, so a wave sweeps across the whole group.
+//! Each target (a prop, a group of props, or a submodel) becomes a **pixel buffer**: its pixels
+//! with (u, v) positions scaled to the target's bounding box (0–1, left to right and bottom to
+//! top, front view), plus their order along the target. A group uses the combined bounding box
+//! of its members, so a wave sweeps across the whole group.
+//!
+//! A submodel lays its pixels out the way xLights does (`SubModel.cpp`): with the default buffer
+//! style each line is a row (or a column, for a vertical submodel), gaps included; "stacked
+//! strands" puts every line on the same row; "keep XY" keeps the pixels where they are on the
+//! prop; and a sub-buffer is the prop's own buffer cropped to its rectangle and stretched to
+//! fill 0–1 again.
 
 use pf_mapping::ChannelMap;
-use pf_model::{GroupId, PropId, Show};
+use pf_model::{BufferStyle, GroupId, LineLayout, PropId, Region, RegionId, RegionKind, RegionRef, Show};
 use pf_sequence::Target;
 use std::collections::{HashMap, HashSet};
 
@@ -43,6 +49,20 @@ impl PixelBuffer {
     pub fn is_empty(&self) -> bool {
         self.pixels.is_empty()
     }
+
+    /// Each pixel's index in the show-wide pixel list, in buffer order.
+    pub fn show_pixels(&self) -> &[u32] {
+        &self.global
+    }
+
+    fn empty() -> Self {
+        Self {
+            pixels: Vec::new(),
+            global: Vec::new(),
+            columns: 1,
+            rows: 1,
+        }
+    }
 }
 
 /// One prop's pixels in the show frame.
@@ -56,6 +76,35 @@ pub(crate) struct PropGeometry {
     pub points: Vec<[f32; 2]>,
     /// How many of `points` came from the shape; the rest are padding (see [`SceneGeometry::new`]).
     pub real: usize,
+    /// The prop's submodels and faces.
+    pub regions: Vec<Region>,
+}
+
+impl PropGeometry {
+    fn node_count(&self) -> u32 {
+        u32::try_from(self.points.len()).unwrap_or(u32::MAX)
+    }
+
+    /// Node `n` as a point for [`build_buffer`].
+    fn point(&self, n: u32) -> Point {
+        let n = n as usize;
+        Point {
+            global: u32::try_from(self.first_pixel + n).unwrap_or(u32::MAX),
+            xy: (n < self.real).then(|| self.points[n]),
+        }
+    }
+
+    pub(crate) fn region(&self, id: RegionId) -> Option<&Region> {
+        self.regions.iter().find(|r| r.id == id)
+    }
+}
+
+/// A pixel for [`build_buffer`]: its show-wide index and position (`None`: padding, drawn in the
+/// middle of the box).
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Point {
+    global: u32,
+    xy: Option<[f32; 2]>,
 }
 
 /// Every prop's pixel positions and frame location, computed once per show and channel map.
@@ -63,7 +112,7 @@ pub(crate) struct PropGeometry {
 pub struct SceneGeometry {
     pub(crate) props: Vec<PropGeometry>,
     index: HashMap<PropId, usize>,
-    groups: HashMap<GroupId, Vec<PropId>>,
+    groups: HashMap<GroupId, (Vec<PropId>, Vec<RegionRef>)>,
     pub(crate) pixel_count: usize,
     pub(crate) frame_len: usize,
 }
@@ -95,10 +144,15 @@ impl SceneGeometry {
                 first_pixel,
                 points,
                 real,
+                regions: prop.regions.clone(),
             });
             first_pixel += nodes;
         }
-        let groups = show.groups.iter().map(|g| (g.id, g.members.clone())).collect();
+        let groups = show
+            .groups
+            .iter()
+            .map(|g| (g.id, (g.members.clone(), g.submodels.clone())))
+            .collect();
         Self {
             props,
             index,
@@ -118,22 +172,53 @@ impl SceneGeometry {
         self.pixel_count
     }
 
+    pub(crate) fn prop(&self, id: PropId) -> Option<&PropGeometry> {
+        self.index.get(&id).map(|&i| &self.props[i])
+    }
+
     /// The pixel buffer for a target; empty when the target is unknown or has no pixels.
     pub fn buffer(&self, target: Target) -> PixelBuffer {
-        let members: Vec<&PropGeometry> = match target {
-            Target::Prop(id) => self.index.get(&id).map(|&i| &self.props[i]).into_iter().collect(),
+        match target {
+            Target::Prop(id) => match self.prop(id) {
+                Some(prop) => {
+                    build_buffer(&(0..prop.node_count()).map(|n| prop.point(n)).collect::<Vec<_>>())
+                }
+                None => PixelBuffer::empty(),
+            },
             Target::Group(id) => {
+                let Some((members, submodels)) = self.groups.get(&id) else {
+                    return PixelBuffer::empty();
+                };
                 let mut seen = HashSet::new();
-                self.groups
-                    .get(&id)
-                    .into_iter()
-                    .flatten()
-                    .filter(|m| seen.insert(**m))
-                    .filter_map(|m| self.index.get(m).map(|&i| &self.props[i]))
-                    .collect()
+                let mut points = Vec::new();
+                let mut add = |p: Point| {
+                    if seen.insert(p.global) {
+                        points.push(p);
+                    }
+                };
+                for prop in members.iter().filter_map(|m| self.prop(*m)) {
+                    (0..prop.node_count()).for_each(|n| add(prop.point(n)));
+                }
+                for member in submodels {
+                    let Some(prop) = self.prop(member.prop) else {
+                        continue;
+                    };
+                    let Some(region) = prop.region(member.region) else {
+                        continue;
+                    };
+                    region_nodes(prop, region)
+                        .into_iter()
+                        .for_each(|n| add(prop.point(n)));
+                }
+                build_buffer(&points)
             }
-        };
-        build_buffer(&members)
+            Target::Region { prop, region } => {
+                match self.prop(prop).and_then(|p| Some((p, p.region(region)?))) {
+                    Some((prop, region)) => region_buffer(prop, region),
+                    None => PixelBuffer::empty(),
+                }
+            }
+        }
     }
 }
 
@@ -141,10 +226,173 @@ fn finite(v: f32) -> f32 {
     if v.is_finite() { v } else { 0.0 }
 }
 
-fn build_buffer(members: &[&PropGeometry]) -> PixelBuffer {
-    let count: usize = members.iter().map(|p| p.points.len()).sum();
+/// The prop's nodes a region lights, in the region's order. A sub-buffer takes the prop's
+/// pixels inside its rectangle, in wiring order.
+fn region_nodes(prop: &PropGeometry, region: &Region) -> Vec<u32> {
+    match region.kind {
+        RegionKind::SubBuffer { x1, y1, x2, y2 } => {
+            let whole = build_buffer(&(0..prop.node_count()).map(|n| prop.point(n)).collect::<Vec<_>>());
+            whole
+                .pixels
+                .iter()
+                .enumerate()
+                .filter(|(_, px)| in_rect(px, x1, y1, x2, y2))
+                .map(|(n, _)| n as u32)
+                .collect()
+        }
+        _ => region.node_list(prop.node_count()),
+    }
+}
+
+/// True when a pixel of the prop's buffer lies in a sub-buffer rectangle (percentages).
+fn in_rect(px: &Pixel, x1: f32, y1: f32, x2: f32, y2: f32) -> bool {
+    const EPS: f32 = 1e-3;
+    let (u, v) = (px.u * 100.0, px.v * 100.0);
+    u >= x1.min(x2) - EPS && u <= x1.max(x2) + EPS && v >= y1.min(y2) - EPS && v <= y1.max(y2) + EPS
+}
+
+/// A submodel's (or face's) pixel buffer.
+fn region_buffer(prop: &PropGeometry, region: &Region) -> PixelBuffer {
+    match &region.kind {
+        RegionKind::Nodes {
+            lines,
+            layout,
+            buffer,
+        } if *buffer != BufferStyle::KeepXy => {
+            grid_buffer(prop, lines, *layout, *buffer == BufferStyle::StackedStrands)
+        }
+        RegionKind::SubBuffer { x1, y1, x2, y2 } => {
+            let whole = build_buffer(&(0..prop.node_count()).map(|n| prop.point(n)).collect::<Vec<_>>());
+            let (lo_x, hi_x) = (x1.min(*x2), x1.max(*x2));
+            let (lo_y, hi_y) = (y1.min(*y2), y1.max(*y2));
+            let stretch = |value: f32, lo: f32, hi: f32| {
+                if hi - lo <= f32::EPSILON {
+                    0.5
+                } else {
+                    ((value * 100.0 - lo) / (hi - lo)).clamp(0.0, 1.0)
+                }
+            };
+            let mut pixels = Vec::new();
+            let mut global = Vec::new();
+            for (px, &g) in whole.pixels.iter().zip(&whole.global) {
+                if in_rect(px, *x1, *y1, *x2, *y2) {
+                    pixels.push(Pixel {
+                        u: stretch(px.u, lo_x, hi_x),
+                        v: stretch(px.v, lo_y, hi_y),
+                        index: pixels.len() as u32,
+                        count: 0,
+                    });
+                    global.push(g);
+                }
+            }
+            let count = pixels.len() as u32;
+            pixels.iter_mut().for_each(|p| p.count = count);
+            let share = |n: u32, part: f32| ((n as f32 * part / 100.0).round() as u32).clamp(1, count.max(1));
+            PixelBuffer {
+                columns: share(whole.columns, hi_x - lo_x),
+                rows: share(whole.rows, hi_y - lo_y),
+                pixels,
+                global,
+            }
+        }
+        // Keep XY and faces: the pixels where they are on the prop.
+        _ => build_buffer(
+            &region
+                .node_list(prop.node_count())
+                .into_iter()
+                .map(|n| prop.point(n))
+                .collect::<Vec<_>>(),
+        ),
+    }
+}
+
+/// Lines laid out as rows (or columns), as xLights' `SubModel::initDefaultBuffer` does: each
+/// pixel takes the next spot along its line, a gap skips a spot, and each line starts a new row
+/// (column), or the same one when the lines are stacked. A pixel listed twice draws where it
+/// was listed last.
+fn grid_buffer(
+    prop: &PropGeometry,
+    lines: &[pf_model::SubmodelLine],
+    layout: LineLayout,
+    stacked: bool,
+) -> PixelBuffer {
+    let vertical = layout == LineLayout::Vertical;
+    let nodes = prop.node_count();
+    let mut spot: HashMap<u32, (i64, i64)> = HashMap::new();
+    let mut order = Vec::new();
+    let (mut row, mut col, mut max_row, mut max_col) = (0i64, 0i64, 0i64, 0i64);
+    for line in lines {
+        for item in line {
+            match item {
+                None => {
+                    if vertical {
+                        row += 1;
+                    } else {
+                        col += 1;
+                    }
+                }
+                Some(run) => {
+                    for n in run.nodes(nodes) {
+                        if spot.insert(n, (col, row)).is_none() {
+                            order.push(n);
+                        }
+                        if vertical {
+                            row += 1;
+                        } else {
+                            col += 1;
+                        }
+                    }
+                }
+            }
+        }
+        if vertical {
+            row -= 1;
+        } else {
+            col -= 1;
+        }
+        max_row = max_row.max(row);
+        max_col = max_col.max(col);
+        if stacked {
+            (row, col) = (0, 0);
+        } else if vertical {
+            (row, col) = (0, col + 1);
+        } else {
+            (row, col) = (row + 1, 0);
+        }
+    }
+    let (width, height) = (max_col + 1, max_row + 1);
+    let scale = |at: i64, size: i64| {
+        if size <= 1 {
+            0.5
+        } else {
+            at as f32 / (size - 1) as f32
+        }
+    };
+    let count = u32::try_from(order.len()).unwrap_or(u32::MAX);
+    let mut pixels = Vec::with_capacity(order.len());
+    let mut global = Vec::with_capacity(order.len());
+    for (i, n) in order.iter().enumerate() {
+        let (c, r) = spot[n];
+        pixels.push(Pixel {
+            u: scale(c, width),
+            v: scale(r, height),
+            index: i as u32,
+            count,
+        });
+        global.push(prop.point(*n).global);
+    }
+    PixelBuffer {
+        pixels,
+        global,
+        columns: u32::try_from(width).unwrap_or(1).max(1),
+        rows: u32::try_from(height).unwrap_or(1).max(1),
+    }
+}
+
+fn build_buffer(points: &[Point]) -> PixelBuffer {
+    let count = points.len();
     let (mut min_x, mut min_y, mut max_x, mut max_y) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
-    for p in members.iter().flat_map(|p| &p.points[..p.real]) {
+    for p in points.iter().filter_map(|p| p.xy) {
         min_x = min_x.min(p[0]);
         min_y = min_y.min(p[1]);
         max_x = max_x.max(p[0]);
@@ -162,27 +410,22 @@ fn build_buffer(members: &[&PropGeometry]) -> PixelBuffer {
     let count_u32 = u32::try_from(count).unwrap_or(u32::MAX);
     let mut pixels = Vec::with_capacity(count);
     let mut global = Vec::with_capacity(count);
-    for prop in members {
-        for (node, p) in prop.points.iter().enumerate() {
-            let padded = node >= prop.real;
-            let u = if flat_x || padded {
-                0.5
-            } else {
-                (p[0] - min_x) / width
-            };
-            let v = if flat_y || padded {
-                0.5
-            } else {
-                (p[1] - min_y) / height
-            };
-            pixels.push(Pixel {
-                u,
-                v,
-                index: u32::try_from(pixels.len()).unwrap_or(u32::MAX),
-                count: count_u32,
-            });
-            global.push(u32::try_from(prop.first_pixel + node).unwrap_or(u32::MAX));
-        }
+    for point in points {
+        let u = match point.xy {
+            Some(p) if !flat_x => (p[0] - min_x) / width,
+            _ => 0.5,
+        };
+        let v = match point.xy {
+            Some(p) if !flat_y => (p[1] - min_y) / height,
+            _ => 0.5,
+        };
+        pixels.push(Pixel {
+            u,
+            v,
+            index: u32::try_from(pixels.len()).unwrap_or(u32::MAX),
+            count: count_u32,
+        });
+        global.push(point.global);
     }
     let (columns, rows) = resolution(count, width, height, flat_x, flat_y);
     PixelBuffer {
@@ -214,7 +457,7 @@ fn resolution(count: usize, width: f32, height: f32, flat_x: bool, flat_y: bool)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pf_model::{Generator, Group, Prop, ShapeSource, Transform, Vec3};
+    use pf_model::{Generator, Group, NodeRun, Prop, ShapeSource, Transform, Vec3};
 
     fn line(name: &str, nodes: u32, x: f32) -> Prop {
         let mut prop = Prop::new(
@@ -309,29 +552,244 @@ mod tests {
         assert_eq!(geo.frame_len(), 3);
     }
 
-    #[test]
-    fn padded_points_dont_stretch_the_box() {
-        // Two real points far from the origin, plus two padding pixels.
-        let prop = PropGeometry {
+    fn prop_geometry(points: Vec<[f32; 2]>, real: usize) -> PropGeometry {
+        PropGeometry {
             frame_offset: 0,
             channels_per_pixel: 3,
             first_pixel: 0,
-            points: vec![[10.0, 5.0], [12.0, 7.0], [0.0, 0.0], [0.0, 0.0]],
-            real: 2,
-        };
-        let buffer = build_buffer(&[&prop]);
+            points,
+            real,
+            regions: Vec::new(),
+        }
+    }
+
+    fn all_points(prop: &PropGeometry) -> Vec<Point> {
+        (0..prop.node_count()).map(|n| prop.point(n)).collect()
+    }
+
+    #[test]
+    fn padded_points_dont_stretch_the_box() {
+        // Two real points far from the origin, plus two padding pixels.
+        let prop = prop_geometry(vec![[10.0, 5.0], [12.0, 7.0], [0.0, 0.0], [0.0, 0.0]], 2);
+        let buffer = build_buffer(&all_points(&prop));
         let uv: Vec<(f32, f32)> = buffer.pixels.iter().map(|p| (p.u, p.v)).collect();
         assert_eq!(uv, vec![(0.0, 0.0), (1.0, 1.0), (0.5, 0.5), (0.5, 0.5)]);
-        let nothing = PropGeometry {
-            real: 0,
-            points: vec![[0.0, 0.0]; 3],
-            ..prop
-        };
+        let nothing = prop_geometry(vec![[0.0, 0.0]; 3], 0);
         assert!(
-            build_buffer(&[&nothing])
+            build_buffer(&all_points(&nothing))
                 .pixels
                 .iter()
                 .all(|p| (p.u, p.v) == (0.5, 0.5))
+        );
+    }
+
+    /// A 10-pixel line along x from 0 to 9, with `region` on it.
+    fn line_with(region: Region) -> (SceneGeometry, Target) {
+        let mut show = Show::new("t");
+        let mut prop = Prop::new(
+            "Line",
+            ShapeSource::Generator(Generator::Line {
+                nodes: 10,
+                length: 9.0,
+            }),
+        );
+        let target = Target::Region {
+            prop: prop.id,
+            region: region.id,
+        };
+        prop.regions.push(region);
+        show.props.push(prop);
+        (geometry(&show), target)
+    }
+
+    fn submodel(lines: Vec<Vec<Option<NodeRun>>>, layout: LineLayout, buffer: BufferStyle) -> Region {
+        Region {
+            kind: RegionKind::Nodes {
+                lines,
+                layout,
+                buffer,
+            },
+            ..Region::nodes("Sub", vec![])
+        }
+    }
+
+    fn uvs(buffer: &PixelBuffer) -> Vec<(u32, f32, f32)> {
+        buffer
+            .pixels
+            .iter()
+            .zip(&buffer.global)
+            .map(|(p, g)| (*g, p.u, p.v))
+            .collect()
+    }
+
+    fn run(a: u32, b: u32) -> Option<NodeRun> {
+        Some(NodeRun::new(a, b))
+    }
+
+    #[test]
+    fn default_submodels_put_each_line_on_its_own_row_with_gaps() {
+        // Line 1: pixels 1-3; line 2: pixel 6, a gap, then pixels 5-4 backwards.
+        let region = submodel(
+            vec![vec![run(0, 2)], vec![run(5, 5), None, run(4, 3)]],
+            LineLayout::Horizontal,
+            BufferStyle::Default,
+        );
+        let (geo, target) = line_with(region);
+        let buffer = geo.buffer(target);
+        assert_eq!((buffer.columns, buffer.rows), (4, 2));
+        let third = 1.0 / 3.0;
+        assert_eq!(
+            uvs(&buffer),
+            vec![
+                (0, 0.0, 0.0),
+                (1, third, 0.0),
+                (2, 2.0 * third, 0.0),
+                (5, 0.0, 1.0),
+                (4, 2.0 * third, 1.0),
+                (3, 1.0, 1.0),
+            ]
+        );
+        assert!(
+            buffer
+                .pixels
+                .iter()
+                .enumerate()
+                .all(|(i, p)| p.index == i as u32 && p.count == 6)
+        );
+    }
+
+    #[test]
+    fn vertical_submodels_make_columns_and_stacked_strands_share_one() {
+        let lines = vec![vec![run(0, 1)], vec![run(2, 4)]];
+        let (geo, target) = line_with(submodel(
+            lines.clone(),
+            LineLayout::Vertical,
+            BufferStyle::Default,
+        ));
+        let buffer = geo.buffer(target);
+        assert_eq!((buffer.columns, buffer.rows), (2, 3));
+        assert_eq!(
+            uvs(&buffer),
+            vec![
+                (0, 0.0, 0.0),
+                (1, 0.0, 0.5),
+                (2, 1.0, 0.0),
+                (3, 1.0, 0.5),
+                (4, 1.0, 1.0)
+            ]
+        );
+
+        let (geo, target) = line_with(submodel(
+            lines,
+            LineLayout::Horizontal,
+            BufferStyle::StackedStrands,
+        ));
+        let buffer = geo.buffer(target);
+        assert_eq!((buffer.columns, buffer.rows), (3, 1));
+        assert_eq!(
+            uvs(&buffer),
+            vec![
+                (0, 0.0, 0.5),
+                (1, 0.5, 0.5),
+                (2, 0.0, 0.5),
+                (3, 0.5, 0.5),
+                (4, 1.0, 0.5)
+            ]
+        );
+    }
+
+    #[test]
+    fn keep_xy_submodels_and_faces_keep_real_positions() {
+        let (geo, target) = line_with(submodel(
+            vec![vec![run(2, 2), run(8, 8)], vec![run(5, 5)]],
+            LineLayout::Horizontal,
+            BufferStyle::KeepXy,
+        ));
+        let buffer = geo.buffer(target);
+        assert_eq!(uvs(&buffer), vec![(2, 0.0, 0.5), (8, 1.0, 0.5), (5, 0.5, 0.5)]);
+
+        let face = pf_model::FaceDefinition {
+            outline: vec![pf_model::NodeRange::new(4, 7)],
+            ..Default::default()
+        };
+        let (geo, target) = line_with(Region::face("Face", face));
+        assert_eq!(geo.buffer(target).global, vec![4, 5, 6]);
+    }
+
+    #[test]
+    fn sub_buffers_crop_the_prop_and_stretch_back_to_fill() {
+        let mut show = Show::new("t");
+        let mut grid = matrix(5, 5);
+        let window = Region {
+            kind: RegionKind::SubBuffer {
+                x1: 50.0,
+                y1: 0.0,
+                x2: 100.0,
+                y2: 50.0,
+            },
+            ..Region::nodes("Window", vec![])
+        };
+        let target = Target::Region {
+            prop: grid.id,
+            region: window.id,
+        };
+        grid.regions.push(window);
+        show.props.push(grid);
+        let buffer = geometry(&show).buffer(target);
+        // The lower-right 3×3 of a 5×5 grid (the middle row and column are on the edges).
+        assert_eq!(buffer.len(), 9);
+        // Half of the prop's rough 7 × 4 (a 5 × 5 grid twice as wide as it is tall).
+        assert_eq!((buffer.columns, buffer.rows), (4, 2));
+        let mut us: Vec<f32> = buffer.pixels.iter().map(|p| p.u).collect();
+        us.sort_by(f32::total_cmp);
+        us.dedup();
+        assert_eq!(us, vec![0.0, 0.5, 1.0]);
+        assert!(buffer.pixels.iter().all(|p| (0.0..=1.0).contains(&p.v)));
+    }
+
+    #[test]
+    fn groups_draw_their_submodels_once_after_whole_props() {
+        let mut show = Show::new("t");
+        let mut a = line("A", 4, 0.0);
+        let left = Region::nodes("Left", vec![vec![run(0, 1)]]);
+        let a_left = RegionRef {
+            prop: a.id,
+            region: left.id,
+        };
+        a.regions.push(left);
+        let mut b = line("B", 4, 3.0);
+        let right = Region::nodes("Right", vec![vec![run(3, 2)]]);
+        let b_right = RegionRef {
+            prop: b.id,
+            region: right.id,
+        };
+        b.regions.push(right);
+        let mut group = Group::new("G");
+        group.members = vec![a.id];
+        group.submodels = vec![
+            a_left,
+            b_right,
+            RegionRef {
+                prop: b.id,
+                region: RegionId::new(),
+            },
+        ];
+        let gid = group.id;
+        show.props = vec![a, b];
+        show.groups.push(group);
+        let geo = geometry(&show);
+        let buffer = geo.buffer(Target::Group(gid));
+        assert_eq!(
+            buffer.global,
+            vec![0, 1, 2, 3, 7, 6],
+            "A's left half is already in"
+        );
+        assert!(
+            geo.buffer(Target::Region {
+                prop: show.props[0].id,
+                region: RegionId::new()
+            })
+            .is_empty()
         );
     }
 }

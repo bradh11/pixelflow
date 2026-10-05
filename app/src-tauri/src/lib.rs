@@ -906,7 +906,7 @@ mod tests {
         assert_eq!(imported["snapshot"]["sequence"]["name"], "Effects");
         assert_eq!(imported["snapshot"]["dirty"], true);
         assert_eq!(imported["snapshot"]["path"], json!(null));
-        assert_eq!(imported["summary"]["rows"], 6);
+        assert_eq!(imported["summary"]["rows"], 8);
         assert_eq!(imported["summary"]["placeholders"], 3);
         assert!(
             imported["notes"]

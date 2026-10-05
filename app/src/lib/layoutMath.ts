@@ -323,7 +323,8 @@ export function frameAngle(props: Prop[]): { deg: number; stretchable: boolean }
 
 /** A change to selected props: moved, turned about a point, or resized from an anchor point. */
 export type Gesture =
-  | { kind: "move"; dx: number; dy: number }
+  /** `dz` (toward the street) is only set by moves in the 3D view. */
+  | { kind: "move"; dx: number; dy: number; dz?: number }
   | { kind: "rotate"; cx: number; cy: number; deg: number }
   /** Resized from the anchor (ax, ay) by fx and fy along axes turned `deg` (0 when left out). */
   | { kind: "scale"; ax: number; ay: number; fx: number; fy: number; deg?: number };
@@ -365,7 +366,7 @@ export function gestureTransform(g: Gesture, t: Transform): Transform {
   const position = { ...t.position, x: tidy(p.x), y: tidy(p.y) };
   switch (g.kind) {
     case "move":
-      return { ...t, position };
+      return g.dz ? { ...t, position: { ...position, z: tidy(t.position.z + g.dz) } } : { ...t, position };
     case "rotate":
       return { ...t, position, rotationDeg: { ...t.rotationDeg, z: normalizeDeg(t.rotationDeg.z + g.deg) } };
     case "scale": {
@@ -403,7 +404,7 @@ export function composeGestures(props: PreviewProp[], layers: { ids: string[]; g
 export function isNoop(g: Gesture): boolean {
   switch (g.kind) {
     case "move":
-      return Math.abs(g.dx) < 1e-9 && Math.abs(g.dy) < 1e-9;
+      return Math.abs(g.dx) < 1e-9 && Math.abs(g.dy) < 1e-9 && Math.abs(g.dz ?? 0) < 1e-9;
     case "rotate":
       return Math.abs(g.deg) < 1e-9;
     case "scale":

@@ -47,6 +47,15 @@ describe("the 3D view's renderer", () => {
     await waitFor(() => expect(made[0].disposed).toBe(1));
   });
 
+  it("says so plainly when the graphics card drops the 3D view", async () => {
+    const { container, findByText } = render(
+      <Layout3dView preview={{ revision: 0, props: [] }} show={emptyShow("Home")} photo={{ image: null, aspect: 0.75, problem: null, reload: () => {} }} storageKey="k" frame={null} sceneFactory={async () => stub} />,
+    );
+    const canvas = container.querySelector("canvas")!;
+    act(() => void canvas.dispatchEvent(new Event("webglcontextlost")));
+    expect(await findByText("The 3D view stopped (the graphics card let go of it). Switch to 2D and back to start it again.")).toBeInTheDocument();
+  });
+
   it("is kept when the view's code is hot-reloaded while it's shown (development)", async () => {
     // A hot reload keeps the canvas: the old code lets go of the renderer and the new code takes it
     // straight away. Two copies of the module stand in for before and after.

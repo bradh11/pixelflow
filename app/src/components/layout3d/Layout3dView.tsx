@@ -503,6 +503,16 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   };
 
+  // The graphics card can drop the WebGL context (a driver reset, too many 3D views): say so
+  // rather than showing black. (Letting go of the renderer drops it too, but only once the view is gone.)
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const lost = () => setProblem("The 3D view stopped (the graphics card let go of it). Switch to 2D and back to start it again.");
+    canvas.addEventListener("webglcontextlost", lost);
+    return () => canvas.removeEventListener("webglcontextlost", lost);
+  }, []);
+
   // Wheel and pinch: zoom toward the pointer; two-finger scrolls orbit (with Shift, pan).
   useEffect(() => {
     const canvas = canvasRef.current;

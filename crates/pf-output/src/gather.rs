@@ -39,7 +39,10 @@ mod tests {
             destination: Err("unused".into()),
             channel_count,
             spans,
-            wire: Wire::Ddp { data_type: 0x0B },
+            wire: Wire::Ddp {
+                data_type: 0x0B,
+                offset_base: 0,
+            },
         }
     }
 

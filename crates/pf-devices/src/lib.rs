@@ -28,4 +28,4 @@ pub use error::DeviceError;
 pub use fingerprint::classify_home_page;
 pub use http::{FakeHttp, Http, HttpClient};
 pub use identify::{identify, read_config};
-pub use import::{ImportPlan, plan_destination_import, plan_import};
+pub use import::{ImportPlan, is_placeholder, plan_destination_import, plan_import};

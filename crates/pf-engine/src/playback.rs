@@ -8,7 +8,7 @@ use crate::error::EngineError;
 use crate::output::{ControllerStatus, controller_status};
 use pf_fseq::Sequence;
 use pf_mapping::ChannelMap;
-use pf_model::Show;
+use pf_model::{Protocol, Show};
 use pf_output::{OutputHandle, OutputSettings, PassthroughRoute, Transport, wire_order};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -19,6 +19,9 @@ use std::time::{Duration, Instant};
 
 /// Highest output send rate, in packets per controller per second.
 const MAX_SEND_RATE: u32 = 120;
+
+/// The highest sACN universe number.
+const MAX_UNIVERSE: usize = 63_999;
 
 /// How often the player checks for pause, seek, and stop while waiting.
 const POLL: Duration = Duration::from_millis(10);
@@ -56,7 +59,7 @@ fn lock(control: &Mutex<Control>) -> std::sync::MutexGuard<'_, Control> {
 }
 
 /// Works out which block of the sequence each controller receives.
-fn routes(show: &Show, channels: usize) -> (Vec<PassthroughRoute>, Vec<String>) {
+pub(crate) fn routes(show: &Show, channels: usize) -> (Vec<PassthroughRoute>, Vec<String>) {
     let mut routes = Vec::new();
     let mut unknown = Vec::new();
     let mut notes = Vec::new();
@@ -76,12 +79,28 @@ fn routes(show: &Show, channels: usize) -> (Vec<PassthroughRoute>, Vec<String>) 
             ));
             continue;
         }
-        let count = (range.count as usize).min(channels - start);
+        let mut count = (range.count as usize).min(channels - start);
         if count < range.count as usize {
             notes.push(format!(
                 "{} expects {} channels, but this sequence only has {count} for it.",
                 controller.name, range.count
             ));
+        }
+        if let Protocol::Sacn(sacn) = &controller.protocol {
+            // Universe numbers stop at 63999: leave out anything that would go past it.
+            let size = usize::from(sacn.universe_size.channels());
+            let first = usize::from(sacn.start_universe.unwrap_or(1));
+            let room = (MAX_UNIVERSE + 1).saturating_sub(first) * size;
+            if count > room {
+                notes.push(format!(
+                    "{} would need sACN universes past {MAX_UNIVERSE}, which don't exist, so the channels beyond that are left out.",
+                    controller.name
+                ));
+                count = room;
+                if count == 0 {
+                    continue;
+                }
+            }
         }
         routes.push(PassthroughRoute {
             id: controller.id,
@@ -90,6 +109,11 @@ fn routes(show: &Show, channels: usize) -> (Vec<PassthroughRoute>, Vec<String>) 
             protocol: controller.protocol,
             start,
             count,
+            ddp_offset_base: if range.raw_ddp_offsets {
+                u32::try_from(start).unwrap_or(u32::MAX)
+            } else {
+                0
+            },
         });
     }
     if !unknown.is_empty() && !routes.is_empty() {
@@ -105,10 +129,15 @@ fn routes(show: &Show, channels: usize) -> (Vec<PassthroughRoute>, Vec<String>) 
 /// (`preview` is a show frame: prop order, RGB/RGBW per pixel).
 fn paint_preview(show: &Show, map: &ChannelMap, sequence_frame: &[u8], preview: &mut [u8]) {
     for (controller, output) in show.controllers.iter().zip(&map.controllers) {
-        let Some(range) = controller.sequence_channels.filter(|r| r.start >= 1) else {
+        let Some(range) = controller
+            .sequence_channels
+            .filter(|r| r.start >= 1 && r.count >= 1)
+        else {
             continue;
         };
         let base = range.start as usize - 1;
+        // Only this controller's own block of the sequence may feed its props.
+        let end = base.saturating_add(range.count as usize);
         for span in &output.spans {
             let cpp = usize::from(span.channels_per_pixel);
             let order = wire_order(span.color_order);
@@ -117,6 +146,9 @@ fn paint_preview(show: &Show, map: &ChannelMap, sequence_frame: &[u8], preview: 
                 let wire = if span.reverse { pixels - 1 - k } else { k };
                 let src = base + span.controller_channel + wire * cpp;
                 let dst = span.frame_offset + k * cpp;
+                if src + cpp > end {
+                    continue;
+                }
                 let (Some(source), Some(target)) = (
                     sequence_frame.get(src..src + cpp),
                     preview.get_mut(dst..dst + cpp),
@@ -136,6 +168,10 @@ fn paint_preview(show: &Show, map: &ChannelMap, sequence_frame: &[u8], preview: 
 /// A sequence playing: a player thread reading frames on time and the output thread sending them.
 pub(crate) struct PlaybackSession {
     path: PathBuf,
+    /// What the session was built from: when an edit changes either, it must restart.
+    routes: Vec<PassthroughRoute>,
+    map: ChannelMap,
+    channels: usize,
     frames: u32,
     frame_ms: u32,
     notes: Vec<String>,
@@ -169,7 +205,9 @@ impl PlaybackSession {
             ));
         }
         // The output thread keeps its own clock, so it sends at twice the sequence's rate: every
-        // frame then goes out at least once (resending a frame is harmless).
+        // frame then goes out at least once (resending a frame is harmless). That holds for steps
+        // of about 17 ms or more; for shorter steps the `MAX_SEND_RATE` cap applies and a frame
+        // may occasionally be skipped.
         let frame_rate = u16::try_from((2000 / header.step_ms).clamp(1, MAX_SEND_RATE)).unwrap_or(1);
         let plan = pf_output::build_passthrough_plan(&routes, channels, frame_rate);
         let start_frame = u32::try_from(position_ms / u64::from(header.step_ms))
@@ -210,6 +248,11 @@ impl PlaybackSession {
                     let mut shown = Some(start_frame);
                     let mut show_frame = |frame: u32, writer: &mut pf_frame::FrameWriter| -> bool {
                         if let Err(error) = sequence.read_frame(frame, writer.frame_mut()) {
+                            // Go dark, like the end of the sequence, before the player exits.
+                            writer.frame_mut().fill(0);
+                            writer.publish();
+                            preview.lock().unwrap_or_else(PoisonError::into_inner).fill(0);
+                            raw.lock().unwrap_or_else(PoisonError::into_inner).fill(0);
                             let mut c = lock(&control_for_reads);
                             c.error = Some(error.to_string());
                             c.ended = true;
@@ -283,6 +326,9 @@ impl PlaybackSession {
         };
         Ok(Self {
             path: path.to_path_buf(),
+            routes,
+            map: map.clone(),
+            channels,
             frames: header.frames,
             frame_ms: header.step_ms,
             notes,
@@ -306,6 +352,20 @@ impl PlaybackSession {
         let mut c = lock(&self.control);
         c.seek_to = Some(frame);
         c.frame = frame;
+        if c.error.is_none() {
+            // Seeking after the end plays again (the player thread is still running).
+            c.ended = false;
+        }
+    }
+
+    /// The controller blocks and channel layout this session was built from.
+    pub fn built_from(&self) -> (&[PassthroughRoute], &ChannelMap) {
+        (&self.routes, &self.map)
+    }
+
+    /// Channels in each frame of the sequence.
+    pub fn channels(&self) -> usize {
+        self.channels
     }
 
     pub fn status(&self) -> PlaybackStatus {
@@ -320,7 +380,11 @@ impl PlaybackSession {
                 "playing"
             },
             path: self.path.clone(),
-            position_ms: u64::from(c.frame) * u64::from(self.frame_ms),
+            position_ms: if c.ended && c.error.is_none() {
+                u64::from(self.frames) * u64::from(self.frame_ms)
+            } else {
+                u64::from(c.frame) * u64::from(self.frame_ms)
+            },
             duration_ms: u64::from(self.frames) * u64::from(self.frame_ms),
             frame_ms: self.frame_ms,
             controllers: controller_status(&stats),
@@ -371,7 +435,11 @@ mod tests {
 
     fn controller(name: &str, channels: Option<(u32, u32)>) -> Controller {
         let mut c = Controller::new(name, "127.0.0.1", Protocol::Ddp);
-        c.sequence_channels = channels.map(|(start, count)| SequenceChannels { start, count });
+        c.sequence_channels = channels.map(|(start, count)| SequenceChannels {
+            start,
+            count,
+            raw_ddp_offsets: false,
+        });
         c
     }
 
@@ -398,5 +466,57 @@ mod tests {
                 "Not playing to Porch because PixelFlow doesn't know which sequence channels are theirs.",
             ]
         );
+    }
+
+    #[test]
+    fn raw_ddp_controllers_offset_their_packets_and_sacn_stops_at_universe_63999() {
+        use pf_model::{SacnConfig, UniverseSize};
+        let mut raw = controller("Raw", Some((6001, 300)));
+        raw.sequence_channels.as_mut().unwrap().raw_ddp_offsets = true;
+        let mut late = Controller::new(
+            "Late",
+            "127.0.0.2",
+            Protocol::Sacn(SacnConfig {
+                start_universe: Some(63_999),
+                universe_size: UniverseSize::Channels512,
+                ..SacnConfig::default()
+            }),
+        );
+        late.sequence_channels = Some(SequenceChannels {
+            start: 1,
+            count: 1000,
+            raw_ddp_offsets: false,
+        });
+        let mut show = Show::new("t");
+        show.controllers = vec![raw, late];
+        let (routes, notes) = routes(&show, 6400);
+        assert_eq!((routes[0].start, routes[0].ddp_offset_base), (6000, 6000));
+        assert_eq!((routes[1].count, routes[1].ddp_offset_base), (512, 0));
+        assert!(notes[0].contains("past 63999"), "{notes:?}");
+    }
+
+    #[test]
+    fn previews_only_read_a_controllers_own_block() {
+        use pf_mapping::map_show;
+        use pf_model::{Generator, Port, PortSlot, Prop, ShapeSource};
+        let prop = Prop::new(
+            "Strip",
+            ShapeSource::Generator(Generator::Line {
+                nodes: 4,
+                length: 1.0,
+            }),
+        );
+        let mut c = controller("Falcon", Some((1, 6))); // only 6 of the strip's 12 channels
+        let mut port = Port::new(1);
+        port.slots.push(PortSlot::new(prop.id));
+        c.ports.push(port);
+        let mut show = Show::new("t");
+        show.props.push(prop);
+        show.controllers.push(c);
+        let (map, _) = map_show(&show);
+        let sequence = vec![9u8; 30];
+        let mut preview = vec![0u8; map.frame_len];
+        paint_preview(&show, &map, &sequence, &mut preview);
+        assert_eq!(preview, vec![9, 9, 9, 9, 9, 9, 0, 0, 0, 0, 0, 0]);
     }
 }

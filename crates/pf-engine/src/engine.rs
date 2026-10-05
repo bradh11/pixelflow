@@ -5,7 +5,7 @@ use crate::error::EngineError;
 use crate::history::History;
 use crate::output::{OutputSession, OutputStatus, PatternSpec, TargetSpec, output_key};
 use crate::persist::{self, HistoryEntry};
-use crate::playback::{PlaybackSession, PlaybackStatus};
+use crate::playback::{self, PlaybackSession, PlaybackStatus};
 use crate::snapshot::{PreviewProp, ShowSnapshot, Summary};
 use pf_mapping::ChannelMap;
 use pf_model::{IssueCode, Severity, Show, ValidationReport};
@@ -36,7 +36,9 @@ pub struct Engine {
     output: Option<OutputSession>,
     playback: Option<PlaybackSession>,
     output_generation: u64,
+    playback_generation: u64,
     stop_reason: Option<String>,
+    playback_stop_reason: Option<String>,
     /// One sACN identity for the engine's lifetime, so restarts keep the same source.
     output_settings: OutputSettings,
     transport: TransportFactory,
@@ -66,7 +68,9 @@ impl Engine {
             output: None,
             playback: None,
             output_generation: 0,
+            playback_generation: 0,
             stop_reason: None,
+            playback_stop_reason: None,
             output_settings: OutputSettings::default(),
             transport: Box::new(|| {
                 let udp = UdpTransport::bind("0.0.0.0:0".parse().expect("valid address"))?;
@@ -279,6 +283,7 @@ impl Engine {
         self.stop_playback();
         let (map, _) = analyze(&self.show);
         let transport = (self.transport)().map_err(EngineError::Network)?;
+        self.playback_generation += 1;
         let session = PlaybackSession::start(
             &self.show,
             &map,
@@ -289,6 +294,7 @@ impl Engine {
         )?;
         let status = session.status();
         self.playback = Some(session);
+        self.playback_stop_reason = None;
         Ok(status)
     }
 
@@ -311,6 +317,17 @@ impl Engine {
         if let Some(session) = self.playback.take() {
             session.stop();
         }
+        self.playback_stop_reason = None;
+    }
+
+    /// Why playback was stopped by an edit to the show, if it was (cleared by the next start or stop).
+    pub fn playback_stop_reason(&self) -> Option<&str> {
+        self.playback_stop_reason.as_deref()
+    }
+
+    /// Counts playback sessions started; it changes when an edit restarts playback.
+    pub fn playback_generation(&self) -> u64 {
+        self.playback_generation
     }
 
     /// The playing sequence's state, or `None` when nothing is playing.
@@ -364,6 +381,7 @@ impl Engine {
         self.stop_session();
         self.stop_playback();
         self.stop_reason = None;
+        self.playback_stop_reason = None;
         self.show = show;
         self.path = path;
         self.history.clear();
@@ -375,6 +393,46 @@ impl Engine {
     fn changed(&mut self) {
         self.revision += 1;
         self.sync_output();
+        self.sync_playback();
+    }
+
+    /// Keeps a playing sequence in step with the show: does nothing when the controllers' sequence
+    /// blocks, addresses, protocols, and the channel layout are unchanged (moving props changes
+    /// none of these); otherwise restarts at the same position (still paused if it was), or stops,
+    /// saying why, if no controller can receive the sequence any more.
+    fn sync_playback(&mut self) {
+        let Some(session) = &self.playback else {
+            return;
+        };
+        let (map, _) = analyze(&self.show);
+        let (routes, _) = playback::routes(&self.show, session.channels());
+        let (old_routes, old_map) = session.built_from();
+        if routes.is_empty() {
+            self.halt_playback("Playback stopped because no controller has sequence channels anymore.");
+            return;
+        }
+        if routes == old_routes && map == *old_map {
+            return;
+        }
+        let status = session.status();
+        if status.state == "ended" {
+            // Nothing is sending; the next play builds a fresh session from the edited show.
+            return;
+        }
+        match self.start_playback(&status.path, status.position_ms) {
+            Ok(_) => {
+                if status.state == "paused" {
+                    self.set_playback_paused(true);
+                }
+            }
+            Err(error) => self.halt_playback(&error.to_string()),
+        }
+    }
+
+    /// Stops playback because of the show, remembering why for the UI.
+    fn halt_playback(&mut self, reason: &str) {
+        self.stop_playback();
+        self.playback_stop_reason = Some(reason.to_string());
     }
 
     /// Keeps running output in step with the show: restarts it only when the wiring, addresses,

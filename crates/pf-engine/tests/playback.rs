@@ -13,24 +13,33 @@ const STEP_MS: u8 = 25;
 
 /// Channel value in `frame`: every channel of a frame holds the frame number + 1.
 fn value(frame: u32) -> u8 {
-    frame as u8 + 1
+    (frame % 250) as u8 + 1
 }
 
 /// Writes an uncompressed version 1 sequence: 30 channels, 12 frames, 25 ms apart.
 fn write_sequence(dir: &Path) -> PathBuf {
+    write_sequence_of(dir, "medley.fseq", FRAMES)
+}
+
+/// A sequence long enough (20 s) to still be playing when a test is done editing the show.
+fn write_long_sequence(dir: &Path) -> PathBuf {
+    write_sequence_of(dir, "long.fseq", 800)
+}
+
+fn write_sequence_of(dir: &Path, name: &str, frames: u32) -> PathBuf {
     let mut out = Vec::new();
     out.extend_from_slice(b"PSEQ");
     out.extend_from_slice(&28u16.to_le_bytes());
     out.extend_from_slice(&[0, 1]);
     out.extend_from_slice(&28u16.to_le_bytes());
     out.extend_from_slice(&CHANNELS.to_le_bytes());
-    out.extend_from_slice(&FRAMES.to_le_bytes());
+    out.extend_from_slice(&frames.to_le_bytes());
     out.push(STEP_MS);
     out.extend_from_slice(&[0; 9]);
-    for frame in 0..FRAMES {
+    for frame in 0..frames {
         out.extend(std::iter::repeat_n(value(frame), CHANNELS as usize));
     }
-    let path = dir.join("medley.fseq");
+    let path = dir.join(name);
     std::fs::write(&path, out).unwrap();
     path
 }
@@ -56,6 +65,7 @@ fn engine_with_show(sequence_channels: bool) -> (Engine, Recorded, tempfile::Tem
         controller.sequence_channels = Some(SequenceChannels {
             start: 1,
             count: CHANNELS,
+            raw_ddp_offsets: false,
         });
     }
     engine
@@ -65,7 +75,11 @@ fn engine_with_show(sequence_channels: bool) -> (Engine, Recorded, tempfile::Tem
 }
 
 fn packets(recorded: &Recorded) -> Vec<Vec<u8>> {
-    let dest: SocketAddr = "127.0.0.1:4048".parse().unwrap();
+    packets_to(recorded, "127.0.0.1:4048")
+}
+
+fn packets_to(recorded: &Recorded, address: &str) -> Vec<Vec<u8>> {
+    let dest: SocketAddr = address.parse().unwrap();
     recorded
         .lock()
         .unwrap()
@@ -113,6 +127,15 @@ fn plays_frames_in_order_then_ends_dark() {
         "reached the last frame: {frames_seen:?}"
     );
     wait_until(|| packets(&recorded).last().unwrap()[10..].iter().all(|&b| b == 0));
+    assert_eq!(
+        engine.playback_status().unwrap().position_ms,
+        300,
+        "ended at the end"
+    );
+
+    // Seeking after the end plays again.
+    engine.seek_playback(0).unwrap();
+    assert_eq!(engine.playback_status().unwrap().state, "playing");
 
     engine.stop_playback();
     assert!(engine.playback_status().is_none());
@@ -196,6 +219,95 @@ fn preview_props_place_every_pixel() {
     );
 }
 
+#[test]
+fn a_damaged_sequence_goes_dark_and_says_what_happened() {
+    let (mut engine, recorded, dir) = engine_with_show(true);
+    let path = write_sequence(dir.path());
+    // Cut the file in the middle of frame 5.
+    let bytes = std::fs::read(&path).unwrap();
+    std::fs::write(&path, &bytes[..28 + 5 * CHANNELS as usize + 7]).unwrap();
+    engine.start_playback(&path, 0).unwrap();
+    wait_until(|| engine.playback_status().unwrap().error.is_some());
+    let status = engine.playback_status().unwrap();
+    assert_eq!(status.state, "ended");
+    wait_until(|| packets(&recorded).last().unwrap()[10..].iter().all(|&b| b == 0));
+    assert!(
+        engine.live_frame().unwrap().iter().all(|&b| b == 0),
+        "preview cleared"
+    );
+    assert!(engine.sequence_frame().unwrap().iter().all(|&b| b == 0));
+}
+
+fn set_address(engine: &mut Engine, address: &str) {
+    let mut controller = engine.show().controllers[0].clone();
+    controller.address = address.to_string();
+    engine.apply(vec![Edit::UpdateController { controller }]).unwrap();
+}
+
+#[test]
+fn removing_the_controller_stops_playback_and_says_why() {
+    let (mut engine, _recorded, dir) = engine_with_show(true);
+    let path = write_long_sequence(dir.path());
+    engine.start_playback(&path, 0).unwrap();
+    assert_eq!(engine.playback_stop_reason(), None);
+    let id = engine.show().controllers[0].id;
+    engine.apply(vec![Edit::RemoveController { id }]).unwrap();
+    assert!(engine.playback_status().is_none());
+    assert_eq!(
+        engine.playback_stop_reason(),
+        Some("Playback stopped because no controller has sequence channels anymore.")
+    );
+    engine.undo();
+    engine.start_playback(&path, 0).unwrap();
+    assert_eq!(engine.playback_stop_reason(), None, "starting again clears it");
+}
+
+#[test]
+fn changing_a_controller_address_restarts_playback_to_the_new_address() {
+    let (mut engine, recorded, dir) = engine_with_show(true);
+    let path = write_long_sequence(dir.path());
+    engine.start_playback(&path, 0).unwrap();
+    wait_until(|| !packets(&recorded).is_empty());
+    let generation = engine.playback_generation();
+    set_address(&mut engine, "127.0.0.2:4048");
+    assert_eq!(engine.playback_generation(), generation + 1, "restarted");
+    wait_until(|| !packets_to(&recorded, "127.0.0.2:4048").is_empty());
+    assert_eq!(engine.playback_status().unwrap().state, "playing");
+
+    // Undo puts the address back, and playback follows.
+    recorded.lock().unwrap().clear();
+    engine.undo();
+    wait_until(|| !packets(&recorded).is_empty());
+    assert_eq!(engine.playback_status().unwrap().state, "playing");
+}
+
+#[test]
+fn a_restart_keeps_the_position_and_the_pause() {
+    let (mut engine, _recorded, dir) = engine_with_show(true);
+    let path = write_long_sequence(dir.path());
+    engine.start_playback(&path, 0).unwrap();
+    engine.set_playback_paused(true).unwrap();
+    engine.seek_playback(1000).unwrap();
+    wait_until(|| engine.sequence_frame().unwrap()[0] == value(40));
+    set_address(&mut engine, "127.0.0.2:4048");
+    let status = engine.playback_status().unwrap();
+    assert_eq!((status.state, status.position_ms), ("paused", 1000));
+}
+
+#[test]
+fn moving_a_prop_does_not_restart_playback() {
+    let (mut engine, _recorded, dir) = engine_with_show(true);
+    let path = write_long_sequence(dir.path());
+    engine.start_playback(&path, 0).unwrap();
+    let generation = engine.playback_generation();
+    let mut prop = engine.show().props[0].clone();
+    prop.transform.position = pf_model::Vec3::new(3.0, 1.0, 0.0);
+    engine.apply(vec![Edit::UpdateProp { prop }]).unwrap();
+    assert_eq!(engine.playback_generation(), generation, "same session");
+    let before = engine.playback_status().unwrap().position_ms;
+    wait_until(|| engine.playback_status().unwrap().position_ms > before + 50);
+}
+
 /// Set `PIXELFLOW_FSEQ=/path/to/show.fseq` to play a real sequence for a second (to loopback only).
 #[test]
 fn real_sequence_plays_when_provided() {
@@ -207,6 +319,7 @@ fn real_sequence_plays_when_provided() {
     controller.sequence_channels = Some(SequenceChannels {
         start: 1,
         count: 6147,
+        raw_ddp_offsets: false,
     });
     engine.apply(vec![Edit::UpdateController { controller }]).unwrap();
     let status = engine.start_playback(Path::new(&path), 60_000).unwrap();

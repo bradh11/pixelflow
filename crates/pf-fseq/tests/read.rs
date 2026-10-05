@@ -187,6 +187,29 @@ fn damaged_and_foreign_files_are_reported_plainly() {
     assert!(seq.read_frame(0, &mut [0u8; 5]).is_err(), "wrong buffer size");
 }
 
+#[test]
+fn hostile_headers_fail_without_huge_allocations() {
+    // Billions of frames of 64M channels in one block: must be refused, not allocated.
+    for compression in [1u8, 2] {
+        let mut huge = v2(12, 3, compression, 3, &[]);
+        huge[10..14].copy_from_slice(&(64u32 * 1024 * 1024).to_le_bytes());
+        huge[14..18].copy_from_slice(&u32::MAX.to_le_bytes());
+        let mut seq = Sequence::from_reader(Cursor::new(huge)).unwrap();
+        let mut out = vec![0u8; 64 * 1024 * 1024];
+        let err = seq.read_frame(0, &mut out).unwrap_err();
+        assert!(err.to_string().contains("too large"), "{err}");
+    }
+
+    // 255 full-width ranges would claim 255x the channel space per frame.
+    let ranges = vec![(0, 40); 255];
+    let overlapping = v2(40, 2, 0, 0, &ranges);
+    let err = Sequence::from_reader(Cursor::new(overlapping)).err().unwrap();
+    assert!(err.to_string().contains("overlap"), "{err}");
+
+    // Adjacent, in-order ranges are fine.
+    assert!(Sequence::from_reader(Cursor::new(v2(16, 2, 0, 0, &[(0, 8), (8, 8)]))).is_ok());
+}
+
 /// Set `PIXELFLOW_FSEQ=/path/to/show.fseq` to check a real sequence: every frame must decode.
 #[test]
 fn real_sequence_decodes_when_provided() {

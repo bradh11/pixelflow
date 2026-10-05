@@ -183,6 +183,17 @@ pub(crate) fn read_layout(mut reader: impl Read) -> Result<Layout, FseqError> {
             }
             ranges.push(range);
         }
+        // Ranges must be disjoint: the stored bytes per frame can't exceed the channel space.
+        // (Overlapping ranges could otherwise claim gigabytes per frame.)
+        let total: u64 = ranges.iter().map(|r| u64::from(r.count)).sum();
+        let mut sorted = ranges.clone();
+        sorted.sort_by_key(|r| r.start);
+        let overlaps = sorted
+            .windows(2)
+            .any(|w| u64::from(w[0].start) + u64::from(w[0].count) > u64::from(w[1].start));
+        if total > u64::from(channels) || overlaps {
+            return Err(corrupt("its channel ranges overlap"));
+        }
         (compression, blocks, ranges, usize::from(u16_at(&head, 8)))
     };
 

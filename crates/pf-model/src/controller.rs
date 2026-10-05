@@ -164,6 +164,10 @@ impl Port {
 pub struct SequenceChannels {
     pub start: u32,
     pub count: u32,
+    /// The FPP sends this controller's DDP packets with absolute channel numbers (its output is
+    /// set to "DDP Raw Channel Numbers"), so the first packet's offset is `start - 1`, not 0.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub raw_ddp_offsets: bool,
 }
 
 /// A pixel controller on the network.

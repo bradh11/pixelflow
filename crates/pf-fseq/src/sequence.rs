@@ -6,6 +6,10 @@ use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 
+/// Largest decompressed block PixelFlow will allocate. A damaged header can claim billions of
+/// frames per block; real blocks are a few megabytes.
+const MAX_BLOCK_BYTES: u64 = 256 * 1024 * 1024;
+
 /// An open sequence. Reading a frame decompresses (and keeps) only the block that holds it, so
 /// playing frames in order decompresses each block once.
 pub struct Sequence<R = BufReader<File>> {
@@ -110,7 +114,11 @@ impl<R: Read + Seek> Sequence<R> {
 
     fn decompress(&mut self, index: usize) -> Result<Vec<u8>, FseqError> {
         let block = self.layout.blocks[index];
-        let expected = self.frames_in(index) as usize * self.layout.frame_len();
+        let expected = u64::from(self.frames_in(index)) * self.layout.frame_len() as u64;
+        if expected > MAX_BLOCK_BYTES {
+            return Err(corrupt("a block is too large"));
+        }
+        let expected = expected as usize;
         let mut compressed = vec![0u8; block.len as usize];
         self.reader.seek(SeekFrom::Start(block.offset))?;
         self.reader

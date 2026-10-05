@@ -21,8 +21,10 @@ pub struct DdpPackets {
 
 impl DdpPackets {
     /// Splits `channel_count` bytes into packets of at most [`MAX_DATA`] bytes. The last
-    /// packet carries the push flag so the controller displays the frame.
-    pub fn new(channel_count: usize, data_type: u8, destination: SocketAddr) -> Self {
+    /// packet carries the push flag so the controller displays the frame. `offset_base` is the
+    /// DDP offset of the first byte: 0 normally, or the absolute channel number (zero-based)
+    /// for a controller that expects raw channel numbers.
+    pub fn new(channel_count: usize, data_type: u8, offset_base: u32, destination: SocketAddr) -> Self {
         let chunks = channel_count.div_ceil(MAX_DATA);
         let packets = (0..chunks)
             .map(|i| {
@@ -32,7 +34,7 @@ impl DdpPackets {
                 packet[0] = FLAG_VERSION_1 | if i + 1 == chunks { FLAG_PUSH } else { 0 };
                 packet[2] = data_type;
                 packet[3] = DESTINATION_DISPLAY;
-                packet[4..8].copy_from_slice(&(offset as u32).to_be_bytes());
+                packet[4..8].copy_from_slice(&offset_base.wrapping_add(offset as u32).to_be_bytes());
                 packet[8..10].copy_from_slice(&(len as u16).to_be_bytes());
                 packet
             })
@@ -81,7 +83,7 @@ mod tests {
 
     #[test]
     fn splits_into_mtu_sized_packets_with_push_on_last() {
-        let packets = DdpPackets::new(3000, 0x0B, dest());
+        let packets = DdpPackets::new(3000, 0x0B, 0, dest());
         assert_eq!(packets.len(), 3);
         let lens: Vec<usize> = (0..3).map(|i| packets.packet(i).0.len()).collect();
         assert_eq!(lens, vec![1450, 1450, 130]);
@@ -95,8 +97,17 @@ mod tests {
     }
 
     #[test]
+    fn raw_channel_numbers_start_the_offset_at_the_controllers_first_channel() {
+        let packets = DdpPackets::new(3000, 0x0B, 6147, dest());
+        let offsets: Vec<u32> = (0..3)
+            .map(|i| u32::from_be_bytes(packets.packet(i).0[4..8].try_into().unwrap()))
+            .collect();
+        assert_eq!(offsets, vec![6147, 6147 + 1440, 6147 + 2880]);
+    }
+
+    #[test]
     fn update_copies_data_and_cycles_sequence_1_to_15() {
-        let mut packets = DdpPackets::new(4, 0x0B, dest());
+        let mut packets = DdpPackets::new(4, 0x0B, 0, dest());
         packets.update(&[9, 8, 7, 6]);
         assert_eq!(&packets.packet(0).0[HEADER_LEN..], &[9, 8, 7, 6]);
         assert_eq!(packets.packet(0).0[1], 1);
@@ -110,6 +121,6 @@ mod tests {
 
     #[test]
     fn no_channels_means_no_packets() {
-        assert!(DdpPackets::new(0, 0x0B, dest()).is_empty());
+        assert!(DdpPackets::new(0, 0x0B, 0, dest()).is_empty());
     }
 }

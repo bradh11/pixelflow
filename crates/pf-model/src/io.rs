@@ -152,6 +152,7 @@ mod tests {
         show.controllers[0].sequence_channels = Some(SequenceChannels {
             start: 1,
             count: 6147,
+            raw_ddp_offsets: false,
         });
         let saved: Value = serde_json::from_str(&show_to_json(&show).unwrap()).unwrap();
         assert_eq!(
@@ -163,7 +164,8 @@ mod tests {
             again.controllers[0].sequence_channels,
             Some(SequenceChannels {
                 start: 1,
-                count: 6147
+                count: 6147,
+                raw_ddp_offsets: false,
             })
         );
     }

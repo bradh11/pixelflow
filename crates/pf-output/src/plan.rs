@@ -39,6 +39,8 @@ pub enum Wire {
     },
     Ddp {
         data_type: u8,
+        /// DDP offset of the controller's first channel (0 unless it expects raw channel numbers).
+        offset_base: u32,
     },
 }
 
@@ -118,7 +120,13 @@ pub fn build_plan(show: &Show, map: &ChannelMap) -> OutputPlan {
                 Addressing::Ddp => {
                     let all_rgbw = !spans.is_empty() && spans.iter().all(|s| s.channels_per_pixel == 4);
                     let data_type = if all_rgbw { DDP_TYPE_RGBW32 } else { DDP_TYPE_RGB24 };
-                    (Wire::Ddp { data_type }, DDP_PORT)
+                    (
+                        Wire::Ddp {
+                            data_type,
+                            offset_base: 0,
+                        },
+                        DDP_PORT,
+                    )
                 }
             };
             ControllerPlan {
@@ -149,6 +157,9 @@ pub struct PassthroughRoute {
     /// First sequence channel (0-based) sent to this controller.
     pub start: usize,
     pub count: usize,
+    /// DDP offset of this controller's first channel: 0 normally, or `start` when the controller
+    /// expects raw channel numbers (FPP's "DDP Raw Channel Numbers" mode).
+    pub ddp_offset_base: u32,
 }
 
 /// Builds an output plan that sends each route's block of the frame (a whole rendered sequence
@@ -162,6 +173,7 @@ pub fn build_passthrough_plan(routes: &[PassthroughRoute], frame_len: usize, fra
                 Protocol::Ddp => (
                     Wire::Ddp {
                         data_type: DDP_TYPE_RGB24,
+                        offset_base: route.ddp_offset_base,
                     },
                     DDP_PORT,
                 ),
@@ -283,7 +295,13 @@ mod tests {
         assert_eq!(plan.frame_rate, 40);
         assert_eq!(plan.frame_len, 2 * 3 + 2 * 4);
         assert_eq!(plan.luts.len(), 2);
-        assert_eq!(plan.controllers[0].wire, Wire::Ddp { data_type: 0x1B });
+        assert_eq!(
+            plan.controllers[0].wire,
+            Wire::Ddp {
+                data_type: 0x1B,
+                offset_base: 0
+            }
+        );
         assert_eq!(
             plan.controllers[0].destination,
             Ok("10.0.0.9:4048".parse().unwrap())
@@ -306,6 +324,7 @@ mod tests {
                 protocol: Protocol::Ddp,
                 start: 0,
                 count: 6147,
+                ddp_offset_base: 0,
             },
             PassthroughRoute {
                 id: ControllerId::new(),
@@ -318,6 +337,7 @@ mod tests {
                 }),
                 start: 6147,
                 count: 1100,
+                ddp_offset_base: 0,
             },
         ];
         let plan = build_passthrough_plan(&routes, 7247, 20);
@@ -344,5 +364,26 @@ mod tests {
         let frame: Vec<u8> = (0..7247).map(|i| (i % 251) as u8).collect();
         crate::render_controller(&frame, arches, &plan.luts, &mut out);
         assert_eq!(&out[..], &frame[6147..]);
+    }
+
+    #[test]
+    fn raw_ddp_routes_carry_their_offset_base() {
+        let route = PassthroughRoute {
+            id: ControllerId::new(),
+            name: "Raw".into(),
+            address: "127.0.0.1".into(),
+            protocol: Protocol::Ddp,
+            start: 3000,
+            count: 30,
+            ddp_offset_base: 3000,
+        };
+        let plan = build_passthrough_plan(&[route], 4000, 20);
+        assert_eq!(
+            plan.controllers[0].wire,
+            Wire::Ddp {
+                data_type: DDP_TYPE_RGB24,
+                offset_base: 3000
+            }
+        );
     }
 }

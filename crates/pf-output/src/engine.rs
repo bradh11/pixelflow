@@ -165,8 +165,19 @@ impl Runtime {
                 ControllerState::Ok,
                 None,
             ),
-            (Wire::Ddp { data_type }, Ok(destination)) => (
-                Packets::Ddp(DdpPackets::new(plan.channel_count, *data_type, *destination)),
+            (
+                Wire::Ddp {
+                    data_type,
+                    offset_base,
+                },
+                Ok(destination),
+            ) => (
+                Packets::Ddp(DdpPackets::new(
+                    plan.channel_count,
+                    *data_type,
+                    *offset_base,
+                    *destination,
+                )),
                 ControllerState::Ok,
                 None,
             ),

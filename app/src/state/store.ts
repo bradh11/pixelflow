@@ -174,7 +174,7 @@ export const useApp = create<AppState>((set, get) => {
     if (!backend) return false;
     set({ scanning: true });
     try {
-      const found = await backend.discoverDevices(hosts);
+      const found = await backend.discoverDevices(hosts, hosts.length === 0);
       const previous = hosts.length ? get().discovery : null;
       const devices = [...(previous?.devices ?? []).filter((d) => !found.devices.some((f) => f.address === d.address)), ...found.devices];
       const silent = found.silent.filter((s) => !devices.some((d) => d.address === s.address));

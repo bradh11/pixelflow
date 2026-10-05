@@ -28,7 +28,7 @@ describe("devices", () => {
     await user.click(screen.getByRole("button", { name: /discover my devices/i }));
     expect(await screen.findByText("Falcon_F16V5_B9F5")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Devices" })).toBeInTheDocument();
-    expect(backend.calls).toContain("discoverDevices:");
+    expect(backend.calls).toContain("discoverDevices::network");
   });
 
   it("lists controllers with how they were found, and warns about silent ones", async () => {
@@ -39,6 +39,7 @@ describe("devices", () => {
     expect(within(falconRow).getByText("listed by an FPP")).toBeInTheDocument();
     expect(within(falconRow).getByText("192.0.2.20")).toBeInTheDocument();
     expect(screen.getByText(/isn't responding/)).toHaveTextContent("Falcon_F16V5_Garage (192.0.2.21) isn't responding");
+    expect(screen.getByText(/isn't responding/)).toHaveTextContent("lists it — check that it's powered on");
     expect(screen.getByRole("button", { name: "Scan again" })).toBeInTheDocument();
   });
 
@@ -49,6 +50,7 @@ describe("devices", () => {
     const dialog = await screen.findByRole("dialog", { name: "Import Falcon_F16V5_B9F5" });
     expect(within(dialog).getByText("Falcon Mega Tree")).toBeInTheDocument();
     expect(within(dialog).getByText("Reversed")).toBeInTheDocument();
+    expect(within(dialog).getByText(/controller applies its own settings/)).toBeInTheDocument();
     expect(within(dialog).getByText(/Receives:/).closest("p")).toHaveTextContent("Receives: DDP");
 
     await user.click(within(dialog).getByRole("button", { name: "Add to show" }));

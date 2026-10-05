@@ -145,8 +145,8 @@ export function DevicesScreen() {
             <li key={peer.address} className="flex items-start gap-2 text-sm text-amber-700 dark:text-amber-400">
               <AlertTriangle size={16} className="mt-0.5 shrink-0" />
               <span>
-                <strong>{peer.description || peer.address}</strong> ({peer.address}) isn't responding. {peer.listedBy} sends
-                data to it — check that it's powered on and connected, then scan again.
+                <strong>{peer.description || peer.address}</strong> ({peer.address}) isn't responding. {peer.listedBy} lists
+                it — check that it's powered on and connected, then scan again.
               </span>
             </li>
           ))}

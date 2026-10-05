@@ -45,7 +45,7 @@ export function demoDevices(): { details: DeviceDetails[]; silent: SilentPeer[] 
   const falcon = newController("Falcon_F16V5_B9F5", "192.0.2.20", "ddp", 2);
   falcon.adapter = "falcon";
   falcon.ports[0].slots = [slotFor(tree)];
-  falcon.ports[1].slots = [slotFor(arch, { reverse: true })];
+  falcon.ports[1].slots = [slotFor(arch)];
   const strip = { ...newProp("line", empty), name: "Porch Strip", colorOrder: "GRB" as const };
   const wled = newController("Porch WLED", "192.0.2.40", "ddp", 1);
   wled.adapter = "wled";
@@ -78,7 +78,10 @@ export function demoDevices(): { details: DeviceDetails[]; silent: SilentPeer[] 
         plan: {
           controller: falcon,
           props: [tree, arch],
-          notes: ['The controller skips its own null pixels (Port 2 "Falcon Arch": 1), so PixelFlow won\'t send data for them.'],
+          notes: [
+            'The controller skips its own null pixels (Port 2 "Falcon Arch": 1), so PixelFlow won\'t send data for them.',
+            'The controller applies its own settings (Port 2 "Falcon Arch": reversed), so PixelFlow sends unadjusted data.',
+          ],
           alreadyInShow: false,
           canImport: true,
         },

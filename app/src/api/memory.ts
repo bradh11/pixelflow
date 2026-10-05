@@ -149,8 +149,8 @@ export class MemoryBackend implements Backend {
     return this.output;
   }
 
-  async discoverDevices(hosts: string[]): Promise<Discovery> {
-    this.calls.push(`discoverDevices:${hosts.join(",")}`);
+  async discoverDevices(hosts: string[], network: boolean): Promise<Discovery> {
+    this.calls.push(`discoverDevices:${hosts.join(",")}${network ? ":network" : ""}`);
     return structuredClone({
       devices: this.deviceNetwork.details.map((d) => d.device),
       silent: this.deviceNetwork.silent,

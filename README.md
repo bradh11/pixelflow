@@ -78,9 +78,9 @@ cargo run -p pf-cli -- device 10.0.0.50           # one controller's setup and w
 In the app, use **Discover my devices** on the welcome screen or the **Devices** screen.
 
 Discovery listens for FPP's MultiSync ping and mDNS, checks the web page of every address on
-your local (private) subnet, and asks each FPP which controllers it sends to. If a firewall
-blocks the replies (macOS does for unsigned command-line tools), the subnet check and FPP's
-list still find everything; a controller an FPP lists that doesn't answer is reported so you
+the /24 around each of your private network addresses, and asks each FPP which controllers it sends to. If a firewall
+blocks the replies (macOS does for unsigned command-line tools), the network check and FPP's
+list usually still find your controllers; a controller an FPP lists that doesn't answer is reported so you
 can check its power and network cable.
 
 ### Run the desktop app

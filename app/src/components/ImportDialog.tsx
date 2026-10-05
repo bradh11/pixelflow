@@ -110,6 +110,8 @@ export function ImportDialog({
                       <th className="pb-1 pl-3 font-medium">Order</th>
                       <th className="pb-1 text-right font-medium">Nulls</th>
                       <th className="pb-1 pl-3 font-medium">Direction</th>
+                      <th className="pb-1 text-right font-medium">Brightness</th>
+                      <th className="pb-1 text-right font-medium">Gamma</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -122,6 +124,8 @@ export function ImportDialog({
                           <td className="pl-3">{s.colorOrder}</td>
                           <td className="text-right tabular-nums">{s.nullPixels}</td>
                           <td className="pl-3">{s.reverse ? "Reversed" : "Forward"}</td>
+                          <td className="text-right tabular-nums">{s.brightness}%</td>
+                          <td className="text-right tabular-nums">{s.gamma}</td>
                         </tr>
                       )),
                     )}
@@ -129,7 +133,7 @@ export function ImportDialog({
                 </table>
               )}
               {details.config.destinations.map((d) => (
-                <p key={d.address}>
+                <p key={`${d.address}-${d.protocol}`}>
                   Sends {thousands(d.channels)} channels by {d.protocol} to {d.description || d.address} ({d.address}).
                 </p>
               ))}

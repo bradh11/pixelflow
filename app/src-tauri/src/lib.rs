@@ -338,7 +338,7 @@ mod tests {
         let found = call(
             &webview,
             "discover_devices",
-            json!({ "hosts": [pf_devices::testing::FPP] }),
+            json!({ "hosts": [pf_devices::testing::FPP], "network": false }),
         )
         .unwrap();
         let kinds: Vec<_> = found["devices"]

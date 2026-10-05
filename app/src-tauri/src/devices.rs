@@ -53,7 +53,7 @@ pub(crate) struct DeviceDetails {
 async fn off_thread<T: Send + 'static>(work: impl FnOnce() -> Reply<T> + Send + 'static) -> Reply<T> {
     tauri::async_runtime::spawn_blocking(work)
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|_| "Something went wrong talking to the device.".to_string())?
 }
 
 fn inspect(http: &dyn Http, address: &str, show: &Show) -> Reply<DeviceDetails> {
@@ -63,12 +63,17 @@ fn inspect(http: &dyn Http, address: &str, show: &Show) -> Reply<DeviceDetails> 
     Ok(DeviceDetails { device, config, plan })
 }
 
-/// Finds controllers (plus any addresses the user typed). Takes a few seconds.
+/// Finds controllers (plus any addresses the user typed). Takes a few seconds. With `network` off,
+/// only the typed addresses and the controllers an FPP lists are checked (no ping, mDNS, or sweep).
 #[tauri::command]
-pub(crate) async fn discover_devices(state: State<'_, AppState>, hosts: Vec<String>) -> Reply<Discovery> {
+pub(crate) async fn discover_devices(
+    state: State<'_, AppState>,
+    hosts: Vec<String>,
+    network: bool,
+) -> Reply<Discovery> {
     let http = Arc::clone(&state.devices.http);
     let sweep_http = Arc::clone(&state.devices.sweep_http);
-    let network = state.devices.network_discovery;
+    let network = network && state.devices.network_discovery;
     off_thread(move || {
         let options = DiscoverOptions {
             ping: network,

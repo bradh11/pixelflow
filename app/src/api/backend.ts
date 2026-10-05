@@ -25,7 +25,8 @@ export interface Backend {
   stopOutput(): Promise<OutputStatus>;
   outputStatus(): Promise<OutputStatus>;
   /** Finds controllers on the network (plus any typed addresses). Takes a few seconds. */
-  discoverDevices(hosts: string[]): Promise<Discovery>;
+  /** `network` false checks only the typed hosts (and what FPPs list); true also scans the network. */
+  discoverDevices(hosts: string[], network: boolean): Promise<Discovery>;
   /** Reads a device's configuration and previews importing it (changes nothing). */
   inspectDevice(address: string): Promise<DeviceDetails>;
   /** Adds the device as a controller with starter props, as one undo step. */

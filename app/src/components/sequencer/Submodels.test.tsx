@@ -97,6 +97,9 @@ describe("submodels in sequences", () => {
     await user.selectOptions(track, words.id);
     await waitFor(() => expect(seq.doc!.rows.flatMap((r) => r.layers.flatMap((l) => l.effects)).find((e) => e.id === faces.id)!.params).toMatchObject({ timingTrack: words.id }));
     expect(within(panel).getByText(/turned into mouth shapes letter by letter/)).toBeInTheDocument();
+    const beats = seq.doc!.timingTracks.find((t) => t.name === "Beats")!;
+    await user.selectOptions(track, beats.id);
+    expect(await within(panel).findByText("This track has no words, so the mouth stays at rest. Pick a lyrics track to sing.")).toBeInTheDocument();
     await user.selectOptions(within(panel).getByRole("combobox", { name: "Eyes" }), "closed");
     await waitFor(() => expect(seq.doc!.rows.flatMap((r) => r.layers.flatMap((l) => l.effects)).find((e) => e.id === faces.id)!.params).toMatchObject({ eyes: "closed" }));
   });

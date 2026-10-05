@@ -317,6 +317,8 @@ export function phonemeAt(track: { kind: string; marks: { startMs: number; endMs
   const mark = track?.marks.find((m) => m.startMs <= ms && ms < m.endMs);
   if (!track || !mark) return "REST";
   if (track.kind === "phonemes") return phonemeFromName(mark.label) ?? "REST";
+  // xLights rests on any track that isn't a lyric track.
+  if (track.kind !== "words" && track.kind !== "lyrics") return "REST";
   const shapes = wordPhonemes(mark.label);
   if (shapes.length === 0) return "REST";
   const k = Math.floor(((ms - mark.startMs) * shapes.length) / Math.max(1, mark.endMs - mark.startMs));

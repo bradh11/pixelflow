@@ -300,6 +300,45 @@ fn faces_use_their_own_colors_and_work_on_a_submodel_row() {
     assert_eq!(&frame[8..], &[[0, 0, 0]; 4], "outside the submodel");
 }
 
+/// On a group every member with the face sings in its own pixels (xLights draws nothing for a
+/// node-range face on a group; PixelFlow does on purpose). One renderer draws frame after frame,
+/// reusing its face lookups.
+#[test]
+fn faces_sing_on_every_group_member_frame_after_frame() {
+    let (mut show, mut seq, track) = singing_show();
+    let mut second = show.props[0].clone();
+    second.id = pf_model::PropId::new();
+    second.name = "Face 2".into();
+    second.transform.position = Vec3::new(20.0, 0.0, 0.0);
+    show.props.push(second);
+    let mut group = Group::new("Choir");
+    group.members = vec![show.props[1].id.into(), show.props[0].id.into()];
+    let gid = group.id;
+    show.groups.push(group);
+    seq.rows.push(row(
+        Target::Group(gid),
+        vec![vec![faces(
+            track,
+            FaceEyes::Open,
+            FaceColorSource::Palette,
+            false,
+        )]],
+    ));
+    const R: [u8; 3] = [255, 0, 0];
+    const G: [u8; 3] = [0, 255, 0];
+    const O: [u8; 3] = [0, 0, 0];
+    let singing = vec![R, R, O, O, G, G, O, O, O, O, O, O];
+    let resting = vec![O, O, R, O, G, G, O, O, O, O, O, O];
+    let mut r = renderer(&show);
+    let mut frame = vec![0; r.frame_len()];
+    for (t, face) in [(100, &singing), (600, &resting), (100, &singing)] {
+        r.render(&seq, t, &mut frame);
+        let pixels = lit(&frame);
+        assert_eq!(&pixels[..12], face.as_slice(), "first prop at {t} ms");
+        assert_eq!(&pixels[12..], face.as_slice(), "second prop at {t} ms");
+    }
+}
+
 #[test]
 fn blinking_eyes_close_briefly_and_render_the_same_every_time() {
     let (show, mut seq, track) = singing_show();

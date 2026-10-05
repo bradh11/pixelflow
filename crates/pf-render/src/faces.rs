@@ -4,7 +4,8 @@
 //! - **Mouth:** on a Phonemes track, the mark's phoneme (`AI`, `E`, `etc`, `FV`, `L`, `MBP`, `O`,
 //!   `rest`, `U`, `WQ`). On a Words or Lyrics track PixelFlow guesses the mouth shapes from the
 //!   word's letters ([`word_phonemes`]): an approximation, not real speech analysis. Between
-//!   marks, and with no track, the mouth is at rest.
+//!   marks, with no track, and on a track without lyrics (beats, bars, sections, custom), the
+//!   mouth is at rest, as in xLights.
 //! - **Eyes:** open, closed, or open and blinking: a 150 ms blink every 3–5 seconds, at times
 //!   picked from the effect's id, so every render of a frame is the same.
 //! - **Colors:** the face's own colors (white where it has none), or the palette as xLights uses
@@ -12,6 +13,10 @@
 //!   last color).
 //!
 //! Drawn in xLights' order, later parts winning where they share pixels: outline, mouth, eyes.
+//!
+//! **On a group row** every member prop with the face sings, each in its own pixels. That's a
+//! deliberate difference: xLights draws nothing for a node-range face on a group
+//! (`FacesEffect::RenderFaces` returns early for groups unless the face is a picture).
 
 use crate::color::Rgba;
 use crate::effects::hash;
@@ -74,8 +79,13 @@ pub fn phoneme_at(seq: &Sequence, track: Option<pf_sequence::TimingTrackId>, t_m
     if t_ms >= mark.end_ms {
         return Phoneme::Rest;
     }
-    if track.kind == TimingKind::Phonemes {
-        return Phoneme::from_name(&mark.label).unwrap_or(Phoneme::Rest);
+    match track.kind {
+        TimingKind::Phonemes => return Phoneme::from_name(&mark.label).unwrap_or(Phoneme::Rest),
+        TimingKind::Words | TimingKind::Lyrics => {}
+        // xLights rests on any track that isn't a lyric track.
+        TimingKind::Beats | TimingKind::Bars | TimingKind::Sections | TimingKind::Custom => {
+            return Phoneme::Rest;
+        }
     }
     // Words and lyrics: the letters' shapes spread evenly over the mark.
     let shapes = word_phonemes(&mark.label);
@@ -119,17 +129,69 @@ pub(crate) fn find_face<'a>(regions: &'a [pf_model::Region], name: &str) -> Opti
     })
 }
 
-/// What the face shows at `t_ms`, as a color for each of the buffer's pixels that's lit.
+/// One prop a Faces effect can draw on, for one target: the prop (its place in
+/// [`SceneGeometry`]'s props) and where each of its nodes is in the target's buffer
+/// (`u32::MAX`: not in it). Worked out once per target, not every frame.
+#[derive(Debug, Clone)]
+pub(crate) struct FaceProp {
+    prop: usize,
+    at: Vec<u32>,
+}
+
+/// The props of `target` that have a face, each with where its nodes sit in `buffer`.
+pub(crate) fn face_props(geometry: &SceneGeometry, target: Target, buffer: &PixelBuffer) -> Vec<FaceProp> {
+    let mut out: Vec<FaceProp> = geometry
+        .target_props(target)
+        .into_iter()
+        .filter(|&i| {
+            geometry.props[i]
+                .regions
+                .iter()
+                .any(|r| matches!(r.kind, RegionKind::Face(_)))
+        })
+        .map(|i| FaceProp {
+            prop: i,
+            at: vec![u32::MAX; geometry.props[i].points.len()],
+        })
+        .collect();
+    if out.is_empty() {
+        return out;
+    }
+    // One pass over the buffer: each pixel's prop (by show-wide pixel) and node.
+    let mut starts: Vec<(usize, usize)> = out
+        .iter()
+        .enumerate()
+        .map(|(k, f)| (geometry.props[f.prop].first_pixel, k))
+        .collect();
+    starts.sort_unstable();
+    for (i, &g) in buffer.show_pixels().iter().enumerate() {
+        let g = g as usize;
+        let k = starts.partition_point(|&(first, _)| first <= g);
+        let Some(&(first, slot)) = k.checked_sub(1).map(|k| &starts[k]) else {
+            continue;
+        };
+        if let Some(entry) = out[slot].at.get_mut(g - first) {
+            *entry = i as u32;
+        }
+    }
+    out
+}
+
+/// What the face shows at `t_ms`: fills `lit` with a color for each of the buffer's `len`
+/// pixels that's lit (`None` for the rest). `lit` is reused from frame to frame.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lit_pixels(
     params: &FacesParams,
     effect: &Effect,
     t_ms: u64,
     seq: &Sequence,
     geometry: &SceneGeometry,
-    target: Target,
-    buffer: &PixelBuffer,
-) -> Vec<Option<Rgba>> {
-    let mut lit = vec![None; buffer.len()];
+    faces: &[FaceProp],
+    len: usize,
+    lit: &mut Vec<Option<Rgba>>,
+) {
+    lit.clear();
+    lit.resize(len, None);
     let phoneme = phoneme_at(seq, params.timing_track, t_ms);
     let closed = match params.eyes {
         FaceEyes::Open => false,
@@ -142,8 +204,8 @@ pub(crate) fn lit_pixels(
             .get(i.min(colors.len().saturating_sub(1)))
             .map_or([1.0; 3], |c| color(*c))
     };
-    for prop in geometry.target_props(target) {
-        let Some(face) = find_face(&prop.regions, &params.face) else {
+    for entry in faces {
+        let Some(face) = find_face(&geometry.props[entry.prop].regions, &params.face) else {
             continue;
         };
         let own = match (&face.colors, params.colors) {
@@ -154,33 +216,28 @@ pub(crate) fn lit_pixels(
             Some(_) => own_color.map_or([1.0; 3], color),
             None => palette(palette_index),
         };
-        let mut parts: Vec<(&[NodeRange], [f32; 3])> = Vec::new();
-        if params.outline {
-            parts.push((&face.outline, pick(own.and_then(|c| c.outline), 2)));
-        }
-        if let Some(mouth) = face.mouths.get(&phoneme) {
-            parts.push((mouth, pick(own.and_then(|c| c.mouths.get(&phoneme).copied()), 0)));
-        }
-        if closed {
-            parts.push((&face.eyes_closed, pick(own.and_then(|c| c.eyes_closed), 1)));
+        let outline = params
+            .outline
+            .then(|| (face.outline.as_slice(), pick(own.and_then(|c| c.outline), 2)));
+        let mouth = face.mouths.get(&phoneme).map(|mouth| {
+            (
+                mouth.as_slice(),
+                pick(own.and_then(|c| c.mouths.get(&phoneme).copied()), 0),
+            )
+        });
+        let eyes = if closed {
+            (
+                face.eyes_closed.as_slice(),
+                pick(own.and_then(|c| c.eyes_closed), 1),
+            )
         } else {
-            parts.push((&face.eyes_open, pick(own.and_then(|c| c.eyes_open), 1)));
-        }
-        // Where each of the prop's nodes is in the buffer.
-        let first = prop.first_pixel as u64;
-        let nodes = prop.points.len();
-        let mut at = vec![u32::MAX; nodes];
-        for (i, &g) in buffer.show_pixels().iter().enumerate() {
-            if let Some(node) = u64::from(g).checked_sub(first)
-                && let Some(slot) = at.get_mut(node as usize)
-            {
-                *slot = i as u32;
-            }
-        }
-        for (ranges, rgb) in parts {
+            (face.eyes_open.as_slice(), pick(own.and_then(|c| c.eyes_open), 1))
+        };
+        let parts: [Option<(&[NodeRange], [f32; 3])>; 3] = [outline, mouth, Some(eyes)];
+        for (ranges, rgb) in parts.into_iter().flatten() {
             for range in ranges {
-                for node in range.start..range.end.min(nodes as u32) {
-                    if let Some(&i) = at.get(node as usize)
+                for node in range.start..range.end {
+                    if let Some(&i) = entry.at.get(node as usize)
                         && i != u32::MAX
                     {
                         lit[i as usize] = Some(Rgba::opaque(rgb));
@@ -189,7 +246,6 @@ pub(crate) fn lit_pixels(
             }
         }
     }
-    lit
 }
 
 #[cfg(test)]
@@ -237,6 +293,20 @@ mod tests {
             phoneme_at(&seq, Some(pf_sequence::TimingTrackId::new()), 150),
             Phoneme::Rest
         );
+        // A track without lyrics (beats, bars, sections, custom) keeps the mouth at rest, as
+        // xLights does for any track that isn't a lyric track.
+        for kind in [
+            TimingKind::Beats,
+            TimingKind::Bars,
+            TimingKind::Sections,
+            TimingKind::Custom,
+        ] {
+            let mut seq = seq.clone();
+            let beats = TimingTrack::new("Beats", kind, vec![Mark::new(0, 1000, "Chorus")]);
+            let b = Some(beats.id);
+            seq.timing_tracks.push(beats);
+            assert_eq!(phoneme_at(&seq, b, 500), Phoneme::Rest, "{kind:?}");
+        }
         // "moon" is M, OO, N over 400 ms.
         assert_eq!(phoneme_at(&seq, w, 1000), Phoneme::Mbp);
         assert_eq!(phoneme_at(&seq, w, 1200), Phoneme::U);

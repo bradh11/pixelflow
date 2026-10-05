@@ -157,6 +157,13 @@ describe("singing", () => {
     expect(wordPhonemes("we've")).toEqual(["WQ", "E", "FV", "E"]);
   });
 
+  it("keeps the mouth at rest on a track without lyrics, as xLights does", () => {
+    for (const kind of ["beats", "bars", "sections", "custom"]) {
+      expect(phonemeAt({ kind, marks: [{ startMs: 0, endMs: 1000, label: "Chorus" }] }, 500), kind).toBe("REST");
+    }
+    expect(phonemeAt({ kind: "lyrics", marks: [{ startMs: 0, endMs: 1000, label: "Oh" }] }, 100)).toBe("O");
+  });
+
   it("reads the phoneme under the playhead, resting between marks", () => {
     const phonemes = { kind: "phonemes", marks: [{ startMs: 100, endMs: 200, label: "AI" }, { startMs: 200, endMs: 300, label: "etc" }] };
     expect(phonemeAt(phonemes, 150)).toBe("AI");

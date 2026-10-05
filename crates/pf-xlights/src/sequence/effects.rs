@@ -527,7 +527,8 @@ fn ripple(r: &Reader, duration_ms: u64, diff: &mut Diff) -> EffectParams {
 /// by name when the effect is placed (see `Builder::effect`).
 fn faces(r: &Reader, diff: &mut Diff) -> EffectParams {
     let face = r.choice("Faces_FaceDefinition", "Default").trim();
-    // "Default" (or nothing) is the model's first face, as in xLights.
+    // "Default" (or nothing) is the model's first face; which one that is depends on the row,
+    // so it's worked out where the effect is placed (`face_named`).
     let face = if face == "Default" { "" } else { face };
     let eyes = match r.choice("Faces_Eyes", "Auto") {
         "Open" => FaceEyes::Open,

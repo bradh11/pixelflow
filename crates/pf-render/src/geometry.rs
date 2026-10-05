@@ -172,8 +172,9 @@ impl SceneGeometry {
         self.index.get(&id).map(|&i| &self.props[i])
     }
 
-    /// The props a target draws on (a group's members' props, in member order), each once.
-    pub(crate) fn target_props(&self, target: Target) -> Vec<&PropGeometry> {
+    /// The props a target draws on (a group's members' props, in member order), each once, as
+    /// places in `props`.
+    pub(crate) fn target_props(&self, target: Target) -> Vec<usize> {
         let mut seen = HashSet::new();
         let ids: Vec<PropId> = match target {
             Target::Prop(id) | Target::Region { prop: id, .. } => vec![id],
@@ -185,7 +186,7 @@ impl SceneGeometry {
         };
         ids.into_iter()
             .filter(|id| seen.insert(*id))
-            .filter_map(|id| self.prop(id))
+            .filter_map(|id| self.index.get(&id).copied())
             .collect()
     }
 
@@ -245,7 +246,7 @@ fn finite(v: f32) -> f32 {
 }
 
 /// The prop's nodes a region lights, in the region's order. A sub-buffer takes the prop's
-/// pixels inside its rectangle, in wiring order.
+/// pixels inside its rectangle, and a Keep XY submodel its nodes, in wiring order.
 fn region_nodes(prop: &PropGeometry, region: &Region) -> Vec<u32> {
     match region.kind {
         RegionKind::SubBuffer { x1, y1, x2, y2 } => sub_buffer_cells(prop, [x1, y1, x2, y2])
@@ -253,6 +254,14 @@ fn region_nodes(prop: &PropGeometry, region: &Region) -> Vec<u32> {
             .into_iter()
             .map(|c| c.node)
             .collect(),
+        RegionKind::Nodes {
+            buffer: BufferStyle::KeepXy,
+            ..
+        } => {
+            let mut nodes = region.node_list(prop.node_count());
+            nodes.sort_unstable();
+            nodes
+        }
         _ => region.node_list(prop.node_count()),
     }
 }
@@ -352,14 +361,13 @@ fn region_buffer(prop: &PropGeometry, region: &Region) -> PixelBuffer {
                 rows: u32::try_from(max_r - min_r + 1).unwrap_or(1),
             }
         }
-        // Keep XY and faces: the pixels where they are on the prop.
-        _ => build_buffer(
-            &region
-                .node_list(prop.node_count())
-                .into_iter()
-                .map(|n| prop.point(n))
-                .collect::<Vec<_>>(),
-        ),
+        // Keep XY and faces: the pixels where they are on the prop, in node order (xLights keeps
+        // a Keep XY submodel's nodes in a sorted set, so a backwards line still runs forwards).
+        _ => {
+            let mut nodes = region.node_list(prop.node_count());
+            nodes.sort_unstable();
+            build_buffer(&nodes.into_iter().map(|n| prop.point(n)).collect::<Vec<_>>())
+        }
     }
 }
 
@@ -767,7 +775,18 @@ mod tests {
             BufferStyle::KeepXy,
         ));
         let buffer = geo.buffer(target);
-        assert_eq!(uvs(&buffer), vec![(2, 0.0, 0.5), (8, 1.0, 0.5), (5, 0.5, 0.5)]);
+        // In node order, as xLights keeps Keep XY nodes (a sorted set), whatever the lines say.
+        assert_eq!(uvs(&buffer), vec![(2, 0.0, 0.5), (5, 0.5, 0.5), (8, 1.0, 0.5)]);
+        let (geo, target) = line_with(submodel(
+            vec![vec![run(9, 0)]],
+            LineLayout::Horizontal,
+            BufferStyle::KeepXy,
+        ));
+        assert_eq!(
+            geo.buffer(target).global,
+            (0..10).collect::<Vec<u32>>(),
+            "a backwards run chases forwards"
+        );
 
         let face = pf_model::FaceDefinition {
             outline: vec![pf_model::NodeRange::new(4, 7)],

@@ -465,6 +465,31 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
     assert!(!has_note(&i, "Wave"), "{:#?}", i.notes);
 }
 
+/// xLights' "Default" face is the model's first face in name order (its faces are a sorted
+/// map), and a face renamed on import ("Singer (face)", beside a submodel called "Singer") is
+/// still the one a Faces effect names.
+#[test]
+fn faces_effects_find_the_default_and_renamed_faces() {
+    let mut show = show();
+    let matrix = show.props.iter_mut().find(|p| p.name == "Window Matrix").unwrap();
+    let singer = matrix.regions.iter_mut().find(|r| r.name == "Singer").unwrap();
+    singer.name = "Singer (face)".into();
+    let mut alto = singer.clone();
+    alto.id = pf_model::RegionId::new();
+    alto.name = "Alto".into();
+    matrix.regions.push(alto);
+    let i = import_sequence_file(&fixture("faces.xsq"), &show, |_, _| None).unwrap();
+    let faces: Vec<String> = row(&i, &show, "Window Matrix").layers[0]
+        .effects
+        .iter()
+        .map(|e| match &e.params {
+            EffectParams::Faces(p) => p.face.clone(),
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(faces, ["Singer (face)", "Alto", "Pictures", "Singer (face)"]);
+}
+
 #[test]
 fn faces_effects_sing_the_lyric_tracks_phonemes() {
     let show = show();
@@ -488,18 +513,31 @@ fn faces_effects_sing_the_lyric_tracks_phonemes() {
                 colors: FaceColorSource::Face,
                 outline: true,
             }),
-            EffectParams::Faces(FacesParams::default()),
+            // "Default" is the model's first face by name, as xLights picks it.
+            EffectParams::Faces(FacesParams {
+                face: "Singer".into(),
+                ..FacesParams::default()
+            }),
             EffectParams::Faces(FacesParams {
                 face: "Pictures".into(),
                 timing_track: Some(phonemes),
                 ..FacesParams::default()
             }),
+            // A beat track has no lyrics; xLights keeps the mouth at rest, and so does PixelFlow.
+            EffectParams::Faces(FacesParams {
+                face: "Singer".into(),
+                ..FacesParams::default()
+            }),
         ]
     );
-    assert_eq!((i.summary.exact, i.summary.approximate), (2, 1));
+    assert_eq!((i.summary.exact, i.summary.approximate), (2, 2));
     assert_note(
         &i,
         "its timing track isn't in the sequence, so the mouth stays at rest",
+    );
+    assert_note(
+        &i,
+        "its timing track has no lyrics, so the mouth stays at rest, as in xLights",
     );
     assert_note(&i, "blinks at PixelFlow's usual pace");
     let issues = pf_sequence::validate_sequence(&i.sequence, &show);

@@ -159,6 +159,29 @@ impl Drops {
     }
 }
 
+/// The face a Faces effect names, among the row's faces (`faces`, as PixelFlow named them).
+/// "Default" (blank here) is the model's first face in name order, as xLights keeps its faces in
+/// a sorted map. A face that clashed with a submodel's name was imported as "<name> (face)"; an
+/// effect naming the original gets that face.
+fn face_named(wanted: &str, faces: &[&str]) -> String {
+    const RENAMED: &str = " (face)";
+    let wanted = wanted.trim();
+    if wanted.is_empty() {
+        return faces
+            .iter()
+            .min_by_key(|f| f.strip_suffix(RENAMED).unwrap_or(f))
+            .map_or_else(String::new, |f| f.to_string());
+    }
+    if faces.iter().any(|f| f.trim().eq_ignore_ascii_case(wanted)) {
+        return wanted.to_string();
+    }
+    let renamed = format!("{wanted}{RENAMED}");
+    faces
+        .iter()
+        .find(|f| f.trim().eq_ignore_ascii_case(&renamed))
+        .map_or_else(|| wanted.to_string(), |f| f.to_string())
+}
+
 /// Builds the import while reading the file.
 struct Builder<'a> {
     file: &'a XsqFile,
@@ -177,8 +200,11 @@ struct Builder<'a> {
     over_effect_limit: usize,
     bad_refs: usize,
     /// The track a Faces effect sings to, by xLights timing track name: its phonemes when it
-    /// has them, else its words, else the track itself.
+    /// has them, else its words, else its lyrics. A track with none of those isn't here: xLights
+    /// keeps the mouth at rest on it.
     face_tracks: HashMap<String, TimingTrackId>,
+    /// Every timing track's xLights name.
+    timing_tracks: HashSet<String>,
 }
 
 impl<'a> Builder<'a> {
@@ -264,7 +290,8 @@ impl<'a> Builder<'a> {
         Some((start, end.min(self.duration_ms)))
     }
 
-    fn effect(&mut self, x: &XsqEffect) -> Option<Effect> {
+    /// One effect, on a row whose props have the faces `faces` (by name, in show order).
+    fn effect(&mut self, x: &XsqEffect, faces: &[&str]) -> Option<Effect> {
         let name = x.name.trim();
         if name == "Random" {
             self.random += 1;
@@ -284,12 +311,17 @@ impl<'a> Builder<'a> {
             self.summary.skipped += 1;
             return None;
         };
-        if let EffectParams::Faces(faces) = &mut translated.params {
+        if let EffectParams::Faces(params) = &mut translated.params {
+            params.face = face_named(&params.face, faces);
             let wanted = unxml_safe(settings.text("E_CHOICE_Faces_TimingTrack", "").trim());
-            faces.timing_track = self.face_tracks.get(wanted.as_str()).copied();
-            if faces.timing_track.is_none() && !wanted.is_empty() {
-                let missing =
-                    "its timing track isn't in the sequence, so the mouth stays at rest".to_string();
+            params.timing_track = self.face_tracks.get(wanted.as_str()).copied();
+            if params.timing_track.is_none() && !wanted.is_empty() {
+                let missing = if self.timing_tracks.contains(&wanted) {
+                    "its timing track has no lyrics, so the mouth stays at rest, as in xLights"
+                } else {
+                    "its timing track isn't in the sequence, so the mouth stays at rest"
+                }
+                .to_string();
                 translated.fidelity = match translated.fidelity {
                     Fidelity::Approximate(mut reasons) => {
                         reasons.push(missing);
@@ -518,6 +550,7 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
         over_effect_limit: 0,
         bad_refs: 0,
         face_tracks: HashMap::new(),
+        timing_tracks: HashSet::new(),
     };
 
     let mut sequence = Sequence::new(fallback_name, duration_ms);
@@ -536,6 +569,7 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
     for element in file.elements.iter().filter(|e| e.kind == ElementKind::Timing) {
         let name = unxml_safe(&element.name);
         timing_names.insert(&element.name);
+        b.timing_tracks.insert(name.clone());
         let mut tracks = Vec::new();
         let interval = element
             .fixed
@@ -576,7 +610,6 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
         let sings = [TimingKind::Phonemes, TimingKind::Words, TimingKind::Lyrics]
             .iter()
             .find_map(|kind| tracks.iter().find(|t| t.kind == *kind))
-            .or(tracks.first())
             .map(|t| t.id);
         let room = MAX_TIMING_TRACKS.saturating_sub(sequence.timing_tracks.len());
         if let Some(id) = sings
@@ -718,6 +751,18 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
             rows.push((region, x_layers));
         }
         for (target, x_layers) in rows {
+            // The faces a Faces effect on this row can name (a model's, or its submodel's model's).
+            let faces: Vec<&str> = target
+                .prop()
+                .and_then(|id| show.prop(id))
+                .map(|prop| {
+                    prop.regions
+                        .iter()
+                        .filter(|r| matches!(r.kind, pf_model::RegionKind::Face(_)))
+                        .map(|r| r.name.as_str())
+                        .collect()
+                })
+                .unwrap_or_default();
             // xLights' first layer is drawn on top; PixelFlow draws its last layer on top.
             let mut layers: Vec<Layer> = Vec::with_capacity(x_layers.len().max(1));
             for (i, x_layer) in x_layers.iter().enumerate().rev() {
@@ -726,7 +771,7 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
                     b.summary.skipped += x_layer.len();
                     continue;
                 }
-                let effects = x_layer.iter().filter_map(|x| b.effect(x)).collect();
+                let effects = x_layer.iter().filter_map(|x| b.effect(x, &faces)).collect();
                 layers.push(Layer { effects });
             }
             if layers.is_empty() {

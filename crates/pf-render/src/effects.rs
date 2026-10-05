@@ -693,6 +693,11 @@ impl Faces {
     pub(crate) fn new(lit: Vec<Option<Rgba>>) -> Self {
         Self { lit }
     }
+
+    /// The lit pixels back, so the renderer can reuse the memory next frame.
+    pub(crate) fn into_lit(self) -> Vec<Option<Rgba>> {
+        self.lit
+    }
 }
 
 impl Shade for Faces {

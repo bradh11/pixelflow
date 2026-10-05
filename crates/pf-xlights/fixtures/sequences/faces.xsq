@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Faces effects on the sample show's "Window Matrix" face "Singer": one singing a lyric
-     track's phonemes, one on the first face with a track that isn't in the sequence, and one on
-     a picture face that wasn't imported. -->
+     track's phonemes, one on the first face with a track that isn't in the sequence, one on
+     a picture face that wasn't imported, and one on a beat track (no lyrics: xLights rests). -->
 <xsequence BaseChannel="0" ChanCtrlBasic="0" ChanCtrlColor="0" FixedPointTiming="1" ModelBlending="true">
   <head>
     <version>2025.01</version>
@@ -17,6 +17,7 @@
     <Effect>E_CHECKBOX_Faces_Outline=1,E_CHOICE_Faces_Eyes=Open,E_CHOICE_Faces_FaceDefinition=Singer,E_CHOICE_Faces_TimingTrack=Lyrics</Effect>
     <Effect>E_CHOICE_Faces_Eyes=Auto,E_CHOICE_Faces_EyeBlinkFrequency=Fast,E_CHOICE_Faces_FaceDefinition=Default,E_CHOICE_Faces_TimingTrack=Chorus</Effect>
     <Effect>E_CHOICE_Faces_FaceDefinition=Pictures,E_CHOICE_Faces_TimingTrack=Lyrics</Effect>
+    <Effect>E_CHOICE_Faces_FaceDefinition=Singer,E_CHOICE_Faces_TimingTrack=Beats</Effect>
   </EffectDB>
   <ElementEffects>
     <Element type="timing" name="Lyrics">
@@ -33,11 +34,17 @@
         <Effect label="O" startTime="1600" endTime="2000"/>
       </EffectLayer>
     </Element>
+    <Element type="timing" name="Beats">
+      <EffectLayer>
+        <Effect label="Chorus" startTime="8000" endTime="9000"/>
+      </EffectLayer>
+    </Element>
     <Element type="model" name="Window Matrix">
       <EffectLayer>
         <Effect ref="0" name="Faces" palette="0" startTime="0" endTime="4000"/>
         <Effect ref="1" name="Faces" palette="0" startTime="4000" endTime="6000"/>
         <Effect ref="2" name="Faces" palette="0" startTime="6000" endTime="8000"/>
+        <Effect ref="3" name="Faces" palette="0" startTime="8000" endTime="10000"/>
       </EffectLayer>
     </Element>
   </ElementEffects>

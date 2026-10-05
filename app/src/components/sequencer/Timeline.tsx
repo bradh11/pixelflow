@@ -382,6 +382,9 @@ export function Timeline({ doc }: { doc: Sequence }) {
             onPointerCancel={onPointerCancel}
             onPointerLeave={(e) => !drag.current && (e.currentTarget.style.cursor = "default")}
           />
+          <p className="sr-only" aria-live="polite" data-testid="timeline-announcer">
+            {describeSelection(selection, index, show, labels)}
+          </p>
           {maxScroll > 0 && (
             <input
               type="range"
@@ -423,6 +426,17 @@ export function Timeline({ doc }: { doc: Sequence }) {
       </div>
     </div>
   );
+}
+
+/** The selection in words, for screen readers. */
+function describeSelection(selection: string[], index: ReturnType<typeof buildIndex>, show: Show | undefined, labels: Map<string, string>): string {
+  if (selection.length === 0) return "No effect selected";
+  if (selection.length > 1) return `${selection.length} effects selected`;
+  const placed = index.byId.get(selection[0]);
+  const row = placed && index.rows.get(placed.rowId);
+  if (!placed || !row) return "No effect selected";
+  const e = placed.effect;
+  return `${labels.get(e.params.kind) ?? e.params.kind} on ${targetName(show, row.target)}, ${formatTime(e.startMs)} to ${formatTime(e.endMs)}, selected`;
 }
 
 function snappedOf(d: Drag): number | null {

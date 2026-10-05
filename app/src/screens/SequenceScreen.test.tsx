@@ -233,4 +233,30 @@ describe("sequence screen", () => {
     expect(seq.calls).toContain("exportSequenceDoc");
     expect(useApp.getState().snapshot?.show.sequences[0]).toMatchObject({ name: "Christmas Medley 2017", path: "/Shows/Medley.fseq", audio: DEMO_MUSIC });
   });
+
+  it("walks rows with Up and Down, saying what's selected", async () => {
+    const { seq, user } = await openScreen();
+    act(() => useSequencer.getState().setPlayhead(21_000));
+    timeline().focus();
+    await user.keyboard("{ArrowDown}");
+    expect(useSequencer.getState().activeRow).toBe(seq.doc!.rows[0].id);
+    expect(screen.getByTestId("timeline-announcer")).toHaveTextContent("Bars on Mega Tree, 0:16.000 to 0:24.000, selected");
+    await user.keyboard("{ArrowDown}");
+    expect(screen.getByTestId("timeline-announcer")).toHaveTextContent("Chase on Garage Arch, 0:20.000 to 0:24.000, selected");
+    await user.keyboard("{ArrowUp}{Escape}");
+    expect(screen.getByTestId("timeline-announcer")).toHaveTextContent("No effect selected");
+  });
+
+  it("lists the sequence's problems, and a click selects the effect", async () => {
+    const { seq, user } = await openScreen();
+    const effect = seq.doc!.rows[1].layers[0].effects[2];
+    act(() =>
+      useSequencer.setState({
+        issues: [{ severity: "warning", message: "The Wave effect at 0:08.000 on 'Garage Arch' overlaps the Chase effect.", row: seq.doc!.rows[1].id, effect: effect.id }],
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "1 problem" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Problems in this sequence" })).getByRole("button", { name: /overlaps the Chase effect/ }));
+    expect(useSequencer.getState().selection).toEqual([effect.id]);
+  });
 });

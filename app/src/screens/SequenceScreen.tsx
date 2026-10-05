@@ -1,4 +1,4 @@
-import { AudioLines, Download, FilePlus, FolderOpen, ListMusic, Magnet, Pause, Play, Save, Send, Square, X } from "lucide-react";
+import { AlertTriangle, AudioLines, Download, FilePlus, FolderOpen, ListMusic, Magnet, Pause, Play, Save, Send, Square, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { errorMessage } from "../api/backend";
 import { EffectPalette } from "../components/sequencer/EffectPalette";
@@ -159,6 +159,7 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
           <ToolButton label="Send to controllers while playing" pressed={s.sendToControllers} onClick={() => void s.setSendToControllers(!s.sendToControllers)}>
             <Send size={16} /> <span className="hidden lg:inline">Send to controllers</span>
           </ToolButton>
+          <SequenceIssues />
           <div className="ml-auto flex items-center gap-1">
             {s.exporting !== null ? (
               <span className="flex items-center gap-2 text-sm" role="status">
@@ -182,6 +183,54 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
         </>
       )}
     </div>
+  );
+}
+
+/** Problems the engine found in the sequence (overlapping effects, missing props); clicking one
+ * selects its effect. */
+function SequenceIssues() {
+  const { issues, select } = useSequencer();
+  const [open, setOpen] = useState(false);
+  if (issues.length === 0) return null;
+  const errors = issues.filter((i) => i.severity === "error").length;
+  return (
+    <span className="relative">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className={`flex items-center gap-1 rounded px-2 py-1 text-sm ${errors ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}
+      >
+        <AlertTriangle size={14} /> {issues.length === 1 ? "1 problem" : `${issues.length} problems`}
+      </button>
+      {open && (
+        <div
+          role="dialog"
+          aria-label="Problems in this sequence"
+          className="absolute top-9 left-0 z-30 max-h-80 w-[26rem] overflow-auto rounded-lg border border-neutral-200 bg-white p-3 text-sm shadow-xl dark:border-neutral-800 dark:bg-neutral-900"
+        >
+          <ul className="flex flex-col gap-2">
+            {issues.map((issue, i) => (
+              <li key={i}>
+                <button
+                  type="button"
+                  className="text-left hover:underline"
+                  onClick={() => {
+                    if (issue.effect) select([issue.effect], issue.row ?? null);
+                    setOpen(false);
+                  }}
+                >
+                  <span className={issue.severity === "error" ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}>
+                    {issue.severity === "error" ? "Error" : "Warning"}:
+                  </span>{" "}
+                  {issue.message}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </span>
   );
 }
 

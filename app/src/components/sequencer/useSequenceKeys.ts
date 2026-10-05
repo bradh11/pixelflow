@@ -13,7 +13,8 @@ function beatTimes(): number[] {
 
 /**
  * The Sequence screen's keys (not while typing in a field): Space plays and pauses; arrows move
- * the selected effects, or the playhead, by a frame (with Shift, to the next beat); Home and End
+ * the selected effects, or the playhead, by a frame (with Shift, to the next beat); Up and Down pick
+ * the row above or below and the effect under the playhead on it; Home and End
  * jump; Delete removes; ⌘C, ⌘V, and ⌘D copy, paste at the playhead, and duplicate; ⌘A selects
  * everything; Escape clears the selection. Undo, redo, and save are global shortcuts.
  */
@@ -56,6 +57,16 @@ export function useSequenceKeys() {
         if (!e.repeat) nudges++;
         const edits: SequenceEdit[] = placed.map((p) => ({ type: "setEffectTiming", id: p.effect.id, startMs: p.effect.startMs + delta, endMs: p.effect.endMs + delta }));
         void s.edit(edits, `nudge:${nudges}`);
+        return;
+      }
+      if ((key === "ArrowUp" || key === "ArrowDown") && !mod && doc.rows.length > 0) {
+        // Up and down pick the row above or below, and the effect under the playhead on it.
+        e.preventDefault();
+        const at = doc.rows.findIndex((r) => r.id === s.activeRow);
+        const next = at < 0 ? 0 : Math.max(0, Math.min(doc.rows.length - 1, at + (key === "ArrowDown" ? 1 : -1)));
+        const row = doc.rows[next];
+        const under = [...row.layers].reverse().flatMap((l) => l.effects).find((x) => x.startMs <= s.playheadMs && s.playheadMs < x.endMs);
+        s.select(under ? [under.id] : [], row.id);
         return;
       }
       if (key === "Home" || key === "End") {

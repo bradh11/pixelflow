@@ -38,6 +38,14 @@ enum Command {
     Discover(devices::DiscoverArgs),
     /// Show a controller's identity and configuration, and what importing it would add (read-only).
     Device(devices::DeviceArgs),
+    /// Import an xLights show folder: report what comes in, and optionally save it as a show file.
+    Xlights {
+        /// The xLights show folder (holding xlights_rgbeffects.xml).
+        folder: PathBuf,
+        /// Save the imported show here.
+        #[arg(long)]
+        save: Option<PathBuf>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -81,6 +89,26 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
         Command::Discover(args) => devices::discover(&args),
         Command::Device(args) => devices::device(&args),
+        Command::Xlights { folder, save } => {
+            let imported = pf_xlights::import_folder(&folder)?;
+            let s = &imported.summary;
+            println!(
+                "{}: {} props, {} pixels, {} controllers, {} props wired, {} groups",
+                imported.show.name, s.props, s.pixels, s.controllers, s.wired, s.groups
+            );
+            for note in &imported.notes {
+                println!("  - {note}");
+            }
+            if let Some(path) = save {
+                // Checked as opening the file will check it, so a saved import always opens.
+                let show =
+                    pf_model::check_show(&imported.show).context("the imported show can't be saved")?;
+                let json = pf_model::show_to_json(&show)?;
+                std::fs::write(&path, json).with_context(|| format!("could not save {}", path.display()))?;
+                println!("Saved {}", path.display());
+            }
+            Ok(ExitCode::SUCCESS)
+        }
     }
 }
 

@@ -1,6 +1,7 @@
 import { Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { Prop } from "../api/types";
+import { LayoutPreview } from "../components/LayoutPreview";
 import { Button, EmptyState, Input, PageHeader, Select } from "../components/ui";
 import { thousands } from "../lib/format";
 import { PROP_KINDS, type PropKind, newProp, shapeLabel } from "../lib/shows";
@@ -38,7 +39,7 @@ function PropRow({ prop, pixels }: { prop: Prop; pixels: number }) {
   );
 }
 
-/** Props in the show. The 2D/3D layout viewport arrives with the layout editor. */
+/** Props in the show, drawn where they are in the layout. Drag-to-place editing comes later. */
 export function LayoutScreen() {
   const snapshot = useApp((s) => s.snapshot);
   const apply = useApp((s) => s.apply);
@@ -47,7 +48,7 @@ export function LayoutScreen() {
   const pixels = new Map(snapshot.channelMap.props.map((p) => [p.prop, p.nodes]));
   const add = () => apply([{ type: "addProp", prop: newProp(kind, snapshot.show) }]);
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="mx-auto max-w-5xl">
       <PageHeader
         title="Props"
         description="Everything in your display. Add props here, then wire them to controller ports."
@@ -66,6 +67,7 @@ export function LayoutScreen() {
           </>
         }
       />
+      <LayoutPreview />
       {snapshot.show.props.length === 0 ? (
         <EmptyState title="No props yet">Pick a prop type and choose Add prop to start building your display.</EmptyState>
       ) : (

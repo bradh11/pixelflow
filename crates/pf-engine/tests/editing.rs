@@ -199,3 +199,44 @@ fn save_as_makes_the_next_autosave_write_into_the_new_history() {
     assert!(engine.autosave().unwrap().is_some(), "new file gets a first copy");
     assert_eq!(engine.history().len(), 1);
 }
+
+#[test]
+fn an_adopted_show_is_new_and_unsaved() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = Engine::new(dir.path());
+    let mut show = pf_model::Show::new("Imported");
+    show.props.push(pf_model::Prop::new(
+        "Roof",
+        pf_model::ShapeSource::Generator(pf_model::Generator::Line {
+            nodes: 10,
+            length: 1.0,
+        }),
+    ));
+    let snapshot = engine.adopt_show(pf_engine::CheckedShow::new(show).unwrap());
+    assert_eq!(snapshot.show.name, "Imported");
+    assert_eq!(snapshot.summary.props, 1);
+    assert!(snapshot.dirty && snapshot.path.is_none() && !snapshot.can_undo);
+}
+
+#[test]
+fn a_show_a_file_couldnt_hold_is_refused_with_a_plain_message() {
+    let mut show = pf_model::Show::new("Imported");
+    let prop = pf_model::Prop::new(
+        "Roof",
+        pf_model::ShapeSource::Generator(pf_model::Generator::Line {
+            nodes: 10,
+            length: 1.0,
+        }),
+    );
+    let mut slot = pf_model::PortSlot::new(prop.id);
+    slot.null_pixels = pf_model::MAX_NULL_PIXELS + 1;
+    show.props.push(prop);
+    let mut port = pf_model::Port::new(1);
+    port.slots.push(slot);
+    let mut controller = pf_model::Controller::new("C", "192.0.2.1", pf_model::Protocol::Ddp);
+    controller.ports.push(port);
+    show.controllers.push(controller);
+    let err = pf_engine::CheckedShow::new(show).unwrap_err();
+    assert!(matches!(err, pf_engine::EngineError::InvalidShow(_)), "{err:?}");
+    assert!(err.to_string().contains("null pixels"), "{err}");
+}

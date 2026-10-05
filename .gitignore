@@ -41,9 +41,9 @@ Thumbs.db
 !.vscode/settings.json
 
 # Rendered sequences (large, personal)
-*.fseq
+/*.fseq
 
 # xLights show files used as local examples (personal; never committed)
-xlights_*.xml
-*.xsq
-*.mp3
+/xlights_*.xml
+/*.xsq
+/*.mp3

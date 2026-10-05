@@ -15,7 +15,7 @@ mod playback;
 mod snapshot;
 
 pub use edit::Edit;
-pub use engine::Engine;
+pub use engine::{CheckedShow, Engine};
 pub use error::EngineError;
 pub use history::History;
 pub use output::{ControllerStatus, OutputStatus, PatternSpec, TargetSpec};

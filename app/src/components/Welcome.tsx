@@ -37,6 +37,7 @@ function Choice({
 export function Welcome() {
   const newShow = useApp((s) => s.newShow);
   const openShow = useApp((s) => s.openShow);
+  const importXlights = useApp((s) => s.importXlights);
   const discover = useApp((s) => s.discoverFromWelcome);
   return (
     <div className="flex h-full items-center justify-center p-8">
@@ -61,8 +62,8 @@ export function Welcome() {
           <Choice
             icon={<Upload size={20} />}
             title="Import from xLights"
-            description="Coming in a later update."
-            disabled
+            description="Bring in your xLights layout, controllers, and wiring."
+            onClick={importXlights}
           />
           <Choice
             icon={<Network size={20} />}

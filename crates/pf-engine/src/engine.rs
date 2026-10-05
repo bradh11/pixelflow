@@ -24,6 +24,20 @@ const AUTOSAVE_KEEP: usize = 50;
 
 type TransportFactory = Box<dyn Fn() -> io::Result<Box<dyn Transport>> + Send>;
 
+/// A show checked exactly as opening a show file checks it (size limits included), ready for
+/// [`Engine::adopt_show`]. Checking a large show takes a while, so it happens before the engine
+/// is locked.
+#[derive(Debug, Clone)]
+pub struct CheckedShow(Show);
+
+impl CheckedShow {
+    pub fn new(show: Show) -> Result<Self, EngineError> {
+        pf_model::check_show(&show)
+            .map(CheckedShow)
+            .map_err(|e| EngineError::InvalidShow(e.to_string()))
+    }
+}
+
 /// The single owner of the open show.
 pub struct Engine {
     show: Show,
@@ -160,6 +174,15 @@ impl Engine {
     /// Starts a new, empty, unsaved show (stops output and clears undo history).
     pub fn new_show(&mut self, name: &str) -> ShowSnapshot {
         self.replace_show(Show::new(name), None);
+        self.snapshot()
+    }
+
+    /// Replaces the open show with `show` (one imported from xLights, for example) as a new,
+    /// unsaved show. The show was checked like a file being opened when `show` was made.
+    pub fn adopt_show(&mut self, show: CheckedShow) -> ShowSnapshot {
+        self.replace_show(show.0, None);
+        // Unsaved, so the user is asked before it's discarded.
+        self.changed();
         self.snapshot()
     }
 

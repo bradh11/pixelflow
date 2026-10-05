@@ -367,3 +367,20 @@ export interface PreviewProp {
   channelsPerPixel: number;
   points: number[];
 }
+
+/** Counts from an xLights import. */
+export interface ImportSummary {
+  props: number;
+  pixels: number;
+  controllers: number;
+  /** Props wired onto a controller. */
+  wired: number;
+  groups: number;
+}
+
+/** The show an xLights import produced, with a report of anything not imported exactly. */
+export interface XlightsImported {
+  snapshot: ShowSnapshot;
+  summary: ImportSummary;
+  notes: string[];
+}

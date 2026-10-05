@@ -141,6 +141,32 @@ describe("devices", () => {
     expect(await screen.findByRole("heading", { name: "Import Porch WLED" })).toBeInTheDocument();
   });
 
+  it("remembers found controllers, refreshes them on the next scan, and marks ones that don't answer", async () => {
+    const { user, backend } = await openDevices();
+    await user.click(screen.getByRole("button", { name: "Scan network" }));
+    expect(await screen.findByText("Porch WLED")).toBeInTheDocument();
+
+    // The WLED goes offline; the next scan checks every remembered controller directly.
+    backend.deviceNetwork.details = backend.deviceNetwork.details.filter((d) => d.device.kind !== "wled");
+    await user.click(screen.getByRole("button", { name: "Scan again" }));
+    expect(backend.calls).toContain("discoverDevices:192.0.2.10,192.0.2.20,192.0.2.40:network");
+    const row = (await screen.findByText("Porch WLED")).closest("tr")!;
+    expect(within(row).getByText(/Not responding · last seen just now/)).toBeInTheDocument();
+
+    // Still there after the app restarts.
+    useApp.setState({ discovery: null });
+    await useApp.getState().connect(backend);
+    expect(useApp.getState().discovery!.devices.map((d) => [d.name, d.responding])).toEqual([
+      ["FPP", true],
+      ["Falcon_F16V5_B9F5", true],
+      ["Porch WLED", false],
+    ]);
+
+    await user.click(within(screen.getByText("Porch WLED").closest("tr")!).getByRole("button", { name: "Forget Porch WLED" }));
+    expect(screen.queryByText("Porch WLED")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("checks a typed address and says when nothing answers", async () => {
     const { user, backend } = await openDevices();
     await user.type(screen.getByLabelText("Controller address"), "10.9.9.9");

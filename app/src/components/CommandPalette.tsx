@@ -35,6 +35,7 @@ export function CommandPalette() {
   const actions: Action[] = [
     { id: "new", label: "New show", shortcut: "⌘N", run: state.newShow },
     { id: "open", label: "Open show…", shortcut: "⌘O", run: state.openShow },
+    { id: "import-xlights", label: "Import from xLights…", run: state.importXlights },
     { id: "save", label: "Save", shortcut: "⌘S", run: state.save },
     { id: "save-as", label: "Save as…", shortcut: "⇧⌘S", run: state.saveAs },
     { id: "undo", label: "Undo", shortcut: "⌘Z", run: state.undo },

@@ -1,9 +1,10 @@
-import { AlertTriangle, ChevronRight, Loader2, Radar, Search } from "lucide-react";
+import { AlertTriangle, ChevronRight, Loader2, Radar, Search, X } from "lucide-react";
 import { useState } from "react";
 import type { Device, DeviceKind, FoundBy } from "../api/types";
 import { ImportDialog } from "../components/ImportDialog";
 import { Button, EmptyState, Input, PageHeader } from "../components/ui";
-import { useApp } from "../state/store";
+import { ago } from "../lib/format";
+import { type KnownDevice, useApp } from "../state/store";
 
 const KIND_LABEL: Record<DeviceKind, string> = { fpp: "FPP", falcon: "Falcon", wled: "WLED" };
 const KIND_STYLE: Record<DeviceKind, string> = {
@@ -19,11 +20,23 @@ const FOUND_BY: Record<FoundBy, string> = {
   manual: "address you entered",
 };
 
-function DeviceRow({ device, inShow, onReview }: { device: Device; inShow: boolean; onReview: () => void }) {
+function DeviceRow({
+  device,
+  inShow,
+  onReview,
+  onForget,
+}: {
+  device: KnownDevice;
+  inShow: boolean;
+  onReview: () => void;
+  onForget: () => void;
+}) {
   return (
     <tr
       onClick={onReview}
-      className="cursor-pointer border-t border-neutral-200 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"
+      className={`cursor-pointer border-t border-neutral-200 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900 ${
+        device.responding ? "" : "text-neutral-500"
+      }`}
     >
       <td className="py-2 pr-3">
         <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${KIND_STYLE[device.kind]}`}>{KIND_LABEL[device.kind]}</span>
@@ -34,13 +47,29 @@ function DeviceRow({ device, inShow, onReview }: { device: Device; inShow: boole
           {device.model} · {device.firmware}
           {device.mode ? ` · ${device.mode}` : ""}
         </div>
+        {!device.responding && (
+          <div className="flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400">
+            <AlertTriangle size={12} /> Not responding · last seen {ago(device.lastSeen)}
+          </div>
+        )}
       </td>
       <td className="pr-3 text-sm tabular-nums">{device.address}</td>
       <td className="pr-3 text-xs text-neutral-500">{device.foundBy.map((f) => FOUND_BY[f]).join(", ")}</td>
       <td className="pr-3">
         {inShow && <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs dark:bg-neutral-800">In show</span>}
       </td>
-      <td className="text-right">
+      <td className="text-right whitespace-nowrap">
+        <Button
+          variant="ghost"
+          aria-label={`Forget ${device.name}`}
+          title="Forget this controller"
+          onClick={(e) => {
+            e.stopPropagation();
+            onForget();
+          }}
+        >
+          <X size={14} />
+        </Button>
         <Button
           onClick={(e) => {
             e.stopPropagation();
@@ -61,6 +90,7 @@ export function DevicesScreen() {
   const discovery = useApp((s) => s.discovery);
   const scanning = useApp((s) => s.scanning);
   const scan = useApp((s) => s.scan);
+  const forgetDevice = useApp((s) => s.forgetDevice);
   const [address, setAddress] = useState("");
   const [reviewing, setReviewing] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -70,7 +100,7 @@ export function DevicesScreen() {
     if (!host) return;
     setNotice(null);
     if (await scan([host])) {
-      const found = useApp.getState().discovery?.devices.some((d) => d.address === host);
+      const found = useApp.getState().discovery?.devices.some((d) => d.address === host && d.responding);
       setNotice(found ? null : `No controller answered at ${host}. Check the address and that it's powered on.`);
       if (found) setAddress("");
     }
@@ -143,7 +173,13 @@ export function DevicesScreen() {
           </thead>
           <tbody>
             {discovery.devices.map((device) => (
-              <DeviceRow key={device.address} device={device} inShow={inShow(device)} onReview={() => setReviewing(device.address)} />
+              <DeviceRow
+                key={device.address}
+                device={device}
+                inShow={inShow(device)}
+                onReview={() => setReviewing(device.address)}
+                onForget={() => forgetDevice(device.address)}
+              />
             ))}
           </tbody>
         </table>

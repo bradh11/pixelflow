@@ -465,6 +465,7 @@ dependencies = [
  "pf-model",
  "pf-output",
  "pf-patterns",
+ "pf-xlights",
  "serde_json",
 ]
 
@@ -561,6 +562,17 @@ version = "0.1.0"
 dependencies = [
  "pf-mapping",
  "pf-model",
+]
+
+[[package]]
+name = "pf-xlights"
+version = "0.1.0"
+dependencies = [
+ "pf-mapping",
+ "pf-model",
+ "roxmltree",
+ "serde",
+ "thiserror",
 ]
 
 [[package]]

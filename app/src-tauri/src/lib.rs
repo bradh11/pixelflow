@@ -6,6 +6,7 @@
 
 mod devices;
 mod playback;
+mod xlights;
 
 use devices::DeviceAccess;
 use pf_engine::{
@@ -138,6 +139,7 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         playback::live_frame,
         playback::sequence_frame,
         playback::preview_props,
+        xlights::import_xlights,
     ])
 }
 
@@ -568,6 +570,27 @@ mod tests {
         assert_eq!(
             call(&webview, "playback_stop_reason", json!({})).unwrap(),
             json!(null)
+        );
+    }
+
+    #[test]
+    fn imports_an_xlights_show_folder_as_a_new_unsaved_show() {
+        let (_app, webview, dir) = app();
+        let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../crates/pf-xlights/fixtures/sample-show");
+        let imported = call(&webview, "import_xlights", json!({ "folder": folder })).unwrap();
+        assert_eq!(imported["snapshot"]["show"]["name"], "sample-show");
+        assert_eq!(imported["snapshot"]["dirty"], true);
+        assert_eq!(imported["summary"]["props"], 6);
+        assert_eq!(imported["summary"]["wired"], 6);
+        assert_eq!(imported["snapshot"]["summary"]["controllers"], 2);
+        let error = call(&webview, "import_xlights", json!({ "folder": dir.path() })).unwrap_err();
+        assert!(
+            error
+                .as_str()
+                .unwrap()
+                .contains("doesn't look like an xLights show folder"),
+            "{error}"
         );
     }
 }

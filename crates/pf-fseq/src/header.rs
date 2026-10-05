@@ -54,26 +54,35 @@ pub(crate) struct Range {
     pub count: u32,
 }
 
+/// A variable header whose text is stored elsewhere in the file (an `ED` entry).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Extended {
+    pub code: [u8; 2],
+    pub offset: u64,
+    pub len: u32,
+}
+
 /// Everything needed to find a frame's data.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Layout {
     pub header: Header,
     /// Where frame data starts in the file.
     pub data_offset: u64,
+    /// Bytes stored per frame: the header's channel count. In a sparse file that is the ranges'
+    /// total (FPP's format), not the channel space.
+    pub stored: u32,
     /// Compressed blocks in frame order (empty when uncompressed).
     pub blocks: Vec<Block>,
     /// Sparse ranges (empty means the whole channel space is stored).
     pub ranges: Vec<Range>,
+    /// `mf` and `sp` headers stored elsewhere in the file, still to be read.
+    pub extended: Vec<Extended>,
 }
 
 impl Layout {
     /// Bytes stored per frame.
     pub fn frame_len(&self) -> usize {
-        if self.ranges.is_empty() {
-            self.header.channels as usize
-        } else {
-            self.ranges.iter().map(|r| r.count as usize).sum()
-        }
+        self.stored as usize
     }
 }
 
@@ -113,11 +122,12 @@ pub(crate) fn read_layout(mut reader: impl Read) -> Result<Layout, FseqError> {
         .read_exact(&mut head[8..])
         .map_err(|_| corrupt("the file ends inside its header"))?;
 
-    let channels = u32_at(&head, 10);
+    // Bytes stored per frame: the whole channel space, or a sparse file's ranges.
+    let stored = u32_at(&head, 10);
     let frames = u32_at(&head, 14);
     let step_ms = u32::from(head[18]);
-    if channels == 0 || channels > MAX_CHANNELS {
-        return Err(corrupt(format!("it says each frame has {channels} channels")));
+    if stored == 0 || stored > MAX_CHANNELS {
+        return Err(corrupt(format!("it says each frame has {stored} channels")));
     }
     if step_ms == 0 {
         return Err(corrupt("it says frames are 0 ms apart"));
@@ -156,10 +166,15 @@ pub(crate) fn read_layout(mut reader: impl Read) -> Result<Layout, FseqError> {
                 // xLights pads the index with empty entries.
                 continue;
             }
-            if previous_first.is_some_and(|p| first_frame <= p) || first_frame >= frames {
+            if previous_first.is_some_and(|p| first_frame <= p) {
                 return Err(corrupt("its blocks are out of order"));
             }
             previous_first = Some(first_frame);
+            if first_frame >= frames {
+                // Frames past the declared count (FPP writes the count first): never played.
+                offset += u64::from(len);
+                continue;
+            }
             blocks.push(Block {
                 first_frame,
                 offset,
@@ -174,30 +189,33 @@ pub(crate) fn read_layout(mut reader: impl Read) -> Result<Layout, FseqError> {
         let mut ranges = Vec::new();
         for i in 0..range_count {
             let at = 32 + block_count * 8 + i * 6;
-            let range = Range {
+            ranges.push(Range {
                 start: u24_at(&head, at),
                 count: u24_at(&head, at + 3),
-            };
-            if u64::from(range.start) + u64::from(range.count) > u64::from(channels) {
-                return Err(corrupt("a channel range runs past the last channel"));
-            }
-            ranges.push(range);
+            });
         }
-        // Ranges must be disjoint: the stored bytes per frame can't exceed the channel space.
-        // (Overlapping ranges could otherwise claim gigabytes per frame.)
+        // Ranges must be disjoint, and each frame must store all of them.
         let total: u64 = ranges.iter().map(|r| u64::from(r.count)).sum();
         let mut sorted = ranges.clone();
         sorted.sort_by_key(|r| r.start);
         let overlaps = sorted
             .windows(2)
             .any(|w| u64::from(w[0].start) + u64::from(w[0].count) > u64::from(w[1].start));
-        if total > u64::from(channels) || overlaps {
+        if overlaps {
             return Err(corrupt("its channel ranges overlap"));
+        }
+        if total > u64::from(stored) {
+            return Err(corrupt(format!(
+                "its channel ranges hold {total} channels but each frame stores {stored}"
+            )));
         }
         (compression, blocks, ranges, usize::from(u16_at(&head, 8)))
     };
+    // The channel space runs to the end of the last range (FPP's getMaxChannel()). Ranges are
+    // 24-bit, so this stays far below MAX_CHANNELS.
+    let channels = ranges.iter().map(|r| r.start + r.count).fold(stored, u32::max);
 
-    let (media, producer) = variable_headers(&head, variable_start.max(28));
+    let vars = variable_headers(&head, variable_start.max(28));
     Ok(Layout {
         header: Header {
             version: (major, minor),
@@ -205,33 +223,56 @@ pub(crate) fn read_layout(mut reader: impl Read) -> Result<Layout, FseqError> {
             frames,
             step_ms,
             compression,
-            media,
-            producer,
+            media: vars.media,
+            producer: vars.producer,
         },
         data_offset: data_offset as u64,
+        stored,
         blocks,
         ranges,
+        extended: vars.extended,
     })
 }
 
-/// Reads the `mf` (media file) and `sp` (producer) variable headers; ignores anything malformed.
-fn variable_headers(head: &[u8], mut at: usize) -> (Option<String>, Option<String>) {
-    let (mut media, mut producer) = (None, None);
+/// The variable headers PixelFlow uses.
+#[derive(Default)]
+struct Variables {
+    media: Option<String>,
+    producer: Option<String>,
+    extended: Vec<Extended>,
+}
+
+/// A variable header's text: up to the first NUL, trimmed; `None` when empty.
+pub(crate) fn header_text(bytes: &[u8]) -> Option<String> {
+    let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+    let text = String::from_utf8_lossy(&bytes[..end]).trim().to_string();
+    (!text.is_empty()).then_some(text)
+}
+
+/// Reads the `mf` (media file) and `sp` (producer) variable headers, and notes the extended
+/// (`ED`) ones stored elsewhere in the file; ignores anything malformed.
+fn variable_headers(head: &[u8], mut at: usize) -> Variables {
+    let mut vars = Variables::default();
     while at + 4 <= head.len() {
         let len = usize::from(u16_at(head, at));
         if len < 4 || at + len > head.len() {
             break;
         }
-        let text = String::from_utf8_lossy(&head[at + 4..at + len])
-            .trim_end_matches('\0')
-            .trim()
-            .to_string();
+        let data = &head[at + 4..at + len];
         match &head[at + 2..at + 4] {
-            b"mf" if !text.is_empty() => media = Some(text),
-            b"sp" if !text.is_empty() => producer = Some(text),
+            b"mf" => vars.media = vars.media.or_else(|| header_text(data)),
+            b"sp" => vars.producer = vars.producer.or_else(|| header_text(data)),
+            // Extended data: the 2-letter code, a 64-bit file offset and a 32-bit length.
+            b"ED" if data.len() >= 14 && matches!(&data[..2], b"mf" | b"sp") => {
+                vars.extended.push(Extended {
+                    code: [data[0], data[1]],
+                    offset: u64::from(u32_at(data, 2)) | (u64::from(u32_at(data, 6)) << 32),
+                    len: u32_at(data, 10),
+                });
+            }
             _ => {}
         }
         at += len;
     }
-    (media, producer)
+    vars
 }

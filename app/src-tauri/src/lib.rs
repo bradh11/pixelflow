@@ -163,6 +163,8 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         sequencer::redo_sequence,
         sequencer::sequence_doc_frame,
         sequencer::play_sequence_doc,
+        sequencer::set_sequence_doc_output,
+        sequencer::add_sequence_doc_to_show,
         sequencer::sequence_export_layout,
         sequencer::export_sequence_doc,
         sequencer::analyze_audio,
@@ -885,7 +887,14 @@ mod tests {
             (status["authored"].clone(), status["state"].clone()),
             (json!(true), json!("playing"))
         );
+        // Preview only, while editing: switching keeps it playing.
+        let status = call(&webview, "set_sequence_doc_output", json!({ "send": false })).unwrap();
+        assert_eq!(status["state"], "playing");
         call(&webview, "stop_playback", json!({})).unwrap();
+        assert_eq!(
+            call(&webview, "set_sequence_doc_output", json!({ "send": true })).unwrap(),
+            json!(null)
+        );
 
         let layout = call(&webview, "sequence_export_layout", json!({})).unwrap();
         assert_eq!(layout["channels"], 12);
@@ -896,6 +905,13 @@ mod tests {
             (json!(80), json!(12))
         );
         assert!(fseq.exists());
+        let show = call(&webview, "add_sequence_doc_to_show", json!({ "path": fseq })).unwrap();
+        assert_eq!(show["show"]["sequences"][0]["name"], "Song");
+        assert_eq!(
+            show["show"]["sequences"][0]["path"],
+            json!(fseq.display().to_string())
+        );
+        call(&webview, "undo", json!({})).unwrap();
 
         let saved = dir.path().join("song.pfseq.json");
         let snap = call(&webview, "save_sequence_doc_as", json!({ "path": saved })).unwrap();

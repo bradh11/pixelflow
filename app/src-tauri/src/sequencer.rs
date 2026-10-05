@@ -5,7 +5,7 @@ use crate::{AppState, Reply, message};
 use pf_analysis::Analysis;
 use pf_engine::{
     Engine, EngineError, ExportLayout, ExportSummary, PlaybackStatus, SequenceEdit, SequenceEditResult,
-    SequenceExport, SequenceSnapshot,
+    SequenceExport, SequenceSnapshot, ShowSnapshot,
 };
 use pf_sequence::{EffectInfo, TimingTrack};
 use serde::Serialize;
@@ -126,6 +126,26 @@ pub(crate) async fn play_sequence_doc(state: State<'_, AppState>, position_ms: u
         .engine()
         .playback_status()
         .ok_or_else(|| "Playback stopped before it started.".to_string())
+}
+
+/// Whether a playing sequence document is sent to the controllers or only shown in the preview
+/// (switches at once while playing). Returns the playback state, if anything is playing.
+#[tauri::command]
+pub(crate) async fn set_sequence_doc_output(
+    state: State<'_, AppState>,
+    send: bool,
+) -> Reply<Option<PlaybackStatus>> {
+    Ok(state.engine().set_sequence_doc_output(send))
+}
+
+/// Adds an exported `.fseq` of the open sequence to the show's playlist (one undo step on the
+/// show), named after the sequence and with its music.
+#[tauri::command]
+pub(crate) async fn add_sequence_doc_to_show(
+    state: State<'_, AppState>,
+    path: PathBuf,
+) -> Reply<ShowSnapshot> {
+    state.engine().add_sequence_doc_to_show(&path).map_err(message)
 }
 
 /// How an export would lay out the controllers' channels (changes nothing).

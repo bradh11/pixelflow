@@ -88,6 +88,8 @@ describe("tauriSequencer", () => {
     await tauriSequencer.cancelSequenceExport();
     await tauriSequencer.effectCatalog();
     await tauriSequencer.detectBeats();
+    await tauriSequencer.setSequenceDocOutput(false);
+    await tauriSequencer.addSequenceDocToShow("/shows/song.fseq");
     expect(invoke.mock.calls).toEqual([
       ["new_sequence_doc", { name: "Song", durationMs: 180_000 }],
       ["edit_sequence", { edits }],
@@ -97,6 +99,8 @@ describe("tauriSequencer", () => {
       ["cancel_sequence_export"],
       ["effect_catalog"],
       ["detect_beats"],
+      ["set_sequence_doc_output", { send: false }],
+      ["add_sequence_doc_to_show", { path: "/shows/song.fseq" }],
     ]);
     expect(listen).not.toHaveBeenCalled();
   });

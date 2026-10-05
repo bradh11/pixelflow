@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import type { PlaybackStatus } from "./types";
+import type { PlaybackStatus, ShowSnapshot } from "./types";
 import type {
   Analysis,
   EffectInfo,
@@ -43,6 +43,10 @@ export interface SequencerApi {
   sequenceDocFrame(positionMs: number): Promise<Uint8Array>;
   /** Plays the open sequence live with its music; control it with the playback commands. */
   playSequenceDoc(positionMs: number): Promise<PlaybackStatus>;
+  /** Whether a playing sequence goes out to the controllers (true) or only to the preview. */
+  setSequenceDocOutput(send: boolean): Promise<PlaybackStatus | null>;
+  /** Adds an exported `.fseq` of the open sequence to the show's playlist (one undo step on the show). */
+  addSequenceDocToShow(path: string): Promise<ShowSnapshot>;
   /** How an export would lay out the controllers' channels. */
   sequenceExportLayout(): Promise<ExportLayout>;
   /**
@@ -80,6 +84,8 @@ export const tauriSequencer: SequencerApi = {
   sequenceDocFrame: async (positionMs) =>
     new Uint8Array(await invoke<ArrayBuffer>("sequence_doc_frame", { positionMs })),
   playSequenceDoc: (positionMs) => invoke("play_sequence_doc", { positionMs }),
+  setSequenceDocOutput: (send) => invoke("set_sequence_doc_output", { send }),
+  addSequenceDocToShow: (path) => invoke("add_sequence_doc_to_show", { path }),
   sequenceExportLayout: () => invoke("sequence_export_layout"),
   exportSequenceDoc: async (path, onProgress) => {
     const unlisten = onProgress

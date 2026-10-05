@@ -5,7 +5,9 @@
 // render, play, or check the sequence against the show.
 
 import catalogJson from "./effectCatalog.json";
-import type { PlaybackStatus } from "./types";
+import type { MemoryBackend } from "./memory";
+import { renderSequenceFrame } from "./memoryRender";
+import type { PlaybackStatus, ShowSnapshot } from "./types";
 import {
   noChanges,
   type Analysis,
@@ -244,6 +246,11 @@ export class MemorySequencer implements SequencerApi {
   calls: string[] = [];
   private lastGesture: string | null = null;
   private exportCancels = 0;
+  /** Whether a playing sequence would go out to the controllers. */
+  sendToControllers = true;
+
+  /** With a memory backend, frames are drawn (roughly) from its show and playback runs on its clock. */
+  constructor(readonly backend: MemoryBackend | null = null) {}
 
   private open_(): Sequence {
     return this.doc ?? fail(NO_SEQUENCE);
@@ -368,14 +375,45 @@ export class MemorySequencer implements SequencerApi {
     return structuredClone(EFFECT_CATALOG);
   }
 
-  async sequenceDocFrame(_positionMs: number) {
-    this.open_();
-    return new Uint8Array();
+  async sequenceDocFrame(positionMs: number) {
+    const doc = this.open_();
+    return this.backend ? renderSequenceFrame(doc, this.backend.show, positionMs) : new Uint8Array();
   }
 
-  async playSequenceDoc(_positionMs: number): Promise<PlaybackStatus> {
-    this.open_();
-    return fail("Playing an authored sequence needs the PixelFlow desktop app.");
+  async playSequenceDoc(positionMs: number): Promise<PlaybackStatus> {
+    const doc = this.open_();
+    this.calls.push(`playSequenceDoc@${positionMs}`);
+    const backend = this.backend ?? fail("Playing an authored sequence needs the PixelFlow desktop app.");
+    const live = () => this.doc ?? doc;
+    return backend.playAuthored(
+      {
+        path: this.path ?? "",
+        music: doc.audio,
+        durationMs: doc.durationMs,
+        frameMs: doc.frameMs,
+        frame: (ms) => renderSequenceFrame(live(), backend.show, ms),
+      },
+      positionMs,
+    );
+  }
+
+  async setSequenceDocOutput(send: boolean) {
+    this.calls.push(`setSequenceDocOutput:${send}`);
+    this.sendToControllers = send;
+    return (await this.backend?.playbackStatus()) ?? null;
+  }
+
+  async addSequenceDocToShow(path: string): Promise<ShowSnapshot> {
+    const doc = this.open_();
+    this.calls.push(`addSequenceDocToShow:${path}`);
+    const backend = this.backend ?? fail("Adding to the show needs a show.");
+    const base = doc.name.trim() || "Sequence";
+    const taken = (n: string) => backend.show.sequences.some((s) => s.name === n);
+    let name = base;
+    for (let n = 2; taken(name); n++) name = `${base} (${n})`;
+    return backend.applyEdits([
+      { type: "addSequence", sequence: { id: crypto.randomUUID(), name, path, audio: doc.audio, offsetMs: 0 } },
+    ]);
   }
 
   async sequenceExportLayout(): Promise<ExportLayout> {

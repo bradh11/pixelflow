@@ -22,6 +22,18 @@ const MAX_BLOCKS: u32 = 4095;
 const MAX_BLOCK_BYTES: u64 = 64 * 1024 * 1024;
 /// Longest text kept in a variable header (the media file name, the producer).
 const MAX_HEADER_TEXT: usize = 1024;
+/// Most frames in the first block. FPP's and xLights' writer end the first block after frame 9
+/// whatever the block size, so a player (and MultiSync remotes) gets frame 0 quickly.
+const FIRST_BLOCK_FRAMES: u32 = 10;
+/// zstd level for the first block: FPP's writer uses this fast level there for the same reason.
+const FIRST_BLOCK_LEVEL: i32 = -10;
+
+/// Blocks needed for `frames` frames: a first block of up to [`FIRST_BLOCK_FRAMES`], then blocks
+/// of `per_block`.
+fn block_count(frames: u32, per_block: u32) -> u32 {
+    let first = FIRST_BLOCK_FRAMES.min(per_block).min(frames);
+    1 + (frames - first).div_ceil(per_block)
+}
 
 /// What to write: the frame layout and the file's descriptive headers.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,9 +49,11 @@ pub struct WriteOptions {
     /// The program writing the file (the `sp` header).
     pub producer: Option<String>,
     /// Frames per compressed block (raised automatically for long sequences, since a file lists
-    /// at most 4095 blocks, and lowered for huge frames).
+    /// at most 4095 blocks, and lowered for huge frames). The first block holds at most 10, as
+    /// FPP and xLights write it.
     pub frames_per_block: u32,
-    /// zstd level (1 = fastest).
+    /// zstd level (1 = fast; negative levels are faster still). The first block always uses a
+    /// fast level (-10), as FPP and xLights write it.
     pub compression_level: i32,
     /// The header's unique id (FPP uses it to tell files apart); 0 is fine.
     pub unique_id: u64,
@@ -109,15 +123,18 @@ impl<W: Write + Seek> FseqWriter<W> {
         }
         let by_size = (MAX_BLOCK_BYTES / u64::from(options.channels)).max(1) as u32;
         let mut frames_per_block = options.frames_per_block.clamp(1, by_size);
-        if options.frames.div_ceil(frames_per_block) > MAX_BLOCKS {
-            frames_per_block = options.frames.div_ceil(MAX_BLOCKS);
+        if block_count(options.frames, frames_per_block) > MAX_BLOCKS {
+            frames_per_block = options.frames.div_ceil(MAX_BLOCKS - 1);
+            while block_count(options.frames, frames_per_block) > MAX_BLOCKS {
+                frames_per_block += 1;
+            }
         }
         if u64::from(frames_per_block) * u64::from(options.channels) > 4 * MAX_BLOCK_BYTES {
             return Err(cant(
                 "it is too long for frames this large (it would need blocks over 256 MB)",
             ));
         }
-        let block_count = options.frames.div_ceil(frames_per_block) as usize;
+        let block_count = block_count(options.frames, frames_per_block) as usize;
         let vars = Self::variables(&options).len();
         // Padded to a multiple of 4 bytes like xLights (readers stop at the zero padding).
         let header_len = (32 + block_count * 8 + vars).next_multiple_of(4);
@@ -173,20 +190,31 @@ impl<W: Write + Seek> FseqWriter<W> {
         self.pending.extend_from_slice(frame);
         self.pending_frames += 1;
         self.written += 1;
-        if self.pending_frames == self.frames_per_block {
+        let block_frames = if self.blocks.is_empty() {
+            FIRST_BLOCK_FRAMES.min(self.frames_per_block)
+        } else {
+            self.frames_per_block
+        };
+        if self.pending_frames == block_frames {
             self.flush_block()?;
         }
         Ok(())
+    }
+
+    /// zstd level for the next block.
+    fn level(&self) -> i32 {
+        if self.blocks.is_empty() {
+            FIRST_BLOCK_LEVEL.min(self.options.compression_level)
+        } else {
+            self.options.compression_level
+        }
     }
 
     fn flush_block(&mut self) -> Result<(), FseqError> {
         if self.pending_frames == 0 {
             return Ok(());
         }
-        let packed = w(zstd::bulk::compress(
-            &self.pending,
-            self.options.compression_level,
-        ))?;
+        let packed = w(zstd::bulk::compress(&self.pending, self.level()))?;
         let len = u32::try_from(packed.len()).map_err(|_| cant("a compressed block is over 4 GB"))?;
         w(self.out.write_all(&packed))?;
         let first = self.written - self.pending_frames;
@@ -246,6 +274,27 @@ impl<W: Write + Seek> FseqWriter<W> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_first_block_is_compressed_fastest() {
+        let mut writer = FseqWriter::new(io::Cursor::new(Vec::new()), WriteOptions::new(3, 30, 25)).unwrap();
+        assert_eq!(writer.level(), -10);
+        for _ in 0..10 {
+            writer.write_frame(&[1, 2, 3]).unwrap();
+        }
+        assert_eq!(writer.blocks.len(), 1, "the first block ends after frame 9");
+        assert_eq!(writer.level(), 1);
+    }
+
+    #[test]
+    fn block_counts_include_the_short_first_block() {
+        assert_eq!(block_count(1, 10), 1);
+        assert_eq!(block_count(10, 10), 1);
+        assert_eq!(block_count(11, 10), 2);
+        assert_eq!(block_count(10, 25), 1);
+        assert_eq!(block_count(36, 25), 3); // 0–9, 10–34, 35
+        assert_eq!(block_count(5, 2), 3); // 0–1, 2–3, 4
+    }
 
     #[test]
     fn variable_headers_are_nul_terminated_and_capped() {

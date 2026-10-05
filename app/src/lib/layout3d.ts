@@ -597,6 +597,22 @@ export function composeGestures3d(props: PreviewProp3d[], layers: { ids: string[
     if (mine.length === 0) return p;
     const a = p.xyz;
     const out = new Float32Array(a.length);
+    if (mine.every(({ gesture }) => gesture.kind === "move")) {
+      // Only moves (dragging, nudging): one offset for every pixel, with nothing made per pixel.
+      let [dx, dy, dz] = [0, 0, 0];
+      for (const { gesture: g } of mine) {
+        if (g.kind !== "move") continue;
+        dx += g.dx;
+        dy += g.dy;
+        dz += g.dz ?? 0;
+      }
+      for (let i = 0; i + 2 < a.length; i += 3) {
+        out[i] = a[i] + dx;
+        out[i + 1] = a[i + 1] + dy;
+        out[i + 2] = a[i + 2] + dz;
+      }
+      return { ...p, xyz: out };
+    }
     for (let i = 0; i + 2 < a.length; i += 3) {
       let q = v3(a[i], a[i + 1], a[i + 2]);
       for (const { gesture } of mine) q = gesturePoint3(gesture, q);

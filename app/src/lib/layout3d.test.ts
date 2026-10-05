@@ -384,6 +384,15 @@ describe("gestures in depth", () => {
     expect(out[1]).toBe(props[1]);
     expect(composeGestures3d(props, [])).toBe(props);
   });
+
+  it("adds up moves, with depth, in one pass over the pixels", () => {
+    const props = [prop("a", [1, 0, 2, 3, 4, 5])];
+    const out = composeGestures3d(props, [
+      { ids: ["a"], gesture: moveGesture3(v3(1, 1, -1)) },
+      { ids: ["a"], gesture: { kind: "move", dx: 0.5, dy: -2 } },
+    ]);
+    expect(Array.from(out[0].xyz)).toEqual([2.5, -1, 1, 4.5, 3, 4]);
+  });
 });
 
 describe("bulb size", () => {

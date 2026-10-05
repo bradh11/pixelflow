@@ -317,6 +317,8 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
   let backdropImage: TexImageSource | null = null;
   const model = new Group();
   scene.add(model);
+  /** The model's meshes, which props snap to (its lines and points are left out). */
+  let modelMeshes: Object3D[] = [];
   let modelOpacity = 1;
   /** Counts model loads, so a slow one finishing after a newer one is dropped. */
   let modelLoads = 0;
@@ -497,6 +499,7 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
         disposeTree(child);
       }
       modelShadow.clear();
+      modelMeshes = [];
       if (!next) return null;
       const loaded = await parseModel(next.bytes, next.name);
       if (load !== modelLoads) {
@@ -505,6 +508,9 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
       }
       const box = naturalBox(loaded);
       model.add(loaded);
+      loaded.traverse((o) => {
+        if ((o as Mesh).isMesh) modelMeshes.push(o);
+      });
       shadowModel();
       applyModelOpacity();
       return box;
@@ -522,9 +528,9 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
     },
 
     surfaceAt(ray) {
-      if (model.children.length === 0) return null;
+      if (modelMeshes.length === 0) return null;
       raycaster.set(new Vector3(ray.origin.x, ray.origin.y, ray.origin.z), new Vector3(ray.dir.x, ray.dir.y, ray.dir.z));
-      const hit = raycaster.intersectObject(model, true)[0];
+      const hit = raycaster.intersectObjects(modelMeshes, false)[0];
       return hit ? { x: hit.point.x, y: hit.point.y, z: hit.point.z } : null;
     },
 

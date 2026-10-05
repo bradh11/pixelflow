@@ -119,8 +119,13 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
   const spaceHeld = useRef(false);
   const tick = useRef<{ request: number | null; last: number }>({ request: null, last: 0 });
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /** A drag sticking to the house model: the latest ray, raycast against the model once a frame. */
+  const surfaceDrag = useRef<{ ray: Ray; request: number | null } | null>(null);
   /** The key the view's settings were last read from (see the `storageKey` effect). */
   const shownKey = useRef(storageKey);
+  /** The props as `effective` last worked them out, and from what. */
+  const effectiveMemo = useRef<{ from: unknown[]; props: PreviewProp3d[] } | null>(null);
+  const selectedMemo = useRef<{ props: PreviewProp3d[]; selected: string[]; box: Box3 | null } | null>(null);
   /** What the renderer has: the preview it was given, each prop's uploaded pixels, and where they start. */
   const uploaded = useRef<{ preview: PreviewSet3d | null; xyz: Map<string, Float32Array>; starts: Map<string, { start: number; count: number }>; colors: Uint8Array }>({
     preview: null,
@@ -137,15 +142,24 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
     return { width: canvas?.clientWidth ?? 0, height: canvas?.clientHeight ?? 0 };
   };
 
-  /** The props as they should look now: with gestures still on their way, held arrow keys, and any drag. */
+  /**
+   * The props as they should look now: with gestures still on their way, held arrow keys, and
+   * any drag. Worked out again only when one of those changes (a drag asks several times a move).
+   */
   const effective = (): PreviewProp3d[] => {
     const { preview } = latest.current;
     const st = useLayoutEditor.getState();
+    const d = drag.current;
+    const moving = d?.kind === "move" && d.moved ? d : null;
+    const from = [preview, st.pending, st.nudge, moving?.ids, moving?.delta];
+    const memo = effectiveMemo.current;
+    if (memo && memo.from.every((v, i) => v === from[i])) return memo.props;
     const layers: { ids: string[]; gesture: Gesture }[] = unsettled(st.pending, preview.revision);
     if (st.nudge) layers.push({ ids: st.nudge.ids, gesture: { kind: "move", dx: st.nudge.dx, dy: st.nudge.dy } });
-    const d = drag.current;
-    if (d?.kind === "move" && d.moved) layers.push({ ids: d.ids, gesture: moveGesture3(d.delta) });
-    return composeGestures3d(preview.props, layers);
+    if (moving) layers.push({ ids: moving.ids, gesture: moveGesture3(moving.delta) });
+    const props = composeGestures3d(preview.props, layers);
+    effectiveMemo.current = { from, props };
+    return props;
   };
 
   const backdrop = (): Box3 | null => {
@@ -158,8 +172,13 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
   const contentBox = (props = effective()): Box3 | null => unionBox3([boundsOfXyz(props.map((p) => p.xyz)), backdrop(), modelBox.current]);
 
   const selectedBox = (props: PreviewProp3d[]): Box3 | null => {
-    const selected = new Set(useLayoutEditor.getState().selected);
-    return boundsOfXyz(props.filter((p) => selected.has(p.prop)).map((p) => p.xyz));
+    const { selected } = useLayoutEditor.getState();
+    const memo = selectedMemo.current;
+    if (memo && memo.props === props && memo.selected === selected) return memo.box;
+    const ids = new Set(selected);
+    const box = boundsOfXyz(props.filter((p) => ids.has(p.prop)).map((p) => p.xyz));
+    selectedMemo.current = { props, selected, box };
+    return box;
   };
 
   /** The camera as it's drawn (null until there's a size and something to show). */
@@ -302,6 +321,7 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
       cancelled = true;
       if (tick.current.request !== null && typeof cancelAnimationFrame === "function") cancelAnimationFrame(tick.current.request);
       tick.current.request = null;
+      dropSurfaceDrag();
       clearTimeout(saveTimer.current);
       if (camera.current) saveShowView(latest.current.storageKey, { orbit: camera.current.goal });
       made?.dispose();
@@ -527,9 +547,37 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
     if (canvasRef.current) canvasRef.current.style.cursor = cursor;
   };
 
+  /** Stops waiting to snap a drag to the house model. */
+  const dropSurfaceDrag = () => {
+    const pending = surfaceDrag.current;
+    if (pending?.request != null && typeof cancelAnimationFrame === "function") cancelAnimationFrame(pending.request);
+    surfaceDrag.current = null;
+  };
+
+  /** Moves the dragged selection to where the camera ray `now` points: onto the house model's surface, if `snap` and it's hit. */
+  const followRay = (d: Extract<Drag, { kind: "move" }>, now: Ray, snap: boolean) => {
+    const st = useLayoutEditor.getState();
+    const grid = st.snap ? st.grid : null;
+    const surface = snap && d.grab ? sceneRef.current?.surfaceAt(now) : null;
+    const delta = surface && d.grab ? sub(surface, d.grab) : dragDelta(d.handle, d.origin, d.start, now, grid);
+    if (!delta) return;
+    d.delta = delta;
+    syncPositions();
+    invalidate();
+  };
+
+  /** Snaps the drag to the house model for the latest ray, now. */
+  const flushSurfaceDrag = () => {
+    const pending = surfaceDrag.current;
+    dropSurfaceDrag();
+    const d = drag.current;
+    if (pending && d?.kind === "move") followRay(d, pending.ray, true);
+  };
+
   const cancel = () => {
     const d = drag.current;
     if (!d) return false;
+    dropSurfaceDrag();
     drag.current = null;
     showMarquee(null);
     syncPositions();
@@ -644,18 +692,20 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
     if (!d.moved && Math.hypot(s.x - d.from.x, s.y - d.from.y) < CLICK_PX) return;
     d.moved = true;
     const now = screenRay(cam, sz, s);
-    const st = useLayoutEditor.getState();
-    const grid = st.snap ? st.grid : null;
-    // Grabbed by a pixel with a house model loaded: the pixel sticks to the house's surface (Alt: don't).
-    const surface = d.grab && !e.altKey ? sceneRef.current?.surfaceAt(now) : null;
-    const delta = surface && d.grab ? sub(surface, d.grab) : dragDelta(d.handle, d.origin, d.start, now, grid);
-    if (!delta) return;
-    d.delta = delta;
-    syncPositions();
-    invalidate();
+    // Grabbed by a pixel with a house model: the pixel sticks to the house's surface (Alt: don't).
+    // Finding the surface can take a while on a big model, so it's done once a frame, for the latest ray.
+    if (d.grab && !e.altKey && latest.current.show.houseModel && typeof requestAnimationFrame === "function") {
+      if (surfaceDrag.current) surfaceDrag.current.ray = now;
+      else surfaceDrag.current = { ray: now, request: requestAnimationFrame(flushSurfaceDrag) };
+      return;
+    }
+    dropSurfaceDrag();
+    followRay(d, now, false);
   };
 
   const finish = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    // A move still waiting to snap to the house lands where the pointer was let go.
+    flushSurfaceDrag();
     const d = drag.current;
     drag.current = null;
     try {

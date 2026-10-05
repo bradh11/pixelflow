@@ -20,7 +20,9 @@ const fake = vi.hoisted(() => {
     selectionBox: unknown;
     calls: string[];
   }[] = [];
-  return { made };
+  /** Where the house model's surface is along a ray (none by default), and how often it was asked. */
+  const surface = { at: null as null | ((ray: { origin: { x: number; y: number; z: number }; dir: { x: number; y: number; z: number } }) => { x: number; y: number; z: number } | null), calls: 0 };
+  return { made, surface };
 });
 
 vi.mock("../components/layout3d/threeScene", () => ({
@@ -50,7 +52,10 @@ vi.mock("../components/layout3d/threeScene", () => ({
         record.calls.push(`placeModel:${p.scale}`);
         return null;
       },
-      surfaceAt: () => null,
+      surfaceAt: (ray) => {
+        fake.surface.calls++;
+        return fake.surface.at?.(ray) ?? null;
+      },
       setSelectionBox: (box) => (record.selectionBox = box),
       setGizmo: (gizmo) => (record.gizmo = gizmo),
       setOptions: () => {},
@@ -124,6 +129,8 @@ describe("the 3D layout", () => {
   };
   beforeEach(() => {
     fake.made.length = 0;
+    fake.surface.at = null;
+    fake.surface.calls = 0;
     Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => SIZE.width });
     Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => SIZE.height });
   });
@@ -366,6 +373,30 @@ describe("the 3D layout", () => {
     await waitFor(() => expect(edits).toHaveLength(1));
     // The file's box (y 0 to 6, z -4 to 4) tilted -90 stands 8 tall (y -4 to 4) and 6 deep (z -6 to 0).
     expect(backend.show.houseModel).toMatchObject({ rotationDeg: { x: -90, y: 0, z: 0 }, scale: 2, position: { x: 0, y: 8, z: -0.02 } });
+  });
+
+  it("sticks a dragged prop to the house model, looking for the surface once a frame however often the pointer moves", async () => {
+    const show = showWith(line("Gutter", 0, 0));
+    show.houseModel = { path: "/models/house.obj", position: { x: 0, y: 0, z: 0 }, rotationDeg: { x: 0, y: 0, z: 0 }, scale: 1, opacity: 1 };
+    const user = await setup(show);
+    backend.models.set("/models/house.obj", new TextEncoder().encode("v 0 0 0"));
+    // The house's wall: the plane z = -1.
+    fake.surface.at = (ray) => {
+      const t = (-1 - ray.origin.z) / ray.dir.z;
+      return { x: ray.origin.x + ray.dir.x * t, y: ray.origin.y + ray.dir.y * t, z: -1 };
+    };
+    await open3d(user);
+    await clickAt(v3(1, 0, 0));
+    const from = screenOf(v3(1, 0, 0));
+    await act(async () => {
+      pointer("pointerDown", from);
+      for (let i = 1; i <= 5; i++) pointer("pointerMove", { x: from.x + i * 4, y: from.y - i * 3 });
+    });
+    expect(fake.surface.calls).toBeLessThanOrEqual(1);
+    await act(async () => pointer("pointerUp", { x: from.x + 20, y: from.y - 15 }));
+    await waitFor(() => expect(edits).toHaveLength(1));
+    // Let go on the wall.
+    expect(backend.show.props[0].transform.position.z).toBeCloseTo(-1, 3);
   });
 
   it("explains when 3D can't be shown", async () => {

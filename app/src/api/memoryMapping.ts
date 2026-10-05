@@ -2,8 +2,11 @@
 // pf-mapping closely enough for the Wiring screen (and the demo) to show real channel ranges.
 // Wiring problems aren't reported here; the engine does that.
 
-import type { ControllerOutput, OutputSpan, Show, UniverseSpan } from "./types";
+import type { ControllerOutput, OutputSpan, Prop, Show, UniverseSpan } from "./types";
 import { channelsPerPixel, nodeCount } from "../lib/shows";
+
+/** The largest sACN universe number. */
+const MAX_UNIVERSE = 65535;
 
 interface Run {
   pixels: number;
@@ -41,12 +44,13 @@ function chunks(runs: Run[], size: number, straddle: boolean): [number, number][
 
 /** Every controller's output: spans in wiring order, and its universes when it uses sACN. */
 export function mapControllers(show: Show): ControllerOutput[] {
-  const layouts = new Map<string, { frameOffset: number; nodes: number; cpp: number }>();
+  // First occurrence of an id wins (the offset still advances), like the engine.
+  const layouts = new Map<string, { prop: Prop; frameOffset: number; nodes: number; cpp: number }>();
   let offset = 0;
   for (const prop of show.props) {
     const nodes = nodeCount(prop.shape);
     const cpp = channelsPerPixel(prop);
-    if (!layouts.has(prop.id)) layouts.set(prop.id, { frameOffset: offset, nodes, cpp });
+    if (!layouts.has(prop.id)) layouts.set(prop.id, { prop, frameOffset: offset, nodes, cpp });
     offset += nodes * cpp;
   }
 
@@ -57,8 +61,8 @@ export function mapControllers(show: Show): ControllerOutput[] {
     for (const port of controller.ports) {
       for (const slot of port.slots) {
         const layout = layouts.get(slot.prop);
-        const prop = show.props.find((p) => p.id === slot.prop);
-        if (!layout || !prop) continue;
+        if (!layout) continue;
+        const prop = layout.prop;
         const range = slot.segment ?? { start: 0, end: layout.nodes };
         if (range.start > range.end || range.end > layout.nodes) continue;
         if (slot.nullPixels > 0) {
@@ -111,7 +115,8 @@ export function mapControllers(show: Show): ControllerOutput[] {
       next += count;
     }
     const first = start;
-    const universes: UniverseSpan[] = universeChunks[i].map(([controllerChannel, len], n) => ({ universe: first + n, controllerChannel, len }));
+    // Universe numbers stop at 65,535 (the engine clamps them the same way; it reports the problem).
+    const universes: UniverseSpan[] = universeChunks[i].map(([controllerChannel, len], n) => ({ universe: Math.min(first + n, MAX_UNIVERSE), controllerChannel, len }));
     return { controller: controller.id, channelCount, addressing: { type: "sacn" as const, universes, multicast: protocol.multicast }, spans };
   });
 }

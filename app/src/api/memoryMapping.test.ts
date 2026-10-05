@@ -80,4 +80,16 @@ describe("memory channel mapping (like the engine's)", () => {
     s.controllers = [a];
     expect(mapControllers(s)[0].addressing).toEqual({ type: "sacn", multicast: true, universes: [{ universe: 40, controllerChannel: 0, len: 150 }] });
   });
+
+  it("never numbers a universe past 65,535, like the engine", () => {
+    const { show: s, arch } = show();
+    const a = newController("A", "10.0.0.1", "sacn", 1);
+    a.protocol = { type: "sacn", startUniverse: 65535, universeSize: 510, allowPixelStraddle: false, multicast: false };
+    const big = { ...newProp("matrix", s), name: "Matrix" }; // 512 pixels: 4 universes
+    s.props.push(big);
+    a.ports[0].slots = [slot(big), slot(arch)];
+    s.controllers = [a];
+    const out = mapControllers(s)[0].addressing;
+    expect(out.type === "sacn" && out.universes.map((u) => u.universe)).toEqual([65535, 65535, 65535, 65535]);
+  });
 });

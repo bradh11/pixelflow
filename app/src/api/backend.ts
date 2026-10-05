@@ -1,5 +1,6 @@
 import type {
   DeviceDetails,
+  XlightsImported,
   PlaybackStatus,
   PreviewProp,
   FppSequence,
@@ -60,6 +61,10 @@ export interface Backend {
   sequenceFrame(): Promise<Uint8Array>;
   /** Every prop's pixel positions for the 2D preview. */
   previewProps(): Promise<PreviewProp[]>;
+  /** Imports the xLights show in `folder` as a new, unsaved show. */
+  importXlights(folder: string): Promise<XlightsImported>;
+  /** Shows a native folder picker for an xLights show folder; null when cancelled. */
+  pickShowFolder(): Promise<string | null>;
   /** Shows a native "open sequence" dialog; null when cancelled. */
   pickSequencePath(): Promise<string | null>;
   /** Shows a native "open file" dialog; null when cancelled. */

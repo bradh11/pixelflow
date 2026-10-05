@@ -30,7 +30,7 @@ function useBusyFpps(): {
   const [busy, setBusy] = useState<{ address: string; name: string; status: PlayerStatus }[]>([]);
   const checkRef = useRef<() => Promise<void>>(async () => {});
   useEffect(() => {
-    const fpps = discovery?.devices.filter((d) => d.kind === "fpp") ?? [];
+    const fpps = discovery?.devices.filter((d) => d.kind === "fpp" && d.responding) ?? [];
     if (!backend || fpps.length === 0) {
       setBusy([]);
       return;

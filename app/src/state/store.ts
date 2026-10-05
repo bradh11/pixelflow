@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { type Backend, errorMessage } from "../api/backend";
-import type { Discovery, Edit, ShowSnapshot } from "../api/types";
+import type { Device, Edit, ImportSummary, ShowSnapshot, SilentPeer } from "../api/types";
 import { fileName } from "../lib/format";
 
 export type Screen = "layout" | "wiring" | "devices" | "play" | "test" | "history";
@@ -27,11 +27,14 @@ interface AppState {
   error: string | null;
   busy: boolean;
   /** Set when New/Open was asked for while the show has unsaved changes. */
-  pendingReplace: "new" | "open" | null;
+  pendingReplace: "new" | "open" | "xlights" | null;
+  /** What the last xLights import brought in, shown until dismissed. */
+  importReport: { name: string; summary: ImportSummary; notes: string[] } | null;
   /** Test screen target selection; kept here so it survives leaving the screen. */
   testTarget: string;
   /** The last device scan's results (kept while moving between screens). */
-  discovery: Discovery | null;
+  /** Every controller found so far (remembered on this computer), plus the last scan's silent peers. */
+  discovery: { devices: KnownDevice[]; silent: SilentPeer[] } | null;
   scanning: boolean;
 
   connect(backend: Backend): Promise<void>;
@@ -48,21 +51,65 @@ interface AppState {
   redo(): Promise<boolean>;
   newShow(): Promise<boolean>;
   openShow(): Promise<boolean>;
+  /** Imports an xLights show folder as a new show (asks about unsaved changes first). */
+  importXlights(): Promise<boolean>;
+  dismissImportReport(): void;
   save(): Promise<boolean>;
   saveAs(): Promise<boolean>;
-  /** Looks for controllers; `hosts` adds typed addresses. Results merge into `discovery`. */
+  /** Forgets a remembered controller. */
+  forgetDevice(address: string): void;
+  /** Looks for controllers and re-checks every remembered one; `hosts` checks only those
+   * addresses. Found controllers are remembered; ones that don't answer stay, marked. */
   scan(hosts?: string[]): Promise<boolean>;
   /** From the welcome screen: start a new show, open Devices, and scan. */
   discoverFromWelcome(): Promise<void>;
 }
 
+/** A controller PixelFlow has found, and whether it answered the last time it was checked. */
+export type KnownDevice = Device & { responding: boolean; lastSeen: number };
+
+const DEVICES_KEY = "pixelflow.devices";
+
+function loadKnownDevices(): KnownDevice[] {
+  try {
+    const saved = JSON.parse(localStorage.getItem(DEVICES_KEY) ?? "[]");
+    return Array.isArray(saved) ? (saved as KnownDevice[]).filter((d) => d && typeof d.address === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveKnownDevices(devices: KnownDevice[]) {
+  try {
+    localStorage.setItem(DEVICES_KEY, JSON.stringify(devices));
+  } catch {
+    // Storage unavailable; the list still works for this session.
+  }
+}
+
+const KIND_ORDER: Record<string, number> = { fpp: 0, falcon: 1, wled: 2 };
+
+/** Kind, then address in numeric order (10.0.0.9 before 10.0.0.10). */
+function byKindThenAddress(a: KnownDevice, b: KnownDevice): number {
+  const key = (d: KnownDevice) => d.address.split(".").map((part) => part.padStart(3, "0")).join(".");
+  return (KIND_ORDER[a.kind] ?? 9) - (KIND_ORDER[b.kind] ?? 9) || key(a).localeCompare(key(b));
+}
+
 export const useApp = create<AppState>((set, get) => {
   /** Replaces the current show without checking for unsaved changes. */
-  async function replaceShow(kind: "new" | "open"): Promise<boolean> {
+  async function replaceShow(kind: "new" | "open" | "xlights"): Promise<boolean> {
     const backend = get().backend;
     if (!backend) return false;
     let ok: boolean;
-    if (kind === "new") {
+    if (kind === "xlights") {
+      const folder = await backend.pickShowFolder();
+      if (!folder) return false;
+      ok = await get().run(async (b) => {
+        const imported = await b.importXlights(folder);
+        set({ importReport: { name: imported.snapshot.show.name, summary: imported.summary, notes: imported.notes } });
+        return imported.snapshot;
+      });
+    } else if (kind === "new") {
       ok = await get().run((b) => b.newShow("Untitled Show"));
     } else {
       const path = await backend.pickOpenPath();
@@ -90,12 +137,14 @@ export const useApp = create<AppState>((set, get) => {
   error: null,
   busy: false,
   pendingReplace: null,
+  importReport: null,
   testTarget: "show",
   discovery: null,
   scanning: false,
 
   async connect(backend) {
-    set({ backend });
+    const known = loadKnownDevices();
+    set({ backend, discovery: known.length ? { devices: known.sort(byKindThenAddress), silent: [] } : get().discovery });
     try {
       set({ snapshot: await backend.getSnapshot() });
     } catch (e) {
@@ -157,6 +206,16 @@ export const useApp = create<AppState>((set, get) => {
     return replaceShow("open");
   },
 
+  async importXlights() {
+    if (get().started && get().snapshot?.dirty) {
+      set({ pendingReplace: "xlights" });
+      return false;
+    }
+    return replaceShow("xlights");
+  },
+
+  dismissImportReport: () => set({ importReport: null }),
+
   async resolvePendingReplace(choice) {
     const kind = get().pendingReplace;
     if (!kind) return false;
@@ -169,15 +228,38 @@ export const useApp = create<AppState>((set, get) => {
     return replaceShow(kind);
   },
 
+  forgetDevice(address) {
+    const discovery = get().discovery;
+    if (!discovery) return;
+    const devices = discovery.devices.filter((d) => d.address !== address);
+    saveKnownDevices(devices);
+    set({ discovery: { ...discovery, devices } });
+  },
+
   async scan(hosts = []) {
     const backend = get().backend;
     if (!backend) return false;
     set({ scanning: true });
     try {
-      const found = await backend.discoverDevices(hosts, hosts.length === 0);
-      const previous = hosts.length ? get().discovery : null;
-      const devices = [...(previous?.devices ?? []).filter((d) => !found.devices.some((f) => f.address === d.address)), ...found.devices];
+      const known = get().discovery?.devices ?? [];
+      const network = hosts.length === 0;
+      // A full scan also checks every remembered controller directly, so it's refreshed even
+      // if the network sweep misses it.
+      const checking = network ? known.map((d) => d.address) : hosts;
+      const found = await backend.discoverDevices(checking, network);
+      const now = Date.now();
+      const answered = new Map(found.devices.map((d) => [d.address, d]));
+      const devices: KnownDevice[] = known.map((d) => {
+        const fresh = answered.get(d.address);
+        if (fresh) return { ...fresh, responding: true, lastSeen: now };
+        return checking.includes(d.address) || network ? { ...d, responding: false } : d;
+      });
+      for (const d of found.devices) {
+        if (!known.some((k) => k.address === d.address)) devices.push({ ...d, responding: true, lastSeen: now });
+      }
+      devices.sort(byKindThenAddress);
       const silent = found.silent.filter((s) => !devices.some((d) => d.address === s.address));
+      saveKnownDevices(devices);
       set({ discovery: { devices, silent }, error: null });
       return true;
     } catch (e) {

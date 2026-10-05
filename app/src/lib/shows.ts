@@ -113,7 +113,7 @@ export function nodeCount(shape: ShapeSource): number {
 
 /** Human label for a prop's shape. */
 export function shapeLabel(shape: ShapeSource): string {
-  if (shape.source === "measured") return "Measured";
+  if (shape.source === "measured") return shape.provenance === "import" ? "From xLights" : "Measured";
   const labels: Record<string, string> = {
     line: "Line",
     arch: "Arch",

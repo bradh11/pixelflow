@@ -38,6 +38,11 @@ export const tauriBackend: Backend = {
   liveFrame: async () => new Uint8Array(await invoke<ArrayBuffer>("live_frame")),
   sequenceFrame: async () => new Uint8Array(await invoke<ArrayBuffer>("sequence_frame")),
   previewProps: () => invoke("preview_props"),
+  importXlights: (folder) => invoke("import_xlights", { folder }),
+  pickShowFolder: async () => {
+    const path = await open({ multiple: false, directory: true, title: "Choose your xLights show folder" });
+    return typeof path === "string" ? path : null;
+  },
   pickSequencePath: async () => {
     const path = await open({ multiple: false, directory: false, filters: SEQUENCE_FILTER });
     return typeof path === "string" ? path : null;

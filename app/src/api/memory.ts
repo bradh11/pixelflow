@@ -5,6 +5,7 @@ import type {
   FppSequence,
   PlayerStatus,
   PlaybackStatus,
+  ImportSummary,
   Discovery,
   SilentPeer,
   Edit,
@@ -40,6 +41,9 @@ export class MemoryBackend implements Backend {
   calls: string[] = [];
   /** Devices "on the network" (see `demoDevices()`); empty by default. */
   deviceNetwork: { details: DeviceDetails[]; silent: SilentPeer[] } = { details: [], silent: [] };
+  /** What the folder picker returns, and what importing any xLights folder produces. */
+  nextShowFolder: string | null = null;
+  xlightsImport: { show: Show; summary: ImportSummary; notes: string[] } | null = null;
   /** Length of any sequence "played" here, and the path the sequence dialog returns. */
   sequenceDurationMs = 60_000;
   nextSequencePath: string | null = null;
@@ -362,6 +366,19 @@ export class MemoryBackend implements Backend {
       offset += nodes * channelsPerPixel(prop);
       return entry;
     });
+  }
+
+  async importXlights(folder: string) {
+    this.calls.push(`importXlights:${folder}`);
+    if (!this.xlightsImport) throw new Error(`${folder} doesn't look like an xLights show folder (no xlights_rgbeffects.xml).`);
+    const { show, summary, notes } = structuredClone(this.xlightsImport);
+    this.replace(show, null);
+    this.revision++; // unsaved
+    return { snapshot: this.snapshot(), summary, notes };
+  }
+
+  async pickShowFolder() {
+    return this.nextShowFolder;
   }
 
   async pickSequencePath() {

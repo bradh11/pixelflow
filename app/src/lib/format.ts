@@ -20,3 +20,14 @@ export function clock(totalSeconds: number): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
 }
+
+/** How long ago `time` (ms since the epoch) was: "just now", "5 min ago", "3 h ago", "2 days ago". */
+export function ago(time: number, now = Date.now()): string {
+  const minutes = Math.floor((now - time) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} ${days === 1 ? "day" : "days"} ago`;
+}

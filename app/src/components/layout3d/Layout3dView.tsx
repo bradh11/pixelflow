@@ -77,6 +77,38 @@ type Drag =
     }
   | { kind: "marquee"; from: Pt; to: Pt; additive: string[] };
 
+/**
+ * Renderers by canvas, with how many views use each. A renderer takes its canvas's one WebGL
+ * context, so a canvas only ever gets one: React's development check mounts a view twice on the
+ * same canvas, and a second renderer would share the context that letting go of the first one
+ * loses. A renderer is let go of once no view has used it for a moment.
+ */
+const renderers = new WeakMap<HTMLCanvasElement, { scene: Promise<Scene3d>; users: number }>();
+
+function takeRenderer(canvas: HTMLCanvasElement, make: SceneFactory): Promise<Scene3d> {
+  let entry = renderers.get(canvas);
+  if (!entry) {
+    entry = { scene: make(canvas), users: 0 };
+    renderers.set(canvas, entry);
+  }
+  entry.users++;
+  return entry.scene;
+}
+
+function releaseRenderer(canvas: HTMLCanvasElement) {
+  const entry = renderers.get(canvas);
+  if (!entry || --entry.users > 0) return;
+  // Mounted again straight away (the development check): keep it.
+  queueMicrotask(() => {
+    if (entry.users > 0 || renderers.get(canvas) !== entry) return;
+    renderers.delete(canvas);
+    entry.scene.then(
+      (scene) => scene.dispose(),
+      () => {},
+    );
+  });
+}
+
 /** WebKit's pinch events (Safari and the macOS app). */
 type PinchEvent = Event & { scale: number; clientX: number; clientY: number };
 
@@ -303,11 +335,9 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
     const canvas = canvasRef.current;
     if (!canvas) return;
     let cancelled = false;
-    let made: Scene3d | null = null;
-    sceneFactory(canvas).then(
+    takeRenderer(canvas, sceneFactory).then(
       (scene) => {
-        if (cancelled) return scene.dispose();
-        made = scene;
+        if (cancelled) return;
         sceneRef.current = scene;
         const { bloom, ground } = useView3d.getState();
         scene.setOptions({ bloom, ground });
@@ -324,8 +354,11 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
       dropSurfaceDrag();
       clearTimeout(saveTimer.current);
       if (camera.current) saveShowView(latest.current.storageKey, { orbit: camera.current.goal });
-      made?.dispose();
+      releaseRenderer(canvas);
       sceneRef.current = null;
+      // Taken again (the development check), the renderer gets everything afresh.
+      uploaded.current.preview = null;
+      setReady(false);
     };
   }, [sceneFactory]);
 

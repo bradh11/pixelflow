@@ -19,6 +19,7 @@ import {
   DoubleSide,
   DynamicDrawUsage,
   Euler,
+  Fog,
   GridHelper,
   Group,
   HemisphereLight,
@@ -75,9 +76,11 @@ const PIXEL_VERTEX = /* glsl */ `
     float sprite = core * ${SPRITE_PER_BULB.toFixed(1)};
     gl_PointSize = clamp(sprite, minPx, maxPx);
     // The core is at least a pixel and a bit across, so far-off bulbs don't vanish; ones that
-    // would be smaller than that are dimmed instead, as a real bulb fades with distance.
+    // would be smaller than that are dimmed by how much smaller (by area: the light a pixel
+    // gets), so a distant crowd of bulbs adds up to a glow instead of a white blot.
     vCore = max(core, 1.4) / gl_PointSize;
-    vDim = clamp(core / 1.4, 0.35, 1.0);
+    float shrink = core / 1.4;
+    vDim = clamp(shrink * shrink, 0.12, 1.0);
     vColor = pow(tint, vec3(2.2));
   }
 `;
@@ -224,11 +227,15 @@ function buildGizmo() {
 
 /** The renderer for one canvas. */
 export function createThreeScene(canvas: HTMLCanvasElement): Scene3d {
-  const renderer = new WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+  // No multisampling: hundreds of thousands of overlapping bulb sprites cost far more with it
+  // (the bloom path renders without it anyway), and round sprites don't need it.
+  const renderer = new WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
   renderer.outputColorSpace = SRGBColorSpace;
   renderer.setClearColor(SKY_TOP);
 
   const scene = new Scene();
+  // The far ground fades into the night instead of shimmering at the horizon.
+  scene.fog = new Fog(SKY_HORIZON, 80, 320);
   const overlayScene = new Scene();
   const camera = new PerspectiveCamera(FOV_DEG, 1, 0.1, 1000);
 
@@ -311,7 +318,7 @@ export function createThreeScene(canvas: HTMLCanvasElement): Scene3d {
   const bloomComposer = new EffectComposer(renderer);
   bloomComposer.renderToScreen = false;
   bloomComposer.addPass(new RenderPass(bloomScene, camera));
-  const bloom = new UnrealBloomPass(new Vector2(256, 256), 1.1, 0.5, 0);
+  const bloom = new UnrealBloomPass(new Vector2(256, 256), 0.9, 0.45, 0);
   bloomComposer.addPass(bloom);
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));

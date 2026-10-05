@@ -9,7 +9,7 @@
 // every frame and with the camera moving only, and the time to fill and send the colors.
 
 import type { PreviewProp3d } from "../../api/types";
-import { type Orbit, boundsOfXyz, fillColors, fitOrbit, packPositions, typicalSpacing } from "../../lib/layout3d";
+import { type Orbit, boundsOfXyz, fillColors, fitOrbit, packPositions, pickPixel, typicalSpacing, viewProjection } from "../../lib/layout3d";
 import { createThreeScene } from "./threeScene";
 
 /** Mega trees of 16 strings × 100 pixels in rows across a yard, `pixels` in all. */
@@ -30,6 +30,18 @@ export function syntheticShow3d(pixels = 200_000): { props: PreviewProp3d[]; fra
   return { props, frameLength: props.length * perTree * 3 };
 }
 
+/** How long picking the pixel under a click takes (the median of a few). */
+function pickTime(props: PreviewProp3d[], orbit: Orbit, size: { width: number; height: number }): number {
+  const m = viewProjection(orbit, size);
+  const times: number[] = [];
+  for (let i = 0; i < 9; i++) {
+    const t0 = performance.now();
+    pickPixel(props, m, size, { x: size.width / 2 + i * 10, y: size.height / 2 }, 8);
+    times.push(performance.now() - t0);
+  }
+  return times.sort((a, b) => a - b)[4];
+}
+
 function rainbow(frame: Uint8Array, shift: number) {
   for (let i = 0; i + 2 < frame.length; i += 3) {
     const hue = ((i / 3) * 0.7 + shift) % 360;
@@ -37,7 +49,8 @@ function rainbow(frame: Uint8Array, shift: number) {
   }
 }
 
-export async function runScene3dBench({ pixels = 200_000, frames = 300, width = 1280, height = 720, bloom = true } = {}) {
+/** `keep` leaves the last frame on screen (for a screenshot) instead of removing the canvas. */
+export async function runScene3dBench({ pixels = 200_000, frames = 300, width = 1280, height = 720, bloom = true, keep = false } = {}) {
   const canvas = document.createElement("canvas");
   Object.assign(canvas.style, { position: "fixed", left: "0", top: "0", width: `${width}px`, height: `${height}px`, zIndex: "9999" });
   document.body.append(canvas);
@@ -115,7 +128,9 @@ export async function runScene3dBench({ pixels = 200_000, frames = 300, width = 
     uncappedFps: Math.round((1000 / msPerFrame) * 10) / 10,
     msPerFrameOrbitOnly: Math.round(msPerOrbitFrame * 100) / 100,
     colorFillAndUploadMs: Math.round(fillPerFrame * 100) / 100,
+    pickMs: Math.round(pickTime(props, start, { width, height }) * 100) / 100,
   };
+  if (keep) return result;
   scene.dispose();
   canvas.remove();
   return result;

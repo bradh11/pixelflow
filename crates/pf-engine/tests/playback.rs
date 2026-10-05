@@ -220,6 +220,31 @@ fn preview_props_place_every_pixel() {
 }
 
 #[test]
+fn props_that_are_not_wired_are_still_drawn_in_the_preview() {
+    let (mut engine, _recorded, _dir) = engine_with_show(true);
+    let loose = Prop::new(
+        "Not wired yet",
+        ShapeSource::Generator(Generator::Line {
+            nodes: 4,
+            length: 1.0,
+        }),
+    );
+    let id = loose.id;
+    engine.apply(vec![Edit::AddProp { prop: loose }]).unwrap();
+    let props = engine.preview_props();
+    assert_eq!(props.len(), 2);
+    let preview = props
+        .iter()
+        .find(|p| p.prop == id)
+        .expect("the unwired prop is in the preview");
+    assert_eq!(preview.points.len(), 8, "x, y for each of its 4 pixels");
+    assert_eq!(
+        preview.frame_offset, 30,
+        "its colors follow the wired strip's in a live frame"
+    );
+}
+
+#[test]
 fn a_damaged_sequence_goes_dark_and_says_what_happened() {
     let (mut engine, recorded, dir) = engine_with_show(true);
     let path = write_sequence(dir.path());

@@ -23,6 +23,7 @@ pub enum IssueCode {
     InvalidFrameRate,
     InvalidGamma,
     LimitExceeded,
+    InvalidBackground,
     // Wiring checks (pf-mapping).
     PortOverCapacity,
     UnassignedNodes,

@@ -35,8 +35,20 @@ pub fn validate_show(show: &Show) -> ValidationReport {
     }
     check_groups(show, &props, &mut report);
     check_controllers(show, &props, &mut report);
+    check_background(show, &mut report);
 
     report
+}
+
+/// A damaged background photo (say, from a hand-edited file) is only a warning: the lights
+/// don't depend on it.
+fn check_background(show: &Show, report: &mut ValidationReport) {
+    if let Some(problem) = show.background.as_ref().and_then(|b| b.problem()) {
+        report.push(
+            Issue::warning(IssueCode::InvalidBackground, problem)
+                .with_fix("Choose the photo again on the Layout screen, or remove it."),
+        );
+    }
 }
 
 fn check_limits(show: &Show, report: &mut ValidationReport) {
@@ -294,6 +306,25 @@ mod tests {
                 report.issues
             );
         }
+    }
+
+    #[test]
+    fn a_damaged_background_photo_is_a_warning() {
+        let prop = line("A", 10);
+        let mut show = show_with_slot(PortSlot::new(prop.id), prop);
+        show.background = Some(crate::Background::new("/photos/house.jpg", 0.0, 5.0, 20.0));
+        assert_eq!(validate_show(&show).issues, vec![]);
+
+        show.background.as_mut().unwrap().width = -3.0;
+        let issues = validate_show(&show).issues;
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].code, IssueCode::InvalidBackground);
+        assert_eq!(issues[0].severity, crate::Severity::Warning);
+        assert!(
+            issues[0].message.contains("wider than zero"),
+            "{}",
+            issues[0].message
+        );
     }
 
     #[test]

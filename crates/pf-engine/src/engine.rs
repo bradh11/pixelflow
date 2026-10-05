@@ -117,6 +117,11 @@ impl Engine {
         &self.show
     }
 
+    /// Goes up by one with every change to the show (edits, undo, redo, opening another show).
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
     /// The full state for the UI.
     pub fn snapshot(&self) -> ShowSnapshot {
         let (map, report) = analyze(&self.show);

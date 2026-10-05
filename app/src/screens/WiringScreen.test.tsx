@@ -99,6 +99,8 @@ describe("wiring screen", () => {
     await act(async () => drag(propItem("Porch Star"), at(4, 0), false));
     expect(useWiring.getState().drag?.over).toMatchObject({ kind: "port", port: 1, index: 0 });
     expect(screen.getByText("Let go to wire it here")).toBeInTheDocument();
+    // The preview follows the port under the drag.
+    expect(screen.getByTestId("wiring-preview-caption")).toHaveTextContent("Port 1 on Porch WLED has nothing wired yet.");
     await act(async () => fireEvent.keyDown(window, { key: "Escape" }));
     expect(useWiring.getState().drag).toBeNull();
     fireEvent.pointerUp(propItem("Porch Star"), { clientX: at(4, 0)[0], clientY: at(4, 0)[1], pointerId: 1 });

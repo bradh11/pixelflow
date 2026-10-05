@@ -136,7 +136,9 @@ export function WiringPreview({ show, props }: { show: Show; props: PreviewProp[
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const selected = useWiring((s) => s.selected);
   const hovered = useWiring((s) => s.hovered);
-  const focus = selected ?? hovered;
+  const dragOver = useWiring((s) => (s.drag?.over?.kind === "port" ? s.drag.over : null));
+  // While dragging, the port under the pointer; otherwise the selected chip's port, or the hovered one.
+  const focus = dragOver ?? selected ?? hovered;
   const photo = useBackgroundImage(show.background?.path);
   const [size, setSize] = useState(0);
 

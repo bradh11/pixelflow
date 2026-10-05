@@ -17,7 +17,7 @@ export function usePreviewProps(): PreviewProp[] {
     // Only the latest request counts: an older answer arriving late is ignored.
     let latest = true;
     void backend.previewProps().then(
-      (p) => latest && setProps(p),
+      (p) => latest && setProps(p.props),
       () => latest && setProps([]),
     );
     return () => {

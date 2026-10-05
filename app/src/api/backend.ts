@@ -3,7 +3,7 @@ import type {
   Waveform,
   XlightsImported,
   PlaybackStatus,
-  PreviewProp,
+  PreviewSet,
   FppSequence,
   PlayerStatus,
   Discovery,
@@ -60,8 +60,8 @@ export interface Backend {
   liveFrame(): Promise<Uint8Array>;
   /** The playing sequence's current frame (every channel, as sent); empty when nothing plays. */
   sequenceFrame(): Promise<Uint8Array>;
-  /** Every prop's pixel positions for the 2D preview. */
-  previewProps(): Promise<PreviewProp[]>;
+  /** Every prop's pixel positions for the 2D preview, and the show revision they're for. */
+  previewProps(): Promise<PreviewSet>;
   /** The bytes of an image file (the layout's background photo). */
   readImage(path: string): Promise<Uint8Array>;
   /** Shows a native "choose photo" dialog; null when cancelled. */

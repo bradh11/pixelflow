@@ -90,9 +90,11 @@ describe("MemoryBackend", () => {
     prop.transform = { position: { x: 10, y: 2, z: 0 }, rotationDeg: { x: 0, y: 0, z: 90 }, scale: { x: 2, y: 2, z: 1 } };
     const arch = newProp("arch", backend.show);
     await backend.applyEdits([{ type: "addProp", prop }, { type: "addProp", prop: arch }]);
-    const [line, second] = await backend.previewProps();
+    const { revision, props } = await backend.previewProps();
+    expect(revision).toBe(backend.revision);
+    const [line, second] = props;
     const expected = [10, 0, 10, 2, 10, 4];
-    line.points.forEach((v, i) => expect(v).toBeCloseTo(expected[i]));
+    Array.from(line.points).forEach((v, i) => expect(v).toBeCloseTo(expected[i]));
     expect(second.frameOffset).toBe(9);
     expect(second.points).toHaveLength(100);
   });
@@ -110,6 +112,6 @@ describe("MemoryBackend", () => {
     expect(snap.show.background).toBeNull();
     backend.images.set("/house.jpg", new Uint8Array([7]));
     expect(await backend.readImage("/house.jpg")).toEqual(new Uint8Array([7]));
-    await expect(backend.readImage("/missing.png")).rejects.toThrow("Could not read /missing.png");
+    await expect(backend.readImage("/missing.png")).rejects.toThrow("This photo was moved or deleted.");
   });
 });

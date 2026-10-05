@@ -76,7 +76,7 @@ interface LayoutCanvasProps {
   ref?: Ref<LayoutCanvasHandle>;
 }
 
-function movedPoints(points: number[], g: Gesture): number[] {
+function movedPoints(points: ArrayLike<number>, g: Gesture): number[] {
   const out = new Array<number>(points.length);
   for (let i = 0; i + 1 < points.length; i += 2) {
     const p = gesturePoint(g, { x: points[i], y: points[i + 1] });

@@ -40,11 +40,11 @@ describe("layout edits", () => {
   it("aligns and distributes by the props' pixels", async () => {
     const backend = new MemoryBackend(demoShow());
     const show = backend.show;
-    const preview = await backend.previewProps();
+    const preview = (await backend.previewProps()).props;
     const ids = show.props.map((p) => p.id);
     const aligned = await backend.applyEdits(alignEdits(show, preview, ids, "bottom"));
-    const after = await backend.previewProps();
-    const bottoms = after.map((p) => Math.min(...p.points.filter((_, i) => i % 2 === 1)));
+    const after = (await backend.previewProps()).props;
+    const bottoms = after.map((p) => Math.min(...Array.from(p.points).filter((_, i) => i % 2 === 1)));
     for (const b of bottoms) expect(b).toBeCloseTo(bottoms[0], 3);
     expect(aligned.canUndo).toBe(true);
     expect(distributeEdits(show, preview, ids.slice(0, 2), "horizontal")).toEqual([]);

@@ -410,7 +410,14 @@ export interface PreviewProp {
   prop: Uuid;
   frameOffset: number;
   channelsPerPixel: number;
-  points: number[];
+  /** x, y pairs, one per pixel, in wiring order. */
+  points: ArrayLike<number>;
+}
+
+/** Every prop's pixel positions, and the show revision they were worked out for. */
+export interface PreviewSet {
+  revision: number;
+  props: PreviewProp[];
 }
 
 /** Counts from an xLights import. */

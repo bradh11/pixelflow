@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryBackend } from "../../api/memory";
-import type { PreviewProp } from "../../api/types";
+import type { PreviewProp, PreviewSet } from "../../api/types";
 import { useApp } from "../../state/store";
 import { imageType, useBackgroundImage, useLiveFrame, usePreviewProps } from "./useLayoutData";
 
@@ -37,15 +37,15 @@ describe("layout data", () => {
 
   it("ignores pixel positions that arrive after newer ones were asked for", async () => {
     const backend = new MemoryBackend();
-    const answers: ((p: PreviewProp[]) => void)[] = [];
+    const answers: ((p: PreviewSet) => void)[] = [];
     backend.previewProps = () => new Promise((resolve) => answers.push(resolve));
     await connect(backend);
     const { result } = renderHook(() => usePreviewProps());
     const snapshot = useApp.getState().snapshot!;
     act(() => useApp.setState({ snapshot: { ...snapshot, revision: snapshot.revision + 1 } }));
     expect(answers).toHaveLength(2);
-    await act(async () => answers[1]([prop("new")]));
-    await act(async () => answers[0]([]));
+    await act(async () => answers[1]({ revision: 2, props: [prop("new")] }));
+    await act(async () => answers[0]({ revision: 1, props: [] }));
     expect(result.current.map((p) => p.prop)).toEqual(["new"]);
   });
 
@@ -54,7 +54,7 @@ describe("layout data", () => {
     await connect(backend);
     const { result } = renderHook(() => useBackgroundImage("/photos/gone.jpg"));
     await act(async () => {});
-    expect(result.current.problem).toBe("Could not read /photos/gone.jpg: file not found");
+    expect(result.current.problem).toBe("This photo was moved or deleted. Choose it again with Replace…");
     expect(result.current.image).toBeNull();
   });
 

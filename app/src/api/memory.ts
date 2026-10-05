@@ -13,6 +13,7 @@ import type {
   HistoryEntry,
   OutputStatus,
   PatternSpec,
+  PreviewSet,
   Show,
   ShowSnapshot,
   TargetSpec,
@@ -414,19 +415,20 @@ export class MemoryBackend implements Backend {
   }
 
   /** Each prop's pixels in the front view, from the same shapes and transforms as the engine. */
-  async previewProps() {
+  async previewProps(): Promise<PreviewSet> {
     const layout = layoutOnly(this.show);
-    return this.show.props.map((prop, i) => ({
+    const props = this.show.props.map((prop, i) => ({
       prop: prop.id,
       frameOffset: layout.props[i].frameOffset,
       channelsPerPixel: layout.props[i].channelsPerPixel,
       points: frontView(prop).slice(0, layout.props[i].nodes * 2),
     }));
+    return { revision: this.revision, props };
   }
 
   async readImage(path: string) {
     const image = this.images.get(path);
-    if (!image) throw new Error(`Could not read ${path}: file not found`);
+    if (!image) throw new Error("This photo was moved or deleted. Choose it again with Replace…");
     return image.slice();
   }
 

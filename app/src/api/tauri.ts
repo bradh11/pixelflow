@@ -1,11 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type { Backend } from "./backend";
+import { decodePreview } from "./previewBytes";
 
 const SHOW_FILTER = [{ name: "PixelFlow show", extensions: ["json"] }];
 const SEQUENCE_FILTER = [{ name: "FPP sequence", extensions: ["fseq"] }];
 const AUDIO_FILTER = [{ name: "Music", extensions: ["mp3", "m4a", "wav", "ogg", "flac"] }];
-const IMAGE_FILTER = [{ name: "Photo", extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp"] }];
 
 /** The real engine, running in the Tauri desktop shell. */
 export const tauriBackend: Backend = {
@@ -39,12 +39,10 @@ export const tauriBackend: Backend = {
   playbackStopReason: () => invoke("playback_stop_reason"),
   liveFrame: async () => new Uint8Array(await invoke<ArrayBuffer>("live_frame")),
   sequenceFrame: async () => new Uint8Array(await invoke<ArrayBuffer>("sequence_frame")),
-  previewProps: () => invoke("preview_props"),
+  previewProps: async () => decodePreview(await invoke<ArrayBuffer>("preview_props")),
   readImage: async (path) => new Uint8Array(await invoke<ArrayBuffer>("read_image", { path })),
-  pickImagePath: async () => {
-    const path = await open({ multiple: false, directory: false, filters: IMAGE_FILTER, title: "Choose a photo of your house" });
-    return typeof path === "string" ? path : null;
-  },
+  // Picked by the shell, which then lets the window read that photo (and no other files).
+  pickImagePath: () => invoke("pick_image"),
   importXlights: (folder) => invoke("import_xlights", { folder }),
   pickShowFolder: async () => {
     const path = await open({ multiple: false, directory: true, title: "Choose your xLights show folder" });

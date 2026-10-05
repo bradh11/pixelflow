@@ -243,7 +243,10 @@ export function PlayScreen() {
 
   useEffect(() => {
     if (!backend) return;
-    void backend.previewProps().then(setProps, () => setProps([]));
+    void backend.previewProps().then(
+      (p) => setProps(p.props),
+      () => setProps([]),
+    );
   }, [backend, snapshot?.revision]);
 
   // The live preview, while something is loaded.

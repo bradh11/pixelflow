@@ -4,6 +4,7 @@ import type {
   DeviceDetails,
   FppSequence,
   PlayerStatus,
+  PlaybackStatus,
   Discovery,
   SilentPeer,
   Edit,
@@ -39,6 +40,10 @@ export class MemoryBackend implements Backend {
   calls: string[] = [];
   /** Devices "on the network" (see `demoDevices()`); empty by default. */
   deviceNetwork: { details: DeviceDetails[]; silent: SilentPeer[] } = { details: [], silent: [] };
+  /** Length of any sequence "played" here, and the path the sequence dialog returns. */
+  sequenceDurationMs = 60_000;
+  nextSequencePath: string | null = null;
+  private playing: { path: string; positionMs: number; since: number | null } | null = null;
   /** Fake FPP players by address: what each is playing and the sequences stored on it. */
   fppPlayers: Record<string, { status: PlayerStatus; sequences: FppSequence[] }> = {};
 
@@ -228,6 +233,92 @@ export class MemoryBackend implements Backend {
     player.status = gracefully
       ? { ...player.status, state: "stopping" }
       : { ...player.status, state: "idle", playlist: null, sequence: null, secondsElapsed: 0, secondsRemaining: 0 };
+  }
+
+  private playbackNow(): PlaybackStatus | null {
+    if (!this.playing) return null;
+    const { path, positionMs, since } = this.playing;
+    const position = Math.min(this.sequenceDurationMs, positionMs + (since === null ? 0 : Date.now() - since));
+    const ended = position >= this.sequenceDurationMs;
+    return {
+      state: ended ? "ended" : since === null ? "paused" : "playing",
+      path,
+      positionMs: position,
+      durationMs: this.sequenceDurationMs,
+      frameMs: 50,
+      controllers: this.show.controllers
+        .filter((c) => c.sequenceChannels)
+        .map((c) => ({ id: c.id, name: c.name, state: "ok" as const, packetsSent: 0, sendErrors: 0, lastError: null })),
+      notes: [],
+      error: null,
+    };
+  }
+
+  async startPlayback(path: string, positionMs: number) {
+    this.calls.push(`startPlayback:${path}`);
+    if (!this.show.controllers.some((c) => c.sequenceChannels)) {
+      throw new Error(
+        "None of your controllers knows which sequence channels are theirs yet. Add them from your FPP's output list on the Devices screen.",
+      );
+    }
+    this.output = { ...this.output, running: false };
+    this.playing = { path, positionMs, since: Date.now() };
+    return this.playbackNow()!;
+  }
+
+  async pausePlayback(paused: boolean) {
+    const now = this.playbackNow();
+    if (!this.playing || !now) return null;
+    this.playing = { ...this.playing, positionMs: now.positionMs, since: paused ? null : Date.now() };
+    return this.playbackNow();
+  }
+
+  async seekPlayback(positionMs: number) {
+    if (!this.playing) return null;
+    const paused = this.playing.since === null;
+    this.playing = { ...this.playing, positionMs, since: paused ? null : Date.now() };
+    return this.playbackNow();
+  }
+
+  async stopPlayback() {
+    this.calls.push("stopPlayback");
+    this.playing = null;
+  }
+
+  async playbackStatus() {
+    return this.playbackNow();
+  }
+
+  /** A moving rainbow across every prop while something plays. */
+  async liveFrame() {
+    const status = this.playbackNow();
+    const length = this.show.props.reduce((n, p) => n + nodeCount(p.shape) * channelsPerPixel(p), 0);
+    const frame = new Uint8Array(status && status.state !== "ended" ? length : 0);
+    const shift = (status?.positionMs ?? 0) / 20;
+    for (let i = 0; i + 2 < frame.length; i += 3) {
+      const hue = ((i / 3) * 4 + shift) % 360;
+      const [r, g, b] = [0, 120, 240].map((o) => Math.round(127 + 127 * Math.cos(((hue - o) * Math.PI) / 180)));
+      frame[i] = r;
+      frame[i + 1] = g;
+      frame[i + 2] = b;
+    }
+    return frame;
+  }
+
+  /** Each prop as a row of pixels (the engine computes real shapes). */
+  async previewProps() {
+    let offset = 0;
+    return this.show.props.map((prop, row) => {
+      const nodes = nodeCount(prop.shape);
+      const points = Array.from({ length: nodes }, (_, i) => [i * 0.1, -row]).flat();
+      const entry = { prop: prop.id, frameOffset: offset, channelsPerPixel: channelsPerPixel(prop), points };
+      offset += nodes * channelsPerPixel(prop);
+      return entry;
+    });
+  }
+
+  async pickSequencePath() {
+    return this.nextSequencePath;
   }
 
   async pickOpenPath() {

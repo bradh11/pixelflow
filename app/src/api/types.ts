@@ -339,3 +339,25 @@ export interface FppSequence {
   stepMs: number;
   channels: number;
 }
+
+/** A sequence playing on the controllers. */
+export interface PlaybackStatus {
+  state: "playing" | "paused" | "ended";
+  path: string;
+  positionMs: number;
+  durationMs: number;
+  frameMs: number;
+  controllers: ControllerStatus[];
+  /** Plain-language notes, such as controllers that were left out and why. */
+  notes: string[];
+  /** Why playback stopped by itself (a damaged file, for example). */
+  error: string | null;
+}
+
+/** Where a prop's pixels are drawn in the preview (x, y pairs) and where their colors sit in a live frame. */
+export interface PreviewProp {
+  prop: Uuid;
+  frameOffset: number;
+  channelsPerPixel: number;
+  points: number[];
+}

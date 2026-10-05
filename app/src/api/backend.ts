@@ -1,5 +1,7 @@
 import type {
   DeviceDetails,
+  PlaybackStatus,
+  PreviewProp,
   FppSequence,
   PlayerStatus,
   Discovery,
@@ -43,6 +45,19 @@ export interface Backend {
   fppStart(address: string, name: string): Promise<void>;
   /** Stops an FPP now, or after the current sequence. Only when the user asks. */
   fppStop(address: string, gracefully: boolean): Promise<void>;
+  /** Plays a rendered sequence (.fseq) to the controllers that know their sequence channels. */
+  startPlayback(path: string, positionMs: number): Promise<PlaybackStatus>;
+  pausePlayback(paused: boolean): Promise<PlaybackStatus | null>;
+  seekPlayback(positionMs: number): Promise<PlaybackStatus | null>;
+  stopPlayback(): Promise<void>;
+  /** The playing sequence, or null when nothing is playing. */
+  playbackStatus(): Promise<PlaybackStatus | null>;
+  /** The props' current colors (show frame bytes); empty when nothing is playing or testing. */
+  liveFrame(): Promise<Uint8Array>;
+  /** Every prop's pixel positions for the 2D preview. */
+  previewProps(): Promise<PreviewProp[]>;
+  /** Shows a native "open sequence" dialog; null when cancelled. */
+  pickSequencePath(): Promise<string | null>;
   /** Shows a native "open file" dialog; null when cancelled. */
   pickOpenPath(): Promise<string | null>;
   /** Shows a native "save file" dialog; null when cancelled. */

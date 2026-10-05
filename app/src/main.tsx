@@ -17,6 +17,7 @@ if (inTauri()) {
   if (demo) {
     backend.deviceNetwork = demoDevices();
     backend.fppPlayers = demoPlayers();
+    backend.nextSequencePath = "/Shows/Christmas Medley 2017.fseq";
   }
   void useApp.getState().connect(backend);
   if (demo) useApp.setState({ started: true });

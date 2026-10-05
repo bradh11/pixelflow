@@ -3,7 +3,7 @@ import { type Backend, errorMessage } from "../api/backend";
 import type { Discovery, Edit, ShowSnapshot } from "../api/types";
 import { fileName } from "../lib/format";
 
-export type Screen = "layout" | "wiring" | "devices" | "test" | "history";
+export type Screen = "layout" | "wiring" | "devices" | "play" | "test" | "history";
 export type Theme = "dark" | "light";
 
 const THEME_KEY = "pixelflow.theme";

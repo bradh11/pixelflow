@@ -23,6 +23,7 @@ export function demoShow(): Show {
   fpp.ports[1].slots = [
     { prop: tree.id, segment: null, nullPixels: 0, reverse: false, brightness: null, gamma: null, smartReceiver: null },
   ];
+  fpp.sequenceChannels = { start: 1, count: 4800 };
   const wled = newController("Porch WLED", "192.168.1.60", "ddp", 1);
   show.controllers = [fpp, wled];
   return show;

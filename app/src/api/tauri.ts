@@ -3,6 +3,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import type { Backend } from "./backend";
 
 const SHOW_FILTER = [{ name: "PixelFlow show", extensions: ["json"] }];
+const SEQUENCE_FILTER = [{ name: "FPP sequence", extensions: ["fseq"] }];
 
 /** The real engine, running in the Tauri desktop shell. */
 export const tauriBackend: Backend = {
@@ -27,6 +28,17 @@ export const tauriBackend: Backend = {
   fppSequences: (address) => invoke("fpp_sequences", { address }),
   fppStart: (address, name) => invoke("fpp_start", { address, name }),
   fppStop: (address, gracefully) => invoke("fpp_stop", { address, gracefully }),
+  startPlayback: (path, positionMs) => invoke("start_playback", { path, positionMs }),
+  pausePlayback: (paused) => invoke("pause_playback", { paused }),
+  seekPlayback: (positionMs) => invoke("seek_playback", { positionMs }),
+  stopPlayback: () => invoke("stop_playback"),
+  playbackStatus: () => invoke("playback_status"),
+  liveFrame: async () => new Uint8Array(await invoke<ArrayBuffer>("live_frame")),
+  previewProps: () => invoke("preview_props"),
+  pickSequencePath: async () => {
+    const path = await open({ multiple: false, directory: false, filters: SEQUENCE_FILTER });
+    return typeof path === "string" ? path : null;
+  },
   pickOpenPath: async () => {
     const path = await open({ multiple: false, directory: false, filters: SHOW_FILTER });
     return typeof path === "string" ? path : null;

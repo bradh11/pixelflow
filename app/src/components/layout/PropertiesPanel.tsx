@@ -21,6 +21,7 @@ import { type Align, tidy } from "../../lib/layoutMath";
 import { nodeCount, shapeLabel } from "../../lib/shows";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { useApp } from "../../state/store";
+import { useView3d } from "../../state/view3d";
 import { Button, Input, Select } from "../ui";
 
 const COLOR_ORDERS: ColorOrder[] = ["RGB", "RBG", "GRB", "GBR", "BRG", "BGR", "RGBW", "GRBW"];
@@ -405,6 +406,43 @@ function PhotoPanel({ problem, onRetry, onChoosePhoto }: { problem: string | nul
   );
 }
 
+/** How far behind the props the photo stands in 3D (remembered on this computer). */
+function PhotoDepth() {
+  const depth = useView3d((s) => s.photoDepth);
+  const setDepth = useView3d((s) => s.setPhotoDepth);
+  return (
+    <label className="mt-3 flex flex-col gap-1 text-xs">
+      <span className="text-neutral-500 dark:text-neutral-400">Photo depth in 3D: {tidy(depth)} behind the props</span>
+      <input
+        type="range"
+        min={0}
+        max={20}
+        step={0.05}
+        value={depth}
+        aria-label="Photo depth"
+        onChange={(e) => setDepth(Number(e.target.value))}
+        className="accent-accent-500"
+      />
+    </label>
+  );
+}
+
+const TIPS_2D = [
+  "Pick a tool above and drag on the canvas to draw a prop.",
+  "Click a prop to select it; shift-click or drag a box to select more.",
+  "Drag corners to resize, the round handle to turn. Hold Shift for free stretching or 15° steps.",
+  "Arrow keys nudge, ⌘D duplicates, Delete removes, ⌘Z undoes.",
+  "Scroll or Space-drag to move around; pinch or hold ⌘ and scroll to zoom.",
+];
+
+const TIPS_3D = [
+  "Drag to orbit, right-drag or Space-drag to pan, scroll or pinch to zoom. Double-click a prop to zoom to it.",
+  "1–5 pick the Front, Top, Left, Right, and Street views; F fits everything in.",
+  "Click a prop to select it; shift-click or Shift-drag a box to select more.",
+  "Drag the arrows to move along one direction, or the squares across a plane. Drag a prop itself to slide it over the ground.",
+  "Set depth and tilt exactly under Placement. V switches back to 2D for drawing.",
+];
+
 /** Details of what's selected, or the photo settings and tips when nothing is. */
 export function PropertiesPanel({
   preview,
@@ -419,6 +457,7 @@ export function PropertiesPanel({
 }) {
   const show = useApp((s) => s.snapshot?.show);
   const selected = useLayoutEditor((s) => s.selected);
+  const in3d = useView3d((s) => s.mode === "3d");
   if (!show) return null;
   const ids = selected.filter((id) => show.props.some((p) => p.id === id));
   return (
@@ -430,13 +469,12 @@ export function PropertiesPanel({
       ) : (
         <div>
           <PhotoPanel problem={photoProblem} onRetry={onRetryPhoto} onChoosePhoto={onChoosePhoto} />
+          {in3d && show.background && <PhotoDepth />}
           <Section title="Tips">
             <ul className="list-disc space-y-1 pl-4 text-sm text-neutral-600 dark:text-neutral-400">
-              <li>Pick a tool above and drag on the canvas to draw a prop.</li>
-              <li>Click a prop to select it; shift-click or drag a box to select more.</li>
-              <li>Drag corners to resize, the round handle to turn. Hold Shift for free stretching or 15° steps.</li>
-              <li>Arrow keys nudge, ⌘D duplicates, Delete removes, ⌘Z undoes.</li>
-              <li>Scroll or Space-drag to move around; pinch or hold ⌘ and scroll to zoom.</li>
+              {(in3d ? TIPS_3D : TIPS_2D).map((tip) => (
+                <li key={tip}>{tip}</li>
+              ))}
             </ul>
           </Section>
         </div>

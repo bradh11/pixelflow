@@ -1,0 +1,538 @@
+// The 3D view drawn with three.js: a night scene (sky, ground), the photo as an upright
+// backdrop, an optional house model, and every pixel as a glowing bulb — all pixels in one
+// draw call (one Points object whose positions and colors are updated in place). While lights
+// are lit, a bloom pass spreads their glow: only the pixels bloom (drawn alone, with the photo
+// and model in black so they still hide what's behind them), never the photo's bright spots.
+// Selection outlines and the move gizmo are drawn over the top, unbloomed.
+
+import {
+  AdditiveBlending,
+  BackSide,
+  Box3 as ThreeBox3,
+  Box3Helper,
+  BufferAttribute,
+  BufferGeometry,
+  CanvasTexture,
+  Color,
+  ConeGeometry,
+  DirectionalLight,
+  DoubleSide,
+  DynamicDrawUsage,
+  Euler,
+  GridHelper,
+  Group,
+  HemisphereLight,
+  Line,
+  LineBasicMaterial,
+  type Material,
+  Mesh,
+  MeshBasicMaterial,
+  type Object3D,
+  PerspectiveCamera,
+  PlaneGeometry,
+  Points,
+  Raycaster,
+  SRGBColorSpace,
+  Scene,
+  ShaderMaterial,
+  SphereGeometry,
+  Texture,
+  Vector2,
+  Vector3,
+  WebGLRenderer,
+} from "three";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { type Box3, type GizmoHandle, FOV_DEG, PLANE_AT, PLANE_SIZE, clipRange, orbitEye } from "../../lib/layout3d";
+import type { Scene3d } from "./scene";
+
+const SKY_TOP = new Color("#04060f");
+const SKY_HORIZON = new Color("#141b33");
+const GROUND = new Color("#070a09");
+const ACCENT = new Color("#a78bfa");
+const HIGHLIGHT = new Color("#facc15");
+const AXIS_COLORS: Record<"x" | "y" | "z", Color> = { x: new Color("#ef4444"), y: new Color("#22c55e"), z: new Color("#3b82f6") };
+
+/** A bulb's sprite is this many times its core's size: the rest is its halo. */
+const SPRITE_PER_BULB = 5;
+
+const PIXEL_VERTEX = /* glsl */ `
+  attribute vec3 tint;
+  uniform float bulb;
+  uniform float scale;
+  uniform float minPx;
+  uniform float maxPx;
+  varying vec3 vColor;
+  varying float vCore;
+  varying float vDim;
+  void main() {
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * mv;
+    float core = bulb * scale / max(-mv.z, 1e-3);
+    float sprite = core * ${SPRITE_PER_BULB.toFixed(1)};
+    gl_PointSize = clamp(sprite, minPx, maxPx);
+    // The core is at least a pixel and a bit across, so far-off bulbs don't vanish; ones that
+    // would be smaller than that are dimmed instead, as a real bulb fades with distance.
+    vCore = max(core, 1.4) / gl_PointSize;
+    vDim = clamp(core / 1.4, 0.35, 1.0);
+    vColor = pow(tint, vec3(2.2));
+  }
+`;
+
+const PIXEL_FRAGMENT = /* glsl */ `
+  uniform float glow;
+  varying vec3 vColor;
+  varying float vCore;
+  varying float vDim;
+  void main() {
+    vec2 d = gl_PointCoord * 2.0 - 1.0;
+    float r = length(d);
+    if (r > 1.0) discard;
+    float core = 1.0 - smoothstep(vCore * 0.6, vCore, r);
+    float halo = exp(-r * r * 6.0) * 0.55 * glow * (1.0 - r);
+    vec3 c = vColor * (core * 1.6 + halo) * vDim;
+    gl_FragColor = vec4(c, 1.0);
+    #include <colorspace_fragment>
+  }
+`;
+
+const SKY_VERTEX = /* glsl */ `
+  varying vec3 vDir;
+  void main() {
+    vDir = normalize(position);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const MIX_VERTEX = /* glsl */ `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const MIX_FRAGMENT = /* glsl */ `
+  uniform sampler2D baseTexture;
+  uniform sampler2D bloomTexture;
+  varying vec2 vUv;
+  void main() {
+    gl_FragColor = texture2D(baseTexture, vUv) + texture2D(bloomTexture, vUv);
+  }
+`;
+
+const SKY_FRAGMENT = /* glsl */ `
+  uniform vec3 top;
+  uniform vec3 horizon;
+  varying vec3 vDir;
+  void main() {
+    float t = pow(clamp(vDir.y, 0.0, 1.0), 0.45);
+    gl_FragColor = vec4(mix(horizon, top, t), 1.0);
+    #include <colorspace_fragment>
+  }
+`;
+
+function disposeTree(root: Object3D) {
+  root.traverse((o) => {
+    const mesh = o as Mesh;
+    mesh.geometry?.dispose();
+    const materials = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
+    for (const m of materials) {
+      for (const value of Object.values(m)) if (value instanceof Texture) value.dispose();
+      m.dispose();
+    }
+  });
+}
+
+const toBox = (b: ThreeBox3): Box3 | null =>
+  b.isEmpty() ? null : { min: { x: b.min.x, y: b.min.y, z: b.min.z }, max: { x: b.max.x, y: b.max.y, z: b.max.z } };
+
+/** The move gizmo, one unit long: three arrows and three plane squares. */
+function buildGizmo() {
+  const group = new Group();
+  const parts = new Map<GizmoHandle, { material: MeshBasicMaterial | LineBasicMaterial; color: Color }[]>();
+  const overlay = (m: MeshBasicMaterial | LineBasicMaterial) => {
+    m.depthTest = false;
+    m.depthWrite = false;
+    m.transparent = true;
+    return m;
+  };
+  const dirs = { x: new Vector3(1, 0, 0), y: new Vector3(0, 1, 0), z: new Vector3(0, 0, 1) };
+  for (const axis of ["x", "y", "z"] as const) {
+    const color = AXIS_COLORS[axis];
+    const lineMaterial = overlay(new LineBasicMaterial({ color }));
+    const line = new Line(new BufferGeometry().setFromPoints([new Vector3(), dirs[axis].clone().multiplyScalar(0.84)]), lineMaterial);
+    const coneMaterial = overlay(new MeshBasicMaterial({ color }));
+    const cone = new Mesh(new ConeGeometry(0.05, 0.18, 16), coneMaterial);
+    cone.position.copy(dirs[axis]).multiplyScalar(0.91);
+    cone.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), dirs[axis]);
+    group.add(line, cone);
+    parts.set(axis, [
+      { material: lineMaterial, color },
+      { material: coneMaterial, color },
+    ]);
+  }
+  for (const plane of ["xy", "xz", "yz"] as const) {
+    // A plane's square takes the color of the axis it doesn't move along.
+    const other = (["x", "y", "z"] as const).find((a) => !plane.includes(a))!;
+    const color = AXIS_COLORS[other];
+    const material = overlay(new MeshBasicMaterial({ color, opacity: 0.45, side: DoubleSide }));
+    const square = new Mesh(new PlaneGeometry(PLANE_SIZE, PLANE_SIZE), material);
+    const mid = PLANE_AT + PLANE_SIZE / 2;
+    const [a, b] = [dirs[plane[0] as "x" | "y" | "z"], dirs[plane[1] as "x" | "y" | "z"]];
+    square.position.copy(a).multiplyScalar(mid).addScaledVector(b, mid);
+    if (plane === "xz") square.rotation.x = -Math.PI / 2;
+    if (plane === "yz") square.rotation.y = Math.PI / 2;
+    group.add(square);
+    parts.set(plane, [{ material, color }]);
+  }
+  group.renderOrder = 1000;
+  group.traverse((o) => (o.renderOrder = 1000));
+  const highlight = (handle: GizmoHandle | null) => {
+    for (const [key, list] of parts) for (const { material, color } of list) material.color.copy(key === handle ? HIGHLIGHT : color);
+  };
+  return { group, highlight };
+}
+
+/** The renderer for one canvas. */
+export function createThreeScene(canvas: HTMLCanvasElement): Scene3d {
+  const renderer = new WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+  renderer.outputColorSpace = SRGBColorSpace;
+  renderer.setClearColor(SKY_TOP);
+
+  const scene = new Scene();
+  const overlayScene = new Scene();
+  const camera = new PerspectiveCamera(FOV_DEG, 1, 0.1, 1000);
+
+  const sky = new Mesh(
+    new SphereGeometry(1, 32, 16),
+    new ShaderMaterial({
+      uniforms: { top: { value: SKY_TOP }, horizon: { value: SKY_HORIZON } },
+      vertexShader: SKY_VERTEX,
+      fragmentShader: SKY_FRAGMENT,
+      side: BackSide,
+      depthWrite: false,
+    }),
+  );
+  sky.renderOrder = -10;
+  scene.add(sky);
+
+  const ground = new Group();
+  const groundPlane = new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial({ color: GROUND }));
+  groundPlane.rotation.x = -Math.PI / 2;
+  groundPlane.scale.setScalar(4000);
+  groundPlane.position.y = -0.02;
+  const grid = new GridHelper(200, 200, 0x23302a, 0x141c18);
+  (grid.material as Material).transparent = true;
+  (grid.material as Material).opacity = 0.55;
+  ground.add(groundPlane, grid);
+  scene.add(ground);
+
+  const moon = new DirectionalLight(0xa9b8ff, 0.7);
+  moon.position.set(-30, 60, 40);
+  scene.add(new HemisphereLight(0x8a9bc4, 0x0b0d10, 0.9), moon);
+
+  // Every pixel: one Points object, positions and colors updated in place.
+  const pixelMaterial = new ShaderMaterial({
+    uniforms: {
+      bulb: { value: 0.04 },
+      scale: { value: 600 },
+      minPx: { value: 2.5 },
+      maxPx: { value: 96 },
+      glow: { value: 0 },
+    },
+    vertexShader: PIXEL_VERTEX,
+    fragmentShader: PIXEL_FRAGMENT,
+    transparent: true,
+    depthWrite: false,
+    blending: AdditiveBlending,
+  });
+  let pixelGeometry = new BufferGeometry();
+  const pixels = new Points(pixelGeometry, pixelMaterial);
+  pixels.frustumCulled = false;
+  pixels.renderOrder = 10;
+  scene.add(pixels);
+
+  // What blooms: the pixels alone, with the photo and model as black shapes in front of the
+  // pixels behind them. The objects share their geometry with the main scene's.
+  const bloomScene = new Scene();
+  bloomScene.background = new Color(0x000000);
+  const bloomPixels = new Points(pixelGeometry, pixelMaterial);
+  bloomPixels.frustumCulled = false;
+  bloomScene.add(bloomPixels);
+  const occluder = new MeshBasicMaterial({ color: 0x000000 });
+  let backdropShadow: Mesh | null = null;
+  const modelShadow = new Group();
+  bloomScene.add(modelShadow);
+
+  let backdrop: Mesh<PlaneGeometry, MeshBasicMaterial> | null = null;
+  let backdropImage: TexImageSource | null = null;
+  const model = new Group();
+  scene.add(model);
+  let modelOpacity = 1;
+
+  const selectionBox = new Box3Helper(new ThreeBox3(), ACCENT);
+  (selectionBox.material as Material).depthTest = false;
+  (selectionBox.material as Material).transparent = true;
+  selectionBox.visible = false;
+  overlayScene.add(selectionBox);
+  const gizmo = buildGizmo();
+  gizmo.group.visible = false;
+  overlayScene.add(gizmo.group);
+
+  const bloomComposer = new EffectComposer(renderer);
+  bloomComposer.renderToScreen = false;
+  bloomComposer.addPass(new RenderPass(bloomScene, camera));
+  const bloom = new UnrealBloomPass(new Vector2(256, 256), 1.1, 0.5, 0);
+  bloomComposer.addPass(bloom);
+  const composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+  const mix = new ShaderPass(
+    new ShaderMaterial({
+      uniforms: { baseTexture: { value: null }, bloomTexture: { value: bloomComposer.renderTarget2.texture } },
+      vertexShader: MIX_VERTEX,
+      fragmentShader: MIX_FRAGMENT,
+    }),
+    "baseTexture",
+  );
+  mix.needsSwap = true;
+  composer.addPass(mix);
+  composer.addPass(new OutputPass());
+  let bloomOn = true;
+  let size = { width: 1, height: 1, ratio: 1 };
+
+  const raycaster = new Raycaster();
+
+  const applyModelOpacity = () => {
+    model.traverse((o) => {
+      const mesh = o as Mesh;
+      const materials = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
+      for (const m of materials) {
+        m.transparent = modelOpacity < 1;
+        m.opacity = modelOpacity;
+        m.depthWrite = modelOpacity >= 0.5;
+      }
+    });
+    // A see-through model doesn't hide the lights behind it, so it doesn't hide their glow either.
+    modelShadow.visible = modelOpacity >= 0.5;
+  };
+
+  const placeShadow = () => {
+    modelShadow.position.copy(model.position);
+    modelShadow.quaternion.copy(model.quaternion);
+    modelShadow.scale.copy(model.scale);
+  };
+
+  /** The model as black shapes for the bloom scene, placed like the model. */
+  const shadowModel = () => {
+    modelShadow.clear();
+    for (const child of model.children) {
+      const copy = child.clone(true);
+      copy.traverse((o) => {
+        if ((o as Mesh).isMesh) (o as Mesh).material = occluder;
+      });
+      modelShadow.add(copy);
+    }
+    placeShadow();
+  };
+
+  return {
+    resize(next, ratio) {
+      size = { width: Math.max(1, next.width), height: Math.max(1, next.height), ratio };
+      renderer.setPixelRatio(ratio);
+      renderer.setSize(size.width, size.height, false);
+      composer.setPixelRatio(ratio);
+      composer.setSize(size.width, size.height);
+      bloomComposer.setPixelRatio(ratio);
+      bloomComposer.setSize(size.width, size.height);
+      // The glow is soft: half resolution is plenty, and much cheaper.
+      bloom.resolution.set((size.width * ratio) / 2, (size.height * ratio) / 2);
+      camera.aspect = size.width / size.height;
+    },
+
+    setPixels(xyz) {
+      const count = xyz.length / 3;
+      const current = pixelGeometry.getAttribute("position") as BufferAttribute | undefined;
+      if (current && current.count === count) {
+        (current.array as Float32Array).set(xyz);
+        current.clearUpdateRanges();
+        current.needsUpdate = true;
+        return;
+      }
+      pixelGeometry.dispose();
+      pixelGeometry = new BufferGeometry();
+      const position = new BufferAttribute(new Float32Array(xyz), 3);
+      position.setUsage(DynamicDrawUsage);
+      const tint = new BufferAttribute(new Uint8Array(count * 3), 3, true);
+      tint.setUsage(DynamicDrawUsage);
+      pixelGeometry.setAttribute("position", position);
+      pixelGeometry.setAttribute("tint", tint);
+      pixels.geometry = pixelGeometry;
+      bloomPixels.geometry = pixelGeometry;
+    },
+
+    updatePixels(start, xyz) {
+      const position = pixelGeometry.getAttribute("position") as BufferAttribute | undefined;
+      if (!position || start * 3 + xyz.length > position.array.length) return;
+      (position.array as Float32Array).set(xyz, start * 3);
+      position.addUpdateRange(start * 3, xyz.length);
+      position.needsUpdate = true;
+    },
+
+    setColors(rgb, lit) {
+      const tint = pixelGeometry.getAttribute("tint") as BufferAttribute | undefined;
+      if (!tint) return;
+      const array = tint.array as Uint8Array;
+      array.set(rgb.length > array.length ? rgb.subarray(0, array.length) : rgb);
+      tint.clearUpdateRanges();
+      tint.needsUpdate = true;
+      pixelMaterial.uniforms.glow.value = lit ? 1 : 0;
+    },
+
+    setBulbSize(bulb) {
+      pixelMaterial.uniforms.bulb.value = bulb;
+    },
+
+    setBackdrop(next) {
+      const remove = () => {
+        if (backdrop) {
+          scene.remove(backdrop);
+          disposeTree(backdrop);
+        }
+        if (backdropShadow) bloomScene.remove(backdropShadow);
+        backdrop = backdropShadow = null;
+        backdropImage = null;
+      };
+      if (!next) return remove();
+      if (!backdrop || backdropImage !== next.image) {
+        remove();
+        let texture: Texture;
+        if (typeof ImageBitmap !== "undefined" && next.image instanceof ImageBitmap) {
+          // Bitmaps ignore flipY in WebGL: draw it on a canvas, which doesn't.
+          const c = document.createElement("canvas");
+          [c.width, c.height] = [next.image.width, next.image.height];
+          c.getContext("2d")?.drawImage(next.image, 0, 0);
+          texture = new CanvasTexture(c);
+        } else {
+          texture = new Texture(next.image as HTMLImageElement);
+          texture.needsUpdate = true;
+        }
+        texture.colorSpace = SRGBColorSpace;
+        texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+        // The photo is dimmed a little: it's a night scene.
+        backdrop = new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial({ map: texture, transparent: true, color: new Color(0.8, 0.8, 0.8), side: DoubleSide }));
+        backdropImage = next.image;
+        scene.add(backdrop);
+        backdropShadow = new Mesh(backdrop.geometry, occluder);
+        bloomScene.add(backdropShadow);
+      }
+      const { min, max } = next.box;
+      backdrop.scale.set(max.x - min.x, max.y - min.y, 1);
+      backdrop.position.set((min.x + max.x) / 2, (min.y + max.y) / 2, min.z);
+      backdrop.material.opacity = next.opacity;
+      backdrop.material.depthWrite = next.opacity > 0.5;
+      backdropShadow!.scale.copy(backdrop.scale);
+      backdropShadow!.position.copy(backdrop.position);
+      backdropShadow!.visible = next.opacity > 0.5;
+    },
+
+    async setModel(next) {
+      for (const child of [...model.children]) {
+        model.remove(child);
+        disposeTree(child);
+      }
+      modelShadow.clear();
+      if (!next) return null;
+      const extension = next.name.split(".").pop()?.toLowerCase();
+      const buffer = next.bytes.buffer.slice(next.bytes.byteOffset, next.bytes.byteOffset + next.bytes.byteLength) as ArrayBuffer;
+      let loaded: Object3D;
+      if (extension === "obj") {
+        const { OBJLoader } = await import("three/addons/loaders/OBJLoader.js");
+        loaded = new OBJLoader().parse(new TextDecoder().decode(next.bytes));
+      } else {
+        const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
+        const gltf = await new GLTFLoader().parseAsync(buffer, "");
+        loaded = gltf.scene;
+      }
+      model.add(loaded);
+      shadowModel();
+      applyModelOpacity();
+      return toBox(new ThreeBox3().setFromObject(model));
+    },
+
+    placeModel(p) {
+      model.position.set(p.position.x, p.position.y, p.position.z);
+      const r = Math.PI / 180;
+      model.setRotationFromEuler(new Euler(p.rotationDeg.x * r, p.rotationDeg.y * r, p.rotationDeg.z * r, "XYZ"));
+      model.scale.setScalar(p.scale);
+      modelOpacity = p.opacity;
+      applyModelOpacity();
+      placeShadow();
+      model.updateMatrixWorld(true);
+      return model.children.length ? toBox(new ThreeBox3().setFromObject(model)) : null;
+    },
+
+    surfaceAt(ray) {
+      if (model.children.length === 0) return null;
+      raycaster.set(new Vector3(ray.origin.x, ray.origin.y, ray.origin.z), new Vector3(ray.dir.x, ray.dir.y, ray.dir.z));
+      const hit = raycaster.intersectObject(model, true)[0];
+      return hit ? { x: hit.point.x, y: hit.point.y, z: hit.point.z } : null;
+    },
+
+    setSelectionBox(box) {
+      selectionBox.visible = !!box;
+      if (box) selectionBox.box.set(new Vector3(box.min.x, box.min.y, box.min.z), new Vector3(box.max.x, box.max.y, box.max.z));
+    },
+
+    setGizmo(next) {
+      gizmo.group.visible = !!next;
+      if (!next) return;
+      gizmo.group.position.set(next.origin.x, next.origin.y, next.origin.z);
+      gizmo.group.scale.setScalar(next.length);
+      gizmo.highlight(next.highlight);
+    },
+
+    setOptions(options) {
+      bloomOn = options.bloom;
+      ground.visible = options.ground;
+    },
+
+    render(orbit) {
+      const eye = orbitEye(orbit);
+      const { near, far } = clipRange(orbit);
+      camera.near = near;
+      camera.far = far;
+      camera.position.set(eye.x, eye.y, eye.z);
+      camera.lookAt(orbit.target.x, orbit.target.y, orbit.target.z);
+      camera.updateProjectionMatrix();
+      sky.position.copy(camera.position);
+      sky.scale.setScalar(far * 0.9);
+      pixelMaterial.uniforms.scale.value = (size.height * size.ratio) / (2 * Math.tan(((FOV_DEG / 2) * Math.PI) / 180));
+      pixelMaterial.uniforms.maxPx.value = 96 * size.ratio;
+      pixelMaterial.uniforms.minPx.value = 2.5 * size.ratio;
+      renderer.autoClear = true;
+      // Only lit pixels glow: unlit bulbs are just small grey dots.
+      if (bloomOn && pixelMaterial.uniforms.glow.value > 0) {
+        bloomComposer.render();
+        composer.render();
+      } else renderer.render(scene, camera);
+      if (selectionBox.visible || gizmo.group.visible) {
+        renderer.autoClear = false;
+        renderer.clearDepth();
+        renderer.render(overlayScene, camera);
+      }
+    },
+
+    dispose() {
+      disposeTree(scene);
+      disposeTree(overlayScene);
+      occluder.dispose();
+      bloomComposer.dispose();
+      composer.dispose();
+      renderer.dispose();
+    },
+  };
+}

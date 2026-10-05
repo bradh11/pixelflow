@@ -3,6 +3,7 @@ import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
 import { useLayoutEditor } from "../state/layoutEditor";
 import { useApp } from "../state/store";
+import { useView3d } from "../state/view3d";
 
 // jsdom lacks these browser APIs; the command palette (cmdk) uses them.
 globalThis.ResizeObserver ??= class {
@@ -19,4 +20,5 @@ afterEach(() => {
   localStorage.clear();
   useApp.setState(useApp.getInitialState(), true);
   useLayoutEditor.setState(useLayoutEditor.getInitialState(), true);
+  useView3d.setState(useView3d.getInitialState(), true);
 });

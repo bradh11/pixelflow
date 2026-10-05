@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../../api/backend";
-import type { PreviewSet } from "../../api/types";
+import type { PreviewSet, PreviewSet3d } from "../../api/types";
 import { useApp } from "../../state/store";
 
 /** How often the canvas picks up colors while a test pattern or sequence is running. */
@@ -35,18 +35,44 @@ export function usePreviewProps(): PreviewSet {
   return preview;
 }
 
+const NO_PREVIEW_3D: PreviewSet3d = { revision: -1, props: [] };
+
+/** Every prop's pixels in 3D, fetched after each change to the show while `enabled`. */
+export function usePreviewProps3d(enabled: boolean): PreviewSet3d {
+  const backend = useApp((s) => s.backend);
+  const revision = useApp((s) => s.snapshot?.revision);
+  const [preview, setPreview] = useState<PreviewSet3d>(NO_PREVIEW_3D);
+  useEffect(() => {
+    if (!backend || !enabled) return;
+    let latest = true;
+    void backend.previewProps3d().then(
+      (p) => latest && setPreview(p),
+      (e: unknown) => {
+        if (!latest) return;
+        setPreview({ revision: revision ?? -1, props: [] });
+        useApp.setState({ error: errorMessage(e) });
+      },
+    );
+    return () => {
+      latest = false;
+    };
+  }, [backend, revision, enabled]);
+  return preview;
+}
+
 /**
  * Hands the props' current colors to `onFrame` while something plays (null when nothing is):
- * checked quickly while frames arrive, slowly otherwise. Nothing re-renders.
+ * checked quickly while frames arrive, slowly otherwise. Nothing re-renders. Off when `enabled`
+ * is false (the screen fetches colors itself).
  */
-export function useLiveFrame(onFrame: (frame: Uint8Array | null) => void) {
+export function useLiveFrame(onFrame: (frame: Uint8Array | null) => void, enabled = true) {
   const backend = useApp((s) => s.backend);
   const callback = useRef(onFrame);
   useEffect(() => {
     callback.current = onFrame;
   }, [onFrame]);
   useEffect(() => {
-    if (!backend) return;
+    if (!backend || !enabled) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const poll = () => {
@@ -67,7 +93,7 @@ export function useLiveFrame(onFrame: (frame: Uint8Array | null) => void) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [backend]);
+  }, [backend, enabled]);
 }
 
 const IMAGE_TYPES: Record<string, string> = {

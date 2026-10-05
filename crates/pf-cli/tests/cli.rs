@@ -212,3 +212,25 @@ fn test_pattern_rejects_a_non_finite_duration_without_panicking() {
     );
     assert!(!stderr.contains("panicked"), "{stderr}");
 }
+
+#[test]
+fn an_xlights_import_saved_with_save_opens_again() {
+    let folder = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../pf-xlights/fixtures/sample-show");
+    let path = std::env::temp_dir().join(format!("pixelflow-xlights-{}.json", std::process::id()));
+    let output = pixelflow(&[
+        "xlights",
+        folder.to_str().unwrap(),
+        "--save",
+        path.to_str().unwrap(),
+    ]);
+    let text = stdout(&output);
+    assert!(output.status.success(), "{text}");
+    assert!(text.contains("Saved"), "{text}");
+    let validated = pixelflow(&["validate", path.to_str().unwrap()]);
+    std::fs::remove_file(&path).ok();
+    assert!(
+        stdout(&validated).contains("sample-show"),
+        "{}",
+        stdout(&validated)
+    );
+}

@@ -76,6 +76,12 @@ pub fn show_to_json(show: &Show) -> Result<String, ModelError> {
     Ok(serde_json::to_string_pretty(show)?)
 }
 
+/// Checks a show built in memory (an import, for example) exactly as opening a show file would,
+/// size limits included, and returns the checked copy.
+pub fn check_show(show: &Show) -> Result<Show, ModelError> {
+    show_from_json(&show_to_json(show)?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -242,6 +248,30 @@ mod tests {
         let err = show_from_json(&bad).unwrap_err();
         assert!(matches!(err, ModelError::LimitExceeded(_)));
         assert!(err.to_string().contains("at most 1000"), "{err}");
+    }
+
+    #[test]
+    fn shows_built_in_memory_are_checked_like_files() {
+        let mut show = Show::new("Imported");
+        let prop = Prop::new(
+            "A",
+            ShapeSource::Generator(Generator::Line {
+                nodes: 5,
+                length: 1.0,
+            }),
+        );
+        let mut slot = PortSlot::new(prop.id);
+        show.props.push(prop);
+        slot.null_pixels = crate::MAX_NULL_PIXELS;
+        let mut port = Port::new(1);
+        port.slots.push(slot);
+        let mut controller = Controller::new("C", "192.0.2.1", Protocol::Ddp);
+        controller.ports.push(port);
+        show.controllers.push(controller);
+        assert_eq!(check_show(&show).unwrap(), show);
+        show.controllers[0].ports[0].slots[0].null_pixels += 1;
+        let err = check_show(&show).unwrap_err();
+        assert!(matches!(err, ModelError::LimitExceeded(_)), "{err}");
     }
 
     #[test]

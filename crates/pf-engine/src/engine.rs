@@ -24,6 +24,20 @@ const AUTOSAVE_KEEP: usize = 50;
 
 type TransportFactory = Box<dyn Fn() -> io::Result<Box<dyn Transport>> + Send>;
 
+/// A show checked exactly as opening a show file checks it (size limits included), ready for
+/// [`Engine::adopt_show`]. Checking a large show takes a while, so it happens before the engine
+/// is locked.
+#[derive(Debug, Clone)]
+pub struct CheckedShow(Show);
+
+impl CheckedShow {
+    pub fn new(show: Show) -> Result<Self, EngineError> {
+        pf_model::check_show(&show)
+            .map(CheckedShow)
+            .map_err(|e| EngineError::InvalidShow(e.to_string()))
+    }
+}
+
 /// The single owner of the open show.
 pub struct Engine {
     show: Show,
@@ -164,15 +178,12 @@ impl Engine {
     }
 
     /// Replaces the open show with `show` (one imported from xLights, for example) as a new,
-    /// unsaved show. It's checked like a file being opened; on failure nothing changes.
-    pub fn adopt_show(&mut self, show: Show) -> Result<ShowSnapshot, EngineError> {
-        let checked = pf_model::show_to_json(&show)
-            .and_then(|json| pf_model::show_from_json(&json))
-            .map_err(|e| EngineError::TooLarge(e.to_string()))?;
-        self.replace_show(checked, None);
+    /// unsaved show. The show was checked like a file being opened when `show` was made.
+    pub fn adopt_show(&mut self, show: CheckedShow) -> ShowSnapshot {
+        self.replace_show(show.0, None);
         // Unsaved, so the user is asked before it's discarded.
         self.changed();
-        Ok(self.snapshot())
+        self.snapshot()
     }
 
     /// Opens a show file. On failure the current show is left untouched.

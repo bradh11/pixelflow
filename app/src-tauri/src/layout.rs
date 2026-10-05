@@ -16,8 +16,8 @@ const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "bmp"];
 /// Larger photos are refused rather than loaded into the window.
 const MAX_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
 
-/// Photos the window may read: ones the user picked in the photo dialog this session. The
-/// show's own background photo is always allowed too (see [`read_image`]).
+/// Photos the window may read: ones the user picked in the photo dialog this session, and the
+/// background photos of shows read from disk (see `AppState::trust_files_of`).
 #[derive(Default)]
 pub(crate) struct PickedPhotos(Mutex<HashSet<PathBuf>>);
 
@@ -58,17 +58,12 @@ pub(crate) async fn pick_image<R: tauri::Runtime>(
 }
 
 /// The bytes of a background photo, sent raw so the window can show it without any file access
-/// of its own. Only photos the user picked, or the show's own background photo, are read, and
-/// only if they really are image files.
+/// of its own. Only photos the user picked, or that came with a show read from disk, are read,
+/// and only if they really are image files. A path the window put in the show with an edit is
+/// not enough on its own.
 #[tauri::command]
 pub(crate) async fn read_image(state: State<'_, AppState>, path: PathBuf) -> Reply<Response> {
-    let is_background = state
-        .engine()
-        .show()
-        .background
-        .as_ref()
-        .is_some_and(|b| Path::new(&b.path) == path);
-    if !is_background && !state.photos.contains(&path) {
+    if !state.photos.contains(&path) {
         return Err(
             "PixelFlow can only show a photo you picked. Choose it with Choose photo… or Replace…".into(),
         );

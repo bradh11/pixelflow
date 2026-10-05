@@ -28,6 +28,7 @@ pub(crate) async fn import_xlights(state: State<'_, AppState>, folder: PathBuf) 
     .await
     .map_err(|_| "Something went wrong reading the xLights show.".to_string())??;
     let snapshot = state.engine().adopt_show(show);
+    let snapshot = state.trusting(snapshot);
     Ok(XlightsImported {
         snapshot,
         summary,

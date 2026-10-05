@@ -13,8 +13,8 @@ const MODEL_EXTENSIONS: &[&str] = &["glb", "gltf", "obj"];
 /// Larger models are refused rather than loaded into the window.
 const MAX_MODEL_BYTES: u64 = 256 * 1024 * 1024;
 
-/// Models the window may read: ones the user picked in the model dialog this session. The
-/// show's own house model is always allowed too (see [`read_house_model`]).
+/// Models the window may read: ones the user picked in the model dialog this session, and the
+/// house models of shows read from disk (see `AppState::trust_files_of`).
 pub(crate) type PickedModels = PickedPhotos;
 
 /// Asks the user for a 3D model of their house; the one they pick may then be read.
@@ -40,17 +40,12 @@ pub(crate) async fn pick_house_model<R: tauri::Runtime>(
     Ok(Some(path))
 }
 
-/// The bytes of a house model, sent raw. Only models the user picked, or the show's own house
-/// model, are read, and only if they really are model files.
+/// The bytes of a house model, sent raw. Only models the user picked, or that came with a show
+/// read from disk, are read, and only if they really are model files. A path the window put
+/// in the show with an edit is not enough on its own.
 #[tauri::command]
 pub(crate) async fn read_house_model(state: State<'_, AppState>, path: PathBuf) -> Reply<Response> {
-    let is_shows = state
-        .engine()
-        .show()
-        .house_model
-        .as_ref()
-        .is_some_and(|m| Path::new(&m.path) == path);
-    if !is_shows && !state.models.contains(&path) {
+    if !state.models.contains(&path) {
         return Err(
             "PixelFlow can only show a model you picked. Choose it with Add house model… or Replace…".into(),
         );

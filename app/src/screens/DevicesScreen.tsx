@@ -1,12 +1,160 @@
-import { EmptyState, PageHeader } from "../components/ui";
+import { AlertTriangle, Loader2, Radar, Search } from "lucide-react";
+import { useState } from "react";
+import type { Device, DeviceKind, FoundBy } from "../api/types";
+import { ImportDialog } from "../components/ImportDialog";
+import { Button, EmptyState, Input, PageHeader } from "../components/ui";
+import { useApp } from "../state/store";
 
-export function DevicesScreen() {
+const KIND_LABEL: Record<DeviceKind, string> = { fpp: "FPP", falcon: "Falcon", wled: "WLED" };
+const KIND_STYLE: Record<DeviceKind, string> = {
+  fpp: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
+  falcon: "bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300",
+  wled: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+};
+const FOUND_BY: Record<FoundBy, string> = {
+  ping: "answered discovery",
+  webSweep: "network scan",
+  mdns: "announced itself",
+  fppPeer: "listed by an FPP",
+  manual: "address you entered",
+};
+
+function DeviceRow({ device, inShow, onReview }: { device: Device; inShow: boolean; onReview: () => void }) {
   return (
-    <div className="mx-auto max-w-4xl">
-      <PageHeader title="Devices" description="Find FPP and WLED controllers on your network and keep their settings in sync." />
-      <EmptyState title="Device discovery is coming in a later update">
-        For now, add controllers by IP address on the Wiring screen.
-      </EmptyState>
+    <tr className="border-t border-neutral-200 dark:border-neutral-800">
+      <td className="py-2 pr-3">
+        <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${KIND_STYLE[device.kind]}`}>{KIND_LABEL[device.kind]}</span>
+      </td>
+      <td className="pr-3">
+        <div className="font-medium">{device.name}</div>
+        <div className="text-xs text-neutral-500">
+          {device.model} · {device.firmware}
+          {device.mode ? ` · ${device.mode}` : ""}
+        </div>
+      </td>
+      <td className="pr-3 text-sm tabular-nums">{device.address}</td>
+      <td className="pr-3 text-xs text-neutral-500">{device.foundBy.map((f) => FOUND_BY[f]).join(", ")}</td>
+      <td className="pr-3">
+        {inShow && <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs dark:bg-neutral-800">In show</span>}
+      </td>
+      <td className="text-right">
+        <Button onClick={onReview} aria-label={`Review ${device.name}`}>
+          Review…
+        </Button>
+      </td>
+    </tr>
+  );
+}
+
+/** Finds controllers on the network and imports their configuration. */
+export function DevicesScreen() {
+  const snapshot = useApp((s) => s.snapshot);
+  const discovery = useApp((s) => s.discovery);
+  const scanning = useApp((s) => s.scanning);
+  const scan = useApp((s) => s.scan);
+  const [address, setAddress] = useState("");
+  const [reviewing, setReviewing] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const checkAddress = async () => {
+    const host = address.trim();
+    if (!host) return;
+    setNotice(null);
+    if (await scan([host])) {
+      const found = useApp.getState().discovery?.devices.some((d) => d.address === host);
+      setNotice(found ? null : `No controller answered at ${host}. Check the address and that it's powered on.`);
+      if (found) setAddress("");
+    }
+  };
+
+  const inShow = (device: Device) => snapshot?.show.controllers.some((c) => c.address === device.address) ?? false;
+
+  return (
+    <div className="mx-auto max-w-5xl">
+      <PageHeader
+        title="Devices"
+        description="Find FPP, Falcon, and WLED controllers on your network and add them to your show. Nothing on your controllers is changed."
+        actions={
+          <Button variant="primary" onClick={() => scan()} disabled={scanning}>
+            {scanning ? <Loader2 size={16} className="animate-spin" /> : <Radar size={16} />}
+            {discovery ? "Scan again" : "Scan network"}
+          </Button>
+        }
+      />
+      <form
+        className="mb-6 flex items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void checkAddress();
+        }}
+      >
+        <Input
+          aria-label="Controller address"
+          placeholder="Controller IP address, e.g. 192.168.1.50"
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+          className="w-80"
+        />
+        <Button type="submit" disabled={scanning || !address.trim()}>
+          <Search size={16} /> Check address
+        </Button>
+      </form>
+      {notice && (
+        <p role="status" className="mb-4 text-sm text-neutral-700 dark:text-neutral-300">
+          {notice}
+        </p>
+      )}
+      {scanning && !discovery && (
+        <p className="flex items-center gap-2 text-sm text-neutral-500">
+          <Loader2 size={16} className="animate-spin" /> Looking for controllers… this takes a few seconds.
+        </p>
+      )}
+      {!scanning && !discovery && (
+        <EmptyState title="Find your controllers">
+          Choose Scan network to look for FPP, Falcon, and WLED controllers, or check a specific address.
+        </EmptyState>
+      )}
+      {discovery && discovery.devices.length === 0 && discovery.silent.length === 0 && (
+        <EmptyState title="No controllers found">
+          Make sure this computer is on the same network as your controllers. If your computer asks whether PixelFlow
+          may accept incoming connections, allow it so controllers can answer. You can also check a specific address.
+        </EmptyState>
+      )}
+      {discovery && discovery.devices.length > 0 && (
+        <table className="w-full">
+          <thead>
+            <tr className="text-left text-xs tracking-wide text-neutral-500 uppercase">
+              <th className="pb-2 font-medium">Type</th>
+              <th className="pb-2 font-medium">Controller</th>
+              <th className="pb-2 font-medium">Address</th>
+              <th className="pb-2 font-medium">Found by</th>
+              <th />
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {discovery.devices.map((device) => (
+              <DeviceRow key={device.address} device={device} inShow={inShow(device)} onReview={() => setReviewing(device.address)} />
+            ))}
+          </tbody>
+        </table>
+      )}
+      {discovery && discovery.silent.length > 0 && (
+        <ul className="mt-6 flex flex-col gap-2">
+          {discovery.silent.map((peer) => (
+            <li key={peer.address} className="flex items-start gap-2 text-sm text-amber-700 dark:text-amber-400">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+              <span>
+                <strong>{peer.description || peer.address}</strong> ({peer.address}) isn't responding. {peer.listedBy} sends
+                data to it — check that it's powered on and connected, then scan again.
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {reviewing && (
+        <ImportDialog address={reviewing} onClose={() => setReviewing(null)} onImported={(message) => setNotice(message)} />
+      )}
     </div>
   );
 }

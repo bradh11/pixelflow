@@ -1,6 +1,9 @@
 import type { Backend } from "./backend";
 import type {
   ChannelMap,
+  DeviceDetails,
+  Discovery,
+  SilentPeer,
   Edit,
   HistoryEntry,
   OutputStatus,
@@ -32,6 +35,8 @@ export class MemoryBackend implements Backend {
   nextSavePath: string | null = null;
   /** Calls made, for test assertions. */
   calls: string[] = [];
+  /** Devices "on the network" (see `demoDevices()`); empty by default. */
+  deviceNetwork: { details: DeviceDetails[]; silent: SilentPeer[] } = { details: [], silent: [] };
 
   constructor(show?: Show) {
     this.show = show ?? emptyShow("Untitled Show");
@@ -144,6 +149,31 @@ export class MemoryBackend implements Backend {
     return this.output;
   }
 
+  async discoverDevices(hosts: string[]): Promise<Discovery> {
+    this.calls.push(`discoverDevices:${hosts.join(",")}`);
+    return structuredClone({
+      devices: this.deviceNetwork.details.map((d) => d.device),
+      silent: this.deviceNetwork.silent,
+    });
+  }
+
+  async inspectDevice(address: string): Promise<DeviceDetails> {
+    const found = this.deviceNetwork.details.find((d) => d.device.address === address);
+    if (!found) throw new Error(`Could not reach ${address}: no response`);
+    const details = structuredClone(found);
+    details.plan.alreadyInShow = this.show.controllers.some((c) => c.address === address);
+    return withFreshIds(details);
+  }
+
+  async importDevice(address: string) {
+    const { device, plan } = await this.inspectDevice(address);
+    if (!plan.canImport) throw new Error(`${device.name} has no pixel outputs to import.`);
+    return this.applyEdits([
+      ...plan.props.map((prop) => ({ type: "addProp" as const, prop })),
+      { type: "addController" as const, controller: plan.controller },
+    ]);
+  }
+
   async pickOpenPath() {
     return this.nextOpenPath;
   }
@@ -183,8 +213,19 @@ export class MemoryBackend implements Backend {
   }
 }
 
+/** New ids for an import plan's controller and props, as the engine creates for each import. */
+function withFreshIds(details: DeviceDetails): DeviceDetails {
+  const ids = new Map(details.plan.props.map((p) => [p.id, crypto.randomUUID()]));
+  details.plan.props = details.plan.props.map((p) => ({ ...p, id: ids.get(p.id)! }));
+  details.plan.controller.id = crypto.randomUUID();
+  for (const port of details.plan.controller.ports) {
+    port.slots = port.slots.map((slot) => ({ ...slot, prop: ids.get(slot.prop) ?? slot.prop }));
+  }
+  return details;
+}
+
 export function emptyShow(name: string): Show {
-  return { schemaVersion: 1, name, settings: { frameRate: 40 }, props: [], groups: [], controllers: [] };
+  return { schemaVersion: 2, name, settings: { frameRate: 40 }, props: [], groups: [], controllers: [] };
 }
 
 function stoppedOutput(generation: number): OutputStatus {

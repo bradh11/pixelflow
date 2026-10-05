@@ -102,7 +102,7 @@ export interface Controller {
   id: Uuid;
   name: string;
   address: string;
-  adapter: "fpp" | "wled" | "generic";
+  adapter: "fpp" | "falcon" | "wled" | "generic";
   protocol: Protocol;
   ports: Port[];
 }
@@ -234,4 +234,80 @@ export interface HistoryEntry {
   id: string;
   savedAtMs: number;
   sizeBytes: number;
+}
+
+// Devices (see crates/pf-devices).
+
+export type DeviceKind = "fpp" | "falcon" | "wled";
+export type FoundBy = "ping" | "webSweep" | "mdns" | "fppPeer" | "manual";
+
+export interface Device {
+  address: string;
+  kind: DeviceKind;
+  name: string;
+  model: string;
+  firmware: string;
+  mode: string | null;
+  foundBy: FoundBy[];
+}
+
+export interface SilentPeer {
+  address: string;
+  description: string;
+  listedBy: string;
+}
+
+export interface Discovery {
+  devices: Device[];
+  /** Controllers an FPP listed that didn't answer. */
+  silent: SilentPeer[];
+}
+
+export type DeviceInput =
+  | { type: "ddp" }
+  | { type: "sacn"; startUniverse: number; channelsPerUniverse: number; universeCount: number }
+  | { type: "unsupported"; description: string };
+
+export interface StringConfig {
+  name: string | null;
+  pixels: number;
+  colorOrder: ColorOrder;
+  nullPixels: number;
+  reverse: boolean;
+  brightness: number;
+  gamma: number;
+  smartReceiver: number | null;
+}
+
+export interface PortConfig {
+  number: number;
+  strings: StringConfig[];
+}
+
+export interface Destination {
+  address: string;
+  description: string;
+  protocol: string;
+  channels: number;
+}
+
+export interface DeviceConfig {
+  input: DeviceInput;
+  ports: PortConfig[];
+  destinations: Destination[];
+  notes: string[];
+}
+
+export interface ImportPlan {
+  controller: Controller;
+  props: Prop[];
+  notes: string[];
+  alreadyInShow: boolean;
+  canImport: boolean;
+}
+
+export interface DeviceDetails {
+  device: Device;
+  config: DeviceConfig;
+  plan: ImportPlan;
 }

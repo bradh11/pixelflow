@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { type Backend, errorMessage } from "../api/backend";
-import type { Edit, ShowSnapshot } from "../api/types";
+import type { Discovery, Edit, ShowSnapshot } from "../api/types";
 import { fileName } from "../lib/format";
 
 export type Screen = "layout" | "wiring" | "devices" | "test" | "history";
@@ -30,6 +30,9 @@ interface AppState {
   pendingReplace: "new" | "open" | null;
   /** Test screen target selection; kept here so it survives leaving the screen. */
   testTarget: string;
+  /** The last device scan's results (kept while moving between screens). */
+  discovery: Discovery | null;
+  scanning: boolean;
 
   connect(backend: Backend): Promise<void>;
   setScreen(screen: Screen): void;
@@ -47,6 +50,10 @@ interface AppState {
   openShow(): Promise<boolean>;
   save(): Promise<boolean>;
   saveAs(): Promise<boolean>;
+  /** Looks for controllers; `hosts` adds typed addresses. Results merge into `discovery`. */
+  scan(hosts?: string[]): Promise<boolean>;
+  /** From the welcome screen: start a new show, open Devices, and scan. */
+  discoverFromWelcome(): Promise<void>;
 }
 
 export const useApp = create<AppState>((set, get) => {
@@ -84,6 +91,8 @@ export const useApp = create<AppState>((set, get) => {
   busy: false,
   pendingReplace: null,
   testTarget: "show",
+  discovery: null,
+  scanning: false,
 
   async connect(backend) {
     set({ backend });
@@ -158,6 +167,32 @@ export const useApp = create<AppState>((set, get) => {
     if (choice === "save" && !(await get().save())) return false;
     set({ pendingReplace: null });
     return replaceShow(kind);
+  },
+
+  async scan(hosts = []) {
+    const backend = get().backend;
+    if (!backend) return false;
+    set({ scanning: true });
+    try {
+      const found = await backend.discoverDevices(hosts);
+      const previous = hosts.length ? get().discovery : null;
+      const devices = [...(previous?.devices ?? []).filter((d) => !found.devices.some((f) => f.address === d.address)), ...found.devices];
+      const silent = found.silent.filter((s) => !devices.some((d) => d.address === s.address));
+      set({ discovery: { devices, silent }, error: null });
+      return true;
+    } catch (e) {
+      set({ error: errorMessage(e) });
+      return false;
+    } finally {
+      set({ scanning: false });
+    }
+  },
+
+  async discoverFromWelcome() {
+    if (await get().newShow()) {
+      set({ screen: "devices" });
+      await get().scan();
+    }
   },
 
   async save() {

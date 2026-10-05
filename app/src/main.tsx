@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
-import { demoShow } from "./api/demo";
+import { demoDevices, demoShow } from "./api/demo";
 import { MemoryBackend } from "./api/memory";
 import { inTauri, tauriBackend } from "./api/tauri";
 import { useApp } from "./state/store";
@@ -13,7 +13,9 @@ if (inTauri()) {
   void useApp.getState().connect(tauriBackend);
 } else {
   const demo = new URLSearchParams(location.search).has("demo");
-  void useApp.getState().connect(new MemoryBackend(demo ? demoShow() : undefined));
+  const backend = new MemoryBackend(demo ? demoShow() : undefined);
+  if (demo) backend.deviceNetwork = demoDevices();
+  void useApp.getState().connect(backend);
   if (demo) useApp.setState({ started: true });
 }
 

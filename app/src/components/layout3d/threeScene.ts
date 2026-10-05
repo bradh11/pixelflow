@@ -231,11 +231,16 @@ function buildGizmo() {
   return { group, highlight };
 }
 
-/** The renderer for one canvas. */
-export function createThreeScene(canvas: HTMLCanvasElement): Scene3d {
+/** A WebGL renderer for the canvas. */
+function webglRenderer(canvas: HTMLCanvasElement): WebGLRenderer {
   // No multisampling: hundreds of thousands of overlapping bulb sprites cost far more with it
   // (the bloom path renders without it anyway), and round sprites don't need it.
-  const renderer = new WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
+  return new WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
+}
+
+/** The renderer for one canvas (`makeRenderer` lets tests run it without WebGL). */
+export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canvas: HTMLCanvasElement) => WebGLRenderer = webglRenderer): Scene3d {
+  const renderer = makeRenderer(canvas);
   renderer.outputColorSpace = SRGBColorSpace;
   renderer.setClearColor(SKY_TOP);
 
@@ -325,11 +330,13 @@ export function createThreeScene(canvas: HTMLCanvasElement): Scene3d {
 
   const bloomComposer = new EffectComposer(renderer);
   bloomComposer.renderToScreen = false;
-  bloomComposer.addPass(new RenderPass(bloomScene, camera));
+  const bloomRender = new RenderPass(bloomScene, camera);
+  bloomComposer.addPass(bloomRender);
   const bloom = new UnrealBloomPass(new Vector2(256, 256), 0.9, 0.45, 0);
   bloomComposer.addPass(bloom);
   const composer = new EffectComposer(renderer);
-  composer.addPass(new RenderPass(scene, camera));
+  const mainRender = new RenderPass(scene, camera);
+  composer.addPass(mainRender);
   const mix = new ShaderPass(
     new ShaderMaterial({
       uniforms: { baseTexture: { value: null }, bloomTexture: { value: bloomComposer.renderTarget2.texture } },
@@ -340,7 +347,8 @@ export function createThreeScene(canvas: HTMLCanvasElement): Scene3d {
   );
   mix.needsSwap = true;
   composer.addPass(mix);
-  composer.addPass(new OutputPass());
+  const output = new OutputPass();
+  composer.addPass(output);
   let bloomOn = true;
   let size = { width: 1, height: 1, ratio: 1 };
 
@@ -562,12 +570,20 @@ export function createThreeScene(canvas: HTMLCanvasElement): Scene3d {
     },
 
     dispose() {
+      modelLoads++;
       disposeTree(scene);
       disposeTree(overlayScene);
+      disposeTree(bloomScene);
       occluder.dispose();
+      // A composer frees only its own targets and copy pass: every other pass is freed here.
+      for (const pass of [bloomRender, bloom, mainRender, mix, output]) pass.dispose();
       bloomComposer.dispose();
       composer.dispose();
+      renderer.renderLists.dispose();
       renderer.dispose();
+      // Let go of the WebGL context now rather than whenever it's collected: browsers allow only
+      // a few at once, and each switch to 3D makes a new one.
+      renderer.forceContextLoss();
     },
   };
 }

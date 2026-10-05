@@ -12,6 +12,20 @@ pub trait Http: Send + Sync {
     fn post_json(&self, host: &str, path: &str, body: &str) -> Result<String, DeviceError>;
 }
 
+/// A short, plain reason for a failed request (no library error text).
+fn plain_reason(error: &ureq::Error) -> String {
+    match error {
+        ureq::Error::Timeout(_) => "it didn't answer in time",
+        ureq::Error::HostNotFound => "that name couldn't be found",
+        ureq::Error::Io(e) if e.kind() == std::io::ErrorKind::ConnectionRefused => {
+            "it refused the connection"
+        }
+        ureq::Error::Io(e) if e.kind() == std::io::ErrorKind::TimedOut => "it didn't answer in time",
+        _ => "the network request failed",
+    }
+    .to_string()
+}
+
 /// Real HTTP over the network with a fixed timeout.
 #[derive(Debug, Clone)]
 pub struct HttpClient {
@@ -31,6 +45,9 @@ impl HttpClient {
             .timeout_connect(Some(connect))
             .timeout_global(Some(total))
             .http_status_as_error(false)
+            // Device traffic stays on the LAN: never through a proxy, and a redirect is an error.
+            .proxy(None)
+            .max_redirects(0)
             .build();
         Self { agent: config.into() }
     }
@@ -42,7 +59,7 @@ impl HttpClient {
     ) -> Result<String, DeviceError> {
         let mut response = response.map_err(|e| DeviceError::Unreachable {
             address: host.to_string(),
-            reason: e.to_string(),
+            reason: plain_reason(&e),
         })?;
         let status = response.status().as_u16();
         if status != 200 {
@@ -166,12 +183,39 @@ mod tests {
 
     #[test]
     fn real_client_reports_unreachable_hosts_plainly() {
-        let client = HttpClient::new(Duration::from_millis(300));
-        // TEST-NET-1 (RFC 5737) is never routable.
-        let err = client.get("192.0.2.1:9", "/").unwrap_err();
+        // A loopback port that was just closed refuses connections; no outside network is touched.
+        let port = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.local_addr().unwrap().port()
+        };
+        let client = HttpClient::new(Duration::from_millis(500));
+        let host = format!("127.0.0.1:{port}");
+        let err = client.get(&host, "/").unwrap_err();
+        assert!(matches!(err, DeviceError::Unreachable { .. }), "{err}");
+        let message = err.to_string();
         assert!(
-            err.to_string().starts_with("Could not reach 192.0.2.1:9"),
-            "{err}"
+            message.starts_with(&format!("Could not reach {host}")),
+            "{message}"
         );
+        assert!(message.contains("it refused the connection"), "{message}");
+    }
+
+    #[test]
+    fn redirects_are_errors_not_followed() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let host = listener.local_addr().unwrap().to_string();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 1024];
+            let _ = stream.read(&mut buf);
+            stream
+                .write_all(b"HTTP/1.1 302 Found\r\nLocation: http://192.0.2.1/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .unwrap();
+        });
+        let client = HttpClient::new(Duration::from_secs(2));
+        let err = client.get(&host, "/x").unwrap_err();
+        server.join().unwrap();
+        assert!(matches!(err, DeviceError::Http { status: 302, .. }), "{err:?}");
     }
 }

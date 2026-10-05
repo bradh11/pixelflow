@@ -75,6 +75,18 @@ pub fn probe(http: &dyn Http, host: &str) -> Result<Device, DeviceError> {
     })
 }
 
+/// The FPP major version, from `majorVersion` or the start of `Version`. Unknown reads as modern.
+fn major_version(info: &Value) -> i64 {
+    opt_int_field(info, "majorVersion")
+        .or_else(|| {
+            str_field(info, "Version")
+                .split(|c: char| !c.is_ascii_digit())
+                .next()
+                .and_then(|v| v.parse().ok())
+        })
+        .unwrap_or(i64::MAX)
+}
+
 /// Other controllers this FPP knows about: its MultiSync peers and the destinations of its
 /// channel outputs. Returns `(address, description)` pairs, excluding the FPP itself.
 pub fn peers(http: &dyn Http, host: &str) -> Vec<(String, String)> {
@@ -126,11 +138,27 @@ fn read_destinations(http: &dyn Http, host: &str) -> Result<Vec<Destination>, De
             if int_field(universe, "active") == 0 || address.is_empty() {
                 continue;
             }
+            let protocol = universe_protocol(int_field(universe, "type"));
+            // `channelCount` is per universe; `universeCount` universes run back to back.
+            let per_universe = int_field(universe, "channelCount").max(0);
+            let count = opt_int_field(universe, "universeCount").map_or(1, |c| c.max(1));
+            let channels = u32::try_from(per_universe.saturating_mul(count)).unwrap_or(u32::MAX);
+            // One entry per address and protocol, however many universe ranges FPP lists.
+            if let Some(existing) = destinations
+                .iter_mut()
+                .find(|d: &&mut Destination| d.address == address && d.protocol == protocol)
+            {
+                existing.channels = existing.channels.saturating_add(channels);
+                if existing.description.is_empty() {
+                    existing.description = str_field(universe, "description").to_string();
+                }
+                continue;
+            }
             destinations.push(Destination {
                 address: address.to_string(),
                 description: str_field(universe, "description").to_string(),
-                protocol: universe_protocol(int_field(universe, "type")).to_string(),
-                channels: u32::try_from(int_field(universe, "channelCount")).unwrap_or(0),
+                protocol: protocol.to_string(),
+                channels,
             });
         }
     }
@@ -161,7 +189,7 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
             continue;
         }
         for port in output["outputs"].as_array().into_iter().flatten() {
-            let raw_number = int_field(port, "portNumber") + 1;
+            let raw_number = int_field(port, "portNumber").saturating_add(1);
             let mut strings = Vec::new();
             for vs in port["virtualStrings"].as_array().into_iter().flatten() {
                 if int_field(vs, "pixelCount") <= 0 {
@@ -236,11 +264,29 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
                 .to_string()
         });
     }
-    let mode = str_field(&info, "Mode");
-    if !ports.is_empty() && mode != "bridge" {
-        notes.push(format!(
-            "FPP is in {mode} mode. Switch it to bridge mode to show PixelFlow's live output."
-        ));
+    if !ports.is_empty() {
+        let mode = str_field(&info, "Mode");
+        if major_version(&info) >= 5 {
+            // Bridge mode was removed in FPP 5; an idle player accepts live data.
+            notes.push(
+                "If a playlist or sequence is running on this FPP, it overrides PixelFlow's live output; stop it while using PixelFlow."
+                    .to_string(),
+            );
+        } else if mode != "bridge" {
+            notes.push(if mode.is_empty() {
+                "This FPP isn't in bridge mode. Switch it to bridge mode to show PixelFlow's live output."
+                    .to_string()
+            } else {
+                format!("FPP is in {mode} mode. Switch it to bridge mode to show PixelFlow's live output.")
+            });
+        }
+        // PixelFlow's DDP output always starts at channel 1; FPP's start channels are 0-based.
+        if let Some(start) = placed.first().and_then(|p| p.start).filter(|s| *s != 0) {
+            notes.push(format!(
+                "This FPP's strings start at channel {}, but PixelFlow sends from channel 1. Set the first string to start at channel 1 on the FPP, or the strings will stay dark.",
+                start.saturating_add(1)
+            ));
+        }
     }
     // Several strings can raise the same note; say each once, in the order first seen.
     let mut seen = std::collections::HashSet::new();

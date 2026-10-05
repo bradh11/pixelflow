@@ -56,14 +56,15 @@ struct Candidates(BTreeMap<String, (Option<DeviceKind>, BTreeSet<FoundBy>)>);
 
 impl Candidates {
     /// Adds a candidate; new addresses from sources other than `Manual` are dropped once
-    /// `MAX_CANDIDATES` are held.
-    fn add(&mut self, address: String, kind: Option<DeviceKind>, by: FoundBy) {
+    /// `MAX_CANDIDATES` are held. Returns whether the address is now a candidate.
+    fn add(&mut self, address: String, kind: Option<DeviceKind>, by: FoundBy) -> bool {
         if by != FoundBy::Manual && self.0.len() >= MAX_CANDIDATES && !self.0.contains_key(&address) {
-            return;
+            return false;
         }
         let entry = self.0.entry(address).or_default();
         entry.0 = entry.0.or(kind);
         entry.1.insert(by);
+        true
     }
 }
 
@@ -195,14 +196,16 @@ pub fn discover(http: &dyn Http, sweep_http: &dyn Http, options: &DiscoverOption
         let sweep = options
             .sweep
             .then(|| scope.spawn(|| web_sweep(sweep_http, &interfaces)));
+        // Sweep results are verified over HTTP, so they go in first: spoofed UDP replies
+        // (ping, mDNS) can't use up the candidate limit ahead of them.
+        for (address, kind) in sweep.map(|h| h.join().unwrap_or_default()).unwrap_or_default() {
+            candidates.add(address, Some(kind), FoundBy::WebSweep);
+        }
         for (address, kind) in ping.map(|h| h.join().unwrap_or_default()).unwrap_or_default() {
             candidates.add(address.to_string(), kind, FoundBy::Ping);
         }
         for (address, kind) in mdns.map(|h| h.join().unwrap_or_default()).unwrap_or_default() {
             candidates.add(address.to_string(), Some(kind), FoundBy::Mdns);
-        }
-        for (address, kind) in sweep.map(|h| h.join().unwrap_or_default()).unwrap_or_default() {
-            candidates.add(address, Some(kind), FoundBy::WebSweep);
         }
     });
     add_manual_hosts(&mut candidates, &options.extra_hosts);
@@ -215,10 +218,12 @@ pub fn discover(http: &dyn Http, sweep_http: &dyn Http, options: &DiscoverOption
     for device in devices.values().filter(|d| d.kind == DeviceKind::Fpp) {
         for (address, description) in usable_peers(fpp::peers(http, &device.address)) {
             if !devices.contains_key(&address) {
-                peers.add(address.clone(), None, FoundBy::FppPeer);
-                listed
-                    .entry(address)
-                    .or_insert((description, device.name.clone()));
+                // Only peers that made it into the candidate set can be reported as silent.
+                if peers.add(address.clone(), None, FoundBy::FppPeer) {
+                    listed
+                        .entry(address)
+                        .or_insert((description, device.name.clone()));
+                }
             }
         }
     }
@@ -352,7 +357,7 @@ fn ping_discovery(
     while Instant::now() < deadline {
         let (len, from) = match socket.recv_from(&mut buf) {
             Ok(received) => received,
-            Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => continue,
+            Err(e) if keep_listening(e.kind()) => continue,
             Err(_) => break,
         };
         let SocketAddr::V4(from) = from else {
@@ -367,6 +372,15 @@ fn ping_discovery(
         }
     }
     found.0.into_iter().collect()
+}
+
+/// Receive errors that don't end the listening window (including a reset caused by an ICMP
+/// "port unreachable" for one of our own pings).
+fn keep_listening(kind: ErrorKind) -> bool {
+    matches!(
+        kind,
+        ErrorKind::WouldBlock | ErrorKind::TimedOut | ErrorKind::Interrupted | ErrorKind::ConnectionReset
+    )
 }
 
 fn multisync_socket(interfaces: &[(Ipv4Addr, Ipv4Addr)]) -> std::io::Result<UdpSocket> {
@@ -418,6 +432,40 @@ fn mdns_discovery(listen_for: Duration) -> Vec<(Ipv4Addr, DeviceKind)> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn receive_errors_that_keep_the_ping_loop_going() {
+        for kind in [
+            ErrorKind::WouldBlock,
+            ErrorKind::TimedOut,
+            ErrorKind::Interrupted,
+            ErrorKind::ConnectionReset,
+        ] {
+            assert!(keep_listening(kind), "{kind:?}");
+        }
+        assert!(!keep_listening(ErrorKind::PermissionDenied));
+        assert!(!keep_listening(ErrorKind::Other));
+    }
+
+    #[test]
+    fn candidates_report_whether_an_address_was_accepted() {
+        let mut candidates = Candidates::default();
+        for i in 0..MAX_CANDIDATES {
+            assert!(candidates.add(format!("10.0.{}.{}", i / 250, i % 250), None, FoundBy::Ping));
+        }
+        assert!(
+            !candidates.add("192.0.2.1".into(), None, FoundBy::FppPeer),
+            "over the limit"
+        );
+        assert!(
+            candidates.add("10.0.0.0".into(), None, FoundBy::FppPeer),
+            "already held"
+        );
+        assert!(
+            candidates.add("typed.local".into(), None, FoundBy::Manual),
+            "typed hosts always kept"
+        );
+    }
+
     use super::*;
 
     #[test]

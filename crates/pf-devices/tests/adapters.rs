@@ -75,6 +75,16 @@ fn fpp_with_a_pixel_hat_imports_its_strings() {
         &"The controller skips its own null pixels (Port 1 \"Roof Line\": 1), so PixelFlow won't send data for them."
             .to_string()
     ));
+    let gutter = &plan.controller.ports[0].slots[1];
+    assert_eq!(
+        (gutter.reverse, gutter.brightness, gutter.gamma),
+        (false, None, None),
+        "the controller applies these itself"
+    );
+    assert!(plan.notes.contains(
+        &"The controller applies its own settings (Port 1 \"Gutter\": reversed, 50% brightness, gamma 2.2), so PixelFlow sends unadjusted data."
+            .to_string()
+    ));
     assert_eq!(
         plan.props.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(),
         vec!["Roof Line", "Gutter"]
@@ -504,4 +514,93 @@ fn fpp_peers_keep_the_description() {
     let peers = pf_devices::fpp::peers(&http, FPP);
     assert_eq!(peers, vec![(FALCON.to_string(), "Falcon_F16V5_B9F5".to_string())]);
     assert_no_secret_endpoints(&http);
+}
+
+fn hat_notes(info: &str, strings_from: &str, strings_to: &str) -> Vec<String> {
+    let doc = include_str!("../fixtures/fpp-hat/api_channel_output_co-pixelStrings.json");
+    let universes = include_str!("../fixtures/fpp-hat/api_channel_output_universeOutputs.json");
+    let http = FakeHttp::new()
+        .with_get(FPP_HAT, "/api/system/info", info)
+        .with_get(FPP_HAT, HAT_STRINGS, &doc.replace(strings_from, strings_to))
+        .with_get(FPP_HAT, "/api/channel/output/universeOutputs", universes);
+    hat_config(&http).unwrap().notes
+}
+
+#[test]
+fn fpp_5_and_later_warn_that_a_running_playlist_overrides_live_output() {
+    let info = include_str!("../fixtures/fpp-hat/api_system_info.json");
+    let notes = hat_notes(info, "\"x\"", "\"x\"");
+    let note = "If a playlist or sequence is running on this FPP, it overrides PixelFlow's live output; stop it while using PixelFlow.";
+    assert!(notes.contains(&note.to_string()), "{notes:?}");
+    assert!(!notes.iter().any(|n| n.contains("bridge") || n.contains("mode")));
+}
+
+#[test]
+fn old_fpp_keeps_the_bridge_wording_and_never_prints_an_empty_mode() {
+    let info = include_str!("../fixtures/fpp-hat/api_system_info.json")
+        .replace(r#""majorVersion": 9"#, r#""majorVersion": 4"#);
+    let notes = hat_notes(&info, "\"x\"", "\"x\"");
+    assert!(notes.contains(
+        &"FPP is in player mode. Switch it to bridge mode to show PixelFlow's live output.".to_string()
+    ));
+    let info = info.replace(r#""Mode": "player", "#, "");
+    let notes = hat_notes(&info, "\"x\"", "\"x\"");
+    assert!(
+        notes
+            .iter()
+            .any(|n| n.starts_with("This FPP isn't in bridge mode")),
+        "{notes:?}"
+    );
+    assert!(!notes.iter().any(|n| n.contains("is in  mode")));
+}
+
+#[test]
+fn fpp_strings_not_starting_at_channel_one_are_flagged() {
+    let info = include_str!("../fixtures/fpp-hat/api_system_info.json");
+    assert!(
+        !hat_notes(info, "\"x\"", "\"x\"")
+            .iter()
+            .any(|n| n.contains("start at channel"))
+    );
+    let notes = hat_notes(
+        info,
+        r#""startChannel": 0, "pixelCount": 150"#,
+        r#""startChannel": 99, "pixelCount": 150"#,
+    );
+    assert!(
+        notes.contains(
+            &"This FPP's strings start at channel 100, but PixelFlow sends from channel 1. Set the first string to start at channel 1 on the FPP, or the strings will stay dark."
+                .to_string()
+        ),
+        "{notes:?}"
+    );
+}
+
+#[test]
+fn fpp_destinations_merge_by_address_and_protocol_and_count_universes() {
+    let universes = r#"{"channelOutputs":[{"enabled":1,"universes":[
+        {"active":1,"address":"192.0.2.20","channelCount":510,"universeCount":4,"type":4,"description":""},
+        {"active":1,"address":"192.0.2.20","channelCount":510,"type":4,"description":"Falcon"},
+        {"active":1,"address":"192.0.2.20","channelCount":510,"type":1,"description":"Falcon"}]}]}"#;
+    let info = include_str!("../fixtures/fpp-hat/api_system_info.json");
+    let http = FakeHttp::new()
+        .with_get(FPP_HAT, "/api/system/info", info)
+        .with_get_status(FPP_HAT, HAT_STRINGS, 404)
+        .with_get(FPP_HAT, "/api/channel/output/universeOutputs", universes);
+    let d = hat_config(&http).unwrap().destinations;
+    assert_eq!(d.len(), 2, "{d:?}");
+    assert_eq!((d[0].protocol.as_str(), d[0].channels), ("DDP", 2550));
+    assert_eq!(d[0].description, "Falcon");
+    assert_eq!((d[1].protocol.as_str(), d[1].channels), ("sACN unicast", 510));
+}
+
+#[test]
+fn falcon_without_a_product_code_is_treated_as_older_and_never_queried() {
+    let status = include_str!("../fixtures/falcon/status.xml").replace("<p>130</p>", "");
+    let http = network().with_get(FALCON, "/status.xml", &status);
+    let device = identify(&http, FALCON, None).unwrap();
+    let before = http.requests().len();
+    let err = read_config(&http, &device).unwrap_err().to_string();
+    assert!(err.contains("older Falcon controller"), "{err}");
+    assert!(http.requests()[before..].iter().all(|r| !r.starts_with("POST")));
 }

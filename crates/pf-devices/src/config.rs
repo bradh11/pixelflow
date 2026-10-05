@@ -105,7 +105,8 @@ pub(crate) fn layout_is_contiguous(strings: &[Placed]) -> bool {
         .windows(2)
         .all(|pair| match (pair[0].start, pair[1].start) {
             (Some(a), Some(b)) => {
-                b - a == i64::from(pair[0].pixels) * i64::from(pair[0].color_order.channels_per_pixel())
+                b.saturating_sub(a)
+                    == i64::from(pair[0].pixels) * i64::from(pair[0].color_order.channels_per_pixel())
             }
             _ => true,
         })

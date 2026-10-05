@@ -37,7 +37,7 @@ pub struct Device {
     pub name: String,
     pub model: String,
     pub firmware: String,
-    /// Operating mode as the device reports it (e.g. FPP "player"/"bridge", Falcon "DDP").
+    /// Operating mode as the device reports it (FPP only, e.g. "player"; not set for other kinds).
     pub mode: Option<String>,
     pub found_by: Vec<FoundBy>,
 }

@@ -149,8 +149,8 @@ fn color_order(code: i64) -> Option<ColorOrder> {
 pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceError> {
     let mut notes = Vec::new();
     let status = read_status_xml(http, host)?;
-    // Product codes below 128 are pre-V4 boards, which don't speak the JSON API used below.
-    if (1..128).contains(&status.product) {
+    // Product codes below 128 (or a missing code) are pre-V4 boards, which don't speak the JSON API used below.
+    if status.product < 128 {
         let name = if status.name.is_empty() {
             format!("Falcon {host}")
         } else {
@@ -162,6 +162,8 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
     }
     let (settings, _) = query(http, host, "ST", 1)?;
     let mode = int(&settings, "O");
+    // TODO(falcon-recording): `sc` may be 0- or 1-based; once a real F16V5 response confirms the base,
+    // note when the first string doesn't start at PixelFlow's channel 1 (as the FPP adapter does).
     let input = match mode {
         0 => {
             let (inputs, _) = query(http, host, "IN", 0)?;
@@ -170,8 +172,12 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
                 Some(first) if first["p"].as_str() == Some("e") => DeviceInput::Sacn {
                     start_universe: u16::try_from(int(first, "u")).unwrap_or(1),
                     channels_per_universe: u16::try_from(int(first, "c")).unwrap_or(510),
-                    universe_count: u16::try_from(entries.iter().map(|e| int(e, "uc").max(1)).sum::<i64>())
-                        .unwrap_or(1),
+                    universe_count: u16::try_from(
+                        entries
+                            .iter()
+                            .fold(0i64, |sum, e| sum.saturating_add(int(e, "uc").max(1))),
+                    )
+                    .unwrap_or(1),
                 },
                 Some(_) => DeviceInput::Unsupported {
                     description: "Art-Net input".to_string(),
@@ -188,7 +194,7 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
     };
     if let DeviceInput::Unsupported { description } = &input {
         notes.push(format!(
-            "The controller is in {description}; PixelFlow will send DDP. Switch the controller to DDP (or E1.31) mode to see live output."
+            "The controller is in {description}; PixelFlow will send DDP. Switch the controller to DDP mode to see live output."
         ));
     }
 
@@ -205,7 +211,7 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
             if int(s, "n") <= 0 {
                 continue;
             }
-            let Some(number) = valid_port(port + 1, &mut notes) else {
+            let Some(number) = valid_port(port.saturating_add(1), &mut notes) else {
                 continue;
             };
             let label = format!("Port {number}");
@@ -276,7 +282,7 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
     let ports = ports
         .into_iter()
         .filter_map(|(port, strings)| {
-            let number = u16::try_from(port + 1).ok()?;
+            let number = u16::try_from(port.saturating_add(1)).ok()?;
             let strings: Vec<_> = strings.into_values().collect();
             placed.extend(strings.iter().map(|(start, s)| Placed {
                 start: *start,

@@ -76,6 +76,7 @@ pub fn plan_import(device: &Device, config: &DeviceConfig, show: &Show) -> Impor
 
     let mut props = Vec::new();
     let mut skipped_nulls = Vec::new();
+    let mut controller_applied = Vec::new();
     for port_config in &config.ports {
         let mut port = Port::new(port_config.number);
         let several = port_config.strings.len() > 1;
@@ -103,9 +104,26 @@ pub fn plan_import(device: &Device, config: &DeviceConfig, show: &Show) -> Impor
                     port_config.number, prop.name, string.null_pixels
                 ));
             }
-            slot.reverse = string.reverse;
-            slot.brightness = (string.brightness != 100).then_some(string.brightness);
-            slot.gamma = ((string.gamma - 1.0).abs() > f32::EPSILON).then_some(string.gamma);
+            // The controller applies reverse, brightness, and gamma itself; the slot keeps its
+            // defaults so PixelFlow doesn't apply them a second time.
+            let mut applied = Vec::new();
+            if string.reverse {
+                applied.push("reversed".to_string());
+            }
+            if string.brightness != 100 {
+                applied.push(format!("{}% brightness", string.brightness));
+            }
+            if (string.gamma - 1.0).abs() > f32::EPSILON {
+                applied.push(format!("gamma {}", string.gamma));
+            }
+            if !applied.is_empty() {
+                controller_applied.push(format!(
+                    "Port {} \"{}\": {}",
+                    port_config.number,
+                    prop.name,
+                    applied.join(", ")
+                ));
+            }
             slot.smart_receiver = string.smart_receiver;
             port.slots.push(slot);
             props.push(prop);
@@ -116,6 +134,12 @@ pub fn plan_import(device: &Device, config: &DeviceConfig, show: &Show) -> Impor
         notes.push(format!(
             "The controller skips its own null pixels ({}), so PixelFlow won't send data for them.",
             skipped_nulls.join(", ")
+        ));
+    }
+    if !controller_applied.is_empty() {
+        notes.push(format!(
+            "The controller applies its own settings ({}), so PixelFlow sends unadjusted data.",
+            controller_applied.join("; ")
         ));
     }
     ImportPlan {
@@ -212,14 +236,18 @@ mod tests {
         assert_eq!(slot.prop, plan.props[0].id);
         assert_eq!(
             (slot.null_pixels, slot.reverse, slot.brightness, slot.gamma),
-            (0, true, Some(50), Some(2.2))
+            (0, false, None, None)
         );
         assert_eq!(slot.smart_receiver, Some(1));
-        assert_eq!(plan.notes.len(), 2);
+        assert_eq!(plan.notes.len(), 3);
         assert_eq!(plan.notes[0], "note");
         assert_eq!(
             plan.notes[1],
             "The controller skips its own null pixels (Port 1 \"Arch\": 1, Port 3 \"Garage Falcon Port 3 String 1\": 1, Port 3 \"Garage Falcon Port 3 String 2\": 1), so PixelFlow won't send data for them."
+        );
+        assert_eq!(
+            plan.notes[2],
+            "The controller applies its own settings (Port 1 \"Arch\": reversed, 50% brightness, gamma 2.2; Port 3 \"Garage Falcon Port 3 String 1\": reversed, 50% brightness, gamma 2.2; Port 3 \"Garage Falcon Port 3 String 2\": reversed, 50% brightness, gamma 2.2), so PixelFlow sends unadjusted data."
         );
     }
 

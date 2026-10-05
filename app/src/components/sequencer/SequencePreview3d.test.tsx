@@ -161,14 +161,14 @@ describe("the Sequence screen's 3D preview", () => {
     fireEvent.pointerDown(divider, { clientY: 324, pointerId: 1, button: 0 });
     fireEvent.pointerMove(divider, { clientY: 900, pointerId: 1 });
     fireEvent.pointerUp(divider, { clientY: 900, pointerId: 1 });
-    expect(pane().style.height).toBe("440px");
+    expect(pane().style.height).toBe("360px");
 
     const bigger = within(preview()).getByRole("button", { name: "Bigger preview" });
     await user.click(bigger);
     expect(bigger).toHaveAttribute("aria-pressed", "true");
     expect(pane().style.height).toBe("75%");
     await user.click(bigger);
-    expect(pane().style.height).toBe("440px");
+    expect(pane().style.height).toBe("360px");
   });
 
   it("still opens when this computer won't store the preview's size", async () => {

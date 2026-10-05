@@ -24,7 +24,7 @@ const DEFAULT_SHARE = 0.34;
 const BIG_SHARE = 0.75;
 /** The least room the preview and the timeline each keep. */
 const MIN_PREVIEW_PX = 120;
-const MIN_TIMELINE_PX = 160;
+const MIN_TIMELINE_PX = 240;
 /** How far an arrow key moves the divider. */
 const STEP_PX = 20;
 
@@ -121,7 +121,7 @@ function Workspace() {
       <EffectPalette />
       <div ref={column} className="flex min-w-0 flex-1 flex-col">
         <BeatsBanner />
-        <div className="shrink-0 px-2 pt-2 pb-1" style={{ height: pane.big ? `${BIG_SHARE * 100}%` : pane.height !== null ? `${pane.height}px` : `${DEFAULT_SHARE * 100}%` }}>
+        <div className="min-h-30 shrink px-2 pt-2 pb-1" style={{ height: pane.big ? `${BIG_SHARE * 100}%` : pane.height !== null ? `${pane.height}px` : `${DEFAULT_SHARE * 100}%` }}>
           <SequencePreview doc={doc} expanded={pane.big} onExpand={(big) => update({ ...pane, big })} />
         </div>
         {/* Drag (or use the arrow keys) to share the room between the preview and the timeline;

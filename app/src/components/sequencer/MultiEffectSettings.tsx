@@ -119,7 +119,7 @@ export function MultiEffectSettings({ doc, ids }: { doc: Sequence; ids: string[]
             ))}
           </select>
         </label>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 items-end gap-2">
           <MsField
             key={`${ids.join()}:fadeIn`}
             label="Fade in (ms)"
@@ -140,7 +140,7 @@ export function MultiEffectSettings({ doc, ids }: { doc: Sequence; ids: string[]
       </Section>
 
       <Section title="Timing">
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 items-end gap-2">
           <MsField
             key={`${ids.join()}:shift`}
             label="Move all by (ms)"

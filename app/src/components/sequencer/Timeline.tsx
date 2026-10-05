@@ -772,7 +772,7 @@ export function Timeline({ doc }: { doc: Sequence }) {
   const thumb = Math.min(1, visibleMs / Math.max(1, doc.durationMs));
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-60 flex-1 flex-col overflow-hidden">
       <div className="flex min-h-0 flex-1">
         <RowHeaders doc={doc} show={show} lanes={lanes} top={top} scrollY={scrollY} rowsViewport={rowsViewport} />
         <div ref={bodyRef} className="relative min-w-0 flex-1">

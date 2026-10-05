@@ -352,6 +352,34 @@ fn the_music_is_found_next_to_the_document_and_playback_follows_its_clock() {
 }
 
 #[test]
+fn an_imported_sequence_opens_unsaved_and_oversized_ones_are_refused() {
+    let (mut engine, _recorded, dir) = engine();
+    let mut doc = pf_sequence::Sequence::new("Imported", 5000);
+    let mut row = Row::new(Target::Prop(engine.show().props[0].id));
+    row.layers[0].effects.push(on(Rgb::RED, 0, 1000));
+    doc.rows.push(row);
+    let snapshot = engine.adopt_sequence_doc(doc.clone()).unwrap();
+    assert!(snapshot.dirty, "an import has unsaved changes");
+    assert_eq!(snapshot.path, None);
+    assert!(!snapshot.can_undo);
+    assert_eq!(snapshot.sequence, doc);
+    let path = dir.path().join("imported.pfseq.json");
+    assert!(!engine.save_sequence_doc_as(&path).unwrap().dirty);
+
+    let mut huge = doc;
+    huge.duration_ms = pf_sequence::MAX_DURATION_MS + 1;
+    assert!(matches!(
+        engine.adopt_sequence_doc(huge),
+        Err(EngineError::TooLarge(_))
+    ));
+    assert_eq!(
+        engine.sequence_doc().unwrap().path.as_deref(),
+        Some(path.to_str().unwrap()),
+        "a refused import leaves the open sequence alone"
+    );
+}
+
+#[test]
 fn exports_the_open_sequence() {
     let (mut engine, _recorded, dir) = engine();
     let path = dir.path().join("song.fseq");

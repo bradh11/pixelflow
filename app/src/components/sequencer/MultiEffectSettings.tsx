@@ -23,6 +23,8 @@ export function MultiEffectSettings({ doc, ids }: { doc: Sequence; ids: string[]
   const kind = sharedKind(effects);
   const info = kind ? catalog.find((c) => c.kind === kind) : undefined;
   const chosen = new Set(ids);
+  /** A new selection starts the fields afresh. */
+  const fresh = ids.join();
   const rows = doc.rows.filter((r) => r.layers.some((l) => l.effects.some((e) => chosen.has(e.id))));
   const faces = [...new Set(rows.flatMap((r) => faceNames(show, r.target)))];
 
@@ -68,8 +70,7 @@ export function MultiEffectSettings({ doc, ids }: { doc: Sequence; ids: string[]
             const value = shared(effects.map((e) => (e.params as Record<string, unknown>)[setting.key] ?? setting.default));
             return (
               <SettingControl
-                // A new selection starts the fields afresh.
-                key={`${ids.join()}:${setting.key}`}
+                key={`${fresh}:${setting.key}`}
                 setting={setting}
                 value={value.value}
                 mixed={value.mixed}
@@ -85,7 +86,7 @@ export function MultiEffectSettings({ doc, ids }: { doc: Sequence; ids: string[]
       {usesColors && (
         <Section title="Colors">
           <ColorList
-            key={ids.join()}
+            key={fresh}
             colors={palette.value}
             usesOne={kind === "fade"}
             mixed={palette.mixed}
@@ -121,7 +122,7 @@ export function MultiEffectSettings({ doc, ids }: { doc: Sequence; ids: string[]
         </label>
         <div className="grid grid-cols-2 items-end gap-2">
           <MsField
-            key={`${ids.join()}:fadeIn`}
+            key={`${fresh}:fadeIn`}
             label="Fade in (ms)"
             hint="Each effect's fade stays within its length."
             value={fadeIn.value}
@@ -129,7 +130,7 @@ export function MultiEffectSettings({ doc, ids }: { doc: Sequence; ids: string[]
             onCommit={(v) => all((x) => ({ ...x, fadeInMs: clamp(v, 0, x.endMs - x.startMs) }))}
           />
           <MsField
-            key={`${ids.join()}:fadeOut`}
+            key={`${fresh}:fadeOut`}
             label="Fade out (ms)"
             hint="Each effect's fade stays within its length."
             value={fadeOut.value}
@@ -142,7 +143,7 @@ export function MultiEffectSettings({ doc, ids }: { doc: Sequence; ids: string[]
       <Section title="Timing">
         <div className="grid grid-cols-2 items-end gap-2">
           <MsField
-            key={`${ids.join()}:shift`}
+            key={`${fresh}:shift`}
             label="Move all by (ms)"
             hint="A negative number moves them earlier."
             value={0}
@@ -160,7 +161,7 @@ export function MultiEffectSettings({ doc, ids }: { doc: Sequence; ids: string[]
             }
           />
           <MsField
-            key={`${ids.join()}:length`}
+            key={`${fresh}:length`}
             label="Length of each (ms)"
             hint="Each one keeps its start, and stops at the next effect or the end of the song."
             value={length.value}

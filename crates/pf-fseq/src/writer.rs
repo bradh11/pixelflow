@@ -1,4 +1,6 @@
-//! Writing version 2 sequence files: zstd-compressed blocks of frames, no sparse ranges.
+//! Writing version 2.2 sequence files (the version xLights writes and FPP reads): zstd-compressed
+//! blocks of frames, no sparse ranges. Version 2.2 is the one whose block count has 12 bits; a 2.0
+//! reader would only see the low 8 (255 blocks, about a minute at 25 ms and 10 frames per block).
 
 use crate::error::FseqError;
 use crate::header::MAX_CHANNELS;
@@ -117,7 +119,8 @@ impl<W: Write + Seek> FseqWriter<W> {
         }
         let block_count = options.frames.div_ceil(frames_per_block) as usize;
         let vars = Self::variables(&options).len();
-        let header_len = 32 + block_count * 8 + vars;
+        // Padded to a multiple of 4 bytes like xLights (readers stop at the zero padding).
+        let header_len = (32 + block_count * 8 + vars).next_multiple_of(4);
         if header_len > usize::from(u16::MAX) {
             return Err(cant("its header would be longer than 64 KB"));
         }
@@ -219,7 +222,7 @@ impl<W: Write + Seek> FseqWriter<W> {
         let mut out = Vec::with_capacity(self.header_len);
         out.extend_from_slice(b"PSEQ");
         out.extend_from_slice(&(self.header_len as u16).to_le_bytes());
-        out.extend_from_slice(&[0, 2]); // version 2.0 (minor, major)
+        out.extend_from_slice(&[2, 2]); // version 2.2 (minor, major): 12-bit block count
         out.extend_from_slice(&(variable_start as u16).to_le_bytes());
         out.extend_from_slice(&o.channels.to_le_bytes());
         out.extend_from_slice(&o.frames.to_le_bytes());
@@ -235,6 +238,7 @@ impl<W: Write + Seek> FseqWriter<W> {
             out.extend_from_slice(&len.to_le_bytes());
         }
         out.extend(Self::variables(o));
+        out.resize(self.header_len, 0);
         out
     }
 }

@@ -91,8 +91,12 @@ impl SequenceExport {
     }
 
     /// Renders every frame and writes the `.fseq` file atomically. `progress` gets (frames done,
-    /// total frames).
-    pub fn run(&self, path: &Path, progress: impl FnMut(u32, u32)) -> Result<ExportSummary, EngineError> {
+    /// total frames) and returns `false` to cancel (the error says so, and no file is written).
+    pub fn run(
+        &self,
+        path: &Path,
+        progress: impl FnMut(u32, u32) -> bool,
+    ) -> Result<ExportSummary, EngineError> {
         pf_render::export::export_fseq_file(&self.show, &self.map, &self.sequence, path, progress)
             .map_err(|e| EngineError::Export(e.to_string()))
     }
@@ -722,7 +726,7 @@ impl Engine {
 
     /// Exports the open sequence as an `.fseq` file (see [`SequenceExport::run`]).
     pub fn export_sequence_doc(&self, path: &Path) -> Result<ExportSummary, EngineError> {
-        self.sequence_export()?.run(path, |_, _| {})
+        self.sequence_export()?.run(path, |_, _| true)
     }
 
     fn replace_sequence(&mut self, open: OpenSequence) {

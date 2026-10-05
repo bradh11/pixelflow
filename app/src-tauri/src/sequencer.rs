@@ -104,7 +104,7 @@ pub(crate) async fn sequence_export_layout(state: State<'_, AppState>) -> Reply<
 #[tauri::command]
 pub(crate) async fn export_sequence_doc(state: State<'_, AppState>, path: PathBuf) -> Reply<ExportSummary> {
     let job = state.engine().sequence_export().map_err(message)?;
-    tauri::async_runtime::spawn_blocking(move || job.run(&path, |_, _| {}))
+    tauri::async_runtime::spawn_blocking(move || job.run(&path, |_, _| true))
         .await
         .map_err(|_| "Something went wrong exporting the sequence.".to_string())?
         .map_err(message)

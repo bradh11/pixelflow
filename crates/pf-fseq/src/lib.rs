@@ -3,7 +3,7 @@
 //!
 //! Supports format versions 1 (uncompressed) and 2 (uncompressed, zstd, or zlib blocks, with
 //! optional sparse channel ranges). Frames are decompressed one block at a time, so memory
-//! stays small even for long shows. [`FseqWriter`] writes version 2 files with zstd blocks.
+//! stays small even for long shows. [`FseqWriter`] writes version 2.2 files with zstd blocks.
 
 mod error;
 mod header;

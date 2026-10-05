@@ -17,7 +17,11 @@ use serde::Serialize;
 use std::fs;
 use std::io::{self, BufWriter, Seek, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Numbers each export's temporary file.
+static EXPORT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Where one controller's channels sit in the exported file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -69,6 +73,8 @@ pub enum ExportError {
     Fseq(#[from] FseqError),
     #[error("Could not save {path}: {source}")]
     Write { path: PathBuf, source: io::Error },
+    #[error("The export was cancelled.")]
+    Cancelled,
 }
 
 /// One block with the controller (index into the show's controllers) it comes from.
@@ -181,14 +187,15 @@ pub fn export_layout(show: &Show, map: &ChannelMap) -> ExportLayout {
 }
 
 /// Renders every frame of `seq` and writes an `.fseq` file to `out`. `progress` is called after
-/// each frame with (frames done, total frames).
+/// each frame with (frames done, total frames); returning `false` cancels the export
+/// ([`ExportError::Cancelled`]) before the next frame.
 pub fn export_fseq<W: Write + Seek>(
     show: &Show,
     map: &ChannelMap,
     seq: &Sequence,
     out: W,
     unique_id: u64,
-    mut progress: impl FnMut(u32, u32),
+    mut progress: impl FnMut(u32, u32) -> bool,
 ) -> Result<(W, ExportSummary), ExportError> {
     let (layout, placed) = place(show, map);
     if layout.channels == 0 {
@@ -228,7 +235,9 @@ pub fn export_fseq<W: Write + Seek>(
             }
         }
         writer.write_frame(&seq_frame)?;
-        progress(index + 1, frames);
+        if !progress(index + 1, frames) {
+            return Err(ExportError::Cancelled);
+        }
     }
     let out = writer.finish()?;
     Ok((
@@ -245,14 +254,14 @@ pub fn export_fseq<W: Write + Seek>(
     ))
 }
 
-/// [`export_fseq`] to a file, written atomically: a crash or error never leaves a half-written
-/// file at `path`.
+/// [`export_fseq`] to a file, written atomically: a crash, error, or cancel never leaves a
+/// half-written file at `path`.
 pub fn export_fseq_file(
     show: &Show,
     map: &ChannelMap,
     seq: &Sequence,
     path: &Path,
-    progress: impl FnMut(u32, u32),
+    progress: impl FnMut(u32, u32) -> bool,
 ) -> Result<ExportSummary, ExportError> {
     let write_err = |source| ExportError::Write {
         path: path.to_path_buf(),
@@ -263,7 +272,9 @@ pub fn export_fseq_file(
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
     let name = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
-    let tmp = dir.join(format!(".{name}.{}.tmp", std::process::id()));
+    // Unique per export, so two exports to the same file at once don't share a temporary file.
+    let n = EXPORT_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let tmp = dir.join(format!(".{name}.{}.{n}.tmp", std::process::id()));
     let result = (|| {
         let file = fs::File::create(&tmp).map_err(write_err)?;
         let unique_id = SystemTime::now()

@@ -42,10 +42,16 @@ fn round_trips_through_the_reader_with_headers() {
     options.producer = Some("PixelFlow 0.1.0".into());
     let bytes = write(options);
     assert_eq!(&bytes[..4], b"PSEQ");
-    assert_eq!((bytes[6], bytes[7]), (0, 2), "version 2.0");
+    assert_eq!(
+        (bytes[6], bytes[7]),
+        (2, 2),
+        "version 2.2 (minor, major), like xLights and FPP"
+    );
+    let header_len = usize::from(u16::from_le_bytes([bytes[4], bytes[5]]));
+    assert_eq!(header_len % 4, 0, "the header is padded to a multiple of 4 bytes");
     let mut seq = read_back(bytes);
     let h = seq.header().clone();
-    assert_eq!((h.version, h.channels, h.frames, h.step_ms), ((2, 0), 30, 23, 25));
+    assert_eq!((h.version, h.channels, h.frames, h.step_ms), ((2, 2), 30, 23, 25));
     assert_eq!(h.compression, Compression::Zstd);
     assert_eq!(h.media.as_deref(), Some("Carol of the Bells.mp3"));
     assert_eq!(h.producer.as_deref(), Some("PixelFlow 0.1.0"));

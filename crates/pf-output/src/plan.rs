@@ -39,7 +39,8 @@ pub enum Wire {
     },
     Ddp {
         data_type: u8,
-        /// DDP offset of the controller's first channel (0 unless it expects raw channel numbers).
+        /// DDP offset of the controller's first channel: 0, or its sequence channels' start - 1
+        /// when it expects raw channel numbers (`SequenceChannels::raw_ddp_offsets`).
         offset_base: u32,
     },
 }
@@ -135,10 +136,16 @@ fn plan_with(
                 Addressing::Ddp => {
                     let all_rgbw = !spans.is_empty() && spans.iter().all(|s| s.channels_per_pixel == 4);
                     let data_type = if all_rgbw { DDP_TYPE_RGBW32 } else { DDP_TYPE_RGB24 };
+                    // A controller expecting raw channel numbers (FPP's "DDP Raw Channel
+                    // Numbers") gets its sequence channels' absolute offset, as in .fseq playback.
+                    let offset_base = controller
+                        .sequence_channels
+                        .filter(|range| range.raw_ddp_offsets)
+                        .map_or(0, |range| range.start.saturating_sub(1));
                     (
                         Wire::Ddp {
                             data_type,
-                            offset_base: 0,
+                            offset_base,
                         },
                         DDP_PORT,
                     )
@@ -391,6 +398,40 @@ mod tests {
         let frame: Vec<u8> = (0..7247).map(|i| (i % 251) as u8).collect();
         crate::render_controller(&frame, arches, &plan.luts, &mut out);
         assert_eq!(&out[..], &frame[6147..]);
+    }
+
+    #[test]
+    fn raw_ddp_controllers_get_their_sequence_offset_in_live_plans() {
+        // An FPP set to "DDP Raw Channel Numbers" expects absolute channel numbers, so live output
+        // (test patterns, authored playback) must start at the controller's sequence channel, as
+        // .fseq playback does.
+        let mut show = Show::new("t");
+        let strip = prop(2, ColorOrder::Rgb);
+        let mut raw = Controller::new("Raw", "10.0.0.9", Protocol::Ddp);
+        let mut port = Port::new(1);
+        port.slots = vec![PortSlot::new(strip.id)];
+        raw.ports = vec![port];
+        raw.sequence_channels = Some(pf_model::SequenceChannels {
+            start: 3001,
+            count: 6,
+            raw_ddp_offsets: true,
+        });
+        let mut plain = raw.clone();
+        plain.id = ControllerId::new();
+        plain.sequence_channels.as_mut().unwrap().raw_ddp_offsets = false;
+        show.props = vec![strip];
+        show.controllers = vec![raw, plain];
+        let (map, _) = pf_mapping::map_show(&show);
+        let plan = build_offline_plan(&show, &map);
+        let bases: Vec<_> = plan
+            .controllers
+            .iter()
+            .map(|c| match c.wire {
+                Wire::Ddp { offset_base, .. } => offset_base,
+                Wire::Sacn { .. } => panic!("DDP"),
+            })
+            .collect();
+        assert_eq!(bases, vec![3000, 0]);
     }
 
     #[test]

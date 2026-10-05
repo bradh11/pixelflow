@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  AudioLines,
   Cable,
   Command,
   Film,
@@ -21,6 +22,8 @@ import { DevicesScreen } from "../screens/DevicesScreen";
 import { HistoryScreen } from "../screens/HistoryScreen";
 import { LayoutScreen } from "../screens/LayoutScreen";
 import { PlayScreen } from "../screens/PlayScreen";
+import { SequenceScreen } from "../screens/SequenceScreen";
+import { useSequencer } from "../state/sequencer";
 import { TestScreen } from "../screens/TestScreen";
 import { WiringScreen } from "../screens/WiringScreen";
 
@@ -28,6 +31,7 @@ const NAV: { screen: Screen; label: string; icon: ReactNode }[] = [
   { screen: "layout", label: "Layout", icon: <LayoutGrid size={18} /> },
   { screen: "wiring", label: "Wiring", icon: <Cable size={18} /> },
   { screen: "devices", label: "Devices", icon: <Network size={18} /> },
+  { screen: "sequence", label: "Sequence", icon: <AudioLines size={18} /> },
   { screen: "play", label: "Play", icon: <Film size={18} /> },
   { screen: "test", label: "Test", icon: <FlaskConical size={18} /> },
   { screen: "history", label: "History", icon: <History size={18} /> },
@@ -48,9 +52,21 @@ function IconButton({ label, onClick, disabled, children }: { label: string; onC
   );
 }
 
+/** On the Sequence screen, undo, redo, and save act on the open sequence; elsewhere on the show. */
+function useUndoTarget() {
+  const screen = useApp((s) => s.screen);
+  const app = useApp();
+  const seq = useSequencer();
+  if (screen === "sequence" && seq.doc) {
+    return { sequence: true, undo: seq.undo, redo: seq.redo, save: seq.save, canUndo: seq.canUndo, canRedo: seq.canRedo };
+  }
+  return { sequence: false, undo: app.undo, redo: app.redo, save: app.save, canUndo: app.snapshot?.canUndo ?? false, canRedo: app.snapshot?.canRedo ?? false };
+}
+
 function TopBar() {
   const snapshot = useApp((s) => s.snapshot);
-  const { undo, redo, save, setPaletteOpen, theme, setTheme } = useApp();
+  const { setPaletteOpen, theme, setTheme } = useApp();
+  const target = useUndoTarget();
   if (!snapshot) return null;
   const title = snapshot.show.name;
   return (
@@ -67,13 +83,13 @@ function TopBar() {
       )}
       {snapshot.path && <span className="hidden truncate text-xs text-neutral-500 lg:inline">{fileName(snapshot.path)}</span>}
       <div className="ml-auto flex items-center gap-1">
-        <IconButton label="Undo" onClick={undo} disabled={!snapshot.canUndo}>
+        <IconButton label={target.sequence ? "Undo (sequence)" : "Undo"} onClick={target.undo} disabled={!target.canUndo}>
           <Undo2 size={18} />
         </IconButton>
-        <IconButton label="Redo" onClick={redo} disabled={!snapshot.canRedo}>
+        <IconButton label={target.sequence ? "Redo (sequence)" : "Redo"} onClick={target.redo} disabled={!target.canRedo}>
           <Redo2 size={18} />
         </IconButton>
-        <IconButton label="Save" onClick={save}>
+        <IconButton label={target.sequence ? "Save sequence" : "Save"} onClick={target.save}>
           <Save size={18} />
         </IconButton>
         <IconButton label={theme === "dark" ? "Light theme" : "Dark theme"} onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
@@ -237,6 +253,8 @@ function CurrentScreen() {
       return <WiringScreen />;
     case "devices":
       return <DevicesScreen />;
+    case "sequence":
+      return <SequenceScreen />;
     case "play":
       return <PlayScreen />;
     case "test":
@@ -247,12 +265,13 @@ function CurrentScreen() {
 }
 
 export function AppShell() {
+  const screen = useApp((s) => s.screen);
   return (
     <div className="flex h-full flex-col">
       <TopBar />
       <div className="flex min-h-0 flex-1">
         <Sidebar />
-        <main className="min-w-0 flex-1 overflow-auto p-6">
+        <main className={`min-w-0 flex-1 ${screen === "sequence" ? "overflow-hidden" : "overflow-auto p-6"}`}>
           <CurrentScreen />
         </main>
       </div>

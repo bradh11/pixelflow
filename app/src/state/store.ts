@@ -11,7 +11,7 @@ import { useLayoutEditor } from "./layoutEditor";
  */
 export type EditsFrom = Edit[] | ((show: Show) => Edit[]);
 
-export type Screen = "layout" | "wiring" | "devices" | "play" | "test" | "history";
+export type Screen = "layout" | "wiring" | "devices" | "sequence" | "play" | "test" | "history";
 export type Theme = "dark" | "light";
 
 const THEME_KEY = "pixelflow.theme";

@@ -1,7 +1,7 @@
 //! FPP player status, sequences, and user-initiated playback control, against recorded responses.
 
 use pf_devices::fpp_player::{self, PlayerState};
-use pf_devices::testing::{FPP, assert_no_secret_endpoints, network};
+use pf_devices::testing::{FPP, START_MEDLEY, assert_no_secret_endpoints, network};
 
 #[test]
 fn status_reports_what_is_playing_and_whats_next() {
@@ -91,13 +91,7 @@ fn a_sequence_without_metadata_is_still_listed() {
 
 #[test]
 fn playback_control_sends_fpp_commands() {
-    let start = r#"{"command":"Start Playlist","args":["Christmas Medley 2017.fseq","false","false"]}"#;
-    let stop_now = r#"{"command":"Stop Now","args":[]}"#;
-    let stop_gracefully = r#"{"command":"Stop Gracefully","args":["false"]}"#;
-    let http = network()
-        .with_post(FPP, "/api/command", start, "Playlist Starting")
-        .with_post(FPP, "/api/command", stop_now, "Stopped")
-        .with_post(FPP, "/api/command", stop_gracefully, "Stopping");
+    let http = network();
     fpp_player::start(&http, FPP, "Christmas Medley 2017.fseq").unwrap();
     fpp_player::stop(&http, FPP, false).unwrap();
     fpp_player::stop(&http, FPP, true).unwrap();
@@ -106,7 +100,14 @@ fn playback_control_sends_fpp_commands() {
         .into_iter()
         .filter(|r| r.starts_with("POST"))
         .collect();
-    assert_eq!(posts.len(), 3);
+    assert_eq!(
+        posts,
+        vec![
+            format!("POST {FPP}/api/command {START_MEDLEY}"),
+            format!(r#"POST {FPP}/api/command {{"command":"Stop Now","args":[]}}"#),
+            format!(r#"POST {FPP}/api/command {{"command":"Stop Gracefully","args":["false"]}}"#),
+        ]
+    );
     assert_no_secret_endpoints(&http);
 }
 

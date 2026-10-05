@@ -123,6 +123,10 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         devices::discover_devices,
         devices::inspect_device,
         devices::import_device,
+        devices::fpp_status,
+        devices::fpp_sequences,
+        devices::fpp_start,
+        devices::fpp_stop,
     ])
 }
 
@@ -382,6 +386,38 @@ mod tests {
         .unwrap_err();
         assert_eq!(error, json!("FPP has no pixel outputs to import."));
         let error = call(&webview, "inspect_device", json!({ "address": "192.0.2.99" })).unwrap_err();
+        assert!(
+            error.as_str().unwrap().starts_with("Could not reach 192.0.2.99"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn fpp_status_sequences_and_playback_control() {
+        let (_app, webview, _dir) = app();
+        let fpp = pf_devices::testing::FPP;
+        let status = call(&webview, "fpp_status", json!({ "address": fpp })).unwrap();
+        assert_eq!(status["state"], "playing");
+        assert_eq!(status["sequence"], "Christmas Medley 2017.fseq");
+        assert_eq!(status["secondsRemaining"], 456);
+        let sequences = call(&webview, "fpp_sequences", json!({ "address": fpp })).unwrap();
+        assert_eq!(sequences[0]["name"], "Christmas Medley 2017");
+        assert_eq!(sequences[0]["stepMs"], 50);
+        let started = call(
+            &webview,
+            "fpp_start",
+            json!({ "address": fpp, "name": "Christmas Medley 2017.fseq" }),
+        );
+        assert_eq!(started.unwrap(), json!(null));
+        assert!(
+            call(
+                &webview,
+                "fpp_stop",
+                json!({ "address": fpp, "gracefully": true })
+            )
+            .is_ok()
+        );
+        let error = call(&webview, "fpp_status", json!({ "address": "192.0.2.99" })).unwrap_err();
         assert!(
             error.as_str().unwrap().starts_with("Could not reach 192.0.2.99"),
             "{error}"

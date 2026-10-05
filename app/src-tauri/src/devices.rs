@@ -2,6 +2,7 @@
 //! holds the engine lock, so the UI stays responsive while devices are slow to answer.
 
 use crate::{AppState, Reply};
+use pf_devices::fpp_player::{self, FppSequence, PlayerStatus};
 use pf_devices::{Device, DeviceConfig, DiscoverOptions, Discovery, Http, HttpClient, ImportPlan};
 use pf_engine::{Edit, ShowSnapshot};
 use pf_model::Show;
@@ -110,4 +111,32 @@ pub(crate) async fn import_device(state: State<'_, AppState>, address: String) -
     let mut edits: Vec<Edit> = props.into_iter().map(|prop| Edit::AddProp { prop }).collect();
     edits.push(Edit::AddController { controller });
     state.engine().apply(edits).map_err(|e| e.to_string())
+}
+
+/// What an FPP is playing (changes nothing).
+#[tauri::command]
+pub(crate) async fn fpp_status(state: State<'_, AppState>, address: String) -> Reply<PlayerStatus> {
+    let http = Arc::clone(&state.devices.http);
+    off_thread(move || fpp_player::status(http.as_ref(), &address).map_err(|e| e.to_string())).await
+}
+
+/// The sequences stored on an FPP (changes nothing).
+#[tauri::command]
+pub(crate) async fn fpp_sequences(state: State<'_, AppState>, address: String) -> Reply<Vec<FppSequence>> {
+    let http = Arc::clone(&state.devices.http);
+    off_thread(move || fpp_player::sequences(http.as_ref(), &address).map_err(|e| e.to_string())).await
+}
+
+/// Starts a playlist or sequence on an FPP. Only ever called when the user clicks Play.
+#[tauri::command]
+pub(crate) async fn fpp_start(state: State<'_, AppState>, address: String, name: String) -> Reply<()> {
+    let http = Arc::clone(&state.devices.http);
+    off_thread(move || fpp_player::start(http.as_ref(), &address, &name).map_err(|e| e.to_string())).await
+}
+
+/// Stops an FPP now or at the end of the current sequence. Only ever called when the user clicks Stop.
+#[tauri::command]
+pub(crate) async fn fpp_stop(state: State<'_, AppState>, address: String, gracefully: bool) -> Reply<()> {
+    let http = Arc::clone(&state.devices.http);
+    off_thread(move || fpp_player::stop(http.as_ref(), &address, gracefully).map_err(|e| e.to_string())).await
 }

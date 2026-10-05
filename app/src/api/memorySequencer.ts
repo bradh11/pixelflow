@@ -20,6 +20,8 @@ import {
   type SequenceChanges,
   type SequenceEdit,
   type SequenceEditResult,
+  type SequenceIssue,
+  type SequenceRecovery,
   type SequenceSnapshot,
   type TimingTrack,
 } from "./sequence";
@@ -239,6 +241,10 @@ export class MemorySequencer implements SequencerApi {
   redoStack: { after: Sequence; gesture: string | null }[] = [];
   /** Files "on disk", keyed by path. */
   files = new Map<string, Sequence>();
+  /** The problems every reply lists (the engine's check against the show; set by tests). */
+  issues: SequenceIssue[] = [];
+  /** Unsaved work an earlier run "kept", with the document each holds. */
+  recoveries: (SequenceRecovery & { doc: Sequence })[] = [];
   /** What the file dialogs return. */
   nextOpenPath: string | null = null;
   nextSavePath: string | null = null;
@@ -277,7 +283,7 @@ export class MemorySequencer implements SequencerApi {
       canUndo: this.undoStack.length > 0,
       canRedo: this.redoStack.length > 0,
       sequence: structuredClone(sequence),
-      issues: [],
+      issues: structuredClone(this.issues),
     };
   }
 
@@ -289,7 +295,7 @@ export class MemorySequencer implements SequencerApi {
       canRedo: this.redoStack.length > 0,
       changed: changes !== null,
       changes: changes ?? noChanges(),
-      issues: [],
+      issues: structuredClone(this.issues),
     };
   }
 
@@ -304,11 +310,30 @@ export class MemorySequencer implements SequencerApi {
     this.lastGesture = null;
   }
 
-  async newSequenceDoc(name: string, durationMs: number) {
+  async newSequenceDoc(name: string, durationMs: number, audio: string | null = null) {
     this.calls.push("newSequenceDoc");
     if (durationMs > 4 * 60 * 60 * 1000) fail("PixelFlow sequences can be at most 4 hours.");
-    this.replace(newSequence(name, durationMs), null);
+    this.replace({ ...newSequence(name, durationMs), audio: audio?.trim() ? audio : null }, null);
     return this.snapshot();
+  }
+
+  async sequenceRecoveries(): Promise<SequenceRecovery[]> {
+    return this.recoveries.map(({ doc: _doc, ...recovery }) => recovery).sort((a, b) => b.savedAtMs - a.savedAtMs);
+  }
+
+  async recoverSequence(id: string) {
+    this.calls.push(`recoverSequence:${id}`);
+    const kept = this.recoveries.find((r) => r.id === id) ?? fail("That unsaved sequence isn't there anymore.");
+    this.replace(structuredClone(kept.doc), kept.path);
+    // Opened with unsaved changes.
+    this.savedRevision = -1;
+    this.recoveries = this.recoveries.filter((r) => r.id !== id);
+    return this.snapshot();
+  }
+
+  async discardSequenceRecovery(id: string) {
+    this.calls.push(`discardSequenceRecovery:${id}`);
+    this.recoveries = this.recoveries.filter((r) => r.id !== id);
   }
 
   async openSequenceDoc(path: string) {
@@ -421,7 +446,13 @@ export class MemorySequencer implements SequencerApi {
     this.calls.push(`addSequenceDocToShow:${path}`);
     const backend = this.backend ?? fail("Adding to the show needs a show.");
     const base = doc.name.trim() || "Sequence";
-    const taken = (n: string) => backend.show.sequences.some((s) => s.name === n);
+    // Exported to the same file again: that entry is brought up to date instead.
+    const existing = backend.show.sequences.find((s) => s.path === path);
+    const taken = (n: string) => backend.show.sequences.some((s) => s.name === n && s.id !== existing?.id);
+    if (existing) {
+      const updated = { ...existing, name: taken(base) ? existing.name : base, audio: doc.audio };
+      return backend.applyEdits([{ type: "updateSequence", sequence: updated }]);
+    }
     let name = base;
     for (let n = 2; taken(name); n++) name = `${base} (${n})`;
     return backend.applyEdits([

@@ -13,11 +13,12 @@ import {
   type SequenceEdit,
   type SequenceEditResult,
   type SequenceIssue,
+  type SequenceRecovery,
   type SequenceSnapshot,
 } from "../api/sequence";
 import type { SequencerApi } from "../api/sequencer";
 import type { PlaybackStatus } from "../api/types";
-import { fileName } from "../lib/format";
+import { clock, fileName, plural } from "../lib/format";
 import { useApp } from "./store";
 
 const RECENT_KEY = "pixelflow.recentSequences";
@@ -50,6 +51,17 @@ export type SequenceEditsFrom = SequenceEdit[] | ((doc: Sequence) => SequenceEdi
 /** A new id for one gesture (a drag, a held key, a slider pull): its edits make one undo step. */
 export function newGesture(): string {
   return crypto.randomUUID();
+}
+
+/** A short message about something that finished (an export), shown until dismissed. */
+export interface Notice {
+  /** Something finished ("done"), or was stopped on purpose ("info"). */
+  tone: "done" | "info";
+  text: string;
+  /** Extra lines (an export's notes). */
+  notes: string[];
+  /** Offer to save the show (the playlist add changed it). */
+  saveShow: boolean;
 }
 
 /** A copied effect and the row it came from. */
@@ -89,6 +101,9 @@ interface SequencerState {
   docKey: number;
   /** Bumped to ask the timeline to bring the selection (or the playhead) and the active row into view. */
   revealAt: number;
+  /** Unsaved sequences an earlier run kept, to offer back. */
+  recoveries: SequenceRecovery[];
+  notice: Notice | null;
 
   connect(api: SequencerApi): Promise<void>;
   newSequence(name: string, durationMs: number, audio: string | null): Promise<boolean>;
@@ -123,6 +138,12 @@ interface SequencerState {
   dismissBeats(): void;
   /** Brings the selected effect (or else the playhead) and the active row into view on the timeline. */
   reveal(): void;
+  /** Opens a kept unsaved sequence (ask first if the open one has changes). */
+  recover(id: string): Promise<boolean>;
+  discardRecovery(id: string): Promise<void>;
+  /** Fetches the sequence's problems again (the show changed: props may have gone or come back). */
+  refreshIssues(): Promise<void>;
+  dismissNotice(): void;
 }
 
 function report(e: unknown) {
@@ -132,6 +153,8 @@ function report(e: unknown) {
 export const useSequencer = create<SequencerState>((set, get) => {
   /** Bumped by every play, pause, seek, and stop, so an older answer never undoes a newer one. */
   let transport = 0;
+  /** Set when the user cancels the running export, so its failure isn't reported as an error. */
+  let cancelled = false;
 
   /** Engine calls that change the document run one at a time, in order. */
   let queue: Promise<unknown> = Promise.resolve();
@@ -219,14 +242,16 @@ export const useSequencer = create<SequencerState>((set, get) => {
     detecting: false,
     docKey: 0,
     revealAt: 0,
+    recoveries: [],
+    notice: null,
 
     async connect(api) {
       // Calls still waiting on a previous engine have nothing to do with this one.
       queue = Promise.resolve();
       set({ api });
       await guarded(async () => {
-        const [catalog, snapshot] = await Promise.all([api.effectCatalog(), api.getSequenceDoc()]);
-        set({ catalog });
+        const [catalog, snapshot, recoveries] = await Promise.all([api.effectCatalog(), api.getSequenceDoc(), api.sequenceRecoveries()]);
+        set({ catalog, recoveries });
         if (snapshot) adopt(snapshot);
         // Editing shouldn't light up the house until asked.
         await api.setSequenceDocOutput(get().sendToControllers);
@@ -239,13 +264,9 @@ export const useSequencer = create<SequencerState>((set, get) => {
       const ok = await serial(() =>
         guarded(async () => {
           await get().stop();
-          const snapshot = await api.newSequenceDoc(name, durationMs);
-          adopt(snapshot);
-          set({ selection: [], playheadMs: 0, collapsed: [], suggestBeats: audio !== null, docKey: get().docKey + 1 });
-          if (audio) {
-            const sequence = snapshot.sequence;
-            await absorb(await api.editSequence([{ type: "updateInfo", name: sequence.name, audio, durationMs, frameMs: sequence.frameMs }]), api);
-          }
+          // With its music from the start: nothing to undo, nothing unsaved.
+          adopt(await api.newSequenceDoc(name, durationMs, audio));
+          set({ selection: [], playheadMs: 0, collapsed: [], suggestBeats: audio !== null, docKey: get().docKey + 1, notice: null });
           return true;
         }),
       );
@@ -255,14 +276,26 @@ export const useSequencer = create<SequencerState>((set, get) => {
     async open(path) {
       const { api } = get();
       if (!api) return false;
-      const ok = await serial(() =>
-        guarded(async () => {
+      const ok = await serial(async () => {
+        try {
           await get().stop();
           adopt(await api.openSequenceDoc(path));
-          set({ selection: [], playheadMs: 0, collapsed: [], suggestBeats: false, docKey: get().docKey + 1 });
+          set({ selection: [], playheadMs: 0, collapsed: [], suggestBeats: false, docKey: get().docKey + 1, notice: null });
           return true;
-        }),
-      );
+        } catch (e) {
+          // A recent file that can't be opened any more (moved or deleted) comes off the list.
+          const recent = get().recent;
+          if (recent.includes(path)) {
+            const left = recent.filter((p) => p !== path);
+            saveRecent(left);
+            set({ recent: left });
+            useApp.setState({ error: `${errorMessage(e)} It's been taken off your recent sequences.` });
+          } else {
+            report(e);
+          }
+          return false;
+        }
+      });
       return ok === true;
     },
 
@@ -431,27 +464,83 @@ export const useSequencer = create<SequencerState>((set, get) => {
       const base = path ? fileName(path).replace(/\.pfseq\.json$|\.json$/i, "") : doc.name;
       const target = await guarded(() => api.pickExportPath(`${base}.fseq`));
       if (!target) return null;
-      set({ exporting: 0 });
+      set({ exporting: 0, notice: null });
+      cancelled = false;
       // Export what's on screen: every edit made so far lands first.
       await serial(async () => undefined);
+      let summary: ExportSummary;
       try {
-        const summary = await api.exportSequenceDoc(target, (p) => set({ exporting: p.percent }));
-        if (addToShow) {
-          const snapshot = await api.addSequenceDocToShow(target);
-          useApp.setState({ snapshot });
-        }
-        return summary;
+        summary = await api.exportSequenceDoc(target, (p) => set({ exporting: p.percent }));
       } catch (e) {
-        report(e);
+        if (cancelled) set({ notice: { tone: "info", text: "Export cancelled. No file was written.", notes: [], saveShow: false } });
+        else report(e);
         return null;
       } finally {
         set({ exporting: null });
       }
+      const done = `Exported ${plural(summary.frames, "frame")} (${clock(summary.durationMs / 1000)}) to ${fileName(target)}.`;
+      if (!addToShow) {
+        set({ notice: { tone: "done", text: done, notes: summary.notes, saveShow: false } });
+        return summary;
+      }
+      // One undo step on the show, in line with its other changes.
+      const added = await useApp.getState().run(() => api.addSequenceDocToShow(target));
+      set({
+        notice: added
+          ? { tone: "done", text: `${done} It's on the show's playlist; save the show to keep it there.`, notes: summary.notes, saveShow: true }
+          : { tone: "done", text: `${done} It couldn't be added to the show's playlist.`, notes: summary.notes, saveShow: false },
+      });
+      return summary;
     },
 
     async cancelExport() {
+      cancelled = true;
       await guarded(() => get().api!.cancelSequenceExport());
     },
+
+    async recover(id) {
+      const { api } = get();
+      if (!api) return false;
+      const ok = await serial(() =>
+        guarded(async () => {
+          await get().stop();
+          adopt(await api.recoverSequence(id));
+          set({
+            selection: [],
+            playheadMs: 0,
+            collapsed: [],
+            suggestBeats: false,
+            docKey: get().docKey + 1,
+            recoveries: get().recoveries.filter((r) => r.id !== id),
+            notice: null,
+          });
+          return true;
+        }),
+      );
+      return ok === true;
+    },
+
+    async discardRecovery(id) {
+      const { api } = get();
+      if (!api) return;
+      await guarded(() => api.discardSequenceRecovery(id));
+      set({ recoveries: get().recoveries.filter((r) => r.id !== id) });
+    },
+
+    async refreshIssues() {
+      const { api } = get();
+      if (!api || !get().doc) return;
+      await serial(() =>
+        guarded(async () => {
+          const snapshot = await api.getSequenceDoc();
+          if (!snapshot || get().api !== api) return;
+          if (snapshot.revision === get().revision) set({ issues: snapshot.issues });
+          else adopt(snapshot);
+        }),
+      );
+    },
+
+    dismissNotice: () => set({ notice: null }),
 
     dismissBeats: () => set({ suggestBeats: false }),
     reveal: () => set({ revealAt: get().revealAt + 1 }),

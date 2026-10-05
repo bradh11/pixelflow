@@ -1,6 +1,70 @@
 import { useEffect, useRef, useState } from "react";
+import { unsavedWork, useCloseGuard } from "../state/closeGuard";
 import { useApp } from "../state/store";
 import { Button } from "./ui";
+
+/** Asks what to do with unsaved work (the show, the open sequence, or both) before the window closes. */
+export function ConfirmClose() {
+  const asking = useCloseGuard((s) => s.asking);
+  const resolve = useCloseGuard((s) => s.resolve);
+  const saveRef = useRef<HTMLButtonElement>(null);
+  const [busy, setBusy] = useState(false);
+
+  const choose = async (choice: "save" | "discard" | "cancel") => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await resolve(choice);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!asking) return;
+    saveRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      void choose("cancel");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [asking, busy]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!asking) return null;
+  const work = unsavedWork();
+  const what = [work.show && `the show “${work.show}”`, work.sequence && `the sequence “${work.sequence}”`].filter(Boolean).join(" and ");
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-close-title"
+        aria-describedby="confirm-close-body"
+        className="w-full max-w-sm rounded-xl border border-neutral-200 bg-white p-5 shadow-2xl dark:border-neutral-800 dark:bg-neutral-900"
+      >
+        <h2 id="confirm-close-title" className="text-base font-semibold">
+          Save your changes before closing?
+        </h2>
+        <p id="confirm-close-body" className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">
+          {what ? `There are unsaved changes to ${what}. ` : ""}They will be lost if you don&apos;t save them.
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button disabled={busy} onClick={() => void choose("cancel")}>
+            Cancel
+          </Button>
+          <Button variant="danger" disabled={busy} onClick={() => void choose("discard")}>
+            Don&apos;t save
+          </Button>
+          <Button ref={saveRef} variant="primary" disabled={busy} onClick={() => void choose("save")}>
+            Save
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /** Asks what to do with unsaved changes before New or Open replaces the show. */
 export function ConfirmDiscard() {

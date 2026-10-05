@@ -471,6 +471,27 @@ export class MemoryBackend implements Backend {
     return this.nextOpenPath;
   }
 
+  /** Window close requests (the close button), for tests: see requestClose. */
+  private closeHandlers: (() => boolean)[] = [];
+
+  async onCloseRequested(allow: () => boolean) {
+    this.closeHandlers.push(allow);
+    return () => {
+      this.closeHandlers = this.closeHandlers.filter((h) => h !== allow);
+    };
+  }
+
+  /** Acts like the window's close button: true (and closes) when nothing held it open. */
+  requestClose(): boolean {
+    const allowed = this.closeHandlers.every((allow) => allow());
+    if (allowed) this.calls.push("closeWindow");
+    return allowed;
+  }
+
+  async closeWindow() {
+    this.calls.push("closeWindow");
+  }
+
   async pickSavePath() {
     return this.nextSavePath;
   }

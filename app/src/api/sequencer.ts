@@ -10,6 +10,7 @@ import type {
   ExportSummary,
   SequenceEdit,
   SequenceEditResult,
+  SequenceRecovery,
   SequenceSnapshot,
 } from "./sequence";
 
@@ -21,8 +22,17 @@ const FSEQ_FILTER = [{ name: "FPP sequence", extensions: ["fseq"] }];
 
 /** Everything the sequencer asks of the engine. Errors reject with a plain-language message. */
 export interface SequencerApi {
-  /** Starts a new, unsaved sequence, replacing the open one (ask before discarding changes). */
-  newSequenceDoc(name: string, durationMs: number): Promise<SequenceSnapshot>;
+  /**
+   * Starts a new sequence with `audio` as its music (or none), replacing the open one (ask before
+   * discarding changes). It starts with no unsaved changes and nothing to undo.
+   */
+  newSequenceDoc(name: string, durationMs: number, audio: string | null): Promise<SequenceSnapshot>;
+  /** Unsaved sequences an earlier run of PixelFlow kept (newest first). */
+  sequenceRecoveries(): Promise<SequenceRecovery[]>;
+  /** Opens a kept sequence, with unsaved changes, replacing the open one (ask first). */
+  recoverSequence(id: string): Promise<SequenceSnapshot>;
+  /** Throws a kept sequence away. */
+  discardSequenceRecovery(id: string): Promise<void>;
   openSequenceDoc(path: string): Promise<SequenceSnapshot>;
   saveSequenceDoc(): Promise<SequenceSnapshot>;
   saveSequenceDocAs(path: string): Promise<SequenceSnapshot>;
@@ -71,7 +81,10 @@ export interface SequencerApi {
 
 /** The real engine, in the Tauri desktop shell. */
 export const tauriSequencer: SequencerApi = {
-  newSequenceDoc: (name, durationMs) => invoke("new_sequence_doc", { name, durationMs }),
+  newSequenceDoc: (name, durationMs, audio) => invoke("new_sequence_doc", { name, durationMs, audio }),
+  sequenceRecoveries: () => invoke("sequence_recoveries"),
+  recoverSequence: (id) => invoke("recover_sequence", { id }),
+  discardSequenceRecovery: (id) => invoke("discard_sequence_recovery", { id }),
   openSequenceDoc: (path) => invoke("open_sequence_doc", { path }),
   saveSequenceDoc: () => invoke("save_sequence_doc"),
   saveSequenceDocAs: (path) => invoke("save_sequence_doc_as", { path }),

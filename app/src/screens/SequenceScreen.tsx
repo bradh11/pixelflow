@@ -1,5 +1,5 @@
-import { AlertTriangle, AudioLines, Download, FilePlus, FolderOpen, ListMusic, Magnet, Pause, Play, Save, Send, Square, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { AlertTriangle, AudioLines, CheckCircle2, Download, FilePlus, FolderOpen, History, Info, ListMusic, Magnet, Pause, Play, Save, Send, Square, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "../api/backend";
 import { EffectPalette } from "../components/sequencer/EffectPalette";
 import { EffectSettings } from "../components/sequencer/EffectSettings";
@@ -7,7 +7,7 @@ import { SequencePreview } from "../components/sequencer/SequencePreview";
 import { AddRowMenu, Timeline } from "../components/sequencer/Timeline";
 import { useSequenceKeys } from "../components/sequencer/useSequenceKeys";
 import { Button, EmptyState, Input } from "../components/ui";
-import { fileName } from "../lib/format";
+import { ago, fileName } from "../lib/format";
 import { formatTime } from "../lib/timelineMath";
 import { useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
@@ -20,9 +20,16 @@ export function SequenceScreen() {
   const doc = useSequencer((s) => s.doc);
   const status = useSequencer((s) => s.status);
   const pollPlayback = useSequencer((s) => s.pollPlayback);
+  const showRevision = useApp((s) => s.snapshot?.revision);
   const [creating, setCreating] = useState(false);
   const [confirm, setConfirm] = useState<null | (() => void)>(null);
   useSequenceKeys();
+
+  // The sequence's problems depend on the show (props removed or added): check again when the
+  // show changes, and when the screen opens.
+  useEffect(() => {
+    void useSequencer.getState().refreshIssues();
+  }, [showRevision]);
 
   useEffect(() => {
     if (!status) return;
@@ -44,6 +51,8 @@ export function SequenceScreen() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <Toolbar onNew={() => guard(() => setCreating(true))} onOpen={() => guard(() => void openFile())} />
+      <NoticeLine />
+      <RecoveryOffer onRecover={(id) => guard(() => void useSequencer.getState().recover(id))} />
       {doc ? <Workspace /> : <Start onNew={() => setCreating(true)} onOpen={openFile} />}
       {creating && <NewSequenceDialog onClose={() => setCreating(false)} />}
       {confirm && (
@@ -236,9 +245,75 @@ function SequenceIssues() {
   );
 }
 
+/** What an export (or adding to the playlist) did, until dismissed. */
+function NoticeLine() {
+  const notice = useSequencer((s) => s.notice);
+  const dismiss = useSequencer((s) => s.dismissNotice);
+  const showDirty = useApp((s) => s.snapshot?.dirty ?? false);
+  if (!notice) return null;
+  const done = notice.tone === "done";
+  return (
+    <div
+      role="status"
+      className={`flex items-start gap-3 border-b px-3 py-2 text-sm ${
+        done ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/30" : "border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900"
+      }`}
+    >
+      {done ? (
+        <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
+      ) : (
+        <Info size={16} className="mt-0.5 shrink-0 text-neutral-500" aria-hidden />
+      )}
+      <div className="min-w-0 flex-1">
+        <p>{notice.text}</p>
+        {notice.notes.length > 0 && (
+          <ul className="mt-1 list-disc pl-5 text-xs text-neutral-600 dark:text-neutral-400">
+            {notice.notes.map((note, i) => (
+              <li key={i}>{note}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+      {notice.saveShow && showDirty && (
+        <Button variant="primary" onClick={() => void useApp.getState().save()}>
+          Save show
+        </Button>
+      )}
+      <button type="button" aria-label="Dismiss" className="rounded p-1 hover:bg-neutral-200/70 dark:hover:bg-neutral-800" onClick={dismiss}>
+        <X size={14} />
+      </button>
+    </div>
+  );
+}
+
+/** Unsaved sequences PixelFlow kept when it last closed, to open again or throw away. */
+function RecoveryOffer({ onRecover }: { onRecover: (id: string) => void }) {
+  const recoveries = useSequencer((s) => s.recoveries);
+  const discard = useSequencer((s) => s.discardRecovery);
+  if (recoveries.length === 0) return null;
+  return (
+    <section aria-label="Unsaved sequences from last time" className="flex flex-col gap-2 border-b border-amber-200 bg-amber-50 px-3 py-2 text-sm dark:border-amber-900 dark:bg-amber-950/30">
+      {recoveries.map((r) => (
+        <div key={r.id} className="flex flex-wrap items-center gap-3">
+          <History size={16} className="shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+          <span className="min-w-0 flex-1">
+            PixelFlow kept unsaved changes to <strong>{r.name}</strong> from {ago(r.savedAtMs)}
+            {r.path ? ` (${fileName(r.path)})` : " (never saved)"}.
+          </span>
+          <Button variant="primary" aria-label={`Recover unsaved sequence ${r.name}`} onClick={() => onRecover(r.id)}>
+            Recover
+          </Button>
+          <Button variant="ghost" aria-label={`Discard unsaved sequence ${r.name}`} onClick={() => void discard(r.id)}>
+            Discard
+          </Button>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 async function exportToPlaylist() {
-  const summary = await useSequencer.getState().exportFseq(true);
-  if (summary) useApp.setState({ error: null });
+  await useSequencer.getState().exportFseq(true);
 }
 
 function BeatsBanner() {
@@ -384,6 +459,20 @@ function NewSequenceDialog({ onClose }: { onClose: () => void }) {
 
 function DiscardDialog({ onSave, onDiscard, onCancel }: { onSave: () => void; onDiscard: () => void; onCancel: () => void }) {
   const name = useSequencer((s) => s.doc?.name ?? "this sequence");
+  const saveRef = useRef<HTMLButtonElement>(null);
+  const cancel = useRef(onCancel);
+  cancel.current = onCancel;
+  // Save has the focus; Escape is Cancel.
+  useEffect(() => {
+    saveRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      cancel.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   return (
     <Modal label="Unsaved changes">
       <h2 className="text-lg font-semibold">Save changes to {name}?</h2>
@@ -395,7 +484,7 @@ function DiscardDialog({ onSave, onDiscard, onCancel }: { onSave: () => void; on
         <Button variant="danger" onClick={onDiscard}>
           Don't save
         </Button>
-        <Button variant="primary" onClick={onSave}>
+        <Button ref={saveRef} variant="primary" onClick={onSave}>
           Save
         </Button>
       </div>

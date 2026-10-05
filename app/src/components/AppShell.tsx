@@ -67,8 +67,13 @@ function TopBar() {
   const snapshot = useApp((s) => s.snapshot);
   const { setPaletteOpen, theme, setTheme } = useApp();
   const target = useUndoTarget();
+  const sequenceName = useSequencer((s) => s.doc?.name ?? null);
+  const sequenceDirty = useSequencer((s) => s.dirty);
+  const sequencePath = useSequencer((s) => s.path);
   if (!snapshot) return null;
   const title = snapshot.show.name;
+  // On the Sequence screen, the show and the sequence each say whether they're saved.
+  const both = target.sequence && sequenceName !== null;
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-neutral-200 px-3 dark:border-neutral-800">
       <span className="font-semibold text-accent-600 dark:text-accent-400">PixelFlow</span>
@@ -77,11 +82,24 @@ function TopBar() {
         {title}
       </span>
       {snapshot.dirty && (
-        <span className="text-xs text-neutral-500" aria-label="Unsaved changes">
-          ● Unsaved
+        <span role="note" className="shrink-0 text-xs text-neutral-500" aria-label={both ? "Unsaved changes to the show" : "Unsaved changes"}>
+          {both ? "● Show not saved" : "● Unsaved"}
         </span>
       )}
-      {snapshot.path && <span className="hidden truncate text-xs text-neutral-500 lg:inline">{fileName(snapshot.path)}</span>}
+      {snapshot.path && !both && <span className="hidden truncate text-xs text-neutral-500 lg:inline">{fileName(snapshot.path)}</span>}
+      {both && (
+        <>
+          <span className="text-neutral-300 dark:text-neutral-700">/</span>
+          <span className="truncate font-medium" title={sequencePath ?? undefined}>
+            {sequenceName}
+          </span>
+          {sequenceDirty && (
+            <span role="note" className="shrink-0 text-xs text-neutral-500" aria-label="Unsaved changes to the sequence">
+              ● Sequence not saved
+            </span>
+          )}
+        </>
+      )}
       <div className="ml-auto flex items-center gap-1">
         <IconButton label={target.sequence ? "Undo (sequence)" : "Undo"} onClick={target.undo} disabled={!target.canUndo}>
           <Undo2 size={18} />
@@ -110,6 +128,7 @@ function TopBar() {
 function Sidebar() {
   const screen = useApp((s) => s.screen);
   const setScreen = useApp((s) => s.setScreen);
+  const toRecover = useSequencer((s) => s.recoveries.length > 0);
   return (
     <nav aria-label="Screens" className="flex w-44 shrink-0 flex-col gap-1 border-r border-neutral-200 p-2 dark:border-neutral-800">
       {NAV.map((item) => (
@@ -126,6 +145,9 @@ function Sidebar() {
         >
           {item.icon}
           {item.label}
+          {item.screen === "sequence" && toRecover && (
+            <span className="ml-auto h-2 w-2 rounded-full bg-amber-500" title="Unsaved work to recover" aria-hidden />
+          )}
         </button>
       ))}
     </nav>

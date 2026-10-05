@@ -80,6 +80,9 @@ describe("sequence screen", () => {
     await user.click(within(dialog).getByRole("button", { name: "Create" }));
     await waitFor(() => expect(seq.doc?.audio).toBe(DEMO_MUSIC));
     expect(seq.doc?.durationMs).toBe(60_000);
+    // It starts clean: nothing to save, and undo doesn't take the music away.
+    expect(useSequencer.getState()).toMatchObject({ dirty: false, canUndo: false });
+    expect(screen.getByRole("button", { name: "Undo (sequence)" })).toBeDisabled();
     // A new sequence needs rows: add every prop at once.
     await user.click(screen.getByRole("button", { name: "Add a row" }));
     await user.click(screen.getByRole("button", { name: "Add every prop (4)" }));
@@ -245,12 +248,43 @@ describe("sequence screen", () => {
     await waitFor(() => expect(useSequencer.getState().status).toBeNull());
   });
 
-  it("exports an .fseq and adds it to the show's playlist", async () => {
-    const { seq, user } = await openScreen();
+  it("exports an .fseq and adds it to the show's playlist, saying what happened", async () => {
+    const { backend, seq, user } = await openScreen();
+    await user.click(screen.getByRole("button", { name: "Export .fseq for FPP" }));
+    expect(await screen.findByText("Exported 2,400 frames (1:00) to Medley.fseq.")).toBeInTheDocument();
+    expect(useApp.getState().snapshot?.show.sequences).toHaveLength(0);
+
     await user.click(screen.getByRole("button", { name: "Export and add to the show's playlist" }));
     await waitFor(() => expect(useApp.getState().snapshot?.show.sequences).toHaveLength(1));
     expect(seq.calls).toContain("exportSequenceDoc");
     expect(useApp.getState().snapshot?.show.sequences[0]).toMatchObject({ name: "Christmas Medley 2017", path: "/Shows/Medley.fseq", audio: DEMO_MUSIC });
+    // The show changed (one undo step on the show): the top bar and the notice say it needs saving.
+    expect(await screen.findByText(/It's on the show's playlist; save the show to keep it there/)).toBeInTheDocument();
+    expect(screen.getByText("● Show not saved")).toBeInTheDocument();
+    expect(useApp.getState().snapshot?.canUndo).toBe(true);
+    // Adding the same file again doesn't list it twice.
+    await user.click(screen.getByRole("button", { name: "Export and add to the show's playlist" }));
+    await waitFor(() => expect(seq.calls.filter((c) => c.startsWith("addSequenceDocToShow"))).toHaveLength(2));
+    expect(useApp.getState().snapshot?.show.sequences).toHaveLength(1);
+    backend.nextSavePath = "/Shows/House.pixelflow.json";
+    await user.click(screen.getByRole("button", { name: "Save show" }));
+    await waitFor(() => expect(useApp.getState().snapshot?.dirty).toBe(false));
+    expect(screen.queryByText("● Show not saved")).not.toBeInTheDocument();
+  });
+
+  it("says plainly that a cancelled export wrote nothing", async () => {
+    const { seq } = await openScreen();
+    const real = seq.exportSequenceDoc.bind(seq);
+    vi.spyOn(seq, "exportSequenceDoc").mockImplementation((path, onProgress) =>
+      real(path, (p) => {
+        onProgress?.(p);
+        if (p.percent === 50) void useSequencer.getState().cancelExport();
+      }),
+    );
+    await act(() => useSequencer.getState().exportFseq(true));
+    expect(screen.getByText("Export cancelled. No file was written.")).toBeInTheDocument();
+    expect(useApp.getState().error).toBeNull();
+    expect(useApp.getState().snapshot?.show.sequences).toHaveLength(0);
   });
 
   it("walks rows with Up and Down, saying what's selected", async () => {
@@ -298,9 +332,8 @@ describe("sequence screen", () => {
     fireEvent.change(time, { target: { value: "0" } });
     expect(time).toHaveValue("0");
     const late = seq.doc!.rows[1 + 0].layers[0].effects.find((e) => e.startMs >= 50_000)!;
-    act(() =>
-      useSequencer.setState({ issues: [{ severity: "warning", message: "Something about the effect at 0:52.000.", row: seq.doc!.rows[1].id, effect: late.id }] }),
-    );
+    seq.issues = [{ severity: "warning", message: "Something about the effect at 0:52.000.", row: seq.doc!.rows[1].id, effect: late.id }];
+    await act(() => useSequencer.getState().refreshIssues());
     await user.click(screen.getByRole("button", { name: "1 problem" }));
     await user.click(screen.getByRole("button", { name: /Something about/ }));
     const start = Number((time as HTMLInputElement).value);
@@ -349,12 +382,11 @@ describe("sequence screen", () => {
   it("lists the sequence's problems, and a click selects the effect", async () => {
     const { seq, user } = await openScreen();
     const effect = seq.doc!.rows[1].layers[0].effects[2];
-    act(() =>
-      useSequencer.setState({
-        issues: [{ severity: "warning", message: "The Wave effect at 0:08.000 on 'Garage Arch' overlaps the Chase effect.", row: seq.doc!.rows[1].id, effect: effect.id }],
-      }),
-    );
-    await user.click(screen.getByRole("button", { name: "1 problem" }));
+    expect(screen.queryByRole("button", { name: /^\d+ problems?$/ })).not.toBeInTheDocument();
+    // The engine finds a problem once the show changes: the list is checked again.
+    seq.issues = [{ severity: "warning", message: "The Wave effect at 0:08.000 on 'Garage Arch' overlaps the Chase effect.", row: seq.doc!.rows[1].id, effect: effect.id }];
+    await act(() => useApp.getState().apply([{ type: "renameShow", name: "Renamed" }]));
+    await user.click(await screen.findByRole("button", { name: "1 problem" }));
     await user.click(within(screen.getByRole("dialog", { name: "Problems in this sequence" })).getByRole("button", { name: /overlaps the Chase effect/ }));
     expect(useSequencer.getState().selection).toEqual([effect.id]);
   });
@@ -383,6 +415,93 @@ function recordTimelineText() {
   });
   return texts;
 }
+
+describe("unsaved work", () => {
+  it("offers back a sequence kept from last time, asking before it replaces unsaved changes", async () => {
+    const show = demoShow();
+    const backend = new MemoryBackend(show);
+    const seq = new MemorySequencer(backend);
+    const kept = demoSequence(show, 60_000);
+    seq.recoveries = [{ id: "r1", name: "Christmas Medley 2017", path: DEMO_SEQUENCE_PATH, savedAtMs: Date.now() - 5 * 60_000, doc: kept }];
+    await useApp.getState().connect(backend);
+    useApp.setState({ started: true, screen: "sequence" });
+    await useSequencer.getState().connect(seq);
+    const user = userEvent.setup();
+    render(<App />);
+    const offer = screen.getByRole("region", { name: "Unsaved sequences from last time" });
+    expect(offer).toHaveTextContent("PixelFlow kept unsaved changes to Christmas Medley 2017 from 5 min ago (Christmas Medley 2017.pfseq.json).");
+    await user.click(within(offer).getByRole("button", { name: "Recover unsaved sequence Christmas Medley 2017" }));
+    await waitFor(() => expect(useSequencer.getState().doc?.rows).toHaveLength(4));
+    expect(useSequencer.getState()).toMatchObject({ dirty: true, path: DEMO_SEQUENCE_PATH });
+    expect(screen.queryByRole("region", { name: "Unsaved sequences from last time" })).not.toBeInTheDocument();
+    expect(screen.getByText("● Sequence not saved")).toBeInTheDocument();
+
+    // Another kept one, while this one has unsaved changes: asked first; Escape cancels.
+    seq.recoveries = [{ id: "r2", name: "Older", path: null, savedAtMs: Date.now() - 3 * 86_400_000, doc: { ...kept, name: "Older" } }];
+    await act(() => useSequencer.getState().connect(seq));
+    await user.click(screen.getByRole("button", { name: "Recover unsaved sequence Older" }));
+    expect(screen.getByRole("dialog", { name: "Unsaved changes" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Unsaved changes" })).not.toBeInTheDocument();
+    expect(useSequencer.getState().doc?.name).toBe("Christmas Medley 2017");
+    // Thrown away instead.
+    await user.click(screen.getByRole("button", { name: "Discard unsaved sequence Older" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Unsaved sequences from last time" })).not.toBeInTheDocument());
+    expect(seq.calls).toContain("discardSequenceRecovery:r2");
+  });
+
+  it("asks before the window closes with an unsaved show or sequence", async () => {
+    const { backend, seq, user } = await openScreen();
+    // Nothing unsaved: the window just closes.
+    expect(backend.requestClose()).toBe(true);
+    backend.calls.length = 0;
+    await act(() => useSequencer.getState().edit((doc) => [{ type: "removeRow", id: doc.rows[3].id }]));
+    expect(backend.requestClose()).toBe(false);
+    const dialog = await screen.findByRole("dialog", { name: "Save your changes before closing?" });
+    expect(dialog).toHaveTextContent("There are unsaved changes to the sequence “Christmas Medley 2017”.");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Save your changes before closing?" })).not.toBeInTheDocument();
+    expect(backend.calls).not.toContain("closeWindow");
+
+    // Save saves both the sequence and the show, then closes.
+    await act(() => useApp.getState().apply([{ type: "renameShow", name: "House" }]));
+    act(() => void backend.requestClose());
+    const both = await screen.findByRole("dialog", { name: "Save your changes before closing?" });
+    expect(both).toHaveTextContent("the show “House” and the sequence “Christmas Medley 2017”");
+    backend.nextSavePath = "/Shows/House.pixelflow.json";
+    await user.click(within(both).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(backend.calls).toContain("closeWindow"));
+    expect(useSequencer.getState().dirty).toBe(false);
+    expect(useApp.getState().snapshot?.dirty).toBe(false);
+    expect(seq.files.get(DEMO_SEQUENCE_PATH)!.rows).toHaveLength(3);
+  });
+
+  it("closes without saving when asked, and a cancelled save keeps the window open", async () => {
+    const { backend, user } = await openScreen();
+    await act(() => useSequencer.getState().edit((doc) => [{ type: "removeRow", id: doc.rows[3].id }]));
+    await act(() => useApp.getState().apply([{ type: "renameShow", name: "House" }]));
+    act(() => void backend.requestClose());
+    // The show has no file yet; closing the save dialog keeps the question up.
+    backend.nextSavePath = null;
+    const dialog = await screen.findByRole("dialog", { name: "Save your changes before closing?" });
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(useSequencer.getState().dirty).toBe(false));
+    expect(screen.getByRole("dialog", { name: "Save your changes before closing?" })).toBeInTheDocument();
+    expect(backend.calls).not.toContain("closeWindow");
+    await user.click(within(dialog).getByRole("button", { name: "Don't save" }));
+    await waitFor(() => expect(backend.calls).toContain("closeWindow"));
+  });
+
+  it("takes a recent sequence that can't be opened off the list", async () => {
+    const { user } = await openScreen(false);
+    act(() => useSequencer.setState({ recent: ["/Shows/Gone.pfseq.json"] }));
+    await user.click(screen.getByRole("button", { name: "Gone.pfseq.json" }));
+    await waitFor(() => expect(useApp.getState().error).toMatch(/Gone.pfseq.json.*It's been taken off your recent sequences\./));
+    expect(useSequencer.getState().recent).toEqual([]);
+    expect(screen.queryByRole("region", { name: "Recent sequences" })).not.toBeInTheDocument();
+  });
+});
 
 describe("sequence screen with a slow engine", () => {
   it("types a time into a field without the field fighting back, as one undo step", async () => {

@@ -2579,9 +2579,11 @@ name = "pf-xlights"
 version = "0.1.0"
 dependencies = [
  "pf-model",
+ "pf-sequence",
  "roxmltree",
  "serde",
  "thiserror 2.0.21",
+ "zstd",
 ]
 
 [[package]]

@@ -16,6 +16,7 @@ pf-mapping.workspace = true
 pf-frame.workspace = true
 pf-patterns.workspace = true
 pf-output.workspace = true
+pf-devices.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 serde_json.workspace = true

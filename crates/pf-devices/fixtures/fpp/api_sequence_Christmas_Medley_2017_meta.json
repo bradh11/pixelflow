@@ -1,0 +1,21 @@
+{
+    "Name": "Christmas Medley 2017.fseq",
+    "Version": "2.2",
+    "ID": "1734740354454575",
+    "StepTime": 50,
+    "NumFrames": 11332,
+    "MaxChannel": 6148,
+    "ChannelCount": 6148,
+    "variableHeaders": {
+        "mf": "/Shows/Audio/Christmas Medley 2017.mp3",
+        "sp": "xLights Macintosh 2024.19"
+    },
+    "Ranges": [
+        {
+            "Start": 0,
+            "Length": 6148
+        }
+    ],
+    "CompressionType": 1,
+    "CompressionTypeString": "zstd"
+}

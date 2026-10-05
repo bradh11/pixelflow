@@ -15,16 +15,16 @@ use crate::http::Http;
 use pf_model::ColorOrder;
 use serde_json::Value;
 
-fn get_json(http: &dyn Http, host: &str, path: &str) -> Result<Value, DeviceError> {
+pub(crate) fn get_json(http: &dyn Http, host: &str, path: &str) -> Result<Value, DeviceError> {
     let body = http.get(host, path)?;
     serde_json::from_str(&body).map_err(|e| DeviceError::bad(host, path, e.to_string()))
 }
 
-fn str_field<'a>(v: &'a Value, key: &str) -> &'a str {
+pub(crate) fn str_field<'a>(v: &'a Value, key: &str) -> &'a str {
     v.get(key).and_then(Value::as_str).unwrap_or("")
 }
 
-fn int_field(v: &Value, key: &str) -> i64 {
+pub(crate) fn int_field(v: &Value, key: &str) -> i64 {
     v.get(key)
         .and_then(|x| {
             x.as_i64()
@@ -33,7 +33,7 @@ fn int_field(v: &Value, key: &str) -> i64 {
         .unwrap_or(0)
 }
 
-fn opt_int_field(v: &Value, key: &str) -> Option<i64> {
+pub(crate) fn opt_int_field(v: &Value, key: &str) -> Option<i64> {
     v.get(key).and_then(|x| {
         x.as_i64()
             .or_else(|| x.as_str().and_then(|s| s.trim().parse().ok()))

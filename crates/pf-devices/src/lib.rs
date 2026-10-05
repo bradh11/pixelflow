@@ -13,6 +13,7 @@ pub mod falcon;
 mod fingerprint;
 pub mod fpp;
 pub mod fpp_ping;
+pub mod fpp_player;
 mod http;
 mod identify;
 mod import;

@@ -36,6 +36,21 @@ pub fn fpp_only() -> FakeHttp {
             include_str!("../fixtures/fpp/api_channel_output_universeOutputs.json"),
         )
         .with_get_status(FPP, "/api/channel/output/co-pixelStrings", 404)
+        .with_get(
+            FPP,
+            "/api/fppd/status",
+            include_str!("../fixtures/fpp/api_fppd_status.json"),
+        )
+        .with_get(
+            FPP,
+            "/api/sequence",
+            include_str!("../fixtures/fpp/api_sequence.json"),
+        )
+        .with_get(
+            FPP,
+            "/api/sequence/Christmas%20Medley%202017/meta",
+            include_str!("../fixtures/fpp/api_sequence_Christmas_Medley_2017_meta.json"),
+        )
 }
 
 /// Every fixture device, each answering on its own address.

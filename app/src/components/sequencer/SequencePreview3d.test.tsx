@@ -83,6 +83,10 @@ describe("the Sequence screen's 3D preview", () => {
     act(() => useSequencer.getState().setPlayhead(10_000));
     await waitFor(() => expect(fake.colors.at(-1)!.rgb).not.toEqual(atStart));
     expect(fake.made).toBe(1);
+    // The camera buttons don't promise the Layout screen's keys, which don't work here.
+    const views = within(preview()).getByRole("toolbar", { name: "3D view" });
+    expect(within(views).getByRole("button", { name: /Fit/ })).toHaveAttribute("title", "Show the whole display");
+    expect(within(views).getByRole("button", { name: "Front" })).toHaveAttribute("title", "Front view");
 
     await user.click(within(preview()).getByRole("button", { name: "2D" }));
     expect(within(preview()).getByRole("img", { name: "Preview of the show at the playhead" })).toBeInTheDocument();

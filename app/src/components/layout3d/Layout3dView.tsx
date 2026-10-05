@@ -821,7 +821,8 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
       </p>
       {editable && <SelectionAnnouncer show={show} />}
       <div ref={marqueeRef} aria-hidden className="pointer-events-none absolute hidden border border-accent-400 bg-accent-400/10" />
-      <View3dControls />
+      {/* Only the Layout screen (the editor) handles the camera keys. */}
+      <View3dControls keys={editable} />
       {modelProblem && <p className="absolute bottom-2 left-2 max-w-md rounded-md bg-black/60 px-3 py-2 text-xs text-amber-300">{modelProblem}</p>}
       {problem && (
         <div className="absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-neutral-300">

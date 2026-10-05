@@ -113,7 +113,7 @@ interface LayoutCanvasProps {
 type PinchEvent = Event & { scale: number; clientX: number; clientY: number };
 
 /** Says what's selected, for screen readers. */
-function SelectionAnnouncer({ show }: { show: Show }) {
+export function SelectionAnnouncer({ show }: { show: Show }) {
   const selected = useLayoutEditor((s) => s.selected);
   const names = selected.map((id) => show.props.find((p) => p.id === id)?.name).filter(Boolean);
   const message = names.length === 0 ? "Nothing selected" : names.length === 1 ? `${names[0]} selected` : `${names.length} props selected`;

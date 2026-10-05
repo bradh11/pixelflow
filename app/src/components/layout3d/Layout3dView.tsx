@@ -40,7 +40,7 @@ import { useLayoutEditor } from "../../state/layoutEditor";
 import { commitGesture, settlePending, unsettled } from "../../state/layoutGestures";
 import { useApp } from "../../state/store";
 import { type CameraAction, loadShowView, saveShowView, useView3d } from "../../state/view3d";
-import type { LayoutCanvasHandle } from "../layout/LayoutCanvas";
+import { type LayoutCanvasHandle, SelectionAnnouncer } from "../layout/LayoutCanvas";
 import { type PhotoImage, useLiveFrame } from "../layout/useLayoutData";
 import { type Scene3d, type SceneFactory, loadThreeScene } from "./scene";
 import { View3dControls } from "./View3dControls";
@@ -717,6 +717,7 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
           ? "Drag to orbit around the display, right-drag to pan, scroll to zoom. Keys 1 to 5 pick the front, top, left, right, and street views; F fits everything in. Click a prop to select it, then drag the gizmo's arrows to move it, or set its position, depth, and rotation in the properties panel. V switches to the 2D view."
           : "Drag to orbit around the display, right-drag to pan, scroll to zoom."}
       </p>
+      {editable && <SelectionAnnouncer show={show} />}
       <div ref={marqueeRef} aria-hidden className="pointer-events-none absolute hidden border border-accent-400 bg-accent-400/10" />
       <View3dControls />
       {modelProblem && <p className="absolute bottom-2 left-2 max-w-md rounded-md bg-black/60 px-3 py-2 text-xs text-amber-300">{modelProblem}</p>}

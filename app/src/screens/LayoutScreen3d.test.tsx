@@ -222,6 +222,24 @@ describe("the 3D layout", () => {
     expect(backend.show.props[0].transform.position.z).toBe(0);
   });
 
+  it("zooms to a prop on double-click, and fits everything in on a double-click elsewhere", async () => {
+    const user = await setup(showWith(line("Gutter", 0, 0), line("Fence", 20, 6)));
+    await open3d(user);
+    const fitted = orbit().distance;
+    fireEvent.doubleClick(view3d(), { clientX: screenOf(v3(1, 0, 0)).x, clientY: screenOf(v3(1, 0, 0)).y });
+    await waitFor(() => expect(orbit().target.x).toBeCloseTo(0, 2), { timeout: 3000 });
+    expect(orbit().distance).toBeLessThan(fitted);
+    fireEvent.doubleClick(view3d(), { clientX: 2, clientY: 2 });
+    await waitFor(() => expect(orbit().distance).toBeCloseTo(fitted, 2), { timeout: 3000 });
+  });
+
+  it("says what's selected, for screen readers", async () => {
+    const user = await setup(showWith(line("Gutter", 0, 0)));
+    await open3d(user);
+    await clickAt(v3(1, 0, 0));
+    expect(screen.getByTestId("selection-announcer")).toHaveTextContent("Gutter selected");
+  });
+
   it("drops a drag in progress with Escape", async () => {
     const user = await setup(showWith(line("Gutter", 0, 0)));
     await open3d(user);

@@ -166,12 +166,14 @@ export function LayoutScreen() {
           ) : (
             <LayoutCanvas ref={canvas} preview={preview} show={show} photo={photo} />
           )}
-          {show.props.length === 0 && !in3d && (
+          {show.props.length === 0 && (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-neutral-300">
               <p className="max-w-sm rounded-lg bg-black/60 px-4 py-3">
-                {show.background
-                  ? "Pick a tool above, like Arch or Matrix, and drag on the photo where that prop is."
-                  : "Pick a tool above, like Arch or Matrix, and drag here to draw a prop. Add a photo of your house to draw right over it."}
+                {in3d
+                  ? "No props yet. Switch to 2D (V) to draw them, or choose a prop type and Add prop."
+                  : show.background
+                    ? "Pick a tool above, like Arch or Matrix, and drag on the photo where that prop is."
+                    : "Pick a tool above, like Arch or Matrix, and drag here to draw a prop. Add a photo of your house to draw right over it."}
               </p>
             </div>
           )}

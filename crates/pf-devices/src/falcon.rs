@@ -201,12 +201,16 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
         let (payload, last) = query(http, host, "SP", page)?;
         for s in payload["A"].as_array().into_iter().flatten() {
             let port = int(s, "p");
+            // Empty strings are skipped before anything else, so they never raise a note.
+            if int(s, "n") <= 0 {
+                continue;
+            }
             let Some(number) = valid_port(port + 1, &mut notes) else {
                 continue;
             };
             let label = format!("Port {number}");
-            // `n` is read as the string's total pixels including null pixels (`ns`): in the recorded
-            // data each `sc` is the previous string's `sc` plus `n` times the channels per pixel.
+            // `n` counts pixels that take data; the controller skips its null pixels (`ns`) itself, so
+            // each `sc` is the previous string's `sc` plus `n` times the channels per pixel.
             let Some(pixels) = bounded_pixels(&label, int(s, "n"), &mut notes) else {
                 continue;
             };

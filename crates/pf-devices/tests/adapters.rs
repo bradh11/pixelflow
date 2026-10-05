@@ -68,6 +68,14 @@ fn fpp_with_a_pixel_hat_imports_its_strings() {
     assert!(plan.can_import);
     assert_eq!(plan.controller.adapter, AdapterKind::Fpp);
     assert_eq!(
+        plan.controller.ports[0].slots[0].null_pixels, 0,
+        "the controller skips its own nulls"
+    );
+    assert!(plan.notes.contains(
+        &"The controller skips its own null pixels (Port 1 \"Roof Line\": 1), so PixelFlow won't send data for them."
+            .to_string()
+    ));
+    assert_eq!(
         plan.props.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(),
         vec!["Roof Line", "Gutter"]
     );
@@ -279,6 +287,34 @@ fn fpp_with_a_channel_gap_warns_once() {
 }
 
 #[test]
+fn nulls_do_not_count_toward_the_channel_layout() {
+    // Roof Line has a null pixel; the next string still starts exactly 150 pixels * 3 channels later.
+    let config = hat_config(&network().with_get(
+        FPP_HAT,
+        HAT_STRINGS,
+        include_str!("../fixtures/fpp-hat/api_channel_output_co-pixelStrings.json"),
+    ))
+    .unwrap();
+    assert!(config.ports[0].strings[0].null_pixels > 0);
+    assert!(!config.notes.iter().any(|n| n.contains(LAYOUT)));
+}
+
+#[test]
+fn falcon_empty_strings_on_invalid_ports_raise_no_note() {
+    let http = falcon_with_sp0(
+        r#""p":0,"s":1,"r":0,"v":1,"u":0,"sc":300,"n":50"#,
+        r#""p":-1,"s":1,"r":0,"v":1,"u":0,"sc":300,"n":0"#,
+    );
+    let config = falcon_config(&http).unwrap();
+    assert!(
+        config.notes.iter().all(|n| !n.contains("port number")),
+        "{:?}",
+        config.notes
+    );
+    assert_no_secret_endpoints(&http);
+}
+
+#[test]
 fn falcon_with_a_channel_gap_warns_once() {
     let http = falcon_with_sp0(r#""sc":300"#, r#""sc":330"#);
     let config = falcon_config(&http).unwrap();
@@ -320,6 +356,7 @@ fn huge_pixel_counts_are_skipped_with_a_note() {
             .iter()
             .any(|n| n.contains("Output 1 reports 5,000,000 pixels"))
     );
+    assert_no_secret_endpoints(&http);
 }
 
 #[test]
@@ -328,6 +365,7 @@ fn huge_null_counts_are_clamped_with_a_note() {
     let config = hat_config(&http).unwrap();
     assert_eq!(config.ports[0].strings[0].null_pixels, pf_model::MAX_NULL_PIXELS);
     assert!(config.notes.iter().any(|n| n.contains("null pixels")));
+    assert_no_secret_endpoints(&http);
 }
 
 #[test]
@@ -354,6 +392,7 @@ fn fpp_notes_grouping_and_zig_zag() {
             .iter()
             .any(|n| n.contains("zig-zag"))
     );
+    assert_no_secret_endpoints(&http);
 }
 
 #[test]
@@ -377,6 +416,7 @@ fn fpp_read_errors_other_than_404_propagate() {
         .with_get_status(FPP_HAT, HAT_STRINGS, 404)
         .with_get_status(FPP_HAT, "/api/channel/output/universeOutputs", 404);
     assert!(hat_config(&http).unwrap().ports.is_empty());
+    assert_no_secret_endpoints(&http);
 }
 
 #[test]
@@ -410,6 +450,7 @@ fn wled_bus_types_are_classified() {
             "Output {n} isn't a pixel output (type {t}); it was skipped."
         )));
     }
+    assert_no_secret_endpoints(&http);
 }
 
 #[test]
@@ -423,6 +464,7 @@ fn missing_brightness_means_full_and_bad_gamma_means_one() {
     let http = falcon_with_sp0(r#""g":10,"o":2,"b":100,"#, r#""g":0,"o":2,"#);
     let strings = &falcon_config(&http).unwrap().ports[0].strings;
     assert_eq!((strings[0].brightness, strings[0].gamma), (100, 1.0));
+    assert_no_secret_endpoints(&http);
 }
 
 #[test]
@@ -437,6 +479,7 @@ fn falcon_paging_dedupes_and_flags_a_runaway_list() {
     assert_eq!(config.ports.len(), 1);
     assert_eq!(config.ports[0].strings.len(), 2);
     assert!(config.notes.iter().any(|n| n.contains("may be incomplete")));
+    assert_no_secret_endpoints(&http);
 }
 
 #[test]
@@ -451,6 +494,7 @@ fn older_falcons_are_not_read() {
         "{err}"
     );
     assert!(http.requests()[before..].iter().all(|r| !r.starts_with("POST")));
+    assert_no_secret_endpoints(&http);
 }
 
 #[test]
@@ -459,4 +503,5 @@ fn fpp_peers_keep_the_description() {
     let http = fpp_only().with_get(FPP, "/api/fppd/multiSyncSystems", sync);
     let peers = pf_devices::fpp::peers(&http, FPP);
     assert_eq!(peers, vec![(FALCON.to_string(), "Falcon_F16V5_B9F5".to_string())]);
+    assert_no_secret_endpoints(&http);
 }

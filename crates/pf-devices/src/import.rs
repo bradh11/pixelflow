@@ -75,6 +75,7 @@ pub fn plan_import(device: &Device, config: &DeviceConfig, show: &Show) -> Impor
     controller.adapter = adapter;
 
     let mut props = Vec::new();
+    let mut skipped_nulls = Vec::new();
     for port_config in &config.ports {
         let mut port = Port::new(port_config.number);
         let several = port_config.strings.len() > 1;
@@ -95,7 +96,13 @@ pub fn plan_import(device: &Device, config: &DeviceConfig, show: &Show) -> Impor
             prop.color_order = string.color_order;
             prop.transform.position = Vec3::new(0.0, -(props.len() as f32) * 0.5, 0.0);
             let mut slot = PortSlot::new(prop.id);
-            slot.null_pixels = string.null_pixels;
+            // The controller skips its own null pixels; sending dark pixels too would shift every later one.
+            if string.null_pixels > 0 {
+                skipped_nulls.push(format!(
+                    "Port {} \"{}\": {}",
+                    port_config.number, prop.name, string.null_pixels
+                ));
+            }
             slot.reverse = string.reverse;
             slot.brightness = (string.brightness != 100).then_some(string.brightness);
             slot.gamma = ((string.gamma - 1.0).abs() > f32::EPSILON).then_some(string.gamma);
@@ -104,6 +111,12 @@ pub fn plan_import(device: &Device, config: &DeviceConfig, show: &Show) -> Impor
             props.push(prop);
         }
         controller.ports.push(port);
+    }
+    if !skipped_nulls.is_empty() {
+        notes.push(format!(
+            "The controller skips its own null pixels ({}), so PixelFlow won't send data for them.",
+            skipped_nulls.join(", ")
+        ));
     }
     ImportPlan {
         already_in_show: show.controllers.iter().any(|c| c.address == device.address),
@@ -199,10 +212,15 @@ mod tests {
         assert_eq!(slot.prop, plan.props[0].id);
         assert_eq!(
             (slot.null_pixels, slot.reverse, slot.brightness, slot.gamma),
-            (1, true, Some(50), Some(2.2))
+            (0, true, Some(50), Some(2.2))
         );
         assert_eq!(slot.smart_receiver, Some(1));
-        assert_eq!(plan.notes, vec!["note".to_string()]);
+        assert_eq!(plan.notes.len(), 2);
+        assert_eq!(plan.notes[0], "note");
+        assert_eq!(
+            plan.notes[1],
+            "The controller skips its own null pixels (Port 1 \"Arch\": 1, Port 3 \"Garage Falcon Port 3 String 1\": 1, Port 3 \"Garage Falcon Port 3 String 2\": 1), so PixelFlow won't send data for them."
+        );
     }
 
     #[test]

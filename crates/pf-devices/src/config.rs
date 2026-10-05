@@ -24,8 +24,11 @@ pub enum DeviceInput {
 #[serde(rename_all = "camelCase")]
 pub struct StringConfig {
     pub name: Option<String>,
+    /// Pixels that take data. The controller's own null pixels are not counted.
     pub pixels: u32,
     pub color_order: ColorOrder,
+    /// Null pixels the controller skips itself (no input channels, not in `pixels`). Shown for review;
+    /// not the same as PixelFlow's `PortSlot::null_pixels`, which are dark pixels PixelFlow sends.
     pub null_pixels: u32,
     pub reverse: bool,
     /// Percent, 0–100.
@@ -88,7 +91,8 @@ pub(crate) const LAYOUT_NOTE: &str = "This controller's strings don't use one co
 pub(crate) struct Placed {
     /// The device's start channel for the string, if it reported one (any base).
     pub start: Option<i64>,
-    /// Pixels on the string, including null pixels (both FPP and Falcon count them in the total).
+    /// Pixels that take data on the string. The controller skips its own null pixels, so they are not
+    /// counted here and use no input channels.
     pub pixels: u32,
     pub color_order: ColorOrder,
 }

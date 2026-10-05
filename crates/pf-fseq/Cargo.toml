@@ -1,0 +1,18 @@
+[package]
+name = "pf-fseq"
+description = "Read FPP sequence (.fseq) files: rendered channel data for every frame of a show"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+zstd.workspace = true
+flate2.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

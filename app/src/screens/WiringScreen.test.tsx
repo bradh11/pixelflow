@@ -245,12 +245,145 @@ describe("wiring screen", () => {
     const show = demoShow();
     show.controllers[0].ports[1].slots = [];
     const user = await setup(show);
-    await user.selectOptions(screen.getByLabelText("Add a prop to port 4 of Main FPP"), "All 2 unwired props, left to right…");
+    await user.click(screen.getByRole("button", { name: "Add a prop to port 4 of Main FPP" }));
+    await user.click(screen.getByRole("button", { name: "All 2 unwired props, left to right…" }));
     expect(screen.getByText(/Wire 2 props onto the end of port 4/)).toHaveTextContent("Porch Star, Mega Tree?");
     expect(edits).toHaveLength(0);
     await user.click(screen.getByRole("button", { name: "Wire them" }));
     expect(names(0, 3)).toEqual(["Porch Star", "Mega Tree"]);
     expect(edits).toHaveLength(1);
+  });
+
+  it("adds a prop from one shared picker, built only while it's open", async () => {
+    const user = await setup();
+    // No list of props in any port row until a picker opens.
+    expect(document.querySelectorAll("option")).toHaveLength(0);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    const add = screen.getByRole("button", { name: "Add a prop to port 2 of Main FPP" });
+    await user.click(add);
+    const picker = screen.getByRole("dialog", { name: "Add a prop to port 2 of Main FPP" });
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    // Unwired first, then props wired on another port, to move here.
+    expect(within(picker).getByText("Not wired").nextElementSibling).toHaveTextContent("Porch Star");
+    expect(within(picker).getByText("Move here").nextElementSibling).toHaveTextContent(/Garage Arch.*from Main FPP · Port 1/);
+    // The prop already on this port isn't offered.
+    expect(within(picker).queryByRole("button", { name: /^Mega Tree/ })).not.toBeInTheDocument();
+    await user.type(within(picker).getByLabelText("Find a prop to add"), "arch");
+    expect(within(picker).getAllByRole("button").map((b) => b.textContent)).toEqual(["Garage Archfrom Main FPP · Port 1"]);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(add).toHaveFocus();
+
+    await user.click(add);
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Porch Star" }));
+    expect(names(0, 1)).toEqual(["Mega Tree", "Porch Star"]);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("keeps the settings on their prop when another lands before it, and closes them when it's gone", async () => {
+    const user = await setup();
+    await user.click(chip("Window Matrix on Main FPP port 1"));
+    expect(screen.getByRole("region", { name: "Window Matrix settings" })).toHaveTextContent("Port 1 · 2nd on the port");
+    await act(async () => drag(propItem("Porch Star"), at(0, 0)));
+    expect(names(0, 0)).toEqual(["Porch Star", "Garage Arch", "Window Matrix"]);
+    const settings = screen.getByRole("region", { name: "Window Matrix settings" });
+    expect(settings).toHaveTextContent("Port 1 · 3rd on the port");
+    // Its change goes to the Window Matrix, not to the prop now in its old place.
+    await user.click(within(settings).getByLabelText(/Starts at the other end/));
+    expect(backend.show.controllers[0].ports[0].slots.map((s) => s.reverse)).toEqual([false, false, true]);
+
+    // Undo back past the drop: still there (2nd again). Undo its own wiring away: closed.
+    await act(() => useApp.getState().undo());
+    await act(() => useApp.getState().undo());
+    expect(screen.getByRole("region", { name: "Window Matrix settings" })).toHaveTextContent("2nd on the port");
+    await act(async () => drag(chip("Window Matrix on Main FPP port 1"), [100, 500]));
+    expect(screen.queryByRole("region", { name: "Window Matrix settings" })).not.toBeInTheDocument();
+    await act(() => useApp.getState().undo());
+    expect(screen.queryByRole("region", { name: /settings$/ })).not.toBeInTheDocument();
+  });
+
+  it("acts on the same prop when key presses arrive before the show catches up", async () => {
+    const show = demoShow();
+    const star = show.props.find((p) => p.name === "Porch Star")!;
+    show.controllers[0].ports[0].slots.push({ prop: star.id, segment: null, nullPixels: 0, reverse: false, brightness: null, gamma: null, smartReceiver: null });
+    await setup(show);
+    // A slow engine: every press below is read from the same (old) screen.
+    const applyEdits = backend.applyEdits;
+    backend.applyEdits = async (batch) => {
+      await new Promise((r) => setTimeout(r, 20));
+      return applyEdits(batch);
+    };
+    const arch = chip("Garage Arch on Main FPP port 1");
+    await act(async () => {
+      fireEvent.keyDown(arch, { key: "ArrowDown", altKey: true });
+      fireEvent.keyDown(arch, { key: "ArrowDown", altKey: true });
+      await new Promise((r) => setTimeout(r, 80));
+    });
+    expect(names(0, 0)).toEqual(["Window Matrix", "Porch Star", "Garage Arch"]);
+
+    const matrix = chip("Window Matrix on Main FPP port 1");
+    await act(async () => {
+      fireEvent.keyDown(matrix, { key: "Delete" });
+      fireEvent.keyDown(matrix, { key: "Delete" });
+      await new Promise((r) => setTimeout(r, 80));
+    });
+    // Held Delete unwires that prop once, not its neighbour as well.
+    expect(names(0, 0)).toEqual(["Porch Star", "Garage Arch"]);
+  });
+
+  it("opening settings from the keyboard moves focus into them, and closing gives it back", async () => {
+    const user = await setup();
+    chip("Window Matrix on Main FPP port 1").focus();
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("heading", { name: "Window Matrix" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("region", { name: "Window Matrix settings" })).not.toBeInTheDocument();
+    await waitFor(() => expect(chip("Window Matrix on Main FPP port 1")).toHaveFocus());
+  });
+
+  it("a press let go with Escape doesn't also open settings, and a chip removed mid-drag lets go", async () => {
+    await setup();
+    const arch = chip("Garage Arch on Main FPP port 1");
+    await act(async () => drag(arch, at(4, 0), false));
+    await act(async () => fireEvent.keyDown(window, { key: "Escape" }));
+    fireEvent.pointerUp(arch, { clientX: at(4, 0)[0], clientY: at(4, 0)[1], pointerId: 1 });
+    fireEvent.click(arch);
+    expect(screen.queryByRole("region", { name: /settings$/ })).not.toBeInTheDocument();
+    expect(edits).toHaveLength(0);
+
+    await act(async () => drag(chip("Window Matrix on Main FPP port 1"), at(4, 0), false));
+    expect(useWiring.getState().drag).not.toBeNull();
+    // Undo-like: the port loses its chips while the drag is on.
+    await act(async () => {
+      await useApp.getState().apply((show) => [{ type: "updateController", controller: { ...show.controllers[0], ports: show.controllers[0].ports.map((p, i) => (i === 0 ? { ...p, slots: [] } : p)) } }]);
+    });
+    expect(useWiring.getState().drag).toBeNull();
+  });
+
+  it("gives each smart receiver on a port its own bar", async () => {
+    const show = demoShow();
+    const port = show.controllers[0].ports[0];
+    port.maxPixels = 520;
+    port.slots[0].smartReceiver = 1; // Garage Arch, 50
+    port.slots[1].smartReceiver = 2; // Window Matrix, 512
+    await setup(show);
+    // Together they'd be 562 of 520; each receiver drives its own output.
+    expect(screen.getByRole("meter", { name: "Port 1 receiver A pixels used" })).toHaveAttribute("aria-valuetext", "50 of 520 pixels");
+    expect(screen.getByRole("meter", { name: "Port 1 receiver B pixels used" })).toHaveAttribute("aria-valuetext", "512 of 520 pixels");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText("Receiver B: nearly full: 512 of 520 pixels.")).toBeInTheDocument();
+  });
+
+  it("warns when a Falcon port holds more than it refreshes at the show's frame rate", async () => {
+    const show = demoShow();
+    const falcon = show.controllers[0];
+    falcon.adapter = "falcon";
+    falcon.ports[0].maxPixels = 1024; // Arch 50 + Matrix 512 + Star 100 = 662 is fine at 40 fps…
+    await setup(show);
+    expect(screen.queryByText(/refreshes about/)).not.toBeInTheDocument();
+    // …but not at 60 fps (about 469).
+    await act(() => useApp.getState().apply([{ type: "setFrameRate", fps: 60 }]));
+    expect(screen.getByText("At 60 fps this port refreshes about 469 pixels in time; with 562 it will slow down. Move a prop to another port, or lower the show's frame rate.")).toBeInTheDocument();
   });
 
   it("adds, renumbers, and removes ports", async () => {

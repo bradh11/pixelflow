@@ -47,11 +47,12 @@ function PropItem({ prop, wiring }: { prop: Prop; wiring: PropWiring }) {
         onPointerMove={source.onPointerMove}
         onPointerUp={source.onPointerUp}
         onPointerCancel={source.onPointerCancel}
+        onLostPointerCapture={source.onLostPointerCapture}
         onClick={() => {
           if (source.endedDrag()) return;
           // A wired prop: open its (first) slot's settings.
           const place = wiring.places[0];
-          if (place) useWiring.getState().select({ controller: place.controller, port: place.port, index: place.index });
+          if (place) useWiring.getState().select({ controller: place.controller, port: place.port, at: place.at, index: place.index, prop: prop.id, segment: place.slot.segment });
         }}
       >
         <GripVertical size={14} className="mt-0.5 shrink-0 text-neutral-400" aria-hidden />

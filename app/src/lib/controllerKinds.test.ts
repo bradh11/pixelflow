@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import { CONTROLLER_KINDS, controllerOfKind } from "./controllerKinds";
 
 describe("controller kinds", () => {
-  it("a Falcon V5 comes with its ports and their 1,024-pixel limit", () => {
-    const c = controllerOfKind("f16v5", "Garage", "10.0.0.20", "ddp", 4);
+  it("a Falcon comes with xLights' port limit for the ports in use", () => {
+    const c = controllerOfKind("f16v5", "Garage", "10.0.0.20", "ddp", 16);
     expect(c.adapter).toBe("falcon");
     expect(c.ports).toHaveLength(16);
     expect(c.ports.every((p) => p.maxPixels === 1024)).toBe(true);
+    // With an expansion board: 32 ports still drive 1,024 each; past 32, 704.
+    expect(controllerOfKind("f16v5", "G", "10.0.0.20", "ddp", 32).ports.every((p) => p.maxPixels === 1024)).toBe(true);
+    expect(controllerOfKind("f48v5", "G", "10.0.0.20", "ddp", 48).ports.every((p) => p.maxPixels === 704)).toBe(true);
   });
 
   it("other controllers use the port count given and don't guess a limit", () => {
@@ -19,7 +22,7 @@ describe("controller kinds", () => {
 
   it("lists other first, then every known board", () => {
     expect(CONTROLLER_KINDS[0].id).toBe("other");
-    expect(CONTROLLER_KINDS.filter((k) => k.maxPixels === 1024).map((k) => k.label)).toEqual([
+    expect(CONTROLLER_KINDS.filter((k) => k.maxPixels !== null).map((k) => k.label)).toEqual([
       "Falcon F16V5",
       "Falcon F32V5",
       "Falcon F48V5",

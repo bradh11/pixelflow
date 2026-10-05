@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
-import type { PreviewProp, Show } from "../../api/types";
-import { type Pt, type Size, backgroundBox, boxOfPoints, fitView, toScreen, unionBox } from "../../lib/layoutMath";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { Port, PreviewProp, Show } from "../../api/types";
+import { type Pt, type Size, type View, backgroundBox, boxOfPoints, fitView, toScreen, unionBox } from "../../lib/layoutMath";
 import { batchPixels, drawBatches } from "../../lib/pixelBatches";
-import { type PortRef, type SlotRef, wiringPath } from "../../lib/wiringMath";
+import { type PortRef, findPort, wiringPath } from "../../lib/wiringMath";
 import { useWiring } from "../../state/wiring";
 import { useBackgroundImage } from "../layout/useLayoutData";
 
@@ -31,24 +31,37 @@ function arrow(ctx: CanvasRenderingContext2D, at: Pt, toward: Pt) {
   ctx.restore();
 }
 
-function draw(canvas: HTMLCanvasElement, show: Show, props: PreviewProp[], photo: ReturnType<typeof useBackgroundImage>, focus: PortRef | null, selected: SlotRef | null) {
+/** Sizes the canvas to its box (in device pixels) and returns its context, scaled to CSS pixels. */
+function prepare(canvas: HTMLCanvasElement, size: Size): CanvasRenderingContext2D | null {
   const ctx = canvas.getContext("2d");
-  if (!ctx) return;
+  if (!ctx) return null;
   const ratio = window.devicePixelRatio || 1;
-  const size: Size = { width: canvas.clientWidth, height: canvas.clientHeight };
   canvas.width = Math.round(size.width * ratio);
   canvas.height = Math.round(size.height * ratio);
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  return ctx;
+}
+
+/**
+ * The view of the layout: every prop and the photo, with room below for the controller box (the
+ * path draws it below the lowest pixel of the port's props, at most 15% of the layout's height
+ * lower), so it never changes with the port shown and the drawn layout can be kept.
+ */
+function layoutView(props: PreviewProp[], bg: Show["background"], aspect: number, size: Size): View {
+  const propsBox = unionBox(props.map((p) => boxOfPoints(p.points)));
+  const room = propsBox ? { ...propsBox, minY: propsBox.minY - Math.max(1, (propsBox.maxY - propsBox.minY) * 0.15) } : null;
+  return fitView(unionBox([room, bg ? backgroundBox(bg, aspect) : null]), size, 18);
+}
+
+const NONE: ReadonlySet<string> = new Set();
+
+/** The still part: backdrop, photo, and every prop dimmed. Drawn again only when they change. */
+function drawLayout(canvas: HTMLCanvasElement, size: Size, view: View, props: PreviewProp[], bg: Show["background"], photo: { image: CanvasImageSource | null; aspect: number }) {
+  const ctx = prepare(canvas, size);
+  if (!ctx) return;
+  const at = (p: Pt) => toScreen(view, size, p);
   ctx.fillStyle = BACKDROP;
   ctx.fillRect(0, 0, size.width, size.height);
-
-  const port = focus && show.controllers.find((c) => c.id === focus.controller)?.ports.find((p) => p.number === focus.port);
-  const path = port ? wiringPath(port, props) : null;
-  const bg = show.background ?? null;
-  const box = unionBox([...props.map((p) => boxOfPoints(p.points)), bg ? backgroundBox(bg, photo.aspect) : null, path?.start ? { minX: path.start.x, maxX: path.start.x, minY: path.start.y, maxY: path.start.y } : null]);
-  const view = fitView(box, size, 18);
-  const at = (p: Pt) => toScreen(view, size, p);
-
   if (bg && photo.image) {
     const b = backgroundBox(bg, photo.aspect);
     const [tl, br] = [at({ x: b.minX, y: b.maxY }), at({ x: b.maxX, y: b.minY })];
@@ -56,11 +69,21 @@ function draw(canvas: HTMLCanvasElement, show: Show, props: PreviewProp[], photo
     ctx.drawImage(photo.image, tl.x, tl.y, br.x - tl.x, br.y - tl.y);
     ctx.globalAlpha = 1;
   }
-
-  const onPort = new Set(port?.slots.map((s) => s.prop) ?? []);
   const radius = Math.min(3, Math.max(1, view.zoom * 0.04));
-  drawBatches(ctx, batchPixels(props, null, view, size, onPort, PIXELS, radius), radius, ratio);
-  if (!path || !path.start || !path.firstPixel) return;
+  drawBatches(ctx, batchPixels(props, null, view, size, NONE, PIXELS, radius), radius, window.devicePixelRatio || 1);
+}
+
+/** The part that follows the port in focus: its props lit, and its wiring path. */
+function drawPath(canvas: HTMLCanvasElement, size: Size, view: View, props: PreviewProp[], port: Port | null, selectedProp: string | null) {
+  const ctx = prepare(canvas, size);
+  if (!ctx || !port) return;
+  const at = (p: Pt) => toScreen(view, size, p);
+  const onPort = new Set(port.slots.map((s) => s.prop));
+  const radius = Math.min(3, Math.max(1, view.zoom * 0.04));
+  const lit = props.filter((p) => onPort.has(p.prop));
+  drawBatches(ctx, batchPixels(lit, null, view, size, onPort, PIXELS, radius), radius, window.devicePixelRatio || 1);
+  const path = wiringPath(port, props);
+  if (!path.start || !path.firstPixel) return;
 
   // The wire between props: dashed.
   const stroke = (width: number, color: string, dash: number[], line: () => void) => {
@@ -83,7 +106,6 @@ function draw(canvas: HTMLCanvasElement, show: Show, props: PreviewProp[], photo
     });
   }
   // Along each prop, first pixel to last, with arrows for the direction the data runs.
-  const selectedProp = selected && port && selected.controller === focus?.controller && selected.port === focus.port ? port.slots[selected.index]?.prop : null;
   for (const run of path.runs) {
     const pts = run.points.map(at);
     stroke(run.prop === selectedProp ? 3 : 2, ACCENT, [], () => {
@@ -93,13 +115,19 @@ function draw(canvas: HTMLCanvasElement, show: Show, props: PreviewProp[], photo
     });
     ctx.fillStyle = "#fff";
     let travelled = 0;
+    let drawn = 0;
     for (let j = 1; j < pts.length; j++) {
       travelled += Math.hypot(pts[j].x - pts[j - 1].x, pts[j].y - pts[j - 1].y);
-      if (travelled >= ARROW_EVERY_PX || (pts.length === 2 && j === 1)) {
+      if (travelled >= ARROW_EVERY_PX) {
         travelled = 0;
-        const mid = { x: (pts[j].x + pts[j - 1].x) / 2, y: (pts[j].y + pts[j - 1].y) / 2 };
-        arrow(ctx, mid, pts[j]);
+        drawn++;
+        arrow(ctx, { x: (pts[j].x + pts[j - 1].x) / 2, y: (pts[j].y + pts[j - 1].y) / 2 }, pts[j]);
       }
+    }
+    // A short prop still shows which way it runs: one arrow halfway along.
+    if (drawn === 0 && pts.length >= 2) {
+      const j = Math.max(1, Math.floor(pts.length / 2));
+      arrow(ctx, { x: (pts[j].x + pts[j - 1].x) / 2, y: (pts[j].y + pts[j - 1].y) / 2 }, pts[j]);
     }
   }
 
@@ -116,7 +144,7 @@ function draw(canvas: HTMLCanvasElement, show: Show, props: PreviewProp[], photo
   ctx.font = "600 10px system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(`P${port!.number}`, c.x, c.y + 0.5);
+  ctx.fillText(`P${port.number}`, c.x, c.y + 0.5);
   const s = at(path.firstPixel);
   ctx.fillStyle = START;
   ctx.strokeStyle = HALO;
@@ -127,39 +155,68 @@ function draw(canvas: HTMLCanvasElement, show: Show, props: PreviewProp[], photo
   ctx.fill();
 }
 
+const portKey = (r: PortRef | null) => (r ? `${r.controller}\u0000${r.port}\u0000${r.at ?? ""}` : null);
+
 /**
  * The layout, small, with the hovered or selected port's props lit and its wiring drawn: from
  * the controller through each prop's first pixel to its last, a green dot where the data
- * enters, and arrows for the way it runs.
+ * enters, and arrows for the way it runs. The layout is drawn once and kept; only the path layer
+ * is drawn again, at most once a frame, when the port in focus changes.
  */
 export function WiringPreview({ show, props }: { show: Show; props: PreviewProp[] }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const selected = useWiring((s) => s.selected);
-  const hovered = useWiring((s) => s.hovered);
-  const dragOver = useWiring((s) => (s.drag?.over?.kind === "port" ? s.drag.over : null));
+  const baseRef = useRef<HTMLCanvasElement>(null);
+  const pathRef = useRef<HTMLCanvasElement>(null);
+  // Strings, so a pointer move over the same port re-renders nothing.
+  const dragKey = useWiring((s) => (s.drag?.over?.kind === "port" ? portKey(s.drag.over) : null));
+  const selectedKey = useWiring((s) => portKey(s.selected));
+  const selectedProp = useWiring((s) => s.selected?.prop ?? null);
+  const hoveredKey = useWiring((s) => portKey(s.hovered));
   // While dragging, the port under the pointer; otherwise the selected chip's port, or the hovered one.
-  const focus = dragOver ?? selected ?? hovered;
+  const focusKey = dragKey ?? selectedKey ?? hoveredKey;
   const photo = useBackgroundImage(show.background?.path);
-  const [size, setSize] = useState(0);
+  const [size, setSize] = useState<Size>({ width: 0, height: 0 });
 
   useEffect(() => {
-    const canvas = canvasRef.current;
+    const canvas = baseRef.current;
     if (!canvas) return;
-    const observer = new ResizeObserver(() => setSize(canvas.clientWidth));
+    const observer = new ResizeObserver(() => setSize({ width: canvas.clientWidth, height: canvas.clientHeight }));
     observer.observe(canvas);
     return () => observer.disconnect();
   }, []);
 
-  useEffect(() => {
-    if (canvasRef.current) draw(canvasRef.current, show, props, photo, focus, selected);
-  });
+  const focus = useMemo<PortRef | null>(() => {
+    if (!focusKey) return null;
+    const [controller, port, at] = focusKey.split("\u0000");
+    return { controller, port: Number(port), at: at === "" ? undefined : Number(at) };
+  }, [focusKey]);
+  const port = focus ? findPort(show, focus) : null;
+  // Kept while only the wiring changes (each edit brings a new show object).
+  const bgKey = JSON.stringify(show.background ?? null);
+  const bg = useMemo<Show["background"]>(() => JSON.parse(bgKey), [bgKey]);
+  const { image, aspect } = photo;
+  const view = useMemo(() => layoutView(props, bg, aspect, size), [props, bg, aspect, size]);
 
-  const port = focus && show.controllers.find((c) => c.id === focus.controller)?.ports.find((p) => p.number === focus.port);
+  useEffect(() => {
+    if (baseRef.current) drawLayout(baseRef.current, size, view, props, bg, { image, aspect });
+  }, [size, view, props, bg, image, aspect]);
+
+  // At most once a frame, however fast the pointer moves.
+  useEffect(() => {
+    const canvas = pathRef.current;
+    if (!canvas) return;
+    const lit = port?.slots.some((s) => s.prop === selectedProp) ? selectedProp : null;
+    const frame = requestAnimationFrame(() => drawPath(canvas, size, view, props, port, lit));
+    return () => cancelAnimationFrame(frame);
+  }, [size, view, props, port, selectedProp]);
+
   const controller = focus && show.controllers.find((c) => c.id === focus.controller);
   const names = port?.slots.map((s) => show.props.find((p) => p.id === s.prop)?.name ?? "Missing prop") ?? [];
   return (
     <section aria-label="Wiring preview" className="overflow-hidden rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
-      <canvas ref={canvasRef} data-size={size} className="block h-56 w-full" aria-hidden />
+      <div className="relative h-56 w-full">
+        <canvas ref={baseRef} data-size={size.width} className="absolute inset-0 block h-full w-full" aria-hidden />
+        <canvas ref={pathRef} className="absolute inset-0 block h-full w-full" aria-hidden />
+      </div>
       <p className="px-3 py-2 text-xs text-neutral-600 dark:text-neutral-400" aria-live="polite" data-testid="wiring-preview-caption">
         {!port || !controller
           ? "Point at a port to see its wiring here."

@@ -5,10 +5,11 @@ import { ControllerCard, type WiringData } from "../components/wiring/Controller
 import { PropsPanel } from "../components/wiring/PropsPanel";
 import { SlotSettings } from "../components/wiring/SlotSettings";
 import { WiringPreview } from "../components/wiring/WiringPreview";
+import { useDragEscape } from "../components/wiring/useWiringDrag";
 import { Button, Card, EmptyState, Field, Input, PageHeader, Select } from "../components/ui";
-import { CONTROLLER_KINDS, controllerOfKind, kindById } from "../lib/controllerKinds";
+import { CONTROLLER_KINDS, FALCON_PIXELS_AT_40FPS, controllerOfKind, kindById, kindPixelLimit } from "../lib/controllerKinds";
 import { uniqueName } from "../lib/shows";
-import { nodeCounts, propWiring, slotLabel, unwiredInLayoutOrder, wiringProblems } from "../lib/wiringMath";
+import { channelsPerPixel, findPort, nodeCounts, propWiring, resolveSlot, slotLabel, unwiredInLayoutOrder, wiringProblems } from "../lib/wiringMath";
 import { useApp } from "../state/store";
 import { useWiring } from "../state/wiring";
 
@@ -21,6 +22,7 @@ function AddControllerForm({ onDone }: { onDone: () => void }) {
   const [kind, setKind] = useState("other");
   const [ports, setPorts] = useState(4);
   const known = kindById(kind);
+  const limit = kindPixelLimit(known, ports);
   const submit = async () => {
     if (!name.trim() || !address.trim()) return;
     const ok = await apply([{ type: "addController", controller: controllerOfKind(kind, name.trim(), address.trim(), protocol, ports) }]);
@@ -64,7 +66,7 @@ function AddControllerForm({ onDone }: { onDone: () => void }) {
           </Select>
         </Field>
         <Field label="Ports">
-          <Input type="number" min={1} max={48} value={ports} disabled={known.ports !== null} onChange={(e) => setPorts(Number(e.target.value) || 1)} />
+          <Input type="number" min={1} max={256} value={ports} onChange={(e) => setPorts(Math.max(1, Math.min(256, Math.floor(Number(e.target.value)) || 1)))} />
         </Field>
         <div className="flex items-end gap-2">
           <Button type="submit" variant="primary" disabled={!name.trim() || !address.trim()}>
@@ -74,9 +76,11 @@ function AddControllerForm({ onDone }: { onDone: () => void }) {
             Cancel
           </Button>
         </div>
-        {known.maxPixels !== null && (
+        {limit !== null && (
           <p className="col-span-full text-xs text-neutral-500">
-            Each port drives up to {known.maxPixels.toLocaleString("en-US")} pixels; the Wiring screen warns when a port gets close.
+            With {ports} ports in use, each drives up to {limit.toLocaleString("en-US")} pixels
+            {known.adapter === "falcon" && ` (about ${FALCON_PIXELS_AT_40FPS} at 40 fps)`}; the Wiring screen warns when a port gets close.
+            {known.ports !== null && ports !== known.ports && ` The ${known.label} has ${known.ports} on the board; more come from expansion boards or smart receivers.`}
           </p>
         )}
       </form>
@@ -89,9 +93,8 @@ function DragGhost({ data }: { data: WiringData }) {
   const drag = useWiring((s) => s.drag);
   if (!drag) return null;
   const item = drag.item;
-  const prop = data.show.props.find((p) => p.id === item.prop);
-  const slot =
-    item.kind === "slot" ? data.show.controllers.find((c) => c.id === item.from.controller)?.ports.find((p) => p.number === item.from.port)?.slots[item.from.index] : null;
+  const prop = data.propById.get(item.prop);
+  const slot = item.kind === "slot" ? item.from : null;
   const name = prop?.name ?? "Missing prop";
   const hint = drag.over?.kind === "props" ? (item.kind === "slot" ? "Unwire" : null) : drag.over ? `Port ${drag.over.port}` : null;
   return (
@@ -110,24 +113,46 @@ function DragGhost({ data }: { data: WiringData }) {
 export function WiringScreen() {
   const snapshot = useApp((s) => s.snapshot);
   const selected = useWiring((s) => s.selected);
-  const preview = usePreviewProps();
+  const props = snapshot?.show.props;
+  // Pixel positions only change with the props themselves, not with wiring edits.
+  const layoutKey = useMemo(() => (props ? JSON.stringify(props) : ""), [props]);
+  const preview = usePreviewProps(layoutKey);
   const [adding, setAdding] = useState(false);
+  useDragEscape();
 
   const data = useMemo<WiringData | null>(() => {
     if (!snapshot) return null;
     const nodes = nodeCounts(snapshot.channelMap);
     const wiring = propWiring(snapshot.show, nodes);
-    return { show: snapshot.show, nodes, wiring, channelMap: snapshot.channelMap, unwired: unwiredInLayoutOrder(snapshot.show, preview.props, wiring) };
+    return {
+      show: snapshot.show,
+      nodes,
+      cpp: channelsPerPixel(snapshot.channelMap),
+      propById: new Map(snapshot.show.props.map((p) => [p.id, p])),
+      wiring,
+      channelMap: snapshot.channelMap,
+      unwired: unwiredInLayoutOrder(snapshot.show, preview.props, wiring),
+    };
   }, [snapshot, preview]);
 
-  // A selected chip that's gone (undone, or its port removed) closes its settings.
-  const selectedGone = !!selected && !!data && !data.show.controllers.find((c) => c.id === selected.controller)?.ports.find((p) => p.number === selected.port)?.slots[selected.index];
+  // The open settings follow their slot (by prop and pixels) wherever it is on its port now, and
+  // close when it's gone: undone, unwired, or moved away. Checked against the selection as it is
+  // when this runs, which may be newer than this render's.
+  const show = data?.show;
+  const port = show && selected ? findPort(show, selected) : null;
+  const index = port && selected ? resolveSlot(port, selected) : null;
+  const shown = selected && index !== null ? { ...selected, index } : null;
   useEffect(() => {
-    if (selectedGone) useWiring.getState().select(null);
-  }, [selectedGone]);
+    const current = useWiring.getState().selected;
+    if (!show || !current) return;
+    const p = findPort(show, current);
+    const i = p ? resolveSlot(p, current) : null;
+    if (i === null) useWiring.setState({ selected: null });
+    else if (i !== current.index) useWiring.setState({ selected: { ...current, index: i } });
+  }, [show, selected]);
 
   if (!snapshot || !data) return null;
-  const problems = wiringProblems(data.show, data.nodes);
+  const problems = wiringProblems(data.show, data.nodes, data.cpp);
   const controllers = data.show.controllers;
 
   return (
@@ -172,7 +197,7 @@ export function WiringScreen() {
           )}
         </div>
         <div className="flex min-w-0 flex-col gap-4 lg:col-span-2 xl:sticky xl:top-0 xl:col-span-1">
-          {selected && !selectedGone && <SlotSettings selected={selected} data={data} />}
+          {shown && <SlotSettings selected={shown} data={data} />}
           <WiringPreview show={data.show} props={preview.props} />
         </div>
       </div>

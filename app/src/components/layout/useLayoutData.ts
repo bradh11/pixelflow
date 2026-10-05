@@ -10,10 +10,17 @@ const IDLE_MS = 1000;
 
 const NO_PREVIEW: PreviewSet = { revision: -1, props: [] };
 
-/** Every prop's pixels from the engine, fetched again after each change to the show. */
-export function usePreviewProps(): PreviewSet {
+/**
+ * Every prop's pixels from the engine, fetched again after each change to the show, or only when
+ * `key` changes when one is given (a screen that knows which changes can move pixels).
+ */
+export function usePreviewProps(key?: string): PreviewSet {
   const backend = useApp((s) => s.backend);
-  const revision = useApp((s) => s.snapshot?.revision);
+  const showRevision = useApp((s) => s.snapshot?.revision);
+  // Read through a ref so a keyed fetch doesn't re-run on every revision.
+  const revisionRef = useRef(showRevision);
+  revisionRef.current = showRevision;
+  const trigger = key ?? showRevision;
   const [preview, setPreview] = useState<PreviewSet>(NO_PREVIEW);
   useEffect(() => {
     if (!backend) return;
@@ -23,7 +30,7 @@ export function usePreviewProps(): PreviewSet {
       (p) => latest && setPreview(p),
       (e: unknown) => {
         if (!latest) return;
-        setPreview({ revision: revision ?? -1, props: [] });
+        setPreview({ revision: revisionRef.current ?? -1, props: [] });
         // Without positions the canvas can't show (or pick) any prop: say so instead of showing nothing.
         useApp.setState({ error: errorMessage(e) });
       },
@@ -31,7 +38,7 @@ export function usePreviewProps(): PreviewSet {
     return () => {
       latest = false;
     };
-  }, [backend, revision]);
+  }, [backend, trigger]);
   return preview;
 }
 

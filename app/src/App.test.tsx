@@ -134,7 +134,8 @@ describe("wiring and test output", () => {
     await user.click(screen.getByRole("button", { name: "Add" }));
     expect(screen.getByRole("heading", { name: "Controller 1" })).toBeInTheDocument();
 
-    await user.selectOptions(screen.getByLabelText("Add a prop to port 1 of Controller 1"), "Arch 1");
+    await user.click(screen.getByRole("button", { name: "Add a prop to port 1 of Controller 1" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Add a prop to port 1 of Controller 1" })).getByRole("button", { name: "Arch 1" }));
     const chip = screen.getByRole("button", { name: "Arch 1 on Controller 1 port 1" });
     expect(chip).toBeInTheDocument();
 

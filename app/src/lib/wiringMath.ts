@@ -7,18 +7,31 @@
 // whose pixel range doesn't fit the prop, carries nothing.
 
 import type { ChannelMap, Controller, Edit, NodeRange, Port, PortSlot, PreviewProp, Show } from "../api/types";
+import { FALCON_PIXELS_AT_40FPS } from "./controllerKinds";
 import { plural, thousands } from "./format";
 import type { Pt } from "./layoutMath";
 
-/** A port on a controller. */
+/** A port on a controller. `at` (its place in the controller's port list) tells apart two ports
+ * that share a number; without it, such a port is left alone. */
 export interface PortRef {
   controller: string;
   port: number;
+  at?: number;
 }
 
-/** A position on a port: the slot there, or (for a drop) where a slot goes. */
-export interface SlotRef extends PortRef {
+/** A place on a port: where a dropped slot goes. */
+export interface PlaceRef extends PortRef {
   index: number;
+}
+
+/**
+ * A slot, by what it carries: the prop and its pixel range, with where it was seen (`index`) as a
+ * hint. Edits find it again in the show as it is when their turn comes (an earlier edit may have
+ * moved it) and do nothing when it's gone.
+ */
+export interface SlotRef extends PlaceRef {
+  prop: string;
+  segment: NodeRange | null;
 }
 
 /** Pixels in each prop, by id. */
@@ -26,6 +39,11 @@ export type NodeCounts = ReadonlyMap<string, number>;
 
 export function nodeCounts(map: ChannelMap): Map<string, number> {
   return new Map(map.props.map((p) => [p.prop, p.nodes]));
+}
+
+/** Channels per pixel of each prop (3, or 4 for RGBW), by id. */
+export function channelsPerPixel(map: ChannelMap): Map<string, number> {
+  return new Map(map.props.map((p) => [p.prop, p.channelsPerPixel]));
 }
 
 /** A slot carrying the prop (or `segment` of it) with no overrides. */
@@ -42,7 +60,7 @@ export function slotRange(slot: PortSlot, nodes: NodeCounts): NodeRange | null {
 }
 
 /** "Arch", or "Arch · 1–25" when the slot carries part of the prop (pixels counted from 1). */
-export function slotLabel(name: string, slot: PortSlot): string {
+export function slotLabel(name: string, slot: { segment: NodeRange | null }): string {
   return slot.segment ? `${name} · ${slot.segment.start + 1}–${slot.segment.end}` : name;
 }
 
@@ -61,55 +79,170 @@ export function portPixels(port: Port, nodes: NodeCounts): number {
   return used;
 }
 
-export type CapacityLevel = "none" | "ok" | "near" | "over";
+/** "ok"; "near" the limit; "slow": more than the port refreshes in time at the show's frame rate;
+ * "over" the limit; "none": the limit isn't known. */
+export type CapacityLevel = "none" | "ok" | "near" | "slow" | "over";
 
+/** How full one output is: the port, or one smart receiver's output on it. */
 export interface Capacity {
+  /** The smart receiver (1 = A), or null for the port itself. */
+  receiver: number | null;
+  /** Pixels, counted as the boards count them: three channels to a pixel, so RGBW counts 1⅓. */
   used: number;
   limit: number | null;
-  /** "none": the port's limit isn't known. */
+  /** About how many pixels the port refreshes in time at the show's frame rate, when that's below
+   * `limit` (Falcon boards). */
+  refresh: number | null;
   level: CapacityLevel;
   message: string | null;
 }
 
-export function portCapacity(port: Port, nodes: NodeCounts): Capacity {
-  const used = portPixels(port, nodes);
-  const limit = port.maxPixels;
-  if (limit === null) return { used, limit, level: "none", message: null };
-  if (used > limit) {
-    return {
-      used,
-      limit,
-      level: "over",
-      message: `${plural(used - limit, "pixel")} more than this port can drive (${thousands(used)} of ${thousands(limit)}). Move a prop to another port.`,
-    };
+export interface CapacityOptions {
+  /** Channels per pixel by prop; 3 when not given. */
+  cpp?: ReadonlyMap<string, number>;
+  adapter?: Controller["adapter"];
+  /** The show's frame rate. */
+  fps?: number;
+}
+
+const SEVERITY: Record<CapacityLevel, number> = { none: 0, ok: 1, near: 2, slow: 3, over: 4 };
+
+/** Smart receivers are lettered on the boards: 1 is A, 2 is B, … */
+export function receiverName(receiver: number): string {
+  return receiver >= 1 && receiver <= 26 ? String.fromCharCode(64 + receiver) : String(receiver);
+}
+
+/**
+ * How full each output on the port is: the port itself, or (when it feeds smart receivers) each
+ * receiver's output, which has the port's whole limit to itself. Falcon ports also say when they
+ * hold more than they refresh in time at the show's frame rate: xLights' figure for V4/V5 boards
+ * is about 704 pixels at 40 fps, scaled here to the show's rate (never above the board's limit).
+ */
+export function portCapacities(port: Port, nodes: NodeCounts, options: CapacityOptions = {}): Capacity[] {
+  const outputs: { receiver: number | null; channels: number; wide: boolean }[] = [];
+  for (const slot of port.slots) {
+    const range = slotRange(slot, nodes);
+    if (!range) continue;
+    const cpp = options.cpp?.get(slot.prop) ?? 3;
+    const pixels = slot.nullPixels + range.end - range.start;
+    let output = outputs.find((o) => o.receiver === slot.smartReceiver);
+    if (!output) outputs.push((output = { receiver: slot.smartReceiver, channels: 0, wide: false }));
+    output.channels += pixels * cpp;
+    output.wide ||= pixels > 0 && cpp > 3;
   }
-  if (used >= limit * NEARLY_FULL) return { used, limit, level: "near", message: `Nearly full: ${thousands(used)} of ${thousands(limit)} pixels.` };
-  return { used, limit, level: "ok", message: null };
+  if (outputs.length === 0) outputs.push({ receiver: null, channels: 0, wide: false });
+  const limit = port.maxPixels;
+  const fps = options.fps ?? 40;
+  const fast = options.adapter === "falcon" && limit !== null && fps > 0 ? Math.floor((FALCON_PIXELS_AT_40FPS * 40) / fps) : null;
+  const refresh = fast !== null && limit !== null && fast < limit ? fast : null;
+  return outputs.map(({ receiver, channels, wide }) => {
+    const used = Math.ceil(channels / 3);
+    const base = { receiver, used, limit, refresh };
+    const say = (text: string) => (receiver === null ? text : `Receiver ${receiverName(receiver)}: ${text.charAt(0).toLowerCase()}${text.slice(1)}`);
+    if (limit === null) return { ...base, level: "none", message: null };
+    if (used > limit) {
+      const rgbw = wide ? "; RGBW pixels count as 1⅓" : "";
+      return {
+        ...base,
+        level: "over",
+        message: say(`${plural(used - limit, "pixel")} more than this port can drive (${thousands(used)} of ${thousands(limit)}${rgbw}). Move a prop to another port.`),
+      };
+    }
+    if (refresh !== null && used > refresh) {
+      return {
+        ...base,
+        level: "slow",
+        message: say(
+          `At ${fps} fps this port refreshes about ${thousands(refresh)} pixels in time; with ${thousands(used)} it will slow down. Move a prop to another port, or lower the show's frame rate.`,
+        ),
+      };
+    }
+    if (used >= limit * NEARLY_FULL) return { ...base, level: "near", message: say(`Nearly full: ${thousands(used)} of ${thousands(limit)} pixels.`) };
+    return { ...base, level: "ok", message: null };
+  });
+}
+
+/** The port's fullest output. */
+export function portCapacity(port: Port, nodes: NodeCounts, options: CapacityOptions = {}): Capacity {
+  return portCapacities(port, nodes, options).reduce((worst, c) => (SEVERITY[c.level] > SEVERITY[worst.level] ? c : worst));
+}
+
+/** Capacity options for a port on this controller of the show. */
+export function capacityOptions(show: Show, controller: Controller, cpp?: ReadonlyMap<string, number>): CapacityOptions {
+  return { cpp, adapter: controller.adapter, fps: show.settings.frameRate };
 }
 
 // ---- Edits --------------------------------------------------------------------------------
 
+const sameRange = (a: NodeRange | null, b: NodeRange | null) => a === b || (!!a && !!b && a.start === b.start && a.end === b.end);
+
+/** Where the port is in its controller's list; null when it's gone, or when two ports share its
+ * number and `at` doesn't say which. */
+function portIndex(controller: Controller, ref: PortRef): number | null {
+  if (ref.at !== undefined && controller.ports[ref.at]?.number === ref.port) return ref.at;
+  const matches = controller.ports.flatMap((p, i) => (p.number === ref.port ? [i] : []));
+  return matches.length === 1 ? matches[0] : null;
+}
+
+/** The port, when it's there and unambiguous. */
+export function findPort(show: Show, ref: PortRef): Port | null {
+  const controller = show.controllers.find((c) => c.id === ref.controller);
+  const i = controller ? portIndex(controller, ref) : null;
+  return controller && i !== null ? controller.ports[i] : null;
+}
+
 /** The controller with one port changed; null when the controller or port isn't there. */
 function changePort(show: Show, ref: PortRef, change: (port: Port) => Port): Controller | null {
   const controller = show.controllers.find((c) => c.id === ref.controller);
-  if (!controller || !controller.ports.some((p) => p.number === ref.port)) return null;
-  return { ...controller, ports: controller.ports.map((p) => (p.number === ref.port ? change(p) : p)) };
+  const i = controller ? portIndex(controller, ref) : null;
+  if (!controller || i === null) return null;
+  return { ...controller, ports: controller.ports.map((p, j) => (j === i ? change(p) : p)) };
 }
 
 const update = (controller: Controller | null): Edit[] => (controller ? [{ type: "updateController", controller }] : []);
 
-function slotAt(show: Show, ref: SlotRef): PortSlot | null {
-  const port = show.controllers.find((c) => c.id === ref.controller)?.ports.find((p) => p.number === ref.port);
-  return port?.slots[ref.index] ?? null;
+/** A reference to the slot at `index` on the port (null when there's none). */
+export function slotRefAt(show: Show, port: PortRef, index: number): SlotRef | null {
+  const slot = findPort(show, port)?.slots[index];
+  return slot ? { ...port, index, prop: slot.prop, segment: slot.segment } : null;
+}
+
+/**
+ * Where the slot is on `port` now: at its old place if it's still there; else the one slot with
+ * the same prop and pixels; else, when its own pixel range was just changed, the same prop at its
+ * old place (or the port's only slot for that prop). Null when it's gone or can't be told apart.
+ */
+export function resolveSlot(port: Port, ref: SlotRef): number | null {
+  const here = port.slots[ref.index];
+  const same = (s: PortSlot) => s.prop === ref.prop && sameRange(s.segment, ref.segment);
+  if (here && same(here)) return ref.index;
+  const exact = port.slots.flatMap((s, i) => (same(s) ? [i] : []));
+  if (exact.length > 0) return exact.length === 1 ? exact[0] : null;
+  if (here?.prop === ref.prop) return ref.index;
+  const ofProp = port.slots.flatMap((s, i) => (s.prop === ref.prop ? [i] : []));
+  return ofProp.length === 1 ? ofProp[0] : null;
+}
+
+/** The slot's place in the show as it is now, or null when it's gone. */
+function locate(show: Show, ref: SlotRef): { ref: SlotRef; slot: PortSlot } | null {
+  const port = findPort(show, ref);
+  const index = port ? resolveSlot(port, ref) : null;
+  return port && index !== null ? { ref: { ...ref, index }, slot: port.slots[index] } : null;
 }
 
 const inserted = (slots: PortSlot[], index: number, slot: PortSlot) => [...slots.slice(0, index), slot, ...slots.slice(index)];
 
-/** Moves the slot at `from` to sit before position `to.index` (counted before the move). */
-export function moveSlotEdits(show: Show, from: SlotRef, to: SlotRef): Edit[] {
-  const slot = slotAt(show, from);
-  if (!slot) return [];
-  if (from.controller === to.controller && from.port === to.port) {
+/** Moves the slot to sit before position `to.index` (counted before the move). */
+export function moveSlotEdits(show: Show, slotRef: SlotRef, to: PlaceRef): Edit[] {
+  const found = locate(show, slotRef);
+  if (!found) return [];
+  const { ref: from, slot } = found;
+  const fromController = show.controllers.find((c) => c.id === from.controller)!;
+  const toController = show.controllers.find((c) => c.id === to.controller);
+  const fromPort = portIndex(fromController, from);
+  const toPort = toController ? portIndex(toController, to) : null;
+  if (toPort === null) return [];
+  if (from.controller === to.controller && fromPort === toPort) {
     if (to.index === from.index || to.index === from.index + 1) return [];
     const index = to.index > from.index ? to.index - 1 : to.index;
     return update(
@@ -123,40 +256,62 @@ export function moveSlotEdits(show: Show, from: SlotRef, to: SlotRef): Edit[] {
   if (!removed) return [];
   // Within one controller both changes go in one update; across two, one each.
   const base = from.controller === to.controller ? { ...show, controllers: show.controllers.map((c) => (c.id === removed.id ? removed : c)) } : show;
-  const added = changePort(base, to, (p) => ({ ...p, slots: inserted(p.slots, Math.min(to.index, p.slots.length), slot) }));
+  const added = changePort(base, { ...to, at: toPort }, (p) => ({ ...p, slots: inserted(p.slots, Math.min(to.index, p.slots.length), slot) }));
   if (!added) return [];
   return from.controller === to.controller ? update(added) : [...update(removed), ...update(added)];
+}
+
+/** Moves the slot one place earlier (-1) or later (1) on its port, from wherever it is now. */
+export function moveSlotByEdits(show: Show, ref: SlotRef, step: -1 | 1): Edit[] {
+  const found = locate(show, ref);
+  const port = found && findPort(show, found.ref);
+  if (!found || !port) return [];
+  const i = found.ref.index;
+  if (step < 0 ? i === 0 : i === port.slots.length - 1) return [];
+  return moveSlotEdits(show, found.ref, { ...found.ref, index: step < 0 ? i - 1 : i + 2 });
 }
 
 /**
  * Wires the prop at `to`, dragged from the props list: an unwired prop is wired whole; a partly
  * wired one gets a slot for its first pixels that aren't wired yet; a prop wired by one slot is
  * moved here. A prop already wired in several pieces is left alone (move its pieces instead).
+ * An index past the end means the end of the port.
  */
-export function wirePropEdits(show: Show, prop: string, to: SlotRef, nodes: NodeCounts): Edit[] {
+export function wirePropEdits(show: Show, prop: string, to: PlaceRef, nodes: NodeCounts): Edit[] {
+  const action = wireAction(show, prop, nodes);
+  if (!action) return [];
+  if (action.kind === "move") return moveSlotEdits(show, action.from, to);
+  return update(changePort(show, to, (p) => ({ ...p, slots: inserted(p.slots, Math.min(to.index, p.slots.length), blankSlot(prop, action.segment)) })));
+}
+
+/** What adding the prop to a port does: wire it (whole, or the pixels not wired yet), or move its
+ * one slot from where it is. Null when there's nothing to do. */
+export type WireAction = { kind: "add"; segment: NodeRange | null } | { kind: "move"; from: SlotRef };
+
+export function wireAction(show: Show, prop: string, nodes: NodeCounts): WireAction | null {
   const wiring = propWiring(show, nodes).get(prop);
-  if (!wiring) return [];
-  if (wiring.status === "unwired") return update(changePort(show, to, (p) => ({ ...p, slots: inserted(p.slots, Math.min(to.index, p.slots.length), blankSlot(prop)) })));
+  if (!wiring) return null;
+  if (wiring.status === "unwired") return { kind: "add", segment: null };
   const gap = firstGap(
     wiring.places.map((place) => slotRange(place.slot, nodes)).filter((r): r is NodeRange => r !== null),
     wiring.nodes,
   );
-  if (gap) return update(changePort(show, to, (p) => ({ ...p, slots: inserted(p.slots, Math.min(to.index, p.slots.length), blankSlot(prop, gap)) })));
-  if (wiring.places.length === 1) {
-    const [place] = wiring.places;
-    return moveSlotEdits(show, { controller: place.controller, port: place.port, index: place.index }, to);
-  }
-  return [];
+  if (gap) return { kind: "add", segment: gap };
+  if (wiring.places.length !== 1) return null;
+  const [place] = wiring.places;
+  return { kind: "move", from: { controller: place.controller, port: place.port, at: place.at, index: place.index, prop, segment: place.slot.segment } };
 }
 
 export function unwireEdits(show: Show, ref: SlotRef): Edit[] {
-  if (!slotAt(show, ref)) return [];
-  return update(changePort(show, ref, (p) => ({ ...p, slots: p.slots.filter((_, i) => i !== ref.index) })));
+  const found = locate(show, ref);
+  if (!found) return [];
+  return update(changePort(show, found.ref, (p) => ({ ...p, slots: p.slots.filter((_, i) => i !== found.ref.index) })));
 }
 
 export function updateSlotEdits(show: Show, ref: SlotRef, change: (slot: PortSlot) => PortSlot): Edit[] {
-  if (!slotAt(show, ref)) return [];
-  return update(changePort(show, ref, (p) => ({ ...p, slots: p.slots.map((s, i) => (i === ref.index ? change(s) : s)) })));
+  const found = locate(show, ref);
+  if (!found) return [];
+  return update(changePort(show, found.ref, (p) => ({ ...p, slots: p.slots.map((s, i) => (i === found.ref.index ? change(s) : s)) })));
 }
 
 export function updatePortEdits(show: Show, ref: PortRef, change: (port: Port) => Port): Edit[] {
@@ -175,8 +330,9 @@ export function addPortEdits(show: Show, controllerId: string): Edit[] {
 
 export function removePortEdits(show: Show, ref: PortRef): Edit[] {
   const controller = show.controllers.find((c) => c.id === ref.controller);
-  if (!controller?.ports.some((p) => p.number === ref.port)) return [];
-  return update({ ...controller, ports: controller.ports.filter((p) => p.number !== ref.port) });
+  const i = controller ? portIndex(controller, ref) : null;
+  if (!controller || i === null) return [];
+  return update({ ...controller, ports: controller.ports.filter((_, j) => j !== i) });
 }
 
 /** Gives the port a new number (as printed on the controller); ports stay in number order. A
@@ -188,10 +344,13 @@ export function renumberPortEdits(show: Show, ref: PortRef, number: number): Edi
   return update(renumbered && { ...renumbered, ports: [...renumbered.ports].sort((a, b) => a.number - b.number) });
 }
 
-/** Appends the props, whole and in the given order, to the end of the port. */
-export function wireRemainingEdits(show: Show, ref: PortRef, props: string[]): Edit[] {
-  if (props.length === 0) return [];
-  return update(changePort(show, ref, (p) => ({ ...p, slots: [...p.slots, ...props.map((id) => blankSlot(id))] })));
+/** Appends the props, whole and in the given order, to the end of the port: those still unwired
+ * when the edit's turn comes (the list may be older than the show). */
+export function wireRemainingEdits(show: Show, ref: PortRef, props: string[], nodes: NodeCounts): Edit[] {
+  const wiring = propWiring(show, nodes);
+  const still = props.filter((id) => wiring.get(id)?.status === "unwired");
+  if (still.length === 0) return [];
+  return update(changePort(show, ref, (p) => ({ ...p, slots: [...p.slots, ...still.map((id) => blankSlot(id))] })));
 }
 
 // ---- Where each prop is wired ------------------------------------------------------------
@@ -200,6 +359,8 @@ export interface Place {
   controller: string;
   controllerName: string;
   port: number;
+  /** The port's place in the controller's list. */
+  at: number;
   index: number;
   slot: PortSlot;
 }
@@ -228,9 +389,9 @@ export function firstGap(ranges: NodeRange[], nodes: number): NodeRange | null {
 export function propWiring(show: Show, nodes: NodeCounts): Map<string, PropWiring> {
   const places = new Map<string, Place[]>(show.props.map((p) => [p.id, []]));
   for (const c of show.controllers) {
-    for (const port of c.ports) {
-      port.slots.forEach((slot, index) => places.get(slot.prop)?.push({ controller: c.id, controllerName: c.name, port: port.number, index, slot }));
-    }
+    c.ports.forEach((port, at) => {
+      port.slots.forEach((slot, index) => places.get(slot.prop)?.push({ controller: c.id, controllerName: c.name, port: port.number, at, index, slot }));
+    });
   }
   const result = new Map<string, PropWiring>();
   for (const prop of show.props) {
@@ -246,7 +407,8 @@ export function propWiring(show: Show, nodes: NodeCounts): Map<string, PropWirin
       covered += Math.max(0, r.end - Math.max(r.start, reach));
       reach = Math.max(reach, r.end);
     }
-    const status: WiringStatus = covered === 0 ? "unwired" : twice ? "twice" : covered < count ? "partial" : "wired";
+    // A prop with no pixels is wired as soon as it's on a port.
+    const status: WiringStatus = count === 0 ? (here.length > 0 ? "wired" : "unwired") : covered === 0 ? "unwired" : twice ? "twice" : covered < count ? "partial" : "wired";
     if (!result.has(prop.id)) result.set(prop.id, { status, places: here, wiredPixels: covered, nodes: count });
   }
   return result;
@@ -279,15 +441,16 @@ export interface WiringProblem {
   fix: string;
 }
 
-export function wiringProblems(show: Show, nodes: NodeCounts): WiringProblem[] {
+export function wiringProblems(show: Show, nodes: NodeCounts, cpp?: ReadonlyMap<string, number>): WiringProblem[] {
   const problems: WiringProblem[] = [];
   const name = (id: string) => show.props.find((p) => p.id === id)?.name ?? "A prop";
   for (const c of show.controllers) {
     for (const port of c.ports) {
-      const capacity = portCapacity(port, nodes);
-      if (capacity.level === "over" && capacity.limit !== null) {
+      for (const capacity of portCapacities(port, nodes, capacityOptions(show, c, cpp))) {
+        if (capacity.level !== "over" || capacity.limit === null) continue;
+        const where = capacity.receiver === null ? `Port ${port.number}` : `Port ${port.number} (smart receiver ${receiverName(capacity.receiver)})`;
         problems.push({
-          message: `Port ${port.number} on ${c.name} has ${plural(capacity.used - capacity.limit, "pixel")} more than it can drive (${thousands(capacity.used)} of ${thousands(capacity.limit)}).`,
+          message: `${where} on ${c.name} has ${plural(capacity.used - capacity.limit, "pixel")} more than it can drive (${thousands(capacity.used)} of ${thousands(capacity.limit)}).`,
           fix: "Move a prop to another port, or raise the port's pixel limit if the controller can drive more.",
         });
       }

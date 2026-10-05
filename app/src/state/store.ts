@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { type Backend, errorMessage } from "../api/backend";
-import type { Device, Edit, ImportSummary, Show, ShowSnapshot, SilentPeer } from "../api/types";
+import type { Device, Edit, ImportSummary, SequenceImportSummary, Show, ShowSnapshot, SilentPeer } from "../api/types";
 import { fileName } from "../lib/format";
 import { useLayoutEditor } from "./layoutEditor";
 
@@ -38,6 +38,8 @@ interface AppState {
   pendingReplace: "new" | "open" | "xlights" | null;
   /** What the last xLights import brought in, shown until dismissed. */
   importReport: { name: string; summary: ImportSummary; notes: string[] } | null;
+  /** What the last xLights sequence import brought in, shown until dismissed. */
+  sequenceImportReport: { name: string; summary: SequenceImportSummary; notes: string[] } | null;
   /** Test screen target selection; kept here so it survives leaving the screen. */
   testTarget: string;
   /** Music volume (0–1) for playback; the engine keeps the same value. */
@@ -74,6 +76,9 @@ interface AppState {
   /** Imports an xLights show folder as a new show (asks about unsaved changes first). */
   importXlights(): Promise<boolean>;
   dismissImportReport(): void;
+  /** Imports an xLights sequence onto the open show and opens it in the sequence editor. */
+  importXlightsSequence(): Promise<boolean>;
+  dismissSequenceImportReport(): void;
   save(): Promise<boolean>;
   saveAs(): Promise<boolean>;
   /** Forgets a remembered controller. */
@@ -230,6 +235,7 @@ export const useApp = create<AppState>((set, get) => {
   busy: false,
   pendingReplace: null,
   importReport: null,
+  sequenceImportReport: null,
   testTarget: "show",
   musicVolume: 1,
   discovery: null,
@@ -294,6 +300,33 @@ export const useApp = create<AppState>((set, get) => {
   },
 
   dismissImportReport: () => set({ importReport: null }),
+
+  async importXlightsSequence() {
+    const backend = get().backend;
+    if (!backend) return false;
+    const path = await backend.pickXlightsSequencePath();
+    if (!path) return false;
+    set({ busy: true });
+    try {
+      const imported = await backend.importXlightsSequence(path);
+      set({
+        sequenceImportReport: {
+          name: imported.snapshot.sequence.name,
+          summary: imported.summary,
+          notes: imported.notes,
+        },
+        error: null,
+      });
+      return true;
+    } catch (e) {
+      set({ error: errorMessage(e) });
+      return false;
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  dismissSequenceImportReport: () => set({ sequenceImportReport: null }),
 
   async resolvePendingReplace(choice) {
     const kind = get().pendingReplace;

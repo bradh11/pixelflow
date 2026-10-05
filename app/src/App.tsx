@@ -4,6 +4,7 @@ import { CommandPalette } from "./components/CommandPalette";
 import { ConfirmDiscard } from "./components/ConfirmDiscard";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { ImportReport } from "./components/ImportReport";
+import { SequenceImportReport } from "./components/SequenceImportReport";
 import { Welcome } from "./components/Welcome";
 import { useShortcuts } from "./components/useShortcuts";
 import { useApp } from "./state/store";
@@ -22,6 +23,7 @@ export function App() {
       <ConfirmDiscard />
       <ErrorBanner />
       <ImportReport />
+      <SequenceImportReport />
     </>
   );
 }

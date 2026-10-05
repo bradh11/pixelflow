@@ -2,6 +2,7 @@ import type {
   DeviceDetails,
   Waveform,
   XlightsImported,
+  XlightsSequenceImported,
   PlaybackStatus,
   PreviewSet,
   FppSequence,
@@ -70,6 +71,11 @@ export interface Backend {
   importXlights(folder: string): Promise<XlightsImported>;
   /** Shows a native folder picker for an xLights show folder; null when cancelled. */
   pickShowFolder(): Promise<string | null>;
+  /** Imports the xLights sequence (.xsq) at `path` onto the open show and opens it as a new,
+   * unsaved sequence (replacing the open one). */
+  importXlightsSequence(path: string): Promise<XlightsSequenceImported>;
+  /** Shows a native "choose an xLights sequence" dialog; null when cancelled. */
+  pickXlightsSequencePath(): Promise<string | null>;
   /** Adds the sequence file at `path` to the show, finding its music next to it (one undo step). */
   addSequence(path: string): Promise<ShowSnapshot>;
   /** Plays one of the show's sequences with its music. */

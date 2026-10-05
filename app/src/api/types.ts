@@ -121,6 +121,19 @@ export interface SequenceEntry {
   offsetMs: number;
 }
 
+/** A photo of the house drawn behind the layout. Its height follows the image's shape. */
+export interface Background {
+  /** The image file. */
+  path: string;
+  /** Layout position of the photo's top-left corner. */
+  x: number;
+  y: number;
+  /** Width in layout units. */
+  width: number;
+  /** 0 (hidden) to 1 (full strength). */
+  opacity: number;
+}
+
 export interface Show {
   schemaVersion: number;
   name: string;
@@ -129,6 +142,8 @@ export interface Show {
   groups: Group[];
   controllers: Controller[];
   sequences: SequenceEntry[];
+  /** Missing in shows from before the layout editor. */
+  background?: Background | null;
 }
 
 export interface Issue {
@@ -211,7 +226,8 @@ export type Edit =
   | { type: "addSequence"; sequence: SequenceEntry }
   | { type: "updateSequence"; sequence: SequenceEntry }
   | { type: "removeSequence"; id: Uuid }
-  | { type: "moveSequence"; id: Uuid; index: number };
+  | { type: "moveSequence"; id: Uuid; index: number }
+  | { type: "setBackground"; background: Background | null };
 
 export type PatternKind = "solid" | "cycle" | "chase" | "ramp" | "alternate" | "identify" | "walk";
 

@@ -29,7 +29,7 @@ impl From<serde_json::Error> for ModelError {
 type Migration = fn(Value) -> Result<Value, ModelError>;
 
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
-const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3];
+const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4];
 
 /// Version 2 only adds the `falcon` adapter value, so version 1 documents are already valid.
 fn v1_to_v2(doc: Value) -> Result<Value, ModelError> {
@@ -38,6 +38,11 @@ fn v1_to_v2(doc: Value) -> Result<Value, ModelError> {
 
 /// Version 3 only adds the optional `sequenceChannels`, so version 2 documents are already valid.
 fn v2_to_v3(doc: Value) -> Result<Value, ModelError> {
+    Ok(doc)
+}
+
+/// Version 4 only adds the optional `sequences` list, so version 3 documents are already valid.
+fn v3_to_v4(doc: Value) -> Result<Value, ModelError> {
     Ok(doc)
 }
 

@@ -37,6 +37,10 @@ define_id!(
     PropId
 );
 define_id!(
+    /// Identifies a [`crate::SequenceEntry`].
+    SequenceId
+);
+define_id!(
     /// Identifies a [`crate::Group`].
     GroupId
 );

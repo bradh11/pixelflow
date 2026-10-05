@@ -15,7 +15,9 @@ mod shape;
 mod show;
 mod validate;
 
-pub use controller::{AdapterKind, Controller, Port, PortSlot, Protocol, SacnConfig, UniverseSize};
+pub use controller::{
+    AdapterKind, Controller, Port, PortSlot, Protocol, SacnConfig, SequenceChannels, UniverseSize,
+};
 pub use ids::{ControllerId, GroupId, PropId};
 pub use io::{ModelError, show_from_json, show_to_json};
 pub use issue::{Issue, IssueCode, Severity, ValidationReport};

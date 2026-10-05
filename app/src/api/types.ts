@@ -105,6 +105,8 @@ export interface Controller {
   adapter: "fpp" | "falcon" | "wled" | "generic";
   protocol: Protocol;
   ports: Port[];
+  /** Where this controller's data sits in a rendered sequence (channels from 1), when known. */
+  sequenceChannels: { start: number; count: number } | null;
 }
 
 export interface Show {

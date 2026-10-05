@@ -156,6 +156,16 @@ impl Port {
     }
 }
 
+/// Where a controller's data sits in a rendered sequence (`.fseq`): channels
+/// `start..start + count`, counting from 1. Known when the controller was added from an FPP's
+/// output list (or, later, an xLights import); used to play sequences.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SequenceChannels {
+    pub start: u32,
+    pub count: u32,
+}
+
 /// A pixel controller on the network.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -169,6 +179,8 @@ pub struct Controller {
     pub protocol: Protocol,
     #[serde(default)]
     pub ports: Vec<Port>,
+    #[serde(default)]
+    pub sequence_channels: Option<SequenceChannels>,
 }
 
 impl Controller {
@@ -180,6 +192,7 @@ impl Controller {
             adapter: AdapterKind::default(),
             protocol,
             ports: Vec::new(),
+            sequence_channels: None,
         }
     }
 }

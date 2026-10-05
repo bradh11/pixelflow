@@ -3,8 +3,8 @@
 use crate::config::{Destination, DeviceConfig, DeviceInput};
 use crate::device::{Device, DeviceKind};
 use pf_model::{
-    AdapterKind, ColorOrder, Controller, Generator, Port, PortSlot, Prop, Protocol, SacnConfig, ShapeSource,
-    Show, UniverseSize, Vec3,
+    AdapterKind, ColorOrder, Controller, Generator, Port, PortSlot, Prop, Protocol, SacnConfig,
+    SequenceChannels, ShapeSource, Show, UniverseSize, Vec3,
 };
 use serde::Serialize;
 use std::collections::HashSet;
@@ -195,8 +195,13 @@ pub fn plan_destination_import(destination: &Destination, show: &Show) -> Import
         "PixelFlow adds {name} from the FPP's output list. Its strings aren't known yet: import the \
          controller itself once it's online to add them."
     )];
+    let mut controller = Controller::new(name, destination.address.clone(), protocol);
+    controller.sequence_channels = (destination.channels > 0).then_some(SequenceChannels {
+        start: destination.start_channel.max(1),
+        count: destination.channels,
+    });
     ImportPlan {
-        controller: Controller::new(name, destination.address.clone(), protocol),
+        controller,
         props: Vec::new(),
         notes,
         already_in_show,
@@ -352,6 +357,13 @@ mod tests {
         assert_eq!(plan.controller.address, "192.0.2.20");
         assert_eq!(plan.controller.protocol, Protocol::Ddp);
         assert!(plan.controller.ports.is_empty() && plan.props.is_empty());
+        assert_eq!(
+            plan.controller.sequence_channels,
+            Some(SequenceChannels {
+                start: 1,
+                count: 6147
+            })
+        );
         assert!(plan.notes[0].contains("once it's online"), "{:?}", plan.notes);
     }
 

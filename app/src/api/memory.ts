@@ -174,7 +174,9 @@ export class MemoryBackend implements Backend {
     if (!plan.canImport) throw new Error(`${device.name} has no pixel outputs to import.`);
     // Like the engine: a port-less controller at this address (added from an FPP) is filled in.
     const placeholder = this.show.controllers.find((c) => c.address === address && c.ports.length === 0);
-    const controller = placeholder ? { ...plan.controller, id: placeholder.id, name: placeholder.name } : plan.controller;
+    const controller = placeholder
+      ? { ...plan.controller, id: placeholder.id, name: placeholder.name, sequenceChannels: placeholder.sequenceChannels }
+      : plan.controller;
     return this.applyEdits([
       ...plan.props.map((prop) => ({ type: "addProp" as const, prop })),
       placeholder ? { type: "updateController" as const, controller } : { type: "addController" as const, controller },
@@ -185,7 +187,10 @@ export class MemoryBackend implements Backend {
     const { device, config } = await this.inspectDevice(address);
     const target = config.destinations.find((d) => d.address === destination);
     if (!target) throw new Error(`${device.name} doesn't send to ${destination}.`);
-    const controller = newController(target.description || target.address, target.address, "ddp", 0);
+    const controller = {
+      ...newController(target.description || target.address, target.address, "ddp", 0),
+      sequenceChannels: target.channels > 0 ? { start: Math.max(1, target.startChannel), count: target.channels } : null,
+    };
     return this.applyEdits([{ type: "addController", controller }]);
   }
 
@@ -276,7 +281,7 @@ function withFreshIds(details: DeviceDetails): DeviceDetails {
 }
 
 export function emptyShow(name: string): Show {
-  return { schemaVersion: 2, name, settings: { frameRate: 40 }, props: [], groups: [], controllers: [] };
+  return { schemaVersion: 3, name, settings: { frameRate: 40 }, props: [], groups: [], controllers: [] };
 }
 
 function stoppedOutput(generation: number): OutputStatus {

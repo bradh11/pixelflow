@@ -445,6 +445,10 @@ mod tests {
         assert_eq!(snapshot["summary"]["props"], 3);
         assert_eq!(snapshot["show"]["controllers"][0]["id"], id);
         assert_eq!(snapshot["show"]["controllers"][0]["adapter"], "falcon");
+        assert_eq!(
+            snapshot["show"]["controllers"][0]["sequenceChannels"],
+            json!({ "start": 1, "count": 6147 })
+        );
 
         let snapshot = call(&webview, "undo", json!({})).unwrap();
         assert_eq!(snapshot["summary"]["props"], 0);

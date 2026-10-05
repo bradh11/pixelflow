@@ -119,10 +119,11 @@ pub(crate) async fn import_device(state: State<'_, AppState>, address: String) -
         .controllers
         .iter()
         .find(|c| c.address == controller.address && c.ports.is_empty())
-        .map(|c| (c.id, c.name.clone()));
-    if let Some((id, name)) = placeholder {
+        .map(|c| (c.id, c.name.clone(), c.sequence_channels));
+    if let Some((id, name, sequence_channels)) = placeholder {
         controller.id = id;
         controller.name = name;
+        controller.sequence_channels = sequence_channels;
         edits.push(Edit::UpdateController { controller });
     } else {
         edits.push(Edit::AddController { controller });

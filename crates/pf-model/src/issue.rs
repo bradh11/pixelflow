@@ -24,6 +24,7 @@ pub enum IssueCode {
     InvalidGamma,
     LimitExceeded,
     InvalidBackground,
+    InvalidHouseModel,
     // Wiring checks (pf-mapping).
     PortOverCapacity,
     UnassignedNodes,

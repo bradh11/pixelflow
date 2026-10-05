@@ -26,7 +26,7 @@ impl PickedPhotos {
         self.0.lock().unwrap_or_else(PoisonError::into_inner).insert(path);
     }
 
-    fn contains(&self, path: &Path) -> bool {
+    pub(crate) fn contains(&self, path: &Path) -> bool {
         self.0
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -80,7 +80,7 @@ pub(crate) async fn read_image(state: State<'_, AppState>, path: PathBuf) -> Rep
 }
 
 /// The file's name for messages (its whole path if it has no name).
-fn label(path: &Path) -> String {
+pub(crate) fn label(path: &Path) -> String {
     path.file_name().map_or_else(
         || path.display().to_string(),
         |n| n.to_string_lossy().into_owned(),
@@ -89,7 +89,7 @@ fn label(path: &Path) -> String {
 
 /// Opens a file for reading without ever waiting: a pipe or device named like a photo would
 /// otherwise block until something writes to it.
-fn open_without_waiting(path: &Path) -> io::Result<File> {
+pub(crate) fn open_without_waiting(path: &Path) -> io::Result<File> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;

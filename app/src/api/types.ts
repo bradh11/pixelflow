@@ -134,6 +134,18 @@ export interface Background {
   opacity: number;
 }
 
+/** A 3D model of the house (glTF/GLB or OBJ) for the 3D view, placed in layout units. */
+export interface HouseModel {
+  /** The model file. */
+  path: string;
+  position: Vec3;
+  rotationDeg: Vec3;
+  /** One factor for all three axes. */
+  scale: number;
+  /** 0 (hidden) to 1 (solid). */
+  opacity: number;
+}
+
 export interface Show {
   schemaVersion: number;
   name: string;
@@ -144,6 +156,8 @@ export interface Show {
   sequences: SequenceEntry[];
   /** Missing in shows from before the layout editor. */
   background?: Background | null;
+  /** Missing unless a house model was chosen. */
+  houseModel?: HouseModel | null;
 }
 
 export interface Issue {
@@ -227,7 +241,8 @@ export type Edit =
   | { type: "updateSequence"; sequence: SequenceEntry }
   | { type: "removeSequence"; id: Uuid }
   | { type: "moveSequence"; id: Uuid; index: number }
-  | { type: "setBackground"; background: Background | null };
+  | { type: "setBackground"; background: Background | null }
+  | { type: "setHouseModel"; houseModel: HouseModel | null };
 
 export type PatternKind = "solid" | "cycle" | "chase" | "ramp" | "alternate" | "identify" | "walk";
 

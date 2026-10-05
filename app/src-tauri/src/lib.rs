@@ -5,6 +5,7 @@
 //! can take a moment).
 
 mod devices;
+mod house;
 mod layout;
 mod playback;
 mod xlights;
@@ -28,6 +29,8 @@ struct AppState {
     waveforms: Mutex<std::collections::HashMap<playback::WaveformKey, playback::WaveformCell>>,
     /// Background photos the user picked, which the window may read.
     photos: layout::PickedPhotos,
+    /// House models the user picked, which the window may read.
+    models: house::PickedModels,
 }
 
 impl AppState {
@@ -152,6 +155,8 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         layout::preview_props_3d,
         layout::pick_image,
         layout::read_image,
+        house::pick_house_model,
+        house::read_house_model,
     ])
 }
 
@@ -171,6 +176,7 @@ pub fn run() {
                 devices: DeviceAccess::network(),
                 waveforms: Mutex::default(),
                 photos: Default::default(),
+                models: Default::default(),
             });
             let handle = app.handle().clone();
             std::thread::Builder::new()
@@ -224,6 +230,7 @@ mod tests {
                 devices: DeviceAccess::fake(pf_devices::testing::network()),
                 waveforms: Mutex::default(),
                 photos: Default::default(),
+                models: Default::default(),
             })
             .build(context())
             .unwrap();
@@ -336,6 +343,37 @@ mod tests {
         );
         app.state::<AppState>().photos.add(other.clone());
         assert!(call_raw(&webview, "read_image", json!({ "path": other })).is_ok());
+    }
+
+    #[test]
+    fn the_house_model_is_set_from_the_ui_and_its_bytes_come_back_raw() {
+        let (app, webview, dir) = app();
+        let model = dir.path().join("house.glb");
+        std::fs::write(&model, b"glTF\x02\0\0\0").unwrap();
+        let house_model = json!({ "path": model, "position": { "x": 0, "y": 0, "z": -3 }, "rotationDeg": { "x": 0, "y": 0, "z": 0 }, "scale": 1, "opacity": 0.8 });
+        let snapshot = call(
+            &webview,
+            "apply_edits",
+            json!({ "edits": [{ "type": "setHouseModel", "houseModel": house_model }] }),
+        )
+        .unwrap();
+        assert_eq!(snapshot["show"]["houseModel"]["opacity"], 0.8);
+        let bytes = call_raw(&webview, "read_house_model", json!({ "path": model })).unwrap();
+        assert_eq!(&bytes[..4], b"glTF");
+
+        // Only the show's model, or one the user picked, can be read.
+        let other = dir.path().join("other.glb");
+        std::fs::write(&other, b"glTF\x02\0\0\0").unwrap();
+        let error = call(&webview, "read_house_model", json!({ "path": other })).unwrap_err();
+        assert!(
+            error
+                .as_str()
+                .unwrap()
+                .contains("can only show a model you picked"),
+            "{error}"
+        );
+        app.state::<AppState>().models.add(other.clone());
+        assert!(call_raw(&webview, "read_house_model", json!({ "path": other })).is_ok());
     }
 
     #[test]

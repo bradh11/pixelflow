@@ -29,7 +29,7 @@ impl From<serde_json::Error> for ModelError {
 type Migration = fn(Value) -> Result<Value, ModelError>;
 
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
-const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5];
+const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6];
 
 /// Version 2 only adds the `falcon` adapter value, so version 1 documents are already valid.
 fn v1_to_v2(doc: Value) -> Result<Value, ModelError> {
@@ -48,6 +48,11 @@ fn v3_to_v4(doc: Value) -> Result<Value, ModelError> {
 
 /// Version 5 only adds the optional `background` photo, so version 4 documents are already valid.
 fn v4_to_v5(doc: Value) -> Result<Value, ModelError> {
+    Ok(doc)
+}
+
+/// Version 6 only adds the optional `houseModel`, so version 5 documents are already valid.
+fn v5_to_v6(doc: Value) -> Result<Value, ModelError> {
     Ok(doc)
 }
 
@@ -190,7 +195,7 @@ mod tests {
     fn version_4_files_open_without_a_background_and_keep_one_once_set() {
         let v4 = r#"{ "schemaVersion": 4, "name": "Old", "sequences": [] }"#;
         let mut show = show_from_json(v4).unwrap();
-        assert_eq!(show.schema_version, 5);
+        assert_eq!(show.schema_version, CURRENT_SCHEMA_VERSION);
         assert_eq!(show.background, None);
         show.background = Some(crate::Background {
             opacity: 0.5,
@@ -203,6 +208,35 @@ mod tests {
             serde_json::json!({ "path": "/photos/house.jpg", "x": -12.5, "y": 9.0, "width": 25.0, "opacity": 0.5 })
         );
         assert_eq!(show_from_json(&text).unwrap(), show);
+    }
+
+    #[test]
+    fn version_5_files_open_without_a_house_model_and_keep_one_once_set() {
+        let v5 = r#"{ "schemaVersion": 5, "name": "Old", "background": null }"#;
+        let mut show = show_from_json(v5).unwrap();
+        assert_eq!(show.schema_version, 6);
+        assert_eq!(show.house_model, None);
+        let saved: Value = serde_json::from_str(&show_to_json(&show).unwrap()).unwrap();
+        assert!(saved.get("houseModel").is_none(), "no model, nothing written");
+
+        show.house_model = Some(crate::HouseModel {
+            position: crate::Vec3::new(1.0, 0.0, -4.5),
+            rotation_deg: crate::Vec3::new(0.0, 90.0, 0.0),
+            scale: 0.3048,
+            opacity: 0.6,
+            ..crate::HouseModel::new("/models/house.glb")
+        });
+        let text = show_to_json(&show).unwrap();
+        let saved: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(saved["houseModel"]["path"], "/models/house.glb");
+        assert_eq!(saved["houseModel"]["rotationDeg"]["y"], 90.0);
+        assert_eq!(show_from_json(&text).unwrap(), show);
+
+        let sparse = r#"{ "schemaVersion": 6, "name": "x", "houseModel": { "path": "/h.obj" } }"#;
+        assert_eq!(
+            show_from_json(sparse).unwrap().house_model,
+            Some(crate::HouseModel::new("/h.obj"))
+        );
     }
 
     #[test]

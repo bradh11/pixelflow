@@ -69,6 +69,10 @@ export interface Backend {
   readImage(path: string): Promise<Uint8Array>;
   /** Shows a native "choose photo" dialog; null when cancelled. */
   pickImagePath(): Promise<string | null>;
+  /** The bytes of a 3D model file (the house model). */
+  readHouseModel(path: string): Promise<Uint8Array>;
+  /** Shows a native "choose 3D model" dialog; null when cancelled. */
+  pickHouseModelPath(): Promise<string | null>;
   /** Imports the xLights show in `folder` as a new, unsaved show. */
   importXlights(folder: string): Promise<XlightsImported>;
   /** Shows a native folder picker for an xLights show folder; null when cancelled. */

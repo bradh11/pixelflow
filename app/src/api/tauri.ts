@@ -44,6 +44,9 @@ export const tauriBackend: Backend = {
   readImage: async (path) => new Uint8Array(await invoke<ArrayBuffer>("read_image", { path })),
   // Picked by the shell, which then lets the window read that photo (and no other files).
   pickImagePath: () => invoke("pick_image"),
+  readHouseModel: async (path) => new Uint8Array(await invoke<ArrayBuffer>("read_house_model", { path })),
+  // Picked by the shell, which then lets the window read that model (and no other files).
+  pickHouseModelPath: () => invoke("pick_house_model"),
   importXlights: (folder) => invoke("import_xlights", { folder }),
   pickShowFolder: async () => {
     const path = await open({ multiple: false, directory: true, title: "Choose your xLights show folder" });

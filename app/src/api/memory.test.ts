@@ -123,6 +123,21 @@ describe("MemoryBackend", () => {
     expect(Math.min(...zs)).toBeLessThan(-2);
   });
 
+  it("sets, places, and removes the house model like the engine, refusing bad values", async () => {
+    const backend = new MemoryBackend();
+    const model = { path: "/house.glb", position: { x: 0, y: 0, z: -3 }, rotationDeg: { x: 0, y: 90, z: 0 }, scale: 0.5, opacity: 1 };
+    let snap = await backend.applyEdits([{ type: "setHouseModel", houseModel: model }]);
+    expect(snap.show.houseModel).toEqual(model);
+    await expect(backend.applyEdits([{ type: "setHouseModel", houseModel: { ...model, scale: 0 } }])).rejects.toThrow(
+      "The house model's scale must be more than zero.",
+    );
+    snap = await backend.undo();
+    expect(snap.show.houseModel ?? null).toBeNull();
+    backend.models.set("/house.glb", new Uint8Array([1, 2]));
+    expect(await backend.readHouseModel("/house.glb")).toEqual(new Uint8Array([1, 2]));
+    await expect(backend.readHouseModel("/gone.glb")).rejects.toThrow("This model was moved or deleted.");
+  });
+
   it("sets and removes the background photo like the engine, refusing bad values", async () => {
     const backend = new MemoryBackend();
     expect(backend.show.background).toBeNull();

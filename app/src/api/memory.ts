@@ -55,6 +55,9 @@ export class MemoryBackend implements Backend {
   /** Image files "on disk", keyed by path, and what the photo dialog returns. */
   images = new Map<string, Uint8Array>();
   nextImagePath: string | null = null;
+  /** House model files by path, and the path the "choose model" dialog returns. */
+  models = new Map<string, Uint8Array>();
+  nextModelPath: string | null = null;
   private playbackStopReason_: string | null = null;
   private playing: {
     path: string;
@@ -449,6 +452,16 @@ export class MemoryBackend implements Backend {
     return this.nextImagePath;
   }
 
+  async readHouseModel(path: string) {
+    const model = this.models.get(path);
+    if (!model) throw new Error("This model was moved or deleted. Choose it again with Replace…");
+    return model.slice();
+  }
+
+  async pickHouseModelPath() {
+    return this.nextModelPath;
+  }
+
   async importXlights(folder: string) {
     this.calls.push(`importXlights:${folder}`);
     if (!this.xlightsImport) throw new Error(`${folder} doesn't look like an xLights show folder (no xlights_rgbeffects.xml).`);
@@ -525,7 +538,7 @@ function withFreshIds(details: DeviceDetails): DeviceDetails {
 
 export function emptyShow(name: string): Show {
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     name,
     settings: { frameRate: 40 },
     props: [],
@@ -638,6 +651,19 @@ function applyEdit(show: Show, edit: Edit): void {
         if (!(bg.opacity >= 0 && bg.opacity <= 1)) throw new Error("The background photo's strength must be between 0% and 100%.");
       }
       show.background = bg ? structuredClone(bg) : null;
+      break;
+    }
+    case "setHouseModel": {
+      const m = edit.houseModel;
+      // The same checks as the engine.
+      if (m) {
+        const finite = (v: { x: number; y: number; z: number }) => [v.x, v.y, v.z].every(Number.isFinite);
+        if (!m.path.trim()) throw new Error("Choose a model file for the house.");
+        if (!finite(m.position) || !finite(m.rotationDeg)) throw new Error("The house model's position and rotation must be numbers.");
+        if (!Number.isFinite(m.scale) || m.scale <= 0) throw new Error("The house model's scale must be more than zero.");
+        if (!(m.opacity >= 0 && m.opacity <= 1)) throw new Error("The house model's strength must be between 0% and 100%.");
+      }
+      show.houseModel = m ? structuredClone(m) : null;
       break;
     }
   }

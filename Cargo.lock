@@ -926,6 +926,8 @@ dependencies = [
  "pf-model",
  "pf-output",
  "pf-patterns",
+ "pf-render",
+ "pf-sequence",
  "serde",
  "serde_json",
  "tempfile",

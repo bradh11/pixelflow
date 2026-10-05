@@ -5,15 +5,23 @@ use crate::error::EngineError;
 use crate::history::History;
 use crate::output::{OutputSession, OutputStatus, PatternSpec, TargetSpec, output_key};
 use crate::persist::{self, HistoryEntry};
-use crate::playback::{self, ClockFactory, PlayRequest, PlaybackReady, PlaybackSession, PlaybackStatus};
+use crate::playback::{
+    self, ClockFactory, DocumentRequest, PlayRequest, PlaybackReady, PlaybackSession, PlaybackStatus,
+    SessionKind, document_music,
+};
+use crate::sequence_doc::{self, OpenSequence, SequenceEdit, SequenceSnapshot};
 use crate::snapshot::{PreviewProp, ShowSnapshot, Summary};
 use pf_mapping::ChannelMap;
 use pf_model::{IssueCode, SequenceId, Severity, Show, ValidationReport};
 use pf_output::{OutputSettings, Transport, UdpTransport};
 use pf_patterns::{Target, resolve_target};
+use pf_render::Renderer;
+use pf_render::export::{ExportLayout, ExportSummary};
+use pf_sequence::Sequence;
 use std::io;
 use std::mem;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// Undo steps kept in memory.
 const UNDO_LIMIT: usize = 200;
@@ -59,6 +67,35 @@ pub struct Engine {
     clocks: ClockFactory,
     /// Music volume for playback (0.0–1.0), kept across sequences.
     volume: f32,
+    /// The open sequence document, if any.
+    sequence: Option<OpenSequence>,
+    /// Counts sequence document changes across documents, so snapshot revisions only grow.
+    sequence_revision: u64,
+    /// A renderer for previewing the open sequence, and the show revision it was made for.
+    preview_renderer: Option<(u64, Renderer)>,
+}
+
+/// Everything needed to export the open sequence, copied out of the engine so a long export
+/// doesn't hold it.
+#[derive(Debug, Clone)]
+pub struct SequenceExport {
+    show: Show,
+    map: ChannelMap,
+    sequence: Sequence,
+}
+
+impl SequenceExport {
+    /// The channel space the file will use.
+    pub fn layout(&self) -> ExportLayout {
+        pf_render::export::export_layout(&self.show, &self.map)
+    }
+
+    /// Renders every frame and writes the `.fseq` file atomically. `progress` gets (frames done,
+    /// total frames).
+    pub fn run(&self, path: &Path, progress: impl FnMut(u32, u32)) -> Result<ExportSummary, EngineError> {
+        pf_render::export::export_fseq_file(&self.show, &self.map, &self.sequence, path, progress)
+            .map_err(|e| EngineError::Export(e.to_string()))
+    }
 }
 
 impl std::fmt::Debug for Engine {
@@ -95,6 +132,9 @@ impl Engine {
             }),
             clocks: playback::music_clocks(),
             volume: 1.0,
+            sequence: None,
+            sequence_revision: 0,
+            preview_renderer: None,
         }
     }
 
@@ -486,7 +526,267 @@ impl Engine {
 
     /// The playing sequence's current frame: every channel, as sent to the controllers.
     pub fn sequence_frame(&self) -> Option<Vec<u8>> {
-        self.playback.as_ref().map(PlaybackSession::sequence_frame)
+        self.playback.as_ref().and_then(PlaybackSession::sequence_frame)
+    }
+
+    // --- Sequence documents -------------------------------------------------------------------
+
+    /// Starts a new, unsaved sequence document (replacing the open one, without asking).
+    pub fn new_sequence_doc(
+        &mut self,
+        name: &str,
+        duration_ms: u64,
+    ) -> Result<SequenceSnapshot, EngineError> {
+        let doc = Sequence::new(name, duration_ms);
+        if let Some(problem) = pf_sequence::limit_problems(&doc).into_iter().next() {
+            return Err(EngineError::TooLarge(problem));
+        }
+        self.replace_sequence(OpenSequence::new(doc, None, self.sequence_revision + 1));
+        Ok(self.sequence_snapshot_unchecked())
+    }
+
+    /// Opens a sequence file. On failure the open sequence is left untouched.
+    pub fn open_sequence_doc(&mut self, path: &Path) -> Result<SequenceSnapshot, EngineError> {
+        let doc = sequence_doc::load_sequence(path)?;
+        self.replace_sequence(OpenSequence::new(
+            doc,
+            Some(path.to_path_buf()),
+            self.sequence_revision + 1,
+        ));
+        Ok(self.sequence_snapshot_unchecked())
+    }
+
+    /// Saves the open sequence to its file.
+    pub fn save_sequence_doc(&mut self) -> Result<SequenceSnapshot, EngineError> {
+        let open = self.sequence.as_ref().ok_or(EngineError::NoSequence)?;
+        let path = open.path.clone().ok_or(EngineError::SequenceNoPath)?;
+        self.save_sequence_doc_as(&path)
+    }
+
+    /// Saves the open sequence to `path` and makes it the sequence's file.
+    pub fn save_sequence_doc_as(&mut self, path: &Path) -> Result<SequenceSnapshot, EngineError> {
+        let open = self.sequence.as_mut().ok_or(EngineError::NoSequence)?;
+        sequence_doc::save_sequence_atomic(path, &open.doc)?;
+        open.mark_saved(path);
+        Ok(self.sequence_snapshot_unchecked())
+    }
+
+    /// Closes the open sequence (stopping it if it's playing).
+    pub fn close_sequence_doc(&mut self) {
+        self.stop_document_playback();
+        self.sequence = None;
+    }
+
+    /// The open sequence, for the UI.
+    pub fn sequence_doc(&self) -> Option<SequenceSnapshot> {
+        self.sequence.as_ref().map(|open| open.snapshot(&self.show))
+    }
+
+    fn sequence_snapshot_unchecked(&self) -> SequenceSnapshot {
+        self.sequence_doc().expect("a sequence is open")
+    }
+
+    /// Applies a batch of edits to the open sequence as one undo step. Nothing changes if any
+    /// edit fails or the result would exceed the size limits. A playing sequence shows the change
+    /// from its next frame.
+    pub fn edit_sequence(&mut self, edits: Vec<SequenceEdit>) -> Result<SequenceSnapshot, EngineError> {
+        let open = self.sequence.as_mut().ok_or(EngineError::NoSequence)?;
+        if open.apply(&edits)? {
+            self.sequence_changed();
+        }
+        Ok(self.sequence_snapshot_unchecked())
+    }
+
+    pub fn undo_sequence(&mut self) -> Result<SequenceSnapshot, EngineError> {
+        let open = self.sequence.as_mut().ok_or(EngineError::NoSequence)?;
+        if open.undo() {
+            self.sequence_changed();
+        }
+        Ok(self.sequence_snapshot_unchecked())
+    }
+
+    pub fn redo_sequence(&mut self) -> Result<SequenceSnapshot, EngineError> {
+        let open = self.sequence.as_mut().ok_or(EngineError::NoSequence)?;
+        if open.redo() {
+            self.sequence_changed();
+        }
+        Ok(self.sequence_snapshot_unchecked())
+    }
+
+    /// The open sequence as it looks at `position_ms` (a show frame: prop order, RGB/RGBW per
+    /// pixel), for scrubbing the timeline without playing.
+    pub fn sequence_doc_frame(&mut self, position_ms: u64) -> Option<Vec<u8>> {
+        let open = self.sequence.as_ref()?;
+        if self
+            .preview_renderer
+            .as_ref()
+            .is_none_or(|(rev, _)| *rev != self.revision)
+        {
+            let (map, _) = analyze(&self.show);
+            self.preview_renderer = Some((self.revision, Renderer::new(&self.show, &map)));
+        }
+        let (_, renderer) = self.preview_renderer.as_mut()?;
+        let mut frame = vec![0u8; renderer.frame_len()];
+        renderer.render(&open.doc, position_ms, &mut frame);
+        Some(frame)
+    }
+
+    /// Plays the open sequence from `position_ms` with its music, once the music is open (waiting
+    /// while holding the engine: see [`Engine::begin_sequence_doc`] to wait without). It is
+    /// rendered live, sent to the controllers through the show's output plan, and shown in the
+    /// preview; edits to the sequence show up while it plays. Stops a running test pattern or
+    /// sequence first.
+    pub fn play_sequence_doc(&mut self, position_ms: u64) -> Result<PlaybackStatus, EngineError> {
+        self.begin_sequence_doc(position_ms)?.wait();
+        self.current_status()
+    }
+
+    /// Starts the open sequence like [`Engine::play_sequence_doc`] and returns at once, with
+    /// something to wait on until the music is open (opening a sound device can take a moment).
+    pub fn begin_sequence_doc(&mut self, position_ms: u64) -> Result<PlaybackReady, EngineError> {
+        self.play_document(position_ms, false)
+    }
+
+    fn play_document(&mut self, position_ms: u64, paused: bool) -> Result<PlaybackReady, EngineError> {
+        let open = self.sequence.as_ref().ok_or(EngineError::NoSequence)?;
+        let doc = Arc::new(open.doc.clone());
+        let path = open.path.clone();
+        let music = document_music(path.as_deref(), doc.audio.as_deref());
+        self.stop_session();
+        self.stop_reason = None;
+        self.stop_playback();
+        let (map, report) = analyze(&self.show);
+        let request = DocumentRequest {
+            doc,
+            path,
+            music,
+            show_error: first_error(&report).map(|i| i.message.clone()),
+            volume: self.volume,
+        };
+        let transport = (self.transport)().map_err(EngineError::Network)?;
+        self.playback_generation += 1;
+        let mut session = PlaybackSession::start_document(
+            &self.show,
+            &map,
+            request,
+            position_ms,
+            paused,
+            transport,
+            self.output_settings.clone(),
+            &self.clocks,
+        )?;
+        let ready = session.take_ready();
+        self.playback = Some(session);
+        self.playback_stop_reason = None;
+        Ok(ready)
+    }
+
+    /// What exporting the open sequence needs, to run without holding the engine.
+    pub fn sequence_export(&self) -> Result<SequenceExport, EngineError> {
+        let open = self.sequence.as_ref().ok_or(EngineError::NoSequence)?;
+        let (map, _) = analyze(&self.show);
+        Ok(SequenceExport {
+            show: self.show.clone(),
+            map,
+            sequence: open.doc.clone(),
+        })
+    }
+
+    /// Exports the open sequence as an `.fseq` file (see [`SequenceExport::run`]).
+    pub fn export_sequence_doc(&self, path: &Path) -> Result<ExportSummary, EngineError> {
+        self.sequence_export()?.run(path, |_, _| {})
+    }
+
+    fn replace_sequence(&mut self, open: OpenSequence) {
+        self.stop_document_playback();
+        self.sequence_revision = open.snapshot_revision();
+        self.sequence = Some(open);
+    }
+
+    fn stop_document_playback(&mut self) {
+        if self
+            .playback
+            .as_ref()
+            .is_some_and(|s| matches!(s.kind(), SessionKind::Document { .. }))
+        {
+            self.stop_playback();
+        }
+    }
+
+    /// Keeps a playing sequence document in step with its edits: new music restarts it at the
+    /// same position; a new frame time also changes how often the output sends (without
+    /// reopening the music); anything else shows from the next frame.
+    fn sequence_changed(&mut self) {
+        let Some(open) = &self.sequence else {
+            return;
+        };
+        self.sequence_revision = open.snapshot_revision();
+        let Some(session) = &self.playback else {
+            return;
+        };
+        let SessionKind::Document { music, frame_ms, .. } = session.kind() else {
+            return;
+        };
+        let new_music = document_music(open.path.as_deref(), open.doc.audio.as_deref());
+        if new_music != *music {
+            self.restart_document_playback();
+            return;
+        }
+        let new_rate = *frame_ms != open.doc.frame_ms;
+        session.update_document(Arc::new(open.doc.clone()));
+        if new_rate {
+            self.rebuild_document_output();
+        }
+    }
+
+    /// Restarts a playing sequence document at the same position (still paused if it was).
+    /// Edits come in under the engine lock, so this doesn't wait for the new music to open.
+    fn restart_document_playback(&mut self) {
+        let Some(session) = &self.playback else {
+            return;
+        };
+        let status = session.status();
+        if status.state == "ended" {
+            // Nothing is sending; the next play builds a fresh session.
+            return;
+        }
+        if let Err(error) = self.play_document(status.position_ms, status.state == "paused") {
+            self.halt_playback(&error.to_string());
+        }
+    }
+
+    /// Sends a playing sequence document through the edited show's output plan from where it is,
+    /// keeping its music playing.
+    fn rebuild_document_output(&mut self) {
+        if self
+            .playback
+            .as_ref()
+            .is_none_or(|session| session.status().state == "ended")
+        {
+            // Nothing is sending; the next play builds a fresh session from the edited show.
+            return;
+        }
+        let transport = match (self.transport)() {
+            Ok(transport) => transport,
+            Err(error) => {
+                self.halt_playback(&EngineError::Network(error).to_string());
+                return;
+            }
+        };
+        let (map, report) = analyze(&self.show);
+        let show_error = first_error(&report).map(|i| i.message.clone());
+        let (Some(open), Some(session)) = (&self.sequence, self.playback.as_mut()) else {
+            return;
+        };
+        self.playback_generation += 1;
+        session.rebuild_document(
+            &self.show,
+            &map,
+            &open.doc,
+            show_error.as_deref(),
+            transport,
+            self.output_settings.clone(),
+        );
     }
 
     fn history_dir(&self) -> PathBuf {
@@ -521,14 +821,28 @@ impl Engine {
         let Some(session) = &self.playback else {
             return;
         };
+        let (old_routes, old_map, channels) = match session.kind() {
+            SessionKind::File {
+                routes,
+                map,
+                channels,
+                ..
+            } => (routes, map, *channels),
+            SessionKind::Document { .. } => {
+                self.sync_document_playback();
+                return;
+            }
+        };
         let (map, _) = analyze(&self.show);
-        let (routes, _) = playback::routes(&self.show, session.channels());
-        let (old_routes, old_map) = session.built_from();
+        let (routes, _) = playback::routes(&self.show, channels);
         if routes.is_empty() {
             self.halt_playback("Playback stopped because no controller has sequence channels anymore.");
             return;
         }
-        let mut request = session.request();
+        let built_from_same = routes == *old_routes && map == *old_map;
+        let Some(mut request) = session.request() else {
+            return;
+        };
         // A playing sequence entry that was edited: its offset applies live; new files restart.
         let mut files_changed = false;
         if let Some(id) = request.sequence {
@@ -550,7 +864,7 @@ impl Engine {
                 }
             }
         }
-        if routes == old_routes && map == *old_map && !files_changed {
+        if built_from_same && !files_changed {
             return;
         }
         let status = session.status();
@@ -576,6 +890,32 @@ impl Engine {
         // Edits come in under the engine lock: don't wait for the new music to open here.
         if let Err(error) = self.play(&request, status.position_ms, status.state == "paused") {
             self.halt_playback(&error.to_string());
+        }
+    }
+
+    /// Keeps a playing sequence document in step with the show: a change to the wiring, addresses,
+    /// channel layout, or whether the show has errors sends through the new output plan from the
+    /// same position without reopening the music; anything else (props moved, say) just redraws
+    /// with the new layout.
+    fn sync_document_playback(&mut self) {
+        let Some(session) = &self.playback else {
+            return;
+        };
+        let SessionKind::Document {
+            key,
+            map: old_map,
+            preview_only,
+            ..
+        } = session.kind()
+        else {
+            return;
+        };
+        let (map, report) = analyze(&self.show);
+        let has_errors = first_error(&report).is_some();
+        if has_errors == *preview_only && output_key(&self.show, &map) == *key && map == *old_map {
+            session.update_renderer(Renderer::new(&self.show, &map));
+        } else {
+            self.rebuild_document_output();
         }
     }
 

@@ -28,11 +28,20 @@ pub fn load_show(path: &Path) -> Result<Show, EngineError> {
 /// Writes the show so that a crash never leaves a half-written file: write a temporary file
 /// in the same folder, flush it to disk, then rename it over the target.
 pub fn save_show_atomic(path: &Path, show: &Show) -> Result<(), EngineError> {
+    let json = pf_model::show_to_json(show).map_err(|e| EngineError::Write {
+        path: path.to_path_buf(),
+        source: std::io::Error::other(e),
+    })?;
+    write_atomic(path, json.as_bytes())
+}
+
+/// Writes `bytes` to `path` atomically: a temporary file in the same folder, flushed to disk,
+/// then renamed over the target.
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), EngineError> {
     let write_err = |source| EngineError::Write {
         path: path.to_path_buf(),
         source,
     };
-    let json = pf_model::show_to_json(show).map_err(|e| write_err(std::io::Error::other(e)))?;
     let dir = path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -43,7 +52,7 @@ pub fn save_show_atomic(path: &Path, show: &Show) -> Result<(), EngineError> {
     let tmp = dir.join(format!(".{file_name}.{}.{}.tmp", std::process::id(), n));
     let result = (|| {
         let mut file = fs::File::create(&tmp)?;
-        file.write_all(json.as_bytes())?;
+        file.write_all(bytes)?;
         file.sync_all()?;
         fs::rename(&tmp, path)
     })();

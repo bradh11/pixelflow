@@ -39,4 +39,14 @@ pub enum EngineError {
     BadColor(String),
     #[error("{0}")]
     Playback(String),
+    #[error("{path} is not a valid sequence file: {reason}")]
+    InvalidSequence { path: PathBuf, reason: String },
+    #[error("No sequence is open. Create or open one first.")]
+    NoSequence,
+    #[error("This sequence has not been saved yet. Choose where to save it.")]
+    SequenceNoPath,
+    #[error("{0}")]
+    InvalidEdit(String),
+    #[error("{0}")]
+    Export(String),
 }

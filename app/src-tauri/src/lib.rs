@@ -785,27 +785,6 @@ mod tests {
         call(&webview, "stop_playback", json!({})).unwrap();
     }
 
-    /// Calls a command that answers with raw bytes.
-    fn call_raw(webview: &WebviewWindow<MockRuntime>, cmd: &str, args: Value) -> Vec<u8> {
-        let body = get_ipc_response(
-            webview,
-            InvokeRequest {
-                cmd: cmd.into(),
-                callback: CallbackFn(0),
-                error: CallbackFn(1),
-                url: webview.url().unwrap(),
-                body: InvokeBody::Json(args),
-                headers: Default::default(),
-                invoke_key: INVOKE_KEY.to_string(),
-            },
-        )
-        .unwrap();
-        match body {
-            tauri::ipc::InvokeResponseBody::Raw(bytes) => bytes,
-            tauri::ipc::InvokeResponseBody::Json(text) => panic!("expected raw bytes, got {text}"),
-        }
-    }
-
     /// A 12 s, 22.05 kHz mono WAV with a click every 500 ms.
     fn write_clicks(path: &std::path::Path) {
         let rate = 22_050u32;
@@ -891,7 +870,7 @@ mod tests {
             snap["changes"]["rows"][0]["id"],
             "44444444-0000-4000-8000-000000000001"
         );
-        let frame = call_raw(&webview, "sequence_doc_frame", json!({ "positionMs": 500 }));
+        let frame = call_raw(&webview, "sequence_doc_frame", json!({ "positionMs": 500 })).unwrap();
         assert_eq!(frame, [255, 0, 0].repeat(4));
         let error = call(
             &webview,
@@ -957,7 +936,12 @@ mod tests {
         call(&webview, "close_sequence_doc", json!({})).unwrap();
         let snap = call(&webview, "open_sequence_doc", json!({ "path": saved })).unwrap();
         assert_eq!(snap["sequence"]["name"], "Song");
-        assert!(call_raw(&webview, "sequence_doc_frame", json!({ "positionMs": 0 })).len() == 12);
+        assert!(
+            call_raw(&webview, "sequence_doc_frame", json!({ "positionMs": 0 }))
+                .unwrap()
+                .len()
+                == 12
+        );
     }
 
     /// A strip wired to a controller and a new 2 s sequence with one red effect on it.

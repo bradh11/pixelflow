@@ -46,7 +46,5 @@ pub enum EngineError {
     #[error("This sequence has not been saved yet. Choose where to save it.")]
     SequenceNoPath,
     #[error("{0}")]
-    InvalidEdit(String),
-    #[error("{0}")]
     Export(String),
 }

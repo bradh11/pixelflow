@@ -1,7 +1,9 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Profiler } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
+import { EffectSettings } from "../components/sequencer/EffectSettings";
 import { demoShow } from "../api/demo";
 import { DEMO_MUSIC, DEMO_SEQUENCE_PATH, demoSequence } from "../api/demoSequence";
 import { MemoryBackend } from "../api/memory";
@@ -386,9 +388,70 @@ describe("sequence screen", () => {
     // The engine finds a problem once the show changes: the list is checked again.
     seq.issues = [{ severity: "warning", message: "The Wave effect at 0:08.000 on 'Garage Arch' overlaps the Chase effect.", row: seq.doc!.rows[1].id, effect: effect.id }];
     await act(() => useApp.getState().apply([{ type: "renameShow", name: "Renamed" }]));
-    await user.click(await screen.findByRole("button", { name: "1 problem" }));
+    const trigger = await screen.findByRole("button", { name: "1 problem" });
+    await user.click(trigger);
+    // The list takes the focus, and Escape gives it back.
+    const item = within(screen.getByRole("dialog", { name: "Problems in this sequence" })).getByRole("button", { name: /overlaps the Chase effect/ });
+    expect(item).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Problems in this sequence" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+    await user.click(trigger);
     await user.click(within(screen.getByRole("dialog", { name: "Problems in this sequence" })).getByRole("button", { name: /overlaps the Chase effect/ }));
     expect(useSequencer.getState().selection).toEqual([effect.id]);
+  });
+
+  it("opens the add-row menu with the focus in it, and Escape closes it", async () => {
+    const { user } = await openScreen();
+    const add = screen.getByRole("button", { name: "Add row" });
+    await user.click(add);
+    const menu = screen.getByRole("dialog", { name: "Add a row" });
+    expect(within(menu).getAllByRole("button")[0]).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Add a row" })).not.toBeInTheDocument();
+    expect(add).toHaveFocus();
+  });
+
+  it("names the playhead and the snapping key in words", async () => {
+    await openScreen();
+    const toolbar = screen.getByRole("toolbar", { name: "Sequence" });
+    expect(toolbar).toHaveTextContent("Playhead at 0:00.000");
+    expect(within(toolbar).getByRole("button", { name: /hold (Alt|Option) while dragging/ })).toBeInTheDocument();
+  });
+
+  it("scrubbing asks for one preview frame at a time, then the latest", async () => {
+    const { seq } = await openScreen();
+    // Let the first still frame (at 0) come back.
+    await act(async () => undefined);
+    const pending: (() => void)[] = [];
+    const asked: number[] = [];
+    const real = seq.sequenceDocFrame.bind(seq);
+    vi.spyOn(seq, "sequenceDocFrame").mockImplementation((ms) => {
+      asked.push(ms);
+      return new Promise((resolve) => pending.push(() => void real(ms).then(resolve)));
+    });
+    for (let ms = 1000; ms <= 10_000; ms += 1000) act(() => useSequencer.getState().setPlayhead(ms));
+    expect(asked).toEqual([1000]);
+    await act(async () => pending.shift()!());
+    await waitFor(() => expect(asked).toEqual([1000, 10_000]));
+    await act(async () => pending.shift()!());
+    expect(asked).toEqual([1000, 10_000]);
+  });
+
+  it("doesn't redraw the settings panel as the playhead moves", async () => {
+    const { seq } = await openScreen();
+    const wave = seq.doc!.rows[1].layers[0].effects[0];
+    act(() => useSequencer.getState().select([wave.id]));
+    const renders = vi.fn();
+    render(
+      <Profiler id="settings" onRender={renders}>
+        <EffectSettings doc={useSequencer.getState().doc!} />
+      </Profiler>,
+    );
+    const before = renders.mock.calls.length;
+    for (let ms = 0; ms < 2000; ms += 100) act(() => useSequencer.getState().setPlayhead(ms));
+    act(() => useSequencer.setState({ exporting: 40 }));
+    expect(renders.mock.calls.length).toBe(before);
   });
 });
 

@@ -1,5 +1,6 @@
 import { AlertTriangle, AudioLines, CheckCircle2, Download, FilePlus, FolderOpen, History, Info, ListMusic, Magnet, Pause, Play, Save, Send, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { errorMessage } from "../api/backend";
 import { EffectPalette } from "../components/sequencer/EffectPalette";
 import { EffectSettings } from "../components/sequencer/EffectSettings";
@@ -127,10 +128,27 @@ function ToolButton({ label, onClick, disabled, children, pressed }: { label: st
   );
 }
 
+/** "Alt" in tooltips, or "Option" on a Mac keyboard. */
+const ALT_KEY = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent) ? "Option" : "Alt";
+
 function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
-  const s = useSequencer();
-  const doc = s.doc;
-  const playing = s.status?.state === "playing";
+  // Only what the buttons show: the playhead and export progress change many times a second and
+  // have components of their own.
+  const s = useSequencer(
+    useShallow((st) => ({
+      name: st.doc?.name ?? null,
+      durationMs: st.doc?.durationMs ?? 0,
+      hasMusic: Boolean(st.doc?.audio),
+      path: st.path,
+      dirty: st.dirty,
+      playing: st.status?.state === "playing",
+      active: st.status !== null,
+      detecting: st.detecting,
+      snapping: st.snapping,
+      sendToControllers: st.sendToControllers,
+    })),
+  );
+  const act = useSequencer.getState;
   return (
     <div role="toolbar" aria-label="Sequence" className="flex shrink-0 flex-wrap items-center gap-1 border-b border-neutral-200 px-2 py-1.5 dark:border-neutral-800">
       <ToolButton label="New sequence" onClick={onNew}>
@@ -139,56 +157,80 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
       <ToolButton label="Open sequence" onClick={onOpen}>
         <FolderOpen size={16} /> <span className="hidden xl:inline">Open</span>
       </ToolButton>
-      <ToolButton label="Save sequence" onClick={() => void s.save()} disabled={!doc}>
+      <ToolButton label="Save sequence" onClick={() => void act().save()} disabled={s.name === null}>
         <Save size={16} />
       </ToolButton>
-      {doc && (
+      {s.name !== null && (
         <>
           <span className="mx-1 max-w-48 truncate font-medium" title={s.path ?? undefined}>
-            {doc.name}
-            {s.dirty && <span className="ml-1 text-xs text-neutral-500" aria-label="Unsaved changes">●</span>}
+            {s.name}
+            {s.dirty && (
+              <>
+                <span className="ml-1 text-xs text-neutral-500" aria-hidden>
+                  ●
+                </span>
+                <span className="sr-only"> (not saved)</span>
+              </>
+            )}
           </span>
           <span className="mx-1 h-5 w-px bg-neutral-200 dark:bg-neutral-800" />
-          <ToolButton label={playing ? "Pause" : "Play"} onClick={() => void (playing ? s.pause() : s.play())}>
-            {playing ? <Pause size={16} /> : <Play size={16} />}
+          <ToolButton label={s.playing ? "Pause" : "Play"} onClick={() => void (s.playing ? act().pause() : act().play())}>
+            {s.playing ? <Pause size={16} /> : <Play size={16} />}
           </ToolButton>
-          <ToolButton label="Stop" onClick={() => void s.stop()} disabled={!s.status}>
+          <ToolButton label="Stop" onClick={() => void act().stop()} disabled={!s.active}>
             <Square size={15} />
           </ToolButton>
-          <span className="w-36 text-sm text-neutral-600 tabular-nums dark:text-neutral-300" aria-label="Playhead">
-            {formatTime(s.playheadMs)} <span className="text-neutral-400">/ {formatTime(doc.durationMs, 1000)}</span>
-          </span>
+          <PlayheadTime durationMs={s.durationMs} />
           <span className="mx-1 h-5 w-px bg-neutral-200 dark:bg-neutral-800" />
-          <ToolButton label={s.detecting ? "Finding the beats…" : "Detect beats"} onClick={() => void s.detectBeats()} disabled={!doc.audio || s.detecting}>
+          <ToolButton label={s.detecting ? "Finding the beats…" : "Detect beats"} onClick={() => void act().detectBeats()} disabled={!s.hasMusic || s.detecting}>
             <AudioLines size={16} /> <span className="hidden lg:inline">{s.detecting ? "Finding beats…" : "Detect beats"}</span>
           </ToolButton>
-          <ToolButton label="Snap to beats and effect edges (hold Alt while dragging to turn off)" pressed={s.snapping} onClick={() => s.setSnapping(!s.snapping)}>
+          <ToolButton label={`Snap to beats and effect edges (hold ${ALT_KEY} while dragging to turn off)`} pressed={s.snapping} onClick={() => act().setSnapping(!s.snapping)}>
             <Magnet size={16} /> <span className="hidden lg:inline">Snap</span>
           </ToolButton>
-          <ToolButton label="Send to controllers while playing" pressed={s.sendToControllers} onClick={() => void s.setSendToControllers(!s.sendToControllers)}>
+          <ToolButton label="Send to controllers while playing" pressed={s.sendToControllers} onClick={() => void act().setSendToControllers(!s.sendToControllers)}>
             <Send size={16} /> <span className="hidden lg:inline">Send to controllers</span>
           </ToolButton>
           <SequenceIssues />
-          <div className="ml-auto flex items-center gap-1">
-            {s.exporting !== null ? (
-              <span className="flex items-center gap-2 text-sm" role="status">
-                Exporting… {s.exporting}%
-                <progress className="w-24 accent-violet-600" max={100} value={s.exporting} />
-                <Button variant="ghost" onClick={() => void s.cancelExport()}>
-                  Cancel
-                </Button>
-              </span>
-            ) : (
-              <>
-                <ToolButton label="Export .fseq for FPP" onClick={() => void s.exportFseq(false)}>
-                  <Download size={16} /> <span className="hidden lg:inline">Export .fseq…</span>
-                </ToolButton>
-                <ToolButton label="Export and add to the show's playlist" onClick={() => void exportToPlaylist()}>
-                  <ListMusic size={16} /> <span className="hidden lg:inline">Add to show playlist…</span>
-                </ToolButton>
-              </>
-            )}
-          </div>
+          <ExportControls />
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Where the playhead is (its own component: it changes many times a second while playing). */
+function PlayheadTime({ durationMs }: { durationMs: number }) {
+  const playheadMs = useSequencer((s) => s.playheadMs);
+  return (
+    <span className="w-36 text-sm text-neutral-600 tabular-nums dark:text-neutral-300">
+      <span className="sr-only">Playhead at </span>
+      {formatTime(playheadMs)} <span className="text-neutral-500">/ {formatTime(durationMs, 1000)}</span>
+    </span>
+  );
+}
+
+/** Export and add-to-playlist, or an export's progress with Cancel. */
+function ExportControls() {
+  const exporting = useSequencer((s) => s.exporting);
+  return (
+    <div className="ml-auto flex items-center gap-1">
+      {exporting !== null ? (
+        <span className="flex items-center gap-2 text-sm" role="status">
+          Exporting… {exporting}%
+          <progress className="w-24 accent-violet-600" max={100} value={exporting} />
+          <Button variant="ghost" onClick={() => void useSequencer.getState().cancelExport()}>
+            Cancel
+          </Button>
+        </span>
+      ) : (
+        <>
+          <ToolButton label="Export .fseq for FPP" onClick={() => void useSequencer.getState().exportFseq(false)}>
+            <Download size={16} /> <span className="hidden lg:inline">Export .fseq…</span>
+          </ToolButton>
+          <ToolButton label="Export and add to the show's playlist" onClick={() => void exportToPlaylist()}>
+            <ListMusic size={16} /> <span className="hidden lg:inline">Add to show playlist…</span>
+          </ToolButton>
         </>
       )}
     </div>
@@ -196,15 +238,30 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
 }
 
 /** Problems the engine found in the sequence (overlapping effects, missing props); clicking one
- * selects its effect. */
+ * selects its effect. The list takes the focus and closes with Escape. */
 function SequenceIssues() {
-  const { issues, select } = useSequencer();
+  const issues = useSequencer((s) => s.issues);
   const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    list.current?.querySelector("button")?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      setOpen(false);
+      trigger.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
   if (issues.length === 0) return null;
   const errors = issues.filter((i) => i.severity === "error").length;
   return (
     <span className="relative">
       <button
+        ref={trigger}
         type="button"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
@@ -214,6 +271,7 @@ function SequenceIssues() {
       </button>
       {open && (
         <div
+          ref={list}
           role="dialog"
           aria-label="Problems in this sequence"
           className="absolute top-9 left-0 z-30 max-h-80 w-[26rem] overflow-auto rounded-lg border border-neutral-200 bg-white p-3 text-sm shadow-xl dark:border-neutral-800 dark:bg-neutral-900"
@@ -225,10 +283,11 @@ function SequenceIssues() {
                   type="button"
                   className="text-left hover:underline"
                   onClick={() => {
-                    if (issue.effect) select([issue.effect], issue.row ?? null);
-                    else if (issue.row) useSequencer.getState().setActiveRow(issue.row);
+                    const st = useSequencer.getState();
+                    if (issue.effect) st.select([issue.effect], issue.row ?? null);
+                    else if (issue.row) st.setActiveRow(issue.row);
                     setOpen(false);
-                    useSequencer.getState().reveal();
+                    st.reveal();
                   }}
                 >
                   <span className={issue.severity === "error" ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}>
@@ -317,7 +376,9 @@ async function exportToPlaylist() {
 }
 
 function BeatsBanner() {
-  const { suggestBeats, detectBeats, dismissBeats, detecting } = useSequencer();
+  const suggestBeats = useSequencer((s) => s.suggestBeats);
+  const detecting = useSequencer((s) => s.detecting);
+  const { detectBeats, dismissBeats } = useSequencer.getState();
   if (!suggestBeats) return null;
   return (
     <div role="status" className="flex items-center gap-3 border-b border-violet-200 bg-violet-50 px-3 py-2 text-sm dark:border-violet-900 dark:bg-violet-950/30">

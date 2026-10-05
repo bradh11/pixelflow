@@ -62,9 +62,11 @@ export function formatTime(ms: number, stepMs = 1): string {
   return decimals === 0 ? text : `${text}.${String(fraction).padStart(decimals, "0")}`;
 }
 
-const NICE_STEPS = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10_000, 15_000, 30_000, 60_000, 120_000, 300_000, 600_000];
+const NICE_STEPS = [
+  10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10_000, 15_000, 30_000, 60_000, 120_000, 300_000, 600_000, 900_000, 1_800_000, 3_600_000,
+];
 /** Minor ticks per major tick, by the major step's leading digit. */
-const MINOR_DIVISIONS: Record<string, number> = { "1": 5, "2": 4, "5": 5, "1.5": 3, "3": 3, "6": 6 };
+const MINOR_DIVISIONS: Record<string, number> = { "1": 5, "2": 4, "5": 5, "1.5": 3, "3": 3, "6": 6, "9": 3, "1.8": 6, "3.6": 4 };
 
 export interface RulerTicks {
   major: { ms: number; x: number; label: string }[];

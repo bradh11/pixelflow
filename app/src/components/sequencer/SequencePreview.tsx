@@ -22,28 +22,49 @@ export function SequencePreview({ doc }: { doc: Sequence }) {
   const show = useApp((s) => s.snapshot?.show);
   const preview = usePreviewProps();
   const photo = useBackgroundImage(show?.background?.path);
-  const { api, playheadMs, revision, status, activeRow } = useSequencer();
+  const api = useSequencer((s) => s.api);
+  const playheadMs = useSequencer((s) => s.playheadMs);
+  const revision = useSequencer((s) => s.revision);
+  const playing = useSequencer((s) => s.status !== null);
+  const activeRow = useSequencer((s) => s.activeRow);
   const [onlyRow, setOnlyRow] = useState(false);
   const [frame, setFrame] = useState<Uint8Array | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
-  const playing = status !== null;
+  /** The moment to draw next, while a frame is on its way: scrubbing asks for one frame at a time
+   * and skips the moments it passed meanwhile. */
+  const still = useRef<{ wanted: number | null; busy: boolean; live: boolean }>({ wanted: null, busy: false, live: true });
 
-  // Still: render the moment at the playhead (the latest request wins).
+  // Still: render the moment at the playhead (the latest moment wins).
   useEffect(() => {
     if (!api || playing) return;
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      api.sequenceDocFrame(playheadMs).then(
-        (f) => !cancelled && setFrame(f.length ? f : null),
-        () => !cancelled && setFrame(null),
-      );
-    }, 0);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
+    const s = still.current;
+    s.wanted = playheadMs;
+    const next = () => {
+      if (s.busy || s.wanted === null || !s.live) return;
+      const ms = s.wanted;
+      s.wanted = null;
+      s.busy = true;
+      api
+        .sequenceDocFrame(ms)
+        .then(
+          (f) => s.live && !useSequencer.getState().status && setFrame(f.length ? f : null),
+          () => s.live && setFrame(null),
+        )
+        .finally(() => {
+          s.busy = false;
+          next();
+        });
     };
+    next();
   }, [api, playheadMs, revision, playing, doc]);
+  useEffect(() => {
+    const s = still.current;
+    s.live = true;
+    return () => {
+      s.live = false;
+    };
+  }, []);
 
   // Playing: follow the engine's live frame.
   useEffect(() => {

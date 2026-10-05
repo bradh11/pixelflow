@@ -188,13 +188,18 @@ export function drawTimeline(ctx: CanvasRenderingContext2D, s: TimelineScene) {
       ctx.lineWidth = 1.5;
       const x0 = timeToX(s.ghost.startMs, view);
       const w = Math.max(2, timeToX(s.ghost.endMs, view) - x0 - 1);
-      ctx.strokeRect(x0 + 0.5, y + 0.5, w, lane.h - 5);
-      ctx.setLineDash([]);
       if (s.ghost.newLayer) {
+        // Over the row's busy last lane: a solid label, so it reads above the effects there.
+        const label = "+ New layer";
+        const labelW = Math.max(w, 72);
+        ctx.fillStyle = t.bg;
+        ctx.fillRect(Math.max(0, x0), y, labelW, lane.h - 4);
         ctx.fillStyle = t.accent;
         ctx.textBaseline = "middle";
-        ctx.fillText("+ New layer", Math.max(0, x0) + 5, y + (lane.h - 5) / 2);
+        ctx.fillText(label, Math.max(0, x0) + 5, y + (lane.h - 5) / 2);
       }
+      ctx.strokeRect(x0 + 0.5, y + 0.5, w, lane.h - 5);
+      ctx.setLineDash([]);
     }
   }
   if (s.marquee) {
@@ -238,25 +243,33 @@ export function drawTimeline(ctx: CanvasRenderingContext2D, s: TimelineScene) {
     const playX = timeToX(s.playheadMs, view);
     const first = Math.max(0, Math.floor(t0 / msPerPeak));
     const last = Math.min(w.peaks.length, Math.ceil(t1 / msPerPeak) + 1);
-    // One bar per screen pixel (the loudest peak in it), however far out the view is.
-    let px = -1;
-    let peak = 0;
-    const flush = () => {
-      if (px < 0) return;
+    const bar = (x: number, width: number, peak: number) => {
       const h = Math.max(1, peak * (WAVE_H - 6));
-      ctx.fillStyle = px < playX ? t.wavePlayed : t.wave;
-      ctx.fillRect(px, mid - h / 2, 1, h);
+      ctx.fillStyle = x < playX ? t.wavePlayed : t.wave;
+      ctx.fillRect(x, mid - h / 2, width, h);
     };
-    for (let i = first; i < last; i++) {
-      const x = Math.floor(timeToX(i * msPerPeak, view));
-      if (x !== px) {
-        flush();
-        px = x;
-        peak = 0;
+    if (msPerPeak * view.pxPerMs > 1) {
+      // Zoomed in past one value per pixel: each value fills the width up to the next one.
+      for (let i = first; i < last; i++) {
+        const x0 = Math.floor(timeToX(i * msPerPeak, view));
+        const x1 = Math.floor(timeToX((i + 1) * msPerPeak, view));
+        bar(x0, Math.max(1, x1 - x0), w.peaks[i]);
       }
-      peak = Math.max(peak, w.peaks[i]);
+    } else {
+      // One bar per screen pixel (the loudest value in it), however far out the view is.
+      let px = -1;
+      let peak = 0;
+      for (let i = first; i < last; i++) {
+        const x = Math.floor(timeToX(i * msPerPeak, view));
+        if (x !== px) {
+          if (px >= 0) bar(px, 1, peak);
+          px = x;
+          peak = 0;
+        }
+        peak = Math.max(peak, w.peaks[i]);
+      }
+      if (px >= 0) bar(px, 1, peak);
     }
-    flush();
   }
 
   // Timing tracks.
@@ -345,13 +358,15 @@ function drawEffect(
       ctx.fillRect(x0 + 2 + i * sw, y + h - 4, Math.max(1, sw - 1), 3);
     });
   }
-  if (w > 34) {
+  // The name stays in view when the effect starts left of the view.
+  const textX = Math.max(x0, 0);
+  if (x0 + w - textX > 34) {
     ctx.save();
     ctx.beginPath();
     ctx.rect(x0, y, w, h);
     ctx.clip();
     ctx.fillStyle = dark ? "#f4f4f5" : "#18181b";
-    ctx.fillText(label, x0 + 5, y + (h - 3) / 2);
+    ctx.fillText(label, textX + 5, y + (h - 3) / 2);
     ctx.restore();
   }
   if (o.selected) {

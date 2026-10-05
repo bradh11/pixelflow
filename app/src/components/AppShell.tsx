@@ -17,6 +17,7 @@ import {
 import { useEffect, useState, type ReactNode } from "react";
 import { errorMessage } from "../api/backend";
 import { fileName, plural, thousands } from "../lib/format";
+import { useShallow } from "zustand/react/shallow";
 import { type Screen, useApp } from "../state/store";
 import { DevicesScreen } from "../screens/DevicesScreen";
 import { HistoryScreen } from "../screens/HistoryScreen";
@@ -52,20 +53,25 @@ function IconButton({ label, onClick, disabled, children }: { label: string; onC
   );
 }
 
-/** On the Sequence screen, undo, redo, and save act on the open sequence; elsewhere on the show. */
+/** On the Sequence screen, undo, redo, and save act on the open sequence; elsewhere on the show.
+ * (Only what the buttons need is watched, so playback doesn't redraw the top bar.) */
 function useUndoTarget() {
-  const screen = useApp((s) => s.screen);
-  const app = useApp();
-  const seq = useSequencer();
-  if (screen === "sequence" && seq.doc) {
-    return { sequence: true, undo: seq.undo, redo: seq.redo, save: seq.save, canUndo: seq.canUndo, canRedo: seq.canRedo };
+  const onSequence = useApp((s) => s.screen === "sequence");
+  const hasSequence = useSequencer((s) => s.doc !== null);
+  const seq = useSequencer(useShallow((s) => ({ canUndo: s.canUndo, canRedo: s.canRedo })));
+  const show = useApp(useShallow((s) => ({ canUndo: s.snapshot?.canUndo ?? false, canRedo: s.snapshot?.canRedo ?? false })));
+  if (onSequence && hasSequence) {
+    const { undo, redo, save } = useSequencer.getState();
+    return { sequence: true, undo, redo, save, ...seq };
   }
-  return { sequence: false, undo: app.undo, redo: app.redo, save: app.save, canUndo: app.snapshot?.canUndo ?? false, canRedo: app.snapshot?.canRedo ?? false };
+  const { undo, redo, save } = useApp.getState();
+  return { sequence: false, undo, redo, save, ...show };
 }
 
 function TopBar() {
   const snapshot = useApp((s) => s.snapshot);
-  const { setPaletteOpen, theme, setTheme } = useApp();
+  const theme = useApp((s) => s.theme);
+  const { setPaletteOpen, setTheme } = useApp.getState();
   const target = useUndoTarget();
   const sequenceName = useSequencer((s) => s.doc?.name ?? null);
   const sequenceDirty = useSequencer((s) => s.dirty);

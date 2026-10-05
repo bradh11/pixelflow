@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, GripVertical, Layers, Maximize2, Plus, Trash2, ZoomIn, ZoomOut } from "lucide-react";
-import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type PointerEvent as ReactPointerEvent, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { defaultParams, newEffect, newRow, type EffectKind, type Sequence, type SequenceEdit, type SequenceTarget } from "../../api/sequence";
 import type { Show, Waveform } from "../../api/types";
 import {
@@ -92,7 +92,16 @@ export function Timeline({ doc }: { doc: Sequence }) {
   const show = useApp((s) => s.snapshot?.show);
   const backend = useApp((s) => s.backend);
   const theme = useApp((s) => s.theme);
-  const { selection, playheadMs, status, collapsed, snapping, catalog, path, activeRow, docKey, revealAt } = useSequencer();
+  const selection = useSequencer((s) => s.selection);
+  const playheadMs = useSequencer((s) => s.playheadMs);
+  const playing = useSequencer((s) => s.status?.state === "playing");
+  const collapsed = useSequencer((s) => s.collapsed);
+  const snapping = useSequencer((s) => s.snapping);
+  const catalog = useSequencer((s) => s.catalog);
+  const path = useSequencer((s) => s.path);
+  const activeRow = useSequencer((s) => s.activeRow);
+  const docKey = useSequencer((s) => s.docKey);
+  const revealAt = useSequencer((s) => s.revealAt);
   const bodyRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const size = useSize(bodyRef);
@@ -155,10 +164,10 @@ export function Timeline({ doc }: { doc: Sequence }) {
 
   // While playing, turn the page to keep the playhead in view.
   useEffect(() => {
-    if (status?.state !== "playing" || size.width === 0) return;
+    if (!playing || size.width === 0) return;
     const next = followPlayhead(current, playheadMs, width, doc.durationMs);
     if (next !== current) setViewState(next);
-  }, [playheadMs, status?.state]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [playheadMs, playing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The music's loudness, about one value per 10 ms.
   const audio = resolveAudio(doc.audio, path);
@@ -521,8 +530,9 @@ function ToolButton({ label, onClick, children }: { label: string; onClick: () =
   );
 }
 
-/** Row names beside the lanes, with ways to collapse, reorder, add layers to, and remove rows. */
-function RowHeaders({
+/** Row names beside the lanes, with ways to collapse, reorder, add layers to, and remove rows.
+ * (Memoized: the timeline redraws with the playhead many times a second; the names don't.) */
+const RowHeaders = memo(function RowHeaders({
   doc,
   show,
   lanes,
@@ -537,7 +547,9 @@ function RowHeaders({
   scrollY: number;
   rowsViewport: number;
 }) {
-  const { collapsed, toggleCollapsed, edit, activeRow, setActiveRow } = useSequencer();
+  const collapsed = useSequencer((s) => s.collapsed);
+  const activeRow = useSequencer((s) => s.activeRow);
+  const { toggleCollapsed, edit, setActiveRow } = useSequencer.getState();
   const [adding, setAdding] = useState(false);
   const reorder = useRef<{ rowId: string; startY: number; to: number } | null>(null);
   const [dragTo, setDragTo] = useState<number | null>(null);
@@ -657,7 +669,7 @@ function RowHeaders({
       {adding && <AddRowMenu doc={doc} show={show} onClose={() => setAdding(false)} />}
     </div>
   );
-}
+});
 
 function RowButton({ label, onClick, disabled, children }: { label: string; onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
   return (
@@ -688,13 +700,27 @@ export function AddRowMenu({ doc, show, onClose }: { doc: Sequence; show: Show |
     onClose();
     await edit(targets.map((target) => ({ type: "addRow" as const, row: newRow(target) })));
   };
+  const menu = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
+  // The menu takes the focus (and gives it back when it closes); Escape closes it.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    menu.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      close.current();
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (opener?.isConnected) opener.focus();
+    };
+  }, []);
   return (
     <div
+      ref={menu}
       role="dialog"
       aria-label="Add a row"
       className="absolute bottom-2 left-2 z-30 flex max-h-96 w-64 flex-col rounded-lg border border-neutral-200 bg-white p-2 text-sm shadow-xl dark:border-neutral-800 dark:bg-neutral-900"

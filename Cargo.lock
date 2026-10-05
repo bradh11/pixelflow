@@ -998,10 +998,15 @@ dependencies = [
 name = "pf-render"
 version = "0.1.0"
 dependencies = [
+ "pf-fseq",
  "pf-geometry",
  "pf-mapping",
  "pf-model",
+ "pf-output",
  "pf-sequence",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

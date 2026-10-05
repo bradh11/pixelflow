@@ -6,10 +6,11 @@
 //! effects work on any shape, and a group draws across all its members as one canvas.
 //!
 //! Rendering is deterministic: frame N depends only on the document, so seeking and export
-//! always give the same picture.
+//! always give the same picture. [`export`] writes a sequence as an FPP `.fseq` file.
 
 mod color;
 mod effects;
+pub mod export;
 mod geometry;
 mod render;
 

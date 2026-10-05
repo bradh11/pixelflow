@@ -311,19 +311,24 @@ describe("confirm dialog safety", () => {
     expect(backend.calls).not.toContain("undo");
   });
 
-  it("a double-click on Don't save creates the new show once", async () => {
+  it("a double-click on Save creates the new show once", async () => {
     const user = await startFresh();
     await user.click(screen.getByRole("button", { name: /add prop/i }));
     await user.keyboard("{Meta>}n{/Meta}");
-    const original = backend.newShow.bind(backend);
-    backend.newShow = async (name: string) => {
+    const dialog = screen.getByRole("dialog");
+    backend.nextSavePath = "/shows/x.pixelflow.json";
+    const originalSave = backend.saveShowAs.bind(backend);
+    backend.saveShowAs = async (path: string) => {
       await new Promise((r) => setTimeout(r, 50));
-      return original(name);
+      return originalSave(path);
     };
-    await user.dblClick(screen.getByRole("button", { name: "Don't save" }));
-    await waitFor(() => expect(backend.calls.filter((c) => c === "newShow").length).toBe(2));
-    await new Promise((r) => setTimeout(r, 100));
-    expect(backend.calls.filter((c) => c === "newShow").length).toBe(2);
+    const newShowsBefore = backend.calls.filter((c) => c === "newShow").length;
+    const save = within(dialog).getByRole("button", { name: "Save" });
+    await Promise.all([user.click(save), user.click(save)]);
+    await waitFor(() => expect(backend.calls.filter((c) => c === "newShow").length).toBe(newShowsBefore + 1));
+    await new Promise((r) => setTimeout(r, 150));
+    expect(backend.calls.filter((c) => c.startsWith("saveShowAs:")).length).toBe(1);
+    expect(backend.calls.filter((c) => c === "newShow").length).toBe(newShowsBefore + 1);
   });
 });
 

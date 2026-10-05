@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- One of each effect PixelFlow translates (with settings), plus effects it can't, submodel
+     layers, a model that isn't in the show, and a double-escaped model name. -->
+<xsequence BaseChannel="0" ChanCtrlBasic="0" ChanCtrlColor="0" FixedPointTiming="1" ModelBlending="true">
+  <head>
+    <version>2025.01</version>
+    <song>Effects</song>
+    <sequenceTiming>25 ms</sequenceTiming>
+    <sequenceType>Media</sequenceType>
+    <mediaFile>effects.mp3</mediaFile>
+    <sequenceDuration>20.000</sequenceDuration>
+  </head>
+  <ColorPalettes>
+    <ColorPalette>C_BUTTON_Palette1=#FF0000,C_BUTTON_Palette2=#00FF00,C_BUTTON_Palette3=#0000FF,C_BUTTON_Palette4=#FFFFFF,C_BUTTON_Palette5=#FFFF00,C_CHECKBOX_Palette1=1,C_CHECKBOX_Palette2=0,C_CHECKBOX_Palette3=1,C_CHECKBOX_Palette4=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#FF8000,C_CHECKBOX_Palette1=1,C_SLIDER_Brightness=50</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#FF0000,C_CHECKBOX_Palette1=1</ColorPalette>
+  </ColorPalettes>
+  <EffectDB>
+    <Effect>E_TEXTCTRL_Eff_On_End=0,E_TEXTCTRL_Eff_On_Start=100,T_TEXTCTRL_Fadein=0.50</Effect>
+    <Effect>E_TEXTCTRL_ColorWash_Cycles=1.0</Effect>
+    <Effect>E_CHOICE_Bars_Direction=Left,E_SLIDER_Bars_BarCount=2,E_TEXTCTRL_Bars_Cycles=4.0,T_CHOICE_LayerMethod=Additive</Effect>
+    <Effect>E_CHOICE_Chase_Type1=Bounce from Right,E_NOTEBOOK_SSEFFECT_TYPE=Chase,E_SLIDER_Color_Mix1=20,E_SLIDER_Number_Chases=2,E_TEXTCTRL_Chase_Rotations=3.0</Effect>
+    <Effect>E_CHOICE_Wave_Direction=Left to Right,E_CHOICE_Wave_Type=Sine,E_SLIDER_Thickness_Percentage=10,E_SLIDER_Wave_Height=80,E_TEXTCTRL_Number_Waves=2.00,E_TEXTCTRL_Wave_Speed=18.00</Effect>
+    <Effect>E_SLIDER_Twinkle_Count=20,E_SLIDER_Twinkle_Steps=40</Effect>
+    <Effect>E_SLIDER_Shimmer_Duty_Factor=25,E_TEXTCTRL_Shimmer_Cycles=10.0</Effect>
+    <Effect>E_SLIDER_Number_Strobes=10,E_SLIDER_Strobe_Duration=4</Effect>
+    <Effect>E_SLIDER_Spirals_Count=2,E_SLIDER_Spirals_Rotation=15,E_SLIDER_Spirals_Thickness=40,E_TEXTCTRL_Spirals_Movement=-2.0</Effect>
+    <Effect>E_CHOICE_Fire_Location=Bottom,E_SLIDER_Fire_Height=70</Effect>
+    <Effect>E_CHOICE_Meteors_Effect=Up,E_CHOICE_Meteors_Type=Palette,E_SLIDER_Meteors_Count=8,E_SLIDER_Meteors_Length=40,E_SLIDER_Meteors_Speed=20</Effect>
+    <Effect>E_CHOICE_Ripple_Movement=Explode,E_CHOICE_Ripple_Object_To_Draw=Circle,E_SLIDER_Ripple_Thickness=4,E_TEXTCTRL_Ripple_Cycles=2.0</Effect>
+    <Effect>E_CHOICE_Bars_Direction=expand,E_VALUECURVE_Bars_Cycles=Active=TRUE|Id=ID_VALUECURVE_Bars_Cycles|Type=Ramp|Min=0.00|Max=20.00|,T_CHOICE_LayerMethod=Average,T_CHOICE_Out_Transition_Type=Wipe,T_TEXTCTRL_Fadeout=1.0</Effect>
+    <Effect>E_SLIDER_Marquee_Band_Size=3,E_SLIDER_Marquee_Skip_Size=3,E_SLIDER_Marquee_Speed=10</Effect>
+    <Effect></Effect>
+  </EffectDB>
+  <DisplayElements>
+    <Element collapsed="0" type="model" name="Roofline" visible="1"/>
+  </DisplayElements>
+  <ElementEffects>
+    <Element type="model" name="Roofline">
+      <EffectLayer>
+        <Effect ref="0" name="On" palette="0" startTime="0" endTime="1000"/>
+        <Effect ref="1" name="Color Wash" palette="1" startTime="1000" endTime="3000"/>
+      </EffectLayer>
+      <EffectLayer>
+        <Effect name="Off" startTime="0" endTime="500"></Effect>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="Arches">
+      <EffectLayer>
+        <Effect ref="2" name="Bars" palette="0" startTime="0" endTime="2000"/>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="Candy Canes">
+      <EffectLayer>
+        <Effect ref="3" name="Single Strand" palette="2" startTime="0" endTime="1000"/>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="Window Matrix">
+      <EffectLayer>
+        <Effect ref="4" name="Wave" palette="2" startTime="0" endTime="2000"/>
+        <Effect ref="5" name="Twinkle" palette="2" startTime="2000" endTime="4000"/>
+        <Effect ref="6" name="Shimmer" palette="2" startTime="4000" endTime="6000"/>
+        <Effect ref="7" name="Strobe" palette="2" startTime="6000" endTime="7000"/>
+        <Effect ref="8" name="Spirals" palette="0" startTime="7000" endTime="9000"/>
+        <Effect ref="9" name="Fire" palette="2" startTime="9000" endTime="10000"/>
+        <Effect ref="10" name="Meteors" palette="0" startTime="10000" endTime="12000"/>
+        <Effect ref="11" name="Ripple" palette="2" startTime="12000" endTime="14000"/>
+        <Effect ref="12" name="Bars" palette="2" startTime="14000" endTime="16000"/>
+        <Effect ref="13" name="Marquee" palette="2" startTime="16000" endTime="17000"/>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="Mega Tree">
+      <EffectLayer>
+        <Effect ref="14" name="Butterfly" palette="0" startTime="0" endTime="1000"/>
+        <Effect ref="14" name="Faces" palette="2" startTime="1000" endTime="2000"/>
+        <Effect ref="14" name="Faces" palette="2" startTime="2000" endTime="3000"/>
+        <Effect ref="14" name="Text" palette="0" startTime="3000" endTime="4000"/>
+        <Effect ref="14" name="Adjust" startTime="4000" endTime="5000"/>
+        <Effect ref="14" name="Random" palette="0" startTime="5000" endTime="6000"/>
+      </EffectLayer>
+      <SubModelEffectLayer name="Star">
+        <Effect ref="0" name="On" palette="2" startTime="0" endTime="1000"/>
+        <Effect ref="0" name="On" palette="2" startTime="1000" endTime="2000"/>
+      </SubModelEffectLayer>
+      <Strand index="0">
+        <Node index="3">
+          <Effect ref="0" name="On" palette="2" startTime="0" endTime="1000"/>
+        </Node>
+      </Strand>
+    </Element>
+    <Element type="model" name="Outline">
+      <EffectLayer>
+        <Effect ref="0" name="On" palette="2" startTime="0" endTime="1000"/>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="Santa&amp;apos;s Sleigh &amp;amp; Reindeer">
+      <EffectLayer>
+        <Effect ref="0" name="On" palette="2" startTime="0" endTime="1000"/>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="Garage Door">
+      <EffectLayer>
+        <Effect ref="0" name="On" palette="2" startTime="0" endTime="1000"/>
+        <Effect ref="0" name="On" palette="2" startTime="1000" endTime="2000"/>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="Old Prop">
+      <EffectLayer/>
+    </Element>
+  </ElementEffects>
+</xsequence>

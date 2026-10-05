@@ -908,12 +908,14 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "pf-audio",
  "pf-devices",
  "pf-frame",
  "pf-mapping",
  "pf-model",
  "pf-output",
  "pf-patterns",
+ "pf-sequence",
  "pf-xlights",
  "serde_json",
 ]
@@ -1048,9 +1050,11 @@ version = "0.1.0"
 dependencies = [
  "pf-mapping",
  "pf-model",
+ "pf-sequence",
  "roxmltree",
  "serde",
  "thiserror 2.0.21",
+ "zstd",
 ]
 
 [[package]]

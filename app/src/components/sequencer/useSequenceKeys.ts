@@ -48,6 +48,7 @@ export function useSequenceKeys() {
       const app = useApp.getState();
       if (app.paletteOpen || app.pendingReplace) return;
       const s = useSequencer.getState();
+      if (s.replacing) return;
       const doc = s.doc;
       if (!doc) return;
       const mod = e.metaKey || e.ctrlKey;

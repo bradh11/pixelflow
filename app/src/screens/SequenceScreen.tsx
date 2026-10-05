@@ -1,4 +1,4 @@
-import { AlertTriangle, AudioLines, CheckCircle2, Download, FilePlus, FolderOpen, History, Info, ListMusic, Magnet, Pause, Play, Save, Send, Square, X } from "lucide-react";
+import { AlertTriangle, AudioLines, CheckCircle2, Download, FileInput, FilePlus, FolderOpen, History, Info, ListMusic, Magnet, Pause, Play, Save, Send, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { errorMessage } from "../api/backend";
@@ -23,7 +23,6 @@ export function SequenceScreen() {
   const pollPlayback = useSequencer((s) => s.pollPlayback);
   const showRevision = useApp((s) => s.snapshot?.revision);
   const [creating, setCreating] = useState(false);
-  const [confirm, setConfirm] = useState<null | (() => void)>(null);
   useSequenceKeys();
 
   // The sequence's problems depend on the show (props removed or added): check again when the
@@ -39,10 +38,7 @@ export function SequenceScreen() {
   }, [status !== null, pollPlayback]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Runs `action` now, or after asking when the open sequence has unsaved changes. */
-  const guard = (action: () => void) => {
-    if (useSequencer.getState().dirty) setConfirm(() => action);
-    else action();
-  };
+  const guard = (action: () => void) => void useSequencer.getState().replaceAfterAsking(action);
   const openFile = async (path?: string) => {
     const api = useSequencer.getState().api;
     const target = path ?? (await api?.pickSequenceDocPath());
@@ -56,23 +52,6 @@ export function SequenceScreen() {
       <RecoveryOffer onRecover={(id) => guard(() => void useSequencer.getState().recover(id))} />
       {doc ? <Workspace /> : <Start onNew={() => setCreating(true)} onOpen={openFile} />}
       {creating && <NewSequenceDialog onClose={() => setCreating(false)} />}
-      {confirm && (
-        <DiscardDialog
-          onCancel={() => setConfirm(null)}
-          onDiscard={() => {
-            const action = confirm;
-            setConfirm(null);
-            action();
-          }}
-          onSave={async () => {
-            const action = confirm;
-            if (await useSequencer.getState().save()) {
-              setConfirm(null);
-              action();
-            }
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -156,6 +135,10 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
       </ToolButton>
       <ToolButton label="Open sequence" onClick={onOpen}>
         <FolderOpen size={16} /> <span className="hidden xl:inline">Open</span>
+      </ToolButton>
+      {/* Asks about unsaved changes like New and Open do (the import goes through the same question). */}
+      <ToolButton label="Import xLights sequence…" onClick={() => void useApp.getState().importXlightsSequence()}>
+        <FileInput size={16} /> <span className="hidden xl:inline">Import</span>
       </ToolButton>
       <ToolButton label="Save sequence" onClick={() => void act().save()} disabled={s.name === null}>
         <Save size={16} />
@@ -412,6 +395,15 @@ function Start({ onNew, onOpen }: { onNew: () => void; onOpen: (path?: string) =
             <span className="font-medium">Open a sequence</span>
             <span className="text-sm text-neutral-500">A .pfseq.json file you saved.</span>
           </button>
+          <button
+            type="button"
+            onClick={() => void useApp.getState().importXlightsSequence()}
+            className="col-span-2 flex flex-col items-start gap-1 rounded-lg border border-neutral-200 p-4 text-left hover:border-accent-500 dark:border-neutral-800"
+          >
+            <FileInput size={20} className="text-accent-600 dark:text-accent-400" />
+            <span className="font-medium">Import an xLights sequence</span>
+            <span className="text-sm text-neutral-500">An .xsq file, onto this show&apos;s props and groups.</span>
+          </button>
         </div>
         {recent.length > 0 && (
           <section className="mt-6" aria-label="Recent sequences">
@@ -512,41 +504,6 @@ function NewSequenceDialog({ onClose }: { onClose: () => void }) {
         </Button>
         <Button variant="primary" onClick={() => void create()} disabled={reading}>
           Create
-        </Button>
-      </div>
-    </Modal>
-  );
-}
-
-function DiscardDialog({ onSave, onDiscard, onCancel }: { onSave: () => void; onDiscard: () => void; onCancel: () => void }) {
-  const name = useSequencer((s) => s.doc?.name ?? "this sequence");
-  const saveRef = useRef<HTMLButtonElement>(null);
-  const cancel = useRef(onCancel);
-  cancel.current = onCancel;
-  // Save has the focus; Escape is Cancel.
-  useEffect(() => {
-    saveRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
-      cancel.current();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-  return (
-    <Modal label="Unsaved changes">
-      <h2 className="text-lg font-semibold">Save changes to {name}?</h2>
-      <p className="mt-2 text-sm text-neutral-500">Your changes are lost if you don't save them.</p>
-      <div className="mt-5 flex justify-end gap-2">
-        <Button variant="ghost" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button variant="danger" onClick={onDiscard}>
-          Don't save
-        </Button>
-        <Button ref={saveRef} variant="primary" onClick={onSave}>
-          Save
         </Button>
       </div>
     </Modal>

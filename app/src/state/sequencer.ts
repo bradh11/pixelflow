@@ -17,7 +17,7 @@ import {
   type SequenceSnapshot,
 } from "../api/sequence";
 import type { SequencerApi } from "../api/sequencer";
-import type { PlaybackStatus } from "../api/types";
+import type { PlaybackStatus, XlightsSequenceImported } from "../api/types";
 import { clock, fileName, plural } from "../lib/format";
 import { useApp } from "./store";
 
@@ -104,10 +104,26 @@ interface SequencerState {
   /** Unsaved sequences an earlier run kept, to offer back. */
   recoveries: SequenceRecovery[];
   notice: Notice | null;
+  /** Something that replaces the open sequence (New, Open, Recover, an xLights import), waiting
+   * on the answer to "Save changes to …?" because the open sequence has unsaved changes. */
+  replacing: (() => void) | null;
 
   connect(api: SequencerApi): Promise<void>;
   newSequence(name: string, durationMs: number, audio: string | null): Promise<boolean>;
   open(path: string): Promise<boolean>;
+  /** Imports the xLights sequence at `path` and opens it (unsaved), replacing the open one
+   * without asking; the import report, or null when it failed (the error is shown). */
+  importXlights(path: string): Promise<XlightsSequenceImported | null>;
+  /**
+   * Runs `action`, which replaces the open sequence, and returns what it returns; or, when the open
+   * sequence has unsaved changes, asks first (Save / Don't save / Cancel) and returns null. The
+   * action then runs once the answer allows it. New, Open, Recover, and the xLights import all
+   * ask through here, so there is one question for all of them.
+   */
+  replaceAfterAsking<T>(action: () => T): T | null;
+  /** Answers the question: Save (then replace; it keeps asking if the save fails or is
+   * cancelled), Don't save, or Cancel. True when the waiting action ran. */
+  resolveReplacing(choice: "save" | "discard" | "cancel"): Promise<boolean>;
   save(): Promise<boolean>;
   saveAs(): Promise<boolean>;
   /**
@@ -244,6 +260,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
     revealAt: 0,
     recoveries: [],
     notice: null,
+    replacing: null,
 
     async connect(api) {
       // Calls still waiting on a previous engine have nothing to do with this one.
@@ -297,6 +314,43 @@ export const useSequencer = create<SequencerState>((set, get) => {
         }
       });
       return ok === true;
+    },
+
+    async importXlights(path) {
+      const { api } = get();
+      if (!api) return null;
+      return serial(() =>
+        guarded(async () => {
+          await get().stop();
+          const imported = await api.importXlightsSequence(path);
+          // Opened like any other document: unsaved, so it's kept (autosaved) until it's saved.
+          adopt(imported.snapshot);
+          set({ selection: [], playheadMs: 0, collapsed: [], suggestBeats: false, docKey: get().docKey + 1, notice: null });
+          return imported;
+        }),
+      );
+    },
+
+    replaceAfterAsking(action) {
+      const { doc, dirty } = get();
+      if (doc && dirty) {
+        set({ replacing: () => void action() });
+        return null;
+      }
+      return action();
+    },
+
+    async resolveReplacing(choice) {
+      const action = get().replacing;
+      if (!action) return false;
+      if (choice === "cancel") {
+        set({ replacing: null });
+        return false;
+      }
+      if (choice === "save" && !(await get().save())) return false;
+      set({ replacing: null });
+      action();
+      return true;
     },
 
     async save() {

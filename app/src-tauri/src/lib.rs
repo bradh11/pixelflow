@@ -173,6 +173,7 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         sequencer::analyze_audio,
         sequencer::detect_beats,
         xlights::import_xlights,
+        xlights::import_xlights_sequence,
         layout::preview_props,
         layout::pick_image,
         layout::read_image,
@@ -764,6 +765,62 @@ mod tests {
                 .contains("doesn't look like an xLights show folder"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn imports_an_xlights_sequence_onto_the_open_show_as_an_unsaved_sequence() {
+        let (app, webview, dir) = app();
+        let fixtures =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/pf-xlights/fixtures");
+        call(
+            &webview,
+            "import_xlights",
+            json!({ "folder": fixtures.join("sample-show") }),
+        )
+        .unwrap();
+        let imported = call(
+            &webview,
+            "import_xlights_sequence",
+            json!({ "path": fixtures.join("sequences/effects.xsq") }),
+        )
+        .unwrap();
+        assert_eq!(imported["snapshot"]["sequence"]["name"], "Effects");
+        assert_eq!(imported["snapshot"]["dirty"], true);
+        assert_eq!(imported["snapshot"]["path"], json!(null));
+        assert_eq!(imported["summary"]["rows"], 6);
+        assert_eq!(imported["summary"]["placeholders"], 3);
+        assert!(
+            imported["notes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|n| n.as_str().unwrap().contains("Faces (2), Text (1)")),
+            "{imported}"
+        );
+        let open = call(&webview, "get_sequence_doc", json!({})).unwrap();
+        assert_eq!(open["sequence"]["name"], "Effects");
+
+        let error = call(
+            &webview,
+            "import_xlights_sequence",
+            json!({ "path": dir.path().join("missing.xsq") }),
+        )
+        .unwrap_err();
+        assert!(error.as_str().unwrap().contains("Could not read"), "{error}");
+        let open = call(&webview, "get_sequence_doc", json!({})).unwrap();
+        assert_eq!(
+            open["sequence"]["name"], "Effects",
+            "a failed import changes nothing"
+        );
+
+        // Never saved, so it's kept like any unsaved sequence and offered back next time.
+        shut_down(&app.state::<AppState>());
+        drop(app);
+        let (_next, webview, _dir) = app_in(dir);
+        let offered = call(&webview, "sequence_recoveries", json!({})).unwrap();
+        assert_eq!(offered.as_array().unwrap().len(), 1, "{offered}");
+        assert_eq!(offered[0]["name"], "Effects");
+        assert_eq!(offered[0]["path"], Value::Null);
     }
 
     /// A tiny silent 16-bit mono WAV, half a second long.

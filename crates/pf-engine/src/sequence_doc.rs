@@ -844,6 +844,13 @@ impl OpenSequence {
         }
     }
 
+    /// A document that has never been saved and has unsaved changes (an import).
+    pub fn unsaved(doc: Sequence, revision: u64) -> Self {
+        let mut open = Self::new(doc, None, revision);
+        open.mark_unsaved();
+        open
+    }
+
     /// Identifies the document (not its revision): see [`crate::Engine::sequence_doc_id`].
     pub fn id(&self) -> u64 {
         self.id
@@ -999,8 +1006,8 @@ impl OpenSequence {
         self.revision != self.saved_revision
     }
 
-    /// Marks the document as having unsaved changes (one recovered after a crash). Revisions
-    /// start at 1, so 0 never matches.
+    /// Marks the document as having unsaved changes (one recovered after a crash, or an
+    /// import). Revisions start at 1, so 0 never matches.
     pub fn mark_unsaved(&mut self) {
         self.saved_revision = 0;
     }

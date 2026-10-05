@@ -352,6 +352,34 @@ fn the_music_is_found_next_to_the_document_and_playback_follows_its_clock() {
 }
 
 #[test]
+fn an_imported_sequence_opens_unsaved_and_oversized_ones_are_refused() {
+    let (mut engine, _recorded, dir) = engine();
+    let mut doc = pf_sequence::Sequence::new("Imported", 5000);
+    let mut row = Row::new(Target::Prop(engine.show().props[0].id));
+    row.layers[0].effects.push(on(Rgb::RED, 0, 1000));
+    doc.rows.push(row);
+    let snapshot = engine.adopt_sequence_doc(doc.clone()).unwrap();
+    assert!(snapshot.dirty, "an import has unsaved changes");
+    assert_eq!(snapshot.path, None);
+    assert!(!snapshot.can_undo);
+    assert_eq!(snapshot.sequence, doc);
+    let path = dir.path().join("imported.pfseq.json");
+    assert!(!engine.save_sequence_doc_as(&path).unwrap().dirty);
+
+    let mut huge = doc;
+    huge.duration_ms = pf_sequence::MAX_DURATION_MS + 1;
+    assert!(matches!(
+        engine.adopt_sequence_doc(huge),
+        Err(EngineError::TooLarge(_))
+    ));
+    assert_eq!(
+        engine.sequence_doc().unwrap().path.as_deref(),
+        Some(path.to_str().unwrap()),
+        "a refused import leaves the open sequence alone"
+    );
+}
+
+#[test]
 fn exports_the_open_sequence() {
     let (mut engine, _recorded, dir) = engine();
     let path = dir.path().join("song.fseq");
@@ -716,6 +744,44 @@ fn unsaved_sequences_are_kept_and_offered_back_after_a_restart() {
     assert!(third.sequence_recoveries().is_empty());
     assert!(!next.autosave_sequence().unwrap());
     assert!(third.sequence_recoveries().is_empty());
+}
+
+#[test]
+fn an_imported_sequence_is_kept_like_any_unsaved_one() {
+    let (mut engine, _recorded, dir) = engine();
+    // Unsaved work in the open sequence, kept on disk.
+    let row = new_doc(&mut engine, 2000);
+    engine
+        .edit_sequence(vec![SequenceEdit::RemoveRow { id: row }])
+        .unwrap();
+    assert!(engine.autosave_sequence().unwrap());
+
+    // An import replaces it (the UI asked first): the old copy goes, and the import is kept
+    // in its place, since it has never been saved.
+    let mut doc = pf_sequence::Sequence::new("Imported", 5000);
+    let mut row = Row::new(Target::Prop(engine.show().props[0].id));
+    row.layers[0].effects.push(on(Rgb::RED, 0, 1000));
+    doc.rows.push(row);
+    engine.adopt_sequence_doc(doc.clone()).unwrap();
+    assert!(Engine::new(dir.path()).sequence_recoveries().is_empty());
+    assert!(engine.autosave_sequence().unwrap());
+    assert!(!engine.autosave_sequence().unwrap(), "unchanged since");
+
+    // The next run offers the import back, unsaved and without a file.
+    let mut next = Engine::new(dir.path());
+    let offered = next.sequence_recoveries();
+    assert_eq!(offered.len(), 1);
+    assert_eq!(offered[0].name, "Imported");
+    assert_eq!(offered[0].path, None);
+    let snapshot = next.recover_sequence(&offered[0].id).unwrap();
+    assert_eq!(snapshot.sequence, doc);
+    assert!(snapshot.dirty);
+
+    // Saved: nothing left to recover.
+    engine
+        .save_sequence_doc_as(&dir.path().join("imported.pfseq.json"))
+        .unwrap();
+    assert!(!engine.autosave_sequence().unwrap());
 }
 
 #[test]

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { type Backend, errorMessage } from "../api/backend";
-import type { Device, Edit, ImportSummary, Show, ShowSnapshot, SilentPeer } from "../api/types";
+import { useSequencer } from "./sequencer";
+import type { Device, Edit, ImportSummary, SequenceImportSummary, Show, ShowSnapshot, SilentPeer } from "../api/types";
 import { fileName } from "../lib/format";
 import { useLayoutEditor } from "./layoutEditor";
 
@@ -34,10 +35,13 @@ interface AppState {
   paletteOpen: boolean;
   error: string | null;
   busy: boolean;
-  /** Set when New/Open was asked for while the show has unsaved changes. */
+  /** Set when New/Open was asked for while the show has unsaved changes. (Replacing the open
+   * sequence asks through the sequencer's own question: see `useSequencer.replaceAfterAsking`.) */
   pendingReplace: "new" | "open" | "xlights" | null;
   /** What the last xLights import brought in, shown until dismissed. */
   importReport: { name: string; summary: ImportSummary; notes: string[] } | null;
+  /** What the last xLights sequence import brought in, shown until dismissed. */
+  sequenceImportReport: { name: string; summary: SequenceImportSummary; notes: string[] } | null;
   /** Test screen target selection; kept here so it survives leaving the screen. */
   testTarget: string;
   /** Music volume (0–1) for playback; the engine keeps the same value. */
@@ -74,6 +78,10 @@ interface AppState {
   /** Imports an xLights show folder as a new show (asks about unsaved changes first). */
   importXlights(): Promise<boolean>;
   dismissImportReport(): void;
+  /** Imports an xLights sequence onto the open show and opens it in the sequence editor (asks
+   * about the open sequence's unsaved changes first, like New and Open on the Sequence screen). */
+  importXlightsSequence(): Promise<boolean>;
+  dismissSequenceImportReport(): void;
   save(): Promise<boolean>;
   saveAs(): Promise<boolean>;
   /** Forgets a remembered controller. */
@@ -165,6 +173,39 @@ export const useApp = create<AppState>((set, get) => {
     return ok;
   }
 
+  /** Picks an xLights sequence and opens its import on the Sequence screen, replacing the open
+   * sequence without checking for unsaved changes. */
+  async function replaceSequenceWithImport(): Promise<boolean> {
+    const sequencer = useSequencer.getState();
+    if (!sequencer.api) return false;
+    let path: string | null;
+    try {
+      path = await sequencer.api.pickXlightsSequencePath();
+    } catch (e) {
+      set({ error: errorMessage(e) });
+      return false;
+    }
+    if (!path) return false;
+    set({ busy: true });
+    try {
+      const imported = await sequencer.importXlights(path);
+      if (!imported) return false;
+      set({
+        sequenceImportReport: {
+          name: imported.snapshot.sequence.name,
+          summary: imported.summary,
+          notes: imported.notes,
+        },
+        error: null,
+        started: true,
+        screen: "sequence",
+      });
+      return true;
+    } finally {
+      set({ busy: false });
+    }
+  }
+
   /** Controllers forgotten while a scan was running, so its results don't bring them back. */
   const forgottenDuringScan = new Set<string>();
 
@@ -230,6 +271,7 @@ export const useApp = create<AppState>((set, get) => {
   busy: false,
   pendingReplace: null,
   importReport: null,
+  sequenceImportReport: null,
   testTarget: "show",
   musicVolume: 1,
   discovery: null,
@@ -294,6 +336,13 @@ export const useApp = create<AppState>((set, get) => {
   },
 
   dismissImportReport: () => set({ importReport: null }),
+
+  async importXlightsSequence() {
+    // False while asking: the import then runs once the answer allows it.
+    return (await useSequencer.getState().replaceAfterAsking(replaceSequenceWithImport)) ?? false;
+  },
+
+  dismissSequenceImportReport: () => set({ sequenceImportReport: null }),
 
   async resolvePendingReplace(choice) {
     const kind = get().pendingReplace;

@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import type { PlaybackStatus, ShowSnapshot } from "./types";
+import type { PlaybackStatus, ShowSnapshot, XlightsSequenceImported } from "./types";
 import type {
   Analysis,
   EffectInfo,
@@ -19,6 +19,7 @@ export const EXPORT_PROGRESS_EVENT = "sequence-export-progress";
 
 const DOCUMENT_FILTER = [{ name: "PixelFlow sequence", extensions: ["json"] }];
 const FSEQ_FILTER = [{ name: "FPP sequence", extensions: ["fseq"] }];
+const XSQ_FILTER = [{ name: "xLights sequence", extensions: ["xsq"] }];
 
 /** Everything the sequencer asks of the engine. Errors reject with a plain-language message. */
 export interface SequencerApi {
@@ -73,7 +74,12 @@ export interface SequencerApi {
    * another sequence was opened, or the music changed, while the beats were being found.
    */
   detectBeats(): Promise<SequenceEditResult>;
+  /** Imports the xLights sequence (.xsq) at `path` onto the open show and opens it as a new,
+   * unsaved sequence. It replaces the open sequence without asking: check `getSequenceDoc()`
+   * for unsaved changes first (the store's importXlightsSequence does). */
+  importXlightsSequence(path: string): Promise<XlightsSequenceImported>;
   /** Native dialogs; null when cancelled. */
+  pickXlightsSequencePath(): Promise<string | null>;
   pickSequenceDocPath(): Promise<string | null>;
   pickSequenceDocSavePath(defaultName: string): Promise<string | null>;
   pickExportPath(defaultName: string): Promise<string | null>;
@@ -115,6 +121,11 @@ export const tauriSequencer: SequencerApi = {
   cancelSequenceExport: () => invoke("cancel_sequence_export"),
   analyzeAudio: (path) => invoke("analyze_audio", { path }),
   detectBeats: () => invoke("detect_beats"),
+  importXlightsSequence: (path) => invoke("import_xlights_sequence", { path }),
+  pickXlightsSequencePath: async () => {
+    const path = await open({ multiple: false, directory: false, filters: XSQ_FILTER });
+    return typeof path === "string" ? path : null;
+  },
   pickSequenceDocPath: async () => {
     const path = await open({ multiple: false, directory: false, filters: DOCUMENT_FILTER });
     return typeof path === "string" ? path : null;

@@ -574,6 +574,15 @@ impl Engine {
         Ok(self.sequence_snapshot_unchecked())
     }
 
+    /// Opens a sequence built elsewhere (an import) as a new, unsaved document with unsaved
+    /// changes, replacing the open one without asking. It is checked exactly as opening a file
+    /// would check it; on failure the open sequence is left untouched.
+    pub fn adopt_sequence_doc(&mut self, doc: Sequence) -> Result<SequenceSnapshot, EngineError> {
+        let doc = pf_sequence::check_sequence(&doc).map_err(|e| EngineError::TooLarge(e.to_string()))?;
+        self.replace_sequence(OpenSequence::unsaved(doc, self.sequence_revision + 1));
+        Ok(self.sequence_snapshot_unchecked())
+    }
+
     /// Opens a sequence file. On failure the open sequence is left untouched.
     pub fn open_sequence_doc(&mut self, path: &Path) -> Result<SequenceSnapshot, EngineError> {
         let doc = sequence_doc::load_sequence(path)?;

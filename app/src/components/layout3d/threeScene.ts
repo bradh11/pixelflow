@@ -47,7 +47,7 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
-import { type Box3, type GizmoHandle, FOV_DEG, PLANE_AT, PLANE_SIZE, clipRange, orbitEye } from "../../lib/layout3d";
+import { type Box3, type GizmoHandle, type V3, FOV_DEG, PLANE_AT, PLANE_SIZE, clipRange, orbitEye } from "../../lib/layout3d";
 import type { Scene3d } from "./scene";
 
 const SKY_TOP = new Color("#04060f");
@@ -176,6 +176,12 @@ export async function measureModel(bytes: Uint8Array, name: string): Promise<Box
   const box = naturalBox(object);
   disposeTree(object);
   return box;
+}
+
+/** How the house model is turned: about X, then Y, then Z (layout axes), as props are ("ZYX" to three.js). */
+export function modelEuler(rotationDeg: V3): Euler {
+  const r = Math.PI / 180;
+  return new Euler(rotationDeg.x * r, rotationDeg.y * r, rotationDeg.z * r, "ZYX");
 }
 
 /** The move gizmo, one unit long: three arrows and three plane squares. */
@@ -495,8 +501,7 @@ export function createThreeScene(canvas: HTMLCanvasElement): Scene3d {
 
     placeModel(p) {
       model.position.set(p.position.x, p.position.y, p.position.z);
-      const r = Math.PI / 180;
-      model.setRotationFromEuler(new Euler(p.rotationDeg.x * r, p.rotationDeg.y * r, p.rotationDeg.z * r, "XYZ"));
+      model.setRotationFromEuler(modelEuler(p.rotationDeg));
       model.scale.setScalar(p.scale);
       modelOpacity = p.opacity;
       applyModelOpacity();

@@ -18,12 +18,13 @@ function fitTarget(show: Show, preview: PreviewProp[]): Box3 | null {
   return box ? { min: v3(box.minX, box.minY, 0), max: v3(box.maxX, box.maxY, 0) } : null;
 }
 
-/** The model at `path`, sized and placed to stand behind the display (one undo step). */
+/** The model at `path`, turned as `keep` says, sized and placed to stand behind the display (one undo step). */
 async function placedModel(path: string, preview: PreviewProp[], keep: Partial<HouseModel> = {}): Promise<HouseModel> {
   const { backend, snapshot } = useApp.getState();
+  const rotationDeg = keep.rotationDeg ?? v3(0, 0, 0);
   const natural = backend ? await measureModel(await backend.readHouseModel(path), path) : null;
-  const fit = natural ? fitModelPlacement(natural, fitTarget(snapshot!.show, preview)) : { position: v3(0, 0, 0), scale: 1 };
-  return { path, rotationDeg: v3(0, 0, 0), opacity: 1, ...keep, position: fit.position, scale: fit.scale };
+  const fit = natural ? fitModelPlacement(natural, fitTarget(snapshot!.show, preview), rotationDeg) : { position: v3(0, 0, 0), scale: 1 };
+  return { path, opacity: 1, ...keep, rotationDeg, position: fit.position, scale: fit.scale };
 }
 
 /** The house model in the 3D view: add one, place it, or take it away. */

@@ -330,6 +330,21 @@ describe("the 3D layout", () => {
     await waitFor(() => expect(scene().calls).toContain("setModel:none"));
   });
 
+  it("fits a tilted house model by its standing size", async () => {
+    const show = showWith(line("Gutter", 0, 0));
+    show.background = { path: "/house.jpg", x: -10, y: 8, width: 20, opacity: 0.7 };
+    // Made lying down (its "up" is the file's -Z after this tilt); 10 wide, 8 tall when stood up.
+    show.houseModel = { path: "/models/house.obj", position: { x: 0, y: 0, z: 0 }, rotationDeg: { x: -90, y: 0, z: 0 }, scale: 1, opacity: 1 };
+    const user = await setup(show);
+    backend.models.set("/models/house.obj", new TextEncoder().encode("v 0 0 0"));
+    await open3d(user);
+    await waitFor(() => expect(scene().calls).toContain("setModel:/models/house.obj"));
+    await user.click(screen.getByRole("button", { name: "Fit to display" }));
+    await waitFor(() => expect(edits).toHaveLength(1));
+    // The file's box (y 0 to 6, z -4 to 4) tilted -90 stands 8 tall (y -4 to 4) and 6 deep (z -6 to 0).
+    expect(backend.show.houseModel).toMatchObject({ rotationDeg: { x: -90, y: 0, z: 0 }, scale: 2, position: { x: 0, y: 8, z: -0.02 } });
+  });
+
   it("explains when 3D can't be shown", async () => {
     const three = await import("../components/layout3d/threeScene");
     const spy = vi.spyOn(three, "createThreeScene").mockImplementation(() => {

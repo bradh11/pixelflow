@@ -4,6 +4,7 @@ import type { PreviewProp3d, Transform } from "../api/types";
 import {
   type Box3,
   type Orbit,
+  type V3,
   EYE_HEIGHT,
   FOV_DEG,
   MAX_PITCH,
@@ -17,6 +18,8 @@ import {
   fillColors,
   fitModelPlacement,
   fitOrbit,
+  modelPoint,
+  rotatedBox,
   focusOrbit,
   freeDragHandle,
   gizmoHit,
@@ -218,6 +221,54 @@ describe("placing a house model", () => {
     expect(position.x).toBeCloseTo(0);
     expect(position.y).toBeCloseTo(2.4); // its bottom (-1 × 2.4) lifted to the ground
     expect(position.z).toBeCloseTo(-9.62); // its front (4 × 2.4) just behind z = 0
+  });
+
+  /** The placed model's box in the layout, from the 8 corners of its file's box. */
+  const placedBox = (natural: Box3, rotationDeg: V3, placement: { position: V3; scale: number }): Box3 => {
+    const corners = [natural.min.x, natural.max.x].flatMap((x) =>
+      [natural.min.y, natural.max.y].flatMap((y) => [natural.min.z, natural.max.z].map((z) => modelPoint(v3(x, y, z), { rotationDeg, ...placement }))),
+    );
+    return boundsOfXyz([corners.flatMap((c) => [c.x, c.y, c.z])])!;
+  };
+
+  it("turns a model like props turn: tilt (X) first, then turn (Y), then Z, about the layout's axes", () => {
+    // A Z-up model's "up" stood up by a tilt of -90 stays up when it's then turned by 30.
+    const up = modelPoint(v3(0, 0, 1), { rotationDeg: v3(-90, 30, 0), position: v3(0, 0, 0), scale: 1 });
+    expect(up.x).toBeCloseTo(0);
+    expect(up.y).toBeCloseTo(1);
+    expect(up.z).toBeCloseTo(0);
+    const right = modelPoint(v3(1, 0, 0), { rotationDeg: v3(-90, 30, 0), position: v3(1, 2, 3), scale: 2 });
+    expect(right.x).toBeCloseTo(1 + 2 * Math.cos(Math.PI / 6));
+    expect(right.y).toBeCloseTo(2);
+    expect(right.z).toBeCloseTo(3 - 2 * 0.5);
+  });
+
+  it("fits a model stood up from lying down by its turned box: on the ground, front just behind the props, as wide as the photo", () => {
+    // Made Z-up: 10 wide (x), 8 deep (y), 6 tall (z).
+    const natural: Box3 = { min: v3(-5, -4, 0), max: v3(5, 4, 6) };
+    const photo: Box3 = { min: v3(-10, 0, 0), max: v3(10, 12, 0) };
+    const rotationDeg = v3(-90, 0, 0);
+    expect(rotatedBox(natural, rotationDeg)).toEqual({ min: v3(-5, 0, -4), max: v3(5, 6, 4) });
+    const fit = fitModelPlacement(natural, photo, rotationDeg);
+    expect(fit).toEqual({ scale: 2, position: v3(0, 0, -8.02) });
+    const placed = placedBox(natural, rotationDeg, fit);
+    expect(placed.min.y).toBeCloseTo(0);
+    expect(placed.max.z).toBeCloseTo(-0.02);
+    expect(placed.max.x - placed.min.x).toBeCloseTo(20);
+  });
+
+  it("matches the photo's width along the model's turned side", () => {
+    const natural: Box3 = { min: v3(-5, -4, 0), max: v3(5, 4, 6) };
+    const photo: Box3 = { min: v3(-6, 0, 0), max: v3(14, 12, 0) };
+    // Stood up, then turned a quarter: its 8-deep side now faces the street.
+    const rotationDeg = v3(-90, 90, 0);
+    const fit = fitModelPlacement(natural, photo, rotationDeg);
+    expect(fit.scale).toBe(2.5);
+    const placed = placedBox(natural, rotationDeg, fit);
+    expect(placed.min.x).toBeCloseTo(-6);
+    expect(placed.max.x).toBeCloseTo(14);
+    expect(placed.min.y).toBeCloseTo(0);
+    expect(placed.max.z).toBeCloseTo(-0.02);
   });
 
   it("keeps a model's own size when there's nothing to match", () => {

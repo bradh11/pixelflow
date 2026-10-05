@@ -8,6 +8,7 @@
 // of the house faces +z). Screen units are CSS pixels from the view's top-left corner, y down.
 
 import type { Background, PreviewProp3d } from "../api/types";
+import { applyTransform } from "./geometry";
 import { type Gesture, type Pt, type Size, backgroundBox, gesturePoint, tidy } from "./layoutMath";
 
 export interface V3 {
@@ -341,21 +342,43 @@ export function parseOrbit(value: unknown): Orbit | null {
   return { target: v3(x, y, z), yaw, pitch: clamp(pitch, MIN_PITCH, MAX_PITCH), distance: clamp(distance, MIN_DISTANCE, MAX_DISTANCE) };
 }
 
+/** Where a house model's placement puts a point of its file: scaled, turned like props are, then moved. */
+export function modelPoint(p: V3, placement: { position: V3; rotationDeg: V3; scale: number }): V3 {
+  const { position, rotationDeg, scale: s } = placement;
+  // Props turn about X, then Y, then Z (layout axes); the model turns the same way.
+  return applyTransform(p, { position, rotationDeg, scale: v3(s, s, s) });
+}
+
+/** The box around a model's file box once it's turned by `rotationDeg` (not moved or scaled). */
+export function rotatedBox(box: Box3, rotationDeg: V3): Box3 {
+  const corners: number[] = [];
+  for (const x of [box.min.x, box.max.x])
+    for (const y of [box.min.y, box.max.y])
+      for (const z of [box.min.z, box.max.z]) {
+        const c = modelPoint(v3(x, y, z), { position: v3(0, 0, 0), rotationDeg, scale: 1 });
+        // `|| 0` keeps -0 (from turning a zero) out.
+        corners.push(tidy(c.x) || 0, tidy(c.y) || 0, tidy(c.z) || 0);
+      }
+  return boundsOfXyz([corners])!;
+}
+
 /**
  * Where to put a house model so it stands on the ground under the display: scaled so it's as
  * wide as `target` (the photo, or the props) when there is one, centered on it left to right,
  * and with its front face just behind the props (z = 0). `natural` is the model's box as its
- * file has it. Models are taken as Y-up, as glTF files are.
+ * file has it, and `rotationDeg` how it's turned, so a model made lying down (Z up) and stood
+ * up with a tilt is measured standing.
  */
-export function fitModelPlacement(natural: Box3, target: Box3 | null): { position: V3; scale: number } {
-  const width = natural.max.x - natural.min.x;
+export function fitModelPlacement(natural: Box3, target: Box3 | null, rotationDeg: V3 = v3(0, 0, 0)): { position: V3; scale: number } {
+  const turned = rotatedBox(natural, rotationDeg);
+  const width = turned.max.x - turned.min.x;
   const scaled = target && width > 0 ? (target.max.x - target.min.x) / width : 1;
   const s = Number.isFinite(scaled) && scaled > 0 ? scaled : 1;
   const cx = target ? (target.min.x + target.max.x) / 2 : 0;
   const round = (v: number) => tidy(v) || 0;
   return {
     scale: Number(s.toPrecision(4)),
-    position: v3(round(cx - ((natural.min.x + natural.max.x) / 2) * s), round(-natural.min.y * s), round(-natural.max.z * s - 0.02)),
+    position: v3(round(cx - ((turned.min.x + turned.max.x) / 2) * s), round(-turned.min.y * s), round(-turned.max.z * s - 0.02)),
   };
 }
 

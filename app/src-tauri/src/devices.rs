@@ -2,6 +2,7 @@
 //! holds the engine lock, so the UI stays responsive while devices are slow to answer.
 
 use crate::{AppState, Reply};
+use pf_devices::fpp_player::{self, FppSequence, PlayerStatus};
 use pf_devices::{Device, DeviceConfig, DiscoverOptions, Discovery, Http, HttpClient, ImportPlan};
 use pf_engine::{Edit, ShowSnapshot};
 use pf_model::Show;
@@ -105,9 +106,111 @@ pub(crate) async fn import_device(state: State<'_, AppState>, address: String) -
         return Err(format!("{} has no pixel outputs to import.", details.device.name));
     }
     let ImportPlan {
-        controller, props, ..
+        mut controller,
+        props,
+        ..
     } = details.plan;
+    let mut engine = state.engine();
     let mut edits: Vec<Edit> = props.into_iter().map(|prop| Edit::AddProp { prop }).collect();
-    edits.push(Edit::AddController { controller });
-    state.engine().apply(edits).map_err(|e| e.to_string())
+    // A controller added from an FPP's output list (same address, no ports yet) is filled in
+    // rather than duplicated.
+    let placeholder = engine
+        .show()
+        .controllers
+        .iter()
+        .find(|c| c.address == controller.address && pf_devices::is_placeholder(c))
+        .map(|c| (c.id, c.name.clone(), c.sequence_channels));
+    if let Some((id, name, sequence_channels)) = placeholder {
+        controller.id = id;
+        controller.name = name;
+        controller.sequence_channels = sequence_channels;
+        edits.push(Edit::UpdateController { controller });
+    } else {
+        edits.push(Edit::AddController { controller });
+    }
+    engine.apply(edits).map_err(|e| e.to_string())
+}
+
+/// Adds a controller that an FPP sends to, from the FPP's output list (works even when the
+/// controller isn't answering), as one undo step. `protocol` is the destination's protocol as the
+/// FPP lists it ("DDP", "sACN unicast", ...), since one address can be listed more than once.
+#[tauri::command]
+pub(crate) async fn import_fpp_destination(
+    state: State<'_, AppState>,
+    address: String,
+    destination: String,
+    protocol: String,
+) -> Reply<ShowSnapshot> {
+    let http = Arc::clone(&state.devices.http);
+    let target = off_thread(move || {
+        let fpp = pf_devices::fpp::probe(http.as_ref(), &address).map_err(|e| e.to_string())?;
+        let config = pf_devices::read_config(http.as_ref(), &fpp).map_err(|e| e.to_string())?;
+        let target = config
+            .destinations
+            .into_iter()
+            .find(|d| d.address == destination && d.protocol == protocol)
+            .ok_or_else(|| format!("{} doesn't send to {destination}.", fpp.name))?;
+        Ok(target)
+    })
+    .await?;
+    // Plan against the show as it is now, under the same lock that applies the change, so names
+    // and the duplicate check can't go stale while the FPP was being read.
+    let mut engine = state.engine();
+    if let Some(existing) = engine
+        .show()
+        .controllers
+        .iter()
+        .find(|c| c.address == target.address)
+    {
+        return Err(format!(
+            "{} is already in your show as {}.",
+            fpp_name_or_address(&target.address, &target.description),
+            existing.name
+        ));
+    }
+    let plan = pf_devices::plan_destination_import(&target, engine.show());
+    if !plan.can_import {
+        return Err(plan.notes.join(" "));
+    }
+    engine
+        .apply(vec![Edit::AddController {
+            controller: plan.controller,
+        }])
+        .map_err(|e| e.to_string())
+}
+
+fn fpp_name_or_address(address: &str, description: &str) -> String {
+    if description.trim().is_empty() {
+        address.to_string()
+    } else {
+        description.trim().to_string()
+    }
+}
+
+/// What an FPP is playing (changes nothing).
+#[tauri::command]
+pub(crate) async fn fpp_status(state: State<'_, AppState>, address: String) -> Reply<PlayerStatus> {
+    let http = Arc::clone(&state.devices.http);
+    off_thread(move || fpp_player::status(http.as_ref(), &address).map_err(|e| e.to_string())).await
+}
+
+/// The sequences stored on an FPP (changes nothing).
+#[tauri::command]
+pub(crate) async fn fpp_sequences(state: State<'_, AppState>, address: String) -> Reply<Vec<FppSequence>> {
+    let http = Arc::clone(&state.devices.http);
+    off_thread(move || fpp_player::sequences(http.as_ref(), &address).map_err(|e| e.to_string())).await
+}
+
+/// Starts a playlist or sequence on an FPP. Only ever called when the user clicks Play.
+#[tauri::command]
+pub(crate) async fn fpp_start(state: State<'_, AppState>, address: String, name: String) -> Reply<()> {
+    let http = Arc::clone(&state.devices.http);
+    off_thread(move || fpp_player::start(http.as_ref(), &address, &name).map_err(|e| e.to_string())).await
+}
+
+/// Stops an FPP now or at the end of the current sequence. Only ever called when the user clicks Stop.
+#[tauri::command]
+pub(crate) async fn fpp_stop(state: State<'_, AppState>, address: String, gracefully: bool) -> Reply<()> {
+    let http = Arc::clone(&state.devices.http);
+    off_thread(move || fpp_player::stop(http.as_ref(), &address, gracefully).map_err(|e| e.to_string())).await
 }

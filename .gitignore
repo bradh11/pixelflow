@@ -42,3 +42,8 @@ Thumbs.db
 
 # Rendered sequences (large, personal)
 *.fseq
+
+# xLights show files used as local examples (personal; never committed)
+xlights_*.xml
+*.xsq
+*.mp3

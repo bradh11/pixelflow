@@ -5,6 +5,7 @@
 //! can take a moment).
 
 mod devices;
+mod playback;
 
 use devices::DeviceAccess;
 use pf_engine::{
@@ -123,6 +124,20 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         devices::discover_devices,
         devices::inspect_device,
         devices::import_device,
+        devices::import_fpp_destination,
+        devices::fpp_status,
+        devices::fpp_sequences,
+        devices::fpp_start,
+        devices::fpp_stop,
+        playback::start_playback,
+        playback::pause_playback,
+        playback::seek_playback,
+        playback::stop_playback,
+        playback::playback_status,
+        playback::playback_stop_reason,
+        playback::live_frame,
+        playback::sequence_frame,
+        playback::preview_props,
     ])
 }
 
@@ -173,6 +188,7 @@ fn shut_down(state: &AppState) {
         eprintln!("autosave on exit failed: {error}");
     }
     engine.stop_output();
+    engine.stop_playback();
 }
 
 #[cfg(test)]
@@ -385,6 +401,173 @@ mod tests {
         assert!(
             error.as_str().unwrap().starts_with("Could not reach 192.0.2.99"),
             "{error}"
+        );
+    }
+
+    #[test]
+    fn fpp_status_sequences_and_playback_control() {
+        let (_app, webview, _dir) = app();
+        let fpp = pf_devices::testing::FPP;
+        let status = call(&webview, "fpp_status", json!({ "address": fpp })).unwrap();
+        assert_eq!(status["state"], "playing");
+        assert_eq!(status["sequence"], "Christmas Medley 2017.fseq");
+        assert_eq!(status["secondsRemaining"], 456);
+        let sequences = call(&webview, "fpp_sequences", json!({ "address": fpp })).unwrap();
+        assert_eq!(sequences[0]["name"], "Christmas Medley 2017");
+        assert_eq!(sequences[0]["stepMs"], 50);
+        let started = call(
+            &webview,
+            "fpp_start",
+            json!({ "address": fpp, "name": "Christmas Medley 2017.fseq" }),
+        );
+        assert_eq!(started.unwrap(), json!(null));
+        assert!(
+            call(
+                &webview,
+                "fpp_stop",
+                json!({ "address": fpp, "gracefully": true })
+            )
+            .is_ok()
+        );
+        let error = call(&webview, "fpp_status", json!({ "address": "192.0.2.99" })).unwrap_err();
+        assert!(
+            error.as_str().unwrap().starts_with("Could not reach 192.0.2.99"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_controller_added_from_an_fpp_is_filled_in_when_imported_later() {
+        let (_app, webview, _dir) = app();
+        let (fpp, falcon) = (pf_devices::testing::FPP, pf_devices::testing::FALCON);
+        let snapshot = call(
+            &webview,
+            "import_fpp_destination",
+            json!({ "address": fpp, "destination": falcon, "protocol": "DDP" }),
+        )
+        .unwrap();
+        assert_eq!(snapshot["summary"]["controllers"], 1);
+        assert_eq!(snapshot["show"]["controllers"][0]["name"], "Falcon_F16V5_B9F5");
+        assert_eq!(snapshot["show"]["controllers"][0]["ports"], json!([]));
+        let id = snapshot["show"]["controllers"][0]["id"].clone();
+
+        let snapshot = call(&webview, "import_device", json!({ "address": falcon })).unwrap();
+        assert_eq!(snapshot["summary"]["controllers"], 1, "filled in, not duplicated");
+        assert_eq!(snapshot["summary"]["props"], 3);
+        assert_eq!(snapshot["show"]["controllers"][0]["id"], id);
+        assert_eq!(snapshot["show"]["controllers"][0]["adapter"], "falcon");
+        assert_eq!(
+            snapshot["show"]["controllers"][0]["sequenceChannels"],
+            json!({ "start": 1, "count": 6147, "rawDdpOffsets": true })
+        );
+
+        let snapshot = call(&webview, "undo", json!({})).unwrap();
+        assert_eq!(snapshot["summary"]["props"], 0);
+        assert_eq!(snapshot["show"]["controllers"][0]["ports"], json!([]));
+
+        let error = call(
+            &webview,
+            "import_fpp_destination",
+            json!({ "address": fpp, "destination": "192.0.2.77", "protocol": "DDP" }),
+        )
+        .unwrap_err();
+        assert_eq!(error, json!("FPP doesn't send to 192.0.2.77."));
+
+        // The destination is picked by address and protocol; an existing controller is never doubled.
+        let error = call(
+            &webview,
+            "import_fpp_destination",
+            json!({ "address": fpp, "destination": falcon, "protocol": "sACN unicast" }),
+        )
+        .unwrap_err();
+        assert_eq!(error, json!(format!("FPP doesn't send to {falcon}.")));
+        let error = call(
+            &webview,
+            "import_fpp_destination",
+            json!({ "address": fpp, "destination": falcon, "protocol": "DDP" }),
+        )
+        .unwrap_err();
+        assert_eq!(
+            error,
+            json!("Falcon_F16V5_B9F5 is already in your show as Falcon_F16V5_B9F5.")
+        );
+
+        // Inspecting the real device says it will fill the placeholder in.
+        let details = call(&webview, "inspect_device", json!({ "address": falcon })).unwrap();
+        assert_eq!(details["plan"]["alreadyInShow"], false);
+        assert!(
+            details["plan"]["notes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|n| n == "Fills in Falcon_F16V5_B9F5, added from your FPP's output list."),
+            "{details}"
+        );
+    }
+
+    /// A tiny uncompressed sequence: 6 channels, 40 frames, 25 ms apart; every channel of frame
+    /// `n` holds `n + 1`.
+    fn write_sequence(dir: &std::path::Path) -> PathBuf {
+        let mut out = b"PSEQ".to_vec();
+        out.extend_from_slice(&28u16.to_le_bytes());
+        out.extend_from_slice(&[0, 1]);
+        out.extend_from_slice(&28u16.to_le_bytes());
+        out.extend_from_slice(&6u32.to_le_bytes());
+        out.extend_from_slice(&40u32.to_le_bytes());
+        out.push(25);
+        out.extend_from_slice(&[0; 9]);
+        for frame in 0..40u8 {
+            out.extend_from_slice(&[frame + 1; 6]);
+        }
+        let path = dir.join("show.fseq");
+        std::fs::write(&path, out).unwrap();
+        path
+    }
+
+    #[test]
+    fn plays_a_sequence_with_pause_seek_and_stop() {
+        let (_app, webview, dir) = app();
+        let path = write_sequence(dir.path());
+        let error = call(
+            &webview,
+            "start_playback",
+            json!({ "path": path, "positionMs": 0 }),
+        )
+        .unwrap_err();
+        assert!(error.as_str().unwrap().contains("Devices screen"), "{error}");
+
+        // Loopback only: nothing leaves this machine.
+        let controller = json!({
+            "id": "33333333-0000-4000-8000-000000000009", "name": "Bench", "address": "127.0.0.1:9",
+            "protocol": { "type": "ddp" }, "ports": [], "sequenceChannels": { "start": 1, "count": 6 }
+        });
+        call(
+            &webview,
+            "apply_edits",
+            json!({ "edits": [{ "type": "addController", "controller": controller }] }),
+        )
+        .unwrap();
+        let status = call(
+            &webview,
+            "start_playback",
+            json!({ "path": path, "positionMs": 100 }),
+        )
+        .unwrap();
+        assert_eq!(status["state"], "playing");
+        assert_eq!(
+            (status["positionMs"].clone(), status["durationMs"].clone()),
+            (json!(100), json!(1000))
+        );
+        let status = call(&webview, "pause_playback", json!({ "paused": true })).unwrap();
+        assert_eq!(status["state"], "paused");
+        let status = call(&webview, "seek_playback", json!({ "positionMs": 500 })).unwrap();
+        assert_eq!(status["positionMs"], 500);
+        assert_eq!(call(&webview, "preview_props", json!({})).unwrap(), json!([]));
+        call(&webview, "stop_playback", json!({})).unwrap();
+        assert_eq!(call(&webview, "playback_status", json!({})).unwrap(), json!(null));
+        assert_eq!(
+            call(&webview, "playback_stop_reason", json!({})).unwrap(),
+            json!(null)
         );
     }
 }

@@ -2,11 +2,12 @@ import {
   AlertTriangle,
   Cable,
   Command,
+  Film,
+  FlaskConical,
   History,
   LayoutGrid,
   Moon,
   Network,
-  Play,
   Redo2,
   Save,
   Sun,
@@ -19,6 +20,7 @@ import { type Screen, useApp } from "../state/store";
 import { DevicesScreen } from "../screens/DevicesScreen";
 import { HistoryScreen } from "../screens/HistoryScreen";
 import { LayoutScreen } from "../screens/LayoutScreen";
+import { PlayScreen } from "../screens/PlayScreen";
 import { TestScreen } from "../screens/TestScreen";
 import { WiringScreen } from "../screens/WiringScreen";
 
@@ -26,7 +28,8 @@ const NAV: { screen: Screen; label: string; icon: ReactNode }[] = [
   { screen: "layout", label: "Layout", icon: <LayoutGrid size={18} /> },
   { screen: "wiring", label: "Wiring", icon: <Cable size={18} /> },
   { screen: "devices", label: "Devices", icon: <Network size={18} /> },
-  { screen: "test", label: "Test", icon: <Play size={18} /> },
+  { screen: "play", label: "Play", icon: <Film size={18} /> },
+  { screen: "test", label: "Test", icon: <FlaskConical size={18} /> },
   { screen: "history", label: "History", icon: <History size={18} /> },
 ];
 
@@ -234,6 +237,8 @@ function CurrentScreen() {
       return <WiringScreen />;
     case "devices":
       return <DevicesScreen />;
+    case "play":
+      return <PlayScreen />;
     case "test":
       return <TestScreen />;
     case "history":

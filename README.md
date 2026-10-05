@@ -83,6 +83,28 @@ blocks the replies (macOS does for unsigned command-line tools), the network che
 list usually still find your controllers; a controller an FPP lists that doesn't answer is reported so you
 can check its power and network cable.
 
+### Play a sequence
+
+PixelFlow plays rendered xLights/FPP sequences (`.fseq`) straight to your controllers and shows
+them on screen:
+
+1. On **Devices**, open your FPP and choose **Add to show** next to each controller it sends to.
+   This tells PixelFlow which sequence channels belong to each controller, and it works even
+   while a controller is offline.
+2. On **Play**, choose **Open sequence…** and pick the `.fseq`. You get play, pause, seek, and
+   stop. Props you've imported light up in the preview. A controller whose strings aren't
+   imported yet shows the channels it receives as a grid.
+
+If an FPP is playing at the same time, its output overrides PixelFlow's. The Play screen warns
+you about this and can stop the FPP for you.
+
+### Control an FPP
+
+On **Devices**, open an FPP to see what it's playing, how long is left, and what's scheduled next.
+**Stop now**, **Stop after this**, and **Play** (for a sequence stored on the FPP) change what the
+FPP is doing, and they only run when you click them. Everything else PixelFlow does with your
+controllers only reads.
+
 ### Run the desktop app
 
 Requires [Node.js](https://nodejs.org) 22+ and [pnpm](https://pnpm.io).

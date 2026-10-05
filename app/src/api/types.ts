@@ -105,6 +105,8 @@ export interface Controller {
   adapter: "fpp" | "falcon" | "wled" | "generic";
   protocol: Protocol;
   ports: Port[];
+  /** Where this controller's data sits in a rendered sequence (channels from 1), when known. */
+  sequenceChannels: { start: number; count: number; rawDdpOffsets?: boolean } | null;
 }
 
 export interface Show {
@@ -289,6 +291,15 @@ export interface Destination {
   description: string;
   protocol: string;
   channels: number;
+  /** The first sequence channel (1-based) sent to this destination. */
+  startChannel: number;
+  startUniverse: number | null;
+  /** Channels per universe, for sACN destinations; null for DDP. */
+  universeSize: number | null;
+  /** DDP only: the FPP sends raw channel numbers (packet offsets are absolute channels). */
+  ddpRaw: boolean;
+  /** Merged sACN ranges that aren't one back-to-back run of equal-sized universes. */
+  unevenUniverses: boolean;
 }
 
 export interface DeviceConfig {
@@ -310,4 +321,49 @@ export interface DeviceDetails {
   device: Device;
   config: DeviceConfig;
   plan: ImportPlan;
+}
+
+export type PlayerState = "idle" | "playing" | "paused" | "stopping" | "other";
+
+/** What an FPP is playing. */
+export interface PlayerStatus {
+  state: PlayerState;
+  playlist: string | null;
+  sequence: string | null;
+  secondsElapsed: number;
+  secondsRemaining: number;
+  nextPlaylist: string | null;
+  nextStart: string | null;
+  /** Problems FPP itself reports, such as an output target it can't reach. */
+  warnings: string[];
+}
+
+/** A sequence stored on an FPP. */
+export interface FppSequence {
+  name: string;
+  frames: number;
+  stepMs: number;
+  channels: number;
+}
+
+/** A sequence playing on the controllers. */
+export interface PlaybackStatus {
+  state: "playing" | "paused" | "ended";
+  path: string;
+  positionMs: number;
+  durationMs: number;
+  frameMs: number;
+  controllers: ControllerStatus[];
+  /** Plain-language notes, such as controllers that were left out and why. */
+  notes: string[];
+  /** Why playback stopped by itself (a damaged file, for example). */
+  error: string | null;
+}
+
+/** Where a prop's pixels are drawn in the preview (x, y pairs) and where their colors sit in a live frame. */
+export interface PreviewProp {
+  prop: Uuid;
+  frameOffset: number;
+  channelsPerPixel: number;
+  points: number[];
 }

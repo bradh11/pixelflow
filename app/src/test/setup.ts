@@ -10,6 +10,8 @@ globalThis.ResizeObserver ??= class {
   disconnect() {}
 };
 Element.prototype.scrollIntoView ??= function scrollIntoView() {};
+// jsdom has no 2D canvas; the preview draws nothing in tests.
+HTMLCanvasElement.prototype.getContext = (() => null) as typeof HTMLCanvasElement.prototype.getContext;
 
 afterEach(() => {
   cleanup();

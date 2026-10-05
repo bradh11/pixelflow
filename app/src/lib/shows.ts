@@ -89,6 +89,7 @@ export function newController(
         ? { type: "ddp" }
         : { type: "sacn", startUniverse: null, universeSize: 510, allowPixelStraddle: false, multicast: false },
     ports: Array.from({ length: portCount }, (_, i) => newPort(i + 1)),
+    sequenceChannels: null,
   };
 }
 

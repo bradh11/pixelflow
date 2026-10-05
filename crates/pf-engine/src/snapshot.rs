@@ -1,7 +1,7 @@
 //! What the UI sees after every change.
 
 use pf_mapping::ChannelMap;
-use pf_model::{Issue, Show};
+use pf_model::{Issue, PropId, Show};
 use serde::Serialize;
 
 /// Headline numbers for the show.
@@ -31,4 +31,16 @@ pub struct ShowSnapshot {
     pub issues: Vec<Issue>,
     pub channel_map: ChannelMap,
     pub summary: Summary,
+}
+
+/// Where a prop's pixels are drawn in the 2D preview (front view) and where their colors sit in
+/// a live frame.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewProp {
+    pub prop: PropId,
+    pub frame_offset: usize,
+    pub channels_per_pixel: u8,
+    /// x, y pairs, one per pixel, in wiring order.
+    pub points: Vec<f32>,
 }

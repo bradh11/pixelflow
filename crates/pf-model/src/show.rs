@@ -9,8 +9,9 @@ use serde::{Deserialize, Serialize};
 /// a no-op migration, so an older PixelFlow refuses a newer file instead of silently dropping
 /// fields it doesn't know on save. Add the migration in `io.rs` in the same change.
 ///
-/// History: 1 = initial format; 2 = adds the `falcon` controller adapter.
-pub const CURRENT_SCHEMA_VERSION: u32 = 2;
+/// History: 1 = initial format; 2 = adds the `falcon` controller adapter; 3 = adds a
+/// controller's `sequenceChannels`.
+pub const CURRENT_SCHEMA_VERSION: u32 = 3;
 
 /// Show-wide settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

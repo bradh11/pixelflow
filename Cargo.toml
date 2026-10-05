@@ -23,6 +23,8 @@ roxmltree = "0.21.1"
 socket2 = { version = "0.6.5", features = ["all"] }
 if-addrs = "0.15.0"
 mdns-sd = "0.21.4"
+zstd = "0.14.0"
+flate2 = "1.1.10"
 pf-model = { path = "crates/pf-model" }
 pf-geometry = { path = "crates/pf-geometry" }
 pf-mapping = { path = "crates/pf-mapping" }
@@ -31,6 +33,7 @@ pf-patterns = { path = "crates/pf-patterns" }
 pf-output = { path = "crates/pf-output" }
 pf-engine = { path = "crates/pf-engine" }
 pf-devices = { path = "crates/pf-devices" }
+pf-fseq = { path = "crates/pf-fseq" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

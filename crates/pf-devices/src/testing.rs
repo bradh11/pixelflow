@@ -36,7 +36,39 @@ pub fn fpp_only() -> FakeHttp {
             include_str!("../fixtures/fpp/api_channel_output_universeOutputs.json"),
         )
         .with_get_status(FPP, "/api/channel/output/co-pixelStrings", 404)
+        .with_get(
+            FPP,
+            "/api/fppd/status",
+            include_str!("../fixtures/fpp/api_fppd_status.json"),
+        )
+        .with_get(
+            FPP,
+            "/api/sequence",
+            include_str!("../fixtures/fpp/api_sequence.json"),
+        )
+        .with_get(
+            FPP,
+            "/api/sequence/Christmas%20Medley%202017/meta",
+            include_str!("../fixtures/fpp/api_sequence_Christmas_Medley_2017_meta.json"),
+        )
+        .with_post(FPP, "/api/command", START_MEDLEY, "Playlist Starting")
+        .with_post(
+            FPP,
+            "/api/command",
+            r#"{"command":"Stop Now","args":[]}"#,
+            "Stopped",
+        )
+        .with_post(
+            FPP,
+            "/api/command",
+            r#"{"command":"Stop Gracefully","args":["false"]}"#,
+            "Stopping",
+        )
 }
+
+/// The FPP command that starts the fixture FPP's sequence.
+pub const START_MEDLEY: &str =
+    r#"{"command":"Start Playlist","args":["Christmas Medley 2017.fseq","false","false"]}"#;
 
 /// Every fixture device, each answering on its own address.
 pub fn network() -> FakeHttp {

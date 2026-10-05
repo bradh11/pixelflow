@@ -56,6 +56,19 @@ pub struct Destination {
     /// "DDP", "sACN unicast", "sACN multicast", "Art-Net", …
     pub protocol: String,
     pub channels: u32,
+    /// The first sequence channel (1-based) sent to this destination.
+    pub start_channel: u32,
+    /// The first universe, for sACN destinations.
+    pub start_universe: Option<u16>,
+    /// Channels in each universe, for sACN destinations (FPP's `channelCount`); `None` for DDP.
+    pub universe_size: Option<u16>,
+    /// DDP only: FPP sends "DDP Raw Channel Numbers", so each packet's offset is the absolute
+    /// channel (this destination's first channel minus one). Otherwise ("DDP One Based") the
+    /// offset starts at 0 for the controller.
+    pub ddp_raw: bool,
+    /// Several sACN ranges were merged into this entry but they aren't one back-to-back run of
+    /// universes of the same size.
+    pub uneven_universes: bool,
 }
 
 /// A device's configuration as PixelFlow understands it.

@@ -1,5 +1,9 @@
 import type {
   DeviceDetails,
+  PlaybackStatus,
+  PreviewProp,
+  FppSequence,
+  PlayerStatus,
   Discovery,
   Edit,
   HistoryEntry,
@@ -31,6 +35,33 @@ export interface Backend {
   inspectDevice(address: string): Promise<DeviceDetails>;
   /** Adds the device as a controller with starter props, as one undo step. */
   importDevice(address: string): Promise<ShowSnapshot>;
+  /** Adds a controller an FPP sends to, from the FPP's output list (works while it's offline). */
+  importFppDestination(address: string, destination: string, protocol: string): Promise<ShowSnapshot>;
+  /** What an FPP is playing (changes nothing). */
+  fppStatus(address: string): Promise<PlayerStatus>;
+  /** The sequences stored on an FPP (changes nothing). */
+  fppSequences(address: string): Promise<FppSequence[]>;
+  /** Starts a playlist or sequence (e.g. "Show.fseq") on an FPP. Only when the user asks. */
+  fppStart(address: string, name: string): Promise<void>;
+  /** Stops an FPP now, or after the current sequence. Only when the user asks. */
+  fppStop(address: string, gracefully: boolean): Promise<void>;
+  /** Plays a rendered sequence (.fseq) to the controllers that know their sequence channels. */
+  startPlayback(path: string, positionMs: number): Promise<PlaybackStatus>;
+  pausePlayback(paused: boolean): Promise<PlaybackStatus | null>;
+  seekPlayback(positionMs: number): Promise<PlaybackStatus | null>;
+  stopPlayback(): Promise<void>;
+  /** The playing sequence, or null when nothing is playing. */
+  playbackStatus(): Promise<PlaybackStatus | null>;
+  /** Why playback was stopped by an edit to the show (a plain sentence), or null. */
+  playbackStopReason(): Promise<string | null>;
+  /** The props' current colors (show frame bytes); empty when nothing is playing or testing. */
+  liveFrame(): Promise<Uint8Array>;
+  /** The playing sequence's current frame (every channel, as sent); empty when nothing plays. */
+  sequenceFrame(): Promise<Uint8Array>;
+  /** Every prop's pixel positions for the 2D preview. */
+  previewProps(): Promise<PreviewProp[]>;
+  /** Shows a native "open sequence" dialog; null when cancelled. */
+  pickSequencePath(): Promise<string | null>;
   /** Shows a native "open file" dialog; null when cancelled. */
   pickOpenPath(): Promise<string | null>;
   /** Shows a native "save file" dialog; null when cancelled. */

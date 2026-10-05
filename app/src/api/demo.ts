@@ -1,4 +1,4 @@
-import type { DeviceDetails, PortSlot, Prop, Show, SilentPeer, StringConfig } from "./types";
+import type { DeviceDetails, FppSequence, PlayerStatus, PortSlot, Prop, Show, SilentPeer, StringConfig } from "./types";
 import { emptyShow } from "./memory";
 import { newController, newProp } from "../lib/shows";
 
@@ -23,6 +23,7 @@ export function demoShow(): Show {
   fpp.ports[1].slots = [
     { prop: tree.id, segment: null, nullPixels: 0, reverse: false, brightness: null, gamma: null, smartReceiver: null },
   ];
+  fpp.sequenceChannels = { start: 1, count: 4800 };
   const wled = newController("Porch WLED", "192.168.1.60", "ddp", 1);
   show.controllers = [fpp, wled];
   return show;
@@ -59,10 +60,12 @@ export function demoDevices(): { details: DeviceDetails[]; silent: SilentPeer[] 
         config: {
           input: { type: "ddp" },
           ports: [],
-          destinations: [{ address: "192.0.2.20", description: "Falcon_F16V5_B9F5", protocol: "DDP", channels: 6147 }],
-          notes: ["This FPP has no pixel outputs of its own; it sends to the controllers listed below. Import those instead."],
+          destinations: [
+            { address: "192.0.2.20", description: "Falcon_F16V5_B9F5", protocol: "DDP", channels: 6147, startChannel: 1, startUniverse: null, universeSize: null, ddpRaw: false, unevenUniverses: false },
+          ],
+          notes: ["This FPP has no pixel outputs of its own; it sends to the controllers listed below. Add them to your show from here."],
         },
-        plan: { controller: fppController, props: [], notes: ["This FPP has no pixel outputs of its own; it sends to the controllers listed below. Import those instead."], alreadyInShow: false, canImport: false },
+        plan: { controller: fppController, props: [], notes: ["This FPP has no pixel outputs of its own; it sends to the controllers listed below. Add them to your show from here."], alreadyInShow: false, canImport: false },
       },
       {
         device: { address: "192.0.2.20", kind: "falcon", name: "Falcon_F16V5_B9F5", model: "F16v5", firmware: "F16V5 v2.00", mode: null, foundBy: ["fppPeer"] },
@@ -93,5 +96,24 @@ export function demoDevices(): { details: DeviceDetails[]; silent: SilentPeer[] 
       },
     ],
     silent: [{ address: "192.0.2.21", description: "Falcon_F16V5_Garage", listedBy: "FPP" }],
+  };
+}
+
+/** The demo FPP is playing its one sequence, and can't reach one of its controllers. */
+export function demoPlayers(): Record<string, { status: PlayerStatus; sequences: FppSequence[] }> {
+  return {
+    "192.0.2.10": {
+      status: {
+        state: "playing",
+        playlist: "Christmas Medley 2017.fseq",
+        sequence: "Christmas Medley 2017.fseq",
+        secondsElapsed: 109,
+        secondsRemaining: 456,
+        nextPlaylist: "Christmas Medley 2017.fseq",
+        nextStart: "Mon Oct  5 @ 06:48 PM - (Everyday)",
+        warnings: ["Cannot Ping DDP Channel Data Target 192.0.2.21 Falcon_F16V5_Garage"],
+      },
+      sequences: [{ name: "Christmas Medley 2017", frames: 11332, stepMs: 50, channels: 6148 }],
+    },
   };
 }

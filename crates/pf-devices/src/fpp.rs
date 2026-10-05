@@ -15,16 +15,16 @@ use crate::http::Http;
 use pf_model::ColorOrder;
 use serde_json::Value;
 
-fn get_json(http: &dyn Http, host: &str, path: &str) -> Result<Value, DeviceError> {
+pub(crate) fn get_json(http: &dyn Http, host: &str, path: &str) -> Result<Value, DeviceError> {
     let body = http.get(host, path)?;
     serde_json::from_str(&body).map_err(|e| DeviceError::bad(host, path, e.to_string()))
 }
 
-fn str_field<'a>(v: &'a Value, key: &str) -> &'a str {
+pub(crate) fn str_field<'a>(v: &'a Value, key: &str) -> &'a str {
     v.get(key).and_then(Value::as_str).unwrap_or("")
 }
 
-fn int_field(v: &Value, key: &str) -> i64 {
+pub(crate) fn int_field(v: &Value, key: &str) -> i64 {
     v.get(key)
         .and_then(|x| {
             x.as_i64()
@@ -33,7 +33,7 @@ fn int_field(v: &Value, key: &str) -> i64 {
         .unwrap_or(0)
 }
 
-fn opt_int_field(v: &Value, key: &str) -> Option<i64> {
+pub(crate) fn opt_int_field(v: &Value, key: &str) -> Option<i64> {
     v.get(key).and_then(|x| {
         x.as_i64()
             .or_else(|| x.as_str().and_then(|s| s.trim().parse().ok()))
@@ -128,7 +128,9 @@ fn read_destinations(http: &dyn Http, host: &str) -> Result<Vec<Destination>, De
     let Some(doc) = get_json_or_none(http, host, "/api/channel/output/universeOutputs")? else {
         return Ok(Vec::new());
     };
-    let mut destinations = Vec::new();
+    let mut destinations: Vec<Destination> = Vec::new();
+    // For each destination, the universe that would continue its sACN run without a gap.
+    let mut next_universe: Vec<Option<u32>> = Vec::new();
     for output in doc["channelOutputs"].as_array().into_iter().flatten() {
         if int_field(output, "enabled") == 0 {
             continue;
@@ -138,17 +140,42 @@ fn read_destinations(http: &dyn Http, host: &str) -> Result<Vec<Destination>, De
             if int_field(universe, "active") == 0 || address.is_empty() {
                 continue;
             }
-            let protocol = universe_protocol(int_field(universe, "type"));
+            let kind = int_field(universe, "type");
+            let protocol = universe_protocol(kind);
+            let start_channel = u32::try_from(int_field(universe, "startChannel").max(1)).unwrap_or(1);
+            // For sACN entries, FPP's `id` is the universe number.
+            let start_universe = matches!(kind, 0 | 1)
+                .then(|| u16::try_from(int_field(universe, "id")).ok())
+                .flatten()
+                .filter(|u| *u > 0);
             // `channelCount` is per universe; `universeCount` universes run back to back.
             let per_universe = int_field(universe, "channelCount").max(0);
             let count = opt_int_field(universe, "universeCount").map_or(1, |c| c.max(1));
             let channels = u32::try_from(per_universe.saturating_mul(count)).unwrap_or(u32::MAX);
+            let universe_size = matches!(kind, 0 | 1)
+                .then(|| u16::try_from(per_universe).ok())
+                .flatten();
+            let following = start_universe
+                .and_then(|u| u32::try_from(count).ok().map(|c| u32::from(u).saturating_add(c)));
             // One entry per address and protocol, however many universe ranges FPP lists.
-            if let Some(existing) = destinations
-                .iter_mut()
-                .find(|d: &&mut Destination| d.address == address && d.protocol == protocol)
+            if let Some(index) = destinations
+                .iter()
+                .position(|d| d.address == address && d.protocol == protocol)
             {
+                let existing = &mut destinations[index];
+                if kind == 0 || kind == 1 {
+                    let in_a_row = existing.universe_size == universe_size
+                        && start_universe.map(u32::from) == next_universe[index];
+                    existing.uneven_universes |= !in_a_row;
+                    next_universe[index] = following;
+                }
+                existing.ddp_raw &= kind == 4;
                 existing.channels = existing.channels.saturating_add(channels);
+                existing.start_channel = existing.start_channel.min(start_channel);
+                existing.start_universe = match (existing.start_universe, start_universe) {
+                    (Some(a), Some(b)) => Some(a.min(b)),
+                    (a, b) => a.or(b),
+                };
                 if existing.description.is_empty() {
                     existing.description = str_field(universe, "description").to_string();
                 }
@@ -159,7 +186,16 @@ fn read_destinations(http: &dyn Http, host: &str) -> Result<Vec<Destination>, De
                 description: str_field(universe, "description").to_string(),
                 protocol: protocol.to_string(),
                 channels,
+                start_channel,
+                start_universe,
+                universe_size,
+                // FPP: type 4 = "DDP Raw Channel Numbers", type 5 = "DDP One Based". In FPP's
+                // DDP.cpp the first packet's offset is `startChannel - 1` for type 4 and 0 for
+                // type 5 (each later packet adds the bytes already sent).
+                ddp_raw: kind == 4,
+                uneven_universes: false,
             });
+            next_universe.push(following);
         }
     }
     Ok(destinations)
@@ -260,7 +296,7 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
         notes.push(if destinations.is_empty() {
             "This FPP has no pixel outputs of its own.".to_string()
         } else {
-            "This FPP has no pixel outputs of its own; it sends to the controllers listed below. Import those instead."
+            "This FPP has no pixel outputs of its own; it sends to the controllers listed below. Add them to your show from here."
                 .to_string()
         });
     }

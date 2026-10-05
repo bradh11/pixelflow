@@ -1,10 +1,10 @@
 //! Turning a device's configuration into a controller and starter props.
 
-use crate::config::{DeviceConfig, DeviceInput};
+use crate::config::{Destination, DeviceConfig, DeviceInput};
 use crate::device::{Device, DeviceKind};
 use pf_model::{
-    AdapterKind, ColorOrder, Controller, Generator, Port, PortSlot, Prop, Protocol, SacnConfig, ShapeSource,
-    Show, UniverseSize, Vec3,
+    AdapterKind, ColorOrder, Controller, Generator, Port, PortSlot, Prop, Protocol, SacnConfig,
+    SequenceChannels, ShapeSource, Show, UniverseSize, Vec3,
 };
 use serde::Serialize;
 use std::collections::HashSet;
@@ -22,6 +22,12 @@ pub struct ImportPlan {
     pub already_in_show: bool,
     /// False when there is nothing to import (no pixel ports).
     pub can_import: bool,
+}
+
+/// A controller added from an FPP's output list: no ports yet, but it knows its sequence channels.
+/// Importing the real device at its address fills it in rather than adding another copy.
+pub fn is_placeholder(controller: &Controller) -> bool {
+    controller.ports.is_empty() && controller.sequence_channels.is_some()
 }
 
 fn unique(base: &str, taken: &mut HashSet<String>) -> String {
@@ -53,7 +59,7 @@ pub fn plan_import(device: &Device, config: &DeviceConfig, show: &Show) -> Impor
             } else {
                 if *channels_per_universe != 510 {
                     notes.push(format!(
-                        "The controller uses {channels_per_universe} channels per universe; PixelFlow uses 510."
+                        "The controller uses {channels_per_universe} channels per universe; PixelFlow uses 510 or 512."
                     ));
                 }
                 UniverseSize::Channels510
@@ -148,8 +154,16 @@ pub fn plan_import(device: &Device, config: &DeviceConfig, show: &Show) -> Impor
             controller_applied.join("; ")
         ));
     }
+    let at_address = || show.controllers.iter().filter(|c| c.address == device.address);
+    let already_in_show = at_address().any(|c| !is_placeholder(c));
+    if !already_in_show && let Some(placeholder) = at_address().next() {
+        notes.push(format!(
+            "Fills in {}, added from your FPP's output list.",
+            placeholder.name
+        ));
+    }
     ImportPlan {
-        already_in_show: show.controllers.iter().any(|c| c.address == device.address),
+        already_in_show,
         can_import: !props.is_empty(),
         controller,
         props,
@@ -157,10 +171,82 @@ pub fn plan_import(device: &Device, config: &DeviceConfig, show: &Show) -> Impor
     }
 }
 
+/// Plans adding a controller that an FPP sends to, from the FPP's output list. Works even when
+/// the controller isn't answering; its strings aren't known, so it has no ports yet. Importing
+/// the controller itself later fills them in.
+pub fn plan_destination_import(destination: &Destination, show: &Show) -> ImportPlan {
+    let mut controller_names: HashSet<String> = show.controllers.iter().map(|c| c.name.clone()).collect();
+    let base = if destination.description.trim().is_empty() {
+        destination.address.as_str()
+    } else {
+        destination.description.trim()
+    };
+    let name = unique(base, &mut controller_names);
+    let mut notes = Vec::new();
+    let universe_size = match destination.universe_size {
+        Some(512) => UniverseSize::Channels512,
+        Some(510) | None => UniverseSize::Channels510,
+        Some(other) => {
+            notes.push(format!(
+                "The FPP sends {other} channels per universe; PixelFlow uses 510 or 512 channels per universe."
+            ));
+            UniverseSize::Channels510
+        }
+    };
+    let sacn = |multicast| {
+        Protocol::Sacn(SacnConfig {
+            start_universe: destination.start_universe,
+            universe_size,
+            multicast,
+            ..SacnConfig::default()
+        })
+    };
+    let protocol = match destination.protocol.as_str() {
+        "DDP" => Some(Protocol::Ddp),
+        "sACN unicast" => Some(sacn(false)),
+        "sACN multicast" => Some(sacn(true)),
+        _ => None,
+    };
+    let already_in_show = show.controllers.iter().any(|c| c.address == destination.address);
+    let Some(protocol) = protocol else {
+        return ImportPlan {
+            controller: Controller::new(name, destination.address.clone(), Protocol::Ddp),
+            props: Vec::new(),
+            notes: vec![format!("PixelFlow can't send {} yet.", destination.protocol)],
+            already_in_show,
+            can_import: false,
+        };
+    };
+    if destination.uneven_universes && matches!(protocol, Protocol::Sacn(_)) {
+        notes.push(
+            "The FPP lists several universe ranges for this controller that aren't one continuous run \
+             of the same size, so check its universes before running a show."
+                .to_string(),
+        );
+    }
+    notes.push(format!(
+        "PixelFlow adds {name} from the FPP's output list. Its strings aren't known yet: import the \
+         controller itself once it's online to add them."
+    ));
+    let mut controller = Controller::new(name, destination.address.clone(), protocol);
+    controller.sequence_channels = (destination.channels > 0).then_some(SequenceChannels {
+        start: destination.start_channel.max(1),
+        count: destination.channels,
+        raw_ddp_offsets: destination.ddp_raw && protocol == Protocol::Ddp,
+    });
+    ImportPlan {
+        controller,
+        props: Vec::new(),
+        notes,
+        already_in_show,
+        can_import: true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{PortConfig, StringConfig};
+    use crate::config::{Destination, PortConfig, StringConfig};
     use pf_model::ColorOrder;
 
     fn device() -> Device {
@@ -284,5 +370,147 @@ mod tests {
         let plan = plan_import(&device(), &config, &Show::new("t"));
         assert!(!plan.can_import);
         assert_eq!(plan.controller.protocol, Protocol::Ddp);
+    }
+
+    fn destination(protocol: &str) -> Destination {
+        Destination {
+            address: "192.0.2.20".into(),
+            description: "Falcon_F16V5_B9F5".into(),
+            protocol: protocol.into(),
+            channels: 6147,
+            start_channel: 1,
+            start_universe: Some(7),
+            universe_size: None,
+            ddp_raw: false,
+            uneven_universes: false,
+        }
+    }
+
+    #[test]
+    fn an_fpp_destination_becomes_a_controller_without_ports() {
+        let plan = plan_destination_import(&destination("DDP"), &Show::new("t"));
+        assert!(plan.can_import && !plan.already_in_show);
+        assert_eq!(plan.controller.name, "Falcon_F16V5_B9F5");
+        assert_eq!(plan.controller.address, "192.0.2.20");
+        assert_eq!(plan.controller.protocol, Protocol::Ddp);
+        assert!(plan.controller.ports.is_empty() && plan.props.is_empty());
+        assert_eq!(
+            plan.controller.sequence_channels,
+            Some(SequenceChannels {
+                start: 1,
+                count: 6147,
+                raw_ddp_offsets: false,
+            })
+        );
+        assert!(plan.notes[0].contains("once it's online"), "{:?}", plan.notes);
+    }
+
+    #[test]
+    fn sacn_destinations_keep_their_universe_and_unsupported_ones_cant_be_added() {
+        let plan = plan_destination_import(&destination("sACN multicast"), &Show::new("t"));
+        let Protocol::Sacn(sacn) = &plan.controller.protocol else {
+            panic!("expected sACN, got {:?}", plan.controller.protocol);
+        };
+        assert_eq!((sacn.start_universe, sacn.multicast), (Some(7), true));
+
+        let art_net = plan_destination_import(&destination("Art-Net"), &Show::new("t"));
+        assert!(!art_net.can_import);
+        assert_eq!(art_net.notes, vec!["PixelFlow can't send Art-Net yet."]);
+    }
+
+    #[test]
+    fn a_destination_already_in_the_show_is_flagged_and_unnamed_ones_use_the_address() {
+        let mut show = Show::new("t");
+        show.controllers
+            .push(Controller::new("Falcon_F16V5_B9F5", "192.0.2.20", Protocol::Ddp));
+        let plan = plan_destination_import(&destination("DDP"), &show);
+        assert!(plan.already_in_show);
+        assert_eq!(plan.controller.name, "Falcon_F16V5_B9F5 2");
+        let unnamed = Destination {
+            description: String::new(),
+            ..destination("DDP")
+        };
+        assert_eq!(
+            plan_destination_import(&unnamed, &Show::new("t")).controller.name,
+            "192.0.2.20"
+        );
+    }
+
+    #[test]
+    fn sacn_universe_sizes_come_from_the_fpp() {
+        let universe_size = |size: Option<u16>| {
+            let destination = Destination {
+                universe_size: size,
+                ..destination("sACN unicast")
+            };
+            let plan = plan_destination_import(&destination, &Show::new("t"));
+            let Protocol::Sacn(sacn) = plan.controller.protocol else {
+                panic!("expected sACN");
+            };
+            (sacn.universe_size, plan.notes)
+        };
+        assert_eq!(universe_size(Some(512)).0, UniverseSize::Channels512);
+        assert_eq!(universe_size(Some(510)).0, UniverseSize::Channels510);
+        assert_eq!(universe_size(None).0, UniverseSize::Channels510);
+        let (size, notes) = universe_size(Some(170));
+        assert_eq!(size, UniverseSize::Channels510);
+        assert!(notes[0].contains("510 or 512 channels per universe"), "{notes:?}");
+    }
+
+    #[test]
+    fn uneven_merged_universes_get_a_note() {
+        let destination = Destination {
+            uneven_universes: true,
+            ..destination("sACN unicast")
+        };
+        let plan = plan_destination_import(&destination, &Show::new("t"));
+        assert!(plan.can_import);
+        assert!(
+            plan.notes.iter().any(|n| n.contains("continuous run")),
+            "{:?}",
+            plan.notes
+        );
+    }
+
+    #[test]
+    fn raw_ddp_destinations_remember_their_offset_mode() {
+        let raw = Destination {
+            start_channel: 6148,
+            ddp_raw: true,
+            ..destination("DDP")
+        };
+        let plan = plan_destination_import(&raw, &Show::new("t"));
+        assert_eq!(
+            plan.controller.sequence_channels,
+            Some(SequenceChannels {
+                start: 6148,
+                count: 6147,
+                raw_ddp_offsets: true,
+            })
+        );
+    }
+
+    #[test]
+    fn importing_over_a_placeholder_says_it_fills_it_in() {
+        let mut show = Show::new("t");
+        let mut placeholder = Controller::new("Falcon_F16V5_B9F5", "192.0.2.20", Protocol::Ddp);
+        placeholder.sequence_channels = Some(SequenceChannels {
+            start: 1,
+            count: 6147,
+            raw_ddp_offsets: false,
+        });
+        show.controllers.push(placeholder);
+        let plan = plan_import(&device(), &config(), &show);
+        assert!(!plan.already_in_show);
+        assert_eq!(
+            plan.notes.last().unwrap(),
+            "Fills in Falcon_F16V5_B9F5, added from your FPP's output list."
+        );
+
+        // A port-less controller that didn't come from an FPP is a real duplicate.
+        show.controllers[0].sequence_channels = None;
+        let plan = plan_import(&device(), &config(), &show);
+        assert!(plan.already_in_show);
+        assert!(plan.notes.iter().all(|n| !n.starts_with("Fills in")));
     }
 }

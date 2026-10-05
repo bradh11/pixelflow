@@ -1,0 +1,98 @@
+{
+    "MQTT": {
+        "configured": false,
+        "connected": false
+    },
+    "branch": "v9.3",
+    "bridging": false,
+    "channelInputsEnabled": false,
+    "channelOutputsEnabled": true,
+    "current_playlist": {
+        "count": "1",
+        "description": "",
+        "index": "1",
+        "playlist": "Christmas Medley 2017.fseq",
+        "type": "both"
+    },
+    "current_sequence": "Christmas Medley 2017.fseq",
+    "current_song": "Christmas Medley 2017.mp3",
+    "dateStr": "Sun Oct  4",
+    "fppd": "running",
+    "host_description": "FPP",
+    "host_name": "fpp",
+    "milliseconds_elapsed": 109850,
+    "mode": 2,
+    "mode_name": "player",
+    "multisync": false,
+    "next_playlist": {
+        "playlist": "Christmas Medley 2017.fseq",
+        "start_time": "Mon Oct  5 @ 06:48 PM - (Everyday)"
+    },
+    "platform": "Raspberry Pi",
+    "powerBad": false,
+    "repeat_mode": 1,
+    "scheduler": {
+        "currentPlaylist": {
+            "actualEndTime": 1791172800,
+            "actualEndTimeStr": "Mon Oct  5 @ 12:00 AM",
+            "actualStartTime": 1791165591,
+            "actualStartTimeStr": "Sun Oct  4 @ 09:59 PM",
+            "currentTime": 1791166835,
+            "currentTimeStr": "Wed Dec 31 @ 07:00 PM",
+            "playlistName": "Christmas Medley 2017.fseq",
+            "scheduledEndTime": 1791172800,
+            "scheduledEndTimeStr": "Mon Oct  5 @ 12:00 AM",
+            "scheduledStartTime": 1791154185,
+            "scheduledStartTimeStr": "Sun Oct  4 @ 06:49 PM",
+            "secondsRemaining": 5965,
+            "stopType": 0,
+            "stopTypeStr": "Graceful"
+        },
+        "enabled": 1,
+        "nextPlaylist": {
+            "playlistName": "Christmas Medley 2017.fseq",
+            "scheduledStartTime": 1791240481,
+            "scheduledStartTimeStr": "Mon Oct  5 @ 06:48 PM - (Everyday)"
+        },
+        "status": "playing"
+    },
+    "seconds_elapsed": "109",
+    "seconds_played": "109",
+    "seconds_remaining": "456",
+    "sensors": [
+        {
+            "formatted": "56.9",
+            "label": "CPU: ",
+            "postfix": "",
+            "prefix": "",
+            "value": 56.92,
+            "valueType": "Temperature"
+        }
+    ],
+    "status": 1,
+    "status_name": "playing",
+    "time": "Sun Oct 04 22:20:35 EDT 2026",
+    "timeStr": "10:20 PM",
+    "timeStrFull": "10:20:35 PM",
+    "time_elapsed": "01:49",
+    "time_remaining": "07:36",
+    "uptime": "20:46",
+    "uptimeDays": 0.014421296296296297,
+    "uptimeHours": 0.3461111111111111,
+    "uptimeMinutes": 20.766666666666666,
+    "uptimeSeconds": 46,
+    "uptimeStr": "0 days, 0 hours, 20 minutes, 46 seconds",
+    "uptimeTotalSeconds": 1246,
+    "uuid": "M1-0000000012345678",
+    "version": "9.3-6-g9f9176e7c",
+    "volume": 51,
+    "warningInfo": [
+        {
+            "id": 0,
+            "message": "Cannot Ping DDP Channel Data Target 192.0.2.20 Falcon_F16V5_B9F5"
+        }
+    ],
+    "warnings": [
+        "Cannot Ping DDP Channel Data Target 192.0.2.20 Falcon_F16V5_B9F5"
+    ]
+}

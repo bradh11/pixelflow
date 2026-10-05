@@ -1,4 +1,4 @@
-import { AlertTriangle, Loader2, Radar, Search } from "lucide-react";
+import { AlertTriangle, ChevronRight, Loader2, Radar, Search } from "lucide-react";
 import { useState } from "react";
 import type { Device, DeviceKind, FoundBy } from "../api/types";
 import { ImportDialog } from "../components/ImportDialog";
@@ -21,7 +21,10 @@ const FOUND_BY: Record<FoundBy, string> = {
 
 function DeviceRow({ device, inShow, onReview }: { device: Device; inShow: boolean; onReview: () => void }) {
   return (
-    <tr className="border-t border-neutral-200 dark:border-neutral-800">
+    <tr
+      onClick={onReview}
+      className="cursor-pointer border-t border-neutral-200 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"
+    >
       <td className="py-2 pr-3">
         <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${KIND_STYLE[device.kind]}`}>{KIND_LABEL[device.kind]}</span>
       </td>
@@ -38,8 +41,14 @@ function DeviceRow({ device, inShow, onReview }: { device: Device; inShow: boole
         {inShow && <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs dark:bg-neutral-800">In show</span>}
       </td>
       <td className="text-right">
-        <Button onClick={onReview} aria-label={`Review ${device.name}`}>
-          Review…
+        <Button
+          onClick={(e) => {
+            e.stopPropagation();
+            onReview();
+          }}
+          aria-label={`Review ${device.name}`}
+        >
+          Open <ChevronRight size={14} />
         </Button>
       </td>
     </tr>

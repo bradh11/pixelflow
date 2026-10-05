@@ -1,10 +1,13 @@
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle, Loader2, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "../api/backend";
-import type { DeviceDetails, DeviceInput } from "../api/types";
+import type { Controller, DeviceDetails, DeviceInput } from "../api/types";
 import { thousands } from "../lib/format";
 import { useApp } from "../state/store";
+import { FppPanel } from "./FppPanel";
 import { Button } from "./ui";
+
+const NO_CONTROLLERS: Controller[] = [];
 
 function describeInput(input: DeviceInput): string {
   switch (input.type) {
@@ -33,6 +36,7 @@ export function ImportDialog({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const controllers = useApp((s) => s.snapshot?.show.controllers ?? NO_CONTROLLERS);
 
   useEffect(() => {
     let cancelled = false;
@@ -66,6 +70,14 @@ export function ImportDialog({
     }
   };
 
+  const addDestination = async (destination: string, protocol: string, name: string) => {
+    if (busy) return;
+    setBusy(true);
+    const ok = await run((b) => b.importFppDestination(address, destination, protocol));
+    setBusy(false);
+    if (ok) onImported(`Added ${name}. Import it from its own row once it's online to add its strings.`);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div
@@ -76,7 +88,7 @@ export function ImportDialog({
       >
         <div className="border-b border-neutral-200 p-5 dark:border-neutral-800">
           <h2 id="import-title" className="text-lg font-semibold">
-            {details ? `Import ${details.device.name}` : `Reading ${address}…`}
+            {details ? (details.device.kind === "fpp" ? details.device.name : `Import ${details.device.name}`) : `Reading ${address}…`}
           </h2>
           {details && (
             <p className="mt-1 text-sm text-neutral-500">
@@ -97,6 +109,7 @@ export function ImportDialog({
           )}
           {details && (
             <div className="flex flex-col gap-4">
+              {details.device.kind === "fpp" && <FppPanel address={details.device.address} />}
               <p>
                 <span className="text-neutral-500">Receives:</span> {describeInput(details.config.input)}
               </p>
@@ -132,11 +145,32 @@ export function ImportDialog({
                   </tbody>
                 </table>
               )}
-              {details.config.destinations.map((d) => (
-                <p key={`${d.address}-${d.protocol}`}>
-                  Sends {thousands(d.channels)} channels by {d.protocol} to {d.description || d.address} ({d.address}).
-                </p>
-              ))}
+              {details.config.destinations.map((d) => {
+                const name = d.description || d.address;
+                const inShow = controllers.some((c) => c.address === d.address);
+                const supported = d.protocol === "DDP" || d.protocol.startsWith("sACN");
+                return (
+                  <div key={`${d.address}-${d.protocol}`} className="flex items-center justify-between gap-3">
+                    <p>
+                      Sends {thousands(d.channels)} channels by {d.protocol} to {name} ({d.address}).
+                    </p>
+                    {details.device.kind === "fpp" &&
+                      (!supported ? (
+                        <span className="shrink-0 text-neutral-500">Not supported yet</span>
+                      ) : inShow ? (
+                        <span className="shrink-0 text-neutral-500">In your show</span>
+                      ) : (
+                        <Button
+                          aria-label={`Add ${name} to show`}
+                          onClick={() => addDestination(d.address, d.protocol, name)}
+                          disabled={busy}
+                        >
+                          <Plus size={14} /> Add to show
+                        </Button>
+                      ))}
+                  </div>
+                );
+              })}
               {details.plan.alreadyInShow && (
                 <p className="flex items-start gap-2 text-amber-700 dark:text-amber-400">
                   <AlertTriangle size={16} className="mt-0.5 shrink-0" />
@@ -160,12 +194,20 @@ export function ImportDialog({
           )}
         </div>
         <div className="flex justify-end gap-2 border-t border-neutral-200 p-4 dark:border-neutral-800">
-          <Button ref={cancelRef} onClick={onClose}>
-            Cancel
-          </Button>
-          <Button variant="primary" onClick={add} disabled={!details?.plan.canImport || busy}>
-            {details && !details.plan.canImport ? "Nothing to import" : "Add to show"}
-          </Button>
+          {details?.device.kind === "fpp" && !details.plan.canImport ? (
+            <Button ref={cancelRef} onClick={onClose}>
+              Close
+            </Button>
+          ) : (
+            <>
+              <Button ref={cancelRef} onClick={onClose}>
+                Cancel
+              </Button>
+              <Button variant="primary" onClick={add} disabled={!details?.plan.canImport || busy}>
+                {details && !details.plan.canImport ? "Nothing to import" : "Add to show"}
+              </Button>
+            </>
+          )}
         </div>
       </div>
     </div>

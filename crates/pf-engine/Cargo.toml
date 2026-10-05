@@ -9,9 +9,11 @@ publish.workspace = true
 [dependencies]
 pf-model.workspace = true
 pf-mapping.workspace = true
+pf-geometry.workspace = true
 pf-frame.workspace = true
 pf-patterns.workspace = true
 pf-output.workspace = true
+pf-fseq.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

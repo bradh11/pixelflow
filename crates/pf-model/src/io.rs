@@ -29,10 +29,15 @@ impl From<serde_json::Error> for ModelError {
 type Migration = fn(Value) -> Result<Value, ModelError>;
 
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
-const MIGRATIONS: &[Migration] = &[v1_to_v2];
+const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3];
 
 /// Version 2 only adds the `falcon` adapter value, so version 1 documents are already valid.
 fn v1_to_v2(doc: Value) -> Result<Value, ModelError> {
+    Ok(doc)
+}
+
+/// Version 3 only adds the optional `sequenceChannels`, so version 2 documents are already valid.
+fn v2_to_v3(doc: Value) -> Result<Value, ModelError> {
     Ok(doc)
 }
 
@@ -74,7 +79,7 @@ pub fn show_to_json(show: &Show) -> Result<String, ModelError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Controller, Generator, Port, PortSlot, Prop, Protocol, ShapeSource};
+    use crate::{Controller, Generator, Port, PortSlot, Prop, Protocol, SequenceChannels, ShapeSource};
 
     fn sample_show() -> Show {
         let mut show = Show::new("Round Trip");
@@ -134,7 +139,35 @@ mod tests {
         assert_eq!(show.schema_version, CURRENT_SCHEMA_VERSION);
         assert_eq!(show.name, "Old");
         let saved: Value = serde_json::from_str(&show_to_json(&show).unwrap()).unwrap();
-        assert_eq!(saved["schemaVersion"], 2);
+        assert_eq!(saved["schemaVersion"], CURRENT_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn controllers_keep_their_sequence_channels() {
+        let v2 = r#"{ "schemaVersion": 2, "name": "Old", "controllers": [
+            { "id": "33333333-0000-4000-8000-000000000001", "name": "C", "address": "10.0.0.1",
+              "protocol": { "type": "ddp" } } ] }"#;
+        let mut show = show_from_json(v2).unwrap();
+        assert_eq!(show.controllers[0].sequence_channels, None);
+        show.controllers[0].sequence_channels = Some(SequenceChannels {
+            start: 1,
+            count: 6147,
+            raw_ddp_offsets: false,
+        });
+        let saved: Value = serde_json::from_str(&show_to_json(&show).unwrap()).unwrap();
+        assert_eq!(
+            saved["controllers"][0]["sequenceChannels"],
+            serde_json::json!({ "start": 1, "count": 6147 })
+        );
+        let again = show_from_json(&show_to_json(&show).unwrap()).unwrap();
+        assert_eq!(
+            again.controllers[0].sequence_channels,
+            Some(SequenceChannels {
+                start: 1,
+                count: 6147,
+                raw_ddp_offsets: false,
+            })
+        );
     }
 
     #[test]

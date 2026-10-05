@@ -43,9 +43,16 @@ fn fpp_player_reports_its_destinations_and_nothing_to_import() {
     assert_eq!(config.destinations[0].address, FALCON);
     assert_eq!(config.destinations[0].protocol, "DDP");
     assert_eq!(config.destinations[0].channels, 6147);
+    assert_eq!(
+        (
+            config.destinations[0].start_channel,
+            config.destinations[0].start_universe
+        ),
+        (1, None)
+    );
     let plan = plan_import(&device, &config, &Show::new("t"));
     assert!(!plan.can_import);
-    assert!(plan.notes[0].contains("Import those instead"));
+    assert!(plan.notes[0].contains("Add them to your show from here"));
     assert_no_secret_endpoints(&http);
 }
 
@@ -592,6 +599,47 @@ fn fpp_destinations_merge_by_address_and_protocol_and_count_universes() {
     assert_eq!((d[0].protocol.as_str(), d[0].channels), ("DDP", 2550));
     assert_eq!(d[0].description, "Falcon");
     assert_eq!((d[1].protocol.as_str(), d[1].channels), ("sACN unicast", 510));
+    // Type 4 is DDP with raw channel numbers; sACN entries record their universe size.
+    assert!(d[0].ddp_raw && !d[1].ddp_raw);
+    assert_eq!((d[0].universe_size, d[1].universe_size), (None, Some(510)));
+}
+
+fn sacn_destinations(universes: &str) -> Vec<pf_devices::Destination> {
+    let info = include_str!("../fixtures/fpp-hat/api_system_info.json");
+    let http = FakeHttp::new()
+        .with_get(FPP_HAT, "/api/system/info", info)
+        .with_get_status(FPP_HAT, HAT_STRINGS, 404)
+        .with_get(FPP_HAT, "/api/channel/output/universeOutputs", universes);
+    hat_config(&http).unwrap().destinations
+}
+
+#[test]
+fn merged_sacn_ranges_are_flagged_unless_they_run_back_to_back() {
+    let entry = |id: u32, size: u32, count: u32| {
+        format!(
+            r#"{{"active":1,"address":"192.0.2.30","id":{id},"channelCount":{size},"universeCount":{count},"type":1,"description":"Arches"}}"#
+        )
+    };
+    let run = |entries: &[String]| {
+        let json = format!(
+            r#"{{"channelOutputs":[{{"enabled":1,"universes":[{}]}}]}}"#,
+            entries.join(",")
+        );
+        sacn_destinations(&json)
+    };
+    let even = run(&[entry(1, 510, 4), entry(5, 510, 2)]);
+    assert_eq!(
+        (even.len(), even[0].channels, even[0].uneven_universes),
+        (1, 3060, false)
+    );
+    assert!(
+        run(&[entry(1, 510, 4), entry(9, 510, 2)])[0].uneven_universes,
+        "gap"
+    );
+    assert!(
+        run(&[entry(1, 510, 4), entry(5, 512, 2)])[0].uneven_universes,
+        "sizes differ"
+    );
 }
 
 #[test]

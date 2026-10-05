@@ -31,4 +31,6 @@ pub enum EngineError {
     Network(std::io::Error),
     #[error("'{0}' is not a color. Use six or eight hex digits, like ff8000.")]
     BadColor(String),
+    #[error("{0}")]
+    Playback(String),
 }

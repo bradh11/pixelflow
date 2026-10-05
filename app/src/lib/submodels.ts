@@ -3,8 +3,9 @@
 // `Region::node_list` and pf-render's sub-buffer crop), the Faces effect's mouth shapes (a
 // mirror of pf-render's `faces.rs`), and names for rows on submodels.
 
-import type { SequenceTarget } from "../api/sequence";
+import type { Sequence, SequenceTarget } from "../api/sequence";
 import type { FaceDefinition, NodeRange, NodeRun, Phoneme, Prop, Region, Show, SubmodelLine } from "../api/types";
+import { memberProp } from "./shows";
 
 /** The mouth shapes in menu order, with the names xLights and Papagayo use. */
 export const PHONEMES: { value: Phoneme; label: string }[] = [
@@ -20,11 +21,15 @@ export const PHONEMES: { value: Phoneme; label: string }[] = [
   { value: "WQ", label: "WQ" },
 ];
 
+/** The largest pixel number a submodel can name (pixel numbers are stored as 32-bit). */
+const MAX_PIXEL = 2 ** 32;
+
 /**
  * Reads one line of a pixel list: pixel numbers from 1 and ranges either way (`1-10,15,20-12`),
- * with a blank or `0` entry for an empty spot. A blank line has no spots.
+ * with a blank or `0` entry for an empty spot. A blank line has no spots. With `prop`, a pixel
+ * past the prop's end is an error too.
  */
-export function parseLine(text: string): { line: SubmodelLine } | { error: string } {
+export function parseLine(text: string, prop?: { name: string; count: number }): { line: SubmodelLine } | { error: string } {
   if (text.trim() === "") return { line: [] };
   const line: SubmodelLine = [];
   for (const raw of text.split(",")) {
@@ -39,6 +44,9 @@ export function parseLine(text: string): { line: SubmodelLine } | { error: strin
       return { error: `"${part}" isn't a pixel number or range; use numbers from 1, like 1-10 or 15.` };
     }
     const [first, last = first] = parsed;
+    const high = Math.max(first, last);
+    if (prop && high > prop.count) return { error: `Pixel ${high} is past the end of ${prop.name}, which has ${prop.count === 1 ? "1 pixel" : `${prop.count} pixels`}.` };
+    if (high > MAX_PIXEL) return { error: `Pixel ${high} is too big; props have at most ${MAX_PIXEL} pixels.` };
     line.push({ first: first - 1, last: last - 1 });
   }
   return { line };
@@ -353,4 +361,43 @@ export function highlightPixels(region: Region, count: number, points: ArrayLike
 export function phonemeFromName(name: string): Phoneme | null {
   const wanted = name.trim().toUpperCase();
   return PHONEMES.find((p) => p.value === wanted)?.value ?? null;
+}
+
+/**
+ * What a region is used by, in plain words, or null when nothing uses it: the groups it's in and
+ * the open sequence's rows on it (a submodel), or the Faces effects that sing with it (a face).
+ */
+export function regionUses(show: Show | null | undefined, doc: Sequence | null, prop: Prop, region: Region): string | null {
+  const count = (n: number, one: string, many: string) => (n === 1 ? `1 ${one}` : `${n} ${many}`);
+  if (region.kind === "face") {
+    // Rows that draw on this prop (the prop, one of its submodels, or a group with it).
+    const onProp = (target: Sequence["rows"][number]["target"]) =>
+      "prop" in target
+        ? target.prop === prop.id
+        : "region" in target
+          ? target.region.prop === prop.id
+          : (show?.groups.find((g) => g.id === target.group)?.members.some((m) => memberProp(m) === prop.id) ?? false);
+    const firstFace = prop.regions.find((r) => r.kind === "face")?.id === region.id;
+    const effects = (doc?.rows ?? [])
+      .filter((row) => onProp(row.target))
+      .flatMap((row) => row.layers.flatMap((l) => l.effects))
+      .filter((e) => {
+        if (e.params.kind !== "faces") return false;
+        const face = typeof e.params.face === "string" ? e.params.face.trim() : "";
+        return face === "" ? firstFace : face.toLowerCase() === region.name.trim().toLowerCase();
+      }).length;
+    if (effects === 0) return null;
+    return `${region.name} sings in ${count(effects, "Faces effect", "Faces effects")} in the open sequence. Deleting it leaves ${effects === 1 ? "it" : "them"} with no face.`;
+  }
+  const groups = (show?.groups ?? []).filter((g) => g.members.some((m) => typeof m !== "string" && m.prop === prop.id && m.region === region.id));
+  const rows = (doc?.rows ?? []).filter((r) => "region" in r.target && r.target.region.prop === prop.id && r.target.region.region === region.id).length;
+  if (groups.length === 0 && rows === 0) return null;
+  const parts: string[] = [];
+  if (groups.length === 1) parts.push(`is in the group ${groups[0].name}`);
+  else if (groups.length > 1) parts.push(`is in ${groups.length} groups (${groups.map((g) => g.name).join(", ")})`);
+  if (rows > 0) parts.push(`has ${count(rows, "row", "rows")} in the open sequence`);
+  const after: string[] = [];
+  if (groups.length > 0) after.push(`takes it out of the ${groups.length === 1 ? "group" : "groups"}`);
+  if (rows > 0) after.push(`${rows === 1 ? "the row" : "those rows"} will light nothing`);
+  return `${region.name} ${parts.join(" and ")}. Deleting it ${after.join(", and ")}.`;
 }

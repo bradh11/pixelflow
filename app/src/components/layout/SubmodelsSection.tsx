@@ -3,8 +3,9 @@ import { useEffect, useState } from "react";
 import type { BufferStyle, LineLayout, Phoneme, Prop, Region } from "../../api/types";
 import { updateEdits } from "../../lib/layoutEdits";
 import { nodeCount } from "../../lib/shows";
-import { PHONEMES, formatLine, formatRanges, newSubmodel, parseLine, regionKindLabel, regionNameProblem, regionNodes } from "../../lib/submodels";
+import { PHONEMES, formatLine, formatRanges, newSubmodel, parseLine, regionKindLabel, regionNameProblem, regionNodes, regionUses } from "../../lib/submodels";
 import { useLayoutEditor } from "../../state/layoutEditor";
+import { useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
 import { Button, Input, Select } from "../ui";
 import { NumberField, Section } from "./PropertiesPanel";
@@ -75,26 +76,66 @@ export function SubmodelsSection({ prop, points }: { prop: Prop; points: ArrayLi
       </Button>
       {picked && (
         <div className="mt-3 rounded-md border border-neutral-200 p-2 dark:border-neutral-800">
-          <NameField key={`name:${picked.id}`} prop={prop} region={picked} rename={(name) => update((rs) => rs.map((r) => (r.id === picked.id ? { ...r, name } : r)))} />
+          {picked.kind === "face" ? (
+            <div className="flex flex-col gap-1 text-xs">
+              <span className="text-neutral-500 dark:text-neutral-400">Name</span>
+              <span className="text-sm">{picked.name}</span>
+              <span className="text-neutral-500">Faces effects find a face by its name, so faces keep the name they came with from xLights.</span>
+            </div>
+          ) : (
+            <NameField key={`name:${picked.id}`} prop={prop} region={picked} rename={(name) => update((rs) => rs.map((r) => (r.id === picked.id ? { ...r, name } : r)))} />
+          )}
           {picked.kind === "face" ? (
             <FaceDetails region={picked} phoneme={highlight?.phoneme ?? null} show={(phoneme) => setHighlight({ prop: prop.id, region: picked.id, phoneme })} />
           ) : picked.kind === "subBuffer" ? (
             <RectangleEditor region={picked} update={(next) => update((rs) => rs.map((r) => (r.id === picked.id ? next : r)))} />
           ) : (
-            <LinesEditor key={`lines:${picked.id}`} region={picked} update={(next) => update((rs) => rs.map((r) => (r.id === picked.id ? next : r)))} />
+            <LinesEditor key={`lines:${picked.id}`} prop={prop} region={picked} update={(next) => update((rs) => rs.map((r) => (r.id === picked.id ? next : r)))} />
           )}
-          <Button
-            variant="danger"
-            className="mt-3"
-            onClick={async () => {
+          <DeleteRegion
+            key={`delete:${picked.id}`}
+            prop={prop}
+            region={picked}
+            remove={async () => {
               if (await update((rs) => rs.filter((r) => r.id !== picked.id))) pick(null);
             }}
-          >
-            <Trash2 size={16} aria-hidden /> Delete {picked.kind === "face" ? "face" : "submodel"}
-          </Button>
+          />
         </div>
       )}
     </Section>
+  );
+}
+
+/** The delete button; when something uses the region it says what, and asks first. */
+function DeleteRegion({ prop, region, remove }: { prop: Prop; region: Region; remove: () => Promise<void> }) {
+  const show = useApp((s) => s.snapshot?.show);
+  const doc = useSequencer((s) => s.doc);
+  const [asking, setAsking] = useState<string | null>(null);
+  const label = `Delete ${region.kind === "face" ? "face" : "submodel"}`;
+  if (asking)
+    return (
+      <div role="alert" className="mt-3 flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+        <p>{asking}</p>
+        <div className="flex gap-2">
+          <Button variant="danger" onClick={() => void remove()}>
+            <Trash2 size={16} aria-hidden /> Delete anyway
+          </Button>
+          <Button onClick={() => setAsking(null)}>Keep it</Button>
+        </div>
+      </div>
+    );
+  return (
+    <Button
+      variant="danger"
+      className="mt-3"
+      onClick={() => {
+        const uses = regionUses(show, doc, prop, region);
+        if (uses) setAsking(uses);
+        else void remove();
+      }}
+    >
+      <Trash2 size={16} aria-hidden /> {label}
+    </Button>
   );
 }
 
@@ -134,7 +175,7 @@ function NameField({ prop, region, rename }: { prop: Prop; region: Region; renam
 type NodesRegion = Extract<Region, { kind: "nodes" }>;
 
 /** A lines submodel: how its lines are laid out for effects, and each line's pixels. */
-function LinesEditor({ region, update }: { region: NodesRegion; update: (next: NodesRegion) => Promise<boolean> }) {
+function LinesEditor({ prop, region, update }: { prop: Prop; region: NodesRegion; update: (next: NodesRegion) => Promise<boolean> }) {
   const buffer = BUFFERS.find((b) => b.value === region.buffer);
   return (
     <div className="mt-2 flex flex-col gap-2">
@@ -165,6 +206,7 @@ function LinesEditor({ region, update }: { region: NodesRegion; update: (next: N
           key={`${i}:${formatLine(line)}`}
           number={i + 1}
           line={line}
+          prop={{ name: prop.name, count: nodeCount(prop.shape) }}
           canRemove={region.lines.length > 1}
           save={(next) => update({ ...region, lines: region.lines.map((l, k) => (k === i ? next : l)) })}
           remove={() => update({ ...region, lines: region.lines.filter((_, k) => k !== i) })}
@@ -180,12 +222,14 @@ function LinesEditor({ region, update }: { region: NodesRegion; update: (next: N
 function LineField({
   number,
   line,
+  prop,
   canRemove,
   save,
   remove,
 }: {
   number: number;
   line: NodesRegion["lines"][number];
+  prop: { name: string; count: number };
   canRemove: boolean;
   save: (line: NodesRegion["lines"][number]) => Promise<boolean>;
   remove: () => Promise<boolean>;
@@ -195,7 +239,7 @@ function LineField({
   const [problem, setProblem] = useState<string | null>(null);
   const commit = () => {
     if (draft === shown) return setProblem(null);
-    const read = parseLine(draft);
+    const read = parseLine(draft, prop);
     if ("error" in read) return setProblem(read.error);
     setProblem(null);
     void save(read.line);

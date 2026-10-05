@@ -2,10 +2,12 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { MemoryBackend, emptyShow } from "../../api/memory";
+import { newEffect, newRow } from "../../api/sequence";
 import type { Edit, Prop, Region } from "../../api/types";
 import { newProp } from "../../lib/shows";
 import { LayoutScreen } from "../../screens/LayoutScreen";
 import { useLayoutEditor } from "../../state/layoutEditor";
+import { useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
 
 let backend: MemoryBackend;
@@ -26,7 +28,12 @@ const singer: Region = {
 };
 
 async function setup(...props: Prop[]) {
-  backend = new MemoryBackend({ ...emptyShow("Test House"), props });
+  return setupShow({ ...emptyShow("Test House"), props });
+}
+
+async function setupShow(show: ReturnType<typeof emptyShow>) {
+  const props = show.props;
+  backend = new MemoryBackend(show);
   edits = [];
   const applyEdits = backend.applyEdits.bind(backend);
   backend.applyEdits = async (batch: Edit[]) => {
@@ -110,6 +117,55 @@ describe("Submodels & faces", () => {
     await user.clear(name);
     await user.type(name, "Left side{Enter}");
     await waitFor(() => expect(lastRegions()!.map((r) => r.name)).toEqual(["Left side", "Singer"]));
+  });
+
+  it("says what uses a submodel before deleting it", async () => {
+    const left: Region = { id: "left", name: "Left", kind: "nodes", lines: [[{ first: 0, last: 24 }]], layout: "horizontal", buffer: "default" };
+    const prop = arch([left]);
+    const show = { ...emptyShow("Test House"), props: [prop], groups: [{ id: "g", name: "Halves", members: [{ prop: prop.id, region: "left" }] }] };
+    const user = await setupShow(show);
+    const row = newRow({ region: { prop: prop.id, region: "left" } });
+    act(() => useSequencer.setState({ doc: { schemaVersion: 2, name: "Song", audio: null, durationMs: 1000, frameMs: 25, timingTracks: [], rows: [row] } }));
+    await user.click(section().getByRole("button", { name: /^Left/ }));
+    await user.click(section().getByRole("button", { name: "Delete submodel" }));
+    expect(section().getByText("Left is in the group Halves and has 1 row in the open sequence. Deleting it takes it out of the group, and the row will light nothing.")).toBeInTheDocument();
+    expect(edits).toEqual([]);
+    await user.click(section().getByRole("button", { name: "Keep it" }));
+    expect(section().queryByText(/Deleting it takes it out/)).toBeNull();
+    await user.click(section().getByRole("button", { name: "Delete submodel" }));
+    await user.click(section().getByRole("button", { name: "Delete anyway" }));
+    await waitFor(() => expect(lastRegions()).toEqual([]));
+    expect(backend.show.groups[0].members).toEqual([]);
+  });
+
+  it("says which Faces effects use a face before deleting it, and doesn't offer to rename it", async () => {
+    const user = await setup(arch([singer]));
+    const prop = backend.show.props[0];
+    const row = newRow({ prop: prop.id });
+    const sing = newEffect("faces", 0, 500);
+    sing.params = { ...sing.params, face: "singer" } as typeof sing.params;
+    row.layers[0].effects.push(sing, newEffect("faces", 500, 1000));
+    act(() => useSequencer.setState({ doc: { schemaVersion: 2, name: "Song", audio: null, durationMs: 1000, frameMs: 25, timingTracks: [], rows: [row] } }));
+    await user.click(section().getByRole("button", { name: /^Singer/ }));
+    expect(section().queryByLabelText("Name")).toBeNull();
+    expect(section().getByText(/Faces effects find a face by its name/)).toBeInTheDocument();
+    await user.click(section().getByRole("button", { name: "Delete face" }));
+    expect(section().getByText("Singer sings in 2 Faces effects in the open sequence. Deleting it leaves them with no face.")).toBeInTheDocument();
+  });
+
+  it("says when a line lists pixels past the end of the prop", async () => {
+    const left: Region = { id: "left", name: "Left", kind: "nodes", lines: [[{ first: 0, last: 4 }]], layout: "horizontal", buffer: "default" };
+    const user = await setup(arch([left]));
+    await user.click(section().getByRole("button", { name: /^Left/ }));
+    const line = section().getByLabelText("Line 1 pixels");
+    await user.clear(line);
+    await user.type(line, "1-5, 120{Enter}");
+    expect(section().getByText("Pixel 120 is past the end of Garage Arch, which has 50 pixels.")).toBeInTheDocument();
+    expect(edits).toEqual([]);
+    await user.clear(line);
+    await user.type(line, "5000000000{Enter}");
+    expect(section().getByText("Pixel 5000000000 is past the end of Garage Arch, which has 50 pixels.")).toBeInTheDocument();
+    expect(edits).toEqual([]);
   });
 
   it("lists a face's pixels and shows a mouth shape on the canvas", async () => {

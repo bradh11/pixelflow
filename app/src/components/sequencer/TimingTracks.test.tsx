@@ -67,6 +67,18 @@ function drag(el: Element, from: [number, number], to: [number, number], init: P
   fireEvent.pointerUp(el, { clientX: to[0], clientY: to[1], pointerId: 1, ...init });
 }
 
+/** Holds the engine's next answer until `release` is called (a slow engine, a queue backing up). */
+function holdNextEdit(seq: MemorySequencer) {
+  const real = seq.editSequence.bind(seq);
+  let release = () => undefined as void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  vi.spyOn(seq, "editSequence").mockImplementationOnce(async (...args) => {
+    await gate;
+    return real(...args);
+  });
+  return () => release();
+}
+
 describe("timing tracks", () => {
   it("adds a track and taps marks onto it, each tap one undo step", async () => {
     const { seq, user } = await openScreen();
@@ -184,6 +196,40 @@ describe("timing tracks", () => {
     await waitFor(() => expect(spans(track(seq, "Lyrics"))).toEqual([[0, 900, "one"], [1000, 1900, "two"]]));
   });
 
+  it("puts lyrics on the marks that were selected, even when an earlier edit changes the marks first", async () => {
+    const { seq, user } = await openScreen();
+    const id = await withLyrics([
+      { startMs: 0, endMs: 900, label: "" },
+      { startMs: 1000, endMs: 1900, label: "" },
+      { startMs: 2000, endMs: 2900, label: "" },
+    ]);
+    act(() => useSequencer.getState().selectMarks(id, [1000, 2000]));
+    await user.click(screen.getByRole("button", { name: "Lyrics menu" }));
+    await user.click(screen.getByRole("menuitem", { name: "Paste lyrics…" }));
+    const dialog = screen.getByRole("dialog", { name: "Paste lyrics onto Lyrics" });
+    await user.type(within(dialog).getByRole("textbox", { name: "Lyrics, one phrase per line" }), "one{Enter}two");
+    // The first mark goes on its way to the engine before the lyrics are added.
+    const release = holdNextEdit(seq);
+    const removed = useSequencer.getState().edit([{ type: "removeMarks", track: id, indices: [0] }]);
+    await user.click(within(dialog).getByRole("button", { name: "Add 2 lines" }));
+    release();
+    await act(() => removed);
+    await waitFor(() => expect(spans(track(seq, "Lyrics"))).toEqual([[1000, 1900, "one"], [2000, 2900, "two"]]));
+  });
+
+  it("breaks lyrics into their own words track, never another lyrics track's", async () => {
+    const { seq, user } = await openScreen();
+    const add = (t: TimingTrack) => act(() => useSequencer.getState().edit([{ type: "addTimingTrack", track: t }]));
+    await add({ id: crypto.randomUUID(), name: "Backing", kind: "lyrics", marks: [{ startMs: 0, endMs: 1000, label: "ooh aah" }] });
+    await add({ id: crypto.randomUUID(), name: "Lead", kind: "lyrics", marks: [{ startMs: 0, endMs: 1000, label: "la" }] });
+    await add({ id: crypto.randomUUID(), name: "Lead (words)", kind: "words", marks: [{ startMs: 0, endMs: 1000, label: "la" }] });
+    await user.click(screen.getByRole("button", { name: "Backing menu" }));
+    await user.click(screen.getByRole("menuitem", { name: "Break into words" }));
+    await waitFor(() => expect(seq.doc!.timingTracks.map((t) => t.name)).toEqual(["Beats", "Bars", "Backing", "Backing (words)", "Lead", "Lead (words)"]));
+    expect(spans(track(seq, "Backing (words)"))).toEqual([[0, 500, "ooh"], [500, 1000, "aah"]]);
+    expect(spans(track(seq, "Lead (words)"))).toEqual([[0, 1000, "la"]]);
+  });
+
   it("drags marks and their edges, labels them in place, adds them by double-click, and deletes them", async () => {
     const { seq, user } = await openScreen();
     await withLyrics([{ startMs: 6000, endMs: 9000, label: "Hello" }]);
@@ -222,6 +268,84 @@ describe("timing tracks", () => {
     await waitFor(() => expect(track(seq, "Lyrics").marks).toEqual([]));
     await user.click(screen.getByRole("button", { name: "Undo (sequence)" }));
     await waitFor(() => expect(track(seq, "Lyrics").marks).toHaveLength(2));
+  });
+
+  it("moves the mark that was dragged, even when an earlier edit changes the marks first", async () => {
+    const { seq } = await openScreen();
+    await withLyrics([
+      { startMs: 3000, endMs: 4000, label: "a" },
+      { startMs: 6000, endMs: 7000, label: "b" },
+      { startMs: 30_000, endMs: 31_000, label: "c" },
+    ]);
+    const canvas = timeline();
+    const y = TRACK_Y[2];
+    const release = holdNextEdit(seq);
+    // Delete a, then drag b before the engine has answered.
+    fireEvent.pointerDown(canvas, { clientX: x(3500), clientY: y, button: 0, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: x(3500), clientY: y, pointerId: 1 });
+    fireEvent.keyDown(window, { key: "Delete" });
+    drag(canvas, [x(6500), y], [x(9500), y], { altKey: true });
+    release();
+    await waitFor(() => expect(spans(track(seq, "Lyrics"))).toEqual([[9000, 10_000, "b"], [30_000, 31_000, "c"]]));
+    expect(useApp.getState().error).toBeNull();
+  });
+
+  it("drops a drag whose mark changed before it landed, and says so", async () => {
+    const { seq } = await openScreen();
+    const id = await withLyrics([
+      { startMs: 3000, endMs: 4000, label: "a" },
+      { startMs: 6000, endMs: 7000, label: "b" },
+    ]);
+    const release = holdNextEdit(seq);
+    // A change to b on its way to the engine, then b dragged as it was before.
+    const change = useSequencer.getState().edit([{ type: "setMark", track: id, index: 1, mark: { startMs: 6000, endMs: 8000, label: "b" } }]);
+    drag(timeline(), [x(6500), TRACK_Y[2]], [x(12_500), TRACK_Y[2]], { altKey: true });
+    release();
+    await act(() => change);
+    await waitFor(() => expect(useApp.getState().error).toBe("That mark changed before the move landed, so it stayed where it is. Drag it again."));
+    expect(spans(track(seq, "Lyrics"))).toEqual([[3000, 4000, "a"], [6000, 8000, "b"]]);
+  });
+
+  it("moves the shared edge of two touching marks together", async () => {
+    const { seq } = await openScreen();
+    await withLyrics([
+      { startMs: 6000, endMs: 9000, label: "a" },
+      { startMs: 9000, endMs: 12_000, label: "b" },
+    ]);
+    drag(timeline(), [x(9000), TRACK_Y[2]], [x(10_500), TRACK_Y[2]], { altKey: true });
+    await waitFor(() => expect(spans(track(seq, "Lyrics"))).toEqual([[6000, 10_500, "a"], [10_500, 12_000, "b"]]));
+    drag(timeline(), [x(10_500), TRACK_Y[2]], [x(7500), TRACK_Y[2]], { altKey: true });
+    await waitFor(() => expect(spans(track(seq, "Lyrics"))).toEqual([[6000, 7500, "a"], [7500, 12_000, "b"]]));
+  });
+
+  it("cancels a label typed in place with Escape", async () => {
+    const { seq, user } = await openScreen();
+    await withLyrics([{ startMs: 6000, endMs: 9000, label: "Hello" }]);
+    fireEvent.doubleClick(timeline(), { clientX: x(7500), clientY: TRACK_Y[2] });
+    const label = screen.getByRole("textbox", { name: "Mark label" });
+    await user.clear(label);
+    await user.type(label, "Oops{Escape}");
+    expect(screen.queryByRole("textbox", { name: "Mark label" })).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(spans(track(seq, "Lyrics"))).toEqual([[6000, 9000, "Hello"]]);
+  });
+
+  it("says so when a mark moves while its label is being typed", async () => {
+    const { seq, user } = await openScreen();
+    const id = await withLyrics([{ startMs: 6000, endMs: 9000, label: "Hello" }]);
+    fireEvent.doubleClick(timeline(), { clientX: x(7500), clientY: TRACK_Y[2] });
+    const label = screen.getByRole("textbox", { name: "Mark label" });
+    await act(() => useSequencer.getState().edit([{ type: "setMark", track: id, index: 0, mark: { startMs: 6500, endMs: 9000, label: "Hello" } }]));
+    await user.type(label, "!{Enter}");
+    await waitFor(() => expect(useApp.getState().error).toBe("That mark moved before its label was saved. Double-click it to type the label again."));
+    expect(spans(track(seq, "Lyrics"))).toEqual([[6500, 9000, "Hello"]]);
+  });
+
+  it("doesn't tap while a track's menu is open", async () => {
+    const { user } = await openScreen();
+    await user.click(screen.getByRole("button", { name: "Beats menu" }));
+    await user.keyboard("t");
+    expect(useApp.getState().error).toBeNull();
   });
 
   it("keeps a mark from being dragged onto its neighbor", async () => {

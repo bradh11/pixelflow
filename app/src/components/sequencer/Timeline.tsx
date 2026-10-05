@@ -5,6 +5,7 @@ import type { Show, Waveform } from "../../api/types";
 import {
   type DragItem,
   type Lane,
+  type MarkMove,
   type MarkSpan,
   type Placement,
   type View,
@@ -20,6 +21,7 @@ import {
   markBounds,
   markIndices,
   markMoveEdits,
+  markMovesToSpans,
   moveMarksDrag,
   newMarkSpan,
   laneAt,
@@ -34,6 +36,7 @@ import {
   snapTargets,
   timeToX,
   toggleSelection,
+  touchingEdge,
   xToTime,
   zoomAt,
 } from "../../lib/timelineMath";
@@ -64,9 +67,10 @@ type Drag =
   | {
       kind: "markMove";
       track: string;
-      /** The grabbed mark and every mark moving with it (indices on the track). */
-      primary: number;
-      moving: number[];
+      /** The grabbed mark, and every mark moving with it, as they were (which says which marks
+       * they are, whatever comes and goes meanwhile), and where they are now. */
+      primary: TimeSpan;
+      from: TimeSpan[];
       spans: MarkSpan[];
       x: number;
       y: number;
@@ -76,14 +80,21 @@ type Drag =
   | {
       kind: "markResize";
       track: string;
-      /** The mark as it was, and where its edges are now. */
-      from: { startMs: number; endMs: number };
-      span: MarkSpan;
+      /** The mark as it was (and the mark touching the dragged edge, which moves with it), and
+       * where they are now. */
+      from: TimeSpan[];
+      spans: MarkSpan[];
       edge: "start" | "end";
       bounds: { lo: number; hi: number };
       targets: number[];
       changed: boolean;
     };
+
+type TimeSpan = { startMs: number; endMs: number };
+
+/** Where `from` marks go: to `spans` (the same marks, in the same order). */
+const movesOf = (from: TimeSpan[], spans: TimeSpan[]): MarkMove[] =>
+  from.map((f, k) => ({ fromStartMs: f.startMs, fromEndMs: f.endMs, startMs: spans[k].startMs, endMs: spans[k].endMs }));
 
 /** Where a palette drop would land; `newLayer` when it would go on a new layer of the row. */
 type Ghost = { lane: number; startMs: number; endMs: number; newLayer: boolean };
@@ -137,10 +148,13 @@ export function Timeline({ doc }: { doc: Sequence }) {
   const markSelection = useSequencer((s) => s.markSelection);
   const activeTrack = useSequencer((s) => s.activeTrack);
   const bodyRef = useRef<HTMLDivElement>(null);
-  /** A mark's label being typed in place. */
-  const [labelEdit, setLabelEdit] = useState<{ track: string; startMs: number; value: string } | null>(null);
+  /** A mark's label being typed in place (and the mark as it was when the typing began). */
+  const [labelEdit, setLabelEdit] = useState<{ track: string; startMs: number; endMs: number; value: string } | null>(null);
+  /** Set once the label being typed is saved or cancelled, so the blur that follows doesn't save it
+   * (again). */
+  const labelDone = useRef(false);
   /** Dropped marks on their way to the engine, drawn where they were dropped meanwhile. */
-  const pendingMarks = useRef<{ key: number; track: string; spans: MarkSpan[] } | null>(null);
+  const pendingMarks = useRef<{ key: number; track: string; moves: MarkMove[] } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const size = useSize(bodyRef);
   const top = topHeight(doc);
@@ -260,11 +274,19 @@ export function Timeline({ doc }: { doc: Sequence }) {
         d?.kind === "markMove" && d.started
           ? { track: d.track, spans: d.spans }
           : d?.kind === "markResize"
-            ? { track: d.track, spans: [d.span] }
-            : pendingMarks.current,
+            ? { track: d.track, spans: d.spans }
+            : pendingSpans(),
     });
   };
   useEffect(draw);
+
+  /** Dropped marks still on their way, where they'll land (found by where they were). */
+  function pendingSpans() {
+    const p = pendingMarks.current;
+    const track = p && doc.timingTracks.find((t) => t.id === p.track);
+    const spans = track && markMovesToSpans(track, p.moves);
+    return p && spans ? { track: p.track, spans } : null;
+  }
 
   // Wheel: ⌘/Ctrl zooms around the pointer, sideways (or Shift) scrolls in time, otherwise rows.
   useEffect(() => {
@@ -381,25 +403,29 @@ export function Timeline({ doc }: { doc: Sequence }) {
     const targets = (indices: number[]) =>
       latest.current.snapping && !e.altKey ? snapTargets(d, new Set(), { track: track.id, indices: new Set(indices) }) : [];
     const m = track.marks[hit.index];
+    const span = (i: number) => ({ startMs: track.marks[i].startMs, endMs: track.marks[i].endMs });
     if (hit.part !== "body") {
       store.selectMarks(track.id, [start]);
-      const span = { index: hit.index, startMs: m.startMs, endMs: m.endMs };
+      // Where two marks touch, the edge they share moves for both, as in xLights.
+      const shortest = Math.min(m.endMs - m.startMs, ...[hit.index - 1, hit.index + 1].map((i) => (track.marks[i] ? track.marks[i].endMs - track.marks[i].startMs : Infinity)));
+      const touching = touchingEdge(track.marks, hit.index, hit.part, Math.max(1, Math.min(d.frameMs, shortest)));
+      const indices = touching ? [hit.index, touching.neighbor] : [hit.index];
       drag.current = {
         kind: "markResize",
         track: track.id,
-        from: { startMs: m.startMs, endMs: m.endMs },
-        span,
+        from: indices.map(span),
+        spans: indices.map((i) => ({ index: i, ...span(i) })),
         edge: hit.part,
-        bounds: markBounds(track.marks, hit.index, d.durationMs),
-        targets: targets([hit.index]),
+        bounds: touching?.bounds ?? markBounds(track.marks, hit.index, d.durationMs),
+        targets: targets(indices),
         changed: false,
       };
       return;
     }
     const moving = current.includes(start) ? markIndices(track, current) : [hit.index];
     if (!current.includes(start)) store.selectMarks(track.id, [start]);
-    const spans = moving.map((i) => ({ index: i, startMs: track.marks[i].startMs, endMs: track.marks[i].endMs }));
-    drag.current = { kind: "markMove", track: track.id, primary: hit.index, moving, spans, x, y, started: false, targets: targets(moving) };
+    const spans = moving.map((i) => ({ index: i, ...span(i) }));
+    drag.current = { kind: "markMove", track: track.id, primary: span(hit.index), from: moving.map(span), spans, x, y, started: false, targets: targets(moving) };
   };
 
   const onPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -473,26 +499,36 @@ export function Timeline({ doc }: { doc: Sequence }) {
       e.currentTarget.style.cursor = y < tp ? "text" : !hit ? "default" : hit.part === "body" ? "grab" : "ew-resize";
       return;
     }
-    if (d.kind === "markResize") {
-      const snap = e.altKey ? undefined : { targets: d.targets, thresholdMs: threshold };
-      const item = { id: "", startMs: d.from.startMs, endMs: d.from.endMs, lane: 0 };
-      const minMs = Math.max(1, Math.min(dd.frameMs, d.from.endMs - d.from.startMs));
-      const r = resizeDrag({ item, edge: d.edge, ms: xToTime(x, v), minMs, durationMs: dd.durationMs, frameMs: dd.frameMs, bounds: d.bounds, snap });
-      d.span = { index: d.span.index, startMs: r.startMs, endMs: r.endMs };
-      d.changed = true;
-      (d as Drag & { snappedAt?: number | null }).snappedAt = r.snappedAt;
-      redraw((n) => n + 1);
-      return;
-    }
-    if (d.kind === "markMove") {
-      if (!d.started && Math.hypot(x - d.x, y - d.y) < CLICK_PX) return;
-      d.started = true;
+    if (d.kind === "markResize" || d.kind === "markMove") {
+      // The marks as they are now: found by where they were, as other edits land meanwhile.
       const track = dd.timingTracks.find((t) => t.id === d.track);
-      if (!track) return;
+      const found = track && markMovesToSpans(track, movesOf(d.from, d.from));
+      if (!track || !found) return;
       const snap = e.altKey ? undefined : { targets: d.targets, thresholdMs: threshold };
-      const r = moveMarksDrag({ marks: track.marks, moving: d.moving, primary: d.primary, deltaMs: (x - d.x) / v.pxPerMs, durationMs: dd.durationMs, frameMs: dd.frameMs, snap });
-      d.spans = r.spans;
-      (d as Drag & { snappedAt?: number | null }).snappedAt = r.snappedAt;
+      if (d.kind === "markResize") {
+        const [grabbed, neighbor] = d.from;
+        const item = { id: "", startMs: grabbed.startMs, endMs: grabbed.endMs, lane: 0 };
+        const minMs = Math.max(1, Math.min(dd.frameMs, grabbed.endMs - grabbed.startMs));
+        const r = resizeDrag({ item, edge: d.edge, ms: xToTime(x, v), minMs, durationMs: dd.durationMs, frameMs: dd.frameMs, bounds: d.bounds, snap });
+        d.spans = [{ index: found[0].index, startMs: r.startMs, endMs: r.endMs }];
+        if (neighbor) {
+          d.spans.push(
+            d.edge === "end"
+              ? { index: found[1].index, startMs: r.endMs, endMs: neighbor.endMs }
+              : { index: found[1].index, startMs: neighbor.startMs, endMs: r.startMs },
+          );
+        }
+        d.changed = true;
+        (d as Drag & { snappedAt?: number | null }).snappedAt = r.snappedAt;
+      } else {
+        if (!d.started && Math.hypot(x - d.x, y - d.y) < CLICK_PX) return;
+        d.started = true;
+        const moving = found.map((f) => f.index);
+        const primary = found[d.from.findIndex((f) => f.startMs === d.primary.startMs)]?.index ?? moving[0];
+        const r = moveMarksDrag({ marks: track.marks, moving, primary, deltaMs: (x - d.x) / v.pxPerMs, durationMs: dd.durationMs, frameMs: dd.frameMs, snap });
+        d.spans = r.spans;
+        (d as Drag & { snappedAt?: number | null }).snappedAt = r.snappedAt;
+      }
       redraw((n) => n + 1);
       return;
     }
@@ -536,18 +572,24 @@ export function Timeline({ doc }: { doc: Sequence }) {
   };
 
   /** Sends dropped marks (moved or resized), drawing them where they were dropped until it settles,
-   * and keeps them selected at their new times. */
-  const sendMarks = (trackId: string, spans: MarkSpan[]) => {
-    const track = latest.current.doc.timingTracks.find((t) => t.id === trackId);
-    if (!track) return;
-    const edits = markMoveEdits(track, spans);
-    if (edits.length === 0) return;
+   * and keeps them selected at their new times. The edits are worked out when their turn comes,
+   * from where the marks are then (found by where they were); if one of them has gone or changed
+   * meanwhile, the drop is called off and the user is told. The first `selected` marks stay selected
+   * (a resized mark, not the neighbor whose edge moved with it). */
+  const sendMarks = (trackId: string, moves: MarkMove[], selected = moves.length) => {
+    if (moves.every((m) => m.startMs === m.fromStartMs && m.endMs === m.fromEndMs)) return;
     const key = ++pendingKey.current;
-    pendingMarks.current = { key, track: trackId, spans };
+    pendingMarks.current = { key, track: trackId, moves };
     const store = useSequencer.getState();
     void store
-      .edit(edits)
-      .then((ok) => ok && store.selectMarks(trackId, spans.map((s) => s.startMs)))
+      .edit((doc) => {
+        const track = doc.timingTracks.find((t) => t.id === trackId);
+        if (!track) return [];
+        const spans = markMovesToSpans(track, moves);
+        if (!spans) throw new Error("That mark changed before the move landed, so it stayed where it is. Drag it again.");
+        return markMoveEdits(track, spans);
+      })
+      .then((ok) => ok && store.selectMarks(trackId, moves.slice(0, selected).map((m) => m.startMs)))
       .finally(() => {
         if (pendingMarks.current?.key !== key) return;
         pendingMarks.current = null;
@@ -562,13 +604,10 @@ export function Timeline({ doc }: { doc: Sequence }) {
     const store = useSequencer.getState();
     const { lanes: ls, index: idx, view: v } = latest.current;
     if (d.kind === "markResize") {
-      if (d.changed) sendMarks(d.track, [d.span]);
+      if (d.changed) sendMarks(d.track, movesOf(d.from, d.spans), 1);
     } else if (d.kind === "markMove") {
-      if (d.started) sendMarks(d.track, d.spans);
-      else {
-        const start = latest.current.doc.timingTracks.find((t) => t.id === d.track)?.marks[d.primary]?.startMs;
-        if (start !== undefined) store.selectMarks(d.track, [start]);
-      }
+      if (d.started) sendMarks(d.track, movesOf(d.from, d.spans));
+      else store.selectMarks(d.track, [d.primary.startMs]);
     } else if (d.kind === "scrub") {
       void store.seek(store.playheadMs);
     } else if (d.kind === "marquee") {
@@ -602,7 +641,8 @@ export function Timeline({ doc }: { doc: Sequence }) {
     const store = useSequencer.getState();
     if (hit) {
       const m = track.marks[hit.index];
-      setLabelEdit({ track: track.id, startMs: m.startMs, value: m.label });
+      labelDone.current = false;
+      setLabelEdit({ track: track.id, startMs: m.startMs, endMs: m.endMs, value: m.label });
       return;
     }
     const snap = latest.current.snapping && !e.altKey ? { targets: snapTargets(d, new Set()), thresholdMs: SNAP_PX / v.pxPerMs } : undefined;
@@ -611,27 +651,34 @@ export function Timeline({ doc }: { doc: Sequence }) {
     void store.edit([{ type: "addMarks", track: track.id, marks: [{ ...span, label: "" }] }]).then((ok) => ok && store.selectMarks(track.id, [span.startMs]));
   };
 
-  /** Saves the label typed in place (built when its turn comes, from where the mark is then). */
+  /** Saves (or, with `save` false, cancels) the label typed in place: once, whichever comes first
+   * of Enter, Escape, and the blur that closing the box causes. Built when its turn comes, from
+   * where the mark is then; if the mark has moved meanwhile, the user is told. */
   const commitLabel = (save: boolean) => {
+    if (labelDone.current) return;
+    labelDone.current = true;
     const edit = labelEdit;
     setLabelEdit(null);
     canvasRef.current?.focus();
     if (!edit || !save) return;
+    const label = edit.value.trim();
     void useSequencer.getState().edit((latestDoc) => {
       const track = latestDoc.timingTracks.find((t) => t.id === edit.track);
-      const index = track?.marks.findIndex((m) => m.startMs === edit.startMs) ?? -1;
-      if (!track || index < 0 || track.marks[index].label === edit.value.trim()) return [];
-      return [{ type: "setMark", track: track.id, index, mark: { ...track.marks[index], label: edit.value.trim() } }];
+      if (!track) return [];
+      const index = track.marks.findIndex((m) => m.startMs === edit.startMs);
+      if (index < 0) throw new Error("That mark moved before its label was saved. Double-click it to type the label again.");
+      if (track.marks[index].label === label) return [];
+      return [{ type: "setMark", track: track.id, index, mark: { ...track.marks[index], label } }];
     });
   };
 
+  // The box sits where the mark was when the typing began.
   const labelBox = (() => {
     if (!labelEdit) return null;
     const k = doc.timingTracks.findIndex((t) => t.id === labelEdit.track);
-    const m = doc.timingTracks[k]?.marks.find((x) => x.startMs === labelEdit.startMs);
-    if (!m) return null;
-    const left = Math.max(0, timeToX(m.startMs, current));
-    const w = Math.max(120, timeToX(m.endMs, current) - left);
+    if (k < 0) return null;
+    const left = Math.max(0, timeToX(labelEdit.startMs, current));
+    const w = Math.max(120, timeToX(labelEdit.endMs, current) - left);
     return { left, top: RULER_H + WAVE_H + k * TRACK_H, width: Math.min(w, Math.max(120, width - left)) };
   })();
 
@@ -676,6 +723,7 @@ export function Timeline({ doc }: { doc: Sequence }) {
                 if (e.key === "Enter") commitLabel(true);
                 if (e.key === "Escape") {
                   e.preventDefault();
+                  e.stopPropagation();
                   commitLabel(false);
                 }
               }}

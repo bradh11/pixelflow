@@ -45,7 +45,8 @@ export function useSequenceKeys() {
       if (e.defaultPrevented) return;
       const target = e.target as HTMLElement | null;
       if (target && (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.isContentEditable)) return;
-      if (target?.closest?.("[role=dialog]")) return;
+      // Not while a dialog or a menu (a timing track's ⋯ menu) has the keys.
+      if (target?.closest?.("[role=dialog], [role=menu]")) return;
       const app = useApp.getState();
       if (app.paletteOpen || app.pendingReplace) return;
       const s = useSequencer.getState();

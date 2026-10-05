@@ -220,7 +220,8 @@ export function GenerateMarksDialog({ doc, track, onClose }: { doc: Sequence; tr
  * or put onto the marks selected on this track, one line each. */
 export function PasteLyricsDialog({ doc, track, onClose }: { doc: Sequence; track: TimingTrack; onClose: () => void }) {
   const markSelection = useSequencer((s) => s.markSelection);
-  const chosen = markSelection?.track === track.id ? markIndices(track, markSelection.starts) : [];
+  const starts = markSelection?.track === track.id ? markSelection.starts : [];
+  const chosen = markIndices(track, starts);
   const first = chosen.length > 0 ? track.marks[chosen[0]] : null;
   const last = chosen.length > 0 ? track.marks[chosen[chosen.length - 1]] : null;
   const [text, setText] = useState("");
@@ -234,11 +235,18 @@ export function PasteLyricsDialog({ doc, track, onClose }: { doc: Sequence; trac
   const mismatch = mode === "marks" && lines.length > 0 && lines.length !== chosen.length;
   const paste = async () => {
     if (badTime || mismatch) return;
-    const edit: SequenceEdit =
-      mode === "marks"
-        ? { type: "labelMarks", track: track.id, indices: chosen, labels: lines }
-        : { type: "spreadLyrics", track: track.id, lines, fromMs: fromMs!, toMs: Math.min(toMs!, doc.durationMs) };
-    if (await useSequencer.getState().edit([edit])) onClose();
+    const count = chosen.length;
+    // The selected marks are found (by start time) when the edit's turn comes, so an earlier edit
+    // still on its way can't shift the lines onto other marks.
+    const edits = (latest: Sequence): SequenceEdit[] => {
+      if (mode === "range") return [{ type: "spreadLyrics", track: track.id, lines, fromMs: fromMs!, toMs: Math.min(toMs!, latest.durationMs) }];
+      const now = latest.timingTracks.find((t) => t.id === track.id);
+      if (!now) return [];
+      const indices = markIndices(now, starts);
+      if (indices.length !== count) throw new Error("Some of the selected marks changed before the lyrics went on. Select the marks again.");
+      return [{ type: "labelMarks", track: track.id, indices, labels: lines }];
+    };
+    if (await useSequencer.getState().edit(edits)) onClose();
   };
   return (
     <Dialog label={`Paste lyrics onto ${track.name}`} onClose={onClose}>

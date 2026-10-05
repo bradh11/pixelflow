@@ -2,6 +2,7 @@
 // and the edits that drags, pastes, and the keyboard turn into. No React, no engine calls.
 
 import type { Effect, Mark, Row, Sequence, SequenceEdit, TimingTrack } from "../api/sequence";
+import { insertIndex } from "../api/timingMarks";
 
 /** What part of the song the timeline shows: the time at its left edge and the zoom. */
 export interface View {
@@ -711,6 +712,39 @@ export function moveMarksDrag(args: {
   return { spans: moving.map((i) => ({ index: i, startMs: marks[i].startMs + delta, endMs: marks[i].endMs + delta })), snappedAt };
 }
 
+/** A dropped mark: where it was (which says which mark it is, as marks come and go) and where it
+ * goes. */
+export interface MarkMove {
+  fromStartMs: number;
+  fromEndMs: number;
+  startMs: number;
+  endMs: number;
+}
+
+/** Where `moves` put the marks of `track` as it is now, found by where each mark was; null when one
+ * of them has gone or changed since the drag began. */
+export function markMovesToSpans(track: TimingTrack, moves: MarkMove[]): MarkSpan[] | null {
+  const spans: MarkSpan[] = [];
+  for (const move of moves) {
+    const index = insertIndex(track.marks, move.fromStartMs) - 1;
+    const m = track.marks[index];
+    if (!m || m.startMs !== move.fromStartMs || m.endMs !== move.fromEndMs) return null;
+    spans.push({ index, startMs: move.startMs, endMs: move.endMs });
+  }
+  return spans;
+}
+
+/** Where two marks touch at `edge` of the mark at `index`: the neighbor, and how far the shared edge
+ * may go (each keeps at least `minMs`); null when the edge touches nothing. */
+export function touchingEdge(marks: Mark[], index: number, edge: "start" | "end", minMs: number): { neighbor: number; bounds: { lo: number; hi: number } } | null {
+  const m = marks[index];
+  const neighbor = edge === "start" ? index - 1 : index + 1;
+  const n = marks[neighbor];
+  if (!m || !n || (edge === "start" ? n.endMs !== m.startMs : n.startMs !== m.endMs)) return null;
+  const [first, second] = edge === "start" ? [n, m] : [m, n];
+  return { neighbor, bounds: { lo: first.startMs + minMs, hi: second.endMs - minMs } };
+}
+
 /** The edits for moved or resized marks. Each mark lands before the next one moves, so marks moved
  * together go in the order that never overlaps a neighbor on the way (the leading one first). */
 export function markMoveEdits(track: TimingTrack, spans: MarkSpan[]): SequenceEdit[] {
@@ -719,7 +753,9 @@ export function markMoveEdits(track: TimingTrack, spans: MarkSpan[]): SequenceEd
     return m && (m.startMs !== s.startMs || m.endMs !== s.endMs);
   });
   if (changed.length === 0) return [];
-  const right = changed[0].startMs > track.marks[changed[0].index].startMs;
+  // Which way they go: by the middle, so a shared edge dragged right counts as right too.
+  const first = track.marks[changed[0].index];
+  const right = changed[0].startMs + changed[0].endMs > first.startMs + first.endMs;
   const ordered = [...changed].sort((a, b) => (right ? b.index - a.index : a.index - b.index));
   return ordered.map((s) => ({
     type: "setMark" as const,
@@ -787,10 +823,9 @@ export function parseTime(text: string): number | null {
   return Math.round(((m[1] ? Number(m[1]) : 0) * 60 + seconds) * 1000);
 }
 
-/** The track a lyrics track's words go on: "<name> (words)", else the next words track after it. */
+/** The track a lyrics track's words go on: the one named "<name> (words)" (a words track first),
+ * or null when there's none yet. Never another track, which could be another lyrics track's words. */
 export function wordsTrackFor(doc: Sequence, track: TimingTrack): TimingTrack | null {
-  const named = doc.timingTracks.find((t) => t.kind === "words" && t.name === `${track.name} (words)`);
-  if (named) return named;
-  const at = doc.timingTracks.findIndex((t) => t.id === track.id);
-  return doc.timingTracks.slice(at + 1).find((t) => t.kind === "words") ?? null;
+  const named = doc.timingTracks.filter((t) => t.name === `${track.name} (words)` && t.kind !== "phonemes" && t.id !== track.id);
+  return named.find((t) => t.kind === "words") ?? named[0] ?? null;
 }

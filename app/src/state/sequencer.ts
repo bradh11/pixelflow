@@ -140,7 +140,8 @@ interface SequencerState {
   /**
    * Applies edits as one undo step (or merged into `gesture`'s step), in order after every earlier
    * call. Edits given as a function are built from the latest document when their turn comes; an
-   * empty build sends nothing and counts as done.
+   * empty build sends nothing and counts as done, and a build that throws sends nothing and shows
+   * its message as an error (it isn't done).
    */
   edit(edits: SequenceEditsFrom, gesture?: string): Promise<boolean>;
   undo(): Promise<boolean>;
@@ -192,10 +193,18 @@ export const useSequencer = create<SequencerState>((set, get) => {
   let transport = 0;
   /** When the playhead last came from the player, to tell where the music is between polls. */
   let playheadAt = 0;
-  /** The mark the last tap started (tap to time ends it at the next tap). */
+  /** The mark the last tap started (tap to time ends it at the next tap). A run of taps only
+   * carries on while the music plays on: a seek, play, pause, stop, another track, or another
+   * document starts a fresh run. */
   let lastTap: { track: string; startMs: number } | null = null;
   /** Set when the user cancels the running export, so its failure isn't reported as an error. */
   let cancelled = false;
+
+  /** The next document's key; a new document starts tap to time afresh. */
+  function newDocKey() {
+    lastTap = null;
+    return get().docKey + 1;
+  }
 
   /** Engine calls that change the document run one at a time, in order. */
   let queue: Promise<unknown> = Promise.resolve();
@@ -310,7 +319,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
           await get().stop();
           // With its music from the start: nothing to undo, nothing unsaved.
           adopt(await api.newSequenceDoc(name, durationMs, audio));
-          set({ selection: [], markSelection: null, activeTrack: null, playheadMs: 0, collapsed: [], suggestBeats: audio !== null, docKey: get().docKey + 1, notice: null });
+          set({ selection: [], markSelection: null, activeTrack: null, playheadMs: 0, collapsed: [], suggestBeats: audio !== null, docKey: newDocKey(), notice: null });
           return true;
         }),
       );
@@ -324,7 +333,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
         try {
           await get().stop();
           adopt(await api.openSequenceDoc(path));
-          set({ selection: [], markSelection: null, activeTrack: null, playheadMs: 0, collapsed: [], suggestBeats: false, docKey: get().docKey + 1, notice: null });
+          set({ selection: [], markSelection: null, activeTrack: null, playheadMs: 0, collapsed: [], suggestBeats: false, docKey: newDocKey(), notice: null });
           return true;
         } catch (e) {
           // A recent file that can't be opened any more (moved or deleted) comes off the list.
@@ -352,7 +361,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
           const imported = await api.importXlightsSequence(path);
           // Opened like any other document: unsaved, so it's kept (autosaved) until it's saved.
           adopt(imported.snapshot);
-          set({ selection: [], markSelection: null, activeTrack: null, playheadMs: 0, collapsed: [], suggestBeats: false, docKey: get().docKey + 1, notice: null });
+          set({ selection: [], markSelection: null, activeTrack: null, playheadMs: 0, collapsed: [], suggestBeats: false, docKey: newDocKey(), notice: null });
           return imported;
         }),
       );
@@ -441,13 +450,19 @@ export const useSequencer = create<SequencerState>((set, get) => {
       }
     },
 
+    setActiveTrack: (activeTrack) => {
+      if (activeTrack !== get().activeTrack) lastTap = null;
+      set({ activeTrack });
+    },
+
     select: (ids, activeRow) => {
       const marks = { markSelection: null };
       set(activeRow === undefined ? { selection: ids, ...marks } : { selection: ids, activeRow, ...marks });
     },
-    selectMarks: (track, starts) =>
-      set({ markSelection: starts.length > 0 ? { track, starts } : null, activeTrack: track, selection: starts.length > 0 ? [] : get().selection }),
-    setActiveTrack: (activeTrack) => set({ activeTrack }),
+    selectMarks: (track, starts) => {
+      if (track !== get().activeTrack) lastTap = null;
+      set({ markSelection: starts.length > 0 ? { track, starts } : null, activeTrack: track, selection: starts.length > 0 ? [] : get().selection });
+    },
 
     tap() {
       const { doc, activeTrack, status, playheadMs } = get();
@@ -464,14 +479,21 @@ export const useSequencer = create<SequencerState>((set, get) => {
       // Between polls the music has moved on from the last playhead the player reported.
       const atMs = status?.state === "playing" ? Math.min(doc.durationMs, playheadMs + (performance.now() - playheadAt)) : playheadMs;
       const id = track.id;
-      void get().edit((latest) => {
-        const now = latest.timingTracks.find((t) => t.id === id);
-        if (!now) return [];
-        const tapped = tapEdits(now, atMs, lastTap?.track === id ? lastTap.startMs : null, latest.durationMs);
-        if (!tapped) return [];
-        lastTap = { track: id, startMs: tapped.startMs };
-        return tapped.edits;
-      });
+      let started: { track: string; startMs: number } | null = null;
+      void get()
+        .edit((latest) => {
+          const now = latest.timingTracks.find((t) => t.id === id);
+          if (!now) return [];
+          const tapped = tapEdits(now, atMs, lastTap?.track === id ? lastTap.startMs : null, latest.durationMs);
+          if (!tapped) return [];
+          // The next tap (built after this one lands) ends the mark this one starts.
+          started = lastTap = { track: id, startMs: tapped.startMs };
+          return tapped.edits;
+        })
+        .then((ok) => {
+          // Refused: the next tap starts a fresh run rather than ending a mark that isn't there.
+          if (!ok && started && lastTap === started) lastTap = null;
+        });
     },
 
     async importTiming() {
@@ -495,7 +517,8 @@ export const useSequencer = create<SequencerState>((set, get) => {
       const { api, doc } = get();
       const track = doc?.timingTracks.find((t) => t.id === trackId);
       if (!api || !track) return false;
-      const target = await guarded(() => api.pickTimingExportPath(`${track.name}.xtiming`));
+      // A file name can't hold the characters some names have ("AC/DC").
+      const target = await guarded(() => api.pickTimingExportPath(`${track.name.replace(/[\\/:*?"<>|]/g, "-")}.xtiming`));
       if (!target) return false;
       // Export what's on screen: every edit made so far lands first.
       await serial(async () => undefined);
@@ -539,6 +562,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
       const backend = useApp.getState().backend;
       if (!api || !doc || !backend) return;
       const turn = ++transport;
+      lastTap = null;
       if (status && status.state === "paused") {
         const next = await guarded(() => backend.pausePlayback(false));
         if (next && turn === transport) set({ status: next });
@@ -556,6 +580,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
       const backend = useApp.getState().backend;
       if (!backend || !get().status) return;
       const turn = ++transport;
+      lastTap = null;
       const next = await guarded(() => backend.pausePlayback(true));
       if (next && turn === transport) {
         playheadAt = performance.now();
@@ -565,6 +590,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
 
     async stop() {
       const backend = useApp.getState().backend;
+      lastTap = null;
       if (!backend || !get().status) return;
       ++transport;
       // Stopped as far as the screen is concerned at once; late answers are ignored.
@@ -573,6 +599,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
     },
 
     async seek(ms) {
+      lastTap = null;
       get().setPlayhead(ms);
       playheadAt = performance.now();
       const backend = useApp.getState().backend;
@@ -663,7 +690,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
             playheadMs: 0,
             collapsed: [],
             suggestBeats: false,
-            docKey: get().docKey + 1,
+            docKey: newDocKey(),
             recoveries: get().recoveries.filter((r) => r.id !== id),
             notice: null,
           });

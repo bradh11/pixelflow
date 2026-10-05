@@ -1,0 +1,462 @@
+import { Plus, Trash2, X } from "lucide-react";
+import { useId, useRef, useState } from "react";
+import type { Blend, Effect, EffectInfo, EffectParams, EffectSetting, Sequence } from "../../api/sequence";
+import type { Show } from "../../api/types";
+import { effectBounds, formatTime } from "../../lib/timelineMath";
+import { newGesture, useSequencer } from "../../state/sequencer";
+import { useApp } from "../../state/store";
+import { Button } from "../ui";
+import { targetName } from "./Timeline";
+
+const BLENDS: { value: Blend; label: string; help: string }[] = [
+  { value: "normal", label: "Cover", help: "Covers the layers below where it's lit." },
+  { value: "add", label: "Add light", help: "Adds its light to the layers below." },
+  { value: "max", label: "Brighter of the two", help: "Keeps the brighter color, channel by channel." },
+  { value: "multiply", label: "Tint", help: "Tints the layers below with its colors." },
+];
+
+const MAX_COLORS = 32;
+
+const FIELD = "rounded-md border border-neutral-300 bg-white px-2 py-1 text-sm dark:border-neutral-700 dark:bg-neutral-950";
+
+/** Shows numbers to the setting's step: 0.05 → 2 decimals. */
+function decimals(step: number): number {
+  const text = String(step);
+  return text.includes(".") ? text.split(".")[1].length : 0;
+}
+
+/** `v` rounded to a whole millisecond and kept between `lo` and `hi`. */
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, Math.round(v)));
+}
+
+/** Builds a changed copy of the effect as it is when the change's turn comes; null changes nothing. */
+type Change = (next: (latest: Effect, doc: Sequence) => Effect | null, gesture?: string) => Promise<boolean>;
+
+/**
+ * The selected effect's settings, built from the engine's effect catalog: its kind's settings,
+ * colors, how it mixes with the layers below, fades, and timing. Changes show at once; a slider
+ * pulled or a field typed in is one undo step. Each change is built from the effect as it is when
+ * its turn comes and touches only its own setting, so quick changes in a row all stick.
+ */
+export function EffectSettings({ doc }: { doc: Sequence }) {
+  const selection = useSequencer((s) => s.selection);
+  const catalog = useSequencer((s) => s.catalog);
+  const edit = useSequencer((s) => s.edit);
+  const show = useApp((s) => s.snapshot?.show);
+
+  const found = selection.length === 1 ? findEffect(doc, selection[0]) : null;
+  if (selection.length > 1) {
+    return (
+      <Panel>
+        <p className="text-sm">{selection.length} effects selected.</p>
+        <p className="mt-1 text-xs text-neutral-500">Drag them together on the timeline, or press Delete to remove them.</p>
+        <Button className="mt-3" variant="danger" onClick={() => edit(selection.map((id) => ({ type: "removeEffect" as const, id })))}>
+          <Trash2 size={14} /> Delete {selection.length} effects
+        </Button>
+      </Panel>
+    );
+  }
+  if (!found) {
+    return (
+      <Panel>
+        <p className="text-sm text-neutral-500">Select an effect on the timeline to change how it looks.</p>
+      </Panel>
+    );
+  }
+  const { effect, rowName } = found;
+  const id = effect.id;
+  const info = catalog.find((c) => c.kind === effect.params.kind);
+  const change: Change = (next, gesture) =>
+    edit((latest) => {
+      const current = findEffect(latest, id)?.effect;
+      const changed = current ? next(current, latest) : null;
+      return changed && JSON.stringify(changed) !== JSON.stringify(current) ? [{ type: "updateEffect", effect: changed }] : [];
+    }, gesture);
+  const setParam = (key: string, value: unknown, gesture?: string) =>
+    change((e) => (e.params.kind === effect.params.kind ? { ...e, params: { ...e.params, [key]: value } as EffectParams } : null), gesture);
+  const length = effect.endMs - effect.startMs;
+
+  return (
+    <Panel>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h2 className="font-semibold">{info?.label ?? effect.params.kind}</h2>
+          <p className="text-xs text-neutral-500">
+            On {rowName(show)}, {formatTime(effect.startMs)} – {formatTime(effect.endMs)}
+          </p>
+        </div>
+        <button
+          type="button"
+          aria-label="Delete effect"
+          title="Delete effect"
+          className="rounded p-1 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/60"
+          onClick={() => edit([{ type: "removeEffect", id }])}
+        >
+          <Trash2 size={15} />
+        </button>
+      </div>
+      {info?.description && <p className="mt-1 text-xs text-neutral-500">{info.description}</p>}
+
+      {info && info.settings.length > 0 && (
+        <Section title="Settings">
+          {info.settings.map((setting) => (
+            <SettingControl
+              key={`${id}:${setting.key}`}
+              setting={setting}
+              value={(effect.params as Record<string, unknown>)[setting.key]}
+              onChange={(value, gesture) => setParam(setting.key, value, gesture)}
+            />
+          ))}
+        </Section>
+      )}
+
+      {effect.params.kind !== "off" && effect.params.kind !== "fire" && (
+        <Section title="Colors">
+          <ColorList key={id} effect={effect} info={info} change={change} />
+        </Section>
+      )}
+
+      <Section title="Mixing">
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-neutral-600 dark:text-neutral-400">With the layers below</span>
+          <select className={FIELD} value={effect.blend} onChange={(e) => {
+              const blend = e.target.value as Blend;
+              void change((x) => ({ ...x, blend }));
+            }}
+          >
+            {BLENDS.map((b) => (
+              <option key={b.value} value={b.value} title={b.help}>
+                {b.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          <MsField
+            key={`${id}:fadeIn`}
+            label="Fade in (ms)"
+            hint={`0 to ${length} ms`}
+            value={effect.fadeInMs}
+            onCommit={(v) => change((x) => ({ ...x, fadeInMs: clamp(v, 0, x.endMs - x.startMs) }))}
+          />
+          <MsField
+            key={`${id}:fadeOut`}
+            label="Fade out (ms)"
+            hint={`0 to ${length} ms`}
+            value={effect.fadeOutMs}
+            onCommit={(v) => change((x) => ({ ...x, fadeOutMs: clamp(v, 0, x.endMs - x.startMs) }))}
+          />
+        </div>
+      </Section>
+
+      <Section title="Timing">
+        <div className="grid grid-cols-2 gap-2">
+          <MsField
+            key={`${id}:start`}
+            label="Starts (ms)"
+            value={effect.startMs}
+            onCommit={(v) =>
+              change((x, latest) => {
+                // Not past its end, and not into the effect before it on its layer.
+                const lo = effectBounds(latest, x.id)?.lo ?? 0;
+                return { ...x, startMs: clamp(v, lo, x.endMs - latest.frameMs) };
+              })
+            }
+          />
+          <MsField
+            key={`${id}:end`}
+            label="Ends (ms)"
+            value={effect.endMs}
+            onCommit={(v) =>
+              change((x, latest) => {
+                // Not before its start, and not into the effect after it on its layer.
+                const hi = Math.min(latest.durationMs, effectBounds(latest, x.id)?.hi ?? latest.durationMs);
+                return { ...x, endMs: clamp(v, x.startMs + latest.frameMs, hi) };
+              })
+            }
+          />
+        </div>
+      </Section>
+    </Panel>
+  );
+}
+
+function findEffect(doc: Sequence, id: string): { effect: Effect; rowName: (show: Show | undefined) => string } | null {
+  for (const row of doc.rows) {
+    for (const layer of row.layers) {
+      const effect = layer.effects.find((e) => e.id === id);
+      if (effect) return { effect, rowName: (show) => targetName(show, row.target) };
+    }
+  }
+  return null;
+}
+
+function Panel({ children }: { children: React.ReactNode }) {
+  return (
+    <aside aria-label="Effect settings" className="w-72 shrink-0 overflow-auto border-l border-neutral-200 p-3 dark:border-neutral-800">
+      {children}
+    </aside>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section aria-label={title} className="mt-4 flex flex-col gap-2.5">
+      <h3 className="text-xs font-semibold tracking-wide text-neutral-500 uppercase">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * Sends a value while a control is being pulled (a slider, a color picker) as one gesture: one
+ * undo step for the whole pull. Only one send is on its way at a time; values that come in
+ * meanwhile are folded into the next one. The control shows `live` (its own value) until the
+ * engine has the last one, so it never jumps back.
+ */
+function useLiveValue<T>(send: (value: T, gesture: string) => Promise<unknown>) {
+  const [live, setLive] = useState<T | null>(null);
+  const state = useRef<{ gesture: string | null; busy: boolean; queue: { value: T; gesture: string }[] }>({ gesture: null, busy: false, queue: [] });
+  const sendRef = useRef(send);
+  sendRef.current = send;
+
+  const settle = () => {
+    const s = state.current;
+    if (!s.busy && s.gesture === null && s.queue.length === 0) setLive(null);
+  };
+  const run = () => {
+    const s = state.current;
+    const next = s.queue.shift();
+    if (!next) {
+      s.busy = false;
+      settle();
+      return;
+    }
+    s.busy = true;
+    void sendRef.current(next.value, next.gesture).finally(run);
+  };
+  return {
+    live,
+    /** A new value from the control. */
+    push(value: T) {
+      const s = state.current;
+      s.gesture ??= newGesture();
+      setLive(value);
+      const last = s.queue[s.queue.length - 1];
+      if (last && last.gesture === s.gesture) last.value = value;
+      else s.queue.push({ value, gesture: s.gesture });
+      if (!s.busy) run();
+    },
+    /** The control was let go: the next value starts a new undo step. */
+    end() {
+      state.current.gesture = null;
+      settle();
+    },
+  };
+}
+
+/**
+ * A number typed into a box: nothing is sent while typing; Enter or leaving the box sends it (the
+ * caller keeps it in range), and Escape puts back the current value.
+ */
+function NumberDraft({
+  value,
+  onCommit,
+  className,
+  ...props
+}: {
+  value: number;
+  onCommit: (value: number) => Promise<unknown>;
+  className: string;
+  "aria-label"?: string;
+  id?: string;
+  step?: number;
+  min?: number;
+  max?: number;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft === null) return;
+    const n = Number(draft);
+    if (draft.trim() === "" || !Number.isFinite(n) || n === value) {
+      setDraft(null);
+      return;
+    }
+    // Keep showing what was typed until the engine answers.
+    void onCommit(n).finally(() => setDraft((d) => (d === draft ? null : d)));
+  };
+  return (
+    <input
+      {...props}
+      type="number"
+      className={className}
+      value={draft ?? String(value)}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit();
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          setDraft(null);
+        }
+      }}
+    />
+  );
+}
+
+/** One setting from the catalog: a slider with a number box, a checkbox, or a list. */
+function SettingControl({
+  setting,
+  value,
+  onChange,
+}: {
+  setting: EffectSetting;
+  value: unknown;
+  onChange: (value: unknown, gesture?: string) => Promise<boolean>;
+}) {
+  if (setting.type === "bool") {
+    return (
+      <label className="flex items-center gap-2 text-sm" title={setting.description}>
+        <input type="checkbox" checked={typeof value === "boolean" ? value : setting.default} onChange={(e) => void onChange(e.target.checked)} />
+        {setting.label}
+      </label>
+    );
+  }
+  if (setting.type === "choice") {
+    return (
+      <label className="flex flex-col gap-1 text-sm" title={setting.description}>
+        <span className="text-neutral-600 dark:text-neutral-400">{setting.label}</span>
+        <select className={FIELD} value={typeof value === "string" ? value : setting.default} onChange={(e) => void onChange(e.target.value)}>
+          {setting.options.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  }
+  return <NumberSetting setting={setting} value={typeof value === "number" ? value : setting.default} onChange={onChange} />;
+}
+
+/** A number setting: a slider (one undo step per pull) and a box to type an exact value. */
+function NumberSetting({
+  setting,
+  value,
+  onChange,
+}: {
+  setting: Extract<EffectSetting, { type: "number" | "int" }>;
+  value: number;
+  onChange: (value: unknown, gesture?: string) => Promise<boolean>;
+}) {
+  const slider = useLiveValue<number>((v, gesture) => onChange(v, gesture));
+  const current = slider.live ?? value;
+  const places = setting.type === "int" ? 0 : decimals(setting.step);
+  const fit = (v: number) => Math.min(setting.max, Math.max(setting.min, setting.type === "int" ? Math.round(v) : v));
+  const id = `setting-${setting.key}`;
+  return (
+    <div className="flex flex-col gap-1 text-sm" title={setting.description}>
+      <label htmlFor={id} className="flex justify-between text-neutral-600 dark:text-neutral-400">
+        <span>{setting.label}</span>
+        {setting.unit && <span className="text-xs text-neutral-500">{setting.unit}</span>}
+      </label>
+      <div className="flex items-center gap-2">
+        <input
+          id={id}
+          type="range"
+          className="min-w-0 flex-1 accent-violet-600"
+          min={setting.min}
+          max={setting.max}
+          step={setting.step}
+          value={current}
+          aria-valuetext={`${current.toFixed(places)}${setting.unit ? ` ${setting.unit}` : ""}`}
+          onChange={(e) => slider.push(fit(Number(e.target.value)))}
+          onPointerUp={slider.end}
+          onKeyUp={slider.end}
+          onBlur={slider.end}
+        />
+        <NumberDraft
+          aria-label={`${setting.label} value`}
+          className={`${FIELD} w-20 tabular-nums`}
+          min={setting.min}
+          max={setting.max}
+          step={setting.step}
+          value={Number(current.toFixed(places))}
+          onCommit={(v) => onChange(fit(v))}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** A time in milliseconds, typed in and sent on Enter or when the box is left. */
+function MsField({ label, value, hint, onCommit }: { label: string; value: number; hint?: string; onCommit: (v: number) => Promise<unknown> }) {
+  const id = useId();
+  return (
+    <div className="flex flex-col gap-1 text-sm">
+      <label htmlFor={id} className="text-neutral-600 dark:text-neutral-400" title={hint}>
+        {label}
+      </label>
+      <NumberDraft id={id} className={`${FIELD} tabular-nums`} min={0} step={25} value={value} onCommit={onCommit} />
+    </div>
+  );
+}
+
+/** The effect's colors: change one with the color picker, add, or remove. */
+function ColorList({ effect, info, change }: { effect: Effect; info: EffectInfo | undefined; change: Change }) {
+  const colors = effect.palette.colors;
+  const usesOne = info && ["fade"].includes(info.kind);
+  const setColors = (next: (colors: string[]) => string[], gesture?: string) =>
+    change((e) => ({ ...e, palette: { colors: next(e.palette.colors) } }), gesture);
+  return (
+    <div className="flex flex-col gap-2">
+      {usesOne && <p className="text-xs text-neutral-500">This effect uses the first color.</p>}
+      <ul className="flex flex-wrap gap-2" aria-label="Colors">
+        {colors.map((color, i) => (
+          <li key={i} className="group relative">
+            <ColorPicker index={i} color={color} onPick={(value, gesture) => setColors((cs) => cs.map((c, k) => (k === i ? value : c)), gesture)} />
+            {colors.length > 1 && (
+              <button
+                type="button"
+                aria-label={`Remove color ${i + 1}`}
+                className="absolute -top-1.5 -right-1.5 hidden rounded-full bg-neutral-700 p-0.5 text-white group-focus-within:block group-hover:block"
+                onClick={() => void setColors((cs) => (cs.length > 1 ? cs.filter((_, k) => k !== i) : cs))}
+              >
+                <X size={10} />
+              </button>
+            )}
+          </li>
+        ))}
+        {colors.length < MAX_COLORS && (
+          <li>
+            <button
+              type="button"
+              aria-label="Add a color"
+              title="Add a color"
+              className="flex h-8 w-8 items-center justify-center rounded border border-dashed border-neutral-400 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+              onClick={() => void setColors((cs) => (cs.length < MAX_COLORS ? [...cs, cs[cs.length - 1] ?? "#ffffff"] : cs))}
+            >
+              <Plus size={14} />
+            </button>
+          </li>
+        )}
+      </ul>
+    </div>
+  );
+}
+
+/** One color: picking in the color picker is one undo step until the picker is left. */
+function ColorPicker({ index, color, onPick }: { index: number; color: string; onPick: (value: string, gesture: string) => Promise<boolean> }) {
+  const picking = useLiveValue<string>(onPick);
+  return (
+    <input
+      type="color"
+      aria-label={`Color ${index + 1}`}
+      className="h-8 w-8 cursor-pointer rounded border border-neutral-300 bg-transparent p-0.5 dark:border-neutral-700"
+      value={picking.live ?? color}
+      onChange={(e) => picking.push(e.target.value)}
+      onBlur={picking.end}
+    />
+  );
+}

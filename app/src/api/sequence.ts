@@ -110,6 +110,17 @@ export interface SequenceIssue {
   effect?: Uuid;
 }
 
+/** A sequence that wasn't saved when PixelFlow last closed, kept so it can be recovered. */
+export interface SequenceRecovery {
+  /** Pass back to recover or discard it. */
+  id: string;
+  name: string;
+  /** The file it was opened from or last saved to; null when it was never saved. */
+  path: string | null;
+  /** When it was last kept (milliseconds since 1970). */
+  savedAtMs: number;
+}
+
 /** The whole open sequence: when one is opened, created, or saved, and from getSequenceDoc (resync). */
 export interface SequenceSnapshot {
   revision: number;

@@ -5,7 +5,9 @@
 // render, play, or check the sequence against the show.
 
 import catalogJson from "./effectCatalog.json";
-import type { PlaybackStatus } from "./types";
+import type { MemoryBackend } from "./memory";
+import { renderSequenceFrame } from "./memoryRender";
+import type { PlaybackStatus, ShowSnapshot } from "./types";
 import {
   noChanges,
   type Analysis,
@@ -18,6 +20,8 @@ import {
   type SequenceChanges,
   type SequenceEdit,
   type SequenceEditResult,
+  type SequenceIssue,
+  type SequenceRecovery,
   type SequenceSnapshot,
   type TimingTrack,
 } from "./sequence";
@@ -237,13 +241,34 @@ export class MemorySequencer implements SequencerApi {
   redoStack: { after: Sequence; gesture: string | null }[] = [];
   /** Files "on disk", keyed by path. */
   files = new Map<string, Sequence>();
+  /** The problems every reply lists (the engine's check against the show; set by tests). */
+  issues: SequenceIssue[] = [];
+  /** Unsaved work an earlier run "kept", with the document each holds. */
+  recoveries: (SequenceRecovery & { doc: Sequence })[] = [];
   /** What the file dialogs return. */
   nextOpenPath: string | null = null;
   nextSavePath: string | null = null;
   /** Calls made, for test assertions. */
   calls: string[] = [];
   private lastGesture: string | null = null;
+  /** Changes with every new or opened document (like the engine's sequence_doc_id). */
+  private docId = 0;
   private exportCancels = 0;
+  /** Whether a playing sequence would go out to the controllers. */
+  sendToControllers = true;
+  /** How long edit, undo, and redo replies take to come back (tests of a slow engine). The edit
+   * itself lands at once, as in the engine; only the answer is late. */
+  replyDelayMs = 0;
+  /** How long beat detection takes. */
+  analysisDelayMs = 0;
+
+  /** With a memory backend, frames are drawn (roughly) from its show and playback runs on its clock. */
+  constructor(readonly backend: MemoryBackend | null = null) {}
+
+  private async reply<T>(value: T, delayMs = this.replyDelayMs): Promise<T> {
+    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    return value;
+  }
 
   private open_(): Sequence {
     return this.doc ?? fail(NO_SEQUENCE);
@@ -258,7 +283,7 @@ export class MemorySequencer implements SequencerApi {
       canUndo: this.undoStack.length > 0,
       canRedo: this.redoStack.length > 0,
       sequence: structuredClone(sequence),
-      issues: [],
+      issues: structuredClone(this.issues),
     };
   }
 
@@ -270,11 +295,12 @@ export class MemorySequencer implements SequencerApi {
       canRedo: this.redoStack.length > 0,
       changed: changes !== null,
       changes: changes ?? noChanges(),
-      issues: [],
+      issues: structuredClone(this.issues),
     };
   }
 
   private replace(doc: Sequence, path: string | null) {
+    this.docId++;
     this.doc = doc;
     this.path = path;
     this.revision++;
@@ -284,11 +310,30 @@ export class MemorySequencer implements SequencerApi {
     this.lastGesture = null;
   }
 
-  async newSequenceDoc(name: string, durationMs: number) {
+  async newSequenceDoc(name: string, durationMs: number, audio: string | null = null) {
     this.calls.push("newSequenceDoc");
     if (durationMs > 4 * 60 * 60 * 1000) fail("PixelFlow sequences can be at most 4 hours.");
-    this.replace(newSequence(name, durationMs), null);
+    this.replace({ ...newSequence(name, durationMs), audio: audio?.trim() ? audio : null }, null);
     return this.snapshot();
+  }
+
+  async sequenceRecoveries(): Promise<SequenceRecovery[]> {
+    return this.recoveries.map(({ doc: _doc, ...recovery }) => recovery).sort((a, b) => b.savedAtMs - a.savedAtMs);
+  }
+
+  async recoverSequence(id: string) {
+    this.calls.push(`recoverSequence:${id}`);
+    const kept = this.recoveries.find((r) => r.id === id) ?? fail("That unsaved sequence isn't there anymore.");
+    this.replace(structuredClone(kept.doc), kept.path);
+    // Opened with unsaved changes.
+    this.savedRevision = -1;
+    this.recoveries = this.recoveries.filter((r) => r.id !== id);
+    return this.snapshot();
+  }
+
+  async discardSequenceRecovery(id: string) {
+    this.calls.push(`discardSequenceRecovery:${id}`);
+    this.recoveries = this.recoveries.filter((r) => r.id !== id);
   }
 
   async openSequenceDoc(path: string) {
@@ -337,7 +382,7 @@ export class MemorySequencer implements SequencerApi {
     this.redoStack = [];
     this.doc = next;
     this.revision++;
-    return this.result(changes);
+    return this.reply(this.result(changes));
   }
 
   async undoSequence() {
@@ -349,7 +394,7 @@ export class MemorySequencer implements SequencerApi {
     this.doc = step.before;
     this.lastGesture = null;
     this.revision++;
-    return this.result(diffSequences(now, step.before));
+    return this.reply(this.result(diffSequences(now, step.before)));
   }
 
   async redoSequence() {
@@ -361,21 +406,58 @@ export class MemorySequencer implements SequencerApi {
     this.doc = step.after;
     this.lastGesture = null;
     this.revision++;
-    return this.result(diffSequences(now, step.after));
+    return this.reply(this.result(diffSequences(now, step.after)));
   }
 
   async effectCatalog() {
     return structuredClone(EFFECT_CATALOG);
   }
 
-  async sequenceDocFrame(_positionMs: number) {
-    this.open_();
-    return new Uint8Array();
+  async sequenceDocFrame(positionMs: number) {
+    const doc = this.open_();
+    return this.backend ? renderSequenceFrame(doc, this.backend.show, positionMs) : new Uint8Array();
   }
 
-  async playSequenceDoc(_positionMs: number): Promise<PlaybackStatus> {
-    this.open_();
-    return fail("Playing an authored sequence needs the PixelFlow desktop app.");
+  async playSequenceDoc(positionMs: number): Promise<PlaybackStatus> {
+    const doc = this.open_();
+    this.calls.push(`playSequenceDoc@${positionMs}`);
+    const backend = this.backend ?? fail("Playing an authored sequence needs the PixelFlow desktop app.");
+    const live = () => this.doc ?? doc;
+    return backend.playAuthored(
+      {
+        path: this.path ?? "",
+        music: doc.audio,
+        durationMs: doc.durationMs,
+        frameMs: doc.frameMs,
+        frame: (ms) => renderSequenceFrame(live(), backend.show, ms),
+      },
+      positionMs,
+    );
+  }
+
+  async setSequenceDocOutput(send: boolean) {
+    this.calls.push(`setSequenceDocOutput:${send}`);
+    this.sendToControllers = send;
+    return (await this.backend?.playbackStatus()) ?? null;
+  }
+
+  async addSequenceDocToShow(path: string): Promise<ShowSnapshot> {
+    const doc = this.open_();
+    this.calls.push(`addSequenceDocToShow:${path}`);
+    const backend = this.backend ?? fail("Adding to the show needs a show.");
+    const base = doc.name.trim() || "Sequence";
+    // Exported to the same file again: that entry is brought up to date instead.
+    const existing = backend.show.sequences.find((s) => s.path === path);
+    const taken = (n: string) => backend.show.sequences.some((s) => s.name === n && s.id !== existing?.id);
+    if (existing) {
+      const updated = { ...existing, name: taken(base) ? existing.name : base, audio: doc.audio };
+      return backend.applyEdits([{ type: "updateSequence", sequence: updated }]);
+    }
+    let name = base;
+    for (let n = 2; taken(name); n++) name = `${base} (${n})`;
+    return backend.applyEdits([
+      { type: "addSequence", sequence: { id: crypto.randomUUID(), name, path, audio: doc.audio, offsetMs: 0 } },
+    ]);
   }
 
   async sequenceExportLayout(): Promise<ExportLayout> {
@@ -422,8 +504,13 @@ export class MemorySequencer implements SequencerApi {
 
   async detectBeats() {
     const doc = this.open_();
+    const docId = this.docId;
     if (!doc.audio) fail("This sequence has no music yet. Choose a song for it first.");
-    const analysis = await this.analyzeAudio(doc.audio);
+    const analysis = await this.reply(await this.analyzeAudio(doc.audio), this.analysisDelayMs);
+    if (this.docId !== docId || this.doc?.audio !== doc.audio) {
+      fail("The sequence or its music changed while the beats were being found. Run beat detection again.");
+    }
+    const latest = this.open_();
     const marks = (times: number[], label: (i: number) => string) =>
       times.map((t, i) => ({ startMs: t, endMs: times[i + 1] ?? doc.durationMs, label: label(i) }));
     const tracks: TimingTrack[] = [
@@ -431,7 +518,7 @@ export class MemorySequencer implements SequencerApi {
       { id: crypto.randomUUID(), name: "Bars", kind: "bars", marks: marks(analysis.bars, (i) => String(i + 1)) },
     ];
     const edits: SequenceEdit[] = [
-      ...doc.timingTracks
+      ...latest.timingTracks
         .filter((t) => tracks.some((n) => n.name === t.name))
         .map((t) => ({ type: "removeTimingTrack" as const, id: t.id })),
       ...tracks.map((track) => ({ type: "addTimingTrack" as const, track })),

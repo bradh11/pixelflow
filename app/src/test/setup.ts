@@ -1,7 +1,9 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
+import { usePaletteDrag } from "../components/sequencer/EffectPalette";
 import { useLayoutEditor } from "../state/layoutEditor";
+import { useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
 
 // jsdom lacks these browser APIs; the command palette (cmdk) uses them.
@@ -19,4 +21,6 @@ afterEach(() => {
   localStorage.clear();
   useApp.setState(useApp.getInitialState(), true);
   useLayoutEditor.setState(useLayoutEditor.getInitialState(), true);
+  useSequencer.setState(useSequencer.getInitialState(), true);
+  usePaletteDrag.setState(usePaletteDrag.getInitialState(), true);
 });

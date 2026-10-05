@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { newProp } from "../lib/shows";
+import { MemoryBackend, emptyShow } from "./memory";
 import { EFFECT_CATALOG, MemorySequencer, formatMs } from "./memorySequencer";
 import {
   applySequenceChanges,
@@ -127,5 +129,60 @@ describe("MemorySequencer", () => {
     const reply = await seq.detectBeats();
     expect(reply.changes.removedTimingTracks).toHaveLength(2);
     expect(seq.doc!.timingTracks.map((t) => t.name)).toEqual(["Beats", "Bars"]);
+  });
+});
+
+describe("MemorySequencer with a show", () => {
+  async function withShow() {
+    const show = emptyShow("Home");
+    const strip = { ...newProp("line", show), name: "Strip" };
+    show.props = [strip];
+    const backend = new MemoryBackend(show);
+    const seq = new MemorySequencer(backend);
+    await seq.newSequenceDoc("Song", 10_000);
+    const row = newRow({ prop: strip.id });
+    await seq.editSequence([
+      { type: "addRow", row },
+      { type: "addEffect", row: row.id, layer: 0, effect: newEffect("on", 1000, 2000, ["#ff0000"]) },
+    ]);
+    return { backend, seq, strip };
+  }
+
+  it("draws frames of the sequence on the show's props", async () => {
+    const { seq } = await withShow();
+    const lit = await seq.sequenceDocFrame(1500);
+    expect(Array.from(lit.slice(0, 3))).toEqual([255, 0, 0]);
+    const dark = await seq.sequenceDocFrame(2500);
+    expect(dark.every((v) => v === 0)).toBe(true);
+  });
+
+  it("plays on the backend's clock, and adds an export to the show's playlist", async () => {
+    const { backend, seq } = await withShow();
+    const status = await seq.playSequenceDoc(1200);
+    expect(status).toMatchObject({ authored: true, state: "playing", durationMs: 10_000, frameMs: 25 });
+    expect(Array.from((await backend.liveFrame()).slice(0, 3))).toEqual([255, 0, 0]);
+    expect(await seq.setSequenceDocOutput(false)).toMatchObject({ authored: true });
+    await backend.stopPlayback();
+    const snap = await seq.addSequenceDocToShow("/Shows/Song.fseq");
+    expect(snap.show.sequences[0]).toMatchObject({ name: "Song", path: "/Shows/Song.fseq" });
+    // The same file again updates its entry; another file with the same name gets a number.
+    const again = await seq.addSequenceDocToShow("/Shows/Song.fseq");
+    expect(again.show.sequences).toHaveLength(1);
+    expect(again.show.sequences[0].id).toBe(snap.show.sequences[0].id);
+    const other = await seq.addSequenceDocToShow("/Shows/Other.fseq");
+    expect(other.show.sequences[1].name).toBe("Song (2)");
+  });
+
+  it("starts a sequence with its music, and offers back kept unsaved work", async () => {
+    const seq = new MemorySequencer();
+    const snap = await seq.newSequenceDoc("Song", 10_000, "/music/song.mp3");
+    expect(snap).toMatchObject({ dirty: false, canUndo: false, sequence: { audio: "/music/song.mp3" } });
+    const kept = { ...snap.sequence, name: "Kept" };
+    seq.recoveries = [{ id: "r1", name: "Kept", path: "/Shows/Kept.pfseq.json", savedAtMs: 5, doc: kept }];
+    expect(await seq.sequenceRecoveries()).toEqual([{ id: "r1", name: "Kept", path: "/Shows/Kept.pfseq.json", savedAtMs: 5 }]);
+    const recovered = await seq.recoverSequence("r1");
+    expect(recovered).toMatchObject({ dirty: true, path: "/Shows/Kept.pfseq.json", sequence: { name: "Kept" } });
+    expect(await seq.sequenceRecoveries()).toEqual([]);
+    await expect(seq.recoverSequence("r1")).rejects.toThrow("That unsaved sequence isn't there anymore.");
   });
 });

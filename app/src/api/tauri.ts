@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type { Backend } from "./backend";
 import { decodePreview } from "./previewBytes";
@@ -65,6 +66,11 @@ export const tauriBackend: Backend = {
     return typeof path === "string" ? path : null;
   },
   pickSavePath: async (defaultName) => (await save({ defaultPath: defaultName, filters: SHOW_FILTER })) ?? null,
+  onCloseRequested: (allow) =>
+    getCurrentWindow().onCloseRequested((event) => {
+      if (!allow()) event.preventDefault();
+    }),
+  closeWindow: () => getCurrentWindow().destroy(),
 };
 
 /** True when running inside the Tauri shell (not a plain browser). */

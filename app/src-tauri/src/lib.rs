@@ -19,7 +19,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 use tauri::{Manager, State};
 
-/// How often unsaved work is copied into the autosave history.
+/// How often unsaved work (the show and the open sequence) is kept on disk.
 const AUTOSAVE_EVERY: Duration = Duration::from_secs(30);
 
 struct AppState {
@@ -151,6 +151,9 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         playback::set_playback_volume,
         playback::audio_waveform,
         sequencer::new_sequence_doc,
+        sequencer::sequence_recoveries,
+        sequencer::recover_sequence,
+        sequencer::discard_sequence_recovery,
         sequencer::open_sequence_doc,
         sequencer::save_sequence_doc,
         sequencer::save_sequence_doc_as,
@@ -163,6 +166,8 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         sequencer::redo_sequence,
         sequencer::sequence_doc_frame,
         sequencer::play_sequence_doc,
+        sequencer::set_sequence_doc_output,
+        sequencer::add_sequence_doc_to_show,
         sequencer::sequence_export_layout,
         sequencer::export_sequence_doc,
         sequencer::analyze_audio,
@@ -198,10 +203,7 @@ pub fn run() {
                 .spawn(move || {
                     loop {
                         std::thread::sleep(AUTOSAVE_EVERY);
-                        let state = handle.state::<AppState>();
-                        if let Err(error) = state.engine().autosave() {
-                            eprintln!("autosave failed: {error}");
-                        }
+                        autosave(&handle.state::<AppState>(), "autosave");
                     }
                 })?;
             Ok(())
@@ -217,12 +219,22 @@ pub fn run() {
         });
 }
 
-/// Runs when the app quits: keeps unsaved work in the autosave history and blacks out the lights.
-fn shut_down(state: &AppState) {
+/// Keeps unsaved work: the show in its autosave history, and an open sequence with unsaved
+/// changes where the next run offers it back.
+fn autosave(state: &AppState, when: &str) {
     let mut engine = state.engine();
     if let Err(error) = engine.autosave() {
-        eprintln!("autosave on exit failed: {error}");
+        eprintln!("{when} of the show failed: {error}");
     }
+    if let Err(error) = engine.autosave_sequence() {
+        eprintln!("{when} of the sequence failed: {error}");
+    }
+}
+
+/// Runs when the app quits: keeps unsaved work (see [`autosave`]) and blacks out the lights.
+fn shut_down(state: &AppState) {
+    autosave(state, "autosave on exit");
+    let mut engine = state.engine();
     engine.stop_output();
     engine.stop_playback();
 }
@@ -237,7 +249,11 @@ mod tests {
     use tauri::{App, WebviewWindow, WebviewWindowBuilder};
 
     fn app() -> (App<MockRuntime>, WebviewWindow<MockRuntime>, tempfile::TempDir) {
-        let dir = tempfile::tempdir().unwrap();
+        app_in(tempfile::tempdir().unwrap())
+    }
+
+    /// The app with its data (autosaves, kept sequences) in `dir`.
+    fn app_in(dir: tempfile::TempDir) -> (App<MockRuntime>, WebviewWindow<MockRuntime>, tempfile::TempDir) {
         // Nothing reaches the network or a sound device: packets are recorded and music is timed
         // by a silent stopwatch.
         let (transport, _recorded) = pf_output::RecordingTransport::new();
@@ -447,6 +463,62 @@ mod tests {
         assert!(!history.as_array().unwrap().is_empty());
         let status = call(&webview, "output_status", json!({})).unwrap();
         assert_eq!(status["running"], false);
+    }
+
+    #[test]
+    fn an_unsaved_sequence_is_kept_on_quit_and_offered_back_on_the_next_start() {
+        let (app, webview, dir) = app();
+        // A new sequence with its music starts clean, with nothing to undo.
+        let snap = call(
+            &webview,
+            "new_sequence_doc",
+            json!({ "name": "Song", "durationMs": 2000, "audio": "/music/song.mp3" }),
+        )
+        .unwrap();
+        assert_eq!(snap["sequence"]["audio"], "/music/song.mp3");
+        assert_eq!(
+            (snap["dirty"].clone(), snap["canUndo"].clone()),
+            (json!(false), json!(false))
+        );
+        // Nothing unsaved: quitting keeps nothing.
+        shut_down(&app.state::<AppState>());
+        assert!(Engine::new(dir.path()).sequence_recoveries().is_empty());
+
+        let row = json!({ "id": "44444444-0000-4000-8000-0000000000cc",
+            "target": { "prop": "11111111-0000-4000-8000-0000000000cc" }, "layers": [{ "effects": [] }] });
+        call(
+            &webview,
+            "edit_sequence",
+            json!({ "edits": [{ "type": "addRow", "row": row }] }),
+        )
+        .unwrap();
+        shut_down(&app.state::<AppState>());
+        drop(app);
+
+        // The next start offers it back; recovering opens it with unsaved changes.
+        let (_next, webview, _next_dir) = app_in(dir);
+        let offered = call(&webview, "sequence_recoveries", json!({})).unwrap();
+        assert_eq!(offered.as_array().unwrap().len(), 1);
+        assert_eq!(offered[0]["name"], "Song");
+        assert_eq!(offered[0]["path"], Value::Null);
+        assert!(offered[0]["savedAtMs"].as_u64().unwrap() > 0);
+        let id = offered[0]["id"].clone();
+        let snap = call(&webview, "recover_sequence", json!({ "id": id })).unwrap();
+        assert_eq!(snap["dirty"], true);
+        assert_eq!(snap["sequence"]["rows"].as_array().unwrap().len(), 1);
+        assert_eq!(snap["sequence"]["audio"], "/music/song.mp3");
+        assert_eq!(
+            call(&webview, "sequence_recoveries", json!({})).unwrap(),
+            json!([])
+        );
+        let err = call(&webview, "recover_sequence", json!({ "id": id })).unwrap_err();
+        assert_eq!(err, "That unsaved sequence isn't there anymore.");
+        call(
+            &webview,
+            "discard_sequence_recovery",
+            json!({ "id": "nothing-here" }),
+        )
+        .unwrap();
     }
 
     #[test]
@@ -885,7 +957,14 @@ mod tests {
             (status["authored"].clone(), status["state"].clone()),
             (json!(true), json!("playing"))
         );
+        // Preview only, while editing: switching keeps it playing.
+        let status = call(&webview, "set_sequence_doc_output", json!({ "send": false })).unwrap();
+        assert_eq!(status["state"], "playing");
         call(&webview, "stop_playback", json!({})).unwrap();
+        assert_eq!(
+            call(&webview, "set_sequence_doc_output", json!({ "send": true })).unwrap(),
+            json!(null)
+        );
 
         let layout = call(&webview, "sequence_export_layout", json!({})).unwrap();
         assert_eq!(layout["channels"], 12);
@@ -896,6 +975,13 @@ mod tests {
             (json!(80), json!(12))
         );
         assert!(fseq.exists());
+        let show = call(&webview, "add_sequence_doc_to_show", json!({ "path": fseq })).unwrap();
+        assert_eq!(show["show"]["sequences"][0]["name"], "Song");
+        assert_eq!(
+            show["show"]["sequences"][0]["path"],
+            json!(fseq.display().to_string())
+        );
+        call(&webview, "undo", json!({})).unwrap();
 
         let saved = dir.path().join("song.pfseq.json");
         let snap = call(&webview, "save_sequence_doc_as", json!({ "path": saved })).unwrap();

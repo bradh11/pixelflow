@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import type { PlaybackStatus } from "./types";
+import type { PlaybackStatus, ShowSnapshot } from "./types";
 import type {
   Analysis,
   EffectInfo,
@@ -10,6 +10,7 @@ import type {
   ExportSummary,
   SequenceEdit,
   SequenceEditResult,
+  SequenceRecovery,
   SequenceSnapshot,
 } from "./sequence";
 
@@ -21,8 +22,17 @@ const FSEQ_FILTER = [{ name: "FPP sequence", extensions: ["fseq"] }];
 
 /** Everything the sequencer asks of the engine. Errors reject with a plain-language message. */
 export interface SequencerApi {
-  /** Starts a new, unsaved sequence, replacing the open one (ask before discarding changes). */
-  newSequenceDoc(name: string, durationMs: number): Promise<SequenceSnapshot>;
+  /**
+   * Starts a new sequence with `audio` as its music (or none), replacing the open one (ask before
+   * discarding changes). It starts with no unsaved changes and nothing to undo.
+   */
+  newSequenceDoc(name: string, durationMs: number, audio: string | null): Promise<SequenceSnapshot>;
+  /** Unsaved sequences an earlier run of PixelFlow kept (newest first). */
+  sequenceRecoveries(): Promise<SequenceRecovery[]>;
+  /** Opens a kept sequence, with unsaved changes, replacing the open one (ask first). */
+  recoverSequence(id: string): Promise<SequenceSnapshot>;
+  /** Throws a kept sequence away. */
+  discardSequenceRecovery(id: string): Promise<void>;
   openSequenceDoc(path: string): Promise<SequenceSnapshot>;
   saveSequenceDoc(): Promise<SequenceSnapshot>;
   saveSequenceDocAs(path: string): Promise<SequenceSnapshot>;
@@ -43,6 +53,10 @@ export interface SequencerApi {
   sequenceDocFrame(positionMs: number): Promise<Uint8Array>;
   /** Plays the open sequence live with its music; control it with the playback commands. */
   playSequenceDoc(positionMs: number): Promise<PlaybackStatus>;
+  /** Whether a playing sequence goes out to the controllers (true) or only to the preview. */
+  setSequenceDocOutput(send: boolean): Promise<PlaybackStatus | null>;
+  /** Adds an exported `.fseq` of the open sequence to the show's playlist (one undo step on the show). */
+  addSequenceDocToShow(path: string): Promise<ShowSnapshot>;
   /** How an export would lay out the controllers' channels. */
   sequenceExportLayout(): Promise<ExportLayout>;
   /**
@@ -67,7 +81,10 @@ export interface SequencerApi {
 
 /** The real engine, in the Tauri desktop shell. */
 export const tauriSequencer: SequencerApi = {
-  newSequenceDoc: (name, durationMs) => invoke("new_sequence_doc", { name, durationMs }),
+  newSequenceDoc: (name, durationMs, audio) => invoke("new_sequence_doc", { name, durationMs, audio }),
+  sequenceRecoveries: () => invoke("sequence_recoveries"),
+  recoverSequence: (id) => invoke("recover_sequence", { id }),
+  discardSequenceRecovery: (id) => invoke("discard_sequence_recovery", { id }),
   openSequenceDoc: (path) => invoke("open_sequence_doc", { path }),
   saveSequenceDoc: () => invoke("save_sequence_doc"),
   saveSequenceDocAs: (path) => invoke("save_sequence_doc_as", { path }),
@@ -80,6 +97,8 @@ export const tauriSequencer: SequencerApi = {
   sequenceDocFrame: async (positionMs) =>
     new Uint8Array(await invoke<ArrayBuffer>("sequence_doc_frame", { positionMs })),
   playSequenceDoc: (positionMs) => invoke("play_sequence_doc", { positionMs }),
+  setSequenceDocOutput: (send) => invoke("set_sequence_doc_output", { send }),
+  addSequenceDocToShow: (path) => invoke("add_sequence_doc_to_show", { path }),
   sequenceExportLayout: () => invoke("sequence_export_layout"),
   exportSequenceDoc: async (path, onProgress) => {
     const unlisten = onProgress

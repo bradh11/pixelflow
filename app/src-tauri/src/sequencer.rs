@@ -5,7 +5,7 @@ use crate::{AppState, Reply, message};
 use pf_analysis::Analysis;
 use pf_engine::{
     Engine, EngineError, ExportLayout, ExportSummary, PlaybackStatus, SequenceEdit, SequenceEditResult,
-    SequenceExport, SequenceSnapshot,
+    SequenceExport, SequenceRecovery, SequenceSnapshot, ShowSnapshot,
 };
 use pf_sequence::{EffectInfo, TimingTrack};
 use serde::Serialize;
@@ -30,17 +30,39 @@ pub(crate) struct ExportProgress {
     pub percent: u32,
 }
 
-/// Starts a new, unsaved sequence (replacing the open one; the UI asks first if it has changes).
+/// Starts a new, unsaved sequence with its music, if any (replacing the open one; the UI asks
+/// first if it has changes). It starts with nothing to undo and no unsaved changes.
 #[tauri::command]
 pub(crate) async fn new_sequence_doc(
     state: State<'_, AppState>,
     name: String,
     duration_ms: u64,
+    audio: Option<String>,
 ) -> Reply<SequenceSnapshot> {
     state
         .engine()
-        .new_sequence_doc(&name, duration_ms)
+        .new_sequence_doc(&name, duration_ms, audio.as_deref())
         .map_err(message)
+}
+
+/// Unsaved sequences an earlier run of PixelFlow kept (newest first), to offer back.
+#[tauri::command]
+pub(crate) async fn sequence_recoveries(state: State<'_, AppState>) -> Reply<Vec<SequenceRecovery>> {
+    Ok(state.engine().sequence_recoveries())
+}
+
+/// Opens a kept unsaved sequence, with unsaved changes (replacing the open one; the UI asks
+/// first if it has changes).
+#[tauri::command]
+pub(crate) async fn recover_sequence(state: State<'_, AppState>, id: String) -> Reply<SequenceSnapshot> {
+    state.engine().recover_sequence(&id).map_err(message)
+}
+
+/// Throws away a kept unsaved sequence.
+#[tauri::command]
+pub(crate) async fn discard_sequence_recovery(state: State<'_, AppState>, id: String) -> Reply<()> {
+    state.engine().discard_sequence_recovery(&id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -126,6 +148,26 @@ pub(crate) async fn play_sequence_doc(state: State<'_, AppState>, position_ms: u
         .engine()
         .playback_status()
         .ok_or_else(|| "Playback stopped before it started.".to_string())
+}
+
+/// Whether a playing sequence document is sent to the controllers or only shown in the preview
+/// (switches at once while playing). Returns the playback state, if anything is playing.
+#[tauri::command]
+pub(crate) async fn set_sequence_doc_output(
+    state: State<'_, AppState>,
+    send: bool,
+) -> Reply<Option<PlaybackStatus>> {
+    Ok(state.engine().set_sequence_doc_output(send))
+}
+
+/// Adds an exported `.fseq` of the open sequence to the show's playlist (one undo step on the
+/// show), named after the sequence and with its music.
+#[tauri::command]
+pub(crate) async fn add_sequence_doc_to_show(
+    state: State<'_, AppState>,
+    path: PathBuf,
+) -> Reply<ShowSnapshot> {
+    state.engine().add_sequence_doc_to_show(&path).map_err(message)
 }
 
 /// How an export would lay out the controllers' channels (changes nothing).

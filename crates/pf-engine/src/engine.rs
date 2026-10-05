@@ -9,6 +9,7 @@ use crate::playback::{
     self, ClockFactory, DocumentRequest, PlayRequest, PlaybackReady, PlaybackSession, PlaybackStatus,
     SessionKind, document_music,
 };
+use crate::recovery::{self, SequenceRecovery};
 use crate::sequence_doc::{self, OpenSequence, SequenceEdit, SequenceEditResult, SequenceSnapshot};
 use crate::snapshot::{PreviewProp, ShowSnapshot, Summary};
 use pf_mapping::ChannelMap;
@@ -73,6 +74,12 @@ pub struct Engine {
     sequence_revision: u64,
     /// A renderer for previewing the open sequence, and the show revision it was made for.
     preview_renderer: Option<(u64, Renderer)>,
+    /// Whether a playing sequence document is sent to the controllers (else only the preview).
+    send_sequence_doc: bool,
+    /// Names this run's kept unsaved sequence (see [`Engine::autosave_sequence`]).
+    session: String,
+    /// The sequence document and revision last kept, so an unchanged one isn't written again.
+    sequence_autosaved: Option<(u64, u64)>,
 }
 
 /// Everything needed to export the open sequence, copied out of the engine so a long export
@@ -151,6 +158,9 @@ impl Engine {
             sequence: None,
             sequence_revision: 0,
             preview_renderer: None,
+            send_sequence_doc: true,
+            session: recovery::new_session(),
+            sequence_autosaved: None,
         }
     }
 
@@ -547,13 +557,16 @@ impl Engine {
 
     // --- Sequence documents -------------------------------------------------------------------
 
-    /// Starts a new, unsaved sequence document (replacing the open one, without asking).
+    /// Starts a new, unsaved sequence document with `audio` as its music, if given (replacing
+    /// the open one, without asking). It starts with nothing to undo.
     pub fn new_sequence_doc(
         &mut self,
         name: &str,
         duration_ms: u64,
+        audio: Option<&str>,
     ) -> Result<SequenceSnapshot, EngineError> {
-        let doc = Sequence::new(name, duration_ms);
+        let mut doc = Sequence::new(name, duration_ms);
+        doc.audio = audio.filter(|a| !a.trim().is_empty()).map(str::to_owned);
         if let Some(problem) = pf_sequence::limit_problems(&doc).into_iter().next() {
             return Err(EngineError::TooLarge(problem));
         }
@@ -590,6 +603,8 @@ impl Engine {
         sequence_doc::save_sequence_atomic(path, &moved.doc)?;
         *open = moved;
         open.mark_saved(path);
+        // Saved: there's nothing left to recover.
+        self.forget_sequence_autosave();
         Ok(self.sequence_snapshot_unchecked())
     }
 
@@ -597,6 +612,66 @@ impl Engine {
     pub fn close_sequence_doc(&mut self) {
         self.stop_document_playback();
         self.sequence = None;
+        self.forget_sequence_autosave();
+    }
+
+    /// Keeps the open sequence on disk while it has unsaved changes (call it now and then, and
+    /// when the app quits), so the work can be recovered if PixelFlow closes without saving it.
+    /// Writes only when the sequence changed since it was last kept; returns whether it wrote.
+    /// A saved, closed, or replaced sequence's copy is removed.
+    pub fn autosave_sequence(&mut self) -> Result<bool, EngineError> {
+        let Some(open) = self.sequence.as_ref().filter(|o| o.is_dirty()) else {
+            self.forget_sequence_autosave();
+            return Ok(false);
+        };
+        let kept = (open.id(), open.snapshot_revision());
+        if self.sequence_autosaved == Some(kept) {
+            return Ok(false);
+        }
+        recovery::write(
+            &recovery::dir(&self.data_dir),
+            &self.session,
+            &open.doc,
+            open.path.as_deref(),
+        )?;
+        self.sequence_autosaved = Some(kept);
+        Ok(true)
+    }
+
+    /// Unsaved sequences kept by earlier runs of PixelFlow (newest first), to offer back.
+    pub fn sequence_recoveries(&self) -> Vec<SequenceRecovery> {
+        recovery::list(&recovery::dir(&self.data_dir), &self.session)
+    }
+
+    /// Opens a kept unsaved sequence (replacing the open one, without asking). It opens with
+    /// unsaved changes and its old file, if it had one, so Save writes it back there. Its kept
+    /// copy is then this run's to keep up to date.
+    pub fn recover_sequence(&mut self, id: &str) -> Result<SequenceSnapshot, EngineError> {
+        let dir = recovery::dir(&self.data_dir);
+        let (doc, path) = recovery::load(&dir, id, &self.session)?;
+        if let Some(problem) = pf_sequence::limit_problems(&doc).into_iter().next() {
+            return Err(EngineError::TooLarge(problem));
+        }
+        let mut open = OpenSequence::new(doc, path, self.sequence_revision + 1);
+        open.mark_unsaved();
+        self.replace_sequence(open);
+        recovery::remove(&dir, id);
+        // Kept again under this run's name at once; if that fails, the next autosave tries again
+        // (the sequence stays open and unsaved meanwhile).
+        let _ = self.autosave_sequence();
+        Ok(self.sequence_snapshot_unchecked())
+    }
+
+    /// Throws away a kept unsaved sequence from an earlier run.
+    pub fn discard_sequence_recovery(&mut self, id: &str) {
+        if id != self.session {
+            recovery::remove(&recovery::dir(&self.data_dir), id);
+        }
+    }
+
+    fn forget_sequence_autosave(&mut self) {
+        recovery::remove(&recovery::dir(&self.data_dir), &self.session);
+        self.sequence_autosaved = None;
     }
 
     /// Identifies the open sequence document: it stays the same across edits and changes when
@@ -740,6 +815,7 @@ impl Engine {
             path,
             music,
             show_error: first_error(&report).map(|i| i.message.clone()),
+            send: self.send_sequence_doc,
             volume: self.volume,
         };
         let transport = (self.transport)().map_err(EngineError::Network)?;
@@ -758,6 +834,57 @@ impl Engine {
         self.playback = Some(session);
         self.playback_stop_reason = None;
         Ok(ready)
+    }
+
+    /// Whether a playing sequence document goes out to the controllers (on by default) or only
+    /// to the preview, for editing without lighting up the house. A playing document switches
+    /// at once, without restarting its music.
+    pub fn set_sequence_doc_output(&mut self, send: bool) -> Option<PlaybackStatus> {
+        self.send_sequence_doc = send;
+        if self
+            .playback
+            .as_ref()
+            .is_some_and(|s| matches!(s.kind(), SessionKind::Document { .. }))
+        {
+            self.sync_document_playback();
+        }
+        self.playback_status()
+    }
+
+    /// Adds an export of the open sequence (the `.fseq` file at `fseq`) to the show's sequences,
+    /// named after the sequence and with its music, as one undo step on the show. When the show
+    /// already lists that file, its entry is updated instead (name and music; nothing else).
+    pub fn add_sequence_doc_to_show(&mut self, fseq: &Path) -> Result<ShowSnapshot, EngineError> {
+        let open = self.sequence.as_ref().ok_or(EngineError::NoSequence)?;
+        let name = match open.doc.name.trim() {
+            "" => "Sequence".to_string(),
+            name => name.to_string(),
+        };
+        let path = fseq.display().to_string();
+        let audio = self.sequence_music().map(|p| p.display().to_string());
+        // Exported to the same file again: bring that entry up to date instead of adding another.
+        if let Some(existing) = self.show.sequences.iter().find(|s| s.path == path) {
+            let taken = |n: &str| {
+                self.show
+                    .sequences
+                    .iter()
+                    .any(|s| s.name == n && s.id != existing.id)
+            };
+            let mut updated = existing.clone();
+            if !taken(&name) {
+                updated.name = name;
+            }
+            updated.audio = audio;
+            return self.apply(vec![Edit::UpdateSequence { sequence: updated }]);
+        }
+        let mut entry = pf_model::SequenceEntry::new(name, path);
+        entry.audio = audio;
+        self.add_sequence(entry)
+    }
+
+    /// Whether a playing sequence document goes out to the controllers.
+    pub fn sequence_doc_output(&self) -> bool {
+        self.send_sequence_doc
     }
 
     /// What exporting the open sequence needs, to run without holding the engine.
@@ -779,6 +906,8 @@ impl Engine {
 
     fn replace_sequence(&mut self, open: OpenSequence) {
         self.stop_document_playback();
+        // The old sequence's kept copy goes with it (the UI asks before dropping changes).
+        self.forget_sequence_autosave();
         self.sequence_revision = open.snapshot_revision();
         self.sequence = Some(open);
     }
@@ -864,6 +993,7 @@ impl Engine {
             &map,
             &open.doc,
             show_error.as_deref(),
+            self.send_sequence_doc,
             transport,
             self.output_settings.clone(),
         );
@@ -985,6 +1115,7 @@ impl Engine {
             key,
             map: old_map,
             preview_only,
+            sending,
             ..
         } = session.kind()
         else {
@@ -992,7 +1123,11 @@ impl Engine {
         };
         let (map, report) = analyze(&self.show);
         let has_errors = first_error(&report).is_some();
-        if has_errors == *preview_only && output_key(&self.show, &map) == *key && map == *old_map {
+        if has_errors == *preview_only
+            && *sending == self.send_sequence_doc
+            && output_key(&self.show, &map) == *key
+            && map == *old_map
+        {
             session.update_renderer(Renderer::new(&self.show, &map));
         } else {
             self.rebuild_document_output();

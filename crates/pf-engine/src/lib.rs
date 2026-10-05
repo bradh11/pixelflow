@@ -17,6 +17,7 @@ mod history;
 mod output;
 mod persist;
 mod playback;
+mod recovery;
 mod sequence_doc;
 mod snapshot;
 
@@ -31,6 +32,7 @@ pub use pf_render::export::{ExportBlock, ExportLayout, ExportSummary};
 pub use playback::{
     ClockFactory, PlayRequest, PlaybackReady, PlaybackStatus, music_clocks, sequence_entry_for,
 };
+pub use recovery::SequenceRecovery;
 pub use sequence_doc::{
     PlacedEffect, SequenceChanges, SequenceEdit, SequenceEditResult, SequenceInfo, SequenceSnapshot,
     load_sequence, save_sequence_atomic,

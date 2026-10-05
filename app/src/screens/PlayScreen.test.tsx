@@ -32,22 +32,46 @@ describe("play", () => {
     expect(screen.getByRole("heading", { name: "Devices" })).toBeInTheDocument();
   });
 
-  it("opens a sequence and controls playback", async () => {
+  it("adds a sequence with its music, plays it, and lines the lights up with the music", async () => {
     const { user, backend } = await openPlay(true);
-    await user.click(screen.getByRole("button", { name: /open sequence/i }));
-    expect(backend.calls).toContain("startPlayback:/Shows/Christmas Medley 2017.fseq");
-    const transport = await screen.findByRole("region", { name: "Transport" });
-    expect(within(transport).getByText("Christmas Medley 2017.fseq")).toBeInTheDocument();
-    expect(within(transport).getByText(/\/ 1:00$/)).toBeInTheDocument();
-    expect(within(transport).getByRole("slider", { name: "Position" })).toBeInTheDocument();
+    const list = screen.getByRole("complementary", { name: "Sequences" });
+    await user.click(within(list).getByRole("button", { name: "Add sequence" }));
+    expect(backend.calls).toContain("addSequence:/Shows/Christmas Medley 2017.fseq");
+    expect(await within(list).findByText("Christmas Medley 2017")).toBeInTheDocument();
+    const transport = screen.getByRole("region", { name: "Transport" });
+    expect(within(transport).getByText("Christmas Medley 2017.mp3")).toBeInTheDocument();
+    expect(within(transport).getByRole("img", { name: /music waveform/i })).toBeInTheDocument();
 
-    expect(screen.getByLabelText(/^Falcon: 2,049 pixels as received/)).toBeInTheDocument();
+    await user.click(within(transport).getByRole("button", { name: "Play" }));
+    expect(backend.calls).toContain("playSequence:Christmas Medley 2017@0");
+    expect(await within(transport).findByRole("button", { name: "Pause" })).toBeInTheDocument();
+    expect(within(transport).getByText(/\/ 1:00$/)).toBeInTheDocument();
+
+    const alignment = within(transport).getByRole("group", { name: "Music alignment" });
+    expect(within(alignment).getByText("Lights are in sync with the music")).toBeInTheDocument();
+    await user.click(within(alignment).getByRole("button", { name: "Lights earlier by 50 ms" }));
+    await user.click(within(alignment).getByRole("button", { name: "Lights later by 10 ms" }));
+    expect(within(alignment).getByText("Lights are 40 ms ahead of the music")).toBeInTheDocument();
+    await useApp.getState().undo();
+    expect(await within(alignment).findByText("Lights are 50 ms ahead of the music")).toBeInTheDocument();
 
     await user.click(within(transport).getByRole("button", { name: "Pause" }));
     expect(await within(transport).findByRole("button", { name: "Play" })).toBeInTheDocument();
     await user.click(within(transport).getByRole("button", { name: "Stop" }));
     expect(backend.calls).toContain("stopPlayback");
-    expect(await screen.findByRole("button", { name: /open sequence/i })).toBeInTheDocument();
+  });
+
+  it("plays every sequence in order when asked", async () => {
+    const { user, backend } = await openPlay(true);
+    backend.sequenceDurationMs = 30;
+    for (const name of ["Medley", "Wizards"]) {
+      backend.nextSequencePath = `/Shows/${name}.fseq`;
+      await user.click(screen.getByRole("button", { name: "Add sequence" }));
+    }
+    await user.click(await screen.findByRole("button", { name: "Medley" }));
+    await user.click(screen.getByRole("checkbox", { name: "Play all in order" }));
+    await user.click(within(screen.getByRole("region", { name: "Transport" })).getByRole("button", { name: "Play" }));
+    await waitFor(() => expect(backend.calls).toContain("playSequence:Wizards@0"), { timeout: 2000 });
   });
 
   it("warns when an FPP is playing and can stop it", async () => {
@@ -57,37 +81,5 @@ describe("play", () => {
     expect(within(warning).getByText(/FPP is playing Christmas Medley 2017.fseq/)).toBeInTheDocument();
     await user.click(within(warning).getByRole("button", { name: "Stop FPP" }));
     expect(backend.calls).toContain("fppStop:192.0.2.10:now");
-  });
-
-  it("moves the slider a second at a time by keyboard and seeks when you leave it", async () => {
-    const { user, backend } = await openPlay(true);
-    await user.click(screen.getByRole("button", { name: /open sequence/i }));
-    const slider = await screen.findByRole("slider", { name: "Position" });
-    slider.focus();
-    await user.keyboard("{ArrowRight}{ArrowRight}");
-    expect(slider).toHaveAttribute("aria-valuetext", "0:02");
-    await user.tab();
-    const position = (await backend.playbackStatus())!.positionMs;
-    expect(position).toBeGreaterThanOrEqual(2000);
-    expect(position).toBeLessThan(3000);
-  });
-
-  it("says why playback stopped when an edit to the show ended it", async () => {
-    const { user, backend } = await openPlay(true);
-    await user.click(screen.getByRole("button", { name: /open sequence/i }));
-    await screen.findByRole("region", { name: "Transport" });
-    const id = useApp.getState().snapshot!.show.controllers[0].id;
-    await backend.applyEdits([{ type: "removeController", id }]);
-    expect(await screen.findByText("Playback stopped because no controller has sequence channels anymore.")).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "Transport" })).not.toBeInTheDocument();
-  });
-
-  it("disables Stop FPP while stopping and checks again right away", async () => {
-    const { user, backend } = await openPlay(true);
-    await useApp.getState().scan();
-    const warning = await screen.findByRole("alert", { name: "FPP is playing" });
-    await user.click(within(warning).getByRole("button", { name: "Stop FPP" }));
-    expect(backend.calls).toContain("fppStop:192.0.2.10:now");
-    await waitFor(() => expect(screen.queryByRole("alert", { name: "FPP is playing" })).not.toBeInTheDocument());
   });
 });

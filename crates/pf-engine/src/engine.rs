@@ -767,6 +767,57 @@ impl Engine {
         document_music(open.path.as_deref(), open.doc.audio.as_deref())
     }
 
+    /// The open sequence document, to read (a timing track to export, say). Copy out what's
+    /// needed and let go of the engine before slow work.
+    pub fn sequence_document(&self) -> Option<&Sequence> {
+        self.sequence.as_ref().map(|open| &open.doc)
+    }
+
+    /// Adds timing tracks (from a file, say) after the others, as one undo step. Nothing is
+    /// replaced: a track named like one already there gets a number ("Lyrics 2", "Lyrics 2 (words)").
+    pub fn add_timing_tracks(
+        &mut self,
+        tracks: Vec<pf_sequence::TimingTrack>,
+    ) -> Result<SequenceEditResult, EngineError> {
+        let open = self.sequence.as_ref().ok_or(EngineError::NoSequence)?;
+        let mut taken: std::collections::HashSet<String> =
+            open.doc.timing_tracks.iter().map(|t| t.name.clone()).collect();
+        // A lyrics timing comes as "Name", "Name (words)" and "Name (phonemes)"; a taken name
+        // gets its number on the shared part ("Name 2 (words)"), so the layers stay paired.
+        const LAYERS: [&str; 3] = ["", " (words)", " (phonemes)"];
+        let mut renamed: std::collections::HashMap<String, String> = Default::default();
+        let edits = tracks
+            .into_iter()
+            .map(|mut track| {
+                let suffix = LAYERS[1..]
+                    .iter()
+                    .copied()
+                    .find(|s| track.name.ends_with(s) && track.name.len() > s.len())
+                    .unwrap_or("");
+                let base = track.name[..track.name.len() - suffix.len()].to_string();
+                let reuse = renamed
+                    .get(&base)
+                    .filter(|b| !taken.contains(&format!("{b}{suffix}")))
+                    .cloned();
+                let new_base = reuse.unwrap_or_else(|| {
+                    let free = |b: &str| LAYERS.iter().all(|l| !taken.contains(&format!("{b}{l}")));
+                    let mut name = base.clone();
+                    let mut n = 2;
+                    while !free(&name) {
+                        name = format!("{base} {n}");
+                        n += 1;
+                    }
+                    renamed.insert(base.clone(), name.clone());
+                    name
+                });
+                track.name = format!("{new_base}{suffix}");
+                taken.insert(track.name.clone());
+                SequenceEdit::AddTimingTrack { track }
+            })
+            .collect();
+        self.edit_sequence(edits)
+    }
+
     /// Adds timing tracks (from beat detection, say) as one undo step, replacing any tracks
     /// with the same names so running detection again doesn't pile up copies.
     pub fn replace_timing_tracks(

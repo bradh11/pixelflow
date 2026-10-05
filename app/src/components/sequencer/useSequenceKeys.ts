@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import type { Sequence, SequenceEdit } from "../../api/sequence";
-import { buildIndex, nudgeEdits, pasteEffects, stepTime } from "../../lib/timelineMath";
+import { buildIndex, markIndices, nudgeEdits, pasteEffects, stepTime } from "../../lib/timelineMath";
 import { type Copied, newGesture, useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
 
@@ -16,7 +16,8 @@ function beatTimes(): number[] {
  * the selected effects, or the playhead, by a frame (with Shift, to the next beat); Up and Down pick
  * the row above or below and the effect under the playhead on it; Home and End
  * jump; Delete removes; ⌘C, ⌘V, and ⌘D copy, paste at the playhead, and duplicate; ⌘A selects
- * everything; Escape clears the selection. Undo, redo, and save are global shortcuts.
+ * everything; Escape clears the selection; T taps a timing mark in at the playhead (tap to time).
+ * Undo, redo, and save are global shortcuts.
  */
 export function useSequenceKeys() {
   useEffect(() => {
@@ -44,7 +45,8 @@ export function useSequenceKeys() {
       if (e.defaultPrevented) return;
       const target = e.target as HTMLElement | null;
       if (target && (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.isContentEditable)) return;
-      if (target?.closest?.("[role=dialog]")) return;
+      // Not while a dialog or a menu (a timing track's ⋯ menu) has the keys.
+      if (target?.closest?.("[role=dialog], [role=menu]")) return;
       const app = useApp.getState();
       if (app.paletteOpen || app.pendingReplace) return;
       const s = useSequencer.getState();
@@ -92,6 +94,27 @@ export function useSequenceKeys() {
         e.preventDefault();
         void s.seek(key === "Home" ? 0 : doc.durationMs);
         s.reveal();
+        return;
+      }
+      if ((key === "t" || key === "T") && !mod && !e.altKey) {
+        // Tap to time: a mark at the playhead on the picked timing track.
+        e.preventDefault();
+        if (!e.repeat) s.tap();
+        return;
+      }
+      if ((key === "Delete" || key === "Backspace") && s.markSelection) {
+        e.preventDefault();
+        const { track, starts } = s.markSelection;
+        s.selectMarks(track, []);
+        void s.edit((latest) => {
+          const t = latest.timingTracks.find((x) => x.id === track);
+          const indices = t ? markIndices(t, starts) : [];
+          return t && indices.length > 0 ? [{ type: "removeMarks", track, indices }] : [];
+        });
+        return;
+      }
+      if (key === "Escape" && s.markSelection) {
+        s.selectMarks(s.markSelection.track, []);
         return;
       }
       if ((key === "Delete" || key === "Backspace") && s.selection.length > 0) {

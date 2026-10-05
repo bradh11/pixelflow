@@ -15,6 +15,7 @@ import {
   type ExportLayout,
   type ExportProgress,
   type ExportSummary,
+  type Mark,
   type Row,
   type Sequence,
   type SequenceChanges,
@@ -23,9 +24,12 @@ import {
   type SequenceIssue,
   type SequenceRecovery,
   type SequenceSnapshot,
+  type TimingImported,
   type TimingTrack,
 } from "./sequence";
 import type { SequencerApi } from "./sequencer";
+import * as marks from "./timingMarks";
+import { formatMs } from "./timingMarks";
 
 /** The engine's effect catalog (a copy of the Rust table). */
 export const EFFECT_CATALOG = catalogJson as unknown as EffectInfo[];
@@ -36,14 +40,20 @@ function fail(message: string): never {
   throw new Error(message);
 }
 
-/** Like the engine's format_ms: 1:02.500, or 1:02:03.000 past an hour. */
-export function formatMs(ms: number): string {
-  const h = Math.floor(ms / 3_600_000);
-  const m = Math.floor((ms % 3_600_000) / 60_000);
-  const s = Math.floor((ms % 60_000) / 1000);
-  const milli = String(ms % 1000).padStart(3, "0");
-  const ss = String(s).padStart(2, "0");
-  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}.${milli}` : `${m}:${ss}.${milli}`;
+export { formatMs };
+
+/** Characters in a name or label (the engine's MAX_TEXT_LEN). */
+const MAX_TEXT_LEN = 4096;
+
+/** The first timing size limit the sequence breaks, in the engine's words; null when it fits. */
+export function timingLimitProblem(doc: Sequence): string | null {
+  const count = doc.timingTracks.reduce((n, t) => n + t.marks.length, 0);
+  if (count > marks.MAX_MARKS) return `The sequence has ${count} timing marks; at most ${marks.MAX_MARKS} are allowed.`;
+  const tooLong = (s: string) => [...s].length > MAX_TEXT_LEN;
+  if (doc.timingTracks.some((t) => tooLong(t.name) || t.marks.some((m) => tooLong(m.label)))) {
+    return `A name, label, or file path in the sequence is longer than ${MAX_TEXT_LEN} characters.`;
+  }
+  return null;
 }
 
 /** The first effect setting outside its catalog range, in the engine's words; null when all fit. */
@@ -172,20 +182,145 @@ export function applySequenceEdit(doc: Sequence, edit: SequenceEdit) {
       return;
     }
     case "addTimingTrack":
+      marks.checkMarks(edit.track);
       if (doc.timingTracks.some((t) => t.id === edit.track.id)) fail("A timing track with that id already exists.");
       doc.timingTracks.push(structuredClone(edit.track));
       return;
     case "updateTimingTrack": {
+      marks.checkMarks(edit.track);
       const at = doc.timingTracks.findIndex((t) => t.id === edit.track.id);
       if (at < 0) gone("timing track");
       doc.timingTracks[at] = structuredClone(edit.track);
       return;
     }
     case "removeTimingTrack":
-      if (!doc.timingTracks.some((t) => t.id === edit.id)) gone("timing track");
+      findTrack(doc, edit.id);
       doc.timingTracks = doc.timingTracks.filter((t) => t.id !== edit.id);
       return;
+    case "renameTimingTrack": {
+      const name = edit.name.trim();
+      if (!name) fail("A timing track needs a name.");
+      findTrack(doc, edit.id).name = name;
+      return;
+    }
+    case "moveTimingTrack": {
+      const track = findTrack(doc, edit.id);
+      doc.timingTracks = doc.timingTracks.filter((t) => t.id !== edit.id);
+      doc.timingTracks.splice(Math.min(edit.index, doc.timingTracks.length), 0, track);
+      return;
+    }
+    case "addMarks": {
+      const track = editableTrack(doc, edit.track);
+      if (edit.marks.length > 0) marks.checkInside(Math.max(...edit.marks.map((m) => m.endMs)), doc.durationMs);
+      marks.addMarks(track, edit.marks);
+      return;
+    }
+    case "setMark": {
+      const track = editableTrack(doc, edit.track);
+      if (edit.index >= track.marks.length) markGone();
+      marks.checkMark(edit.mark);
+      // A mark already past the end (the sequence was shortened) can still be relabelled.
+      if (edit.mark.endMs > track.marks[edit.index].endMs) marks.checkInside(edit.mark.endMs, doc.durationMs);
+      const other = marks.overlapWith(track.marks, edit.mark, [edit.index]);
+      if (other >= 0) fail(marks.overlapMessage(track, track.marks[other]));
+      track.marks.splice(edit.index, 1);
+      track.marks.splice(marks.insertIndex(track.marks, edit.mark.startMs), 0, { ...edit.mark });
+      return;
+    }
+    case "removeMarks": {
+      const track = editableTrack(doc, edit.track);
+      if (edit.indices.some((i) => i >= track.marks.length)) markGone();
+      const goneAt = new Set(edit.indices);
+      track.marks = track.marks.filter((_, i) => !goneAt.has(i));
+      return;
+    }
+    case "splitMark": {
+      const track = editableTrack(doc, edit.track);
+      const mark = track.marks[edit.index] ?? markGone();
+      if (edit.atMs <= mark.startMs || edit.atMs >= mark.endMs) {
+        fail(`Split a mark at a time inside it (between ${formatMs(mark.startMs)} and ${formatMs(mark.endMs)}).`);
+      }
+      track.marks.splice(edit.index, 1, { ...mark, endMs: edit.atMs }, { startMs: edit.atMs, endMs: mark.endMs, label: "" });
+      return;
+    }
+    case "mergeMarks": {
+      const track = editableTrack(doc, edit.track);
+      const first = track.marks[edit.index] ?? markGone();
+      const next = track.marks[edit.index + 1] ?? fail("There's no mark after that one to merge it with.");
+      const label = [first.label.trim(), next.label.trim()].filter(Boolean).join(" ");
+      track.marks.splice(edit.index, 2, { startMs: first.startMs, endMs: Math.max(first.endMs, next.endMs), label });
+      return;
+    }
+    case "generateMarks": {
+      marks.checkInside(edit.toMs, doc.durationMs);
+      const made = marks.fixedMarks(edit.everyMs, edit.fromMs, edit.toMs);
+      replaceRange(editableTrack(doc, edit.track), edit.fromMs, edit.toMs, made);
+      return;
+    }
+    case "copyMarks": {
+      const made = marks.everyNthMark(findTrack(doc, edit.from).marks, edit.every);
+      const track = editableTrack(doc, edit.to);
+      track.marks = [];
+      marks.addMarks(track, made);
+      return;
+    }
+    case "spreadLyrics": {
+      marks.checkInside(edit.toMs, doc.durationMs);
+      const made = marks.spreadPhrases(edit.lines, edit.fromMs, edit.toMs);
+      replaceRange(editableTrack(doc, edit.track), edit.fromMs, edit.toMs, made);
+      return;
+    }
+    case "labelMarks": {
+      const track = editableTrack(doc, edit.track);
+      if (edit.indices.length !== edit.labels.length) {
+        fail(
+          `There are ${count(edit.labels.length, "line of lyrics", "lines of lyrics")} and ${count(edit.indices.length, "chosen mark", "chosen marks")}; choose one mark per line, or spread the lyrics over a time range instead.`,
+        );
+      }
+      if (edit.indices.some((i) => i >= track.marks.length)) markGone();
+      edit.indices.forEach((i, k) => (track.marks[i] = { ...track.marks[i], label: edit.labels[k].trim() }));
+      return;
+    }
+    case "breakIntoWords": {
+      if (edit.track === edit.words) fail("Put the words on a different timing track from the phrases.");
+      const phrases = findTrack(doc, edit.track);
+      const chosen = edit.indices.map((i) => phrases.marks[i] ?? markGone());
+      const target = editableTrack(doc, edit.words);
+      let made = 0;
+      for (const phrase of chosen) {
+        const words = marks.splitWords(phrase);
+        if (words.length === 0) continue;
+        made += words.length;
+        replaceRange(target, phrase.startMs, phrase.endMs, words);
+      }
+      if (made === 0) fail("Those marks have no words in them yet. Give them lyrics first.");
+      return;
+    }
   }
+}
+
+function findTrack(doc: Sequence, id: string): TimingTrack {
+  return doc.timingTracks.find((t) => t.id === id) ?? gone("timing track");
+}
+
+/** A track whose marks may change (phonemes from xLights stay as they are). */
+function editableTrack(doc: Sequence, id: string): TimingTrack {
+  const track = findTrack(doc, id);
+  if (track.kind === "phonemes") fail("Phoneme tracks come from xLights and can't be edited here; edit the words instead.");
+  return track;
+}
+
+function markGone(): never {
+  return fail("That mark isn't on the timing track anymore.");
+}
+
+function replaceRange(track: TimingTrack, fromMs: number, toMs: number, made: Mark[]) {
+  marks.clearRange(track, fromMs, toMs);
+  marks.addMarks(track, made);
+}
+
+function count(n: number, one: string, many: string): string {
+  return n === 1 ? `1 ${one}` : `${n} ${many}`;
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -253,6 +388,11 @@ export class MemorySequencer implements SequencerApi {
   /** What the xLights sequence dialog returns, and what importing any .xsq produces. */
   nextXlightsSequencePath: string | null = null;
   xlightsSequenceImport: { sequence: Sequence; summary: SequenceImportSummary; notes: string[] } | null = null;
+  /** Timing files "on disk" (what importing each gives), the tracks exported to each path, and
+   * what the timing file dialog returns. */
+  timingFiles = new Map<string, { tracks: TimingTrack[]; notes: string[] }>();
+  exportedTimingFiles = new Map<string, TimingTrack[]>();
+  nextTimingPath: string | null = null;
   private lastGesture: string | null = null;
   /** Changes with every new or opened document (like the engine's sequence_doc_id). */
   private docId = 0;
@@ -374,7 +514,7 @@ export class MemorySequencer implements SequencerApi {
     const before = this.open_();
     const next = structuredClone(before);
     for (const edit of edits) applySequenceEdit(next, edit);
-    const problem = settingProblem(next);
+    const problem = settingProblem(next) ?? timingLimitProblem(next);
     if (problem) fail(problem);
     if (same(before, next)) return this.result(null);
     const changes = diffSequences(before, next);
@@ -527,6 +667,65 @@ export class MemorySequencer implements SequencerApi {
       ...tracks.map((track) => ({ type: "addTimingTrack" as const, track })),
     ];
     return this.editSequence(edits);
+  }
+
+  async importTimingFile(path: string): Promise<TimingImported> {
+    this.calls.push(`importTimingFile:${path}`);
+    this.open_();
+    const docId = this.docId;
+    const file = this.timingFiles.get(path) ?? fail(`Could not read ${path}: no such file`);
+    await this.reply(undefined, this.analysisDelayMs);
+    if (this.docId !== docId) fail("Another sequence was opened while the timing file was being read. Import it again.");
+    if (file.tracks.length === 0) fail("That file has no timing marks PixelFlow can use.");
+    // Named as the engine names them: a taken name gets its number on the part a lyrics timing's
+    // layers share ("Vocals 2", "Vocals 2 (words)"), so they stay paired.
+    const taken = new Set(this.open_().timingTracks.map((t) => t.name));
+    const layers = ["", " (words)", " (phonemes)"];
+    const renamed = new Map<string, string>();
+    const tracks = file.tracks.map((track) => {
+      const suffix = layers.slice(1).find((l) => track.name.endsWith(l) && track.name.length > l.length) ?? "";
+      const base = track.name.slice(0, track.name.length - suffix.length);
+      let next = renamed.get(base);
+      if (next === undefined || taken.has(`${next}${suffix}`)) {
+        const free = (b: string) => layers.every((l) => !taken.has(`${b}${l}`));
+        next = base;
+        for (let n = 2; !free(next); n++) next = `${base} ${n}`;
+        renamed.set(base, next);
+      }
+      const name = `${next}${suffix}`;
+      taken.add(name);
+      return { ...structuredClone(track), id: crypto.randomUUID(), name };
+    });
+    const result = await this.editSequence(tracks.map((track) => ({ type: "addTimingTrack" as const, track })));
+    return { result, tracks: tracks.map((t) => t.name), notes: [...file.notes] };
+  }
+
+  async exportTimingTrack(id: string, path: string): Promise<number> {
+    this.calls.push(`exportTimingTrack:${path}`);
+    const doc = this.open_();
+    const track = doc.timingTracks.find((t) => t.id === id) ?? fail("That timing track isn't in the sequence anymore.");
+    if (!/\.(xtiming|xml|txt)$/i.test(path)) fail("Timing tracks are saved as xLights timing files (.xtiming) or Audacity labels (.txt).");
+    const layers = [track];
+    if (track.kind === "lyrics" && /\.(xtiming|xml)$/i.test(path)) {
+      for (const [suffix, kind] of [
+        ["words", "words"],
+        ["phonemes", "phonemes"],
+      ] as const) {
+        const layer = doc.timingTracks.find((t) => t.name === `${track.name} (${suffix})` && t.kind === kind);
+        if (!layer) break;
+        layers.push(layer);
+      }
+    }
+    this.exportedTimingFiles.set(path, structuredClone(layers));
+    return track.marks.length;
+  }
+
+  async pickTimingFilePath() {
+    return this.nextTimingPath;
+  }
+
+  async pickTimingExportPath(_defaultName: string) {
+    return this.nextSavePath;
   }
 
   async importXlightsSequence(path: string) {

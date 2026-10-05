@@ -12,6 +12,7 @@ import type {
   SequenceEditResult,
   SequenceRecovery,
   SequenceSnapshot,
+  TimingImported,
 } from "./sequence";
 
 /** The event the engine sends while exporting. */
@@ -20,6 +21,11 @@ export const EXPORT_PROGRESS_EVENT = "sequence-export-progress";
 const DOCUMENT_FILTER = [{ name: "PixelFlow sequence", extensions: ["json"] }];
 const FSEQ_FILTER = [{ name: "FPP sequence", extensions: ["fseq"] }];
 const XSQ_FILTER = [{ name: "xLights sequence", extensions: ["xsq"] }];
+const TIMING_FILTERS = [
+  { name: "Timing files (xLights .xtiming, Audacity labels .txt)", extensions: ["xtiming", "txt"] },
+  { name: "xLights timing", extensions: ["xtiming"] },
+  { name: "Audacity labels", extensions: ["txt"] },
+];
 
 /** Everything the sequencer asks of the engine. Errors reject with a plain-language message. */
 export interface SequencerApi {
@@ -74,6 +80,17 @@ export interface SequencerApi {
    * another sequence was opened, or the music changed, while the beats were being found.
    */
   detectBeats(): Promise<SequenceEditResult>;
+  /**
+   * Adds the timing tracks in an xLights `.xtiming` file or Audacity labels (`.txt`) after the
+   * others (one undo step); a name already taken gets a number. Rejects if another sequence was
+   * opened while the file was being read.
+   */
+  importTimingFile(path: string): Promise<TimingImported>;
+  /** Writes a timing track to `.xtiming` (a lyrics track with its words and phonemes) or Audacity
+   * labels (any other extension); resolves with how many marks were written. */
+  exportTimingTrack(id: string, path: string): Promise<number>;
+  pickTimingFilePath(): Promise<string | null>;
+  pickTimingExportPath(defaultName: string): Promise<string | null>;
   /** Imports the xLights sequence (.xsq) at `path` onto the open show and opens it as a new,
    * unsaved sequence. It replaces the open sequence without asking: check `getSequenceDoc()`
    * for unsaved changes first (the store's importXlightsSequence does). */
@@ -121,6 +138,13 @@ export const tauriSequencer: SequencerApi = {
   cancelSequenceExport: () => invoke("cancel_sequence_export"),
   analyzeAudio: (path) => invoke("analyze_audio", { path }),
   detectBeats: () => invoke("detect_beats"),
+  importTimingFile: (path) => invoke("import_timing_file", { path }),
+  exportTimingTrack: (id, path) => invoke("export_timing_track", { id, path }),
+  pickTimingFilePath: async () => {
+    const path = await open({ multiple: false, directory: false, filters: TIMING_FILTERS });
+    return typeof path === "string" ? path : null;
+  },
+  pickTimingExportPath: async (defaultName) => (await save({ defaultPath: defaultName, filters: TIMING_FILTERS.slice(1) })) ?? null,
   importXlightsSequence: (path) => invoke("import_xlights_sequence", { path }),
   pickXlightsSequencePath: async () => {
     const path = await open({ multiple: false, directory: false, filters: XSQ_FILTER });

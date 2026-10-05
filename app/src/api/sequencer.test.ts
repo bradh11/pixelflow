@@ -93,6 +93,8 @@ describe("tauriSequencer", () => {
     await tauriSequencer.detectBeats();
     await tauriSequencer.setSequenceDocOutput(false);
     await tauriSequencer.addSequenceDocToShow("/shows/song.fseq");
+    await tauriSequencer.importTimingFile("/shows/Lyrics.xtiming");
+    await tauriSequencer.exportTimingTrack("t1", "/shows/Lyrics.txt");
     expect(invoke.mock.calls).toEqual([
       ["new_sequence_doc", { name: "Song", durationMs: 180_000, audio: "/music/song.mp3" }],
       ["sequence_recoveries"],
@@ -107,6 +109,8 @@ describe("tauriSequencer", () => {
       ["detect_beats"],
       ["set_sequence_doc_output", { send: false }],
       ["add_sequence_doc_to_show", { path: "/shows/song.fseq" }],
+      ["import_timing_file", { path: "/shows/Lyrics.xtiming" }],
+      ["export_timing_track", { id: "t1", path: "/shows/Lyrics.txt" }],
     ]);
     expect(listen).not.toHaveBeenCalled();
   });

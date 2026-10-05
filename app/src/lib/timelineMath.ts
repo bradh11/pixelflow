@@ -1,7 +1,8 @@
 // Pure timeline math: time ↔ pixels, zoom, ruler ticks, snapping, lanes, hit testing, selection,
 // and the edits that drags, pastes, and the keyboard turn into. No React, no engine calls.
 
-import type { Effect, Mark, Row, Sequence, SequenceEdit } from "../api/sequence";
+import type { Effect, Mark, Row, Sequence, SequenceEdit, TimingTrack } from "../api/sequence";
+import { insertIndex } from "../api/timingMarks";
 
 /** What part of the song the timeline shows: the time at its left edge and the zoom. */
 export interface View {
@@ -90,14 +91,17 @@ export function rulerTicks(view: View, width: number): RulerTicks {
 
 // --- Snapping ---------------------------------------------------------------------------------
 
-/** Every time an edge may snap to: timing marks, other effects' edges, and the start. */
-export function snapTargets(doc: Sequence, exclude: ReadonlySet<string>): number[] {
+/** Every time an edge may snap to: timing marks, other effects' edges, and the start. Effects in
+ * `exclude` and the marks `skipMarks` (being dragged) don't count. */
+export function snapTargets(doc: Sequence, exclude: ReadonlySet<string>, skipMarks?: { track: string; indices: ReadonlySet<number> }): number[] {
   const times = new Set<number>([0]);
   for (const track of doc.timingTracks) {
-    for (const mark of track.marks) {
+    const skip = skipMarks?.track === track.id ? skipMarks.indices : null;
+    track.marks.forEach((mark, i) => {
+      if (skip?.has(i)) return;
       times.add(mark.startMs);
       times.add(mark.endMs);
-    }
+    });
   }
   for (const row of doc.rows) {
     for (const layer of row.layers) {
@@ -587,4 +591,241 @@ export function pasteEffects(
     edits.push({ type: "addEffect", row: p.rowId, layer, effect: { ...structuredClone(p.effect), id: newId(), startMs, endMs } });
   }
   return edits;
+}
+
+// --- Timing marks -----------------------------------------------------------------------------
+
+/** The marks of a sorted, non-overlapping track that show between `t0` and `t1`: [first, end). */
+export function marksInView(marks: Mark[], t0: number, t1: number): [number, number] {
+  let lo = 0;
+  let hi = marks.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (marks[mid].endMs <= t0) lo = mid + 1;
+    else hi = mid;
+  }
+  let end = lo;
+  while (end < marks.length && marks[end].startMs < t1) end++;
+  return [lo, end];
+}
+
+/** The mark at `x` on a track (and which part: an edge, to resize, or the body, to move). Where two
+ * marks touch, the edge nearer the pointer wins. */
+export function hitMark(marks: Mark[], x: number, view: View, edgePx = 5): { index: number; part: EffectPart } | null {
+  const t = xToTime(x, view);
+  const slack = (edgePx + 1) / view.pxPerMs;
+  const [first, end] = marksInView(marks, t - slack, t + slack);
+  let best: { index: number; part: EffectPart; gap: number } | null = null;
+  for (let i = first; i < end; i++) {
+    const x0 = timeToX(marks[i].startMs, view);
+    const x1 = timeToX(marks[i].endMs, view);
+    const edge = Math.max(2, Math.min(edgePx, (x1 - x0) / 3));
+    const toStart = Math.abs(x - x0);
+    const toEnd = Math.abs(x1 - x);
+    // An edge of the mark the pointer is over beats an equally near edge of its neighbor.
+    const outside = x < x0 || x > x1 ? 0.5 : 0;
+    let hit: { index: number; part: EffectPart; gap: number } | null = null;
+    if (toStart <= edge && toStart <= toEnd) hit = { index: i, part: "start", gap: toStart + outside };
+    else if (toEnd <= edge) hit = { index: i, part: "end", gap: toEnd + outside };
+    else if (x >= x0 && x <= x1) hit = { index: i, part: "body", gap: Infinity };
+    if (hit && (!best || hit.gap < best.gap)) best = hit;
+  }
+  return best ? { index: best.index, part: best.part } : null;
+}
+
+/** Indices of the marks that start at `starts` (marks are picked by start time, which stays put
+ * while other marks come and go). */
+export function markIndices(track: TimingTrack, starts: readonly number[]): number[] {
+  const wanted = new Set(starts);
+  const out: number[] = [];
+  track.marks.forEach((m, i) => {
+    if (wanted.has(m.startMs)) out.push(i);
+  });
+  return out;
+}
+
+/** How far a mark's edges may go: from the end of the mark before it to the start of the one
+ * after it (marks in `moving` don't count), or the song's ends. */
+export function markBounds(marks: Mark[], index: number, durationMs: number, moving: ReadonlySet<number> = new Set()): { lo: number; hi: number } {
+  let lo = 0;
+  let hi = durationMs;
+  for (let i = index - 1; i >= 0; i--) {
+    if (moving.has(i)) continue;
+    lo = marks[i].endMs;
+    break;
+  }
+  for (let i = index + 1; i < marks.length; i++) {
+    if (moving.has(i)) continue;
+    hi = marks[i].startMs;
+    break;
+  }
+  return { lo: Math.min(lo, marks[index].startMs), hi: Math.max(hi, marks[index].endMs) };
+}
+
+/** A mark where it is (or would go) during a drag. */
+export interface MarkSpan {
+  index: number;
+  startMs: number;
+  endMs: number;
+}
+
+/** Moves the marks `moving` of a track by the same amount: the grabbed one (`primary`) snaps by
+ * either edge (or, not snapping, starts on the frame grid), and none runs into a mark that isn't
+ * moving or off the song. */
+export function moveMarksDrag(args: {
+  marks: Mark[];
+  moving: number[];
+  primary: number;
+  deltaMs: number;
+  durationMs: number;
+  frameMs?: number;
+  snap?: Snap;
+}): { spans: MarkSpan[]; snappedAt: number | null } {
+  const { marks, moving, primary, durationMs, snap } = args;
+  const set = new Set(moving);
+  let lo = -Infinity;
+  let hi = Infinity;
+  for (const i of moving) {
+    const b = markBounds(marks, i, durationMs, set);
+    lo = Math.max(lo, b.lo - marks[i].startMs);
+    hi = Math.min(hi, b.hi - marks[i].endMs);
+  }
+  const clamp = (d: number) => Math.max(lo, Math.min(hi, d));
+  const grabbed = marks[primary];
+  let delta = clamp(onGrid(grabbed.startMs + args.deltaMs, args.frameMs) - grabbed.startMs);
+  let snappedAt: number | null = null;
+  if (snap) {
+    const byStart = snapTime(grabbed.startMs + delta, snap.targets, snap.thresholdMs);
+    const byEnd = snapTime(grabbed.endMs + delta, snap.targets, snap.thresholdMs);
+    const startGap = Math.abs(byStart.ms - (grabbed.startMs + delta));
+    const endGap = Math.abs(byEnd.ms - (grabbed.endMs + delta));
+    const pick = byStart.snapped && (!byEnd.snapped || startGap <= endGap) ? "start" : byEnd.snapped ? "end" : null;
+    if (pick) {
+      const target = pick === "start" ? byStart.ms : byEnd.ms;
+      const snappedDelta = Math.round(target - (pick === "start" ? grabbed.startMs : grabbed.endMs));
+      if (clamp(snappedDelta) === snappedDelta) {
+        delta = snappedDelta;
+        snappedAt = target;
+      }
+    }
+  }
+  return { spans: moving.map((i) => ({ index: i, startMs: marks[i].startMs + delta, endMs: marks[i].endMs + delta })), snappedAt };
+}
+
+/** A dropped mark: where it was (which says which mark it is, as marks come and go) and where it
+ * goes. */
+export interface MarkMove {
+  fromStartMs: number;
+  fromEndMs: number;
+  startMs: number;
+  endMs: number;
+}
+
+/** Where `moves` put the marks of `track` as it is now, found by where each mark was; null when one
+ * of them has gone or changed since the drag began. */
+export function markMovesToSpans(track: TimingTrack, moves: MarkMove[]): MarkSpan[] | null {
+  const spans: MarkSpan[] = [];
+  for (const move of moves) {
+    const index = insertIndex(track.marks, move.fromStartMs) - 1;
+    const m = track.marks[index];
+    if (!m || m.startMs !== move.fromStartMs || m.endMs !== move.fromEndMs) return null;
+    spans.push({ index, startMs: move.startMs, endMs: move.endMs });
+  }
+  return spans;
+}
+
+/** Where two marks touch at `edge` of the mark at `index`: the neighbor, and how far the shared edge
+ * may go (each keeps at least `minMs`); null when the edge touches nothing. */
+export function touchingEdge(marks: Mark[], index: number, edge: "start" | "end", minMs: number): { neighbor: number; bounds: { lo: number; hi: number } } | null {
+  const m = marks[index];
+  const neighbor = edge === "start" ? index - 1 : index + 1;
+  const n = marks[neighbor];
+  if (!m || !n || (edge === "start" ? n.endMs !== m.startMs : n.startMs !== m.endMs)) return null;
+  const [first, second] = edge === "start" ? [n, m] : [m, n];
+  return { neighbor, bounds: { lo: first.startMs + minMs, hi: second.endMs - minMs } };
+}
+
+/** The edits for moved or resized marks. Each mark lands before the next one moves, so marks moved
+ * together go in the order that never overlaps a neighbor on the way (the leading one first). */
+export function markMoveEdits(track: TimingTrack, spans: MarkSpan[]): SequenceEdit[] {
+  const changed = spans.filter((s) => {
+    const m = track.marks[s.index];
+    return m && (m.startMs !== s.startMs || m.endMs !== s.endMs);
+  });
+  if (changed.length === 0) return [];
+  // Which way they go: by the middle, so a shared edge dragged right counts as right too.
+  const first = track.marks[changed[0].index];
+  const right = changed[0].startMs + changed[0].endMs > first.startMs + first.endMs;
+  const ordered = [...changed].sort((a, b) => (right ? b.index - a.index : a.index - b.index));
+  return ordered.map((s) => ({
+    type: "setMark" as const,
+    track: track.id,
+    index: s.index,
+    mark: { ...track.marks[s.index], startMs: s.startMs, endMs: s.endMs },
+  }));
+}
+
+/** Where a mark added at `ms` (snapped) goes: one beat long (the beat it starts in), or `defaultMs`
+ * without beats, shortened to the gap it starts in; null on top of another mark. */
+export function newMarkSpan(args: { doc: Sequence; track: TimingTrack; ms: number; defaultMs?: number; snap?: Snap }): { startMs: number; endMs: number } | null {
+  const { doc, track, defaultMs = 500, snap } = args;
+  const snapped = snap ? snapTime(args.ms, snap.targets, snap.thresholdMs) : { ms: args.ms, snapped: false };
+  const startMs = Math.max(0, snapped.snapped ? Math.round(snapped.ms) : onGrid(snapped.ms, doc.frameMs));
+  if (startMs >= doc.durationMs) return null;
+  const beats = doc.timingTracks.find((t) => t.kind === "beats" && t.id !== track.id)?.marks;
+  const beat = beats?.find((b) => b.startMs <= startMs && startMs < b.endMs);
+  const length = beat ? beat.endMs - beat.startMs : defaultMs;
+  let endMs = Math.min(doc.durationMs, startMs + Math.max(1, length));
+  for (const m of track.marks) {
+    if (m.startMs <= startMs && startMs < m.endMs) return null;
+    if (m.startMs > startMs && m.startMs < endMs) endMs = m.startMs;
+  }
+  return endMs > startMs ? { startMs, endMs } : null;
+}
+
+/**
+ * Tap to time: the edits for a tap at `atMs` on `track` (the playhead while the music plays). The
+ * mark the last tap started (`lastStart`) ends here, and a new one starts here, `lengthMs` long
+ * until the next tap ends it (shortened to the gap it's in); a tap inside an existing mark splits
+ * it instead. Null when there's nothing to do (past the end, or a mark already starts here).
+ */
+export function tapEdits(track: TimingTrack, atMs: number, lastStart: number | null, durationMs: number, lengthMs = 500): { edits: SequenceEdit[]; startMs: number } | null {
+  const at = Math.round(atMs);
+  if (at < 0 || at >= durationMs) return null;
+  const marks = track.marks.map((m) => ({ ...m }));
+  const edits: SequenceEdit[] = [];
+  const last = lastStart === null ? -1 : marks.findIndex((m) => m.startMs === lastStart);
+  if (last >= 0 && at > marks[last].startMs) {
+    const next = marks[last + 1];
+    const endMs = Math.min(at, next ? next.startMs : durationMs);
+    if (endMs !== marks[last].endMs) {
+      marks[last].endMs = endMs;
+      edits.push({ type: "setMark", track: track.id, index: last, mark: { ...marks[last] } });
+    }
+  }
+  const inside = marks.findIndex((m) => m.startMs < at && at < m.endMs);
+  if (inside >= 0) {
+    edits.push({ type: "splitMark", track: track.id, index: inside, atMs: at });
+  } else if (!marks.some((m) => m.startMs === at)) {
+    const next = marks.find((m) => m.startMs > at);
+    const endMs = Math.min(at + lengthMs, next ? next.startMs : durationMs, durationMs);
+    edits.push({ type: "addMarks", track: track.id, marks: [{ startMs: at, endMs, label: "" }] });
+  }
+  return edits.length > 0 ? { edits, startMs: at } : null;
+}
+
+/** "1:05.250", "65.25", or "65" → milliseconds; null when it isn't a time. */
+export function parseTime(text: string): number | null {
+  const m = /^(?:(\d+):)?(\d+(?:\.\d*)?)$/.exec(text.trim());
+  if (!m) return null;
+  const seconds = Number(m[2]);
+  if (m[1] && seconds >= 60) return null;
+  return Math.round(((m[1] ? Number(m[1]) : 0) * 60 + seconds) * 1000);
+}
+
+/** The track a lyrics track's words go on: the one named "<name> (words)" (a words track first),
+ * or null when there's none yet. Never another track, which could be another lyrics track's words. */
+export function wordsTrackFor(doc: Sequence, track: TimingTrack): TimingTrack | null {
+  const named = doc.timingTracks.filter((t) => t.name === `${track.name} (words)` && t.kind !== "phonemes" && t.id !== track.id);
+  return named.find((t) => t.kind === "words") ?? named[0] ?? null;
 }

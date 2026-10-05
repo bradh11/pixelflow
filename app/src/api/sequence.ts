@@ -309,7 +309,37 @@ export type SequenceEdit =
   | { type: "removeEffect"; id: Uuid }
   | { type: "addTimingTrack"; track: TimingTrack }
   | { type: "updateTimingTrack"; track: TimingTrack }
-  | { type: "removeTimingTrack"; id: Uuid };
+  | { type: "removeTimingTrack"; id: Uuid }
+  | { type: "renameTimingTrack"; id: Uuid; name: string }
+  /** Moves a timing track to `index` (clamped to the end). */
+  | { type: "moveTimingTrack"; id: Uuid; index: number }
+  /** Adds marks, each where it belongs in time; marks on a track never overlap. */
+  | { type: "addMarks"; track: Uuid; marks: Mark[] }
+  /** Replaces the mark at `index`: moves, resizes, or relabels it. */
+  | { type: "setMark"; track: Uuid; index: number; mark: Mark }
+  | { type: "removeMarks"; track: Uuid; indices: number[] }
+  /** Splits the mark at `index` in two at `atMs`; the first part keeps the label. */
+  | { type: "splitMark"; track: Uuid; index: number; atMs: number }
+  /** Joins the mark at `index` with the next one (labels joined with a space). */
+  | { type: "mergeMarks"; track: Uuid; index: number }
+  /** A mark every `everyMs` from `fromMs` to `toMs`, replacing the marks there. */
+  | { type: "generateMarks"; track: Uuid; everyMs: number; fromMs: number; toMs: number }
+  /** Replaces `to`'s marks with every `every`th mark of `from` (1 = a copy). */
+  | { type: "copyMarks"; from: Uuid; to: Uuid; every: number }
+  /** One mark per line, spread over `fromMs..toMs` by letter count, replacing the marks there. */
+  | { type: "spreadLyrics"; track: Uuid; lines: string[]; fromMs: number; toMs: number }
+  /** Labels the marks at `indices` with `labels`, in order (as many of each). */
+  | { type: "labelMarks"; track: Uuid; indices: number[]; labels: string[] }
+  /** Breaks each phrase mark at `indices` of `track` into word marks on `words`, replacing the marks there. */
+  | { type: "breakIntoWords"; track: Uuid; indices: number[]; words: Uuid };
+
+/** What importing a timing file did: the edit's reply, the tracks added (as named in the
+ * sequence), and what didn't come across. */
+export interface TimingImported {
+  result: SequenceEditResult;
+  tracks: string[];
+  notes: string[];
+}
 
 /** Where one controller's channels sit in an exported `.fseq` file. */
 export interface ExportBlock {

@@ -197,6 +197,8 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         sequencer::export_sequence_doc,
         sequencer::analyze_audio,
         sequencer::detect_beats,
+        sequencer::import_timing_file,
+        sequencer::export_timing_track,
         xlights::import_xlights,
         xlights::import_xlights_sequence,
         layout::preview_props,
@@ -1352,6 +1354,145 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(err.to_string(), "The export was cancelled.");
+    }
+
+    #[test]
+    fn timing_edits_match_the_browser_stand_in() {
+        // app/src/api/timingEditCases.json is also run against the in-memory sequencer, so the
+        // browser demo and the UI tests edit timing tracks exactly as the engine does.
+        let (_app, webview, _dir) = app();
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/api/timingEditCases.json");
+        let cases: Vec<Value> = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert!(cases.len() > 10);
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            call(
+                &webview,
+                "new_sequence_doc",
+                json!({ "name": "Song", "durationMs": 60_000 }),
+            )
+            .unwrap();
+            let adds: Vec<Value> = case["tracks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|track| json!({ "type": "addTimingTrack", "track": track }))
+                .collect();
+            if !adds.is_empty() {
+                call(&webview, "edit_sequence", json!({ "edits": adds })).unwrap();
+            }
+            let reply = call(&webview, "edit_sequence", json!({ "edits": case["edits"] }));
+            let doc = call(&webview, "get_sequence_doc", json!({})).unwrap();
+            match case["expect"].get("error") {
+                Some(error) => assert_eq!(reply.unwrap_err(), *error, "{name}"),
+                None => {
+                    reply.unwrap_or_else(|e| panic!("{name}: {e}"));
+                    assert_eq!(
+                        doc["sequence"]["timingTracks"], case["expect"]["tracks"],
+                        "{name}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn timing_files_import_and_export_through_commands() {
+        let (app, webview, dir) = app();
+        authored(&webview);
+        let xtiming = dir.path().join("Vocals.xtiming");
+        std::fs::write(
+            &xtiming,
+            r#"<timing name="Vocals"><EffectLayer><Effect label="Hi there" starttime="0" endtime="1000"/><Effect label="late" starttime="5000" endtime="6000"/></EffectLayer>
+<EffectLayer><Effect label="Hi" starttime="0" endtime="400"/><Effect label="there" starttime="400" endtime="1000"/></EffectLayer></timing>"#,
+        )
+        .unwrap();
+        let reply = call(&webview, "import_timing_file", json!({ "path": xtiming })).unwrap();
+        assert_eq!(reply["tracks"], json!(["Vocals", "Vocals (words)"]));
+        assert_eq!(
+            reply["result"]["changes"]["timingTracks"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(
+            reply["notes"],
+            json!(["1 mark in Vocals.xtiming started after the end of the sequence and was left out."])
+        );
+        // Imported again, the copies get their own names; one undo takes them back out.
+        let again = call(&webview, "import_timing_file", json!({ "path": xtiming })).unwrap();
+        assert_eq!(again["tracks"], json!(["Vocals 2", "Vocals 2 (words)"]));
+        call(&webview, "undo_sequence", json!({})).unwrap();
+
+        // A lyrics track goes out with its words, and comes back the same.
+        let id = {
+            let state = app.state::<AppState>();
+            let engine = state.engine();
+            engine.sequence_document().unwrap().timing_tracks[0].id
+        };
+        let out = dir.path().join("out.xtiming");
+        let marks = call(&webview, "export_timing_track", json!({ "id": id, "path": out })).unwrap();
+        assert_eq!(marks, json!(1));
+        let written = std::fs::read_to_string(&out).unwrap();
+        assert_eq!(written.matches("<EffectLayer>").count(), 2, "{written}");
+        let back = pf_xlights::read_timing_file(&out, 2000).unwrap();
+        assert_eq!(back.tracks[1].marks.len(), 2);
+        // Audacity labels for anything else.
+        let labels = dir.path().join("out.txt");
+        call(
+            &webview,
+            "export_timing_track",
+            json!({ "id": id, "path": labels }),
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&labels).unwrap(),
+            "0.000000\t1.000000\tHi there\n"
+        );
+        // .xml is read as xLights XML, so it's written that way too.
+        let xml = dir.path().join("out.xml");
+        call(&webview, "export_timing_track", json!({ "id": id, "path": xml })).unwrap();
+        assert_eq!(pf_xlights::read_timing_file(&xml, 2000).unwrap().tracks.len(), 2);
+        // Nothing but timing files is written.
+        let script = dir.path().join("evil.sh");
+        assert_eq!(
+            call(
+                &webview,
+                "export_timing_track",
+                json!({ "id": id, "path": script })
+            )
+            .unwrap_err(),
+            "Timing tracks are saved as xLights timing files (.xtiming) or Audacity labels (.txt)."
+        );
+        assert!(!script.exists());
+
+        let err = call(
+            &webview,
+            "import_timing_file",
+            json!({ "path": dir.path().join("nope.xtiming") }),
+        )
+        .unwrap_err();
+        assert!(err.as_str().unwrap().starts_with("Could not read"), "{err}");
+        let err = call(
+            &webview,
+            "export_timing_track",
+            json!({ "id": "66666666-0000-4000-8000-000000000000", "path": labels }),
+        )
+        .unwrap_err();
+        assert_eq!(err, json!("That timing track isn't in the sequence anymore."));
+        // A file read for one sequence isn't added to another opened meanwhile.
+        let doc = app.state::<AppState>().engine().sequence_doc_id().unwrap();
+        call(
+            &webview,
+            "new_sequence_doc",
+            json!({ "name": "Other", "durationMs": 1000 }),
+        )
+        .unwrap();
+        let import = pf_xlights::read_timing_file(&xtiming, 2000).unwrap();
+        let err =
+            sequencer::add_imported_tracks(&mut app.state::<AppState>().engine(), doc, import).unwrap_err();
+        assert!(err.contains("Another sequence was opened"), "{err}");
     }
 
     #[test]

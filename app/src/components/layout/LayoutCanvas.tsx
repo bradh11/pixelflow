@@ -46,6 +46,7 @@ import {
   wheelIntent,
   wheelZoomFactor,
   zoomAt,
+  resizeView,
 } from "../../lib/layoutMath";
 import { batchPixels, drawBatches } from "../../lib/pixelBatches";
 import { type PropKind, newProp } from "../../lib/shows";
@@ -353,7 +354,17 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    // When the window (and so the canvas) changes size, scale the drawing with it: the same part
+    // of the layout stays in view instead of being cropped or left in a corner.
+    let last = size();
     const observer = new ResizeObserver(() => {
+      const now = size();
+      const st = useLayoutEditor.getState();
+      if (st.view) {
+        const next = resizeView(st.view, last, now);
+        if (next !== st.view) st.setView(next);
+      }
+      if (now.width > 0 && now.height > 0) last = now;
       fitIfNeeded();
       redraw();
     });

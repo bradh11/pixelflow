@@ -50,6 +50,15 @@ export function toWorld(view: View, size: Size, s: Pt): Pt {
   return { x: view.cx + (s.x - size.width / 2) / view.zoom, y: view.cy - (s.y - size.height / 2) / view.zoom };
 }
 
+/** The view after the canvas changes size: the same center, zoomed so everything that was
+ * visible still is (the tighter direction decides). A zero size leaves the view alone. */
+export function resizeView(view: View, from: Size, to: Size): View {
+  if (from.width <= 0 || from.height <= 0 || to.width <= 0 || to.height <= 0) return view;
+  const factor = Math.min(to.width / from.width, to.height / from.height);
+  if (factor === 1) return view;
+  return { ...view, zoom: clamp(view.zoom * factor, MIN_ZOOM, MAX_ZOOM) };
+}
+
 /** Zooms by `factor`, keeping the world point under screen point `s` where it is. */
 export function zoomAt(view: View, size: Size, s: Pt, factor: number): View {
   const zoom = clamp(view.zoom * factor, MIN_ZOOM, MAX_ZOOM);

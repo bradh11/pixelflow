@@ -199,10 +199,13 @@ export function WiringScreen() {
             )}
             {controllers.length === 0 && !adding ? (
               <EmptyState title="No controllers yet">
-                <p>Use Add controller above, then drag props onto its ports.</p>
-                <p className="mt-2">
-                  Or let PixelFlow <GoToScreen screen="devices">find the controllers on your network</GoToScreen>
-                </p>
+                <p>Add your controller, then drag props onto its ports.</p>
+                <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+                  <Button variant="primary" onClick={() => setAdding(true)}>
+                    <Plus size={16} aria-hidden /> Add a controller
+                  </Button>
+                  <GoToScreen screen="devices">Or find the controllers on your network</GoToScreen>
+                </div>
               </EmptyState>
             ) : (
               controllers.map((c) => <ControllerCard key={c.id} controller={c} data={data} />)

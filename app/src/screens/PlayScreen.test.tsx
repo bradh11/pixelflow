@@ -41,6 +41,13 @@ describe("play", () => {
     expect(screen.getByRole("heading", { name: "Devices" })).toBeInTheDocument();
   });
 
+  it("with an empty playlist, a button goes to make a sequence", async () => {
+    const { user } = await openPlay(true);
+    const list = screen.getByRole("complementary", { name: "Sequences" });
+    await user.click(within(list).getByRole("button", { name: "Make a sequence" }));
+    expect(useApp.getState().screen).toBe("sequence");
+  });
+
   it("adds a sequence with its music, plays it, and lines the lights up with the music", async () => {
     const { user, backend } = await openPlay(true);
     const list = screen.getByRole("complementary", { name: "Sequences" });

@@ -183,4 +183,17 @@ describe("devices", () => {
     await user.click(screen.getByRole("button", { name: "Review Porch WLED" }));
     expect(await within(await screen.findByRole("dialog")).findByText(/already in your show/)).toBeInTheDocument();
   });
+
+  it("empty, it scans from a button, or goes to add a controller by hand", async () => {
+    const { user, backend } = await openDevices();
+    await user.click(screen.getByRole("button", { name: "Scan my network" }));
+    expect(await screen.findByText("Falcon_F16V5_B9F5")).toBeInTheDocument();
+    expect(backend.calls).toContain("discoverDevices::network");
+  });
+
+  it("empty, a button goes to the Wiring screen to add a controller by hand", async () => {
+    const { user } = await openDevices();
+    await user.click(screen.getByRole("button", { name: /add a controller by hand/ }));
+    expect(useApp.getState().screen).toBe("wiring");
+  });
 });

@@ -2,6 +2,7 @@ import { AlertTriangle, ChevronRight, Loader2, Radar, Search, X } from "lucide-r
 import { useState } from "react";
 import type { Device, DeviceKind, FoundBy } from "../api/types";
 import { ImportDialog } from "../components/ImportDialog";
+import { GoToScreen } from "../components/GoToScreen";
 import { Button, EmptyState, Input, PageHeader } from "../components/ui";
 import { ago } from "../lib/format";
 import { type KnownDevice, useApp } from "../state/store";
@@ -154,13 +155,25 @@ export function DevicesScreen() {
       )}
       {!scanning && !discovery && (
         <EmptyState title="Find your controllers">
-          Choose Scan network to look for FPP, Falcon, and WLED controllers, or check a specific address.
+          <p>Look for FPP, Falcon, and WLED controllers on your network, or check a specific address above.</p>
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+            <Button variant="primary" onClick={() => scan()}>
+              <Radar size={16} aria-hidden /> Scan my network
+            </Button>
+            <GoToScreen screen="wiring">Or add a controller by hand</GoToScreen>
+          </div>
         </EmptyState>
       )}
       {discovery && discovery.devices.length === 0 && discovery.silent.length === 0 && (
         <EmptyState title="No controllers found">
           Make sure this computer is on the same network as your controllers. If your computer asks whether PixelFlow
           may accept incoming connections, allow it so controllers can answer. You can also check a specific address.
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+            <Button onClick={() => scan()}>
+              <Radar size={16} aria-hidden /> Scan my network again
+            </Button>
+            <GoToScreen screen="wiring">Or add a controller by hand</GoToScreen>
+          </div>
         </EmptyState>
       )}
       {discovery && discovery.devices.length > 0 && (

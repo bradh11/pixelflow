@@ -1,4 +1,4 @@
-import { SlidersHorizontal, X } from "lucide-react";
+import { ImagePlus, SlidersHorizontal, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "../api/backend";
 import { AddPropMenu } from "../components/layout/AddPropMenu";
@@ -10,7 +10,7 @@ import { FALLBACK_ASPECT, imageAspect, useBackgroundImage, usePreviewProps, useP
 import { useLayoutKeys } from "../components/layout/useLayoutKeys";
 import { Layout3dView } from "../components/layout3d/Layout3dView";
 import { useLayout3dKeys } from "../components/layout3d/useLayout3dKeys";
-import { IconButton, PageHeader } from "../components/ui";
+import { Button, IconButton, PageHeader } from "../components/ui";
 import { useElementWidth } from "../lib/useWidth";
 import { boxOfPoints, defaultBackground, unionBox } from "../lib/layoutMath";
 import { useApp } from "../state/store";
@@ -108,13 +108,20 @@ export function LayoutScreen() {
           )}
           {show.props.length === 0 && (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-neutral-300">
-              <p className="max-w-sm rounded-lg bg-black/60 px-4 py-3">
-                {in3d
-                  ? "Nothing here yet. Use Add prop above, or switch to 2D (V) to draw props."
-                  : show.background
-                    ? "Use Add prop, or pick a tool above, like Arch or Matrix, and drag on the photo where that prop is."
-                    : "Use Add prop, or pick a tool above, like Arch or Matrix, and drag here to draw a prop. Add a photo of your house to draw right over it."}
-              </p>
+              <div className="flex max-w-sm flex-col items-center gap-2 rounded-lg bg-black/60 px-4 py-3">
+                <p>
+                  {in3d
+                    ? "Nothing here yet. Use Add prop above, or switch to 2D (V) to draw props."
+                    : show.background
+                      ? "Use Add prop, or pick a tool above, like Arch or Matrix, and drag on the photo where that prop is."
+                      : "Use Add prop, or pick a tool above, like Arch or Matrix, and drag here to draw a prop. Draw right over a photo of your house:"}
+                </p>
+                {!in3d && !show.background && (
+                  <Button variant="primary" className="pointer-events-auto" onClick={() => void choosePhoto()}>
+                    <ImagePlus size={16} aria-hidden /> Add a photo of your house…
+                  </Button>
+                )}
+              </div>
             </div>
           )}
         </div>

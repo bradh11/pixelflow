@@ -502,6 +502,18 @@ describe("LayoutScreen", () => {
     expect(screen.queryByRole("menu", { name: "Add prop" })).not.toBeInTheDocument();
   });
 
+  it("with no props or photo, offers to add a photo of the house from the canvas", async () => {
+    backend = new MemoryBackend(showWith());
+    backend.images.set("/Shows/house.png", new Uint8Array([1, 2, 3]));
+    backend.nextImagePath = "/Shows/house.png";
+    await useApp.getState().connect(backend);
+    const user = userEvent.setup();
+    render(<LayoutScreen />);
+    await user.click(screen.getByRole("button", { name: "Add a photo of your house…" }));
+    await waitFor(() => expect(backend.show.background?.path).toBe("/Shows/house.png"));
+    expect(screen.queryByRole("button", { name: "Add a photo of your house…" })).not.toBeInTheDocument();
+  });
+
   it("zooms out to show a new prop bigger than the view", async () => {
     const user = await setup(showWith(line("Gutter", 0, 0)));
     act(() => useLayoutEditor.getState().setView({ cx: 0, cy: 0, zoom: 400 }));

@@ -221,6 +221,7 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         assistant::ai_apply,
         assistant::ai_discard,
         assistant::ai_preview,
+        assistant::ai_sync,
     ])
 }
 

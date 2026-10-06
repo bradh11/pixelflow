@@ -151,8 +151,16 @@ impl ChatSession {
     /// isn't open anymore (a new, opened, restored, recovered, or imported one). True when
     /// something was dropped.
     pub fn sync(&mut self, workspace: &Workspace) -> bool {
+        self.sync_to(
+            workspace.show_generation,
+            workspace.sequence.as_ref().map(|s| s.id),
+        )
+    }
+
+    /// Like [`ChatSession::sync`], from the open show's generation and sequence document id.
+    pub fn sync_to(&mut self, show_generation: u64, sequence_doc: Option<u64>) -> bool {
         match &self.draft {
-            Some(draft) if !draft.is_for(workspace) => {
+            Some(draft) if !draft.is_for_ids(show_generation, sequence_doc) => {
                 self.draft = None;
                 self.proposal = None;
                 self.notes.push(

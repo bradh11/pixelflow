@@ -64,6 +64,15 @@ impl AiState {
     }
 }
 
+/// Marks the turn in progress as over when dropped.
+struct Running<'a>(&'a Mutex<Option<Cancel>>);
+
+impl Drop for Running<'_> {
+    fn drop(&mut self) {
+        *lock(self.0) = None;
+    }
+}
+
 fn text(error: AiError) -> String {
     error.to_string()
 }
@@ -186,6 +195,8 @@ pub(crate) async fn ai_send<R: Runtime>(
         *running = Some(cancel.clone());
         cancel
     };
+    // However this ends (an error, a panic, the window going away), the assistant is free again.
+    let _running = Running(&ai.running);
     let turn = {
         let mut turns = lock(&ai.turns);
         *turns += 1;
@@ -198,7 +209,7 @@ pub(crate) async fn ai_send<R: Runtime>(
     let vault = Arc::clone(&ai.vault);
     let llm = ai.providers.get(provider);
     let session = Arc::clone(&ai.session);
-    let result = off_thread(move || {
+    off_thread(move || {
         let key = vault.key(provider).map_err(text)?;
         let mut session = lock(&session);
         session
@@ -216,9 +227,7 @@ pub(crate) async fn ai_send<R: Runtime>(
             )
             .map_err(text)
     })
-    .await;
-    *lock(&ai.running) = None;
-    result
+    .await
 }
 
 /// Stops the reply in progress (the turn ends at its next step and says "Stopped.").
@@ -261,6 +270,22 @@ pub(crate) async fn ai_apply(
     Ok(applied)
 }
 
+/// Drops the draft and proposal when the show (or sequence document) they were made for isn't
+/// open anymore; the window calls this after the show or sequence is replaced. True when
+/// something was dropped. While the assistant is answering, nothing is dropped yet (Apply
+/// checks again, and the next message starts over).
+#[tauri::command]
+pub(crate) async fn ai_sync(state: State<'_, AppState>, ai: State<'_, AiState>) -> Reply<bool> {
+    if ai.idle().is_err() {
+        return Ok(false);
+    }
+    let (generation, document) = {
+        let engine = state.engine();
+        (engine.show_generation(), engine.sequence_doc_id())
+    };
+    Ok(lock(&ai.session).sync_to(generation, document))
+}
+
 /// Throws the proposal and its draft away.
 #[tauri::command]
 pub(crate) async fn ai_discard(ai: State<'_, AiState>, id: String) -> Reply<()> {
@@ -274,6 +299,8 @@ pub(crate) async fn ai_discard(ai: State<'_, AiState>, id: String) -> Reply<()> 
 /// the draft without applying it.
 #[tauri::command]
 pub(crate) async fn ai_preview(ai: State<'_, AiState>, id: String) -> Reply<Response> {
+    // (The chat is busy for the whole turn; waiting on it here would hold up other commands.)
+    ai.idle()?;
     let proposal = current_proposal(&ai, &id)?;
     Ok(Response::new(encode_preview(
         0,
@@ -551,6 +578,44 @@ mod tests {
         let undone = call(&t, "undo", json!({})).unwrap();
         assert_eq!(undone["show"], original["show"]);
         assert_eq!(undone["canUndo"], false);
+    }
+
+    #[test]
+    fn opening_another_show_drops_the_proposal() {
+        let t = app_with(MemoryStore::new());
+        call(
+            &t,
+            "set_api_key",
+            json!({ "provider": "anthropic", "key": FAKE_KEY }),
+        )
+        .unwrap();
+        t.anthropic.push(Reply::ok(sse(
+            "",
+            &[("show_rename_show", json!({ "name": "Christmas" }))],
+        )));
+        t.anthropic.push(Reply::ok(sse("Renamed.", &[])));
+        let reply = call(
+            &t,
+            "ai_send",
+            json!({ "provider": "anthropic", "model": "claude-opus-5-5", "message": "rename" }),
+        )
+        .unwrap();
+        let id = reply["proposal"]["id"].as_str().unwrap().to_string();
+        assert_eq!(call(&t, "ai_sync", json!({})).unwrap(), false, "same show: kept");
+        call(&t, "new_show", json!({ "name": "Show B" })).unwrap();
+        assert_eq!(
+            call(&t, "ai_sync", json!({})).unwrap(),
+            true,
+            "another show: dropped"
+        );
+        assert_eq!(
+            call(&t, "ai_apply", json!({ "id": id })).unwrap_err(),
+            "That proposal isn't the latest one anymore."
+        );
+        assert_eq!(
+            call(&t, "get_snapshot", json!({})).unwrap()["show"]["name"],
+            "Show B"
+        );
     }
 
     #[test]

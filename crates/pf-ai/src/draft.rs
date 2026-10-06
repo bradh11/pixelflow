@@ -180,8 +180,16 @@ impl Draft {
     /// Whether this draft was made for the show and sequence open in `workspace` (another
     /// show, or another sequence document, means it no longer applies).
     pub fn is_for(&self, workspace: &Workspace) -> bool {
-        self.base.show_generation == workspace.show_generation
-            && self.base.sequence.as_ref().map(|s| s.id) == workspace.sequence.as_ref().map(|s| s.id)
+        self.is_for_ids(
+            workspace.show_generation,
+            workspace.sequence.as_ref().map(|s| s.id),
+        )
+    }
+
+    /// Like [`Draft::is_for`], from the show's generation and the sequence document's id.
+    pub fn is_for_ids(&self, show_generation: u64, sequence_doc: Option<u64>) -> bool {
+        self.base.show_generation == show_generation
+            && self.base.sequence.as_ref().map(|s| s.id) == sequence_doc
     }
 }
 

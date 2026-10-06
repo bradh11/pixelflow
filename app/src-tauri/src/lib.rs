@@ -1128,6 +1128,26 @@ mod tests {
         let error = call(&webview, "edit_sequence", json!({ "edits": [] })).unwrap_err();
         assert_eq!(error, "No sequence is open. Create or open one first.");
 
+        // A new sequence can start with its rows (a row for every prop and group), still clean.
+        let with_rows = call(
+            &webview,
+            "new_sequence_doc",
+            json!({ "name": "Rows", "durationMs": 2000, "rows": [
+                { "id": "44444444-0000-4000-8000-0000000000f1", "target": { "group": "22222222-0000-4000-8000-0000000000aa" }, "layers": [{ "effects": [] }] },
+                { "id": "44444444-0000-4000-8000-0000000000f2", "target": { "prop": "11111111-0000-4000-8000-0000000000aa" }, "layers": [{ "effects": [] }] }
+            ] }),
+        )
+        .unwrap();
+        assert_eq!(with_rows["sequence"]["rows"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            with_rows["sequence"]["rows"][0]["target"]["group"],
+            "22222222-0000-4000-8000-0000000000aa"
+        );
+        assert_eq!(
+            (with_rows["dirty"].clone(), with_rows["canUndo"].clone()),
+            (json!(false), json!(false))
+        );
+
         let snap = call(
             &webview,
             "new_sequence_doc",

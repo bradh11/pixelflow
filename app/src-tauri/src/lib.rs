@@ -5,6 +5,7 @@
 //! can take a moment).
 
 mod devices;
+mod files;
 mod house;
 mod layout;
 mod playback;
@@ -48,10 +49,10 @@ impl AppState {
     /// readable this way: the allowlist lives here, not in the show the window can change.
     fn trust_files_of(&self, show: &Show) {
         if let Some(background) = &show.background {
-            self.photos.add(PathBuf::from(&background.path));
+            self.photos.add(pf_model::path_from_text(&background.path));
         }
         if let Some(model) = &show.house_model {
-            self.models.add(PathBuf::from(&model.path));
+            self.models.add(pf_model::path_from_text(&model.path));
         }
     }
 
@@ -94,8 +95,11 @@ async fn new_show(state: State<'_, AppState>, name: String) -> Reply<ShowSnapsho
 }
 
 #[tauri::command]
-async fn open_show(state: State<'_, AppState>, path: PathBuf) -> Reply<ShowSnapshot> {
-    let snapshot = state.engine().open(&path).map_err(message)?;
+async fn open_show(state: State<'_, AppState>, path: String) -> Reply<ShowSnapshot> {
+    let snapshot = state
+        .engine()
+        .open(&pf_model::path_from_text(&path))
+        .map_err(message)?;
     Ok(state.trusting(snapshot))
 }
 
@@ -207,6 +211,11 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         layout::read_image,
         house::pick_house_model,
         house::read_house_model,
+        files::find_missing_files,
+        files::locate_file,
+        files::sequence_music_missing,
+        files::find_sequence_music,
+        files::locate_sequence_music,
     ])
 }
 
@@ -1549,5 +1558,165 @@ mod tests {
         call(&webview, "undo_sequence", json!({})).unwrap();
         let reply = sequencer::add_detected_tracks(&mut state.engine(), doc, &music, tracks()).unwrap();
         assert_eq!(reply.changes.timing_tracks.len(), 1);
+    }
+
+    const PNG: [u8; 4] = [0x89, b'P', b'N', b'G'];
+
+    /// A show saved in `dir/Show` with its photo in `dir/Show/photos` and a model outside it.
+    fn show_with_files(dir: &std::path::Path) -> (PathBuf, PathBuf, PathBuf) {
+        let root = dir.join("Show");
+        let photo = root.join("photos/house.png");
+        std::fs::create_dir_all(photo.parent().unwrap()).unwrap();
+        std::fs::write(&photo, PNG).unwrap();
+        let model = dir.join("Models/house.obj");
+        std::fs::create_dir_all(model.parent().unwrap()).unwrap();
+        std::fs::write(&model, b"v 0 0 0\n").unwrap();
+        let show = root.join("show.pixelflow.json");
+        let mut engine = Engine::new(dir.join("data"));
+        let background =
+            serde_json::from_value(json!({ "path": photo, "x": 0, "y": 0, "width": 10, "opacity": 1 }))
+                .unwrap();
+        let house_model = serde_json::from_value(json!({ "path": model, "position": { "x": 0, "y": 0, "z": 0 }, "rotationDeg": { "x": 0, "y": 0, "z": 0 }, "scale": 1, "opacity": 1 })).unwrap();
+        engine
+            .apply(vec![
+                Edit::SetBackground {
+                    background: Some(background),
+                },
+                Edit::SetHouseModel {
+                    house_model: Some(house_model),
+                },
+            ])
+            .unwrap();
+        engine.save_as(&show).unwrap();
+        (show, photo, model)
+    }
+
+    #[test]
+    fn a_moved_show_opens_with_its_files_readable_and_says_what_is_missing() {
+        let (_app, webview, dir) = app();
+        let (show, _, _) = show_with_files(dir.path());
+        let moved = dir.path().join("Moved");
+        std::fs::rename(show.parent().unwrap(), &moved).unwrap();
+        let snapshot = call(
+            &webview,
+            "open_show",
+            json!({ "path": moved.join("show.pixelflow.json") }),
+        )
+        .unwrap();
+        let photo = moved.join("photos/house.png");
+        assert_eq!(
+            snapshot["show"]["background"]["path"],
+            json!(photo.to_str().unwrap())
+        );
+        assert_eq!(snapshot["missingFiles"], json!([]));
+        assert_eq!(
+            call_raw(&webview, "read_image", json!({ "path": photo })).unwrap(),
+            PNG
+        );
+    }
+
+    #[test]
+    fn found_files_become_readable_only_inside_the_show_folder() {
+        let (app, webview, dir) = app();
+        let (show, photo, model) = show_with_files(dir.path());
+        call(&webview, "open_show", json!({ "path": show })).unwrap();
+        // The photo moved within the show's folder; the model is gone (a copy sits outside).
+        let moved = show.parent().unwrap().join("pictures/house.png");
+        std::fs::create_dir_all(moved.parent().unwrap()).unwrap();
+        std::fs::rename(&photo, &moved).unwrap();
+        std::fs::remove_file(&model).unwrap();
+        std::fs::write(dir.path().join("house.obj"), b"v 0 0 0\n").unwrap();
+        let snapshot = call(&webview, "get_snapshot", json!({})).unwrap();
+        let missing = snapshot["missingFiles"].as_array().unwrap();
+        assert_eq!(missing.len(), 2);
+        assert_eq!(missing[0]["file"], json!({ "kind": "photo" }));
+        assert_eq!(missing[0]["message"], "house.png isn't where it was.");
+        assert_eq!(missing[1]["file"], json!({ "kind": "houseModel" }));
+
+        let report = call(&webview, "find_missing_files", json!({})).unwrap();
+        assert_eq!(report["found"].as_array().unwrap().len(), 1);
+        assert_eq!(report["found"][0]["to"], json!(moved.to_str().unwrap()));
+        assert_eq!(report["stillMissing"][0]["name"], "house.obj");
+        assert_eq!(report["snapshot"]["canUndo"], true);
+        assert_eq!(
+            call_raw(&webview, "read_image", json!({ "path": moved })).unwrap(),
+            PNG
+        );
+        // A model the user locates becomes readable; other files named by the window don't.
+        let elsewhere = dir.path().join("house.obj");
+        assert!(call(&webview, "read_house_model", json!({ "path": elsewhere })).is_err());
+        let state = app.state::<AppState>();
+        let snapshot = files::located(&state, pf_engine::FileRole::HouseModel, &elsewhere).unwrap();
+        assert!(snapshot.missing_files.is_empty());
+        assert!(call_raw(&webview, "read_house_model", json!({ "path": elsewhere })).is_ok());
+        let error =
+            files::located(&state, pf_engine::FileRole::Photo, &dir.path().join("gone.png")).unwrap_err();
+        assert_eq!(error, "gone.png isn't there anymore. Choose another file.");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn photo_paths_that_are_not_utf8_reach_the_shell_intact() {
+        use std::os::unix::ffi::OsStringExt;
+        let (app, webview, dir) = app();
+        // "Café.png" with a Latin-1 é: the window gets it as path text and sends it back.
+        let photo = dir
+            .path()
+            .join(std::ffi::OsString::from_vec(b"Caf\xe9.png".to_vec()));
+        app.state::<AppState>().photos.add(photo.clone());
+        let text = pf_model::path_to_text(&photo);
+        assert!(text.ends_with("Caf\u{0}e9.png"), "{text}");
+        let error = call(&webview, "read_image", json!({ "path": text })).unwrap_err();
+        // Allowed (the same path), just not on this disk.
+        assert_eq!(
+            error,
+            json!("This photo was moved or deleted. Choose it again with Replace…")
+        );
+    }
+
+    #[test]
+    fn an_unsaved_show_is_asked_to_be_saved_before_a_search() {
+        let (_app, webview, _dir) = app();
+        let error = call(&webview, "find_missing_files", json!({})).unwrap_err();
+        assert_eq!(
+            error,
+            json!(
+                "Save the show first, so PixelFlow knows which folder to look in. Or use Locate… to choose the file."
+            )
+        );
+    }
+
+    #[test]
+    fn a_sequences_missing_music_is_found_again() {
+        let (_app, webview, dir) = app();
+        let music = dir.path().join("Seq/Music/Carol.wav");
+        std::fs::create_dir_all(music.parent().unwrap()).unwrap();
+        write_wav(&music);
+        let file = dir.path().join("Seq/Carol.pfseq.json");
+        call(
+            &webview,
+            "new_sequence_doc",
+            json!({ "name": "Carol", "durationMs": 1000, "audio": music }),
+        )
+        .unwrap();
+        call(&webview, "save_sequence_doc_as", json!({ "path": file })).unwrap();
+        assert_eq!(
+            call(&webview, "sequence_music_missing", json!({})).unwrap(),
+            Value::Null
+        );
+        let moved = dir.path().join("Seq/Audio/Carol.wav");
+        std::fs::create_dir_all(moved.parent().unwrap()).unwrap();
+        std::fs::rename(&music, &moved).unwrap();
+        let missing = call(&webview, "sequence_music_missing", json!({})).unwrap();
+        assert_eq!(missing["message"], "Carol.wav isn't where it was.");
+        let found = call(&webview, "find_sequence_music", json!({})).unwrap();
+        assert_eq!(found["found"]["to"], json!(moved.to_str().unwrap()));
+        assert_eq!(found["result"]["changed"], true);
+        assert_eq!(
+            call(&webview, "sequence_music_missing", json!({})).unwrap(),
+            Value::Null
+        );
+        let again = call(&webview, "find_sequence_music", json!({})).unwrap();
+        assert_eq!(again, json!({ "found": null, "result": null }));
     }
 }

@@ -66,8 +66,11 @@ pub(crate) async fn discard_sequence_recovery(state: State<'_, AppState>, id: St
 }
 
 #[tauri::command]
-pub(crate) async fn open_sequence_doc(state: State<'_, AppState>, path: PathBuf) -> Reply<SequenceSnapshot> {
-    state.engine().open_sequence_doc(&path).map_err(message)
+pub(crate) async fn open_sequence_doc(state: State<'_, AppState>, path: String) -> Reply<SequenceSnapshot> {
+    state
+        .engine()
+        .open_sequence_doc(&pf_model::path_from_text(&path))
+        .map_err(message)
 }
 
 #[tauri::command]
@@ -235,7 +238,8 @@ pub(crate) async fn cancel_sequence_export(state: State<'_, AppState>) -> Reply<
 
 /// Finds the tempo, beats, bars, and onsets in a music file (changes nothing).
 #[tauri::command]
-pub(crate) async fn analyze_audio(path: PathBuf) -> Reply<Analysis> {
+pub(crate) async fn analyze_audio(path: String) -> Reply<Analysis> {
+    let path = pf_model::path_from_text(&path);
     tauri::async_runtime::spawn_blocking(move || pf_analysis::analyze_file(&path))
         .await
         .map_err(|_| "Something went wrong analyzing the music.".to_string())?

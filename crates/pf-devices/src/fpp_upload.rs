@@ -90,11 +90,16 @@ pub enum UploadError {
     Rejected { name: String, detail: Option<String> },
     #[error("Couldn't read {name}: {reason}")]
     Local { name: String, reason: String },
-    /// `error`, after which part of an upload couldn't be removed from the FPP.
+    /// `error`, after which these files from the upload couldn't be removed from the FPP's upload
+    /// folder (by their names there).
     #[error(
-        "{error} A partial copy of {name} may be left in the FPP's File Manager, under Uploads; you can delete it there."
+        "{error} These may be left in the FPP's File Manager, under Uploads: {}. You can delete them there.",
+        .names.join(", ")
     )]
-    LeftBehind { error: Box<UploadError>, name: String },
+    LeftBehind {
+        error: Box<UploadError>,
+        names: Vec<String>,
+    },
 }
 
 /// Whether FPP's words say its storage is full (PHP's `file_put_contents` warning, FPP 10's
@@ -254,14 +259,17 @@ pub fn fpp_file_name(name: &str, extension: &str) -> String {
 }
 
 /// Whether a name the FPP already uses can be sent and moved as it is: one plain file name
-/// (never a path), in characters that survive FPP's headers and its double URL decoding.
+/// (never a path), in characters that survive FPP's headers and its double URL decoding, that
+/// aren't glob patterns (FPP 9.x's unescaped `glob()` of old pieces would match other files),
+/// and that Windows allows in the temporary export's name. Anything else: Keep both sends a tidy
+/// name instead.
 pub fn is_safe_fpp_name(name: &str) -> bool {
     !name.is_empty()
         && !name.starts_with('.')
         && !name.contains("..")
         && name
             .chars()
-            .all(|c| c.is_ascii_graphic() && !"/\\%+?#\"".contains(c) || c == ' ')
+            .all(|c| c.is_ascii_graphic() && !"/\\%+?#\"*[]<>:|".contains(c) || c == ' ')
 }
 
 /// `name` as an FPP playlist name: letters, numbers, spaces, hyphens, and underscores only (the
@@ -424,38 +432,64 @@ pub struct Staged {
     /// Its name on the FPP.
     pub name: String,
     pub size: u64,
-    /// Where each chunk sent began (FPP 10 keeps a piece for each until the file is whole).
-    offsets: Vec<u64>,
 }
 
-/// Removes `name`'s pieces (those starting at `offsets`) and its put-together file from FPP's
-/// upload folder. Stops at the first request that fails (an FPP that can't be reached would
-/// make each one wait). Returns whether everything is gone.
-fn tidy(http: &dyn Http, host: &str, name: &str, offsets: &[u64]) -> bool {
-    let pieces = offsets
-        .iter()
-        .map(|offset| format!("{name}.patch.{offset}"))
-        .chain(std::iter::once(name.to_string()));
-    for piece in pieces {
-        let Ok(reply) = http.delete(host, &format!("/api/file/uploads/{}", encode_segment(&piece))) else {
-            return false;
-        };
-        let status = str_field(&lenient_json(&reply), "status").to_string();
-        if !(status.eq_ignore_ascii_case("ok") || status.eq_ignore_ascii_case("file not found")) {
-            return false;
+/// The names in FPP's upload folder (`GET /api/files/uploads`).
+fn upload_folder(http: &dyn Http, host: &str) -> Result<Vec<String>, DeviceError> {
+    let doc = lenient_json(&http.get(host, "/api/files/uploads")?);
+    Ok(doc["files"]
+        .as_array()
+        .map(|files| files.iter().map(|f| str_field(f, "name").to_string()).collect())
+        .unwrap_or_default())
+}
+
+/// Whether `file` in the upload folder belongs to the upload of `name`: one of its pieces
+/// (`<name>.patch.<offset>`; FPP 9.x appends to `.patch.0`, FPP 10 keeps one per chunk) or, once
+/// every byte was sent (`whole`), the file FPP put together.
+fn is_upload_of(file: &str, name: &str, whole: bool) -> bool {
+    let piece = file
+        .strip_prefix(name)
+        .and_then(|rest| rest.strip_prefix(".patch."))
+        .is_some_and(|offset| !offset.is_empty() && offset.bytes().all(|b| b.is_ascii_digit()));
+    piece || (whole && file == name)
+}
+
+/// Removes what the upload of `name` left in FPP's upload folder. The folder is listed once and
+/// only this upload's files there are deleted (FPP 9.3 answers "Invalid path…" for a file that
+/// isn't there, so nothing is asked for blindly); other files are left alone. Stops at the first
+/// request that can't be made (an FPP that can't be reached would make each one wait). Returns
+/// the files still left, by their names in the folder.
+fn tidy(http: &dyn Http, host: &str, name: &str, whole: bool) -> Vec<String> {
+    let Ok(listed) = upload_folder(http, host) else {
+        return vec![name.to_string()];
+    };
+    let ours: Vec<String> = listed
+        .into_iter()
+        .filter(|f| is_upload_of(f, name, whole))
+        .collect();
+    let mut left = Vec::new();
+    for (i, file) in ours.iter().enumerate() {
+        match http.delete(host, &format!("/api/file/uploads/{}", encode_segment(file))) {
+            Ok(reply) if str_field(&lenient_json(&reply), "status").eq_ignore_ascii_case("ok") => {}
+            Ok(_) => left.push(file.clone()),
+            Err(_) => {
+                left.extend(ours[i..].iter().cloned());
+                break;
+            }
         }
     }
-    true
+    left
 }
 
-/// `error`, after trying to remove what was sent of `name`.
-fn tidied(http: &dyn Http, host: &str, name: &str, offsets: &[u64], error: UploadError) -> UploadError {
-    if tidy(http, host, name, offsets) {
+/// `error`, after trying to remove what the upload of `name` left behind.
+fn tidied(http: &dyn Http, host: &str, name: &str, whole: bool, error: UploadError) -> UploadError {
+    let names = tidy(http, host, name, whole);
+    if names.is_empty() {
         error
     } else {
         UploadError::LeftBehind {
             error: Box::new(error),
-            name: name.to_string(),
+            names,
         }
     }
 }
@@ -500,7 +534,6 @@ pub fn stage(
         return Err(local_error(io::Error::other("the file is empty")));
     }
     let total_text = total.to_string();
-    let mut offsets = Vec::new();
     let mut offset = 0;
     while offset < total {
         let length = CHUNK_BYTES.min(total - offset);
@@ -518,29 +551,30 @@ pub fn stage(
             progress: &mut *progress,
             cancelled: false,
         };
-        offsets.push(offset);
         let reply = http.send_body("PATCH", host, "/api/file/uploads", &headers, &mut body, length);
         let cancelled = body.cancelled;
+        // FPP may have put the file together if this was the last chunk.
+        let last = offset + length == total;
         let reply = match reply {
             Ok(reply) => reply,
-            Err(_) if cancelled => return Err(tidied(http, host, name, &offsets, UploadError::Cancelled)),
+            Err(_) if cancelled => return Err(tidied(http, host, name, false, UploadError::Cancelled)),
             // Nothing reached an FPP that couldn't be connected to.
             Err(e @ DeviceError::Unreachable { .. }) if offset == 0 && !e.to_string().contains("in time") => {
                 return Err(UploadError::from_device(e, name));
             }
             Err(e) => {
                 let error = UploadError::from_device(e, name);
-                return Err(tidied(http, host, name, &offsets, error));
+                return Err(tidied(http, host, name, last, error));
             }
         };
         let doc = lenient_json(&reply);
         let status = str_field(&doc, "status");
         if !status.eq_ignore_ascii_case("ok") {
             let error = rejected_or_full(name, fpp_message(&reply));
-            return Err(tidied(http, host, name, &offsets, error));
+            return Err(tidied(http, host, name, last, error));
         }
-        // FPP answers with how much of the file it now holds: less than was sent means its
-        // storage ran out part way.
+        // FPP answers with how much of the file it now holds: exactly what was sent so far, or
+        // less when its storage ran out part way (more means it counted a stale piece too).
         let held = u64::try_from(int_field(&doc, "size")).unwrap_or(0);
         if held < offset + length {
             let error = UploadError::Full {
@@ -548,12 +582,22 @@ pub fn stage(
                 sure: true,
                 detail: preamble(&reply),
             };
-            return Err(tidied(http, host, name, &offsets, error));
+            return Err(tidied(http, host, name, false, error));
+        }
+        if held > offset + length {
+            let error = UploadError::Rejected {
+                name: name.to_string(),
+                detail: Some(format!(
+                    "The FPP has more of {name} than was sent ({held} bytes, not {}), so PixelFlow won't use it.",
+                    offset + length
+                )),
+            };
+            return Err(tidied(http, host, name, last, error));
         }
         offset += length;
     }
     if !(progress)(total, total) {
-        return Err(tidied(http, host, name, &offsets, UploadError::Cancelled));
+        return Err(tidied(http, host, name, true, UploadError::Cancelled));
     }
     // FPP 9.x answers "OK" with the full size even when its disk filled while it put the file
     // together: the upload folder's listing has the real size.
@@ -561,7 +605,6 @@ pub fn stage(
         Ok(Some(size)) if size == total => Ok(Staged {
             name: name.to_string(),
             size: total,
-            offsets,
         }),
         Ok(_) => {
             let error = UploadError::Full {
@@ -569,11 +612,11 @@ pub fn stage(
                 sure: false,
                 detail: None,
             };
-            Err(tidied(http, host, name, &offsets, error))
+            Err(tidied(http, host, name, true, error))
         }
         Err(e) => {
             let error = UploadError::from_device(e, name);
-            Err(tidied(http, host, name, &offsets, error))
+            Err(tidied(http, host, name, true, error))
         }
     }
 }
@@ -589,15 +632,15 @@ pub fn commit(http: &dyn Http, host: &str, staged: &Staged) -> Result<(), Upload
             name: name.clone(),
             detail: fpp_message(&moved.to_string()),
         };
-        return Err(tidied(http, host, name, &staged.offsets, error));
+        return Err(tidied(http, host, name, true, error));
     }
     Ok(())
 }
 
-/// Removes a staged file that won't be moved into place (the send was cancelled). Returns
-/// whether it's gone.
-pub fn discard(http: &dyn Http, host: &str, staged: &Staged) -> bool {
-    tidy(http, host, &staged.name, &staged.offsets)
+/// Removes a staged file that won't be moved into place (the send was cancelled). Returns the
+/// files that couldn't be removed from the upload folder, by name (empty when it's clean).
+pub fn discard(http: &dyn Http, host: &str, staged: &Staged) -> Vec<String> {
+    tidy(http, host, &staged.name, true)
 }
 
 /// [`stage`] then [`commit`]: sends one file and moves it into place.
@@ -892,7 +935,7 @@ mod tests {
 
     #[test]
     fn names_the_fpp_already_uses_are_safe_only_as_plain_file_names() {
-        for ok in ["Show.fseq", "Rock'n Roll.mp3", "Song [Remix].mp3"] {
+        for ok in ["Show.fseq", "Rock'n Roll.mp3", "Song (Remix), v2.mp3"] {
             assert!(is_safe_fpp_name(ok), "{ok}");
         }
         for bad in [
@@ -904,6 +947,15 @@ mod tests {
             ".hidden",
             "Café.mp3",
             "",
+            // Glob patterns (FPP 9.x's unescaped glob of old pieces) and characters Windows
+            // can't put in the temporary export's name: Keep both sends a tidy name instead.
+            "Song*.mp3",
+            "Song [Remix].mp3",
+            "a?.mp3",
+            "a<b.mp3",
+            "a>b.mp3",
+            "a:b.mp3",
+            "a|b.mp3",
         ] {
             assert!(!is_safe_fpp_name(bad), "{bad}");
         }

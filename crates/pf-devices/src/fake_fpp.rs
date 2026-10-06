@@ -121,6 +121,8 @@ pub struct FakeFppState {
     pub refuse_deletes: bool,
     /// Moving this file into place fails, as when its folder is not writable.
     pub fail_move: Option<String>,
+    /// Bytes added to every upload answer's `size`, as when a stale piece is counted too.
+    pub extra_held: u64,
     /// What `/api/fppd/status` answers.
     pub status: Value,
     /// What `/api/channel/output/universeOutputs` answers.
@@ -147,6 +149,7 @@ impl Default for FakeFppState {
             php_warning: None,
             refuse_deletes: false,
             fail_move: None,
+            extra_held: 0,
             status: json!({
                 "status_name": "idle", "current_playlist": {"playlist": ""}, "current_sequence": "",
                 "seconds_elapsed": "0", "seconds_remaining": "0",
@@ -394,6 +397,10 @@ fn serve(stream: TcpStream, state: &Mutex<FakeFppState>) -> std::io::Result<()> 
     respond(&mut stream, status, &reply)
 }
 
+/// FPP 9.3's `DeleteFile()` answer for a file that isn't there: `realpath()` of a missing file is
+/// false, so it reports a bad path rather than "File Not Found".
+const MISSING_FILE: &str = "Invalid path: directory traversal detected or file outside allowed directory";
+
 const MUSIC: [&str; 9] = [
     ".mp3", ".ogg", ".m4a", ".wav", ".flac", ".aac", ".wma", ".m4p", ".au",
 ];
@@ -497,9 +504,7 @@ fn route(s: &mut FakeFppState, method: &str, segments: &[&str], body: &[u8]) -> 
                 return ok(json!({"status": "Unable to delete file: Permission denied", "file": name}));
             }
             let removed = s.uploads.remove(*name).is_some();
-            ok(
-                json!({"status": if removed { "OK" } else { "File Not Found" }, "file": name, "dir": "uploads"}),
-            )
+            ok(json!({"status": if removed { "OK" } else { MISSING_FILE }, "file": name, "dir": "uploads"}))
         }
         ("POST", ["api", "command"]) => {
             s.commands.push(String::from_utf8_lossy(body).into_owned());
@@ -625,7 +630,8 @@ fn upload(
         }
         (size, s.php_warning.clone())
     };
-    let json = json!({"status": "OK", "file": name, "dir": "uploads", "size": size.to_string()});
+    let held = size + lock().extra_held;
+    let json = json!({"status": "OK", "file": name, "dir": "uploads", "size": held.to_string()});
     respond(stream, 200, &format!("{}{json}", warning.unwrap_or_default()))
 }
 

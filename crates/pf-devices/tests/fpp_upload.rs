@@ -267,10 +267,89 @@ fn what_couldnt_be_tidied_is_reported() {
     assert!(matches!(err, UploadError::LeftBehind { .. }), "{err:?}");
     let message = err.to_string();
     assert!(message.starts_with("The upload was cancelled."), "{message}");
+    // The file left, by its real name in the upload folder.
     assert!(
-        message.contains("A partial copy of Show.fseq may be left in the FPP's File Manager, under Uploads"),
+        message.contains("These may be left in the FPP's File Manager, under Uploads: Show.fseq.patch.0."),
         "{message}"
     );
+}
+
+#[test]
+fn cancelling_mid_upload_on_fpp_9_3_leaves_uploads_clean_with_no_false_warning() {
+    // FPP 9.3 appends chunks to .patch.0, so .patch.<offset> pieces never exist, and it answers
+    // "Invalid path…" (not "File Not Found") for a file that isn't there.
+    let fpp = FakeFpp::start();
+    let dir = tempfile::tempdir().unwrap();
+    let path = temp_file(&dir, "Show.fseq", &pattern(13 * 1024 * 1024));
+    let err = fpp_upload::stage(&client(), fpp.address(), &path, "Show.fseq", &mut |done, _| {
+        done < 9 * 1024 * 1024
+    })
+    .unwrap_err();
+    assert_eq!(err, UploadError::Cancelled, "no false 'may be left' warning");
+    let state = fpp.state();
+    assert!(state.uploads.is_empty(), "{:?}", state.uploads);
+    // Only what the upload folder listed was deleted; the never-whole file wasn't asked for.
+    let deletes: Vec<&String> = state
+        .requests
+        .iter()
+        .filter(|r| r.starts_with("DELETE"))
+        .collect();
+    assert_eq!(deletes, vec!["DELETE /api/file/uploads/Show.fseq.patch.0"]);
+    assert!(state.requests.contains(&"GET /api/files/uploads".to_string()));
+}
+
+#[test]
+fn a_staged_file_that_wont_be_moved_is_removed_cleanly() {
+    let fpp = FakeFpp::start().with_sequence("Show.fseq", 5);
+    let dir = tempfile::tempdir().unwrap();
+    let path = temp_file(&dir, "Show.fseq", &pattern(9 * 1024 * 1024));
+    let staged = fpp_upload::stage(&client(), fpp.address(), &path, "Show.fseq", &mut |_, _| true).unwrap();
+    assert_eq!(fpp.state().upload_bytes("Show.fseq"), 9 * 1024 * 1024);
+    let left = fpp_upload::discard(&client(), fpp.address(), &staged);
+    assert!(left.is_empty(), "{left:?}");
+    let state = fpp.state();
+    assert!(state.uploads.is_empty(), "{:?}", state.uploads);
+    assert_eq!(state.sequences["Show.fseq"].size, 5);
+}
+
+#[test]
+fn tidying_leaves_other_uploads_alone() {
+    let fpp = FakeFpp::start();
+    {
+        let mut state = fpp.state();
+        for other in ["Other.mp3", "Other.mp3.patch.0", "Show.fseq.old"] {
+            state
+                .uploads
+                .insert(other.into(), pf_devices::testing::UploadFile::default());
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = temp_file(&dir, "Show.fseq", &pattern(6 * 1024 * 1024));
+    let err = fpp_upload::stage(&client(), fpp.address(), &path, "Show.fseq", &mut |done, _| {
+        done < 5 * 1024 * 1024
+    })
+    .unwrap_err();
+    assert_eq!(err, UploadError::Cancelled);
+    let names: Vec<String> = fpp.state().uploads.keys().cloned().collect();
+    assert_eq!(names, vec!["Other.mp3", "Other.mp3.patch.0", "Show.fseq.old"]);
+}
+
+#[test]
+fn more_bytes_held_than_sent_is_not_trusted() {
+    // A stale piece the FPP counted too: the file can't be the one that was sent.
+    let fpp = FakeFpp::start().with_sequence("Show.fseq", 5);
+    fpp.state().extra_held = 10;
+    let dir = tempfile::tempdir().unwrap();
+    let path = temp_file(&dir, "Show.fseq", &pattern(1000));
+    let err = fpp_upload::stage(&client(), fpp.address(), &path, "Show.fseq", &mut |_, _| true).unwrap_err();
+    assert!(matches!(err, UploadError::Rejected { .. }), "{err:?}");
+    assert!(
+        err.to_string().contains("more of Show.fseq than was sent"),
+        "{err}"
+    );
+    let state = fpp.state();
+    assert_eq!(state.sequences["Show.fseq"].size, 5);
+    assert!(state.uploads.is_empty(), "{:?}", state.uploads);
 }
 
 #[test]

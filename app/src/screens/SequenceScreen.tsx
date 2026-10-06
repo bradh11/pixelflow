@@ -1,8 +1,9 @@
-import { AlertTriangle, AudioLines, CheckCircle2, Download, FileInput, FilePlus, FolderOpen, History, Info, ListMusic, ListPlus, Magnet, Pause, Play, Repeat, Save, Send, Square, X } from "lucide-react";
+import { AlertTriangle, AudioLines, CheckCircle2, Download, FileInput, FilePlus, FolderOpen, History, Info, Lightbulb, ListMusic, ListPlus, Magnet, MoreHorizontal, Pause, Play, Repeat, Save, Send, Square, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { errorMessage } from "../api/backend";
 import { MissingFileNotice } from "../components/MissingFiles";
+import { SendToFppDialog } from "../components/SendToFppDialog";
 import { EffectPalette } from "../components/sequencer/EffectPalette";
 import { EffectSettings } from "../components/sequencer/EffectSettings";
 import { SequencePreview } from "../components/sequencer/SequencePreview";
@@ -314,8 +315,13 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
           <ToolButton label={`Snap to beats and effect edges (hold ${ALT_KEY} while dragging to turn off)`} pressed={s.snapping} onClick={() => act().setSnapping(!s.snapping)}>
             <Magnet size={16} /> <span className="hidden lg:inline">Snap</span>
           </ToolButton>
-          <ToolButton label="Send to controllers while playing" pressed={s.sendToControllers} onClick={() => void act().setSendToControllers(!s.sendToControllers)}>
-            <Send size={16} /> <span className="hidden lg:inline">Send to controllers</span>
+          <ToolButton
+            label="Light up my display while editing"
+            hint="When on, playing here also sends each frame to your controllers live, so your real lights show the sequence as you edit. When off, it plays only in the preview."
+            pressed={s.sendToControllers}
+            onClick={() => void act().setSendToControllers(!s.sendToControllers)}
+          >
+            <Lightbulb size={16} /> <span className="hidden lg:inline">Light up my display</span>
           </ToolButton>
           <SequenceIssues />
           <ExportControls />
@@ -342,9 +348,18 @@ function PlayheadTime({ durationMs }: { durationMs: number }) {
   );
 }
 
-/** Export and add-to-playlist, or an export's progress with Cancel. */
+/** Send to FPP (with more ways to export behind a menu), or an export's progress with Cancel. */
 function ExportControls() {
   const exporting = useSequencer((s) => s.exporting);
+  const doc = useSequencer((s) => s.doc);
+  const path = useSequencer((s) => s.path);
+  const [sending, setSending] = useState(false);
+  const openSend = async () => {
+    // Send what's on screen: every edit made so far lands first.
+    await useSequencer.getState().settled();
+    setSending(true);
+  };
+  const name = path ? fileName(path).replace(/\.pfseq\.json$|\.json$/i, "") : (doc?.name ?? "Sequence");
   return (
     <div className="ml-auto flex items-center gap-1">
       {exporting !== null ? (
@@ -357,15 +372,81 @@ function ExportControls() {
         </span>
       ) : (
         <>
-          <ToolButton label="Export .fseq for FPP" onClick={() => void useSequencer.getState().exportFseq(false)}>
-            <Download size={16} /> <span className="hidden lg:inline">Export .fseq…</span>
+          <ToolButton label="Send to FPP…" hint="Put this sequence and its music on your FPP, so it plays there on its own" onClick={() => void openSend()}>
+            <Send size={16} /> <span className="hidden lg:inline">Send to FPP…</span>
           </ToolButton>
-          <ToolButton label="Export and add to the show's playlist" onClick={() => void exportToPlaylist()}>
-            <ListMusic size={16} /> <span className="hidden lg:inline">Add to show playlist…</span>
-          </ToolButton>
+          <ExportMenu />
         </>
       )}
+      {sending && doc && (
+        <SendToFppDialog source={{ kind: "openSequence", name }} title={doc.name} music={doc.audio} onClose={() => setSending(false)} />
+      )}
     </div>
+  );
+}
+
+/** Exporting the .fseq file yourself, for people who want the file. */
+function ExportMenu() {
+  const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    menu.current?.querySelector("button")?.focus();
+    const close = (refocus: boolean) => {
+      setOpen(false);
+      if (refocus) trigger.current?.focus();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      close(true);
+    };
+    const onPointer = (e: PointerEvent) => {
+      if (!menu.current?.contains(e.target as Node) && !trigger.current?.contains(e.target as Node)) close(false);
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onPointer);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerdown", onPointer);
+    };
+  }, [open]);
+  const choose = (action: () => void) => {
+    setOpen(false);
+    action();
+  };
+  const item = "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-neutral-100 focus:bg-neutral-100 focus:outline-none dark:hover:bg-neutral-800 dark:focus:bg-neutral-800";
+  return (
+    <span className="relative">
+      <button
+        ref={trigger}
+        type="button"
+        aria-label="More ways to export"
+        title="More ways to export"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className="inline-flex items-center rounded-md px-1.5 py-1.5 text-neutral-700 hover:bg-neutral-200/70 dark:text-neutral-200 dark:hover:bg-neutral-800"
+      >
+        <MoreHorizontal size={16} />
+      </button>
+      {open && (
+        <div
+          ref={menu}
+          role="menu"
+          aria-label="More ways to export"
+          className="absolute top-9 right-0 z-30 w-72 rounded-lg border border-neutral-200 bg-white p-1 text-sm shadow-xl dark:border-neutral-800 dark:bg-neutral-900"
+        >
+          <button type="button" role="menuitem" className={item} onClick={() => choose(() => void useSequencer.getState().exportFseq(false))}>
+            <Download size={14} /> Export .fseq…
+          </button>
+          <button type="button" role="menuitem" className={item} onClick={() => choose(() => void exportToPlaylist())}>
+            <ListMusic size={14} /> Export and add to this show's playlist…
+          </button>
+        </div>
+      )}
+    </span>
   );
 }
 

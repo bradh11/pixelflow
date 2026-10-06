@@ -229,6 +229,8 @@ interface SequencerState {
   pollPlayback(): Promise<void>;
   /** Exports an .fseq (asking where), optionally adding it to the show's playlist. */
   exportFseq(addToShow: boolean): Promise<ExportSummary | null>;
+  /** Resolves once every edit made so far has reached the engine (before it exports or sends). */
+  settled(): Promise<void>;
   cancelExport(): Promise<void>;
   dismissBeats(): void;
   /** Brings the selected effect (or else the playhead) and the active row into view on the
@@ -800,6 +802,8 @@ export const useSequencer = create<SequencerState>((set, get) => {
       });
       return summary;
     },
+
+    settled: () => serial(async () => undefined),
 
     async cancelExport() {
       cancelled = true;

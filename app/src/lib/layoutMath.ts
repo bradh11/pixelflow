@@ -601,6 +601,11 @@ export function drawnProp(kind: PropKind, a: Pt, b: Pt, prop: Prop): Prop {
   } else if (shape.type === "circle" || shape.type === "wreath" || shape.type === "spinner" || shape.type === "sphere") {
     place(cx, cy);
     shape.radius = r(Math.min(w, h) / 2);
+  } else if (shape.type === "customGrid") {
+    // Its squares are one unit apart: scale them evenly to fit the box.
+    place(cx, cy);
+    const s = r(Math.min(w / Math.max(shape.columns - 1, 1), h / Math.max(shape.rows - 1, 1)));
+    transform.scale = { x: s, y: s, z: s };
   } else if (shape.type === "cube") {
     // The front face fits the box: the spacing that fits both across and up.
     place(cx, cy);

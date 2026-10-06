@@ -9,6 +9,7 @@ import {
   Droplets,
   Grid3x3,
   ImagePlus,
+  LayoutGrid,
   LoaderPinwheel,
   Magnet,
   Maximize,
@@ -64,6 +65,7 @@ export const MORE_TOOLS: ToolInfo[] = [
   { tool: "spinner", label: "Spinner", hint: "Drag a box around the spinner", icon: LoaderPinwheel },
   { tool: "sphere", label: "Sphere", hint: "Drag a box around the sphere", icon: Globe },
   { tool: "cube", label: "Cube", hint: "Drag a box around the front of the cube", icon: Box },
+  { tool: "customGrid", label: "Custom grid", hint: "Drag a box where the grid goes, then number its squares in the properties panel", icon: LayoutGrid },
 ];
 
 function ToolButton({
@@ -147,7 +149,7 @@ function MoreShapes({ tool, setTool, in3d }: { tool: Tool; setTool: (t: Tool) =>
       <ToolButton
         pressed={!!picked}
         label={picked ? picked.label : "More shapes"}
-        hint={in3d ? DRAW_IN_2D : "More kinds of props: circles, stars, candy canes, icicles, window frames, wreaths, spinners, spheres, cubes"}
+        hint={in3d ? DRAW_IN_2D : "More kinds of props: circles, stars, candy canes, icicles, window frames, wreaths, spinners, spheres, cubes, custom grids"}
         disabled={in3d}
         onClick={() => setOpen(!open)}
         popup

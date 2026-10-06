@@ -295,6 +295,29 @@ describe("LayoutScreen", () => {
     expect(edits).toHaveLength(2);
   });
 
+  it("numbers a custom grid's squares in order, empties them, clears and resizes it, one undo step each", async () => {
+    const grid = { ...newProp("customGrid", emptyShow("x")), name: "Sign" };
+    grid.shape = { source: "generator", type: "customGrid", columns: 3, rows: 2, cells: [0, 0, 0, 0, 0, 0] };
+    const user = await setup(showWith(grid));
+    act(() => useLayoutEditor.getState().select([grid.id]));
+    const cells = () => backend.show.props[0].shape as Extract<Prop["shape"], { type: "customGrid" }>;
+    await user.click(screen.getByRole("gridcell", { name: "Row 2, column 1: empty" }));
+    await user.click(screen.getByRole("gridcell", { name: "Row 1, column 3: empty" }));
+    await user.click(screen.getByRole("gridcell", { name: "Row 1, column 1: empty" }));
+    expect(cells().cells).toEqual([3, 0, 2, 1, 0, 0]);
+    await user.click(screen.getByRole("gridcell", { name: "Row 1, column 3: pixel 2" }));
+    expect(cells().cells).toEqual([3, 0, 0, 1, 0, 0]);
+    const columns = screen.getByLabelText("Columns");
+    await user.clear(columns);
+    await user.type(columns, "2{Enter}");
+    expect(cells()).toMatchObject({ columns: 2, rows: 2, cells: [3, 0, 1, 0] });
+    await user.click(screen.getByRole("button", { name: "Clear all" }));
+    expect(cells().cells).toEqual([0, 0, 0, 0]);
+    expect(edits).toHaveLength(6);
+    await act(() => useApp.getState().undo());
+    expect(cells().cells).toEqual([3, 0, 1, 0]);
+  });
+
   it("says where a prop is wired, or that it isn't", async () => {
     const wired = line("Gutter", 0, 0);
     const show = showWith(wired, line("Fence", 0, 4));

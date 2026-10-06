@@ -25,6 +25,7 @@ import { useView3d } from "../../state/view3d";
 import { HouseModelPanel } from "../layout3d/HouseModelPanel";
 import { SubmodelsSection } from "./SubmodelsSection";
 import { AddBendButton, JoinLines, PolyLineSection } from "./PolyLineSection";
+import { CustomGridSection } from "./CustomGridSection";
 import { isPoly } from "../../lib/polylineMath";
 import { SHAPE_FIELDS, type ShapeField, fieldValue, parseNumbers, withField } from "./shapeFields";
 import { Button, Input, Select } from "../ui";
@@ -233,17 +234,16 @@ function OnePropPanel({ prop, points }: { prop: Prop; points: ArrayLike<number> 
         </p>
       </Section>
       {isPoly(shape) && <PolyLineSection prop={prop} shape={shape} />}
+      {shape.source === "generator" && shape.type === "customGrid" && <CustomGridSection prop={prop} shape={shape} />}
       <Section title="Size and pixels">
-        {isPoly(shape) ? null : fields.length > 0 ? (
-          <ShapeFields fields={fields} shape={shape} onChange={(key, v) => update((p) => ({ ...p, shape: withField(p.shape, key, v, SHAPE_DEFAULTS) }))} />
-        ) : (
+        {shape.source === "measured" ? (
           <p className="text-sm text-neutral-500">
-            {shape.source === "measured"
-              ? "This prop's pixels were placed one by one (imported), so its size is changed by resizing it on the canvas."
-              : "This custom grid's pixels can't be changed here yet."}
+            This prop's pixels were placed one by one (imported), so its size is changed by resizing it on the canvas.
           </p>
-        )}
-        <label className={`${isPoly(shape) ? "" : "mt-2 "}flex flex-col gap-1 text-xs`}>
+        ) : fields.length > 0 ? (
+          <ShapeFields fields={fields} shape={shape} onChange={(key, v) => update((p) => ({ ...p, shape: withField(p.shape, key, v, SHAPE_DEFAULTS) }))} />
+        ) : null}
+        <label className={`${fields.length > 0 || shape.source === "measured" ? "mt-2 " : ""}flex flex-col gap-1 text-xs`}>
           <span className="text-neutral-500 dark:text-neutral-400">Color order</span>
           <Select
             value={prop.colorOrder}

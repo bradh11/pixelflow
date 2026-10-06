@@ -19,7 +19,8 @@ export type PropKind =
   | "wreath"
   | "spinner"
   | "sphere"
-  | "cube";
+  | "cube"
+  | "customGrid";
 
 export const PROP_KINDS: { kind: PropKind; label: string }[] = [
   { kind: "arch", label: "Arch" },
@@ -36,6 +37,7 @@ export const PROP_KINDS: { kind: PropKind; label: string }[] = [
   { kind: "spinner", label: "Spinner" },
   { kind: "sphere", label: "Sphere" },
   { kind: "cube", label: "Cube" },
+  { kind: "customGrid", label: "Custom grid" },
 ];
 
 const DEFAULT_SHAPES: Record<PropKind, ShapeSource> = {
@@ -139,6 +141,14 @@ const DEFAULT_SHAPES: Record<PropKind, ShapeSource> = {
     strandStyle: "zigZag",
     strandPerLayer: false,
   },
+  // A small heart to start from.
+  customGrid: {
+    source: "generator",
+    type: "customGrid",
+    columns: 5,
+    rows: 5,
+    cells: [0, 5, 0, 7, 0, 4, 0, 6, 0, 8, 3, 0, 0, 0, 9, 0, 2, 0, 10, 0, 0, 0, 1, 0, 0],
+  },
 };
 
 const KIND_NAMES: Record<PropKind, string> = {
@@ -156,6 +166,7 @@ const KIND_NAMES: Record<PropKind, string> = {
   spinner: "Spinner",
   sphere: "Sphere",
   cube: "Cube",
+  customGrid: "Custom Grid",
 };
 
 /** The first "Base N" name not already used. */

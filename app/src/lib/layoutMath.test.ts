@@ -410,6 +410,12 @@ describe("drawing new props", () => {
     expect(wreath.maxX - wreath.minX).toBeCloseTo(4, 1);
   });
 
+  it("scales a custom grid evenly to fit the drawn box", () => {
+    const grid = drawnProp("customGrid", { x: 0, y: 0 }, { x: 8, y: 4 }, newProp("customGrid", show));
+    expect(grid.transform.scale).toEqual({ x: 1, y: 1, z: 1 });
+    expect(grid.transform.position).toMatchObject({ x: 4, y: 2 });
+  });
+
   it("fits a sphere in the drawn box, and a cube's front face", () => {
     const a = { x: 2, y: 1 };
     const b = { x: 6, y: 7 };

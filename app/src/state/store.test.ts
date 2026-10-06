@@ -137,6 +137,21 @@ describe("app store", () => {
     expect(useApp.getState().error).toBeNull();
   });
 
+  it("follows the computer's theme until one is chosen, and again when asked", () => {
+    const light = { matches: true, addEventListener() {}, removeEventListener() {} };
+    window.matchMedia = (() => light) as unknown as typeof window.matchMedia;
+    try {
+      useApp.getState().setTheme("system");
+      expect(useApp.getState()).toMatchObject({ theme: "light", themeChoice: "system" });
+      expect(localStorage.getItem("pixelflow.theme")).toBeNull();
+      useApp.getState().setTheme("dark");
+      expect(useApp.getState()).toMatchObject({ theme: "dark", themeChoice: "dark" });
+      expect(localStorage.getItem("pixelflow.theme")).toBe("dark");
+    } finally {
+      delete (window as { matchMedia?: unknown }).matchMedia;
+    }
+  });
+
   it("remembers the theme", async () => {
     useApp.getState().setTheme("light");
     expect(useApp.getState().theme).toBe("light");

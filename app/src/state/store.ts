@@ -54,16 +54,27 @@ export type ReplaceKind = "new" | "open" | "xlights" | "sample" | "close" | { re
 /** A new show's name until the user gives it one. */
 export const UNTITLED = "Untitled Show";
 export type Theme = "dark" | "light";
+/** The theme chosen: light, dark, or whatever the computer is set to. */
+export type ThemeChoice = Theme | "system";
 
 const THEME_KEY = "pixelflow.theme";
 
-function storedTheme(): Theme {
+function storedThemeChoice(): ThemeChoice {
   try {
-    return localStorage.getItem(THEME_KEY) === "light" ? "light" : "dark";
+    const saved = localStorage.getItem(THEME_KEY);
+    return saved === "light" || saved === "dark" ? saved : "system";
   } catch {
-    return "dark";
+    return "system";
   }
 }
+
+/** The computer's light or dark setting (dark where it can't be told). */
+export function systemTheme(): Theme {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return "dark";
+  return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+
+const resolveTheme = (choice: ThemeChoice): Theme => (choice === "system" ? systemTheme() : choice);
 
 interface AppState {
   backend: Backend | null;
@@ -71,7 +82,9 @@ interface AppState {
   /** False until the user leaves the welcome screen. */
   started: boolean;
   screen: Screen;
+  /** The theme in use, light or dark. */
   theme: Theme;
+  themeChoice: ThemeChoice;
   paletteOpen: boolean;
   error: string | null;
   busy: boolean;
@@ -108,7 +121,8 @@ interface AppState {
 
   connect(backend: Backend): Promise<void>;
   setScreen(screen: Screen): void;
-  setTheme(theme: Theme): void;
+  /** Chooses light, dark, or the computer's setting ("system"), remembered on this computer. */
+  setTheme(theme: ThemeChoice): void;
   setPaletteOpen(open: boolean): void;
   setTestTarget(value: string): void;
   setMusicVolume(volume: number): void;
@@ -493,7 +507,8 @@ export const useApp = create<AppState>((set, get) => {
   snapshot: null,
   started: false,
   screen: "layout",
-  theme: storedTheme(),
+  theme: resolveTheme(storedThemeChoice()),
+  themeChoice: storedThemeChoice(),
   paletteOpen: false,
   error: null,
   busy: false,
@@ -529,13 +544,14 @@ export const useApp = create<AppState>((set, get) => {
 
   setScreen: (screen) => set({ screen }),
 
-  setTheme(theme) {
+  setTheme(choice) {
     try {
-      localStorage.setItem(THEME_KEY, theme);
+      if (choice === "system") localStorage.removeItem(THEME_KEY);
+      else localStorage.setItem(THEME_KEY, choice);
     } catch {
       // Storage unavailable; the theme still applies for this session.
     }
-    set({ theme });
+    set({ themeChoice: choice, theme: resolveTheme(choice) });
   },
 
   setPaletteOpen: (paletteOpen) => set({ paletteOpen }),

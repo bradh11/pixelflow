@@ -116,11 +116,11 @@ export function CommandPalette() {
       label: `Add prop: ${label}`,
       run: () => void addPropInView(kind),
     })),
-    {
-      id: "theme",
-      label: state.theme === "dark" ? "Switch to light theme" : "Switch to dark theme",
-      run: () => state.setTheme(state.theme === "dark" ? "light" : "dark"),
-    },
+    ...(["light", "dark", "system"] as const).map((choice) => ({
+      id: `theme-${choice}`,
+      label: `Theme: ${choice === "system" ? "match this computer" : choice}${state.themeChoice === choice ? " (now)" : ""}`,
+      run: () => state.setTheme(choice),
+    })),
   ];
 
   return (

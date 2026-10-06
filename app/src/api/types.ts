@@ -34,7 +34,29 @@ export interface PolySegment {
 
 export type Generator =
   | { type: "line"; nodes: number; length: number }
-  | { type: "arch"; nodes: number; width: number; height: number }
+  /** Arches in a row (`nodes` pixels each), or with `layers` one arch of nested layers, laid out as xLights does. Settings left out read as one half-ellipse arch. */
+  | {
+      type: "arch";
+      nodes: number;
+      /** Between each arch's feet. */
+      width: number;
+      /** From the feet to the top. */
+      height: number;
+      arches?: number;
+      /** Degrees of the ellipse each arch goes round, 1–180 (default 180). */
+      arc?: number;
+      /** Between one arch's right foot and the next one's left foot. */
+      gap?: number;
+      /** Lean in degrees, positive to the left. */
+      skewDeg?: number;
+      startRight?: boolean;
+      /** Pixels on each layer, innermost first; empty or absent for plain arches. */
+      layers?: number[];
+      /** The innermost layer's size, percent of the outermost (default 70). */
+      hollow?: number;
+      zigZag?: boolean;
+      startInside?: boolean;
+    }
   | { type: "circle"; nodes: number; radius: number }
   | { type: "matrix"; columns: number; rows: number; width: number; height: number; wiring?: MatrixWiring }
   | {

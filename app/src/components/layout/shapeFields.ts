@@ -1,12 +1,21 @@
 // The settings the properties panel offers for each kind of generated prop, in plain words.
 // Keys name the shape's own fields (a dot reaches into a nested one, like "wiring.start").
 
-export type ShapeField =
+export type ShapeField = (
   | { kind: "number"; key: string; label: string; integer?: boolean; min: number; max?: number; hint?: string }
   | { kind: "bool"; key: string; label: string; hint?: string }
   | { kind: "choice"; key: string; label: string; options: { value: string; label: string }[]; hint?: string }
-  /** Whole numbers typed as a comma list, like an icicle drop pattern "3,4,5,4". */
-  | { kind: "numbers"; key: string; label: string; min: number; max?: number; hint?: string };
+  /** Whole numbers typed as a comma list, like an icicle drop pattern "3,4,5,4"; `allowEmpty` lets it be cleared. */
+  | { kind: "numbers"; key: string; label: string; min: number; max?: number; hint?: string; allowEmpty?: boolean }
+) & {
+  /** Shown only when this says so for the shape (a setting that only matters with another one). */
+  showIf?: (shape: Record<string, unknown>) => boolean;
+};
+
+/** `field`, shown only when `when` holds for the shape. */
+const only = (when: (shape: Record<string, unknown>) => boolean, field: ShapeField): ShapeField => ({ ...field, showIf: when });
+const hasLayers = (shape: Record<string, unknown>) => Array.isArray(shape.layers) && shape.layers.length > 0;
+const noLayers = (shape: Record<string, unknown>) => !hasLayers(shape);
 
 export const COUNT = (key: string, label: string, min = 1, hint?: string): ShapeField => ({ kind: "number", key, label, integer: true, min, hint });
 export const SIZE = (key: string, label: string, min = 0.01, hint?: string): ShapeField => ({ kind: "number", key, label, min, hint });
@@ -36,7 +45,28 @@ const STRAND_STYLES: [string, string][] = [
 /** The size and pixel settings for each kind of generated prop. */
 export const SHAPE_FIELDS: Record<string, ShapeField[]> = {
   line: [COUNT("nodes", "Pixels"), SIZE("length", "Length")],
-  arch: [COUNT("nodes", "Pixels"), SIZE("width", "Width"), SIZE("height", "Height")],
+  arch: [
+    COUNT("nodes", "Pixels", 1, "Pixels on each arch (on a layered arch, on all its layers together)"),
+    only(noLayers, COUNT("arches", "Arches", 1, "Arches in a row, one after another on the same string")),
+    SIZE("width", "Width", 0.01, "Between an arch's two feet"),
+    SIZE("height", "Height", 0.01, "From the feet to the top"),
+    NUMBER("arc", "Curve (°)", 1, 180, "How much of a circle each arch is: 180 is a half circle, less is a flatter arch"),
+    NUMBER("skewDeg", "Lean (°)", -180, 180, "How far the arches lean; positive leans left"),
+    only(noLayers, SIZE("gap", "Gap between arches", 0, "From one arch's right foot to the next one's left foot")),
+    {
+      kind: "numbers",
+      key: "layers",
+      label: "Layers (pixels each, inside first)",
+      min: 1,
+      max: 1_000_000,
+      allowEmpty: true,
+      hint: "For an arch made of arches inside each other: the pixels on each, innermost first, like 20,30,40. Leave it empty for plain arches",
+    },
+    only(hasLayers, { kind: "number", key: "hollow", label: "Innermost layer (%)", integer: true, min: 0, max: 100, hint: "The innermost arch's size, in percent of the outermost" }),
+    BOOL("startRight", "First pixel on the right (the data comes in there)"),
+    only(hasLayers, BOOL("startInside", "Starts on the innermost layer")),
+    only(hasLayers, BOOL("zigZag", "Every other layer runs back the other way")),
+  ],
   circle: [COUNT("nodes", "Pixels"), SIZE("radius", "Radius")],
   matrix: [
     COUNT("columns", "Columns"),
@@ -186,8 +216,9 @@ export function withField<T>(obj: T, key: string, value: unknown, defaults: Reco
   return { ...o, [head]: withField(inner, rest.join("."), value) } as T;
 }
 
-/** "3,4,5,4" as numbers, or null when it isn't a list of whole numbers within the bounds with at least one not 0. */
-export function parseNumbers(text: string, min: number, max = Infinity): number[] | null {
+/** "3,4,5,4" as numbers, or null when it isn't a list of whole numbers within the bounds with at least one not 0 (with `allowEmpty`, blank reads as no numbers). */
+export function parseNumbers(text: string, min: number, max = Infinity, allowEmpty = false): number[] | null {
+  if (allowEmpty && text.trim() === "") return [];
   const parts = text.split(",").map((s) => s.trim());
   if (parts.length === 0 || parts.some((p) => p === "")) return null;
   const nums = parts.map(Number);

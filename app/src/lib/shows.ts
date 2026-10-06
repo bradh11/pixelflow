@@ -221,8 +221,9 @@ export function newController(
 export function nodeCount(shape: ShapeSource): number {
   if (shape.source === "measured") return shape.points.length;
   switch (shape.type) {
-    case "line":
     case "arch":
+      return shape.layers?.length ? shape.nodes : (shape.arches ?? 1) * shape.nodes;
+    case "line":
     case "circle":
     case "star":
       return shape.nodes;

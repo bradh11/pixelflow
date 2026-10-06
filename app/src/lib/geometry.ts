@@ -320,15 +320,68 @@ function spinner(g: Spinner): Vec3[] {
   return out;
 }
 
+type Arch = Extract<Generator, { type: "arch" }>;
+
+/** Arches as xLights lays them out: parts of an ellipse `arc` degrees round, feet `width` apart on y = 0, in a row or nested in layers (pf-geometry's arch.rs). */
+function arch(g: Arch): Vec3[] {
+  const arc = Number.isFinite(g.arc ?? 180) ? Math.min(Math.max(g.arc ?? 180, 1), 180) : 180;
+  const theta = rad(arc);
+  const half = theta / 2;
+  const ea = g.width / 2 / Math.sin(half);
+  const eb = g.height / (1 - Math.cos(half));
+  const drop = eb * Math.cos(half);
+  const skew = rad(g.skewDeg ?? 0);
+  const place = (x: number, adj: number, angle: number) => {
+    const px = x + ea * adj * Math.sin(angle);
+    const py = eb * adj * Math.cos(angle) - drop;
+    return v(px - py * Math.sin(skew), py * Math.cos(skew));
+  };
+  const layers = g.layers ?? [];
+  if (layers.length === 0) {
+    const n = g.arches ?? 1;
+    const gap = g.gap ?? 0;
+    const total = n * g.width + Math.max(n - 1, 0) * gap;
+    const out: Vec3[] = [];
+    for (let k = 0; k < n && out.length < MAX_POINTS; k++) {
+      const x = -total / 2 + g.width / 2 + k * (g.width + gap);
+      for (const i of range(g.nodes)) out.push(place(x, 1, -half + theta * spread(i, g.nodes)));
+    }
+    return g.startRight ? out.reverse() : out;
+  }
+  // Layered: each pixel's spot along the outermost layer and its layer, as xLights numbers them.
+  const lc = layers.length;
+  const maxLen = Math.max(...layers);
+  const nodes = Math.min(g.nodes, MAX_POINTS);
+  const spots: [number, number][] = Array.from({ length: nodes }, () => [0, 0]);
+  let idx = 0;
+  let forward = !g.startRight;
+  for (let layer = 0; layer < lc && idx < nodes; layer++) {
+    const yy = g.startInside ? layer : lc - layer - 1;
+    const it = layers[yy];
+    if (it === 1) {
+      spots[idx++] = [Math.floor(maxLen / 2), yy];
+    } else {
+      const step = Math.fround(Math.fround(maxLen - 1) / Math.fround(it - 1));
+      for (let x = 0; x < it; x++, idx++) {
+        if (idx >= nodes) continue;
+        let xx = Math.round(Math.fround(x * step));
+        if (!forward) xx = maxLen - 1 - xx;
+        spots[idx] = [xx, yy];
+      }
+    }
+    if (g.zigZag) forward = !forward;
+  }
+  const midpt = (maxLen - 1) / 2;
+  const layerGap = lc > 1 ? (1 - (g.hollow ?? 70) / 100) / (lc - 1) : 0;
+  return spots.map(([x, y]) => place(0, 1 - layerGap * (lc - 1 - y), midpt === 0 ? 0 : -half + (theta * x) / midpt / 2));
+}
+
 function generate(g: Generator): Vec3[] {
   switch (g.type) {
     case "line":
       return range(g.nodes).map((i) => v(-g.length / 2 + spread(i, g.nodes) * g.length, 0));
     case "arch":
-      return range(g.nodes).map((i) => {
-        const angle = Math.PI * (1 - spread(i, g.nodes));
-        return v((g.width / 2) * Math.cos(angle), g.height * Math.sin(angle));
-      });
+      return arch(g);
     case "circle":
       return range(g.nodes).map((i) => {
         const angle = Math.PI / 2 - (2 * Math.PI * i) / g.nodes;

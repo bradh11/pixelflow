@@ -1257,6 +1257,45 @@ describe("LayoutScreen", () => {
     });
   });
 
+  describe("xLights settings for arches, circles, stars and trees", () => {
+    /** Selects the only prop and returns a reader for its shape in the backend. */
+    async function selectOnly(prop: Prop) {
+      const user = await setup(showWith(prop));
+      act(() => useLayoutEditor.getState().select([prop.id]));
+      return { user, shape: () => backend.show.props[0].shape as unknown as Record<string, unknown> };
+    }
+
+    it("sets an arch's count, curve and gap, and swaps to the layer settings once it has layers", async () => {
+      const { user, shape } = await selectOnly(placed("arch", "Gate", 0, 0));
+      expect(screen.getByLabelText("Curve (°)")).toHaveValue("180");
+      expect(screen.queryByLabelText("Innermost layer (%)")).not.toBeInTheDocument();
+      const arches = screen.getByLabelText("Arches");
+      await user.clear(arches);
+      await user.type(arches, "4{Enter}");
+      const gap = screen.getByLabelText("Gap between arches");
+      await user.clear(gap);
+      await user.type(gap, "0.5{Enter}");
+      const curve = screen.getByLabelText("Curve (°)");
+      await user.clear(curve);
+      await user.type(curve, "200{Enter}");
+      expect(curve).toHaveValue("180");
+      await user.clear(curve);
+      await user.type(curve, "120{Enter}");
+      expect(shape()).toMatchObject({ arches: 4, gap: 0.5, arc: 120 });
+      await user.type(screen.getByLabelText("Layers (pixels each, inside first)"), "10,20,30{Enter}");
+      expect(shape()).toMatchObject({ layers: [10, 20, 30] });
+      expect(screen.queryByLabelText("Arches")).not.toBeInTheDocument();
+      expect(screen.getByLabelText("Innermost layer (%)")).toHaveValue("70");
+      await user.click(screen.getByLabelText("Starts on the innermost layer"));
+      expect(shape()).toMatchObject({ startInside: true });
+      const layers = screen.getByLabelText("Layers (pixels each, inside first)");
+      await user.clear(layers);
+      await user.type(layers, "{Enter}");
+      expect(shape()).toMatchObject({ layers: [] });
+      expect(screen.getByLabelText("Arches")).toHaveValue("4");
+    });
+  });
+
   describe("smart guides", () => {
     const zoom = () => useLayoutEditor.getState().view!.zoom;
     async function frameOf(name: string) {

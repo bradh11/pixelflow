@@ -177,37 +177,41 @@ export function WiringScreen() {
         Drag to another place or port, or onto the props list to unwire. Arrow keys move between props; Option or Alt with the up
         and down arrows moves this prop earlier or later on its port; Delete unwires it; Enter opens its settings.
       </p>
-      <div className="grid items-start gap-4 lg:grid-cols-[16rem_minmax(0,1fr)] xl:grid-cols-[16rem_minmax(0,1fr)_21rem]">
-        <PropsPanel props={data.show.props} wiring={data.wiring} />
-        <div className="flex min-w-0 flex-col gap-4">
-          {problems.length > 0 && (
-            <div role="region" aria-label="Wiring problems" className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm dark:border-red-900 dark:bg-red-950/40">
-              <h2 className="mb-1 flex items-center gap-1.5 font-medium text-red-700 dark:text-red-300">
-                <AlertTriangle size={14} aria-hidden /> {problems.length === 1 ? "1 thing to fix" : `${problems.length} things to fix`}
-              </h2>
-              <ul className="flex flex-col gap-1">
-                {problems.map((p, i) => (
-                  <li key={i}>
-                    <span className="text-neutral-800 dark:text-neutral-200">{p.message}</span> <span className="text-neutral-500">{p.fix}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {controllers.length === 0 && !adding ? (
-            <EmptyState title="No controllers yet">
-              <p>Use Add controller above, then drag props onto its ports.</p>
-              <p className="mt-2">
-                Or let PixelFlow <GoToScreen screen="devices">find the controllers on your network</GoToScreen>
-              </p>
-            </EmptyState>
-          ) : (
-            controllers.map((c) => <ControllerCard key={c.id} controller={c} data={data} />)
-          )}
-        </div>
-        <div className="flex min-w-0 flex-col gap-4 lg:col-span-2 xl:sticky xl:top-0 xl:col-span-1">
-          {shown && <SlotSettings selected={shown} data={data} />}
-          <WiringPreview show={data.show} props={preview.props} />
+      {/* Columns by the room the screen has (not the window's width): the assistant or sidebar
+          may take some of the window. */}
+      <div className="@container">
+        <div className="grid items-start gap-4 @min-[660px]:grid-cols-[16rem_minmax(0,1fr)] @min-[1072px]:grid-cols-[16rem_minmax(0,1fr)_21rem]">
+          <PropsPanel props={data.show.props} wiring={data.wiring} />
+          <div className="flex min-w-0 flex-col gap-4">
+            {problems.length > 0 && (
+              <div role="region" aria-label="Wiring problems" className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm dark:border-red-900 dark:bg-red-950/40">
+                <h2 className="mb-1 flex items-center gap-1.5 font-medium text-red-700 dark:text-red-300">
+                  <AlertTriangle size={14} aria-hidden /> {problems.length === 1 ? "1 thing to fix" : `${problems.length} things to fix`}
+                </h2>
+                <ul className="flex flex-col gap-1">
+                  {problems.map((p, i) => (
+                    <li key={i}>
+                      <span className="text-neutral-800 dark:text-neutral-200">{p.message}</span> <span className="text-neutral-500">{p.fix}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {controllers.length === 0 && !adding ? (
+              <EmptyState title="No controllers yet">
+                <p>Use Add controller above, then drag props onto its ports.</p>
+                <p className="mt-2">
+                  Or let PixelFlow <GoToScreen screen="devices">find the controllers on your network</GoToScreen>
+                </p>
+              </EmptyState>
+            ) : (
+              controllers.map((c) => <ControllerCard key={c.id} controller={c} data={data} />)
+            )}
+          </div>
+          <div className="flex min-w-0 flex-col gap-4 @min-[660px]:col-span-2 @min-[1072px]:sticky @min-[1072px]:top-0 @min-[1072px]:col-span-1">
+            {shown && <SlotSettings selected={shown} data={data} />}
+            <WiringPreview show={data.show} props={preview.props} />
+          </div>
         </div>
       </div>
       <DragGhost data={data} />

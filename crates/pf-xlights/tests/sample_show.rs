@@ -55,7 +55,10 @@ fn imports_props_controllers_and_groups() {
 
     let arches = show.props.iter().find(|p| p.name == "Arches").unwrap();
     assert_eq!(arches.color_order, ColorOrder::Grb);
-    assert!(matches!(arches.shape, ShapeSource::Measured { .. }));
+    assert!(matches!(
+        arches.shape,
+        ShapeSource::Generator(pf_model::Generator::Arch { arches: 3, nodes: 50, .. })
+    ));
     let everything = show.groups.iter().find(|g| g.name == "Everything").unwrap();
     // The nested group is flattened in place, and the submodel keeps its spot in the list.
     let names: Vec<String> = everything
@@ -313,8 +316,8 @@ fn editable_shapes_land_on_xlights_positions() {
     }
     // Every editable model in the sample show stays editable.
     assert_eq!(
-        editable, 5,
-        "roofline, candy canes, mega tree, porch star, window matrix"
+        editable, 6,
+        "roofline, arches, candy canes, mega tree, porch star, window matrix"
     );
     let tree = show.props.iter().find(|p| p.name == "Mega Tree").unwrap();
     let depth = pf_geometry::world_positions(tree)

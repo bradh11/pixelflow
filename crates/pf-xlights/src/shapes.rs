@@ -26,6 +26,7 @@ pub(crate) fn editable(model: &XmlModel, points: &[Vec3]) -> Option<Candidate> {
     let candidates = match model.display_as.trim() {
         "Poly Line" => poly_line(model),
         "Single Line" => single_line(model, points.len()),
+        "Arches" => arches(model),
         "Candy Canes" => candy_canes(model),
         "Icicles" => icicles(model),
         "Window Frame" => window_frame(model),
@@ -341,6 +342,169 @@ fn candy_canes(m: &XmlModel) -> Vec<Candidate> {
         start_right: m.attr("Dir") == Some("R"),
     };
     vec![(generator, between_ends(&tp, false))]
+}
+
+/// `ArchesModel` with one light per node: its arches (or layers) and settings, sized and placed
+/// so they land where xLights draws them. xLights builds each arch from `l` steps (pixels per
+/// arch, or the longest layer): an ellipse `l - 1` across and `l × Height` up about a center `l`
+/// in from the arch's start, `l + (l - 1) sin(arc / 2)` steps an arch plus `Gap` between; the
+/// row is scaled to the distance between its two points. Arches whose lowest pixel sits above
+/// one step are moved down by it (unscaled by `Height`), which the placement takes up.
+fn arches(m: &XmlModel) -> Vec<Candidate> {
+    let layers: Vec<u32> = crate::geometry::layer_sizes(m.text("LayerSizes", ""))
+        .into_iter()
+        .filter_map(count)
+        .collect();
+    let (Some(arch_count), Some(nodes)) = (
+        count(parm(m, "NumArches", "parm1", 1).max(0)),
+        count(parm(m, "NodesPerArch", "parm2", 1).max(0)),
+    ) else {
+        return Vec::new();
+    };
+    if parm(m, "LightsPerNode", "parm3", 1) != 1
+        || nodes == 0
+        || layers.len() > pf_model::MAX_SHAPE_LAYERS
+        || (layers.is_empty()
+            && (arch_count == 0
+                || u64::from(arch_count) * u64::from(nodes) > u64::from(pf_model::MAX_PROP_NODES)))
+        || nodes > pf_model::MAX_PROP_NODES
+    {
+        return Vec::new();
+    }
+    let arc = m.attr("Arc").or_else(|| m.attr("arc")).map_or(180, strtol0);
+    if !(1..=180).contains(&arc) {
+        return Vec::new();
+    }
+    let skew = if m.attr("ArchesSkew").is_some() {
+        int(m, "ArchesSkew", 0)
+    } else {
+        int(m, "Angle", 0)
+    };
+    let hollow = int(m, "Hollow", 70);
+    if !(-180..=180).contains(&skew) || (!layers.is_empty() && !(0..=100).contains(&hollow)) {
+        return Vec::new();
+    }
+    let height = float(m, "Height", 1.0);
+    let gap_steps = int(m, "Gap", 0) as f64;
+    let ltor = m.attr("Dir") != Some("R");
+    let half = (arc as f64).to_radians() / 2.0;
+    let (sin_half, cos_half) = half.sin_cos();
+    // Steps along each arch (the longest layer's), and the arch's width in steps.
+    let l = f64::from(layers.iter().copied().max().unwrap_or(nodes));
+    let arch_steps = l + (l - 1.0) * sin_half;
+    let render_wi = if layers.is_empty() {
+        arch_steps * f64::from(arch_count) + f64::from(arch_count - 1) * gap_steps
+    } else {
+        arch_steps
+    };
+    let tp = three_point(m);
+    let s = tp.length / render_wi;
+    // The lowest pixel's height, in unscaled steps, as xLights moves the arches down by it.
+    let lowest = l * lowest_cos(
+        &layers,
+        nodes,
+        ltor,
+        m.attr("StartSide").is_none_or(|v| v == "B"),
+        m.attr("ZigZag") == Some("true"),
+        half,
+    );
+    let shift = if lowest > 1.0 { lowest } else { 0.0 };
+    // Ellipse semi-axes (layout units).
+    let (ea, eb) = ((l - 1.0) * s, l * height * s);
+    let (sin_skew, cos_skew) = (skew as f64).to_radians().sin_cos();
+    let spacing = arch_steps + gap_steps;
+    let row = if layers.is_empty() {
+        f64::from(arch_count - 1) * spacing
+    } else {
+        0.0
+    };
+    // The generator's origin (mid-row, level with the outermost feet) in xLights' scaled local
+    // space: the row's middle, the feet `eb · cos(half)` above the ellipse centers, leaned.
+    let feet = eb * cos_half;
+    let origin = [
+        s * (l + row / 2.0) - feet * sin_skew,
+        feet * cos_skew - s * shift,
+        0.0,
+    ];
+    let w = (2.0 * ea * sin_half) as f32 * SCALE;
+    let h = (eb * (1.0 - cos_half)) as f32 * SCALE;
+    if !w.is_finite() || !h.is_finite() {
+        return Vec::new();
+    }
+    let layered = !layers.is_empty();
+    let generator = Generator::Arch {
+        nodes,
+        width: w,
+        height: h,
+        arches: if layered { 1 } else { arch_count },
+        arc: arc as f32,
+        gap: (s * (spacing - 2.0 * (l - 1.0) * sin_half)) as f32 * SCALE,
+        skew_deg: skew as f32,
+        start_right: !ltor,
+        hollow: if layered { hollow as u32 } else { 70 },
+        zig_zag: layered && m.attr("ZigZag") == Some("true"),
+        start_inside: layered && m.attr("StartSide").is_some_and(|v| v != "B"),
+        layers,
+    };
+    vec![(generator, placed_at(&tp, origin))]
+}
+
+/// The smallest `cos(angle)` of the pixels of an xLights arch of `nodes` pixels (layered when
+/// `layers` isn't empty), angles running from `-half` to `half`; xLights moves arches down by
+/// the lowest pixel's height.
+fn lowest_cos(layers: &[u32], nodes: u32, ltor: bool, outside_first: bool, zig_zag: bool, half: f64) -> f64 {
+    if layers.is_empty() {
+        return if nodes > 1 { half.cos() } else { 1.0 };
+    }
+    // Which spots along the longest layer the pixels take (`ArchesModel::InitModel`).
+    let max_len = i64::from(layers.iter().copied().max().unwrap_or(1));
+    let mut spots = vec![0i64; nodes as usize];
+    let (mut idx, mut forward) = (0usize, ltor);
+    for layer in 0..layers.len() {
+        if idx >= spots.len() {
+            break;
+        }
+        let it = layers[if outside_first {
+            layers.len() - layer - 1
+        } else {
+            layer
+        }];
+        if it == 1 {
+            spots[idx] = max_len / 2;
+            idx += 1;
+        } else {
+            let step = (max_len - 1) as f32 / (it as f32 - 1.0);
+            for x in 0..it {
+                if idx < spots.len() {
+                    let xx = (x as f32 * step).round() as i64;
+                    spots[idx] = if forward { xx } else { max_len - 1 - xx };
+                }
+                idx += 1;
+            }
+        }
+        if zig_zag {
+            forward = !forward;
+        }
+    }
+    let midpt = (max_len - 1) as f64 / 2.0;
+    spots
+        .iter()
+        .map(|&x| {
+            if midpt == 0.0 {
+                1.0
+            } else {
+                (-half + 2.0 * half * x as f64 / midpt / 2.0).cos()
+            }
+        })
+        .fold(f64::INFINITY, f64::min)
+}
+
+/// The placement of a PixelFlow shape whose origin is at `origin` in a three-point model's own
+/// (scaled) space.
+fn placed_at(tp: &ThreePoint, origin: [f64; 3]) -> Transform {
+    let at = tp.turn.apply(origin);
+    let p = |i: usize| ((tp.start[i] + at[i]) * f64::from(SCALE)) as f32;
+    transform(Vec3::new(p(0), p(1), p(2)), euler_degrees(&tp.turn.m), Vec3::ONE)
 }
 
 /// `IciclesModel` without shear: its settings, its columns spread over the distance between its
@@ -1254,6 +1418,112 @@ mod tests {
             &with(&CANES, &[("StringType", "Single Color Red")]),
         );
         stays_measured("Candy Canes", &with(&CANES, &[("LightsPerNode", "3")]));
+    }
+
+    /// Three arches of 25 pixels across 450, sloping up a little.
+    const ARCHES: [(&str, &str); 6] = [
+        ("NumArches", "3"),
+        ("NodesPerArch", "25"),
+        ("WorldPosX", "100"),
+        ("WorldPosY", "40"),
+        ("X2", "450"),
+        ("Y2", "20"),
+    ];
+
+    #[test]
+    fn arches_import_as_a_row_of_arches_between_their_two_points() {
+        let g = imports_as("Arches", &ARCHES);
+        let Generator::Arch {
+            nodes,
+            arches,
+            arc,
+            gap,
+            start_right,
+            ref layers,
+            ..
+        } = g
+        else {
+            panic!("{g:?}")
+        };
+        assert_eq!((nodes, arches, arc, start_right), (25, 3, 180.0, false));
+        assert!(layers.is_empty());
+        // xLights leaves one step between arches: the line over 3 arches of 49 steps.
+        let step = (450f32 * 450.0 + 20.0 * 20.0).sqrt() / 147.0 * SCALE;
+        assert!((gap - step).abs() < 1e-5, "{gap} vs {step}");
+        // Several arches and the old parm attributes.
+        imports_as("Arches", &[("parm1", "2"), ("parm2", "12"), ("X2", "100")]);
+        imports_as("Arches", &[("X2", "100")]);
+    }
+
+    #[test]
+    fn arches_set_up_every_way_xlights_offers_import_exactly() {
+        let variants: [&[(&str, &str)]; 12] = [
+            &[("Arc", "120")],
+            &[("arc", "40"), ("Gap", "12")],
+            &[("Gap", "30"), ("Height", "0.6")],
+            &[("ArchesSkew", "25")],
+            &[("Angle", "-15"), ("Arc", "150")],
+            &[("Dir", "R")],
+            &[
+                ("Dir", "R"),
+                ("Arc", "90"),
+                ("ArchesSkew", "-30"),
+                ("Height", "1.8"),
+            ],
+            &[("NumArches", "1"), ("NodesPerArch", "1")],
+            // Drawn right to left, tipped back, in depth.
+            &[("X2", "-300"), ("Y2", "-10"), ("RotateX", "20")],
+            &[("Z2", "80"), ("RotateX", "-15"), ("Dir", "R")],
+            // Layered: one arch, nested layers from the outside or the inside.
+            &[
+                ("NumArches", "1"),
+                ("NodesPerArch", "60"),
+                ("LayerSizes", "10,20,30"),
+            ],
+            &[
+                ("NumArches", "1"),
+                ("NodesPerArch", "64"),
+                ("LayerSizes", "1,7,24,30"),
+                ("Hollow", "40"),
+                ("ZigZag", "true"),
+                ("StartSide", "T"),
+                ("Dir", "R"),
+                ("Arc", "130"),
+                ("ArchesSkew", "10"),
+            ],
+        ];
+        for more in variants {
+            imports_as("Arches", &with(&ARCHES, more));
+        }
+        let g = imports_as(
+            "Arches",
+            &with(
+                &ARCHES,
+                &[
+                    ("NumArches", "1"),
+                    ("NodesPerArch", "66"),
+                    ("LayerSizes", "6,25,30"),
+                    ("StartSide", "T"),
+                ],
+            ),
+        );
+        assert!(matches!(
+            g,
+            Generator::Arch { nodes: 66, hollow: 70, start_inside: true, ref layers, .. } if *layers == [6, 25, 30]
+        ));
+    }
+
+    #[test]
+    fn arches_xlights_lays_out_beyond_pixelflow_keep_their_points() {
+        // Dumb strings still have a node per light on an arch, so they import as arches.
+        imports_as("Arches", &with(&ARCHES, &[("StringType", "Single Color Red")]));
+        stays_measured("Arches", &with(&ARCHES, &[("LightsPerNode", "3")]));
+        stays_measured("Arches", &with(&ARCHES, &[("Arc", "200")]));
+        // More pixels than the layers hold: xLights piles the rest at the inner layer's start.
+        imports_as(
+            "Arches",
+            &with(&ARCHES, &[("NumArches", "1"), ("NodesPerArch", "70"), ("LayerSizes", "10,20,30")]),
+        );
     }
 
     /// Two strings of icicles hanging along 300 of slightly sloping gutter.

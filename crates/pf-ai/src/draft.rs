@@ -10,6 +10,7 @@ use pf_engine::{
 use pf_model::{PropId, Show};
 use pf_sequence::{EffectId, Sequence};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// What the user is looking at, sent with each message so "these props" means something.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -30,7 +31,11 @@ impl UiContext {
         self.selected_props.truncate(MAX);
         self.selected_effects.truncate(MAX);
         if let Some(screen) = &mut self.screen {
-            screen.truncate(40);
+            let mut end = screen.len().min(40);
+            while !screen.is_char_boundary(end) {
+                end -= 1;
+            }
+            screen.truncate(end);
         }
         self
     }
@@ -49,6 +54,8 @@ pub struct OpenDoc {
 pub struct Workspace {
     pub show: Show,
     pub revision: u64,
+    /// Which show this is (see [`Engine::show_generation`]).
+    pub show_generation: u64,
     pub sequence: Option<OpenDoc>,
     pub context: UiContext,
 }
@@ -58,6 +65,7 @@ impl Workspace {
         Self {
             show: engine.show().clone(),
             revision: engine.revision(),
+            show_generation: engine.show_generation(),
             sequence: engine
                 .sequence_doc_id()
                 .zip(engine.sequence_document())
@@ -160,9 +168,20 @@ impl Draft {
                 Vec::new()
             },
             base_revision: self.base.revision,
+            show_generation: self.base.show_generation,
             sequence_doc: self.base.sequence.as_ref().map(|s| s.id),
+            base_show: self.base.show.clone(),
+            base_sequence: self.base.sequence.as_ref().map(|s| s.doc.clone()),
             draft_show: self.show.clone(),
+            draft_sequence: self.sequence.clone(),
         })
+    }
+
+    /// Whether this draft was made for the show and sequence open in `workspace` (another
+    /// show, or another sequence document, means it no longer applies).
+    pub fn is_for(&self, workspace: &Workspace) -> bool {
+        self.base.show_generation == workspace.show_generation
+            && self.base.sequence.as_ref().map(|s| s.id) == workspace.sequence.as_ref().map(|s| s.id)
     }
 }
 
@@ -176,10 +195,17 @@ pub struct Proposal {
     pub sequence_edits: Vec<SequenceEdit>,
     /// The show revision the draft started from.
     pub base_revision: u64,
+    /// The show the draft was made for (see [`Engine::show_generation`]).
+    pub show_generation: u64,
     /// The sequence document the sequence edits are for.
     pub sequence_doc: Option<u64>,
+    /// The show and sequence as the draft started from them: every item the draft changes
+    /// must still be this way when it's applied, or the user's own later edit would be undone.
+    pub base_show: Show,
+    pub base_sequence: Option<Sequence>,
     /// The show as it would be (for the preview).
     pub draft_show: Show,
+    pub draft_sequence: Option<Sequence>,
 }
 
 /// What the window sees of a proposal (no edits, which stay in Rust until applied).
@@ -223,49 +249,245 @@ pub struct Applied {
 /// the show as it is now and refused (changing nothing) when they no longer fit. Only ever
 /// called from the user's Apply.
 pub fn apply_proposal(engine: &mut Engine, proposal: &Proposal) -> Result<Applied, String> {
-    let changed_since = engine.revision() != proposal.base_revision;
-    let stale = |e: EngineError| {
-        if changed_since {
-            format!(
-                "The show changed after the assistant made this draft, and the draft no longer fits ({e}). Ask the assistant again."
-            )
-        } else {
-            e.to_string()
-        }
-    };
-    if !proposal.sequence_edits.is_empty() && engine.sequence_doc_id() != proposal.sequence_doc {
+    if engine.show_generation() != proposal.show_generation {
         return Err(
-            "The sequence this draft changes isn't open anymore. Open it again and ask the assistant again."
+            "A different show is open now, so this suggestion no longer applies. Ask again.".to_string(),
+        );
+    }
+    let changes_sequence = !proposal.sequence_edits.is_empty();
+    if changes_sequence && engine.sequence_doc_id() != proposal.sequence_doc {
+        return Err(
+            "The sequence this suggestion changes isn't open anymore. Open it again and ask again."
                 .to_string(),
         );
     }
-    // Check the sequence half first, so a refusal there changes nothing at all.
-    if !proposal.sequence_edits.is_empty() {
-        let doc = engine
-            .sequence_document()
-            .ok_or_else(|| EngineError::NoSequence.to_string())?;
-        edited_sequence(doc, &proposal.sequence_edits).map_err(stale)?;
+    // Every item the draft changes must be as it was when the draft began: the draft replaces
+    // whole items, so applying over the user's later edit to one would quietly undo that edit.
+    let mut changed = show_conflicts(&proposal.base_show, &proposal.draft_show, engine.show());
+    if let (Some(base), Some(draft), Some(current)) = (
+        proposal.base_sequence.as_ref(),
+        proposal.draft_sequence.as_ref(),
+        engine.sequence_document(),
+    ) && changes_sequence
+    {
+        changed.extend(sequence_conflicts(base, draft, current, engine.show()));
     }
-    let mut snapshot = None;
-    if !proposal.show_edits.is_empty() {
-        let before = engine.revision();
-        let next = engine.apply(proposal.show_edits.clone()).map_err(stale)?;
-        if next.revision != before {
-            snapshot = Some(next);
+    if !changed.is_empty() {
+        return Err(format!(
+            "The show changed since this was suggested — ask again. Changed meanwhile: {}.",
+            changed.join(", ")
+        ));
+    }
+    let text = |e: EngineError| e.to_string();
+    match (proposal.show_edits.is_empty(), changes_sequence) {
+        (false, true) => {
+            // One undo step for both halves (and nothing at all if either is refused).
+            let (snapshot, result) = engine
+                .apply_with_sequence(proposal.show_edits.clone(), proposal.sequence_edits.clone())
+                .map_err(text)?;
+            Ok(Applied {
+                snapshot: Some(snapshot),
+                sequence: Some(result),
+            })
+        }
+        (false, false) => {
+            let before = engine.revision();
+            let snapshot = engine.apply(proposal.show_edits.clone()).map_err(text)?;
+            Ok(Applied {
+                snapshot: (snapshot.revision != before).then_some(snapshot),
+                sequence: None,
+            })
+        }
+        (true, true) => Ok(Applied {
+            snapshot: None,
+            sequence: Some(
+                engine
+                    .edit_sequence(proposal.sequence_edits.clone())
+                    .map_err(text)?,
+            ),
+        }),
+        (true, false) => Ok(Applied {
+            snapshot: None,
+            sequence: None,
+        }),
+    }
+}
+
+/// Items matched by id that the draft changed (added, changed, or removed) and that are no
+/// longer as the draft found them; named as they are now (or were).
+fn keyed_conflicts<T: PartialEq>(
+    base: &[T],
+    draft: &[T],
+    current: &[T],
+    id: impl Fn(&T) -> String,
+    name: impl Fn(&T) -> String,
+    out: &mut Vec<String>,
+) {
+    fn by_id<'a, T>(items: &'a [T], id: &impl Fn(&T) -> String) -> HashMap<String, &'a T> {
+        items.iter().map(|item| (id(item), item)).collect()
+    }
+    let (base, draft, current) = (by_id(base, &id), by_id(draft, &id), by_id(current, &id));
+    let mut ids: Vec<&String> = base.keys().chain(draft.keys()).collect();
+    ids.sort();
+    ids.dedup();
+    for key in ids {
+        let was = base.get(key);
+        if was != draft.get(key)
+            && current.get(key) != was
+            && let Some(item) = current.get(key).or(was).or(draft.get(key))
+        {
+            out.push(name(item));
         }
     }
-    let mut sequence = None;
-    if !proposal.sequence_edits.is_empty() {
-        match engine.edit_sequence(proposal.sequence_edits.clone()) {
-            Ok(result) => sequence = Some(result),
-            Err(e) => {
-                // All or nothing: take back the show half.
-                if snapshot.is_some() {
-                    engine.undo();
-                }
-                return Err(stale(e));
-            }
+}
+
+fn show_conflicts(base: &Show, draft: &Show, current: &Show) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut field = |label: &str, touched: bool, kept: bool| {
+        if touched && !kept {
+            out.push(label.to_string());
         }
+    };
+    field(
+        "the show's name",
+        base.name != draft.name,
+        current.name == base.name,
+    );
+    field(
+        "the show's settings",
+        base.settings != draft.settings,
+        current.settings == base.settings,
+    );
+    field(
+        "the background photo",
+        base.background != draft.background,
+        current.background == base.background,
+    );
+    field(
+        "the house model",
+        base.house_model != draft.house_model,
+        current.house_model == base.house_model,
+    );
+    let order = |show: &Show| show.sequences.iter().map(|s| s.id).collect::<Vec<_>>();
+    field(
+        "the playlist",
+        order(base) != order(draft),
+        order(current) == order(base),
+    );
+    keyed_conflicts(
+        &base.props,
+        &draft.props,
+        &current.props,
+        |p| p.id.to_string(),
+        |p| p.name.clone(),
+        &mut out,
+    );
+    keyed_conflicts(
+        &base.groups,
+        &draft.groups,
+        &current.groups,
+        |g| g.id.to_string(),
+        |g| g.name.clone(),
+        &mut out,
+    );
+    keyed_conflicts(
+        &base.controllers,
+        &draft.controllers,
+        &current.controllers,
+        |c| c.id.to_string(),
+        |c| c.name.clone(),
+        &mut out,
+    );
+    keyed_conflicts(
+        &base.sequences,
+        &draft.sequences,
+        &current.sequences,
+        |s| s.id.to_string(),
+        |s| s.name.clone(),
+        &mut out,
+    );
+    out
+}
+
+/// A sequence's effects with where they sit, by id.
+fn placed(doc: &Sequence) -> Vec<(pf_sequence::RowId, usize, &pf_sequence::Effect)> {
+    doc.rows
+        .iter()
+        .flat_map(|row| {
+            row.layers
+                .iter()
+                .enumerate()
+                .flat_map(move |(layer, l)| l.effects.iter().map(move |e| (row.id, layer, e)))
+        })
+        .collect()
+}
+
+fn sequence_conflicts(base: &Sequence, draft: &Sequence, current: &Sequence, show: &Show) -> Vec<String> {
+    let mut out = Vec::new();
+    let info = |doc: &Sequence| (doc.name.clone(), doc.audio.clone(), doc.duration_ms, doc.frame_ms);
+    if info(base) != info(draft) && info(current) != info(base) {
+        out.push("the sequence's name, music, or length".to_string());
     }
-    Ok(Applied { snapshot, sequence })
+    // Rows as shells (what they light, how many layers); their effects are compared one by one.
+    let shells = |doc: &Sequence| {
+        doc.rows
+            .iter()
+            .map(|r| (r.id, r.target, r.layers.len()))
+            .collect::<Vec<_>>()
+    };
+    keyed_conflicts(
+        &shells(base),
+        &shells(draft),
+        &shells(current),
+        |r| r.0.to_string(),
+        |r| crate::diff::target_name(show, r.1),
+        &mut out,
+    );
+    let order = |doc: &Sequence| doc.rows.iter().map(|r| r.id).collect::<Vec<_>>();
+    if order(base) != order(draft) && order(current) != order(base) {
+        out.push("the row order".to_string());
+    }
+    let effect_name = |(row, _, effect): &(pf_sequence::RowId, usize, &pf_sequence::Effect)| {
+        let target = [current, base, draft]
+            .iter()
+            .find_map(|doc| doc.rows.iter().find(|r| r.id == *row))
+            .map(|r| crate::diff::effect_name(effect, r, show));
+        target.unwrap_or_else(|| "an effect".to_string())
+    };
+    keyed_conflicts(
+        &placed(base),
+        &placed(draft),
+        &placed(current),
+        |e| e.2.id.to_string(),
+        effect_name,
+        &mut out,
+    );
+    keyed_conflicts(
+        &base.timing_tracks,
+        &draft.timing_tracks,
+        &current.timing_tracks,
+        |t| t.id.to_string(),
+        |t| t.name.clone(),
+        &mut out,
+    );
+    let tracks = |doc: &Sequence| doc.timing_tracks.iter().map(|t| t.id).collect::<Vec<_>>();
+    if tracks(base) != tracks(draft) && tracks(current) != tracks(base) {
+        out.push("the timing track order".to_string());
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_long_non_ascii_screen_name_is_shortened_without_a_panic() {
+        let context = UiContext {
+            screen: Some("€".repeat(30)),
+            ..UiContext::default()
+        }
+        .bounded();
+        assert_eq!(context.screen.unwrap(), "€".repeat(13));
+    }
 }

@@ -14,6 +14,9 @@ import { useApp } from "./store";
 
 const SETTINGS_KEY = "pixelflow.ai";
 
+/** What the chat says for the user once the song they chose has a new sequence. */
+export const SONG_CHOSEN_MESSAGE = "I chose a song, and the new sequence is open. Go ahead.";
+
 /** Provider and model per provider: not secrets, so kept in local storage. */
 interface SavedSettings {
   provider: ProviderId;
@@ -269,7 +272,9 @@ export const useAssistant = create<AssistantState>((set, get) => {
             return;
           }
           mark({ status: "done", name });
-          await get().send(`I chose "${name}". The new sequence is open: go ahead.`);
+          // A fixed sentence: the file name, which may come from anywhere, reaches the assistant
+          // only as data (the quoted "Open sequence" line of the context block).
+          await get().send(SONG_CHOSEN_MESSAGE);
         } catch (e) {
           mark({ status: "open" });
           addError(e);

@@ -90,6 +90,8 @@ export class FakeAssistant implements AssistantApi {
   /** Milliseconds between streamed words (0 in tests). */
   delayMs = 0;
   calls: string[] = [];
+  /** Every message sent, as the assistant received it. */
+  sent: string[] = [];
   /** The sequencer, for sequence proposals (none: the assistant only drafts show changes). */
   sequencer: MemorySequencer | null = null;
   private pending: Pending | null = null;
@@ -147,6 +149,7 @@ export class FakeAssistant implements AssistantApi {
 
   async send(provider: ProviderId, model: string, message: string, context: UiContext, onEvent: (event: ChatEvent) => void): Promise<TurnReply> {
     this.calls.push(`send:${model}`);
+    this.sent.push(message);
     this.stopped = false;
     if (!this.keys.has(provider)) throw new Error(`Add your ${providerName(provider)} API key in Settings → AI first.`);
     if (!model) throw new Error("Pick a model in Settings → AI first.");

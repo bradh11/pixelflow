@@ -265,7 +265,9 @@ describe("creating a sequence", () => {
     expect(useSequencer.getState().dirty).toBe(false);
     expect(useSequencer.getState().suggestBeats).toBe(true);
     const card = await within(panel).findByRole("region", { name: "Proposed changes" });
-    expect(within(panel).getByText(/I chose "Jingle Bell Rock"/)).toBeInTheDocument();
+    // The file name reaches the assistant only as data (the context block), never as the user's own words.
+    expect(within(panel).getByText("I chose a song, and the new sequence is open. Go ahead.")).toBeInTheDocument();
+    expect(assistant.sent.at(-1)).toBe("I chose a song, and the new sequence is open. Go ahead.");
     expect(within(card).getByText("By section")).toBeInTheDocument();
     expect(within(card).getByText("Intro", { selector: "span" })).toBeInTheDocument();
     expect(within(card).getByRole("img", { name: /Timeline of the draft/ })).toBeInTheDocument();

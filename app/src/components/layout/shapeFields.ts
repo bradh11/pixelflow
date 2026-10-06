@@ -76,6 +76,7 @@ export const SHAPE_FIELDS: Record<string, ShapeField[]> = {
     COUNT("nodesPerCane", "Pixels per cane"),
     SIZE("width", "Width", 0.01, "From the first cane's foot to the far side of the last"),
     NUMBER("skewDeg", "Lean (°)", -90, 90, "How far each cane leans; positive leans left"),
+    BOOL("startRight", "First cane on the right (the data comes in there)"),
     SIZE("height", "Cane size (×)", 0.01, "Makes the canes taller and their hooks wider; 1 is the usual size"),
     SIZE("caneHeight", "Cane height (×)", 0.01, "Makes the canes taller without widening their hooks; 1 is the usual height"),
     BOOL("reverse", "Hooks point left"),

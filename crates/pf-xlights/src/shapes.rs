@@ -285,20 +285,21 @@ fn candy_canes(m: &XmlModel) -> Vec<Candidate> {
     } else {
         int(m, "Angle", 0)
     } as f32;
-    let mirror = m.attr("Dir") == Some("R");
     let tp = three_point(m);
+    // xLights' `Dir="R"` only wires the canes from the right; their shape is the same.
     let generator = Generator::CandyCanes {
         canes,
         nodes_per_cane,
         width: tp.length as f32 * SCALE,
         height: float(m, "Height", 1.0) as f32,
         cane_height: float(m, "CandyCaneHeight", 1.0) as f32,
-        reverse: flag(m, "CandyCaneReverse") != mirror,
+        reverse: flag(m, "CandyCaneReverse"),
         sticks: flag(m, "CandyCaneSticks"),
         alternate_nodes: flag(m, "AlternateNodes"),
-        skew_deg: if mirror { -skew } else { skew },
+        skew_deg: skew,
+        start_right: m.attr("Dir") == Some("R"),
     };
-    vec![(generator, between_ends(&tp, mirror))]
+    vec![(generator, between_ends(&tp, false))]
 }
 
 /// `IciclesModel` without shear: its settings, its columns spread over the distance between its
@@ -1170,16 +1171,28 @@ mod tests {
         let m = model("Candy Canes", &with(&CANES, &[("X2", "-200"), ("Y2", "0")]));
         let (_, t) = editable(&m, &measured(&m)).unwrap();
         assert_eq!(t.rotation_deg, Vec3::new(0.0, 180.0, 0.0));
-        // Wired from the right: the mirror image of canes hooking the other way.
+        // Wired from the right: the same canes, hooks and lean, the first cane on the right.
+        let attrs = with(&CANES, &[("Dir", "R"), ("CandyCaneSkew", "20")]);
+        let g = imports_as("Candy Canes", &attrs);
+        assert!(matches!(
+            g,
+            Generator::CandyCanes {
+                reverse: false,
+                skew_deg: 20.0,
+                start_right: true,
+                ..
+            }
+        ));
+        assert_eq!(placed("Candy Canes", &attrs).rotation_deg.y, 0.0);
         let g = imports_as(
             "Candy Canes",
-            &with(&CANES, &[("Dir", "R"), ("CandyCaneSkew", "20")]),
+            &with(&CANES, &[("Dir", "R"), ("CandyCaneReverse", "true")]),
         );
         assert!(matches!(
             g,
             Generator::CandyCanes {
                 reverse: true,
-                skew_deg: -20.0,
+                start_right: true,
                 ..
             }
         ));

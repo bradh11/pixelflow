@@ -360,6 +360,7 @@ mod tests {
                 sticks: false,
                 alternate_nodes: false,
                 skew_deg: 0.0,
+                start_right: false,
             }),
         )
     }

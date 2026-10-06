@@ -92,6 +92,7 @@ fn generate(generator: &Generator) -> Vec<Vec3> {
             sticks,
             alternate_nodes,
             skew_deg,
+            start_right,
         } => candy_canes::positions(candy_canes::Canes {
             canes,
             nodes_per_cane,
@@ -102,6 +103,7 @@ fn generate(generator: &Generator) -> Vec<Vec3> {
             sticks,
             alternate_nodes,
             skew_deg,
+            start_right,
         }),
         Generator::Icicles {
             strings,

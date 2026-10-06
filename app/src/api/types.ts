@@ -68,6 +68,8 @@ export type Generator =
       sticks: boolean;
       alternateNodes: boolean;
       skewDeg: number;
+      /** The first cane is the rightmost (the data comes in there). */
+      startRight?: boolean;
     }
   /** Icicles hanging from a line `width` long: each string fills drops of the `drops` pattern in turn; the longest hangs `dropHeight` below the line. */
   | { type: "icicles"; strings: number; lightsPerString: number; drops: number[]; width: number; dropHeight: number; alternateNodes: boolean }

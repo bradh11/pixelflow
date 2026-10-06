@@ -218,6 +218,10 @@ pub enum Generator {
         /// How far each cane leans from upright, in degrees (counter-clockwise).
         #[serde(default)]
         skew_deg: f32,
+        /// The first cane is the rightmost (xLights' `Dir="R"`); pixels still run up each stick
+        /// then round its hook.
+        #[serde(default)]
+        start_right: bool,
     },
     /// Icicles hanging from a line between two ends (xLights' Icicles). Each string's pixels fill
     /// drops in turn, the drop sizes repeating `drops` from its start (a drop of 0 leaves a gap),
@@ -534,6 +538,7 @@ mod tests {
             sticks: false,
             alternate_nodes: false,
             skew_deg: 0.0,
+            start_right: false,
         };
         assert_eq!(canes.node_count(), 54);
         let json = serde_json::to_value(ShapeSource::Generator(canes.clone())).unwrap();
@@ -558,6 +563,7 @@ mod tests {
                 sticks: false,
                 alternate_nodes: false,
                 skew_deg: 0.0,
+                start_right: false,
                 ..
             }
         ));

@@ -89,6 +89,7 @@ const DEFAULT_SHAPES: Record<PropKind, ShapeSource> = {
     sticks: false,
     alternateNodes: false,
     skewDeg: 0,
+    startRight: false,
   },
   icicles: { source: "generator", type: "icicles", strings: 2, lightsPerString: 80, drops: [3, 4, 5, 4], width: 4, dropHeight: 0.4, alternateNodes: false },
   windowFrame: {

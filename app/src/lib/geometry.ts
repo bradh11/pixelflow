@@ -163,7 +163,8 @@ function candyCanes(g: CandyCanes): Vec3[] {
   const radius = (caneWidth / 2) * g.height;
   const [sin, cos] = [Math.sin(rad(g.skewDeg)), Math.cos(rad(g.skewDeg))];
   const out: Vec3[] = [];
-  for (let i = 0; i < g.canes && out.length < MAX_POINTS; i++) {
+  for (let nth = 0; nth < g.canes && out.length < MAX_POINTS; nth++) {
+    const i = g.startRight ? g.canes - 1 - nth : nth;
     const left = i * (caneWidth + gap);
     for (let x = 0; x < n; x++) {
       const p = spot(x, n, g.alternateNodes);

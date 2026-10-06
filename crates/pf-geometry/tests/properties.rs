@@ -257,6 +257,7 @@ fn candy_canes() -> impl Strategy<Value = Generator> {
                     sticks,
                     alternate_nodes,
                     skew_deg,
+                    start_right: canes % 2 == 0,
                 }
             },
         )
@@ -430,6 +431,7 @@ fn a_quarter_turn_maps_right_to_up_for_every_generator() {
             sticks: false,
             alternate_nodes: true,
             skew_deg: 10.0,
+            start_right: true,
         },
         Generator::Icicles {
             strings: 2,

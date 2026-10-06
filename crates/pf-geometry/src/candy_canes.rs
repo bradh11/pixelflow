@@ -19,6 +19,7 @@ pub(crate) struct Canes {
     pub sticks: bool,
     pub alternate_nodes: bool,
     pub skew_deg: f32,
+    pub start_right: bool,
 }
 
 /// Where the `x`th pixel on a cane sits along it: with alternate nodes the pixels go up every
@@ -51,7 +52,8 @@ pub(crate) fn positions(c: Canes) -> Vec<Vec3> {
     let (sin, cos) = f64::from(c.skew_deg).to_radians().sin_cos();
 
     let mut out = Vec::with_capacity(c.canes as usize * n as usize);
-    for i in 0..c.canes {
+    for nth in 0..c.canes {
+        let i = if c.start_right { c.canes - 1 - nth } else { nth };
         let left = f64::from(i) * (cane_width + CANE_GAP);
         for x in 0..n {
             let p = spot(x, n, c.alternate_nodes);
@@ -97,6 +99,7 @@ mod tests {
             sticks: false,
             alternate_nodes: false,
             skew_deg: 0.0,
+            start_right: false,
         }
     }
 
@@ -138,6 +141,16 @@ mod tests {
         assert_close(p[8], Vec3::new(-2.0, 10.0, 0.0));
         assert_close(p[9], Vec3::new(2.0, 0.0, 0.0));
         assert_close(p[17], Vec3::new(8.0, 10.0, 0.0));
+        // From the right: the right cane first, each still up its stick and round its hook.
+        let r = positions(Canes {
+            canes: 2,
+            width: 16.0,
+            start_right: true,
+            ..cane()
+        });
+        assert_close(r[0], Vec3::new(2.0, 0.0, 0.0));
+        assert_close(r[8], Vec3::new(8.0, 10.0, 0.0));
+        assert_close(r[9], Vec3::new(-8.0, 0.0, 0.0));
     }
 
     #[test]

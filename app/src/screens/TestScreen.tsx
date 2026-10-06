@@ -1,8 +1,8 @@
 import { Play, Square } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "../api/backend";
 import type { OutputStatus, PatternKind, TargetSpec } from "../api/types";
-import { Button, Card, EmptyState, Field, PageHeader, Select } from "../components/ui";
+import { Button, Card, EmptyState, Field, Input, PageHeader, Select } from "../components/ui";
 import { thousands } from "../lib/format";
 import { useApp } from "../state/store";
 
@@ -15,6 +15,18 @@ const PATTERNS: { kind: PatternKind; label: string; usesColor: boolean }[] = [
   { kind: "walk", label: "Pixel walk", usesColor: true },
   { kind: "identify", label: "Identify (blink)", usesColor: false },
 ];
+
+/** Quick colors for checking each channel of a pixel. */
+const PRESETS: { label: string; color: string }[] = [
+  { label: "Red", color: "#ff0000" },
+  { label: "Green", color: "#00ff00" },
+  { label: "Blue", color: "#0000ff" },
+  { label: "White", color: "#ffffff" },
+];
+
+/** How long after the last change a running test picks it up (a color drag sends many). */
+const LIVE_MS = 150;
+const HEX = /^#[0-9a-f]{6}$/i;
 
 const STATE_STYLE: Record<string, string> = {
   ok: "text-green-600 dark:text-green-400",
@@ -33,6 +45,9 @@ export function TestScreen() {
   const [status, setStatus] = useState<OutputStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [removed, setRemoved] = useState(false);
+  const [hex, setHex] = useState("#ffffff");
+  const live = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(live.current), []);
 
   useEffect(() => {
     if (!backend) return;
@@ -77,10 +92,10 @@ export function TestScreen() {
   if (!snapshot || !backend || !show) return null;
   const pattern = PATTERNS.find((p) => p.kind === kind)!;
 
-  const start = async () => {
-    const target = (targets.find((t) => t.value === targetValue) ?? targets[0]).spec;
+  const start = async (next: { kind?: PatternKind; color?: string; target?: string } = {}) => {
+    const target = (targets.find((t) => t.value === (next.target ?? targetValue)) ?? targets[0]).spec;
     try {
-      setStatus(await backend.startOutput({ kind, color: color.replace("#", "") }, target));
+      setStatus(await backend.startOutput({ kind: next.kind ?? kind, color: (next.color ?? color).replace("#", "") }, target));
       setError(null);
       setRemoved(false);
     } catch (e) {
@@ -96,6 +111,17 @@ export function TestScreen() {
     }
   };
   const running = status?.running ?? false;
+  /** While a test runs, a change shows on the lights at once (no Restart needed). */
+  const change = (next: { kind?: PatternKind; color?: string; target?: string }) => {
+    if (!running) return;
+    clearTimeout(live.current);
+    live.current = setTimeout(() => void start(next), LIVE_MS);
+  };
+  const pickColor = (value: string) => {
+    setColor(value);
+    setHex(value);
+    change({ color: value });
+  };
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -104,16 +130,25 @@ export function TestScreen() {
         description="Send a test pattern to your controllers to check wiring and pixel order. Output stops with a blackout."
       />
       {show.controllers.length === 0 ? (
-        <EmptyState title="No controllers to test">Add a controller and wire props to it on the Wiring screen.</EmptyState>
+        <EmptyState title="No controllers to test">
+          <p>Add a controller and wire props to it first.</p>
+          <Button variant="primary" className="mt-3" onClick={() => useApp.getState().setScreen("wiring")}>
+            Go to Wiring
+          </Button>
+        </EmptyState>
       ) : (
         <>
           <Card className="mb-4">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_auto_auto]">
               <Field label="Target">
-                <Select value={targetValue} onChange={(e) => {
+                <Select
+                  value={targetValue}
+                  onChange={(e) => {
                     setTargetValue(e.target.value);
                     setRemoved(false);
-                  }}>
+                    change({ target: e.target.value });
+                  }}
+                >
                   {targets.map((t) => (
                     <option key={t.value} value={t.value}>
                       {t.label}
@@ -122,7 +157,13 @@ export function TestScreen() {
                 </Select>
               </Field>
               <Field label="Pattern">
-                <Select value={kind} onChange={(e) => setKind(e.target.value as PatternKind)}>
+                <Select
+                  value={kind}
+                  onChange={(e) => {
+                    setKind(e.target.value as PatternKind);
+                    change({ kind: e.target.value as PatternKind });
+                  }}
+                >
                   {PATTERNS.map((p) => (
                     <option key={p.kind} value={p.kind}>
                       {p.label}
@@ -130,18 +171,48 @@ export function TestScreen() {
                   ))}
                 </Select>
               </Field>
-              <Field label="Color">
-                <input
-                  type="color"
-                  aria-label="Color"
-                  value={color}
-                  disabled={!pattern.usesColor}
-                  onChange={(e) => setColor(e.target.value)}
-                  className="h-9 w-full cursor-pointer rounded-md border border-neutral-300 bg-transparent disabled:opacity-40 dark:border-neutral-700"
-                />
-              </Field>
+              <div className="flex flex-col gap-1 text-sm">
+                <span className="text-neutral-600 dark:text-neutral-400">Color</span>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="color"
+                    aria-label="Color"
+                    value={color}
+                    disabled={!pattern.usesColor}
+                    onChange={(e) => pickColor(e.target.value)}
+                    className="h-8 w-9 shrink-0 cursor-pointer rounded-md border border-neutral-300 bg-transparent disabled:opacity-40 dark:border-neutral-700"
+                  />
+                  <Input
+                    aria-label="Color as hex"
+                    value={hex}
+                    disabled={!pattern.usesColor}
+                    spellCheck={false}
+                    onChange={(e) => {
+                      const typed = e.target.value.trim();
+                      setHex(typed);
+                      const full = typed.startsWith("#") ? typed : `#${typed}`;
+                      if (HEX.test(full)) pickColor(full.toLowerCase());
+                    }}
+                    onBlur={() => setHex(color)}
+                    className="w-20 min-w-0 font-mono text-xs uppercase disabled:opacity-40"
+                  />
+                  {PRESETS.map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      aria-label={p.label}
+                      title={p.label}
+                      aria-pressed={color === p.color}
+                      disabled={!pattern.usesColor}
+                      onClick={() => pickColor(p.color)}
+                      style={{ background: p.color }}
+                      className="h-6 w-6 shrink-0 rounded-full border border-neutral-300 aria-pressed:ring-2 aria-pressed:ring-accent-500 disabled:opacity-40 dark:border-neutral-600"
+                    />
+                  ))}
+                </div>
+              </div>
               <div className="flex items-end gap-2">
-                <Button variant="primary" onClick={start}>
+                <Button variant="primary" onClick={() => void start()} title={running ? "Start the test again from the beginning" : "Start sending the test pattern"}>
                   <Play size={16} /> {running ? "Restart" : "Start"}
                 </Button>
                 <Button onClick={stop} disabled={!running}>
@@ -149,6 +220,7 @@ export function TestScreen() {
                 </Button>
               </div>
             </div>
+            {running && <p className="mt-3 text-xs text-neutral-500">Changes show on the lights right away while the test runs.</p>}
             {removed && (
               <p role="status" className="mt-3 text-sm text-amber-600 dark:text-amber-400">
                 The chosen target was removed; testing the whole show.

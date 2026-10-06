@@ -163,6 +163,17 @@ describe("wiring and test output", () => {
     expect(backend.output.target).toEqual({ type: "port", controller: backend.show.controllers[0].id, port: 1 });
     expect(backend.output.pattern).toEqual({ kind: "solid", color: "ffffff" });
 
+    // While it runs, changes reach the lights without pressing Restart.
+    await user.click(screen.getByRole("button", { name: "Red" }));
+    await waitFor(() => expect(backend.output.pattern).toEqual({ kind: "solid", color: "ff0000" }));
+    expect(screen.getByLabelText("Color as hex")).toHaveValue("#ff0000");
+    await user.selectOptions(screen.getByLabelText("Pattern"), "chase");
+    await waitFor(() => expect(backend.output.pattern).toEqual({ kind: "chase", color: "ff0000" }));
+    const hex = screen.getByLabelText("Color as hex");
+    await user.clear(hex);
+    await user.type(hex, "00ff00");
+    await waitFor(() => expect(backend.output.pattern).toEqual({ kind: "chase", color: "00ff00" }));
+
     await user.click(screen.getByRole("button", { name: /stop/i }));
     expect(await screen.findByText("Output stopped")).toBeInTheDocument();
   });

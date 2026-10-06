@@ -316,6 +316,35 @@ describe("the review card", () => {
     warnings: ["Sends light data to a new address: 203.0.113.9"],
   };
 
+  it("never folds away a change that carries a warning", async () => {
+    await start();
+    const renames: Change[] = Array.from({ length: 12 }, (_, i) => ({
+      section: "controller",
+      action: "changed",
+      name: `Controller ${i + 1}`,
+      id: `c${i}`,
+      details: [`name: "Old ${i}" → "Controller ${i + 1}"`],
+      warnings: [],
+    }));
+    const effects: Change[] = Array.from({ length: 20 }, (_, i) => ({
+      section: "effect",
+      action: "added",
+      name: `Twinkle ${i + 1}`,
+      id: `e${i}`,
+      details: [],
+      warnings: [],
+    }));
+    render(<ProposalCard proposal={proposal([...renames, { ...falcon, action: "changed" }, ...effects])} current />);
+    const card = screen.getByRole("region", { name: "Proposed changes" });
+    // All 13 controller changes show, warning included, without expanding anything.
+    expect(within(card).getByText("Sends light data to a new address: 203.0.113.9")).toBeVisible();
+    expect(within(card).getByText("Controller 12")).toBeInTheDocument();
+    // Only effects (and rows, timing tracks) fold.
+    expect(within(card).queryByText("Twinkle 13")).not.toBeInTheDocument();
+    expect(within(card).getAllByRole("button", { name: /Show all/ })).toHaveLength(1);
+    expect(within(card).getByRole("button", { name: "Show all 20" })).toBeInTheDocument();
+  });
+
   it("shows a few details, then all of them on request, and always the warnings", async () => {
     const { user } = await start();
     render(<ProposalCard proposal={proposal([falcon])} current />);

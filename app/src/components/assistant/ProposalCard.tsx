@@ -52,10 +52,17 @@ function Sections({ sections }: { sections: SectionSummary[] }) {
   );
 }
 
-/** One section of the change list; a long one shows its first few until asked. */
-function ChangeSection({ label, changes }: { label: string; changes: Change[] }) {
+/** Sections whose long lists fold: a sequence's many effects, rows, and timing tracks. Everything
+ * else (props, controllers, the playlist...) is always listed in full, so no warning is ever out
+ * of sight. */
+const FOLDING: DiffSection[] = ["effect", "row", "timingTrack"];
+
+/** One section of the change list; a long effect, row, or timing-track list shows its first few
+ * until asked. A change with a warning is always shown. */
+function ChangeSection({ section, label, changes }: { section: DiffSection; label: string; changes: Change[] }) {
   const [all, setAll] = useState(false);
-  const shown = all ? changes : changes.slice(0, FIRST_CHANGES);
+  const folds = FOLDING.includes(section) && changes.length > FIRST_CHANGES;
+  const shown = all || !folds ? changes : changes.filter((c, i) => i < FIRST_CHANGES || c.warnings.length > 0);
   return (
     <div className="mt-1.5">
       <h4 className="text-xs font-medium tracking-wide text-neutral-500 uppercase">{label}</h4>
@@ -64,7 +71,7 @@ function ChangeSection({ label, changes }: { label: string; changes: Change[] })
           <ChangeLine key={`${change.id ?? change.name}-${i}`} change={change} />
         ))}
       </ul>
-      {changes.length > FIRST_CHANGES && (
+      {folds && (
         <button
           type="button"
           aria-expanded={all}
@@ -202,7 +209,7 @@ export function ProposalCard({ proposal, current }: { proposal: ProposalView; cu
       )}
       <div className="mt-2 max-h-80 overflow-auto">
         {ORDER.filter((section) => changes.some((c) => c.section === section)).map((section) => (
-          <ChangeSection key={section} label={SECTION_LABELS[section]} changes={changes.filter((c) => c.section === section)} />
+          <ChangeSection key={section} section={section} label={SECTION_LABELS[section]} changes={changes.filter((c) => c.section === section)} />
         ))}
       </div>
       {open ? (

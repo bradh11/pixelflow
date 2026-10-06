@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Controller, Show } from "../api/types";
 import { emptyShow } from "../api/memory";
-import { addressProblem, controllerDraft, controllerEdits, draftProblems, type ControllerDraft } from "./controllerEdit";
+import { addressProblem, checkDraft, controllerDraft, controllerEdits, type ControllerDraft } from "./controllerEdit";
 import { newController } from "./shows";
 
 function wired(): Controller {
@@ -19,47 +19,93 @@ function showWith(...controllers: Controller[]): Show {
 const draft = (c: Controller, change: Partial<ControllerDraft> = {}): ControllerDraft => ({ ...controllerDraft(c), ...change });
 
 describe("addressProblem", () => {
-  it("accepts IPv4 addresses and host names", () => {
+  it("accepts what the engine sends to: an IPv4 address or host name, each with an optional :port", () => {
     expect(addressProblem("192.168.1.50")).toBeNull();
     expect(addressProblem("fpp.local")).toBeNull();
     expect(addressProblem("garage-falcon")).toBeNull();
+    expect(addressProblem("10.0.0.5:4048")).toBeNull();
+    expect(addressProblem("fpp.local:5568")).toBeNull();
+    expect(addressProblem("MULTICAST")).toBeNull();
+  });
+
+  it("allows no address where none is needed (multicast sACN)", () => {
+    expect(addressProblem("", { emptyOk: true })).toBeNull();
+    expect(addressProblem("  ")).toBe("Enter the controller's IP address, like 192.168.1.50.");
   });
 
   it("explains what's wrong in plain words", () => {
-    expect(addressProblem("")).toBe("Enter the controller's IP address, like 192.168.1.50.");
     expect(addressProblem("192.168.1.300")).toBe("192.168.1.300 isn't a valid IP address: each of the four numbers must be 0 to 255.");
     expect(addressProblem("192.168.1")).toBe("192.168.1 isn't a complete IP address: it needs four numbers, like 192.168.1.50.");
     expect(addressProblem("my falcon")).toBe("An address can't have spaces. Enter an IP address like 192.168.1.50, or a name like fpp.local.");
     expect(addressProblem("http://10.0.0.5/")).toBe("Enter just the address (like 10.0.0.5), without http:// or a slash.");
+    expect(addressProblem("10.0.0.5:")).toBe("The port after the colon must be a number from 1 to 65535, or leave the colon off.");
+    expect(addressProblem("10.0.0.5:70000")).toBe("The port after the colon must be a number from 1 to 65535, or leave the colon off.");
+    expect(addressProblem("fe80::1")).toBe("PixelFlow sends to IPv4 addresses. Enter one like 192.168.1.50.");
+  });
+
+  it("refuses numbers with a leading zero, which some systems read as octal", () => {
+    expect(addressProblem("192.168.1.050")).toBe(
+      "192.168.1.050 has a number that starts with 0, which some computers read differently. Write it as 192.168.1.50.",
+    );
+    expect(addressProblem("10.0.0.0")).toBeNull();
   });
 });
 
-describe("draftProblems", () => {
-  it("needs a name not used by another controller", () => {
+describe("checkDraft", () => {
+  it("opens clean on every controller an import can make, so Save works for any one change", () => {
+    // Split xLights controllers share one IP; multicast ones may have no address or "MULTICAST".
+    const front = { ...newController("Front (universes 1–4)", "10.0.0.5", "sacn", 1) };
+    const back = { ...newController("Front (universes 10–12)", "10.0.0.5", "sacn", 1) };
+    const multicast = newController("Yard", "", "sacn", 1);
+    multicast.protocol = { type: "sacn", startUniverse: 70, universeSize: 510, allowPixelStraddle: false, multicast: true };
+    const named = newController("Yard 2", "MULTICAST", "sacn", 1);
+    const ported = newController("Bench", "127.0.0.2:4048", "ddp", 1);
+    const show = showWith(front, back, multicast, named, ported);
+    for (const c of show.controllers) {
+      expect(checkDraft(draft(c), c, show)).toEqual({ problems: {}, warnings: {} });
+      expect(checkDraft(draft(c, { name: `${c.name}!` }), c, show).problems).toEqual({});
+    }
+    // Only what changed is checked: a split controller's protocol can change.
+    expect(checkDraft(draft(front, { protocol: "ddp" }), front, show).problems).toEqual({});
+  });
+
+  it("needs a name; another controller with the same name is only a warning", () => {
     const a = wired();
     const b = newController("Porch", "10.0.0.21", "ddp", 1);
     const show = showWith(a, b);
-    expect(draftProblems(draft(a, { name: "  " }), show, a.id).name).toBe("Give the controller a name.");
-    expect(draftProblems(draft(a, { name: "porch" }), show, a.id).name).toBe("Another controller is already called porch.");
-    expect(draftProblems(draft(a), show, a.id)).toEqual({});
+    expect(checkDraft(draft(a, { name: "  " }), a, show).problems.name).toBe("Give the controller a name.");
+    const same = checkDraft(draft(a, { name: "porch" }), a, show);
+    expect(same.problems).toEqual({});
+    expect(same.warnings.name).toBe("Porch has that name too. That's allowed, but it's easy to mix them up.");
   });
 
-  it("warns when another controller has the address", () => {
+  it("checks a changed address, and warns (doesn't refuse) when another controller has it", () => {
     const a = wired();
     const b = newController("Porch", "10.0.0.21", "ddp", 1);
-    expect(draftProblems(draft(a, { address: "10.0.0.21" }), showWith(a, b), a.id).address).toBe("Porch already uses 10.0.0.21.");
+    const show = showWith(a, b);
+    expect(checkDraft(draft(a, { address: "10.0.0.300" }), a, show).problems.address).toMatch(/isn't a valid IP address/);
+    const shared = checkDraft(draft(a, { address: "10.0.0.21" }), a, show);
+    expect(shared.problems).toEqual({});
+    expect(shared.warnings.address).toBe("Porch also uses 10.0.0.21. That's fine if it's the same controller.");
   });
 
-  it("checks the start universe only for sACN with one pinned", () => {
+  it("needs an address once multicast is turned off", () => {
+    const yard = newController("Yard", "", "sacn", 1);
+    yard.protocol = { type: "sacn", startUniverse: null, universeSize: 510, allowPixelStraddle: false, multicast: true };
+    const show = showWith(yard);
+    expect(checkDraft(draft(yard, { multicast: false }), yard, show).problems.address).toBe("Enter the controller's IP address, like 192.168.1.50.");
+    expect(checkDraft(draft(yard, { protocol: "ddp" }), yard, show).problems.address).toBeDefined();
+  });
+
+  it("checks a changed start universe: whole digits from 1 to 63999, or empty", () => {
     const a = wired();
     const show = showWith(a);
-    expect(draftProblems(draft(a, { protocol: "sacn", startUniverse: "" }), show, a.id)).toEqual({});
-    expect(draftProblems(draft(a, { protocol: "sacn", startUniverse: "0" }), show, a.id).startUniverse).toBe(
-      "The start universe must be a whole number from 1 to 63999, or empty to let PixelFlow choose.",
-    );
-    expect(draftProblems(draft(a, { protocol: "sacn", startUniverse: "1.5" }), show, a.id).startUniverse).toBeDefined();
-    expect(draftProblems(draft(a, { protocol: "sacn", startUniverse: "64000" }), show, a.id).startUniverse).toBeDefined();
-    expect(draftProblems(draft(a, { protocol: "ddp", startUniverse: "0" }), show, a.id)).toEqual({});
+    const universe = (text: string) => checkDraft(draft(a, { protocol: "sacn", startUniverse: text }), a, show).problems.startUniverse;
+    expect(universe("")).toBeUndefined();
+    expect(universe("20")).toBeUndefined();
+    for (const bad of ["0", "1.5", "64000", "1e3", "0x10", " 7 x"]) {
+      expect(universe(bad)).toBe("The start universe must be a whole number from 1 to 63999, or empty to let PixelFlow choose.");
+    }
   });
 });
 
@@ -101,6 +147,8 @@ describe("controllerEdits", () => {
     const sacn = controllerEdits(a.id, draft(a, { protocol: "sacn" }))(showWith(a))[0];
     expect(sacn.type === "updateController" && sacn.controller.protocol).toEqual({ type: "sacn", startUniverse: null, universeSize: 510, allowPixelStraddle: false, multicast: false });
     const back = { ...a, protocol: { type: "sacn" as const, startUniverse: 4, universeSize: 510 as const, allowPixelStraddle: false, multicast: false } };
+    const auto = controllerEdits(a.id, draft(back, { startUniverse: "" }))(showWith(back))[0];
+    expect(auto.type === "updateController" && auto.controller.protocol).toMatchObject({ startUniverse: null });
     const ddp = controllerEdits(a.id, draft(back, { protocol: "ddp" }))(showWith(back))[0];
     expect(ddp.type === "updateController" && ddp.controller.protocol).toEqual({ type: "ddp" });
   });

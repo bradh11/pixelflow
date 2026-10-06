@@ -30,7 +30,7 @@ import { NumberField } from "../layout/PropertiesPanel";
 import { Button } from "../ui";
 import { AddPicker } from "./AddPicker";
 import { ControllerEditForm } from "./ControllerEditForm";
-import { controllerEdits, controllerDraft } from "../../lib/controllerEdit";
+import { checkDraft, controllerDraft, controllerEdits } from "../../lib/controllerEdit";
 import { OptionalNumberField } from "./fields";
 import { useDragSource } from "./useWiringDrag";
 
@@ -392,10 +392,13 @@ function PortRow({ controller, port, at, data }: { controller: Controller; port:
 function RenameField({ controller, onDone }: { controller: Controller; onDone: () => void }) {
   const apply = useApp((s) => s.apply);
   const [name, setName] = useState(controller.name);
-  const taken = useApp((s) => s.snapshot?.show.controllers.some((c) => c.id !== controller.id && c.name.trim().toLowerCase() === name.trim().toLowerCase()) ?? false);
-  const problem = !name.trim() ? "Give the controller a name." : taken ? `Another controller is already called ${name.trim()}.` : null;
+  const show = useApp((s) => s.snapshot?.show);
+  const { problems, warnings } = show ? checkDraft({ ...controllerDraft(controller), name }, controller, show) : { problems: {}, warnings: {} };
+  const note = problems.name ?? warnings.name;
+  // An empty name keeps the field open, saying why; Escape leaves the name as it was.
   const commit = () => {
-    if (!problem) void apply(controllerEdits(controller.id, { ...controllerDraft(controller), name }));
+    if (problems.name) return;
+    void apply(controllerEdits(controller.id, { ...controllerDraft(controller), name }));
     onDone();
   };
   return (
@@ -403,12 +406,12 @@ function RenameField({ controller, onDone }: { controller: Controller; onDone: (
       <input
         autoFocus
         aria-label={`Name of ${controller.name}`}
-        aria-invalid={!!problem}
+        aria-invalid={!!problems.name}
         value={name}
         onChange={(e) => setName(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
-          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Enter") commit();
           if (e.key === "Escape") {
             e.stopPropagation();
             onDone();
@@ -416,7 +419,7 @@ function RenameField({ controller, onDone }: { controller: Controller; onDone: (
         }}
         className="rounded-md border border-neutral-300 bg-white px-2 py-0.5 font-semibold dark:border-neutral-700 dark:bg-neutral-950"
       />
-      {problem && <span className="text-xs font-normal text-red-600 dark:text-red-400">{problem}</span>}
+      {note && <span className={`text-xs font-normal ${problems.name ? "text-red-600 dark:text-red-400" : "text-amber-700 dark:text-amber-400"}`}>{note}</span>}
     </span>
   );
 }

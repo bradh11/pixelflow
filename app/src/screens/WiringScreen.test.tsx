@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { demoShow } from "../api/demo";
 import { MemoryBackend } from "../api/memory";
 import type { Edit, Show } from "../api/types";
+import { newController } from "../lib/shows";
 import { useApp } from "../state/store";
 import { useToasts } from "../state/toast";
 import { useWiring } from "../state/wiring";
@@ -453,12 +454,61 @@ describe("wiring screen", () => {
     await user.type(address, "192.168.1.600");
     expect(within(form).getByText("192.168.1.600 isn't a valid IP address: each of the four numbers must be 0 to 255.")).toBeInTheDocument();
     expect(within(form).getByRole("button", { name: "Save" })).toBeDisabled();
+    // Save says why it's off.
+    expect(within(form).getByRole("status")).toHaveTextContent("To save, fix the address above.");
     await user.clear(address);
     await user.type(address, "192.168.1.50");
-    expect(within(form).getByText("Main FPP already uses 192.168.1.50.")).toBeInTheDocument();
+    // Sharing an address is allowed (one controller can be split in two), with a word about it.
+    expect(within(form).getByText("Main FPP also uses 192.168.1.50. That's fine if it's the same controller.")).toBeInTheDocument();
+    expect(within(form).getByRole("button", { name: "Save" })).toBeEnabled();
     await user.click(within(form).getByRole("button", { name: "Cancel" }));
     expect(edits).toHaveLength(0);
     expect(backend.show.controllers[1].address).toBe("192.168.1.60");
+  });
+
+  it("edits controllers an xLights import made: split ones sharing an address, multicast ones with none, and host:port", async () => {
+    const show = demoShow();
+    const split = (name: string) => newController(name, "10.0.0.5", "sacn", 1);
+    const yard = newController("Yard", "", "sacn", 1);
+    yard.protocol = { type: "sacn", startUniverse: 70, universeSize: 510, allowPixelStraddle: false, multicast: true };
+    show.controllers = [split("Front (universes 1–4)"), split("Front (universes 10–12)"), yard, newController("Bench", "127.0.0.2:4048", "ddp", 1)];
+    const user = await setup(show);
+    for (const [name, change] of [
+      ["Front (universes 10–12)", "Protocol"],
+      ["Yard", "Name"],
+      ["Bench", "Name"],
+    ] as const) {
+      await user.click(screen.getByRole("button", { name: `Edit ${name}` }));
+      const form = screen.getByRole("form", { name: `Edit ${name}` });
+      if (change === "Protocol") await user.selectOptions(within(form).getByLabelText("Protocol"), "ddp");
+      else await user.type(within(form).getByLabelText("Name"), " 2");
+      expect(within(form).queryByRole("status")).not.toBeInTheDocument();
+      await user.click(within(form).getByRole("button", { name: "Save" }));
+      expect(screen.queryByRole("form", { name: `Edit ${name}` })).not.toBeInTheDocument();
+    }
+    expect(edits).toHaveLength(3);
+    expect(backend.show.controllers.map((c) => c.name)).toEqual(["Front (universes 1–4)", "Front (universes 10–12)", "Yard 2", "Bench 2"]);
+    expect(backend.show.controllers[1].protocol).toEqual({ type: "ddp" });
+    expect(backend.show.controllers.map((c) => c.address)).toEqual(["10.0.0.5", "10.0.0.5", "", "127.0.0.2:4048"]);
+  });
+
+  it("adds a controller at host:port", async () => {
+    const user = await setup();
+    await user.click(screen.getByRole("button", { name: /add controller/i }));
+    await user.type(screen.getByPlaceholderText("e.g. 192.168.1.50"), "10.0.0.20:4048");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    expect(backend.show.controllers[2].address).toBe("10.0.0.20:4048");
+  });
+
+  it("keeps the rename field open while the name is empty", async () => {
+    const user = await setup();
+    await user.dblClick(screen.getByRole("button", { name: "Porch WLED" }));
+    const rename = screen.getByRole("textbox", { name: "Name of Porch WLED" });
+    await user.clear(rename);
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("textbox", { name: "Name of Porch WLED" })).toBeInTheDocument();
+    expect(screen.getByText("Give the controller a name.")).toBeInTheDocument();
+    expect(edits).toHaveLength(0);
   });
 
   it("switches a controller between DDP and sACN, and renames it with a double-click", async () => {

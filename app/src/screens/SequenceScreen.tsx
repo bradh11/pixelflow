@@ -271,12 +271,14 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
   const act = useSequencer.getState;
   const [addingTrack, setAddingTrack] = useState(false);
   return (
-    <div role="toolbar" aria-label="Sequence" className="flex shrink-0 flex-wrap items-center gap-1 border-b border-neutral-200 px-2 py-1.5 dark:border-neutral-800">
+    // Labels give way by the bar's own width, least needed first: New, Open and Import (named on
+    // hover), then the editing tools.
+    <div role="toolbar" aria-label="Sequence" className="@container flex shrink-0 flex-wrap items-center gap-1 border-b border-neutral-200 px-2 py-1.5 dark:border-neutral-800">
       <ToolButton label="New sequence" onClick={onNew}>
-        <FilePlus size={16} /> <span className="hidden xl:inline">New sequence</span>
+        <FilePlus size={16} /> <span className="hidden @min-[1200px]:inline">New sequence</span>
       </ToolButton>
       <ToolButton label="Open sequence" onClick={onOpen}>
-        <FolderOpen size={16} /> <span className="hidden xl:inline">Open sequence</span>
+        <FolderOpen size={16} /> <span className="hidden @min-[1200px]:inline">Open sequence</span>
       </ToolButton>
       {/* Asks about unsaved changes like New and Open do (the import goes through the same question). */}
       <ToolButton
@@ -284,7 +286,7 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
         hint="Import an xLights sequence (.xsq) onto this show's props and groups"
         onClick={() => void useApp.getState().importXlightsSequence()}
       >
-        <FileInput size={16} /> <span className="hidden xl:inline">Import from xLights</span>
+        <FileInput size={16} /> <span className="hidden @min-[1200px]:inline">Import from xLights</span>
       </ToolButton>
       <ToolButton label="Save" hint="Save the sequence, and the show if it changed (⌘S)" onClick={() => void saveSequenceAndShow()} disabled={s.name === null}>
         <Save size={16} />
@@ -309,14 +311,14 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
           <PlayheadTime durationMs={s.durationMs} />
           <span className="mx-1 h-5 w-px bg-neutral-200 dark:bg-neutral-800" />
           <ToolButton label={s.detecting ? "Finding the beats…" : "Detect beats"} onClick={() => void act().detectBeats()} disabled={!s.hasMusic || s.detecting}>
-            <AudioLines size={16} /> <span className="hidden lg:inline">{s.detecting ? "Finding beats…" : "Detect beats"}</span>
+            <AudioLines size={16} /> <span className="hidden @min-[760px]:inline">{s.detecting ? "Finding beats…" : "Detect beats"}</span>
           </ToolButton>
           <ToolButton label="Add timing track" onClick={() => setAddingTrack(true)}>
-            <ListPlus size={16} /> <span className="hidden lg:inline">Add timing track</span>
+            <ListPlus size={16} /> <span className="hidden @min-[760px]:inline">Add timing track</span>
           </ToolButton>
           {addingTrack && <AddTrack onClose={() => setAddingTrack(false)} />}
           <ToolButton label={`Snap to beats and effect edges (hold ${ALT_KEY} while dragging to turn off)`} pressed={s.snapping} onClick={() => act().setSnapping(!s.snapping)}>
-            <Magnet size={16} /> <span className="hidden lg:inline">Snap</span>
+            <Magnet size={16} /> <span className="hidden @min-[760px]:inline">Snap</span>
           </ToolButton>
           <ToolButton label="Send to controllers while playing" pressed={s.sendToControllers} onClick={() => void act().setSendToControllers(!s.sendToControllers)}>
             <Send size={16} /> <span className="hidden lg:inline">Send to controllers</span>

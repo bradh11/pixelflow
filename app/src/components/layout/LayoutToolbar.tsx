@@ -70,15 +70,21 @@ export const MORE_TOOLS: ToolInfo[] = [
 ];
 
 /**
- * When a button's label shows. The bar keeps to one row: as it narrows, the toggles and Fit
- * show only their icons first, then every button does (the label is still the button's name,
- * and its hint shows on hover).
+ * When a button's label shows. The bar keeps to one row: as it narrows, labels give way a group
+ * at a time, least needed first: the snap and guides toggles, then Fit and the photo, then More
+ * shapes, and last the drawing tools. (The label is still the button's name, and its hint shows
+ * on hover.)
  */
-export type LabelShown = "always" | "wide" | "medium";
-const LABEL_CLASS: Record<LabelShown, string | undefined> = {
+export type LabelShown = "always" | "toggles" | "view" | "shapes" | "tools";
+/** The bar width (px) from which each group's labels show. */
+export const LABEL_FROM: Record<Exclude<LabelShown, "always">, number> = { toggles: 1160, view: 1000, shapes: 900, tools: 800 };
+// Spelled out in full so the class names are found when the styles are built.
+export const LABEL_CLASS: Record<LabelShown, string | undefined> = {
   always: undefined,
-  wide: "sr-only @min-[1200px]:not-sr-only",
-  medium: "sr-only @min-[1000px]:not-sr-only",
+  toggles: "sr-only @min-[1160px]:not-sr-only",
+  view: "sr-only @min-[1000px]:not-sr-only",
+  shapes: "sr-only @min-[900px]:not-sr-only",
+  tools: "sr-only @min-[800px]:not-sr-only",
 };
 
 function ToolButton({
@@ -89,7 +95,7 @@ function ToolButton({
   disabled,
   popup,
   expanded,
-  labelShown = "medium",
+  labelShown = "tools",
   children,
 }: {
   pressed?: boolean;
@@ -113,7 +119,7 @@ function ToolButton({
       // aria-disabled rather than disabled: the hint saying why still shows on hover.
       aria-disabled={disabled || undefined}
       onClick={disabled ? undefined : onClick}
-      className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors ${
+      className={`inline-flex items-center gap-1 rounded-md px-1.5 py-1.5 text-sm transition-colors ${
         disabled
           ? "cursor-not-allowed text-neutral-700 opacity-40 dark:text-neutral-300"
           : pressed
@@ -169,6 +175,7 @@ function MoreShapes({ tool, setTool, in3d }: { tool: Tool; setTool: (t: Tool) =>
         onClick={() => setOpen(!open)}
         popup
         expanded={open}
+        labelShown="shapes"
       >
         <Icon size={16} aria-hidden />
       </ToolButton>
@@ -247,14 +254,14 @@ export function LayoutToolbar({ hasPhoto, onChoosePhoto }: { hasPhoto: boolean; 
       })}
       <MoreShapes tool={editPhoto ? "select" : tool} setTool={setTool} in3d={in3d} />
       <Divider />
-      <ToolButton pressed={snap} label="Snap to grid" hint="Line props up on a grid as you move and draw" labelShown="wide" onClick={() => setSnap(!snap)}>
+      <ToolButton pressed={snap} label="Snap to grid" hint="Line props up on a grid as you move and draw" labelShown="toggles" onClick={() => setSnap(!snap)}>
         <Magnet size={16} aria-hidden />
       </ToolButton>
       <ToolButton
         pressed={smartGuides}
         label="Smart guides"
         hint="Line props up with others, space them evenly, and match sizes as you move, resize, and draw (hold Option/Alt to place freely)"
-        labelShown="wide"
+        labelShown="toggles"
         onClick={() => useLayoutEditor.getState().setSmartGuides(!smartGuides)}
       >
         <Ruler size={16} aria-hidden />
@@ -266,7 +273,7 @@ export function LayoutToolbar({ hasPhoto, onChoosePhoto }: { hasPhoto: boolean; 
       <button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => zoom(1.25)} className="rounded-md p-1.5 hover:bg-neutral-200/70 dark:hover:bg-neutral-800">
         <ZoomIn size={16} aria-hidden />
       </button>
-      <ToolButton label="Fit" hint="Show the whole display" labelShown="wide" onClick={() => (in3d ? camera({ kind: "fit" }) : setView(null))}>
+      <ToolButton label="Fit" hint="Show the whole display" labelShown="view" onClick={() => (in3d ? camera({ kind: "fit" }) : setView(null))}>
         <Maximize size={16} aria-hidden />
       </ToolButton>
       <Divider />
@@ -276,12 +283,13 @@ export function LayoutToolbar({ hasPhoto, onChoosePhoto }: { hasPhoto: boolean; 
           label="Edit photo"
           hint={in3d ? "Move the photo in the 2D view — switch with V" : "Drag the photo to move it, or its corners to resize it"}
           disabled={in3d}
+          labelShown="view"
           onClick={() => setEditPhoto(!editPhoto)}
         >
           <ImagePlus size={16} aria-hidden />
         </ToolButton>
       ) : (
-        <ToolButton label="Add photo…" hint="Draw your display over a photo of your house" onClick={onChoosePhoto}>
+        <ToolButton label="Add photo…" hint="Draw your display over a photo of your house" labelShown="view" onClick={onChoosePhoto}>
           <ImagePlus size={16} aria-hidden />
         </ToolButton>
       )}

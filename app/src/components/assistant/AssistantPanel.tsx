@@ -1,5 +1,5 @@
 import { Loader2, MessageSquarePlus, Send, Settings, Sparkles, Square, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { modelLabel, providerName } from "../../api/assistant";
 import { useAssistant } from "../../state/assistant";
 import { Button } from "../ui";
@@ -20,14 +20,34 @@ export function AssistantPanel({ overlay = false, compact = false }: { overlay?:
   const model = useAssistant((s) => s.models[s.provider] ?? null);
   const hasKey = useAssistant((s) => s.hasKey);
   const { send, stop, newChat, setOpen, setSettingsOpen } = useAssistant.getState();
-  const [draft, setDraft] = useState("");
+  const draft = useAssistant((s) => s.message);
+  const setDraft = useAssistant((s) => s.setMessage);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const ready = hasKey === true && model !== null;
 
   useEffect(() => {
     inputRef.current?.focus();
+    // Closed with the keyboard, focus goes back to the button that opens it.
+    return () => {
+      if (document.activeElement === document.body || !document.activeElement) {
+        document.querySelector<HTMLElement>("[data-assistant-button]")?.focus();
+      }
+    };
   }, []);
+
+  // Floating, Escape also puts it away when nothing has the focus (after leaving the box).
+  useEffect(() => {
+    if (!overlay) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
+      if (document.activeElement && document.activeElement !== document.body) return;
+      e.preventDefault();
+      setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [overlay, setOpen]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
@@ -45,11 +65,13 @@ export function AssistantPanel({ overlay = false, compact = false }: { overlay?:
       data-overlay={overlay}
       data-width={compact ? "compact" : "full"}
       onKeyDown={(e) => {
-        // Floating over the screen, Escape puts it away (as a drawer does).
-        if (overlay && e.key === "Escape" && !e.defaultPrevented) {
-          e.preventDefault();
-          setOpen(false);
-        }
+        // Floating over the screen, Escape puts it away (as a drawer does). Not mid-composition
+        // (an input method's Escape), and not with a message typed: the first Escape only leaves
+        // the box.
+        if (!overlay || e.key !== "Escape" || e.defaultPrevented || e.nativeEvent.isComposing) return;
+        e.preventDefault();
+        if (e.target === inputRef.current && draft.trim() !== "") inputRef.current.blur();
+        else setOpen(false);
       }}
       className={`flex ${compact ? "w-80" : "w-96"} max-w-[calc(100%-3rem)] shrink-0 flex-col border-l border-neutral-200 dark:border-neutral-800 ${
         overlay

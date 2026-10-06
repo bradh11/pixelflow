@@ -71,8 +71,11 @@ interface AssistantState {
   /** The draft's pixels while previewing it. */
   preview: PreviewSet | null;
   busy: boolean;
+  /** The message being typed: kept while the panel is closed. */
+  message: string;
 
   connect(api: AssistantApi): Promise<void>;
+  setMessage(message: string): void;
   setOpen(open: boolean): void;
   toggle(): void;
   setSettingsOpen(open: boolean): void;
@@ -133,6 +136,9 @@ export const useAssistant = create<AssistantState>((set, get) => {
     proposalStatus: "open",
     preview: null,
     busy: false,
+    message: "",
+
+    setMessage: (message) => set({ message }),
 
     async connect(api) {
       set({ api });

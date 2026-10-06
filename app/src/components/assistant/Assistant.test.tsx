@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { App } from "../../App";
@@ -76,12 +76,34 @@ describe("the assistant in a narrow window", () => {
     expect(panel()).toHaveAttribute("data-width", "full");
   });
 
-  it("floating, Escape puts it away", async () => {
+  it("floating, Escape puts it away and gives the focus back to the Assistant button", async () => {
     window.innerWidth = 1024;
     const { user } = await start();
     await openPanel(user);
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("complementary", { name: "Assistant" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Assistant/ })).toHaveFocus();
+  });
+
+  it("floating, Escape keeps a typed message: the first only leaves the box, and the text survives closing", async () => {
+    window.innerWidth = 1024;
+    const { user } = await start();
+    await openPanel(user);
+    const box = () => screen.getByRole("textbox", { name: "Message the assistant" });
+    await user.type(box(), "Add arches");
+    await user.keyboard("{Escape}");
+    expect(panel()).toBeInTheDocument();
+    expect(box()).not.toHaveFocus();
+    expect(box()).toHaveValue("Add arches");
+    // Mid-composition (an input method), Escape is the input method's.
+    box().focus();
+    fireEvent.keyDown(box(), { key: "Escape", isComposing: true });
+    expect(panel()).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("complementary", { name: "Assistant" })).not.toBeInTheDocument();
+    await openPanel(user);
+    expect(box()).toHaveValue("Add arches");
   });
 });
 

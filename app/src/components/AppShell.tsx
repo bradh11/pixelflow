@@ -322,6 +322,7 @@ function AssistantButton() {
   return (
     <button
       type="button"
+      data-assistant-button
       aria-pressed={open}
       onClick={toggle}
       title="Assistant (⌘L)"

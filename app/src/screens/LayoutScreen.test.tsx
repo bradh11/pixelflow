@@ -7,6 +7,7 @@ import type { Edit, Prop, Show } from "../api/types";
 import { newController } from "../lib/shows";
 import { type Handle, type Pt, frameOfPoints, handlePositions, toScreen, toWorld } from "../lib/layoutMath";
 import { newProp } from "../lib/shows";
+import { formatGap } from "../lib/smartGuides";
 import { useLayoutEditor } from "../state/layoutEditor";
 import { useApp } from "../state/store";
 import { DesktopLikeBackend } from "../test/desktopBackend";
@@ -835,5 +836,169 @@ describe("LayoutScreen", () => {
       HTMLCanvasElement.prototype.getContext = getContext;
       vi.unstubAllGlobals();
     }
+  });
+
+  describe("smart guides", () => {
+    const zoom = () => useLayoutEditor.getState().view!.zoom;
+    async function frameOf(name: string) {
+      const id = backend.show.props.find((p) => p.name === name)!.id;
+      return frameOfPoints([(await backend.previewProps()).props.find((p) => p.prop === id)!.points], 0)!.box;
+    }
+    /** A 3-wide matrix (the default is 4 wide). */
+    function narrow(name: string, x: number, y: number): Prop {
+      const prop = placed("matrix", name, x, y);
+      prop.shape = { ...prop.shape, width: 3 } as Prop["shape"];
+      return prop;
+    }
+    /** Records the text drawn on the canvas, drawing at once instead of on the next frame. */
+    async function recordText() {
+      const texts: string[] = [];
+      const context = new Proxy({} as Record<string | symbol, unknown>, {
+        get: (target, key) => {
+          if (key in target) return target[key];
+          if (key === "fillText") return (text: string) => texts.push(text);
+          if (key === "measureText") return (text: string) => ({ width: text.length * 6 });
+          return () => {};
+        },
+        set: (target, key, value) => {
+          target[key] = value;
+          return true;
+        },
+      });
+      const getContext = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = (() => context) as unknown as typeof getContext;
+      vi.stubGlobal("requestAnimationFrame", undefined);
+      // Let a frame already asked for go by, so the next redraw draws at once.
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+      return {
+        texts,
+        restore() {
+          HTMLCanvasElement.prototype.getContext = getContext;
+          vi.unstubAllGlobals();
+        },
+      };
+    }
+
+    it("are a tool bar toggle, on by default and remembered", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      const toggle = screen.getByRole("button", { name: "Smart guides" });
+      expect(toggle).toHaveAttribute("aria-pressed", "true");
+      await user.click(toggle);
+      expect(toggle).toHaveAttribute("aria-pressed", "false");
+      expect(localStorage.getItem("pixelflow.smartGuides")).toBe("false");
+    });
+
+    it("line a dragged prop up with another's edges as one edit; Alt places it freely", async () => {
+      await setup(showWith(placed("matrix", "A", 0, 0), placed("matrix", "B", 10, 3)));
+      // Five pixels (within six) above lining up with A.
+      const near = 5 / zoom();
+      await drag({ x: 10, y: 3 }, { x: 10, y: near });
+      expect(edits).toHaveLength(1);
+      expect(edits[0].map((e) => e.type)).toEqual(["updateProp"]);
+      expect(position("B")).toMatchObject({ x: expect.closeTo(10, 3), y: expect.closeTo(0, 3) });
+
+      // Five pixels (more than a click) back up, with Option held.
+      await drag({ x: 10, y: 0 }, { x: 10, y: near }, { altKey: true });
+      expect(edits).toHaveLength(2);
+      expect(position("B").y).toBeCloseTo(near, 2);
+    });
+
+    it("let go of a guide as soon as Option is pressed mid-drag", async () => {
+      await setup(showWith(placed("matrix", "A", 0, 0), placed("matrix", "B", 10, 3)));
+      const near = 5 / zoom();
+      await act(async () => {
+        pointer("pointerDown", { x: 10, y: 3 });
+        pointer("pointerMove", { x: 10, y: near });
+        fireEvent.keyDown(window, { key: "Alt", altKey: true });
+        pointer("pointerUp", { x: 10, y: near }, { altKey: true });
+      });
+      expect(edits).toHaveLength(1);
+      expect(position("B").y).toBeCloseTo(near, 2);
+    });
+
+    it("don't snap when turned off", async () => {
+      const user = await setup(showWith(placed("matrix", "A", 0, 0), placed("matrix", "B", 10, 3)));
+      await user.click(screen.getByRole("button", { name: "Smart guides" }));
+      const near = 5 / zoom();
+      await drag({ x: 10, y: 3 }, { x: 10, y: near });
+      expect(position("B").y).toBeCloseTo(near, 2);
+    });
+
+    it("space a dragged prop as far from its neighbour as two others are apart, marking the gaps", async () => {
+      await setup(showWith(placed("matrix", "A", 0, 0), placed("matrix", "B", 6, 0), placed("matrix", "C", 20, 0)));
+      const [a, b] = [await frameOf("A"), await frameOf("B")];
+      const gap = formatGap(b.minX - a.maxX);
+      const canvasText = await recordText();
+      try {
+        const [from, to] = [screenAt({ x: 20, y: 0 }), screenAt({ x: 12 + 2 / zoom(), y: 0 })];
+        await act(async () => {
+          fireEvent.pointerDown(canvas(), { clientX: from.x, clientY: from.y, button: 0, pointerId: 1 });
+          fireEvent.pointerMove(canvas(), { clientX: to.x, clientY: to.y, pointerId: 1 });
+        });
+        // Mid-drag: both equal gaps are marked.
+        expect(canvasText.texts.filter((t) => t === gap)).toHaveLength(2);
+        await act(async () => fireEvent.pointerUp(canvas(), { clientX: to.x, clientY: to.y, pointerId: 1 }));
+        canvasText.texts.length = 0;
+        act(() => useLayoutEditor.getState().setView({ ...useLayoutEditor.getState().view! }));
+        expect(canvasText.texts).not.toContain(gap);
+      } finally {
+        canvasText.restore();
+      }
+      expect(edits).toHaveLength(1);
+      expect(position("C").x).toBeCloseTo(12, 3);
+    });
+
+    it("go away when a drag is cancelled with Escape", async () => {
+      const user = await setup(showWith(placed("matrix", "A", 0, 0), placed("matrix", "B", 6, 0), placed("matrix", "C", 20, 0)));
+      const [a, b] = [await frameOf("A"), await frameOf("B")];
+      const gap = formatGap(b.minX - a.maxX);
+      const canvasText = await recordText();
+      try {
+        await act(async () => {
+          pointer("pointerDown", { x: 20, y: 0 });
+          pointer("pointerMove", { x: 12, y: 0 });
+        });
+        expect(canvasText.texts).toContain(gap);
+        canvasText.texts.length = 0;
+        await user.keyboard("{Escape}");
+        expect(canvasText.texts).not.toContain(gap);
+      } finally {
+        canvasText.restore();
+      }
+      await act(async () => pointer("pointerUp", { x: 12, y: 0 }));
+      expect(edits).toEqual([]);
+    });
+
+    it("resize a prop to the same width as another, marking both", async () => {
+      await setup(showWith(placed("matrix", "A", 0, 0), narrow("B", 10, 5)));
+      await click({ x: 10, y: 5 });
+      const [a, b] = [await frameOf("A"), await frameOf("B")];
+      const e = { x: b.maxX, y: (b.minY + b.maxY) / 2 };
+      const to = { x: e.x + (a.maxX - a.minX) - (b.maxX - b.minX) + 2 / zoom(), y: e.y };
+      const canvasText = await recordText();
+      try {
+        await act(async () => {
+          pointer("pointerDown", e);
+          pointer("pointerMove", to);
+        });
+        expect(canvasText.texts.filter((t) => t === "same width")).toHaveLength(2);
+        await act(async () => pointer("pointerUp", to));
+      } finally {
+        canvasText.restore();
+      }
+      expect(edits).toHaveLength(1);
+      const after = await frameOf("B");
+      expect(after.maxX - after.minX).toBeCloseTo(a.maxX - a.minX, 2);
+      expect(after.minX).toBeCloseTo(b.minX, 2);
+    });
+
+    it("snap a drawn prop's corner to another prop's edge", async () => {
+      const user = await setup(showWith(placed("matrix", "A", 0, 0)));
+      const a = await frameOf("A");
+      await user.click(screen.getByRole("button", { name: "Matrix" }));
+      await drag({ x: a.maxX + 2 / zoom(), y: 3 }, { x: a.maxX + 4, y: 5 });
+      const prop = (edits[0][0] as { prop: Prop }).prop;
+      expect(prop.transform.position.x).toBeCloseTo(a.maxX + 2, 2);
+    });
   });
 });

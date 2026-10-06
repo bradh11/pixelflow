@@ -1,9 +1,12 @@
-import { Check, Eye, EyeOff, Minus, Pencil, Plus, ShieldAlert, X } from "lucide-react";
+import { Check, Eye, EyeOff, Minus, Pencil, Play, Plus, ShieldAlert, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { Change, DiffSection, ProposalView } from "../../api/assistant";
+import type { Change, DiffSection, ProposalView, SectionSummary } from "../../api/assistant";
+import { plural } from "../../lib/format";
+import { formatTime } from "../../lib/timelineMath";
 import { useAssistant } from "../../state/assistant";
 import { useApp } from "../../state/store";
 import { Button } from "../ui";
+import { TimelineThumbnail } from "./TimelineThumbnail";
 
 const SECTION_LABELS: Record<DiffSection, string> = {
   show: "Show",
@@ -21,6 +24,59 @@ const ORDER: DiffSection[] = ["show", "prop", "group", "controller", "playlist",
 
 /** Details shown before "Show N more". */
 const FIRST_DETAILS = 5;
+/** Changes listed in a section before "Show all". */
+const FIRST_CHANGES = 12;
+
+/** What a sequence proposal does in each section of the song. */
+function Sections({ sections }: { sections: SectionSummary[] }) {
+  return (
+    <div className="mt-2">
+      <h4 className="text-xs font-medium tracking-wide text-neutral-500 uppercase">By section</h4>
+      <ul className="mt-0.5 text-xs">
+        {sections.map((s, i) => {
+          const counts = [s.added && `${s.added} added`, s.changed && `${s.changed} changed`, s.removed && `${s.removed} removed`].filter(Boolean).join(", ");
+          return (
+            <li key={`${s.label}-${i}`} className="py-0.5">
+              <span className="font-medium">{s.label}</span>{" "}
+              <span className="text-neutral-500">
+                {formatTime(s.startMs, 1000)}–{formatTime(s.endMs, 1000)}
+              </span>
+              {": "}
+              {counts ? `${counts} on ${plural(s.rows, "row")}` : "no changes"}
+              {s.kinds.length > 0 && <span className="text-neutral-500"> · {s.kinds.join(", ")}</span>}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/** One section of the change list; a long one shows its first few until asked. */
+function ChangeSection({ label, changes }: { label: string; changes: Change[] }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? changes : changes.slice(0, FIRST_CHANGES);
+  return (
+    <div className="mt-1.5">
+      <h4 className="text-xs font-medium tracking-wide text-neutral-500 uppercase">{label}</h4>
+      <ul>
+        {shown.map((change, i) => (
+          <ChangeLine key={`${change.id ?? change.name}-${i}`} change={change} />
+        ))}
+      </ul>
+      {changes.length > FIRST_CHANGES && (
+        <button
+          type="button"
+          aria-expanded={all}
+          onClick={() => setAll(!all)}
+          className="text-xs text-accent-600 underline-offset-2 hover:underline dark:text-accent-400"
+        >
+          {all ? "Show fewer" : `Show all ${changes.length}`}
+        </button>
+      )}
+    </div>
+  );
+}
 
 function Warning({ text }: { text: string }) {
   return (
@@ -137,6 +193,8 @@ export function ProposalCard({ proposal, current }: { proposal: ProposalView; cu
         <span className="shrink-0 text-xs text-neutral-500">{tally}</span>
       </div>
       <p className="mt-1">{proposal.summary}</p>
+      {proposal.timeline && <TimelineThumbnail timeline={proposal.timeline} />}
+      {proposal.sections.length > 0 && <Sections sections={proposal.sections} />}
       {open && running && touchesControllers && (
         <ul className="mt-2 text-xs">
           <Warning text="Your lights are running: applying changes where their data is sent right away." />
@@ -144,24 +202,21 @@ export function ProposalCard({ proposal, current }: { proposal: ProposalView; cu
       )}
       <div className="mt-2 max-h-80 overflow-auto">
         {ORDER.filter((section) => changes.some((c) => c.section === section)).map((section) => (
-          <div key={section} className="mt-1.5">
-            <h4 className="text-xs font-medium tracking-wide text-neutral-500 uppercase">{SECTION_LABELS[section]}</h4>
-            <ul>
-              {changes
-                .filter((c) => c.section === section)
-                .map((change, i) => (
-                  <ChangeLine key={`${change.id ?? change.name}-${i}`} change={change} />
-                ))}
-            </ul>
-          </div>
+          <ChangeSection key={section} label={SECTION_LABELS[section]} changes={changes.filter((c) => c.section === section)} />
         ))}
       </div>
       {open ? (
         <div className="mt-3 flex flex-wrap gap-2">
-          {proposal.changesShow && (
+          {(proposal.changesShow || proposal.changesSequence) && (
             <Button disabled={streaming} onClick={() => void (previewing ? hidePreview() : showPreview())} aria-pressed={previewing}>
-              {previewing ? <EyeOff size={14} aria-hidden /> : <Eye size={14} aria-hidden />}
-              {previewing ? "Hide preview" : "Preview"}
+              {previewing ? (
+                <EyeOff size={14} aria-hidden />
+              ) : proposal.changesSequence ? (
+                <Play size={14} aria-hidden />
+              ) : (
+                <Eye size={14} aria-hidden />
+              )}
+              {previewing ? "Hide preview" : proposal.changesSequence ? "Play preview" : "Preview"}
             </Button>
           )}
           <Button variant="primary" disabled={busy || streaming} onClick={() => void apply()}>

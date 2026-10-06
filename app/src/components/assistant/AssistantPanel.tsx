@@ -1,11 +1,33 @@
-import { Loader2, MessageSquarePlus, Send, Settings, Sparkles, Square, X } from "lucide-react";
+import { CheckCircle2, Loader2, MessageSquarePlus, Music, Send, Settings, Sparkles, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { providerName } from "../../api/assistant";
-import { useAssistant } from "../../state/assistant";
+import { type ChatItem, useAssistant } from "../../state/assistant";
 import { Button } from "../ui";
 import { ProposalCard } from "./ProposalCard";
 
-const SUGGESTIONS = ["Add two arches beside the garage", "What's in my show?", "Rename the show to Christmas 2026"];
+const SUGGESTIONS = ["Create a compelling sequence", "Add two arches beside the garage", "What's in my show?", "Rename the show to Christmas 2026"];
+
+/** The assistant's Choose a song button: starts a new sequence from a song the user picks. */
+function ChooseSong({ item }: { item: ChatItem }) {
+  const streaming = useAssistant((s) => s.streaming);
+  const song = item.song ?? { status: "open" };
+  if (song.status === "done") {
+    return (
+      <p className="flex items-center gap-1.5 rounded-md border border-neutral-200 px-3 py-2 text-xs text-neutral-600 dark:border-neutral-800 dark:text-neutral-300">
+        <CheckCircle2 size={14} className="text-green-600 dark:text-green-400" aria-hidden /> New sequence: {song.name}
+      </p>
+    );
+  }
+  return (
+    <section aria-label="Choose a song" className="rounded-lg border border-accent-500/40 bg-accent-50/60 p-3 dark:border-accent-400/30 dark:bg-accent-600/10">
+      <p>Pick a song from your computer. PixelFlow starts a new sequence for it with a row for every prop and group; nothing is saved until you save.</p>
+      <Button className="mt-2" variant="primary" disabled={streaming || song.status === "picking"} onClick={() => void useAssistant.getState().chooseSong(item.id)}>
+        {song.status === "picking" ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Music size={14} aria-hidden />}
+        {song.status === "picking" ? "Opening the song…" : "Choose a song…"}
+      </Button>
+    </section>
+  );
+}
 
 /** The chat with the assistant, beside the current screen. Replies stream in; changes come as a proposal card. */
 export function AssistantPanel() {
@@ -117,6 +139,8 @@ export function AssistantPanel() {
                       </details>
                     )}
                   </div>
+                ) : item.role === "chooseSong" ? (
+                  <ChooseSong item={item} />
                 ) : proposal && item.proposalId === proposal.id ? (
                   <ProposalCard proposal={proposal} current />
                 ) : (

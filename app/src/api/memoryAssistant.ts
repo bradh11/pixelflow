@@ -13,6 +13,10 @@ import type {
 } from "./assistant";
 import { AssistantError, providerName } from "./assistant";
 import { MemoryBackend } from "./memory";
+import { composeDemoSequence } from "./demoComposer";
+import { renderSequenceFrame } from "./memoryRender";
+import type { MemorySequencer } from "./memorySequencer";
+import type { Sequence, SequenceEdit } from "./sequence";
 import type { Edit, PreviewSet, Prop, Show } from "./types";
 import { besideOthers } from "../lib/layoutEdits";
 import { type PropKind, newProp, nodeCount } from "../lib/shows";
@@ -60,14 +64,23 @@ interface Pending {
   draft: Show;
   /** The show it was made for (see MemoryBackend.generation). */
   generation: number;
+  /** A sequence proposal's edits and draft sequence. */
+  sequenceEdits?: SequenceEdit[];
+  draftSequence?: Sequence;
 }
+
+/** "Create a compelling sequence", "make me a new sequence", "build a light show". */
+const CREATE_SEQUENCE = /\b(create|make|build|design|write|do)\b.*\b(sequence|light show|show to)\b|\bcompelling\b/i;
+/** The app's message after the user picked a song for the new sequence. */
+const SONG_CHOSEN = /\bI chose\b/i;
 
 /**
  * A stand-in assistant for the browser (`?demo`) and tests: keys are only remembered as "there is
  * one" (the text is dropped), models are a fixed list, and replies follow a tiny script: asking to
  * add arches, trees, stars, matrices, or wreaths drafts them (with a group); asking to rename the
- * show drafts that; anything else gets a summary of the show. Apply goes through the memory
- * backend as one undo step.
+ * show drafts that; asking to create a sequence offers the song picker (when no empty sequence
+ * is open), then analyzes the song and proposes a whole sequence for it; anything else gets a
+ * summary of the show. Apply goes through the memory backend (or sequencer) as one undo step.
  */
 export class FakeAssistant implements AssistantApi {
   keys = new Map<ProviderId, KeyLocation>();
@@ -77,6 +90,8 @@ export class FakeAssistant implements AssistantApi {
   /** Milliseconds between streamed words (0 in tests). */
   delayMs = 0;
   calls: string[] = [];
+  /** The sequencer, for sequence proposals (none: the assistant only drafts show changes). */
+  sequencer: MemorySequencer | null = null;
   private pending: Pending | null = null;
   private stopped = false;
 
@@ -190,6 +205,20 @@ export class FakeAssistant implements AssistantApi {
       const changes: Change[] = [{ section: "show", action: "changed", name, id: null, details: [`name: "${show.name}" → "${name}"`], warnings: [] }];
       return this.propose(`Renames the show to "${name}".`, changes, [{ type: "renameShow", name }], draft, onEvent, "Ready when you are.");
     }
+    const sequence = this.sequencer?.doc ?? null;
+    const empty = sequence !== null && sequence.rows.every((r) => r.layers.every((l) => l.effects.length === 0));
+    if (CREATE_SEQUENCE.test(message) || (SONG_CHOSEN.test(message) && sequence)) {
+      if (!sequence || (!empty && !SONG_CHOSEN.test(message))) {
+        const ask = sequence
+          ? "Your open sequence already has effects, so let's start a new one. Choose a song and I'll build a light show to it."
+          : "You don't have a sequence open yet. Choose a song and I'll build a light show to it.";
+        onEvent({ kind: "activity", label: "Asking for a song" });
+        await this.stream(ask, onEvent);
+        onEvent({ kind: "chooseSong" });
+        return { text: ask, proposal: null, chooseSong: true };
+      }
+      return this.composeSequence(sequence, onEvent);
+    }
     onEvent({ kind: "activity", label: "Looking at your show" });
     const selected = context.selectedProps.map((id) => show.props.find((p) => p.id === id)?.name).filter(Boolean);
     const text =
@@ -197,7 +226,54 @@ export class FakeAssistant implements AssistantApi {
       (selected.length > 0 ? ` You have ${selected.join(", ")} selected.` : "") +
       " Ask me to add or change something and I'll draft it for you to review.";
     await this.stream(text, onEvent);
-    return { text, proposal: null };
+    return { text, proposal: null, chooseSong: false };
+  }
+
+  private async pause(ms: number) {
+    if (this.delayMs > 0) await new Promise((r) => setTimeout(r, ms));
+    if (this.stopped) throw new Error("Stopped.");
+  }
+
+  /** The scripted sequence: listen to the song, add its timing, place effects, propose. */
+  private async composeSequence(doc: Sequence, onEvent: (event: ChatEvent) => void): Promise<TurnReply> {
+    const sequencer = this.sequencer!;
+    onEvent({ kind: "activity", label: "Listening to the song" });
+    await this.pause(900);
+    const analysis = await sequencer.analyzeAudio(doc.audio ?? "");
+    onEvent({ kind: "activity", label: "Looking at your props" });
+    await this.pause(400);
+    onEvent({ kind: "activity", label: "Drafting: song timing" });
+    await this.pause(400);
+    const composed = composeDemoSequence(doc, this.backend.show, analysis);
+    for (const section of composed.sections) {
+      onEvent({ kind: "activity", label: `Drafting: place effects (${section.label})` });
+      await this.pause(350);
+    }
+    onEvent({ kind: "activity", label: "Checking the draft" });
+    await this.pause(300);
+    onEvent({ kind: "activity", label: "Preparing the proposal" });
+    const proposal: ProposalView = {
+      id: crypto.randomUUID(),
+      summary: composed.summary,
+      diff: { changes: composed.changes },
+      changedProps: [],
+      changesShow: false,
+      changesSequence: true,
+      sections: composed.sections,
+      timeline: composed.timeline,
+    };
+    this.pending = {
+      proposal,
+      edits: [],
+      draft: this.backend.show,
+      generation: this.backend.generation,
+      sequenceEdits: composed.edits,
+      draftSequence: composed.draft,
+    };
+    onEvent({ kind: "proposal", proposal });
+    const closing = "Here's a first pass. Play the preview, then Apply or Discard.";
+    await this.stream(closing, onEvent);
+    return { text: closing, proposal, chooseSong: false };
   }
 
   private async propose(summary: string, changes: Change[], edits: Edit[], draft: Show, onEvent: (event: ChatEvent) => void, closing: string): Promise<TurnReply> {
@@ -209,11 +285,13 @@ export class FakeAssistant implements AssistantApi {
       changedProps: changes.filter((c) => c.section === "prop" && c.action !== "removed").flatMap((c) => (c.id ? [c.id] : [])),
       changesShow: true,
       changesSequence: false,
+      sections: [],
+      timeline: null,
     };
     this.pending = { proposal, edits, draft, generation: this.backend.generation };
     onEvent({ kind: "proposal", proposal });
     await this.stream(closing, onEvent);
-    return { text: closing, proposal };
+    return { text: closing, proposal, chooseSong: false };
   }
 
   async stop() {
@@ -238,11 +316,17 @@ export class FakeAssistant implements AssistantApi {
   }
 
   async apply(id: string): Promise<Applied> {
-    const { edits, generation } = this.current(id);
+    const { edits, generation, sequenceEdits } = this.current(id);
     if (generation !== this.backend.generation) {
       throw new Error("A different show is open now, so this suggestion no longer applies. Ask again.");
     }
     this.calls.push("apply");
+    if (sequenceEdits) {
+      if (!this.sequencer?.doc) throw new Error("The sequence this suggestion changes isn't open anymore. Open it again and ask again.");
+      const sequence = await this.sequencer.editSequence(sequenceEdits);
+      this.pending = null;
+      return { snapshot: null, sequence };
+    }
     const snapshot = await this.backend.applyEdits(edits);
     this.pending = null;
     return { snapshot, sequence: null };
@@ -256,5 +340,11 @@ export class FakeAssistant implements AssistantApi {
   async preview(id: string): Promise<PreviewSet> {
     const { draft } = this.current(id);
     return new MemoryBackend(draft).previewProps();
+  }
+
+  async previewFrame(id: string, positionMs: number): Promise<Uint8Array> {
+    const { draft, draftSequence } = this.current(id);
+    if (!draftSequence) throw new Error("This suggestion doesn't change the sequence.");
+    return renderSequenceFrame(draftSequence, draft, positionMs);
   }
 }

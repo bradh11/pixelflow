@@ -5,7 +5,9 @@
 import { create } from "zustand";
 import { AssistantError, type AssistantApi, type ProposalView, type ProviderId, providerName } from "../api/assistant";
 import { errorMessage } from "../api/backend";
+import { rowsForShow } from "../api/sequence";
 import type { PreviewSet } from "../api/types";
+import { fileName } from "../lib/format";
 import { useLayoutEditor } from "./layoutEditor";
 import { useSequencer } from "./sequencer";
 import { useApp } from "./store";
@@ -41,15 +43,24 @@ function saveSettings(settings: SavedSettings) {
   }
 }
 
+/** Where the chat's Choose a song button is: waiting, the picker or new sequence on its way, or done. */
+export interface SongChoice {
+  status: "open" | "picking" | "done";
+  /** The new sequence's name, once made. */
+  name?: string;
+}
+
 /** One line of the chat as shown. */
 export interface ChatItem {
   id: number;
-  /** "proposal" marks where a proposal card sits in the chat. */
-  role: "user" | "assistant" | "error" | "proposal";
+  /** "proposal" marks where a proposal card sits in the chat; "chooseSong" where the Choose a song button does. */
+  role: "user" | "assistant" | "error" | "proposal" | "chooseSong";
   text: string;
   proposalId?: string;
   /** For an error: the provider's own words, shown under "Details". */
   details?: string;
+  /** For "chooseSong": how far the user got. */
+  song?: SongChoice;
 }
 
 /** "dropped": the show (or sequence) it was made for was replaced, so it no longer applies. */
@@ -83,6 +94,10 @@ interface AssistantState {
   /** Checks whether the current provider has a key (after Settings changes it). */
   refreshKey(): Promise<void>;
   send(text: string): Promise<void>;
+  /** The chat's Choose a song button: the song picker, then a new unsaved sequence from it (a row
+   * per prop and group, asking first about unsaved changes to the open one), then the assistant
+   * carries on. The assistant itself never opens files. */
+  chooseSong(itemId: number): Promise<void>;
   stop(): Promise<void>;
   newChat(): Promise<void>;
   apply(): Promise<boolean>;
@@ -186,6 +201,12 @@ export const useAssistant = create<AssistantState>((set, get) => {
       }
       set({ streaming: true, activity: "Thinking" });
       let streamed = false;
+      let askedForSong = false;
+      const offerSong = () => {
+        if (askedForSong) return;
+        askedForSong = true;
+        set({ items: [...get().items, { id: nextItem++, role: "chooseSong", text: "", song: { status: "open" } }] });
+      };
       try {
         const reply = await api.send(provider, model, message, context(), (event) => {
           switch (event.kind) {
@@ -204,8 +225,12 @@ export const useAssistant = create<AssistantState>((set, get) => {
               set({ proposal: event.proposal, proposalStatus: "open", preview: null });
               add("proposal", "", event.proposal.id);
               break;
+            case "chooseSong":
+              offerSong();
+              break;
           }
         });
+        if (reply.chooseSong) offerSong();
         if (reply.proposal && get().proposal?.id !== reply.proposal.id) {
           set({ proposal: reply.proposal, proposalStatus: "open", preview: null });
           add("proposal", "", reply.proposal.id);
@@ -220,6 +245,39 @@ export const useAssistant = create<AssistantState>((set, get) => {
 
     async stop() {
       await get().api?.stop();
+    },
+
+    async chooseSong(itemId) {
+      const backend = useApp.getState().backend;
+      const item = get().items.find((i) => i.id === itemId);
+      if (!backend || !item || item.song?.status !== "open" || get().streaming) return;
+      const mark = (song: SongChoice) => set({ items: get().items.map((i) => (i.id === itemId ? { ...i, song } : i)) });
+      const pick = async () => {
+        mark({ status: "picking" });
+        try {
+          const path = await backend.pickAudioPath();
+          if (!path) {
+            mark({ status: "open" });
+            return;
+          }
+          const waveform = await backend.audioWaveform(path, 100);
+          const show = useApp.getState().snapshot?.show;
+          const name = fileName(path).replace(/\.[^.]+$/, "") || "New sequence";
+          const made = await useSequencer.getState().newSequence(name, waveform.durationMs, path, show ? rowsForShow(show) : []);
+          if (!made) {
+            mark({ status: "open" });
+            return;
+          }
+          mark({ status: "done", name });
+          await get().send(`I chose "${name}". The new sequence is open: go ahead.`);
+        } catch (e) {
+          mark({ status: "open" });
+          addError(e);
+        }
+      };
+      // The sequence lives on the Sequence screen; the open one's unsaved changes are asked about first.
+      useApp.getState().setScreen("sequence");
+      useSequencer.getState().replaceAfterAsking(() => void pick());
     },
 
     async newChat() {

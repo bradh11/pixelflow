@@ -1,12 +1,14 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { App } from "../../App";
 import { demoShow } from "../../api/demo";
 import { MemoryBackend } from "../../api/memory";
 import { FakeAssistant } from "../../api/memoryAssistant";
+import { MemorySequencer } from "../../api/memorySequencer";
 import { useAssistant } from "../../state/assistant";
 import { useLayoutEditor } from "../../state/layoutEditor";
+import { useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
 import { AssistantError, assistantFailure, type Change, type ProposalView } from "../../api/assistant";
 import { highlightFrame } from "./DraftPreview";
@@ -228,6 +230,70 @@ describe("chatting", () => {
   });
 });
 
+describe("creating a sequence", () => {
+  async function startWithSequencer() {
+    const backend = new MemoryBackend(demoShow());
+    backend.nextAudioPath = "/Music/Jingle Bell Rock.mp3";
+    const sequencer = new MemorySequencer(backend);
+    const assistant = new FakeAssistant(backend);
+    assistant.sequencer = sequencer;
+    assistant.keys.set("anthropic", "keychain");
+    useAssistant.getState().setModel("claude-opus-5-5");
+    await useApp.getState().connect(backend);
+    useApp.setState({ started: true, screen: "sequence" });
+    await useSequencer.getState().connect(sequencer);
+    await useAssistant.getState().connect(assistant);
+    const user = userEvent.setup();
+    render(<App />);
+    return { user, backend, sequencer, assistant };
+  }
+
+  it("asks for a song, makes the sequence, and proposes a whole show that plays before Apply", async () => {
+    const { user, sequencer, assistant } = await startWithSequencer();
+    const panel = await openPanel(user);
+    await user.click(within(panel).getByRole("button", { name: "Create a compelling sequence" }));
+    expect(await within(panel).findByText(/You don't have a sequence open yet/)).toBeInTheDocument();
+    const offer = await within(panel).findByRole("region", { name: "Choose a song" });
+    expect(sequencer.doc).toBeNull();
+
+    // The user picks the song; a new, unsaved sequence with a row per prop and group is made, and
+    // the assistant carries on by itself.
+    await user.click(within(offer).getByRole("button", { name: /choose a song/i }));
+    expect(await within(panel).findByText("New sequence: Jingle Bell Rock")).toBeInTheDocument();
+    expect(sequencer.doc?.name).toBe("Jingle Bell Rock");
+    expect(sequencer.doc?.rows.length).toBeGreaterThan(0);
+    expect(useSequencer.getState().dirty).toBe(false);
+    const card = await within(panel).findByRole("region", { name: "Proposed changes" });
+    expect(within(panel).getByText(/I chose "Jingle Bell Rock"/)).toBeInTheDocument();
+    expect(within(card).getByText("By section")).toBeInTheDocument();
+    expect(within(card).getByText("Intro", { selector: "span" })).toBeInTheDocument();
+    expect(within(card).getByRole("img", { name: /Timeline of the draft/ })).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: /Show all \d+/ })).toBeInTheDocument();
+    // Nothing is in the sequence until Apply.
+    expect(sequencer.doc!.rows.every((r) => r.layers.every((l) => l.effects.length === 0))).toBe(true);
+
+    const frames = vi.spyOn(assistant, "previewFrame");
+    await user.click(within(card).getByRole("button", { name: "Play preview" }));
+    const preview = await screen.findByRole("dialog", { name: "Preview: not applied yet" });
+    await waitFor(() => expect(frames).toHaveBeenCalled());
+    expect(within(preview).getByRole("slider", { name: "Position" })).toBeInTheDocument();
+    await user.click(within(preview).getByRole("button", { name: "Pause" }));
+    expect(within(preview).getByRole("button", { name: "Play" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(sequencer.doc!.timingTracks).toEqual([]);
+
+    await user.click(within(card).getByRole("button", { name: "Apply" }));
+    expect(await within(card).findByText(/Applied as one step/)).toBeInTheDocument();
+    const effects = sequencer.doc!.rows.flatMap((r) => r.layers.flatMap((l) => l.effects));
+    expect(effects.length).toBeGreaterThan(20);
+    expect(sequencer.doc!.timingTracks.map((t) => t.name)).toEqual(["Beats", "Bars", "Sections"]);
+    await waitFor(() => expect(useSequencer.getState().doc?.timingTracks.length).toBe(3));
+    await act(() => useSequencer.getState().undo());
+    expect(sequencer.doc!.timingTracks).toEqual([]);
+    expect(sequencer.doc!.rows.every((r) => r.layers.every((l) => l.effects.length === 0))).toBe(true);
+  });
+});
+
 describe("the review card", () => {
   const proposal = (changes: Change[]): ProposalView => ({
     id: "p1",
@@ -236,6 +302,8 @@ describe("the review card", () => {
     changedProps: [],
     changesShow: true,
     changesSequence: false,
+    sections: [],
+    timeline: null,
   });
   const falcon: Change = {
     section: "controller",

@@ -59,10 +59,18 @@ export type ThemeChoice = Theme | "system";
 
 const THEME_KEY = "pixelflow.theme";
 
-function storedThemeChoice(): ThemeChoice {
+/**
+ * The theme chosen on this computer. A new install follows the computer; one that has been used
+ * before without choosing keeps the dark it always had (saved once, so it stays chosen).
+ */
+export function initialThemeChoice(): ThemeChoice {
   try {
     const saved = localStorage.getItem(THEME_KEY);
-    return saved === "light" || saved === "dark" ? saved : "system";
+    if (saved === "light" || saved === "dark" || saved === "system") return saved;
+    const usedBefore = Object.keys(localStorage).some((k) => k.startsWith("pixelflow."));
+    const choice = usedBefore ? "dark" : "system";
+    localStorage.setItem(THEME_KEY, choice);
+    return choice;
   } catch {
     return "system";
   }
@@ -511,8 +519,10 @@ export const useApp = create<AppState>((set, get) => {
   started: false,
   screen: "layout",
   showId: crypto.randomUUID(),
-  theme: resolveTheme(storedThemeChoice()),
-  themeChoice: storedThemeChoice(),
+  ...(() => {
+    const themeChoice = initialThemeChoice();
+    return { themeChoice, theme: resolveTheme(themeChoice) };
+  })(),
   paletteOpen: false,
   error: null,
   busy: false,
@@ -550,8 +560,7 @@ export const useApp = create<AppState>((set, get) => {
 
   setTheme(choice) {
     try {
-      if (choice === "system") localStorage.removeItem(THEME_KEY);
-      else localStorage.setItem(THEME_KEY, choice);
+      localStorage.setItem(THEME_KEY, choice);
     } catch {
       // Storage unavailable; the theme still applies for this session.
     }

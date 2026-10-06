@@ -5,7 +5,7 @@ import type { Device, Discovery, Show, ShowSnapshot } from "../api/types";
 import { gestureEdits } from "../lib/layoutEdits";
 import { newProp } from "../lib/shows";
 import { useLayoutEditor } from "./layoutEditor";
-import { useApp } from "./store";
+import { initialThemeChoice, useApp } from "./store";
 import { nextLabels, useUndoLabels } from "./undoLabels";
 
 async function connected() {
@@ -138,13 +138,27 @@ describe("app store", () => {
     expect(useApp.getState().error).toBeNull();
   });
 
+  it("keeps an upgraded install dark, and lets a new one follow the computer", () => {
+    expect(initialThemeChoice()).toBe("system");
+    // Saved, so the next start (with other settings saved by then) still follows the computer.
+    expect(localStorage.getItem("pixelflow.theme")).toBe("system");
+    localStorage.setItem("pixelflow.devices", "[]");
+    expect(initialThemeChoice()).toBe("system");
+    // Someone who has used PixelFlow before and never chose: the dark they've always had, kept.
+    localStorage.removeItem("pixelflow.theme");
+    expect(initialThemeChoice()).toBe("dark");
+    expect(localStorage.getItem("pixelflow.theme")).toBe("dark");
+    localStorage.setItem("pixelflow.theme", "light");
+    expect(initialThemeChoice()).toBe("light");
+  });
+
   it("follows the computer's theme until one is chosen, and again when asked", () => {
     const light = { matches: true, addEventListener() {}, removeEventListener() {} };
     window.matchMedia = (() => light) as unknown as typeof window.matchMedia;
     try {
       useApp.getState().setTheme("system");
       expect(useApp.getState()).toMatchObject({ theme: "light", themeChoice: "system" });
-      expect(localStorage.getItem("pixelflow.theme")).toBeNull();
+      expect(localStorage.getItem("pixelflow.theme")).toBe("system");
       useApp.getState().setTheme("dark");
       expect(useApp.getState()).toMatchObject({ theme: "dark", themeChoice: "dark" });
       expect(localStorage.getItem("pixelflow.theme")).toBe("dark");

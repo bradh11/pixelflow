@@ -57,6 +57,7 @@ import {
   guideThreshold,
   guidesActive,
   nearbyBoxes,
+  snapAlong,
   snapMove,
   snapPointTo,
   snapResize,
@@ -232,6 +233,15 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     const g = activeGuides();
     if (!g) return fallback;
     const r = snapPointTo(g.index, w, { threshold: guideThreshold(currentView().zoom), fallback });
+    g.marks = r.marks;
+    return r.point;
+  };
+
+  /** The end `to` of a line held straight from `from`, slid along it to a smart guide if one is near. */
+  const guidedAlong = (from: Pt, to: Pt): Pt => {
+    const g = activeGuides();
+    if (!g) return to;
+    const r = snapAlong(g.index, from, to, { threshold: guideThreshold(currentView().zoom) });
     g.marks = r.marks;
     return r.point;
   };
@@ -693,7 +703,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
         break;
       case "draw": {
         const to = st.snap ? snapPoint(w, st.grid) : w;
-        d.to = straight && DRAWN_BY_ENDS.includes(d.tool) ? constrainAngle(d.from, to) : guidedPoint(w, to);
+        d.to = straight && DRAWN_BY_ENDS.includes(d.tool) ? guidedAlong(d.from, constrainAngle(d.from, to)) : guidedPoint(w, to);
         d.toScreen = s;
         break;
       }

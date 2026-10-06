@@ -1000,5 +1000,57 @@ describe("LayoutScreen", () => {
       const prop = (edits[0][0] as { prop: Prop }).prop;
       expect(prop.transform.position.x).toBeCloseTo(a.maxX + 2, 2);
     });
+
+    it("slide the end of a line held level with Shift to another prop's edge", async () => {
+      const user = await setup(showWith(placed("matrix", "A", 0, 0)));
+      const a = await frameOf("A");
+      await user.click(screen.getByRole("button", { name: "Line" }));
+      // From 8 left of A's right edge to just past it, a little uphill: Shift keeps it level.
+      await drag({ x: a.maxX - 8, y: 5 }, { x: a.maxX + 2 / zoom(), y: 5.3 }, { shiftKey: true });
+      const prop = (edits[0][0] as { prop: Prop }).prop;
+      expect(prop.transform.rotationDeg.z).toBe(0);
+      expect(prop.shape).toMatchObject({ length: expect.closeTo(8, 2) });
+    });
+
+    it("use upright boxes around turned props, both the moving one and the others", async () => {
+      // Both turned upright: A covers y -2…2 and B y 4…8 (matrices are 4 wide, 2 tall).
+      await setup(showWith(placed("matrix", "A", 0, 0, 90), placed("matrix", "B", 10, 6, 90)));
+      expect((await frameOf("B")).minY).toBeCloseTo(4, 3);
+      // B's bottom five pixels above A's bottom.
+      await drag({ x: 10, y: 6 }, { x: 10, y: 5 / zoom() });
+      expect(edits).toHaveLength(1);
+      expect(position("B").y).toBeCloseTo(0, 3);
+    });
+
+    it("never guide a multi-selection by the props being moved with it", async () => {
+      await setup(showWith(placed("matrix", "A", 0, 0), placed("matrix", "B", 10, 5), placed("matrix", "C", 10, 9)));
+      act(() => useLayoutEditor.getState().select(backend.show.props.slice(1).map((p) => p.id)));
+      // Five pixels right: C's old edges would pull B straight back (and the move would be lost).
+      const near = 5 / zoom();
+      await drag({ x: 10, y: 5 }, { x: 10 + near, y: 5 });
+      expect(edits).toHaveLength(1);
+      expect(position("B").x).toBeCloseTo(10 + near, 2);
+      expect(position("C").x).toBeCloseTo(10 + near, 2);
+    });
+
+    it("keep a Shift-straight move straight, snapping only along it", async () => {
+      await setup(showWith(placed("matrix", "A", 0, 0), placed("matrix", "B", 10, 3)));
+      // Mostly downward with a little drift right: Shift keeps x, and y snaps level with A.
+      await drag({ x: 10, y: 3 }, { x: 10.3, y: 5 / zoom() }, { shiftKey: true });
+      expect(position("B").x).toBe(10);
+      expect(position("B").y).toBeCloseTo(0, 3);
+    });
+
+    it("win over the grid when near, and leave the grid to it otherwise", async () => {
+      const user = await setup(showWith(placed("matrix", "A", 0, 0.2), placed("matrix", "B", 10, 3)));
+      await user.click(screen.getByRole("button", { name: "Snap to grid" }));
+      // Five pixels above level with A (at 0.2, off the half-unit grid).
+      await drag({ x: 10, y: 3 }, { x: 10, y: 0.2 + 5 / zoom() });
+      expect(position("B").y).toBeCloseTo(0.2, 3);
+      // Nowhere near a guide: the grid takes it to 3.5.
+      await drag({ x: 10, y: 0.2 }, { x: 10, y: 3.3 });
+      expect(position("B").y).toBe(3.5);
+      expect(edits).toHaveLength(2);
+    });
   });
 });

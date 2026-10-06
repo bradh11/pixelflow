@@ -1,6 +1,7 @@
 import { AudioLines, Cable, Film, FlaskConical, History, LayoutGrid, Network, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { SIDEBAR_RAIL_BELOW, useWindowWidth } from "../lib/useWidth";
+import { useWindowBand } from "../lib/useWidth";
+import { useAssistant } from "../state/assistant";
 import { useSequencer } from "../state/sequencer";
 import { type Screen, useApp } from "../state/store";
 import { SetupChecklist } from "./SetupChecklist";
@@ -39,14 +40,15 @@ function savePref(pref: Pref) {
 }
 
 /**
- * Whether the sidebar shows only icons: in a narrow window, unless the user chose. A choice that
- * matches what the window width would give anyway is forgotten, so the sidebar goes back to
- * following the window.
+ * Whether the sidebar shows only icons: in a narrow window, or on a laptop while the assistant
+ * takes a column, unless the user chose. A choice that matches what the window would give anyway
+ * is forgotten, so the sidebar goes back to following the window.
  */
 export function useSidebarRail(): { rail: boolean; toggle: () => void } {
-  const width = useWindowWidth();
+  const band = useWindowBand();
+  const assistantOpen = useAssistant((s) => s.open);
   const [pref, setPref] = useState<Pref>(loadPref);
-  const auto = width < SIDEBAR_RAIL_BELOW;
+  const auto = band === "narrow" || band === "medium" || (band === "laptop" && assistantOpen);
   const rail = pref === null ? auto : pref === "rail";
   const toggle = () => {
     const next = !rail;

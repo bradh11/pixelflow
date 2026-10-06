@@ -11,7 +11,7 @@ const SUGGESTIONS = ["Add two arches beside the garage", "What's in my show?", "
  * The chat with the assistant, beside the current screen, or floating over its right side when
  * the window is too narrow to share (`overlay`). Replies stream in; changes come as a proposal card.
  */
-export function AssistantPanel({ overlay = false }: { overlay?: boolean }) {
+export function AssistantPanel({ overlay = false, compact = false }: { overlay?: boolean; compact?: boolean }) {
   const items = useAssistant((s) => s.items);
   const streaming = useAssistant((s) => s.streaming);
   const activity = useAssistant((s) => s.activity);
@@ -43,6 +43,7 @@ export function AssistantPanel({ overlay = false }: { overlay?: boolean }) {
     <aside
       aria-label="Assistant"
       data-overlay={overlay}
+      data-width={compact ? "compact" : "full"}
       onKeyDown={(e) => {
         // Floating over the screen, Escape puts it away (as a drawer does).
         if (overlay && e.key === "Escape" && !e.defaultPrevented) {
@@ -50,7 +51,7 @@ export function AssistantPanel({ overlay = false }: { overlay?: boolean }) {
           setOpen(false);
         }
       }}
-      className={`flex w-96 max-w-[calc(100%-3rem)] shrink-0 flex-col border-l border-neutral-200 dark:border-neutral-800 ${
+      className={`flex ${compact ? "w-80" : "w-96"} max-w-[calc(100%-3rem)] shrink-0 flex-col border-l border-neutral-200 dark:border-neutral-800 ${
         overlay
           ? "absolute inset-y-0 right-0 z-30 bg-neutral-50 shadow-2xl dark:bg-neutral-950"
           : "bg-neutral-50/60 dark:bg-neutral-950/40"

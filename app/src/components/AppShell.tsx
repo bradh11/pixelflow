@@ -27,7 +27,7 @@ import { WiringScreen } from "../screens/WiringScreen";
 import { MissingFileNotice, MissingFilesBanner } from "./MissingFiles";
 import { ShowMenu } from "./ShowMenu";
 import { Sidebar } from "./Sidebar";
-import { ASSISTANT_OVERLAY_BELOW, useWindowWidth } from "../lib/useWidth";
+import { useWindowBand } from "../lib/useWidth";
 import { Button, UnsavedBadge } from "./ui";
 import { redoTarget, saveFocused, undoFocused } from "../state/menuActions";
 import { nextLabels, useUndoLabels } from "../state/undoLabels";
@@ -341,8 +341,9 @@ const WORK_SCREENS = new Set(["layout", "wiring", "play"]);
 export function AppShell() {
   const screen = useApp((s) => s.screen);
   const assistantOpen = useAssistant((s) => s.open);
-  // In a narrow window the assistant floats over the screen rather than squeezing it.
-  const overlay = useWindowWidth() < ASSISTANT_OVERLAY_BELOW;
+  // In a narrow window the assistant floats over the screen rather than squeezing it; on a laptop
+  // it takes a narrower column (and the sidebar folds to icons).
+  const band = useWindowBand();
   return (
     <div className="flex h-full flex-col">
       <TopBar />
@@ -353,7 +354,7 @@ export function AppShell() {
         <main className={`min-w-0 flex-1 ${screen === "sequence" ? "overflow-hidden" : WORK_SCREENS.has(screen) ? "overflow-auto p-4" : "overflow-auto p-6"}`}>
           <CurrentScreen />
         </main>
-        {assistantOpen && <AssistantPanel overlay={overlay} />}
+        {assistantOpen && <AssistantPanel overlay={band === "narrow"} compact={band !== "wide"} />}
       </div>
       <StatusBar />
     </div>

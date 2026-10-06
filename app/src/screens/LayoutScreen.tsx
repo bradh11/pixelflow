@@ -95,7 +95,7 @@ export function LayoutScreen() {
   const preview3d = usePreviewProps3d(in3d);
   const canvas = useRef<LayoutCanvasHandle>(null);
   const row = useRef<HTMLDivElement>(null);
-  const arrangement = layoutArrangement(useElementWidth(row));
+  const arrangement = useElementWidth(row, layoutArrangement);
   useLayoutKeys(canvas);
   useLayout3dKeys();
   if (!snapshot) return null;

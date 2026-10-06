@@ -46,16 +46,34 @@ describe("model names", () => {
 });
 
 describe("the assistant in a narrow window", () => {
-  it("floats over the screen below 1440 px, and takes a column of its own above", async () => {
-    window.innerWidth = 1280;
-    const { user } = await start();
-    const panel = await openPanel(user);
-    expect(panel).toHaveAttribute("data-overlay", "true");
+  const resize = (width: number) =>
     act(() => {
-      window.innerWidth = 1600;
+      window.innerWidth = width;
       window.dispatchEvent(new Event("resize"));
     });
-    expect(screen.getByRole("complementary", { name: "Assistant" })).toHaveAttribute("data-overlay", "false");
+  const panel = () => screen.getByRole("complementary", { name: "Assistant" });
+  const sidebarRail = () => screen.getByRole("navigation", { name: "Screens" }).dataset.collapsed === "true";
+
+  it("on a laptop (1200–1439 px) takes a narrower column, and the sidebar folds to icons while it's open", async () => {
+    window.innerWidth = 1360;
+    const { user } = await start();
+    expect(sidebarRail()).toBe(false);
+    await openPanel(user);
+    expect(panel()).toHaveAttribute("data-overlay", "false");
+    expect(panel()).toHaveAttribute("data-width", "compact");
+    expect(sidebarRail()).toBe(true);
+    await user.click(within(panel()).getByRole("button", { name: "Close assistant" }));
+    expect(sidebarRail()).toBe(false);
+  });
+
+  it("floats over the screen only below 1200 px, and takes a full column from 1440", async () => {
+    window.innerWidth = 1100;
+    const { user } = await start();
+    await openPanel(user);
+    expect(panel()).toHaveAttribute("data-overlay", "true");
+    resize(1600);
+    expect(panel()).toHaveAttribute("data-overlay", "false");
+    expect(panel()).toHaveAttribute("data-width", "full");
   });
 
   it("floating, Escape puts it away", async () => {

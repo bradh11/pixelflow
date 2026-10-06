@@ -110,7 +110,7 @@ function Workspace() {
   const [adding, setAdding] = useState(false);
   const column = useRef<HTMLDivElement>(null);
   const workspace = useRef<HTMLDivElement>(null);
-  const arrangement = sequenceArrangement(useElementWidth(workspace));
+  const arrangement = useElementWidth(workspace, sequenceArrangement);
   const [pane, setPane] = useState(loadPane);
   const paneRef = useRef<HTMLDivElement>(null);
   /** The column's height, for the divider's range (kept up to date as the window changes). */

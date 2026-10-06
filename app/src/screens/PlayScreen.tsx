@@ -8,7 +8,7 @@ import { MissingFileNotice, useMissingFile } from "../components/MissingFiles";
 import { SequenceList } from "../components/SequenceList";
 import { WaveformView } from "../components/WaveformView";
 import { Button, EmptyState, PageHeader } from "../components/ui";
-import { clock, fileName, thousands } from "../lib/format";
+import { clock, fileName, shownPath, thousands } from "../lib/format";
 import { useApp } from "../state/store";
 
 /** How often playback state and the preview refresh. */
@@ -132,7 +132,7 @@ function MusicRow({ entry }: { entry: SequenceEntry }) {
       <Music size={14} className="shrink-0 text-neutral-400" />
       {entry.audio ? (
         <>
-          <span className="truncate" title={entry.audio}>
+          <span className="truncate" title={shownPath(entry.audio)}>
             {fileName(entry.audio)}
           </span>
           <Button variant="ghost" onClick={choose}>

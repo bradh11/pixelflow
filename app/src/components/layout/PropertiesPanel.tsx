@@ -15,7 +15,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { Background, ColorOrder, FileRole, PreviewProp, Prop, ShapeSource, Show } from "../../api/types";
-import { fileName, thousands } from "../../lib/format";
+import { fileName, shownPath, thousands } from "../../lib/format";
 import { alignEdits, distributeEdits, duplicateEdits, removeEdits, updateEdits, wiringOf } from "../../lib/layoutEdits";
 import { type Align, tidy } from "../../lib/layoutMath";
 import { nodeCount, shapeLabel } from "../../lib/shows";
@@ -376,7 +376,7 @@ function PhotoPanel({ problem, onRetry, onChoosePhoto }: { problem: string | nul
   };
   return (
     <Section title="Background photo">
-      <p className="mb-2 truncate text-sm" title={background.path}>
+      <p className="mb-2 truncate text-sm" title={shownPath(background.path)}>
         {fileName(background.path)}
       </p>
       {missing ? (

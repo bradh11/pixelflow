@@ -33,6 +33,12 @@ export function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+  // Coming back to PixelFlow: files may have come back or gone away meanwhile.
+  useEffect(() => {
+    const onFocus = () => void useApp.getState().checkFiles(true);
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
   return (
     <>
       {started ? <AppShell /> : <Welcome />}

@@ -31,6 +31,8 @@ const TIMING_FILTERS = [
 export interface MusicFound {
   found: FoundFile | null;
   result: SequenceEditResult | null;
+  /** True when the search stopped before looking everywhere (it took too long). */
+  gaveUp: boolean;
 }
 
 /** Everything the sequencer asks of the engine. Errors reject with a plain-language message. */

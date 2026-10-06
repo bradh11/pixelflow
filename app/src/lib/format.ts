@@ -18,7 +18,8 @@ export function fileName(path: string): string {
  * (possible on Linux) arrives as a NUL and two hex digits; it shows as "�".
  */
 export function shownPath(path: string): string {
-  return path.replace(/\u0000[0-9a-fA-F]{2}/g, "�");
+  // Only bytes from 0x80 up are ever marked; any other mark isn't one and is dropped.
+  return path.replace(/\u0000[89a-fA-F][0-9a-fA-F]/g, "\uFFFD").replaceAll("\u0000", "");
 }
 
 /** Seconds as a clock: 75 → "1:15", 3725 → "1:02:05". */

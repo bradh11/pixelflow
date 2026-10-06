@@ -18,6 +18,7 @@ export const tauriBackend: Backend = {
   openShow: (path) => invoke("open_show", { path }),
   saveShow: () => invoke("save_show"),
   saveShowAs: (path) => invoke("save_show_as", { path }),
+  checkFiles: (all) => invoke("check_files", { all }),
   findMissingFiles: (file) => invoke("find_missing_files", file ? { file } : {}),
   // The shell asks where the file is with its own dialog: the window never names the new place.
   locateFile: (file) => invoke("locate_file", { file }),

@@ -10,7 +10,7 @@ import { AddTimingTrackDialog } from "../components/sequencer/TimingDialogs";
 import { AddRowMenu, Timeline } from "../components/sequencer/Timeline";
 import { useSequenceKeys } from "../components/sequencer/useSequenceKeys";
 import { Button, EmptyState, Input } from "../components/ui";
-import { ago, fileName } from "../lib/format";
+import { ago, fileName, shownPath } from "../lib/format";
 import { formatTime } from "../lib/timelineMath";
 import { useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
@@ -260,7 +260,7 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
       </ToolButton>
       {s.name !== null && (
         <>
-          <span className="mx-1 max-w-48 truncate font-medium" title={s.path ?? undefined}>
+          <span className="mx-1 max-w-48 truncate font-medium" title={s.path ? shownPath(s.path) : undefined}>
             {s.name}
             {s.dirty && (
               <>
@@ -554,7 +554,7 @@ function Start({ onNew, onOpen }: { onNew: () => void; onOpen: (path?: string) =
             <ul className="mt-2 flex flex-col">
               {recent.map((path) => (
                 <li key={path}>
-                  <button type="button" className="w-full truncate rounded px-2 py-1.5 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800" title={path} onClick={() => void onOpen(path)}>
+                  <button type="button" className="w-full truncate rounded px-2 py-1.5 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800" title={shownPath(path)} onClick={() => void onOpen(path)}>
                     {fileName(path)}
                   </button>
                 </li>
@@ -623,7 +623,7 @@ function NewSequenceDialog({ onClose }: { onClose: () => void }) {
             {reading ? "Reading the music…" : music ? "Choose other music…" : "Choose music…"}
           </Button>
           {music && (
-            <span className="truncate text-neutral-600 dark:text-neutral-300" title={music.path}>
+            <span className="truncate text-neutral-600 dark:text-neutral-300" title={shownPath(music.path)}>
               {fileName(music.path)} · {formatTime(music.durationMs, 1000)}
             </span>
           )}

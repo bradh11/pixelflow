@@ -20,9 +20,9 @@ export function filesOf(show: Show): { file: FileRole; owner: string; path: stri
 }
 
 /** A missing file, described like the engine describes it. */
-export function missingFile(file: FileRole, path: string, owner: string): MissingFile {
+export function missingFile(file: FileRole, path: string, owner: string, wasAt = path): MissingFile {
   const name = fileName(path);
-  return { file, name, path, owner, message: `${name} isn't where it was.` };
+  return { file, name, path, wasAt, owner, message: `${name} isn't where it was.` };
 }
 
 /** The edits that point `file` at `to` (one undo step when applied together). */

@@ -750,14 +750,16 @@ export const useSequencer = create<SequencerState>((set, get) => {
       if (!api || !missing) return false;
       const ok = await serial(() =>
         guarded(async () => {
-          const { found, result } = await api.findSequenceMusic();
+          const { found, result, gaveUp } = await api.findSequenceMusic();
           if (result) await absorb(result, api);
           set({
             notice: found
               ? { tone: "done", text: `Found ${found.name} in ${shownPath(folderOf(found.to))}. Undo puts the old place back.`, notes: [], saveShow: false }
               : {
                   tone: "info",
-                  text: `PixelFlow couldn't find ${missing.name} in the sequence's or the show's folder. Use Locate… to choose it.`,
+                  text: gaveUp
+                    ? `PixelFlow stopped looking for ${missing.name} before it had checked every folder. Use Locate… to choose it.`
+                    : `PixelFlow couldn't find ${missing.name} in the sequence's or the show's folder. Use Locate… to choose it.`,
                   notes: [],
                   saveShow: false,
                 },

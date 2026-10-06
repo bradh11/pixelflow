@@ -156,4 +156,35 @@ describe("missing files", () => {
     expect(useSequencer.getState().doc?.audio).toBe("/Seq/Audio/Carol.mp3");
     expect(useSequencer.getState().canUndo).toBe(true);
   });
+
+  it("asks for the files to be checked when the show hasn't looked at them yet, and on focus", async () => {
+    const backend = new MemoryBackend(showWithFiles());
+    await backend.saveShowAs(SHOW_FILE);
+    backend.missingPaths = new Set([SONG]);
+    backend.filesChecked = false;
+    await useApp.getState().connect(backend);
+    await waitFor(() => expect(backend.calls).toContain("checkFiles"));
+    await waitFor(() => expect(useApp.getState().snapshot?.missingFiles).toHaveLength(1));
+    useApp.setState({ started: true });
+    render(<App />);
+    window.dispatchEvent(new Event("focus"));
+    await waitFor(() => expect(backend.calls).toContain("checkFiles:all"));
+  });
+
+  it("says where a file really was, what else fits, and when the search gave up", async () => {
+    const { backend, user } = await openMoved();
+    backend.wasAt.set(SONG, "/Old Disk/Haas 2024/MP3 Music/Christmas Medley 2017.mp3");
+    backend.alsoFound.set(SONG, ["/Shows/Haas 2024/Backup/Christmas Medley 2017.mp3"]);
+    backend.searchGivesUp = true;
+    await useApp.getState().connect(backend);
+    await user.click(screen.getByRole("button", { name: /2 warnings/ }));
+    const problems = screen.getByRole("dialog", { name: "Problems" });
+    expect(within(problems).getByRole("group", { name: "Christmas Medley 2017.mp3 isn't where it was." })).toHaveTextContent(
+      "It was in /Old Disk/Haas 2024/MP3 Music.",
+    );
+    await user.click(within(problems).getByRole("button", { name: "Find all missing files" }));
+    const report = await screen.findByRole("dialog", { name: "Found 1 file" });
+    expect(report).toHaveTextContent("Also found in /Shows/Haas 2024/Backup. If that's the right one, use Locate… to choose it.");
+    expect(report).toHaveTextContent("PixelFlow stopped looking before it had checked every folder.");
+  });
 });

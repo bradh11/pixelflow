@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { errorMessage } from "../api/backend";
-import { fileName, plural, thousands } from "../lib/format";
+import { fileName, plural, shownPath, thousands } from "../lib/format";
 import { useShallow } from "zustand/react/shallow";
 import { type Screen, useApp } from "../state/store";
 import { DevicesScreen } from "../screens/DevicesScreen";
@@ -87,7 +87,7 @@ function TopBar() {
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-neutral-200 px-3 dark:border-neutral-800">
       <span className="font-semibold text-accent-600 dark:text-accent-400">PixelFlow</span>
       <span className="text-neutral-300 dark:text-neutral-700">/</span>
-      <span className="truncate font-medium" title={snapshot.path ?? undefined}>
+      <span className="truncate font-medium" title={snapshot.path ? shownPath(snapshot.path) : undefined}>
         {title}
       </span>
       {snapshot.dirty && (
@@ -99,7 +99,7 @@ function TopBar() {
       {both && (
         <>
           <span className="text-neutral-300 dark:text-neutral-700">/</span>
-          <span className="truncate font-medium" title={sequencePath ?? undefined}>
+          <span className="truncate font-medium" title={sequencePath ? shownPath(sequencePath) : undefined}>
             {sequenceName}
           </span>
           {sequenceDirty && (

@@ -58,8 +58,8 @@ export function MissingFileNotice({
         <span className="min-w-0">
           <span className="font-medium break-words">{missing.name}</span> isn't where it was.
           {showOwner && <span className="block text-xs text-amber-800/80 dark:text-amber-300/80">{missing.owner}</span>}
-          <span className="block truncate text-xs text-amber-800/80 dark:text-amber-300/80" title={shownPath(missing.path)}>
-            {wasIn(missing.path)}
+          <span className="block truncate text-xs text-amber-800/80 dark:text-amber-300/80" title={shownPath(missing.wasAt)}>
+            {wasIn(missing.wasAt)}
           </span>
         </span>
       </p>
@@ -178,12 +178,23 @@ export function FilesReport() {
                       <span className="font-medium">{f.name}</span> is now in{" "}
                       <span className="break-all text-neutral-600 dark:text-neutral-300">{shownPath(folderOf(f.to))}</span>
                       {fileName(f.to) !== f.name && <> as {fileName(f.to)}</>}
+                      {f.also.length > 0 && (
+                        <span className="block text-xs text-amber-700 dark:text-amber-400">
+                          Also found in {f.also.map((p) => shownPath(folderOf(p))).join(", ")}. If that's the right one, use Locate… to
+                          choose it.
+                        </span>
+                      )}
                     </span>
                   </li>
                 ))}
               </ul>
               <p className="mt-3 text-neutral-500">The show now uses these. Undo puts the old places back; save the show to keep them.</p>
             </>
+          )}
+          {report.gaveUp && (
+            <p className="mt-3 text-amber-700 dark:text-amber-400">
+              PixelFlow stopped looking before it had checked every folder. Use Locate… for anything still missing.
+            </p>
           )}
           {stillMissing.length > 0 && (
             <div className={found.length > 0 ? "mt-5" : ""}>

@@ -47,6 +47,9 @@ describe("show files", () => {
   it("reads paths plainly, even ones with bytes that aren't UTF-8", () => {
     expect(fileName("/music/Caf\u0000e9.mp3")).toBe("Caf\uFFFD.mp3");
     expect(shownPath("/music/a\u0000ffb")).toBe("/music/a\uFFFDb");
+    // Only the marks the engine writes (bytes from 0x80) count; any other mark is dropped.
+    expect(shownPath("a/\u00002fetc\u00002fpasswd")).toBe("a/2fetc2fpasswd");
+    expect(shownPath("x\u0000zz")).toBe("xzz");
     expect(folderOf("/Shows/Audio/Song.mp3")).toBe("/Shows/Audio");
     expect(folderOf("Song.mp3")).toBe("");
     expect(resolveAudio("Music/Song.mp3", "/Shows/Song.pfseq.json")).toBe("/Shows/Music/Song.mp3");

@@ -762,9 +762,9 @@ export class MemorySequencer implements SequencerApi {
     this.calls.push("findSequenceMusic");
     const missing = await this.sequenceMusicMissing();
     const to = missing ? this.backend?.findable.get(missing.path) : undefined;
-    if (!missing || !to) return { found: null, result: null };
+    if (!missing || !to) return { found: null, result: null, gaveUp: false };
     const result = await this.setMusic(to);
-    return { found: { file: missing.file, name: missing.name, from: missing.path, to }, result };
+    return { found: { file: missing.file, name: missing.name, from: missing.path, to, also: [] }, result, gaveUp: false };
   }
 
   async locateSequenceMusic() {

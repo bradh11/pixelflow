@@ -71,6 +71,14 @@ export class MemoryBackend implements Backend {
   findable = new Map<string, string>();
   /** What the "Locate…" dialog returns. */
   nextLocatePath: string | null = null;
+  /** Whether snapshots say every file has been looked at (checkFiles sets it). */
+  filesChecked = true;
+  /** Where a missing file really was, when the show file moved without it, by its path. */
+  wasAt = new Map<string, string>();
+  /** Other files a search finds that fit as well, by the missing file's path. */
+  alsoFound = new Map<string, string[]>();
+  /** Whether a search stops before looking everywhere. */
+  searchGivesUp = false;
   private playbackStopReason_: string | null = null;
   private playing: {
     path: string;
@@ -173,7 +181,13 @@ export class MemoryBackend implements Backend {
   missingFiles(): MissingFile[] {
     return filesOf(this.show)
       .filter((f) => f.path.trim() && this.missingPaths.has(f.path))
-      .map((f) => missingFile(f.file, f.path, f.owner));
+      .map((f) => missingFile(f.file, f.path, f.owner, this.wasAt.get(f.path)));
+  }
+
+  async checkFiles(all: boolean) {
+    this.calls.push(all ? "checkFiles:all" : "checkFiles");
+    this.filesChecked = true;
+    return this.snapshot();
   }
 
   async findMissingFiles(file?: FileRole): Promise<FilesFound> {
@@ -183,10 +197,10 @@ export class MemoryBackend implements Backend {
       .filter((m) => !file || sameFile(m.file, file))
       .flatMap((m) => {
         const to = this.findable.get(m.path);
-        return to ? [{ file: m.file, name: m.name, from: m.path, to }] : [];
+        return to ? [{ file: m.file, name: m.name, from: m.path, to, also: this.alsoFound.get(m.path) ?? [] }] : [];
       });
     const snapshot = found.length ? await this.applyEdits(repointEdits(this.show, found)) : this.snapshot();
-    return { snapshot, found, stillMissing: snapshot.missingFiles };
+    return { snapshot, found, stillMissing: snapshot.missingFiles, gaveUp: this.searchGivesUp };
   }
 
   async locateFile(file: FileRole) {
@@ -592,7 +606,8 @@ export class MemoryBackend implements Backend {
         controllers: this.show.controllers.length,
         universes: channelMap.controllers.reduce((sum, c) => sum + (c.addressing.type === "sacn" ? c.addressing.universes.length : 0), 0),
       },
-      missingFiles: this.missingFiles(),
+      missingFiles: this.filesChecked ? this.missingFiles() : [],
+      filesChecked: this.filesChecked,
     };
   }
 }

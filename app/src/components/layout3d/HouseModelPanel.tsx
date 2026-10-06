@@ -2,7 +2,7 @@ import { Box } from "lucide-react";
 import { useEffect, useState } from "react";
 import { errorMessage } from "../../api/backend";
 import type { FileRole, HouseModel, PreviewProp, Show } from "../../api/types";
-import { fileName } from "../../lib/format";
+import { fileName, shownPath } from "../../lib/format";
 import { type Box3, fitModelPlacement, v3 } from "../../lib/layout3d";
 import { boxOfPoints, unionBox } from "../../lib/layoutMath";
 import { useApp } from "../../state/store";
@@ -84,7 +84,7 @@ export function HouseModelPanel({ preview }: { preview: PreviewProp[] }) {
   const v = (key: "position" | "rotationDeg", axis: "x" | "y" | "z") => (n: number) => update((m) => ({ ...m, [key]: { ...m[key], [axis]: n } }));
   return (
     <Section title="House model">
-      <p className="mb-2 truncate text-sm" title={model.path}>
+      <p className="mb-2 truncate text-sm" title={shownPath(model.path)}>
         {fileName(model.path)}
       </p>
       {missing && (

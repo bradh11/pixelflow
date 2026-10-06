@@ -34,6 +34,16 @@ export interface Backend {
    * message when the show hasn't been saved (it has no folder yet).
    */
   findMissingFiles(file?: FileRole): Promise<FilesFound>;
+  /**
+   * Looks at whether the show's files are there (those not looked at yet, or `all` of them) and
+   * resolves with the show. It may take a while (a slow network drive); edits don't wait for it.
+   */
+  checkFiles(all: boolean): Promise<ShowSnapshot>;
+  /**
+   * Looks at whether the show's files are there (those not looked at yet, or `all` of them) and
+   * resolves with the show. It may take a while (a slow network drive); edits don't wait for it.
+   */
+  checkFiles(all: boolean): Promise<ShowSnapshot>;
   /** Asks where a file is now (a native dialog) and points the show at it (one undo step); null when cancelled. */
   locateFile(file: FileRole): Promise<ShowSnapshot | null>;
   listHistory(): Promise<HistoryEntry[]>;

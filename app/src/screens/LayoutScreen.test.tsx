@@ -16,7 +16,7 @@ import { newEffect, newRow, type Sequence, type SequenceTarget } from "../api/se
 import { useToasts } from "../state/toast";
 import { DesktopLikeBackend } from "../test/desktopBackend";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { LayoutScreen } from "./LayoutScreen";
+import { LayoutScreen, layoutArrangement } from "./LayoutScreen";
 
 vi.mock("../components/layout/useLayoutData", async (original) => ({
   ...(await original<typeof import("../components/layout/useLayoutData")>()),
@@ -508,6 +508,58 @@ describe("LayoutScreen", () => {
     await user.click(screen.getByRole("button", { name: "Add prop" }));
     await user.click(screen.getByRole("menuitem", { name: "Mega tree" }));
     expect(useLayoutEditor.getState().view!.zoom).toBeLessThan(400);
+  });
+
+  describe("in a narrow window", () => {
+    /** Lays the canvas row out `width` px wide (jsdom lays nothing out). */
+    function rowWidth(width: number) {
+      const original = HTMLElement.prototype.getBoundingClientRect;
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+        if (this.dataset.layoutRow !== undefined) return { width, height: 500, top: 0, left: 0, right: width, bottom: 500, x: 0, y: 0, toJSON() {} } as DOMRect;
+        return original.call(this);
+      });
+    }
+    afterEach(() => vi.restoreAllMocks());
+
+    it("arranges the panels to keep the canvas at least 480 px wide", () => {
+      expect(layoutArrangement(null)).toEqual({ list: "docked", properties: "docked" });
+      expect(layoutArrangement(1216)).toEqual({ list: "docked", properties: "docked" });
+      expect(layoutArrangement(920)).toEqual({ list: "floating", properties: "docked" });
+      expect(layoutArrangement(700)).toEqual({ list: "floating", properties: "floating" });
+    });
+
+    it("puts the props list away beside the canvas, and floats it over the canvas when asked", async () => {
+      rowWidth(920);
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      expect(screen.queryByRole("listbox", { name: "Props" })).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Show the props and groups list" }));
+      const list = screen.getByRole("complementary", { name: "Props and groups" });
+      expect(list).toHaveAttribute("data-floating", "true");
+      expect(within(list).getByRole("option", { name: /^Gutter/ })).toBeInTheDocument();
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("listbox", { name: "Props" })).not.toBeInTheDocument();
+      // Put away by hand while floating, it still opens docked in a wide window.
+      expect(useLayoutEditor.getState().sidePanel.open).toBe(true);
+    });
+
+    it("opens the floating list when grouping (⌘G) needs it", async () => {
+      rowWidth(920);
+      const user = await setup(showWith(line("A", 0, 0), line("B", 0, 5)));
+      act(() => useLayoutEditor.getState().select(backend.show.props.map((p) => p.id)));
+      canvas().focus();
+      await user.keyboard("{Meta>}g{/Meta}");
+      expect(await screen.findByRole("complementary", { name: "Props and groups" })).toHaveAttribute("data-floating", "true");
+    });
+
+    it("puts the properties away too when the window is narrower still, and floats them when asked", async () => {
+      rowWidth(700);
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      expect(screen.queryByRole("complementary", { name: "Properties" })).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Show properties" }));
+      expect(screen.getByRole("complementary", { name: "Properties" })).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Put properties away" }));
+      expect(screen.queryByRole("complementary", { name: "Properties" })).not.toBeInTheDocument();
+    });
   });
 
   describe("the props list", () => {

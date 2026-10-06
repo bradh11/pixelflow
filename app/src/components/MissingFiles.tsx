@@ -106,7 +106,13 @@ export function MissingFilesBanner() {
             {more > 0 && ` and ${more} more`}.
           </>
         )}{" "}
-        {snapshot.path ? "PixelFlow can look for them in the show's folder." : "Save the show, or locate them one by one."}
+        {missing.length === 1
+          ? snapshot.path
+            ? "PixelFlow can look for it in the show's folder."
+            : "Save the show, or locate it from the problems list."
+          : snapshot.path
+            ? "PixelFlow can look for them in the show's folder."
+            : "Save the show, or locate them one by one."}
       </p>
       {snapshot.path && (
         <Button variant="primary" disabled={busy} onClick={() => void findMissingFiles()}>

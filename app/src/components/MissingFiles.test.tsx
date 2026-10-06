@@ -50,6 +50,9 @@ describe("missing files", () => {
     expect(within(report).getByText("Still missing")).toBeInTheDocument();
     expect(within(report).getByText("house.jpg")).toBeInTheDocument();
     expect(useApp.getState().snapshot?.show.sequences[0].audio).toBe(SONG_NOW);
+    expect(screen.getByRole("region", { name: "Missing files" })).toHaveTextContent(
+      "house.jpg isn't where it was. PixelFlow can look for it in the show's folder.",
+    );
 
     // Locate the photo from the report: it comes off the list.
     backend.nextLocatePath = "/Shows/Haas 2024/house.jpg";

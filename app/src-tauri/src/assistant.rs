@@ -357,6 +357,7 @@ mod tests {
                 checking_files: Default::default(),
                 recent: Arc::new(crate::recent::RecentShows::in_memory()),
                 last_folders: crate::pickers::LastFolders::new(None),
+                dialog: Default::default(),
                 imported_from: Mutex::default(),
             })
             .manage(AiState::new(KeyVault::new(Box::new(store)), providers))

@@ -48,6 +48,8 @@ struct AppState {
     recent: Arc<recent::RecentShows>,
     /// The folder each kind of file dialog was last used in.
     last_folders: pickers::LastFolders,
+    /// Set while a file dialog is showing (one at a time).
+    dialog: pickers::DialogSlot,
     /// The xLights folder the open show was imported from, and that show's generation: its
     /// first save starts there.
     imported_from: Mutex<Option<(u64, PathBuf)>>,
@@ -368,6 +370,7 @@ pub fn run() {
                 checking_files: Default::default(),
                 recent: Arc::new(recent::RecentShows::new(config_dir.clone())),
                 last_folders: pickers::LastFolders::new(config_dir),
+                dialog: Default::default(),
                 imported_from: Mutex::default(),
             });
             // macOS has a menu bar either way: this one has the show's File menu.
@@ -451,6 +454,7 @@ mod tests {
                 checking_files: Default::default(),
                 recent: Arc::new(recent::RecentShows::new(Some(dir.path().join("config")))),
                 last_folders: pickers::LastFolders::new(Some(dir.path().join("config"))),
+                dialog: Default::default(),
                 imported_from: Mutex::default(),
             })
             .build(context())
@@ -2010,6 +2014,20 @@ mod tests {
         // The window can't name a show for the list: locating one needs it on the list.
         let error = call(&webview, "locate_recent_show", json!({ "path": a })).unwrap_err();
         assert_eq!(error, json!("That show isn't on your recent list any more."));
+    }
+
+    #[test]
+    fn a_dialog_asked_for_while_one_is_showing_is_refused_not_queued() {
+        let (app, webview, _dir) = app();
+        let state = app.state::<AppState>();
+        let showing = state.dialog.take().unwrap();
+        // Answered at once, as if cancelled: no second sheet is queued behind the first.
+        assert_eq!(
+            call(&webview, "pick_path", json!({ "kind": "show" })),
+            Ok(Value::Null)
+        );
+        assert_eq!(call(&webview, "pick_image", json!({})), Ok(Value::Null));
+        drop(showing);
     }
 
     #[test]

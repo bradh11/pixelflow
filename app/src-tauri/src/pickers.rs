@@ -6,7 +6,9 @@
 //!   wherever any panel was last, often Recents (a Spotlight search) or an iCloud or network
 //!   folder, and the panel can take seconds to list it. Each candidate folder is looked at off
 //!   the main thread with a short time limit, so a dead network drive is skipped, not waited on.
-//! - **They're sheets on the main window**, not free-floating panels.
+//! - **They're sheets on the main window**, not free-floating panels, and **one at a time**: a
+//!   dialog asked for while another is showing is refused (answered as if cancelled), so a
+//!   second ⌘O, or a menu item chosen while a sheet is up, never queues another sheet behind it.
 //! - **Paths come back without loss**: as path text (see `pf_model::path_to_text`), which the
 //!   commands read back with `path_from_text`. Paths that went through the window's own
 //!   dialog API came back as JavaScript strings, losing bytes that aren't UTF-8.
@@ -18,6 +20,7 @@ use pf_model::{path_from_text, path_to_text};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -243,6 +246,29 @@ impl LastFolders {
     }
 }
 
+/// Whether a file dialog is showing: only one may be at a time.
+#[derive(Default)]
+pub(crate) struct DialogSlot(AtomicBool);
+
+/// A file dialog is showing until this is dropped.
+pub(crate) struct DialogShowing<'a>(&'a AtomicBool);
+
+impl DialogSlot {
+    /// Takes the slot for a dialog; `None` while another one is showing.
+    pub(crate) fn take(&self) -> Option<DialogShowing<'_>> {
+        self.0
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .ok()
+            .map(|_| DialogShowing(&self.0))
+    }
+}
+
+impl Drop for DialogShowing<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
 /// The first of `candidates` that is a folder, looking at all of them at once and waiting at
 /// most `wait`: a drive that doesn't answer in time is passed over.
 pub(crate) fn first_folder(candidates: Vec<PathBuf>, wait: Duration) -> Option<PathBuf> {
@@ -350,12 +376,17 @@ pub(crate) fn starting_folders<R: tauri::Runtime>(
 }
 
 /// Shows the dialog, as a sheet on the main window, starting in a sensible folder; the path
-/// chosen, or `None` when cancelled. Remembers the folder for next time.
+/// chosen, or `None` when cancelled. Remembers the folder for next time. While another dialog
+/// is showing, nothing is shown and the answer is `None`.
 pub(crate) async fn pick<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     state: &AppState,
     pick: Pick,
 ) -> Reply<Option<PathBuf>> {
+    let Some(_showing) = state.dialog.take() else {
+        log::debug!("dialog {:?}: refused, another dialog is showing", pick.kind);
+        return Ok(None);
+    };
     let started = Instant::now();
     let spec = pick.kind.spec();
     let options = starting_folders(app, state, pick.kind, pick.first);
@@ -457,6 +488,15 @@ mod tests {
         let again = LastFolders::new(Some(config));
         assert_eq!(again.get("show"), Some(shows));
         assert_eq!(again.get("music"), None);
+    }
+
+    #[test]
+    fn one_dialog_at_a_time() {
+        let slot = DialogSlot::default();
+        let first = slot.take().expect("nothing is showing yet");
+        assert!(slot.take().is_none(), "a second dialog is refused, not queued");
+        drop(first);
+        assert!(slot.take().is_some(), "free again once the first is answered");
     }
 
     #[test]

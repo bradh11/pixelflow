@@ -79,20 +79,37 @@ describe("sequence screen", () => {
     await user.click(within(dialog).getByRole("button", { name: "Choose music…" }));
     expect(await within(dialog).findByText(/Christmas Medley 2017.mp3 · 1:00/)).toBeInTheDocument();
     expect(within(dialog).getByRole("textbox", { name: "Name" })).toHaveValue("Christmas Medley 2017");
+    await user.click(within(dialog).getByRole("radio", { name: /Start empty/ }));
     await user.click(within(dialog).getByRole("button", { name: "Create" }));
     await waitFor(() => expect(seq.doc?.audio).toBe(DEMO_MUSIC));
     expect(seq.doc?.durationMs).toBe(60_000);
     // It starts clean: nothing to save, and undo doesn't take the music away.
     expect(useSequencer.getState()).toMatchObject({ dirty: false, canUndo: false });
     expect(screen.getByRole("button", { name: "Undo (sequence)" })).toBeDisabled();
-    // A new sequence needs rows: add every prop at once.
+    // Started empty, it needs rows: add every prop at once, first in the picker.
     await user.click(screen.getByRole("button", { name: "Add a row" }));
-    await user.click(screen.getByRole("button", { name: "Add every prop (4)" }));
+    const picker = screen.getByRole("dialog", { name: "Add a row" });
+    expect(within(picker).getAllByRole("button")[0]).toHaveAccessibleName("Add every prop (4)");
+    await user.click(within(picker).getByRole("button", { name: "Add every prop (4)" }));
     await waitFor(() => expect(useSequencer.getState().doc?.rows).toHaveLength(4));
     const banner = screen.getByText(/Find the beats and bars in this song/).closest("[role=status]")!;
     await user.click(within(banner as HTMLElement).getByRole("button", { name: "Detect beats" }));
     await waitFor(() => expect(useSequencer.getState().doc?.timingTracks.map((t) => t.name)).toEqual(["Beats", "Bars"]));
     expect(screen.getByRole("group", { name: "Timing track Beats" })).toBeInTheDocument();
+  });
+
+  it("starts a new sequence with a row for every group and prop, in layout order, as xLights does", async () => {
+    const { user, seq, backend } = await openScreen(false);
+    const props = backend.show.props;
+    await act(() => useApp.getState().apply([{ type: "addGroup", group: { id: "g", name: "Arches", members: [props[0].id] } }]));
+    await user.click(screen.getByText("Start from a song.").closest("button")!);
+    const dialog = screen.getByRole("dialog", { name: "New sequence" });
+    expect(within(dialog).getByRole("radio", { name: /A row for every prop and group \(5\)/ })).toBeChecked();
+    await user.click(within(dialog).getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(seq.doc?.rows).toHaveLength(5));
+    expect(seq.doc!.rows.map((r) => r.target)).toEqual([{ group: "g" }, ...props.map((p) => ({ prop: p.id }))]);
+    // Still clean, with nothing to undo.
+    expect(useSequencer.getState()).toMatchObject({ dirty: false, canUndo: false });
   });
 
   it("drags an effect from the palette onto a row, as one undo step", async () => {
@@ -418,7 +435,7 @@ describe("sequence screen", () => {
     const add = screen.getByRole("button", { name: "Add row" });
     await user.click(add);
     const menu = screen.getByRole("dialog", { name: "Add a row" });
-    expect(within(menu).getAllByRole("button")[0]).toHaveFocus();
+    expect(within(menu).getAllByRole("button").find((b) => !(b as HTMLButtonElement).disabled)).toHaveFocus();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Add a row" })).not.toBeInTheDocument();
     expect(add).toHaveFocus();

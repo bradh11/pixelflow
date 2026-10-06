@@ -12,6 +12,7 @@ import {
   newEffect,
   newRow,
   noChanges,
+  rowsForShow,
   type ExportProgress,
   type Sequence,
   type SequenceEdit,
@@ -75,6 +76,14 @@ describe("tauriSequencer", () => {
   beforeEach(() => {
     invoke.mockReset();
     listen.mockReset();
+  });
+
+  it("starts a new sequence with its rows when given", async () => {
+    invoke.mockResolvedValue(null);
+    const rows = rowsForShow({ groups: [{ id: "g", name: "G", members: [] }], props: [] });
+    await tauriSequencer.newSequenceDoc("Song", 1000, null, rows);
+    expect(invoke.mock.calls).toEqual([["new_sequence_doc", { name: "Song", durationMs: 1000, audio: null, rows }]]);
+    expect(rows).toEqual([{ id: expect.any(String), target: { group: "g" }, layers: [{ effects: [] }] }]);
   });
 
   it("calls the shell's commands with camelCase arguments", async () => {

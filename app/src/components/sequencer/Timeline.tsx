@@ -1099,7 +1099,15 @@ export function AddRowMenu({ doc, show, onClose }: { doc: Sequence; show: Show |
       aria-label="Add a row"
       className="absolute bottom-2 left-2 z-30 flex max-h-96 w-64 flex-col rounded-lg border border-neutral-200 bg-white p-2 text-sm shadow-xl dark:border-neutral-800 dark:bg-neutral-900"
     >
-      <p className="px-1 pb-1 text-xs text-neutral-500">A row lights one prop, one of its submodels, or a group of props as one picture.</p>
+      <button
+        type="button"
+        disabled={missing.length === 0}
+        className="mb-1 rounded-md bg-accent-50 px-2 py-1.5 text-left font-medium text-accent-700 hover:bg-accent-100 disabled:opacity-40 dark:bg-accent-600/15 dark:text-accent-300 dark:hover:bg-accent-600/25"
+        onClick={() => add(missing.map((p) => ({ prop: p.id })))}
+      >
+        Add every prop ({missing.length})
+      </button>
+      <p className="px-1 pb-1 text-xs text-neutral-500">Or pick one: a row lights one prop, one of its submodels, or a group of props as one picture.</p>
       <div className="flex-1 overflow-auto">
         {groups.length > 0 && <p className="px-1 pt-1 text-xs font-semibold text-neutral-500">Groups</p>}
         {groups.map((g) => (
@@ -1132,10 +1140,7 @@ export function AddRowMenu({ doc, show, onClose }: { doc: Sequence; show: Show |
         ))}
         {props.length === 0 && groups.length === 0 && <p className="px-2 py-2 text-neutral-500">Your show has no props yet. Add some on the Layout screen.</p>}
       </div>
-      <div className="flex justify-between gap-2 border-t border-neutral-200 pt-2 dark:border-neutral-800">
-        <button type="button" disabled={missing.length === 0} className="rounded px-2 py-1 text-accent-600 hover:bg-neutral-100 disabled:opacity-40 dark:text-accent-400 dark:hover:bg-neutral-800" onClick={() => add(missing.map((p) => ({ prop: p.id })))}>
-          Add every prop ({missing.length})
-        </button>
+      <div className="flex justify-end gap-2 border-t border-neutral-200 pt-2 dark:border-neutral-800">
         <button type="button" className="rounded px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={onClose}>
           Cancel
         </button>

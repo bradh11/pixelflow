@@ -1,7 +1,7 @@
 // TypeScript mirrors of authored sequences (see crates/pf-sequence, crates/pf-render's export,
 // crates/pf-analysis, and crates/pf-engine's SequenceEdit), plus helpers that build valid values.
 
-import type { Uuid } from "./types";
+import type { Show, Uuid } from "./types";
 
 /** A color as `#rrggbb`. */
 export type Rgb = string;
@@ -428,4 +428,12 @@ export function newEffect(kind: EffectKind, startMs: number, endMs: number, colo
 /** A new row with one empty layer. */
 export function newRow(target: SequenceTarget): Row {
   return { id: crypto.randomUUID(), target, layers: [{ effects: [] }] };
+}
+
+/**
+ * A row for every group and then every prop, each in the show's (layout) order: what a new
+ * sequence starts with, as in xLights.
+ */
+export function rowsForShow(show: Pick<Show, "groups" | "props">): Row[] {
+  return [...show.groups.map((g) => newRow({ group: g.id })), ...show.props.map((p) => newRow({ prop: p.id }))];
 }

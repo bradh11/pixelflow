@@ -12,6 +12,7 @@ import { useSequenceKeys } from "../components/sequencer/useSequenceKeys";
 import { Button, EmptyState, Input, UnsavedBadge } from "../components/ui";
 import { ago, fileName, shownPath } from "../lib/format";
 import { formatTime } from "../lib/timelineMath";
+import { rowsForShow } from "../api/sequence";
 import { useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
 
@@ -595,6 +596,9 @@ function Modal({ label, children }: { label: string; children: React.ReactNode }
 /** Starts a sequence from a song (its length comes from the music), or a silent one of a set length. */
 function NewSequenceDialog({ onClose }: { onClose: () => void }) {
   const backend = useApp((s) => s.backend);
+  const show = useApp((s) => s.snapshot?.show);
+  const rowCount = (show?.props.length ?? 0) + (show?.groups.length ?? 0);
+  const [everyRow, setEveryRow] = useState(true);
   const [music, setMusic] = useState<{ path: string; durationMs: number } | null>(null);
   const [name, setName] = useState("");
   const [seconds, setSeconds] = useState(60);
@@ -619,7 +623,9 @@ function NewSequenceDialog({ onClose }: { onClose: () => void }) {
 
   const create = async () => {
     const durationMs = music ? music.durationMs : Math.round(seconds * 1000);
-    const ok = await useSequencer.getState().newSequence(name.trim() || "New sequence", durationMs, music?.path ?? null);
+    const latest = useApp.getState().snapshot?.show;
+    const rows = everyRow && latest ? rowsForShow(latest) : [];
+    const ok = await useSequencer.getState().newSequence(name.trim() || "New sequence", durationMs, music?.path ?? null, rows);
     if (ok) onClose();
   };
 
@@ -654,6 +660,23 @@ function NewSequenceDialog({ onClose }: { onClose: () => void }) {
             <Input type="number" min={1} max={14_400} value={seconds} onChange={(e) => setSeconds(Math.max(1, Number(e.target.value) || 1))} />
           </label>
         )}
+        <fieldset className="flex flex-col gap-1.5">
+          <legend className="mb-1 text-neutral-600 dark:text-neutral-400">Rows</legend>
+          <label className="flex items-start gap-2">
+            <input type="radio" name="new-sequence-rows" checked={everyRow} onChange={() => setEveryRow(true)} className="mt-0.5 accent-accent-500" />
+            <span>
+              A row for every prop and group ({rowCount})
+              <span className="block text-xs text-neutral-500">In layout order, groups first, as xLights does. Remove the ones you don&apos;t need.</span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2">
+            <input type="radio" name="new-sequence-rows" checked={!everyRow} onChange={() => setEveryRow(false)} className="mt-0.5 accent-accent-500" />
+            <span>
+              Start empty
+              <span className="block text-xs text-neutral-500">Add rows yourself as you go.</span>
+            </span>
+          </label>
+        </fieldset>
         <p className="text-xs text-neutral-500">Frames are 25 ms apart (40 per second).</p>
       </div>
       <div className="mt-5 flex justify-end gap-2">

@@ -9,6 +9,7 @@ import {
   type Effect,
   type EffectInfo,
   type ExportSummary,
+  type Row,
   type Sequence,
   type SequenceEdit,
   type SequenceEditResult,
@@ -143,7 +144,8 @@ interface SequencerState {
   replacing: (() => void) | null;
 
   connect(api: SequencerApi): Promise<void>;
-  newSequence(name: string, durationMs: number, audio: string | null): Promise<boolean>;
+  /** Starts a new sequence (with `rows`, when given: see `rowsForShow`). */
+  newSequence(name: string, durationMs: number, audio: string | null, rows?: Row[]): Promise<boolean>;
   open(path: string): Promise<boolean>;
   /** Imports the xLights sequence at `path` and opens it (unsaved), replacing the open one
    * without asking; the import report, or null when it failed (the error is shown). */
@@ -373,14 +375,14 @@ export const useSequencer = create<SequencerState>((set, get) => {
       });
     },
 
-    async newSequence(name, durationMs, audio) {
+    async newSequence(name, durationMs, audio, rows) {
       const { api } = get();
       if (!api) return false;
       const ok = await serial(() =>
         guarded(async () => {
           await halt();
           // With its music from the start: nothing to undo, nothing unsaved.
-          adopt(await api.newSequenceDoc(name, durationMs, audio));
+          adopt(await api.newSequenceDoc(name, durationMs, audio, rows));
           set({ selection: [], markSelection: null, activeTrack: null, playheadMs: 0, collapsed: [], suggestBeats: audio !== null, docKey: newDocKey(), notice: null });
           return true;
         }),

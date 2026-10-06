@@ -15,7 +15,6 @@ use std::collections::HashSet;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Runtime, State};
@@ -291,26 +290,23 @@ impl RecentShows {
 }
 
 /// Whether each show's file is there, asking about all of them at once and waiting at most
-/// `wait` (a drive that hasn't answered by then counts as unknown).
+/// `wait` (a drive that hasn't answered by then, or is still stuck from before, counts as
+/// unknown: see [`crate::probes`]).
 fn presence_of(stored: &[Stored], wait: Duration) -> Vec<Presence> {
-    let (tx, rx) = mpsc::channel();
-    for (i, s) in stored.iter().enumerate() {
-        let tx = tx.clone();
-        let path = path_from_text(&s.path);
-        // A check that can't start leaves the show as unknown.
-        let _ = std::thread::Builder::new()
-            .name("pixelflow-recent-check".into())
-            .spawn(move || {
-                let here = std::fs::metadata(&path).is_ok_and(|m| m.is_file());
-                let _ = tx.send((i, if here { Presence::Here } else { Presence::Missing }));
-            });
-    }
-    drop(tx);
+    let paths: Vec<PathBuf> = stored.iter().map(|s| path_from_text(&s.path)).collect();
+    let rx = crate::probes::Probes::shared().start(&paths, |path| {
+        if std::fs::metadata(path).is_ok_and(|m| m.is_file()) {
+            Presence::Here
+        } else {
+            Presence::Missing
+        }
+    });
     let mut presence = vec![Presence::Unknown; stored.len()];
     let deadline = Instant::now() + wait;
     while let Some(left) = deadline.checked_duration_since(Instant::now()) {
         match rx.recv_timeout(left) {
-            Ok((i, p)) => presence[i] = p,
+            Ok((i, Some(p))) => presence[i] = p,
+            Ok((_, None)) => {}
             Err(_) => break,
         }
     }

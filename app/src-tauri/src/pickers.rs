@@ -21,7 +21,6 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 use tauri::{Manager, State};
@@ -268,22 +267,11 @@ impl Drop for DialogShowing<'_> {
 }
 
 /// The first of `candidates` that is a folder, looking at all of them at once and waiting at
-/// most `wait`: a drive that doesn't answer in time is passed over.
+/// most `wait`: a drive that doesn't answer in time is passed over (and, while that look is
+/// stuck, isn't looked at again: see [`crate::probes`]).
 pub(crate) fn first_folder(candidates: Vec<PathBuf>, wait: Duration) -> Option<PathBuf> {
-    let (tx, rx) = mpsc::channel();
+    let rx = crate::probes::Probes::shared().start(&candidates, |folder| folder.is_dir());
     let mut answers: Vec<Option<bool>> = vec![None; candidates.len()];
-    for (i, folder) in candidates.iter().cloned().enumerate() {
-        let tx = tx.clone();
-        let spawned = std::thread::Builder::new()
-            .name("pixelflow-dialog-folder".into())
-            .spawn(move || {
-                let _ = tx.send((i, folder.is_dir()));
-            });
-        if spawned.is_err() {
-            answers[i] = Some(false);
-        }
-    }
-    drop(tx);
     let deadline = Instant::now() + wait;
     loop {
         // The best answer so far, once everything before it has answered.
@@ -298,7 +286,8 @@ pub(crate) fn first_folder(candidates: Vec<PathBuf>, wait: Duration) -> Option<P
             break;
         };
         match rx.recv_timeout(left) {
-            Ok((i, is_dir)) => answers[i] = Some(is_dir),
+            // A folder that can't be looked at now is passed over.
+            Ok((i, is_dir)) => answers[i] = Some(is_dir == Some(true)),
             Err(_) => break,
         }
     }

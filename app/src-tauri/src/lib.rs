@@ -13,6 +13,7 @@ mod logging;
 mod menu;
 mod pickers;
 mod playback;
+mod probes;
 mod recent;
 mod sequencer;
 mod xlights;

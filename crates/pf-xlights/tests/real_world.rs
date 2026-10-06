@@ -49,6 +49,41 @@ fn curved_poly_lines_import_curved_with_their_pixels_on_the_curves() {
     assert!(pf_geometry::world_positions(garland)[5].y < 5.9);
 }
 
+/// `body` after a document type declaration `doctype` (and an XML declaration).
+fn with_doctype(doctype: &str, body: &str) -> String {
+    format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n{doctype}\n{body}")
+}
+
+/// A declaration that would expand to gigabytes if it were read, after a comment that hides a
+/// bare doctype from a naive check.
+fn expanding(root: &str) -> String {
+    let big = "A".repeat(10_000);
+    format!(
+        "<!-- <!DOCTYPE z> --><!DOCTYPE {root} SYSTEM \"a>b\" [<!ENTITY a \"{big}\">]><{root} a=\"{}\"/>",
+        "&a;".repeat(10_000)
+    )
+}
+
+#[test]
+fn every_xlights_file_reads_a_bare_doctype_and_refuses_any_other() {
+    let layout = "<xrgb><models/><modelGroups/></xrgb>";
+    let networks = "<Networks/>";
+    let xsq = "<xsequence><head><version>2024.20</version><sequenceDuration>1.000</sequenceDuration></head></xsequence>";
+    let xtiming = "<timing name=\"Beats\"><EffectLayer><Effect label=\"1\" starttime=\"0\" endtime=\"500\"/></EffectLayer></timing>";
+    let refused = |e: &dyn std::fmt::Display| assert!(e.to_string().contains("document type"), "{e}");
+
+    assert!(pf_xlights::parse_layout(&with_doctype("<!DOCTYPE html>", layout)).is_ok());
+    refused(&pf_xlights::parse_layout(&expanding("xrgb")).unwrap_err());
+    assert!(pf_xlights::parse_networks(&with_doctype("<!DOCTYPE html>", networks)).is_ok());
+    refused(&pf_xlights::parse_networks(&expanding("Networks")).unwrap_err());
+    assert!(pf_xlights::sequence::parse_xsq(&with_doctype("<!DOCTYPE html>", xsq)).is_ok());
+    refused(&pf_xlights::sequence::parse_xsq(&expanding("xsequence")).unwrap_err());
+    assert!(
+        pf_xlights::parse_xtiming(&with_doctype("<!DOCTYPE html>", xtiming), 1000, "beats.xtiming").is_ok()
+    );
+    refused(&pf_xlights::parse_xtiming(&expanding("timing"), 1000, "beats.xtiming").unwrap_err());
+}
+
 #[test]
 fn files_xlights_wrote_with_an_html_doctype_import() {
     // Some xLights versions write `<!DOCTYPE html>` at the top of both files.

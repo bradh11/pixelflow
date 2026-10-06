@@ -61,19 +61,67 @@ fn too_deep(xml: &str) -> bool {
     false
 }
 
-/// True when `xml` has a document type declaration with an internal subset (`<!DOCTYPE x [...]>`),
-/// the only place entities can be declared. A bare `<!DOCTYPE html>`, which some xLights
-/// versions write, declares nothing.
-fn declares_a_dtd(xml: &str) -> bool {
-    xml.find("<!DOCTYPE").is_some_and(|at| {
-        let rest = &xml[at..];
-        let end = rest.find('>').unwrap_or(rest.len());
-        rest[..end].contains('[')
-    })
+/// Where a bare document type declaration (`<!DOCTYPE name>`: a name and nothing else, which
+/// some xLights versions write as `<!DOCTYPE html>`) sits in `xml`'s prolog, as a byte range.
+/// The prolog is walked as the XML parser walks it: a byte order mark, the XML declaration,
+/// then comments, processing instructions and white space. Any other declaration (one with an
+/// internal subset or an external identifier, or one after something else) isn't bare.
+fn bare_doctype(xml: &str) -> Option<std::ops::Range<usize>> {
+    let b = xml.as_bytes();
+    let mut i = if xml.starts_with('\u{feff}') { 3 } else { 0 };
+    let skip_to = |i: usize, end: &str| xml[i..].find(end).map(|at| i + at + end.len());
+    loop {
+        while b.get(i).is_some_and(u8::is_ascii_whitespace) {
+            i += 1;
+        }
+        let rest = &xml[i..];
+        if rest.starts_with("<!--") {
+            i = skip_to(i + 4, "-->")?;
+        } else if rest.starts_with("<?") {
+            i = skip_to(i + 2, "?>")?;
+        } else {
+            break;
+        }
+    }
+    let start = i;
+    i += "<!DOCTYPE".len();
+    if !xml[start..].starts_with("<!DOCTYPE") || !b.get(i).is_some_and(u8::is_ascii_whitespace) {
+        return None;
+    }
+    while b.get(i).is_some_and(u8::is_ascii_whitespace) {
+        i += 1;
+    }
+    let name = b[i..]
+        .iter()
+        .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b':' | b'-' | b'.'))
+        .count();
+    if name == 0 {
+        return None;
+    }
+    i += name;
+    while b.get(i).is_some_and(u8::is_ascii_whitespace) {
+        i += 1;
+    }
+    (b.get(i) == Some(&b'>')).then_some(start..i + 1)
+}
+
+/// `xml` with a bare `<!DOCTYPE name>` in its prolog (see [`bare_doctype`]) turned into spaces,
+/// so [`parse`] reads it; it declares nothing, and the spaces keep every position the same.
+/// Any other document type declaration is left for [`parse`] to refuse.
+pub fn without_bare_doctype(xml: &str) -> std::borrow::Cow<'_, str> {
+    match bare_doctype(xml) {
+        Some(range) => {
+            let mut text = xml.to_string();
+            text.replace_range(range.clone(), &" ".repeat(range.len()));
+            std::borrow::Cow::Owned(text)
+        }
+        None => std::borrow::Cow::Borrowed(xml),
+    }
 }
 
 /// Parses an xLights XML file, or explains (for "… isn't a valid xLights file: {reason}") why
-/// it won't be read.
+/// it won't be read. Document type declarations are refused (so no entity is ever expanded);
+/// pass the text through [`without_bare_doctype`] first to read the bare one xLights writes.
 pub fn parse(xml: &str) -> Result<Document<'_>, String> {
     if xml.len() > MAX_XML_BYTES {
         return Err(format!(
@@ -85,17 +133,17 @@ pub fn parse(xml: &str) -> Result<Document<'_>, String> {
     if too_deep(xml) {
         return Err(format!("its elements are nested more than {MAX_DEPTH} deep"));
     }
-    if declares_a_dtd(xml) {
-        return Err("it declares its own document type (a DTD), which PixelFlow doesn't read".into());
-    }
     let options = ParsingOptions {
-        // Only a declaration without an internal subset gets here: it can't declare entities,
-        // and the parser never fetches an external one.
-        allow_dtd: true,
+        allow_dtd: false,
         nodes_limit: MAX_NODES,
         ..ParsingOptions::default()
     };
-    Document::parse_with_options(xml, options).map_err(|e| e.to_string())
+    Document::parse_with_options(xml, options).map_err(|e| match e {
+        roxmltree::Error::DtdDetected => {
+            "it declares its own document type (a DTD), which PixelFlow doesn't read".to_string()
+        }
+        e => e.to_string(),
+    })
 }
 
 #[cfg(test)]
@@ -117,14 +165,78 @@ mod tests {
         assert!(parse(&flat.replace("b=\"<\"", "")).is_ok());
     }
 
+    /// Reads `xml` as the importers do: a bare doctype blanked out, then parsed.
+    fn read(xml: &str) -> Result<usize, String> {
+        let text = without_bare_doctype(xml);
+        parse(&text).map(|d| d.descendants().count())
+    }
+
+    /// A file whose one entity, used 10,000 times at the top level, would expand to 2 GB.
+    fn quadratic_blowup(before: &str, external_id: &str) -> String {
+        let big = "A".repeat(100_000);
+        format!(
+            "{before}<!DOCTYPE x {external_id}[<!ENTITY a \"{big}\">]><x>{}</x>",
+            "&a;".repeat(10_000)
+        )
+    }
+
+    fn billion_laughs(before: &str) -> String {
+        let mut dtd = String::from("<!ENTITY l0 \"lol\">");
+        for i in 1..10 {
+            dtd.push_str(&format!(
+                "<!ENTITY l{i} \"{}\">",
+                format!("&l{};", i - 1).repeat(10)
+            ));
+        }
+        format!("{before}<!DOCTYPE x [{dtd}]><x>&l9;</x>")
+    }
+
+    #[test]
+    fn only_a_bare_doctype_is_read_and_every_other_dtd_is_refused() {
+        // What some xLights versions write at the top of their files.
+        assert!(read("<?xml version=\"1.0\"?>\n<!DOCTYPE html>\n<xrgb/>").is_ok());
+        assert!(
+            read("\u{feff}<?xml version=\"1.0\"?><!-- xLights --><?pi x?>\n<!DOCTYPE  html >\n<xrgb/>")
+                .is_ok()
+        );
+        assert!(read("<!DOCTYPE xrgb><xrgb/>").is_ok());
+        let refused = [
+            // An internal subset, where entities are declared.
+            r#"<!DOCTYPE x [<!ENTITY a "aaaa">]><x>&a;</x>"#.to_string(),
+            // External identifiers, and an external entity.
+            r#"<!DOCTYPE x SYSTEM "file:///etc/passwd"><x/>"#.to_string(),
+            r#"<!DOCTYPE x PUBLIC "-//x" "http://example.com/x.dtd"><x/>"#.to_string(),
+            r#"<!DOCTYPE x [<!ENTITY e SYSTEM "file:///etc/passwd">]><x>&e;</x>"#.to_string(),
+            // A comment hiding a bare doctype before the real one, and a `>` in a SYSTEM literal.
+            quadratic_blowup("<!-- <!DOCTYPE z> -->", ""),
+            quadratic_blowup("", "SYSTEM \"a>b\" "),
+            quadratic_blowup("", ""),
+            billion_laughs(""),
+            billion_laughs("<!-- a comment first -->"),
+        ];
+        for xml in &refused {
+            let started = std::time::Instant::now();
+            let err = read(xml).unwrap_err();
+            let head = &xml[..xml.len().min(60)];
+            assert!(err.contains("document type"), "{err}: {head}");
+            assert!(started.elapsed().as_millis() < 500, "{head}");
+        }
+        // A bare doctype anywhere but the prolog isn't blanked, and the file isn't read.
+        assert!(read("<x/><!DOCTYPE html>").is_err());
+        assert_eq!(
+            without_bare_doctype("<x><!DOCTYPE html></x>"),
+            "<x><!DOCTYPE html></x>"
+        );
+    }
+
     #[test]
     fn dtds_and_oversized_files_are_refused() {
-        let dtd = r#"<!DOCTYPE x [<!ENTITY a "aaaa">]><x>&a;</x>"#;
-        assert!(parse(dtd).unwrap_err().contains("DTD"));
-        let external = r#"<!DOCTYPE x SYSTEM "file:///etc/passwd"><x/>"#;
-        assert!(parse(external).is_ok(), "an external DTD is never read");
-        // What xLights writes at the top of some files.
-        assert!(parse("<?xml version=\"1.0\"?>\n<!DOCTYPE html>\n<xrgb/>").is_ok());
+        // Without the bare doctype blanked, even that one is refused.
+        assert!(
+            parse("<!DOCTYPE html><x/>")
+                .unwrap_err()
+                .contains("document type")
+        );
         let huge = " ".repeat(MAX_XML_BYTES + 1);
         assert!(
             parse(&huge)

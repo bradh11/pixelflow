@@ -948,6 +948,57 @@ describe("LayoutScreen", () => {
       expect(edits).toHaveLength(1);
     });
 
+    it("takes a point off with Backspace while drawing, never the selected props, even after a trip to 3D", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      // The canvas is mounted again on the way back from 3D, after the layout keys.
+      await user.click(screen.getByRole("button", { name: "3D" }));
+      await user.click(screen.getByRole("button", { name: "2D" }));
+      await waitFor(() => expect(canvas()).toBeInTheDocument());
+      act(() => useLayoutEditor.getState().select([backend.show.props[0].id]));
+      await user.click(screen.getByRole("button", { name: "Poly Line" }));
+      await click({ x: 4, y: 1 });
+      await click({ x: 6, y: 1 });
+      await click({ x: 6, y: 3 });
+      await user.keyboard("{Backspace}");
+      await user.keyboard("{Delete}");
+      expect(backend.show.props.map((p) => p.name)).toEqual(["Gutter"]);
+      expect(edits).toEqual([]);
+      await click({ x: 8, y: 1 });
+      await user.keyboard("{Enter}");
+      expect(edits).toHaveLength(1);
+      expect(polyOf((edits[0][0] as { prop: Prop }).prop.name).vertices).toHaveLength(2);
+      expect(backend.show.props).toHaveLength(2);
+    });
+
+    it("ignores the second click of a double-click, even a pixel off", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      await user.click(screen.getByRole("button", { name: "Poly Line" }));
+      await click({ x: 4, y: 1 });
+      await click({ x: 7, y: 1 });
+      const s = screenAt({ x: 7, y: 1 });
+      await act(async () => {
+        fireEvent.pointerDown(canvas(), { clientX: s.x + 1, clientY: s.y + 0.6, button: 0, pointerId: 1, detail: 2 });
+        fireEvent.pointerUp(canvas(), { clientX: s.x + 1, clientY: s.y + 0.6, button: 0, pointerId: 1, detail: 2 });
+      });
+      await doubleClick();
+      const prop = (edits[0][0] as { prop: Prop }).prop;
+      expect(polyOf(prop.name).segments).toEqual([{ nodes: 30 }]);
+    });
+
+    it("treats a click right next to the last point as the same point", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      await user.click(screen.getByRole("button", { name: "Poly Line" }));
+      await click({ x: 4, y: 1 });
+      await click({ x: 7, y: 1 });
+      const s = screenAt({ x: 7, y: 1 });
+      await act(async () => {
+        fireEvent.pointerDown(canvas(), { clientX: s.x + 2, clientY: s.y, button: 0, pointerId: 1 });
+        fireEvent.pointerUp(canvas(), { clientX: s.x + 2, clientY: s.y, button: 0, pointerId: 1 });
+      });
+      await user.keyboard("{Enter}");
+      expect(polyOf((edits[0][0] as { prop: Prop }).prop.name).vertices).toHaveLength(2);
+    });
+
     it("keeps a stretch at 45° steps with Shift, and joins another line's end exactly", async () => {
       const user = await setup(showWith(line("Gutter", 0, 0)));
       await user.click(screen.getByRole("button", { name: "Poly Line" }));

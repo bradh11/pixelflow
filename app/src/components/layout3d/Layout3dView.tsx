@@ -637,7 +637,8 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
     invalidate();
     return true;
   };
-  useImperativeHandle(ref, () => ({ cancel }));
+  // No drawing in 3D, so no poly line keys either.
+  useImperativeHandle(ref, () => ({ cancel, polyKey: () => false }));
 
   const onPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     const cam = view();

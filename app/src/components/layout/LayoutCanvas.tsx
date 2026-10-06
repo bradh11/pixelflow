@@ -152,6 +152,11 @@ interface Selection {
 export interface LayoutCanvasHandle {
   /** Stops a drag in progress, leaving everything as it was. True if there was one. */
   cancel(): boolean;
+  /**
+   * A key while a poly line is being drawn: Enter finishes it, Backspace or Delete takes the
+   * last point off. True when the key was used (so nothing else should act on it).
+   */
+  polyKey(key: string): boolean;
 }
 
 interface LayoutCanvasProps {
@@ -321,16 +326,20 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
   /** Adds the poly line drawn so far (if it has two points or more), selects it, and goes back to Select. */
   const finishPoly = () => {
     const d = polyDrawing.current;
-    polyDrawing.current = polyNext.current = null;
-    redraw();
     if (!d) return;
-    const prop = finishDraft({ points: d.points }, newProp("polyLine", latest.current.show));
-    if (!prop) return;
+    const prop = finishDraft({ points: d.points }, newProp("polyLine", latest.current.show), CLICK_PX / currentView().zoom);
+    if (!prop) {
+      polyDrawing.current = polyNext.current = null;
+      return redraw();
+    }
     void useApp
       .getState()
       .apply([{ type: "addProp", prop }])
       .then((ok) => {
+        // A line the show refuses (over a limit, say) stays drawn, to fix or cancel with Escape.
         if (!ok) return;
+        if (polyDrawing.current === d) polyDrawing.current = polyNext.current = null;
+        redraw();
         const now = useLayoutEditor.getState();
         now.setTool("select");
         now.select([prop.id]);
@@ -644,20 +653,6 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     const quietTarget = (t: EventTarget | null) => t === canvasRef.current || t === document.body;
     const down = (e: KeyboardEvent) => {
       if (e.key === "Shift") return shiftChanged(true);
-      // Drawing a poly line: Enter finishes it, Backspace or Delete takes the last point off.
-      const drawing = polyDrawing.current;
-      if (drawing && quietTarget(e.target) && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          return finishPoly();
-        }
-        if (e.key === "Backspace" || e.key === "Delete") {
-          e.preventDefault();
-          const left = removeLastPoint(drawing);
-          polyDrawing.current = left.points.length > 0 ? left : null;
-          return redraw();
-        }
-      }
       // ⌘-Space and the like belong to the system, which may keep the key's release to itself.
       if (e.key === " " && quietTarget(e.target) && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
@@ -700,7 +695,22 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     redraw();
     return true;
   };
-  useImperativeHandle(ref, () => ({ cancel }));
+  const polyKey = (key: string) => {
+    const drawing = polyDrawing.current;
+    if (!drawing || useLayoutEditor.getState().tool !== "polyLine") return false;
+    if (key === "Enter") {
+      finishPoly();
+      return true;
+    }
+    if (key === "Backspace" || key === "Delete") {
+      const left = removeLastPoint(drawing);
+      polyDrawing.current = left.points.length > 0 ? left : null;
+      redraw();
+      return true;
+    }
+    return false;
+  };
+  useImperativeHandle(ref, () => ({ cancel, polyKey }));
 
   function draftProp(d: Extract<Drag, { kind: "draw" }>) {
     const base = newProp(d.tool, latest.current.show);
@@ -740,9 +750,11 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
       return;
     }
     if (st.tool === "polyLine") {
-      // Each click places a point; double-click or Enter finishes the line.
+      // Each click places a point; double-click or Enter finishes the line. The second click of a
+      // double-click, or a click a few pixels from the last point, isn't a new point.
+      if (e.detail >= 2) return;
       const { at } = polyPlace(s, e.shiftKey);
-      polyDrawing.current = addPoint(polyDrawing.current ?? { points: [] }, at);
+      polyDrawing.current = addPoint(polyDrawing.current ?? { points: [] }, at, CLICK_PX / v.zoom);
       polyNext.current = null;
       redraw();
       return;

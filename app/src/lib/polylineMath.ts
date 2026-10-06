@@ -155,10 +155,13 @@ export interface PolyDraft {
 
 const SAME = 1e-6;
 
-/** The draft with another point, unless it's on top of the last one (the second click of a double-click). */
-export function addPoint(draft: PolyDraft, p: Pt): PolyDraft {
+/**
+ * The draft with another point, unless it's within `same` (world units) of the last one: a
+ * click there, like the second click of a double-click, is the same point.
+ */
+export function addPoint(draft: PolyDraft, p: Pt, same = SAME): PolyDraft {
   const last = draft.points[draft.points.length - 1];
-  if (last && dist2(last, p) < SAME) return draft;
+  if (last && dist2(last, p) < same) return draft;
   return { points: [...draft.points, p] };
 }
 
@@ -171,8 +174,8 @@ export function removeLastPoint(draft: PolyDraft): PolyDraft {
 export const drawnNodes = (length: number) => Math.max(1, Math.round(length * DRAWN_DENSITY));
 
 /** The drawn poly line as a prop (its origin on the first point), or null with fewer than two points. */
-export function finishDraft(draft: PolyDraft, base: Prop): Prop | null {
-  const pts = draft.points.filter((p, i) => i === 0 || dist2(draft.points[i - 1], p) >= SAME);
+export function finishDraft(draft: PolyDraft, base: Prop, same = SAME): Prop | null {
+  const pts = draft.points.filter((p, i) => i === 0 || dist2(draft.points[i - 1], p) >= same);
   if (pts.length < 2) return null;
   const o = pts[0];
   const vertices = pts.map((p) => tidyV(v3(p.x - o.x, p.y - o.y)));

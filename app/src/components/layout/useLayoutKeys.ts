@@ -61,6 +61,11 @@ export function useLayoutKeys(canvas: RefObject<LayoutCanvasHandle | null>) {
       const app = useApp.getState();
       if (app.paletteOpen || app.pendingReplace || e.defaultPrevented) return;
       if (typing(e.target)) return;
+      // A poly line being drawn takes Enter, Backspace and Delete before anything else does.
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && canvas.current?.polyKey(e.key)) {
+        e.preventDefault();
+        return;
+      }
       const show = app.snapshot?.show;
       if (!show) return;
       const editor = useLayoutEditor.getState();

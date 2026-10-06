@@ -45,6 +45,24 @@ impl Default for MatrixWiring {
     }
 }
 
+/// One stretch of a poly line, from one of its points to the next.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PolySegment {
+    /// Pixels on this stretch (unused while the line spreads its pixels evenly).
+    pub nodes: u32,
+    /// The two control points of a curved stretch (a cubic Bézier from this point to the next,
+    /// as xLights draws curves), in prop-local coordinates; `None` for a straight stretch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub curve: Option<[Vec3; 2]>,
+}
+
+impl PolySegment {
+    pub fn straight(nodes: u32) -> Self {
+        Self { nodes, curve: None }
+    }
+}
+
 /// Parametric prop shapes. Positions are produced by `pf-geometry`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
@@ -81,6 +99,18 @@ pub enum Generator {
         outer_radius: f32,
         inner_radius: f32,
     },
+    /// A line through any number of points, which can bend and curve (xLights' Poly Line).
+    /// Pixels run from the first point to the last. Each stretch between two points has its own
+    /// pixel count, spaced evenly with half a gap at each end (so the pixels stay evenly spaced
+    /// across a corner), unless `spread_nodes` is set: then that many pixels are spread evenly
+    /// along the whole line, the first on the first point, as xLights' "auto distribute" does.
+    PolyLine {
+        vertices: Vec<Vec3>,
+        /// One per stretch: `vertices.len() - 1` of them.
+        segments: Vec<PolySegment>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        spread_nodes: Option<u32>,
+    },
     /// Free-form grid. `cells` is row-major starting at the top row;
     /// 0 is an empty cell and n places node n (1-based) in that cell.
     CustomGrid {
@@ -105,6 +135,12 @@ impl Generator {
                 ..
             } => strings.saturating_mul(*nodes_per_string),
             Generator::CustomGrid { cells, .. } => cells.iter().copied().max().unwrap_or(0),
+            Generator::PolyLine {
+                segments,
+                spread_nodes,
+                ..
+            } => spread_nodes
+                .unwrap_or_else(|| segments.iter().fold(0u32, |sum, s| sum.saturating_add(s.nodes))),
         }
     }
 }
@@ -188,6 +224,46 @@ mod tests {
         for (generator, expected) in cases {
             assert_eq!(generator.node_count(), expected, "{generator:?}");
         }
+    }
+
+    fn poly(spread_nodes: Option<u32>) -> Generator {
+        Generator::PolyLine {
+            vertices: vec![Vec3::ZERO, Vec3::new(1.0, 0.0, 0.0), Vec3::new(1.0, 1.0, 0.0)],
+            segments: vec![
+                PolySegment::straight(10),
+                PolySegment {
+                    nodes: 5,
+                    curve: Some([Vec3::new(1.5, 0.2, 0.0), Vec3::new(1.5, 0.8, 0.0)]),
+                },
+            ],
+            spread_nodes,
+        }
+    }
+
+    #[test]
+    fn poly_line_counts_its_segments_or_its_spread() {
+        assert_eq!(poly(None).node_count(), 15);
+        assert_eq!(poly(Some(40)).node_count(), 40);
+        let huge = Generator::PolyLine {
+            vertices: vec![Vec3::ZERO; 3],
+            segments: vec![PolySegment::straight(u32::MAX), PolySegment::straight(2)],
+            spread_nodes: None,
+        };
+        assert_eq!(huge.node_count(), u32::MAX);
+    }
+
+    #[test]
+    fn poly_line_json_is_camel_case_and_leaves_out_what_is_unset() {
+        let json = serde_json::to_value(ShapeSource::Generator(poly(None))).unwrap();
+        assert_eq!(json["type"], "polyLine");
+        assert_eq!(json["vertices"][1]["x"], 1.0);
+        assert_eq!(json["segments"][0], serde_json::json!({ "nodes": 10 }));
+        assert_eq!(json["segments"][1]["curve"][0]["x"], 1.5);
+        assert!(json.get("spreadNodes").is_none());
+        let back: ShapeSource = serde_json::from_value(json).unwrap();
+        assert_eq!(back, ShapeSource::Generator(poly(None)));
+        let spread = serde_json::to_value(poly(Some(7))).unwrap();
+        assert_eq!(spread["spreadNodes"], 7);
     }
 
     #[test]

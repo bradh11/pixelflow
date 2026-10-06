@@ -8,6 +8,8 @@ pub const MAX_PROP_NODES: u32 = 1_000_000;
 pub const MAX_SHOW_PIXELS: u64 = 10_000_000;
 /// Most points a star may have.
 pub const MAX_STAR_POINTS: u32 = 100;
+/// Most points a poly line may have.
+pub const MAX_POLY_VERTICES: usize = 1_000;
 /// Most null pixels a single port slot may have.
 pub const MAX_NULL_PIXELS: u32 = 1_000;
 /// Most a sequence's lights may be moved against its music, either way, in milliseconds.
@@ -59,6 +61,14 @@ pub(crate) fn check_limits(show: &Show) -> Vec<String> {
             ));
             continue;
         }
+        if let ShapeSource::Generator(Generator::PolyLine {
+            vertices, segments, ..
+        }) = &prop.shape
+            && let Some(problem) = poly_line_problem(&prop.name, vertices, segments.len())
+        {
+            problems.push(problem);
+            continue;
+        }
         if let ShapeSource::Generator(Generator::Tree { strings, .. }) = &prop.shape
             && *strings > MAX_PROP_NODES
         {
@@ -78,6 +88,11 @@ pub(crate) fn check_limits(show: &Show) -> Vec<String> {
                 nodes_per_string,
                 ..
             }) => u64::from(*strings) * u64::from(*nodes_per_string),
+            ShapeSource::Generator(Generator::PolyLine {
+                segments,
+                spread_nodes: None,
+                ..
+            }) => segments.iter().map(|s| u64::from(s.nodes)).sum(),
             _ => u64::from(prop.node_count()),
         };
         total += nodes;
@@ -125,4 +140,30 @@ pub(crate) fn check_limits(show: &Show) -> Vec<String> {
         }
     }
     problems
+}
+
+/// What's wrong with a poly line's points, if anything.
+fn poly_line_problem(name: &str, vertices: &[crate::Vec3], segments: usize) -> Option<String> {
+    let n = vertices.len();
+    if n < 2 {
+        return Some(format!(
+            "The poly line '{name}' has {n} point{}, but it needs at least 2.",
+            if n == 1 { "" } else { "s" }
+        ));
+    }
+    if n > MAX_POLY_VERTICES {
+        return Some(format!(
+            "The poly line '{name}' has {n} points, but PixelFlow supports at most {MAX_POLY_VERTICES}."
+        ));
+    }
+    if segments != n - 1 {
+        return Some(format!(
+            "The poly line '{name}' has {n} points, so it needs {} stretches between them, but it has {segments}.",
+            n - 1
+        ));
+    }
+    if vertices.iter().any(|v| !v.is_finite()) {
+        return Some(format!("The poly line '{name}' has a point that isn't a number."));
+    }
+    None
 }

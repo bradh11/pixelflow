@@ -29,7 +29,9 @@ impl From<serde_json::Error> for ModelError {
 type Migration = fn(Value) -> Result<Value, ModelError>;
 
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
-const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7];
+const MIGRATIONS: &[Migration] = &[
+    v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8,
+];
 
 /// Version 2 only adds the `falcon` adapter value, so version 1 documents are already valid.
 fn v1_to_v2(doc: Value) -> Result<Value, ModelError> {
@@ -89,6 +91,11 @@ fn v6_to_v7(mut doc: Value) -> Result<Value, ModelError> {
             region.insert("lines".into(), Value::from(vec![Value::from(line)]));
         }
     }
+    Ok(doc)
+}
+
+/// Version 8 only adds new prop shapes, so version 7 documents are already valid.
+fn v7_to_v8(doc: Value) -> Result<Value, ModelError> {
     Ok(doc)
 }
 
@@ -204,6 +211,23 @@ mod tests {
                 other => panic!("{raw}: unexpected {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn version_7_files_open_and_poly_lines_round_trip() {
+        let v7 = r#"{ "schemaVersion": 7, "name": "Old", "props": [] }"#;
+        assert_eq!(show_from_json(v7).unwrap().schema_version, 8);
+        let mut show = Show::new("Bends");
+        show.props.push(Prop::new(
+            "Roof",
+            ShapeSource::Generator(Generator::PolyLine {
+                vertices: vec![crate::Vec3::ZERO, crate::Vec3::new(2.0, 1.0, 0.0)],
+                segments: vec![crate::PolySegment::straight(20)],
+                spread_nodes: None,
+            }),
+        ));
+        let back = show_from_json(&show_to_json(&show).unwrap()).unwrap();
+        assert_eq!(back.props, show.props);
     }
 
     #[test]

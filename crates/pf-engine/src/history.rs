@@ -11,6 +11,9 @@ pub fn estimated_bytes(show: &Show) -> usize {
             let shape = match &prop.shape {
                 ShapeSource::Measured { points, .. } => 12 * points.len(),
                 ShapeSource::Generator(Generator::CustomGrid { cells, .. }) => 4 * cells.len(),
+                ShapeSource::Generator(Generator::PolyLine {
+                    vertices, segments, ..
+                }) => 12 * vertices.len() + 32 * segments.len(),
                 ShapeSource::Generator(_) => 0,
             };
             // What a region holds in memory: its runs and gaps (a run of any length is one

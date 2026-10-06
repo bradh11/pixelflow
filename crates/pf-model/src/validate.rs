@@ -319,6 +319,28 @@ mod tests {
         )
     }
 
+    /// A poly line through `points` points along X, `nodes` pixels on each stretch.
+    fn poly(name: &str, points: usize, nodes: u32) -> Prop {
+        Prop::new(
+            name,
+            ShapeSource::Generator(Generator::PolyLine {
+                vertices: (0..points)
+                    .map(|i| crate::Vec3::new(i as f32, 0.0, 0.0))
+                    .collect(),
+                segments: vec![crate::PolySegment::straight(nodes); points.saturating_sub(1)],
+                spread_nodes: None,
+            }),
+        )
+    }
+
+    #[test]
+    fn a_poly_line_with_matching_stretches_is_valid() {
+        let prop = poly("Roof", 4, 10);
+        assert_eq!(prop.node_count(), 30);
+        let show = show_with_slot(PortSlot::new(prop.id), prop);
+        assert_eq!(validate_show(&show).issues, vec![]);
+    }
+
     fn show_with_slot(slot: PortSlot, prop: Prop) -> Show {
         let mut show = Show::new("Test");
         let mut port = Port::new(1);
@@ -340,7 +362,7 @@ mod tests {
     #[test]
     fn each_structural_problem_is_reported() {
         type Mutate = fn(&mut Show);
-        let cases: [(IssueCode, Mutate); 16] = [
+        let cases: [(IssueCode, Mutate); 19] = [
             (IssueCode::InvalidFrameRate, |s| s.settings.frame_rate = 5),
             (IssueCode::DuplicateId, |s| {
                 let dup = s.props[0].clone();
@@ -407,6 +429,17 @@ mod tests {
             }),
             (IssueCode::LimitExceeded, |s| {
                 s.props.push(line("Huge", crate::MAX_PROP_NODES + 1))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(poly("Too bendy", crate::MAX_POLY_VERTICES + 1, 0))
+            }),
+            (IssueCode::LimitExceeded, |s| s.props.push(poly("Dot", 1, 0))),
+            (IssueCode::LimitExceeded, |s| {
+                let mut p = poly("Odd", 3, 10);
+                if let ShapeSource::Generator(Generator::PolyLine { segments, .. }) = &mut p.shape {
+                    segments.pop();
+                }
+                s.props.push(p)
             }),
         ];
         for (code, mutate) in cases {

@@ -13,8 +13,9 @@ use serde::{Deserialize, Serialize};
 /// controller's `sequenceChannels`; 4 = adds the show's `sequences`; 5 = adds the show's
 /// `background` photo; 6 = adds the show's `houseModel`; 7 = submodels and faces: regions get
 /// an `id`, `nodes` regions become `lines` with a `layout` and `buffer` style, `subBuffer`
-/// regions, face colors, and a group's `submodels`.
-pub const CURRENT_SCHEMA_VERSION: u32 = 7;
+/// regions, face colors, and a group's `submodels`; 8 = more prop shapes (`polyLine` and the
+/// other xLights prop types).
+pub const CURRENT_SCHEMA_VERSION: u32 = 8;
 
 /// Show-wide settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

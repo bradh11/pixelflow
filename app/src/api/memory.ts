@@ -585,7 +585,7 @@ export interface AuthoredPlayback {
 
 export function emptyShow(name: string): Show {
   return {
-    schemaVersion: 7,
+    schemaVersion: 8,
     name,
     settings: { frameRate: 40 },
     props: [],

@@ -304,7 +304,12 @@ export const useAssistant = create<AssistantState>((set, get) => {
       });
       if (applied) {
         set({ proposalStatus: "applied", preview: null });
-        if (proposal.changesSequence) await useSequencer.getState().refreshIssues();
+        if (proposal.changesSequence) {
+          await useSequencer.getState().refreshIssues();
+          // The draft found the beats itself: the screen needn't offer to.
+          const beats = proposal.diff.changes.some((c) => c.section === "timingTrack" && c.action === "added" && c.name === "Beats");
+          if (beats) useSequencer.setState({ suggestBeats: false });
+        }
       } else if (!ok) {
         add("error", useApp.getState().error ?? "The proposal couldn't be applied.");
         useApp.setState({ error: null });

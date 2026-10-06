@@ -70,6 +70,8 @@ export function composeDemoSequence(doc: Sequence, show: Show, analysis: Analysi
 
   const groupRows = draft.rows.filter((r) => "group" in r.target);
   const propRows = draft.rows.filter((r) => !("group" in r.target));
+  // Props' accents go above the groups' washes (on the bottom layer when there are no groups).
+  const top = groupRows.length > 0 ? 1 : 0;
   const marksIn = (t: TimingTrack, from: number, to: number) => t.marks.filter((m) => m.startMs >= from && m.startMs < to);
   const place = (row: Row, layer: number, kind: EffectKind, from: number, to: number, colors: string[], fade = 0) => {
     while (row.layers.length <= layer) row.layers.push({ effects: [] });
@@ -87,19 +89,19 @@ export function composeDemoSequence(doc: Sequence, show: Show, analysis: Analysi
     const beatMarks = marksIn(beats, from, to);
     if (part.label === "Intro") {
       for (const row of groupRows) place(row, 0, "colorWash", from, to, cool, 400);
-      propRows.forEach((row, i) => barMarks.forEach((m, j) => (i + j) % 2 === 0 && place(row, 1, "twinkle", m.startMs, m.endMs, cool)));
+      propRows.forEach((row, i) => barMarks.forEach((m, j) => (i + j) % 2 === 0 && place(row, top, "twinkle", m.startMs, m.endMs, cool)));
     } else if (part.label === "Mid 1") {
       for (const row of groupRows) place(row, 0, "shimmer", from, to, warm);
       beatMarks.forEach((m, j) => {
         const row = propRows[j % Math.max(1, propRows.length)];
-        if (row) place(row, 1, "on", m.startMs, m.endMs, warm);
+        if (row) place(row, top, "on", m.startMs, m.endMs, warm);
       });
     } else if (part.label === "High 1") {
       for (const row of groupRows) barMarks.forEach((m, j) => place(row, 0, j % 2 === 0 ? "bars" : "spiral", m.startMs, m.endMs, festive));
-      propRows.forEach((row, i) => barMarks.forEach((m) => place(row, 1, i % 2 === 0 ? "chase" : "meteors", m.startMs, m.endMs, festive)));
+      propRows.forEach((row, i) => barMarks.forEach((m) => place(row, top, i % 2 === 0 ? "chase" : "meteors", m.startMs, m.endMs, festive)));
     } else {
       for (const row of groupRows) place(row, 0, "fade", from, to, cool);
-      propRows.forEach((row) => place(row, 1, "twinkle", from, to, cool, 600));
+      propRows.forEach((row) => place(row, top, "twinkle", from, to, cool, 600));
     }
   }
 

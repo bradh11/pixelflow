@@ -263,6 +263,7 @@ describe("creating a sequence", () => {
     expect(sequencer.doc?.name).toBe("Jingle Bell Rock");
     expect(sequencer.doc?.rows.length).toBeGreaterThan(0);
     expect(useSequencer.getState().dirty).toBe(false);
+    expect(useSequencer.getState().suggestBeats).toBe(true);
     const card = await within(panel).findByRole("region", { name: "Proposed changes" });
     expect(within(panel).getByText(/I chose "Jingle Bell Rock"/)).toBeInTheDocument();
     expect(within(card).getByText("By section")).toBeInTheDocument();
@@ -287,6 +288,7 @@ describe("creating a sequence", () => {
     const effects = sequencer.doc!.rows.flatMap((r) => r.layers.flatMap((l) => l.effects));
     expect(effects.length).toBeGreaterThan(20);
     expect(sequencer.doc!.timingTracks.map((t) => t.name)).toEqual(["Beats", "Bars", "Sections"]);
+    expect(useSequencer.getState().suggestBeats).toBe(false);
     await waitFor(() => expect(useSequencer.getState().doc?.timingTracks.length).toBe(3));
     await act(() => useSequencer.getState().undo());
     expect(sequencer.doc!.timingTracks).toEqual([]);

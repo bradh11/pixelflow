@@ -1,0 +1,80 @@
+import { act, render, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
+import { describe, expect, it, vi } from "vitest";
+import { emptyShow } from "../../api/memory";
+import { Layout3dView } from "./Layout3dView";
+import type { Scene3d, SceneFactory } from "./scene";
+
+const stub: Scene3d = {
+  resize: () => {},
+  setPixels: () => {},
+  updatePixels: () => {},
+  setColors: () => {},
+  setBulbSize: () => {},
+  setBackdrop: () => {},
+  setModel: async () => null,
+  placeModel: () => null,
+  surfaceAt: () => null,
+  setSelectionBox: () => {},
+  setGizmo: () => {},
+  setOptions: () => {},
+  render: () => {},
+  dispose: () => {},
+};
+
+describe("the 3D view's renderer", () => {
+  it("is made once per canvas even when React mounts the view twice (as it does in development), and let go of once the view is gone", async () => {
+    // A real renderer on a canvas takes the canvas's one WebGL context: a second one made on the
+    // same canvas shares it, and throwing the first away would lose the context for both.
+    const made: { canvas: HTMLCanvasElement; disposed: number }[] = [];
+    const factory: SceneFactory = async (canvas) => {
+      await Promise.resolve();
+      const record = { canvas, disposed: 0 };
+      made.push(record);
+      return { ...stub, dispose: () => void record.disposed++ };
+    };
+    const view = (
+      <StrictMode>
+        <Layout3dView preview={{ revision: 0, props: [] }} show={emptyShow("Home")} photo={{ image: null, aspect: 0.75, problem: null, reload: () => {} }} storageKey="k" frame={null} sceneFactory={factory} />
+      </StrictMode>
+    );
+    const { unmount } = render(view);
+    await waitFor(() => expect(made).toHaveLength(1));
+    await act(async () => {});
+    expect(made).toHaveLength(1);
+    expect(made[0].disposed, "still in use").toBe(0);
+    unmount();
+    await waitFor(() => expect(made[0].disposed).toBe(1));
+  });
+
+  it("says so plainly when the graphics card drops the 3D view", async () => {
+    const { container, findByText } = render(
+      <Layout3dView preview={{ revision: 0, props: [] }} show={emptyShow("Home")} photo={{ image: null, aspect: 0.75, problem: null, reload: () => {} }} storageKey="k" frame={null} sceneFactory={async () => stub} />,
+    );
+    const canvas = container.querySelector("canvas")!;
+    act(() => void canvas.dispatchEvent(new Event("webglcontextlost")));
+    expect(await findByText("The 3D view stopped (the graphics card let go of it). Switch to 2D and back to start it again.")).toBeInTheDocument();
+  });
+
+  it("is kept when the view's code is hot-reloaded while it's shown (development)", async () => {
+    // A hot reload keeps the canvas: the old code lets go of the renderer and the new code takes it
+    // straight away. Two copies of the module stand in for before and after.
+    const canvas = document.createElement("canvas");
+    let [made, disposed] = [0, 0];
+    const factory: SceneFactory = async () => {
+      made++;
+      return { ...stub, dispose: () => void disposed++ };
+    };
+    const before = await import("./Layout3dView");
+    vi.resetModules();
+    const after = await import("./Layout3dView");
+    expect(after).not.toBe(before);
+    await before.takeRenderer(canvas, factory);
+    before.releaseRenderer(canvas);
+    await after.takeRenderer(canvas, factory);
+    await act(async () => {});
+    expect([made, disposed]).toEqual([1, 0]);
+    after.releaseRenderer(canvas);
+    await waitFor(() => expect(disposed).toBe(1));
+  });
+});

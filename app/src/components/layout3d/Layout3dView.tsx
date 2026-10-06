@@ -77,6 +77,42 @@ type Drag =
     }
   | { kind: "marquee"; from: Pt; to: Pt; additive: string[] };
 
+/**
+ * A canvas's renderer, with how many views use it. A renderer takes its canvas's one WebGL
+ * context, so a canvas only ever gets one: React's development check mounts a view twice on the
+ * same canvas, and a second renderer would share the context that letting go of the first one
+ * loses. A renderer is let go of once no view has used it for a moment. It's kept on the canvas
+ * itself, so a hot reload of this file (which keeps the canvas) finds it too.
+ */
+type RendererEntry = { scene: Promise<Scene3d>; users: number };
+const RENDERER = Symbol.for("pixelflow.renderer");
+type WithRenderer = HTMLCanvasElement & { [RENDERER]?: RendererEntry };
+
+/** Takes the canvas's renderer, making it with `make` the first time (the renderer is reused after
+ * that, whatever factory a later view passes). Exported for tests. */
+export function takeRenderer(canvas: HTMLCanvasElement, make: SceneFactory): Promise<Scene3d> {
+  const holder = canvas as WithRenderer;
+  const entry = (holder[RENDERER] ??= { scene: make(canvas), users: 0 });
+  entry.users++;
+  return entry.scene;
+}
+
+/** Lets go of the canvas's renderer once no view has taken it back. Exported for tests. */
+export function releaseRenderer(canvas: HTMLCanvasElement) {
+  const holder = canvas as WithRenderer;
+  const entry = holder[RENDERER];
+  if (!entry || --entry.users > 0) return;
+  // Taken again straight away (the development check, or a hot reload): keep it.
+  queueMicrotask(() => {
+    if (entry.users > 0 || holder[RENDERER] !== entry) return;
+    delete holder[RENDERER];
+    entry.scene.then(
+      (scene) => scene.dispose(),
+      () => {},
+    );
+  });
+}
+
 /** WebKit's pinch events (Safari and the macOS app). */
 type PinchEvent = Event & { scale: number; clientX: number; clientY: number };
 
@@ -303,11 +339,9 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
     const canvas = canvasRef.current;
     if (!canvas) return;
     let cancelled = false;
-    let made: Scene3d | null = null;
-    sceneFactory(canvas).then(
+    takeRenderer(canvas, sceneFactory).then(
       (scene) => {
-        if (cancelled) return scene.dispose();
-        made = scene;
+        if (cancelled) return;
         sceneRef.current = scene;
         const { bloom, ground } = useView3d.getState();
         scene.setOptions({ bloom, ground });
@@ -324,8 +358,11 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
       dropSurfaceDrag();
       clearTimeout(saveTimer.current);
       if (camera.current) saveShowView(latest.current.storageKey, { orbit: camera.current.goal });
-      made?.dispose();
+      releaseRenderer(canvas);
       sceneRef.current = null;
+      // Taken again (the development check), the renderer gets everything afresh.
+      uploaded.current.preview = null;
+      setReady(false);
     };
   }, [sceneFactory]);
 
@@ -466,6 +503,16 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   };
 
+  // The graphics card can drop the WebGL context (a driver reset, too many 3D views): say so
+  // rather than showing black. (Letting go of the renderer drops it too, but only once the view is gone.)
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const lost = () => setProblem("The 3D view stopped (the graphics card let go of it). Switch to 2D and back to start it again.");
+    canvas.addEventListener("webglcontextlost", lost);
+    return () => canvas.removeEventListener("webglcontextlost", lost);
+  }, []);
+
   // Wheel and pinch: zoom toward the pointer; two-finger scrolls orbit (with Shift, pan).
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -512,9 +559,11 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
     };
   }, []);
 
-  // Space held: drag to pan.
+  // Space held: drag to pan (in the editor; a look-only view leaves Space to its screen, which may
+  // play and pause with it).
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
+      if (!latest.current.editable) return;
       if (e.key === " " && (e.target === canvasRef.current || e.target === document.body) && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         spaceHeld.current = true;
@@ -782,7 +831,8 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
       </p>
       {editable && <SelectionAnnouncer show={show} />}
       <div ref={marqueeRef} aria-hidden className="pointer-events-none absolute hidden border border-accent-400 bg-accent-400/10" />
-      <View3dControls />
+      {/* Only the Layout screen (the editor) handles the camera keys. */}
+      <View3dControls keys={editable} />
       {modelProblem && <p className="absolute bottom-2 left-2 max-w-md rounded-md bg-black/60 px-3 py-2 text-xs text-amber-300">{modelProblem}</p>}
       {problem && (
         <div className="absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-neutral-300">

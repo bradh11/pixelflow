@@ -16,6 +16,7 @@ import {
   targetKey,
   targetName,
   targetNodes,
+  targetPreview,
   wordPhonemes,
 } from "./submodels";
 
@@ -199,5 +200,30 @@ describe("highlighting on the canvas", () => {
     expect(at.filter((_, i) => i % 2 === 0)).toEqual([0, 1, 2, 4, 5, 6, 8, 9]);
     const colors = Array.from({ length: rgb.length / 3 }, (_, i) => [...rgb.slice(i * 3, i * 3 + 3)].join(","));
     expect(colors).toEqual(["255,0,0", "255,0,0", "0,0,0", "255,255,255", "255,255,255", "0,0,0", "255,255,255", "255,255,255"]);
+  });
+});
+
+describe("a row's pixels in the preview", () => {
+  // Two props of 6 pixels: x, y pairs (2D) and x, y, z triples (3D), 3 channels a pixel.
+  const flat = (prop: string, frameOffset: number) => ({ prop, frameOffset, channelsPerPixel: 3, points: [0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0] });
+  const deep = (prop: string, frameOffset: number) => ({ prop, frameOffset, channelsPerPixel: 3, xyz: new Float32Array(18).map((_, i) => i) });
+
+  it("keeps whole props as they are and cuts a submodel's pixels out in runs, each still lit from its place in the frame", () => {
+    const props = [flat("a", 0), flat("b", 18)];
+    const out = targetPreview(props, [{ prop: "b", nodes: [5, 0, 1, 4] }], "2d");
+    expect(out).toEqual([
+      { prop: "b", frameOffset: 18, channelsPerPixel: 3, points: [0, 0, 1, 0] },
+      { prop: "b", frameOffset: 30, channelsPerPixel: 3, points: [4, 0, 5, 0] },
+    ]);
+    expect(targetPreview(props, [{ prop: "a", nodes: "all" }], "2d")).toEqual([props[0]]);
+    // A prop listed whole and in part (a group) shows whole; props keep their drawing order.
+    expect(targetPreview(props, [{ prop: "b", nodes: [1] }, { prop: "a", nodes: "all" }, { prop: "b", nodes: "all" }], "2d")).toEqual(props);
+  });
+
+  it("does the same for 3D positions", () => {
+    const out = targetPreview([deep("a", 6)], [{ prop: "a", nodes: [2, 3] }], "3d");
+    expect(out).toHaveLength(1);
+    expect(out[0].frameOffset).toBe(12);
+    expect(Array.from(out[0].xyz)).toEqual([6, 7, 8, 9, 10, 11]);
   });
 });

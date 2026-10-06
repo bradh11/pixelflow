@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Effect, Mark, Row, Sequence, TimingTrack } from "../api/sequence";
 import {
+  autoScroll,
+  autoScrollSpeed,
   buildIndex,
   clampView,
   createSpan,
@@ -281,6 +283,42 @@ describe("dragging", () => {
     expect(fitInLane(effects, 1500, 1800, 25)).toBeNull();
     expect(freeLayer(rowA, 500, 900)).toBe(2);
     expect(freeLayer(rowA, 1600, 1900)).toBe(0);
+  });
+});
+
+describe("scrolling while dragging", () => {
+  it("scrolls toward an edge the pointer is near or past, faster the further in it goes", () => {
+    // 1000 px wide, edges 24 px deep.
+    expect(autoScrollSpeed(500, 0, 1000)).toBe(0);
+    expect(autoScrollSpeed(976, 0, 1000)).toBe(0);
+    expect(autoScrollSpeed(986, 0, 1000)).toBeCloseTo(5);
+    expect(autoScrollSpeed(996, 0, 1000)).toBeCloseTo(10);
+    expect(autoScrollSpeed(1030, 0, 1000), "past the edge: faster still").toBeCloseTo(27);
+    expect(autoScrollSpeed(4000, 0, 1000), "up to a limit").toBe(40);
+    expect(autoScrollSpeed(14, 0, 1000)).toBeCloseTo(-5);
+    expect(autoScrollSpeed(-200, 0, 1000)).toBe(-40);
+    // The rows start below the ruler and timing tracks.
+    expect(autoScrollSpeed(110, 104, 600)).toBeCloseTo(-9);
+  });
+
+  it("moves the view in time and the rows up or down, staying inside the song and the rows", () => {
+    const view = { startMs: 10_000, pxPerMs: 0.1 };
+    const at = (x: number, y: number, more: Partial<Parameters<typeof autoScroll>[0]> = {}) =>
+      autoScroll({ x, y, width: 1000, rowsTop: 104, height: 600, view, scrollY: 50, maxScroll: 300, durationMs: 60_000, rows: true, ...more });
+    expect(at(500, 300)).toBeNull();
+    // 10 px into the right edge: 5 px a tick, which is 50 ms at this zoom.
+    expect(at(986, 300)).toEqual({ view: { startMs: 10_050, pxPerMs: 0.1 }, scrollY: 50 });
+    expect(at(4, 300)?.view.startMs).toBe(9900);
+    // Near the bottom: the rows scroll down; near the top of the rows, up.
+    expect(at(500, 596)).toEqual({ view, scrollY: 60 });
+    expect(at(500, 108)?.scrollY).toBe(40);
+    // Not for drags that stay on their row (resizing) or above the rows (timing marks).
+    expect(at(500, 596, { rows: false })).toBeNull();
+    // Already at the start of the song, or the top of the rows: nothing moves.
+    expect(at(4, 300, { view: { startMs: 0, pxPerMs: 0.1 } })).toBeNull();
+    expect(at(500, 108, { scrollY: 0 })).toBeNull();
+    // At the end of the song the view stops at the last page.
+    expect(at(1100, 300, { view: { startMs: 49_990, pxPerMs: 0.1 } })?.view.startMs).toBe(50_000);
   });
 });
 

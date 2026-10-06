@@ -358,6 +358,55 @@ export function moveDrag(args: {
   };
 }
 
+// --- Scrolling while dragging -----------------------------------------------------------------
+
+/** How near (px) an edge of the timeline a drag starts scrolling it. */
+export const AUTO_SCROLL_EDGE_PX = 24;
+/** Pixels scrolled each tick for every pixel the pointer is into an edge (or past it). */
+const AUTO_SCROLL_GAIN = 0.5;
+/** The fastest it scrolls, in pixels a tick. */
+export const AUTO_SCROLL_MAX_PX = 40;
+
+/**
+ * How far to scroll each tick while dragging at `pos` on an axis showing `lo` to `hi`: nothing in
+ * the middle; near an end (within `edge`, or past it), toward that end, faster the further in.
+ */
+export function autoScrollSpeed(pos: number, lo: number, hi: number, edge = AUTO_SCROLL_EDGE_PX): number {
+  const intoLo = lo + edge - pos;
+  const intoHi = pos - (hi - edge);
+  if (intoLo > 0) return -Math.min(AUTO_SCROLL_MAX_PX, intoLo * AUTO_SCROLL_GAIN);
+  if (intoHi > 0) return Math.min(AUTO_SCROLL_MAX_PX, intoHi * AUTO_SCROLL_GAIN);
+  return 0;
+}
+
+/**
+ * One tick of scrolling while something is dragged at `x`, `y` (canvas coordinates): the view
+ * moves in time near the left and right edges, and (when `rows`) the rows scroll near the top of
+ * the rows or the bottom. Null when nothing moves.
+ */
+export function autoScroll(args: {
+  x: number;
+  y: number;
+  width: number;
+  /** Where the rows start (below the ruler, music, and timing tracks). */
+  rowsTop: number;
+  height: number;
+  view: View;
+  scrollY: number;
+  maxScroll: number;
+  durationMs: number;
+  /** The drag can move to another row. */
+  rows: boolean;
+}): { view: View; scrollY: number } | null {
+  const { view, scrollY } = args;
+  const dx = autoScrollSpeed(args.x, 0, args.width);
+  const dy = args.rows ? autoScrollSpeed(args.y, args.rowsTop, args.height) : 0;
+  const next = dx === 0 ? view : clampView({ ...view, startMs: view.startMs + dx / view.pxPerMs }, args.durationMs, args.width);
+  const nextY = Math.max(0, Math.min(args.maxScroll, scrollY + dy));
+  if (next.startMs === view.startMs && nextY === scrollY) return null;
+  return { view: next.startMs === view.startMs ? view : next, scrollY: nextY };
+}
+
 /** Where a moved effect lands: its row and layer (and the lane showing it, to draw it there). */
 export interface Placement extends DragItem {
   rowId: string;
@@ -533,19 +582,31 @@ export function effectBounds(doc: Sequence, id: string, ignore: ReadonlySet<stri
  */
 export function nudgeEdits(doc: Sequence, ids: string[], direction: 1 | -1, byBeat: boolean): SequenceEdit[] {
   const chosen = new Set(ids);
-  const placed: Effect[] = [];
-  for (const row of doc.rows) for (const layer of row.layers) for (const e of layer.effects) if (chosen.has(e.id)) placed.push(e);
-  if (placed.length === 0) return [];
+  const starts: number[] = [];
+  for (const row of doc.rows) for (const layer of row.layers) for (const e of layer.effects) if (chosen.has(e.id)) starts.push(e.startMs);
+  if (starts.length === 0) return [];
   const track = doc.timingTracks.find((t) => t.kind === "beats") ?? doc.timingTracks[0];
   const grid = { frameMs: doc.frameMs, beats: track?.marks.map((m) => m.startMs) ?? [] };
-  const first = Math.min(...placed.map((e) => e.startMs));
-  let delta = stepTime(first, direction, grid, byBeat) - first;
+  const first = Math.min(...starts);
+  return shiftEdits(doc, ids, stepTime(first, direction, grid, byBeat) - first).edits;
+}
+
+/**
+ * Moves every effect `ids` by the same amount, as near to `deltaMs` as they can go: none goes past
+ * the song's ends or into an effect that isn't moving. Gives the amount they move by.
+ */
+export function shiftEdits(doc: Sequence, ids: readonly string[], deltaMs: number): { deltaMs: number; edits: SequenceEdit[] } {
+  const chosen = new Set(ids);
+  const placed: Effect[] = [];
+  for (const row of doc.rows) for (const layer of row.layers) for (const e of layer.effects) if (chosen.has(e.id)) placed.push(e);
+  let delta = Math.round(deltaMs);
   for (const e of placed) {
     const bounds = effectBounds(doc, e.id, chosen) ?? { lo: 0, hi: doc.durationMs };
     delta = Math.max(bounds.lo - e.startMs, Math.min(bounds.hi - e.endMs, delta));
   }
-  if (delta === 0 || Math.sign(delta) !== direction) return [];
-  return placed.map((e) => ({ type: "setEffectTiming", id: e.id, startMs: e.startMs + delta, endMs: e.endMs + delta }));
+  // Pulled back past nothing (they're already against something): don't move the other way.
+  if (delta === 0 || Math.sign(delta) !== Math.sign(deltaMs)) return { deltaMs: 0, edits: [] };
+  return { deltaMs: delta, edits: placed.map((e) => ({ type: "setEffectTiming", id: e.id, startMs: e.startMs + delta, endMs: e.endMs + delta })) };
 }
 
 /** One step from `ms`: a frame, or (with `byBeat`) to the next or previous beat. */

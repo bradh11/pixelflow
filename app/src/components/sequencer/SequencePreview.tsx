@@ -1,13 +1,16 @@
+import { Maximize2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Sequence } from "../../api/sequence";
-import type { PreviewProp } from "../../api/types";
+import type { PreviewProp, PreviewSet3d, Show } from "../../api/types";
 import { backgroundBox, boxOfPoints, fitView, toScreen, unionBox } from "../../lib/layoutMath";
 import { batchPixels, drawBatches } from "../../lib/pixelBatches";
-import { memberProp } from "../../lib/shows";
-import { targetProp } from "../../lib/submodels";
+import { targetNodes, targetPreview } from "../../lib/submodels";
 import { useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
-import { useBackgroundImage, usePreviewProps } from "../layout/useLayoutData";
+import { showViewKey, useView3d } from "../../state/view3d";
+import { type PhotoImage, useBackgroundImage, usePreviewProps, usePreviewProps3d } from "../layout/useLayoutData";
+import { Layout3dView } from "../layout3d/Layout3dView";
+import { ModeSwitch } from "../layout3d/ModeSwitch";
 
 const BACKDROP = "#0a0a0c";
 const COLORS = { unlit: "rgba(200, 200, 200, 0.35)", selected: "#a78bfa", dark: "rgba(70, 70, 70, 0.55)" };
@@ -15,13 +18,15 @@ const COLORS = { unlit: "rgba(200, 200, 200, 0.35)", selected: "#a78bfa", dark: 
 const PLAY_MS = 40;
 
 /**
- * The show as it looks at the playhead, drawn like the Layout screen (view only): rendered by the
- * engine for the current moment while editing, and live while playing. "Selected row only" shows
- * just the props of the row being worked on.
+ * The show as it looks at the playhead, flat like the Layout screen or in 3D (view only, with the
+ * show's camera from the Layout and Play screens): rendered by the engine for the current moment
+ * while editing, and live while playing. "Selected row only" shows just the pixels of the row
+ * being worked on (only a submodel's own pixels, for a row on a submodel).
  */
-export function SequencePreview({ doc }: { doc: Sequence }) {
+export function SequencePreview({ doc, expanded, onExpand }: { doc: Sequence; expanded?: boolean; onExpand?: (expanded: boolean) => void }) {
   const backend = useApp((s) => s.backend);
-  const show = useApp((s) => s.snapshot?.show);
+  const snapshot = useApp((s) => s.snapshot);
+  const show = snapshot?.show;
   const preview = usePreviewProps();
   const photo = useBackgroundImage(show?.background?.path);
   const api = useSequencer((s) => s.api);
@@ -29,10 +34,12 @@ export function SequencePreview({ doc }: { doc: Sequence }) {
   const revision = useSequencer((s) => s.revision);
   const playing = useSequencer((s) => s.status !== null);
   const activeRow = useSequencer((s) => s.activeRow);
+  const mode = useView3d((s) => s.sequenceMode);
+  const setMode = useView3d((s) => s.setSequenceMode);
+  const in3d = mode === "3d";
+  const preview3d = usePreviewProps3d(in3d);
   const [onlyRow, setOnlyRow] = useState(false);
   const [frame, setFrame] = useState<Uint8Array | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [size, setSize] = useState({ width: 0, height: 0 });
   /** The moment to draw next, while a frame is on its way: scrubbing asks for one frame at a time
    * and skips the moments it passed meanwhile. */
   const still = useRef<{ wanted: number | null; busy: boolean; live: boolean }>({ wanted: null, busy: false, live: true });
@@ -92,15 +99,66 @@ export function SequencePreview({ doc }: { doc: Sequence }) {
     };
   }, [backend, playing]);
 
-  const props: PreviewProp[] = useMemo(() => {
-    if (!onlyRow) return preview.props;
-    const row = doc.rows.find((r) => r.id === activeRow);
-    if (!row) return preview.props;
-    const target = row.target;
-    const group = "group" in target ? show?.groups.find((g) => g.id === target.group) : undefined;
-    const ids = new Set(group ? group.members.map(memberProp) : [targetProp(target)]);
-    return preview.props.filter((p) => ids.has(p.prop));
-  }, [onlyRow, preview.props, doc.rows, activeRow, show?.groups]);
+  // The selected row's pixels, by prop: whole props, a submodel's pixels, or a group's members.
+  const segments = useMemo(() => {
+    const row = onlyRow ? doc.rows.find((r) => r.id === activeRow) : undefined;
+    if (!row || !show) return null;
+    const flat = new Map(preview.props.map((p) => [p.prop, p.points]));
+    return targetNodes(
+      show,
+      row.target,
+      (prop) => (flat.get(prop.id)?.length ?? 0) >> 1,
+      (prop) => flat.get(prop.id) ?? [],
+    );
+  }, [onlyRow, doc.rows, activeRow, show, preview.props]);
+  const props: PreviewProp[] = useMemo(() => (segments ? targetPreview(preview.props, segments, "2d") : preview.props), [segments, preview.props]);
+  const shown3d: PreviewSet3d = useMemo(
+    () => (segments ? { revision: preview3d.revision, props: targetPreview(preview3d.props, segments, "3d") } : preview3d),
+    [segments, preview3d],
+  );
+  // Just the row: without the photo, as in 2D.
+  const photo3d: PhotoImage = useMemo(() => (onlyRow ? { ...photo, image: null } : photo), [onlyRow, photo]);
+
+  return (
+    <section aria-label="Preview" className="flex h-full w-full flex-col gap-1.5">
+      <div className="flex shrink-0 items-center gap-3">
+        <ModeSwitch mode={mode} onChange={setMode} />
+        <label className="flex items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-300">
+          <input type="checkbox" checked={onlyRow} onChange={(e) => setOnlyRow(e.target.checked)} />
+          Selected row only
+        </label>
+        {onExpand && (
+          <button
+            type="button"
+            aria-pressed={expanded}
+            title={expanded ? "Give the timeline its room back" : "Give the preview most of the screen"}
+            onClick={() => onExpand(!expanded)}
+            className={`ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-neutral-600 hover:bg-neutral-200/70 dark:text-neutral-300 dark:hover:bg-neutral-800 ${
+              expanded ? "bg-accent-50 text-accent-600 dark:bg-accent-600/15 dark:text-accent-400" : ""
+            }`}
+          >
+            <Maximize2 size={13} aria-hidden /> Bigger preview
+          </button>
+        )}
+      </div>
+      <div className="relative min-h-0 flex-1">
+        {in3d && snapshot ? (
+          <Layout3dView preview={shown3d} show={snapshot.show} photo={photo3d} storageKey={showViewKey(snapshot.path, snapshot.show.name)} frame={frame} />
+        ) : (
+          <FlatPreview props={props} frame={frame} show={show} photo={photo} onlyRow={onlyRow} />
+        )}
+        {preview.props.length === 0 && (
+          <p className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-neutral-400">Add props on the Layout screen to see them here.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** The props drawn flat, front on, as on the Layout screen (with the photo behind, dimmed). */
+function FlatPreview({ props, frame, show, photo, onlyRow }: { props: PreviewProp[]; frame: Uint8Array | null; show: Show | undefined; photo: PhotoImage; onlyRow: boolean }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -138,18 +196,5 @@ export function SequencePreview({ doc }: { doc: Sequence }) {
     drawBatches(ctx, batchPixels(props, frame, view, size, new Set(), COLORS, radius), radius, ratio);
   }, [props, frame, size, show?.background, photo, onlyRow]);
 
-  return (
-    <div className="relative h-full w-full">
-      <canvas ref={canvasRef} role="img" aria-label="Preview of the show at the playhead" className="h-full w-full rounded-md" />
-      <label className="absolute top-2 right-2 flex items-center gap-1.5 rounded bg-black/50 px-2 py-1 text-xs text-white">
-        <input type="checkbox" checked={onlyRow} onChange={(e) => setOnlyRow(e.target.checked)} />
-        Selected row only
-      </label>
-      {preview.props.length === 0 && (
-        <p className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-neutral-400">
-          Add props on the Layout screen to see them here.
-        </p>
-      )}
-    </div>
-  );
+  return <canvas ref={canvasRef} role="img" aria-label="Preview of the show at the playhead" className="h-full w-full rounded-md" />;
 }

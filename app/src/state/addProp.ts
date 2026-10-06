@@ -7,12 +7,22 @@ import { canvasSize, useLayoutEditor } from "./layoutEditor";
 import { useApp } from "./store";
 import { toast } from "./toast";
 
+/** Resolves after the next paint (a moment later where there's no painting, as in tests). */
+const nextFrame = () =>
+  new Promise<void>((resolve) => (typeof requestAnimationFrame === "function" ? requestAnimationFrame(() => resolve()) : setTimeout(resolve, 16)));
+
 /**
  * Adds a prop of `kind` in the middle of what the layout canvas shows (stepped aside from the last
  * one), selects it, brings it into view, and says so. One undo step. `preview` is the props'
  * pixels from the engine, where the screen has them. Resolves with the new prop, or null.
  */
 export async function addPropInView(kind: PropKind, preview: PreviewProp[] = []): Promise<Prop | null> {
+  // From another screen (the command palette): open Layout first, so its canvas can be measured.
+  if (useApp.getState().screen !== "layout") {
+    useApp.getState().setScreen("layout");
+    await nextFrame();
+    await nextFrame();
+  }
   const size = canvasSize();
   const editor = useLayoutEditor.getState();
   const content = () => unionBox(preview.map((p) => boxOfPoints(p.points)));
@@ -34,7 +44,6 @@ export async function addPropInView(kind: PropKind, preview: PreviewProp[] = [])
     const inside = inBox(visible, { x: box.minX, y: box.minY }) && inBox(visible, { x: box.maxX, y: box.maxY });
     if (!inside) st.setView(fitView(unionBox([box, visible]), size));
   }
-  if (useApp.getState().screen !== "layout") useApp.getState().setScreen("layout");
   toast(`Added ${prop.name} — drag it into place`);
   return prop;
 }

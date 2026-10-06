@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { App } from "./App";
 import { MemoryBackend, emptyShow } from "./api/memory";
 import { useApp } from "./state/store";
+import { useLayoutEditor } from "./state/layoutEditor";
 
 let backend: MemoryBackend;
 
@@ -62,7 +63,7 @@ describe("editing with undo and redo", () => {
   it("adds, renames, and deletes props, with undo and redo", async () => {
     const user = await startFresh();
     await addProp(user, "Mega tree");
-    expect(screen.getAllByDisplayValue("Mega Tree 1").length).toBeGreaterThan(0);
+    expect((await screen.findAllByDisplayValue("Mega Tree 1")).length).toBeGreaterThan(0);
     expect(screen.getByTestId("toast")).toHaveTextContent("Added Mega Tree 1 — drag it into place");
     expect(screen.getByText("800")).toBeInTheDocument();
     expect(screen.getByText(/1 prop · 800 pixels/)).toBeInTheDocument();
@@ -122,6 +123,35 @@ describe("saving", () => {
 });
 
 describe("command palette", () => {
+  it("adds a prop from another screen in the middle of the Layout canvas, not off to the side", async () => {
+    const size = { clientWidth: 800, clientHeight: 600 } as const;
+    const saved = Object.fromEntries(Object.keys(size).map((k) => [k, Object.getOwnPropertyDescriptor(HTMLElement.prototype, k)]));
+    for (const [k, v] of Object.entries(size)) {
+      Object.defineProperty(HTMLElement.prototype, k, {
+        configurable: true,
+        get() {
+          return this.tagName === "CANVAS" ? v : 0;
+        },
+      });
+    }
+    try {
+      const user = await startFresh();
+      await addProp(user, "Line / string");
+      await waitFor(() => expect(useLayoutEditor.getState().view).not.toBeNull());
+      await user.click(screen.getByRole("button", { name: "Wiring" }));
+      await user.keyboard("{Meta>}k{/Meta}");
+      await user.type(screen.getByPlaceholderText("Type a command…"), "add prop: line");
+      await user.keyboard("{Enter}");
+      await waitFor(() => expect(backend.show.props).toHaveLength(2));
+      expect(useApp.getState().screen).toBe("layout");
+      const [first, second] = backend.show.props.map((p) => p.transform.position.x);
+      // Beside the first line would be 6 units over; in the view it's one small step aside.
+      expect(Math.abs(second - first)).toBeLessThan(2);
+    } finally {
+      for (const [k, d] of Object.entries(saved)) if (d) Object.defineProperty(HTMLElement.prototype, k, d);
+    }
+  });
+
   it("opens with ⌘K and runs commands", async () => {
     const user = await startFresh();
     await user.keyboard("{Meta>}k{/Meta}");

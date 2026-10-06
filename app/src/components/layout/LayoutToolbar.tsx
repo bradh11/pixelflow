@@ -302,7 +302,7 @@ export function LayoutToolbar({ photo, tips }: { photo: ReactNode; tips: string[
     <div
       role="toolbar"
       aria-label="Layout tools"
-      className="@container mb-3 flex flex-wrap items-center gap-0.5 rounded-lg border border-neutral-200 bg-white p-1 dark:border-neutral-800 dark:bg-neutral-900"
+      className="@container flex min-w-0 flex-1 flex-wrap items-center gap-0.5 rounded-lg border border-neutral-200 bg-white p-1 dark:border-neutral-800 dark:bg-neutral-900"
     >
       <span className="mr-1">
         <ModeSwitch mode={mode} onChange={setLayoutMode} hint="V switches" />

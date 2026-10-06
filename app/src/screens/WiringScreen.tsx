@@ -7,7 +7,7 @@ import { PropsPanel } from "../components/wiring/PropsPanel";
 import { SlotSettings } from "../components/wiring/SlotSettings";
 import { WiringPreview } from "../components/wiring/WiringPreview";
 import { useDragEscape } from "../components/wiring/useWiringDrag";
-import { Button, Card, EmptyState, Field, Input, PageHeader, Select } from "../components/ui";
+import { Button, Card, EmptyState, Field, Input, ScreenHeader, Select } from "../components/ui";
 import { CONTROLLER_KINDS, FALCON_PIXELS_AT_40FPS, controllerOfKind, kindById, kindPixelLimit } from "../lib/controllerKinds";
 import { addressProblem } from "../lib/controllerEdit";
 import { uniqueName } from "../lib/shows";
@@ -161,17 +161,13 @@ export function WiringScreen() {
 
   return (
     <div className="mx-auto max-w-[110rem]">
-      <PageHeader
-        title="Wiring"
-        description="Drag each prop onto the controller port it's plugged into, in the order the wire reaches them. Channels and universes are assigned automatically; to match a controller that's already set up, Edit it and set its start universe."
-        actions={
-          !adding && (
-            <Button variant="primary" onClick={() => setAdding(true)}>
-              <Plus size={16} /> Add controller
-            </Button>
-          )
-        }
-      />
+      <ScreenHeader title="Wiring">
+        {!adding && (
+          <Button variant="primary" onClick={() => setAdding(true)}>
+            <Plus size={16} /> Add controller
+          </Button>
+        )}
+      </ScreenHeader>
       {adding && <AddControllerForm onDone={() => setAdding(false)} />}
       <p id="wiring-chip-help" className="sr-only">
         Drag to another place or port, or onto the props list to unwire. Arrow keys move between props; Option or Alt with the up

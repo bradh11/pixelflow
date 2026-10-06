@@ -11,7 +11,7 @@ import { FALLBACK_ASPECT, imageAspect, useBackgroundImage, usePreviewProps, useP
 import { useLayoutKeys } from "../components/layout/useLayoutKeys";
 import { Layout3dView } from "../components/layout3d/Layout3dView";
 import { useLayout3dKeys } from "../components/layout3d/useLayout3dKeys";
-import { Button, IconButton, PageHeader } from "../components/ui";
+import { Button, IconButton, ScreenHeader } from "../components/ui";
 import { useElementWidth } from "../lib/useWidth";
 import { boxOfPoints, defaultBackground, unionBox } from "../lib/layoutMath";
 import { useApp } from "../state/store";
@@ -67,7 +67,7 @@ function FirstTips({ tips }: { tips: string[] }) {
   return (
     <section
       aria-label="Tips"
-      className="absolute bottom-3 left-3 z-10 max-w-sm rounded-lg border border-neutral-200 bg-white/95 p-3 text-sm shadow-lg dark:border-neutral-800 dark:bg-neutral-900/95"
+      className="absolute bottom-3 left-3 z-10 max-w-xs rounded-lg border border-neutral-200 bg-white/95 p-3 text-xs shadow-lg dark:border-neutral-800 dark:bg-neutral-900/95"
     >
       <div className="mb-1 flex items-center justify-between gap-2">
         <h2 className="font-semibold">Getting around</h2>
@@ -122,19 +122,19 @@ export function LayoutScreen() {
   };
 
   return (
-    <div className="flex min-h-full flex-col">
-      <PageHeader
+    <div className="flex h-full min-h-[30rem] flex-col">
+      <ScreenHeader
         title="Layout"
-        description="Draw your display over a photo of your house, then wire each prop to a controller port."
-        actions={
-          <AddPropMenu preview={preview.props} />
+        tools={
+          <LayoutToolbar
+            photo={<PhotoControls preview={preview.props} problem={photo.problem} onRetry={photo.reload} onChoosePhoto={() => void choosePhoto()} />}
+            tips={in3d ? TIPS_3D : TIPS_2D}
+          />
         }
-      />
-      <LayoutToolbar
-        photo={<PhotoControls preview={preview.props} problem={photo.problem} onRetry={photo.reload} onChoosePhoto={() => void choosePhoto()} />}
-        tips={in3d ? TIPS_3D : TIPS_2D}
-      />
-      <div ref={row} data-layout-row className="relative flex h-[max(26rem,calc(100vh-16.5rem))] gap-3">
+      >
+        <AddPropMenu preview={preview.props} />
+      </ScreenHeader>
+      <div ref={row} data-layout-row className="relative flex min-h-0 flex-1 gap-3">
         <SidePanel floating={arrangement.list === "floating"} />
         <div className="relative min-w-0 flex-1">
           {in3d ? (

@@ -300,6 +300,8 @@ function AssistantButton() {
   );
 }
 
+const WORK_SCREENS = new Set(["layout", "wiring", "play"]);
+
 export function AppShell() {
   const screen = useApp((s) => s.screen);
   const assistantOpen = useAssistant((s) => s.open);
@@ -311,7 +313,8 @@ export function AppShell() {
       <MissingFilesBanner />
       <div className="relative flex min-h-0 flex-1">
         <Sidebar />
-        <main className={`min-w-0 flex-1 ${screen === "sequence" ? "overflow-hidden" : "overflow-auto p-6"}`}>
+        {/* Work screens give the room to their canvas or list; overview screens get more air. */}
+        <main className={`min-w-0 flex-1 ${screen === "sequence" ? "overflow-hidden" : WORK_SCREENS.has(screen) ? "overflow-auto p-4" : "overflow-auto p-6"}`}>
           <CurrentScreen />
         </main>
         {assistantOpen && <AssistantPanel overlay={overlay} />}

@@ -98,6 +98,23 @@ export function UnsavedBadge({ doc }: { doc: "show" | "sequence" }) {
   );
 }
 
+/**
+ * A work screen's one header row: its name, its `tools`, and its primary actions (`children`) at
+ * the end. (Overview screens use PageHeader, with a description.)
+ */
+export function ScreenHeader({ title, tools, children }: { title: string; tools?: ReactNode; children?: ReactNode }) {
+  return (
+    <div className="@container mb-3 shrink-0">
+      <div className="flex min-h-9 flex-wrap items-center gap-x-3 gap-y-2">
+        <h1 className="shrink-0 text-base font-semibold">{title}</h1>
+        {/* The tools share the row when there's room, else take a row of their own. */}
+        {tools && <div className="flex min-w-0 flex-1 @max-[1099px]:order-last @max-[1099px]:basis-full">{tools}</div>}
+        <div className="ml-auto flex shrink-0 items-center gap-2">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 export function PageHeader({ title, description, actions }: { title: string; description?: string; actions?: ReactNode }) {
   return (
     <div className="mb-6 flex items-start justify-between gap-4">

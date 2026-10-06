@@ -7,7 +7,7 @@ import { LivePreview } from "../components/layout3d/LivePreview";
 import { MissingFileNotice, useMissingFile } from "../components/MissingFiles";
 import { SequenceList } from "../components/SequenceList";
 import { WaveformView } from "../components/WaveformView";
-import { Button, EmptyState, PageHeader } from "../components/ui";
+import { Button, EmptyState, ScreenHeader } from "../components/ui";
 import { clock, fileName, sequenceTitle, shownPath, thousands } from "../lib/format";
 import { useApp } from "../state/store";
 
@@ -405,7 +405,7 @@ export function PlayScreen() {
 
   return (
     <div className="flex h-full flex-col">
-      <PageHeader title="Play" description="Your show's sequences, played on your controllers with their music." />
+      <ScreenHeader title="Play" />
 
       {busyFpps.map((fpp) => (
         <div

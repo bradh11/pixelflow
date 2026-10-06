@@ -1603,7 +1603,7 @@ mod tests {
             &webview,
             "fpp_send",
             json!({ "address": fpp.address(), "request": {
-                "source": source, "music": "Song.mp3", "sequenceName": "Song.fseq", "musicName": "Song.mp3",
+                "source": source, "music": "Song.mp3", "sequenceName": "Relative music.fseq", "musicName": "Song.mp3",
                 "uploadMusic": true, "playlist": { "kind": "none" } } }),
         )
         .unwrap();

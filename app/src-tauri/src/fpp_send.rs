@@ -238,10 +238,13 @@ pub(crate) fn send(
         return Err(UploadError::Cancelled.to_string());
     }
 
-    // Room for it all, checked before anything is sent.
+    // Room for it all, checked before anything is sent. FPP puts each upload together by copying
+    // its received pieces, so for a moment it holds the biggest file twice.
     let size = |p: &Path| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
     let upload_music = request.upload_music && music_name.is_some();
-    let needed = size(&fseq) + if upload_music { music.map_or(0, size) } else { 0 };
+    let fseq_bytes = size(&fseq);
+    let music_bytes = if upload_music { music.map_or(0, size) } else { 0 };
+    let needed = fseq_bytes + music_bytes + fseq_bytes.max(music_bytes);
     let files = fpp_upload::read_files(http, host).map_err(device_error)?;
     fpp_upload::ensure_room(files.free_bytes, needed).map_err(|e| e.to_string())?;
 
@@ -593,7 +596,8 @@ mod tests {
 
     #[test]
     fn not_enough_room_stops_before_sending() {
-        let fpp = FakeFpp::start().with_free_bytes(100);
+        // Room for the file once, but FPP briefly needs it twice while putting it together.
+        let fpp = FakeFpp::start().with_free_bytes(1500);
         let dir = tempfile::tempdir().unwrap();
         let fseq = file(&dir, "Show.fseq", 1000);
         let request = request(from_file(&fseq), None, PlaylistChoice::None);

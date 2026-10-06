@@ -1,6 +1,6 @@
 import { Loader2, MessageSquarePlus, Send, Settings, Sparkles, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { providerName } from "../../api/assistant";
+import { modelLabel, providerName } from "../../api/assistant";
 import { useAssistant } from "../../state/assistant";
 import { Button } from "../ui";
 import { ProposalCard } from "./ProposalCard";
@@ -63,9 +63,9 @@ export function AssistantPanel({ overlay = false }: { overlay?: boolean }) {
           type="button"
           onClick={() => setSettingsOpen(true)}
           className="ml-1 truncate rounded px-1.5 py-0.5 text-xs text-neutral-500 hover:bg-neutral-200/70 dark:hover:bg-neutral-800"
-          title="Change the provider or model"
+          title={ready ? `${providerName(provider)} · ${model}: change the provider or model` : "Change the provider or model"}
         >
-          {ready ? `${providerName(provider)} · ${model}` : "Not set up"}
+          {ready ? modelLabel(model) : "Not set up"}
         </button>
         <div className="ml-auto flex items-center">
           <Button variant="ghost" aria-label="New chat" title="New chat" disabled={streaming || items.length === 0} onClick={() => void newChat()}>

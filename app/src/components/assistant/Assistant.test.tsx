@@ -8,7 +8,7 @@ import { FakeAssistant } from "../../api/memoryAssistant";
 import { useAssistant } from "../../state/assistant";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { useApp } from "../../state/store";
-import type { Change, ProposalView } from "../../api/assistant";
+import { type Change, type ProposalView, modelLabel } from "../../api/assistant";
 import { highlightFrame } from "./DraftPreview";
 import { ProposalCard } from "./ProposalCard";
 
@@ -33,6 +33,17 @@ async function openPanel(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: /assistant/i, pressed: false }));
   return screen.getByRole("complementary", { name: "Assistant" });
 }
+
+describe("model names", () => {
+  it("are short and readable", () => {
+    expect(modelLabel("claude-opus-5-5")).toBe("Claude Opus 5.5");
+    expect(modelLabel("claude-sonnet-4-5-20250929")).toBe("Claude Sonnet 4.5");
+    expect(modelLabel("claude-haiku-4")).toBe("Claude Haiku 4");
+    expect(modelLabel("gpt-5")).toBe("GPT-5");
+    expect(modelLabel("gpt-4.1-mini")).toBe("GPT-4.1 mini");
+    expect(modelLabel("my-local-model")).toBe("my-local-model");
+  });
+});
 
 describe("the assistant in a narrow window", () => {
   it("floats over the screen below 1440 px, and takes a column of its own above", async () => {
@@ -60,7 +71,8 @@ describe("opening the assistant", () => {
   it("opens from the top bar, with ⌘L, and from the command palette", async () => {
     const { user } = await start();
     const panel = await openPanel(user);
-    expect(within(panel).getByText("Anthropic · claude-opus-5-5")).toBeInTheDocument();
+    // The model by a short name; the provider and its full id on hover.
+    expect(within(panel).getByText("Claude Opus 5.5")).toHaveAttribute("title", "Anthropic · claude-opus-5-5: change the provider or model");
     await user.click(within(panel).getByRole("button", { name: "Close assistant" }));
     expect(screen.queryByRole("complementary", { name: "Assistant" })).not.toBeInTheDocument();
 

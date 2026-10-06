@@ -3,7 +3,8 @@
 
 use pf_geometry::{local_positions, world_positions};
 use pf_model::{
-    Corner, Generator, MatrixWiring, Orientation, PolySegment, Prop, Provenance, ShapeSource, Transform, Vec3,
+    Corner, CubeStart, CubeStyle, Generator, MatrixWiring, Orientation, PolySegment, Prop, Provenance,
+    ShapeSource, StrandStyle, Transform, Vec3,
 };
 use proptest::prelude::*;
 
@@ -97,7 +98,81 @@ fn generator() -> impl Strategy<Value = Generator> {
             }
         ),
         spinner(),
+        sphere(),
+        cube(),
     ]
+}
+
+fn strand_style() -> impl Strategy<Value = StrandStyle> {
+    prop_oneof![
+        Just(StrandStyle::ZigZag),
+        Just(StrandStyle::NoZigZag),
+        Just(StrandStyle::AlternatePixel)
+    ]
+}
+
+fn sphere() -> impl Strategy<Value = Generator> {
+    (
+        (0u32..30, 0u32..30, 0.1f32..20.0),
+        (-90f32..=90.0, -90f32..=90.0, 1f32..=360.0),
+        corner(),
+        strand_style(),
+    )
+        .prop_map(
+            |((columns, rows, radius), (start_latitude, end_latitude, degrees), start, strand_style)| {
+                Generator::Sphere {
+                    columns,
+                    rows,
+                    radius,
+                    start_latitude,
+                    end_latitude,
+                    degrees,
+                    start,
+                    strand_style,
+                }
+            },
+        )
+}
+
+fn cube() -> impl Strategy<Value = Generator> {
+    (
+        (0u32..8, 0u32..8, 0u32..8, 0.01f32..2.0),
+        (0usize..8, 0usize..6),
+        strand_style(),
+        any::<bool>(),
+    )
+        .prop_map(
+            |((width, height, depth, spacing), (start, style), strand_style, strand_per_layer)| {
+                const STARTS: [CubeStart; 8] = [
+                    CubeStart::FrontBottomLeft,
+                    CubeStart::FrontBottomRight,
+                    CubeStart::FrontTopLeft,
+                    CubeStart::FrontTopRight,
+                    CubeStart::BackBottomLeft,
+                    CubeStart::BackBottomRight,
+                    CubeStart::BackTopLeft,
+                    CubeStart::BackTopRight,
+                ];
+                const STYLES: [CubeStyle; 6] = [
+                    CubeStyle::VerticalFrontBack,
+                    CubeStyle::VerticalLeftRight,
+                    CubeStyle::HorizontalFrontBack,
+                    CubeStyle::HorizontalLeftRight,
+                    CubeStyle::StackedFrontBack,
+                    CubeStyle::StackedLeftRight,
+                ];
+                Generator::Cube {
+                    width,
+                    height,
+                    depth,
+                    spacing,
+                    start: STARTS[start],
+                    style: STYLES[style],
+                    strand_style,
+                    strand_per_layer,
+                }
+            },
+        )
 }
 
 fn window_frame() -> impl Strategy<Value = Generator> {

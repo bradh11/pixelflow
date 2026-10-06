@@ -6,11 +6,13 @@
 mod arch;
 mod candy_canes;
 mod circle;
+mod cube;
 mod custom_grid;
 mod icicles;
 mod line;
 mod matrix;
 pub mod polyline;
+mod sphere;
 mod spinner;
 mod star;
 mod transform;
@@ -20,7 +22,9 @@ mod wreath;
 
 use pf_model::{Generator, Prop, ShapeSource, Vec3};
 
+pub use cube::cube_cells;
 pub use icicles::icicle_column_gaps;
+pub use sphere::globe_point;
 pub use transform::apply_transform;
 
 /// Pixel positions in prop-local coordinates, in wiring order.
@@ -153,6 +157,44 @@ fn generate(generator: &Generator) -> Vec<Vec3> {
             from_center,
             clockwise,
             radius,
+        }),
+        Generator::Sphere {
+            columns,
+            rows,
+            radius,
+            start_latitude,
+            end_latitude,
+            degrees,
+            start,
+            strand_style,
+        } => sphere::positions(sphere::Sphere {
+            columns,
+            rows,
+            radius,
+            start_latitude,
+            end_latitude,
+            degrees,
+            start,
+            strand_style,
+        }),
+        Generator::Cube {
+            width,
+            height,
+            depth,
+            spacing,
+            start,
+            style,
+            strand_style,
+            strand_per_layer,
+        } => cube::positions(cube::Cube {
+            width,
+            height,
+            depth,
+            spacing,
+            start,
+            style,
+            strand_style,
+            strand_per_layer,
         }),
         Generator::CustomGrid {
             columns,

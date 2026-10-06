@@ -34,6 +34,9 @@ pub use region::{
     BufferStyle, FaceColors, FaceDefinition, LineLayout, NodeRange, NodeRun, Phoneme, Region, RegionKind,
     RegionRef, SubmodelLine, format_line, parse_line,
 };
-pub use shape::{Corner, Generator, MatrixWiring, Orientation, PolySegment, Provenance, ShapeSource};
+pub use shape::{
+    Corner, CubeStart, CubeStyle, Generator, MatrixWiring, Orientation, PolySegment, Provenance, ShapeSource,
+    StrandStyle,
+};
 pub use show::{Background, CURRENT_SCHEMA_VERSION, HouseModel, SequenceEntry, Show, ShowSettings};
 pub use validate::validate_show;

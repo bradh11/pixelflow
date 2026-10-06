@@ -419,6 +419,50 @@ mod tests {
         }
     }
 
+    fn sphere(name: &str, columns: u32, rows: u32, latitudes: (f32, f32), degrees: f32) -> Prop {
+        Prop::new(
+            name,
+            ShapeSource::Generator(Generator::Sphere {
+                columns,
+                rows,
+                radius: 1.0,
+                start_latitude: latitudes.0,
+                end_latitude: latitudes.1,
+                degrees,
+                start: crate::Corner::BottomLeft,
+                strand_style: crate::StrandStyle::ZigZag,
+            }),
+        )
+    }
+
+    fn cube(name: &str, width: u32, height: u32, depth: u32) -> Prop {
+        Prop::new(
+            name,
+            ShapeSource::Generator(Generator::Cube {
+                width,
+                height,
+                depth,
+                spacing: 0.1,
+                start: crate::CubeStart::FrontBottomLeft,
+                style: crate::CubeStyle::VerticalFrontBack,
+                strand_style: crate::StrandStyle::ZigZag,
+                strand_per_layer: false,
+            }),
+        )
+    }
+
+    #[test]
+    fn spheres_and_cubes_within_the_limits_are_valid() {
+        for prop in [
+            sphere("Globe", 16, 25, (-86.0, 86.0), 360.0),
+            sphere("Dome", 10, 10, (-90.0, 90.0), 1.0),
+            cube("Box", 10, 10, 10),
+        ] {
+            let show = show_with_slot(PortSlot::new(prop.id), prop);
+            assert_eq!(validate_show(&show).issues, vec![]);
+        }
+    }
+
     #[test]
     fn icicles_and_candy_canes_within_the_limits_are_valid() {
         for prop in [icicles("Eaves", vec![3, 0, 5]), canes("Walk", 3, 18)] {
@@ -456,7 +500,7 @@ mod tests {
     #[test]
     fn each_structural_problem_is_reported() {
         type Mutate = fn(&mut Show);
-        let cases: [(IssueCode, Mutate); 31] = [
+        let cases: [(IssueCode, Mutate); 36] = [
             (IssueCode::InvalidFrameRate, |s| s.settings.frame_rate = 5),
             (IssueCode::DuplicateId, |s| {
                 let dup = s.props[0].clone();
@@ -575,6 +619,22 @@ mod tests {
             (IssueCode::LimitExceeded, |s| {
                 // Both sides count, beyond what a 32-bit count can hold.
                 s.props.push(frame("Huge", u32::MAX, u32::MAX, 1))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props
+                    .push(sphere("Big globe", 70_000, 70_000, (-86.0, 86.0), 360.0))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(sphere("Past the pole", 4, 4, (-95.0, 86.0), 360.0))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(sphere("No sweep", 4, 4, (-86.0, 86.0), 0.0))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(sphere("Past round", 4, 4, (-86.0, 86.0), 400.0))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(cube("Big box", 2_000, 2_000, 2_000))
             }),
         ];
         for (code, mutate) in cases {

@@ -45,6 +45,47 @@ impl Default for MatrixWiring {
     }
 }
 
+/// How the pixels run along each strand of a sphere or cube (xLights' strand styles).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StrandStyle {
+    /// Every other strand runs back the other way.
+    #[default]
+    ZigZag,
+    /// Every strand runs the same way.
+    NoZigZag,
+    /// Each strand's pixels go out every other spot and come back on the ones between.
+    AlternatePixel,
+}
+
+/// The corner of a cube its first pixel is at (xLights' cube `Start`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CubeStart {
+    #[default]
+    FrontBottomLeft,
+    FrontBottomRight,
+    FrontTopLeft,
+    FrontTopRight,
+    BackBottomLeft,
+    BackBottomRight,
+    BackTopLeft,
+    BackTopRight,
+}
+
+/// Which way a cube's strands run and how they stack into layers (xLights' cube `Style`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CubeStyle {
+    #[default]
+    VerticalFrontBack,
+    VerticalLeftRight,
+    HorizontalFrontBack,
+    HorizontalLeftRight,
+    StackedFrontBack,
+    StackedLeftRight,
+}
+
 /// One stretch of a poly line, from one of its points to the next.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -69,6 +110,14 @@ fn one() -> f32 {
 
 fn full_turn() -> f32 {
     360.0
+}
+
+fn south() -> f32 {
+    -86.0
+}
+
+fn north() -> f32 {
+    86.0
 }
 
 /// Parametric prop shapes. Positions are produced by `pf-geometry`.
@@ -230,6 +279,46 @@ pub enum Generator {
         clockwise: bool,
         radius: f32,
     },
+    /// A globe (xLights' Sphere): `columns` strands of `rows` pixels running from the south
+    /// pole toward the north, between `start_latitude` and `end_latitude` (degrees), spread
+    /// round `degrees` of the globe, `radius` from its middle. The first column is at the back,
+    /// the next ones round the left side to the front (round the right side when `start` is on
+    /// the right); a `start` at the top runs the first strand down from the north. Centered.
+    Sphere {
+        columns: u32,
+        rows: u32,
+        radius: f32,
+        #[serde(default = "south")]
+        start_latitude: f32,
+        #[serde(default = "north")]
+        end_latitude: f32,
+        /// How far round the globe the columns go; anything less leaves a gap at the back.
+        #[serde(default = "full_turn")]
+        degrees: f32,
+        #[serde(default)]
+        start: Corner,
+        #[serde(default)]
+        strand_style: StrandStyle,
+    },
+    /// A cube of pixels (xLights' Cube): `width` across, `height` up and `depth` front to back,
+    /// `spacing` apart in every direction, wired from the `start` corner in strands and layers
+    /// as `style` says. Centered.
+    Cube {
+        width: u32,
+        height: u32,
+        depth: u32,
+        spacing: f32,
+        #[serde(default)]
+        start: CubeStart,
+        #[serde(default)]
+        style: CubeStyle,
+        #[serde(default)]
+        strand_style: StrandStyle,
+        /// Each layer is wired the same way, instead of the next layer starting where the last
+        /// one ended.
+        #[serde(default)]
+        strand_per_layer: bool,
+    },
     /// Free-form grid. `cells` is row-major starting at the top row;
     /// 0 is an empty cell and n places node n (1-based) in that cell.
     CustomGrid {
@@ -256,7 +345,12 @@ impl Generator {
             Generator::Spinner {
                 arms, nodes_per_arm, ..
             } => arms.saturating_mul(*nodes_per_arm),
-            Generator::Matrix { columns, rows, .. } => columns.saturating_mul(*rows),
+            Generator::Matrix { columns, rows, .. } | Generator::Sphere { columns, rows, .. } => {
+                columns.saturating_mul(*rows)
+            }
+            Generator::Cube {
+                width, height, depth, ..
+            } => width.saturating_mul(*height).saturating_mul(*depth),
             Generator::Tree {
                 strings,
                 nodes_per_string,
@@ -562,6 +656,87 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn spheres_and_cubes_count_and_round_trip_their_settings() {
+        let sphere = Generator::Sphere {
+            columns: 16,
+            rows: 25,
+            radius: 1.2,
+            start_latitude: -80.0,
+            end_latitude: 70.0,
+            degrees: 270.0,
+            start: Corner::TopRight,
+            strand_style: StrandStyle::AlternatePixel,
+        };
+        assert_eq!(sphere.node_count(), 400);
+        let json = serde_json::to_value(ShapeSource::Generator(sphere.clone())).unwrap();
+        assert_eq!(json["type"], "sphere");
+        assert_eq!(json["startLatitude"], -80.0);
+        assert_eq!(json["strandStyle"], "alternatePixel");
+        assert_eq!(
+            serde_json::from_value::<ShapeSource>(json).unwrap(),
+            ShapeSource::Generator(sphere)
+        );
+        // Left out: xLights' -86° to 86°, all the way round, from the bottom left, zig-zag.
+        let plain: Generator =
+            serde_json::from_str(r#"{ "type": "sphere", "columns": 4, "rows": 5, "radius": 1 }"#).unwrap();
+        assert!(matches!(
+            plain,
+            Generator::Sphere {
+                start_latitude: -86.0,
+                end_latitude: 86.0,
+                degrees: 360.0,
+                start: Corner::BottomLeft,
+                strand_style: StrandStyle::ZigZag,
+                ..
+            }
+        ));
+
+        let cube = Generator::Cube {
+            width: 5,
+            height: 4,
+            depth: 3,
+            spacing: 0.1,
+            start: CubeStart::BackTopRight,
+            style: CubeStyle::StackedLeftRight,
+            strand_style: StrandStyle::NoZigZag,
+            strand_per_layer: true,
+        };
+        assert_eq!(cube.node_count(), 60);
+        let json = serde_json::to_value(&cube).unwrap();
+        assert_eq!(json["type"], "cube");
+        assert_eq!(json["start"], "backTopRight");
+        assert_eq!(json["style"], "stackedLeftRight");
+        assert_eq!(json["strandStyle"], "noZigZag");
+        assert_eq!(json["strandPerLayer"], true);
+        assert_eq!(serde_json::from_value::<Generator>(json).unwrap(), cube);
+        let plain: Generator = serde_json::from_str(
+            r#"{ "type": "cube", "width": 2, "height": 2, "depth": 2, "spacing": 0.5 }"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            plain,
+            Generator::Cube {
+                start: CubeStart::FrontBottomLeft,
+                style: CubeStyle::VerticalFrontBack,
+                strand_style: StrandStyle::ZigZag,
+                strand_per_layer: false,
+                ..
+            }
+        ));
+        let huge = Generator::Cube {
+            width: u32::MAX,
+            height: 2,
+            depth: 2,
+            spacing: 1.0,
+            start: CubeStart::FrontBottomLeft,
+            style: CubeStyle::VerticalFrontBack,
+            strand_style: StrandStyle::ZigZag,
+            strand_per_layer: false,
+        };
+        assert_eq!(huge.node_count(), u32::MAX);
     }
 
     #[test]

@@ -91,6 +91,17 @@ pub(crate) fn check_limits(show: &Show) -> Vec<String> {
             problems.push(problem);
             continue;
         }
+        if let ShapeSource::Generator(Generator::Sphere {
+            start_latitude,
+            end_latitude,
+            degrees,
+            ..
+        }) = &prop.shape
+            && let Some(problem) = sphere_problem(&prop.name, *start_latitude, *end_latitude, *degrees)
+        {
+            problems.push(problem);
+            continue;
+        }
         // A row of canes or strings is walked even when it has no pixels, so its length is
         // capped like a prop's pixels.
         if let ShapeSource::Generator(
@@ -113,9 +124,12 @@ pub(crate) fn check_limits(show: &Show) -> Vec<String> {
         }
         // `node_count()` saturates at u32::MAX, so compute the real count here.
         let nodes = match &prop.shape {
-            ShapeSource::Generator(Generator::Matrix { columns, rows, .. }) => {
-                u64::from(*columns) * u64::from(*rows)
-            }
+            ShapeSource::Generator(
+                Generator::Matrix { columns, rows, .. } | Generator::Sphere { columns, rows, .. },
+            ) => u64::from(*columns) * u64::from(*rows),
+            ShapeSource::Generator(Generator::Cube {
+                width, height, depth, ..
+            }) => u64::from(*width) * u64::from(*height) * u64::from(*depth),
             ShapeSource::Generator(Generator::Tree {
                 strings,
                 nodes_per_string,
@@ -253,6 +267,23 @@ fn spinner_problem(name: &str, arms: u32, hollow: u32, arc: f32) -> Option<Strin
     if !(arc > 0.0 && arc <= 360.0) {
         return Some(format!(
             "The spinner '{name}' spreads its arms over {arc}°, but that must be more than 0° and at most 360°."
+        ));
+    }
+    None
+}
+
+/// What's wrong with a sphere's latitudes or sweep, if anything.
+fn sphere_problem(name: &str, start_latitude: f32, end_latitude: f32, degrees: f32) -> Option<String> {
+    for latitude in [start_latitude, end_latitude] {
+        if !(-90.0..=90.0).contains(&latitude) {
+            return Some(format!(
+                "The sphere '{name}' reaches latitude {latitude}°, but latitudes run from -90° to 90°."
+            ));
+        }
+    }
+    if !(degrees > 0.0 && degrees <= 360.0) {
+        return Some(format!(
+            "The sphere '{name}' goes {degrees}° round, but that must be more than 0° and at most 360°."
         ));
     }
     None

@@ -1,12 +1,13 @@
 import { Plus, Trash2, X } from "lucide-react";
 import { useId, useRef, useState } from "react";
-import type { Blend, Effect, EffectInfo, EffectParams, EffectSetting, Sequence } from "../../api/sequence";
+import type { Blend, Effect, EffectInfo, EffectParams, EffectSetting, Sequence, SequenceTarget, TimingTrack } from "../../api/sequence";
 import type { Show } from "../../api/types";
 import { effectBounds, formatTime } from "../../lib/timelineMath";
 import { newGesture, useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
 import { Button } from "../ui";
-import { targetName } from "./Timeline";
+import { memberProp } from "../../lib/shows";
+import { facesOf, targetName, targetProp } from "../../lib/submodels";
 
 const BLENDS: { value: Blend; label: string; help: string }[] = [
   { value: "normal", label: "Cover", help: "Covers the layers below where it's lit." },
@@ -64,7 +65,7 @@ export function EffectSettings({ doc }: { doc: Sequence }) {
       </Panel>
     );
   }
-  const { effect, rowName } = found;
+  const { effect, rowName, target } = found;
   const id = effect.id;
   const info = catalog.find((c) => c.kind === effect.params.kind);
   const change: Change = (next, gesture) =>
@@ -106,6 +107,8 @@ export function EffectSettings({ doc }: { doc: Sequence }) {
               setting={setting}
               value={(effect.params as Record<string, unknown>)[setting.key]}
               onChange={(value, gesture) => setParam(setting.key, value, gesture)}
+              faces={faceNames(show, target)}
+              tracks={doc.timingTracks}
             />
           ))}
         </Section>
@@ -182,14 +185,27 @@ export function EffectSettings({ doc }: { doc: Sequence }) {
   );
 }
 
-function findEffect(doc: Sequence, id: string): { effect: Effect; rowName: (show: Show | undefined) => string } | null {
+function findEffect(
+  doc: Sequence,
+  id: string,
+): { effect: Effect; target: SequenceTarget; rowName: (show: Show | undefined) => string } | null {
   for (const row of doc.rows) {
     for (const layer of row.layers) {
       const effect = layer.effects.find((e) => e.id === id);
-      if (effect) return { effect, rowName: (show) => targetName(show, row.target) };
+      if (effect) return { effect, target: row.target, rowName: (show) => targetName(show, row.target) };
     }
   }
   return null;
+}
+
+/** The faces a Faces effect on `target` can use: the faces of the props it lights, by name. */
+function faceNames(show: Show | undefined, target: SequenceTarget): string[] {
+  const ids = "group" in target ? (show?.groups.find((g) => g.id === target.group)?.members ?? []).map(memberProp) : [targetProp(target)];
+  const names = ids.flatMap((id) => {
+    const prop = show?.props.find((p) => p.id === id);
+    return prop ? facesOf(prop).map((r) => r.name) : [];
+  });
+  return [...new Set(names)];
 }
 
 function Panel({ children }: { children: React.ReactNode }) {
@@ -310,11 +326,61 @@ function SettingControl({
   setting,
   value,
   onChange,
+  faces,
+  tracks,
 }: {
   setting: EffectSetting;
   value: unknown;
   onChange: (value: unknown, gesture?: string) => Promise<boolean>;
+  /** The faces of the row's props, for a face setting. */
+  faces: string[];
+  /** The sequence's timing tracks, for a timing track setting. */
+  tracks: TimingTrack[];
 }) {
+  if (setting.type === "face") {
+    const current = typeof value === "string" ? value : setting.default;
+    const known = current === "" || faces.some((f) => f.toLowerCase() === current.trim().toLowerCase());
+    return (
+      <label className="flex flex-col gap-1 text-sm" title={setting.description}>
+        <span className="text-neutral-600 dark:text-neutral-400">{setting.label}</span>
+        <select className={FIELD} value={current} onChange={(e) => void onChange(e.target.value)}>
+          <option value="">{faces.length > 0 ? `The first face (${faces[0]})` : "The first face"}</option>
+          {faces.map((f) => (
+            <option key={f} value={f}>
+              {f}
+            </option>
+          ))}
+          {!known && <option value={current}>{current} (not on this prop)</option>}
+        </select>
+        {faces.length === 0 && <span className="text-xs text-amber-700 dark:text-amber-400">This row's prop has no face. Import one from xLights, or pick another row.</span>}
+      </label>
+    );
+  }
+  if (setting.type === "timingTrack") {
+    const current = typeof value === "string" ? value : "";
+    const lyrics = tracks.filter((t) => t.kind === "phonemes" || t.kind === "words" || t.kind === "lyrics");
+    const others = tracks.filter((t) => !lyrics.includes(t));
+    return (
+      <label className="flex flex-col gap-1 text-sm" title={setting.description}>
+        <span className="text-neutral-600 dark:text-neutral-400">{setting.label}</span>
+        <select className={FIELD} value={current} onChange={(e) => void onChange(e.target.value === "" ? null : e.target.value)}>
+          <option value="">None (mouth at rest)</option>
+          {[...lyrics, ...others].map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+        {(() => {
+          const kind = tracks.find((t) => t.id === current)?.kind;
+          if (current === "" || kind === undefined || kind === "phonemes") return null;
+          if (kind === "words" || kind === "lyrics")
+            return <span className="text-xs text-neutral-500">Words are turned into mouth shapes letter by letter, so lips move roughly; a phonemes track from xLights is exact.</span>;
+          return <span className="text-xs text-neutral-500">This track has no words, so the mouth stays at rest. Pick a lyrics track to sing.</span>;
+        })()}
+      </label>
+    );
+  }
   if (setting.type === "bool") {
     return (
       <label className="flex items-center gap-2 text-sm" title={setting.description}>

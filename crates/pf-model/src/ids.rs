@@ -48,6 +48,10 @@ define_id!(
     /// Identifies a [`crate::Controller`].
     ControllerId
 );
+define_id!(
+    /// Identifies a [`crate::Region`] (a submodel or face) on its prop.
+    RegionId
+);
 
 #[cfg(test)]
 mod tests {

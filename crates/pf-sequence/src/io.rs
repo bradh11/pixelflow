@@ -29,7 +29,12 @@ impl From<serde_json::Error> for SequenceError {
 type Migration = fn(Value) -> Result<Value, SequenceError>;
 
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
-const MIGRATIONS: &[Migration] = &[];
+const MIGRATIONS: &[Migration] = &[v1_to_v2];
+
+/// Version 2 only adds submodel targets, so version 1 documents are already valid.
+fn v1_to_v2(doc: Value) -> Result<Value, SequenceError> {
+    Ok(doc)
+}
 
 const _: () = assert!(
     MIGRATIONS.len() + 1 == CURRENT_SCHEMA_VERSION as usize,
@@ -125,6 +130,10 @@ mod tests {
                 .push(Effect::new(kind, start, start + 1000));
         }
         seq.rows.push(group_row);
+        seq.rows.push(Row::new(Target::Region {
+            prop: PropId::new(),
+            region: pf_model::RegionId::new(),
+        }));
         seq
     }
 
@@ -140,7 +149,7 @@ mod tests {
     fn the_file_format_is_readable_json() {
         let text = sequence_to_json(&sample()).unwrap();
         let json: Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(json["schemaVersion"], 1);
+        assert_eq!(json["schemaVersion"], CURRENT_SCHEMA_VERSION);
         assert_eq!(json["frameMs"], 50);
         let chase = &json["rows"][0]["layers"][0]["effects"][0];
         assert_eq!(chase["params"]["kind"], "chase");
@@ -152,6 +161,7 @@ mod tests {
         assert_eq!(chase["blend"], "add");
         assert_eq!(chase["fadeInMs"], 250);
         assert!(json["rows"][1]["target"]["group"].is_string());
+        assert!(json["rows"][2]["target"]["region"]["region"].is_string());
     }
 
     #[test]

@@ -9,7 +9,7 @@
 //!
 //! so none of them can drift apart.
 
-use crate::{EffectKind, EffectParams};
+use crate::{EffectKind, EffectParams, MAX_TEXT_LEN, TimingTrackId};
 use serde::Serialize;
 
 /// One choice in a list setting: the JSON value and the name people see.
@@ -39,6 +39,10 @@ pub enum SettingRange {
     Bool,
     /// One of a list.
     Choice(&'static [ChoiceOption]),
+    /// One of the target prop's faces, by name (blank: its first face).
+    Face,
+    /// One of the sequence's timing tracks (or none).
+    TimingTrack,
 }
 
 /// One setting of one effect kind.
@@ -61,7 +65,7 @@ impl SettingSpec {
 }
 
 /// A settings field type: knows how to clamp itself into its range.
-pub(crate) trait SettingField: Copy {
+pub(crate) trait SettingField: Sized {
     /// Pulls the value into `range`; NaN becomes `default`.
     fn sanitize(&mut self, range: &SettingRange, default: Self);
     /// Why the value is outside `range`, if it is (e.g. "is 70; use 0 to 50").
@@ -111,6 +115,28 @@ impl SettingField for u32 {
 }
 
 impl SettingField for bool {
+    fn sanitize(&mut self, _range: &SettingRange, _default: Self) {}
+
+    fn problem(&self, _range: &SettingRange) -> Option<String> {
+        None
+    }
+}
+
+/// A name (a face's): at most [`MAX_TEXT_LEN`] characters.
+impl SettingField for String {
+    fn sanitize(&mut self, _range: &SettingRange, _default: Self) {
+        if self.chars().count() > MAX_TEXT_LEN {
+            *self = self.chars().take(MAX_TEXT_LEN).collect();
+        }
+    }
+
+    fn problem(&self, _range: &SettingRange) -> Option<String> {
+        (self.chars().count() > MAX_TEXT_LEN).then(|| format!("is longer than {MAX_TEXT_LEN} characters"))
+    }
+}
+
+/// A timing track: any id (one that isn't in the sequence is reported by validation).
+impl SettingField for Option<TimingTrackId> {
     fn sanitize(&mut self, _range: &SettingRange, _default: Self) {}
 
     fn problem(&self, _range: &SettingRange) -> Option<String> {
@@ -180,12 +206,18 @@ macro_rules! range {
     ($ty:ty, choice) => {
         $crate::settings::SettingRange::Choice(<$ty as $crate::settings::ChoiceSetting>::OPTIONS)
     };
+    ($ty:ty, face) => {
+        $crate::settings::SettingRange::Face
+    };
+    ($ty:ty, timing_track) => {
+        $crate::settings::SettingRange::TimingTrack
+    };
 }
 pub(crate) use range;
 
 /// Declares an effect's settings struct from one table: each field's type, default, JSON key,
 /// label, and range. Generates the struct (serde, missing settings take defaults), `Default`,
-/// `SETTINGS`, `sanitize`, and `setting_problem`.
+/// `SETTINGS`, `sanitize`, and `setting_problem`. Add `#[derive(Copy)]` when every field is.
 macro_rules! effect_params {
     (
         $(#[$meta:meta])*
@@ -197,7 +229,7 @@ macro_rules! effect_params {
         }
     ) => {
         $(#[$meta])*
-        #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+        #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
         #[serde(default, rename_all = "camelCase")]
         pub struct $name {
             $( $(#[doc = $doc])* pub $field: $ty, )*
@@ -300,6 +332,14 @@ pub enum SettingValue {
         default: String,
         options: Vec<ChoiceOption>,
     },
+    /// A face of the row's prop, by name ("" = its first face).
+    Face {
+        default: String,
+    },
+    /// A timing track of the sequence, by id (`null` = none).
+    TimingTrack {
+        default: Option<TimingTrackId>,
+    },
 }
 
 /// Every effect kind, in menu order, with its settings, ranges, and defaults.
@@ -335,6 +375,12 @@ fn effect_info(kind: EffectKind) -> EffectInfo {
                 SettingRange::Choice(options) => SettingValue::Choice {
                     default: default.as_str().expect("a choice default").to_string(),
                     options: options.to_vec(),
+                },
+                SettingRange::Face => SettingValue::Face {
+                    default: default.as_str().expect("a face name default").to_string(),
+                },
+                SettingRange::TimingTrack => SettingValue::TimingTrack {
+                    default: serde_json::from_value(default.clone()).expect("a timing track default"),
                 },
             };
             SettingInfo {
@@ -390,6 +436,8 @@ mod tests {
                         assert!(min < max && (min..=max).contains(&v), "{kind:?}.{}", spec.key);
                     }
                     SettingRange::Bool => assert!(value.is_boolean(), "{kind:?}.{}", spec.key),
+                    SettingRange::Face => assert!(value.is_string(), "{kind:?}.{}", spec.key),
+                    SettingRange::TimingTrack => assert!(value.is_null(), "{kind:?}.{}", spec.key),
                     SettingRange::Choice(options) => {
                         assert!(
                             options.iter().any(|o| value.as_str() == Some(o.value)),
@@ -447,6 +495,29 @@ mod tests {
             "Off has no settings"
         );
         assert!(catalog.iter().all(|e| !e.description.is_empty()));
+        let faces = json
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["kind"] == "faces")
+            .unwrap();
+        assert_eq!(faces["settings"][0]["type"], "face");
+        assert_eq!(faces["settings"][0]["default"], "");
+        assert_eq!(faces["settings"][1]["type"], "timingTrack");
+        assert_eq!(faces["settings"][1]["default"], Value::Null);
+        assert_eq!(faces["settings"][2]["default"], "auto");
+    }
+
+    #[test]
+    fn face_names_are_limited_like_other_text() {
+        let mut params = EffectParams::Faces(crate::FacesParams {
+            face: "x".repeat(MAX_TEXT_LEN + 1),
+            ..Default::default()
+        });
+        let problem = params.setting_problem().unwrap();
+        assert!(problem.starts_with("Face is longer than"), "{problem}");
+        params.sanitize();
+        assert_eq!(params.setting_problem(), None);
     }
 
     #[test]

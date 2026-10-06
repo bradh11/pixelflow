@@ -11,15 +11,18 @@ mod settings;
 mod xsq;
 
 pub use settings::{ParsedPalette, Settings, leading_number, parse_palette, unxml_safe};
-pub use xsq::{ElementKind, MAX_XSQ_BYTES, XsqEffect, XsqElement, XsqFile, XsqHead, XsqLayer, parse_xsq};
+pub use xsq::{
+    ElementKind, MAX_XSQ_BYTES, XsqEffect, XsqElement, XsqFile, XsqHead, XsqLayer, XsqSubmodelLayer,
+    parse_xsq,
+};
 
 use crate::XlightsError;
 use effects::{Fidelity, Tally};
 use pf_model::Show;
 use pf_sequence::{
-    Effect, EffectId, Layer, MAX_DURATION_MS, MAX_EFFECTS, MAX_FRAME_MS, MAX_LAYERS_PER_ROW, MAX_MARKS,
-    MAX_ROWS, MAX_TEXT_LEN, MAX_TIMING_TRACKS, MIN_FRAME_MS, Mark, Row, RowId, Sequence, Target, TimingKind,
-    TimingTrack,
+    Effect, EffectId, EffectParams, Layer, MAX_DURATION_MS, MAX_EFFECTS, MAX_FRAME_MS, MAX_LAYERS_PER_ROW,
+    MAX_MARKS, MAX_ROWS, MAX_TEXT_LEN, MAX_TIMING_TRACKS, MIN_FRAME_MS, Mark, Row, RowId, Sequence, Target,
+    TimingKind, TimingTrack, TimingTrackId,
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -43,8 +46,8 @@ pub struct SequenceImportSummary {
     pub approximate: usize,
     /// No PixelFlow equivalent yet: kept as a dim fill in the effect's first color.
     pub placeholders: usize,
-    /// xLights effects not imported (models not in the show, submodels, outside the sequence,
-    /// limits). Timing marks are counted in `marks_skipped`.
+    /// xLights effects not imported (models or submodels not in the show, strands and nodes,
+    /// outside the sequence, limits). Timing marks are counted in `marks_skipped`.
     pub skipped: usize,
     pub timing_tracks: usize,
     pub marks: usize,
@@ -156,6 +159,29 @@ impl Drops {
     }
 }
 
+/// The face a Faces effect names, among the row's faces (`faces`, as PixelFlow named them).
+/// "Default" (blank here) is the model's first face in name order, as xLights keeps its faces in
+/// a sorted map. A face that clashed with a submodel's name was imported as "<name> (face)"; an
+/// effect naming the original gets that face.
+fn face_named(wanted: &str, faces: &[&str]) -> String {
+    const RENAMED: &str = " (face)";
+    let wanted = wanted.trim();
+    if wanted.is_empty() {
+        return faces
+            .iter()
+            .min_by_key(|f| f.strip_suffix(RENAMED).unwrap_or(f))
+            .map_or_else(String::new, |f| f.to_string());
+    }
+    if faces.iter().any(|f| f.trim().eq_ignore_ascii_case(wanted)) {
+        return wanted.to_string();
+    }
+    let renamed = format!("{wanted}{RENAMED}");
+    faces
+        .iter()
+        .find(|f| f.trim().eq_ignore_ascii_case(&renamed))
+        .map_or_else(|| wanted.to_string(), |f| f.to_string())
+}
+
 /// Builds the import while reading the file.
 struct Builder<'a> {
     file: &'a XsqFile,
@@ -173,6 +199,12 @@ struct Builder<'a> {
     random: usize,
     over_effect_limit: usize,
     bad_refs: usize,
+    /// The track a Faces effect sings to, by xLights timing track name: its phonemes when it
+    /// has them, else its words, else its lyrics. A track with none of those isn't here: xLights
+    /// keeps the mouth at rest on it.
+    face_tracks: HashMap<String, TimingTrackId>,
+    /// Every timing track's xLights name.
+    timing_tracks: HashSet<String>,
 }
 
 impl<'a> Builder<'a> {
@@ -258,7 +290,8 @@ impl<'a> Builder<'a> {
         Some((start, end.min(self.duration_ms)))
     }
 
-    fn effect(&mut self, x: &XsqEffect) -> Option<Effect> {
+    /// One effect, on a row whose props have the faces `faces` (by name, in show order).
+    fn effect(&mut self, x: &XsqEffect, faces: &[&str]) -> Option<Effect> {
         let name = x.name.trim();
         if name == "Random" {
             self.random += 1;
@@ -272,12 +305,32 @@ impl<'a> Builder<'a> {
         let settings = self.settings_for(x);
         let palette = self.palette_for(x);
         let frame_ms = self.clock.frame_ms as u32;
-        let Some(translated) = effects::translate(name, &settings, &palette, end_ms - start_ms, frame_ms)
+        let Some(mut translated) = effects::translate(name, &settings, &palette, end_ms - start_ms, frame_ms)
         else {
             self.tally.record(name, &Fidelity::Skipped);
             self.summary.skipped += 1;
             return None;
         };
+        if let EffectParams::Faces(params) = &mut translated.params {
+            params.face = face_named(&params.face, faces);
+            let wanted = unxml_safe(settings.text("E_CHOICE_Faces_TimingTrack", "").trim());
+            params.timing_track = self.face_tracks.get(wanted.as_str()).copied();
+            if params.timing_track.is_none() && !wanted.is_empty() {
+                let missing = if self.timing_tracks.contains(&wanted) {
+                    "its timing track has no lyrics, so the mouth stays at rest, as in xLights"
+                } else {
+                    "its timing track isn't in the sequence, so the mouth stays at rest"
+                }
+                .to_string();
+                translated.fidelity = match translated.fidelity {
+                    Fidelity::Approximate(mut reasons) => {
+                        reasons.push(missing);
+                        Fidelity::Approximate(reasons)
+                    }
+                    _ => Fidelity::Approximate(vec![missing]),
+                };
+            }
+        }
         self.tally.record(name, &translated.fidelity);
         self.summary.effects += 1;
         match translated.fidelity {
@@ -312,6 +365,38 @@ impl<'a> Builder<'a> {
             marks.push(Mark::new(start, end, label));
         }
         marks
+    }
+}
+
+/// Adds a row of `layers` on `target` to the sequence, or (the same model twice) adds them
+/// beneath the existing row's layers, as xLights does.
+fn place_row(
+    sequence: &mut Sequence,
+    row_index: &mut HashMap<Target, usize>,
+    rows_lost: &mut usize,
+    summary: &mut SequenceImportSummary,
+    target: Target,
+    layers: Vec<Layer>,
+) {
+    match row_index.get(&target) {
+        Some(&at) => {
+            let row: &mut Row = &mut sequence.rows[at];
+            let room = MAX_LAYERS_PER_ROW.saturating_sub(row.layers.len());
+            let extra: Vec<Layer> = layers.into_iter().rev().take(room).rev().collect();
+            row.layers.splice(0..0, extra);
+        }
+        None if sequence.rows.len() >= MAX_ROWS => {
+            *rows_lost += 1;
+            summary.skipped += layers.iter().map(|l| l.effects.len()).sum::<usize>();
+        }
+        None => {
+            row_index.insert(target, sequence.rows.len());
+            sequence.rows.push(Row {
+                id: RowId::new(),
+                target,
+                layers,
+            });
+        }
     }
 }
 
@@ -464,6 +549,8 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
         random: 0,
         over_effect_limit: 0,
         bad_refs: 0,
+        face_tracks: HashMap::new(),
+        timing_tracks: HashSet::new(),
     };
 
     let mut sequence = Sequence::new(fallback_name, duration_ms);
@@ -482,6 +569,7 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
     for element in file.elements.iter().filter(|e| e.kind == ElementKind::Timing) {
         let name = unxml_safe(&element.name);
         timing_names.insert(&element.name);
+        b.timing_tracks.insert(name.clone());
         let mut tracks = Vec::new();
         let interval = element
             .fixed
@@ -518,6 +606,16 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
                 marks_left -= marks.len();
                 tracks.push(TimingTrack::new(track_name, kind, marks));
             }
+        }
+        let sings = [TimingKind::Phonemes, TimingKind::Words, TimingKind::Lyrics]
+            .iter()
+            .find_map(|kind| tracks.iter().find(|t| t.kind == *kind))
+            .map(|t| t.id);
+        let room = MAX_TIMING_TRACKS.saturating_sub(sequence.timing_tracks.len());
+        if let Some(id) = sings
+            && tracks.iter().take(room).any(|t| t.id == id)
+        {
+            b.face_tracks.insert(name.clone(), id);
         }
         for mut track in tracks {
             if sequence.timing_tracks.len() >= MAX_TIMING_TRACKS {
@@ -556,7 +654,8 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
     let mut unmatched = Named::default();
     let mut unmatched_empty = 0;
     let mut shadowed = Named::default();
-    let mut submodels: Vec<(String, usize)> = Vec::new();
+    let mut strands: Vec<(String, usize)> = Vec::new();
+    let mut missing_submodels = Named::default();
     let mut rows_lost = 0;
     let mut layers_lost = 0;
     let mut row_index: HashMap<Target, usize> = HashMap::new();
@@ -564,24 +663,25 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
     let mut other_effects = 0;
     for element in &file.elements {
         let count: usize = element.layers.iter().map(|l| l.effects.len()).sum();
+        let below = element.sub_effects + element.submodel_effects();
         match element.kind {
             ElementKind::Timing => continue,
             ElementKind::Other => {
                 other_elements += 1;
-                other_effects += count + element.sub_effects;
-                b.summary.skipped += count + element.sub_effects;
+                other_effects += count + below;
+                b.summary.skipped += count + below;
                 continue;
             }
             ElementKind::Model => {}
         }
         if timing_names.contains(element.name.as_str()) {
             // xLights reads such an element as the timing track of the same name.
-            shadowed.add(unxml_safe(&element.name), count + element.sub_effects);
-            b.summary.skipped += count + element.sub_effects;
+            shadowed.add(unxml_safe(&element.name), count + below);
+            b.summary.skipped += count + below;
             continue;
         }
         let Some(target) = b.target(&element.name) else {
-            let total = count + element.sub_effects;
+            let total = count + below;
             let name = unxml_safe(&element.name);
             if total == 0 && !unmatched.contains(&name) {
                 unmatched_empty += 1;
@@ -592,44 +692,99 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
             continue;
         };
         if element.sub_effects > 0 {
-            submodels.push((unxml_safe(&element.name), element.sub_effects));
+            strands.push((unxml_safe(&element.name), element.sub_effects));
             b.summary.skipped += element.sub_effects;
         }
-        // xLights' first layer is drawn on top; PixelFlow draws its last layer on top.
-        let mut layers: Vec<Layer> = Vec::with_capacity(element.layers.len().max(1));
-        for (i, x_layer) in element.layers.iter().enumerate().rev() {
-            if i >= MAX_LAYERS_PER_ROW {
-                layers_lost += x_layer.effects.len();
-                b.summary.skipped += x_layer.effects.len();
-                continue;
+        // The model's row, then one for each of its submodels (drawn over the model, as in
+        // xLights), in the order they first appear.
+        let mut rows: Vec<(Target, Vec<Vec<&XsqEffect>>)> = vec![(
+            target,
+            element
+                .layers
+                .iter()
+                .map(|l| l.effects.iter().collect())
+                .collect(),
+        )];
+        let mut names: Vec<&str> = Vec::new();
+        for sub in &element.submodels {
+            if !names.contains(&sub.name.as_str()) {
+                names.push(&sub.name);
             }
-            let effects = x_layer.effects.iter().filter_map(|x| b.effect(x)).collect();
-            layers.push(Layer { effects });
         }
-        if layers.is_empty() {
-            layers.push(Layer::default());
-        }
-        match row_index.get(&target) {
-            // The same model twice: xLights adds the second one's layers beneath the first's.
-            Some(&at) => {
-                let row: &mut Row = &mut sequence.rows[at];
-                let room = MAX_LAYERS_PER_ROW.saturating_sub(row.layers.len());
-                let extra: Vec<Layer> = layers.into_iter().rev().take(room).rev().collect();
-                row.layers.splice(0..0, extra);
-            }
-            None if sequence.rows.len() >= MAX_ROWS => {
-                rows_lost += 1;
-                let lost: usize = layers.iter().map(|l| l.effects.len()).sum();
+        for name in names {
+            let subs: Vec<&XsqSubmodelLayer> = element.submodels.iter().filter(|s| s.name == name).collect();
+            let region = target.prop().and_then(|prop| {
+                let wanted = unxml_safe(name);
+                let found = show
+                    .prop(prop)?
+                    .regions
+                    .iter()
+                    .find(|r| r.is_submodel() && (r.name == name || r.name == wanted))?;
+                Some(Target::Region {
+                    prop,
+                    region: found.id,
+                })
+            });
+            let Some(region) = region else {
+                let lost: usize = subs.iter().map(|s| s.effects.len()).sum();
+                missing_submodels.add(
+                    format!("{}/{}", unxml_safe(&element.name), unxml_safe(name)),
+                    lost,
+                );
                 b.summary.skipped += lost;
+                continue;
+            };
+            // Layer numbers as xLights numbers them (missing ones are empty layers; the same
+            // number twice is one layer).
+            let mut x_layers: Vec<Vec<&XsqEffect>> = Vec::new();
+            for sub in subs {
+                if sub.layer >= MAX_LAYERS_PER_ROW {
+                    layers_lost += sub.effects.len();
+                    b.summary.skipped += sub.effects.len();
+                    continue;
+                }
+                if x_layers.len() <= sub.layer {
+                    x_layers.resize(sub.layer + 1, Vec::new());
+                }
+                x_layers[sub.layer].extend(&sub.effects);
             }
-            None => {
-                row_index.insert(target, sequence.rows.len());
-                sequence.rows.push(Row {
-                    id: RowId::new(),
-                    target,
-                    layers,
-                });
+            rows.push((region, x_layers));
+        }
+        for (target, x_layers) in rows {
+            // The faces a Faces effect on this row can name (a model's, or its submodel's model's).
+            let faces: Vec<&str> = target
+                .prop()
+                .and_then(|id| show.prop(id))
+                .map(|prop| {
+                    prop.regions
+                        .iter()
+                        .filter(|r| matches!(r.kind, pf_model::RegionKind::Face(_)))
+                        .map(|r| r.name.as_str())
+                        .collect()
+                })
+                .unwrap_or_default();
+            // xLights' first layer is drawn on top; PixelFlow draws its last layer on top.
+            let mut layers: Vec<Layer> = Vec::with_capacity(x_layers.len().max(1));
+            for (i, x_layer) in x_layers.iter().enumerate().rev() {
+                if i >= MAX_LAYERS_PER_ROW {
+                    layers_lost += x_layer.len();
+                    b.summary.skipped += x_layer.len();
+                    continue;
+                }
+                let effects = x_layer.iter().filter_map(|x| b.effect(x, &faces)).collect();
+                layers.push(Layer { effects });
             }
+            if layers.is_empty() {
+                layers.push(Layer::default());
+            }
+            place_row(
+                &mut sequence,
+                &mut row_index,
+                &mut rows_lost,
+                &mut b.summary,
+                target,
+                layers,
+            );
         }
     }
     b.summary.rows = sequence.rows.len();
@@ -677,13 +832,19 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
             plural(other_effects, "effect")
         ));
     }
-    if !submodels.is_empty() {
-        let names: Vec<String> = submodels
+    if !missing_submodels.is_empty() {
+        b.notes.push(format!(
+            "These submodels aren't in the show, so their effects weren't imported: {}.",
+            missing_submodels.list("effect")
+        ));
+    }
+    if !strands.is_empty() {
+        let names: Vec<String> = strands
             .iter()
             .map(|(n, c)| format!("{n} ({})", plural(*c, "effect")))
             .collect();
         b.notes.push(format!(
-            "PixelFlow doesn't import effects on submodels, strands, or single nodes yet; these weren't imported: {}.",
+            "PixelFlow doesn't import effects on strands or single nodes yet; these weren't imported: {}.",
             list(&names)
         ));
     }

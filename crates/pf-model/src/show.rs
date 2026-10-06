@@ -1,6 +1,6 @@
 //! The top-level show document.
 
-use crate::{Controller, ControllerId, Group, Prop, PropId, SequenceId, Vec3};
+use crate::{Controller, ControllerId, Group, Prop, PropId, Region, RegionId, SequenceId, Vec3};
 use serde::{Deserialize, Serialize};
 
 /// Schema version written by this build.
@@ -11,8 +11,10 @@ use serde::{Deserialize, Serialize};
 ///
 /// History: 1 = initial format; 2 = adds the `falcon` controller adapter; 3 = adds a
 /// controller's `sequenceChannels`; 4 = adds the show's `sequences`; 5 = adds the show's
-/// `background` photo; 6 = adds the show's `houseModel`.
-pub const CURRENT_SCHEMA_VERSION: u32 = 6;
+/// `background` photo; 6 = adds the show's `houseModel`; 7 = submodels and faces: regions get
+/// an `id`, `nodes` regions become `lines` with a `layout` and `buffer` style, `subBuffer`
+/// regions, face colors, and a group's `submodels`.
+pub const CURRENT_SCHEMA_VERSION: u32 = 7;
 
 /// Show-wide settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -213,6 +215,12 @@ impl Show {
 
     pub fn prop(&self, id: PropId) -> Option<&Prop> {
         self.props.iter().find(|p| p.id == id)
+    }
+
+    /// A prop's region (submodel or face), with the prop.
+    pub fn region(&self, prop: PropId, region: RegionId) -> Option<(&Prop, &Region)> {
+        let prop = self.prop(prop)?;
+        Some((prop, prop.region(region)?))
     }
 
     pub fn controller(&self, id: ControllerId) -> Option<&Controller> {

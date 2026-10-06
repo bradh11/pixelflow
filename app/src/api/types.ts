@@ -50,10 +50,52 @@ export interface NodeRange {
   end: number;
 }
 
-export interface Region {
-  name: string;
-  kind: "nodes" | "face";
-  [key: string]: unknown;
+/** A run of pixels on a submodel line: nodes `first` to `last` (0-based, both included); `first > last` runs backwards. */
+export interface NodeRun {
+  first: number;
+  last: number;
+}
+
+/** One line of a submodel: runs of pixels, with `null` for an empty spot. */
+export type SubmodelLine = (NodeRun | null)[];
+
+/** Each line is a row (first at the bottom) or a column (first on the left). */
+export type LineLayout = "horizontal" | "vertical";
+
+/** How effects see a submodel's pixels: lines side by side, where they really are, or all on top of each other. */
+export type BufferStyle = "default" | "keepXY" | "stackedStrands";
+
+/** Mouth shapes (Preston Blair phonemes), as written in show files. */
+export type Phoneme = "AI" | "E" | "ETC" | "FV" | "L" | "MBP" | "O" | "REST" | "U" | "WQ";
+
+/** Colors a face was made with; a part without one is white. */
+export interface FaceColors {
+  mouths?: Partial<Record<Phoneme, string>>;
+  eyesOpen?: string;
+  eyesClosed?: string;
+  outline?: string;
+}
+
+/** Which pixels make each part of a singing face. */
+export interface FaceDefinition {
+  mouths: Partial<Record<Phoneme, NodeRange[]>>;
+  eyesOpen: NodeRange[];
+  eyesClosed: NodeRange[];
+  outline: NodeRange[];
+  colors?: FaceColors;
+}
+
+/** A named part of a prop: a submodel (lines of pixels, or a rectangle of the prop) or a singing face. */
+export type Region = { id: Uuid; name: string } & (
+  | { kind: "nodes"; lines: SubmodelLine[]; layout: LineLayout; buffer: BufferStyle }
+  | { kind: "subBuffer"; x1: number; y1: number; x2: number; y2: number }
+  | ({ kind: "face" } & FaceDefinition)
+);
+
+/** A submodel as a group member. */
+export interface RegionRef {
+  prop: Uuid;
+  region: Uuid;
 }
 
 export interface Prop {
@@ -66,10 +108,14 @@ export interface Prop {
   tags: string[];
 }
 
+/** A group member: a whole prop (its id) or one of a prop's submodels. */
+export type GroupMember = Uuid | RegionRef;
+
+/** A named, ordered set of props and submodels; effects that run along the group follow this order. */
 export interface Group {
   id: Uuid;
   name: string;
-  members: Uuid[];
+  members: GroupMember[];
 }
 
 export interface PortSlot {

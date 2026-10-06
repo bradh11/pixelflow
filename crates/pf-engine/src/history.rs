@@ -1,6 +1,6 @@
 //! Undo/redo as a bounded stack of show snapshots.
 
-use pf_model::{Generator, ShapeSource, Show};
+use pf_model::{Generator, GroupMember, RegionKind, ShapeSource, Show};
 
 /// A rough in-memory size of a show, used to bound undo memory (not an exact measure).
 pub fn estimated_bytes(show: &Show) -> usize {
@@ -13,7 +13,18 @@ pub fn estimated_bytes(show: &Show) -> usize {
                 ShapeSource::Generator(Generator::CustomGrid { cells, .. }) => 4 * cells.len(),
                 ShapeSource::Generator(_) => 0,
             };
-            256 + shape + 64 * prop.regions.len()
+            // What a region holds in memory: its runs and gaps (a run of any length is one
+            // entry), not the pixels they cover.
+            let regions: usize = prop
+                .regions
+                .iter()
+                .map(|r| match &r.kind {
+                    RegionKind::Nodes { lines, .. } => lines.iter().map(|l| 24 + 12 * l.len()).sum(),
+                    RegionKind::SubBuffer { .. } => 0,
+                    RegionKind::Face(face) => 8 * face.ranges().count(),
+                })
+                .sum();
+            256 + shape + 64 * prop.regions.len() + regions
         })
         .sum();
     let controllers: usize = show
@@ -21,7 +32,19 @@ pub fn estimated_bytes(show: &Show) -> usize {
         .iter()
         .map(|c| 128 + c.ports.iter().map(|p| 32 * p.slots.len()).sum::<usize>())
         .sum();
-    let groups: usize = show.groups.iter().map(|g| 16 * g.members.len()).sum();
+    let groups: usize = show
+        .groups
+        .iter()
+        .map(|g| {
+            g.members
+                .iter()
+                .map(|m| match m {
+                    GroupMember::Prop(_) => 16,
+                    GroupMember::Region(_) => 32,
+                })
+                .sum::<usize>()
+        })
+        .sum();
     props + controllers + groups
 }
 
@@ -148,6 +171,27 @@ mod tests {
             },
         ));
         show
+    }
+
+    #[test]
+    fn a_long_submodel_run_costs_one_entry_not_one_per_pixel() {
+        let line = |len: u32| {
+            let mut show = show("s");
+            let mut prop = pf_model::Prop::new(
+                "Line",
+                ShapeSource::Generator(Generator::Line {
+                    nodes: 100_000,
+                    length: 1.0,
+                }),
+            );
+            prop.regions.push(pf_model::Region::nodes(
+                "All",
+                vec![vec![Some(pf_model::NodeRun::new(0, len - 1))]],
+            ));
+            show.props.push(prop);
+            estimated_bytes(&show)
+        };
+        assert_eq!(line(1), line(100_000));
     }
 
     #[test]

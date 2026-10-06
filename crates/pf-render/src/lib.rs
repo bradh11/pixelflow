@@ -11,10 +11,11 @@
 mod color;
 mod effects;
 pub mod export;
+pub mod faces;
 mod geometry;
 mod render;
 
 pub use color::{Colors, Rgba};
-pub use effects::{Canvas, EffectTime, MAX_METEORS, Shade, Shader, shade_pixel};
+pub use effects::{Canvas, EffectTime, Faces, MAX_METEORS, Shade, Shader, shade_pixel};
 pub use geometry::{Pixel, PixelBuffer, SceneGeometry};
 pub use render::Renderer;

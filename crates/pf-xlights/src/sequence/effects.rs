@@ -6,9 +6,9 @@
 use super::settings::{ParsedPalette, Settings};
 use super::{list, plural};
 use pf_sequence::{
-    Axis, BarsParams, Blend, ChaseParams, ColorWashParams, Direction, EffectParams, FireParams, Gradient,
-    MeteorDirection, MeteorsParams, OffParams, OnParams, Palette, Rgb, RippleParams, ShimmerParams,
-    SpiralParams, StrobeParams, TwinkleParams, WaveParams,
+    Axis, BarsParams, Blend, ChaseParams, ColorWashParams, Direction, EffectParams, FaceColorSource,
+    FaceEyes, FacesParams, FireParams, Gradient, MeteorDirection, MeteorsParams, OffParams, OnParams,
+    Palette, Rgb, RippleParams, ShimmerParams, SpiralParams, StrobeParams, TwinkleParams, WaveParams,
 };
 use std::collections::BTreeMap;
 
@@ -523,6 +523,46 @@ fn ripple(r: &Reader, duration_ms: u64, diff: &mut Diff) -> EffectParams {
     })
 }
 
+/// A singing face (xLights' `FacesEffect` on a node-range face). The timing track is looked up
+/// by name when the effect is placed (see `Builder::effect`).
+fn faces(r: &Reader, diff: &mut Diff) -> EffectParams {
+    let face = r.choice("Faces_FaceDefinition", "Default").trim();
+    // "Default" (or nothing) is the model's first face; which one that is depends on the row,
+    // so it's worked out where the effect is placed (`face_named`).
+    let face = if face == "Default" { "" } else { face };
+    let eyes = match r.choice("Faces_Eyes", "Auto") {
+        "Open" => FaceEyes::Open,
+        "Closed" => FaceEyes::Closed,
+        "Auto" => FaceEyes::Auto,
+        other => {
+            diff.add(format!("eyes '{other}' shown closed"));
+            FaceEyes::Closed
+        }
+    };
+    if r.choice("Faces_EyeBlinkFrequency", "Normal") != "Normal"
+        || r.choice("Faces_EyeBlinkDuration", "Normal") != "Normal"
+    {
+        diff.add("blinks at PixelFlow's usual pace");
+    }
+    if r.choice("Faces_TimingTrack", "").trim().is_empty() && !r.choice("Faces_Phoneme", "").trim().is_empty()
+    {
+        diff.add("a fixed mouth shape shown at rest");
+    }
+    if r.check("Faces_SuppressWhenNotSinging") || r.check("Faces_Fade") {
+        diff.add("shown while not singing too");
+    }
+    if !r.choice("Faces_UseState", "").trim().is_empty() {
+        diff.add("states on the outline not shown");
+    }
+    EffectParams::Faces(FacesParams {
+        face: face.to_string(),
+        timing_track: None,
+        eyes,
+        colors: FaceColorSource::Face,
+        outline: r.check("Faces_Outline"),
+    })
+}
+
 /// The effect-specific translation of the xLights effect `name`.
 fn effect_params(
     name: &str,
@@ -554,6 +594,7 @@ fn effect_params(
         "fire" => fire(&r, diff),
         "meteors" => meteors(&r, diff),
         "ripple" => ripple(&r, duration_ms, diff),
+        "faces" => faces(&r, diff),
         // No direct equivalent: the closest PixelFlow effect, with its default settings.
         "plasma" | "butterfly" => closest(
             "a color wash",
@@ -823,9 +864,41 @@ mod tests {
     }
 
     #[test]
+    fn faces_keep_their_face_eyes_and_outline() {
+        let settings = Settings::parse(
+            "E_CHECKBOX_Faces_Outline=1,E_CHOICE_Faces_Eyes=(off),E_CHOICE_Faces_FaceDefinition=Elf,E_CHOICE_Faces_Phoneme=AI",
+        );
+        let t = translate("Faces", &settings, &palette(&[Rgb::RED]), 1000, 25).unwrap();
+        assert_eq!(
+            t.params,
+            EffectParams::Faces(FacesParams {
+                face: "Elf".into(),
+                timing_track: None,
+                eyes: FaceEyes::Closed,
+                colors: FaceColorSource::Face,
+                outline: true,
+            })
+        );
+        assert_eq!(
+            t.fidelity,
+            Fidelity::Approximate(vec![
+                "eyes '(off)' shown closed".into(),
+                "a fixed mouth shape shown at rest".into()
+            ])
+        );
+        let plain = translate("Faces", &Settings::default(), &palette(&[]), 1000, 25).unwrap();
+        assert_eq!(
+            plain.params,
+            EffectParams::Faces(FacesParams::default()),
+            "Default: the first face"
+        );
+        assert_eq!(plain.fidelity, Fidelity::Exact);
+    }
+
+    #[test]
     fn unknown_effects_become_dim_placeholders_in_their_first_color() {
         let t = translate(
-            "Faces",
+            "Text",
             &Settings::default(),
             &palette(&[Rgb::RED, Rgb::BLUE]),
             1000,

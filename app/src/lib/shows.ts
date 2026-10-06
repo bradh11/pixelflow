@@ -1,4 +1,9 @@
-import type { Controller, Port, Prop, ShapeSource, Show } from "../api/types";
+import type { Controller, GroupMember, Port, Prop, ShapeSource, Show } from "../api/types";
+
+/** The prop a group member is, or is part of. */
+export function memberProp(member: GroupMember): string {
+  return typeof member === "string" ? member : member.prop;
+}
 
 export type PropKind = "line" | "arch" | "circle" | "matrix" | "tree" | "star";
 

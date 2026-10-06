@@ -5,7 +5,7 @@ use crate::effects::{Canvas, EffectTime, Shade, Shader, ShaderVisitor};
 use crate::geometry::{PixelBuffer, SceneGeometry};
 use pf_mapping::ChannelMap;
 use pf_model::Show;
-use pf_sequence::{Blend, Effect, Sequence, Target};
+use pf_sequence::{Blend, Effect, EffectParams, Sequence, Target};
 use std::collections::HashMap;
 
 /// Renders sequences for one show and channel map. Pixel positions are worked out once, when the
@@ -15,6 +15,11 @@ use std::collections::HashMap;
 pub struct Renderer {
     geometry: SceneGeometry,
     buffers: HashMap<Target, PixelBuffer>,
+    /// Where each target's faces sit in its buffer (built the first time a Faces effect draws on
+    /// the target, like `buffers`).
+    faces: HashMap<Target, Vec<crate::faces::FaceProp>>,
+    /// The Faces effect's lit pixels for one frame, reused from frame to frame.
+    face_lit: Vec<Option<Rgba>>,
     /// The frame being built, one entry per show pixel.
     show_acc: Vec<Acc>,
     /// One row being built.
@@ -31,6 +36,8 @@ impl Renderer {
             show_acc: vec![Acc::ZERO; geometry.pixel_count()],
             geometry,
             buffers: HashMap::new(),
+            faces: HashMap::new(),
+            face_lit: Vec::new(),
             row_acc: Vec::new(),
         }
     }
@@ -81,7 +88,30 @@ impl Renderer {
                 };
                 // Layers draw bottom (first) to top (last).
                 for effect in active {
-                    draw_effect(effect, t_ms, canvas, buffer, &mut self.row_acc);
+                    let EffectParams::Faces(p) = &effect.params else {
+                        draw_effect(effect, t_ms, canvas, buffer, None, &mut self.row_acc);
+                        continue;
+                    };
+                    let faces = self
+                        .faces
+                        .entry(row.target)
+                        .or_insert_with(|| crate::faces::face_props(&self.geometry, row.target, buffer));
+                    let mut lit = std::mem::take(&mut self.face_lit);
+                    crate::faces::lit_pixels(
+                        p,
+                        effect,
+                        t_ms,
+                        seq,
+                        &self.geometry,
+                        faces,
+                        buffer.len(),
+                        &mut lit,
+                    );
+                    let shader = Shader::Faces(crate::effects::Faces::new(lit));
+                    draw_effect(effect, t_ms, canvas, buffer, Some(&shader), &mut self.row_acc);
+                    if let Shader::Faces(faces) = shader {
+                        self.face_lit = faces.into_lit();
+                    }
                 }
                 for (&global, &top) in buffer.global.iter().zip(&self.row_acc) {
                     if top.a > 0.0
@@ -126,19 +156,34 @@ pub(crate) fn fade_level(effect: &Effect, t_ms: u64) -> f32 {
     level.clamp(0.0, 1.0)
 }
 
-fn draw_effect(effect: &Effect, t_ms: u64, canvas: Canvas, buffer: &PixelBuffer, acc: &mut [Acc]) {
+/// Draws one effect onto a row; `shader` is given when the renderer had to work it out (Faces).
+fn draw_effect(
+    effect: &Effect,
+    t_ms: u64,
+    canvas: Canvas,
+    buffer: &PixelBuffer,
+    shader: Option<&Shader>,
+    acc: &mut [Acc],
+) {
     let fade = fade_level(effect, t_ms);
     if fade <= 0.0 {
         return;
     }
     let time = EffectTime::within(effect.start_ms, effect.end_ms, t_ms);
-    let shader = Shader::new(
-        &effect.params,
-        &time,
-        Colors::new(&effect.palette.colors),
-        effect.id.seed(),
-        canvas,
-    );
+    let made;
+    let shader = match shader {
+        Some(shader) => shader,
+        None => {
+            made = Shader::new(
+                &effect.params,
+                &time,
+                Colors::new(&effect.palette.colors),
+                effect.id.seed(),
+                canvas,
+            );
+            &made
+        }
+    };
     struct Fill<'a> {
         buffer: &'a PixelBuffer,
         acc: &'a mut [Acc],

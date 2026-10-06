@@ -29,7 +29,7 @@ impl From<serde_json::Error> for ModelError {
 type Migration = fn(Value) -> Result<Value, ModelError>;
 
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
-const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6];
+const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7];
 
 /// Version 2 only adds the `falcon` adapter value, so version 1 documents are already valid.
 fn v1_to_v2(doc: Value) -> Result<Value, ModelError> {
@@ -56,6 +56,60 @@ fn v5_to_v6(doc: Value) -> Result<Value, ModelError> {
     Ok(doc)
 }
 
+/// Version 7 reworks regions for submodels: each gets an `id`, and a `nodes` region's `ranges`
+/// become one line of runs (`lines`), drawn as a row with the default buffer style.
+fn v6_to_v7(mut doc: Value) -> Result<Value, ModelError> {
+    let Some(props) = doc.get_mut("props").and_then(Value::as_array_mut) else {
+        return Ok(doc);
+    };
+    for prop in props {
+        let Some(regions) = prop.get_mut("regions").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        for region in regions.iter_mut().filter_map(Value::as_object_mut) {
+            region
+                .entry("id")
+                .or_insert_with(|| Value::from(crate::RegionId::new().to_string()));
+            if region.get("kind").and_then(Value::as_str) != Some("nodes") {
+                continue;
+            }
+            let Some(ranges) = region.remove("ranges") else {
+                continue;
+            };
+            let mut line = Vec::new();
+            for range in ranges.as_array().into_iter().flatten() {
+                let bound = |key: &str| range.get(key).and_then(Value::as_u64);
+                if let (Some(start), Some(end)) = (bound("start"), bound("end"))
+                    && end > start
+                    && end <= u64::from(u32::MAX) + 1
+                {
+                    line.push(serde_json::json!({ "first": start, "last": end - 1 }));
+                }
+            }
+            region.insert("lines".into(), Value::from(vec![Value::from(line)]));
+        }
+    }
+    Ok(doc)
+}
+
+/// Development builds of schema 7 (never released) kept a group's submodels in a separate
+/// `submodels` list, drawn after the whole props. Group members are now one ordered list, so
+/// those submodels join the end of `members`, keeping the order they were drawn in.
+fn join_group_submodels(doc: &mut Value) {
+    let Some(groups) = doc.get_mut("groups").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for group in groups.iter_mut().filter_map(Value::as_object_mut) {
+        let Some(Value::Array(submodels)) = group.remove("submodels") else {
+            continue;
+        };
+        let members = group.entry("members").or_insert_with(|| Value::Array(Vec::new()));
+        if let Some(members) = members.as_array_mut() {
+            members.extend(submodels);
+        }
+    }
+}
+
 const _: () = assert!(
     MIGRATIONS.len() + 1 == CURRENT_SCHEMA_VERSION as usize,
     "every schema version bump needs a migration"
@@ -78,6 +132,7 @@ pub fn show_from_json(text: &str) -> Result<Show, ModelError> {
     for migrate in &MIGRATIONS[(version - 1) as usize..] {
         doc = migrate(doc)?;
     }
+    join_group_submodels(&mut doc);
     doc["schemaVersion"] = Value::from(CURRENT_SCHEMA_VERSION);
     let show: Show = serde_json::from_value(doc)?;
     if let Some(problem) = limits::check_limits(&show).into_iter().next() {
@@ -214,7 +269,7 @@ mod tests {
     fn version_5_files_open_without_a_house_model_and_keep_one_once_set() {
         let v5 = r#"{ "schemaVersion": 5, "name": "Old", "background": null }"#;
         let mut show = show_from_json(v5).unwrap();
-        assert_eq!(show.schema_version, 6);
+        assert_eq!(show.schema_version, CURRENT_SCHEMA_VERSION);
         assert_eq!(show.house_model, None);
         let saved: Value = serde_json::from_str(&show_to_json(&show).unwrap()).unwrap();
         assert!(saved.get("houseModel").is_none(), "no model, nothing written");
@@ -237,6 +292,134 @@ mod tests {
             show_from_json(sparse).unwrap().house_model,
             Some(crate::HouseModel::new("/h.obj"))
         );
+    }
+
+    #[test]
+    fn version_6_regions_become_submodel_lines_with_ids() {
+        let v6 = r#"{ "schemaVersion": 6, "name": "Old", "props": [
+            { "id": "00000000-0000-4000-8000-000000000001", "name": "Arch",
+              "shape": { "source": "generator", "type": "line", "nodes": 20, "length": 1.0 },
+              "regions": [
+                { "name": "Left", "kind": "nodes", "ranges": [ { "start": 0, "end": 5 }, { "start": 9, "end": 9 }, { "start": 10, "end": 12 } ] },
+                { "name": "Face", "kind": "face", "mouths": { "O": [ { "start": 12, "end": 14 } ] } }
+              ] } ] }"#;
+        let show = show_from_json(v6).unwrap();
+        let regions = &show.props[0].regions;
+        assert_eq!(regions.len(), 2);
+        assert_ne!(regions[0].id, regions[1].id);
+        assert_eq!(
+            regions[0].kind,
+            crate::RegionKind::Nodes {
+                lines: vec![vec![
+                    Some(crate::NodeRun::new(0, 4)),
+                    Some(crate::NodeRun::new(10, 11))
+                ]],
+                layout: crate::LineLayout::Horizontal,
+                buffer: crate::BufferStyle::Default,
+            }
+        );
+        let crate::RegionKind::Face(face) = &regions[1].kind else {
+            panic!("a face")
+        };
+        assert_eq!(
+            face.mouths[&crate::Phoneme::O],
+            vec![crate::NodeRange::new(12, 14)]
+        );
+        // The ids are kept once saved.
+        let text = show_to_json(&show).unwrap();
+        assert_eq!(show_from_json(&text).unwrap(), show);
+    }
+
+    #[test]
+    fn groups_keep_props_and_submodels_in_one_ordered_list() {
+        let mut show = sample_show();
+        show.props.push(Prop::new(
+            "Other",
+            ShapeSource::Generator(Generator::Line {
+                nodes: 5,
+                length: 1.0,
+            }),
+        ));
+        let prop = &mut show.props[0];
+        let region = crate::Region::nodes("Left", vec![vec![Some(crate::NodeRun::new(0, 9))]]);
+        let member = crate::RegionRef {
+            prop: prop.id,
+            region: region.id,
+        };
+        prop.regions.push(region);
+        let (arch, other) = (show.props[0].id, show.props[1].id);
+        let mut group = crate::Group::new("Mixed");
+        group.members = vec![arch.into(), member.into(), other.into()];
+        show.groups.push(group);
+        let text = show_to_json(&show).unwrap();
+        let saved: Value = serde_json::from_str(&text).unwrap();
+        // A whole prop is its id, as before; a submodel names its prop and region.
+        assert_eq!(saved["groups"][0]["members"][0], arch.to_string());
+        assert_eq!(
+            saved["groups"][0]["members"][1]["region"],
+            member.region.to_string()
+        );
+        assert_eq!(saved["groups"][0]["members"][2], other.to_string());
+        assert!(!text.contains("\"submodels\""), "{text}");
+        assert_eq!(show_from_json(&text).unwrap(), show);
+    }
+
+    #[test]
+    fn version_6_group_members_read_as_props() {
+        let v6 = r#"{ "schemaVersion": 6, "name": "Old",
+            "groups": [ { "id": "44444444-0000-4000-8000-000000000001", "name": "G",
+              "members": [ "55555555-0000-4000-8000-000000000001", "55555555-0000-4000-8000-000000000002" ] } ] }"#;
+        let show = show_from_json(v6).unwrap();
+        let ids: Vec<String> = show.groups[0]
+            .members
+            .iter()
+            .map(|m| match m {
+                crate::GroupMember::Prop(id) => id.to_string(),
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            ids,
+            [
+                "55555555-0000-4000-8000-000000000001",
+                "55555555-0000-4000-8000-000000000002"
+            ]
+        );
+    }
+
+    /// Development builds of schema 7 kept submodel members in a separate `submodels` list;
+    /// those files still read, with the submodels after the whole props as they were drawn.
+    #[test]
+    fn early_version_7_submodel_lists_join_the_members() {
+        let text = r#"{ "schemaVersion": 7, "name": "Dev",
+            "groups": [ { "id": "44444444-0000-4000-8000-000000000001", "name": "G",
+              "members": [ "55555555-0000-4000-8000-000000000001" ],
+              "submodels": [ { "prop": "55555555-0000-4000-8000-000000000002",
+                               "region": "66666666-0000-4000-8000-000000000001" } ] } ] }"#;
+        let show = show_from_json(text).unwrap();
+        let members = &show.groups[0].members;
+        assert_eq!(members.len(), 2);
+        assert!(matches!(members[0], crate::GroupMember::Prop(_)));
+        assert!(
+            matches!(members[1], crate::GroupMember::Region(r) if r.region.to_string() == "66666666-0000-4000-8000-000000000001")
+        );
+    }
+
+    #[test]
+    fn huge_submodels_are_refused_at_load() {
+        let mut show = sample_show();
+        let everything = vec![Some(crate::NodeRun::new(0, 49)); 300_000];
+        show.props[0]
+            .regions
+            .push(crate::Region::nodes("Big", vec![everything]));
+        let err = check_show(&show).unwrap_err();
+        assert!(matches!(err, ModelError::LimitExceeded(_)), "{err}");
+        assert!(err.to_string().contains("list 15000000 pixels"), "{err}");
+        show.props[0].regions = (0..=crate::MAX_REGIONS_PER_PROP)
+            .map(|i| crate::Region::nodes(format!("R{i}"), vec![]))
+            .collect();
+        let err = check_show(&show).unwrap_err();
+        assert!(err.to_string().contains("at most 1000 per prop"), "{err}");
     }
 
     #[test]

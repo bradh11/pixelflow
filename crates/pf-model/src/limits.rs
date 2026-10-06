@@ -12,6 +12,11 @@ pub const MAX_STAR_POINTS: u32 = 100;
 pub const MAX_NULL_PIXELS: u32 = 1_000;
 /// Most a sequence's lights may be moved against its music, either way, in milliseconds.
 pub const MAX_SEQUENCE_OFFSET_MS: i32 = 10_000;
+/// Most submodels and faces one prop may have.
+pub const MAX_REGIONS_PER_PROP: usize = 1_000;
+/// Most pixel entries all of one prop's submodels and faces may name together (a run counts
+/// its pixels, up to the prop's size).
+pub const MAX_REGION_ENTRIES: u64 = 10_000_000;
 
 /// Returns a plain-language sentence for every limit the show breaks (and for sequences listed
 /// twice under one id, which a show file must never have).
@@ -76,6 +81,25 @@ pub(crate) fn check_limits(show: &Show) -> Vec<String> {
             _ => u64::from(prop.node_count()),
         };
         total += nodes;
+        if prop.regions.len() > MAX_REGIONS_PER_PROP {
+            problems.push(format!(
+                "The prop '{}' has {} submodels and faces, but PixelFlow supports at most {MAX_REGIONS_PER_PROP} per prop.",
+                prop.name,
+                prop.regions.len()
+            ));
+        } else {
+            let entries: u64 = prop
+                .regions
+                .iter()
+                .map(|r| r.entry_count(prop.node_count()))
+                .sum();
+            if entries > MAX_REGION_ENTRIES {
+                problems.push(format!(
+                    "The submodels and faces of '{}' list {entries} pixels in all, but PixelFlow supports at most {MAX_REGION_ENTRIES} per prop.",
+                    prop.name
+                ));
+            }
+        }
         if nodes > u64::from(MAX_PROP_NODES) {
             problems.push(format!(
                 "The prop '{}' has {nodes} pixels, but PixelFlow supports at most {MAX_PROP_NODES} per prop.",

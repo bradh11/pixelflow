@@ -2,9 +2,10 @@
 
 use pf_model::{Generator, Prop, ShapeSource, Show};
 use pf_sequence::{
-    Axis, BarsParams, Blend, ChaseParams, ColorWashParams, Direction, Effect, EffectParams, FireParams,
-    Gradient, Mark, MeteorDirection, MeteorsParams, OnParams, Rgb, RippleParams, Row, ShimmerParams,
-    SpiralParams, StrobeParams, Target, TimingKind, TwinkleParams, WaveParams,
+    Axis, BarsParams, Blend, ChaseParams, ColorWashParams, Direction, Effect, EffectParams, FaceColorSource,
+    FaceEyes, FacesParams, FireParams, Gradient, Mark, MeteorDirection, MeteorsParams, OnParams, Rgb,
+    RippleParams, Row, ShimmerParams, SpiralParams, StrobeParams, Target, TimingKind, TwinkleParams,
+    WaveParams,
 };
 use pf_xlights::sequence::{SequenceImport, build_sequence, parse_xsq};
 use pf_xlights::{import_folder, import_sequence_file};
@@ -292,6 +293,37 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
     );
     assert_eq!(bars.blend, Blend::Add);
 
+    // Submodel layers become rows on the submodels, right after their model's row.
+    let arches = show.props.iter().find(|p| p.name == "Arches").unwrap();
+    let on_submodel = |name: &str| {
+        let region = arches.regions.iter().find(|r| r.name == name).unwrap();
+        let target = Target::Region {
+            prop: arches.id,
+            region: region.id,
+        };
+        let at = i.sequence.rows.iter().position(|r| r.target == target).unwrap();
+        (at, &i.sequence.rows[at])
+    };
+    let model_at = i
+        .sequence
+        .rows
+        .iter()
+        .position(|r| r.target == Target::Prop(arches.id))
+        .unwrap();
+    let (at, arch_1) = on_submodel("Arch 1");
+    assert_eq!(at, model_at + 1);
+    assert_eq!(arch_1.layers.len(), 1);
+    assert_eq!(arch_1.layers[0].effects[0].kind(), pf_sequence::EffectKind::On);
+    let (at, tops) = on_submodel("Tops");
+    assert_eq!(at, model_at + 2);
+    // xLights' layer 1 is below its (empty) layer 0.
+    assert_eq!(tops.layers.len(), 2);
+    assert_eq!(
+        tops.layers[0].effects[0].kind(),
+        pf_sequence::EffectKind::ColorWash
+    );
+    assert!(tops.layers[1].effects.is_empty());
+
     let chase = &row(&i, &show, "Candy Canes").layers[0].effects[0];
     assert_eq!(
         chase.params,
@@ -368,7 +400,10 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
     let tree = &row(&i, &show, "Mega Tree").layers[0].effects;
     assert_eq!(tree.len(), 4, "Adjust and Random are left out");
     assert_eq!(tree[0].kind(), pf_sequence::EffectKind::ColorWash, "Butterfly");
-    for placeholder in &tree[1..] {
+    for faces in &tree[1..3] {
+        assert_eq!(faces.params, EffectParams::Faces(FacesParams::default()));
+    }
+    for placeholder in &tree[3..] {
         assert_eq!(
             placeholder.params,
             EffectParams::On(OnParams {
@@ -384,18 +419,18 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
     row(&i, &show, "Santa's Sleigh & Reindeer");
 
     let s = i.summary;
-    assert_eq!(s.rows, 7);
-    assert_eq!(s.effects, 21);
-    assert_eq!((s.exact, s.approximate, s.placeholders), (12, 6, 3));
+    assert_eq!(s.rows, 9);
+    assert_eq!(s.effects, 23);
+    assert_eq!((s.exact, s.approximate, s.placeholders), (16, 6, 1));
     assert_eq!(
         s.skipped,
         1 + 3 + 2,
-        "Adjust, submodel and node effects, Garage Door"
+        "Adjust, effects on a missing submodel and a node, Garage Door"
     );
 
     assert_note(
         &i,
-        "PixelFlow has no matching effect yet for these xLights effects, so they are shown as a dim fill in each one's first color: Faces (2), Text (1).",
+        "PixelFlow has no matching effect yet for this xLights effect, so it is shown as a dim fill in its first color: Text (1).",
     );
     assert_note(
         &i,
@@ -420,10 +455,125 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
     );
     assert_note(
         &i,
-        "PixelFlow doesn't import effects on submodels, strands, or single nodes yet; these weren't imported: Mega Tree (3 effects).",
+        "These submodels aren't in the show, so their effects weren't imported: Mega Tree/Star (2 effects).",
+    );
+    assert_note(
+        &i,
+        "PixelFlow doesn't import effects on strands or single nodes yet; these weren't imported: Mega Tree (1 effect).",
     );
     assert_note(&i, "1 effect is xLights' Random effect");
     assert!(!has_note(&i, "Wave"), "{:#?}", i.notes);
+}
+
+/// xLights' "Default" face is the model's first face in name order (its faces are a sorted
+/// map), and a face renamed on import ("Singer (face)", beside a submodel called "Singer") is
+/// still the one a Faces effect names.
+#[test]
+fn faces_effects_find_the_default_and_renamed_faces() {
+    let mut show = show();
+    let matrix = show.props.iter_mut().find(|p| p.name == "Window Matrix").unwrap();
+    let singer = matrix.regions.iter_mut().find(|r| r.name == "Singer").unwrap();
+    singer.name = "Singer (face)".into();
+    let mut alto = singer.clone();
+    alto.id = pf_model::RegionId::new();
+    alto.name = "Alto".into();
+    matrix.regions.push(alto);
+    let i = import_sequence_file(&fixture("faces.xsq"), &show, |_, _| None).unwrap();
+    let faces: Vec<String> = row(&i, &show, "Window Matrix").layers[0]
+        .effects
+        .iter()
+        .map(|e| match &e.params {
+            EffectParams::Faces(p) => p.face.clone(),
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(faces, ["Singer (face)", "Alto", "Pictures", "Singer (face)"]);
+}
+
+#[test]
+fn faces_effects_sing_the_lyric_tracks_phonemes() {
+    let show = show();
+    let i = import_sequence_file(&fixture("faces.xsq"), &show, |_, _| None).unwrap();
+    assert_opens(&i);
+    let phonemes = i
+        .sequence
+        .timing_tracks
+        .iter()
+        .find(|t| t.kind == TimingKind::Phonemes)
+        .unwrap()
+        .id;
+    let effects = &row(&i, &show, "Window Matrix").layers[0].effects;
+    assert_eq!(
+        params(effects),
+        vec![
+            EffectParams::Faces(FacesParams {
+                face: "Singer".into(),
+                timing_track: Some(phonemes),
+                eyes: FaceEyes::Open,
+                colors: FaceColorSource::Face,
+                outline: true,
+            }),
+            // "Default" is the model's first face by name, as xLights picks it.
+            EffectParams::Faces(FacesParams {
+                face: "Singer".into(),
+                ..FacesParams::default()
+            }),
+            EffectParams::Faces(FacesParams {
+                face: "Pictures".into(),
+                timing_track: Some(phonemes),
+                ..FacesParams::default()
+            }),
+            // A beat track has no lyrics; xLights keeps the mouth at rest, and so does PixelFlow.
+            EffectParams::Faces(FacesParams {
+                face: "Singer".into(),
+                ..FacesParams::default()
+            }),
+        ]
+    );
+    assert_eq!((i.summary.exact, i.summary.approximate), (2, 2));
+    assert_note(
+        &i,
+        "its timing track isn't in the sequence, so the mouth stays at rest",
+    );
+    assert_note(
+        &i,
+        "its timing track has no lyrics, so the mouth stays at rest, as in xLights",
+    );
+    assert_note(&i, "blinks at PixelFlow's usual pace");
+    let issues = pf_sequence::validate_sequence(&i.sequence, &show);
+    assert!(
+        issues.iter().any(|p| p
+            .message
+            .ends_with("uses the face 'Pictures', but 'Window Matrix' has no face by that name.")),
+        "{issues:#?}"
+    );
+
+    // At 1.2 s the face sings "AI": the AI mouth (pixels 1-4) in its red, the open eyes (61-62,
+    // 79-80) green and the outline (21-40) yellow, as the face's own colors say.
+    let (map, _) = pf_mapping::map_show(&show);
+    let matrix = show.props.iter().find(|p| p.name == "Window Matrix").unwrap();
+    let at = map
+        .props
+        .iter()
+        .find(|p| p.prop == matrix.id)
+        .unwrap()
+        .frame_offset;
+    let mut renderer = pf_render::Renderer::new(&show, &map);
+    let mut frame = vec![0; renderer.frame_len()];
+    renderer.render(&i.sequence, 1_200, &mut frame);
+    let pixel_in = |frame: &[u8], n: usize| [frame[at + 3 * n], frame[at + 3 * n + 1], frame[at + 3 * n + 2]];
+    let pixel = |n: usize| pixel_in(&frame, n);
+    assert_eq!(pixel(0), [255, 0, 0]);
+    assert_eq!(pixel(3), [255, 0, 0]);
+    assert_eq!(pixel(4), [0, 0, 0], "the O mouth is dark");
+    assert_eq!(pixel(60), [0, 255, 0]);
+    assert_eq!(pixel(25), [255, 255, 0]);
+    renderer.render(&i.sequence, 1_700, &mut frame);
+    assert_eq!(
+        (pixel_in(&frame, 0), pixel_in(&frame, 5)),
+        ([0, 0, 0], [255, 255, 255]),
+        "O, which has no color of its own"
+    );
 }
 
 #[test]

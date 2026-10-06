@@ -31,6 +31,25 @@ describe("MemoryBackend", () => {
     expect(snap.show.groups[0].members).toEqual([]);
   });
 
+  it("keeps a group's members in order and drops deleted submodels and props from it", async () => {
+    const backend = new MemoryBackend();
+    const left = { id: crypto.randomUUID(), name: "Left", kind: "nodes" as const, lines: [[{ first: 0, last: 4 }]], layout: "horizontal" as const, buffer: "default" as const };
+    const right = { ...left, id: crypto.randomUUID(), name: "Right" };
+    const arch = { ...newProp("arch", backend.show), regions: [left, right] };
+    const tree = newProp("arch", backend.show);
+    const members = [{ prop: arch.id, region: left.id }, tree.id, { prop: arch.id, region: right.id }];
+    let snap = await backend.applyEdits([
+      { type: "addProp", prop: arch },
+      { type: "addProp", prop: tree },
+      { type: "addGroup", group: { id: crypto.randomUUID(), name: "G", members } },
+    ]);
+    expect(snap.show.groups[0].members).toEqual(members);
+    snap = await backend.applyEdits([{ type: "updateProp", prop: { ...arch, regions: [right] } }]);
+    expect(snap.show.groups[0].members).toEqual([tree.id, { prop: arch.id, region: right.id }]);
+    snap = await backend.applyEdits([{ type: "removeProp", id: arch.id }]);
+    expect(snap.show.groups[0].members).toEqual([tree.id]);
+  });
+
   it("maps wired props onto controller channels and universes", async () => {
     const backend = new MemoryBackend();
     const prop = newProp("arch", backend.show);

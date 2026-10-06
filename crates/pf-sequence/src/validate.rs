@@ -1,7 +1,7 @@
 //! Checks a sequence against itself and the show. Problems are reported, never fixed silently,
 //! and a sequence with problems still opens (the renderer skips what it can't draw).
 
-use crate::{EffectId, RowId, Sequence, Target};
+use crate::{EffectId, EffectParams, FacesParams, RowId, Sequence, Target};
 use pf_model::{Severity, Show};
 use serde::Serialize;
 use std::collections::HashSet;
@@ -38,7 +38,58 @@ fn target_name(show: &Show, target: Target) -> Option<String> {
             .iter()
             .find(|g| g.id == id)
             .map(|g| format!("group '{}'", g.name)),
+        Target::Region { prop, region } => show
+            .region(prop, region)
+            .map(|(p, r)| format!("'{} / {}'", p.name, r.name)),
     }
+}
+
+/// Why a Faces effect on `target` won't sing as expected, if it won't.
+fn faces_problem(seq: &Sequence, show: &Show, target: Target, p: &FacesParams) -> Option<String> {
+    let Some(track) = p.timing_track else {
+        return Some("has no timing track, so the mouth stays at rest.".to_string());
+    };
+    if seq.timing_track(track).is_none() {
+        return Some(
+            "uses a timing track that isn't in the sequence anymore, so the mouth stays at rest.".to_string(),
+        );
+    }
+    let props: Vec<&pf_model::Prop> = match target {
+        Target::Prop(id) | Target::Region { prop: id, .. } => show.prop(id).into_iter().collect(),
+        Target::Group(id) => show
+            .groups
+            .iter()
+            .find(|g| g.id == id)
+            .map(|g| g.props().into_iter().filter_map(|id| show.prop(id)).collect())
+            .unwrap_or_default(),
+    };
+    if props.is_empty() {
+        return None;
+    }
+    let wanted = p.face.trim();
+    let has = |prop: &&pf_model::Prop| {
+        prop.regions.iter().any(|r| {
+            matches!(r.kind, pf_model::RegionKind::Face(_))
+                && (wanted.is_empty() || r.name.trim().eq_ignore_ascii_case(wanted))
+        })
+    };
+    if props.iter().any(has) {
+        return None;
+    }
+    let names: Vec<String> = props.iter().map(|p| format!("'{}'", p.name)).collect();
+    Some(if wanted.is_empty() {
+        format!(
+            "lights {}, which {} no face; add one on the Layout screen or import one from xLights.",
+            names.join(", "),
+            if names.len() == 1 { "has" } else { "have" }
+        )
+    } else {
+        format!(
+            "uses the face '{wanted}', but {} {} no face by that name.",
+            names.join(", "),
+            if names.len() == 1 { "has" } else { "have" }
+        )
+    })
 }
 
 /// Every problem in the sequence, errors first.
@@ -70,6 +121,7 @@ pub fn validate_sequence(seq: &Sequence, show: &Show) -> Vec<SequenceIssue> {
                 let what = match row.target {
                     Target::Prop(_) => "a prop",
                     Target::Group(_) => "a group",
+                    Target::Region { .. } => "a submodel",
                 };
                 push(
                     Severity::Warning,
@@ -97,6 +149,16 @@ pub fn validate_sequence(seq: &Sequence, show: &Show) -> Vec<SequenceIssue> {
                     push(
                         Severity::Error,
                         format!("{} has the same id as another effect.", describe(effect)),
+                        Some(row.id),
+                        Some(effect.id),
+                    );
+                }
+                if let EffectParams::Faces(p) = &effect.params
+                    && let Some(problem) = faces_problem(seq, show, row.target, p)
+                {
+                    push(
+                        Severity::Warning,
+                        format!("{} {problem}", describe(effect)),
                         Some(row.id),
                         Some(effect.id),
                     );
@@ -200,16 +262,20 @@ mod tests {
 
     fn show() -> (Show, Prop) {
         let mut show = Show::new("t");
-        let prop = Prop::new(
+        let mut prop = Prop::new(
             "Arch",
             ShapeSource::Generator(Generator::Line {
                 nodes: 10,
                 length: 1.0,
             }),
         );
+        prop.regions.push(pf_model::Region::nodes(
+            "Left",
+            vec![vec![Some(pf_model::NodeRun::new(0, 4))]],
+        ));
         show.props.push(prop.clone());
         let mut group = Group::new("Yard");
-        group.members.push(prop.id);
+        group.members.push(prop.id.into());
         show.groups.push(group);
         (show, prop)
     }
@@ -232,7 +298,92 @@ mod tests {
         ];
         seq.rows.push(row);
         seq.rows.push(Row::new(Target::Group(show.groups[0].id)));
+        let left = &show.props[0].regions[0];
+        let mut sub = Row::new(Target::Region {
+            prop: prop.id,
+            region: left.id,
+        });
+        sub.layers[0].effects.push(Effect::new(EffectKind::On, 0, 1000));
+        seq.rows.push(sub);
         assert_eq!(validate_sequence(&seq, &show), vec![]);
+    }
+
+    #[test]
+    fn faces_effects_need_a_track_and_a_face() {
+        let (mut show, prop) = show();
+        let mut face = pf_model::FaceDefinition::default();
+        face.mouths
+            .insert(pf_model::Phoneme::O, vec![pf_model::NodeRange::new(0, 2)]);
+        let mut seq = Sequence::new("s", 10_000);
+        let track = TimingTrack::new("Lyrics", TimingKind::Phonemes, vec![]);
+        let track_id = track.id;
+        seq.timing_tracks.push(track);
+        let faces = |face: &str, timing_track| {
+            Effect::new(EffectKind::Faces, 0, 1000).with_params(crate::EffectParams::Faces(
+                crate::FacesParams {
+                    face: face.into(),
+                    timing_track,
+                    ..Default::default()
+                },
+            ))
+        };
+        let messages = |seq: &Sequence, show: &Show| -> Vec<String> {
+            validate_sequence(seq, show)
+                .into_iter()
+                .map(|i| i.message)
+                .collect()
+        };
+        let mut row = Row::new(Target::Prop(prop.id));
+        row.layers[0].effects = vec![faces("", Some(track_id))];
+        seq.rows.push(row);
+        assert_eq!(
+            messages(&seq, &show),
+            vec![
+                "The Faces effect at 0:00.000 on 'Arch' (layer 1) lights 'Arch', which has no face; add one on the Layout screen or import one from xLights."
+            ]
+        );
+        show.props[0].regions.push(pf_model::Region::face("Singer", face));
+        assert_eq!(messages(&seq, &show), Vec::<String>::new());
+        seq.rows[0].layers[0].effects = vec![faces("singer ", Some(track_id))];
+        assert_eq!(messages(&seq, &show), Vec::<String>::new(), "names match loosely");
+        seq.rows[0].layers[0].effects = vec![faces("Elf", Some(track_id))];
+        assert!(
+            messages(&seq, &show)[0].ends_with("uses the face 'Elf', but 'Arch' has no face by that name.")
+        );
+        seq.rows[0].layers[0].effects = vec![faces("", None)];
+        assert!(messages(&seq, &show)[0].ends_with("has no timing track, so the mouth stays at rest."));
+        seq.rows[0].layers[0].effects = vec![faces("", Some(crate::TimingTrackId::new()))];
+        assert!(
+            messages(&seq, &show)[0].ends_with("isn't in the sequence anymore, so the mouth stays at rest.")
+        );
+    }
+
+    #[test]
+    fn rows_on_deleted_submodels_are_reported_by_name() {
+        let (show, prop) = show();
+        let mut seq = Sequence::new("s", 10_000);
+        let mut row = Row::new(Target::Region {
+            prop: prop.id,
+            region: show.props[0].regions[0].id,
+        });
+        row.layers[0].effects.push(Effect::new(EffectKind::On, 500, 400));
+        seq.rows.push(row);
+        seq.rows.push(Row::new(Target::Region {
+            prop: prop.id,
+            region: pf_model::RegionId::new(),
+        }));
+        let messages: Vec<String> = validate_sequence(&seq, &show)
+            .into_iter()
+            .map(|i| i.message)
+            .collect();
+        assert!(
+            messages[0].starts_with("The On effect at 0:00.500 on 'Arch / Left' (layer 1)"),
+            "{messages:?}"
+        );
+        assert_eq!(
+            messages[1],
+            "Row 2 lights a submodel that isn't in the show anymore, so it shows nothing."
+        );
     }
 
     #[test]

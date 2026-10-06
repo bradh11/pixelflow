@@ -169,7 +169,7 @@ export const useApp = create<AppState>((set, get) => {
     if (ok) {
       set({ started: true, screen: "layout" });
       // A different show: start the layout editor fresh, fitted to it.
-      useLayoutEditor.setState({ selected: [], view: null, editPhoto: false, photoDraft: null, tool: "select", nudge: null });
+      useLayoutEditor.setState({ selected: [], view: null, editPhoto: false, photoDraft: null, tool: "select", nudge: null, highlight: null });
     }
     return ok;
   }

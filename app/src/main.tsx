@@ -31,7 +31,7 @@ if (inTauri()) {
   if (demo) {
     // A sample sequence, open on the Sequence screen.
     backend.nextAudioPath = DEMO_MUSIC;
-    sequencer.files.set(DEMO_SEQUENCE_PATH, demoSequence(backend.show, backend.sequenceDurationMs));
+    sequencer.files.set(DEMO_SEQUENCE_PATH, demoSequence(backend.show, backend.sequenceDurationMs, { singing: true }));
     sequencer.nextOpenPath = DEMO_SEQUENCE_PATH;
     sequencer.nextSavePath = DEMO_SEQUENCE_PATH;
     void sequencer.openSequenceDoc(DEMO_SEQUENCE_PATH).then(() => useSequencer.getState().connect(sequencer));

@@ -1,7 +1,17 @@
 import { create } from "zustand";
-import type { Background, Prop } from "../api/types";
+import type { Background, Phoneme, Prop } from "../api/types";
 import type { Gesture, View } from "../lib/layoutMath";
 import type { PropKind } from "../lib/shows";
+
+/**
+ * A submodel or face picked in the properties panel: its pixels are drawn bright on the canvas,
+ * or, for a face with a `phoneme`, the face shows that mouth shape (with open eyes and outline).
+ */
+export interface Highlight {
+  prop: string;
+  region: string;
+  phoneme: Phoneme | null;
+}
 
 /** Select and move props, move the view, or draw a new prop of a kind. */
 export type Tool = "select" | PropKind;
@@ -40,6 +50,8 @@ interface LayoutEditorState {
    * paste back where they were, copies a little to the side, and each paste a little further.
    */
   clipboard: { props: Prop[]; nextOffset: number } | null;
+  /** The submodel or face shown on the canvas; cleared when its prop is no longer selected. */
+  highlight: Highlight | null;
 
   setTool(tool: Tool): void;
   select(ids: string[]): void;
@@ -50,7 +62,11 @@ interface LayoutEditorState {
   setEditPhoto(on: boolean): void;
   setPhotoDraft(draft: Background | null): void;
   setView(view: View | null): void;
+  setHighlight(highlight: Highlight | null): void;
 }
+
+/** The highlight, if its prop is still selected. */
+const keep = (highlight: Highlight | null, selected: string[]) => (highlight && selected.includes(highlight.prop) ? highlight : null);
 
 export const useLayoutEditor = create<LayoutEditorState>((set, get) => ({
   tool: "select",
@@ -63,16 +79,23 @@ export const useLayoutEditor = create<LayoutEditorState>((set, get) => ({
   pending: [],
   nudge: null,
   clipboard: null,
+  highlight: null,
 
   setTool: (tool) => set({ tool, editPhoto: false }),
-  select: (ids) => set({ selected: [...new Set(ids)] }),
-  toggle: (id) => {
-    const selected = get().selected;
-    set({ selected: selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id] });
+  select: (ids) => {
+    const selected = [...new Set(ids)];
+    set({ selected, highlight: keep(get().highlight, selected) });
   },
-  clear: () => set({ selected: [] }),
+  toggle: (id) => {
+    const before = get().selected;
+    const selected = before.includes(id) ? before.filter((s) => s !== id) : [...before, id];
+    set({ selected, highlight: keep(get().highlight, selected) });
+  },
+  clear: () => set({ selected: [], highlight: null }),
   setSnap: (snap) => set({ snap }),
-  setEditPhoto: (editPhoto) => set({ editPhoto, tool: "select", selected: editPhoto ? [] : get().selected }),
+  setEditPhoto: (editPhoto) =>
+    set({ editPhoto, tool: "select", selected: editPhoto ? [] : get().selected, highlight: editPhoto ? null : get().highlight }),
   setPhotoDraft: (photoDraft) => set({ photoDraft }),
   setView: (view) => set({ view }),
+  setHighlight: (highlight) => set({ highlight }),
 }));

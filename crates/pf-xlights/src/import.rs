@@ -12,8 +12,9 @@ use crate::layout::XLayout;
 use crate::model::XmlModel;
 use crate::networks::{XController, XOutput};
 use pf_model::{
-    ColorOrder, Controller, Group, MAX_NULL_PIXELS, MAX_SHOW_PIXELS, NodeRange, Port, PortSlot, Prop, PropId,
-    Protocol, Provenance, SacnConfig, SequenceChannels, ShapeSource, Show, UniverseSize, Vec3,
+    ColorOrder, Controller, Group, GroupMember, MAX_NULL_PIXELS, MAX_SHOW_PIXELS, NodeRange, Port, PortSlot,
+    Prop, PropId, Protocol, Provenance, RegionRef, SacnConfig, SequenceChannels, ShapeSource, Show,
+    UniverseSize, Vec3,
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -74,7 +75,7 @@ fn color_order(string_type: &str, cpn: u8) -> (ColorOrder, bool) {
 }
 
 /// `names` joined with commas, the list cut short after [`MAX_LISTED`].
-fn list(names: &[String]) -> String {
+pub(crate) fn list(names: &[String]) -> String {
     if names.len() <= MAX_LISTED {
         return names.join(", ");
     }
@@ -315,6 +316,7 @@ fn build_show_within(
     let mut lights: u64 = 0;
     let mut over_budget = Vec::new();
     let mut odd_colors = Vec::new();
+    let mut region_notes = crate::submodels::RegionNotes::default();
     for model in &layout.models {
         if !seen.insert(model.name.as_str()) {
             notes.push(format!(
@@ -376,6 +378,14 @@ fn build_show_within(
             odd_colors.push(model.name.clone());
         }
         prop.color_order = order;
+        prop.regions = crate::submodels::regions(
+            &model.name,
+            &model.submodels,
+            &model.faces,
+            &model.states,
+            prop.node_count(),
+            &mut region_notes,
+        );
         prop_ids.insert(model.name.as_str(), prop.id);
         info.prop = Some(prop.id);
         show.props.push(prop);
@@ -394,6 +404,7 @@ fn build_show_within(
             list(&odd_colors)
         ));
     }
+    region_notes.into_notes(&mut notes);
 
     // Start channels.
     let requests: Vec<ChannelRequest> = layout
@@ -482,26 +493,44 @@ fn build_show_within(
     }
     show.controllers = targets.into_iter().map(|t| t.controller).collect();
 
-    // Groups: members by name; nested groups are flattened, submodels skipped.
+    // Groups: members by name (`Prop/Submodel` for a submodel); nested groups are flattened.
     let group_members: HashMap<&str, &Vec<String>> = layout
         .groups
         .iter()
         .map(|g| (g.name.as_str(), &g.members))
         .collect();
+    let submodel = |name: &str| -> Option<RegionRef> {
+        let (prop, region) = name.split_once('/')?;
+        let prop = show.prop(*prop_ids.get(prop.trim())?)?;
+        let region = prop
+            .regions
+            .iter()
+            .find(|r| r.is_submodel() && r.name == region.trim())?;
+        Some(RegionRef {
+            prop: prop.id,
+            region: region.id,
+        })
+    };
     let mut lost_submodels = Vec::new();
+    let mut groups = Vec::new();
     for xgroup in &layout.groups {
-        let mut members = Vec::new();
+        // One ordered list, whole props and submodels mixed, as xLights lists them.
+        let mut members: Vec<GroupMember> = Vec::new();
         let mut stack: Vec<&str> = xgroup.members.iter().rev().map(String::as_str).collect();
         let mut visited = HashSet::new();
         let mut lost = false;
         while let Some(name) = stack.pop() {
             if let Some(&id) = prop_ids.get(name) {
-                if !members.contains(&id) {
-                    members.push(id);
+                if !members.contains(&GroupMember::Prop(id)) {
+                    members.push(GroupMember::Prop(id));
                 }
             } else if let Some(nested) = group_members.get(name) {
                 if visited.insert(name) {
                     stack.extend(nested.iter().rev().map(String::as_str));
+                }
+            } else if let Some(member) = submodel(name) {
+                if !members.contains(&GroupMember::Region(member)) {
+                    members.push(GroupMember::Region(member));
                 }
             } else if name.contains('/') {
                 lost = true;
@@ -515,11 +544,12 @@ fn build_show_within(
         }
         let mut group = Group::new(xgroup.name.clone());
         group.members = members;
-        show.groups.push(group);
+        groups.push(group);
     }
+    show.groups = groups;
     if !lost_submodels.is_empty() {
         notes.push(format!(
-            "PixelFlow doesn't import submodels yet, so these groups lost their submodel members: {}.",
+            "These groups list submodels that aren't in the show, so those members were left out: {}.",
             list(&lost_submodels)
         ));
     }
@@ -1165,25 +1195,84 @@ mod tests {
 
     #[test]
     fn submodel_members_and_odd_color_orders_are_reported() {
+        let mut bulbs = with(model("Bulbs", "1", 3, None), &[("StringType", "WRGB Nodes")]);
+        bulbs.submodels.push(
+            [("name", "Left"), ("line0", "1-2")]
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        );
         let layout = XLayout {
-            models: vec![with(
-                model("Bulbs", "1", 3, None),
-                &[("StringType", "WRGB Nodes")],
-            )],
+            models: vec![bulbs],
             groups: vec![
                 XGroup {
                     name: "Faces".into(),
-                    members: vec!["Bulbs".into(), "Bulbs/Eyes".into()],
+                    members: vec!["Bulbs/Left".into(), "Bulbs/Eyes".into(), "Bulbs/Left".into()],
                 },
                 XGroup {
                     name: "Outer".into(),
                     members: vec!["Faces".into()],
                 },
+                XGroup {
+                    name: "Ghosts".into(),
+                    members: vec!["Nope/Left".into()],
+                },
             ],
         };
         let result = build_show("t", &[falcon()], &layout, geometry);
-        has_note(&result, "these groups lost their submodel members: Faces, Outer.");
+        has_note(
+            &result,
+            "These groups list submodels that aren't in the show, so those members were left out: Faces, Outer, Ghosts.",
+        );
         has_note(&result, "color order of Bulbs, so their colors may be swapped");
+        let bulbs = &result.show.props[0];
+        let left = RegionRef {
+            prop: bulbs.id,
+            region: bulbs.regions[0].id,
+        };
+        let names: Vec<_> = result.show.groups.iter().map(|g| g.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["Faces", "Outer"],
+            "a group with nothing left isn't imported"
+        );
+        for group in &result.show.groups {
+            assert_eq!(group.members, vec![GroupMember::Region(left)]);
+        }
+    }
+
+    #[test]
+    fn groups_keep_xlights_member_order_with_submodels_mixed_in() {
+        let sub = |name: &str, line: &str| -> crate::submodels::Attrs {
+            [("name", name), ("line0", line)]
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let mut arch = model("Arch", "1", 4, None);
+        arch.submodels = vec![sub("Left", "1-2"), sub("Right", "3-4")];
+        let tree = model("Tree", "13", 4, None);
+        let layout = XLayout {
+            models: vec![arch, tree],
+            groups: vec![XGroup {
+                name: "Across".into(),
+                members: vec!["Arch/Left".into(), "Tree".into(), "Arch/Right".into()],
+            }],
+        };
+        let result = build_show("t", &[falcon()], &layout, geometry);
+        let show = &result.show;
+        let arch = show.props.iter().find(|p| p.name == "Arch").unwrap();
+        let tree = show.props.iter().find(|p| p.name == "Tree").unwrap();
+        let part = |i: usize| {
+            GroupMember::Region(RegionRef {
+                prop: arch.id,
+                region: arch.regions[i].id,
+            })
+        };
+        assert_eq!(
+            show.groups[0].members,
+            vec![part(0), GroupMember::Prop(tree.id), part(1)]
+        );
     }
 
     #[test]

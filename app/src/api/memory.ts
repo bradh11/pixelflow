@@ -21,7 +21,7 @@ import type {
 } from "./types";
 import { deepView, frontView } from "../lib/geometry";
 import { mapControllers } from "./memoryMapping";
-import { channelsPerPixel, newController, nodeCount } from "../lib/shows";
+import { channelsPerPixel, memberProp, newController, nodeCount } from "../lib/shows";
 
 /**
  * An in-memory stand-in for the engine, used by tests and when the UI runs in a plain
@@ -585,7 +585,7 @@ export interface AuthoredPlayback {
 
 export function emptyShow(name: string): Show {
   return {
-    schemaVersion: 6,
+    schemaVersion: 7,
     name,
     settings: { frameRate: 40 },
     props: [],
@@ -646,13 +646,17 @@ function applyEdit(show: Show, edit: Edit): void {
     case "addProp":
       addUnique(show.props, edit.prop, "prop");
       break;
-    case "updateProp":
+    case "updateProp": {
       replaceById(show.props, edit.prop, "prop");
+      // A deleted submodel leaves the groups it was in.
+      const regions = new Set(edit.prop.regions.map((r) => r.id));
+      for (const g of show.groups) g.members = g.members.filter((m) => typeof m === "string" || m.prop !== edit.prop.id || regions.has(m.region));
       break;
+    }
     case "removeProp":
       removeById(show.props, edit.id, "prop");
       for (const c of show.controllers) for (const p of c.ports) p.slots = p.slots.filter((s) => s.prop !== edit.id);
-      for (const g of show.groups) g.members = g.members.filter((m) => m !== edit.id);
+      for (const g of show.groups) g.members = g.members.filter((m) => memberProp(m) !== edit.id);
       break;
     case "addGroup":
       addUnique(show.groups, edit.group, "group");

@@ -580,5 +580,71 @@
         "type": "number"
       }
     ]
+  },
+  {
+    "description": "A singing face: the prop's face mouths the words on a timing track, with eyes that blink.",
+    "kind": "faces",
+    "label": "Faces",
+    "settings": [
+      {
+        "default": "",
+        "description": "Which of the prop's faces sings (blank: its first face).",
+        "key": "face",
+        "label": "Face",
+        "type": "face"
+      },
+      {
+        "default": null,
+        "description": "The phonemes, words, or lyrics the face sings.",
+        "key": "timingTrack",
+        "label": "Timing track",
+        "type": "timingTrack"
+      },
+      {
+        "default": "auto",
+        "description": "Open, open and blinking every few seconds, or closed.",
+        "key": "eyes",
+        "label": "Eyes",
+        "options": [
+          {
+            "label": "Open",
+            "value": "open"
+          },
+          {
+            "label": "Open, blinking",
+            "value": "auto"
+          },
+          {
+            "label": "Closed",
+            "value": "closed"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": "face",
+        "description": "The face's own colors, or the palette (first color the mouth, second the eyes, third the outline).",
+        "key": "colors",
+        "label": "Colors",
+        "options": [
+          {
+            "label": "The face's own",
+            "value": "face"
+          },
+          {
+            "label": "The palette (mouth, eyes, outline)",
+            "value": "palette"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": false,
+        "description": "Light the face's outline too.",
+        "key": "outline",
+        "label": "Show outline",
+        "type": "bool"
+      }
+    ]
   }
 ]

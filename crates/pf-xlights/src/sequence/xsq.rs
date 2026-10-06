@@ -54,6 +54,16 @@ pub enum ElementKind {
     Other,
 }
 
+/// One layer of effects on a model's submodel (`<SubModelEffectLayer>`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct XsqSubmodelLayer {
+    /// The submodel's name (trimmed).
+    pub name: String,
+    /// The layer number (0 is xLights' top layer).
+    pub layer: usize,
+    pub effects: Vec<XsqEffect>,
+}
+
 /// One `<Element>` under `<ElementEffects>`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct XsqElement {
@@ -63,8 +73,17 @@ pub struct XsqElement {
     /// `fixed="N"`: a timing track with a mark every N ms.
     pub fixed: Option<String>,
     pub layers: Vec<XsqLayer>,
-    /// Effects on the model's submodels, strands, and single nodes.
+    /// Layers of effects on the model's submodels, in file order.
+    pub submodels: Vec<XsqSubmodelLayer>,
+    /// Effects on the model's strands and single nodes.
     pub sub_effects: usize,
+}
+
+impl XsqElement {
+    /// Effects on the model's submodels.
+    pub fn submodel_effects(&self) -> usize {
+        self.submodels.iter().map(|s| s.effects.len()).sum()
+    }
 }
 
 /// The parts of an `.xsq` file the import uses.
@@ -238,6 +257,7 @@ impl Reader<'_> {
             name: trim_name(node.attribute("name").unwrap_or("")),
             fixed: attr(node, "fixed"),
             layers: Vec::new(),
+            submodels: Vec::new(),
             sub_effects: 0,
         };
         for layer in node.children().filter(Node::is_element) {
@@ -248,7 +268,20 @@ impl Reader<'_> {
                         .collect();
                     element.layers.push(XsqLayer { effects });
                 }
-                "SubModelEffectLayer" | "Strand" => {
+                "SubModelEffectLayer" => {
+                    let effects = children(layer, "Effect")
+                        .filter_map(|e| self.effect(e, kind))
+                        .collect();
+                    element.submodels.push(XsqSubmodelLayer {
+                        name: trim_name(layer.attribute("name").unwrap_or("")),
+                        layer: layer
+                            .attribute("layer")
+                            .and_then(|l| l.trim().parse::<usize>().ok())
+                            .unwrap_or(0),
+                        effects,
+                    });
+                }
+                "Strand" => {
                     // Strands hold node layers one level down.
                     element.sub_effects += layer
                         .descendants()
@@ -338,7 +371,8 @@ mod tests {
     <Element type="model" name=" Roof	">
       <EffectLayer><Effect ref="0" name="On" palette="0" startTime="0" endTime="1000"/></EffectLayer>
       <EffectLayer/>
-      <SubModelEffectLayer name="Left"><Effect name="On" startTime="0" endTime="10"/></SubModelEffectLayer>
+      <SubModelEffectLayer name=" Left "><Effect name="On" startTime="0" endTime="10"/></SubModelEffectLayer>
+      <SubModelEffectLayer name="Left" layer="2"><Effect name="Off" startTime="0" endTime="10"/></SubModelEffectLayer>
       <Strand index="0"><Effect name="On" startTime="0" endTime="10"/><Node index="2"><Effect name="On" startTime="0" endTime="10"/></Node></Strand>
     </Element>
     <Element type="timing" name="Beats" fixed="500"><EffectLayer/></Element>
@@ -357,7 +391,15 @@ mod tests {
         let roof = &f.elements[0];
         assert_eq!((roof.kind, roof.name.as_str()), (ElementKind::Model, "Roof"));
         assert_eq!(roof.layers.len(), 2);
-        assert_eq!(roof.sub_effects, 3);
+        assert_eq!(roof.sub_effects, 2, "strand and node effects");
+        assert_eq!(roof.submodel_effects(), 2);
+        assert_eq!(
+            roof.submodels
+                .iter()
+                .map(|s| (s.name.as_str(), s.layer, s.effects[0].name.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("Left", 0, "On"), ("Left", 2, "Off")]
+        );
         assert_eq!(roof.layers[0].effects[0].settings_ref.as_deref(), Some("0"));
         assert_eq!(f.elements[1].fixed.as_deref(), Some("500"));
         assert_eq!(f.elements[2].layers[0].effects[0].name, "Hi");

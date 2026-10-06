@@ -1,7 +1,7 @@
 //! Effects: what lights up, when, and how it mixes with what's underneath.
 
 use crate::settings::{SettingSpec, choices, effect_params};
-use crate::{EffectId, Rgb};
+use crate::{EffectId, Rgb, TimingTrackId};
 use serde::{Deserialize, Serialize};
 
 /// The colors an effect draws with. An empty palette draws white.
@@ -128,10 +128,11 @@ pub enum EffectKind {
     Fire,
     Meteors,
     Ripple,
+    Faces,
 }
 
 impl EffectKind {
-    pub const ALL: [EffectKind; 14] = [
+    pub const ALL: [EffectKind; 15] = [
         EffectKind::On,
         EffectKind::Off,
         EffectKind::ColorWash,
@@ -146,6 +147,7 @@ impl EffectKind {
         EffectKind::Fire,
         EffectKind::Meteors,
         EffectKind::Ripple,
+        EffectKind::Faces,
     ];
 
     /// The name people see.
@@ -165,6 +167,7 @@ impl EffectKind {
             EffectKind::Fire => "Fire",
             EffectKind::Meteors => "Meteors",
             EffectKind::Ripple => "Ripple",
+            EffectKind::Faces => "Faces",
         }
     }
 
@@ -187,6 +190,9 @@ impl EffectKind {
             EffectKind::Fire => "Flames rising from the bottom of the prop.",
             EffectKind::Meteors => "Streaks of light with fading tails.",
             EffectKind::Ripple => "Rings spreading out from the center of the prop.",
+            EffectKind::Faces => {
+                "A singing face: the prop's face mouths the words on a timing track, with eyes that blink."
+            }
         }
     }
 
@@ -207,6 +213,7 @@ impl EffectKind {
             EffectKind::Fire => FireParams::SETTINGS,
             EffectKind::Meteors => MeteorsParams::SETTINGS,
             EffectKind::Ripple => RippleParams::SETTINGS,
+            EffectKind::Faces => FacesParams::SETTINGS,
         }
     }
 }
@@ -230,6 +237,7 @@ pub enum EffectParams {
     Fire(FireParams),
     Meteors(MeteorsParams),
     Ripple(RippleParams),
+    Faces(FacesParams),
 }
 
 impl EffectParams {
@@ -249,6 +257,7 @@ impl EffectParams {
             EffectParams::Fire(_) => EffectKind::Fire,
             EffectParams::Meteors(_) => EffectKind::Meteors,
             EffectParams::Ripple(_) => EffectKind::Ripple,
+            EffectParams::Faces(_) => EffectKind::Faces,
         }
     }
 
@@ -269,6 +278,7 @@ impl EffectParams {
             EffectKind::Fire => EffectParams::Fire(FireParams::default()),
             EffectKind::Meteors => EffectParams::Meteors(MeteorsParams::default()),
             EffectKind::Ripple => EffectParams::Ripple(RippleParams::default()),
+            EffectKind::Faces => EffectParams::Faces(FacesParams::default()),
         }
     }
 
@@ -290,6 +300,7 @@ impl EffectParams {
             EffectParams::Fire(p) => p.sanitize(),
             EffectParams::Meteors(p) => p.sanitize(),
             EffectParams::Ripple(p) => p.sanitize(),
+            EffectParams::Faces(p) => p.sanitize(),
         }
     }
 
@@ -317,6 +328,7 @@ impl EffectParams {
             EffectParams::Fire(p) => p.setting_problem(),
             EffectParams::Meteors(p) => p.setting_problem(),
             EffectParams::Ripple(p) => p.setting_problem(),
+            EffectParams::Faces(p) => p.setting_problem(),
         };
         found.map(|(spec, why)| format!("{} {why}", spec.label))
     }
@@ -381,6 +393,32 @@ pub enum MeteorDirection {
 
 choices!(MeteorDirection { "down" => "Down", "up" => "Up", "left" => "Left", "right" => "Right" });
 
+/// A singing face's eyes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FaceEyes {
+    Open,
+    /// Open, blinking every few seconds.
+    #[default]
+    Auto,
+    Closed,
+}
+
+choices!(FaceEyes { "open" => "Open", "auto" => "Open, blinking", "closed" => "Closed" });
+
+/// Where a singing face's colors come from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FaceColorSource {
+    /// The colors the face was made with (the palette when it has none).
+    #[default]
+    Face,
+    /// The palette: mouth, eyes, outline.
+    Palette,
+}
+
+choices!(FaceColorSource { "face" => "The face's own", "palette" => "The palette (mouth, eyes, outline)" });
+
 // Each settings struct below is the single table for its kind: type, default, JSON key, label,
 // and range (see `settings.rs`). The renderer clamps to these ranges, files are clamped to them
 // on open, and edits outside them are refused.
@@ -388,6 +426,7 @@ choices!(MeteorDirection { "down" => "Down", "up" => "Up", "left" => "Left", "ri
 effect_params! {
     /// Solid color (the first palette color), or the palette spread across the prop, with the
     /// brightness going from `start_level` to `end_level` over the effect.
+    #[derive(Copy)]
     pub struct OnParams {
         /// Spread the palette across the prop instead of using the first color.
         gradient: Gradient = Gradient::None => "gradient", "Gradient", choice;
@@ -400,12 +439,14 @@ effect_params! {
 
 effect_params! {
     /// Black: hides the layers below.
+    #[derive(Copy)]
     pub struct OffParams {}
 }
 
 effect_params! {
     /// Blends through the palette over the effect, `cycles` times; with a gradient, the colors
     /// also spread across the prop.
+    #[derive(Copy)]
     pub struct ColorWashParams {
         /// Times through the palette over the effect.
         cycles: f32 = 1.0 => "cycles", "Cycles", number(0.0, 100.0, 0.1);
@@ -416,6 +457,7 @@ effect_params! {
 
 effect_params! {
     /// The first palette color fading in (or out) over the effect.
+    #[derive(Copy)]
     pub struct FadeParams {
         /// Fade in or fade out.
         direction: FadeDirection = FadeDirection::In => "direction", "Direction", choice;
@@ -424,6 +466,7 @@ effect_params! {
 
 effect_params! {
     /// Bands of light moving along the pixels in wiring order (several bands make a marquee).
+    #[derive(Copy)]
     pub struct ChaseParams {
         /// Trips along the whole prop per second.
         speed: f32 = 1.0 => "speed", "Speed", number(0.0, 50.0, 0.1, "per second");
@@ -440,6 +483,7 @@ effect_params! {
 
 effect_params! {
     /// Stripes in the palette colors sliding across or up the prop.
+    #[derive(Copy)]
     pub struct BarsParams {
         /// Bars visible at once.
         count: u32 = 4 => "count", "Bars", int(1, 100);
@@ -454,6 +498,7 @@ effect_params! {
 
 effect_params! {
     /// A sine wave line across the prop, rolling sideways.
+    #[derive(Copy)]
     pub struct WaveParams {
         /// Waves across the prop.
         cycles: f32 = 1.0 => "cycles", "Waves", number(0.0, 20.0, 0.1);
@@ -470,6 +515,7 @@ effect_params! {
 
 effect_params! {
     /// Random pixels softly brightening and dimming.
+    #[derive(Copy)]
     pub struct TwinkleParams {
         /// Fraction of pixels lit at any moment (0–1).
         density: f32 = 0.3 => "density", "Density", number(0.0, 1.0, 0.01);
@@ -480,6 +526,7 @@ effect_params! {
 
 effect_params! {
     /// The whole prop flickering on and off.
+    #[derive(Copy)]
     pub struct ShimmerParams {
         /// Flickers per second.
         rate: f32 = 10.0 => "rate", "Rate", number(0.0, 60.0, 0.5, "per second");
@@ -490,6 +537,7 @@ effect_params! {
 
 effect_params! {
     /// Random pixels flashing, a new set each flash.
+    #[derive(Copy)]
     pub struct StrobeParams {
         /// Flashes per second.
         rate: f32 = 10.0 => "rate", "Rate", number(0.0, 60.0, 0.5, "per second");
@@ -500,6 +548,7 @@ effect_params! {
 
 effect_params! {
     /// Diagonal stripes rotating around the prop (made for trees and matrices).
+    #[derive(Copy)]
     pub struct SpiralParams {
         /// Stripes around the prop.
         count: u32 = 3 => "count", "Stripes", int(1, 100);
@@ -516,6 +565,7 @@ effect_params! {
 
 effect_params! {
     /// Flames rising from the bottom of the prop.
+    #[derive(Copy)]
     pub struct FireParams {
         /// How high the flames reach, as a fraction of the prop's height (0–1).
         height: f32 = 0.8 => "height", "Height", number(0.0, 1.0, 0.01);
@@ -526,6 +576,7 @@ effect_params! {
 
 effect_params! {
     /// Streaks of light with fading tails.
+    #[derive(Copy)]
     pub struct MeteorsParams {
         /// Meteors on the prop at once.
         count: u32 = 5 => "count", "Meteors", int(1, 100);
@@ -540,6 +591,7 @@ effect_params! {
 
 effect_params! {
     /// Rings spreading out from the center of the prop.
+    #[derive(Copy)]
     pub struct RippleParams {
         /// How fast rings grow: center-to-corner distances per second.
         speed: f32 = 0.5 => "speed", "Speed", number(0.0, 20.0, 0.05, "per second");
@@ -550,9 +602,44 @@ effect_params! {
     }
 }
 
+effect_params! {
+    /// A singing face: the mouth shape for the sound under the playhead on a timing track (a
+    /// phoneme track, or words and lyrics read letter by letter), with eyes and an outline.
+    pub struct FacesParams {
+        /// Which of the prop's faces sings (blank: its first face).
+        face: String = String::new() => "face", "Face", face;
+        /// The phonemes, words, or lyrics the face sings.
+        timing_track: Option<TimingTrackId> = None => "timingTrack", "Timing track", timing_track;
+        /// Open, open and blinking every few seconds, or closed.
+        eyes: FaceEyes = FaceEyes::Auto => "eyes", "Eyes", choice;
+        /// The face's own colors, or the palette (first color the mouth, second the eyes, third
+        /// the outline).
+        colors: FaceColorSource = FaceColorSource::Face => "colors", "Colors", choice;
+        /// Light the face's outline too.
+        outline: bool = false => "outline", "Show outline", toggle;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn faces_settings_read_and_write_with_defaults() {
+        let params: EffectParams = serde_json::from_str(r#"{ "kind": "faces", "face": "Singer" }"#).unwrap();
+        let EffectParams::Faces(faces) = &params else {
+            panic!("faces")
+        };
+        assert_eq!(faces.face, "Singer");
+        assert_eq!(
+            (faces.timing_track, faces.eyes, faces.colors, faces.outline),
+            (None, FaceEyes::Auto, FaceColorSource::Face, false)
+        );
+        let json = serde_json::to_value(&params).unwrap();
+        assert_eq!(json["timingTrack"], serde_json::Value::Null);
+        assert_eq!(json["eyes"], "auto");
+        assert_eq!(json["colors"], "face");
+    }
 
     #[test]
     fn params_are_tagged_by_kind_and_missing_settings_take_defaults() {

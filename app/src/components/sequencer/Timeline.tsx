@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight, GripVertical, Layers, Maximize2, Plus, Trash2, ZoomIn, ZoomOut } from "lucide-react";
-import { type PointerEvent as ReactPointerEvent, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, type PointerEvent as ReactPointerEvent, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { submodelsOf, targetKey, targetName } from "../../lib/submodels";
 import { defaultParams, newEffect, newRow, type EffectKind, type Sequence, type SequenceEdit, type SequenceTarget, type TimingTrack } from "../../api/sequence";
 import type { Show, Waveform } from "../../api/types";
 import {
@@ -99,11 +100,7 @@ const movesOf = (from: TimeSpan[], spans: TimeSpan[]): MarkMove[] =>
 /** Where a palette drop would land; `newLayer` when it would go on a new layer of the row. */
 type Ghost = { lane: number; startMs: number; endMs: number; newLayer: boolean };
 
-/** A target's name, from the show. */
-export function targetName(show: Show | undefined, target: SequenceTarget): string {
-  if ("prop" in target) return show?.props.find((p) => p.id === target.prop)?.name ?? "Missing prop";
-  return show?.groups.find((g) => g.id === target.group)?.name ?? "Missing group";
-}
+export { targetName };
 
 /** Music paths relative to the sequence file are found next to it. */
 export function resolveAudio(audio: string | null, docPath: string | null): string | null {
@@ -971,10 +968,10 @@ function RowButton({ label, onClick, disabled, children }: { label: string; onCl
   );
 }
 
-/** Picks a prop or group for a new row (or adds a row for every prop not on the timeline yet). */
+/** Picks a prop, a submodel, or a group for a new row (or adds a row for every prop not on the timeline yet). */
 export function AddRowMenu({ doc, show, onClose }: { doc: Sequence; show: Show | undefined; onClose: () => void }) {
   const edit = useSequencer((s) => s.edit);
-  const used = new Set(doc.rows.map((r) => ("prop" in r.target ? r.target.prop : r.target.group)));
+  const used = new Set(doc.rows.map((r) => targetKey(r.target)));
   const groups = show?.groups ?? [];
   const props = show?.props ?? [];
   const missing = props.filter((p) => !used.has(p.id));
@@ -1007,7 +1004,7 @@ export function AddRowMenu({ doc, show, onClose }: { doc: Sequence; show: Show |
       aria-label="Add a row"
       className="absolute bottom-2 left-2 z-30 flex max-h-96 w-64 flex-col rounded-lg border border-neutral-200 bg-white p-2 text-sm shadow-xl dark:border-neutral-800 dark:bg-neutral-900"
     >
-      <p className="px-1 pb-1 text-xs text-neutral-500">A row lights one prop, or a group of props as one picture.</p>
+      <p className="px-1 pb-1 text-xs text-neutral-500">A row lights one prop, one of its submodels, or a group of props as one picture.</p>
       <div className="flex-1 overflow-auto">
         {groups.length > 0 && <p className="px-1 pt-1 text-xs font-semibold text-neutral-500">Groups</p>}
         {groups.map((g) => (
@@ -1017,9 +1014,26 @@ export function AddRowMenu({ doc, show, onClose }: { doc: Sequence; show: Show |
         ))}
         {props.length > 0 && <p className="px-1 pt-1 text-xs font-semibold text-neutral-500">Props</p>}
         {props.map((p) => (
-          <button key={p.id} type="button" className="block w-full truncate rounded px-2 py-1 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => add([{ prop: p.id }])}>
-            {p.name} {used.has(p.id) && <span className="text-xs text-neutral-400">(has a row)</span>}
-          </button>
+          <Fragment key={p.id}>
+            <button type="button" className="block w-full truncate rounded px-2 py-1 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => add([{ prop: p.id }])}>
+              {p.name} {used.has(p.id) && <span className="text-xs text-neutral-400">(has a row)</span>}
+            </button>
+            {submodelsOf(p).map((r) => {
+              const target = { region: { prop: p.id, region: r.id } };
+              return (
+                <button
+                  key={r.id}
+                  type="button"
+                  aria-label={`${p.name} / ${r.name}`}
+                  className="block w-full truncate rounded py-1 pr-2 pl-6 text-left text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                  onClick={() => add([target])}
+                >
+                  <span aria-hidden className="text-neutral-400">└ </span>
+                  {r.name} {used.has(targetKey(target)) && <span className="text-xs text-neutral-400">(has a row)</span>}
+                </button>
+              );
+            })}
+          </Fragment>
         ))}
         {props.length === 0 && groups.length === 0 && <p className="px-2 py-2 text-neutral-500">Your show has no props yet. Add some on the Layout screen.</p>}
       </div>

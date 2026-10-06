@@ -12,6 +12,12 @@ pub struct XmlModel {
     pub attrs: BTreeMap<String, String>,
     /// Attributes of the `<ControllerConnection>` child, if any.
     pub connection: BTreeMap<String, String>,
+    /// Attributes of each `<subModel>` child, in file order.
+    pub submodels: Vec<BTreeMap<String, String>>,
+    /// Attributes of each `<faceInfo>` child, in file order.
+    pub faces: Vec<BTreeMap<String, String>>,
+    /// Names of the `<stateInfo>` children (states aren't imported yet).
+    pub states: Vec<String>,
 }
 
 impl XmlModel {

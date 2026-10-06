@@ -23,6 +23,7 @@ import { useLayoutEditor } from "../../state/layoutEditor";
 import { useApp } from "../../state/store";
 import { useView3d } from "../../state/view3d";
 import { HouseModelPanel } from "../layout3d/HouseModelPanel";
+import { SubmodelsSection } from "./SubmodelsSection";
 import { Button, Input, Select } from "../ui";
 
 const COLOR_ORDERS: ColorOrder[] = ["RGB", "RBG", "GRB", "GBR", "BRG", "BGR", "RGBW", "GRBW"];
@@ -116,7 +117,7 @@ export function Section({ title, children }: { title: string; children: React.Re
   );
 }
 
-function OnePropPanel({ prop }: { prop: Prop }) {
+function OnePropPanel({ prop, points }: { prop: Prop; points: ArrayLike<number> | undefined }) {
   const apply = useApp((s) => s.apply);
   const show = useApp((s) => s.snapshot!.show);
   const setScreen = useApp((s) => s.setScreen);
@@ -233,6 +234,7 @@ function OnePropPanel({ prop }: { prop: Prop }) {
           </p>
         )}
       </Section>
+      <SubmodelsSection prop={prop} points={points} />
       <Section title="Actions">
         <div className="flex flex-wrap gap-2">
           <DuplicateButton ids={[prop.id]} />
@@ -467,7 +469,7 @@ export function PropertiesPanel({
   return (
     <aside aria-label="Properties" className="h-full overflow-auto rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
       {ids.length === 1 ? (
-        <OnePropPanel key={ids[0]} prop={show.props.find((p) => p.id === ids[0])!} />
+        <OnePropPanel key={ids[0]} prop={show.props.find((p) => p.id === ids[0])!} points={preview.find((p) => p.prop === ids[0])?.points} />
       ) : ids.length > 1 ? (
         <ManyPropsPanel ids={ids} preview={preview} />
       ) : (

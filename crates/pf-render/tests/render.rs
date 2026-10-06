@@ -25,7 +25,7 @@ fn show() -> Show {
     b.color_order = ColorOrder::Grbw;
     show.props.push(b);
     let mut group = Group::new("Both");
-    group.members = vec![show.props[0].id, show.props[1].id];
+    group.members = vec![show.props[0].id.into(), show.props[1].id.into()];
     show.groups.push(group);
     show
 }
@@ -123,6 +123,238 @@ fn groups_draw_across_all_members_as_one_canvas() {
     let (a, b) = pixels(&render(&show, &seq, 500));
     assert_eq!(a.iter().map(|p| p[0]).collect::<Vec<_>>(), vec![0, 0, 0, 0]);
     assert_eq!(b.iter().map(|p| p[0]).collect::<Vec<_>>(), vec![255, 255, 0, 0]);
+}
+
+#[test]
+fn submodel_rows_light_only_their_pixels_and_follow_row_order() {
+    let mut show = show();
+    let middle = pf_model::Region::nodes("Middle", vec![vec![Some(pf_model::NodeRun::new(1, 2))]]);
+    let target = Target::Region {
+        prop: show.props[0].id,
+        region: middle.id,
+    };
+    show.props[0].regions.push(middle);
+    let mut seq = Sequence::new("s", 1000);
+    // The whole prop blue, then its middle red on a later row.
+    seq.rows.push(row(
+        Target::Prop(show.props[0].id),
+        vec![vec![on(Rgb::BLUE, 0, 1000)]],
+    ));
+    seq.rows.push(row(target, vec![vec![on(Rgb::RED, 0, 1000)]]));
+    let (a, _) = pixels(&render(&show, &seq, 0));
+    assert_eq!(a, vec![[0, 0, 255], [255, 0, 0], [255, 0, 0], [0, 0, 255]]);
+    // Rows draw in order: the whole prop now covers its middle.
+    seq.rows.swap(0, 1);
+    let (a, _) = pixels(&render(&show, &seq, 0));
+    assert_eq!(a, vec![[0, 0, 255]; 4]);
+}
+
+/// xLights keeps a group's members in the order listed, whole props and submodels mixed: a
+/// chase along [Left, Middle/Centre, Right] runs left, through the centre, then right.
+#[test]
+fn group_chases_follow_interleaved_member_order() {
+    let mut show = Show::new("t");
+    show.props.push(line("Left", 4, 0.0));
+    let mut middle = line("Middle", 4, 2.0);
+    let centre = pf_model::Region::nodes("Centre", vec![vec![Some(pf_model::NodeRun::new(1, 2))]]);
+    let centre_ref = pf_model::RegionRef {
+        prop: middle.id,
+        region: centre.id,
+    };
+    middle.regions.push(centre);
+    show.props.push(middle);
+    show.props.push(line("Right", 4, 4.0));
+    let mut group = Group::new("Across");
+    group.members = vec![
+        pf_model::GroupMember::Prop(show.props[0].id),
+        pf_model::GroupMember::Region(centre_ref),
+        pf_model::GroupMember::Prop(show.props[2].id),
+    ];
+    show.groups.push(group);
+    let mut seq = Sequence::new("s", 1000);
+    let chase = Effect::new(EffectKind::Chase, 0, 1000).with_params(EffectParams::Chase(ChaseParams {
+        width: 0.05,
+        ..ChaseParams::default()
+    }));
+    seq.rows
+        .push(row(Target::Group(show.groups[0].id), vec![vec![chase]]));
+    // Show-wide pixels in member order: Left 0-3, Middle's centre 5-6, Right 8-11.
+    let order = [0usize, 1, 2, 3, 5, 6, 8, 9, 10, 11];
+    let mut visited = Vec::new();
+    for t in (0..1000).step_by(25) {
+        let frame = render(&show, &seq, t);
+        let lit: Vec<usize> = (0..12).filter(|&p| frame[p * 3] > 0).collect();
+        assert!(
+            !lit.contains(&4) && !lit.contains(&7),
+            "only the centre of Middle is in the group: {lit:?}"
+        );
+        if let Some(&first) = lit.first() {
+            let at = order.iter().position(|&p| p == first).unwrap();
+            if visited.last() != Some(&at) {
+                visited.push(at);
+            }
+        }
+    }
+    assert!(
+        visited.windows(2).all(|w| w[0] < w[1]),
+        "the chase runs left, centre, right: {visited:?}"
+    );
+    assert!(visited.contains(&4) || visited.contains(&5), "{visited:?}");
+}
+
+/// A 12-pixel line with a face: mouths AI (pixels 0-1) and rest (2), eyes open (4-5) and
+/// closed (6), outline (8-11).
+fn singing_show() -> (Show, Sequence, TimingTrackId) {
+    let mut show = Show::new("t");
+    let mut prop = line("Face", 12, 0.0);
+    let mut face = pf_model::FaceDefinition::default();
+    face.mouths
+        .insert(pf_model::Phoneme::Ai, vec![pf_model::NodeRange::new(0, 2)]);
+    face.mouths
+        .insert(pf_model::Phoneme::Rest, vec![pf_model::NodeRange::new(2, 3)]);
+    face.eyes_open = vec![pf_model::NodeRange::new(4, 6)];
+    face.eyes_closed = vec![pf_model::NodeRange::new(6, 7)];
+    face.outline = vec![pf_model::NodeRange::new(8, 12)];
+    prop.regions.push(pf_model::Region::face("Singer", face));
+    show.props.push(prop);
+    let mut seq = Sequence::new("s", 10_000);
+    let track = TimingTrack::new(
+        "Lyrics (phonemes)",
+        TimingKind::Phonemes,
+        vec![Mark::new(0, 500, "AI")],
+    );
+    let id = track.id;
+    seq.timing_tracks.push(track);
+    (show, seq, id)
+}
+
+fn faces(track: TimingTrackId, eyes: FaceEyes, colors: FaceColorSource, outline: bool) -> Effect {
+    Effect::new(EffectKind::Faces, 0, 10_000)
+        .with_palette([Rgb::RED, Rgb::GREEN, Rgb::BLUE])
+        .with_params(EffectParams::Faces(FacesParams {
+            face: "Singer".into(),
+            timing_track: Some(track),
+            eyes,
+            colors,
+            outline,
+        }))
+}
+
+fn lit(frame: &[u8]) -> Vec<[u8; 3]> {
+    frame.chunks(3).map(|p| [p[0], p[1], p[2]]).collect()
+}
+
+#[test]
+fn faces_light_the_mouth_for_the_phoneme_and_the_eyes() {
+    let (show, mut seq, track) = singing_show();
+    let effect = faces(track, FaceEyes::Open, FaceColorSource::Palette, true);
+    seq.rows
+        .push(row(Target::Prop(show.props[0].id), vec![vec![effect]]));
+    const R: [u8; 3] = [255, 0, 0];
+    const G: [u8; 3] = [0, 255, 0];
+    const B: [u8; 3] = [0, 0, 255];
+    const O: [u8; 3] = [0, 0, 0];
+    // Singing "AI": mouth red, open eyes green, outline blue.
+    assert_eq!(
+        lit(&render(&show, &seq, 100)),
+        vec![R, R, O, O, G, G, O, O, B, B, B, B]
+    );
+    // After the mark the mouth is at rest.
+    assert_eq!(
+        lit(&render(&show, &seq, 600)),
+        vec![O, O, R, O, G, G, O, O, B, B, B, B]
+    );
+
+    // Closed eyes, no outline.
+    seq.rows[0].layers[0].effects[0] = faces(track, FaceEyes::Closed, FaceColorSource::Palette, false);
+    assert_eq!(
+        lit(&render(&show, &seq, 100)),
+        vec![R, R, O, O, O, O, G, O, O, O, O, O]
+    );
+}
+
+#[test]
+fn faces_use_their_own_colors_and_work_on_a_submodel_row() {
+    let (mut show, mut seq, track) = singing_show();
+    let pf_model::RegionKind::Face(face) = &mut show.props[0].regions[0].kind else {
+        unreachable!()
+    };
+    face.colors = Some(pf_model::FaceColors {
+        mouths: [(pf_model::Phoneme::Ai, Rgb::new(255, 128, 0))].into(),
+        ..Default::default()
+    });
+    // A submodel of the mouth and eyes only: the outline isn't on it.
+    let half = pf_model::Region::nodes("Half", vec![vec![Some(pf_model::NodeRun::new(0, 6))]]);
+    let target = Target::Region {
+        prop: show.props[0].id,
+        region: half.id,
+    };
+    show.props[0].regions.push(half);
+    seq.rows.push(row(
+        target,
+        vec![vec![faces(track, FaceEyes::Open, FaceColorSource::Face, true)]],
+    ));
+    let frame = lit(&render(&show, &seq, 100));
+    assert_eq!(&frame[..2], &[[255, 128, 0]; 2], "the face's mouth color");
+    assert_eq!(&frame[4..6], &[[255, 255, 255]; 2], "no eye color: white");
+    assert_eq!(&frame[8..], &[[0, 0, 0]; 4], "outside the submodel");
+}
+
+/// On a group every member with the face sings in its own pixels (xLights draws nothing for a
+/// node-range face on a group; PixelFlow does on purpose). One renderer draws frame after frame,
+/// reusing its face lookups.
+#[test]
+fn faces_sing_on_every_group_member_frame_after_frame() {
+    let (mut show, mut seq, track) = singing_show();
+    let mut second = show.props[0].clone();
+    second.id = pf_model::PropId::new();
+    second.name = "Face 2".into();
+    second.transform.position = Vec3::new(20.0, 0.0, 0.0);
+    show.props.push(second);
+    let mut group = Group::new("Choir");
+    group.members = vec![show.props[1].id.into(), show.props[0].id.into()];
+    let gid = group.id;
+    show.groups.push(group);
+    seq.rows.push(row(
+        Target::Group(gid),
+        vec![vec![faces(
+            track,
+            FaceEyes::Open,
+            FaceColorSource::Palette,
+            false,
+        )]],
+    ));
+    const R: [u8; 3] = [255, 0, 0];
+    const G: [u8; 3] = [0, 255, 0];
+    const O: [u8; 3] = [0, 0, 0];
+    let singing = vec![R, R, O, O, G, G, O, O, O, O, O, O];
+    let resting = vec![O, O, R, O, G, G, O, O, O, O, O, O];
+    let mut r = renderer(&show);
+    let mut frame = vec![0; r.frame_len()];
+    for (t, face) in [(100, &singing), (600, &resting), (100, &singing)] {
+        r.render(&seq, t, &mut frame);
+        let pixels = lit(&frame);
+        assert_eq!(&pixels[..12], face.as_slice(), "first prop at {t} ms");
+        assert_eq!(&pixels[12..], face.as_slice(), "second prop at {t} ms");
+    }
+}
+
+#[test]
+fn blinking_eyes_close_briefly_and_render_the_same_every_time() {
+    let (show, mut seq, track) = singing_show();
+    let effect = faces(track, FaceEyes::Auto, FaceColorSource::Palette, false);
+    let blink = (0..10_000)
+        .step_by(25)
+        .find(|&t| pf_render::faces::blinking(effect.id.seed(), 0, t))
+        .expect("a blink within 10 s");
+    seq.rows
+        .push(row(Target::Prop(show.props[0].id), vec![vec![effect]]));
+    let closed = lit(&render(&show, &seq, blink));
+    assert_eq!(closed[6], [0, 255, 0], "closed eyes lit");
+    assert_eq!(closed[4], [0, 0, 0]);
+    let open = lit(&render(&show, &seq, blink + pf_render::faces::BLINK_MS + 25));
+    assert_eq!((open[4], open[6]), ([0, 255, 0], [0, 0, 0]));
+    assert_eq!(lit(&render(&show, &seq, blink)), closed);
 }
 
 #[test]
@@ -249,7 +481,7 @@ fn big_show(props: usize) -> Show {
             }),
         );
         prop.transform.position = Vec3::new((i % 10) as f32 * 2.5, (i / 10) as f32 * 1.5, 0.0);
-        group.members.push(prop.id);
+        group.members.push(prop.id.into());
         show.props.push(prop);
     }
     show.groups.push(group);

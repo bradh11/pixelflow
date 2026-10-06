@@ -15,9 +15,18 @@ async function startApp() {
   return user;
 }
 
+/** Answers "Name your show" (asked before a new show's first save). */
+async function nameShow(user: ReturnType<typeof userEvent.setup>, name = "My House") {
+  const dialog = await screen.findByRole("dialog", { name: "Name your show" });
+  const field = within(dialog).getByLabelText("Show name");
+  await user.clear(field);
+  await user.type(field, name);
+  await user.click(within(dialog).getByRole("button", { name: "Save…" }));
+}
+
 async function startFresh() {
   const user = await startApp();
-  await user.click(screen.getByRole("button", { name: /start fresh/i }));
+  await user.click(screen.getByRole("button", { name: /^new show/i }));
   return user;
 }
 
@@ -40,14 +49,14 @@ describe("first run", () => {
     const user = await startApp();
     backend.files.set("/shows/house.pixelflow.json", emptyShow("My House"));
     backend.nextOpenPath = "/shows/house.pixelflow.json";
-    await user.click(screen.getByRole("button", { name: /open a show/i }));
+    await user.click(screen.getByRole("button", { name: /^open…/i }));
     expect(await screen.findByText("My House")).toBeInTheDocument();
   });
 
   it("cancelling the open dialog stays on the welcome screen", async () => {
     const user = await startApp();
     backend.nextOpenPath = null;
-    await user.click(screen.getByRole("button", { name: /open a show/i }));
+    await user.click(screen.getByRole("button", { name: /^open…/i }));
     expect(screen.getByRole("heading", { name: "Welcome to PixelFlow" })).toBeInTheDocument();
   });
 });
@@ -96,7 +105,9 @@ describe("saving", () => {
     await user.click(screen.getByRole("button", { name: /add prop/i }));
     backend.nextSavePath = "/shows/new.pixelflow.json";
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(backend.calls).toContain("saveShowAs:/shows/new.pixelflow.json");
+    await nameShow(user, "Backyard");
+    await waitFor(() => expect(backend.calls).toContain("saveShowAs:/shows/new.pixelflow.json"));
+    expect(backend.show.name).toBe("Backyard");
     expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
 
     backend.nextSavePath = null;
@@ -212,7 +223,8 @@ describe("unsaved changes on new and open", () => {
     backend.nextSavePath = "/shows/keep.pixelflow.json";
     await user.keyboard("{Meta>}n{/Meta}");
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Save" }));
-    expect(backend.calls).toContain("saveShowAs:/shows/keep.pixelflow.json");
+    await nameShow(user);
+    await waitFor(() => expect(backend.calls).toContain("saveShowAs:/shows/keep.pixelflow.json"));
     expect(backend.calls.filter((c) => c === "newShow").length).toBe(2);
     expect(await screen.findByText("No props yet")).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: /save changes/i })).not.toBeInTheDocument();
@@ -326,6 +338,7 @@ describe("confirm dialog safety", () => {
     const newShowsBefore = backend.calls.filter((c) => c === "newShow").length;
     const save = within(dialog).getByRole("button", { name: "Save" });
     await Promise.all([user.click(save), user.click(save)]);
+    await nameShow(user);
     await waitFor(() => expect(backend.calls.filter((c) => c === "newShow").length).toBe(newShowsBefore + 1));
     await new Promise((r) => setTimeout(r, 150));
     expect(backend.calls.filter((c) => c.startsWith("saveShowAs:")).length).toBe(1);

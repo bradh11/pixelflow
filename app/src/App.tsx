@@ -8,9 +8,11 @@ import { ErrorBanner } from "./components/ErrorBanner";
 import { ImportReport } from "./components/ImportReport";
 import { FilesReport } from "./components/MissingFiles";
 import { SequenceImportReport } from "./components/SequenceImportReport";
+import { NameShowDialog, OpeningStatus } from "./components/ShowDialogs";
 import { Welcome } from "./components/Welcome";
 import { useShortcuts } from "./components/useShortcuts";
 import { useCloseGuard } from "./state/closeGuard";
+import { runMenuAction } from "./state/menuActions";
 import { useApp } from "./state/store";
 
 export function App() {
@@ -24,6 +26,20 @@ export function App() {
     let stop: (() => void) | null = null;
     let gone = false;
     void backend.onCloseRequested(() => useCloseGuard.getState().request()).then(
+      (unlisten) => (gone ? unlisten() : (stop = unlisten)),
+      () => undefined,
+    );
+    return () => {
+      gone = true;
+      stop?.();
+    };
+  }, [backend]);
+  // The menu bar's File menu (macOS) runs the same actions as the show menu.
+  useEffect(() => {
+    if (!backend) return;
+    let stop: (() => void) | null = null;
+    let gone = false;
+    void backend.onMenu((action) => void runMenuAction(action)).then(
       (unlisten) => (gone ? unlisten() : (stop = unlisten)),
       () => undefined,
     );
@@ -54,6 +70,8 @@ export function App() {
       <SequenceImportReport />
       <AiSettings />
       <DraftPreview />
+      <NameShowDialog />
+      <OpeningStatus />
     </>
   );
 }

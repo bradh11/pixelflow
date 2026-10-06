@@ -13,11 +13,13 @@ import type {
   FileRole,
   FilesFound,
   HistoryEntry,
+  MenuAction,
   MissingFile,
   OutputStatus,
   PatternSpec,
   PreviewSet,
   PreviewSet3d,
+  RecentShow,
   Show,
   ShowSnapshot,
   TargetSpec,
@@ -27,6 +29,7 @@ import { mapControllers } from "./memoryMapping";
 import { channelsPerPixel, memberProp, newController, nodeCount } from "../lib/shows";
 import { fileName } from "../lib/format";
 import { filesOf, missingFile, repointEdits, sameFile } from "../lib/showFiles";
+import { sampleShow } from "./sampleShow";
 
 /**
  * An in-memory stand-in for the engine, used by tests and when the UI runs in a plain
@@ -81,6 +84,11 @@ export class MemoryBackend implements Backend {
   alsoFound = new Map<string, string[]>();
   /** Whether a search stops before looking everywhere. */
   searchGivesUp = false;
+  /** Shows opened or saved lately, newest first (like the shell's list). */
+  recent: RecentShow[] = [];
+  /** What "Locate…" for a recent show returns. */
+  nextRecentLocatePath: string | null = null;
+  private menuHandlers: ((action: MenuAction) => void)[] = [];
   private playbackStopReason_: string | null = null;
   private playing: {
     path: string;
@@ -158,12 +166,19 @@ export class MemoryBackend implements Backend {
     return this.snapshot();
   }
 
+  async openSampleShow() {
+    this.calls.push("openSampleShow");
+    this.replace(sampleShow(), null);
+    this.revision++; // unsaved
+    return this.snapshot();
+  }
+
   async openShow(path: string) {
     this.calls.push(`openShow:${path}`);
     const show = this.files.get(path);
     if (!show) throw new Error(`Could not read ${path}: file not found`);
     this.replace(structuredClone(show), path);
-    return this.snapshot();
+    return this.remember(this.snapshot());
   }
 
   async saveShow() {
@@ -176,7 +191,65 @@ export class MemoryBackend implements Backend {
     this.files.set(path, structuredClone(this.show));
     this.path = path;
     this.savedRevision = this.revision;
-    return this.snapshot();
+    return this.remember(this.snapshot());
+  }
+
+  /** Puts a saved show at the top of the recent list (at most 10), like the shell does. */
+  private remember(snapshot: ShowSnapshot): ShowSnapshot {
+    const path = snapshot.path;
+    if (!path) return snapshot;
+    const entry: RecentShow = {
+      path,
+      name: snapshot.show.name,
+      openedAt: Date.now(),
+      props: snapshot.summary.props,
+      pixels: snapshot.summary.pixels,
+      controllers: snapshot.summary.controllers,
+      thumbnail: layoutThumbnail(snapshot.show),
+      status: "here",
+    };
+    this.recent = [entry, ...this.recent.filter((r) => r.path !== path)].slice(0, 10);
+    return snapshot;
+  }
+
+  async listRecentShows() {
+    this.calls.push("listRecentShows");
+    return this.recent.map((r) => ({
+      ...r,
+      status: this.missingPaths.has(r.path) || !this.files.has(r.path) ? ("missing" as const) : ("here" as const),
+    }));
+  }
+
+  async forgetRecentShow(path: string) {
+    this.calls.push(`forgetRecentShow:${path}`);
+    this.recent = this.recent.filter((r) => r.path !== path);
+  }
+
+  async clearRecentShows() {
+    this.calls.push("clearRecentShows");
+    this.recent = [];
+  }
+
+  async locateRecentShow(path: string) {
+    this.calls.push(`locateRecentShow:${path}`);
+    if (!this.recent.some((r) => r.path === path)) throw new Error("That show isn't on your recent list any more.");
+    const to = this.nextRecentLocatePath;
+    if (!to) return null;
+    const snapshot = await this.openShow(to);
+    if (to !== path) this.recent = this.recent.filter((r) => r.path !== path);
+    return snapshot;
+  }
+
+  async onMenu(handler: (action: MenuAction) => void) {
+    this.menuHandlers.push(handler);
+    return () => {
+      this.menuHandlers = this.menuHandlers.filter((h) => h !== handler);
+    };
+  }
+
+  /** Acts like choosing a File menu item in the menu bar, for tests. */
+  chooseMenu(action: MenuAction) {
+    for (const handler of this.menuHandlers) handler(action);
   }
 
   /** The show's files that aren't "on disk", like the engine lists them. */
@@ -224,7 +297,7 @@ export class MemoryBackend implements Backend {
     this.show = structuredClone(found.show);
     this.generation++;
     this.revision++;
-    return this.snapshot();
+    return this.remember(this.snapshot());
   }
 
   async startOutput(pattern: PatternSpec, target: TargetSpec) {
@@ -588,7 +661,7 @@ export class MemoryBackend implements Backend {
     this.calls.push("closeWindow");
   }
 
-  async pickSavePath() {
+  async pickSavePath(_defaultName?: string) {
     return this.nextSavePath;
   }
 
@@ -654,6 +727,35 @@ export interface AuthoredPlayback {
   looping: boolean;
   /** The show frame at a moment. */
   frame(positionMs: number): Uint8Array;
+}
+
+/** A small SVG picture of the show's pixels seen from the front (like the shell's), or null. */
+export function layoutThumbnail(show: Show): string | null {
+  const points: number[] = [];
+  for (const prop of show.props) points.push(...frontView(prop));
+  if (points.length === 0) return null;
+  const [w, h, pad] = [320, 200, 12];
+  let [minX, maxX, minY, maxY] = [Infinity, -Infinity, Infinity, -Infinity];
+  for (let i = 0; i < points.length; i += 2) {
+    minX = Math.min(minX, points[i]);
+    maxX = Math.max(maxX, points[i]);
+    minY = Math.min(minY, points[i + 1]);
+    maxY = Math.max(maxY, points[i + 1]);
+  }
+  const [spanX, spanY] = [Math.max(maxX - minX, 1e-3), Math.max(maxY - minY, 1e-3)];
+  const scale = Math.min((w - 2 * pad) / spanX, (h - 2 * pad) / spanY);
+  const [offX, offY] = [(w - spanX * scale) / 2, (h - spanY * scale) / 2];
+  const seen = new Set<string>();
+  let dots = "";
+  for (let i = 0; i < points.length && seen.size < 1500; i += 2) {
+    const x = Math.round((points[i] - minX) * scale + offX);
+    const y = Math.round(h - ((points[i + 1] - minY) * scale + offY));
+    if (!seen.has(`${x},${y}`)) {
+      seen.add(`${x},${y}`);
+      dots += `M${x} ${y}h0`;
+    }
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}"><path d="${dots}" fill="none" stroke="#fcd34d" stroke-width="4" stroke-linecap="round"/></svg>`;
 }
 
 export function emptyShow(name: string): Show {

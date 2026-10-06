@@ -4,7 +4,7 @@ import { App } from "./App";
 import { tauriAssistant } from "./api/assistant";
 import { FakeAssistant } from "./api/memoryAssistant";
 import { useAssistant } from "./state/assistant";
-import { DEMO_PHOTO, demoDevices, demoHousePhoto, demoMissingFiles, demoPlayers, demoShow } from "./api/demo";
+import { DEMO_PHOTO, DEMO_SHOW_PATH, demoDevices, demoHousePhoto, demoMissingFiles, demoPlayers, demoRecentShows, demoShow } from "./api/demo";
 import { DEMO_MUSIC, DEMO_SEQUENCE_PATH, demoSequence } from "./api/demoSequence";
 import { MemoryBackend } from "./api/memory";
 import { MemorySequencer } from "./api/memorySequencer";
@@ -31,6 +31,9 @@ if (inTauri()) {
     backend.nextImagePath = DEMO_PHOTO;
     // `?demo&missing`: the show as if its folder had moved, with files to find again.
     if (new URLSearchParams(location.search).has("missing")) demoMissingFiles(backend);
+    // Saved, with a few recent shows (one of them moved).
+    backend.path = DEMO_SHOW_PATH;
+    demoRecentShows(backend);
   }
   void useApp.getState().connect(backend);
   // A scripted stand-in assistant: no key or network. In the demo it's already set up.
@@ -49,7 +52,8 @@ if (inTauri()) {
     sequencer.nextOpenPath = DEMO_SEQUENCE_PATH;
     sequencer.nextSavePath = DEMO_SEQUENCE_PATH;
     void sequencer.openSequenceDoc(DEMO_SEQUENCE_PATH).then(() => useSequencer.getState().connect(sequencer));
-    useApp.setState({ started: true });
+    // `?demo&start`: the start page, with the recent shows.
+    if (!new URLSearchParams(location.search).has("start")) useApp.setState({ started: true });
   } else {
     void useSequencer.getState().connect(sequencer);
   }

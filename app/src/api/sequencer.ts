@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { open, save } from "@tauri-apps/plugin-dialog";
+import { pickPath } from "./tauri";
 import type { FoundFile, MissingFile, PlaybackStatus, ShowSnapshot, XlightsSequenceImported } from "./types";
 import type {
   Analysis,
@@ -17,15 +17,6 @@ import type {
 
 /** The event the engine sends while exporting. */
 export const EXPORT_PROGRESS_EVENT = "sequence-export-progress";
-
-const DOCUMENT_FILTER = [{ name: "PixelFlow sequence", extensions: ["json"] }];
-const FSEQ_FILTER = [{ name: "FPP sequence", extensions: ["fseq"] }];
-const XSQ_FILTER = [{ name: "xLights sequence", extensions: ["xsq"] }];
-const TIMING_FILTERS = [
-  { name: "Timing files (xLights .xtiming, Audacity labels .txt)", extensions: ["xtiming", "txt"] },
-  { name: "xLights timing", extensions: ["xtiming"] },
-  { name: "Audacity labels", extensions: ["txt"] },
-];
 
 /** What looking for the open sequence's music found: where (now used), and the edit that did it. */
 export interface MusicFound {
@@ -161,24 +152,14 @@ export const tauriSequencer: SequencerApi = {
   detectBeats: () => invoke("detect_beats"),
   importTimingFile: (path) => invoke("import_timing_file", { path }),
   exportTimingTrack: (id, path) => invoke("export_timing_track", { id, path }),
-  pickTimingFilePath: async () => {
-    const path = await open({ multiple: false, directory: false, filters: TIMING_FILTERS });
-    return typeof path === "string" ? path : null;
-  },
-  pickTimingExportPath: async (defaultName) => (await save({ defaultPath: defaultName, filters: TIMING_FILTERS.slice(1) })) ?? null,
+  pickTimingFilePath: () => pickPath("timingFile"),
+  pickTimingExportPath: (defaultName) => pickPath("timingExport", defaultName),
   importXlightsSequence: (path) => invoke("import_xlights_sequence", { path }),
   sequenceMusicMissing: () => invoke("sequence_music_missing"),
   findSequenceMusic: () => invoke("find_sequence_music"),
   locateSequenceMusic: () => invoke("locate_sequence_music"),
-  pickXlightsSequencePath: async () => {
-    const path = await open({ multiple: false, directory: false, filters: XSQ_FILTER });
-    return typeof path === "string" ? path : null;
-  },
-  pickSequenceDocPath: async () => {
-    const path = await open({ multiple: false, directory: false, filters: DOCUMENT_FILTER });
-    return typeof path === "string" ? path : null;
-  },
-  pickSequenceDocSavePath: async (defaultName) =>
-    (await save({ defaultPath: defaultName, filters: DOCUMENT_FILTER })) ?? null,
-  pickExportPath: async (defaultName) => (await save({ defaultPath: defaultName, filters: FSEQ_FILTER })) ?? null,
+  pickXlightsSequencePath: () => pickPath("xlightsSequence"),
+  pickSequenceDocPath: () => pickPath("sequenceDoc"),
+  pickSequenceDocSavePath: (defaultName) => pickPath("sequenceDocSave", defaultName),
+  pickExportPath: (defaultName) => pickPath("fseqExport", defaultName),
 };

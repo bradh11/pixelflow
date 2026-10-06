@@ -18,6 +18,8 @@ import { fileName } from "../lib/format";
 import { sameFile } from "../lib/showFiles";
 import { useLayoutEditor } from "./layoutEditor";
 import { toast } from "./toast";
+import { edited, stepped, useUndoLabels } from "./undoLabels";
+import { describeShowEdits } from "../lib/describeChange";
 import { showViewKey, useView3d } from "./view3d";
 
 /**
@@ -26,6 +28,9 @@ import { showViewKey, useView3d } from "./view3d";
  * was still on its way.
  */
 export type EditsFrom = Edit[] | ((show: Show) => Edit[]);
+
+/** What a call to the engine does to the show's undo history. */
+type TurnKind = "edit" | "undo" | "redo" | "other";
 
 /** `quiet`: no "Saved …" toast (the caller says what it saved itself). */
 export interface SaveOptions {
@@ -405,14 +410,37 @@ export const useApp = create<AppState>((set, get) => {
   /** Set while a check of the show's files runs (one at a time). */
   let checkingFiles = false;
 
+  /**
+   * Keeps the Undo and Redo names in step with a call that took the show from `before` to
+   * `after`: an edit (named by `label`), an undo, a redo, or anything else (which puts the names
+   * aside until the next edit).
+   */
+  function trackUndoNames(before: ShowSnapshot | null, after: ShowSnapshot, kind: TurnKind, label: (() => string) | undefined) {
+    if (!before || before.revision === after.revision) return;
+    const names = useUndoLabels.getState().show;
+    const next =
+      kind === "edit" && label
+        ? edited(names, before.revision, after.revision, label())
+        : kind === "undo" || kind === "redo"
+          ? stepped(names, before.revision, after.revision, kind === "redo")
+          : { undo: [], redo: [], at: null };
+    useUndoLabels.setState({ show: next });
+  }
+
   /** Runs `call` once every earlier call has finished; resolves with its snapshot, or null on failure. */
-  function runInTurn(call: (backend: Backend) => Promise<ShowSnapshot>): Promise<ShowSnapshot | null> {
+  function runInTurn(
+    call: (backend: Backend) => Promise<ShowSnapshot>,
+    kind: TurnKind = "other",
+    label?: (before: ShowSnapshot) => string,
+  ): Promise<ShowSnapshot | null> {
     const turn = queue.then(async () => {
       const backend = get().backend;
       if (!backend) return null;
       set({ busy: true });
       try {
+        const before = get().snapshot;
         const snapshot = await call(backend);
+        trackUndoNames(before, snapshot, kind, before && label ? () => label(before) : undefined);
         const current = get().snapshot;
         // Engine revisions only increase, so never go backwards.
         if (!current || snapshot.revision >= current.revision) {
@@ -439,12 +467,18 @@ export const useApp = create<AppState>((set, get) => {
 
   /** Sends the edits (built from the latest show, if they're a function) when their turn comes. */
   function sendEdits(edits: EditsFrom): Promise<ShowSnapshot | null> {
-    return runInTurn(async (backend) => {
-      const current = get().snapshot;
-      const batch = typeof edits === "function" ? (current ? edits(current.show) : []) : edits;
-      if (batch.length === 0 && current) return current;
-      return backend.applyEdits(batch);
-    });
+    let sent: Edit[] = [];
+    return runInTurn(
+      async (backend) => {
+        const current = get().snapshot;
+        const batch = typeof edits === "function" ? (current ? edits(current.show) : []) : edits;
+        sent = batch;
+        if (batch.length === 0 && current) return current;
+        return backend.applyEdits(batch);
+      },
+      "edit",
+      (before) => describeShowEdits(sent, before.show),
+    );
   }
 
   /** Commits an in-progress text edit (e.g. a prop rename) before saving. */
@@ -512,8 +546,8 @@ export const useApp = create<AppState>((set, get) => {
   run: async (call) => (await runInTurn(call)) !== null,
   apply: async (edits) => (await sendEdits(edits)) !== null,
   edit: async (edits) => (await sendEdits(edits))?.revision ?? null,
-  undo: () => withPairedSequence(get().run((b) => b.undo())),
-  redo: () => withPairedSequence(get().run((b) => b.redo())),
+  undo: () => withPairedSequence(runInTurn((b) => b.undo(), "undo").then((s) => s !== null)),
+  redo: () => withPairedSequence(runInTurn((b) => b.redo(), "redo").then((s) => s !== null)),
 
   newShow: () => leaveShow("new"),
   openShow: () => leaveShow("open"),

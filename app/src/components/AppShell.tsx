@@ -29,14 +29,32 @@ import { ShowMenu } from "./ShowMenu";
 import { Sidebar } from "./Sidebar";
 import { ASSISTANT_OVERLAY_BELOW, useWindowWidth } from "../lib/useWidth";
 import { Button, UnsavedBadge } from "./ui";
-import { saveFocused } from "../state/menuActions";
+import { saveFocused, undoFocused } from "../state/menuActions";
+import { nextLabels, useUndoLabels } from "../state/undoLabels";
 
-function IconButton({ label, onClick, disabled, dim, children }: { label: string; onClick: () => void; disabled?: boolean; dim?: boolean; children: ReactNode }) {
+function IconButton({
+  label,
+  hint,
+  shortcut,
+  onClick,
+  disabled,
+  dim,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  shortcut?: string;
+  onClick: () => void;
+  disabled?: boolean;
+  dim?: boolean;
+  children: ReactNode;
+}) {
   return (
     <button
       type="button"
       aria-label={label}
-      title={label}
+      data-tip={hint ?? label}
+      data-tip-key={shortcut}
       onClick={onClick}
       disabled={disabled}
       className={`rounded-md p-2 text-neutral-600 hover:bg-neutral-200/70 disabled:opacity-30 disabled:hover:bg-transparent dark:text-neutral-300 dark:hover:bg-neutral-800 ${dim ? "opacity-40 hover:opacity-100" : ""}`}
@@ -46,26 +64,36 @@ function IconButton({ label, onClick, disabled, dim, children }: { label: string
   );
 }
 
-/** On the Sequence screen, undo and redo act on the open sequence; elsewhere on the show.
- * (Only what the buttons need is watched, so playback doesn't redraw the top bar.) */
-function useUndoTarget() {
+/**
+ * The Undo (or Redo) button: what it acts on (see `undoTarget`), whether it can, and what it would
+ * take back, for its tooltip ("Undo: Move Mega Tree"). Only what the button needs is watched, so
+ * playback doesn't redraw the top bar.
+ */
+function useUndoButton(redo: boolean) {
   const onSequence = useApp((s) => s.screen === "sequence");
   const hasSequence = useSequencer((s) => s.doc !== null);
-  const seq = useSequencer(useShallow((s) => ({ canUndo: s.canUndo, canRedo: s.canRedo })));
-  const show = useApp(useShallow((s) => ({ canUndo: s.snapshot?.canUndo ?? false, canRedo: s.snapshot?.canRedo ?? false })));
-  if (onSequence && hasSequence) {
-    const { undo, redo } = useSequencer.getState();
-    return { sequence: true, undo, redo, ...seq };
-  }
-  const { undo, redo } = useApp.getState();
-  return { sequence: false, undo, redo, ...show };
+  const seq = useSequencer(useShallow((s) => ({ can: redo ? s.canRedo : s.canUndo, revision: s.revision })));
+  const show = useApp(useShallow((s) => ({ can: (redo ? s.snapshot?.canRedo : s.snapshot?.canUndo) ?? false, revision: s.snapshot?.revision })));
+  const names = useUndoLabels();
+  const both = onSequence && hasSequence;
+  const target = both && (seq.can || !show.can) ? "sequence" : "show";
+  const verb = redo ? "Redo" : "Undo";
+  const label = both ? `${verb} (${target})` : verb;
+  const name = target === "sequence" ? nextLabels(names.sequence, seq.revision) : nextLabels(names.show, show.revision);
+  const what = redo ? name.redo : name.undo;
+  const can = target === "sequence" ? seq.can : show.can;
+  return { label, hint: what && can ? `${label}: ${what}` : label, can };
 }
 
 function TopBar() {
   const snapshot = useApp((s) => s.snapshot);
   const theme = useApp((s) => s.theme);
   const { setPaletteOpen, setTheme, closeShow } = useApp.getState();
-  const target = useUndoTarget();
+  const undo = useUndoButton(false);
+  const redo = useUndoButton(true);
+  const onSequence = useApp((s) => s.screen === "sequence");
+  const hasSequence = useSequencer((s) => s.doc !== null);
+  const target = { sequence: onSequence && hasSequence };
   const sequenceName = useSequencer((s) => s.doc?.name ?? null);
   const sequenceDirty = useSequencer((s) => s.dirty);
   const sequencePath = useSequencer((s) => s.path);
@@ -96,10 +124,10 @@ function TopBar() {
         </>
       )}
       <div className="ml-auto flex items-center gap-1">
-        <IconButton label={target.sequence ? "Undo (sequence)" : "Undo"} onClick={target.undo} disabled={!target.canUndo}>
+        <IconButton label={undo.label} hint={undo.hint} shortcut="⌘Z" onClick={() => void undoFocused(false)} disabled={!undo.can}>
           <Undo2 size={18} />
         </IconButton>
-        <IconButton label={target.sequence ? "Redo (sequence)" : "Redo"} onClick={target.redo} disabled={!target.canRedo}>
+        <IconButton label={redo.label} hint={redo.hint} shortcut="⇧⌘Z" onClick={() => void undoFocused(true)} disabled={!redo.can}>
           <Redo2 size={18} />
         </IconButton>
         {/* The same save as ⌘S and File → Save; quiet when there's nothing to save. */}

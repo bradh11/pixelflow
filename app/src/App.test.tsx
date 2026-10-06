@@ -84,8 +84,12 @@ describe("editing with undo and redo", () => {
     await user.type(name, "Big Tree{Enter}");
     expect(screen.getAllByDisplayValue("Big Tree")[0]).toBeInTheDocument();
 
+    // Undo and Redo say what they'd take back or bring back.
+    expect(screen.getByRole("button", { name: "Undo" })).toHaveAttribute("data-tip", "Undo: Rename Mega Tree 1 to Big Tree");
     await user.click(screen.getByRole("button", { name: "Undo" }));
     expect(screen.getAllByDisplayValue("Mega Tree 1")[0]).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Undo" })).toHaveAttribute("data-tip", "Undo: Add Mega Tree 1");
+    expect(screen.getByRole("button", { name: "Redo" })).toHaveAttribute("data-tip", "Redo: Rename Mega Tree 1 to Big Tree");
     await user.click(screen.getByRole("button", { name: "Redo" }));
     expect(screen.getAllByDisplayValue("Big Tree")[0]).toBeInTheDocument();
 

@@ -17,12 +17,26 @@ export function saveFocused(as: boolean): Promise<boolean> {
   return as ? app.saveAs() : app.save();
 }
 
-/** Undo (or redo) whatever is being worked on: the open sequence on the Sequence screen, else
- * the show. */
-export function undoFocused(redo: boolean): Promise<boolean> {
+/**
+ * What Undo (or Redo) acts on: the open sequence on the Sequence screen, else the show. On the
+ * Sequence screen, when the sequence has nothing to undo (or redo) but the show has, the show.
+ */
+export function undoTarget(redo: boolean): "sequence" | "show" {
   const app = useApp.getState();
   const sequencer = useSequencer.getState();
-  if (app.screen === "sequence" && sequencer.doc) return redo ? sequencer.redo() : sequencer.undo();
+  if (app.screen !== "sequence" || !sequencer.doc) return "show";
+  if (redo ? sequencer.canRedo : sequencer.canUndo) return "sequence";
+  const show = app.snapshot;
+  return (redo ? show?.canRedo : show?.canUndo) ? "show" : "sequence";
+}
+
+/** Undo (or redo) whatever is being worked on (see `undoTarget`). */
+export function undoFocused(redo: boolean): Promise<boolean> {
+  if (undoTarget(redo) === "sequence") {
+    const sequencer = useSequencer.getState();
+    return redo ? sequencer.redo() : sequencer.undo();
+  }
+  const app = useApp.getState();
   return redo ? app.redo() : app.undo();
 }
 

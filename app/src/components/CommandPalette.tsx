@@ -4,7 +4,7 @@ import { fileName } from "../lib/format";
 import { PROP_KINDS } from "../lib/shows";
 import { addPropInView } from "../state/addProp";
 import { useAssistant } from "../state/assistant";
-import { saveFocused } from "../state/menuActions";
+import { saveFocused, undoFocused } from "../state/menuActions";
 import { setupKey, useSetup } from "../state/setup";
 import { type Screen, useApp } from "../state/store";
 
@@ -58,8 +58,8 @@ export function CommandPalette() {
     { id: "import-xlights-sequence", label: "Import xLights sequence…", run: state.importXlightsSequence },
     { id: "save", label: "Save", shortcut: "⌘S", run: () => saveFocused(false) },
     { id: "save-as", label: "Save as…", shortcut: "⇧⌘S", run: state.saveAs },
-    { id: "undo", label: "Undo", shortcut: "⌘Z", run: state.undo },
-    { id: "redo", label: "Redo", shortcut: "⇧⌘Z", run: state.redo },
+    { id: "undo", label: "Undo", shortcut: "⌘Z", run: () => undoFocused(false) },
+    { id: "redo", label: "Redo", shortcut: "⇧⌘Z", run: () => undoFocused(true) },
     {
       id: "assistant",
       label: useAssistant.getState().open ? "Close the assistant" : "Open the assistant",

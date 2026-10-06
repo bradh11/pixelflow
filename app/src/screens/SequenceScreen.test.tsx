@@ -128,11 +128,27 @@ describe("sequence screen", () => {
     expect(added.params).toMatchObject({ kind: "fire", height: expect.any(Number) });
     expect(seq.undoStack.length).toBe(before + 1);
     expect(useSequencer.getState().selection).toEqual([added.id]);
+    expect(screen.getByRole("button", { name: "Undo (sequence)" })).toHaveAttribute("data-tip", "Undo (sequence): Add Fire");
     // Dropped off the rows, nothing is added.
     fireEvent.pointerDown(fire, { clientX: 20, clientY: 20, button: 0, pointerId: 1 });
     fireEvent.pointerMove(fire, { clientX: 300, clientY: 50, pointerId: 1 });
     fireEvent.pointerUp(fire, { clientX: 300, clientY: 50, pointerId: 1 });
     expect(seq.undoStack.length).toBe(before + 1);
+  });
+
+  it("undoes the show from here when the sequence has nothing to undo, and says so", async () => {
+    const { user, backend } = await openScreen();
+    expect(screen.getByRole("button", { name: "Undo (sequence)" })).toBeDisabled();
+    const star = backend.show.props.find((p) => p.name === "Porch Star")!;
+    await act(() => useApp.getState().apply([{ type: "updateProp", prop: { ...star, name: "Roof Star" } }]));
+    const undo = screen.getByRole("button", { name: "Undo (show)" });
+    expect(undo).toHaveAttribute("data-tip", "Undo (show): Rename Porch Star to Roof Star");
+    await user.click(undo);
+    expect(backend.show.props.some((p) => p.name === "Porch Star")).toBe(true);
+    // And ⌘Z does the same.
+    await act(() => useApp.getState().apply([{ type: "updateProp", prop: { ...star, name: "Roof Star" } }]));
+    await user.keyboard("{Meta>}z{/Meta}");
+    await waitFor(() => expect(backend.show.props.some((p) => p.name === "Porch Star")).toBe(true));
   });
 
   it("adds an effect at the playhead from the keyboard", async () => {

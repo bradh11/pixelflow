@@ -8,6 +8,7 @@ import { ErrorBanner } from "./components/ErrorBanner";
 import { ImportReport } from "./components/ImportReport";
 import { FilesReport } from "./components/MissingFiles";
 import { SequenceImportReport } from "./components/SequenceImportReport";
+import { Toasts } from "./components/Toasts";
 import { Welcome } from "./components/Welcome";
 import { useShortcuts } from "./components/useShortcuts";
 import { useCloseGuard } from "./state/closeGuard";
@@ -54,6 +55,7 @@ export function App() {
       <SequenceImportReport />
       <AiSettings />
       <DraftPreview />
+      <Toasts />
     </>
   );
 }

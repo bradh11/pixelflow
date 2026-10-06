@@ -15,6 +15,7 @@ import { useSequencer } from "../state/sequencer";
 import { newEffect, newRow, type Sequence, type SequenceTarget } from "../api/sequence";
 import { useToasts } from "../state/toast";
 import { DesktopLikeBackend } from "../test/desktopBackend";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { LayoutScreen } from "./LayoutScreen";
 
 vi.mock("../components/layout/useLayoutData", async (original) => ({
@@ -61,7 +62,12 @@ async function setup(show: Show, delayMs = 0, Engine: typeof MemoryBackend = Mem
   await useApp.getState().connect(backend);
   useApp.setState({ started: true });
   const user = userEvent.setup();
-  render(<LayoutScreen />);
+  render(
+    <>
+      <LayoutScreen />
+      <ConfirmDialog />
+    </>,
+  );
   // The canvas fits the props in once their positions arrive.
   await waitFor(() => expect(useLayoutEditor.getState().view).not.toBeNull());
   return user;
@@ -580,6 +586,10 @@ describe("LayoutScreen", () => {
       await user.keyboard("{Delete}");
       const dialog = screen.getByRole("alertdialog", { name: "Delete Gutter?" });
       expect(dialog).toHaveTextContent("Gutter lights 1 row with 4 effects in Medley. Delete it anyway?");
+      expect(edits).toHaveLength(0);
+      // While it asks, the layout's keys wait (nothing is deleted or nudged behind it).
+      fireEvent.keyDown(window, { key: "Delete" });
+      fireEvent.keyDown(window, { key: "ArrowRight" });
       expect(edits).toHaveLength(0);
       await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
       expect(backend.show.props).toHaveLength(2);

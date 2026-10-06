@@ -14,6 +14,7 @@ import { ago, fileName, shownPath } from "../lib/format";
 import { formatTime } from "../lib/timelineMath";
 import { MAX_ROWS, rowsForShow } from "../api/sequence";
 import { type RecentSequence, recentFor, useSequencer } from "../state/sequencer";
+import { saveSequenceAndShow } from "../state/saveAll";
 import { useApp } from "../state/store";
 
 /** How often playback is checked while a sequence plays. */
@@ -281,7 +282,7 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
       >
         <FileInput size={16} /> <span className="hidden xl:inline">Import from xLights</span>
       </ToolButton>
-      <ToolButton label="Save sequence" onClick={() => void act().save()} disabled={s.name === null}>
+      <ToolButton label="Save" hint="Save the sequence, and the show if it changed (⌘S)" onClick={() => void saveSequenceAndShow()} disabled={s.name === null}>
         <Save size={16} />
       </ToolButton>
       {s.name !== null && (

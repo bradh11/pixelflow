@@ -76,7 +76,7 @@ describe("editing with undo and redo", () => {
     expect(screen.getByTestId("toast")).toHaveTextContent("Added Mega Tree 1 — drag it into place");
     expect(screen.getByText("800")).toBeInTheDocument();
     expect(screen.getByText(/1 prop · 800 pixels/)).toBeInTheDocument();
-    expect(screen.getByLabelText("Unsaved changes")).toBeInTheDocument();
+    expect(screen.getByText("Show not saved")).toBeInTheDocument();
 
     await user.dblClick(screen.getByRole("option", { name: /^Mega Tree 1/ }));
     const name = screen.getByLabelText("Name of Mega Tree 1");
@@ -122,14 +122,14 @@ describe("saving", () => {
     await nameShow(user, "Backyard");
     await waitFor(() => expect(backend.calls).toContain("saveShowAs:/shows/new.pixelflow.json"));
     expect(backend.show.name).toBe("Backyard");
-    expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
-    expect(screen.getAllByTestId("toast").at(-1)).toHaveTextContent("Saved Untitled Show");
+    expect(screen.queryByText("Show not saved")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("toast").at(-1)).toHaveTextContent("Saved Backyard");
 
     backend.nextSavePath = null;
     await addProp(user);
     await user.keyboard("{Meta>}s{/Meta}");
     expect(backend.calls.filter((c) => c.startsWith("saveShowAs")).length).toBe(2);
-    expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
+    expect(screen.queryByText("Show not saved")).not.toBeInTheDocument();
   });
 });
 

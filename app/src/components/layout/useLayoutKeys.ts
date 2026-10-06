@@ -5,6 +5,7 @@ import { nudgeStep } from "../../lib/layoutMath";
 import { isPoly, removeVertex } from "../../lib/polylineMath";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { addNudge, flushNudge } from "../../state/layoutGestures";
+import { isBusyOrAsking } from "../../state/busy";
 import { groupSelected } from "../../state/groups";
 import { useApp } from "../../state/store";
 import { deleteProps } from "./PropsList";
@@ -62,6 +63,9 @@ export function useLayoutKeys(canvas: RefObject<LayoutCanvasHandle | null>) {
     const onKey = (e: KeyboardEvent) => {
       const app = useApp.getState();
       if (app.paletteOpen || app.pendingReplace || e.defaultPrevented) return;
+      // A dialog or question is up (a delete warning, "Name your show"), or a show is opening:
+      // Delete, ⌘D, ⌘G, ⌘X/⌘V, and the arrows wait instead of changing the show behind it.
+      if (isBusyOrAsking()) return;
       if (typing(e.target)) return;
       // A poly line being drawn takes Enter, Backspace and Delete before anything else does.
       if (!e.metaKey && !e.ctrlKey && !e.altKey && canvas.current?.polyKey(e.key)) {

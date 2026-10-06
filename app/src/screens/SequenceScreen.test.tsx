@@ -11,6 +11,7 @@ import { MemorySequencer } from "../api/memorySequencer";
 import type { Effect, Sequence } from "../api/sequence";
 import { useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
+import { runMenuAction } from "../state/menuActions";
 
 // The timeline is 1000 × 600 px at the window's corner: the demo's minute fits at 60 ms per pixel.
 // Above the rows: ruler 24 + music 44 + two timing tracks of 18 = 104 px. Rows are 30 px a lane:
@@ -291,7 +292,7 @@ describe("sequence screen", () => {
     expect(useApp.getState().snapshot?.show.sequences[0]).toMatchObject({ name: "Christmas Medley 2017", path: "/Shows/Medley.fseq", audio: DEMO_MUSIC });
     // The show changed (one undo step on the show): the top bar and the notice say it needs saving.
     expect(await screen.findByText(/It's on the show's playlist; save the show to keep it there/)).toBeInTheDocument();
-    expect(screen.getByText("● Show not saved")).toBeInTheDocument();
+    expect(screen.getByText("Show not saved")).toBeInTheDocument();
     expect(useApp.getState().snapshot?.canUndo).toBe(true);
     // Adding the same file again doesn't list it twice.
     await user.click(screen.getByRole("button", { name: "Export and add to the show's playlist" }));
@@ -300,7 +301,7 @@ describe("sequence screen", () => {
     backend.nextSavePath = "/Shows/House.pixelflow.json";
     await user.click(screen.getByRole("button", { name: "Save show" }));
     await waitFor(() => expect(useApp.getState().snapshot?.dirty).toBe(false));
-    expect(screen.queryByText("● Show not saved")).not.toBeInTheDocument();
+    expect(screen.queryByText("Show not saved")).not.toBeInTheDocument();
   });
 
   it("says plainly that a cancelled export wrote nothing", async () => {
@@ -526,14 +527,14 @@ describe("unsaved work", () => {
     await waitFor(() => expect(useSequencer.getState().doc?.rows).toHaveLength(4));
     expect(useSequencer.getState()).toMatchObject({ dirty: true, path: DEMO_SEQUENCE_PATH });
     expect(screen.queryByRole("region", { name: "Unsaved sequences from last time" })).not.toBeInTheDocument();
-    expect(screen.getByText("● Sequence not saved")).toBeInTheDocument();
+    expect(screen.getByText("Sequence not saved")).toBeInTheDocument();
 
     // Another kept one, while this one has unsaved changes: asked first; Escape cancels.
     seq.recoveries = [{ id: "r2", name: "Older", path: null, savedAtMs: Date.now() - 3 * 86_400_000, doc: { ...kept, name: "Older" } }];
     await act(() => useSequencer.getState().connect(seq));
     await user.click(screen.getByRole("button", { name: "Recover unsaved sequence Older" }));
     expect(screen.getByRole("dialog", { name: "Unsaved changes" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save" })).toHaveFocus();
+    expect(within(screen.getByRole("dialog", { name: "Unsaved changes" })).getByRole("button", { name: "Save" })).toHaveFocus();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Unsaved changes" })).not.toBeInTheDocument();
     expect(useSequencer.getState().doc?.name).toBe("Christmas Medley 2017");
@@ -795,13 +796,29 @@ describe("saving", () => {
     expect(screen.getByTestId("toast")).toHaveTextContent("Saved Christmas Medley 2017");
   });
 
-  it("the Save sequence button saves just the sequence, and says so", async () => {
-    const { user } = await openScreen();
+  it.each([
+    ["File → Save in the menu bar", () => runMenuAction({ action: "save" })],
+    ["the top bar's Save", () => userEvent.click(screen.getByRole("button", { name: "Save (the sequence, and the show if it changed)" }))],
+    ["the Sequence toolbar's Save", () => userEvent.click(within(screen.getByRole("toolbar", { name: "Sequence" })).getByRole("button", { name: "Save" }))],
+  ])("%s saves the show and the sequence, like ⌘S, with one toast", async (_how, save) => {
+    const { backend } = await openScreen();
+    backend.nextSavePath = "/Shows/Demo House.pixelflow.json";
     await removeFirstRow();
     await act(() => useApp.getState().apply([{ type: "setFrameRate", fps: 30 }]));
-    await user.click(within(toolbar()).getByRole("button", { name: "Save sequence" }));
+    expect(screen.getByText("Show not saved")).toBeInTheDocument();
+    await act(async () => void (await save()));
     await waitFor(() => expect(useSequencer.getState().dirty).toBe(false));
+    expect(useApp.getState().snapshot!.dirty).toBe(false);
+    expect(screen.getAllByTestId("toast").map((t) => t.textContent)).toEqual([expect.stringContaining("Saved Demo House and Christmas Medley 2017")]);
+    expect(screen.queryByText("Show not saved")).not.toBeInTheDocument();
+  });
+
+  it("File → Save As in the menu bar still saves the sequence under a new name only", async () => {
+    const { seq } = await openScreen();
+    seq.nextSavePath = "/Shows/Medley copy.pfseq.json";
+    await act(() => useApp.getState().apply([{ type: "setFrameRate", fps: 30 }]));
+    await act(() => runMenuAction({ action: "saveAs" }));
+    await waitFor(() => expect(useSequencer.getState().path).toBe("/Shows/Medley copy.pfseq.json"));
     expect(useApp.getState().snapshot!.dirty).toBe(true);
-    expect(screen.getByTestId("toast")).toHaveTextContent("Saved Christmas Medley 2017");
   });
 });

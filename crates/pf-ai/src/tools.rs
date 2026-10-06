@@ -617,7 +617,7 @@ fn query_tools() -> Vec<Tool> {
         ),
         query(
             "get_timing_marks",
-            "A timing track's marks (start, end, label), optionally only in a time range.",
+            "A timing track's marks (start, end, label: a beat number, a lyric line or word), optionally only in a time range.",
             object(
                 {
                     let mut p = time_range();

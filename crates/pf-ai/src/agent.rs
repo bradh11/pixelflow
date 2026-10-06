@@ -213,12 +213,15 @@ impl ChatSession {
     pub fn sync_to(&mut self, show_generation: u64, sequence_doc: Option<u64>) -> bool {
         match &self.draft {
             Some(draft) if !draft.is_for_ids(show_generation, sequence_doc) => {
+                // An empty draft just follows what's open (a new sequence from the song picker).
+                if draft.has_edits() || self.proposal.is_some() {
+                    self.notes.push(
+                        "A different show is open now (or a different sequence), so your earlier draft and proposal were dropped."
+                            .into(),
+                    );
+                }
                 self.draft = None;
                 self.proposal = None;
-                self.notes.push(
-                    "A different show is open now (or a different sequence), so your earlier draft and proposal were dropped."
-                        .into(),
-                );
                 true
             }
             _ => false,

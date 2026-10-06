@@ -161,6 +161,34 @@ fn with_no_sequence_open_the_assistant_offers_to_choose_a_song() {
     assert_eq!(runs.load(Ordering::SeqCst), 0);
     // Nothing was created: the user picks the song, and the app makes the sequence.
     assert!(s.engine.sequence_document().is_none());
+
+    // Then the chat carries on with the new sequence (nothing was drafted, so nothing "dropped").
+    let mut engine = s.engine;
+    engine
+        .new_sequence_doc("Jingle", 32_000, Some("/music/jingle.mp3"))
+        .unwrap();
+    let provider = ScriptedProvider::new(vec![says("Listening to it now.")]);
+    ask(&mut session, &provider, &engine, "I chose \"Jingle\".")
+        .0
+        .unwrap();
+    let text = first_user_message(&provider);
+    let sent = provider.requests()[0]
+        .iter()
+        .rev()
+        .find_map(|m| match m {
+            Message::User(text) => Some(text.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert!(
+        sent.contains("Open sequence: \"Jingle\" (0:32.000, with a song)"),
+        "{sent}"
+    );
+    assert!(!sent.contains("dropped"), "{sent}");
+    assert!(
+        text.contains("Open sequence: none"),
+        "the first message is kept as it was"
+    );
 }
 
 #[test]

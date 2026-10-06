@@ -14,6 +14,10 @@ pub const MAX_POLY_VERTICES: usize = 1_000;
 pub const MAX_ICICLE_DROPS: usize = 1_000;
 /// Most pixels one icicle drop may have.
 pub const MAX_ICICLE_DROP_LIGHTS: u32 = 1_000;
+/// Most arms a spinner may have.
+pub const MAX_SPINNER_ARMS: u32 = 1_000;
+/// Largest hollow middle a spinner may have, in percent (xLights' `Hollow`).
+pub const MAX_SPINNER_HOLLOW: u32 = 100;
 /// Most null pixels a single port slot may have.
 pub const MAX_NULL_PIXELS: u32 = 1_000;
 /// Most a sequence's lights may be moved against its music, either way, in milliseconds.
@@ -79,6 +83,14 @@ pub(crate) fn check_limits(show: &Show) -> Vec<String> {
             problems.push(problem);
             continue;
         }
+        if let ShapeSource::Generator(Generator::Spinner {
+            arms, hollow, arc, ..
+        }) = &prop.shape
+            && let Some(problem) = spinner_problem(&prop.name, *arms, *hollow, *arc)
+        {
+            problems.push(problem);
+            continue;
+        }
         // A row of canes or strings is walked even when it has no pixels, so its length is
         // capped like a prop's pixels.
         if let ShapeSource::Generator(
@@ -119,6 +131,12 @@ pub(crate) fn check_limits(show: &Show) -> Vec<String> {
                 lights_per_string,
                 ..
             }) => u64::from(*strings) * u64::from(*lights_per_string),
+            ShapeSource::Generator(Generator::Spinner {
+                arms, nodes_per_arm, ..
+            }) => u64::from(*arms) * u64::from(*nodes_per_arm),
+            ShapeSource::Generator(Generator::WindowFrame {
+                top, sides, bottom, ..
+            }) => u64::from(*top) + 2 * u64::from(*sides) + u64::from(*bottom),
             ShapeSource::Generator(Generator::PolyLine {
                 segments,
                 spread_nodes: None,
@@ -215,6 +233,26 @@ fn icicles_problem(name: &str, drops: &[u32]) -> Option<String> {
     if drops.iter().all(|&d| d == 0) {
         return Some(format!(
             "The icicles '{name}' need at least one drop with pixels in their drop pattern."
+        ));
+    }
+    None
+}
+
+/// What's wrong with a spinner's arms, if anything.
+fn spinner_problem(name: &str, arms: u32, hollow: u32, arc: f32) -> Option<String> {
+    if arms > MAX_SPINNER_ARMS {
+        return Some(format!(
+            "The spinner '{name}' has {arms} arms, but PixelFlow supports at most {MAX_SPINNER_ARMS}."
+        ));
+    }
+    if hollow > MAX_SPINNER_HOLLOW {
+        return Some(format!(
+            "The spinner '{name}' has a hollow middle of {hollow}%, but PixelFlow supports at most {MAX_SPINNER_HOLLOW}%."
+        ));
+    }
+    if !(arc > 0.0 && arc <= 360.0) {
+        return Some(format!(
+            "The spinner '{name}' spreads its arms over {arc}°, but that must be more than 0° and at most 360°."
         ));
     }
     None

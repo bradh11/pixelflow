@@ -87,7 +87,63 @@ fn generator() -> impl Strategy<Value = Generator> {
         poly_line(),
         candy_canes(),
         icicles(),
+        window_frame(),
+        (0u32..500, 0.1f32..20.0, any::<bool>(), any::<bool>()).prop_map(
+            |(nodes, radius, start_at_bottom, counter_clockwise)| Generator::Wreath {
+                nodes,
+                radius,
+                start_at_bottom,
+                counter_clockwise,
+            }
+        ),
+        spinner(),
     ]
+}
+
+fn window_frame() -> impl Strategy<Value = Generator> {
+    (
+        (0u32..40, 0u32..40, 0u32..40),
+        (0.1f32..20.0, 0.1f32..20.0),
+        corner(),
+        any::<bool>(),
+    )
+        .prop_map(
+            |((top, sides, bottom), (width, height), start, counter_clockwise)| Generator::WindowFrame {
+                top,
+                sides,
+                bottom,
+                width,
+                height,
+                start,
+                counter_clockwise,
+            },
+        )
+}
+
+fn spinner() -> impl Strategy<Value = Generator> {
+    (
+        (0u32..40, 0u32..30, 0u32..=100),
+        (-360f32..360.0, 1f32..=360.0, 0.1f32..20.0),
+        (any::<bool>(), any::<bool>(), any::<bool>(), any::<bool>()),
+    )
+        .prop_map(
+            |(
+                (arms, nodes_per_arm, hollow),
+                (start_angle, arc, radius),
+                (zig_zag, alternate, from_center, clockwise),
+            )| Generator::Spinner {
+                arms,
+                nodes_per_arm,
+                hollow,
+                start_angle,
+                arc,
+                zig_zag,
+                alternate,
+                from_center,
+                clockwise,
+                radius,
+            },
+        )
 }
 
 fn candy_canes() -> impl Strategy<Value = Generator> {
@@ -290,6 +346,33 @@ fn a_quarter_turn_maps_right_to_up_for_every_generator() {
             width: 4.0,
             drop_height: 0.4,
             alternate_nodes: true,
+        },
+        Generator::WindowFrame {
+            top: 6,
+            sides: 4,
+            bottom: 5,
+            width: 3.0,
+            height: 2.0,
+            start: Corner::TopRight,
+            counter_clockwise: true,
+        },
+        Generator::Wreath {
+            nodes: 30,
+            radius: 1.5,
+            start_at_bottom: true,
+            counter_clockwise: false,
+        },
+        Generator::Spinner {
+            arms: 5,
+            nodes_per_arm: 8,
+            hollow: 20,
+            start_angle: 30.0,
+            arc: 270.0,
+            zig_zag: true,
+            alternate: false,
+            from_center: true,
+            clockwise: true,
+            radius: 2.0,
         },
     ];
     for generator in generators {

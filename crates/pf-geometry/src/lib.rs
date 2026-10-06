@@ -11,9 +11,12 @@ mod icicles;
 mod line;
 mod matrix;
 pub mod polyline;
+mod spinner;
 mod star;
 mod transform;
 mod tree;
+mod window_frame;
+mod wreath;
 
 use pf_model::{Generator, Prop, ShapeSource, Vec3};
 
@@ -104,6 +107,52 @@ fn generate(generator: &Generator) -> Vec<Vec3> {
             width,
             drop_height,
             alternate_nodes,
+        }),
+        Generator::WindowFrame {
+            top,
+            sides,
+            bottom,
+            width,
+            height,
+            start,
+            counter_clockwise,
+        } => window_frame::positions(window_frame::Frame {
+            top,
+            sides,
+            bottom,
+            width,
+            height,
+            start,
+            counter_clockwise,
+        }),
+        Generator::Wreath {
+            nodes,
+            radius,
+            start_at_bottom,
+            counter_clockwise,
+        } => wreath::positions(nodes, radius, start_at_bottom, counter_clockwise),
+        Generator::Spinner {
+            arms,
+            nodes_per_arm,
+            hollow,
+            start_angle,
+            arc,
+            zig_zag,
+            alternate,
+            from_center,
+            clockwise,
+            radius,
+        } => spinner::positions(spinner::Spinner {
+            arms,
+            nodes_per_arm,
+            hollow,
+            start_angle,
+            arc,
+            zig_zag,
+            alternate,
+            from_center,
+            clockwise,
+            radius,
         }),
         Generator::CustomGrid {
             columns,

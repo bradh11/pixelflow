@@ -364,6 +364,61 @@ mod tests {
         )
     }
 
+    fn spinner(name: &str, arms: u32, nodes_per_arm: u32, hollow: u32, arc: f32) -> Prop {
+        Prop::new(
+            name,
+            ShapeSource::Generator(Generator::Spinner {
+                arms,
+                nodes_per_arm,
+                hollow,
+                start_angle: 0.0,
+                arc,
+                zig_zag: false,
+                alternate: false,
+                from_center: false,
+                clockwise: false,
+                radius: 1.0,
+            }),
+        )
+    }
+
+    fn frame(name: &str, top: u32, sides: u32, bottom: u32) -> Prop {
+        Prop::new(
+            name,
+            ShapeSource::Generator(Generator::WindowFrame {
+                top,
+                sides,
+                bottom,
+                width: 2.0,
+                height: 1.0,
+                start: crate::Corner::BottomLeft,
+                counter_clockwise: false,
+            }),
+        )
+    }
+
+    #[test]
+    fn window_frames_wreaths_and_spinners_within_the_limits_are_valid() {
+        let wreath = Prop::new(
+            "Door",
+            ShapeSource::Generator(Generator::Wreath {
+                nodes: 50,
+                radius: 1.0,
+                start_at_bottom: false,
+                counter_clockwise: false,
+            }),
+        );
+        for prop in [
+            frame("Window", 10, 8, 10),
+            wreath,
+            spinner("Fan", crate::MAX_SPINNER_ARMS, 2, 100, 360.0),
+            spinner("Half", 6, 10, 0, 1.0),
+        ] {
+            let show = show_with_slot(PortSlot::new(prop.id), prop);
+            assert_eq!(validate_show(&show).issues, vec![]);
+        }
+    }
+
     #[test]
     fn icicles_and_candy_canes_within_the_limits_are_valid() {
         for prop in [icicles("Eaves", vec![3, 0, 5]), canes("Walk", 3, 18)] {
@@ -401,7 +456,7 @@ mod tests {
     #[test]
     fn each_structural_problem_is_reported() {
         type Mutate = fn(&mut Show);
-        let cases: [(IssueCode, Mutate); 25] = [
+        let cases: [(IssueCode, Mutate); 31] = [
             (IssueCode::InvalidFrameRate, |s| s.settings.frame_rate = 5),
             (IssueCode::DuplicateId, |s| {
                 let dup = s.props[0].clone();
@@ -500,6 +555,26 @@ mod tests {
             (IssueCode::LimitExceeded, |s| {
                 // The real count, not the 32-bit one that stops at its largest value.
                 s.props.push(canes("Huge", 70_000, 70_000))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props
+                    .push(spinner("Windmill", crate::MAX_SPINNER_ARMS + 1, 1, 20, 360.0))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(spinner("Hole", 4, 5, 101, 360.0))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(spinner("No sweep", 4, 5, 20, 0.0))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(spinner("Past round", 4, 5, 20, 361.0))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(spinner("Big fan", 1_000, u32::MAX, 20, 360.0))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                // Both sides count, beyond what a 32-bit count can hold.
+                s.props.push(frame("Huge", u32::MAX, u32::MAX, 1))
             }),
         ];
         for (code, mutate) in cases {

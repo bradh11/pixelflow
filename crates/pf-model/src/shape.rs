@@ -67,6 +67,10 @@ fn one() -> f32 {
     1.0
 }
 
+fn full_turn() -> f32 {
+    360.0
+}
+
 /// Parametric prop shapes. Positions are produced by `pf-geometry`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
@@ -165,6 +169,67 @@ pub enum Generator {
         #[serde(default)]
         alternate_nodes: bool,
     },
+    /// A window frame (xLights' Window Frame): one string that goes once round the frame from
+    /// the `start` corner, `top`, `sides` (each) and `bottom` pixels along its edges, spaced as
+    /// xLights spaces them. The edge the string starts along takes the corner pixels: starting up
+    /// a side, the sides run from the bottom corner to the top one and the top and bottom pixels
+    /// sit between them; starting along the top or bottom, those take the corners instead.
+    /// `width` is between the two sides and `height` between the top and bottom; centered.
+    WindowFrame {
+        top: u32,
+        sides: u32,
+        bottom: u32,
+        width: f32,
+        height: f32,
+        #[serde(default)]
+        start: Corner,
+        /// Runs counter-clockwise round the frame instead of clockwise.
+        #[serde(default)]
+        counter_clockwise: bool,
+    },
+    /// A wreath (xLights' Wreath): a ring like a circle, but each pixel rounded to the nearest
+    /// point of a square grid `radius / (nodes / 2)` apart, as xLights places them. Starts at the
+    /// top (or bottom) and runs clockwise (or counter-clockwise); centered.
+    Wreath {
+        nodes: u32,
+        radius: f32,
+        #[serde(default)]
+        start_at_bottom: bool,
+        #[serde(default)]
+        counter_clockwise: bool,
+    },
+    /// A spinner (xLights' Spinner): `arms` straight arms radiating from a hollow middle, each
+    /// with `nodes_per_arm` pixels a step apart, the first arm pointing down (turned by
+    /// `start_angle`) and the rest spread counter-clockwise (or clockwise) over `arc` degrees.
+    /// The hollow middle is `hollow` percent of twice an arm's pixels, in steps; `radius` is
+    /// from the middle to the outermost pixel. Centered.
+    Spinner {
+        arms: u32,
+        nodes_per_arm: u32,
+        /// xLights' `Hollow`, in percent.
+        hollow: u32,
+        /// Degrees counter-clockwise from straight down to the first arm.
+        #[serde(default)]
+        start_angle: f32,
+        /// Degrees the arms are spread over: 360 is all the way round (the last arm a step short
+        /// of the first); less than that puts the last arm at the end of the arc.
+        #[serde(default = "full_turn")]
+        arc: f32,
+        /// Every other arm runs the other way along itself.
+        #[serde(default)]
+        zig_zag: bool,
+        /// Each arm's pixels go out every other spot and come back in on the ones between
+        /// (starting in the middle, whichever end `from_center` picks).
+        #[serde(default)]
+        alternate: bool,
+        /// Each arm's pixels start in the middle instead of at its tip.
+        #[serde(default)]
+        from_center: bool,
+        /// The arms follow each other clockwise instead of counter-clockwise.
+        #[serde(default)]
+        clockwise: bool,
+        radius: f32,
+    },
     /// Free-form grid. `cells` is row-major starting at the top row;
     /// 0 is an empty cell and n places node n (1-based) in that cell.
     CustomGrid {
@@ -181,7 +246,16 @@ impl Generator {
             Generator::Line { nodes, .. }
             | Generator::Arch { nodes, .. }
             | Generator::Circle { nodes, .. }
+            | Generator::Wreath { nodes, .. }
             | Generator::Star { nodes, .. } => *nodes,
+            Generator::WindowFrame {
+                top, sides, bottom, ..
+            } => top
+                .saturating_add(sides.saturating_mul(2))
+                .saturating_add(*bottom),
+            Generator::Spinner {
+                arms, nodes_per_arm, ..
+            } => arms.saturating_mul(*nodes_per_arm),
             Generator::Matrix { columns, rows, .. } => columns.saturating_mul(*rows),
             Generator::Tree {
                 strings,
@@ -394,6 +468,100 @@ mod tests {
             alternate_nodes: false,
         };
         assert_eq!(huge.node_count(), u32::MAX);
+    }
+
+    #[test]
+    fn window_frames_wreaths_and_spinners_count_and_round_trip_their_settings() {
+        let frame = Generator::WindowFrame {
+            top: 10,
+            sides: 8,
+            bottom: 12,
+            width: 2.0,
+            height: 1.5,
+            start: Corner::TopRight,
+            counter_clockwise: true,
+        };
+        assert_eq!(frame.node_count(), 38);
+        let json = serde_json::to_value(ShapeSource::Generator(frame.clone())).unwrap();
+        assert_eq!(json["type"], "windowFrame");
+        assert_eq!(json["start"], "topRight");
+        assert_eq!(json["counterClockwise"], true);
+        assert_eq!(
+            serde_json::from_value::<ShapeSource>(json).unwrap(),
+            ShapeSource::Generator(frame)
+        );
+        let plain: Generator = serde_json::from_str(
+            r#"{ "type": "windowFrame", "top": 1, "sides": 2, "bottom": 3, "width": 1, "height": 1 }"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            plain,
+            Generator::WindowFrame {
+                start: Corner::BottomLeft,
+                counter_clockwise: false,
+                ..
+            }
+        ));
+        let huge = Generator::WindowFrame {
+            top: u32::MAX,
+            sides: u32::MAX,
+            bottom: 1,
+            width: 1.0,
+            height: 1.0,
+            start: Corner::BottomLeft,
+            counter_clockwise: false,
+        };
+        assert_eq!(huge.node_count(), u32::MAX);
+
+        let wreath = Generator::Wreath {
+            nodes: 50,
+            radius: 0.8,
+            start_at_bottom: true,
+            counter_clockwise: false,
+        };
+        assert_eq!(wreath.node_count(), 50);
+        let json = serde_json::to_value(&wreath).unwrap();
+        assert_eq!(json["type"], "wreath");
+        assert_eq!(json["startAtBottom"], true);
+        assert_eq!(serde_json::from_value::<Generator>(json).unwrap(), wreath);
+
+        let spinner = Generator::Spinner {
+            arms: 6,
+            nodes_per_arm: 20,
+            hollow: 20,
+            start_angle: 15.0,
+            arc: 180.0,
+            zig_zag: true,
+            alternate: false,
+            from_center: true,
+            clockwise: false,
+            radius: 1.0,
+        };
+        assert_eq!(spinner.node_count(), 120);
+        let json = serde_json::to_value(&spinner).unwrap();
+        assert_eq!(json["type"], "spinner");
+        assert_eq!(json["nodesPerArm"], 20);
+        assert_eq!(json["startAngle"], 15.0);
+        assert_eq!(json["zigZag"], true);
+        assert_eq!(json["fromCenter"], true);
+        assert_eq!(serde_json::from_value::<Generator>(json).unwrap(), spinner);
+        // Left out: no turn, a full circle, and every option off.
+        let plain: Generator = serde_json::from_str(
+            r#"{ "type": "spinner", "arms": 4, "nodesPerArm": 5, "hollow": 0, "radius": 1 }"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            plain,
+            Generator::Spinner {
+                start_angle: 0.0,
+                arc: 360.0,
+                zig_zag: false,
+                alternate: false,
+                from_center: false,
+                clockwise: false,
+                ..
+            }
+        ));
     }
 
     #[test]

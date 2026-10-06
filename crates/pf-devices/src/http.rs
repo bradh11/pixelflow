@@ -116,10 +116,18 @@ impl HttpClient {
         })?;
         let status = response.status().as_u16();
         if status != 200 {
+            // The device's own explanation, when it gives one (kept short).
+            let body = response
+                .body_mut()
+                .with_config()
+                .limit(64 * 1024)
+                .read_to_string()
+                .unwrap_or_default();
             return Err(DeviceError::Http {
                 address: host.to_string(),
                 path: path.to_string(),
                 status,
+                body,
             });
         }
         response
@@ -222,6 +230,7 @@ impl FakeHttp {
                 address: host.to_string(),
                 path: path.to_string(),
                 status: *status,
+                body: String::new(),
             }),
             None => Err(DeviceError::Unreachable {
                 address: host.to_string(),
@@ -281,6 +290,35 @@ mod tests {
             "{message}"
         );
         assert!(message.contains("it refused the connection"), "{message}");
+    }
+
+    #[test]
+    fn an_error_answer_keeps_what_the_device_said() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let host = listener.local_addr().unwrap().to_string();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 1024];
+            let _ = stream.read(&mut buf);
+            let body = r#"{"status":"failed","error":"Could not lock file for writing"}"#;
+            write!(
+                stream,
+                "HTTP/1.1 500 Error\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .unwrap();
+        });
+        let client = HttpClient::new(Duration::from_secs(2));
+        let err = client.get(&host, "/x").unwrap_err();
+        server.join().unwrap();
+        match err {
+            DeviceError::Http { status, body, .. } => {
+                assert_eq!(status, 500);
+                assert!(body.contains("Could not lock file"), "{body}");
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]

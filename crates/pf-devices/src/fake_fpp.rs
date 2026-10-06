@@ -1,7 +1,12 @@
 //! A fake FPP that answers real HTTP on `127.0.0.1` (feature `test-fixtures`), for testing
 //! uploads end to end without a device. It implements only the endpoints PixelFlow uses to send
-//! a sequence (FPP 9.x's file-manager upload, the move into place, playlists) plus status and
-//! commands, and it can be made slow, failing, or out of space.
+//! a sequence, modelled on FPP 9.3's PHP (`www/api/controllers/files.php`, `playlist.php`):
+//! the file-manager upload into the upload folder, the listing of that folder, the move into
+//! place, deleting from it, playlists, status, outputs, and commands.
+//!
+//! It can be made slow, failing, or out of space, can behave like FPP 10 (each chunk its own
+//! `.patch.<offset>` file), can print PHP warnings ahead of its JSON, and can put together a
+//! short file while still answering "OK" (a disk filling during assembly on 9.x).
 //!
 //! Stored files keep only their size and a checksum, so a 100 MB upload costs no memory here.
 
@@ -14,6 +19,36 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+/// A position-aware checksum: pieces of a file checksummed at their own offsets add up to the
+/// checksum of the whole file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Checksum {
+    sum: u64,
+    weighted: u64,
+}
+
+impl Checksum {
+    /// Adds `data`, which sits at `offset` in its file.
+    pub fn add_at(&mut self, offset: u64, data: &[u8]) {
+        for (i, &byte) in data.iter().enumerate() {
+            let position = offset.wrapping_add(i as u64).wrapping_add(1);
+            self.sum = self.sum.wrapping_add(u64::from(byte));
+            self.weighted = self.weighted.wrapping_add(u64::from(byte).wrapping_mul(position));
+        }
+    }
+
+    pub fn combine(self, other: Checksum) -> Checksum {
+        Checksum {
+            sum: self.sum.wrapping_add(other.sum),
+            weighted: self.weighted.wrapping_add(other.weighted),
+        }
+    }
+
+    pub fn value(&self) -> u64 {
+        self.weighted.rotate_left(17) ^ self.sum
+    }
+}
+
 /// A file the fake FPP holds: its length and the [`Checksum`] of its bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct StoredFile {
@@ -25,7 +60,7 @@ impl StoredFile {
     /// The file `data` would be once stored.
     pub fn of(data: &[u8]) -> Self {
         let mut sum = Checksum::default();
-        sum.add(data);
+        sum.add_at(0, data);
         Self {
             size: data.len() as u64,
             checksum: sum.value(),
@@ -33,37 +68,14 @@ impl StoredFile {
     }
 }
 
-/// An order-sensitive running checksum (Adler-style, 64-bit, wrapping).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Checksum {
-    a: u64,
-    b: u64,
-}
-
-impl Default for Checksum {
-    fn default() -> Self {
-        Self { a: 1, b: 0 }
-    }
-}
-
-impl Checksum {
-    pub fn add(&mut self, data: &[u8]) {
-        for &byte in data {
-            self.a = self.a.wrapping_add(u64::from(byte));
-            self.b = self.b.wrapping_add(self.a);
-        }
-    }
-
-    pub fn value(&self) -> u64 {
-        self.b.rotate_left(32) ^ self.a
-    }
-}
-
-/// An upload in progress: the bytes received so far (FPP keeps them as `<name>.patch.<offset>`).
-#[derive(Debug, Clone, Copy, Default)]
-struct Partial {
-    received: u64,
-    sum: Checksum,
+/// A file in FPP's upload folder: a received piece (`<name>.patch.<offset>`) or a put-together
+/// upload (`<name>`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct UploadFile {
+    /// Where the piece starts in its file (0 for a put-together upload).
+    pub offset: u64,
+    pub size: u64,
+    pub sum: Checksum,
 }
 
 /// Everything the fake FPP knows; tests read and change it through [`FakeFpp::state`].
@@ -73,10 +85,12 @@ pub struct FakeFppState {
     pub sequences: BTreeMap<String, StoredFile>,
     /// Music by file name.
     pub music: BTreeMap<String, StoredFile>,
-    /// Finished uploads waiting to be moved into place, by file name.
-    pub uploaded: BTreeMap<String, StoredFile>,
+    /// The upload folder, by file name.
+    pub uploads: BTreeMap<String, UploadFile>,
     /// Playlists by name, as FPP stores them.
     pub playlists: BTreeMap<String, Value>,
+    /// Playlist files FPP can't parse (its GET answers `null`), by name.
+    pub broken_playlists: Vec<String>,
     /// Bytes of free space on the media drive; uploads past it are cut short, as on a full disk.
     pub free_bytes: u64,
     /// Every request, as `METHOD /path` (uploads add ` <name>@<offset>+<length>`).
@@ -87,9 +101,21 @@ pub struct FakeFppState {
     pub largest_body: u64,
     /// A pause after each 64 KiB of an upload body is read (a slow network or SD card).
     pub read_delay: Duration,
-    /// Answer every upload request with this HTTP status instead of storing it.
-    pub fail_uploads: Option<u16>,
-    partials: BTreeMap<String, Partial>,
+    /// Answer every upload request with this HTTP status and body (after reading the body).
+    pub fail_uploads: Option<(u16, String)>,
+    /// FPP 10: every chunk is kept as its own `.patch.<offset>` file until the upload is whole.
+    pub chunk_files: bool,
+    /// FPP 9.x with the disk filling during assembly: the put-together file is this many bytes
+    /// short, yet FPP still answers "OK" with the full size.
+    pub short_assembly: Option<u64>,
+    /// PHP warning text printed ahead of the JSON of every upload answer.
+    pub php_warning: Option<String>,
+    /// Deleting from the upload folder fails (permissions).
+    pub refuse_deletes: bool,
+    /// What `/api/fppd/status` answers.
+    pub status: Value,
+    /// What `/api/channel/output/universeOutputs` answers.
+    pub outputs: Value,
 }
 
 impl Default for FakeFppState {
@@ -97,23 +123,40 @@ impl Default for FakeFppState {
         Self {
             sequences: BTreeMap::new(),
             music: BTreeMap::new(),
-            uploaded: BTreeMap::new(),
+            uploads: BTreeMap::new(),
             playlists: BTreeMap::new(),
+            broken_playlists: Vec::new(),
             free_bytes: 8 * 1024 * 1024 * 1024,
             requests: Vec::new(),
             commands: Vec::new(),
             largest_body: 0,
             read_delay: Duration::ZERO,
             fail_uploads: None,
-            partials: BTreeMap::new(),
+            chunk_files: false,
+            short_assembly: None,
+            php_warning: None,
+            refuse_deletes: false,
+            status: json!({
+                "status_name": "idle", "current_playlist": {"playlist": ""}, "current_sequence": "",
+                "seconds_elapsed": "0", "seconds_remaining": "0",
+                "next_playlist": {"playlist": "No playlist scheduled.", "start_time": ""}
+            }),
+            outputs: serde_json::from_str(include_str!(
+                "../fixtures/fpp/api_channel_output_universeOutputs.json"
+            ))
+            .expect("fixture parses"),
         }
     }
 }
 
 impl FakeFppState {
-    /// Bytes of an upload still sitting unfinished in FPP's upload folder.
-    pub fn partial_bytes(&self, name: &str) -> Option<u64> {
-        self.partials.get(name).map(|p| p.received)
+    /// Bytes of `name` still sitting in FPP's upload folder (pieces and put-together file).
+    pub fn upload_bytes(&self, name: &str) -> u64 {
+        self.uploads
+            .iter()
+            .filter(|(file, _)| *file == name || file.starts_with(&format!("{name}.patch.")))
+            .map(|(_, f)| f.size)
+            .sum()
     }
 
     /// The requests that changed something (anything but GET).
@@ -123,6 +166,15 @@ impl FakeFppState {
             .filter(|r| !r.starts_with("GET "))
             .cloned()
             .collect()
+    }
+
+    /// Plays `sequence` as the scheduler would.
+    pub fn play(&mut self, sequence: &str) {
+        self.status = json!({
+            "status_name": "playing", "current_playlist": {"playlist": "Christmas Show"},
+            "current_sequence": sequence, "seconds_elapsed": "10", "seconds_remaining": "100",
+            "next_playlist": {"playlist": "No playlist scheduled.", "start_time": ""}
+        });
     }
 }
 
@@ -194,7 +246,7 @@ impl FakeFpp {
     pub fn with_playlist(self, name: &str) -> Self {
         self.state().playlists.insert(
             name.to_string(),
-            json!({"name": name, "version": 4, "repeat": 0, "loopCount": 0, "empty": true,
+            json!({"name": name, "version": 3, "repeat": 0, "loopCount": 0, "empty": true,
                    "desc": "", "random": 0, "leadIn": [], "mainPlaylist": [], "leadOut": [],
                    "playlistInfo": {}}),
         );
@@ -309,7 +361,7 @@ fn serve(stream: TcpStream, state: &Mutex<FakeFppState>) -> std::io::Result<()> 
     };
     let path = request.path.clone();
     let method = request.method.clone();
-    if method == "PATCH" && path == "/api/file/uploads" {
+    if method == "PATCH" && (path == "/api/file/uploads" || path == "/api/file/upload") {
         return upload(&mut reader, &mut stream, &request, state);
     }
     lock().requests.push(format!("{method} {path}"));
@@ -331,18 +383,20 @@ fn serve(stream: TcpStream, state: &Mutex<FakeFppState>) -> std::io::Result<()> 
     respond(&mut stream, status, &reply)
 }
 
+const MUSIC: [&str; 9] = [
+    ".mp3", ".ogg", ".m4a", ".wav", ".flac", ".aac", ".wma", ".m4p", ".au",
+];
+
 fn route(s: &mut FakeFppState, method: &str, segments: &[&str], body: &[u8]) -> (u16, String) {
     let ok = |v: Value| (200, v.to_string());
     match (method, segments) {
         ("GET", ["api", "system", "info"]) => ok(json!({
             "HostName": "FakeFPP", "Platform": "Raspberry Pi", "Variant": "Pi 4", "Mode": "player",
-            "Version": "9.5.3", "majorVersion": 9, "minorVersion": 5,
+            "Version": "9.3", "majorVersion": 9, "minorVersion": 3,
             "Utilization": {"Disk": {"Media": {"Free": s.free_bytes, "Total": 31_000_000_000u64}}}
         })),
-        ("GET", ["api", "fppd", "status"]) => ok(json!({
-            "status_name": "idle", "current_playlist": {"playlist": ""}, "current_sequence": "",
-            "seconds_elapsed": "0", "seconds_remaining": "0"
-        })),
+        ("GET", ["api", "fppd", "status"]) => ok(s.status.clone()),
+        ("GET", ["api", "channel", "output", "universeOutputs"]) => ok(s.outputs.clone()),
         ("GET", ["api", "sequence"]) => ok(json!(
             s.sequences
                 .keys()
@@ -350,22 +404,38 @@ fn route(s: &mut FakeFppState, method: &str, segments: &[&str], body: &[u8]) -> 
                 .collect::<Vec<_>>()
         )),
         ("GET", ["api", "media"]) => ok(json!(s.music.keys().collect::<Vec<_>>())),
-        ("GET", ["api", "playlists"]) => ok(json!(s.playlists.keys().collect::<Vec<_>>())),
+        ("GET", ["api", "playlists"]) => {
+            let mut names: Vec<&String> = s.playlists.keys().chain(s.broken_playlists.iter()).collect();
+            names.sort();
+            ok(json!(names))
+        }
+        // FPP answers a missing playlist with the JSON string "", and one it can't parse with null.
         ("GET", ["api", "playlist", name]) => match s.playlists.get(*name) {
             Some(p) => ok(p.clone()),
-            None => (404, "{}".to_string()),
+            None if s.broken_playlists.iter().any(|b| b == name) => (200, "null".to_string()),
+            None => (200, "\"\"".to_string()),
         },
+        // FPP's playlist_update(): writes the whole file, whatever was there.
         ("POST", ["api", "playlist", name]) => {
             let Ok(playlist) = serde_json::from_slice::<Value>(body) else {
                 return (400, "{}".to_string());
             };
+            s.broken_playlists.retain(|b| b != name);
             s.playlists.insert((*name).to_string(), playlist.clone());
             ok(playlist)
         }
+        // FPP's PlaylistSectionInsertItem(): reads the file, pushes the entry, writes it back. A
+        // file it can't parse comes back as just the new entry.
         ("POST", ["api", "playlist", name, section, "item"]) => {
             let Ok(entry) = serde_json::from_slice::<Value>(body) else {
                 return (400, "{}".to_string());
             };
+            if s.broken_playlists.iter().any(|b| b == name) {
+                s.broken_playlists.retain(|b| b != name);
+                s.playlists
+                    .insert((*name).to_string(), json!({ *section: [entry] }));
+                return ok(json!({"Status": "OK", "Message": ""}));
+            }
             match s.playlists.get_mut(*name) {
                 Some(playlist) => {
                     let list = &mut playlist[*section];
@@ -373,39 +443,45 @@ fn route(s: &mut FakeFppState, method: &str, segments: &[&str], body: &[u8]) -> 
                         *list = json!([]);
                     }
                     list.as_array_mut().expect("an array").push(entry);
-                    playlist["empty"] = json!(false);
                     ok(json!({"Status": "OK", "Message": "", "playlistName": name, "sectionName": section}))
                 }
                 None => ok(json!({"Status": "Error", "Message": "Playlist does not exist."})),
             }
         }
+        // GetFiles(): sizes are strings on a 64-bit FPP.
+        ("GET", ["api", "files", "uploads"]) => ok(json!({
+            "status": "ok",
+            "files": s.uploads.iter().map(|(name, f)| json!({
+                "name": name, "mtime": "10/06/26  12:00 PM", "sizeBytes": f.size.to_string(),
+                "sizeHuman": format!("{} B", f.size)
+            })).collect::<Vec<_>>()
+        })),
         ("GET", ["api", "file", "move", name]) => {
-            let Some(file) = s.uploaded.remove(*name) else {
+            let Some(file) = s.uploads.remove(*name) else {
                 return ok(
                     json!({"status": format!("ERROR: Couldn't find file '{name}' in upload directory")}),
                 );
             };
+            let stored = StoredFile {
+                size: file.size,
+                checksum: file.sum.value(),
+            };
             let lower = name.to_ascii_lowercase();
             if lower.ends_with(".fseq") {
-                s.sequences.insert((*name).to_string(), file);
-            } else if [
-                ".mp3", ".ogg", ".m4a", ".wav", ".flac", ".aac", ".wma", ".m4p", ".au",
-            ]
-            .iter()
-            .any(|e| lower.ends_with(e))
-            {
-                s.music.insert((*name).to_string(), file);
+                s.sequences.insert((*name).to_string(), stored);
+            } else if MUSIC.iter().any(|e| lower.ends_with(e)) {
+                s.music.insert((*name).to_string(), stored);
             } else {
+                s.uploads.insert((*name).to_string(), file);
                 return ok(json!({"status": "ERROR: Couldn't move file"}));
             }
             ok(json!({"status": "OK"}))
         }
         ("DELETE", ["api", "file", "uploads", name]) => {
-            let removed = name
-                .strip_suffix(".patch.0")
-                .and_then(|n| s.partials.remove(n))
-                .is_some()
-                || s.uploaded.remove(*name).is_some();
+            if s.refuse_deletes {
+                return ok(json!({"status": "Unable to delete file: Permission denied", "file": name}));
+            }
+            let removed = s.uploads.remove(*name).is_some();
             ok(
                 json!({"status": if removed { "OK" } else { "File Not Found" }, "file": name, "dir": "uploads"}),
             )
@@ -418,10 +494,12 @@ fn route(s: &mut FakeFppState, method: &str, segments: &[&str], body: &[u8]) -> 
     }
 }
 
-/// `PATCH /api/file/uploads`, as FPP's `PatchFile()` handles it: the chunk at `Upload-Offset` of
-/// the file `Upload-Name`, `Upload-Length` bytes long in all; once every byte is in, the file is
-/// put together in the upload folder. A full disk stores what fits and still answers "OK" with
-/// the size it has, as PHP's `file_put_contents` does.
+/// `PATCH /api/file/uploads`, as FPP 9.3's `PatchFile()` handles it (or FPP 10's, with
+/// `chunk_files`): the chunk at `Upload-Offset` of the file `Upload-Name`, `Upload-Length` bytes
+/// in all. Offset 0 clears old pieces; a chunk that follows `.patch.0` is appended to it (9.x),
+/// otherwise it becomes `.patch.<offset>`. Once the pieces add up to the length, the file is put
+/// together in the upload folder. A full disk stores what fits and still answers "OK" with the
+/// size it has, as PHP's `file_put_contents` does; `size` is a string, as `bcadd` makes it.
 fn upload(
     reader: &mut BufReader<TcpStream>,
     stream: &mut TcpStream,
@@ -439,73 +517,91 @@ fn upload(
             .push(format!("PATCH /api/file/uploads {name}@{offset}+?"));
         return respond(stream, 411, "{}");
     };
-    let (delay, fail) = {
+    let prefix = format!("{name}.patch.");
+    let (delay, fail, piece) = {
         let mut s = lock();
         s.requests
             .push(format!("PATCH /api/file/uploads {name}@{offset}+{length}"));
         s.largest_body = s.largest_body.max(length);
-        (s.read_delay, s.fail_uploads)
+        if offset == 0 {
+            s.uploads.retain(|file, _| !file.starts_with(&prefix));
+        }
+        let first = format!("{prefix}0");
+        let appends =
+            !s.chunk_files && offset != 0 && s.uploads.get(&first).is_some_and(|p| p.size == offset);
+        let piece = if appends {
+            first
+        } else {
+            format!("{prefix}{offset}")
+        };
+        (s.read_delay, s.fail_uploads.clone(), piece)
     };
-    if let Some(status) = fail {
+    if let Some((status, body)) = fail {
         // PHP reads the whole request before its answer goes out.
         std::io::copy(&mut reader.take(length), &mut std::io::sink())?;
-        return respond(stream, status, "{\"status\":\"failed\"}");
+        return respond(stream, status, &body);
     }
-    {
-        let mut s = lock();
-        let partial = s.partials.entry(name.clone()).or_default();
-        if offset == 0 {
-            *partial = Partial::default();
-        }
-        if partial.received != offset {
-            return respond(stream, 400, "{\"status\":\"out of order\"}");
-        }
-    }
+    lock().uploads.entry(piece.clone()).or_insert(UploadFile {
+        offset,
+        ..UploadFile::default()
+    });
     let mut left = length;
+    let mut at = offset;
     let mut buffer = vec![0u8; 64 * 1024];
     while left > 0 {
         let want = buffer.len().min(usize::try_from(left).unwrap_or(usize::MAX));
         let read = reader.read(&mut buffer[..want])?;
         if read == 0 {
-            // The sender went away (a cancelled upload): what arrived stays as a partial file.
+            // The sender went away (a cancelled upload): what arrived stays as a piece.
             return Ok(());
         }
         left -= read as u64;
         {
             let mut s = lock();
             let fits = (read as u64).min(s.free_bytes);
-            let Some(partial) = s.partials.get_mut(&name) else {
+            let Some(file) = s.uploads.get_mut(&piece) else {
                 // Deleted while it was arriving.
                 return Ok(());
             };
-            partial.sum.add(&buffer[..fits as usize]);
-            partial.received += fits;
+            file.sum.add_at(at, &buffer[..fits as usize]);
+            file.size += fits;
             s.free_bytes -= fits;
         }
+        at += read as u64;
         if !delay.is_zero() {
             std::thread::sleep(delay);
         }
     }
-    let size = {
+    let (size, warning) = {
         let mut s = lock();
-        let partial = s.partials.get(&name).copied().unwrap_or_default();
-        if partial.received == total {
-            s.partials.remove(&name);
-            s.uploaded.insert(
+        let pieces: Vec<(String, UploadFile)> = s
+            .uploads
+            .iter()
+            .filter(|(file, _)| file.starts_with(&prefix))
+            .map(|(file, f)| (file.clone(), *f))
+            .collect();
+        let size: u64 = pieces.iter().map(|(_, f)| f.size).sum();
+        if size == total {
+            let sum = pieces
+                .iter()
+                .fold(Checksum::default(), |sum, (_, f)| sum.combine(f.sum));
+            for (file, _) in &pieces {
+                s.uploads.remove(file);
+            }
+            let short = s.short_assembly.unwrap_or(0);
+            s.uploads.insert(
                 name.clone(),
-                StoredFile {
-                    size: total,
-                    checksum: partial.sum.value(),
+                UploadFile {
+                    offset: 0,
+                    size: total.saturating_sub(short),
+                    sum,
                 },
             );
         }
-        partial.received
+        (size, s.php_warning.clone())
     };
-    respond(
-        stream,
-        200,
-        &json!({"status": "OK", "file": name, "dir": "uploads", "size": size}).to_string(),
-    )
+    let json = json!({"status": "OK", "file": name, "dir": "uploads", "size": size.to_string()});
+    respond(stream, 200, &format!("{}{json}", warning.unwrap_or_default()))
 }
 
 #[cfg(test)]
@@ -520,11 +616,12 @@ mod tests {
     }
 
     #[test]
-    fn checksums_see_order() {
+    fn checksums_see_order_and_add_up_in_pieces() {
         assert_ne!(StoredFile::of(b"ab"), StoredFile::of(b"ba"));
-        let mut sum = Checksum::default();
-        sum.add(b"a");
-        sum.add(b"b");
-        assert_eq!(sum.value(), StoredFile::of(b"ab").checksum);
+        let mut first = Checksum::default();
+        first.add_at(0, b"ab");
+        let mut second = Checksum::default();
+        second.add_at(2, b"cd");
+        assert_eq!(first.combine(second).value(), StoredFile::of(b"abcd").checksum);
     }
 }

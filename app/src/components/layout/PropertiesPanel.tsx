@@ -214,6 +214,10 @@ function OnePropPanel({ prop, points }: { prop: Prop; points: ArrayLike<number> 
   const fields = shape.source === "generator" ? (SHAPE_FIELDS[shape.type] ?? []) : [];
   const wiring = wiringOf(show, prop.id);
   const in3d = useView3d((s) => s.mode === "3d");
+  // In 2D, depth, tilt, and turn show only when set, so a prop that looks squashed says why.
+  const showZ = in3d || t.position.z !== 0;
+  const showTilt = in3d || t.rotationDeg.x !== 0;
+  const showTurn = in3d || t.rotationDeg.y !== 0;
   const commitName = () => {
     const trimmed = name.trim();
     if (trimmed && trimmed !== prop.name) update((p) => ({ ...p, name: trimmed }));
@@ -284,17 +288,17 @@ function OnePropPanel({ prop, points }: { prop: Prop; points: ArrayLike<number> 
       </Section>
       <Section title="Placement">
         {/* Depth, tilt, and turn only mean something in the 3D view, so they're shown there. */}
-        <div className={`grid gap-2 ${in3d ? "grid-cols-3" : "grid-cols-2"}`}>
+        <div className={`grid gap-2 ${showZ ? "grid-cols-3" : "grid-cols-2"}`}>
           <NumberField label="Position X" value={t.position.x} onCommit={(x) => setTransform({ x })} />
           <NumberField label="Position Y" value={t.position.y} onCommit={(y) => setTransform({ y })} />
-          {in3d && <NumberField label="Position Z" hint="Depth: toward the street" value={t.position.z} onCommit={(z) => setTransform({ z })} />}
+          {showZ && <NumberField label="Position Z" hint="Depth: toward the street" value={t.position.z} onCommit={(z) => setTransform({ z })} />}
         </div>
-        <div className={`mt-2 grid gap-2 ${in3d ? "grid-cols-3" : "grid-cols-2"}`}>
+        <div className={`mt-2 grid gap-2 ${showTilt || showTurn ? "grid-cols-3" : "grid-cols-2"}`}>
           <NumberField label="Rotation°" hint="Turned in the front view (around Z), in degrees" value={t.rotationDeg.z} onCommit={(rotation) => setTransform({ rotation })} />
-          {in3d && <NumberField label="Tilt (X°)" hint="Tipped forward or back (around X)" value={t.rotationDeg.x} onCommit={(tilt) => setTransform({ tilt })} />}
-          {in3d && <NumberField label="Turn (Y°)" hint="Turned to face left or right (around Y)" value={t.rotationDeg.y} onCommit={(turn) => setTransform({ turn })} />}
+          {showTilt && <NumberField label="Tilt (X°)" hint="Tipped forward or back (around X)" value={t.rotationDeg.x} onCommit={(tilt) => setTransform({ tilt })} />}
+          {showTurn && <NumberField label="Turn (Y°)" hint="Turned to face left or right (around Y)" value={t.rotationDeg.y} onCommit={(turn) => setTransform({ turn })} />}
         </div>
-        {!in3d && <p className="mt-1 text-xs text-neutral-500">Depth, tilt, and turn are in the 3D view (V).</p>}
+        {!(showZ && showTilt && showTurn) && <p className="mt-1 text-xs text-neutral-500">Depth, tilt, and turn are in the 3D view (V).</p>}
         <div className="mt-2 grid grid-cols-2 gap-2">
           <NumberField label="Scale X" value={t.scale.x} nonZero onCommit={(sx) => setTransform({ sx })} />
           <NumberField label="Scale Y" value={t.scale.y} nonZero onCommit={(sy) => setTransform({ sy })} />

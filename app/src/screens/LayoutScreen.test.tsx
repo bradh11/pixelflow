@@ -291,6 +291,16 @@ describe("LayoutScreen", () => {
     expect(backend.show.props[0].colorOrder).toBe("GRB");
   });
 
+  it("shows depth, tilt, or turn in 2D when a prop has one, so a squashed-looking prop explains itself", async () => {
+    const tilted = line("Gutter", 0, 0);
+    tilted.transform.rotationDeg.x = 20;
+    await setup(showWith(tilted));
+    act(() => useLayoutEditor.getState().select([tilted.id]));
+    expect(screen.getByLabelText("Tilt (X°)")).toHaveValue("20");
+    expect(screen.queryByLabelText("Position Z")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Turn (Y°)")).not.toBeInTheDocument();
+  });
+
   it("sets how a matrix is wired from the properties panel", async () => {
     const user = await setup(showWith(placed("matrix", "Window", 0, 0)));
     act(() => useLayoutEditor.getState().select([backend.show.props[0].id]));

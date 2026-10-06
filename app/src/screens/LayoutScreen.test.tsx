@@ -273,6 +273,16 @@ describe("LayoutScreen", () => {
     expect(backend.show.props[0].colorOrder).toBe("GRB");
   });
 
+  it("sets how a matrix is wired from the properties panel", async () => {
+    const user = await setup(showWith(placed("matrix", "Window", 0, 0)));
+    act(() => useLayoutEditor.getState().select([backend.show.props[0].id]));
+    await user.selectOptions(screen.getByLabelText("Strings run"), "vertical");
+    await user.selectOptions(screen.getByLabelText("First pixel"), "topRight");
+    await user.click(screen.getByLabelText(/Zig-zag/));
+    expect(backend.show.props[0].shape).toMatchObject({ wiring: { start: "topRight", orientation: "vertical", serpentine: false } });
+    expect(edits).toHaveLength(3);
+  });
+
   it("says where a prop is wired, or that it isn't", async () => {
     const wired = line("Gutter", 0, 0);
     const show = showWith(wired, line("Fence", 0, 4));

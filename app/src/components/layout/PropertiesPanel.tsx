@@ -26,35 +26,99 @@ import { HouseModelPanel } from "../layout3d/HouseModelPanel";
 import { SubmodelsSection } from "./SubmodelsSection";
 import { AddBendButton, JoinLines, PolyLineSection } from "./PolyLineSection";
 import { isPoly } from "../../lib/polylineMath";
+import { SHAPE_FIELDS, type ShapeField, fieldValue, parseNumbers, withField } from "./shapeFields";
 import { Button, Input, Select } from "../ui";
 
 const COLOR_ORDERS: ColorOrder[] = ["RGB", "RBG", "GRB", "GBR", "BRG", "BGR", "RGBW", "GRBW"];
 
-interface ParamField {
-  key: string;
-  label: string;
-  integer?: boolean;
-  min: number;
+/** Nested settings a shape may leave out (an older matrix has no wiring of its own). */
+const SHAPE_DEFAULTS: Record<string, unknown> = {
+  wiring: { start: "bottomLeft", orientation: "horizontal", serpentine: true },
+};
+
+/** A shape's settings: numbers two to a row, then choices, lists, and checkboxes one to a row. */
+function ShapeFields({ fields, shape, onChange }: { fields: ShapeField[]; shape: ShapeSource; onChange: (key: string, value: unknown) => void }) {
+  const value = (key: string) => fieldValue(shape, key) ?? fieldValue(SHAPE_DEFAULTS, key);
+  const numbers = fields.filter((f) => f.kind === "number");
+  const others = fields.filter((f) => f.kind !== "number");
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-2">
+        {numbers.map((f) => (
+          <NumberField
+            key={f.key}
+            label={f.label}
+            hint={f.hint}
+            value={Number(value(f.key) ?? 0)}
+            min={f.min}
+            max={f.max}
+            integer={f.integer}
+            onCommit={(v) => onChange(f.key, v)}
+          />
+        ))}
+      </div>
+      {others.map((f) =>
+        f.kind === "bool" ? (
+          <label key={f.key} className="mt-2 flex items-center gap-2 text-sm" title={f.hint}>
+            <input
+              type="checkbox"
+              checked={value(f.key) === true}
+              onChange={(e) => {
+                const on = e.target.checked;
+                onChange(f.key, on);
+              }}
+            />
+            {f.label}
+          </label>
+        ) : f.kind === "choice" ? (
+          <label key={f.key} className="mt-2 flex flex-col gap-1 text-xs" title={f.hint}>
+            <span className="text-neutral-500 dark:text-neutral-400">{f.label}</span>
+            <Select value={String(value(f.key))} onChange={(e) => onChange(f.key, e.target.value)}>
+              {f.options.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+          </label>
+        ) : f.kind === "numbers" ? (
+          <div key={f.key} className="mt-2">
+            <ListField label={f.label} hint={f.hint} value={(value(f.key) as number[] | undefined) ?? []} min={f.min} max={f.max} onCommit={(v) => onChange(f.key, v)} />
+          </div>
+        ) : null,
+      )}
+    </>
+  );
 }
 
-const COUNT = (key: string, label: string, min = 1): ParamField => ({ key, label, integer: true, min });
-const SIZE = (key: string, label: string, min = 0.01): ParamField => ({ key, label, min });
-
-/** The size and pixel-count settings for each kind of generated prop. */
-const SHAPE_FIELDS: Record<string, ParamField[]> = {
-  line: [COUNT("nodes", "Pixels"), SIZE("length", "Length")],
-  arch: [COUNT("nodes", "Pixels"), SIZE("width", "Width"), SIZE("height", "Height")],
-  circle: [COUNT("nodes", "Pixels"), SIZE("radius", "Radius")],
-  matrix: [COUNT("columns", "Columns"), COUNT("rows", "Rows"), SIZE("width", "Width"), SIZE("height", "Height")],
-  tree: [
-    COUNT("strings", "Strings"),
-    COUNT("nodesPerString", "Pixels per string"),
-    SIZE("height", "Height"),
-    SIZE("baseRadius", "Base radius"),
-    SIZE("topRadius", "Top radius", 0),
-  ],
-  star: [COUNT("points", "Points", 2), COUNT("nodes", "Pixels"), SIZE("outerRadius", "Outer radius"), SIZE("innerRadius", "Inner radius")],
-};
+/** A comma list of whole numbers ("3,4,5,4"), saved on Enter or leaving it; goes back if it isn't valid. */
+function ListField({ label, hint, value, min, max, onCommit }: { label: string; hint?: string; value: number[]; min: number; max?: number; onCommit: (v: number[]) => void }) {
+  const shown = value.join(",");
+  const [draft, setDraft] = useState(shown);
+  useEffect(() => setDraft(shown), [shown]);
+  const commit = () => {
+    const nums = parseNumbers(draft, min, max);
+    if (!nums) return setDraft(shown);
+    if (nums.join(",") !== shown) onCommit(nums);
+  };
+  return (
+    <label className="flex flex-col gap-1 text-xs" title={hint}>
+      <span className="text-neutral-500 dark:text-neutral-400">{label}</span>
+      <Input
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          if (e.key === "Escape") {
+            setDraft(shown);
+            e.stopPropagation();
+          }
+        }}
+      />
+    </label>
+  );
+}
 
 /** A number box that saves when you press Enter or leave it, and goes back if what's typed isn't valid. */
 export function NumberField({
@@ -169,18 +233,7 @@ function OnePropPanel({ prop, points }: { prop: Prop; points: ArrayLike<number> 
       {isPoly(shape) && <PolyLineSection prop={prop} shape={shape} />}
       <Section title="Size and pixels">
         {isPoly(shape) ? null : fields.length > 0 ? (
-          <div className="grid grid-cols-2 gap-2">
-            {fields.map((f) => (
-              <NumberField
-                key={f.key}
-                label={f.label}
-                value={(shape as unknown as Record<string, number>)[f.key]}
-                min={f.min}
-                integer={f.integer}
-                onCommit={(v) => update((p) => ({ ...p, shape: { ...p.shape, [f.key]: v } as ShapeSource }))}
-              />
-            ))}
-          </div>
+          <ShapeFields fields={fields} shape={shape} onChange={(key, v) => update((p) => ({ ...p, shape: withField(p.shape, key, v, SHAPE_DEFAULTS) }))} />
         ) : (
           <p className="text-sm text-neutral-500">
             {shape.source === "measured"

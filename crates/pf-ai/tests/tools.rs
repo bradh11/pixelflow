@@ -815,3 +815,33 @@ fn shapes_and_effect_settings_are_compact_and_looked_up_on_demand() {
     let kinds = toolbox.find("list_effect_kinds").unwrap();
     assert!(kinds.spec.input_schema["properties"].get("kind").is_some());
 }
+
+#[test]
+fn settings_a_shape_or_effect_doesnt_have_are_refused_by_name() {
+    let mut prop = serde_json::to_value(rich_prop()).unwrap();
+    prop["shape"]["strands"] = json!(12);
+    let err = show_edit("addProp", &json!({ "prop": prop })).unwrap_err();
+    assert!(
+        err.contains("prop.shape.strands") && err.contains("shape_settings"),
+        "{err}"
+    );
+
+    let effect = serde_json::to_value(Effect::new(EffectKind::Chase, 0, 1000)).unwrap();
+    let mut misspelled = effect.clone();
+    misspelled["params"]["sped"] = json!(4);
+    let input = json!({ "row": pf_sequence::RowId::new(), "layer": 0, "effect": misspelled });
+    let err = sequence_edit("addEffect", &input).unwrap_err();
+    assert!(
+        err.contains("effect.params.sped") && err.contains("list_effect_kinds"),
+        "{err}"
+    );
+
+    // Leaving out what defaults is fine, and so is a false flag that isn't written back.
+    let mut sparse = effect.clone();
+    sparse["params"] = json!({ "kind": "chase", "speed": 2.0 });
+    let input = json!({ "row": pf_sequence::RowId::new(), "layer": 0, "effect": sparse });
+    assert!(sequence_edit("addEffect", &input).is_ok());
+    let mut plain = serde_json::to_value(controller(&rich_prop())).unwrap();
+    plain.as_object_mut().unwrap().retain(|_, v| !v.is_null());
+    assert!(show_edit("addController", &json!({ "controller": plain })).is_ok());
+}

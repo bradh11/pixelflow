@@ -477,12 +477,90 @@ pub fn sequence_edit_tools() -> Vec<Tool> {
 }
 
 /// Turns a show edit tool call back into the engine's edit (its input plus the implied tag).
+/// Refuses an edit that read back without some of the input's settings, naming them.
 pub fn show_edit(tag: &str, input: &Value) -> Result<Edit, String> {
-    serde_json::from_value(tagged(tag, input)?).map_err(|e| format!("That input doesn't fit this edit: {e}"))
+    parse_whole(tag, input)
 }
 
 pub fn sequence_edit(tag: &str, input: &Value) -> Result<SequenceEdit, String> {
-    serde_json::from_value(tagged(tag, input)?).map_err(|e| format!("That input doesn't fit this edit: {e}"))
+    parse_whole(tag, input)
+}
+
+fn parse_whole<T: serde::de::DeserializeOwned + serde::Serialize>(
+    tag: &str,
+    input: &Value,
+) -> Result<T, String> {
+    let tagged = tagged(tag, input)?;
+    let edit: T = serde_json::from_value(tagged.clone())
+        .map_err(|e| format!("That input doesn't fit this edit: {e}"))?;
+    let ignored = ignored_keys(&tagged, &serde_json::to_value(&edit).unwrap_or(Value::Null));
+    if ignored.is_empty() {
+        Ok(edit)
+    } else {
+        Err(ignored_message(&ignored))
+    }
+}
+
+/// Where in `input` there are settings that `parsed` (the same value read into its type and
+/// written back) doesn't have: names the type doesn't know, which serde would silently drop.
+/// A null, or a `false` flag that isn't written back, isn't counted.
+pub fn ignored_keys(input: &Value, parsed: &Value) -> Vec<String> {
+    fn walk(input: &Value, parsed: &Value, path: &str, out: &mut Vec<String>) {
+        match (input, parsed) {
+            (Value::Object(given), Value::Object(kept)) => {
+                for (key, value) in given {
+                    let here = if path.is_empty() {
+                        key.clone()
+                    } else {
+                        format!("{path}.{key}")
+                    };
+                    match kept.get(key) {
+                        Some(back) => walk(value, back, &here, out),
+                        None if matches!(value, Value::Null | Value::Bool(false)) => {}
+                        None => out.push(here),
+                    }
+                }
+            }
+            (Value::Array(given), Value::Array(kept)) => {
+                for (i, (value, back)) in given.iter().zip(kept).enumerate() {
+                    walk(value, back, &format!("{path}[{i}]"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    walk(input, parsed, "", &mut out);
+    out
+}
+
+/// "PixelFlow doesn't know these settings…", with where to look them up.
+pub fn ignored_message(keys: &[String]) -> String {
+    let mut hints = Vec::new();
+    if keys.iter().any(|k| k.contains("shape")) {
+        hints.push("shape_settings(type) for a prop shape's");
+    }
+    if keys
+        .iter()
+        .any(|k| k.contains("params") || k.contains("settings"))
+    {
+        hints.push("list_effect_kinds(kind) for an effect's");
+    }
+    let hint = if hints.is_empty() {
+        "Check the tool's input schema".to_string()
+    } else {
+        format!("Look the real names up: {}", hints.join("; "))
+    };
+    format!(
+        "Nothing was drafted: PixelFlow doesn't know {} ({}), and would have ignored {}. {hint}.",
+        if keys.len() == 1 {
+            "this setting"
+        } else {
+            "these settings"
+        },
+        keys.iter().take(12).cloned().collect::<Vec<_>>().join(", "),
+        if keys.len() == 1 { "it" } else { "them" },
+    )
 }
 
 fn tagged(tag: &str, input: &Value) -> Result<Value, String> {

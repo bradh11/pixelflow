@@ -571,3 +571,149 @@ fn a_pattern_repeats_across_the_song() {
     assert_eq!(placed(&session, &b, 0).last(), Some(&(13000, 14000)));
     assert!(placed(&session, &a, 0).iter().all(|e| e.0 != 12000), "only row B");
 }
+
+/// An OpenAI Responses stream with one function call (then nothing else).
+fn openai_call(name: &str, input: &Value) -> String {
+    let item = json!({ "id": "fc_1", "type": "function_call", "status": "completed", "call_id": "call_1", "name": name, "arguments": input.to_string() });
+    [
+        json!({ "type": "response.output_item.added", "output_index": 0, "item": { "id": "fc_1", "type": "function_call", "call_id": "call_1", "name": name, "arguments": "" } }),
+        json!({ "type": "response.function_call_arguments.delta", "output_index": 0, "item_id": "fc_1", "delta": input.to_string() }),
+        json!({ "type": "response.output_item.done", "output_index": 0, "item": item }),
+        json!({ "type": "response.completed", "response": { "status": "completed", "output": [item] } }),
+    ]
+    .iter()
+    .map(|e| format!("event: {}\ndata: {e}\n\n", e["type"].as_str().unwrap()))
+    .collect()
+}
+
+fn openai_text(text: &str) -> String {
+    let item = json!({ "id": "msg_1", "type": "message", "role": "assistant", "content": [{ "type": "output_text", "text": text }] });
+    [
+        json!({ "type": "response.output_text.delta", "output_index": 0, "item_id": "msg_1", "delta": text }),
+        json!({ "type": "response.output_item.done", "output_index": 0, "item": item }),
+        json!({ "type": "response.completed", "response": { "status": "completed", "output": [item] } }),
+    ]
+    .iter()
+    .map(|e| format!("event: {}\ndata: {e}\n\n", e["type"].as_str().unwrap()))
+    .collect()
+}
+
+/// An Anthropic stream with one tool call, or with text only.
+fn anthropic_reply(text: &str, call: Option<(&str, &Value)>) -> String {
+    let mut out = String::from("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{}}\n\n");
+    let (block, delta, stop) = match call {
+        Some((name, input)) => (
+            json!({ "type": "tool_use", "id": "toolu_1", "name": name, "input": {} }),
+            json!({ "type": "input_json_delta", "partial_json": input.to_string() }),
+            "tool_use",
+        ),
+        None => (
+            json!({ "type": "text", "text": "" }),
+            json!({ "type": "text_delta", "text": text }),
+            "end_turn",
+        ),
+    };
+    for event in [
+        json!({ "type": "content_block_start", "index": 0, "content_block": block }),
+        json!({ "type": "content_block_delta", "index": 0, "delta": delta }),
+        json!({ "type": "content_block_stop", "index": 0 }),
+        json!({ "type": "message_delta", "delta": { "stop_reason": stop } }),
+        json!({ "type": "message_stop" }),
+    ] {
+        out += &format!("event: {}\ndata: {event}\n\n", event["type"].as_str().unwrap());
+    }
+    out
+}
+
+#[test]
+fn misspelled_effect_settings_are_refused_through_either_provider() {
+    use pf_ai::http::RetryPolicy;
+    use pf_ai::testing::{FakeTransport, Reply};
+    let s = setup(Some("/music/song.mp3"));
+    let place = json!({
+        "rowIds": [s.rows[0]], "fromMs": 0, "toMs": 1000,
+        "effect": { "kind": "chase", "settings": { "speed": 2.0, "sped": 4 } },
+    });
+    let colour = json!({
+        "rowIds": [s.rows[0]], "fromMs": 0, "toMs": 1000,
+        "effect": { "kind": "chase", "colour": "#ff0000" },
+    });
+    let add = json!({
+        "row": s.rows[1], "layer": 0,
+        "effect": { "id": pf_sequence::EffectId::new(), "startMs": 0, "endMs": 1000, "params": { "kind": "twinkle", "twinkles": 3 } },
+    });
+    for (tool, input, key, hint) in [
+        ("place_effects", &place, "sped", "list_effect_kinds"),
+        ("place_effects", &colour, "colour", "colors"),
+        (
+            "sequence_add_effect",
+            &add,
+            "effect.params.twinkles",
+            "list_effect_kinds",
+        ),
+    ] {
+        // OpenAI: the refusal goes back as a function_call_output.
+        let fake = Arc::new(FakeTransport::new(vec![
+            Reply::ok(openai_call(tool, input)),
+            Reply::ok(openai_text("Let me look the settings up.")),
+        ]));
+        let openai = pf_ai::openai::OpenAi::new(fake.clone()).with_retry(RetryPolicy::immediate());
+        let mut session = ChatSession::new();
+        let workspace = Workspace::from_engine(&s.engine, UiContext::default());
+        session
+            .run_turn(
+                &openai,
+                &fake_key(),
+                "gpt-4.1",
+                "Chase it",
+                workspace,
+                &Cancel::new(),
+                &mut |_| {},
+            )
+            .unwrap();
+        let input_items = fake.body(1)["input"].clone();
+        let output = input_items
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["type"] == "function_call_output")
+            .unwrap()["output"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            output.starts_with("Error:") && output.contains(key) && output.contains(hint),
+            "{tool}: {output}"
+        );
+        assert!(
+            session.draft().unwrap().sequence().unwrap().effect_count() == 0,
+            "nothing placed"
+        );
+
+        // Anthropic: an is_error tool_result.
+        let fake = Arc::new(FakeTransport::new(vec![
+            Reply::ok(anthropic_reply("", Some((tool, input)))),
+            Reply::ok(anthropic_reply("Let me look the settings up.", None)),
+        ]));
+        let anthropic = pf_ai::anthropic::Anthropic::new(fake.clone()).with_retry(RetryPolicy::immediate());
+        let mut session = ChatSession::new();
+        let workspace = Workspace::from_engine(&s.engine, UiContext::default());
+        session
+            .run_turn(
+                &anthropic,
+                &fake_key(),
+                "claude-haiku-4-5",
+                "Chase it",
+                workspace,
+                &Cancel::new(),
+                &mut |_| {},
+            )
+            .unwrap();
+        let messages = fake.body(1)["messages"].clone();
+        let result = &messages.as_array().unwrap().last().unwrap()["content"][0];
+        assert_eq!(result["type"], "tool_result");
+        assert_eq!(result["is_error"], true);
+        let text = result["content"].as_str().unwrap();
+        assert!(text.contains(key) && text.contains(hint), "{tool}: {text}");
+    }
+}

@@ -72,6 +72,27 @@ fn text_list(value: &Value, what: &str) -> Result<Vec<String>, String> {
     }
 }
 
+/// Refuses fields `what` doesn't take (a misspelled option would otherwise be ignored).
+fn known_keys(value: &Value, known: &[&str], what: &str) -> Result<(), String> {
+    let unknown: Vec<&str> = value
+        .as_object()
+        .map(|o| {
+            o.keys()
+                .map(String::as_str)
+                .filter(|k| !known.contains(k))
+                .collect()
+        })
+        .unwrap_or_default();
+    if unknown.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "Nothing was drafted: {what} has no {}. It takes {}.",
+        unknown.join(", "),
+        known.join(", ")
+    ))
+}
+
 fn time(input: &Value, field: &str) -> Result<u64, String> {
     input[field]
         .as_u64()
@@ -81,6 +102,11 @@ fn time(input: &Value, field: &str) -> Result<u64, String> {
 /// The effect described by `place_effects`' `effect`: a kind with settings, colors, blend, and
 /// fades (its id and times are set per copy).
 fn template(spec: &Value) -> Result<Effect, String> {
+    known_keys(
+        spec,
+        &["kind", "settings", "colors", "blend", "fadeInMs", "fadeOutMs"],
+        "effect",
+    )?;
     let kind = spec["kind"].as_str().unwrap_or_default();
     if serde_json::from_value::<EffectKind>(json!(kind)).is_err() {
         let kinds: Vec<String> = EffectKind::ALL
@@ -97,9 +123,19 @@ fn template(spec: &Value) -> Result<Effect, String> {
         Value::Object(settings) => {
             let mut object = settings.clone();
             object.insert("kind".into(), json!(kind));
-            serde_json::from_value::<EffectParams>(Value::Object(object)).map_err(|e| {
+            let given = Value::Object(object);
+            let params = serde_json::from_value::<EffectParams>(given.clone()).map_err(|e| {
                 format!("Those settings don't fit a {kind} effect: {e}. list_effect_kinds lists them.")
-            })?
+            })?;
+            let ignored: Vec<String> =
+                crate::tools::ignored_keys(&given, &serde_json::to_value(&params).unwrap_or(Value::Null))
+                    .into_iter()
+                    .map(|k| format!("settings.{k}"))
+                    .collect();
+            if !ignored.is_empty() {
+                return Err(crate::tools::ignored_message(&ignored));
+            }
+            params
         }
         Value::Null => {
             serde_json::from_value::<EffectParams>(json!({ "kind": kind })).map_err(|e| e.to_string())?
@@ -251,6 +287,21 @@ pub fn place(draft: &mut Draft, input: &Value) -> Result<String, String> {
     let doc = draft
         .sequence()
         .ok_or("No sequence is open. Offer ask_for_song so the user can pick a song for a new one.")?;
+    known_keys(
+        input,
+        &[
+            "rowIds",
+            "fromMs",
+            "toMs",
+            "effect",
+            "track",
+            "marksEach",
+            "spread",
+            "layer",
+            "replace",
+        ],
+        "place_effects",
+    )?;
     let effect = template(&input["effect"])?;
     let ids = text_list(&input["rowIds"], "rowIds")?;
     if ids.is_empty() {
@@ -336,6 +387,11 @@ pub fn repeat(draft: &mut Draft, input: &Value) -> Result<String, String> {
     let doc = draft
         .sequence()
         .ok_or("No sequence is open. Offer ask_for_song so the user can pick a song for a new one.")?;
+    known_keys(
+        input,
+        &["fromMs", "toMs", "startsMs", "rowIds", "replace"],
+        "repeat_effects",
+    )?;
     let from = time(input, "fromMs")?;
     let to = time(input, "toMs")?;
     if to <= from {

@@ -80,7 +80,7 @@ function DeviceRow({
             e.stopPropagation();
             onReview();
           }}
-          aria-label={`Review ${device.name}`}
+          aria-label={`Open ${device.name}`}
         >
           Open <ChevronRight size={14} />
         </Button>

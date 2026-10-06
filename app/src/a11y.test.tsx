@@ -15,16 +15,47 @@ import { useAssistant } from "./state/assistant";
 import { useLayoutEditor } from "./state/layoutEditor";
 import { useSequencer } from "./state/sequencer";
 import { type Screen, useApp } from "./state/store";
+import { useCloseGuard } from "./state/closeGuard";
+import { toast } from "./state/toast";
+import { useView3d } from "./state/view3d";
+import type { Scene3d } from "./components/layout3d/scene";
+
+// The 3D view draws with WebGL, which jsdom hasn't: a stand-in scene.
+vi.mock("./components/layout3d/threeScene", () => ({
+  measureModel: async () => ({ min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 1, z: 1 } }),
+  createThreeScene: (): Scene3d =>
+    ({
+      resize() {},
+      setPixels() {},
+      updatePixels() {},
+      setColors() {},
+      setBulbSize() {},
+      setBackdrop() {},
+      setModel: async () => null,
+      placeModel: () => null,
+      surfaceAt: () => null,
+      setSelectionBox() {},
+      setGizmo() {},
+      setOptions() {},
+      render() {},
+      dispose() {},
+    }) as Scene3d,
+}));
 
 const ROLES = ["button", "link", "tab", "menuitem", "menuitemradio", "checkbox", "radio", "switch", "textbox", "combobox", "slider", "spinbutton", "option"] as const;
 
-/** The text a sighted user sees on the element: its text, leaving out what's only for screen readers. */
+/**
+ * The text a sighted user can count on seeing on the element: its text, leaving out what's only
+ * for screen readers, what's hidden at some widths (a `hidden` class: shown only from a
+ * breakpoint, which jsdom doesn't apply), and decoration (aria-hidden, like a badge's count).
+ */
 function visibleText(el: Element): string {
   let text = "";
   const walk = (node: Node) => {
     if (node.nodeType === Node.TEXT_NODE) text += node.textContent ?? "";
     if (!(node instanceof Element)) return;
-    if (node.classList.contains("sr-only") || node.tagName.toLowerCase() === "svg") return;
+    if (node.classList.contains("sr-only") || node.classList.contains("hidden") || node.getAttribute("aria-hidden") === "true") return;
+    if (node.tagName.toLowerCase() === "svg") return;
     node.childNodes.forEach(walk);
   };
   walk(el);
@@ -42,7 +73,12 @@ function problems(where: string): string[] {
     }
   }
   for (const el of screen.queryAllByRole("button")) {
-    if (visibleText(el) === "" && !hasTooltip(el)) found.push(`${where}: an icon-only button with no tooltip: ${el.outerHTML.slice(0, 160)}`);
+    const text = visibleText(el);
+    if (text === "" && !hasTooltip(el)) found.push(`${where}: an icon-only button with no tooltip: ${el.outerHTML.slice(0, 160)}`);
+    // A name given in words must start from the words shown, so a spoken "click Open" finds it.
+    const label = el.getAttribute("aria-label");
+    const first = text.toLowerCase().match(/[a-z]+/)?.[0];
+    if (label && first && !label.toLowerCase().includes(first)) found.push(`${where}: "${label}" doesn't include its text "${text}"`);
   }
   return found;
 }
@@ -187,6 +223,126 @@ describe("every control has a name, and icon-only buttons have tooltips", () => 
     await user.keyboard("{Escape}");
     act(() => useAssistant.getState().setSettingsOpen(true));
     found.push(...problems("AI settings"));
+    expect(found).toEqual([]);
+  });
+
+  it("on the Welcome screen", async () => {
+    await useApp.getState().connect(new MemoryBackend());
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Welcome to PixelFlow" })).toBeInTheDocument();
+    expect(problems("welcome")).toEqual([]);
+  });
+
+  it("on the Layout screen in 3D, with its photo and model settings", async () => {
+    const { user } = await openApp();
+    act(() => useView3d.getState().setMode("3d"));
+    go("layout");
+    const found = problems("layout in 3D");
+    await user.click(screen.getByRole("button", { name: /^Photo and model/ }));
+    found.push(...problems("3D photo and model"));
+    expect(found).toEqual([]);
+  });
+
+  it("in a narrow window: the icons-only sidebar, the floating assistant, and the panels over the canvas and timeline", async () => {
+    window.innerWidth = 1100;
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      const narrow = this instanceof HTMLElement && (this.dataset.layoutRow !== undefined || this.dataset.sequenceWorkspace !== undefined);
+      const width = narrow ? 700 : 1000;
+      return { x: 0, y: 0, left: 0, top: 0, width, height: 600, right: width, bottom: 600, toJSON: () => ({}) } as DOMRect;
+    });
+    const { user, backend } = await openApp();
+    await user.click(screen.getByRole("button", { name: /^Assistant/ }));
+    expect(screen.getByRole("complementary", { name: "Assistant" })).toHaveAttribute("data-overlay", "true");
+    go("layout");
+    const found = problems("narrow layout");
+    await user.click(screen.getByRole("button", { name: "Show the props and groups list" }));
+    act(() => useLayoutEditor.getState().select([backend.show.props[0].id]));
+    found.push(...problems("narrow layout, list and properties floating"));
+    go("sequence");
+    expect(screen.getByRole("complementary", { name: "Effects" })).toHaveAttribute("data-compact", "true");
+    found.push(...problems("narrow sequence, effects as icons"));
+    const timeline = screen.getByRole("application", { name: "Timeline" });
+    fireEvent.pointerDown(timeline, { clientX: 1000 / 60, clientY: 179, button: 0, pointerId: 1 });
+    fireEvent.pointerUp(timeline, { clientX: 1000 / 60, clientY: 179, pointerId: 1 });
+    found.push(...problems("narrow sequence, settings floating"));
+    expect(found).toEqual([]);
+  });
+
+  it("with the preview beside the timeline", async () => {
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      const width = this instanceof HTMLElement && this.dataset.sequenceWorkspace !== undefined ? 1400 : 1000;
+      return { x: 0, y: 0, left: 0, top: 0, width, height: 600, right: width, bottom: 600, toJSON: () => ({}) } as DOMRect;
+    });
+    await openApp();
+    go("sequence");
+    expect(document.querySelector("[data-sequence-workspace]")).toHaveAttribute("data-preview", "side");
+    expect(problems("sequence, preview beside")).toEqual([]);
+  });
+
+  it("in the sequence dialogs, the Start page, and the Add a row picker", async () => {
+    const { user } = await openApp();
+    go("sequence");
+    const found: string[] = [];
+    await user.click(screen.getByRole("button", { name: "Add row" }));
+    found.push(...problems("add a row"));
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "New sequence" }));
+    found.push(...problems("new sequence dialog"));
+    await user.click(within(screen.getByRole("dialog", { name: "New sequence" })).getByRole("button", { name: "Cancel" }));
+    await act(() => useSequencer.getState().closeDocument());
+    found.push(...problems("sequence start page"));
+    expect(found).toEqual([]);
+  });
+
+  it("in the app's dialogs, reports, problems list, toasts, and History with backups", async () => {
+    const { user, backend } = await openApp();
+    const found: string[] = [];
+    const look = (where: string) => found.push(...problems(where));
+    act(() => useApp.setState({ naming: "Untitled Show" }));
+    look("name your show");
+    act(() => useApp.setState({ naming: null, renaming: true }));
+    look("rename show");
+    act(() => useApp.setState({ renaming: false, pendingReplace: "new" }));
+    look("unsaved changes");
+    act(() => useApp.setState({ pendingReplace: null }));
+    act(() => useCloseGuard.setState({ asking: true }));
+    look("close window");
+    act(() => useCloseGuard.setState({ asking: false }));
+    act(() => useApp.setState({ importReport: { name: "House", summary: { props: 4, pixels: 1462, controllers: 2, wired: 3, groups: 1 }, notes: ["A note"] } }));
+    look("import report");
+    act(() => useApp.setState({ importReport: null, filesReport: { found: [], stillMissing: [], gaveUp: false } }));
+    look("files report");
+    act(() => useApp.setState({ filesReport: null }));
+    const snapshot = useApp.getState().snapshot!;
+    act(() => useApp.setState({ snapshot: { ...snapshot, issues: [{ severity: "warning", code: "x", message: "Something to fix", fix: "Fix it" }] } }));
+    await user.click(screen.getByRole("button", { name: "1 warning" }));
+    look("problems list");
+    act(() => void toast("Deleted Arch 1", { label: "Undo", run: () => undefined }));
+    look("toast with Undo");
+    backend.history = [{ entry: { id: "h1", savedAtMs: Date.UTC(2026, 9, 1, 18), sizeBytes: 2048 }, show: structuredClone(backend.show) }];
+    go("history");
+    await screen.findByRole("button", { name: /Restore/ });
+    look("history with backups");
+    expect(found).toEqual([]);
+  });
+
+  it("in the assistant's proposal, its draft preview, and the FPP dialog", async () => {
+    const { user } = await openApp();
+    await user.click(screen.getByRole("button", { name: /^Assistant/ }));
+    const panel = screen.getByRole("complementary", { name: "Assistant" });
+    await user.type(within(panel).getByRole("textbox", { name: "Message the assistant" }), "Add two arches beside the garage{Enter}");
+    const card = await within(panel).findByRole("region", { name: "Proposed changes" });
+    const found = problems("proposal card");
+    await user.click(within(card).getByRole("button", { name: "Preview" }));
+    await screen.findByRole("dialog", { name: "Preview: not applied yet" });
+    found.push(...problems("draft preview"));
+    await user.click(screen.getByRole("button", { name: "Close preview" }));
+    await user.click(screen.getByRole("button", { name: "Close assistant" }));
+    go("devices");
+    await user.click(screen.getByRole("button", { name: "Scan network" }));
+    await screen.findAllByRole("row");
+    await user.click(screen.getAllByRole("button", { name: /^Open FPP/ })[0]);
+    found.push(...problems("FPP dialog"));
     expect(found).toEqual([]);
   });
 

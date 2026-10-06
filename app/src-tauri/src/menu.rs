@@ -5,6 +5,10 @@
 //!
 //! The window sees ⌘-keys before the menu does, so its shortcuts keep working; the menu's
 //! key equivalents only act when the window leaves a key alone.
+//!
+//! Quit (⌘Q) is the app's own item, not the system's `terminate:`, which would end the app
+//! without asking: it closes the window like its close button, so unsaved work is asked about
+//! first, and the app quits once the window has closed.
 
 use crate::recent::RecentShows;
 use serde::Serialize;
@@ -19,6 +23,7 @@ const OPEN_RECENT: &str = "open-recent";
 const RECENT_PREFIX: &str = "recent:";
 const CLEAR_RECENT: &str = "clear-recent";
 const CLOSE_WINDOW: &str = "close-window";
+const QUIT: &str = "quit";
 
 /// What the window is asked to do.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -91,7 +96,7 @@ pub(crate) fn build<R: Runtime>(app: &AppHandle<R>, recent: &RecentShows) -> tau
                     &PredefinedMenuItem::hide_others(app, None)?,
                     &PredefinedMenuItem::show_all(app, None)?,
                     &PredefinedMenuItem::separator(app)?,
-                    &PredefinedMenuItem::quit(app, None)?,
+                    &item(QUIT, "Quit PixelFlow", Some("CmdOrCtrl+Q"))?,
                 ],
             )?,
             &file,
@@ -184,10 +189,15 @@ pub(crate) fn refresh_recent<R: Runtime>(app: &AppHandle<R>, recent: &RecentShow
 /// Hands a chosen menu item to the window.
 pub(crate) fn on_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
     let id = event.id().as_ref();
-    if id == CLOSE_WINDOW {
-        // Asks about unsaved work first, like the window's close button.
-        if let Some(window) = app.get_webview_window("main") {
-            let _ = window.close();
+    if id == CLOSE_WINDOW || id == QUIT {
+        // Asks about unsaved work first, like the window's close button; the app quits when
+        // its last window has closed.
+        match app.get_webview_window("main") {
+            Some(window) => {
+                let _ = window.close();
+            }
+            None if id == QUIT => app.exit(0),
+            None => {}
         }
         return;
     }
@@ -229,6 +239,9 @@ mod tests {
         );
         assert_eq!(action_for("recent:/etc/passwd", &recent), None);
         assert_eq!(action_for("something-else", &recent), None);
+        // Quit and Close Window go through the window's close (and its question), not here.
+        assert_eq!(action_for(QUIT, &recent), None);
+        assert_eq!(action_for(CLOSE_WINDOW, &recent), None);
         assert_eq!(
             serde_json::to_value(MenuAction::OpenRecent { path: "/a".into() }).unwrap(),
             serde_json::json!({ "action": "openRecent", "path": "/a" })

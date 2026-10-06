@@ -390,13 +390,39 @@ pub fn run() {
         })
         .build(context())
         .expect("error while building PixelFlow")
-        .run(|app, event| {
-            if let tauri::RunEvent::Exit = event
-                && let Some(state) = app.try_state::<AppState>()
-            {
+        .run(on_run_event);
+}
+
+/// The app's own events: an exit asked for while there's unsaved work waits for the window to
+/// ask about it, and quitting keeps unsaved work and blacks out the lights.
+fn on_run_event<R: Runtime>(app: &AppHandle<R>, event: tauri::RunEvent) {
+    match event {
+        tauri::RunEvent::ExitRequested { code, api, .. } if exit_must_wait(app, code) => {
+            api.prevent_exit();
+            // The window asks (Save / Don't save / Cancel), like its close button; the app
+            // exits when it has closed. Asked again meanwhile, it shows the same question.
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.close();
+            }
+        }
+        tauri::RunEvent::Exit => {
+            if let Some(state) = app.try_state::<AppState>() {
                 shut_down(&state);
             }
-        });
+        }
+        _ => {}
+    }
+}
+
+/// Whether an exit (`code`: `None` once the last window has closed, else asked for by the app)
+/// should wait for the window to ask about unsaved work. Once the window has closed it already
+/// asked, so the app exits.
+fn exit_must_wait<R: Runtime>(app: &AppHandle<R>, code: Option<i32>) -> bool {
+    code.is_some()
+        && app.get_webview_window("main").is_some()
+        && app
+            .try_state::<AppState>()
+            .is_some_and(|state| state.engine().has_unsaved_changes())
 }
 
 /// Keeps unsaved work: the show in its autosave history, and an open sequence with unsaved
@@ -434,16 +460,26 @@ mod tests {
 
     /// The app with its data (autosaves, kept sequences) in `dir`.
     fn app_in(dir: tempfile::TempDir) -> (App<MockRuntime>, WebviewWindow<MockRuntime>, tempfile::TempDir) {
+        let app = app_without_window(dir.path());
+        let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        (app, webview, dir)
+    }
+
+    /// The app, with its data in `dir`, before its window is made (running it makes the
+    /// window from the app's configuration).
+    fn app_without_window(dir: &std::path::Path) -> App<MockRuntime> {
         // Nothing reaches the network or a sound device: packets are recorded and music is timed
         // by a silent stopwatch.
         let (transport, _recorded) = pf_output::RecordingTransport::new();
         let silent: pf_engine::ClockFactory = std::sync::Arc::new(|_| {
             Ok(Box::new(pf_audio::SilentClock::new()) as Box<dyn pf_audio::AudioClock>)
         });
-        let engine = Engine::new(dir.path())
+        let engine = Engine::new(dir)
             .with_transport(move || Ok(Box::new(transport.clone()) as Box<dyn pf_output::Transport>))
             .with_clocks(silent);
-        let app = with_commands(mock_builder())
+        with_commands(mock_builder())
             .manage(AppState {
                 engine: Mutex::new(engine),
                 devices: DeviceAccess::fake(pf_devices::testing::network()),
@@ -452,17 +488,13 @@ mod tests {
                 models: Default::default(),
                 export_cancels: Default::default(),
                 checking_files: Default::default(),
-                recent: Arc::new(recent::RecentShows::new(Some(dir.path().join("config")))),
-                last_folders: pickers::LastFolders::new(Some(dir.path().join("config"))),
+                recent: Arc::new(recent::RecentShows::new(Some(dir.join("config")))),
+                last_folders: pickers::LastFolders::new(Some(dir.join("config"))),
                 dialog: Default::default(),
                 imported_from: Mutex::default(),
             })
             .build(context())
-            .unwrap();
-        let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-            .build()
-            .unwrap();
-        (app, webview, dir)
+            .unwrap()
     }
 
     /// Calls a command the way the UI does and returns its JSON reply (or error message).
@@ -2014,6 +2046,60 @@ mod tests {
         // The window can't name a show for the list: locating one needs it on the list.
         let error = call(&webview, "locate_recent_show", json!({ "path": a })).unwrap_err();
         assert_eq!(error, json!("That show isn't on your recent list any more."));
+    }
+
+    #[test]
+    fn an_exit_asked_for_with_unsaved_work_waits_for_the_window_to_ask() {
+        let (app, webview, dir) = app();
+        let handle = app.handle();
+        // Nothing unsaved: exit at once.
+        assert!(!exit_must_wait(handle, Some(0)));
+        call(
+            &webview,
+            "apply_edits",
+            json!({ "edits": [{ "type": "renameShow", "name": "Changed" }] }),
+        )
+        .unwrap();
+        // Unsaved work, and the window is there to ask about it.
+        assert!(exit_must_wait(handle, Some(0)));
+        // The last window closed: it already asked (or there's nothing left to ask with).
+        assert!(!exit_must_wait(handle, None));
+        let path = pf_model::path_to_text(&dir.path().join("h.pixelflow.json"));
+        call(&webview, "save_show_as", json!({ "path": path })).unwrap();
+        assert!(!exit_must_wait(handle, Some(0)));
+    }
+
+    #[test]
+    fn quit_from_the_menu_goes_through_the_window_and_quits_when_nothing_is_unsaved() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = app_without_window(dir.path());
+        let handle = app.handle().clone();
+        let events = Arc::new(Mutex::new(Vec::<String>::new()));
+        let seen = Arc::clone(&events);
+        std::thread::spawn(move || {
+            // Once the running app has made its window.
+            while handle.get_webview_window("main").is_none() {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            menu::on_event(&handle, tauri::menu::MenuEvent { id: "quit".into() });
+        });
+        // Returns once the app has exited.
+        app.run(move |app, event| {
+            match &event {
+                tauri::RunEvent::WindowEvent {
+                    event: tauri::WindowEvent::CloseRequested { .. },
+                    ..
+                } => seen.lock().unwrap().push("close requested".into()),
+                tauri::RunEvent::ExitRequested { .. } => seen.lock().unwrap().push("exit requested".into()),
+                tauri::RunEvent::Exit => seen.lock().unwrap().push("exit".into()),
+                _ => {}
+            }
+            on_run_event(app, event);
+        });
+        assert_eq!(
+            *events.lock().unwrap(),
+            vec!["close requested", "exit requested", "exit"]
+        );
     }
 
     #[test]

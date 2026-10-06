@@ -73,13 +73,16 @@ pub fn path_from_text(text: &str) -> PathBuf {
     }
 }
 
-/// The byte two hex digits at the start of `text` stand for.
+/// The byte two hex digits at the start of `text` stand for. Only bytes from 0x80 up are ever
+/// marked (everything below is plain UTF-8), so a mark for any other byte isn't one: that way
+/// each path has one spelling, and a mark can't smuggle in a `/`.
 fn marked_byte(text: &str) -> Option<u8> {
     let digits = text.as_bytes().get(..2)?;
     if !digits.iter().all(u8::is_ascii_hexdigit) {
         return None;
     }
-    u8::from_str_radix(std::str::from_utf8(digits).ok()?, 16).ok()
+    let byte = u8::from_str_radix(std::str::from_utf8(digits).ok()?, 16).ok()?;
+    (byte >= 0x80).then_some(byte)
 }
 
 /// A path's text for people to read: bytes that aren't UTF-8 show as `�`.
@@ -149,22 +152,70 @@ pub fn relative_text(text: &str, folder: &Path) -> String {
 }
 
 /// `text`, read from a show or sequence file in `folder`, as a full path: a relative path is
-/// taken to start in `folder`; a full path (or nothing) is left as it is.
+/// taken to start in `folder`; a full path (or nothing) is left as it is. A relative path stays
+/// inside `folder`: `..` goes up a folder but never above `folder`, and a part that names a
+/// drive or starts at the top of one (Windows) is left out rather than replacing `folder`.
 pub fn resolve_text(text: &str, folder: &Path) -> String {
     if text.is_empty() || is_full_path_text(text) || folder.as_os_str().is_empty() {
         return text.to_string();
     }
-    let mut path = folder.to_path_buf();
+    let mut below: Vec<std::ffi::OsString> = Vec::new();
     // Written with "/" between folders on every computer.
-    for part in text.split('/').filter(|p| !p.is_empty() && *p != ".") {
-        path.push(path_from_text(part));
+    for part in text.split('/') {
+        for component in path_from_text(part).components() {
+            match component {
+                Component::Normal(name) => below.push(name.to_os_string()),
+                Component::ParentDir => {
+                    below.pop();
+                }
+                Component::CurDir | Component::RootDir | Component::Prefix(_) => {}
+            }
+        }
     }
+    let mut path = folder.to_path_buf();
+    path.extend(below);
     path_to_text(&path)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_marks_the_encoder_writes_are_read() {
+        // Bytes below 0x80 are never marked: a mark for "/" or NUL is dropped, digits and all
+        // left as plain text, so a relative path can't turn into a full one.
+        let sneaky = "a/\u{0}2fetc\u{0}2fpasswd";
+        assert_eq!(path_from_text(sneaky), PathBuf::from("a/2fetc2fpasswd"));
+        assert_eq!(display_text(sneaky), "a/2fetc2fpasswd");
+        assert_eq!(display_text("x\u{0}00y"), "x00y");
+        assert_eq!(
+            resolve_text(sneaky, Path::new("/Shows")),
+            "/Shows/a/2fetc2fpasswd"
+        );
+        assert_eq!(display_text("Caf\u{0}e9"), "Caf\u{FFFD}");
+    }
+
+    #[test]
+    fn relative_paths_stay_inside_their_folder() {
+        let folder = Path::new("/Shows/Haas");
+        assert_eq!(resolve_text("Music/../Song.mp3", folder), "/Shows/Haas/Song.mp3");
+        assert_eq!(resolve_text("../../etc/x.png", folder), "/Shows/Haas/etc/x.png");
+        assert_eq!(resolve_text("a/./b/../c.mp3", folder), "/Shows/Haas/a/c.mp3");
+        // Read back and saved again, it is still relative.
+        let full = resolve_text("Music/../Song.mp3", folder);
+        assert_eq!(relative_text(&full, folder), "Song.mp3");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn drive_and_root_parts_never_replace_the_folder() {
+        let folder = Path::new("C:\\Shows\\Haas");
+        assert_eq!(
+            resolve_text("D:x/Song.mp3", folder),
+            "C:\\Shows\\Haas\\x\\Song.mp3"
+        );
+    }
 
     #[test]
     fn utf8_paths_are_written_as_they_are() {

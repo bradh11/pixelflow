@@ -16,7 +16,8 @@ use std::path::Path;
 /// an `id`, `nodes` regions become `lines` with a `layout` and `buffer` style, `subBuffer`
 /// regions, face colors, and a group's `submodels`; 8 = file paths (sequences, music, the photo,
 /// the house model) are relative to the show file when the file is inside its folder, and keep
-/// bytes that aren't UTF-8 (see `paths.rs`).
+/// bytes that aren't UTF-8 (see `paths.rs`); the file also records the folder it was saved in
+/// (`savedIn`), so a show file moved on its own still finds its files.
 pub const CURRENT_SCHEMA_VERSION: u32 = 8;
 
 /// Show-wide settings.

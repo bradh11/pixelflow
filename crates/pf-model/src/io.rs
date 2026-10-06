@@ -125,7 +125,35 @@ const _: () = assert!(
 
 /// Parses a show file, upgrading older schema versions to the current one.
 pub fn show_from_json(text: &str) -> Result<Show, ModelError> {
+    show_from_value(serde_json::from_str(text)?)
+}
+
+/// Parses a show file and the folder it says it was saved in (`savedIn`, path text), when it
+/// says. Relative file paths in the show start in that folder if they aren't found next to the
+/// file now: the show file may have moved on its own.
+pub fn show_file_from_json(text: &str) -> Result<(Show, Option<String>), ModelError> {
     let mut doc: Value = serde_json::from_str(text)?;
+    let saved_in = doc
+        .as_object_mut()
+        .and_then(|o| o.remove("savedIn"))
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .filter(|s| !s.is_empty());
+    Ok((show_from_value(doc)?, saved_in))
+}
+
+/// A show file: the show, then the folder it is being saved in (`savedIn`, path text), if given.
+pub fn show_file_to_json(show: &Show, saved_in: Option<&str>) -> Result<String, ModelError> {
+    #[derive(serde::Serialize)]
+    struct ShowFile<'a> {
+        #[serde(flatten)]
+        show: &'a Show,
+        #[serde(rename = "savedIn", skip_serializing_if = "Option::is_none")]
+        saved_in: Option<&'a str>,
+    }
+    Ok(serde_json::to_string_pretty(&ShowFile { show, saved_in })?)
+}
+
+fn show_from_value(mut doc: Value) -> Result<Show, ModelError> {
     let raw = doc.get("schemaVersion").ok_or(ModelError::MissingSchemaVersion)?;
     let version = match raw.as_u64() {
         Some(v) if v > 0 => v,
@@ -300,6 +328,29 @@ mod tests {
             show_from_json(sparse).unwrap().house_model,
             Some(crate::HouseModel::new("/h.obj"))
         );
+    }
+
+    #[test]
+    fn show_files_remember_the_folder_they_were_saved_in() {
+        let show = sample_show();
+        let text = show_file_to_json(&show, Some("/Shows/Haas 2024")).unwrap();
+        let saved: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(saved["savedIn"], "/Shows/Haas 2024");
+        assert!(
+            text.find("\"schemaVersion\"").unwrap() < text.find("\"savedIn\"").unwrap(),
+            "the show reads first"
+        );
+        let (read, saved_in) = show_file_from_json(&text).unwrap();
+        assert_eq!(read, show);
+        assert_eq!(saved_in.as_deref(), Some("/Shows/Haas 2024"));
+
+        // Files without it (version 7, or written without a folder) read as before.
+        let plain = show_file_to_json(&show, None).unwrap();
+        assert!(!plain.contains("savedIn"));
+        assert_eq!(show_file_from_json(&plain).unwrap(), (show.clone(), None));
+        // A savedIn that isn't text is ignored rather than refusing the show.
+        let odd = text.replace("\"/Shows/Haas 2024\"", "5");
+        assert_eq!(show_file_from_json(&odd).unwrap(), (show, None));
     }
 
     #[test]

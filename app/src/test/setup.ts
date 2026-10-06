@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
 import { usePaletteDrag } from "../components/sequencer/EffectPalette";
+import { useAssistant } from "../state/assistant";
 import { useLayoutEditor } from "../state/layoutEditor";
 import { useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
@@ -27,4 +28,5 @@ afterEach(() => {
   useSequencer.setState(useSequencer.getInitialState(), true);
   usePaletteDrag.setState(usePaletteDrag.getInitialState(), true);
   useWiring.setState(useWiring.getInitialState(), true);
+  useAssistant.setState(useAssistant.getInitialState(), true);
 });

@@ -1,6 +1,9 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { tauriAssistant } from "./api/assistant";
+import { FakeAssistant } from "./api/memoryAssistant";
+import { useAssistant } from "./state/assistant";
 import { DEMO_PHOTO, demoDevices, demoHousePhoto, demoPlayers, demoShow } from "./api/demo";
 import { DEMO_MUSIC, DEMO_SEQUENCE_PATH, demoSequence } from "./api/demoSequence";
 import { MemoryBackend } from "./api/memory";
@@ -16,6 +19,7 @@ import "./styles.css";
 if (inTauri()) {
   void useApp.getState().connect(tauriBackend);
   void useSequencer.getState().connect(tauriSequencer);
+  void useAssistant.getState().connect(tauriAssistant);
 } else {
   const demo = new URLSearchParams(location.search).has("demo");
   const backend = new MemoryBackend(demo ? demoShow() : undefined);
@@ -27,6 +31,14 @@ if (inTauri()) {
     backend.nextImagePath = DEMO_PHOTO;
   }
   void useApp.getState().connect(backend);
+  // A scripted stand-in assistant: no key or network. In the demo it's already set up.
+  const assistant = new FakeAssistant(backend);
+  if (demo) {
+    assistant.keys.set("anthropic", "keychain");
+    assistant.delayMs = 20;
+    if (!useAssistant.getState().models.anthropic) useAssistant.getState().setModel("claude-opus-5-5");
+  }
+  void useAssistant.getState().connect(assistant);
   const sequencer = new MemorySequencer(backend);
   if (demo) {
     // A sample sequence, open on the Sequence screen.

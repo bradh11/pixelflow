@@ -130,6 +130,18 @@ export class FakeAssistant implements AssistantApi {
       this.nextError = null;
       throw new Error(error);
     }
+    // In the demo, "simulate a rate limit" (or a network error, or a bad key) shows that error.
+    const simulated = /\bsimulate (?:an? )?(rate limit|network error|bad key)\b/i.exec(message)?.[1].toLowerCase();
+    if (simulated) {
+      const name = providerName(provider);
+      throw new Error(
+        simulated === "rate limit"
+          ? `${name} is limiting how fast this key can send requests. Wait a minute, then try again.`
+          : simulated === "network error"
+            ? `Couldn't reach ${name}. Check your internet connection, then try again.`
+            : `${name} didn't accept your API key. It may be mistyped or revoked: paste it again in Settings → AI.`,
+      );
+    }
     const show = this.backend.show;
     const kind = KINDS.find((k) => k.words.test(message));
     const rename = /\b(rename|call)\b.*?\b(show|it)\b(?:\s+(?:to|as))?\s+["“]?([^"”]+?)["”]?\s*$/i.exec(message);

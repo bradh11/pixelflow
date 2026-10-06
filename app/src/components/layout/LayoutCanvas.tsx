@@ -1023,6 +1023,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
   };
 
   const hoveredName = hovered ? show.props.find((p) => p.id === hovered)?.name : null;
+  const drawingPoly = useLayoutEditor((s) => s.tool === "polyLine" && !s.editPhoto);
 
   return (
     <div className="relative h-full w-full overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-800">
@@ -1061,6 +1062,12 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
         around; pinch, or hold Command and scroll, to zoom. Every prop is also in the props list below.
       </p>
       <SelectionAnnouncer show={show} />
+      {drawingPoly && (
+        <div className="pointer-events-none absolute top-2 left-2 rounded bg-black/70 px-2 py-1 text-xs text-white">
+          Click each point · double-click or Enter to finish · Backspace takes the last point off · Shift keeps 45° · a green ring
+          means it joins that line
+        </div>
+      )}
       {hoveredName && (
         <div className="pointer-events-none absolute bottom-2 left-2 rounded bg-black/70 px-2 py-0.5 text-xs text-white">
           {hoveredName}

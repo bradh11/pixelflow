@@ -214,10 +214,6 @@ export function LayoutToolbar({ hasPhoto, onChoosePhoto }: { hasPhoto: boolean; 
         );
       })}
       <MoreShapes tool={editPhoto ? "select" : tool} setTool={setTool} in3d={in3d} />
-      {/* What the Poly Line tool is doing, while it's on. */}
-      {tool === "polyLine" && !in3d && !editPhoto && (
-        <span className="ml-1 text-xs text-neutral-500 dark:text-neutral-400">Click points · double-click or Enter to finish · Backspace undoes a point · Shift keeps 45°</span>
-      )}
       <Divider />
       <ToolButton pressed={snap} label="Snap to grid" hint="Line props up on a grid as you move and draw" onClick={() => setSnap(!snap)}>
         <Magnet size={16} aria-hidden />

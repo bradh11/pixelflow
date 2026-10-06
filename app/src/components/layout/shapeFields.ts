@@ -110,7 +110,17 @@ export const SHAPE_FIELDS: Record<string, ShapeField[]> = {
       ["flat", "Flat (strings fanned out)"],
       ["ribbon", "Ribbon (fanned, strings the same length)"],
     ]),
-    BOOL("serpentine", "Zig-zag (every other string runs top to bottom)"),
+    CHOICE("start", "First pixel", CORNERS, "Where the data comes in: a top corner runs the first string down, a right one goes round the other way"),
+    BOOL("serpentine", "Zig-zag (every other string runs back)"),
+    only(
+      (shape) => shape.serpentine === true,
+      COUNT("strandsPerString", "Zig-zag restarts every", 0, "For strings folded up and down a few times: how many strands each string makes (0 for one long zig-zag)"),
+    ),
+    BOOL("alternateNodes", "Pixels go up every other spot and come back down"),
+    only(
+      (shape) => (shape.style ?? "round") === "round",
+      NUMBER("spiralRotations", "Spiral turns", -100, 100, "How many times the strings wind round the tree on the way up; 0 runs them straight up"),
+    ),
   ],
   star: [
     COUNT("points", "Points", 2),

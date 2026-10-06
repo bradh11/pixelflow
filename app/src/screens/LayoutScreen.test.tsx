@@ -1307,6 +1307,27 @@ describe("LayoutScreen", () => {
       expect(shape()).toMatchObject({ layers: [10, 20], innerPercent: 40, startAtBottom: true });
     });
 
+    it("wires a tree from the top, folds its zig-zag and winds it into a spiral", async () => {
+      const tree = { ...newProp("tree", emptyShow("x")), name: "Mega" };
+      const { user, shape } = await selectOnly(tree);
+      await user.selectOptions(screen.getByLabelText("First pixel"), "topLeft");
+      // The fold only shows with zig-zag on.
+      const zigZag = screen.getByLabelText("Zig-zag (every other string runs back)");
+      if ((zigZag as HTMLInputElement).checked) await user.click(zigZag);
+      expect(screen.queryByLabelText("Zig-zag restarts every")).not.toBeInTheDocument();
+      await user.click(zigZag);
+      const fold = screen.getByLabelText("Zig-zag restarts every");
+      await user.clear(fold);
+      await user.type(fold, "3{Enter}");
+      const spiral = screen.getByLabelText("Spiral turns");
+      await user.clear(spiral);
+      await user.type(spiral, "2.5{Enter}");
+      expect(shape()).toMatchObject({ start: "topLeft", serpentine: true, strandsPerString: 3, spiralRotations: 2.5 });
+      // Only round trees wind round.
+      await user.selectOptions(screen.getByLabelText("Style"), "flat");
+      expect(screen.queryByLabelText("Spiral turns")).not.toBeInTheDocument();
+    });
+
     it("starts a star at a leg and runs it counter-clockwise", async () => {
       const star = { ...newProp("star", emptyShow("x")), name: "Topper" };
       const { user, shape } = await selectOnly(star);

@@ -420,6 +420,87 @@ function arch(g: Arch): Vec3[] {
   return spots.map(([x, y]) => place(0, 1 - layerGap * (lc - 1 - y), midpt === 0 ? 0 : -half + (theta * x) / midpt / 2));
 }
 
+type Tree = Extract<Generator, { type: "tree" }>;
+
+/** Each row's height (in rows) and turn (radians) up a spiral tree, as xLights winds it (pf-geometry's spiral_offsets, in 32-bit floats like it). */
+export function spiralOffsets(rows: number, spiral: number, radius: number, topRadius: number): [number[], number[]] {
+  const f = Math.fround;
+  const heights = Array.from({ length: rows }, (_, x) => x);
+  const turns = Array.from({ length: rows }, () => 0);
+  if (spiral === 0 || rows === 0) return [heights, turns];
+  const bh = f(rows);
+  const pi = f(Math.PI);
+  const gap = f(f(f(radius) - f(topRadius)) / 10);
+  const lengths: number[] = [];
+  let total = 0;
+  for (let x = 0; x < 10; x++) {
+    let l = f(f(f(2 * pi) * f(f(radius) - f(gap * x))) - f(gap / 2));
+    l = f(l * f(f(spiral) / 10));
+    l = f(Math.sqrt(f(f(l * l) + f(f(f(bh / 10) * bh) / 10))));
+    lengths.push(l);
+    total = f(total + l);
+  }
+  for (let x = 0; x < 10; x++) lengths[x] = f(lengths[x] / total);
+  let stretch = 0;
+  let inStretch = Math.round(f(lengths[0] * bh));
+  let done = 0;
+  for (let x = 1; x < rows; x++) {
+    if (done >= inStretch) {
+      stretch = Math.min(stretch + 1, 9);
+      done = 0;
+      inStretch = stretch === 9 ? rows - x : Math.round(f(lengths[stretch] * bh));
+    }
+    if (inStretch > 0) {
+      heights[x] = f(heights[x - 1] + f(bh / 10 / inStretch));
+      turns[x] = f(turns[x - 1] + f(f(f(f(f(spiral) * 2) * pi) / 10) / inStretch));
+    } else {
+      heights[x] = heights[x - 1];
+      turns[x] = turns[x - 1];
+    }
+    done++;
+  }
+  return [heights, turns];
+}
+
+/** Trees as xLights lays and wires them (pf-geometry's tree.rs): strings from the start corner, zig-zag restarting each folded string, alternate pixels, spiral windings. */
+function tree(g: Tree): Vec3[] {
+  const out: Vec3[] = [];
+  const n = g.strings;
+  const per = g.nodesPerString;
+  const [style, degrees, startAngle] = [g.style ?? "round", g.degrees ?? 360, g.startAngle ?? 0];
+  const start = g.start ?? "bottomLeft";
+  const fromRight = start === "bottomRight" || start === "topRight";
+  const fromTop = start === "topLeft" || start === "topRight";
+  const step = degrees < 350 && n > 1 ? degrees / (n - 1) : degrees / Math.max(n, 1);
+  const spiral = g.spiralRotations ?? 0;
+  const unit = Math.fround(g.height / Math.fround(3 * per));
+  const wound =
+    style === "round" && spiral !== 0 && Number.isFinite(spiral) && Number.isFinite(unit) && unit !== 0
+      ? spiralOffsets(per, spiral, Math.fround(g.baseRadius / unit), Math.fround(g.topRadius / unit))
+      : null;
+  const sps = g.strandsPerString ?? 0;
+  for (let s = 0; s < n && out.length < MAX_POINTS; s++) {
+    const spot = fromRight ? n - 1 - s : s;
+    const angle = rad(startAngle + spot * step);
+    const across = (spot + 0.5 - n / 2) / (n / 2);
+    const [xb, xt] = [across * g.baseRadius, across * g.topRadius];
+    const slant = Math.hypot(g.height, xt - xb);
+    const fold = sps > 0 ? s % sps : s;
+    for (let j = 0; j < per; j++) {
+      const along = g.alternateNodes ? (j < Math.ceil(per / 2) ? 2 * j : (per - (j + 1)) * 2 + 1) : g.serpentine && fold % 2 === 1 ? per - 1 - j : j;
+      const row = fromTop ? per - 1 - along : along;
+      const t = wound ? (per > 1 ? wound[0][row] / (per - 1) : 0.5) : spread(row, per);
+      const turn = wound ? wound[1][row] : 0;
+      if (style === "round") {
+        const r = g.baseRadius + (g.topRadius - g.baseRadius) * t;
+        out.push(v(r * Math.sin(angle + turn), t * g.height, r * Math.cos(angle + turn)));
+      } else if (style === "flat") out.push(v(xb + (xt - xb) * t, t * g.height));
+      else out.push(v(xb + (xt - xb) * t, slant > 0 ? (t * g.height * g.height) / slant : 0));
+    }
+  }
+  return out;
+}
+
 function generate(g: Generator): Vec3[] {
   switch (g.type) {
     case "line":
@@ -435,28 +516,8 @@ function generate(g: Generator): Vec3[] {
         return v(-g.width / 2 + spread(col, g.columns) * g.width, -g.height / 2 + spread(row, g.rows) * g.height);
       });
     }
-    case "tree": {
-      const out: Vec3[] = [];
-      const n = g.strings;
-      const [style, degrees, startAngle] = [g.style ?? "round", g.degrees ?? 360, g.startAngle ?? 0];
-      const step = degrees < 350 && n > 1 ? degrees / (n - 1) : degrees / Math.max(n, 1);
-      for (let s = 0; s < n && out.length < MAX_POINTS; s++) {
-        const angle = rad(startAngle + s * step);
-        const across = (s + 0.5 - n / 2) / (n / 2);
-        const [xb, xt] = [across * g.baseRadius, across * g.topRadius];
-        const slant = Math.hypot(g.height, xt - xb);
-        for (let j = 0; j < g.nodesPerString; j++) {
-          let t = spread(j, g.nodesPerString);
-          if (g.serpentine && s % 2 === 1) t = 1 - t;
-          if (style === "round") {
-            const r = g.baseRadius + (g.topRadius - g.baseRadius) * t;
-            out.push(v(r * Math.sin(angle), t * g.height, r * Math.cos(angle)));
-          } else if (style === "flat") out.push(v(xb + (xt - xb) * t, t * g.height));
-          else out.push(v(xb + (xt - xb) * t, slant > 0 ? (t * g.height * g.height) / slant : 0));
-        }
-      }
-      return out;
-    }
+    case "tree":
+      return tree(g);
     case "star":
       return star(g);
     case "customGrid":

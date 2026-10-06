@@ -43,6 +43,7 @@ const TYPE_DEFAULTS: Record<string, Record<string, unknown>> = {
   arch: { arches: 1, arc: 180, gap: 0, skewDeg: 0, hollow: 70, startRight: false, zigZag: false, startInside: false },
   circle: { innerPercent: 50, startInside: false, startAtBottom: false, counterClockwise: false },
   star: { start: "top", counterClockwise: false, innerPercent: 50, startInside: false },
+  tree: { start: "bottomLeft", strandsPerString: 0, alternateNodes: false, spiralRotations: 0 },
 };
 const shapeDefaults = (shape: ShapeSource): Record<string, unknown> => ({
   ...COMMON_DEFAULTS,

@@ -86,6 +86,14 @@ export type Generator =
       degrees?: number;
       /** Where the first string of a round tree stands, degrees round from the front (default 0). */
       startAngle?: number;
+      /** The corner the first string starts at: a top corner runs it down, a right one goes round the other way. */
+      start?: MatrixWiring["start"];
+      /** Zig-zag starts afresh every this many strings (each string folded into that many); 0 never. */
+      strandsPerString?: number;
+      /** Each string goes up every other spot and comes back down the ones between. */
+      alternateNodes?: boolean;
+      /** Turns a round tree's strings wind round from base to top, as xLights winds them. */
+      spiralRotations?: number;
     }
   /** Star outlines, pixels evenly along each from the `start` corner, clockwise; with `layers` (pixels per outline, innermost first) nested outlines in to `innerPercent` of the size. */
   | {

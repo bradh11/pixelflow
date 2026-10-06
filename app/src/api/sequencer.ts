@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { whileFileDialog } from "./fileDialogs";
 import { pickPath } from "./tauri";
 import type { FoundFile, MissingFile, PlaybackStatus, ShowSnapshot, XlightsSequenceImported } from "./types";
 import type {
@@ -157,7 +158,7 @@ export const tauriSequencer: SequencerApi = {
   importXlightsSequence: (path) => invoke("import_xlights_sequence", { path }),
   sequenceMusicMissing: () => invoke("sequence_music_missing"),
   findSequenceMusic: () => invoke("find_sequence_music"),
-  locateSequenceMusic: () => invoke("locate_sequence_music"),
+  locateSequenceMusic: () => whileFileDialog(() => invoke("locate_sequence_music")),
   pickXlightsSequencePath: () => pickPath("xlightsSequence"),
   pickSequenceDocPath: () => pickPath("sequenceDoc"),
   pickSequenceDocSavePath: (defaultName) => pickPath("sequenceDocSave", defaultName),

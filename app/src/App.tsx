@@ -11,7 +11,7 @@ import { SequenceImportReport } from "./components/SequenceImportReport";
 import { NameShowDialog, OpeningStatus } from "./components/ShowDialogs";
 import { Welcome } from "./components/Welcome";
 import { useShortcuts } from "./components/useShortcuts";
-import { useCloseGuard } from "./state/closeGuard";
+import { requestWindowClose } from "./state/busy";
 import { runMenuAction } from "./state/menuActions";
 import { useApp } from "./state/store";
 
@@ -25,7 +25,7 @@ export function App() {
     if (!backend) return;
     let stop: (() => void) | null = null;
     let gone = false;
-    void backend.onCloseRequested(() => useCloseGuard.getState().request()).then(
+    void backend.onCloseRequested(requestWindowClose).then(
       (unlisten) => (gone ? unlisten() : (stop = unlisten)),
       () => undefined,
     );

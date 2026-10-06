@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Backend } from "./backend";
+import { whileFileDialog } from "./fileDialogs";
 import { decodePreview, decodePreview3d } from "./previewBytes";
 import type { MenuAction, PickKind } from "./types";
 
@@ -13,7 +14,7 @@ const MENU_EVENT = "menu";
  * sheet starting in a sensible folder, and answers with lossless path text; null when cancelled.
  */
 export function pickPath(kind: PickKind, name?: string): Promise<string | null> {
-  return invoke("pick_path", name === undefined ? { kind } : { kind, name });
+  return whileFileDialog(() => invoke("pick_path", name === undefined ? { kind } : { kind, name }));
 }
 
 /** The real engine, running in the Tauri desktop shell. */
@@ -30,7 +31,7 @@ export const tauriBackend: Backend = {
   checkFiles: (all) => invoke("check_files", { all }),
   findMissingFiles: (file) => invoke("find_missing_files", file ? { file } : {}),
   // The shell asks where the file is with its own dialog: the window never names the new place.
-  locateFile: (file) => invoke("locate_file", { file }),
+  locateFile: (file) => whileFileDialog(() => invoke("locate_file", { file })),
   listHistory: () => invoke("list_history"),
   restoreHistory: (id) => invoke("restore_history", { id }),
   startOutput: (pattern, target) => invoke("start_output", { pattern, target }),
@@ -57,10 +58,10 @@ export const tauriBackend: Backend = {
   previewProps3d: async () => decodePreview3d(await invoke<ArrayBuffer | number[]>("preview_props_3d")),
   readImage: async (path) => new Uint8Array(await invoke<ArrayBuffer>("read_image", { path })),
   // Picked by the shell, which then lets the window read that photo (and no other files).
-  pickImagePath: () => invoke("pick_image"),
+  pickImagePath: () => whileFileDialog(() => invoke("pick_image")),
   readHouseModel: async (path) => new Uint8Array(await invoke<ArrayBuffer>("read_house_model", { path })),
   // Picked by the shell, which then lets the window read that model (and no other files).
-  pickHouseModelPath: () => invoke("pick_house_model"),
+  pickHouseModelPath: () => whileFileDialog(() => invoke("pick_house_model")),
   importXlights: (folder) => invoke("import_xlights", { folder }),
   pickShowFolder: () => pickPath("xlightsFolder"),
   addSequence: (path) => invoke("add_sequence", { path }),
@@ -80,7 +81,7 @@ export const tauriBackend: Backend = {
   forgetRecentShow: (path) => invoke("forget_recent_show", { path }),
   clearRecentShows: () => invoke("clear_recent_shows"),
   // The shell asks where it is with its own dialog, and opens it like any other show.
-  locateRecentShow: (path) => invoke("locate_recent_show", { path }),
+  locateRecentShow: (path) => whileFileDialog(() => invoke("locate_recent_show", { path })),
   onMenu: (handler) => listen<MenuAction>(MENU_EVENT, (event) => handler(event.payload)),
 };
 

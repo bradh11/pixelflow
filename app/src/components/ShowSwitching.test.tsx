@@ -1,13 +1,15 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { App } from "../App";
 import { demoShow } from "../api/demo";
 import { DEMO_SEQUENCE_PATH, demoSequence } from "../api/demoSequence";
 import { MemoryBackend, emptyShow, layoutThumbnail } from "../api/memory";
+import { whileFileDialog } from "../api/fileDialogs";
 import { MemorySequencer } from "../api/memorySequencer";
 import type { RecentShow, Show } from "../api/types";
 import { useSequencer } from "../state/sequencer";
+import { useCloseGuard } from "../state/closeGuard";
 import { useApp } from "../state/store";
 
 const HOUSE = "/Shows/House/house.pixelflow.json";
@@ -325,5 +327,116 @@ describe("shortcuts and the menu bar", () => {
     await user.type(screen.getByPlaceholderText("Type a command…"), "open recent: shed");
     await user.keyboard("{Enter}");
     await waitFor(() => expect(useApp.getState().snapshot?.show.name).toBe("Shed"));
+  });
+});
+
+/** Presses ⌘`key` on `target`; true when the app left it alone (so the menu bar gets it next). */
+function command(key: string, target: Element | Window = window, shift = false): boolean {
+  return fireEvent.keyDown(target, { key, metaKey: true, shiftKey: shift });
+}
+
+describe("while a file dialog, or a question, is up", () => {
+  it("⌘O pressed again while the Open dialog is slow to appear shows no second dialog", async () => {
+    const { backend } = await start();
+    let answer!: (path: string | null) => void;
+    let dialogs = 0;
+    backend.pickOpenPath = () => {
+      dialogs++;
+      return new Promise((resolve) => (answer = resolve));
+    };
+    expect(command("o")).toBe(false);
+    await screen.findByText("Opening the file dialog…");
+    // Again, from the keyboard and from the menu bar: held, and not passed on to the menu.
+    expect(command("o")).toBe(false);
+    expect(command("n")).toBe(false);
+    await act(() => backend.chooseMenu({ action: "openShow" }));
+    await act(() => backend.chooseMenu({ action: "newShow" }));
+    expect(dialogs).toBe(1);
+    await act(async () => answer(SHED));
+    await waitFor(() => expect(useApp.getState().snapshot?.show.name).toBe("Shed"));
+    expect(dialogs).toBe(1);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("any of the shell's file dialogs (a Save sheet, a photo) holds the show keys back", async () => {
+    const { backend, user } = await start();
+    await openHouse(user);
+    let answer!: () => void;
+    let answered!: Promise<void>;
+    act(() => void (answered = whileFileDialog(() => new Promise<void>((resolve) => (answer = resolve)))));
+    expect(command("n")).toBe(false);
+    expect(command("w")).toBe(false);
+    await act(() => backend.chooseMenu({ action: "closeShow" }));
+    expect(welcome()).not.toBeInTheDocument();
+    await act(async () => {
+      answer();
+      await answered;
+    });
+    await user.keyboard("{Meta>}w{/Meta}");
+    expect(await screen.findByRole("heading", { name: "Welcome to PixelFlow" })).toBeInTheDocument();
+  });
+
+  it("⌘W while “Name your show” is up leaves the show alone", async () => {
+    const { backend, user } = await start();
+    await user.keyboard("{Meta>}n{/Meta}");
+    await waitFor(() => expect(welcome()).not.toBeInTheDocument());
+    act(() => void useApp.getState().saveAs());
+    const name = await screen.findByRole("dialog", { name: "Name your show" });
+    expect(command("w")).toBe(false);
+    expect(command("o")).toBe(false);
+    await act(() => backend.chooseMenu({ action: "closeShow" }));
+    await act(() => backend.chooseMenu({ action: "save" }));
+    expect(name).toBeInTheDocument();
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(welcome()).not.toBeInTheDocument();
+    expect(backend.calls.filter((c) => c === "newShow")).toHaveLength(1);
+    // Text editing in its field still works as usual.
+    const field = within(name).getByRole("textbox", { name: "Show name" });
+    for (const key of ["z", "a", "c", "v", "x"]) expect(command(key, field)).toBe(true);
+    await user.click(within(name).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("⌘N and ⌘O while the window's close question is up ask nothing more", async () => {
+    const { backend, user } = await start();
+    await openHouse(user);
+    await act(() => useApp.getState().apply([{ type: "renameShow", name: "Changed" }]));
+    act(() => void backend.requestClose());
+    const question = await screen.findByRole("dialog", { name: "Save your changes before closing?" });
+    expect(command("n")).toBe(false);
+    expect(command("o")).toBe(false);
+    await act(() => backend.chooseMenu({ action: "newShow" }));
+    await act(() => backend.chooseMenu({ action: "openShow" }));
+    expect(screen.getAllByRole("dialog")).toEqual([question]);
+    // Asked to close again (a second ⌘Q): still the one question.
+    act(() => void backend.requestClose());
+    expect(screen.getAllByRole("dialog")).toEqual([question]);
+    await user.click(within(question).getByRole("button", { name: "Cancel" }));
+    expect(useCloseGuard.getState().asking).toBe(false);
+  });
+
+  it("closing the window while another question is up waits for that answer", async () => {
+    const { backend, user } = await start();
+    await openHouse(user);
+    await act(() => useApp.getState().apply([{ type: "renameShow", name: "Changed" }]));
+    await user.keyboard("{Meta>}n{/Meta}");
+    const question = await screen.findByRole("dialog", { name: "Save changes to Changed?" });
+    let closed = true;
+    act(() => void (closed = backend.requestClose()));
+    expect(closed).toBe(false);
+    expect(screen.getAllByRole("dialog")).toEqual([question]);
+    expect(backend.calls).not.toContain("closeWindow");
+  });
+
+  it("the window still closes at once with nothing unsaved, whatever is showing", async () => {
+    const { backend, user } = await start();
+    await user.keyboard("{Meta>}n{/Meta}");
+    await waitFor(() => expect(welcome()).not.toBeInTheDocument());
+    act(() => void useApp.getState().saveAs());
+    await screen.findByRole("dialog", { name: "Name your show" });
+    let closed = false;
+    act(() => void (closed = backend.requestClose()));
+    expect(closed).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
   });
 });

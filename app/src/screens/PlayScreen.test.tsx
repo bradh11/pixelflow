@@ -222,6 +222,37 @@ describe("play", () => {
     await waitFor(() => expect(screen.queryByRole("alert", { name: "FPP is playing" })).not.toBeInTheDocument());
   });
 
+  it("shows which sequences are on the FPP and sends a missing one", async () => {
+    const { user, backend } = await openPlay(true);
+    await addSequences(user, backend, ["Christmas Medley 2017", "Wizards in Winter"]);
+    // Until the FPP is known, there's nothing to say.
+    expect(screen.queryByRole("region", { name: "On your FPP" })).not.toBeInTheDocument();
+    await useApp.getState().scan();
+    const panel = await screen.findByRole("region", { name: "On your FPP" });
+    expect(await within(panel).findByText("1 of 2 sequences are on FPP.")).toBeInTheDocument();
+    expect(within(panel).getByRole("listitem", { name: "Christmas Medley 2017" })).toHaveTextContent("On the FPP");
+    expect(backend.calls.some((c) => c.startsWith("fppSend"))).toBe(false);
+
+    await user.click(within(panel).getByRole("button", { name: "Send Wizards in Winter to FPP" }));
+    const dialog = screen.getByRole("dialog", { name: "Send to FPP" });
+    expect(within(dialog).getByRole("combobox", { name: "FPP" })).toHaveValue("192.0.2.10");
+    await within(dialog).findByText(/free/);
+    await user.click(within(dialog).getByRole("button", { name: /^Send$/ }));
+    await within(dialog).findByRole("button", { name: "Play it now on the FPP" });
+    expect(backend.calls).toContain("fppSend:192.0.2.10:Wizards in Winter.fseq:none");
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(await within(panel).findByText("All 2 sequences are on FPP.")).toBeInTheDocument();
+  });
+
+  it("says when the FPP can't be checked", async () => {
+    const { user, backend } = await openPlay(true);
+    await addSequences(user, backend, ["Wizards in Winter"]);
+    delete backend.fppPlayers["192.0.2.10"];
+    await useApp.getState().scan();
+    const panel = await screen.findByRole("region", { name: "On your FPP" });
+    expect(await within(panel).findByText(/Couldn't check FPP/)).toBeInTheDocument();
+  });
+
   it("warns when an FPP is playing and can stop it", async () => {
     const { user, backend } = await openPlay(true);
     await useApp.getState().scan();

@@ -35,6 +35,7 @@ import { deepView, frontView } from "../lib/geometry";
 import { mapControllers } from "./memoryMapping";
 import { channelsPerPixel, memberProp, newController, nodeCount } from "../lib/shows";
 import { fileName } from "../lib/format";
+import { fppFileName } from "../lib/fppNames";
 import { filesOf, missingFile, repointEdits, sameFile } from "../lib/showFiles";
 import { sampleShow } from "./sampleShow";
 
@@ -445,7 +446,7 @@ export class MemoryBackend implements Backend {
   async fppSendPlan(address: string, source: SendSource, music: string | null): Promise<FppSendPlan> {
     const player = this.player(address);
     const files = this.fppFilesOf(address);
-    const sequence = fppName(source.kind === "file" ? fileName(source.path).replace(/\.fseq$/i, "") : source.name, "fseq");
+    const sequence = fppFileName(source.kind === "file" ? fileName(source.path).replace(/\.fseq$/i, "") : source.name, "fseq");
     const check = (list: string[], name: string): NameCheck => {
       const taken = (n: string) => list.some((f) => f.toLowerCase() === n.toLowerCase());
       const dot = name.lastIndexOf(".");
@@ -459,7 +460,7 @@ export class MemoryBackend implements Backend {
       const file = fileName(music);
       const ext = /\.(mp3|ogg|m4a|wav|au|m4p|wma|flac|aac)$/i.exec(file)?.[1];
       if (!ext) throw new Error(`The FPP can't play ${file} with a sequence. Choose an mp3, ogg, m4a, wav, or flac file.`);
-      musicCheck = check(files.media, fppName(file.slice(0, -ext.length - 1), ext));
+      musicCheck = check(files.media, fppFileName(file.slice(0, -ext.length - 1), ext));
     }
     return {
       sequence: check(
@@ -805,17 +806,6 @@ export class MemoryBackend implements Backend {
 
 /** New ids for an import plan's controller and props, as the engine creates for each import. */
 /** A controller added from an FPP's output list: no ports yet, but it knows its sequence channels. */
-/** A name as the FPP keeps it (as the shell's `fpp_file_name` does), ending in `.ext`. */
-function fppName(name: string, ext: string): string {
-  const stem = name
-    .replace(/[/\\]/g, " ")
-    .replace(/[^\w\s\-~,;[\]().]/g, "")
-    .replace(/\.{2,}/g, ".")
-    .replace(/ {2,}/g, " ")
-    .replace(/^[ .]+|[ .]+$/g, "");
-  return `${stem || "Sequence"}.${ext.toLowerCase()}`;
-}
-
 function isPlaceholder(c: Show["controllers"][number]): boolean {
   return c.ports.length === 0 && c.sequenceChannels !== null;
 }

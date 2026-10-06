@@ -37,7 +37,7 @@ describe("Send to FPP", () => {
       { ...newController("Falcon", "192.0.2.20", "ddp", 0), adapter: "falcon" },
     ];
     const devices = demoDevices().details.map((d) => ({ ...d.device, responding: true, lastSeen: 0 }));
-    expect(fppChoices(show, devices)).toEqual([{ address: FPP, name: "Main FPP" }]);
+    expect(fppChoices(show.controllers, devices)).toEqual([{ address: FPP, name: "Main FPP" }]);
     expect(fppChoices(undefined, [{ ...devices[0], address: "192.0.2.99", name: "Garage" }])).toEqual([{ address: "192.0.2.99", name: "Garage" }]);
   });
 

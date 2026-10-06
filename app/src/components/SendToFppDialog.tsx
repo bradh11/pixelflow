@@ -1,7 +1,7 @@
 import { CheckCircle2, Music, Play, Send } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "../api/backend";
-import type { FppSendPlan, FppSendProgress, FppSendResult, PlaylistChoice, SendSource, Show } from "../api/types";
+import type { Controller, FppSendPlan, FppSendProgress, FppSendResult, PlaylistChoice, SendSource } from "../api/types";
 import { fileName, shownPath } from "../lib/format";
 import { type KnownDevice, useApp } from "../state/store";
 import { Button, Input, Select } from "./ui";
@@ -13,12 +13,12 @@ export interface FppChoice {
 }
 
 /** The FPPs the show knows (its FPP controllers) and the ones found on the network, each once. */
-export function fppChoices(show: Show | undefined, devices: KnownDevice[] | undefined): FppChoice[] {
+export function fppChoices(controllers: Controller[] | undefined, devices: KnownDevice[] | undefined): FppChoice[] {
   const choices: FppChoice[] = [];
   const add = (address: string, name: string) => {
     if (address && !choices.some((c) => c.address === address)) choices.push({ address, name });
   };
-  for (const c of show?.controllers ?? []) if (c.adapter === "fpp") add(c.address, c.name);
+  for (const c of controllers ?? []) if (c.adapter === "fpp") add(c.address, c.name);
   for (const d of devices ?? []) if (d.kind === "fpp") add(d.address, d.name);
   return choices;
 }
@@ -89,9 +89,9 @@ export function SendToFppDialog({
   onSent?: (address: string, result: FppSendResult) => void;
 }) {
   const backend = useApp((s) => s.backend);
-  const show = useApp((s) => s.snapshot?.show);
+  const controllers = useApp((s) => s.snapshot?.show.controllers);
   const devices = useApp((s) => s.discovery?.devices);
-  const [choices] = useState(() => fppChoices(show, devices));
+  const [choices] = useState(() => fppChoices(controllers, devices));
   const [address, setAddress] = useState<string>(() => {
     const remembered = lastFpp();
     const start = initialAddress ?? (remembered && choices.some((c) => c.address === remembered) ? remembered : choices[0]?.address);

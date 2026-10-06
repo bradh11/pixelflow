@@ -410,6 +410,10 @@ pub fn put_on_playlist(
         PlaylistChoice::Existing(name) => (name.as_str(), false),
         PlaylistChoice::New(name) => (name.as_str(), true),
     };
+    // FPP stores a playlist as `<name>.json` in its playlist folder: a name is never a path.
+    if name.trim().is_empty() || name.contains(['/', '\\']) || name.contains("..") {
+        return Err(playlist_error(name, "that isn't a playlist name"));
+    }
     let path = format!("/api/playlist/{}", encode_segment(name));
     let existing = match get_json(http, host, &path) {
         Ok(doc) if doc.is_object() && doc.get("mainPlaylist").is_some() => Some(doc),

@@ -354,6 +354,7 @@ mod tests {
                 photos: Default::default(),
                 models: Default::default(),
                 export_cancels: Default::default(),
+                send_cancels: Default::default(),
                 checking_files: Default::default(),
                 recent: Arc::new(crate::recent::RecentShows::in_memory()),
                 last_folders: crate::pickers::LastFolders::new(None),

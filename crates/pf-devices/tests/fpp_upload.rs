@@ -423,6 +423,18 @@ fn no_playlist_means_no_playlist_requests() {
 }
 
 #[test]
+fn a_playlist_name_is_never_a_path() {
+    let fpp = FakeFpp::start();
+    let entry = playlist_entry("Show.fseq", None, 10.0);
+    for name in ["../settings", "a/b", "a\\b", " "] {
+        for choice in [PlaylistChoice::Existing(name.into()), PlaylistChoice::New(name.into())] {
+            assert!(fpp_upload::put_on_playlist(&client(), fpp.address(), &choice, &entry).is_err());
+        }
+    }
+    assert!(fpp.state().requests.is_empty(), "{:?}", fpp.state().requests);
+}
+
+#[test]
 fn a_missing_existing_playlist_is_an_error() {
     let fpp = FakeFpp::start();
     let entry = playlist_entry("Show.fseq", None, 10.0);

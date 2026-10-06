@@ -119,6 +119,8 @@ pub struct FakeFppState {
     pub php_warning: Option<String>,
     /// Deleting from the upload folder fails (permissions).
     pub refuse_deletes: bool,
+    /// Moving this file into place fails, as when its folder is not writable.
+    pub fail_move: Option<String>,
     /// What `/api/fppd/status` answers.
     pub status: Value,
     /// What `/api/channel/output/universeOutputs` answers.
@@ -144,6 +146,7 @@ impl Default for FakeFppState {
             short_assembly: None,
             php_warning: None,
             refuse_deletes: false,
+            fail_move: None,
             status: json!({
                 "status_name": "idle", "current_playlist": {"playlist": ""}, "current_sequence": "",
                 "seconds_elapsed": "0", "seconds_remaining": "0",
@@ -465,6 +468,9 @@ fn route(s: &mut FakeFppState, method: &str, segments: &[&str], body: &[u8]) -> 
             })).collect::<Vec<_>>()
         })),
         ("GET", ["api", "file", "move", name]) => {
+            if s.fail_move.as_deref() == Some(*name) {
+                return ok(json!({"status": "ERROR: Couldn't move sequence file"}));
+            }
             let Some(file) = s.uploads.remove(*name) else {
                 return ok(
                     json!({"status": format!("ERROR: Couldn't find file '{name}' in upload directory")}),

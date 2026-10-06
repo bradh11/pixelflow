@@ -425,6 +425,7 @@ export function ColorList({
               <button
                 type="button"
                 aria-label={`Remove color ${i + 1}`}
+                data-tip={`Remove color ${i + 1}`}
                 className="absolute -top-1.5 -right-1.5 hidden rounded-full bg-neutral-700 p-0.5 text-white group-focus-within:block group-hover:block"
                 onClick={() => void onChange((cs) => (cs.length > 1 ? cs.filter((_, k) => k !== i) : cs))}
               >

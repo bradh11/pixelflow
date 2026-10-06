@@ -476,7 +476,7 @@ function NoticeLine() {
           Save show
         </Button>
       )}
-      <button type="button" aria-label="Dismiss" className="rounded p-1 hover:bg-neutral-200/70 dark:hover:bg-neutral-800" onClick={dismiss}>
+      <button type="button" aria-label="Dismiss" data-tip="Dismiss" className="rounded p-1 hover:bg-neutral-200/70 dark:hover:bg-neutral-800" onClick={dismiss}>
         <X size={14} />
       </button>
     </div>
@@ -543,7 +543,7 @@ function BeatsBanner() {
       <Button variant="primary" disabled={detecting} onClick={() => void detectBeats()}>
         Detect beats
       </Button>
-      <button type="button" aria-label="Not now" className="rounded p-1 hover:bg-violet-100 dark:hover:bg-violet-900" onClick={dismissBeats}>
+      <button type="button" aria-label="Not now" data-tip="Not now" className="rounded p-1 hover:bg-violet-100 dark:hover:bg-violet-900" onClick={dismissBeats}>
         <X size={14} />
       </button>
     </div>

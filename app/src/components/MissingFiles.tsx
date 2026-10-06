@@ -163,7 +163,7 @@ export function FilesReport() {
               </>
             )}
           </h2>
-          <button type="button" aria-label="Close" onClick={dismiss} className="rounded p-1 hover:bg-neutral-100 dark:hover:bg-neutral-800">
+          <button type="button" aria-label="Close" data-tip="Close" onClick={dismiss} className="rounded p-1 hover:bg-neutral-100 dark:hover:bg-neutral-800">
             <X size={16} />
           </button>
         </div>

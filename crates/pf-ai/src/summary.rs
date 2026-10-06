@@ -62,6 +62,9 @@ pub struct Timeline {
 /// Rows drawn at most, and effects per row.
 const MAX_TIMELINE_ROWS: usize = 48;
 const MAX_ROW_EFFECTS: usize = 400;
+/// Sections listed at most: a Sections track with more marks than this isn't a song's sections
+/// (and would flood the card), so the sequence is summed up as one.
+const MAX_SECTIONS: usize = 64;
 
 /// The song's sections: the draft's first Sections track, or the whole sequence as one.
 fn sections_of(doc: &Sequence) -> Vec<TimelineSection> {
@@ -69,7 +72,8 @@ fn sections_of(doc: &Sequence) -> Vec<TimelineSection> {
         .timing_tracks
         .iter()
         .find(|t| t.kind == TimingKind::Sections && !t.marks.is_empty())
-        .map(|t| &t.marks);
+        .map(|t| &t.marks)
+        .filter(|marks| marks.len() <= MAX_SECTIONS);
     match marks {
         Some(marks) => marks
             .iter()
@@ -208,5 +212,36 @@ pub fn timeline(doc: &Sequence, show: &Show) -> Timeline {
         sections: sections_of(doc),
         rows,
         more_rows: lit.len().saturating_sub(MAX_TIMELINE_ROWS),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pf_sequence::{Mark, TimingTrack};
+
+    #[test]
+    fn a_sections_track_with_too_many_marks_is_one_section() {
+        let before = Sequence::new("Song", 600_000);
+        let mut after = before.clone();
+        let marks = (0..1000)
+            .map(|i| Mark::new(i * 600, i * 600 + 600, format!("S{i}")))
+            .collect();
+        after
+            .timing_tracks
+            .push(TimingTrack::new("Sections", TimingKind::Sections, marks));
+        let summary = section_summaries(&before, &after);
+        assert_eq!(summary.len(), 1);
+        assert_eq!(summary[0].label, "Whole sequence");
+        assert_eq!(timeline(&after, &Show::new("t")).sections.len(), 1);
+
+        // Up to the cap, they're kept.
+        let mut fine = before.clone();
+        let marks = (0..MAX_SECTIONS as u64)
+            .map(|i| Mark::new(i * 1000, i * 1000 + 1000, ""))
+            .collect();
+        fine.timing_tracks
+            .push(TimingTrack::new("Sections", TimingKind::Sections, marks));
+        assert_eq!(section_summaries(&before, &fine).len(), MAX_SECTIONS);
     }
 }

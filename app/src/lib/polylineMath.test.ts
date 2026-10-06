@@ -27,6 +27,8 @@ import {
   toLocal,
 } from "./polylineMath";
 import { newProp, nodeCount } from "./shows";
+import type { Pt } from "./layoutMath";
+import { guideIndex, snapAlong, snapPointTo } from "./smartGuides";
 
 const v = (x: number, y: number, z = 0): Vec3 => ({ x, y, z });
 const near = (a: { x: number; y: number }, b: { x: number; y: number }) => {
@@ -97,6 +99,32 @@ describe("drawing a poly line", () => {
     near(placePoint({ x: 9, y: 5.4 }, opts).at, { x: 9, y: 5 });
     expect(placePoint({ x: 9.2, y: 5.4 }, { ...opts, straight: false })).toEqual({ at: { x: 9, y: 5.5 }, join: null });
     expect(placePoint({ x: 9.2, y: 5.4 }, { ...opts, straight: false, grid: null }).at).toEqual({ x: 9.2, y: 5.4 });
+  });
+
+  it("snaps to smart guides when it joins no line end: along its 45° line with Shift, else on either axis", () => {
+    const ends = lineEnds([line(4, 40, [0, 0])]);
+    // A guide at x = 3 and y = 2 (another prop's edges), within 0.25.
+    const index = guideIndex([{ minX: 3, maxX: 6, minY: 2, maxY: 4 }]);
+    const guides = {
+      point: (p: Pt, fallback: Pt) => snapPointTo(index, p, { threshold: 0.25, fallback }).point,
+      along: (from: Pt, to: Pt) => snapAlong(index, from, to, { threshold: 0.25 }).point,
+    };
+    const opts = { from: { x: 0, y: 2 }, straight: false, grid: 0.5, ends, radius: 0.2, guides };
+    // Near both guides: on both.
+    expect(placePoint({ x: 2.9, y: 2.1 }, opts)).toEqual({ at: { x: 3, y: 2 }, join: null });
+    // Near the x guide only: the grid takes y.
+    expect(placePoint({ x: 3.1, y: 7.2 }, opts)).toEqual({ at: { x: 3, y: 7 }, join: null });
+    // With Shift, level from (0, 2), slid along to x = 3.
+    near(placePoint({ x: 2.8, y: 2.3 }, { ...opts, straight: true }).at, { x: 3, y: 2 });
+    // Diagonal from (0, 0): slides along the 45° line to x = 3 (and so y = 3).
+    near(placePoint({ x: 2.85, y: 2.9 }, { ...opts, from: { x: 0, y: 0 }, straight: true }).at, { x: 3, y: 3 });
+    // A line end within reach wins over a guide that is nearer.
+    const joined = placePoint({ x: 2.15, y: 0.05 }, { ...opts, guides: { point: () => ({ x: 9, y: 9 }), along: () => ({ x: 9, y: 9 }) } });
+    expect(joined).toMatchObject({ at: { x: 2, y: 0 }, join: { end: "end" } });
+    // No guides: as before.
+    expect(placePoint({ x: 2.9, y: 2.1 }, { ...opts, guides: null }).at).toEqual({ x: 3, y: 2 });
+    expect(placePoint({ x: 3.2, y: 2.2 }, { ...opts, guides: null }).at).toEqual({ x: 3, y: 2 });
+    expect(placePoint({ x: 3.1, y: 2.4 }, { ...opts, guides: null, grid: null }).at).toEqual({ x: 3.1, y: 2.4 });
   });
 });
 

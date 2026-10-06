@@ -134,17 +134,35 @@ export function nearestEnd(ends: LineEnd[], p: Pt, radius: number): LineEnd | nu
 }
 
 /**
+ * Smart guides for a point being placed: `point` snaps a point to the guides near it (else to
+ * `fallback`, the grid's point), and `along` slides the end of a line held straight from `from`
+ * to a guide, keeping its angle.
+ */
+export interface PointGuides {
+  point(raw: Pt, fallback: Pt): Pt;
+  along(from: Pt, to: Pt): Pt;
+}
+
+/**
  * Where a point goes while drawing or dragging: onto a line end within `radius` (so lines
- * join), else at a multiple of 45° from `from` when `straight` (Shift), else onto the grid.
+ * join), else at a multiple of 45° from `from` when `straight` (Shift), else onto the grid. With
+ * `guides`, a point that joins no line end then snaps to smart guides: slid along its 45° line
+ * with Shift, or else to a guide on either axis, the grid taking any axis with none near.
  */
 export function placePoint(
   raw: Pt,
-  opts: { from: Pt | null; straight: boolean; grid: number | null; ends: LineEnd[]; radius: number },
+  opts: { from: Pt | null; straight: boolean; grid: number | null; ends: LineEnd[]; radius: number; guides?: PointGuides | null },
 ): { at: Pt; join: LineEnd | null } {
+  // Joining another line's end wins over everything else.
   const join = nearestEnd(opts.ends, raw, opts.radius);
   if (join) return { at: join.at, join };
-  if (opts.straight && opts.from) return { at: constrainAngle(opts.from, raw), join: null };
-  return { at: opts.grid ? snapPoint(raw, opts.grid) : raw, join: null };
+  const guides = opts.guides ?? null;
+  if (opts.straight && opts.from) {
+    const at = constrainAngle(opts.from, raw);
+    return { at: guides ? guides.along(opts.from, at) : at, join: null };
+  }
+  const at = opts.grid ? snapPoint(raw, opts.grid) : raw;
+  return { at: guides ? guides.point(raw, at) : at, join: null };
 }
 
 // ---- Drawing -----------------------------------------------------------------------------

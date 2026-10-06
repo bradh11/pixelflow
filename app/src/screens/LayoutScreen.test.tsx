@@ -8,6 +8,7 @@ import { newController } from "../lib/shows";
 import { type Handle, type Pt, frameOfPoints, handlePositions, toScreen, toWorld } from "../lib/layoutMath";
 import { newProp, nodeCount } from "../lib/shows";
 import { formatGap } from "../lib/smartGuides";
+import { GUIDE_COLORS } from "../components/layout/guideMarks";
 import { useLayoutEditor } from "../state/layoutEditor";
 import { useApp } from "../state/store";
 import { DesktopLikeBackend } from "../test/desktopBackend";
@@ -1268,13 +1269,18 @@ describe("LayoutScreen", () => {
       prop.shape = { ...prop.shape, width: 3 } as Prop["shape"];
       return prop;
     }
-    /** Records the text drawn on the canvas, drawing at once instead of on the next frame. */
+    /**
+     * Records the text drawn on the canvas, and the color of each line stroked, drawing at once
+     * instead of on the next frame.
+     */
     async function recordText() {
       const texts: string[] = [];
+      const strokes: string[] = [];
       const context = new Proxy({} as Record<string | symbol, unknown>, {
         get: (target, key) => {
           if (key in target) return target[key];
           if (key === "fillText") return (text: string) => texts.push(text);
+          if (key === "stroke") return () => strokes.push(String(target.strokeStyle));
           if (key === "measureText") return (text: string) => ({ width: text.length * 6 });
           return () => {};
         },
@@ -1290,6 +1296,7 @@ describe("LayoutScreen", () => {
       await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
       return {
         texts,
+        strokes,
         restore() {
           HTMLCanvasElement.prototype.getContext = getContext;
           vi.unstubAllGlobals();
@@ -1470,5 +1477,160 @@ describe("LayoutScreen", () => {
       expect(position("B").y).toBe(3.5);
       expect(edits).toHaveLength(2);
     });
+
+    describe("on poly lines", () => {
+      /** A poly line from (x, y) through each point given as offsets, 10 pixels a stretch. */
+      function polyLine(name: string, x: number, y: number, ...offsets: [number, number][]): Prop {
+        const prop = { ...newProp("polyLine", emptyShow("x")), name };
+        prop.transform.position = { x, y, z: 0 };
+        prop.shape = {
+          source: "generator",
+          type: "polyLine",
+          vertices: offsets.map(([dx, dy]) => ({ x: dx, y: dy, z: 0 })),
+          segments: offsets.slice(1).map(() => ({ nodes: 10 })),
+        };
+        return prop;
+      }
+      /** The world points of the poly line `prop`. */
+      function pointsOf(prop: Prop): Pt[] {
+        const shape = prop.shape as Extract<Prop["shape"], { type: "polyLine" }>;
+        return shape.vertices.map((v) => ({ x: v.x + prop.transform.position.x, y: v.y + prop.transform.position.y }));
+      }
+      const added = () => (edits[0][0] as { prop: Prop }).prop;
+      const guideColor = () => GUIDE_COLORS[useApp.getState().theme].line;
+      /** Zooms out so everything drawn here is on screen (only what's on screen guides). */
+      const zoomOut = () => act(() => useLayoutEditor.getState().setView({ cx: 6, cy: 3, zoom: 30 }));
+      function expectAt(p: Pt, want: Pt) {
+        expect(p.x).toBeCloseTo(want.x, 3);
+        expect(p.y).toBeCloseTo(want.y, 3);
+      }
+
+      it("line each point up with other props and the points placed before it; Option places one freely", async () => {
+        const user = await setup(showWith(placed("matrix", "A", 0, 0)));
+        zoomOut();
+        const a = await frameOf("A");
+        const px = 2 / zoom();
+        await user.click(screen.getByRole("button", { name: "Poly Line" }));
+        // Two pixels right of A's right edge.
+        await click({ x: a.maxX + px, y: a.maxY + 3 });
+        // Two pixels below level with A's top.
+        await click({ x: a.maxX + 4, y: a.maxY - px });
+        // Two pixels above level with the first point.
+        await click({ x: a.maxX + 8, y: a.maxY + 3 + px });
+        // The same, with Option held: where it was clicked.
+        await click({ x: a.maxX + 12, y: a.maxY + 3 + px }, { altKey: true });
+        await user.keyboard("{Enter}");
+        expect(edits).toHaveLength(1);
+        const pts = pointsOf(added());
+        expectAt(pts[0], { x: a.maxX, y: a.maxY + 3 });
+        expectAt(pts[1], { x: a.maxX + 4, y: a.maxY });
+        expectAt(pts[2], { x: a.maxX + 8, y: a.maxY + 3 });
+        expectAt(pts[3], { x: a.maxX + 12, y: a.maxY + 3 + px });
+      });
+
+      it("don't move points when turned off", async () => {
+        const user = await setup(showWith(placed("matrix", "A", 0, 0)));
+        const a = await frameOf("A");
+        const px = 2 / zoom();
+        await user.click(screen.getByRole("button", { name: "Smart guides" }));
+        await user.click(screen.getByRole("button", { name: "Poly Line" }));
+        await click({ x: a.maxX + px, y: a.maxY + 3 });
+        await click({ x: a.maxX + 4, y: a.maxY - px });
+        await user.keyboard("{Enter}");
+        const pts = pointsOf(added());
+        expectAt(pts[0], { x: a.maxX + px, y: a.maxY + 3 });
+        expectAt(pts[1], { x: a.maxX + 4, y: a.maxY - px });
+      });
+
+      it("slide a point held at 45° with Shift along its line to a guide", async () => {
+        const user = await setup(showWith(placed("matrix", "A", 0, 0)));
+        const a = await frameOf("A");
+        await user.click(screen.getByRole("button", { name: "Poly Line" }));
+        await click({ x: a.maxX - 8, y: 5 });
+        // Just past A's right edge, a little uphill: Shift keeps it level.
+        await click({ x: a.maxX + 2 / zoom(), y: 5.3 }, { shiftKey: true });
+        await user.keyboard("{Enter}");
+        const pts = pointsOf(added());
+        expectAt(pts[1], { x: a.maxX, y: 5 });
+      });
+
+      it("join another line's end before lining up with a guide nearer still", async () => {
+        // The gutter ends at (2.5, 0); A's left edge is just right of that.
+        const user = await setup(showWith(line("Gutter", 0, 0), placed("matrix", "A", 4.65, 3)));
+        const a = await frameOf("A");
+        const at = { x: 2.5 + (a.minX - 2.5) * 0.8, y: 0.02 };
+        // In reach of both, and nearer A's edge than the line's end.
+        expect(Math.abs(a.minX - at.x) * zoom()).toBeLessThan(6);
+        expect(Math.abs(a.minX - at.x)).toBeLessThan(Math.abs(2.5 - at.x));
+        await user.click(screen.getByRole("button", { name: "Poly Line" }));
+        await click(at);
+        await click({ x: 6, y: -3 });
+        await user.keyboard("{Enter}");
+        expect(added().transform.position).toEqual({ x: 2.5, y: 0, z: 0 });
+      });
+
+      it("draw the guides while placing a point, and none with Option held", async () => {
+        const user = await setup(showWith(placed("matrix", "A", 0, 0)));
+        const a = await frameOf("A");
+        await user.click(screen.getByRole("button", { name: "Poly Line" }));
+        const canvasText = await recordText();
+        try {
+          await act(async () => pointer("pointerMove", { x: a.maxX + 2 / zoom(), y: a.maxY + 3 }));
+          expect(canvasText.strokes).toContain(guideColor());
+          canvasText.strokes.length = 0;
+          await act(async () => pointer("pointerMove", { x: a.maxX + 2 / zoom(), y: a.maxY + 3 }, { altKey: true }));
+          expect(canvasText.strokes).not.toContain(guideColor());
+        } finally {
+          canvasText.restore();
+        }
+      });
+
+      it("line a dragged point up with other props and the line's other points, drawing the guides; Option drags it freely", async () => {
+        await setup(showWith(placed("matrix", "A", 0, 0), polyLine("Roof", 6, 4, [0, 0], [3, 2], [6, 0])));
+        zoomOut();
+        const a = await frameOf("A");
+        const px = 2 / zoom();
+        act(() => useLayoutEditor.getState().select([backend.show.props[1].id]));
+        const canvasText = await recordText();
+        try {
+          // The middle point, to two pixels right of A's right edge and below level with the first point.
+          await act(async () => {
+            pointer("pointerDown", { x: 9, y: 6 });
+            pointer("pointerMove", { x: a.maxX + px, y: 4 - px });
+          });
+          expect(canvasText.strokes).toContain(guideColor());
+          await act(async () => pointer("pointerUp", { x: a.maxX + px, y: 4 - px }));
+        } finally {
+          canvasText.restore();
+        }
+        expect(edits).toHaveLength(1);
+        const roof = () => backend.show.props.find((p) => p.name === "Roof")!;
+        expectAt(pointsOf(roof())[1], { x: a.maxX, y: 4 });
+        // Back out with Option held: where it was dropped.
+        await drag({ x: a.maxX, y: 4 }, { x: a.maxX + px, y: 4 + 3 * px }, { altKey: true });
+        expect(edits).toHaveLength(2);
+        expectAt(pointsOf(roof())[1], { x: a.maxX + px, y: 4 + 3 * px });
+      });
+    });
+
+    it.each(["Candy canes", "Icicles", "Window frame", "Wreath", "Spinner", "Sphere", "Cube"])(
+      "snap the %s drawn from More shapes to other props' edges",
+      async (name) => {
+        const user = await setup(showWith(placed("matrix", "A", 0, 0)));
+        act(() => useLayoutEditor.getState().setView({ cx: 4, cy: 4, zoom: 30 }));
+        const a = await frameOf("A");
+        const px = 2 / zoom();
+        // Without the guide, the prop would sit half of that further right: far enough to tell.
+        expect(px / 2).toBeGreaterThan(0.01);
+        await user.click(screen.getByRole("button", { name: "More shapes" }));
+        await user.click(screen.getByRole("menuitem", { name }));
+        // From two pixels right of A's right edge: drawn by its ends or as a box, its middle is
+        // 2.5 right of that edge.
+        await drag({ x: a.maxX + px, y: a.maxY + 3 }, { x: a.maxX + 5, y: a.maxY + 8 });
+        expect(edits).toHaveLength(1);
+        const prop = (edits[0][0] as { prop: Prop }).prop;
+        expect(prop.transform.position.x).toBeCloseTo(a.maxX + 2.5, 2);
+      },
+    );
   });
 });

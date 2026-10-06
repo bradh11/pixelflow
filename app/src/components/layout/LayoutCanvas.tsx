@@ -52,6 +52,7 @@ import { batchPixels, drawBatches } from "../../lib/pixelBatches";
 import { updateEdits } from "../../lib/layoutEdits";
 import {
   type LineEnd,
+  type PointGuides,
   type PolyDraft,
   type PolyShape,
   addPoint,
@@ -324,17 +325,23 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
       });
   };
 
-  /** Where the Poly Line tool puts its next point for the pointer at screen point `s`. */
+  /**
+   * Where the Poly Line tool puts its next point for the pointer at screen point `s`: on a line
+   * end it joins, else on a smart guide from the props on screen and the points placed so far.
+   */
   const polyPlace = (s: Pt, straight: boolean) => {
     const v = currentView();
     const st = useLayoutEditor.getState();
     const points = polyDrawing.current?.points ?? [];
+    if (!guides.current) startGuides(effectivePreview(), [], null, points.map(pointBox));
+    guides.current!.marks = null;
     return placePoint(toWorld(v, size(), s), {
       from: points[points.length - 1] ?? null,
       straight,
       grid: st.snap ? st.grid : null,
       ends: lineEnds(latest.current.show.props),
       radius: JOIN_PX / v.zoom,
+      guides: pointGuides,
     });
   };
 
@@ -374,11 +381,14 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
 
   const hitProp = (props: PreviewProp[], w: Pt, v: View) => hitTest(props, w, HIT_PX / v.zoom, propAngles(latest.current.show.props));
 
-  /** Sets up smart guides for a drag starting now: every prop on screen except `moving` (the nearest, if many) guides `start`. */
-  const startGuides = (props: PreviewProp[], moving: string[], start: Box | null) => {
+  /**
+   * Sets up smart guides for a drag starting now: every prop on screen except `moving` (the
+   * nearest, if many) guides `start`, along with any `extra` boxes (a poly line's other points).
+   */
+  const startGuides = (props: PreviewProp[], moving: string[], start: Box | null, extra: Box[] = []) => {
     const [v, s, skip] = [currentView(), size(), new Set(moving)];
     const view = boxFrom(toWorld(v, s, { x: 0, y: 0 }), toWorld(v, s, { x: s.width, y: s.height }));
-    const boxes = props.flatMap((p) => (skip.has(p.prop) ? [] : (boxOfPoints(p.points) ?? [])));
+    const boxes = [...props.flatMap((p) => (skip.has(p.prop) ? [] : (boxOfPoints(p.points) ?? []))), ...extra];
     const near = start ? { x: (start.minX + start.maxX) / 2, y: (start.minY + start.maxY) / 2 } : { x: v.cx, y: v.cy };
     guides.current = { index: guideIndex(nearbyBoxes(boxes, view, near)), start, marks: null };
   };
@@ -406,6 +416,9 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     g.marks = r.marks;
     return r.point;
   };
+
+  /** Smart guides for a poly line point being placed or dragged. */
+  const pointGuides: PointGuides = { point: guidedPoint, along: guidedAlong };
 
   const draw = useCallback(() => {
     frameRequest.current = null;
@@ -562,7 +575,8 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
       }
     }
 
-    const marks = d && guides.current?.marks;
+    // While dragging, or while the Poly Line tool shows where its next point goes.
+    const marks = (d || next) && guides.current?.marks;
     if (marks) drawGuideMarks(ctx, marks, at, GUIDE_COLORS[useApp.getState().theme]);
 
     if (d?.kind === "marquee") {
@@ -611,6 +625,8 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
       useLayoutEditor.subscribe((st) => {
         // Picking another tool drops a poly line half drawn.
         if (st.tool !== "polyLine") polyDrawing.current = polyNext.current = null;
+        // The guides for the Poly Line tool's next point are found again for the new view or tool.
+        if (!drag.current) guides.current = null;
         fitIfNeeded();
         redraw();
       }),
@@ -619,6 +635,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
 
   // Gestures the engine's new positions include no longer need drawing on top.
   useEffect(() => {
+    if (!drag.current) guides.current = null;
     settlePending(preview.revision);
     const shape = pendingShape.current;
     if (shape?.revision != null && shape.revision <= preview.revision) pendingShape.current = null;
@@ -739,6 +756,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     const d = drag.current;
     if (!d && polyDrawing.current) {
       polyDrawing.current = null;
+      guides.current = null;
       redraw();
       return true;
     }
@@ -812,6 +830,8 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
       const { at } = polyPlace(s, e.shiftKey);
       polyDrawing.current = addPoint(polyDrawing.current ?? { points: [] }, at, CLICK_PX / v.zoom);
       polyNext.current = null;
+      // The new point guides the next ones.
+      guides.current = null;
       redraw();
       return;
     }
@@ -838,6 +858,13 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
         draft: shape,
         join: null,
       };
+      // A point being dragged lines up with the props on screen and the line's other points.
+      const { hit } = polyHit;
+      const handles = hit.kind === "vertex" ? polyHandles(polyHit.prop) : null;
+      if (handles && hit.kind === "vertex") {
+        const others = handles.vertices.filter((_, i) => i !== hit.index).map(pointBox);
+        startGuides(effectivePreview(), [polyHit.prop.id], pointBox(handles.vertices[hit.index]), others);
+      }
       return;
     }
 
@@ -1000,7 +1027,8 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     };
     const { shape, handle } = d;
     if (handle.kind === "vertex") {
-      // Shift keeps the stretch to its neighbor at 45° steps; ends of other lines pull it on.
+      // Shift keeps the stretch to its neighbor at 45° steps; ends of other lines pull it on,
+      // and smart guides line it up (Option/Alt places it freely).
       const neighbor = shape.vertices[handle.index > 0 ? handle.index - 1 : 1];
       const placed = placePoint(w, {
         from: neighbor ? world(neighbor) : null,
@@ -1008,6 +1036,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
         grid: st.snap ? st.grid : null,
         ends: lineEnds(latest.current.show.props, new Set([d.prop])),
         radius: JOIN_PX / v.zoom,
+        guides: pointGuides,
       });
       d.join = placed.join;
       d.draft = moveVertex(shape, handle.index, localAt(prop.transform, shape.vertices[handle.index], placed.at));
@@ -1033,6 +1062,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     held.current.alt = on;
     const d = drag.current;
     if (d && d.kind !== "pan" && lastPointer.current) follow(d, lastPointer.current, held.current.shift);
+    else if (!d && lastPointer.current && useLayoutEditor.getState().tool === "polyLine") updateHover(lastPointer.current);
   }
 
   const onPointerMove = (e: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -1159,13 +1189,14 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
         drag the plus to curve the stretch. Drag empty space, or scroll with two fingers, to move
         around; pinch, or hold Command and scroll, to zoom. Every prop is also in the props list below.
         With Smart guides on, props snap to line up with, space evenly from, and match the size of others as you move,
-        resize, and draw them; hold Option (Alt) to place them freely.
+        resize, and draw them, and poly line points line up with other props and points; hold Option (Alt) to place them
+        freely.
       </p>
       <SelectionAnnouncer show={show} />
       {drawingPoly && (
         <div className="pointer-events-none absolute top-2 left-2 rounded bg-black/70 px-2 py-1 text-xs text-white">
-          Click each point · double-click or Enter to finish · Backspace takes the last point off · Shift keeps 45° · a green ring
-          means it joins that line
+          Click each point · double-click or Enter to finish · Backspace takes the last point off · Shift keeps 45° · Option places
+          freely · a green ring means it joins that line
         </div>
       )}
       {hoveredName && (
@@ -1176,6 +1207,9 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     </div>
   );
 }
+
+/** A point as a box, so it can be a smart guide. */
+const pointBox = (p: Pt): Box => ({ minX: p.x, maxX: p.x, minY: p.y, maxY: p.y });
 
 /** Strokes whatever `path` draws in the accent color over a dark outline, readable on any background. */
 function strokeWithHalo(ctx: CanvasRenderingContext2D, width: number, dash: number[], path: () => void) {

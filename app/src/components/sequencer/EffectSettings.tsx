@@ -5,7 +5,21 @@ import { effectBounds, formatTime } from "../../lib/timelineMath";
 import { targetName } from "../../lib/submodels";
 import { useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
-import { BLENDS, type Change, ColorList, FIELD, FloatingSettings, MsField, Panel, Section, SettingControl, clamp, faceNames } from "./effectControls";
+import { useContext } from "react";
+import {
+  BLENDS,
+  type Change,
+  ColorList,
+  FIELD,
+  MsField,
+  Panel,
+  Section,
+  SettingControl,
+  type SettingsPlacement,
+  SettingsPlacementContext,
+  clamp,
+  faceNames,
+} from "./effectControls";
 import { MultiEffectSettings } from "./MultiEffectSettings";
 
 /**
@@ -14,15 +28,16 @@ import { MultiEffectSettings } from "./MultiEffectSettings";
  * pulled or a field typed in is one undo step. Each change is built from the effect as it is when
  * its turn comes and touches only its own setting, so quick changes in a row all stick.
  */
-export function EffectSettings({ doc, floating = false }: { doc: Sequence; floating?: boolean }) {
+export function EffectSettings({ doc, placement = "docked" }: { doc: Sequence; placement?: SettingsPlacement }) {
   return (
-    <FloatingSettings.Provider value={floating}>
+    <SettingsPlacementContext.Provider value={placement}>
       <Settings doc={doc} />
-    </FloatingSettings.Provider>
+    </SettingsPlacementContext.Provider>
   );
 }
 
 function Settings({ doc }: { doc: Sequence }) {
+  const placement = useContext(SettingsPlacementContext);
   const selection = useSequencer((s) => s.selection);
   const catalog = useSequencer((s) => s.catalog);
   const edit = useSequencer((s) => s.edit);
@@ -31,7 +46,15 @@ function Settings({ doc }: { doc: Sequence }) {
   const found = selection.length === 1 ? findEffect(doc, selection[0]) : null;
   if (selection.length > 1) return <MultiEffectSettings doc={doc} ids={selection} />;
   if (!found) {
-    // Nothing to show: a slim strip, leaving the room to the timeline.
+    // Nothing to show: under the preview, a line saying so; beside the timeline, a slim strip.
+    if (placement === "stacked") {
+      return (
+        <aside aria-label="Effect settings" data-collapsed="true" className="flex items-center gap-2 border-t border-neutral-200 p-3 text-xs text-neutral-500 dark:border-neutral-800">
+          <SlidersHorizontal size={14} aria-hidden />
+          <p>Select an effect on the timeline to change how it looks.</p>
+        </aside>
+      );
+    }
     return (
       <aside
         aria-label="Effect settings"

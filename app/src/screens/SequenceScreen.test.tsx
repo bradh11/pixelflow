@@ -593,6 +593,48 @@ describe("in a narrow window", () => {
     expect(screen.getByRole("complementary", { name: "Effect settings" })).toHaveAttribute("data-floating", "true");
   });
 
+  describe("the preview on a wide screen", () => {
+    const column = () => screen.getByRole("region", { name: "Preview and effect settings" });
+
+    it("sits beside the timeline, above the effect settings, so the timeline gets the full height", async () => {
+      workspaceWidth(1400);
+      await openScreen();
+      expect(document.querySelector("[data-sequence-workspace]")).toHaveAttribute("data-preview", "side");
+      expect(within(column()).getByRole("region", { name: "Preview" })).toBeInTheDocument();
+      expect(within(column()).getByRole("complementary", { name: "Effect settings" })).toBeInTheDocument();
+      expect(screen.queryByRole("separator", { name: "Preview size" })).not.toBeInTheDocument();
+    });
+
+    it("can go back above the timeline, and remembers that", async () => {
+      workspaceWidth(1400);
+      const { user } = await openScreen();
+      await user.click(screen.getByRole("button", { name: "Preview above the timeline" }));
+      expect(document.querySelector("[data-sequence-workspace]")).toHaveAttribute("data-preview", "top");
+      expect(JSON.parse(localStorage.getItem("pixelflow.sequencePreview")!)).toMatchObject({ place: "top" });
+      await user.click(screen.getByRole("button", { name: "Preview beside the timeline" }));
+      expect(document.querySelector("[data-sequence-workspace]")).toHaveAttribute("data-preview", "side");
+    });
+
+    it("is resized from its edge, and Bigger preview widens it", async () => {
+      workspaceWidth(1400);
+      const { user } = await openScreen();
+      const edge = screen.getByRole("separator", { name: "Preview width" });
+      expect(column().style.width).toBe("360px");
+      edge.focus();
+      await user.keyboard("{ArrowLeft}");
+      expect(column().style.width).toBe("380px");
+      expect(JSON.parse(localStorage.getItem("pixelflow.sequencePreview")!)).toMatchObject({ side: 380 });
+      await user.click(within(column()).getByRole("button", { name: "Bigger preview" }));
+      expect(column().style.width).toBe("55%");
+    });
+
+    it("stays above the timeline where there's no room beside it", async () => {
+      await openScreen();
+      expect(document.querySelector("[data-sequence-workspace]")).toHaveAttribute("data-preview", "top");
+      expect(screen.queryByRole("button", { name: "Preview beside the timeline" })).not.toBeInTheDocument();
+    });
+  });
+
   it("keeps the palette's names where there's room", async () => {
     await openScreen();
     expect(screen.getByRole("complementary", { name: "Effects" })).not.toHaveAttribute("data-compact");

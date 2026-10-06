@@ -25,6 +25,16 @@ export function sequenceArrangement(width: number | null): SequenceArrangement {
   };
 }
 
+/**
+ * With the preview beside the timeline (in a column about 360 px wide, the effect settings under
+ * it): whether a workspace `width` px wide has room (from 1200 px), and how the palette shows then
+ * (icons until 1300, so the timeline keeps its room). Null: no room.
+ */
+export function sidePreview(width: number | null): { palette: "full" | "icons" } | null {
+  if (width === null || width < 1200) return null;
+  return { palette: width >= 1300 ? "full" : "icons" };
+}
+
 const LANE_PX = 30;
 const ZOOM_BAR_PX = 36;
 const MIN_TIMELINE_PX = 240;

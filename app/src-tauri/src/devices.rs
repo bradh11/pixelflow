@@ -17,6 +17,8 @@ pub(crate) struct DeviceAccess {
     sweep_http: Arc<dyn Http>,
     /// Sending to an FPP (long transfers, with their own time limits).
     pub(crate) upload_http: Arc<dyn Http>,
+    /// Quick reads before a send (what's on the FPP), with short time limits.
+    pub(crate) read_http: Arc<dyn Http>,
     /// FPP ping, mDNS, and the subnet sweep. Off in tests so nothing touches the network.
     network_discovery: bool,
 }
@@ -30,6 +32,10 @@ impl DeviceAccess {
                 Duration::from_millis(1500),
             )),
             upload_http: Arc::new(HttpClient::for_uploads()),
+            read_http: Arc::new(HttpClient::with_connect_timeout(
+                Duration::from_millis(1500),
+                Duration::from_secs(4),
+            )),
             network_discovery: true,
         }
     }
@@ -46,6 +52,7 @@ impl DeviceAccess {
                 Duration::from_secs(1),
                 Duration::from_secs(10),
             )),
+            read_http: Arc::new(HttpClient::new(Duration::from_secs(2))),
             network_discovery: false,
         }
     }

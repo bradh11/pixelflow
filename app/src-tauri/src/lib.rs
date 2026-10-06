@@ -1497,7 +1497,15 @@ mod tests {
         .unwrap();
         assert_eq!(
             plan["sequence"],
-            json!({ "name": "Song.fseq", "exists": false, "keepBothName": "Song (2).fseq" })
+            json!({ "name": "Song.fseq", "exists": false, "fppName": null, "keepBothName": "Song (2).fseq" })
+        );
+        // The show's bench controller isn't one the (fixture) FPP sends to: said plainly.
+        assert_eq!(
+            plan["layoutWarnings"],
+            json!([
+                "This sequence has 12 channels but the FPP sends 6,147. Lights past channel 12 will stay dark.",
+                "Bench (127.0.0.1:9): the FPP doesn't send to it, so it won't light up."
+            ])
         );
         assert_eq!(plan["music"]["name"], "Song.mp3");
         assert_eq!(plan["playlists"], json!(["Main"]));
@@ -1608,6 +1616,38 @@ mod tests {
         )
         .unwrap();
         assert_eq!(fpp.state().music["Song.mp3"].size, 5);
+    }
+
+    #[test]
+    fn an_exported_sequence_names_the_fpps_own_copy_of_the_music_exactly() {
+        let fpp = pf_devices::testing::FakeFpp::start().with_music("song.mp3", 5);
+        let (_app, webview, dir) = app();
+        authored(&webview);
+        let music = dir.path().join("Song.mp3");
+        std::fs::write(&music, b"music").unwrap();
+        let source = json!({ "kind": "openSequence", "name": "Exact" });
+        let plan = call(
+            &webview,
+            "fpp_send_plan",
+            json!({ "address": fpp.address(), "source": source, "music": music }),
+        )
+        .unwrap();
+        assert_eq!(plan["music"]["fppName"], "song.mp3");
+        call(
+            &webview,
+            "fpp_send",
+            json!({ "address": fpp.address(), "request": {
+                "source": source, "music": music, "sequenceName": "Exact.fseq", "musicName": "song.mp3",
+                "uploadMusic": false, "playlist": { "kind": "none" } } }),
+        )
+        .unwrap();
+        let state = fpp.state();
+        let head = &state.heads["Exact.fseq"];
+        assert!(
+            head.windows(11).any(|w| w == b"mfsong.mp3\0"),
+            "the .fseq names the FPP's song.mp3 exactly"
+        );
+        assert_eq!(state.music["song.mp3"].size, 5, "the FPP's copy is untouched");
     }
 
     #[test]

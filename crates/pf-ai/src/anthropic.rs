@@ -276,8 +276,10 @@ fn says_no_tools(lower: &str) -> bool {
     .any(|phrase| lower.contains(phrase))
 }
 
-/// The request field a 400 refuses: "`top_k` is not supported ..." or
-/// "tools.0.custom.eager_input_streaming: Extra inputs are not permitted".
+/// The request option a 400 refuses: "`top_k` is not supported ..." or
+/// "tools.0.custom.eager_input_streaming: Extra inputs are not permitted". Only a top-level
+/// field or one of the tools' options counts: a refused part of a message (`messages.3...`)
+/// means PixelFlow built the request wrong, which another model wouldn't fix.
 fn unsupported_param(message: &str) -> Option<String> {
     let lower = message.to_ascii_lowercase();
     let refused = lower.contains("not supported")
@@ -292,6 +294,7 @@ fn unsupported_param(message: &str) -> Option<String> {
             && text
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '[' | ']'))
+            && (!text.contains('.') || text.starts_with("tools."))
     };
     if let Some((head, _)) = message.split_once(": ")
         && is_path(head)

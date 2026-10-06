@@ -356,6 +356,14 @@ fn only_a_model_without_tools_reads_as_one() {
                 param: "tools.0.custom.eager_input_streaming".into(),
             },
         ),
+        // A malformed message is PixelFlow's mistake, not the model's: no "pick another model".
+        (
+            "messages.3.content.0.foo: Extra inputs are not permitted",
+            AiError::Provider {
+                provider: p,
+                message: "messages.3.content.0.foo: Extra inputs are not permitted".into(),
+            },
+        ),
     ];
     for (message, expected) in cases {
         let (provider, _) = setup(vec![Reply::status(

@@ -64,7 +64,34 @@ export type Generator =
       skewDeg: number;
     }
   /** Icicles hanging from a line `width` long: each string fills drops of the `drops` pattern in turn; the longest hangs `dropHeight` below the line. */
-  | { type: "icicles"; strings: number; lightsPerString: number; drops: number[]; width: number; dropHeight: number; alternateNodes: boolean };
+  | { type: "icicles"; strings: number; lightsPerString: number; drops: number[]; width: number; dropHeight: number; alternateNodes: boolean }
+  /** A window frame `width` by `height`: one string once round it from the `start` corner, spaced as xLights does. */
+  | {
+      type: "windowFrame";
+      top: number;
+      sides: number;
+      bottom: number;
+      width: number;
+      height: number;
+      start: MatrixWiring["start"];
+      counterClockwise: boolean;
+    }
+  /** A ring of pixels rounded to a square grid, as xLights places wreath lights. */
+  | { type: "wreath"; nodes: number; radius: number; startAtBottom: boolean; counterClockwise: boolean }
+  /** Arms radiating from a hollow middle (`hollow` percent), the first pointing down turned by `startAngle`, spread over `arc` degrees; `radius` reaches the outermost pixel. */
+  | {
+      type: "spinner";
+      arms: number;
+      nodesPerArm: number;
+      hollow: number;
+      startAngle: number;
+      arc: number;
+      zigZag: boolean;
+      alternate: boolean;
+      fromCenter: boolean;
+      clockwise: boolean;
+      radius: number;
+    };
 
 export type ShapeSource =
   | ({ source: "generator" } & Generator)

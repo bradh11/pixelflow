@@ -145,6 +145,12 @@ export function nodeCount(shape: ShapeSource): number {
       return shape.canes * shape.nodesPerCane;
     case "icicles":
       return shape.strings * shape.lightsPerString;
+    case "windowFrame":
+      return shape.top + 2 * shape.sides + shape.bottom;
+    case "wreath":
+      return shape.nodes;
+    case "spinner":
+      return shape.arms * shape.nodesPerArm;
     case "customGrid":
       return shape.cells.reduce((max, c) => Math.max(max, c), 0);
     case "polyLine":

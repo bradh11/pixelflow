@@ -214,6 +214,111 @@ function icicles(g: Icicles): Vec3[] {
   return spots.map(([col, s]) => v(column === 0 ? 0 : (col / column - 0.5) * g.width, -s * spacing));
 }
 
+type WindowFrame = Extract<Generator, { type: "windowFrame" }>;
+type Spinner = Extract<Generator, { type: "spinner" }>;
+
+/** A window frame as xLights lays it out (in its single-precision steps), scaled to `width` by `height`. */
+function windowFrame(g: WindowFrame): Vec3[] {
+  const f = Math.fround;
+  const [top, side, bottom] = [g.top, g.sides, g.bottom];
+  const total = Math.min(top + 2 * side + bottom, MAX_POINTS);
+  if (total <= 0) return [];
+  const ccw = g.counterClockwise;
+  const ltor = g.start === "bottomLeft" || g.start === "topLeft";
+  const btot = g.start === "bottomLeft" || g.start === "bottomRight";
+  const w = Math.max(top, bottom) + 2;
+  const dir = ccw ? -1 : 1;
+  // The edge the string starts along takes the corners.
+  const odd = ccw ? btot === ltor : btot !== ltor;
+  const [wadj, hadj] = odd ? [2, -2] : [0, 0];
+  const topSi = top + wadj - 1 !== 0 ? f(w / (top + 1)) : 1;
+  const botSi = bottom + wadj - 1 !== 0 ? f(-w / (bottom + 1)) : 1;
+  const lengths = [side + hadj, top + wadj, side + hadj, bottom + wadj];
+  const xsi = [0, topSi, 0, botSi];
+  const ysi = [1, 0, -1, 0];
+  const hh = (side - 1) / 2;
+  const half = w / 2;
+  const [xs, ys] = ccw
+    ? odd
+      ? [[-half, half, half, -half], [hh - 1, hh, -hh + 1, -hh]]
+      : [[-half, f(half - topSi), half, f(-half - botSi)], [hh, hh, -hh, -hh]]
+    : odd
+      ? [[-half, -half, half, half], [-hh + 1, hh, hh - 1, -hh]]
+      : [[-half, f(-half + topSi), half, f(half + botSi)], [-hh, hh, hh, -hh]];
+  const orders: Record<string, number[]> = {
+    "true,true,false": [0, 1, 2, 3],
+    "true,true,true": [3, 2, 1, 0],
+    "true,false,false": [1, 2, 3, 0],
+    "true,false,true": [0, 3, 2, 1],
+    "false,true,false": [3, 0, 1, 2],
+    "false,true,true": [2, 1, 0, 3],
+    "false,false,false": [2, 3, 0, 1],
+    "false,false,true": [1, 0, 3, 2],
+  };
+  const idx = orders[`${ltor},${btot},${ccw}`];
+  const nextEdge = (s: number) => {
+    for (let i = 0; i < 4 && lengths[idx[s]] === 0; i++) s = (s + 1) % 4;
+    return s;
+  };
+  let s = nextEdge(0);
+  let [x, y, left] = [xs[idx[s]], ys[idx[s]], lengths[idx[s]]];
+  const [kx, ky] = [g.width / w, g.height / Math.max(side - 1, 1)];
+  const out: Vec3[] = [];
+  for (let i = 0; i < total; i++) {
+    out.push(v(x * kx, y * ky));
+    x = f(x + xsi[idx[s]] * dir);
+    y = f(y + ysi[idx[s]] * dir);
+    if (--left <= 0) {
+      s = nextEdge((s + 1) % 4);
+      [x, y, left] = [xs[idx[s]], ys[idx[s]], lengths[idx[s]]];
+    }
+  }
+  return out;
+}
+
+/** A wreath as xLights places its lights: round a ring, each rounded to a square grid `nodes / 2` steps across the radius. */
+function wreath(nodes: number, radius: number, startAtBottom: boolean, counterClockwise: boolean): Vec3[] {
+  const offset = Math.floor(nodes / 2);
+  const unit = radius / Math.max(offset, 1);
+  let pct = startAtBottom ? 0.5 : 0;
+  const step = 1 / nodes;
+  const incr = counterClockwise ? -step : step;
+  return range(nodes).map(() => {
+    const a = pct * 2 * Math.PI;
+    const x = Math.trunc(offset * Math.sin(a) + offset + 0.5) - offset;
+    const y = Math.trunc(offset * Math.cos(a) + offset + 0.5) - offset;
+    pct += incr;
+    if (pct >= 1) pct -= 1;
+    if (pct < 0) pct += 1;
+    return v(x * unit, y * unit);
+  });
+}
+
+/** A spinner as xLights lays it out, its arms' angles stepping in single precision as xLights' do. */
+function spinner(g: Spinner): Vec3[] {
+  const f = Math.fround;
+  const [arms, npa] = [g.arms, g.nodesPerArm];
+  if (arms <= 0 || npa <= 0) return [];
+  const pi2 = f(Math.PI) * 2;
+  let angle = f(f(pi2 * f(270 + f(g.startAngle))) / 360);
+  const sweep = f(pi2 * f(g.arc));
+  const incr = g.arc < 360 && arms > 1 ? f(sweep / f((arms - 1) * 360)) : f(sweep / f(arms * 360));
+  const hollow = (g.hollow * 2 * npa) / 100;
+  const unit = g.radius / (npa - 0.5 + hollow);
+  const out: Vec3[] = [];
+  for (let a = 0; a < arms && out.length < MAX_POINTS; a++) {
+    const [sin, cos] = [Math.sin(angle), Math.cos(angle)];
+    const outward = g.fromCenter !== (g.zigZag && a % 2 === 1);
+    for (let n = 0; n < npa; n++) {
+      const step = g.alternate ? (n < Math.ceil(npa / 2) ? 2 * n : (npa - (n + 1)) * 2 + 1) : outward ? n : npa - n - 1;
+      const r = (0.5 + step + hollow) * unit;
+      out.push(v(r * cos, r * sin));
+    }
+    angle = f(g.clockwise ? angle - incr : angle + incr);
+  }
+  return out;
+}
+
 function generate(g: Generator): Vec3[] {
   switch (g.type) {
     case "line":
@@ -258,6 +363,12 @@ function generate(g: Generator): Vec3[] {
       return candyCanes(g);
     case "icicles":
       return icicles(g);
+    case "windowFrame":
+      return windowFrame(g);
+    case "wreath":
+      return wreath(g.nodes, g.radius, g.startAtBottom, g.counterClockwise);
+    case "spinner":
+      return spinner(g);
   }
 }
 

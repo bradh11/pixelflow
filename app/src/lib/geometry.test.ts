@@ -98,6 +98,7 @@ describe("the shapes pf-geometry checks itself against (crates/pf-geometry/tests
     it(`puts the pixels of "${name}" where the engine does`, () => {
       const ours = localPositions(shape);
       expect(ours).toHaveLength(positions.length);
+      expect(nodeCount(shape)).toBe(positions.length);
       ours.forEach((p, i) => {
         const [x, y, z] = positions[i];
         expect(Math.max(Math.abs(p.x - x), Math.abs(p.y - y), Math.abs(p.z - z)), `pixel ${i}`).toBeLessThan(1e-4);

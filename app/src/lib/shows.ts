@@ -5,11 +5,12 @@ export function memberProp(member: GroupMember): string {
   return typeof member === "string" ? member : member.prop;
 }
 
-export type PropKind = "line" | "arch" | "circle" | "matrix" | "tree" | "star";
+export type PropKind = "line" | "polyLine" | "arch" | "circle" | "matrix" | "tree" | "star";
 
 export const PROP_KINDS: { kind: PropKind; label: string }[] = [
   { kind: "arch", label: "Arch" },
   { kind: "line", label: "Line / string" },
+  { kind: "polyLine", label: "Poly line (bends)" },
   { kind: "matrix", label: "Matrix" },
   { kind: "tree", label: "Mega tree" },
   { kind: "star", label: "Star" },
@@ -18,6 +19,16 @@ export const PROP_KINDS: { kind: PropKind; label: string }[] = [
 
 const DEFAULT_SHAPES: Record<PropKind, ShapeSource> = {
   line: { source: "generator", type: "line", nodes: 50, length: 5 },
+  polyLine: {
+    source: "generator",
+    type: "polyLine",
+    vertices: [
+      { x: -2.5, y: 0, z: 0 },
+      { x: 0, y: 1.5, z: 0 },
+      { x: 2.5, y: 0, z: 0 },
+    ],
+    segments: [{ nodes: 29 }, { nodes: 29 }],
+  },
   arch: { source: "generator", type: "arch", nodes: 50, width: 4, height: 2 },
   circle: { source: "generator", type: "circle", nodes: 50, radius: 1 },
   matrix: {
@@ -44,6 +55,7 @@ const DEFAULT_SHAPES: Record<PropKind, ShapeSource> = {
 
 const KIND_NAMES: Record<PropKind, string> = {
   line: "Line",
+  polyLine: "Poly Line",
   arch: "Arch",
   circle: "Circle",
   matrix: "Matrix",
@@ -113,6 +125,8 @@ export function nodeCount(shape: ShapeSource): number {
       return shape.strings * shape.nodesPerString;
     case "customGrid":
       return shape.cells.reduce((max, c) => Math.max(max, c), 0);
+    case "polyLine":
+      return shape.spreadNodes ?? shape.segments.reduce((n, s) => n + s.nodes, 0);
   }
 }
 
@@ -127,6 +141,7 @@ export function shapeLabel(shape: ShapeSource): string {
     tree: "Tree",
     star: "Star",
     customGrid: "Custom grid",
+    polyLine: "Poly line",
   };
   return labels[shape.type] ?? shape.type;
 }

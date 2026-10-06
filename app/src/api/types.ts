@@ -24,6 +24,14 @@ export interface MatrixWiring {
   serpentine: boolean;
 }
 
+/** One stretch of a poly line, from one of its points to the next. */
+export interface PolySegment {
+  /** Pixels on this stretch (unused while the line spreads its pixels evenly). */
+  nodes: number;
+  /** The two control points of a curved stretch (a cubic Bézier), prop-local; absent when straight. */
+  curve?: [Vec3, Vec3] | null;
+}
+
 export type Generator =
   | { type: "line"; nodes: number; length: number }
   | { type: "arch"; nodes: number; width: number; height: number }
@@ -39,7 +47,9 @@ export type Generator =
       serpentine?: boolean;
     }
   | { type: "star"; points: number; nodes: number; outerRadius: number; innerRadius: number }
-  | { type: "customGrid"; columns: number; rows: number; cells: number[] };
+  | { type: "customGrid"; columns: number; rows: number; cells: number[] }
+  /** Points the line runs through, first to last; `segments` has one fewer. `spreadNodes` spreads that many pixels evenly instead. */
+  | { type: "polyLine"; vertices: Vec3[]; segments: PolySegment[]; spreadNodes?: number | null };
 
 export type ShapeSource =
   | ({ source: "generator" } & Generator)

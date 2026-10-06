@@ -2,7 +2,7 @@
 // in-browser backend and the layout editor. Every generator returns `nodeCount()` points in
 // prop-local coordinates, in wiring order.
 
-import type { Generator, MatrixWiring, Prop, ShapeSource, Transform, Vec3 } from "../api/types";
+import type { Generator, MatrixWiring, PolySegment, Prop, ShapeSource, Transform, Vec3 } from "../api/types";
 
 const v = (x: number, y: number, z = 0): Vec3 => ({ x, y, z });
 
@@ -68,6 +68,79 @@ function customGrid(columns: number, rows: number, cells: number[]): Vec3[] {
   return sums.map((s) => (s.n === 0 ? v(0, 0) : v(s.x / s.n, s.y / s.n)));
 }
 
+/** Straight pieces a curved stretch is measured along (the same as pf-geometry's CURVE_STEPS). */
+export const CURVE_STEPS = 32;
+
+/** The point at `t` (0–1) along a cubic Bézier from `a` to `b` with control points `c`. */
+export function bezier(a: Vec3, c: readonly [Vec3, Vec3], b: Vec3, t: number): Vec3 {
+  const u = 1 - t;
+  const [k0, k1, k2, k3] = [u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t];
+  return v(
+    a.x * k0 + c[0].x * k1 + c[1].x * k2 + b.x * k3,
+    a.y * k0 + c[0].y * k1 + c[1].y * k2 + b.y * k3,
+    a.z * k0 + c[0].z * k1 + c[1].z * k2 + b.z * k3,
+  );
+}
+
+const dist = (a: Vec3, b: Vec3) => Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
+
+export interface StretchPath {
+  joints: Vec3[];
+  /** Distance along the stretch at each joint. */
+  at: number[];
+}
+
+/** One stretch as joints of straight pieces (a curve is cut into CURVE_STEPS of them). */
+export function stretchPath(a: Vec3, b: Vec3, curve?: readonly [Vec3, Vec3] | null): StretchPath {
+  const joints = curve ? Array.from({ length: CURVE_STEPS + 1 }, (_, i) => bezier(a, curve, b, i / CURVE_STEPS)) : [a, b];
+  const at = [0];
+  for (let i = 1; i < joints.length; i++) at.push(at[i - 1] + dist(joints[i - 1], joints[i]));
+  return { joints, at };
+}
+
+export const pathLength = (path: StretchPath) => path.at[path.at.length - 1];
+
+/** The point `d` along a stretch (clamped to its ends). */
+export function pointAlong(path: StretchPath, d: number): Vec3 {
+  const { joints, at } = path;
+  if (d <= 0 || pathLength(path) <= 0) return joints[0];
+  let k = at.findIndex((a) => a >= d);
+  if (k < 0) k = joints.length - 1;
+  k = Math.min(Math.max(k, 1), joints.length - 1);
+  const span = at[k] - at[k - 1];
+  const t = span > 0 ? Math.min(1, (d - at[k - 1]) / span) : 0;
+  const [p, q] = [joints[k - 1], joints[k]];
+  return v(p.x + (q.x - p.x) * t, p.y + (q.y - p.y) * t, p.z + (q.z - p.z) * t);
+}
+
+/** Pixels along a poly line: each stretch's own, with half gaps at its ends, or `spread` every length/spread from the first point. */
+function polyLine(vertices: Vec3[], segments: PolySegment[], spread: number | null | undefined): Vec3[] {
+  const count = Math.min(spread ?? segments.reduce((n, s) => n + s.nodes, 0), MAX_POINTS);
+  if (vertices.length < 2) return range(count).map(() => vertices[0] ?? v(0, 0));
+  const paths = vertices.slice(1).map((b, k) => stretchPath(vertices[k], b, segments[k]?.curve));
+  const lengths = paths.map(pathLength);
+  const out: Vec3[] = [];
+  if (spread !== null && spread !== undefined) {
+    const step = lengths.reduce((a, b) => a + b, 0) / Math.max(1, spread);
+    let [k, base] = [0, 0];
+    for (const i of range(spread)) {
+      const d = i * step;
+      while (k + 1 < paths.length && d > base + lengths[k]) {
+        base += lengths[k];
+        k++;
+      }
+      out.push(pointAlong(paths[k], d - base));
+    }
+    return out;
+  }
+  paths.forEach((path, k) => {
+    const n = segments[k]?.nodes ?? 0;
+    for (let i = 0; i < n && out.length < MAX_POINTS; i++) out.push(pointAlong(path, ((i + 0.5) / n) * lengths[k]));
+  });
+  while (out.length < count) out.push(vertices[vertices.length - 1]);
+  return out;
+}
+
 function generate(g: Generator): Vec3[] {
   switch (g.type) {
     case "line":
@@ -106,6 +179,8 @@ function generate(g: Generator): Vec3[] {
       return starPoints(g.points, g.nodes, g.outerRadius, g.innerRadius);
     case "customGrid":
       return customGrid(g.columns, g.rows, g.cells);
+    case "polyLine":
+      return polyLine(g.vertices, g.segments, g.spreadNodes);
   }
 }
 

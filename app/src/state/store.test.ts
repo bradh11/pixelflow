@@ -6,6 +6,7 @@ import { gestureEdits } from "../lib/layoutEdits";
 import { newProp } from "../lib/shows";
 import { useLayoutEditor } from "./layoutEditor";
 import { useApp } from "./store";
+import { nextLabels, useUndoLabels } from "./undoLabels";
 
 async function connected() {
   const backend = new MemoryBackend();
@@ -150,6 +151,19 @@ describe("app store", () => {
     } finally {
       delete (window as { matchMedia?: unknown }).matchMedia;
     }
+  });
+
+  it("doesn't name Undo after a change made elsewhere landed between an edit's sending and its reply", async () => {
+    const backend = new MemoryBackend(emptyShow("House"));
+    await useApp.getState().connect(backend);
+    const show = backend.show;
+    await useApp.getState().apply([{ type: "addProp", prop: { ...newProp("arch", show), name: "Arch 1" } }]);
+    const label = () => nextLabels(useUndoLabels.getState().show, useApp.getState().snapshot?.revision).undo;
+    expect(label()).toBe("Add Arch 1");
+    // The assistant applies a change straight to the engine; the app hasn't heard of it yet.
+    await backend.applyEdits([{ type: "renameShow", name: "Home" }]);
+    await useApp.getState().apply([{ type: "addProp", prop: { ...newProp("tree", show), name: "Tree 1" } }]);
+    expect(label()).toBeNull();
   });
 
   it("remembers the theme", async () => {

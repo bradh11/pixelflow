@@ -23,17 +23,24 @@ export interface LabelStacks {
 
 export const NO_LABELS: LabelStacks = { undo: [], redo: [], at: null };
 
-/** After an edit took the document from revision `from` to `to`. */
+/** As many names as the engine keeps undo steps. */
+const LIMIT = 200;
+
+/**
+ * After an edit took the document from revision `from` to `to`. A step moves the revision by
+ * exactly one; more means a change made elsewhere landed in between, so no name is trusted.
+ */
 export function edited(s: LabelStacks, from: number, to: number, label: string, gesture: string | null = null): LabelStacks {
+  if (to !== from + 1) return NO_LABELS;
   const undo = s.at === from ? s.undo : [];
   const top = undo.at(-1);
   if (gesture !== null && top?.gesture === gesture) return { undo: [...undo.slice(0, -1), { label, gesture }], redo: [], at: to };
-  return { undo: [...undo, { label, gesture }], redo: [], at: to };
+  return { undo: [...undo, { label, gesture }].slice(-LIMIT), redo: [], at: to };
 }
 
 /** After an undo (or, `redo`, a redo) took the document from revision `from` to `to`. */
 export function stepped(s: LabelStacks, from: number, to: number, redo = false): LabelStacks {
-  if (s.at !== from) return { ...NO_LABELS, at: null };
+  if (s.at !== from || to !== from + 1) return NO_LABELS;
   const [take, give] = redo ? [s.redo, s.undo] : [s.undo, s.redo];
   const step = take.at(-1);
   if (!step) return { ...NO_LABELS, at: null };

@@ -39,4 +39,20 @@ describe("undo and redo names", () => {
     s = stepped(s, 5, 6);
     expect(nextLabels(s, 6)).toEqual({ undo: null, redo: "Move Arch 1" });
   });
+
+  it("aren't trusted when a step skips a revision (a change made elsewhere landed in between)", () => {
+    let s = edited(NO_LABELS, 1, 2, "Add Arch 1");
+    s = edited(s, 2, 4, "Move Arch 1");
+    expect(nextLabels(s, 4)).toEqual({ undo: null, redo: null });
+    s = edited(NO_LABELS, 1, 2, "Add Arch 1");
+    s = stepped(s, 2, 4);
+    expect(nextLabels(s, 4)).toEqual({ undo: null, redo: null });
+  });
+
+  it("keep no more names than the engine keeps steps", () => {
+    let s = NO_LABELS;
+    for (let r = 0; r < 250; r++) s = edited(s, r, r + 1, `Step ${r}`);
+    expect(s.undo).toHaveLength(200);
+    expect(nextLabels(s, 250).undo).toBe("Step 249");
+  });
 });

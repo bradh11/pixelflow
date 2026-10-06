@@ -3,7 +3,11 @@
 //! and the import's notes. For checking the importer against real shows:
 //!
 //! ```text
-//! cargo run --release -p pf-xlights --example corpus -- <show folder>... [--notes]
+//! cargo run --release -p pf-xlights --example corpus -- <show folder>... [--notes] [--list]
+//! ```
+//!
+//! `--notes` prints the import's notes; `--list` names the props that kept measured points.
+//! ```text
 //! ```
 
 use pf_model::ShapeSource;
@@ -14,6 +18,7 @@ use std::time::Instant;
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let show_notes = args.iter().any(|a| a == "--notes");
+    let list = args.iter().any(|a| a == "--list");
     let (mut all_shapes, mut all_props) = (0usize, 0usize);
     for dir in args.iter().filter(|a| !a.starts_with("--")) {
         let dir = Path::new(dir);
@@ -45,6 +50,7 @@ fn main() {
             .map(|m| (m.name.as_str(), m.display_as.as_str()))
             .collect();
         let mut by_type: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+        let mut measured: BTreeMap<String, Vec<&str>> = BTreeMap::new();
         let mut shapes = 0;
         for prop in &imported.show.props {
             let t = types.get(prop.name.as_str()).copied().unwrap_or("?");
@@ -55,6 +61,7 @@ fn main() {
                 shapes += 1;
             } else {
                 e.1 += 1;
+                measured.entry(t.to_string()).or_default().push(&prop.name);
             }
         }
         let props = imported.show.props.len();
@@ -75,6 +82,9 @@ fn main() {
         );
         for (t, (s, m)) in &by_type {
             println!("  {t:<16} {s:>4} shapes {m:>4} measured");
+            if list && let Some(names) = measured.get(t) {
+                println!("      {}", names.join(", "));
+            }
         }
         if show_notes {
             for note in &imported.notes {

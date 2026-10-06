@@ -42,6 +42,7 @@ pub enum Query {
     ListPlaylist,
     Selection,
     EffectKinds,
+    ShapeSettings,
     OpenSequence,
     SequenceEffects,
     TimingMarks,
@@ -71,6 +72,7 @@ impl Toolbox {
         tools.extend(show_edit_tools());
         tools.extend(sequence_edit_tools());
         tools.extend(draft_tools());
+        compact_large_unions(&mut tools);
         share_large_definitions(&mut tools);
         Self { tools }
     }
@@ -142,6 +144,122 @@ pub fn show_tool_name(tag: &str) -> String {
 
 pub fn sequence_tool_name(tag: &str) -> String {
     format!("sequence_{}", snake(tag))
+}
+
+/// The most the whole tool block may weigh, as JSON sent to a provider (bytes). Providers cache
+/// it with the system prompt; past this it crowds the conversation out.
+pub const TOOL_BUDGET_BYTES: usize = 64_000;
+/// How much of [`TOOL_BUDGET_BYTES`] stays free for new tools, edits, and options.
+pub const TOOL_HEADROOM_BYTES: usize = 6_000;
+/// The most one tool may weigh: a large union belongs behind a lookup tool instead (see
+/// [`compact_large_unions`]).
+pub const ONE_TOOL_BUDGET_BYTES: usize = 8_000;
+
+/// The prop shapes' full schema (every generator with its settings).
+fn generator_schema() -> Value {
+    serde_json::to_value(schemars::schema_for!(pf_model::Generator)).unwrap_or(Value::Null)
+}
+
+/// Every prop shape's `type`, in order.
+pub fn shape_types() -> Vec<String> {
+    generator_schema()["oneOf"]
+        .as_array()
+        .map(|variants| {
+            variants
+                .iter()
+                .filter_map(|v| v["properties"]["type"]["const"].as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// One prop shape's full settings (a JSON Schema with the definitions it uses), or `None` for a
+/// shape that doesn't exist. What `shape_settings` answers.
+pub fn shape_settings(shape: &str) -> Option<Value> {
+    let root = generator_schema();
+    let defs = root["$defs"].as_object().cloned().unwrap_or_default();
+    let mut variant = root["oneOf"]
+        .as_array()?
+        .iter()
+        .find(|v| v["properties"]["type"]["const"] == shape)?
+        .clone();
+    let used = referenced_defs(&variant, &defs);
+    if !used.is_empty() {
+        variant["$defs"] = Value::Object(
+            used.into_iter()
+                .filter_map(|name| defs.get(&name).map(|d| (name, d.clone())))
+                .collect(),
+        );
+    }
+    tidy(&mut variant);
+    Some(variant)
+}
+
+/// Every effect kind's `kind`, in order.
+fn effect_kinds() -> Vec<Value> {
+    pf_sequence::EffectKind::ALL
+        .iter()
+        .filter_map(|kind| serde_json::to_value(kind).ok())
+        .collect()
+}
+
+/// Replaces the two largest unions, every prop shape (`Generator`) and every effect kind's
+/// settings (`EffectParams`), with their tag and a pointer to the tool that spells one out
+/// (`shape_settings`, `list_effect_kinds`). Together they were over 17 KB of every request. The
+/// engine still checks every shape and setting on use, and says what doesn't fit.
+fn compact_large_unions(tools: &mut [Tool]) {
+    let shapes = shape_types();
+    let kinds = effect_kinds();
+    for tool in tools.iter_mut() {
+        let Some(defs) = tool
+            .spec
+            .input_schema
+            .get_mut("$defs")
+            .and_then(Value::as_object_mut)
+        else {
+            continue;
+        };
+        if defs.contains_key("Generator") {
+            defs.insert(
+                "Generator".into(),
+                json!({
+                    "type": "object",
+                    "description": "A generated shape: `type` plus that shape's settings. Call shape_settings for one shape's settings and defaults.",
+                    "properties": { "type": { "enum": shapes } },
+                    "required": ["type"],
+                }),
+            );
+        }
+        if defs.contains_key("EffectParams") {
+            defs.insert(
+                "EffectParams".into(),
+                json!({
+                    "type": "object",
+                    "description": "`kind` plus any of its settings (missing ones take their defaults). list_effect_kinds lists each kind's settings.",
+                    "properties": { "kind": { "enum": kinds } },
+                    "required": ["kind"],
+                }),
+            );
+        }
+    }
+}
+
+/// Drops `format` annotations and defaults that are their type's empty value (see
+/// [`share_large_definitions`]).
+fn tidy(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            if map.get("format").is_some_and(Value::is_string) {
+                map.remove("format");
+            }
+            if map.get("default").is_some_and(is_empty_value) {
+                map.remove("default");
+            }
+            map.values_mut().for_each(tidy);
+        }
+        Value::Array(items) => items.iter_mut().for_each(tidy),
+        _ => {}
+    }
 }
 
 /// Every `#/$defs/...` a schema refers to, followed through the definitions.
@@ -454,9 +572,18 @@ fn query_tools() -> Vec<Tool> {
         ),
         query(
             "list_effect_kinds",
-            "Every effect kind for sequences, with its settings: keys, ranges, defaults, and choices.",
-            object(json!({}), &[]),
+            "Effect kinds for sequences, with their settings: keys, ranges, defaults, and choices. All of them, or one `kind`.",
+            object(json!({ "kind": { "type": "string" } }), &[]),
             Query::EffectKinds,
+        ),
+        query(
+            "shape_settings",
+            "One prop shape's settings in full (a JSON Schema with defaults), for a prop's `shape`.",
+            object(
+                json!({ "type": { "type": "string", "description": "The shape's `type`, e.g. \"tree\"." } }),
+                &["type"],
+            ),
+            Query::ShapeSettings,
         ),
         query(
             "get_open_sequence",

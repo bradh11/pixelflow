@@ -94,6 +94,7 @@ fn activity(name: &str) -> String {
         "list_playlist" => "Looking at your playlist".into(),
         "get_selection" => "Looking at what you selected".into(),
         "list_effect_kinds" => "Looking at the effects".into(),
+        "shape_settings" => "Looking at prop shapes".into(),
         "get_open_sequence" | "list_sequence_effects" | "get_timing_marks" => {
             "Looking at your sequence".into()
         }

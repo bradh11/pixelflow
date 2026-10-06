@@ -163,7 +163,28 @@ fn run_query(query: Query, input: &Value, draft: &Draft) -> Outcome {
         }),
         Query::ListPlaylist => ok(to_json(&show.sequences)),
         Query::Selection => ok(selection(draft)),
-        Query::EffectKinds => ok(to_json(&pf_sequence::effect_catalog())),
+        Query::EffectKinds => {
+            let mut catalog = pf_sequence::effect_catalog();
+            if let Some(kind) = input["kind"].as_str() {
+                catalog.retain(|info| serde_json::to_value(info.kind).is_ok_and(|k| k == kind));
+                if catalog.is_empty() {
+                    return err(
+                        "There's no effect kind by that name. list_effect_kinds without a kind lists them all.",
+                    );
+                }
+            }
+            ok(to_json(&catalog))
+        }
+        Query::ShapeSettings => {
+            let shape = input["type"].as_str().unwrap_or_default();
+            match crate::tools::shape_settings(shape) {
+                Some(schema) => ok(schema.to_string()),
+                None => err(format!(
+                    "There's no prop shape by that name. Shapes: {}.",
+                    crate::tools::shape_types().join(", ")
+                )),
+            }
+        }
         Query::OpenSequence => match draft.sequence() {
             Some(doc) => ok(sequence_summary(show, doc)),
             None => ok("No sequence is open in the editor."),

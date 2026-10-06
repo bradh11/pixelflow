@@ -3,7 +3,10 @@
 //! names are unique and provider-safe, and no tool reaches outside the draft.
 
 use pf_ai::Toolbox;
-use pf_ai::tools::{FILE_OPERATIONS, ToolKind, sequence_edit, sequence_tool_name, show_edit, show_tool_name};
+use pf_ai::tools::{
+    FILE_OPERATIONS, ONE_TOOL_BUDGET_BYTES, TOOL_BUDGET_BYTES, TOOL_HEADROOM_BYTES, ToolKind, sequence_edit,
+    sequence_tool_name, shape_settings, show_edit, show_tool_name,
+};
 use pf_engine::{Edit, SequenceEdit};
 use pf_model::{
     Background, Controller, Corner, CubeStart, CubeStyle, Generator, Group, GroupMember, HouseModel, NodeRun,
@@ -709,8 +712,18 @@ fn tool_definitions_stay_small() {
     for (size, name) in sizes.iter().take(6) {
         println!("  {size:>6} {name}");
     }
-    // Was 114 KB with every large definition repeated in each tool that takes it.
-    assert!(total < 64_000, "tool definitions grew to {total} bytes");
+    // Was 114 KB with every large definition repeated in each tool that takes it, then 63.5 KB
+    // with every prop shape and effect kind spelled out.
+    assert!(
+        total + TOOL_HEADROOM_BYTES <= TOOL_BUDGET_BYTES,
+        "tool definitions grew to {total} bytes: less than {TOOL_HEADROOM_BYTES} bytes of headroom is left"
+    );
+    for (size, name) in &sizes {
+        assert!(
+            *size <= ONE_TOOL_BUDGET_BYTES,
+            "{name} is {size} bytes, over the {ONE_TOOL_BUDGET_BYTES}-byte budget for one tool"
+        );
+    }
     // Each large definition is spelled out in one tool only.
     for (def, owner) in [
         ("Prop", "show_add_prop"),
@@ -743,4 +756,62 @@ fn tool_inputs_that_dont_fit_are_explained() {
     let err = show_edit("setFrameRate", &json!({ "fps": "fast" })).unwrap_err();
     assert!(err.starts_with("That input doesn't fit this edit"), "{err}");
     assert!(show_edit("renameShow", &json!(["x"])).is_err());
+}
+
+#[test]
+fn shapes_and_effect_settings_are_compact_and_looked_up_on_demand() {
+    let toolbox = Toolbox::new();
+    let add_prop = &toolbox.find("show_add_prop").unwrap().spec.input_schema;
+    let generator = &add_prop["$defs"]["Generator"];
+    assert!(generator.get("oneOf").is_none(), "{generator}");
+    let types: Vec<&str> = generator["properties"]["type"]["enum"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t.as_str().unwrap())
+        .collect();
+    for shape in ["line", "arch", "circle", "matrix", "tree", "star", "cube"] {
+        assert!(types.contains(&shape), "{shape} in {types:?}");
+    }
+    assert!(
+        generator["description"]
+            .as_str()
+            .unwrap()
+            .contains("shape_settings")
+    );
+    // Definitions only the full shapes used are gone.
+    assert!(add_prop["$defs"].get("TreeStyle").is_none());
+
+    let tool = toolbox.find("shape_settings").expect("a lookup tool");
+    assert_eq!(tool.spec.input_schema["required"], json!(["type"]));
+    let tree = shape_settings("tree").unwrap();
+    assert_eq!(tree["properties"]["type"]["const"], "tree");
+    assert!(tree["properties"].get("strings").is_some(), "{tree}");
+    // It carries the definitions it refers to.
+    assert!(tree["$defs"].get("TreeStyle").is_some(), "{tree}");
+    assert!(shape_settings("blimp").is_none());
+    for shape in types {
+        let schema = shape_settings(shape).unwrap();
+        jsonschema::draft202012::meta::validate(&schema).unwrap_or_else(|e| panic!("{shape}: {e}"));
+    }
+
+    let add_effect = &toolbox.find("sequence_add_effect").unwrap().spec.input_schema;
+    let params = &add_effect["$defs"]["EffectParams"];
+    assert!(params.get("oneOf").is_none(), "{params}");
+    assert_eq!(params["required"], json!(["kind"]));
+    assert!(
+        params["properties"]["kind"]["enum"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("twinkle"))
+    );
+    assert!(
+        params["description"]
+            .as_str()
+            .unwrap()
+            .contains("list_effect_kinds")
+    );
+    assert!(add_effect["$defs"].get("ChaseParams").is_none());
+    let kinds = toolbox.find("list_effect_kinds").unwrap();
+    assert!(kinds.spec.input_schema["properties"].get("kind").is_some());
 }

@@ -220,7 +220,7 @@ impl KeyVault {
         if lock(&self.session).contains_key(&provider) {
             return Ok(Some(KeyLocation::Session));
         }
-        Ok(self.stored(provider)?.map(|_| KeyLocation::Keychain))
+        Ok(self.stored(provider, false)?.map(|_| KeyLocation::Keychain))
     }
 
     pub fn has(&self, provider: ProviderId) -> Result<bool, AiError> {
@@ -242,10 +242,11 @@ impl KeyVault {
         if let Some(key) = lock(&self.session).get(&provider) {
             return Ok(key.clone());
         }
-        self.stored(provider)?.ok_or(AiError::NoKey(provider))
+        self.stored(provider, true)?.ok_or(AiError::NoKey(provider))
     }
 
-    fn stored(&self, provider: ProviderId) -> Result<Option<ApiKey>, AiError> {
+    /// The stored key; kept in memory (`keep`) only when it's about to be used for a request.
+    fn stored(&self, provider: ProviderId, keep: bool) -> Result<Option<ApiKey>, AiError> {
         if let Some(key) = lock(&self.cache).get(&provider) {
             return Ok(Some(key.clone()));
         }
@@ -254,7 +255,7 @@ impl KeyVault {
             Err(StoreError::Unavailable) => None,
             Err(e) => return Err(store_message(e, "read")),
         };
-        if let Some(key) = &key {
+        if let Some(key) = key.as_ref().filter(|_| keep) {
             lock(&self.cache).insert(provider, key.clone());
         }
         Ok(key)
@@ -395,6 +396,24 @@ mod tests {
         );
         vault.use_for_session(ProviderId::Anthropic, ApiKey::new(FAKE).unwrap());
         assert_eq!(vault.key(ProviderId::Anthropic).unwrap().expose(), FAKE);
+    }
+
+    #[test]
+    fn asking_whether_there_is_a_key_keeps_no_copy_of_it() {
+        let store = Arc::new(MemoryStore::new());
+        store.set("anthropic", &ApiKey::new(FAKE).unwrap()).unwrap();
+        let vault = KeyVault::new(Box::new(Shared(store.clone())));
+        assert!(vault.has(ProviderId::Anthropic).unwrap());
+        assert_eq!(
+            vault.location(ProviderId::Anthropic).unwrap(),
+            Some(KeyLocation::Keychain)
+        );
+        // Removed outside PixelFlow: nothing was kept in memory from those checks.
+        store.delete("anthropic").unwrap();
+        assert_eq!(
+            vault.key(ProviderId::Anthropic).unwrap_err(),
+            AiError::NoKey(ProviderId::Anthropic)
+        );
     }
 
     #[test]

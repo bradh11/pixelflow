@@ -47,6 +47,8 @@ export function TestScreen() {
   const [removed, setRemoved] = useState(false);
   const [hex, setHex] = useState("#ffffff");
   const live = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /** Whether output runs, as of the latest status (read by a change's timer when it fires). */
+  const runningNow = useRef(false);
   useEffect(() => () => clearTimeout(live.current), []);
 
   useEffect(() => {
@@ -92,7 +94,13 @@ export function TestScreen() {
   if (!snapshot || !backend || !show) return null;
   const pattern = PATTERNS.find((p) => p.kind === kind)!;
 
+  /** Drops a change still waiting to reach the lights. */
+  const cancelLive = () => {
+    clearTimeout(live.current);
+    live.current = undefined;
+  };
   const start = async (next: { kind?: PatternKind; color?: string; target?: string } = {}) => {
+    cancelLive();
     const target = (targets.find((t) => t.value === (next.target ?? targetValue)) ?? targets[0]).spec;
     try {
       setStatus(await backend.startOutput({ kind: next.kind ?? kind, color: (next.color ?? color).replace("#", "") }, target));
@@ -103,6 +111,9 @@ export function TestScreen() {
     }
   };
   const stop = async () => {
+    // A change made just before Stop must not turn the lights back on afterwards.
+    cancelLive();
+    runningNow.current = false;
     try {
       setStatus(await backend.stopOutput());
       setError(null);
@@ -111,11 +122,16 @@ export function TestScreen() {
     }
   };
   const running = status?.running ?? false;
+  runningNow.current = running;
   /** While a test runs, a change shows on the lights at once (no Restart needed). */
   const change = (next: { kind?: PatternKind; color?: string; target?: string }) => {
     if (!running) return;
-    clearTimeout(live.current);
-    live.current = setTimeout(() => void start(next), LIVE_MS);
+    cancelLive();
+    live.current = setTimeout(() => {
+      live.current = undefined;
+      // Checked when it fires, not when it was asked for: Stop may have come in between.
+      if (runningNow.current) void start(next);
+    }, LIVE_MS);
   };
   const pickColor = (value: string) => {
     setColor(value);

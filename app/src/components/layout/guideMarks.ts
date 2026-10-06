@@ -88,9 +88,9 @@ function arrow(ctx: CanvasRenderingContext2D, a: Pt, b: Pt, stroke: (path: () =>
 
 /** A small accent pill with `text`, centered on `p`. */
 function label(ctx: CanvasRenderingContext2D, text: string, p: Pt, colors: Colors) {
-  ctx.font = "600 10px system-ui, -apple-system, sans-serif";
+  ctx.font = "600 11px system-ui, -apple-system, sans-serif";
   const w = ctx.measureText(text).width + 8;
-  const h = 14;
+  const h = 16;
   ctx.fillStyle = colors.accent;
   ctx.beginPath();
   if (typeof ctx.roundRect === "function") ctx.roundRect(p.x - w / 2, p.y - h / 2, w, h, 3);

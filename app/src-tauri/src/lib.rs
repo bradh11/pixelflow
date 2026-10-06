@@ -2103,6 +2103,22 @@ mod tests {
     }
 
     #[test]
+    fn close_show_from_the_menu_is_ignored_while_another_window_is_in_front() {
+        use tauri::Listener;
+        let (app, _webview, _dir) = app();
+        let sent = Arc::new(Mutex::new(Vec::<String>::new()));
+        let seen = Arc::clone(&sent);
+        app.listen_any(menu::MENU_EVENT, move |event| {
+            seen.lock().unwrap().push(event.payload().to_string());
+        });
+        // The mock window never has focus: as if the About panel were in front.
+        let choose = |id: &str| menu::on_event(app.handle(), tauri::menu::MenuEvent { id: id.into() });
+        choose("close-show");
+        choose("new-show");
+        assert_eq!(*sent.lock().unwrap(), vec![r#"{"action":"newShow"}"#]);
+    }
+
+    #[test]
     fn a_dialog_asked_for_while_one_is_showing_is_refused_not_queued() {
         let (app, webview, _dir) = app();
         let state = app.state::<AppState>();

@@ -211,9 +211,17 @@ pub(crate) fn on_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
     let Some(state) = app.try_state::<crate::AppState>() else {
         return;
     };
-    if let Some(action) = action_for(id, &state.recent) {
-        let _ = app.emit_to("main", MENU_EVENT, action);
+    let Some(action) = action_for(id, &state.recent) else {
+        return;
+    };
+    // ⌘W closes the window in front: with another one there (the About panel), the show stays.
+    let main_in_front = app
+        .get_webview_window("main")
+        .is_some_and(|window| window.is_focused().unwrap_or(false));
+    if action == MenuAction::CloseShow && !main_in_front {
+        return;
     }
+    let _ = app.emit_to("main", MENU_EVENT, action);
 }
 
 #[cfg(test)]

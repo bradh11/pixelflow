@@ -1,0 +1,33 @@
+[package]
+name = "pf-ai"
+description = "PixelFlow's bring-your-own-key AI assistant: providers, key storage, tools from engine edits, drafts, and proposals"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+pf-model = { workspace = true, features = ["schema"] }
+pf-sequence = { workspace = true, features = ["schema"] }
+pf-engine = { workspace = true, features = ["schema"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+schemars.workspace = true
+ureq = { workspace = true, features = ["rustls"] }
+keyring = { version = "=4.2.0", default-features = false, features = ["v1"] }
+zeroize = "=1.9.0"
+
+[features]
+# Recorded provider replies and a scripted provider, for tests in this and other crates.
+test-fixtures = []
+
+[dev-dependencies]
+pf-ai = { path = ".", features = ["test-fixtures"] }
+jsonschema = { version = "=0.58.5", default-features = false }
+tempfile.workspace = true
+pf-output.workspace = true
+
+[lints]
+workspace = true

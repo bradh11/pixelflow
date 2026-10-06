@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<Networks>
+  <Controller Id="1" Name="Garage" Type="Ethernet" IP="192.0.2.40" Protocol="E131" ActiveState="Active">
+    <network NetworkType="E131" ComPort="192.0.2.40" BaudRate="1" MaxChannels="510"/>
+  </Controller>
+</Networks>

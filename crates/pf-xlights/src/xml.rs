@@ -1,5 +1,6 @@
-//! Parsing xLights XML files safely: bounded size, node count, and nesting depth, and no DTDs
-//! (so no entity expansion). Every xLights file the importer reads goes through [`parse`].
+//! Parsing xLights XML files safely: bounded size, node count, and nesting depth, and no DTD
+//! that declares anything (so no entity expansion). Every xLights file the importer reads goes
+//! through [`parse`].
 
 use roxmltree::{Document, ParsingOptions};
 
@@ -60,6 +61,17 @@ fn too_deep(xml: &str) -> bool {
     false
 }
 
+/// True when `xml` has a document type declaration with an internal subset (`<!DOCTYPE x [...]>`),
+/// the only place entities can be declared. A bare `<!DOCTYPE html>`, which some xLights
+/// versions write, declares nothing.
+fn declares_a_dtd(xml: &str) -> bool {
+    xml.find("<!DOCTYPE").is_some_and(|at| {
+        let rest = &xml[at..];
+        let end = rest.find('>').unwrap_or(rest.len());
+        rest[..end].contains('[')
+    })
+}
+
 /// Parses an xLights XML file, or explains (for "… isn't a valid xLights file: {reason}") why
 /// it won't be read.
 pub fn parse(xml: &str) -> Result<Document<'_>, String> {
@@ -73,8 +85,13 @@ pub fn parse(xml: &str) -> Result<Document<'_>, String> {
     if too_deep(xml) {
         return Err(format!("its elements are nested more than {MAX_DEPTH} deep"));
     }
+    if declares_a_dtd(xml) {
+        return Err("it declares its own document type (a DTD), which PixelFlow doesn't read".into());
+    }
     let options = ParsingOptions {
-        allow_dtd: false,
+        // Only a declaration without an internal subset gets here: it can't declare entities,
+        // and the parser never fetches an external one.
+        allow_dtd: true,
         nodes_limit: MAX_NODES,
         ..ParsingOptions::default()
     };
@@ -103,7 +120,11 @@ mod tests {
     #[test]
     fn dtds_and_oversized_files_are_refused() {
         let dtd = r#"<!DOCTYPE x [<!ENTITY a "aaaa">]><x>&a;</x>"#;
-        assert!(parse(dtd).is_err());
+        assert!(parse(dtd).unwrap_err().contains("DTD"));
+        let external = r#"<!DOCTYPE x SYSTEM "file:///etc/passwd"><x/>"#;
+        assert!(parse(external).is_ok(), "an external DTD is never read");
+        // What xLights writes at the top of some files.
+        assert!(parse("<?xml version=\"1.0\"?>\n<!DOCTYPE html>\n<xrgb/>").is_ok());
         let huge = " ".repeat(MAX_XML_BYTES + 1);
         assert!(
             parse(&huge)

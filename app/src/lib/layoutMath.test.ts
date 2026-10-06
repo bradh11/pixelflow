@@ -395,6 +395,21 @@ describe("drawing new props", () => {
     expect(box("star").maxY).toBeCloseTo(6);
   });
 
+  it("fills the drawn box with a window frame, and fits a wreath or spinner in it", () => {
+    const a = { x: 2, y: 1 };
+    const b = { x: 6, y: 7 };
+    const frame = boxOfPoints(frontView(drawnProp("windowFrame", a, b, newProp("windowFrame", show))))!;
+    expect([frame.minX, frame.minY, frame.maxX, frame.maxY].map((v) => Math.round(v * 1e4) / 1e4)).toEqual([2, 1, 6, 7]);
+    for (const kind of ["wreath", "spinner"] as const) {
+      const prop = drawnProp(kind, a, b, newProp(kind, show));
+      expect(prop.shape).toMatchObject({ radius: 2 });
+      expect(prop.transform.position).toMatchObject({ x: 4, y: 4 });
+    }
+    const wreath = boxOfPoints(frontView(drawnProp("wreath", a, b, newProp("wreath", show))))!;
+    expect(wreath.maxY).toBeCloseTo(6);
+    expect(wreath.maxX - wreath.minX).toBeCloseTo(4, 1);
+  });
+
   it("places a clicked prop at the click with its own size", () => {
     const prop = placedProp(newProp("matrix", show), { x: 3, y: 4 });
     expect(prop.transform.position).toEqual({ x: 3, y: 4, z: 0 });

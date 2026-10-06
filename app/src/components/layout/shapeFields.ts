@@ -83,6 +83,33 @@ export const SHAPE_FIELDS: Record<string, ShapeField[]> = {
     },
     BOOL("alternateNodes", "Pixels go down every other spot and come back up"),
   ],
+  windowFrame: [
+    COUNT("top", "Pixels across the top", 0),
+    COUNT("sides", "Pixels up each side", 0),
+    COUNT("bottom", "Pixels across the bottom", 0),
+    SIZE("width", "Width"),
+    SIZE("height", "Height"),
+    CHOICE("start", "First pixel", CORNERS, "The corner where the data comes in"),
+    BOOL("counterClockwise", "Goes round counter-clockwise"),
+  ],
+  wreath: [
+    COUNT("nodes", "Pixels"),
+    SIZE("radius", "Radius"),
+    BOOL("startAtBottom", "Starts at the bottom"),
+    BOOL("counterClockwise", "Goes round counter-clockwise"),
+  ],
+  spinner: [
+    COUNT("arms", "Arms"),
+    COUNT("nodesPerArm", "Pixels per arm"),
+    SIZE("radius", "Radius", 0.01, "From the middle to the outermost pixel"),
+    { kind: "number", key: "hollow", label: "Hollow middle (%)", integer: true, min: 0, max: 100, hint: "How much of the middle has no pixels" },
+    NUMBER("startAngle", "First arm turned (°)", -360, 360, "How far the first arm is turned counter-clockwise from pointing straight down"),
+    NUMBER("arc", "Arms spread over (°)", 1, 360, "360 spreads the arms all the way round"),
+    BOOL("fromCenter", "Each arm's pixels start in the middle"),
+    BOOL("zigZag", "Every other arm runs back the other way"),
+    BOOL("alternate", "Pixels go out every other spot and come back in"),
+    BOOL("clockwise", "Arms follow each other clockwise"),
+  ],
 };
 
 /** The value at a dotted `key` in `obj` (undefined when a part is missing). */

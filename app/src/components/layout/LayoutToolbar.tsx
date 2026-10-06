@@ -1,10 +1,13 @@
 import {
+  AppWindow,
   CandyCane,
   ChevronDown,
   Circle,
+  CircleDot,
   Droplets,
   Grid3x3,
   ImagePlus,
+  LoaderPinwheel,
   Magnet,
   Maximize,
   MousePointer2,
@@ -54,6 +57,9 @@ export const MORE_TOOLS: ToolInfo[] = [
   { tool: "star", label: "Star", hint: "Drag a box around the star", icon: Star },
   { tool: "candyCanes", label: "Candy canes", hint: "Drag from where the first cane stands to where the last one does", icon: CandyCane },
   { tool: "icicles", label: "Icicles", hint: "Drag along the line the icicles hang from", icon: Droplets },
+  { tool: "windowFrame", label: "Window frame", hint: "Drag a box around the window", icon: AppWindow },
+  { tool: "wreath", label: "Wreath", hint: "Drag a box around the wreath", icon: CircleDot },
+  { tool: "spinner", label: "Spinner", hint: "Drag a box around the spinner", icon: LoaderPinwheel },
 ];
 
 function ToolButton({
@@ -137,7 +143,7 @@ function MoreShapes({ tool, setTool, in3d }: { tool: Tool; setTool: (t: Tool) =>
       <ToolButton
         pressed={!!picked}
         label={picked ? picked.label : "More shapes"}
-        hint={in3d ? DRAW_IN_2D : "More kinds of props: circles, stars, candy canes, icicles"}
+        hint={in3d ? DRAW_IN_2D : "More kinds of props: circles, stars, candy canes, icicles, window frames, wreaths, spinners"}
         disabled={in3d}
         onClick={() => setOpen(!open)}
         popup

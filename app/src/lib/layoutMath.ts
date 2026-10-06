@@ -594,7 +594,11 @@ export function drawnProp(kind: PropKind, a: Pt, b: Pt, prop: Prop): Prop {
     shape.height = r(h);
     shape.baseRadius = r(w / 2);
     shape.topRadius = r((w / 2) * taper);
-  } else if (shape.type === "circle") {
+  } else if (shape.type === "windowFrame") {
+    place(cx, cy);
+    shape.width = r(w);
+    shape.height = r(h);
+  } else if (shape.type === "circle" || shape.type === "wreath" || shape.type === "spinner") {
     place(cx, cy);
     shape.radius = r(Math.min(w, h) / 2);
   } else if (shape.type === "star") {

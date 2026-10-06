@@ -5,7 +5,19 @@ export function memberProp(member: GroupMember): string {
   return typeof member === "string" ? member : member.prop;
 }
 
-export type PropKind = "line" | "polyLine" | "arch" | "circle" | "matrix" | "tree" | "star" | "candyCanes" | "icicles";
+export type PropKind =
+  | "line"
+  | "polyLine"
+  | "arch"
+  | "circle"
+  | "matrix"
+  | "tree"
+  | "star"
+  | "candyCanes"
+  | "icicles"
+  | "windowFrame"
+  | "wreath"
+  | "spinner";
 
 export const PROP_KINDS: { kind: PropKind; label: string }[] = [
   { kind: "arch", label: "Arch" },
@@ -14,9 +26,12 @@ export const PROP_KINDS: { kind: PropKind; label: string }[] = [
   { kind: "matrix", label: "Matrix" },
   { kind: "tree", label: "Mega tree" },
   { kind: "star", label: "Star" },
-  { kind: "circle", label: "Circle / wreath" },
+  { kind: "circle", label: "Circle" },
+  { kind: "wreath", label: "Wreath" },
   { kind: "candyCanes", label: "Candy canes" },
   { kind: "icicles", label: "Icicles" },
+  { kind: "windowFrame", label: "Window frame" },
+  { kind: "spinner", label: "Spinner" },
 ];
 
 const DEFAULT_SHAPES: Record<PropKind, ShapeSource> = {
@@ -67,6 +82,32 @@ const DEFAULT_SHAPES: Record<PropKind, ShapeSource> = {
     skewDeg: 0,
   },
   icicles: { source: "generator", type: "icicles", strings: 2, lightsPerString: 80, drops: [3, 4, 5, 4], width: 4, dropHeight: 0.4, alternateNodes: false },
+  windowFrame: {
+    source: "generator",
+    type: "windowFrame",
+    top: 20,
+    sides: 15,
+    bottom: 20,
+    width: 2,
+    height: 1.5,
+    start: "bottomLeft",
+    counterClockwise: false,
+  },
+  wreath: { source: "generator", type: "wreath", nodes: 50, radius: 0.8, startAtBottom: false, counterClockwise: false },
+  spinner: {
+    source: "generator",
+    type: "spinner",
+    arms: 6,
+    nodesPerArm: 20,
+    hollow: 20,
+    startAngle: 0,
+    arc: 360,
+    zigZag: false,
+    alternate: false,
+    fromCenter: false,
+    clockwise: false,
+    radius: 1,
+  },
 };
 
 const KIND_NAMES: Record<PropKind, string> = {
@@ -79,6 +120,9 @@ const KIND_NAMES: Record<PropKind, string> = {
   star: "Star",
   candyCanes: "Candy Canes",
   icicles: "Icicles",
+  windowFrame: "Window Frame",
+  wreath: "Wreath",
+  spinner: "Spinner",
 };
 
 /** The first "Base N" name not already used. */
@@ -172,6 +216,9 @@ export function shapeLabel(shape: ShapeSource): string {
     polyLine: "Poly line",
     candyCanes: "Candy canes",
     icicles: "Icicles",
+    windowFrame: "Window frame",
+    wreath: "Wreath",
+    spinner: "Spinner",
   };
   return labels[shape.type] ?? shape.type;
 }

@@ -1039,20 +1039,20 @@ describe("LayoutScreen", () => {
     });
   });
 
-  describe("candy canes and icicles", () => {
-    /** Picks `name` under More shapes, drags from `a` to `b`, and returns the prop added. */
-    async function drawFromMore(user: ReturnType<typeof userEvent.setup>, name: string, a: Pt, b: Pt): Promise<Prop> {
-      await user.click(screen.getByRole("button", { name: "More shapes" }));
-      await user.click(screen.getByRole("menuitem", { name }));
-      await drag(a, b);
-      expect(edits).toHaveLength(1);
-      const [add] = edits[0];
-      expect(add.type).toBe("addProp");
-      const prop = (add as { prop: Prop }).prop;
-      await waitFor(() => expect(useLayoutEditor.getState().selected).toEqual([prop.id]));
-      return prop;
-    }
+  /** Picks `name` under More shapes, drags from `a` to `b`, and returns the prop added. */
+  async function drawFromMore(user: ReturnType<typeof userEvent.setup>, name: string, a: Pt, b: Pt): Promise<Prop> {
+    await user.click(screen.getByRole("button", { name: "More shapes" }));
+    await user.click(screen.getByRole("menuitem", { name }));
+    await drag(a, b);
+    expect(edits).toHaveLength(1);
+    const [add] = edits[0];
+    expect(add.type).toBe("addProp");
+    const prop = (add as { prop: Prop }).prop;
+    await waitFor(() => expect(useLayoutEditor.getState().selected).toEqual([prop.id]));
+    return prop;
+  }
 
+  describe("candy canes and icicles", () => {
     it("draws candy canes from one end to the other and turns their hooks from the panel", async () => {
       const user = await setup(showWith(line("Gutter", 0, 0)));
       const prop = await drawFromMore(user, "Candy canes", { x: 2, y: 1 }, { x: 6, y: 1 });
@@ -1075,6 +1075,45 @@ describe("LayoutScreen", () => {
       expect(edits).toHaveLength(2);
       expect(edits[1]).toEqual([{ type: "updateProp", prop: expect.objectContaining({ shape: expect.objectContaining({ drops: [2, 6, 0] }) }) }]);
       expect(backend.show.props.at(-1)!.shape).toMatchObject({ drops: [2, 6, 0] });
+    });
+  });
+
+  describe("window frames, wreaths and spinners", () => {
+    /** The one edit after the prop was added: an update to its shape. */
+    const shapeEdit = () => {
+      expect(edits).toHaveLength(2);
+      const [update] = edits[1];
+      expect(update.type).toBe("updateProp");
+      return (update as { prop: Prop }).prop.shape;
+    };
+
+    it("draws a window frame as a box and picks the corner its string starts at from the panel", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      const prop = await drawFromMore(user, "Window frame", { x: 1, y: 1 }, { x: 5, y: 4 });
+      expect(prop.shape).toMatchObject({ type: "windowFrame", width: expect.closeTo(4, 1), height: expect.closeTo(3, 1) });
+      expect(prop.transform.position).toMatchObject({ x: expect.closeTo(3, 1), y: expect.closeTo(2.5, 1) });
+      expect(screen.getByLabelText("Pixels across the top")).toHaveValue("20");
+      await user.selectOptions(screen.getByLabelText("First pixel"), "topRight");
+      expect(shapeEdit()).toMatchObject({ start: "topRight" });
+    });
+
+    it("draws a wreath in a box and starts it at the bottom from the panel", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      const prop = await drawFromMore(user, "Wreath", { x: 0, y: 0 }, { x: 4, y: 4 });
+      expect(prop.shape).toMatchObject({ type: "wreath", nodes: 50, radius: expect.closeTo(2, 1) });
+      await user.click(screen.getByLabelText("Starts at the bottom"));
+      expect(shapeEdit()).toMatchObject({ startAtBottom: true });
+    });
+
+    it("draws a spinner in a box and changes its arms from the panel", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      const prop = await drawFromMore(user, "Spinner", { x: 0, y: 0 }, { x: 4, y: 4 });
+      expect(prop.shape).toMatchObject({ type: "spinner", arms: 6, radius: expect.closeTo(2, 1) });
+      const arms = screen.getByLabelText("Arms");
+      await user.clear(arms);
+      await user.type(arms, "8{Enter}");
+      expect(shapeEdit()).toMatchObject({ arms: 8 });
+      expect(backend.show.props.at(-1)!.shape).toMatchObject({ arms: 8 });
     });
   });
 });

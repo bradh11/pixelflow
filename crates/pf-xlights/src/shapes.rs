@@ -39,10 +39,40 @@ pub(crate) fn editable(model: &XmlModel, points: &[Vec3]) -> Option<Candidate> {
         t if t.starts_with("Tree") => tree(model),
         _ => Vec::new(),
     };
-    candidates.into_iter().find(|(g, t)| fits(g, t, points))
+    if candidates.is_empty() {
+        return None;
+    }
+    // The real 3D shape: xLights' layout with depth, without its 2D view's tilt.
+    let upright: Vec<Vec3> = crate::geometry::upright_positions(model)
+        .iter()
+        .map(|p| Vec3::new(p[0], p[1], p[2]) * SCALE)
+        .collect();
+    // It must be the same nodes the import measured; for models xLights doesn't tilt, in the
+    // same places in the front view too.
+    let tilted = tilted_in_2d(model);
+    let same = upright.len() == points.len()
+        && (tilted
+            || upright
+                .iter()
+                .zip(points)
+                .all(|(a, b)| close(a.x, b.x) && close(a.y, b.y)));
+    if !same {
+        return None;
+    }
+    candidates.into_iter().find(|(g, t)| fits(g, t, &upright))
 }
 
-/// True when the shape, placed by `transform`, puts every pixel on `points` (front view).
+/// Trees, spheres and cubes, which xLights' 2D view draws slightly tilted (`SetPerspective2D`).
+pub(crate) fn tilted_in_2d(model: &XmlModel) -> bool {
+    let t = model.display_as.trim();
+    matches!(t, "Sphere" | "Cube") || (t.starts_with("Tree") && !t.contains("Matrix"))
+}
+
+fn close(a: f32, b: f32) -> bool {
+    (a - b).abs() <= TOLERANCE
+}
+
+/// True when the shape, placed by `transform`, puts every pixel on `points`, depth included.
 fn fits(generator: &Generator, transform: &Transform, points: &[Vec3]) -> bool {
     if generator.node_count() as usize != points.len() || points.is_empty() {
         return false;
@@ -52,7 +82,7 @@ fn fits(generator: &Generator, transform: &Transform, points: &[Vec3]) -> bool {
     pf_geometry::world_positions(&prop)
         .iter()
         .zip(points)
-        .all(|(a, b)| (a.x - b.x).abs() <= TOLERANCE && (a.y - b.y).abs() <= TOLERANCE)
+        .all(|(a, b)| close(a.x, b.x) && close(a.y, b.y) && close(a.z, b.z))
 }
 
 /// `pugixml as_int(default)`.
@@ -393,37 +423,23 @@ fn round_placement(b: &Boxed, steps: f64) -> Option<(f32, Transform)> {
     Some((radius, transform(b.position, b.rotation_deg, squash)))
 }
 
-/// The perspective tilt xLights' 2D view gives spheres and cubes (`RotX(0.1)` in single precision).
-fn perspective_deg() -> f32 {
-    f64::from(0.1f32).to_degrees() as f32
-}
-
-/// Where a sphere or cube sits in PixelFlow: xLights draws it `T * Rz * Ry * Rx * S * RotX(tilt)`,
-/// which is PixelFlow's transform with the tilt added to the turn about X when that turn
-/// commutes with the scale (equal Y and Z scales); when the model isn't turned about X or Y, the
-/// depth can take the Y scale instead, which leaves the front view the same. A scale equal in
-/// all three directions is folded into the shape's size (`unit` in layout units per xLights
-/// unit); otherwise it stays in the transform and `unit` is one xLights unit.
-fn tilted_placement(m: &XmlModel, b: &Boxed, scale_mul: [f64; 3], tilt_deg: f32) -> Option<(f32, Transform)> {
+/// Where a sphere, cube or tree sits in PixelFlow, upright as xLights' 3D view draws it
+/// (`T * Rz * Ry * Rx * S`, which is PixelFlow's transform): the slight tilt of xLights' 2D view
+/// is left out. A scale equal in all three directions is folded into the shape's size (`unit` in
+/// layout units per xLights unit); otherwise it stays in the transform and `unit` is one xLights
+/// unit.
+fn solid_placement(m: &XmlModel, b: &Boxed, scale_mul: [f64; 3]) -> Option<(f32, Transform)> {
     let raw = |k: &str, i: usize| {
         let v = float(m, k, 1.0) * scale_mul[i];
         if v < 0.0 || !v.is_finite() { 1.0 } else { v }
     };
-    let (sx, sy, mut sz) = (raw("ScaleX", 0), raw("ScaleY", 1), raw("ScaleZ", 2));
-    let r = b.rotation_deg;
-    if sy != sz {
-        if r.x != 0.0 || r.y != 0.0 {
-            return None;
-        }
-        sz = sy;
-    }
-    let rotation = Vec3::new(r.x + tilt_deg, r.y, r.z);
+    let (sx, sy, sz) = (raw("ScaleX", 0), raw("ScaleY", 1), raw("ScaleZ", 2));
     if sx == sy && sy == sz {
         let unit = (sx as f32) * SCALE;
-        (unit > 0.0).then(|| (unit, transform(b.position, rotation, Vec3::ONE)))
+        (unit > 0.0).then(|| (unit, transform(b.position, b.rotation_deg, Vec3::ONE)))
     } else {
         let scale = Vec3::new(sx as f32, sy as f32, sz as f32);
-        Some((SCALE, transform(b.position, rotation, scale)))
+        Some((SCALE, transform(b.position, b.rotation_deg, scale)))
     }
 }
 
@@ -466,7 +482,7 @@ fn sphere(m: &XmlModel) -> Vec<Candidate> {
         let r = rows as f32 / mx as f32;
         scale_mul = [f64::from(r / 1.8), f64::from(r), f64::from(r / 1.8)];
     }
-    let Some((unit, place)) = tilted_placement(m, &boxed(m), scale_mul, perspective_deg()) else {
+    let Some((unit, place)) = solid_placement(m, &boxed(m), scale_mul) else {
         return Vec::new();
     };
     let radius = (f64::from(columns.max(rows)) / 1.8 / 2.0) as f32 * unit;
@@ -564,7 +580,7 @@ fn cube(m: &XmlModel) -> Vec<Candidate> {
         StrandStyle::NoZigZag,
         StrandStyle::AlternatePixel,
     ][pick("StrandPerLine", &["Zig Zag", "No Zig Zag", "Aternate Pixel"])];
-    let Some((unit, mut place)) = tilted_placement(m, &boxed(m), [1.0; 3], perspective_deg()) else {
+    let Some((unit, mut place)) = solid_placement(m, &boxed(m), [1.0; 3]) else {
         return Vec::new();
     };
     let half = |n: u32| ((n as f32 - 1.0) / 2.0 - (n / 2) as f32) * unit;
@@ -714,7 +730,8 @@ fn matrix(m: &XmlModel) -> Vec<Candidate> {
 /// bottom left, no spiral, no first-strand offset): a round tree of `render_ht = 3 × rows` units
 /// tall and `render_ht / 1.8` across the base (tapering by `TreeBottomTopRatio`), starting at
 /// `-degrees / 2 + TreeRotation`; or a flat (ribbon) tree `2 × rows` tall, `4 (5) × strands` across
-/// the base and `0.9 × strands` across the top. xLights tilts trees by `TreePerspective`.
+/// the base and `0.9 × strands` across the top. Upright: xLights' 2D tilt (`TreePerspective`) is
+/// left out.
 fn tree(m: &XmlModel) -> Vec<Candidate> {
     use pf_model::TreeStyle;
     if m.text("StrandDir", "Vertical") != "Vertical"
@@ -744,8 +761,7 @@ fn tree(m: &XmlModel) -> Vec<Candidate> {
             None => 360,
         }
     };
-    let tilt = f64::from(float(m, "TreePerspective", 0.2) as f32).to_degrees() as f32;
-    let Some((unit, mut place)) = tilted_placement(m, &boxed(m), [1.0; 3], tilt) else {
+    let Some((unit, mut place)) = solid_placement(m, &boxed(m), [1.0; 3]) else {
         return Vec::new();
     };
     let (bw, bh) = (f64::from(s.strands), f64::from(s.per_strand));
@@ -1537,7 +1553,7 @@ mod tests {
     ];
 
     #[test]
-    fn spheres_import_as_spheres_with_xlights_tilt() {
+    fn spheres_import_upright_as_spheres() {
         let g = imports_as("Sphere", &SPHERE);
         // Six strands, each its own string, run the same way: no zig-zag.
         assert!(matches!(
@@ -1550,9 +1566,15 @@ mod tests {
                 ..
             }
         ));
+        // Upright: xLights' 2D tilt is left out, and the depth checked too.
         let t = placed("Sphere", &SPHERE);
-        assert!((t.rotation_deg.x - 0.1f32.to_degrees()).abs() < 1e-4);
+        assert_eq!(t.rotation_deg, Vec3::ZERO);
         assert_eq!(t.scale, Vec3::ONE);
+        // Deeper than it is tall, and tipped back: kept as it is, depth included.
+        let deep = with(&SPHERE, &[("ScaleZ", "40"), ("RotateX", "20")]);
+        imports_as("Sphere", &deep);
+        let t = placed("Sphere", &deep);
+        assert_eq!((t.rotation_deg.x, t.scale.z), (20.0, 40.0));
         // One string zig-zagging over its strands; every start corner; alternating; stretched
         // flat; older files; part way round between other latitudes.
         let one = with(
@@ -1587,7 +1609,7 @@ mod tests {
                 ],
             ),
         );
-        // Three strands per string zig-zag inside each string only; tipped back while stretched.
+        // Three strands per string zig-zag inside each string only.
         stays_measured(
             "Sphere",
             &with(
@@ -1599,7 +1621,7 @@ mod tests {
                 ],
             ),
         );
-        stays_measured("Sphere", &with(&SPHERE, &[("ScaleY", "35"), ("RotateX", "20")]));
+        imports_as("Sphere", &with(&SPHERE, &[("ScaleY", "35"), ("RotateX", "20")]));
     }
 
     /// A 3 × 4 × 2 cube (even width and depth, so xLights doesn't center it), scaled evenly.
@@ -1725,6 +1747,10 @@ mod tests {
 
     #[test]
     fn trees_import_as_round_flat_and_ribbon_trees() {
+        // Upright, without xLights' 2D tilt, and as deep as xLights' ScaleZ makes it.
+        let t = placed("Tree 360", &TREE);
+        assert_eq!(t.rotation_deg, Vec3::ZERO);
+        assert_eq!(t.scale, Vec3::new(3.0, 3.0, 1.0));
         let g = imports_as("Tree 360", &TREE);
         assert!(matches!(
             g,

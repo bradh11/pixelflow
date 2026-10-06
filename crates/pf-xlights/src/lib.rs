@@ -24,7 +24,7 @@ mod xml;
 
 pub use channels::{ChannelRequest, Resolved, resolve};
 pub use error::XlightsError;
-pub use geometry::{Geometry, XNode, geometry};
+pub use geometry::{Geometry, XNode, geometry, upright_positions};
 pub use import::{ImportSummary, XlightsImport, build_show};
 pub use layout::{XGroup, XLayout, parse_layout};
 pub use model::XmlModel;

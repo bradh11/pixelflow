@@ -316,6 +316,7 @@ fn build_show_within(
     let mut lights: u64 = 0;
     let mut over_budget = Vec::new();
     let mut odd_colors = Vec::new();
+    let mut upright = Vec::new();
     let mut region_notes = crate::submodels::RegionNotes::default();
     for model in &layout.models {
         if !seen.insert(model.name.as_str()) {
@@ -371,6 +372,9 @@ fn build_show_within(
             Some((generator, transform)) => {
                 let mut prop = Prop::new(model.name.clone(), ShapeSource::Generator(generator));
                 prop.transform = transform;
+                if crate::shapes::tilted_in_2d(model) {
+                    upright.push(model.name.clone());
+                }
                 prop
             }
             None => Prop::new(
@@ -403,6 +407,12 @@ fn build_show_within(
         notes.push(format!(
             "The show reached PixelFlow's limit of {max_lights} lights, so these props weren't imported: {}.",
             list(&over_budget)
+        ));
+    }
+    if !upright.is_empty() {
+        notes.push(format!(
+            "xLights draws trees, spheres and cubes with a slight tilt in its 2D view; PixelFlow shows their real shape: {}.",
+            list(&upright)
         ));
     }
     if !odd_colors.is_empty() {

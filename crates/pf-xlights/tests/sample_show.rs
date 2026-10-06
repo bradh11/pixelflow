@@ -294,27 +294,38 @@ fn editable_shapes_land_on_xlights_positions() {
         }
         editable += 1;
         let model = layout.models.iter().find(|m| m.name == prop.name).unwrap();
-        let xlights: Vec<[f32; 2]> = pf_xlights::geometry(model)
-            .nodes
-            .iter()
-            .map(|n| {
-                let k = n.points.len() as f32;
-                let (x, y) = n.points.iter().fold((0.0, 0.0), |(x, y), p| (x + p[0], y + p[1]));
-                [x / k * 0.01, y / k * 0.01]
-            })
-            .collect();
+        // xLights' 3D layout, depth included, without the tilt its 2D view gives trees.
+        let xlights = pf_xlights::upright_positions(model);
         let ours = pf_geometry::world_positions(prop);
         assert_eq!(ours.len(), xlights.len(), "{}", prop.name);
         for (a, b) in ours.iter().zip(&xlights) {
             assert!(
-                (a.x - b[0]).abs() < 2e-3 && (a.y - b[1]).abs() < 2e-3,
+                (a.x - b[0] * 0.01).abs() < 2e-3
+                    && (a.y - b[1] * 0.01).abs() < 2e-3
+                    && (a.z - b[2] * 0.01).abs() < 2e-3,
                 "{}: {a:?} vs {b:?}",
                 prop.name
             );
         }
+        // The same nodes as the front-view layout: for everything but the tree, in the same places.
+        let front = pf_xlights::geometry(model);
+        assert_eq!(front.nodes.len(), xlights.len(), "{}", prop.name);
     }
+    // Every editable model in the sample show stays editable.
+    assert_eq!(
+        editable, 5,
+        "roofline, candy canes, mega tree, porch star, window matrix"
+    );
+    let tree = show.props.iter().find(|p| p.name == "Mega Tree").unwrap();
+    let depth = pf_geometry::world_positions(tree)
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(lo, hi), p| (lo.min(p.z), hi.max(p.z)));
+    assert!(depth.1 - depth.0 > 1.0, "the mega tree is round in 3D: {depth:?}");
+    assert_eq!(tree.transform.rotation_deg, pf_model::Vec3::ZERO, "and upright");
+    let notes = sample().notes;
     assert!(
-        editable >= 2,
-        "the roofline and candy canes at least are editable"
+        notes.iter().any(|n| n
+            == "xLights draws trees, spheres and cubes with a slight tilt in its 2D view; PixelFlow shows their real shape: Mega Tree."),
+        "{notes:#?}"
     );
 }

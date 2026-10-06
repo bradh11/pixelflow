@@ -165,7 +165,7 @@ pub(super) fn boxed(cx: &Ctx, perspective: f64, scale_mul: V3) -> Affine {
         .then(&Affine::rot_y(ctx_radians(rot("RotateY"))))
         .then(&Affine::rot_x(ctx_radians(rot("RotateX"))))
         .then(&Affine::scale(s));
-    if perspective != 0.0 {
+    if perspective != 0.0 && !cx.upright {
         m.then(&Affine::rot_x(perspective))
     } else {
         m

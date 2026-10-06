@@ -163,10 +163,11 @@ function MusicRow({ entry }: { entry: SequenceEntry }) {
   );
 }
 
-/** Whether the show sequence's file is among the FPP's sequence files (as it would be named there). */
+/** Whether the show sequence's file is among the FPP's sequence files, under exactly the name it
+ * would be sent as (the FPP's files are case-sensitive: other capitals are another file). */
 function isOnFpp(entry: SequenceEntry, names: string[]): boolean {
-  const name = fppFileName(fileName(entry.path).replace(/\.fseq$/i, ""), "fseq").toLowerCase();
-  return names.some((n) => n.toLowerCase() === name);
+  const name = fppFileName(fileName(entry.path).replace(/\.fseq$/i, ""), "fseq");
+  return names.includes(name);
 }
 
 /**
@@ -229,8 +230,11 @@ function OnYourFpp({ sequences }: { sequences: SequenceEntry[] }) {
                     <li key={entry.id} aria-label={entry.name} className="flex items-center justify-between gap-2">
                       <span className="min-w-0 truncate">{entry.name}</span>
                       {isOnFpp(entry, names) ? (
-                        <span className="flex shrink-0 items-center gap-1 text-green-700 dark:text-green-400">
-                          <Check size={14} aria-hidden /> On the FPP
+                        <span
+                          className="flex shrink-0 items-center gap-1 text-green-700 dark:text-green-400"
+                          title="A sequence file with this name is on the FPP. PixelFlow doesn't check that it's the same version."
+                        >
+                          <Check size={14} aria-hidden /> Same name on the FPP
                         </span>
                       ) : (
                         <Button

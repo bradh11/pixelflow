@@ -230,7 +230,10 @@ describe("play", () => {
     await useApp.getState().scan();
     const panel = await screen.findByRole("region", { name: "On your FPP" });
     expect(await within(panel).findByText("1 of 2 sequences are on FPP.")).toBeInTheDocument();
-    expect(within(panel).getByRole("listitem", { name: "Christmas Medley 2017" })).toHaveTextContent("On the FPP");
+    const medley = within(panel).getByRole("listitem", { name: "Christmas Medley 2017" });
+    // Only the name is compared, and it says so.
+    expect(medley).toHaveTextContent("Same name on the FPP");
+    expect(within(medley).getByTitle(/doesn't check that it's the same version/)).toBeInTheDocument();
     expect(backend.calls.some((c) => c.startsWith("fppSend"))).toBe(false);
 
     await user.click(within(panel).getByRole("button", { name: "Send Wizards in Winter to FPP" }));
@@ -242,6 +245,16 @@ describe("play", () => {
     expect(backend.calls).toContain("fppSend:192.0.2.10:Wizards in Winter.fseq:none");
     await user.click(within(dialog).getByRole("button", { name: "Close" }));
     expect(await within(panel).findByText("All 2 sequences are on FPP.")).toBeInTheDocument();
+  });
+
+  it("counts a sequence as on the FPP only under its exact name", async () => {
+    const { user, backend } = await openPlay(true);
+    await addSequences(user, backend, ["Wizards in Winter"]);
+    backend.fppPlayers["192.0.2.10"].sequences.push({ name: "wizards in winter", frames: 1, stepMs: 50, channels: 3 });
+    await useApp.getState().scan();
+    const panel = await screen.findByRole("region", { name: "On your FPP" });
+    expect(await within(panel).findByText("0 of 1 sequences are on FPP.")).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Send Wizards in Winter to FPP" })).toBeInTheDocument();
   });
 
   it("says when the FPP can't be checked", async () => {

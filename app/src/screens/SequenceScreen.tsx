@@ -316,12 +316,12 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
             <Magnet size={16} /> <span className="hidden lg:inline">Snap</span>
           </ToolButton>
           <ToolButton
-            label="Light up my display while editing"
+            label="Show it on my lights while editing"
             hint="When on, playing here also sends each frame to your controllers live, so your real lights show the sequence as you edit. When off, it plays only in the preview."
             pressed={s.sendToControllers}
             onClick={() => void act().setSendToControllers(!s.sendToControllers)}
           >
-            <Lightbulb size={16} /> <span className="hidden lg:inline">Light up my display</span>
+            <Lightbulb size={16} /> <span className="hidden lg:inline">Show on my lights</span>
           </ToolButton>
           <SequenceIssues />
           <ExportControls />
@@ -398,9 +398,19 @@ function ExportMenu() {
       if (refocus) trigger.current?.focus();
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        close(true);
+        return;
+      }
+      // Up and Down move between the items, round the ends.
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      const items = [...(menu.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])];
+      if (items.length === 0) return;
       e.preventDefault();
-      close(true);
+      const at = items.indexOf(document.activeElement as HTMLButtonElement);
+      const step = e.key === "ArrowDown" ? 1 : -1;
+      items[(at + step + items.length) % items.length].focus();
     };
     const onPointer = (e: PointerEvent) => {
       if (!menu.current?.contains(e.target as Node) && !trigger.current?.contains(e.target as Node)) close(false);

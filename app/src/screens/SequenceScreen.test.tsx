@@ -274,16 +274,17 @@ describe("sequence screen", () => {
     await user.keyboard(" ");
     await waitFor(() => expect(backend.calls).toContain("playAuthored@0"));
     expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Light up my display while editing" }));
+    await user.click(screen.getByRole("button", { name: "Show it on my lights while editing" }));
     expect(seq.calls).toContain("setSequenceDocOutput:true");
     await user.click(screen.getByRole("button", { name: "Stop" }));
     await waitFor(() => expect(useSequencer.getState().status).toBeNull());
   });
 
-  it("says what the live toggle does: it lights the real display", async () => {
+  it("says what the live toggle does: it lights the real lights", async () => {
     await openScreen();
-    const toggle = screen.getByRole("button", { name: "Light up my display while editing" });
+    const toggle = screen.getByRole("button", { name: "Show it on my lights while editing" });
     expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(toggle).toHaveTextContent("Show on my lights");
     expect(toggle.getAttribute("title")).toMatch(/sends each frame to your controllers live/);
     expect(screen.queryByRole("button", { name: /Send to controllers/ })).not.toBeInTheDocument();
   });
@@ -298,13 +299,33 @@ describe("sequence screen", () => {
     const dialog = screen.getByRole("dialog", { name: "Send to FPP" });
     expect(within(dialog).getByText("Christmas Medley 2017.mp3")).toBeInTheDocument();
     await within(dialog).findByText(/free/);
+    // The demo FPP already has this sequence: nothing is chosen for the user.
+    const send = within(dialog).getByRole("button", { name: /^Send$/ });
+    expect(send).toBeDisabled();
+    await user.click(within(dialog).getByRole("radio", { name: /Keep both/ }));
     // Nothing is sent until Send.
     expect(backend.calls.some((c) => c.startsWith("fppSend:"))).toBe(false);
-    await user.click(within(dialog).getByRole("button", { name: /^Send$/ }));
+    await user.click(send);
     expect(await within(dialog).findByRole("button", { name: "Play it now on the FPP" })).toBeInTheDocument();
-    expect(backend.calls).toContain("fppSend:192.0.2.10:Christmas Medley 2017.fseq:none");
+    expect(backend.calls).toContain("fppSend:192.0.2.10:Christmas Medley 2017 (2).fseq:none");
     await user.click(within(dialog).getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog", { name: "Send to FPP" })).not.toBeInTheDocument();
+  });
+
+  it("moves through the export menu with the arrow keys", async () => {
+    const { user } = await openScreen();
+    await user.click(screen.getByRole("button", { name: "More ways to export" }));
+    const items = screen.getAllByRole("menuitem");
+    await waitFor(() => expect(items[0]).toHaveFocus());
+    await user.keyboard("{ArrowDown}");
+    expect(items[1]).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    expect(items[0]).toHaveFocus();
+    await user.keyboard("{ArrowUp}");
+    expect(items[1]).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "More ways to export" })).toHaveFocus();
   });
 
   it("exports an .fseq and adds it to the show's playlist, saying what happened", async () => {

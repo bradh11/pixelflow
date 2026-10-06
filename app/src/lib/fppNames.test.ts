@@ -10,5 +10,7 @@ describe("fppFileName", () => {
     expect(fppFileName("..a..b..", "mp3")).toBe("a.b.mp3");
     expect(fppFileName("   ", "fseq")).toBe("Sequence.fseq");
     expect(fppFileName("Song", "MP3")).toBe("Song.mp3");
+    // Brackets confuse the cleanup FPP 9.x does with glob().
+    expect(fppFileName("Song [Remix]", "mp3")).toBe("Song Remix.mp3");
   });
 });

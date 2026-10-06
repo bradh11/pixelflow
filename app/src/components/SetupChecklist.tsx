@@ -1,5 +1,5 @@
-import { CheckCircle2, Circle, ListChecks, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { CheckCircle2, ChevronDown, Circle, ListChecks, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { type SetupStep, nextStep, setupSteps } from "../lib/setupSteps";
 import { setupKey, useSetup } from "../state/setup";
@@ -14,10 +14,13 @@ function useSteps(): { key: string | null; steps: SetupStep[] } | null {
   const tested = useSetup((s) => s.tested);
   const sequenceOpen = useSequencer((s) => s.doc !== null);
   const recent = useSequencer((s) => s.recent);
-  if (!snapshot) return null;
   const key = setupKey(snapshot, showId);
-  const sequenced = sequenceOpen || recentFor(recent, snapshot.path).mine.length > 0 || snapshot.show.sequences.length > 0;
-  return { key, steps: setupSteps(snapshot.show, { tested: key !== null && tested.includes(key), sequenced }) };
+  const show = snapshot?.show;
+  const isTested = key !== null && tested.includes(key);
+  const sequenced = sequenceOpen || (snapshot ? recentFor(recent, snapshot.path).mine.length > 0 : false) || (show?.sequences.length ?? 0) > 0;
+  // Worked out only when the show (or what's been done with it) changes.
+  const steps = useMemo(() => (show ? setupSteps(show, { tested: isTested, sequenced }) : null), [show, isTested, sequenced]);
+  return steps ? { key, steps } : null;
 }
 
 function Steps({ steps, onGo }: { steps: SetupStep[]; onGo: () => void }) {
@@ -59,13 +62,35 @@ function Steps({ steps, onGo }: { steps: SetupStep[]; onGo: () => void }) {
   );
 }
 
-function Card({ steps, onAway, onGo }: { steps: SetupStep[]; onAway: () => void; onGo: () => void }) {
+/** The next step as one button: what to do, and how far along it is. */
+function NextStep({ step, onGo }: { step: SetupStep; onGo: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={`Next: ${step.label}, ${step.detail}`}
+      onClick={() => {
+        useApp.getState().setScreen(step.screen);
+        onGo();
+      }}
+      className="mt-1 flex w-full items-start gap-1.5 rounded px-1 py-1 text-left font-medium text-accent-700 hover:bg-neutral-200/70 dark:text-accent-300 dark:hover:bg-neutral-800"
+    >
+      <Circle size={14} className="mt-px shrink-0" aria-hidden />
+      <span className="min-w-0">
+        {step.label}
+        <span className="block text-[11px] font-normal text-neutral-500">{step.detail}</span>
+      </span>
+    </button>
+  );
+}
+
+function Card({ steps, onAway, onGo, full = false }: { steps: SetupStep[]; onAway: () => void; onGo: () => void; full?: boolean }) {
   const done = steps.filter((s) => s.done).length;
-  const all = done === steps.length;
+  const next = nextStep(steps);
+  const [open, setOpen] = useState(full);
   return (
     <section aria-label="Set up your show" className="rounded-lg border border-neutral-200 bg-white p-2 text-xs dark:border-neutral-800 dark:bg-neutral-900">
       <div className="flex items-center justify-between gap-1">
-        <h2 className="font-semibold">{all ? "Your show is set up" : "Set up your show"}</h2>
+        <h2 className="font-semibold">Set up your show</h2>
         <IconButton
           label="Put the checklist away"
           hint="Put the checklist away (the command palette brings it back)"
@@ -86,10 +111,24 @@ function Card({ steps, onAway, onGo }: { steps: SetupStep[]; onAway: () => void;
       >
         <div className="h-full rounded-full bg-accent-500" style={{ width: `${(100 * done) / steps.length}%` }} />
       </div>
-      <p className="mt-1 mb-1 text-[11px] text-neutral-500">
-        {done} of {steps.length} done
-      </p>
-      <Steps steps={steps} onGo={onGo} />
+      <div className="mt-1 flex items-center justify-between text-[11px] text-neutral-500">
+        <span>
+          {done} of {steps.length} done
+        </span>
+        {!full && (
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-label="Show all steps"
+            data-tip={open ? "Show only the next step" : "Show all six steps"}
+            onClick={() => setOpen(!open)}
+            className="inline-flex items-center gap-0.5 rounded px-1 hover:bg-neutral-200/70 dark:hover:bg-neutral-800"
+          >
+            {open ? "Less" : "All steps"} <ChevronDown size={12} aria-hidden className={open ? "rotate-180" : ""} />
+          </button>
+        )}
+      </div>
+      {open ? <Steps steps={steps} onGo={onGo} /> : next && <NextStep step={next} onGo={onGo} />}
     </section>
   );
 }
@@ -109,14 +148,28 @@ export function SetupChecklist({ rail }: { rail: boolean }) {
 
   useEffect(() => {
     if (!open) return;
-    const r = button.current?.getBoundingClientRect();
-    if (r) setPlace({ left: Math.round(r.right + 8), bottom: Math.round(window.innerHeight - r.bottom) });
+    // Beside the button, kept there as the window changes size.
+    const placeIt = () => {
+      const r = button.current?.getBoundingClientRect();
+      if (r) setPlace({ left: Math.round(r.right + 8), bottom: Math.round(window.innerHeight - r.bottom) });
+    };
+    placeIt();
     pop.current?.querySelector<HTMLElement>("button")?.focus();
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Tab") {
+        // Tab goes round the checklist's buttons rather than out of it.
+        const items = [...(pop.current?.querySelectorAll<HTMLElement>("button") ?? [])];
+        const at = items.indexOf(document.activeElement as HTMLElement);
+        if (items.length === 0) return;
+        e.preventDefault();
+        items[(at + (e.shiftKey ? -1 : 1) + items.length) % items.length].focus();
+        return;
+      }
       if (e.key !== "Escape") return;
       setOpen(false);
       button.current?.focus();
     };
+    window.addEventListener("resize", placeIt);
     const onDown = (e: PointerEvent) => {
       const t = e.target as Node;
       if (!pop.current?.contains(t) && !button.current?.contains(t)) setOpen(false);
@@ -124,6 +177,7 @@ export function SetupChecklist({ rail }: { rail: boolean }) {
     window.addEventListener("keydown", onKey);
     window.addEventListener("pointerdown", onDown);
     return () => {
+      window.removeEventListener("resize", placeIt);
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("pointerdown", onDown);
     };
@@ -132,7 +186,8 @@ export function SetupChecklist({ rail }: { rail: boolean }) {
     if (!rail) setOpen(false);
   }, [rail]);
 
-  if (!found || dismissed) return null;
+  // Put away by hand, or (once every step is done) by itself.
+  if (!found || dismissed || nextStep(found.steps) === null) return null;
   const { key, steps } = found;
   const away = () => {
     setOpen(false);
@@ -168,7 +223,7 @@ export function SetupChecklist({ rail }: { rail: boolean }) {
             className="fixed z-40 w-60 shadow-xl"
             style={{ left: place?.left ?? 64, bottom: place?.bottom ?? 48 }}
           >
-            <Card steps={steps} onAway={away} onGo={() => setOpen(false)} />
+            <Card steps={steps} onAway={away} onGo={() => setOpen(false)} full />
           </div>,
           document.body,
         )}

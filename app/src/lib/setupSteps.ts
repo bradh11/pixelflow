@@ -33,18 +33,18 @@ export function setupSteps(show: Show, done: SetupDone): SetupStep[] {
   const hasProps = show.props.length > 0;
   return [
     {
-      id: "controllers",
-      label: "Find your controllers",
-      detail: show.controllers.length ? plural(show.controllers.length, "controller") : "Scan the network, or add one",
-      done: show.controllers.length > 0,
-      screen: "devices",
-    },
-    {
       id: "props",
       label: "Draw your props",
       detail: hasProps ? plural(show.props.length, "prop") : "Over a photo of your house",
       done: hasProps,
       screen: "layout",
+    },
+    {
+      id: "controllers",
+      label: "Find your controllers",
+      detail: show.controllers.length ? plural(show.controllers.length, "controller") : "Scan the network, or add one",
+      done: show.controllers.length > 0,
+      screen: "devices",
     },
     {
       id: "wiring",
@@ -69,8 +69,8 @@ export function setupSteps(show: Show, done: SetupDone): SetupStep[] {
     },
     {
       id: "play",
-      label: "Play your show",
-      detail: show.sequences.length ? `${plural(show.sequences.length, "sequence")} on the playlist` : "Add a sequence to the playlist",
+      label: "Add it to the playlist",
+      detail: show.sequences.length ? `${plural(show.sequences.length, "sequence")} on the playlist` : "Ready to play on the Play screen",
       done: show.sequences.length > 0,
       screen: "play",
     },

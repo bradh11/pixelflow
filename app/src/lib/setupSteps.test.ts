@@ -8,18 +8,19 @@ import { nextStep, setupSteps } from "./setupSteps";
 const none = { tested: false, sequenced: false };
 
 describe("setting up a show", () => {
-  it("starts with every step to do, the controllers first", () => {
+  it("starts with every step to do, drawing the props first (as the sidebar has it)", () => {
     const steps = setupSteps(emptyShow("New"), none);
     expect(steps.map((s) => [s.id, s.done])).toEqual([
-      ["controllers", false],
       ["props", false],
+      ["controllers", false],
       ["wiring", false],
       ["test", false],
       ["sequence", false],
       ["play", false],
     ]);
-    expect(steps.map((s) => s.screen)).toEqual(["devices", "layout", "wiring", "test", "sequence", "play"]);
-    expect(nextStep(steps)?.id).toBe("controllers");
+    expect(steps.map((s) => s.screen)).toEqual(["layout", "devices", "wiring", "test", "sequence", "play"]);
+    expect(steps.at(-1)?.label).toBe("Add it to the playlist");
+    expect(nextStep(steps)?.id).toBe("props");
   });
 
   it("ticks controllers and props from the show, and says how many props aren't wired", () => {

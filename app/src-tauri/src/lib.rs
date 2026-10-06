@@ -37,6 +37,8 @@ struct AppState {
     models: house::PickedModels,
     /// Bumped by `cancel_sequence_export`: an export started before the bump stops.
     export_cancels: std::sync::atomic::AtomicU64,
+    /// Set while a check of the show's files runs (see `files::check_files`).
+    checking_files: std::sync::atomic::AtomicBool,
 }
 
 impl AppState {
@@ -96,10 +98,14 @@ async fn new_show(state: State<'_, AppState>, name: String) -> Reply<ShowSnapsho
 
 #[tauri::command]
 async fn open_show(state: State<'_, AppState>, path: String) -> Reply<ShowSnapshot> {
-    let snapshot = state
-        .engine()
-        .open(&pf_model::path_from_text(&path))
+    let path = pf_model::path_from_text(&path);
+    // Read (and its files looked for) without holding the engine.
+    let file = path.clone();
+    let loaded = tauri::async_runtime::spawn_blocking(move || pf_engine::read_show(&file))
+        .await
+        .map_err(|_| "Something went wrong opening the show.".to_string())?
         .map_err(message)?;
+    let snapshot = state.engine().open_read(&path, loaded);
     Ok(state.trusting(snapshot))
 }
 
@@ -120,7 +126,12 @@ async fn list_history(state: State<'_, AppState>) -> Reply<Vec<HistoryEntry>> {
 
 #[tauri::command]
 async fn restore_history(state: State<'_, AppState>, id: String) -> Reply<ShowSnapshot> {
-    let snapshot = state.engine().restore(&id).map_err(message)?;
+    let file = state.engine().history_file(&id).map_err(message)?;
+    let restored = tauri::async_runtime::spawn_blocking(move || file.read())
+        .await
+        .map_err(|_| "Something went wrong reading that version.".to_string())?
+        .map_err(message)?;
+    let snapshot = state.engine().restore_read(restored);
     Ok(state.trusting(snapshot))
 }
 
@@ -211,6 +222,7 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         layout::read_image,
         house::pick_house_model,
         house::read_house_model,
+        files::check_files,
         files::find_missing_files,
         files::locate_file,
         files::sequence_music_missing,
@@ -237,6 +249,7 @@ pub fn run() {
                 photos: Default::default(),
                 models: Default::default(),
                 export_cancels: Default::default(),
+                checking_files: Default::default(),
             });
             let handle = app.handle().clone();
             std::thread::Builder::new()
@@ -312,6 +325,7 @@ mod tests {
                 photos: Default::default(),
                 models: Default::default(),
                 export_cancels: Default::default(),
+                checking_files: Default::default(),
             })
             .build(context())
             .unwrap();
@@ -1626,7 +1640,11 @@ mod tests {
         std::fs::rename(&photo, &moved).unwrap();
         std::fs::remove_file(&model).unwrap();
         std::fs::write(dir.path().join("house.obj"), b"v 0 0 0\n").unwrap();
+        // Snapshots never look at the disk: only a check notices.
         let snapshot = call(&webview, "get_snapshot", json!({})).unwrap();
+        assert_eq!(snapshot["missingFiles"], json!([]));
+        assert_eq!(snapshot["filesChecked"], true);
+        let snapshot = call(&webview, "check_files", json!({ "all": true })).unwrap();
         let missing = snapshot["missingFiles"].as_array().unwrap();
         assert_eq!(missing.len(), 2);
         assert_eq!(missing[0]["file"], json!({ "kind": "photo" }));
@@ -1655,11 +1673,20 @@ mod tests {
         let elsewhere = dir.path().join("house.obj");
         assert!(call(&webview, "read_house_model", json!({ "path": elsewhere })).is_err());
         let state = app.state::<AppState>();
-        let snapshot = files::located(&state, pf_engine::FileRole::HouseModel, &elsewhere).unwrap();
+        let snapshot = tauri::async_runtime::block_on(files::located(
+            &state,
+            pf_engine::FileRole::HouseModel,
+            &elsewhere,
+        ))
+        .unwrap();
         assert!(snapshot.missing_files.is_empty());
         assert!(call_raw(&webview, "read_house_model", json!({ "path": elsewhere })).is_ok());
-        let error =
-            files::located(&state, pf_engine::FileRole::Photo, &dir.path().join("gone.png")).unwrap_err();
+        let error = tauri::async_runtime::block_on(files::located(
+            &state,
+            pf_engine::FileRole::Photo,
+            &dir.path().join("gone.png"),
+        ))
+        .unwrap_err();
         assert_eq!(error, "gone.png isn't there anymore. Choose another file.");
     }
 
@@ -1726,6 +1753,48 @@ mod tests {
             Value::Null
         );
         let again = call(&webview, "find_sequence_music", json!({})).unwrap();
-        assert_eq!(again, json!({ "found": null, "result": null }));
+        assert_eq!(again, json!({ "found": null, "result": null, "gaveUp": false }));
+    }
+
+    #[test]
+    fn new_paths_are_checked_apart_from_edits() {
+        let (_app, webview, dir) = app();
+        let photo = dir.path().join("gone.png");
+        let background = json!({ "path": photo, "x": 0, "y": 0, "width": 10, "opacity": 1 });
+        let snapshot = call(
+            &webview,
+            "apply_edits",
+            json!({ "edits": [{ "type": "setBackground", "background": background }] }),
+        )
+        .unwrap();
+        assert_eq!(snapshot["filesChecked"], false);
+        assert_eq!(snapshot["missingFiles"], json!([]));
+        let snapshot = call(&webview, "check_files", json!({ "all": false })).unwrap();
+        assert_eq!(snapshot["filesChecked"], true);
+        assert_eq!(snapshot["missingFiles"][0]["name"], "gone.png");
+    }
+
+    #[test]
+    fn a_show_file_moved_alone_finds_its_photo_where_it_was_saved_and_may_show_it() {
+        let (_app, webview, dir) = app();
+        let (show, photo, _) = show_with_files(dir.path());
+        let alone = dir.path().join("Elsewhere/show.pixelflow.json");
+        std::fs::create_dir_all(alone.parent().unwrap()).unwrap();
+        std::fs::rename(&show, &alone).unwrap();
+        // The photo also moved, within the folder the show was saved in.
+        let moved = show.parent().unwrap().join("pictures/house.png");
+        std::fs::create_dir_all(moved.parent().unwrap()).unwrap();
+        std::fs::rename(&photo, &moved).unwrap();
+        let snapshot = call(&webview, "open_show", json!({ "path": alone })).unwrap();
+        assert_eq!(snapshot["filesChecked"], true);
+        let missing = &snapshot["missingFiles"][0];
+        assert_eq!(missing["wasAt"], json!(photo.to_str().unwrap()));
+        assert!(call(&webview, "read_image", json!({ "path": moved })).is_err());
+        let report = call(&webview, "find_missing_files", json!({})).unwrap();
+        assert_eq!(report["found"][0]["to"], json!(moved.to_str().unwrap()));
+        assert_eq!(
+            call_raw(&webview, "read_image", json!({ "path": moved })).unwrap(),
+            PNG
+        );
     }
 }

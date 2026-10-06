@@ -427,7 +427,10 @@ fn a_playlist_name_is_never_a_path() {
     let fpp = FakeFpp::start();
     let entry = playlist_entry("Show.fseq", None, 10.0);
     for name in ["../settings", "a/b", "a\\b", " "] {
-        for choice in [PlaylistChoice::Existing(name.into()), PlaylistChoice::New(name.into())] {
+        for choice in [
+            PlaylistChoice::Existing(name.into()),
+            PlaylistChoice::New(name.into()),
+        ] {
             assert!(fpp_upload::put_on_playlist(&client(), fpp.address(), &choice, &entry).is_err());
         }
     }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ShapeSource, Transform, Vec3 } from "../api/types";
-import { applyTransform, frontView, localPositions } from "./geometry";
+import { applyTransform, deepView, frontView, localPositions } from "./geometry";
 import { newProp, nodeCount, PROP_KINDS } from "./shows";
 import { emptyShow } from "../api/memory";
 import sharedShapes from "../../../crates/pf-geometry/tests/fixtures/shapes.json";
@@ -105,6 +105,16 @@ describe("the shapes pf-geometry checks itself against (crates/pf-geometry/tests
       });
     });
   }
+});
+
+describe("3D shapes", () => {
+  it("gives spheres and cubes real depth in the 3D view", () => {
+    for (const kind of ["sphere", "cube"] as const) {
+      const xyz = deepView(newProp(kind, emptyShow("x")));
+      const zs = Array.from(xyz).filter((_, i) => i % 3 === 2);
+      expect(Math.max(...zs) - Math.min(...zs), kind).toBeGreaterThan(0.5);
+    }
+  });
 });
 
 describe("applyTransform", () => {

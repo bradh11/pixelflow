@@ -598,9 +598,13 @@ export function drawnProp(kind: PropKind, a: Pt, b: Pt, prop: Prop): Prop {
     place(cx, cy);
     shape.width = r(w);
     shape.height = r(h);
-  } else if (shape.type === "circle" || shape.type === "wreath" || shape.type === "spinner") {
+  } else if (shape.type === "circle" || shape.type === "wreath" || shape.type === "spinner" || shape.type === "sphere") {
     place(cx, cy);
     shape.radius = r(Math.min(w, h) / 2);
+  } else if (shape.type === "cube") {
+    // The front face fits the box: the spacing that fits both across and up.
+    place(cx, cy);
+    shape.spacing = r(Math.min(w / Math.max(shape.width - 1, 1), h / Math.max(shape.height - 1, 1)));
   } else if (shape.type === "star") {
     place(cx, cy);
     const ratio = shape.outerRadius > 0 ? shape.innerRadius / shape.outerRadius : 0.4;

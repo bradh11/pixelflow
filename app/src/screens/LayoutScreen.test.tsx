@@ -1115,5 +1115,24 @@ describe("LayoutScreen", () => {
       expect(shapeEdit()).toMatchObject({ arms: 8 });
       expect(backend.show.props.at(-1)!.shape).toMatchObject({ arms: 8 });
     });
+
+    it("draws a sphere in a box and sets how far round it goes from the panel", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      const prop = await drawFromMore(user, "Sphere", { x: 0, y: 0 }, { x: 4, y: 4 });
+      expect(prop.shape).toMatchObject({ type: "sphere", columns: 16, rows: 20, radius: expect.closeTo(2, 1) });
+      expect(screen.getByLabelText("Lowest pixels (latitude °)")).toHaveValue("-86");
+      const round = screen.getByLabelText("Goes round (°)");
+      await user.clear(round);
+      await user.type(round, "180{Enter}");
+      expect(shapeEdit()).toMatchObject({ degrees: 180 });
+    });
+
+    it("draws a cube in a box and picks its wiring style from the panel", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      const prop = await drawFromMore(user, "Cube", { x: 0, y: 0 }, { x: 4, y: 4 });
+      expect(prop.shape).toMatchObject({ type: "cube", width: 5, spacing: expect.closeTo(1, 1) });
+      await user.selectOptions(screen.getByLabelText("Strands run"), "stackedLeftRight");
+      expect(shapeEdit()).toMatchObject({ style: "stackedLeftRight" });
+    });
   });
 });

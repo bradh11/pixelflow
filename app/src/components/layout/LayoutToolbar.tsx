@@ -1,5 +1,7 @@
 import {
   AppWindow,
+  Box,
+  Globe,
   CandyCane,
   ChevronDown,
   Circle,
@@ -60,6 +62,8 @@ export const MORE_TOOLS: ToolInfo[] = [
   { tool: "windowFrame", label: "Window frame", hint: "Drag a box around the window", icon: AppWindow },
   { tool: "wreath", label: "Wreath", hint: "Drag a box around the wreath", icon: CircleDot },
   { tool: "spinner", label: "Spinner", hint: "Drag a box around the spinner", icon: LoaderPinwheel },
+  { tool: "sphere", label: "Sphere", hint: "Drag a box around the sphere", icon: Globe },
+  { tool: "cube", label: "Cube", hint: "Drag a box around the front of the cube", icon: Box },
 ];
 
 function ToolButton({
@@ -143,7 +147,7 @@ function MoreShapes({ tool, setTool, in3d }: { tool: Tool; setTool: (t: Tool) =>
       <ToolButton
         pressed={!!picked}
         label={picked ? picked.label : "More shapes"}
-        hint={in3d ? DRAW_IN_2D : "More kinds of props: circles, stars, candy canes, icicles, window frames, wreaths, spinners"}
+        hint={in3d ? DRAW_IN_2D : "More kinds of props: circles, stars, candy canes, icicles, window frames, wreaths, spinners, spheres, cubes"}
         disabled={in3d}
         onClick={() => setOpen(!open)}
         popup

@@ -112,8 +112,30 @@ const DEFAULT_SHAPES: Record<PropKind, ShapeSource> = {
     clockwise: false,
     radius: 1,
   },
-  sphere: { source: "generator", type: "sphere", columns: 16, rows: 20, radius: 1 },
-  cube: { source: "generator", type: "cube", width: 5, height: 5, depth: 5, spacing: 0.25 },
+  sphere: {
+    source: "generator",
+    type: "sphere",
+    columns: 16,
+    rows: 20,
+    radius: 1,
+    startLatitude: -86,
+    endLatitude: 86,
+    degrees: 360,
+    start: "bottomLeft",
+    strandStyle: "zigZag",
+  },
+  cube: {
+    source: "generator",
+    type: "cube",
+    width: 5,
+    height: 5,
+    depth: 5,
+    spacing: 0.25,
+    start: "frontBottomLeft",
+    style: "verticalFrontBack",
+    strandStyle: "zigZag",
+    strandPerLayer: false,
+  },
 };
 
 const KIND_NAMES: Record<PropKind, string> = {

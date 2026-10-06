@@ -27,6 +27,12 @@ const CORNERS: [string, string][] = [
   ["topRight", "Top right"],
 ];
 
+const STRAND_STYLES: [string, string][] = [
+  ["zigZag", "Zig-zag (every other one runs back)"],
+  ["noZigZag", "All run the same way"],
+  ["alternatePixel", "Every other pixel out, the rest on the way back"],
+];
+
 /** The size and pixel settings for each kind of generated prop. */
 export const SHAPE_FIELDS: Record<string, ShapeField[]> = {
   line: [COUNT("nodes", "Pixels"), SIZE("length", "Length")],
@@ -109,6 +115,51 @@ export const SHAPE_FIELDS: Record<string, ShapeField[]> = {
     BOOL("zigZag", "Every other arm runs back the other way"),
     BOOL("alternate", "Pixels go out every other spot and come back in"),
     BOOL("clockwise", "Arms follow each other clockwise"),
+  ],
+  sphere: [
+    COUNT("columns", "Strands around"),
+    COUNT("rows", "Pixels per strand"),
+    SIZE("radius", "Radius"),
+    NUMBER("degrees", "Goes round (°)", 1, 360, "360 goes all the way round; less leaves a gap at the back"),
+    NUMBER("startLatitude", "Lowest pixels (latitude °)", -90, 90, "-90 is the bottom of the globe"),
+    NUMBER("endLatitude", "Highest pixels (latitude °)", -90, 90, "90 is the top of the globe"),
+    CHOICE("start", "First pixel", CORNERS, "Which side the first strand is on, and whether it starts at the bottom or the top"),
+    CHOICE("strandStyle", "Strands", STRAND_STYLES),
+  ],
+  cube: [
+    COUNT("width", "Pixels across"),
+    COUNT("height", "Pixels up"),
+    COUNT("depth", "Pixels deep"),
+    SIZE("spacing", "Space between pixels"),
+    CHOICE(
+      "start",
+      "First pixel",
+      [
+        ["frontBottomLeft", "Front bottom left"],
+        ["frontBottomRight", "Front bottom right"],
+        ["frontTopLeft", "Front top left"],
+        ["frontTopRight", "Front top right"],
+        ["backBottomLeft", "Back bottom left"],
+        ["backBottomRight", "Back bottom right"],
+        ["backTopLeft", "Back top left"],
+        ["backTopRight", "Back top right"],
+      ],
+      "The corner where the data comes in",
+    ),
+    CHOICE(
+      "style",
+      "Strands run",
+      [
+        ["verticalFrontBack", "Up and down, layers front to back"],
+        ["verticalLeftRight", "Up and down, layers left to right"],
+        ["horizontalFrontBack", "Across, layers front to back"],
+        ["horizontalLeftRight", "Across, layers left to right"],
+        ["stackedFrontBack", "Across, layers stacked bottom to top (front to back)"],
+        ["stackedLeftRight", "Across, layers stacked bottom to top (left to right)"],
+      ],
+    ),
+    CHOICE("strandStyle", "Strands", STRAND_STYLES),
+    BOOL("strandPerLayer", "Each layer starts on the same side (instead of where the last one ended)"),
   ],
 };
 

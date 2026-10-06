@@ -410,6 +410,19 @@ describe("drawing new props", () => {
     expect(wreath.maxX - wreath.minX).toBeCloseTo(4, 1);
   });
 
+  it("fits a sphere in the drawn box, and a cube's front face", () => {
+    const a = { x: 2, y: 1 };
+    const b = { x: 6, y: 7 };
+    const sphere = drawnProp("sphere", a, b, newProp("sphere", show));
+    expect(sphere.shape).toMatchObject({ radius: 2 });
+    expect(sphere.transform.position).toMatchObject({ x: 4, y: 4 });
+    // A 5×5×5 cube: four gaps across fit in 4 wide.
+    const cube = drawnProp("cube", a, b, newProp("cube", show));
+    expect(cube.shape).toMatchObject({ spacing: 1 });
+    const front = boxOfPoints(frontView(cube))!;
+    expect([front.minX, front.maxX, front.minY, front.maxY]).toEqual([2, 6, 2, 6]);
+  });
+
   it("places a clicked prop at the click with its own size", () => {
     const prop = placedProp(newProp("matrix", show), { x: 3, y: 4 });
     expect(prop.transform.position).toEqual({ x: 3, y: 4, z: 0 });

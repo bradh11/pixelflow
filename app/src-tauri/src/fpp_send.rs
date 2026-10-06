@@ -289,17 +289,16 @@ fn check_targets(files: &FppFiles, targets: &Targets) -> Reply<()> {
 /// Removes staged files that won't be moved into place; `error` says what happened, plus where
 /// something couldn't be removed.
 fn discard_all(http: &dyn Http, host: &str, staged: &[Staged], error: String) -> String {
-    let left: Vec<&str> = staged
+    let left: Vec<String> = staged
         .iter()
-        .filter(|s| !fpp_upload::discard(http, host, s))
-        .map(|s| s.name.as_str())
+        .flat_map(|s| fpp_upload::discard(http, host, s))
         .collect();
     if left.is_empty() {
         error
     } else {
         format!(
-            "{error} A partial copy of {} may be left in the FPP's File Manager, under Uploads; you can delete it there.",
-            left.join(" and ")
+            "{error} These may be left in the FPP's File Manager, under Uploads: {}. You can delete them there.",
+            left.join(", ")
         )
     }
 }
@@ -1081,6 +1080,65 @@ mod tests {
             0,
             "{:?}",
             state.uploads
+        );
+    }
+
+    #[test]
+    fn cancelling_after_everything_is_staged_leaves_uploads_clean() {
+        // FPP 9.3 behaviour in the fake: pieces were appended and are gone once the file is put
+        // together, and deleting a missing file answers "Invalid path…".
+        let fpp = FakeFpp::start().with_sequence("Show.fseq", 3);
+        let dir = tempfile::tempdir().unwrap();
+        let fseq = fseq(&dir, "Show.fseq", 1000, None);
+        let music = file(&dir, "Song.mp3", 9 * 1024 * 1024);
+        let mut request = request(from_file(&fseq), Some(&music), PlaylistChoice::None);
+        request.replace_sequence = true;
+        let cancels = AtomicU64::new(0);
+        let err = send(
+            &client(),
+            fpp.address(),
+            Prepared::File(fseq.clone()),
+            &request,
+            &cancels,
+            0,
+            |p| {
+                if p.step == "music" && p.percent == 100 {
+                    cancels.fetch_add(1, Ordering::AcqRel);
+                }
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err, "The upload was cancelled. Nothing on the FPP was changed.");
+        let state = fpp.state();
+        assert!(state.uploads.is_empty(), "{:?}", state.uploads);
+        assert_eq!(state.sequences["Show.fseq"].size, 3);
+        assert!(state.music.is_empty());
+    }
+
+    #[test]
+    fn what_couldnt_be_removed_is_named() {
+        let fpp = FakeFpp::start();
+        fpp.state().refuse_deletes = true;
+        let dir = tempfile::tempdir().unwrap();
+        let fseq = fseq(&dir, "Show.fseq", 1000, None);
+        let cancels = AtomicU64::new(0);
+        let err = send(
+            &client(),
+            fpp.address(),
+            Prepared::File(fseq.clone()),
+            &request(from_file(&fseq), None, PlaylistChoice::None),
+            &cancels,
+            0,
+            |p| {
+                if p.step == "sequence" && p.percent == 100 {
+                    cancels.fetch_add(1, Ordering::AcqRel);
+                }
+            },
+        )
+        .unwrap_err();
+        assert_eq!(
+            err,
+            "The upload was cancelled. Nothing on the FPP was changed. These may be left in the FPP's File Manager, under Uploads: Show.fseq. You can delete them there."
         );
     }
 

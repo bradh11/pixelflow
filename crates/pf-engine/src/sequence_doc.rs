@@ -22,6 +22,7 @@ const UNDO_BYTE_BUDGET: usize = 256 * 1024 * 1024;
 /// One change to the open sequence. Batches are applied atomically by
 /// [`crate::Engine::edit_sequence`] as one undo step.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum SequenceEdit {
     /// Name, music, length, and frame time.

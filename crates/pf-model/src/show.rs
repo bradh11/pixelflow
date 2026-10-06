@@ -18,6 +18,7 @@ pub const CURRENT_SCHEMA_VERSION: u32 = 7;
 
 /// Show-wide settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ShowSettings {
     /// Output frames per second (20–100).
@@ -39,6 +40,7 @@ impl Default for ShowSettings {
 
 /// A complete show: layout, groups, and controller wiring.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Show {
     pub schema_version: u32,
@@ -66,6 +68,7 @@ pub struct Show {
 ///
 /// Its height follows the image's own shape, so only the width is stored.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Background {
     /// The image file.
@@ -117,6 +120,7 @@ impl Background {
 
 /// A 3D model of the house (glTF/GLB or OBJ file) for the 3D view, placed in layout units.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct HouseModel {
     /// The model file.
@@ -171,6 +175,7 @@ impl HouseModel {
 
 /// A rendered sequence (`.fseq`) in the show, with its music.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct SequenceEntry {
     pub id: SequenceId,

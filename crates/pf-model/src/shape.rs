@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 /// Corner of a matrix where the first pixel is wired.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum Corner {
     #[default]
@@ -16,6 +17,7 @@ pub enum Corner {
 
 /// Direction the wiring runs first in a matrix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum Orientation {
     /// Strings run along rows.
@@ -27,6 +29,7 @@ pub enum Orientation {
 
 /// How a matrix's pixels are wired.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", default)]
 pub struct MatrixWiring {
     pub start: Corner,
@@ -47,6 +50,7 @@ impl Default for MatrixWiring {
 
 /// Parametric prop shapes. Positions are produced by `pf-geometry`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Generator {
     /// Straight run of evenly spaced pixels along X, centered on the origin.
@@ -111,6 +115,7 @@ impl Generator {
 
 /// Where measured positions came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum Provenance {
     CameraMap,
@@ -120,6 +125,7 @@ pub enum Provenance {
 
 /// The source of a prop's pixel positions.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "source", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ShapeSource {
     /// Positions computed from parameters.

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 /// Which device adapter manages the controller.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum AdapterKind {
     Fpp,
@@ -16,6 +17,7 @@ pub enum AdapterKind {
 
 /// Channels carried by each sACN universe. Serialized as the number `510` or `512`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(try_from = "u16", into = "u16")]
 pub enum UniverseSize {
     /// 510 channels: exactly 170 RGB pixels, so RGB pixels never straddle universes.
@@ -52,6 +54,7 @@ impl From<UniverseSize> for u16 {
 
 /// sACN (E1.31) output settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct SacnConfig {
     /// Pinned first universe. `None` lets PixelFlow assign universes automatically.
@@ -68,6 +71,7 @@ pub struct SacnConfig {
 
 /// Network protocol a controller receives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum Protocol {
     Sacn(SacnConfig),
@@ -76,6 +80,7 @@ pub enum Protocol {
 
 /// A prop (or a segment of one) wired to a port, in wiring order.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct PortSlot {
     pub prop: PropId,
@@ -120,6 +125,7 @@ impl PortSlot {
 
 /// A physical output port on a controller.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Port {
     /// Physical port number as printed on the controller (1-based).
@@ -162,6 +168,7 @@ impl Port {
 /// `start..start + count`, counting from 1. Known when the controller was added from an FPP's
 /// output list (or, later, an xLights import); used to play sequences.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct SequenceChannels {
     pub start: u32,
@@ -174,6 +181,7 @@ pub struct SequenceChannels {
 
 /// A pixel controller on the network.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Controller {
     pub id: ControllerId,

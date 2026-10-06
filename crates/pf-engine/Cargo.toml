@@ -20,6 +20,11 @@ pf-render.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+schemars = { workspace = true, optional = true }
+
+[features]
+# JSON Schemas for edits (the AI assistant's tool definitions are generated from them).
+schema = ["dep:schemars", "pf-model/schema", "pf-sequence/schema"]
 
 [dev-dependencies]
 tempfile.workspace = true

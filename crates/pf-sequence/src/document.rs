@@ -19,6 +19,7 @@ fn default_frame_ms() -> u32 {
 
 /// An authored sequence: effects on the show's props and groups, timed to music.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Sequence {
     pub schema_version: u32,
@@ -114,6 +115,7 @@ impl Sequence {
 /// What a row lights: one prop, a group of props treated as one canvas, or one of a prop's
 /// submodels (or faces).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Target {
     Prop(PropId),
@@ -133,6 +135,7 @@ impl Target {
 
 /// A row on the timeline: layers of effects on one target.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Row {
     pub id: RowId,
@@ -156,6 +159,7 @@ impl Row {
 
 /// Effects that take turns on a row (they shouldn't overlap in time).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Layer {
     #[serde(default)]
@@ -164,6 +168,7 @@ pub struct Layer {
 
 /// What a timing track marks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum TimingKind {
     Beats,
@@ -177,6 +182,7 @@ pub enum TimingKind {
 
 /// Marks in time (beats, bars, lyric lines) to line effects up with.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct TimingTrack {
     pub id: TimingTrackId,
@@ -199,6 +205,7 @@ impl TimingTrack {
 
 /// One mark: a span of time with an optional label (a lyric, a bar number).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Mark {
     pub start_ms: u64,

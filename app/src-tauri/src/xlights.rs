@@ -20,6 +20,7 @@ pub(crate) struct XlightsImported {
 /// checking the show all happen off the engine lock.
 #[tauri::command]
 pub(crate) async fn import_xlights(state: State<'_, AppState>, folder: PathArg) -> Reply<XlightsImported> {
+    let from = folder.0.clone();
     let (show, summary, notes) = tauri::async_runtime::spawn_blocking(move || {
         let imported = pf_xlights::import_folder(&folder).map_err(|e| e.to_string())?;
         let show = CheckedShow::new(imported.show).map_err(message)?;
@@ -27,7 +28,16 @@ pub(crate) async fn import_xlights(state: State<'_, AppState>, folder: PathArg) 
     })
     .await
     .map_err(|_| "Something went wrong reading the xLights show.".to_string())??;
-    let snapshot = state.engine().adopt_show(show);
+    let snapshot = {
+        let mut engine = state.engine();
+        let snapshot = engine.adopt_show(show);
+        // Its first save starts in the xLights folder.
+        *state
+            .imported_from
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((engine.show_generation(), from));
+        snapshot
+    };
     let snapshot = state.trusting(snapshot);
     Ok(XlightsImported {
         snapshot,

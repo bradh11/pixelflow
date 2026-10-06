@@ -48,6 +48,9 @@ struct AppState {
     recent: Arc<recent::RecentShows>,
     /// The folder each kind of file dialog was last used in.
     last_folders: pickers::LastFolders,
+    /// The xLights folder the open show was imported from, and that show's generation: its
+    /// first save starts there.
+    imported_from: Mutex<Option<(u64, PathBuf)>>,
 }
 
 impl AppState {
@@ -122,6 +125,20 @@ async fn redo(state: State<'_, AppState>) -> Reply<ShowSnapshot> {
 #[tauri::command]
 async fn new_show(state: State<'_, AppState>, name: String) -> Reply<ShowSnapshot> {
     Ok(state.engine().new_show(&name))
+}
+
+/// The sample show ("Try the demo show"), built into the app: the same house as the browser's
+/// `?demo`.
+const SAMPLE_SHOW: &str = include_str!("../../src/api/sampleShow.json");
+
+/// Opens the sample show as a new, unsaved show: saving it asks where, so the copy built into
+/// the app is never written.
+#[tauri::command]
+async fn open_sample_show(state: State<'_, AppState>) -> Reply<ShowSnapshot> {
+    let show: Show =
+        serde_json::from_str(SAMPLE_SHOW).map_err(|e| format!("The sample show couldn't be read ({e})."))?;
+    let show = pf_engine::CheckedShow::new(show).map_err(message)?;
+    Ok(state.engine().adopt_show(show))
 }
 
 #[tauri::command]
@@ -237,6 +254,7 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         undo,
         redo,
         new_show,
+        open_sample_show,
         open_show,
         save_show,
         save_show_as,
@@ -350,6 +368,7 @@ pub fn run() {
                 checking_files: Default::default(),
                 recent: Arc::new(recent::RecentShows::new(config_dir.clone())),
                 last_folders: pickers::LastFolders::new(config_dir),
+                imported_from: Mutex::default(),
             });
             // macOS has a menu bar either way: this one has the show's File menu.
             #[cfg(target_os = "macos")]
@@ -432,6 +451,7 @@ mod tests {
                 checking_files: Default::default(),
                 recent: Arc::new(recent::RecentShows::new(Some(dir.path().join("config")))),
                 last_folders: pickers::LastFolders::new(Some(dir.path().join("config"))),
+                imported_from: Mutex::default(),
             })
             .build(context())
             .unwrap();
@@ -1990,6 +2010,42 @@ mod tests {
         // The window can't name a show for the list: locating one needs it on the list.
         let error = call(&webview, "locate_recent_show", json!({ "path": a })).unwrap_err();
         assert_eq!(error, json!("That show isn't on your recent list any more."));
+    }
+
+    #[test]
+    fn the_sample_show_opens_as_an_unsaved_copy() {
+        let (_app, webview, _dir) = app();
+        let snapshot = call(&webview, "open_sample_show", json!({})).unwrap();
+        assert_eq!(snapshot["show"]["name"], "Demo House");
+        assert_eq!(snapshot["path"], Value::Null);
+        assert_eq!(snapshot["dirty"], true);
+        assert_eq!(snapshot["summary"]["props"], 4);
+        assert_eq!(snapshot["summary"]["controllers"], 2);
+        // Not a file of the user's: it isn't a recent show.
+        assert!(recent_shows(&webview).is_empty());
+    }
+
+    #[test]
+    fn dialogs_start_in_the_shows_folder_and_an_import_saves_first_into_its_xlights_folder() {
+        use pickers::PickKind;
+        let (app, webview, dir) = app();
+        let state = app.state::<AppState>();
+        let folders = |kind| pickers::starting_folders(app.handle(), &state, kind, None);
+        let xlights = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../crates/pf-xlights/fixtures/sample-show");
+        call(&webview, "import_xlights", json!({ "folder": xlights })).unwrap();
+        assert_eq!(folders(PickKind::ShowSave).first(), Some(&xlights));
+        // Only for saving the show.
+        assert_ne!(folders(PickKind::Music).first(), Some(&xlights));
+        let saved = dir.path().join("Shows/house.pixelflow.json");
+        std::fs::create_dir_all(saved.parent().unwrap()).unwrap();
+        call(&webview, "save_show_as", json!({ "path": saved })).unwrap();
+        assert!(!folders(PickKind::ShowSave).contains(&xlights));
+        assert!(folders(PickKind::Photo).contains(&saved.parent().unwrap().to_path_buf()));
+        // A new show isn't the imported one any more.
+        call(&webview, "import_xlights", json!({ "folder": xlights })).unwrap();
+        call(&webview, "new_show", json!({ "name": "New" })).unwrap();
+        assert!(!folders(PickKind::ShowSave).contains(&xlights));
     }
 
     #[test]

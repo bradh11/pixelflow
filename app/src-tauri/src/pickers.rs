@@ -307,17 +307,32 @@ impl Pick {
     }
 }
 
-/// Where a dialog of `spec`'s kind should start looking, best first.
-fn candidates<R: tauri::Runtime>(
+/// Where a dialog of `kind` should start looking, best first.
+pub(crate) fn starting_folders<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     state: &AppState,
-    spec: &Spec,
+    kind: PickKind,
     first: Option<PathBuf>,
 ) -> Vec<PathBuf> {
-    let (show, sequence) = {
+    let spec = kind.spec();
+    let (show, sequence, imported) = {
         let engine = state.engine();
         let folder = |p: Option<&Path>| p.and_then(Path::parent).map(Path::to_path_buf);
-        (folder(engine.show_path()), folder(engine.sequence_path()))
+        // A show imported from xLights and not saved yet is saved, first, in its xLights folder.
+        let imported = state
+            .imported_from
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+            .filter(|(generation, _)| {
+                spec.key == "show" && engine.show_path().is_none() && *generation == engine.show_generation()
+            })
+            .map(|(_, folder)| folder);
+        (
+            folder(engine.show_path()),
+            folder(engine.sequence_path()),
+            imported,
+        )
     };
     let documents = app.path().document_dir().ok();
     let near = match spec.near {
@@ -326,6 +341,7 @@ fn candidates<R: tauri::Runtime>(
     };
     first
         .into_iter()
+        .chain(imported)
         .chain(state.last_folders.get(spec.key))
         .chain(near.into_iter().flatten())
         .chain(documents)
@@ -342,7 +358,7 @@ pub(crate) async fn pick<R: tauri::Runtime>(
 ) -> Reply<Option<PathBuf>> {
     let started = Instant::now();
     let spec = pick.kind.spec();
-    let options = candidates(app, state, &spec, pick.first);
+    let options = starting_folders(app, state, pick.kind, pick.first);
     let start = tauri::async_runtime::spawn_blocking(move || first_folder(options, FOLDER_WAIT))
         .await
         .unwrap_or(None);

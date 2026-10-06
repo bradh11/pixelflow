@@ -163,7 +163,7 @@ export function WiringScreen() {
     <div className="mx-auto max-w-[110rem]">
       <PageHeader
         title="Wiring"
-        description="Drag each prop onto the controller port it's plugged into, in the order the wire reaches them. Channels and universes are assigned automatically."
+        description="Drag each prop onto the controller port it's plugged into, in the order the wire reaches them. Channels and universes are assigned automatically; to match a controller that's already set up, Edit it and set its start universe."
         actions={
           !adding && (
             <Button variant="primary" onClick={() => setAdding(true)}>

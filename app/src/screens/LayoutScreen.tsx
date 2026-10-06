@@ -59,7 +59,7 @@ export function LayoutScreen() {
         }
       />
       <LayoutToolbar hasPhoto={!!show.background} onChoosePhoto={() => void choosePhoto()} />
-      <div className="flex h-[max(26rem,calc(100vh-14rem))] gap-3">
+      <div className="flex h-[max(26rem,calc(100vh-16.5rem))] gap-3">
         <SidePanel />
         <div className="relative min-w-0 flex-1">
           {in3d ? (

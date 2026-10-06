@@ -3,6 +3,7 @@ import { type ReactNode, useState } from "react";
 import { SIDEBAR_RAIL_BELOW, useWindowWidth } from "../lib/useWidth";
 import { useSequencer } from "../state/sequencer";
 import { type Screen, useApp } from "../state/store";
+import { SetupChecklist } from "./SetupChecklist";
 import { IconButton } from "./ui";
 
 /** The screens, in the order a show is made: draw it, find the controllers, wire, test, sequence, play. */
@@ -56,7 +57,7 @@ export function useSidebarRail(): { rail: boolean; toggle: () => void } {
   return { rail, toggle };
 }
 
-export function Sidebar({ footer }: { footer?: (rail: boolean) => ReactNode }) {
+export function Sidebar() {
   const screen = useApp((s) => s.screen);
   const setScreen = useApp((s) => s.setScreen);
   const toRecover = useSequencer((s) => s.recoveries.length > 0);
@@ -93,7 +94,7 @@ export function Sidebar({ footer }: { footer?: (rail: boolean) => ReactNode }) {
         </button>
       ))}
       <div className="mt-auto flex flex-col gap-2 pt-2">
-        {footer?.(rail)}
+        <SetupChecklist rail={rail} />
         <IconButton
           label={rail ? "Show names" : "Show only icons"}
           hint={rail ? "Show the screen names" : "Make the sidebar narrow: icons only"}

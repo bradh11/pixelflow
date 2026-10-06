@@ -215,7 +215,7 @@ describe("wiring and test output", () => {
     await user.type(hex, "00ff00");
     await waitFor(() => expect(backend.output.pattern).toEqual({ kind: "chase", color: "00ff00" }));
 
-    await user.click(screen.getByRole("button", { name: /stop/i }));
+    await user.click(screen.getByRole("button", { name: "Stop" }));
     expect(await screen.findByText("Output stopped")).toBeInTheDocument();
   });
 

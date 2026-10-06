@@ -5,6 +5,7 @@ import { PROP_KINDS } from "../lib/shows";
 import { addPropInView } from "../state/addProp";
 import { useAssistant } from "../state/assistant";
 import { saveFocused } from "../state/menuActions";
+import { setupKey, useSetup } from "../state/setup";
 import { type Screen, useApp } from "../state/store";
 
 interface Action {
@@ -66,6 +67,7 @@ export function CommandPalette() {
       run: useAssistant.getState().toggle,
     },
     { id: "ai-settings", label: "AI settings…", run: () => useAssistant.getState().setSettingsOpen(true) },
+    { id: "setup", label: "Show the setup checklist", run: () => useSetup.getState().setDismissed(setupKey(state.snapshot), false) },
     go("layout", "Layout"),
     go("wiring", "Wiring"),
     go("devices", "Devices"),

@@ -1,7 +1,7 @@
 //! Random access to a sequence's frames.
 
 use crate::error::{FseqError, corrupt};
-use crate::header::{Compression, Header, Layout, read_layout};
+use crate::header::{Compression, Header, Layout, header_text, read_layout};
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
@@ -9,6 +9,31 @@ use std::path::Path;
 /// Largest decompressed block PixelFlow will allocate. A damaged header can claim billions of
 /// frames per block; real blocks are a few megabytes.
 const MAX_BLOCK_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Longest extended header text read (a media path or producer name; the rest is ignored).
+const MAX_EXTENDED_TEXT: u32 = 4096;
+
+/// Reads the media and producer headers stored outside the header (`ED` entries). One that
+/// can't be read is left unknown, as FPP leaves it.
+fn read_extended(reader: &mut (impl Read + Seek), layout: &mut Layout) {
+    for ext in std::mem::take(&mut layout.extended) {
+        let field = match &ext.code {
+            b"mf" => &mut layout.header.media,
+            _ => &mut layout.header.producer,
+        };
+        if field.is_some() || reader.seek(SeekFrom::Start(ext.offset)).is_err() {
+            continue;
+        }
+        let mut bytes = Vec::new();
+        let read = reader
+            .by_ref()
+            .take(u64::from(ext.len.min(MAX_EXTENDED_TEXT)))
+            .read_to_end(&mut bytes);
+        if read.is_ok() {
+            *field = header_text(&bytes);
+        }
+    }
+}
 
 /// An open sequence. Reading a frame decompresses (and keeps) only the block that holds it, so
 /// playing frames in order decompresses each block once.
@@ -32,7 +57,8 @@ impl<R: Read + Seek> Sequence<R> {
     /// Reads a sequence from any seekable source (a file, or bytes in memory).
     pub fn from_reader(mut reader: R) -> Result<Self, FseqError> {
         reader.seek(SeekFrom::Start(0))?;
-        let layout = read_layout(&mut reader)?;
+        let mut layout = read_layout(&mut reader)?;
+        read_extended(&mut reader, &mut layout);
         Ok(Self {
             reader,
             layout,
@@ -124,19 +150,20 @@ impl<R: Read + Seek> Sequence<R> {
         self.reader
             .read_exact(&mut compressed)
             .map_err(|_| corrupt("the file ends inside a compressed block"))?;
-        let data = match self.layout.header.compression {
-            Compression::Zstd => zstd::bulk::decompress(&compressed, expected)
-                .map_err(|e| corrupt(format!("a zstd block won't decompress ({e})")))?,
-            Compression::Zlib => {
-                let mut data = Vec::with_capacity(expected);
-                flate2::read::ZlibDecoder::new(compressed.as_slice())
-                    .take(expected as u64)
-                    .read_to_end(&mut data)
-                    .map_err(|e| corrupt(format!("a zlib block won't decompress ({e})")))?;
-                data
-            }
+        // Decoded as a stream that stops once the block's frames are out: like FPP, a block may
+        // hold more (frames past the declared count) or several zstd frames.
+        let mut data = Vec::with_capacity(expected);
+        let decoded = match self.layout.header.compression {
+            Compression::Zstd => zstd::stream::read::Decoder::with_buffer(compressed.as_slice())
+                .and_then(|d| d.take(expected as u64).read_to_end(&mut data))
+                .map_err(|e| corrupt(format!("a zstd block won't decompress ({e})"))),
+            Compression::Zlib => flate2::read::ZlibDecoder::new(compressed.as_slice())
+                .take(expected as u64)
+                .read_to_end(&mut data)
+                .map_err(|e| corrupt(format!("a zlib block won't decompress ({e})"))),
             Compression::None => unreachable!("uncompressed frames are read directly"),
         };
+        decoded?;
         if data.len() < expected {
             return Err(corrupt(format!(
                 "a block holds {} bytes but should hold {expected}",

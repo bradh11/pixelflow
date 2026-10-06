@@ -23,6 +23,21 @@ fn variable(code: &[u8; 2], text: &str) -> Vec<u8> {
 
 /// Writes a version 2 file. `ranges` empty = the whole channel space is stored.
 fn v2(channels: u32, frames: u32, compression: u8, frames_per_block: u32, ranges: &[(u32, u32)]) -> Vec<u8> {
+    let mut vars = variable(b"mf", "/Shows/Medley.mp3");
+    vars.extend(variable(b"sp", "Test Writer 1.0"));
+    v2_with(channels, frames, compression, frames_per_block, ranges, vars)
+}
+
+/// [`v2`] with the given variable headers. As FPP and xLights write them, a sparse file's
+/// channel count is the bytes stored per frame (the ranges' total), not the channel space.
+fn v2_with(
+    channels: u32,
+    frames: u32,
+    compression: u8,
+    frames_per_block: u32,
+    ranges: &[(u32, u32)],
+    vars: Vec<u8>,
+) -> Vec<u8> {
     let stored: Vec<u32> = if ranges.is_empty() {
         (0..channels).collect()
     } else {
@@ -47,8 +62,6 @@ fn v2(channels: u32, frames: u32, compression: u8, frames_per_block: u32, ranges
         }
     }
     let index_entries = if compression != 0 { blocks.len() + 2 } else { 0 }; // + xLights-style padding
-    let mut vars = variable(b"mf", "/Shows/Medley.mp3");
-    vars.extend(variable(b"sp", "Test Writer 1.0"));
     let variable_start = 32 + index_entries * 8 + ranges.len() * 6;
     let data_offset = variable_start + vars.len();
     let mut out = Vec::new();
@@ -56,7 +69,12 @@ fn v2(channels: u32, frames: u32, compression: u8, frames_per_block: u32, ranges
     out.extend_from_slice(&(data_offset as u16).to_le_bytes());
     out.extend_from_slice(&[2, 2]);
     out.extend_from_slice(&(variable_start as u16).to_le_bytes());
-    out.extend_from_slice(&channels.to_le_bytes());
+    let channel_count = if ranges.is_empty() {
+        channels
+    } else {
+        stored.len() as u32
+    };
+    out.extend_from_slice(&channel_count.to_le_bytes());
     out.extend_from_slice(&frames.to_le_bytes());
     out.push(25); // 25 ms
     out.push(0);
@@ -145,8 +163,91 @@ fn reads_zlib_and_uncompressed_version_2() {
 fn sparse_ranges_fill_the_rest_with_zeros() {
     let ranges = [(3, 4), (10, 2)];
     let stored = |c: u32| (3..7).contains(&c) || (10..12).contains(&c);
-    check_all_frames(v2(16, 7, 1, 3, &ranges), 16, 7, stored);
-    check_all_frames(v2(16, 7, 0, 0, &ranges), 16, 7, stored);
+    // The channel space ends with the last range (channel 12), as FPP's getMaxChannel() says.
+    check_all_frames(v2(16, 7, 1, 3, &ranges), 12, 7, stored);
+    check_all_frames(v2(16, 7, 0, 0, &ranges), 12, 7, stored);
+}
+
+/// FPP's format document's example: one range of 50 channels from channel 5000, so the header's
+/// channel count is 50 (what each frame stores), and FPP plays them on channels 5001–5050.
+#[test]
+fn a_sparse_files_channel_count_is_what_each_frame_stores() {
+    for compression in [0, 1, 2] {
+        let bytes = v2(5050, 4, compression, 3, &[(5000, 50)]);
+        assert_eq!(&bytes[10..14], &50u32.to_le_bytes());
+        let seq = Sequence::from_reader(Cursor::new(bytes.clone())).unwrap();
+        assert_eq!(seq.header().channels, 5050, "the channel space");
+        check_all_frames(bytes, 5050, 4, |c| c >= 5000);
+    }
+    // xLights writes one range over the whole file.
+    check_all_frames(v2(6148, 12, 1, 10, &[(0, 6148)]), 6148, 12, |_| true);
+}
+
+#[test]
+fn ranges_holding_more_than_a_frame_stores_are_refused() {
+    let mut bytes = v2(20, 2, 0, 0, &[(0, 4), (10, 4)]);
+    bytes[10..14].copy_from_slice(&6u32.to_le_bytes()); // 8 bytes of ranges, 6 stored
+    let err = Sequence::from_reader(Cursor::new(bytes)).err().unwrap();
+    assert!(err.to_string().contains("channel ranges"), "{err}");
+}
+
+/// FPP writes the header's frame count before the frames, so a file can hold more frames than it
+/// declares (a longer last block, even whole blocks past the end). FPP plays the declared ones.
+#[test]
+fn frames_past_the_declared_count_are_ignored() {
+    for compression in [1, 2] {
+        let mut bytes = v2(12, 11, compression, 4, &[]); // blocks start at 0, 4, 8
+        bytes[14..18].copy_from_slice(&6u32.to_le_bytes()); // declare 6 frames
+        let seq = Sequence::from_reader(Cursor::new(bytes.clone())).unwrap();
+        assert_eq!(seq.header().frames, 6);
+        check_all_frames(bytes, 12, 6, |_| true);
+    }
+}
+
+/// An extended-data ('ED') variable header: the text lives elsewhere in the file. FPP 2.2 moves
+/// headers there when they don't fit the 64 KB header (xLights' embedded show files can do that).
+fn extended(code: &[u8; 2], offset: u64, len: u32) -> Vec<u8> {
+    let mut out = 18u16.to_le_bytes().to_vec();
+    out.extend_from_slice(b"ED");
+    out.extend_from_slice(code);
+    out.extend_from_slice(&offset.to_le_bytes());
+    out.extend_from_slice(&len.to_le_bytes());
+    out
+}
+
+#[test]
+fn extended_media_and_producer_headers_are_read() {
+    let media = b"/Users/me/Music/Extended Song.mp3\0";
+    let producer = b"xLights Macintosh 2024.19\0";
+    let mut vars = extended(b"mf", 0, media.len() as u32);
+    vars.extend(extended(b"sp", 0, producer.len() as u32));
+    vars.extend(extended(b"XS", 0, 3)); // other extended data is skipped
+    let mut bytes = v2_with(12, 5, 1, 2, &[], vars);
+    // Like FPP, put the text after the channel data and point the headers at it.
+    let at = bytes.windows(4).position(|w| w == b"EDmf").unwrap() + 4;
+    let end = bytes.len() as u64;
+    bytes[at..at + 8].copy_from_slice(&end.to_le_bytes());
+    bytes[at + 18..at + 26].copy_from_slice(&(end + media.len() as u64).to_le_bytes());
+    bytes.extend_from_slice(media);
+    bytes.extend_from_slice(producer);
+    bytes.extend_from_slice(b"xyz");
+    let seq = Sequence::from_reader(Cursor::new(bytes.clone())).unwrap();
+    assert_eq!(
+        seq.header().media.as_deref(),
+        Some("/Users/me/Music/Extended Song.mp3")
+    );
+    assert_eq!(
+        seq.header().producer.as_deref(),
+        Some("xLights Macintosh 2024.19")
+    );
+    check_all_frames(bytes, 12, 5, |_| true);
+
+    // Pointing past the end of the file (a damaged header) leaves the media unknown.
+    let mut vars = extended(b"mf", 1 << 40, 10);
+    vars.extend(variable(b"sp", "Writer"));
+    let seq = Sequence::from_reader(Cursor::new(v2_with(12, 5, 1, 2, &[], vars))).unwrap();
+    assert_eq!(seq.header().media, None);
+    assert_eq!(seq.header().producer.as_deref(), Some("Writer"));
 }
 
 #[test]

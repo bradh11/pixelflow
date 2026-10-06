@@ -207,7 +207,7 @@ export function ProposalCard({ proposal, current }: { proposal: ProposalView; cu
           <Warning text="Your lights are running: applying changes where their data is sent right away." />
         </ul>
       )}
-      <div className="mt-2 max-h-80 overflow-auto">
+      <div className="relative mt-2 max-h-80 overflow-auto">
         {ORDER.filter((section) => changes.some((c) => c.section === section)).map((section) => (
           <ChangeSection key={section} section={section} label={SECTION_LABELS[section]} changes={changes.filter((c) => c.section === section)} />
         ))}

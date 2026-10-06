@@ -272,6 +272,8 @@ export const useAssistant = create<AssistantState>((set, get) => {
             return;
           }
           mark({ status: "done", name });
+          // The assistant finds the beats itself: the screen needn't offer to meanwhile.
+          useSequencer.setState({ suggestBeats: false });
           // A fixed sentence: the file name, which may come from anywhere, reaches the assistant
           // only as data (the quoted "Open sequence" line of the context block).
           await get().send(SONG_CHOSEN_MESSAGE);

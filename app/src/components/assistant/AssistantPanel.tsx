@@ -2,6 +2,7 @@ import { CheckCircle2, Loader2, MessageSquarePlus, Music, Send, Settings, Sparkl
 import { useEffect, useRef, useState } from "react";
 import { providerName } from "../../api/assistant";
 import { type ChatItem, useAssistant } from "../../state/assistant";
+import { useSequencer } from "../../state/sequencer";
 import { Button } from "../ui";
 import { ProposalCard } from "./ProposalCard";
 
@@ -10,6 +11,7 @@ const SUGGESTIONS = ["Create a compelling sequence", "Add two arches beside the 
 /** The assistant's Choose a song button: starts a new sequence from a song the user picks. */
 function ChooseSong({ item }: { item: ChatItem }) {
   const streaming = useAssistant((s) => s.streaming);
+  const open = useSequencer((s) => s.doc?.name ?? null);
   const song = item.song ?? { status: "open" };
   if (song.status === "done") {
     return (
@@ -21,6 +23,11 @@ function ChooseSong({ item }: { item: ChatItem }) {
   return (
     <section aria-label="Choose a song" className="rounded-lg border border-accent-500/40 bg-accent-50/60 p-3 dark:border-accent-400/30 dark:bg-accent-600/10">
       <p>Pick a song from your computer. PixelFlow starts a new sequence for it with a row for every prop and group; nothing is saved until you save.</p>
+      {open !== null && (
+        <p className="mt-1 text-xs text-neutral-600 dark:text-neutral-300">
+          This closes &quot;{open}&quot;; you&apos;re asked first if it has unsaved changes.
+        </p>
+      )}
       <Button className="mt-2" variant="primary" disabled={streaming || song.status === "picking"} onClick={() => void useAssistant.getState().chooseSong(item.id)}>
         {song.status === "picking" ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Music size={14} aria-hidden />}
         {song.status === "picking" ? "Opening the song…" : "Choose a song…"}
@@ -87,7 +94,7 @@ export function AssistantPanel() {
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-auto px-3 py-3" aria-live="polite" aria-busy={streaming}>
+      <div className="relative min-h-0 flex-1 overflow-auto px-3 py-3" aria-live="polite" aria-busy={streaming}>
         {!ready && hasKey !== null ? (
           <div className="flex flex-col items-start gap-3 rounded-lg border border-dashed border-neutral-300 p-4 text-sm dark:border-neutral-700">
             <p className="font-medium">Connect an AI model</p>

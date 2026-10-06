@@ -348,7 +348,7 @@ export function AppShell() {
   const screen = useApp((s) => s.screen);
   const assistantOpen = useAssistant((s) => s.open);
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col overflow-hidden">
       <TopBar />
       <MissingFilesBanner />
       <div className="flex min-h-0 flex-1">

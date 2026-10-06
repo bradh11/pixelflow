@@ -211,10 +211,13 @@ export class FakeAssistant implements AssistantApi {
     const sequence = this.sequencer?.doc ?? null;
     const empty = sequence !== null && sequence.rows.every((r) => r.layers.every((l) => l.effects.length === 0));
     if (CREATE_SEQUENCE.test(message) || (SONG_CHOSEN.test(message) && sequence)) {
-      if (!sequence || (!empty && !SONG_CHOSEN.test(message))) {
-        const ask = sequence
-          ? "Your open sequence already has effects, so let's start a new one. Choose a song and I'll build a light show to it."
-          : "You don't have a sequence open yet. Choose a song and I'll build a light show to it.";
+      const chosen = SONG_CHOSEN.test(message);
+      if (!sequence || (!chosen && (!empty || /\bnew\b/i.test(message)))) {
+        const ask = !sequence
+          ? "You don't have a sequence open yet. Choose a song and I'll build a light show to it."
+          : empty
+            ? "Let's start a new sequence. Choose a song and I'll build a light show to it."
+            : "Your open sequence already has effects, so let's start a new one. Choose a song and I'll build a light show to it.";
         onEvent({ kind: "activity", label: "Asking for a song" });
         await this.stream(ask, onEvent);
         onEvent({ kind: "chooseSong" });

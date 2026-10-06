@@ -248,6 +248,19 @@ describe("creating a sequence", () => {
     return { user, backend, sequencer, assistant };
   }
 
+  it("says the open sequence closes, and keeps the chat (not the window) scrolling", async () => {
+    const { user, sequencer } = await startWithSequencer();
+    await act(() => useSequencer.getState().newSequence("Carol of the Bells", 30_000, null, []));
+    expect(sequencer.doc?.name).toBe("Carol of the Bells");
+    const panel = await openPanel(user);
+    await user.type(within(panel).getByRole("textbox", { name: "Message the assistant" }), "Make me a new sequence{Enter}");
+    const offer = await within(panel).findByRole("region", { name: "Choose a song" });
+    expect(offer).toHaveTextContent('This closes "Carol of the Bells"');
+    // Positioned scroll containers keep hidden labels inside them, so a tall card scrolls the
+    // chat, never the window.
+    expect(panel.querySelector("[aria-live]")).toHaveClass("relative");
+  });
+
   it("asks for a song, makes the sequence, and proposes a whole show that plays before Apply", async () => {
     const { user, sequencer, assistant } = await startWithSequencer();
     const panel = await openPanel(user);
@@ -263,7 +276,8 @@ describe("creating a sequence", () => {
     expect(sequencer.doc?.name).toBe("Jingle Bell Rock");
     expect(sequencer.doc?.rows.length).toBeGreaterThan(0);
     expect(useSequencer.getState().dirty).toBe(false);
-    expect(useSequencer.getState().suggestBeats).toBe(true);
+    // The assistant finds the beats itself: the screen doesn't offer to while it works.
+    expect(useSequencer.getState().suggestBeats).toBe(false);
     const card = await within(panel).findByRole("region", { name: "Proposed changes" });
     // The file name reaches the assistant only as data (the context block), never as the user's own words.
     expect(within(panel).getByText("I chose a song, and the new sequence is open. Go ahead.")).toBeInTheDocument();

@@ -77,6 +77,41 @@ fn text(error: AiError) -> String {
     error.to_string()
 }
 
+/// What a chat turn or the model list fails with: the plain message, and the provider's own
+/// (sanitized) words for it when there are any, for the chat's "Details".
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Failure {
+    message: String,
+    details: Option<String>,
+}
+
+impl From<AiError> for Failure {
+    fn from(error: AiError) -> Self {
+        Self {
+            message: error.to_string(),
+            details: error.details().map(str::to_string),
+        }
+    }
+}
+
+impl From<String> for Failure {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            details: None,
+        }
+    }
+}
+
+async fn off_thread_failing<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, Failure> + Send + 'static,
+) -> Result<T, Failure> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|_| Failure::from("Something went wrong in the assistant.".to_string()))?
+}
+
 async fn off_thread<T: Send + 'static>(work: impl FnOnce() -> Reply<T> + Send + 'static) -> Reply<T> {
     tauri::async_runtime::spawn_blocking(work)
         .await
@@ -150,12 +185,15 @@ pub(crate) async fn delete_api_key(ai: State<'_, AiState>, provider: ProviderId)
 
 /// The provider's chat models that can use tools, live from the provider, best first.
 #[tauri::command]
-pub(crate) async fn list_ai_models(ai: State<'_, AiState>, provider: ProviderId) -> Reply<Vec<ModelInfo>> {
+pub(crate) async fn list_ai_models(
+    ai: State<'_, AiState>,
+    provider: ProviderId,
+) -> Result<Vec<ModelInfo>, Failure> {
     let vault = Arc::clone(&ai.vault);
     let llm = ai.providers.get(provider);
-    off_thread(move || {
-        let key = vault.key(provider).map_err(text)?;
-        llm.list_models(&key, &Cancel::new()).map_err(text)
+    off_thread_failing(move || {
+        let key = vault.key(provider)?;
+        Ok(llm.list_models(&key, &Cancel::new())?)
     })
     .await
 }
@@ -181,15 +219,17 @@ pub(crate) async fn ai_send<R: Runtime>(
     model: String,
     message: String,
     context: Option<UiContext>,
-) -> Reply<TurnReply> {
+) -> Result<TurnReply, Failure> {
     let model = model.trim().to_string();
     if model.is_empty() || model.len() > MAX_MODEL_ID {
-        return Err("Pick a model in Settings → AI first.".to_string());
+        return Err("Pick a model in Settings → AI first.".to_string().into());
     }
     let cancel = {
         let mut running = lock(&ai.running);
         if running.is_some() {
-            return Err("The assistant is still answering. Wait for it, or press Stop.".to_string());
+            return Err("The assistant is still answering. Wait for it, or press Stop."
+                .to_string()
+                .into());
         }
         let cancel = Cancel::new();
         *running = Some(cancel.clone());
@@ -209,23 +249,21 @@ pub(crate) async fn ai_send<R: Runtime>(
     let vault = Arc::clone(&ai.vault);
     let llm = ai.providers.get(provider);
     let session = Arc::clone(&ai.session);
-    off_thread(move || {
-        let key = vault.key(provider).map_err(text)?;
+    off_thread_failing(move || {
+        let key = vault.key(provider)?;
         let mut session = lock(&session);
-        session
-            .run_turn(
-                llm.as_ref(),
-                &key,
-                &model,
-                &message,
-                workspace,
-                &cancel,
-                &mut |event| {
-                    // A closed window can't show the reply; the turn finishes anyway.
-                    let _ = app.emit(ASSISTANT_EVENT, AssistantEvent { turn, event });
-                },
-            )
-            .map_err(text)
+        Ok(session.run_turn(
+            llm.as_ref(),
+            &key,
+            &model,
+            &message,
+            workspace,
+            &cancel,
+            &mut |event| {
+                // A closed window can't show the reply; the turn finishes anyway.
+                let _ = app.emit(ASSISTANT_EVENT, AssistantEvent { turn, event });
+            },
+        )?)
     })
     .await
 }
@@ -513,7 +551,7 @@ mod tests {
         let send = json!({ "provider": "anthropic", "model": "claude-opus-5-5", "message": "Call the show Christmas" });
         assert_eq!(
             call(&t, "ai_send", send.clone()).unwrap_err(),
-            "Add your Anthropic API key in Settings → AI first."
+            json!({ "message": "Add your Anthropic API key in Settings → AI first.", "details": null })
         );
         call(
             &t,
@@ -643,18 +681,21 @@ mod tests {
         )
         .unwrap_err();
         assert!(
-            err.as_str()
+            err["message"]
+                .as_str()
                 .unwrap()
                 .starts_with("Anthropic didn't accept your API key."),
             "{err}"
         );
+        // The provider's own words, for the chat's Details.
+        assert_eq!(err["details"], "HTTP 401 authentication_error: invalid x-api-key");
         assert_eq!(
             call(
                 &t,
                 "ai_send",
                 json!({ "provider": "anthropic", "model": " ", "message": "hi" })
             )
-            .unwrap_err(),
+            .unwrap_err()["message"],
             "Pick a model in Settings → AI first."
         );
         call(&t, "ai_stop", json!({})).unwrap();

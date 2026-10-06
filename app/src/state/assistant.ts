@@ -3,7 +3,7 @@
 // here (Settings sends a typed key straight to the app and forgets it).
 
 import { create } from "zustand";
-import { type AssistantApi, type ProposalView, type ProviderId, providerName } from "../api/assistant";
+import { AssistantError, type AssistantApi, type ProposalView, type ProviderId, providerName } from "../api/assistant";
 import { errorMessage } from "../api/backend";
 import type { PreviewSet } from "../api/types";
 import { useLayoutEditor } from "./layoutEditor";
@@ -48,6 +48,8 @@ export interface ChatItem {
   role: "user" | "assistant" | "error" | "proposal";
   text: string;
   proposalId?: string;
+  /** For an error: the provider's own words, shown under "Details". */
+  details?: string;
 }
 
 /** "dropped": the show (or sequence) it was made for was replaced, so it no longer applies. */
@@ -104,6 +106,11 @@ export const useAssistant = create<AssistantState>((set, get) => {
 
   function add(role: ChatItem["role"], text: string, proposalId?: string) {
     set({ items: [...get().items, { id: nextItem++, role, text, proposalId }] });
+  }
+
+  function addError(error: unknown) {
+    const details = error instanceof AssistantError && error.details ? error.details : undefined;
+    set({ items: [...get().items, { id: nextItem++, role: "error", text: errorMessage(error), details }] });
   }
 
   /** What the user is looking at, for the assistant. */
@@ -205,7 +212,7 @@ export const useAssistant = create<AssistantState>((set, get) => {
         }
         if (reply.text && !streamed) add("assistant", reply.text);
       } catch (e) {
-        add("error", errorMessage(e));
+        addError(e);
       } finally {
         set({ streaming: false, activity: null });
       }

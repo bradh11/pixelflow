@@ -11,7 +11,7 @@ import type {
   TurnReply,
   UiContext,
 } from "./assistant";
-import { providerName } from "./assistant";
+import { AssistantError, providerName } from "./assistant";
 import { MemoryBackend } from "./memory";
 import type { Edit, PreviewSet, Prop, Show } from "./types";
 import { besideOthers } from "../lib/layoutEdits";
@@ -73,7 +73,7 @@ export class FakeAssistant implements AssistantApi {
   keys = new Map<ProviderId, KeyLocation>();
   storage: KeyStorage = { name: "Keychain", available: true };
   /** The next send rejects with this (to show provider errors). */
-  nextError: string | null = null;
+  nextError: string | AssistantError | null = null;
   /** Milliseconds between streamed words (0 in tests). */
   delayMs = 0;
   calls: string[] = [];
@@ -138,19 +138,23 @@ export class FakeAssistant implements AssistantApi {
     if (this.nextError) {
       const error = this.nextError;
       this.nextError = null;
-      throw new Error(error);
+      throw typeof error === "string" ? new Error(error) : error;
     }
     // In the demo, "simulate a rate limit" (or a network error, or a bad key) shows that error.
     const simulated = /\bsimulate (?:an? )?(rate limit|network error|bad key)\b/i.exec(message)?.[1].toLowerCase();
     if (simulated) {
       const name = providerName(provider);
-      throw new Error(
-        simulated === "rate limit"
-          ? `${name} is limiting how fast this key can send requests. Wait a minute, then try again.`
-          : simulated === "network error"
-            ? `Couldn't reach ${name}. Check your internet connection, then try again.`
-            : `${name} didn't accept your API key. It may be mistyped or revoked: paste it again in Settings → AI.`,
-      );
+      throw simulated === "rate limit"
+        ? new AssistantError(
+            `${name} is limiting how fast this key can send requests. Wait a minute, then try again.`,
+            "HTTP 429 rate_limit_exceeded: Rate limit reached for requests. (demo)",
+          )
+        : simulated === "network error"
+          ? new AssistantError(`Couldn't reach ${name}. Check your internet connection, then try again.`)
+          : new AssistantError(
+              `${name} didn't accept your API key. It may be mistyped or revoked: paste it again in Settings → AI.`,
+              "HTTP 401 invalid_api_key: Incorrect API key provided: [a key]. (demo)",
+            );
     }
     const show = this.backend.show;
     const kind = KINDS.find((k) => k.words.test(message));

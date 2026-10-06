@@ -8,7 +8,7 @@ import { FakeAssistant } from "../../api/memoryAssistant";
 import { useAssistant } from "../../state/assistant";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { useApp } from "../../state/store";
-import type { Change, ProposalView } from "../../api/assistant";
+import { AssistantError, assistantFailure, type Change, type ProposalView } from "../../api/assistant";
 import { highlightFrame } from "./DraftPreview";
 import { ProposalCard } from "./ProposalCard";
 
@@ -181,6 +181,30 @@ describe("chatting", () => {
     const panel = await openPanel(user);
     await user.type(within(panel).getByRole("textbox", { name: "Message the assistant" }), "hello{Enter}");
     expect(await within(panel).findByRole("alert")).toHaveTextContent("Wait a minute, then try again.");
+  });
+
+  it("keeps the provider's own words under Details", async () => {
+    const { user, assistant } = await start();
+    assistant.nextError = new AssistantError(
+      'The model "gpt-x" doesn\'t accept the "reasoning.effort" setting PixelFlow sends. Pick another model in Settings → AI.',
+      "HTTP 400 unsupported_parameter (reasoning.effort): Unsupported parameter: 'reasoning.effort' is not supported with this model.",
+    );
+    const panel = await openPanel(user);
+    await user.type(within(panel).getByRole("textbox", { name: "Message the assistant" }), "hello{Enter}");
+    const alert = await within(panel).findByRole("alert");
+    expect(alert).toHaveTextContent('doesn\'t accept the "reasoning.effort" setting');
+    const details = within(alert).getByText("Details");
+    expect(within(alert).getByText(/HTTP 400 unsupported_parameter/)).not.toBeVisible();
+    await user.click(details);
+    expect(within(alert).getByText(/HTTP 400 unsupported_parameter/)).toBeVisible();
+  });
+
+  it("turns an app error with details into a message and details", () => {
+    const error = assistantFailure({ message: "OpenAI is busy right now. Try again in a moment.", details: "HTTP 503 server_is_overloaded: busy" });
+    expect(error).toBeInstanceOf(AssistantError);
+    expect((error as AssistantError).message).toBe("OpenAI is busy right now. Try again in a moment.");
+    expect((error as AssistantError).details).toBe("HTTP 503 server_is_overloaded: busy");
+    expect(assistantFailure("plain")).toBe("plain");
   });
 
   it("Stop ends a reply in progress", async () => {

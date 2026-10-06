@@ -87,7 +87,7 @@ export interface Applied {
 /**
  * Everything the assistant asks of the app. Keys only ever go in: nothing returns one, and every
  * call to a provider is made by the app (in Rust), never from this window. Errors reject with a
- * plain-language message.
+ * plain-language message (an {@link AssistantError} with the provider's own words, when there are any).
  */
 export interface AssistantApi {
   keyStorage(): Promise<KeyStorage>;
@@ -115,6 +115,34 @@ export interface AssistantApi {
   sync(): Promise<boolean>;
 }
 
+/** A failed chat turn or model list: the plain message, and the provider's own words under "Details". */
+export class AssistantError extends Error {
+  constructor(
+    message: string,
+    readonly details: string | null = null,
+  ) {
+    super(message);
+    this.name = "AssistantError";
+  }
+}
+
+/** The app's `{ message, details }` failure as an {@link AssistantError}; anything else as it came. */
+export function assistantFailure(error: unknown): unknown {
+  if (error !== null && typeof error === "object" && !(error instanceof Error) && "message" in error && typeof error.message === "string") {
+    const details = "details" in error && typeof error.details === "string" ? error.details : null;
+    return new AssistantError(error.message, details);
+  }
+  return error;
+}
+
+async function failing<T>(call: Promise<T>): Promise<T> {
+  try {
+    return await call;
+  } catch (e) {
+    throw assistantFailure(e);
+  }
+}
+
 /** The event the app streams replies on. */
 export const ASSISTANT_EVENT = "assistant-event";
 
@@ -126,12 +154,12 @@ export const tauriAssistant: AssistantApi = {
   hasApiKey: (provider) => invoke("has_api_key", { provider }),
   keyLocation: (provider) => invoke("api_key_location", { provider }),
   deleteApiKey: (provider) => invoke("delete_api_key", { provider }),
-  listModels: (provider) => invoke("list_ai_models", { provider }),
+  listModels: (provider) => failing(invoke("list_ai_models", { provider })),
   async send(provider, model, message, context, onEvent) {
     // One reply at a time: every event heard while this call is out belongs to it.
     const unlisten = await listen<{ turn: number; event: ChatEvent }>(ASSISTANT_EVENT, (e) => onEvent(e.payload.event));
     try {
-      return await invoke<TurnReply>("ai_send", { provider, model, message, context });
+      return await failing(invoke<TurnReply>("ai_send", { provider, model, message, context }));
     } finally {
       unlisten();
     }

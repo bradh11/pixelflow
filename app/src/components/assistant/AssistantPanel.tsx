@@ -110,6 +110,12 @@ export function AssistantPanel() {
                 ) : item.role === "error" ? (
                   <div role="alert" className="rounded-md bg-red-50 px-3 py-2 text-red-700 dark:bg-red-950/50 dark:text-red-300">
                     {item.text}
+                    {item.details && (
+                      <details className="mt-1 text-xs">
+                        <summary className="cursor-pointer select-none">Details</summary>
+                        <p className="mt-1 font-mono break-words whitespace-pre-wrap opacity-90">{item.details}</p>
+                      </details>
+                    )}
                   </div>
                 ) : proposal && item.proposalId === proposal.id ? (
                   <ProposalCard proposal={proposal} current />

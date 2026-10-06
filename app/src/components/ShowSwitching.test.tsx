@@ -152,25 +152,82 @@ describe("the show menu", () => {
     await openHouse(user);
     await user.click(showMenuButton());
     const menu = screen.getByRole("menu", { name: "Show" });
-    expect(within(menu).getByText(HOUSE)).toBeInTheDocument();
+    expect(menu).toHaveAccessibleDescription(HOUSE);
     const recent = within(menu).getByRole("group", { name: "Recent shows" });
-    const items = within(recent).getAllByRole("menuitem");
-    expect(items[0]).toHaveAttribute("aria-current", "true");
+    const items = within(recent).getAllByRole("menuitemradio");
+    expect(items[0]).toHaveAttribute("aria-checked", "true");
+    expect(items[1]).toHaveAttribute("aria-checked", "false");
     expect(items[0]).toHaveTextContent("Demo House");
     for (const name of ["Open…", "New show", "Import from xLights…", "Rename…", "Save", "Save As…", "Close show"]) {
       expect(within(menu).getByRole("menuitem", { name: new RegExp(`^${name}(⌘|⇧|$)`) })).toBeInTheDocument();
     }
-    await user.click(within(recent).getByRole("menuitem", { name: /Shed/ }));
+    await user.click(within(recent).getByRole("menuitemradio", { name: /Shed/ }));
     await waitFor(() => expect(useApp.getState().snapshot?.show.name).toBe("Shed"));
     expect(backend.calls).toContain(`openShow:${SHED}`);
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("holds only menu items: the header describes it, and an empty list is a disabled item", async () => {
+    const { backend, user } = await start();
+    await openHouse(user);
+    backend.recent = [];
+    await user.click(showMenuButton());
+    const menu = screen.getByRole("menu", { name: "Show" });
+    await waitFor(() => expect(within(menu).getByRole("menuitem", { name: /Shows you open or save/ })).toHaveAttribute("aria-disabled", "true"));
+    // Nothing in it but groups, items, and separators.
+    const allowed = new Set(["group", "menuitem", "menuitemradio", "separator", "none", "presentation"]);
+    for (const child of Array.from(menu.children)) expect(allowed).toContain(child.getAttribute("role"));
+    for (const child of Array.from(within(menu).getByRole("group").children)) {
+      expect(child.getAttribute("aria-hidden") === "true" || allowed.has(child.getAttribute("role") ?? "")).toBe(true);
+    }
+  });
+
+  it("opens from the keyboard with ArrowDown", async () => {
+    const { user } = await start();
+    await openHouse(user);
+    showMenuButton().focus();
+    await user.keyboard("{ArrowDown}");
+    const items = within(screen.getByRole("menu")).getAllByRole("menuitemradio");
+    expect(items[0]).toHaveFocus();
+  });
+
+  it("gives focus back to the name once an item's action is done", async () => {
+    const { backend, user } = await start();
+    await openHouse(user);
+    backend.nextOpenPath = null; // the Open dialog is cancelled
+    await user.click(showMenuButton());
+    await user.click(screen.getByRole("menuitem", { name: /^Open…/ }));
+    await waitFor(() => expect(showMenuButton()).toHaveFocus());
+    // And after renaming, with Enter or Escape.
+    await user.click(showMenuButton());
+    await user.click(screen.getByRole("menuitem", { name: "Rename…" }));
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(showMenuButton()).toHaveFocus());
+    await user.dblClick(showMenuButton());
+    await user.keyboard("{End} 2{Enter}");
+    await waitFor(() => expect(showMenuButton()).toHaveFocus());
+    expect(showMenuButton()).toHaveTextContent("Demo House 2");
+  });
+
+  it("Escape in the name field stops there", async () => {
+    const { user } = await start();
+    await openHouse(user);
+    const seen = vi.fn();
+    window.addEventListener("keydown", seen);
+    try {
+      await user.dblClick(showMenuButton());
+      await user.keyboard("{Escape}");
+      expect(seen).not.toHaveBeenCalledWith(expect.objectContaining({ key: "Escape" }));
+    } finally {
+      window.removeEventListener("keydown", seen);
+    }
   });
 
   it("moves through its items with the arrow keys and closes with Escape", async () => {
     const { user } = await start();
     await openHouse(user);
     await user.click(showMenuButton());
-    const items = within(screen.getByRole("menu")).getAllByRole("menuitem");
+    const items = Array.from(screen.getByRole("menu").querySelectorAll<HTMLElement>('[role^="menuitem"]'));
     expect(items[0]).toHaveFocus();
     await user.keyboard("{ArrowDown}");
     expect(items[1]).toHaveFocus();
@@ -200,7 +257,7 @@ describe("the show menu", () => {
     await waitFor(() => expect(welcome()).not.toBeInTheDocument());
     act(() => useApp.getState().dismissImportReport());
     await user.click(showMenuButton());
-    expect(within(screen.getByRole("menu")).getByText("(not saved yet)")).toBeInTheDocument();
+    expect(screen.getByRole("menu")).toHaveAccessibleDescription("(not saved yet)");
   });
 
   it("renames the show from the menu, as one undo step", async () => {
@@ -252,7 +309,7 @@ describe("leaving a show with unsaved work", () => {
     await act(() => useApp.getState().apply([{ type: "renameShow", name: "Changed" }]));
     act(() => useSequencer.setState({ dirty: true }));
     await user.click(showMenuButton());
-    await user.click(screen.getByRole("menuitem", { name: /Shed/ }));
+    await user.click(screen.getByRole("menuitemradio", { name: /Shed/ }));
     const dialog = await screen.findByRole("dialog", { name: `Save changes to Changed and ${useSequencer.getState().doc!.name}?` });
     await user.click(within(dialog).getByRole("button", { name: "Save all" }));
     await waitFor(() => expect(useApp.getState().snapshot?.show.name).toBe("Shed"));
@@ -293,7 +350,7 @@ describe("shortcuts and the menu bar", () => {
     await openHouse(user);
     await user.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
     const recent = within(await screen.findByRole("menu")).getByRole("group", { name: "Recent shows" });
-    expect(within(recent).getAllByRole("menuitem")[0]).toHaveFocus();
+    expect(within(recent).getAllByRole("menuitemradio")[0]).toHaveFocus();
   });
 
   it("⌘W with no show open is left to the window", async () => {

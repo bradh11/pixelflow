@@ -30,7 +30,7 @@ type Migration = fn(Value) -> Result<Value, ModelError>;
 
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
 const MIGRATIONS: &[Migration] = &[
-    v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9,
+    v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10,
 ];
 
 /// Version 2 only adds the `falcon` adapter value, so version 1 documents are already valid.
@@ -102,6 +102,12 @@ fn v7_to_v8(doc: Value) -> Result<Value, ModelError> {
 
 /// Version 9 only adds new prop shapes, so version 8 documents are already valid.
 fn v8_to_v9(doc: Value) -> Result<Value, ModelError> {
+    Ok(doc)
+}
+
+/// Version 10 only adds settings to the arch, circle, star and tree shapes (each left out reads
+/// as before), so version 9 documents are already valid.
+fn v9_to_v10(doc: Value) -> Result<Value, ModelError> {
     Ok(doc)
 }
 
@@ -248,22 +254,22 @@ mod tests {
     }
 
     #[test]
-    fn version_7_and_8_files_open_unchanged_and_save_as_version_9() {
+    fn version_7_to_9_files_open_unchanged_and_save_as_version_10() {
         // A show with no new prop shapes, saved now, then labelled as written by older versions:
-        // 7 (full paths) and 8 (relative paths and `savedIn`, which still has no new shapes).
+        // 7 (full paths), 8 (relative paths and `savedIn`) and 9 (new prop shapes, none used here).
         let mut show = sample_show();
         show.sequences
             .push(crate::SequenceEntry::new("Medley", "Medley.fseq"));
         let text = show_file_to_json(&show, Some("/Shows/Haas")).unwrap();
-        assert!(text.contains("\"schemaVersion\": 9"), "written as version 9");
-        for version in [7, 8, 9] {
-            let old = text.replace("\"schemaVersion\": 9", &format!("\"schemaVersion\": {version}"));
+        assert!(text.contains("\"schemaVersion\": 10"), "written as version 10");
+        for version in [7, 8, 9, 10] {
+            let old = text.replace("\"schemaVersion\": 10", &format!("\"schemaVersion\": {version}"));
             let (read, saved_in) = show_file_from_json(&old).unwrap();
             assert_eq!(read, show, "version {version} reads as it was");
-            assert_eq!(read.schema_version, 9);
+            assert_eq!(read.schema_version, 10);
             assert_eq!(saved_in.as_deref(), Some("/Shows/Haas"), "version {version}");
             let saved: Value = serde_json::from_str(&show_to_json(&read).unwrap()).unwrap();
-            assert_eq!(saved["schemaVersion"], 9);
+            assert_eq!(saved["schemaVersion"], 10);
         }
     }
 
@@ -312,7 +318,7 @@ mod tests {
         }
         let text = show_to_json(&show).unwrap();
         let saved: Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(saved["schemaVersion"], 9);
+        assert_eq!(saved["schemaVersion"], 10);
         assert_eq!(saved["props"][0]["shape"]["type"], "polyLine");
         let back = show_from_json(&text).unwrap();
         assert_eq!(back.props, show.props);
@@ -442,7 +448,7 @@ mod tests {
         assert_eq!(show.background.unwrap().path, "/Shows/house.jpg");
         let saved: Value =
             serde_json::from_str(&show_to_json(&show_from_json(v7).unwrap()).unwrap()).unwrap();
-        assert_eq!(saved["schemaVersion"], 9);
+        assert_eq!(saved["schemaVersion"], 10);
     }
 
     #[test]

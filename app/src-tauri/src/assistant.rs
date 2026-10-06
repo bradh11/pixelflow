@@ -355,6 +355,8 @@ mod tests {
                 models: Default::default(),
                 export_cancels: Default::default(),
                 checking_files: Default::default(),
+                recent: Arc::new(crate::recent::RecentShows::in_memory()),
+                last_folders: crate::pickers::LastFolders::new(None),
             })
             .manage(AiState::new(KeyVault::new(Box::new(store)), providers))
             .build(context())

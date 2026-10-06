@@ -9,7 +9,11 @@ mod devices;
 mod files;
 mod house;
 mod layout;
+mod logging;
+mod menu;
+mod pickers;
 mod playback;
+mod recent;
 mod sequencer;
 mod xlights;
 
@@ -18,10 +22,10 @@ use pf_engine::{
     Edit, Engine, EngineError, HistoryEntry, OutputStatus, PatternSpec, ShowSnapshot, TargetSpec,
 };
 use pf_model::Show;
-use std::path::PathBuf;
-use std::sync::{Mutex, MutexGuard, PoisonError};
-use std::time::Duration;
-use tauri::{Manager, State};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::{Duration, Instant};
+use tauri::{AppHandle, Manager, Runtime, State};
 
 /// How often unsaved work (the show and the open sequence) is kept on disk.
 const AUTOSAVE_EVERY: Duration = Duration::from_secs(30);
@@ -40,6 +44,10 @@ struct AppState {
     export_cancels: std::sync::atomic::AtomicU64,
     /// Set while a check of the show's files runs (see `files::check_files`).
     checking_files: std::sync::atomic::AtomicBool,
+    /// Shows opened lately (written only here, when a show is opened, saved, or restored).
+    recent: Arc<recent::RecentShows>,
+    /// The folder each kind of file dialog was last used in.
+    last_folders: pickers::LastFolders,
 }
 
 impl AppState {
@@ -67,6 +75,25 @@ impl AppState {
 }
 
 type Reply<T> = Result<T, String>;
+
+/// A path from the window, as path text (see `pf_model::path_to_text`), read back without
+/// losing anything: the dialogs hand the window paths this way.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PathArg(PathBuf);
+
+impl<'de> serde::Deserialize<'de> for PathArg {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        Ok(Self(pf_model::path_from_text(&text)))
+    }
+}
+
+impl std::ops::Deref for PathArg {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
 
 fn message(error: EngineError) -> String {
     error.to_string()
@@ -98,26 +125,67 @@ async fn new_show(state: State<'_, AppState>, name: String) -> Reply<ShowSnapsho
 }
 
 #[tauri::command]
-async fn open_show(state: State<'_, AppState>, path: String) -> Reply<ShowSnapshot> {
-    let path = pf_model::path_from_text(&path);
+async fn open_show<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+    path: PathArg,
+) -> Reply<ShowSnapshot> {
+    open_show_at(&app, &state, path.0).await
+}
+
+/// Opens the show file at `path`, and puts it at the top of the recent shows. Every open (the
+/// Open dialog, a recent show, Locate…) comes through here.
+async fn open_show_at<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &AppState,
+    path: PathBuf,
+) -> Reply<ShowSnapshot> {
+    let started = Instant::now();
     // Read (and its files looked for) without holding the engine.
     let file = path.clone();
     let loaded = tauri::async_runtime::spawn_blocking(move || pf_engine::read_show(&file))
         .await
         .map_err(|_| "Something went wrong opening the show.".to_string())?
         .map_err(message)?;
+    let read = started.elapsed();
     let snapshot = state.engine().open_read(&path, loaded);
-    Ok(state.trusting(snapshot))
+    let snapshot = state.trusting(snapshot);
+    log::debug!(
+        "open show: read in {} ms, ready in {} ms",
+        read.as_millis(),
+        started.elapsed().as_millis()
+    );
+    remember(app, state, &snapshot).await;
+    Ok(snapshot)
+}
+
+/// Puts the saved show of `snapshot` at the top of the recent shows (and File → Open Recent).
+/// Runs off the engine and the window; a list that can't be written is only logged.
+async fn remember<R: Runtime>(app: &AppHandle<R>, state: &AppState, snapshot: &ShowSnapshot) {
+    let Some(visit) = recent::Visit::of(snapshot) else {
+        return;
+    };
+    let list = Arc::clone(&state.recent);
+    let _ = tauri::async_runtime::spawn_blocking(move || list.record(visit, recent::now_ms())).await;
+    menu::refresh_recent(app, &state.recent);
 }
 
 #[tauri::command]
-async fn save_show(state: State<'_, AppState>) -> Reply<ShowSnapshot> {
-    state.engine().save().map_err(message)
+async fn save_show<R: Runtime>(app: AppHandle<R>, state: State<'_, AppState>) -> Reply<ShowSnapshot> {
+    let snapshot = state.engine().save().map_err(message)?;
+    remember(&app, &state, &snapshot).await;
+    Ok(snapshot)
 }
 
 #[tauri::command]
-async fn save_show_as(state: State<'_, AppState>, path: PathBuf) -> Reply<ShowSnapshot> {
-    state.engine().save_as(&path).map_err(message)
+async fn save_show_as<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+    path: PathArg,
+) -> Reply<ShowSnapshot> {
+    let snapshot = state.engine().save_as(&path).map_err(message)?;
+    remember(&app, &state, &snapshot).await;
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -126,14 +194,20 @@ async fn list_history(state: State<'_, AppState>) -> Reply<Vec<HistoryEntry>> {
 }
 
 #[tauri::command]
-async fn restore_history(state: State<'_, AppState>, id: String) -> Reply<ShowSnapshot> {
+async fn restore_history<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+    id: String,
+) -> Reply<ShowSnapshot> {
     let file = state.engine().history_file(&id).map_err(message)?;
     let restored = tauri::async_runtime::spawn_blocking(move || file.read())
         .await
         .map_err(|_| "Something went wrong reading that version.".to_string())?
         .map_err(message)?;
     let snapshot = state.engine().restore_read(restored);
-    Ok(state.trusting(snapshot))
+    let snapshot = state.trusting(snapshot);
+    remember(&app, &state, &snapshot).await;
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -244,6 +318,11 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         files::sequence_music_missing,
         files::find_sequence_music,
         files::locate_sequence_music,
+        pickers::pick_path,
+        recent::list_recent_shows,
+        recent::forget_recent_show,
+        recent::clear_recent_shows,
+        recent::locate_recent_show,
     ])
 }
 
@@ -254,10 +333,13 @@ fn context<R: tauri::Runtime>() -> tauri::Context<R> {
 
 /// Starts the desktop app.
 pub fn run() {
+    logging::init();
     with_commands(tauri::Builder::default())
         .plugin(tauri_plugin_dialog::init())
+        .on_menu_event(menu::on_event)
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
+            let config_dir = app.path().app_config_dir().ok();
             app.manage(AppState {
                 engine: Mutex::new(Engine::new(data_dir)),
                 devices: DeviceAccess::network(),
@@ -266,7 +348,12 @@ pub fn run() {
                 models: Default::default(),
                 export_cancels: Default::default(),
                 checking_files: Default::default(),
+                recent: Arc::new(recent::RecentShows::new(config_dir.clone())),
+                last_folders: pickers::LastFolders::new(config_dir),
             });
+            // macOS has a menu bar either way: this one has the show's File menu.
+            #[cfg(target_os = "macos")]
+            app.set_menu(menu::build(app.handle(), &app.state::<AppState>().recent)?)?;
             app.manage(assistant::AiState::live());
             let handle = app.handle().clone();
             std::thread::Builder::new()
@@ -343,6 +430,8 @@ mod tests {
                 models: Default::default(),
                 export_cancels: Default::default(),
                 checking_files: Default::default(),
+                recent: Arc::new(recent::RecentShows::new(Some(dir.path().join("config")))),
+                last_folders: pickers::LastFolders::new(Some(dir.path().join("config"))),
             })
             .build(context())
             .unwrap();
@@ -1803,6 +1892,116 @@ mod tests {
         let snapshot = call(&webview, "check_files", json!({ "all": false })).unwrap();
         assert_eq!(snapshot["filesChecked"], true);
         assert_eq!(snapshot["missingFiles"][0]["name"], "gone.png");
+    }
+
+    /// The recent shows, as the window gets them.
+    fn recent_shows(webview: &WebviewWindow<MockRuntime>) -> Vec<Value> {
+        call(webview, "list_recent_shows", json!({}))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .clone()
+    }
+
+    #[test]
+    fn shows_saved_opened_and_restored_go_to_the_top_of_the_recent_list() {
+        let (_app, webview, dir) = app();
+        assert!(recent_shows(&webview).is_empty());
+        let house = dir.path().join("house.pixelflow.json");
+        let prop = json!({
+            "id": "11111111-0000-4000-8000-000000000001", "name": "Line",
+            "shape": { "source": "generator", "type": "line", "nodes": 50, "length": 2 },
+            "transform": { "position": { "x": 0, "y": 0, "z": 0 }, "rotationDeg": { "x": 0, "y": 0, "z": 0 },
+                           "scale": { "x": 1, "y": 1, "z": 1 } },
+            "colorOrder": "RGB", "regions": [], "tags": []
+        });
+        call(
+            &webview,
+            "apply_edits",
+            json!({ "edits": [{ "type": "renameShow", "name": "House" }, { "type": "addProp", "prop": prop }] }),
+        )
+        .unwrap();
+        call(&webview, "save_show_as", json!({ "path": house })).unwrap();
+        let list = recent_shows(&webview);
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0]["name"], "House");
+        assert_eq!(list[0]["path"], json!(house.to_str().unwrap()));
+        assert_eq!(list[0]["props"], 1);
+        assert_eq!(list[0]["pixels"], 50);
+        assert_eq!(list[0]["status"], "here");
+        assert!(list[0]["thumbnail"].as_str().unwrap().starts_with("<svg"));
+
+        // A new show isn't on the list until it's saved.
+        call(&webview, "new_show", json!({ "name": "Shed" })).unwrap();
+        assert_eq!(recent_shows(&webview).len(), 1);
+        let shed = dir.path().join("shed.pixelflow.json");
+        call(&webview, "save_show_as", json!({ "path": shed })).unwrap();
+        let names: Vec<Value> = recent_shows(&webview).iter().map(|s| s["name"].clone()).collect();
+        assert_eq!(names, vec![json!("Shed"), json!("House")]);
+
+        // Opening brings a show back to the top; a failed open changes nothing.
+        call(&webview, "open_show", json!({ "path": house })).unwrap();
+        assert!(
+            call(
+                &webview,
+                "open_show",
+                json!({ "path": dir.path().join("nope.json") })
+            )
+            .is_err()
+        );
+        let names: Vec<Value> = recent_shows(&webview).iter().map(|s| s["name"].clone()).collect();
+        assert_eq!(names, vec![json!("House"), json!("Shed")]);
+
+        // Restoring an autosaved version keeps the show at the top, under its file.
+        call(
+            &webview,
+            "apply_edits",
+            json!({ "edits": [{ "type": "renameShow", "name": "House 2" }] }),
+        )
+        .unwrap();
+        autosave(&_app.state::<AppState>(), "test");
+        let id = call(&webview, "list_history", json!({})).unwrap()[0]["id"].clone();
+        call(&webview, "open_show", json!({ "path": shed })).unwrap();
+        call(&webview, "open_show", json!({ "path": house })).unwrap();
+        call(&webview, "restore_history", json!({ "id": id })).unwrap();
+        let list = recent_shows(&webview);
+        assert_eq!(list[0]["path"], json!(house.to_str().unwrap()));
+        assert_eq!(list[0]["name"], "House 2");
+    }
+
+    #[test]
+    fn recent_shows_that_are_gone_stay_listed_until_taken_off() {
+        let (_app, webview, dir) = app();
+        let a = dir.path().join("a.pixelflow.json");
+        let b = dir.path().join("b.pixelflow.json");
+        call(&webview, "save_show_as", json!({ "path": a })).unwrap();
+        call(&webview, "save_show_as", json!({ "path": b })).unwrap();
+        std::fs::remove_file(&a).unwrap();
+        let list = recent_shows(&webview);
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[1]["status"], "missing");
+        // Opening it fails, and it stays on the list.
+        assert!(call(&webview, "open_show", json!({ "path": a })).is_err());
+        assert_eq!(recent_shows(&webview).len(), 2);
+        call(&webview, "forget_recent_show", json!({ "path": a })).unwrap();
+        assert_eq!(recent_shows(&webview).len(), 1);
+        call(&webview, "clear_recent_shows", json!({})).unwrap();
+        assert!(recent_shows(&webview).is_empty());
+        // The window can't name a show for the list: locating one needs it on the list.
+        let error = call(&webview, "locate_recent_show", json!({ "path": a })).unwrap_err();
+        assert_eq!(error, json!("That show isn't on your recent list any more."));
+    }
+
+    #[test]
+    fn path_text_from_the_window_is_read_back_exactly() {
+        let arg: PathArg = serde_json::from_value(json!("/shows/Caf\u{0}e9.json")).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            assert_eq!(arg.as_os_str().as_bytes(), b"/shows/Caf\xe9.json");
+        }
+        let plain: PathArg = serde_json::from_value(json!("/shows/House.json")).unwrap();
+        assert_eq!(&*plain, Path::new("/shows/House.json"));
     }
 
     #[test]

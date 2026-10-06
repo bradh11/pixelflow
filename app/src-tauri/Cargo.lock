@@ -3127,11 +3127,13 @@ name = "pixelflow-app"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "log",
  "pf-ai",
  "pf-analysis",
  "pf-audio",
  "pf-devices",
  "pf-engine",
+ "pf-geometry",
  "pf-model",
  "pf-output",
  "pf-sequence",

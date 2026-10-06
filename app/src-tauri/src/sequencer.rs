@@ -1,7 +1,7 @@
 //! Sequencer commands: authoring a sequence document, playing it live, exporting it to `.fseq`,
 //! and detecting beats in its music.
 
-use crate::{AppState, Reply, message};
+use crate::{AppState, PathArg, Reply, message};
 use pf_analysis::Analysis;
 use pf_engine::{
     Engine, EngineError, ExportLayout, ExportSummary, PlaybackStatus, SequenceEdit, SequenceEditResult,
@@ -9,7 +9,7 @@ use pf_engine::{
 };
 use pf_sequence::{EffectInfo, TimingTrack};
 use serde::Serialize;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::ipc::Response;
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
@@ -81,7 +81,7 @@ pub(crate) async fn save_sequence_doc(state: State<'_, AppState>) -> Reply<Seque
 #[tauri::command]
 pub(crate) async fn save_sequence_doc_as(
     state: State<'_, AppState>,
-    path: PathBuf,
+    path: PathArg,
 ) -> Reply<SequenceSnapshot> {
     state.engine().save_sequence_doc_as(&path).map_err(message)
 }
@@ -179,7 +179,7 @@ pub(crate) async fn set_sequence_doc_loop(
 #[tauri::command]
 pub(crate) async fn add_sequence_doc_to_show(
     state: State<'_, AppState>,
-    path: PathBuf,
+    path: PathArg,
 ) -> Reply<ShowSnapshot> {
     state.engine().add_sequence_doc_to_show(&path).map_err(message)
 }
@@ -197,7 +197,7 @@ pub(crate) async fn sequence_export_layout(state: State<'_, AppState>) -> Reply<
 pub(crate) async fn export_sequence_doc<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
-    path: PathBuf,
+    path: PathArg,
 ) -> Reply<ExportSummary> {
     let job = state.engine().sequence_export().map_err(message)?;
     let started = state.export_cancels.load(Ordering::Acquire);
@@ -294,7 +294,7 @@ pub(crate) struct TimingImported {
 /// into the open sequence, after its other tracks, as one undo step. The file is read without
 /// holding the engine; the tracks are only added if the same sequence is still open.
 #[tauri::command]
-pub(crate) async fn import_timing_file(state: State<'_, AppState>, path: PathBuf) -> Reply<TimingImported> {
+pub(crate) async fn import_timing_file(state: State<'_, AppState>, path: PathArg) -> Reply<TimingImported> {
     let (doc, duration_ms) = {
         let engine = state.engine();
         let doc = engine
@@ -373,7 +373,7 @@ pub(crate) fn export_layers(
 pub(crate) async fn export_timing_track(
     state: State<'_, AppState>,
     id: pf_sequence::TimingTrackId,
-    path: PathBuf,
+    path: PathArg,
 ) -> Reply<usize> {
     let layers = {
         let engine = state.engine();

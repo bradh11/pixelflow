@@ -10,6 +10,7 @@
 //! from the show file on disk; Locate… asks the user with the system's file dialog. A found
 //! photo or house model becomes readable by the window only then.
 
+use crate::pickers::{Pick, PickKind};
 use crate::{AppState, Reply, message};
 use pf_engine::{FileRole, FilesFound, FoundFile, MissingFile, SequenceEditResult, ShowSnapshot};
 use pf_model::path_from_text;
@@ -17,7 +18,6 @@ use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use tauri::State;
-use tauri_plugin_dialog::DialogExt;
 
 /// Runs `work` (which reads the disk) away from the engine and the window.
 async fn off_lock<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> Reply<T> {
@@ -97,7 +97,7 @@ pub(crate) async fn locate_file<R: tauri::Runtime>(
         .into_iter()
         .find(|m| m.file == file)
         .map(|m| m.name);
-    let Some(path) = pick(&app, file, name.as_deref()).await? else {
+    let Some(path) = pick(&app, &state, file, name.as_deref()).await? else {
         return Ok(None);
     };
     located(&state, file, &path).await.map(Some)
@@ -117,32 +117,22 @@ pub(crate) async fn located(state: &AppState, file: FileRole, path: &Path) -> Re
 /// The system's "open file" dialog for a file of `file`'s kind, titled with the file's name.
 async fn pick<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
+    state: &AppState,
     file: FileRole,
     name: Option<&str>,
 ) -> Reply<Option<PathBuf>> {
-    let (kind, extensions): (&str, &[&str]) = match file {
-        FileRole::Sequence { .. } => ("FPP sequence", &["fseq"]),
-        FileRole::Music { .. } | FileRole::SequenceDocMusic => {
-            ("Music", &["mp3", "m4a", "wav", "ogg", "flac"])
-        }
-        FileRole::Photo => ("Photo", crate::layout::IMAGE_EXTENSIONS),
-        FileRole::HouseModel => ("3D model", crate::house::MODEL_EXTENSIONS),
+    let kind = match file {
+        FileRole::Sequence { .. } => PickKind::Fseq,
+        FileRole::Music { .. } | FileRole::SequenceDocMusic => PickKind::Music,
+        FileRole::Photo => PickKind::Photo,
+        FileRole::HouseModel => PickKind::HouseModel,
     };
-    let title = match name {
+    let mut request = Pick::of(kind);
+    request.title = Some(match name {
         Some(name) => format!("Where is {name} now?"),
         None => "Choose the file".to_string(),
-    };
-    let dialog = app.dialog().clone();
-    let picked = tauri::async_runtime::spawn_blocking(move || {
-        dialog
-            .file()
-            .add_filter(kind, extensions)
-            .set_title(title)
-            .blocking_pick_file()
-    })
-    .await
-    .map_err(|_| "Something went wrong opening the file dialog.".to_string())?;
-    Ok(picked.and_then(|p| p.into_path().ok()))
+    });
+    crate::pickers::pick(app, state, request).await
 }
 
 /// The open sequence's music, when it isn't where the sequence says.
@@ -194,7 +184,7 @@ pub(crate) async fn locate_sequence_music<R: tauri::Runtime>(
         .engine()
         .sequence_music()
         .map(|music| pf_model::file_name_of(&pf_model::path_to_text(&music)));
-    let Some(path) = pick(&app, FileRole::SequenceDocMusic, name.as_deref()).await? else {
+    let Some(path) = pick(&app, &state, FileRole::SequenceDocMusic, name.as_deref()).await? else {
         return Ok(None);
     };
     let chosen = path.clone();

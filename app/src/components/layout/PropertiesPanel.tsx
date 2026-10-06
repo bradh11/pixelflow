@@ -24,6 +24,8 @@ import { useApp } from "../../state/store";
 import { useView3d } from "../../state/view3d";
 import { HouseModelPanel } from "../layout3d/HouseModelPanel";
 import { SubmodelsSection } from "./SubmodelsSection";
+import { AddBendButton, JoinLines, PolyLineSection } from "./PolyLineSection";
+import { isPoly } from "../../lib/polylineMath";
 import { Button, Input, Select } from "../ui";
 
 const COLOR_ORDERS: ColorOrder[] = ["RGB", "RBG", "GRB", "GBR", "BRG", "BGR", "RGBW", "GRBW"];
@@ -164,8 +166,9 @@ function OnePropPanel({ prop, points }: { prop: Prop; points: ArrayLike<number> 
           {shapeLabel(shape)} · {thousands(nodeCount(shape))} pixels
         </p>
       </Section>
+      {isPoly(shape) && <PolyLineSection prop={prop} shape={shape} />}
       <Section title="Size and pixels">
-        {fields.length > 0 ? (
+        {isPoly(shape) ? null : fields.length > 0 ? (
           <div className="grid grid-cols-2 gap-2">
             {fields.map((f) => (
               <NumberField
@@ -185,7 +188,7 @@ function OnePropPanel({ prop, points }: { prop: Prop; points: ArrayLike<number> 
               : "This custom grid's pixels can't be changed here yet."}
           </p>
         )}
-        <label className="mt-2 flex flex-col gap-1 text-xs">
+        <label className={`${isPoly(shape) ? "" : "mt-2 "}flex flex-col gap-1 text-xs`}>
           <span className="text-neutral-500 dark:text-neutral-400">Color order</span>
           <Select
             value={prop.colorOrder}
@@ -237,6 +240,7 @@ function OnePropPanel({ prop, points }: { prop: Prop; points: ArrayLike<number> 
       <SubmodelsSection prop={prop} points={points} />
       <Section title="Actions">
         <div className="flex flex-wrap gap-2">
+          <AddBendButton prop={prop} />
           <DuplicateButton ids={[prop.id]} />
           <Button
             variant="danger"
@@ -322,6 +326,7 @@ function ManyPropsPanel({ ids, preview }: { ids: string[]; preview: PreviewProp[
           </button>
         </div>
       </Section>
+      <JoinLines ids={ids} />
       <Section title="Actions">
         <div className="flex flex-wrap gap-2">
           <DuplicateButton ids={ids} />

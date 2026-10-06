@@ -52,6 +52,8 @@ interface LayoutEditorState {
   clipboard: { props: Prop[]; nextOffset: number } | null;
   /** The submodel or face shown on the canvas; cleared when its prop is no longer selected. */
   highlight: Highlight | null;
+  /** The point picked on the selected poly line (Delete removes it); cleared when the selection changes. */
+  polyPoint: { prop: string; index: number } | null;
 
   setTool(tool: Tool): void;
   select(ids: string[]): void;
@@ -63,10 +65,15 @@ interface LayoutEditorState {
   setPhotoDraft(draft: Background | null): void;
   setView(view: View | null): void;
   setHighlight(highlight: Highlight | null): void;
+  setPolyPoint(point: { prop: string; index: number } | null): void;
 }
 
 /** The highlight, if its prop is still selected. */
 const keep = (highlight: Highlight | null, selected: string[]) => (highlight && selected.includes(highlight.prop) ? highlight : null);
+
+/** The picked poly line point, if its prop is still the only one selected. */
+const keepPoint = (point: LayoutEditorState["polyPoint"], selected: string[]) =>
+  point && selected.length === 1 && selected[0] === point.prop ? point : null;
 
 export const useLayoutEditor = create<LayoutEditorState>((set, get) => ({
   tool: "select",
@@ -80,22 +87,24 @@ export const useLayoutEditor = create<LayoutEditorState>((set, get) => ({
   nudge: null,
   clipboard: null,
   highlight: null,
+  polyPoint: null,
 
   setTool: (tool) => set({ tool, editPhoto: false }),
   select: (ids) => {
     const selected = [...new Set(ids)];
-    set({ selected, highlight: keep(get().highlight, selected) });
+    set({ selected, highlight: keep(get().highlight, selected), polyPoint: keepPoint(get().polyPoint, selected) });
   },
   toggle: (id) => {
     const before = get().selected;
     const selected = before.includes(id) ? before.filter((s) => s !== id) : [...before, id];
-    set({ selected, highlight: keep(get().highlight, selected) });
+    set({ selected, highlight: keep(get().highlight, selected), polyPoint: keepPoint(get().polyPoint, selected) });
   },
-  clear: () => set({ selected: [], highlight: null }),
+  clear: () => set({ selected: [], highlight: null, polyPoint: null }),
   setSnap: (snap) => set({ snap }),
   setEditPhoto: (editPhoto) =>
     set({ editPhoto, tool: "select", selected: editPhoto ? [] : get().selected, highlight: editPhoto ? null : get().highlight }),
   setPhotoDraft: (photoDraft) => set({ photoDraft }),
   setView: (view) => set({ view }),
   setHighlight: (highlight) => set({ highlight }),
+  setPolyPoint: (polyPoint) => set({ polyPoint }),
 }));

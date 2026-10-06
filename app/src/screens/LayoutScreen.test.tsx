@@ -6,7 +6,7 @@ import { MemoryBackend, emptyShow } from "../api/memory";
 import type { Edit, Prop, Show } from "../api/types";
 import { newController } from "../lib/shows";
 import { type Handle, type Pt, frameOfPoints, handlePositions, toScreen, toWorld } from "../lib/layoutMath";
-import { newProp } from "../lib/shows";
+import { newProp, nodeCount } from "../lib/shows";
 import { useLayoutEditor } from "../state/layoutEditor";
 import { useApp } from "../state/store";
 import { DesktopLikeBackend } from "../test/desktopBackend";
@@ -122,7 +122,7 @@ describe("LayoutScreen", () => {
     expect(canvas()).toHaveAccessibleDescription(/Click a prop to select it/);
     expect(canvas()).toHaveAccessibleDescription(/Command-A to select every prop/);
     expect(canvas()).toHaveAccessibleDescription(/Command-D duplicates it/);
-    expect(canvas()).toHaveAccessibleDescription(/pick Line, Arch, Matrix, Tree, Circle, or Star in the tool bar/);
+    expect(canvas()).toHaveAccessibleDescription(/pick Line, Arch, Matrix, Tree, or a shape under More shapes/);
     const tools = screen.getByRole("toolbar", { name: "Layout tools" });
     expect(within(tools).getByRole("button", { name: "Select" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByLabelText("Name of Gutter")).toBeInTheDocument();
@@ -835,5 +835,197 @@ describe("LayoutScreen", () => {
       HTMLCanvasElement.prototype.getContext = getContext;
       vi.unstubAllGlobals();
     }
+  });
+
+  describe("poly lines", () => {
+    const polyOf = (name: string) => backend.show.props.find((p) => p.name === name)!.shape as Extract<Prop["shape"], { type: "polyLine" }>;
+    const worldPoints = (name: string) => {
+      const prop = backend.show.props.find((p) => p.name === name)!;
+      return polyOf(name).vertices.map((v) => ({ x: v.x + prop.transform.position.x, y: v.y + prop.transform.position.y }));
+    };
+    const doubleClick = () => act(async () => void fireEvent.doubleClick(canvas()));
+
+    /** A poly line from (x, y) through each point given as offsets, 10 pixels a stretch. */
+    function polyLine(name: string, x: number, y: number, ...offsets: [number, number][]): Prop {
+      const prop = { ...newProp("polyLine", emptyShow("x")), name };
+      prop.transform.position = { x, y, z: 0 };
+      prop.shape = {
+        source: "generator",
+        type: "polyLine",
+        vertices: offsets.map(([dx, dy]) => ({ x: dx, y: dy, z: 0 })),
+        segments: offsets.slice(1).map(() => ({ nodes: 10 })),
+      };
+      return prop;
+    }
+
+    it("draws a line that bends, a click per point, finished with a double-click as one undo step", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      await user.click(screen.getByRole("button", { name: "Poly Line" }));
+      expect(screen.getByText(/double-click or Enter to finish/)).toBeInTheDocument();
+      await click({ x: 4, y: 1 });
+      await click({ x: 7, y: 1 });
+      await click({ x: 7, y: 3 });
+      await click({ x: 7, y: 3 });
+      await doubleClick();
+      expect(edits).toHaveLength(1);
+      const [add] = edits[0];
+      const prop = (add as { prop: Prop }).prop;
+      expect(prop.shape).toMatchObject({ type: "polyLine", segments: [{ nodes: 30 }, { nodes: 20 }] });
+      const pts = worldPoints(prop.name);
+      [{ x: 4, y: 1 }, { x: 7, y: 1 }, { x: 7, y: 3 }].forEach((p, i) => {
+        expect(pts[i].x).toBeCloseTo(p.x, 1);
+        expect(pts[i].y).toBeCloseTo(p.y, 1);
+      });
+      await waitFor(() => expect(useLayoutEditor.getState().selected).toEqual([prop.id]));
+      expect(screen.getByRole("button", { name: "Select" })).toHaveAttribute("aria-pressed", "true");
+      await act(() => useApp.getState().undo());
+      expect(backend.show.props).toHaveLength(1);
+    });
+
+    it("finishes with Enter, takes the last point off with Backspace, and stops with Escape", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      await user.click(screen.getByRole("button", { name: "Poly Line" }));
+      await click({ x: 4, y: 1 });
+      await click({ x: 6, y: 1 });
+      await click({ x: 6, y: 4 });
+      await user.keyboard("{Backspace}");
+      expect(backend.show.props).toHaveLength(1);
+      await user.keyboard("{Enter}");
+      expect(edits).toHaveLength(1);
+      expect(polyOf((edits[0][0] as { prop: Prop }).prop.name).vertices).toHaveLength(2);
+
+      await user.click(screen.getByRole("button", { name: "Poly Line" }));
+      await click({ x: 4, y: 3 });
+      await click({ x: 6, y: 3 });
+      await user.keyboard("{Escape}");
+      expect(screen.getByRole("button", { name: "Poly Line" })).toHaveAttribute("aria-pressed", "true");
+      await user.keyboard("{Enter}");
+      expect(edits).toHaveLength(1);
+    });
+
+    it("keeps a stretch at 45° steps with Shift, and joins another line's end exactly", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      await user.click(screen.getByRole("button", { name: "Poly Line" }));
+      // The gutter runs from (-2.5, 0) to (2.5, 0): start just off its right end.
+      await click({ x: 2.55, y: 0.04 });
+      await click({ x: 6, y: 0.4 }, { shiftKey: true });
+      await user.keyboard("{Enter}");
+      const prop = (edits[0][0] as { prop: Prop }).prop;
+      expect(prop.transform.position).toEqual({ x: 2.5, y: 0, z: 0 });
+      expect(polyOf(prop.name).vertices[1].y).toBeCloseTo(0, 5);
+    });
+
+    it("moves a point by dragging it, joining the end of another line, as one undo step", async () => {
+      await setup(showWith(line("Gutter", 0, 0), polyLine("Roof", 4, 2, [0, 0], [2, 1], [4, 0])));
+      act(() => useLayoutEditor.getState().select([backend.show.props[1].id]));
+      await drag({ x: 4, y: 2 }, { x: 2.55, y: 0.05 });
+      expect(edits).toHaveLength(1);
+      const pts = worldPoints("Roof");
+      expect(pts[0].x).toBeCloseTo(2.5, 5);
+      expect(pts[0].y).toBeCloseTo(0, 5);
+      expect(pts[1]).toEqual({ x: 6, y: 3 });
+      await act(() => useApp.getState().undo());
+      expect(worldPoints("Roof")[0]).toEqual({ x: 4, y: 2 });
+    });
+
+    it("adds a point with a click on a stretch's middle, removes one with Option-click or Delete, and bends a stretch by dragging its middle", async () => {
+      const user = await setup(showWith(polyLine("Roof", 0, 0, [0, 0], [4, 0], [4, 4])));
+      act(() => useLayoutEditor.getState().select([backend.show.props[0].id]));
+      await click({ x: 2, y: 0 });
+      expect(polyOf("Roof").vertices).toHaveLength(4);
+      expect(polyOf("Roof").segments.map((s) => s.nodes)).toEqual([5, 5, 10]);
+      expect(useLayoutEditor.getState().polyPoint).toMatchObject({ index: 1 });
+      await user.keyboard("{Delete}");
+      expect(polyOf("Roof").vertices).toHaveLength(3);
+      expect(backend.show.props).toHaveLength(1);
+      await click({ x: 4, y: 4 }, { altKey: true });
+      expect(polyOf("Roof").vertices).toEqual([
+        { x: 0, y: 0, z: 0 },
+        { x: 4, y: 0, z: 0 },
+      ]);
+      await drag({ x: 2, y: 0 }, { x: 2, y: 1.5 });
+      const curve = polyOf("Roof").segments[0].curve!;
+      expect(curve[0].y).toBeCloseTo(2, 2);
+      expect(edits).toHaveLength(4);
+    });
+
+    it("sets each stretch's pixels, spreads them evenly, and curves or straightens a stretch from the panel", async () => {
+      const user = await setup(showWith(polyLine("Roof", 0, 0, [0, 0], [4, 0], [4, 4])));
+      act(() => useLayoutEditor.getState().select([backend.show.props[0].id]));
+      const stretches = within(screen.getByRole("list", { name: "Stretches" }));
+      const second = stretches.getByLabelText(/Stretch 2 pixels \(4 long\)/);
+      await user.clear(second);
+      await user.type(second, "25{Enter}");
+      expect(polyOf("Roof").segments.map((s) => s.nodes)).toEqual([10, 25]);
+      await user.click(screen.getByRole("button", { name: "Curve stretch 1" }));
+      expect(polyOf("Roof").segments[0].curve).toBeTruthy();
+      await user.click(screen.getByRole("button", { name: "Straighten stretch 1" }));
+      expect(polyOf("Roof").segments[0].curve).toBeUndefined();
+      await user.click(screen.getByLabelText("Spread the pixels evenly along the whole line"));
+      expect(polyOf("Roof").spreadNodes).toBe(35);
+      expect(screen.getByLabelText("Pixels")).toHaveValue("35");
+      expect(edits).toHaveLength(4);
+    });
+
+    it("splits a poly line at the picked point into two props, as one undo step", async () => {
+      const user = await setup(showWith(polyLine("Roof", 0, 0, [0, 0], [4, 0], [4, 4])));
+      act(() => useLayoutEditor.getState().select([backend.show.props[0].id]));
+      await click({ x: 4, y: 0 });
+      await user.click(screen.getByRole("button", { name: "Split here" }));
+      expect(edits).toHaveLength(1);
+      expect(backend.show.props.map((p) => p.name)).toEqual(["Roof", "Roof (2)"]);
+      expect(polyOf("Roof").vertices).toHaveLength(2);
+      expect(worldPoints("Roof (2)")).toEqual([
+        { x: 4, y: 0 },
+        { x: 4, y: 4 },
+      ]);
+      await act(() => useApp.getState().undo());
+      expect(backend.show.props).toHaveLength(1);
+    });
+
+    it("adds a bend to a straight line, then drags the bend", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      act(() => useLayoutEditor.getState().select([backend.show.props[0].id]));
+      await user.click(screen.getByRole("button", { name: "Add bend" }));
+      expect(polyOf("Gutter").vertices).toHaveLength(3);
+      expect(nodeCount(backend.show.props[0].shape)).toBe(50);
+      await drag({ x: 0, y: 0 }, { x: 0, y: 1 });
+      expect(worldPoints("Gutter")[1]).toEqual({ x: 0, y: 1 });
+    });
+
+    it("joins two lines whose ends touch into one poly line, saying what happens to the second's wiring", async () => {
+      const roof = polyLine("Roof", 2.5, 0, [0, 0], [2, 2]);
+      const show = showWith(line("Gutter", 0, 0), roof);
+      const controller = newController("Porch", "10.0.0.9", "ddp", 1);
+      controller.ports[0].slots.push({ prop: roof.id, segment: null, nullPixels: 0, reverse: false, brightness: null, gamma: null, smartReceiver: null });
+      show.controllers.push(controller);
+      const user = await setup(show);
+      act(() => useLayoutEditor.getState().select(backend.show.props.map((p) => p.id)));
+      expect(screen.getByText(/Roof's own wiring is removed; the joined line keeps Gutter's/)).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Join into one poly line" }));
+      expect(edits).toHaveLength(1);
+      expect(backend.show.props.map((p) => p.name)).toEqual(["Gutter"]);
+      expect(backend.show.controllers[0].ports[0].slots).toEqual([]);
+      const pts = worldPoints("Gutter");
+      [{ x: -2.5, y: 0 }, { x: 2.5, y: 0 }, { x: 4.5, y: 2 }].forEach((p, i) => {
+        expect(pts[i].x).toBeCloseTo(p.x, 5);
+        expect(pts[i].y).toBeCloseTo(p.y, 5);
+      });
+      expect(nodeCount(backend.show.props[0].shape)).toBe(60);
+      await act(() => useApp.getState().undo());
+      expect(backend.show.props).toHaveLength(2);
+    });
+
+    it("offers the less common shapes under More shapes", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      await user.click(screen.getByRole("button", { name: "More shapes" }));
+      await user.click(screen.getByRole("menuitem", { name: "Star" }));
+      expect(useLayoutEditor.getState().tool).toBe("star");
+      expect(screen.getByRole("button", { name: "Star" })).toHaveAttribute("aria-pressed", "true");
+      await user.click(screen.getByRole("button", { name: "Star" }));
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+      expect(useLayoutEditor.getState().tool).toBe("star");
+    });
   });
 });

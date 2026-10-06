@@ -1,4 +1,5 @@
 import {
+  ChevronDown,
   Circle,
   Grid3x3,
   ImagePlus,
@@ -6,14 +7,16 @@ import {
   Maximize,
   MousePointer2,
   Rainbow,
+  Shapes,
   Slash,
+  Spline,
   Star,
   TreePine,
   ZoomIn,
   ZoomOut,
   type LucideIcon,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { DEFAULT_VIEW, MAX_ZOOM, MIN_ZOOM } from "../../lib/layoutMath";
 import { type Tool, useLayoutEditor } from "../../state/layoutEditor";
@@ -21,13 +24,31 @@ import { useView3d } from "../../state/view3d";
 import { ModeSwitch } from "../layout3d/ModeSwitch";
 import { drawsProps, setLayoutMode } from "../layout3d/useLayout3dKeys";
 
-const TOOLS: { tool: Tool; label: string; hint: string; icon: LucideIcon }[] = [
+interface ToolInfo {
+  tool: Tool;
+  label: string;
+  hint: string;
+  icon: LucideIcon;
+}
+
+/** The tools always on the bar. */
+const TOOLS: ToolInfo[] = [
   { tool: "select", label: "Select", hint: "Select, move, resize, and turn props", icon: MousePointer2 },
   { tool: "line", label: "Line", hint: "Drag from one end of a light string to the other", icon: Slash },
+  {
+    tool: "polyLine",
+    label: "Poly Line",
+    hint: "Click each point of a line that bends; double-click or press Enter to finish. Start or end on another line's end to join it",
+    icon: Spline,
+  },
   { tool: "arch", label: "Arch", hint: "Drag from one foot of the arch to the other", icon: Rainbow },
   { tool: "matrix", label: "Matrix", hint: "Drag a box where the matrix goes", icon: Grid3x3 },
   { tool: "tree", label: "Tree", hint: "Drag a box from the tree's base to its top", icon: TreePine },
-  { tool: "circle", label: "Circle", hint: "Drag a box around the circle or wreath", icon: Circle },
+];
+
+/** The rest of the shapes, under "More shapes". */
+export const MORE_TOOLS: ToolInfo[] = [
+  { tool: "circle", label: "Circle", hint: "Drag a box around the circle", icon: Circle },
   { tool: "star", label: "Star", hint: "Drag a box around the star", icon: Star },
 ];
 
@@ -37,6 +58,8 @@ function ToolButton({
   hint,
   onClick,
   disabled,
+  popup,
+  expanded,
   children,
 }: {
   pressed?: boolean;
@@ -44,12 +67,17 @@ function ToolButton({
   hint: string;
   onClick: () => void;
   disabled?: boolean;
+  /** Opens a menu (with a small arrow after the label). */
+  popup?: boolean;
+  expanded?: boolean;
   children: ReactNode;
 }) {
   return (
     <button
       type="button"
       aria-pressed={pressed}
+      aria-haspopup={popup ? "menu" : undefined}
+      aria-expanded={popup ? expanded : undefined}
       title={hint}
       // aria-disabled rather than disabled: the hint saying why still shows on hover.
       aria-disabled={disabled || undefined}
@@ -64,11 +92,84 @@ function ToolButton({
     >
       {children}
       <span>{label}</span>
+      {popup && <ChevronDown size={14} aria-hidden />}
     </button>
   );
 }
 
 const Divider = () => <span aria-hidden className="mx-1 h-6 w-px bg-neutral-300 dark:bg-neutral-700" />;
+
+/**
+ * "More shapes": a menu of the less common shapes. Its button shows the shape picked from it
+ * while that tool is on.
+ */
+function MoreShapes({ tool, setTool, in3d }: { tool: Tool; setTool: (t: Tool) => void; in3d: boolean }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const picked = MORE_TOOLS.find((t) => t.tool === tool);
+  useEffect(() => {
+    if (!open) return;
+    box.current?.querySelector<HTMLButtonElement>("[role=menuitem]")?.focus();
+    // Ahead of the layout keys, so Escape only closes the menu.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setOpen(false);
+      }
+    };
+    const onDown = (e: PointerEvent) => {
+      if (!box.current?.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("pointerdown", onDown);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("pointerdown", onDown);
+    };
+  }, [open]);
+  const Icon = picked?.icon ?? Shapes;
+  return (
+    <div ref={box} className="relative">
+      <ToolButton
+        pressed={!!picked}
+        label={picked ? picked.label : "More shapes"}
+        hint={in3d ? DRAW_IN_2D : "More kinds of props: circles, stars, and more"}
+        disabled={in3d}
+        onClick={() => setOpen(!open)}
+        popup
+        expanded={open}
+      >
+        <Icon size={16} aria-hidden />
+      </ToolButton>
+      {open && (
+        <div
+          role="menu"
+          aria-label="More shapes"
+          className="absolute top-full left-0 z-30 mt-1 flex w-56 flex-col rounded-lg border border-neutral-200 bg-white p-1 text-sm text-neutral-800 shadow-xl dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
+        >
+          {MORE_TOOLS.map(({ tool: t, label, hint, icon: ItemIcon }) => (
+            <button
+              key={t}
+              type="button"
+              role="menuitem"
+              title={hint}
+              className={`flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 ${
+                t === tool ? "text-accent-600 dark:text-accent-400" : ""
+              }`}
+              onClick={() => {
+                setOpen(false);
+                setTool(t);
+              }}
+            >
+              <ItemIcon size={16} aria-hidden />
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Draw tools are 2D only (for now): what their buttons say in 3D. */
 const DRAW_IN_2D = "Drawing works in the 2D view — switch with V";
@@ -112,6 +213,11 @@ export function LayoutToolbar({ hasPhoto, onChoosePhoto }: { hasPhoto: boolean; 
           </ToolButton>
         );
       })}
+      <MoreShapes tool={editPhoto ? "select" : tool} setTool={setTool} in3d={in3d} />
+      {/* What the Poly Line tool is doing, while it's on. */}
+      {tool === "polyLine" && !in3d && !editPhoto && (
+        <span className="ml-1 text-xs text-neutral-500 dark:text-neutral-400">Click points · double-click or Enter to finish · Backspace undoes a point · Shift keeps 45°</span>
+      )}
       <Divider />
       <ToolButton pressed={snap} label="Snap to grid" hint="Line props up on a grid as you move and draw" onClick={() => setSnap(!snap)}>
         <Magnet size={16} aria-hidden />

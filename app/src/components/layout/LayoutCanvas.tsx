@@ -1,6 +1,6 @@
 import { type PointerEvent as ReactPointerEvent, type Ref, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import type { Background, PreviewProp, PreviewSet, Show } from "../../api/types";
-import { frontView } from "../../lib/geometry";
+import type { Background, PreviewProp, PreviewSet, Prop, Show } from "../../api/types";
+import { applyTransform, frontView } from "../../lib/geometry";
 import {
   type Box,
   type Frame,
@@ -49,6 +49,27 @@ import {
   resizeView,
 } from "../../lib/layoutMath";
 import { batchPixels, drawBatches } from "../../lib/pixelBatches";
+import { updateEdits } from "../../lib/layoutEdits";
+import {
+  type LineEnd,
+  type PolyDraft,
+  type PolyShape,
+  addPoint,
+  bendSegment,
+  editablePoly,
+  finishDraft,
+  insertVertex,
+  isPoly,
+  lineEnds,
+  localAt,
+  moveControl,
+  moveVertex,
+  placePoint,
+  polyHandles,
+  removeLastPoint,
+  removeVertex,
+  straighten,
+} from "../../lib/polylineMath";
 import { type PropKind, newProp, nodeCount } from "../../lib/shows";
 import { highlightPixels } from "../../lib/submodels";
 import { useLayoutEditor } from "../../state/layoutEditor";
@@ -60,6 +81,10 @@ import { type PhotoImage, useLiveFrame } from "./useLayoutData";
 const HIT_PX = 8;
 /** Drags shorter than this (screen pixels) count as clicks. */
 const CLICK_PX = 4;
+/** How close (screen pixels) a poly line point must come to a line's end to join it. */
+const JOIN_PX = 10;
+/** How close (screen pixels) a click must be to a poly line handle to grab it. */
+const POLY_HANDLE_PX = 7;
 
 // The canvas stays dark in both themes on purpose: lights are judged against a night sky.
 // Selection marks get a dark outline underneath, so they read over a bright photo as well.
@@ -68,6 +93,8 @@ const ACCENT = "#a78bfa";
 const HALO = "rgba(0, 0, 0, 0.65)";
 const GRID = "rgba(160, 160, 160, 0.22)";
 const GROUND = "rgba(200, 200, 200, 0.4)";
+/** The ring showing a point will join another line's end. */
+const JOIN_COLOR = "#4ade80";
 const PIXEL_COLORS = { unlit: "rgba(220, 220, 220, 0.7)", selected: ACCENT, dark: "rgba(90, 90, 90, 0.6)" };
 
 type Drag =
@@ -91,7 +118,30 @@ type Drag =
   | { kind: "rotate"; ids: string[]; center: Pt; from: Pt; gesture: Gesture }
   | { kind: "marquee"; from: Pt; to: Pt; fromScreen: Pt; toScreen: Pt; additive: string[] }
   | { kind: "draw"; tool: PropKind; from: Pt; to: Pt; fromScreen: Pt; toScreen: Pt }
-  | { kind: "photo"; corner: ResizeHandle | null; from: Pt; start: Background };
+  | { kind: "photo"; corner: ResizeHandle | null; from: Pt; start: Background }
+  /**
+   * A selected poly line's handle: a point, the middle of a stretch (a click adds a point there,
+   * a drag bends the stretch), or a curve control. `draft` is the shape as dragged so far.
+   */
+  | {
+      kind: "poly";
+      prop: string;
+      handle: PolyHit;
+      fromScreen: Pt;
+      moved: boolean;
+      alt: boolean;
+      shape: PolyShape;
+      draft: PolyShape;
+      join: LineEnd | null;
+    };
+
+type PolyHit = { kind: "vertex"; index: number } | { kind: "middle"; segment: number } | { kind: "control"; segment: number; which: 0 | 1 };
+
+/** Where the Poly Line tool's next point would go, and the line end it would join. */
+interface PolyNext {
+  at: Pt;
+  join: LineEnd | null;
+}
 
 /** The selection's outline along the props' own axes, and whether it can be stretched. */
 interface Selection {
@@ -140,6 +190,17 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
   /** Where the pointer last was on the canvas (screen pixels), so Shift can take effect mid-drag. */
   const lastPointer = useRef<Pt | null>(null);
   const frameRequest = useRef<number | null>(null);
+  /** The points of the poly line being drawn with the Poly Line tool, between clicks. */
+  const polyDrawing = useRef<PolyDraft | null>(null);
+  /** Where the Poly Line tool's next point goes, following the pointer. */
+  const polyNext = useRef<PolyNext | null>(null);
+  /** Shift held, so the Poly Line tool's next point keeps to 45° as the pointer moves. */
+  const shiftHeld = useRef(false);
+  /**
+   * A poly line's new shape on its way to the engine, drawn until the engine's positions (from
+   * `revision`, once known) include it, so the line never jumps back.
+   */
+  const pendingShape = useRef<{ id: string; points: number[]; revision: number | null } | null>(null);
   const [cursor, setCursor] = useState("default");
   const [hovered, setHovered] = useState<string | null>(null);
 
@@ -180,7 +241,100 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     if (st.nudge) layers.push({ ids: st.nudge.ids, gesture: { kind: "move", dx: st.nudge.dx, dy: st.nudge.dy } });
     const d = drag.current;
     if (d && (d.kind === "move" || d.kind === "scale" || d.kind === "rotate")) layers.push(d);
-    return composeGestures(preview.props, layers);
+    const moved = composeGestures(preview.props, layers);
+    // A poly line being reshaped, or reshaped and on its way, is drawn as it now is.
+    const reshaped =
+      d?.kind === "poly"
+        ? { id: d.prop, points: shapePoints(d.prop, d.draft) }
+        : pendingShape.current && (pendingShape.current.revision === null || pendingShape.current.revision > preview.revision)
+          ? pendingShape.current
+          : null;
+    if (!reshaped?.points) return moved;
+    return moved.map((p) => (p.prop === reshaped.id ? { ...p, points: reshaped.points! } : p));
+  };
+
+  const propById = (id: string) => latest.current.show.props.find((p) => p.id === id);
+
+  /** The prop's pixels (front view) with `shape` instead of its own. */
+  const shapePoints = (id: string, shape: PolyShape): number[] | null => {
+    const prop = propById(id);
+    return prop ? frontView({ ...prop, shape }) : null;
+  };
+
+  /** The one selected prop, when it's a poly line whose points can be dragged (Select tool, 2D). */
+  const editingPoly = () => {
+    const st = useLayoutEditor.getState();
+    if (st.tool !== "select" || st.editPhoto || st.selected.length !== 1) return null;
+    const prop = propById(st.selected[0]);
+    return prop && editablePoly(prop) ? prop : null;
+  };
+
+  /** The editing poly line's handle under screen point `s`: points first, then curve controls, then middles. */
+  const polyHitAt = (s: Pt): { prop: Prop; hit: PolyHit } | null => {
+    const prop = editingPoly();
+    const handles = prop && polyHandles(prop);
+    if (!prop || !handles) return null;
+    const v = currentView();
+    const sz = size();
+    const near = (w: Pt) => {
+      const q = toScreen(v, sz, w);
+      return Math.hypot(q.x - s.x, q.y - s.y) <= POLY_HANDLE_PX;
+    };
+    const vertex = handles.vertices.findIndex(near);
+    if (vertex >= 0) return { prop, hit: { kind: "vertex", index: vertex } };
+    const control = handles.controls.find((c) => near(c.at));
+    if (control) return { prop, hit: { kind: "control", segment: control.segment, which: control.which } };
+    const middle = handles.middles.findIndex(near);
+    if (middle >= 0) return { prop, hit: { kind: "middle", segment: middle } };
+    return null;
+  };
+
+  /** Sends a poly line's new shape (one undo step), drawing it until the engine has it. */
+  const commitShape = (id: string, shape: PolyShape) => {
+    const entry = { id, points: shapePoints(id, shape) ?? [], revision: null as number | null };
+    pendingShape.current = entry;
+    void useApp
+      .getState()
+      .edit(updateEdits(id, (p) => ({ ...p, shape })))
+      .then((revision) => {
+        if (pendingShape.current !== entry) return;
+        if (revision === null) pendingShape.current = null;
+        else entry.revision = revision;
+        redraw();
+      });
+  };
+
+  /** Where the Poly Line tool puts its next point for the pointer at screen point `s`. */
+  const polyPlace = (s: Pt, straight: boolean) => {
+    const v = currentView();
+    const st = useLayoutEditor.getState();
+    const points = polyDrawing.current?.points ?? [];
+    return placePoint(toWorld(v, size(), s), {
+      from: points[points.length - 1] ?? null,
+      straight,
+      grid: st.snap ? st.grid : null,
+      ends: lineEnds(latest.current.show.props),
+      radius: JOIN_PX / v.zoom,
+    });
+  };
+
+  /** Adds the poly line drawn so far (if it has two points or more), selects it, and goes back to Select. */
+  const finishPoly = () => {
+    const d = polyDrawing.current;
+    polyDrawing.current = polyNext.current = null;
+    redraw();
+    if (!d) return;
+    const prop = finishDraft({ points: d.points }, newProp("polyLine", latest.current.show));
+    if (!prop) return;
+    void useApp
+      .getState()
+      .apply([{ type: "addProp", prop }])
+      .then((ok) => {
+        if (!ok) return;
+        const now = useLayoutEditor.getState();
+        now.setTool("select");
+        now.select([prop.id]);
+      });
   };
 
   /** The selected props' frame: along their own axes when they're all turned alike. */
@@ -281,30 +435,73 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
       });
     }
 
-    if (!editor.editPhoto && selected.size > 0) {
+    /** The selection's outline, with handles to resize and turn it. */
+    function drawSelection(props: PreviewProp[]) {
       const sel = selection(props);
-      if (sel) {
-        const handles = handlePositions(sel.frame, view, s);
-        strokeWithHalo(ctx, 1, [5, 4], () => {
-          ctx.beginPath();
-          for (const h of ["nw", "ne", "se", "sw"] as const) ctx.lineTo(handles[h].x, handles[h].y);
-          ctx.closePath();
-          ctx.stroke();
-        });
-        strokeWithHalo(ctx, 1, [], () => {
-          ctx.beginPath();
-          ctx.moveTo(handles.n.x, handles.n.y);
-          ctx.lineTo(handles.rotate.x, handles.rotate.y);
-          ctx.stroke();
-        });
-        for (const h of visibleHandles(sel.frame, view, sel.stretchable)) if (h !== "rotate") drawHandle(ctx, handles[h]);
-        ctx.fillStyle = "#fff";
-        ctx.strokeStyle = ACCENT;
-        ctx.lineWidth = 1.5;
+      if (!sel || !ctx) return;
+      const handles = handlePositions(sel.frame, view, s);
+      strokeWithHalo(ctx, 1, [5, 4], () => {
         ctx.beginPath();
-        ctx.arc(handles.rotate.x, handles.rotate.y, 5, 0, Math.PI * 2);
-        ctx.fill();
+        for (const h of ["nw", "ne", "se", "sw"] as const) ctx.lineTo(handles[h].x, handles[h].y);
+        ctx.closePath();
         ctx.stroke();
+      });
+      strokeWithHalo(ctx, 1, [], () => {
+        ctx.beginPath();
+        ctx.moveTo(handles.n.x, handles.n.y);
+        ctx.lineTo(handles.rotate.x, handles.rotate.y);
+        ctx.stroke();
+      });
+      for (const h of visibleHandles(sel.frame, view, sel.stretchable)) if (h !== "rotate") drawHandle(ctx, handles[h]);
+      ctx.fillStyle = "#fff";
+      ctx.strokeStyle = ACCENT;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(handles.rotate.x, handles.rotate.y, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    const drawing = editor.tool === "polyLine" ? polyDrawing.current : null;
+    const next = editor.tool === "polyLine" ? polyNext.current : null;
+    if (drawing) {
+      const points = next ? [...drawing.points, next.at] : drawing.points;
+      const draft = finishDraft({ points }, newProp("polyLine", latest.current.show));
+      if (draft) {
+        const outline = batchPixels([{ prop: draft.id, frameOffset: 0, channelsPerPixel: 3, points: frontView(draft) }], null, view, s, new Set([draft.id]), PIXEL_COLORS, radius);
+        drawBatches(ctx, outline, radius, ratio);
+      }
+      strokeWithHalo(ctx, 1, [5, 4], () => {
+        ctx.beginPath();
+        for (const p of points.map(at)) ctx.lineTo(p.x, p.y);
+        ctx.stroke();
+      });
+      for (const p of drawing.points) drawPoint(ctx, at(p), false);
+    }
+    // The line end a new or dragged point would join.
+    const join = d?.kind === "poly" ? d.join : next?.join;
+    if (join) drawJoin(ctx, at(join.at));
+
+    if (!editor.editPhoto && selected.size > 0) drawSelection(props);
+
+    const poly = !editor.editPhoto ? editingPoly() : null;
+    if (poly) {
+      const shown = d?.kind === "poly" && d.prop === poly.id ? { ...poly, shape: d.draft } : poly;
+      const handles = polyHandles(shown);
+      if (handles) {
+        strokeWithHalo(ctx, 1, [3, 3], () => {
+          for (const c of handles.controls) {
+            const [a, b] = [at(c.from), at(c.at)];
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+            ctx.stroke();
+          }
+        });
+        for (const m of handles.middles) drawMiddle(ctx, at(m));
+        for (const c of handles.controls) drawControl(ctx, at(c.at));
+        const picked = editor.polyPoint?.prop === poly.id ? editor.polyPoint.index : -1;
+        handles.vertices.forEach((p, i) => drawPoint(ctx, at(p), i === picked));
       }
     }
 
@@ -351,7 +548,9 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
   // The editor's state (view, selection, tool, gestures on their way) only needs a redraw.
   useEffect(
     () =>
-      useLayoutEditor.subscribe(() => {
+      useLayoutEditor.subscribe((st) => {
+        // Picking another tool drops a poly line half drawn.
+        if (st.tool !== "polyLine") polyDrawing.current = polyNext.current = null;
         fitIfNeeded();
         redraw();
       }),
@@ -359,7 +558,11 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
   );
 
   // Gestures the engine's new positions include no longer need drawing on top.
-  useEffect(() => settlePending(preview.revision), [preview]);
+  useEffect(() => {
+    settlePending(preview.revision);
+    const shape = pendingShape.current;
+    if (shape?.revision != null && shape.revision <= preview.revision) pendingShape.current = null;
+  }, [preview]);
 
   // Fit everything in once the canvas has a size and the props have arrived.
   useEffect(fitIfNeeded, [preview, show.props.length, photo.aspect]);
@@ -441,6 +644,20 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     const quietTarget = (t: EventTarget | null) => t === canvasRef.current || t === document.body;
     const down = (e: KeyboardEvent) => {
       if (e.key === "Shift") return shiftChanged(true);
+      // Drawing a poly line: Enter finishes it, Backspace or Delete takes the last point off.
+      const drawing = polyDrawing.current;
+      if (drawing && quietTarget(e.target) && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          return finishPoly();
+        }
+        if (e.key === "Backspace" || e.key === "Delete") {
+          e.preventDefault();
+          const left = removeLastPoint(drawing);
+          polyDrawing.current = left.points.length > 0 ? left : null;
+          return redraw();
+        }
+      }
       // ⌘-Space and the like belong to the system, which may keep the key's release to itself.
       if (e.key === " " && quietTarget(e.target) && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
@@ -472,6 +689,11 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
 
   const cancel = () => {
     const d = drag.current;
+    if (!d && polyDrawing.current) {
+      polyDrawing.current = null;
+      redraw();
+      return true;
+    }
     if (!d) return false;
     drag.current = null;
     if (d.kind === "photo") useLayoutEditor.getState().setPhotoDraft(null);
@@ -517,10 +739,36 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
       else drag.current = { kind: "pan", last: s, from: s, clear: false };
       return;
     }
+    if (st.tool === "polyLine") {
+      // Each click places a point; double-click or Enter finishes the line.
+      const { at } = polyPlace(s, e.shiftKey);
+      polyDrawing.current = addPoint(polyDrawing.current ?? { points: [] }, at);
+      polyNext.current = null;
+      redraw();
+      return;
+    }
     if (st.tool !== "select") {
       const p = st.snap ? snapPoint(w, st.grid) : w;
       drag.current = { kind: "draw", tool: st.tool, from: p, to: p, fromScreen: s, toScreen: s };
       redraw();
+      return;
+    }
+
+    // A selected poly line's own handles come first: its points, curve controls, and middles.
+    const polyHit = polyHitAt(s);
+    if (polyHit && isPoly(polyHit.prop.shape)) {
+      const shape = polyHit.prop.shape;
+      drag.current = {
+        kind: "poly",
+        prop: polyHit.prop.id,
+        handle: polyHit.hit,
+        fromScreen: s,
+        moved: false,
+        alt: e.altKey,
+        shape,
+        draft: shape,
+        join: null,
+      };
       return;
     }
 
@@ -588,7 +836,15 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
       const handle = box ? handleAt(box, v, size(), s, CORNERS) : null;
       return setCursor(handle ? handleCursor(handle, 0) : box && inBox(box, w) ? "move" : "grab");
     }
+    if (st.tool === "polyLine") {
+      // Show where the next point goes (and any line end it would join).
+      polyNext.current = polyPlace(s, shiftHeld.current);
+      redraw();
+      return setCursor("crosshair");
+    }
     if (st.tool !== "select") return setCursor("crosshair");
+    const polyHover = polyHitAt(s);
+    if (polyHover) return setCursor(polyHover.hit.kind === "middle" ? "copy" : "move");
     const props = effectivePreview();
     const sel = selection(props);
     const handle = sel ? handleAt(sel.frame, v, size(), s, visibleHandles(sel.frame, v, sel.stretchable)) : null;
@@ -633,14 +889,54 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
         st.setPhotoDraft(d.corner ? resizeBackground(d.start, aspect, d.corner, w) : moveBackground(d.start, w.x - d.from.x, w.y - d.from.y));
         break;
       }
+      case "poly":
+        // Until the pointer has really moved, it's still a click.
+        if (!d.moved && Math.hypot(s.x - d.fromScreen.x, s.y - d.fromScreen.y) < CLICK_PX) break;
+        d.moved = true;
+        dragPoly(d, w, straight);
+        break;
     }
     redraw();
   };
 
+  /** Reshapes the poly line as its handle is dragged to world point `w`. */
+  const dragPoly = (d: Extract<Drag, { kind: "poly" }>, w: Pt, straight: boolean) => {
+    const prop = propById(d.prop);
+    if (!prop) return;
+    const st = useLayoutEditor.getState();
+    const v = currentView();
+    const world = (p: { x: number; y: number; z: number }) => {
+      const q = applyTransform(p, prop.transform);
+      return { x: q.x, y: q.y };
+    };
+    const { shape, handle } = d;
+    if (handle.kind === "vertex") {
+      // Shift keeps the stretch to its neighbor at 45° steps; ends of other lines pull it on.
+      const neighbor = shape.vertices[handle.index > 0 ? handle.index - 1 : 1];
+      const placed = placePoint(w, {
+        from: neighbor ? world(neighbor) : null,
+        straight,
+        grid: st.snap ? st.grid : null,
+        ends: lineEnds(latest.current.show.props, new Set([d.prop])),
+        radius: JOIN_PX / v.zoom,
+      });
+      d.join = placed.join;
+      d.draft = moveVertex(shape, handle.index, localAt(prop.transform, shape.vertices[handle.index], placed.at));
+    } else if (handle.kind === "middle") {
+      const mid = shape.vertices[handle.segment];
+      d.draft = bendSegment(shape, handle.segment, localAt(prop.transform, mid, w));
+    } else {
+      const curve = shape.segments[handle.segment]?.curve;
+      if (curve) d.draft = moveControl(shape, handle.segment, handle.which, localAt(prop.transform, curve[handle.which], w));
+    }
+  };
+
   /** Shift pressed or let go mid-drag takes effect at once, without waiting for the pointer to move. */
   function shiftChanged(held: boolean) {
+    shiftHeld.current = held;
     const d = drag.current;
     if (d && d.kind !== "pan" && lastPointer.current) follow(d, lastPointer.current, held);
+    else if (!d && lastPointer.current && useLayoutEditor.getState().tool === "polyLine") updateHover(lastPointer.current);
   }
 
   const onPointerMove = (e: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -690,6 +986,29 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
         });
         break;
       }
+      case "poly": {
+        const { handle, shape } = d;
+        if (d.moved) {
+          commitShape(d.prop, d.draft);
+          if (handle.kind === "vertex") st.setPolyPoint({ prop: d.prop, index: handle.index });
+          break;
+        }
+        // A click: Alt/Option takes a point out (or straightens a curve), a middle gets a new
+        // point, and a point is picked (Delete then removes it).
+        if (handle.kind === "middle") {
+          commitShape(d.prop, insertVertex(shape, handle.segment));
+          st.setPolyPoint({ prop: d.prop, index: handle.segment + 1 });
+        } else if (handle.kind === "vertex" && d.alt) {
+          const fewer = removeVertex(shape, handle.index);
+          if (fewer) commitShape(d.prop, fewer);
+          st.setPolyPoint(null);
+        } else if (handle.kind === "vertex") {
+          st.setPolyPoint({ prop: d.prop, index: handle.index });
+        } else if (d.alt) {
+          commitShape(d.prop, straighten(shape, handle.segment));
+        }
+        break;
+      }
       case "photo": {
         const draft = st.photoDraft;
         if (!draft || JSON.stringify(draft) === JSON.stringify(d.start)) {
@@ -721,6 +1040,9 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={() => cancel()}
+        onDoubleClick={() => {
+          if (polyDrawing.current) finishPoly();
+        }}
         onPointerLeave={() => setHovered(null)}
         onContextMenu={(e) => e.preventDefault()}
       />
@@ -730,8 +1052,12 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
         down). Drag a corner handle to resize them (hold Shift to keep their proportions), a side handle to stretch them one
         way, or the round handle above them to turn them. Arrow keys move the selection (hold Shift to move it further),
         Command-C copies it, Command-X cuts it, Command-V pastes, Command-D duplicates it, Delete removes it, and Escape
-        clears it. To draw a new prop, pick Line, Arch, Matrix, Tree, Circle, or Star in the tool bar and drag here; hold Shift
-        to keep a line or arch level, upright, or at 45 degrees. Drag empty space, or scroll with two fingers, to move
+        clears it. To draw a new prop, pick Line, Arch, Matrix, Tree, or a shape under More shapes in the tool bar and drag
+        here; hold Shift to keep a line or arch level, upright, or at 45 degrees. For a line that bends, pick Poly Line and
+        click each point, then double-click or press Enter to finish (Backspace takes the last point off, Escape stops); a
+        point placed on another line's end joins it. A selected poly line shows its points: drag one to move it, Option-click
+        or press Delete to remove the one picked, click the small plus in the middle of a stretch to add a point there, or
+        drag the plus to curve the stretch. Drag empty space, or scroll with two fingers, to move
         around; pinch, or hold Command and scroll, to zoom. Every prop is also in the props list below.
       </p>
       <SelectionAnnouncer show={show} />
@@ -765,6 +1091,68 @@ function drawHandle(ctx: CanvasRenderingContext2D, p: Pt) {
   ctx.strokeStyle = ACCENT;
   ctx.lineWidth = 1.5;
   ctx.strokeRect(p.x - 4, p.y - 4, 8, 8);
+}
+
+/** A poly line point: white, or filled with the accent when it's the picked one. */
+function drawPoint(ctx: CanvasRenderingContext2D, p: Pt, picked: boolean) {
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+  ctx.fillStyle = picked ? ACCENT : "#fff";
+  ctx.strokeStyle = HALO;
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.fill();
+  ctx.strokeStyle = picked ? "#fff" : ACCENT;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+}
+
+/** The middle of a stretch: a small hollow circle with a plus (click adds a point, drag bends it). */
+function drawMiddle(ctx: CanvasRenderingContext2D, p: Pt) {
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+  ctx.fillStyle = HALO;
+  ctx.fill();
+  ctx.strokeStyle = ACCENT;
+  ctx.lineWidth = 1.25;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(p.x - 2.5, p.y);
+  ctx.lineTo(p.x + 2.5, p.y);
+  ctx.moveTo(p.x, p.y - 2.5);
+  ctx.lineTo(p.x, p.y + 2.5);
+  ctx.strokeStyle = "#fff";
+  ctx.stroke();
+}
+
+/** A curve control: a small diamond. */
+function drawControl(ctx: CanvasRenderingContext2D, p: Pt) {
+  ctx.beginPath();
+  ctx.moveTo(p.x, p.y - 5);
+  ctx.lineTo(p.x + 5, p.y);
+  ctx.lineTo(p.x, p.y + 5);
+  ctx.lineTo(p.x - 5, p.y);
+  ctx.closePath();
+  ctx.fillStyle = "#fff";
+  ctx.strokeStyle = HALO;
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.fill();
+  ctx.strokeStyle = ACCENT;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+}
+
+/** Where a point will join another line's end: a bright ring. */
+function drawJoin(ctx: CanvasRenderingContext2D, p: Pt) {
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 9, 0, Math.PI * 2);
+  ctx.strokeStyle = HALO;
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  ctx.strokeStyle = JOIN_COLOR;
+  ctx.lineWidth = 2;
+  ctx.stroke();
 }
 
 /** Grid lines every `grid` units, thinned out so they're never closer than 8 pixels. */

@@ -1,7 +1,8 @@
 import { type RefObject, useEffect } from "react";
 import type { Edit, Show } from "../../api/types";
-import { duplicateEdits, pasteEdits, removeEdits } from "../../lib/layoutEdits";
+import { duplicateEdits, pasteEdits, removeEdits, updateEdits } from "../../lib/layoutEdits";
 import { nudgeStep } from "../../lib/layoutMath";
+import { isPoly, removeVertex } from "../../lib/polylineMath";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { addNudge, flushNudge } from "../../state/layoutGestures";
 import { useApp } from "../../state/store";
@@ -106,12 +107,20 @@ export function useLayoutKeys(canvas: RefObject<LayoutCanvasHandle | null>) {
         if (canvas.current?.cancel()) return;
         if (editor.editPhoto) editor.setEditPhoto(false);
         else if (editor.tool !== "select") editor.setTool("select");
+        else if (editor.polyPoint) editor.setPolyPoint(null);
         else editor.clear();
         return;
       }
       if (ids.length === 0) return;
       if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
+        // A point picked on the selected poly line goes, not the whole line.
+        const point = editor.polyPoint;
+        if (point && ids.length === 1 && ids[0] === point.prop) {
+          editor.setPolyPoint(null);
+          void app.apply(updateEdits(point.prop, (p) => (isPoly(p.shape) ? { ...p, shape: removeVertex(p.shape, point.index) ?? p.shape } : p)));
+          return;
+        }
         void app.apply(removeEdits(ids)).then((ok) => ok && useLayoutEditor.getState().clear());
         return;
       }

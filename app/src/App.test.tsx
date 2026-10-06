@@ -68,6 +68,7 @@ describe("editing with undo and redo", () => {
     expect(screen.getByText(/1 prop · 800 pixels/)).toBeInTheDocument();
     expect(screen.getByLabelText("Unsaved changes")).toBeInTheDocument();
 
+    await user.dblClick(screen.getByRole("option", { name: /^Mega Tree 1/ }));
     const name = screen.getByLabelText("Name of Mega Tree 1");
     await user.clear(name);
     await user.type(name, "Big Tree{Enter}");
@@ -80,8 +81,14 @@ describe("editing with undo and redo", () => {
 
     await user.click(screen.getByRole("button", { name: "Delete Big Tree" }));
     expect(screen.getByText("No props yet")).toBeInTheDocument();
+    expect(screen.getAllByTestId("toast").at(-1)).toHaveTextContent("Deleted Big Tree");
     await user.keyboard("{Meta>}z{/Meta}");
-    expect(screen.getAllByDisplayValue("Big Tree")[0]).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^Big Tree/ })).toBeInTheDocument();
+
+    // The toast's Undo takes a delete back while it's still the latest change.
+    await user.click(screen.getByRole("button", { name: "Delete Big Tree" }));
+    await user.click(within(screen.getAllByTestId("toast").at(-1)!).getByRole("button", { name: "Undo" }));
+    expect(screen.getByRole("option", { name: /^Big Tree/ })).toBeInTheDocument();
   });
 
   it("shows engine errors in plain language", async () => {
@@ -200,7 +207,7 @@ describe("unsaved changes on new and open", () => {
     expect(backend.calls.filter((c) => c === "newShow").length).toBe(1);
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog", { name: /save changes/i })).not.toBeInTheDocument();
-    expect(screen.getByText(/1 prop/)).toBeInTheDocument();
+    expect(screen.getByText(/^1 prop · .*pixels/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
   });
 

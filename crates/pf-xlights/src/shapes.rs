@@ -42,6 +42,13 @@ pub(crate) fn editable(model: &XmlModel, points: &[Vec3]) -> Option<Candidate> {
         t if t.starts_with("Tree") => tree(model),
         _ => Vec::new(),
     };
+    // Only shapes a show file can hold: one the show's limits refuse would stop the whole
+    // show from opening, where measured points import fine. Checked first, so an odd shape is
+    // never laid out.
+    let candidates: Vec<Candidate> = candidates
+        .into_iter()
+        .filter(|(g, _)| pf_model::shape_problem(&model.name, g).is_none())
+        .collect();
     if candidates.is_empty() {
         return None;
     }
@@ -478,10 +485,12 @@ fn lowest_cos(layers: &[u32], nodes: u32, ltor: bool, outside_first: bool, zig_z
         } else {
             let step = (max_len - 1) as f32 / (it as f32 - 1.0);
             for x in 0..it {
-                if idx < spots.len() {
-                    let xx = (x as f32 * step).round() as i64;
-                    spots[idx] = if forward { xx } else { max_len - 1 - xx };
+                // Past the last pixel, the rest of the layer changes nothing.
+                if idx >= spots.len() {
+                    break;
                 }
+                let xx = (x as f32 * step).round() as i64;
+                spots[idx] = if forward { xx } else { max_len - 1 - xx };
                 idx += 1;
             }
         }
@@ -1728,6 +1737,56 @@ mod tests {
                 ],
             ),
         );
+    }
+
+    #[test]
+    fn models_whose_shape_breaks_the_show_limits_keep_their_points() {
+        // Each of these lands exactly as a shape whose layer list a show file can't hold, so
+        // the whole show would fail to open; measured points keep it importable.
+        stays_measured(
+            "Arches",
+            &[
+                ("parm1", "1"),
+                ("parm2", "2"),
+                ("LayerSizes", "400000000,1"),
+                ("X2", "100"),
+            ],
+        );
+        stays_measured(
+            "Star",
+            &[
+                ("parm1", "1"),
+                ("parm2", "20"),
+                ("parm3", "5"),
+                ("LayerSizes", "10,5000000"),
+            ],
+        );
+        stays_measured(
+            "Circle",
+            &[
+                ("parm1", "1"),
+                ("parm2", "20"),
+                ("parm3", "50"),
+                ("circleSizes", "20,5000000,4000000"),
+            ],
+        );
+    }
+
+    #[test]
+    fn a_huge_layer_in_a_tiny_arch_is_read_quickly() {
+        let m = model(
+            "Arches",
+            &[
+                ("parm1", "1"),
+                ("parm2", "2"),
+                ("LayerSizes", "9000000000000000000,1"),
+                ("X2", "100"),
+            ],
+        );
+        let started = std::time::Instant::now();
+        let points = measured(&m);
+        let _ = editable(&m, &points);
+        assert!(started.elapsed().as_millis() < 200, "{:?}", started.elapsed());
     }
 
     /// A ring of 50 pixels, a little wider than tall.

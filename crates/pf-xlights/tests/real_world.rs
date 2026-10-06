@@ -49,6 +49,24 @@ fn curved_poly_lines_import_curved_with_their_pixels_on_the_curves() {
     assert!(pf_geometry::world_positions(garland)[5].y < 5.9);
 }
 
+#[test]
+fn models_with_odd_layer_lists_import_measured_quickly_and_the_show_opens() {
+    // Each model's exact shape would hold a layer bigger than a prop may be: imported as shapes,
+    // the whole show couldn't be opened. One layer is written as nearly 2^63.
+    let started = std::time::Instant::now();
+    let imported = fixture("odd-layers-show");
+    assert!(started.elapsed().as_secs_f32() < 1.0, "{:?}", started.elapsed());
+    assert_eq!(imported.summary.props, 4);
+    for prop in &imported.show.props {
+        assert!(
+            matches!(prop.shape, ShapeSource::Measured { .. }),
+            "{}",
+            prop.name
+        );
+    }
+    pf_model::check_show(&imported.show).expect("the imported show opens");
+}
+
 /// `body` after a document type declaration `doctype` (and an XML declaration).
 fn with_doctype(doctype: &str, body: &str) -> String {
     format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n{doctype}\n{body}")

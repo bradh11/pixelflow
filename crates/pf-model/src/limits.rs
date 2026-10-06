@@ -394,7 +394,7 @@ fn layers_problem(what: &str, layers: &[u32]) -> Option<String> {
 
 /// What's wrong with a tree's wiring settings, if anything.
 fn tree_problem(name: &str, strings: u32, strands_per_string: u32, spiral_rotations: f32) -> Option<String> {
-    if !(spiral_rotations.abs() <= MAX_SPIRAL_TURNS) {
+    if spiral_rotations.is_nan() || spiral_rotations.abs() > MAX_SPIRAL_TURNS {
         return Some(format!(
             "The tree '{name}' winds round {spiral_rotations} times, but PixelFlow supports at most {MAX_SPIRAL_TURNS} turns either way."
         ));

@@ -29,28 +29,72 @@ function matrixCell(k: number, columns: number, rows: number, wiring: MatrixWiri
   return [col, row];
 }
 
-function starPoints(points: number, nodes: number, outer: number, inner: number): Vec3[] {
-  if (points <= 0 || nodes <= 0) return range(nodes).map(() => v(0, 0));
-  const vertices = range(points * 2).map((i) => {
-    const r = i % 2 === 0 ? outer : inner;
-    const angle = Math.PI / 2 - (Math.PI * i) / points;
-    return v(r * Math.cos(angle), r * Math.sin(angle));
-  });
-  const edges = vertices.map((a, i) => [a, vertices[(i + 1) % vertices.length]] as const);
-  const length = (a: Vec3, b: Vec3) => Math.hypot(b.x - a.x, b.y - a.y);
-  const perimeter = edges.reduce((sum, [a, b]) => sum + length(a, b), 0);
-  return range(nodes).map((i) => {
-    let distance = (perimeter * i) / nodes;
-    for (const [a, b] of edges) {
-      const edge = length(a, b);
-      if (distance <= edge && edge > 0) {
-        const t = distance / edge;
-        return v(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
-      }
-      distance -= edge;
+type Circle = Extract<Generator, { type: "circle" }>;
+
+/** Rings as xLights lays them out (pf-geometry's circle.rs): each from the top (or bottom), the outermost ring first unless `startInside`. */
+function circle(g: Circle): Vec3[] {
+  const rings = (g.layers?.length ?? 0) > 1 ? g.layers! : [g.nodes];
+  const lc = rings.length;
+  const inner = (g.radius * (g.innerPercent ?? 50)) / 100;
+  const start = g.startAtBottom ? -Math.PI : 0;
+  const out: Vec3[] = [];
+  let left = Math.min(g.nodes, MAX_POINTS);
+  for (let k = 0; k < lc; k++) {
+    const ring = g.startInside ? k : lc - 1 - k;
+    const radius = lc === 1 ? g.radius : inner + ((g.radius - inner) * ring) / (lc - 1);
+    const count = Math.min(left, rings[ring]);
+    for (let n = 0; n < count; n++) {
+      let angle = start + (2 * Math.PI * n) / count;
+      if (g.counterClockwise) angle = -angle;
+      out.push(v(Math.sin(angle) * radius, Math.cos(angle) * radius));
     }
-    return vertices[0];
-  });
+    left -= count;
+  }
+  while (out.length < Math.min(g.nodes, MAX_POINTS)) out.push(v(0, 0));
+  return out;
+}
+
+type Star = Extract<Generator, { type: "star" }>;
+
+/** Star outlines as xLights lays them out (pf-geometry's star.rs): pixels evenly along each from the start corner; angles run clockwise from the top. */
+function star(g: Star): Vec3[] {
+  const total = Math.min(g.nodes, MAX_POINTS);
+  if (g.points <= 0) return range(total).map(() => v(0, 0));
+  const layers = (g.layers?.length ?? 0) > 1 ? g.layers! : [g.nodes];
+  const lc = layers.length;
+  const gap = (2 * Math.PI) / g.points;
+  const odd = g.points % 2 === 1;
+  const start = g.start ?? "top";
+  const [startAngle, startOuter] =
+    start === "top" ? [0, true] : start === "bottom" ? [Math.PI, false] : start === "leftLeg" ? [Math.PI + (odd ? gap / 2 : 0), true] : [Math.PI - (odd ? gap / 2 : 0), true];
+  const dir = g.counterClockwise ? -1 : 1;
+  const segments = 2 * g.points;
+  const out: Vec3[] = [];
+  let left = total;
+  for (let k = 0; k < lc && left > 0; k++) {
+    const layer = g.startInside ? k : lc - 1 - k;
+    const p = (g.innerPercent ?? 50) / 100;
+    const size = lc === 1 ? 1 : p + ((1 - p) * layer) / (lc - 1);
+    const corner = (c: number): [number, number] => {
+      const r = ((c % 2 === 0) === startOuter ? g.outerRadius : g.innerRadius) * size;
+      const a = startAngle + (dir * c * gap) / 2;
+      return [r * Math.sin(a), r * Math.cos(a)];
+    };
+    const [a, b] = [corner(0), corner(1)];
+    const edge = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const n = layers[layer];
+    const count = Math.min(n, left);
+    for (let i = 0; i < count; i++) {
+      const d = (edge * segments * i) / n;
+      const seg = edge > 0 ? Math.min(Math.floor(d / edge), segments - 1) : 0;
+      const t = edge > 0 ? (d - seg * edge) / edge : 0;
+      const [p0, q0] = [corner(seg), corner(seg + 1)];
+      out.push(v(p0[0] + (q0[0] - p0[0]) * t, p0[1] + (q0[1] - p0[1]) * t));
+    }
+    left -= count;
+  }
+  while (out.length < total) out.push(v(0, 0));
+  return out;
 }
 
 function customGrid(columns: number, rows: number, cells: number[]): Vec3[] {
@@ -383,10 +427,7 @@ function generate(g: Generator): Vec3[] {
     case "arch":
       return arch(g);
     case "circle":
-      return range(g.nodes).map((i) => {
-        const angle = Math.PI / 2 - (2 * Math.PI * i) / g.nodes;
-        return v(g.radius * Math.cos(angle), g.radius * Math.sin(angle));
-      });
+      return circle(g);
     case "matrix": {
       const wiring = g.wiring ?? { start: "bottomLeft", orientation: "horizontal", serpentine: true };
       return range(g.columns * g.rows).map((k) => {
@@ -417,7 +458,7 @@ function generate(g: Generator): Vec3[] {
       return out;
     }
     case "star":
-      return starPoints(g.points, g.nodes, g.outerRadius, g.innerRadius);
+      return star(g);
     case "customGrid":
       return customGrid(g.columns, g.rows, g.cells);
     case "polyLine":

@@ -1294,6 +1294,26 @@ describe("LayoutScreen", () => {
       expect(shape()).toMatchObject({ layers: [] });
       expect(screen.getByLabelText("Arches")).toHaveValue("4");
     });
+
+    it("gives a circle rings inside each other and starts it at the bottom", async () => {
+      const circle = { ...newProp("circle", emptyShow("x")), name: "Halo" };
+      const { user, shape } = await selectOnly(circle);
+      expect(screen.queryByLabelText("Innermost ring (%)")).not.toBeInTheDocument();
+      await user.type(screen.getByLabelText("Rings (pixels each, inside first)"), "10,20{Enter}");
+      const inner = screen.getByLabelText("Innermost ring (%)");
+      await user.clear(inner);
+      await user.type(inner, "40{Enter}");
+      await user.click(screen.getByLabelText("Starts at the bottom"));
+      expect(shape()).toMatchObject({ layers: [10, 20], innerPercent: 40, startAtBottom: true });
+    });
+
+    it("starts a star at a leg and runs it counter-clockwise", async () => {
+      const star = { ...newProp("star", emptyShow("x")), name: "Topper" };
+      const { user, shape } = await selectOnly(star);
+      await user.selectOptions(screen.getByLabelText("First pixel"), "leftLeg");
+      await user.click(screen.getByLabelText("Goes round counter-clockwise"));
+      expect(shape()).toMatchObject({ start: "leftLeg", counterClockwise: true });
+    });
   });
 
   describe("smart guides", () => {

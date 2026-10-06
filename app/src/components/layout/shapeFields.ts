@@ -29,6 +29,10 @@ export const CHOICE = (key: string, label: string, options: [string, string][], 
   hint,
 });
 
+/** A list of pixels per layer (innermost first) that may be left empty for one layer. */
+const LAYERS = (label: string, hint: string): ShapeField => ({ kind: "numbers", key: "layers", label, min: 1, max: 1_000_000, allowEmpty: true, hint });
+const INNER_SIZE = (label: string, hint: string): ShapeField => ({ kind: "number", key: "innerPercent", label, integer: true, min: 0, max: 100, hint });
+
 const CORNERS: [string, string][] = [
   ["bottomLeft", "Bottom left"],
   ["bottomRight", "Bottom right"],
@@ -67,7 +71,15 @@ export const SHAPE_FIELDS: Record<string, ShapeField[]> = {
     only(hasLayers, BOOL("startInside", "Starts on the innermost layer")),
     only(hasLayers, BOOL("zigZag", "Every other layer runs back the other way")),
   ],
-  circle: [COUNT("nodes", "Pixels"), SIZE("radius", "Radius")],
+  circle: [
+    COUNT("nodes", "Pixels", 1, "All the pixels, on all the rings together"),
+    SIZE("radius", "Radius", 0.01, "Of the outermost ring"),
+    LAYERS("Rings (pixels each, inside first)", "For rings inside each other: the pixels on each ring, innermost first, like 10,20,30. Leave it empty for one ring"),
+    only(hasLayers, INNER_SIZE("Innermost ring (%)", "The innermost ring's size, in percent of the outermost")),
+    BOOL("startAtBottom", "Starts at the bottom"),
+    BOOL("counterClockwise", "Goes round counter-clockwise"),
+    only(hasLayers, BOOL("startInside", "Starts on the innermost ring")),
+  ],
   matrix: [
     COUNT("columns", "Columns"),
     COUNT("rows", "Rows"),
@@ -100,7 +112,27 @@ export const SHAPE_FIELDS: Record<string, ShapeField[]> = {
     ]),
     BOOL("serpentine", "Zig-zag (every other string runs top to bottom)"),
   ],
-  star: [COUNT("points", "Points", 2), COUNT("nodes", "Pixels"), SIZE("outerRadius", "Outer radius"), SIZE("innerRadius", "Inner radius")],
+  star: [
+    COUNT("points", "Points", 2),
+    COUNT("nodes", "Pixels", 1, "All the pixels, on all the outlines together"),
+    SIZE("outerRadius", "Outer radius", 0.01, "Out to the tips"),
+    SIZE("innerRadius", "Inner radius", 0.01, "Out to the corners between the tips"),
+    CHOICE(
+      "start",
+      "First pixel",
+      [
+        ["top", "Top tip"],
+        ["bottom", "Bottom, between the legs"],
+        ["leftLeg", "Bottom left tip"],
+        ["rightLeg", "Bottom right tip"],
+      ],
+      "Where the data comes in. Starting at the bottom turns a star with an even number of points so a corner is there",
+    ),
+    BOOL("counterClockwise", "Goes round counter-clockwise"),
+    LAYERS("Layers (pixels each, inside first)", "For stars inside each other: the pixels on each, innermost first, like 20,40. Leave it empty for one star"),
+    only(hasLayers, INNER_SIZE("Innermost star (%)", "The innermost star's size, in percent of the outermost")),
+    only(hasLayers, BOOL("startInside", "Starts on the innermost star")),
+  ],
   candyCanes: [
     COUNT("canes", "Canes"),
     COUNT("nodesPerCane", "Pixels per cane"),

@@ -32,6 +32,9 @@ export interface PolySegment {
   curve?: [Vec3, Vec3] | null;
 }
 
+/** Where a star's pixels start: its top tip, the inner corner at its bottom, or a bottom leg's tip. */
+export type StarStart = "top" | "bottom" | "leftLeg" | "rightLeg";
+
 export type Generator =
   | { type: "line"; nodes: number; length: number }
   /** Arches in a row (`nodes` pixels each), or with `layers` one arch of nested layers, laid out as xLights does. Settings left out read as one half-ellipse arch. */
@@ -57,7 +60,17 @@ export type Generator =
       zigZag?: boolean;
       startInside?: boolean;
     }
-  | { type: "circle"; nodes: number; radius: number }
+  /** Rings of pixels from the top, clockwise; with `layers` (pixels per ring, innermost first) several rings evenly spaced in to `innerPercent` of the radius. */
+  | {
+      type: "circle";
+      nodes: number;
+      radius: number;
+      layers?: number[];
+      innerPercent?: number;
+      startInside?: boolean;
+      startAtBottom?: boolean;
+      counterClockwise?: boolean;
+    }
   | { type: "matrix"; columns: number; rows: number; width: number; height: number; wiring?: MatrixWiring }
   | {
       type: "tree";
@@ -74,7 +87,19 @@ export type Generator =
       /** Where the first string of a round tree stands, degrees round from the front (default 0). */
       startAngle?: number;
     }
-  | { type: "star"; points: number; nodes: number; outerRadius: number; innerRadius: number }
+  /** Star outlines, pixels evenly along each from the `start` corner, clockwise; with `layers` (pixels per outline, innermost first) nested outlines in to `innerPercent` of the size. */
+  | {
+      type: "star";
+      points: number;
+      nodes: number;
+      outerRadius: number;
+      innerRadius: number;
+      start?: StarStart;
+      counterClockwise?: boolean;
+      layers?: number[];
+      innerPercent?: number;
+      startInside?: boolean;
+    }
   | { type: "customGrid"; columns: number; rows: number; cells: number[] }
   /** Points the line runs through, first to last; `segments` has one fewer. `spreadNodes` spreads that many pixels evenly instead. */
   | { type: "polyLine"; vertices: Vec3[]; segments: PolySegment[]; spreadNodes?: number | null }

@@ -3,6 +3,7 @@ import { emptyShow } from "../api/memory";
 import type { Background, PreviewProp, Transform } from "../api/types";
 import { applyTransform, frontView, localPositions } from "./geometry";
 import {
+  DRAWN_BY_ENDS,
   resizeView,
   alignMoves,
   backgroundBox,
@@ -358,6 +359,23 @@ describe("drawing new props", () => {
     const { prop } = ends("arch", [0, 0], [6, 0]);
     expect(prop.shape).toMatchObject({ width: 6, height: 3, nodes: 50 });
     expect(prop.transform.rotationDeg.z).toBe(0);
+  });
+
+  it("stands candy canes and hangs icicles between where the drag started and ended", () => {
+    const [a, b] = [{ x: 1, y: 1 }, { x: 5, y: 4 }];
+    expect(DRAWN_BY_ENDS).toEqual(expect.arrayContaining(["candyCanes", "icicles"]));
+    for (const kind of ["candyCanes", "icicles"] as const) {
+      const base = newProp(kind, show);
+      const prop = drawnProp(kind, a, b, base);
+      expect(prop.shape).toMatchObject({ width: 5 });
+      expect(prop.transform.position).toMatchObject({ x: 3, y: 2.5 });
+      expect(prop.transform.rotationDeg.z).toBeCloseTo((Math.atan2(3, 4) * 180) / Math.PI, 2);
+      // The first cane's foot, or the first drop's top, is where the drag started.
+      const [first] = localPositions(prop.shape).map((p) => applyTransform(p, prop.transform));
+      expect(first.x).toBeCloseTo(1);
+      expect(first.y).toBeCloseTo(1);
+      if (kind === "icicles") expect(prop.shape).toMatchObject({ dropHeight: (base.shape as { dropHeight: number }).dropHeight });
+    }
   });
 
   it("fills the drawn box with a matrix, tree, circle, or star", () => {

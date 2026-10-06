@@ -1038,4 +1038,43 @@ describe("LayoutScreen", () => {
       expect(useLayoutEditor.getState().tool).toBe("star");
     });
   });
+
+  describe("candy canes and icicles", () => {
+    /** Picks `name` under More shapes, drags from `a` to `b`, and returns the prop added. */
+    async function drawFromMore(user: ReturnType<typeof userEvent.setup>, name: string, a: Pt, b: Pt): Promise<Prop> {
+      await user.click(screen.getByRole("button", { name: "More shapes" }));
+      await user.click(screen.getByRole("menuitem", { name }));
+      await drag(a, b);
+      expect(edits).toHaveLength(1);
+      const [add] = edits[0];
+      expect(add.type).toBe("addProp");
+      const prop = (add as { prop: Prop }).prop;
+      await waitFor(() => expect(useLayoutEditor.getState().selected).toEqual([prop.id]));
+      return prop;
+    }
+
+    it("draws candy canes from one end to the other and turns their hooks from the panel", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      const prop = await drawFromMore(user, "Candy canes", { x: 2, y: 1 }, { x: 6, y: 1 });
+      expect(prop.shape).toMatchObject({ type: "candyCanes", canes: 3, nodesPerCane: 18, width: expect.closeTo(4, 1) });
+      expect(prop.transform.position).toMatchObject({ x: expect.closeTo(4, 1), y: expect.closeTo(1, 1) });
+      expect(screen.getByLabelText("Pixels per cane")).toHaveValue("18");
+      await user.click(screen.getByLabelText("Hooks point left"));
+      expect(edits).toHaveLength(2);
+      expect(edits[1]).toEqual([{ type: "updateProp", prop: expect.objectContaining({ shape: expect.objectContaining({ reverse: true }) }) }]);
+    });
+
+    it("draws icicles along a line and changes their drop pattern from the panel", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      const prop = await drawFromMore(user, "Icicles", { x: -2, y: 3 }, { x: 4, y: 3 });
+      expect(prop.shape).toMatchObject({ type: "icicles", drops: [3, 4, 5, 4], width: expect.closeTo(6, 1) });
+      const pattern = screen.getByLabelText("Drop pattern");
+      expect(pattern).toHaveValue("3,4,5,4");
+      await user.clear(pattern);
+      await user.type(pattern, "2, 6,0{Enter}");
+      expect(edits).toHaveLength(2);
+      expect(edits[1]).toEqual([{ type: "updateProp", prop: expect.objectContaining({ shape: expect.objectContaining({ drops: [2, 6, 0] }) }) }]);
+      expect(backend.show.props.at(-1)!.shape).toMatchObject({ drops: [2, 6, 0] });
+    });
+  });
 });

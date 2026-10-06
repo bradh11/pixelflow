@@ -1,6 +1,8 @@
 import {
+  CandyCane,
   ChevronDown,
   Circle,
+  Droplets,
   Grid3x3,
   ImagePlus,
   Magnet,
@@ -50,6 +52,8 @@ const TOOLS: ToolInfo[] = [
 export const MORE_TOOLS: ToolInfo[] = [
   { tool: "circle", label: "Circle", hint: "Drag a box around the circle", icon: Circle },
   { tool: "star", label: "Star", hint: "Drag a box around the star", icon: Star },
+  { tool: "candyCanes", label: "Candy canes", hint: "Drag from where the first cane stands to where the last one does", icon: CandyCane },
+  { tool: "icicles", label: "Icicles", hint: "Drag along the line the icicles hang from", icon: Droplets },
 ];
 
 function ToolButton({
@@ -133,7 +137,7 @@ function MoreShapes({ tool, setTool, in3d }: { tool: Tool; setTool: (t: Tool) =>
       <ToolButton
         pressed={!!picked}
         label={picked ? picked.label : "More shapes"}
-        hint={in3d ? DRAW_IN_2D : "More kinds of props: circles, stars, and more"}
+        hint={in3d ? DRAW_IN_2D : "More kinds of props: circles, stars, candy canes, icicles"}
         disabled={in3d}
         onClick={() => setOpen(!open)}
         popup

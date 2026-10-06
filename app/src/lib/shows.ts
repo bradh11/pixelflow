@@ -5,7 +5,7 @@ export function memberProp(member: GroupMember): string {
   return typeof member === "string" ? member : member.prop;
 }
 
-export type PropKind = "line" | "polyLine" | "arch" | "circle" | "matrix" | "tree" | "star";
+export type PropKind = "line" | "polyLine" | "arch" | "circle" | "matrix" | "tree" | "star" | "candyCanes" | "icicles";
 
 export const PROP_KINDS: { kind: PropKind; label: string }[] = [
   { kind: "arch", label: "Arch" },
@@ -15,6 +15,8 @@ export const PROP_KINDS: { kind: PropKind; label: string }[] = [
   { kind: "tree", label: "Mega tree" },
   { kind: "star", label: "Star" },
   { kind: "circle", label: "Circle / wreath" },
+  { kind: "candyCanes", label: "Candy canes" },
+  { kind: "icicles", label: "Icicles" },
 ];
 
 const DEFAULT_SHAPES: Record<PropKind, ShapeSource> = {
@@ -51,6 +53,20 @@ const DEFAULT_SHAPES: Record<PropKind, ShapeSource> = {
     serpentine: true,
   },
   star: { source: "generator", type: "star", points: 5, nodes: 100, outerRadius: 1, innerRadius: 0.4 },
+  candyCanes: {
+    source: "generator",
+    type: "candyCanes",
+    canes: 3,
+    nodesPerCane: 18,
+    width: 3,
+    height: 1,
+    caneHeight: 1,
+    reverse: false,
+    sticks: false,
+    alternateNodes: false,
+    skewDeg: 0,
+  },
+  icicles: { source: "generator", type: "icicles", strings: 2, lightsPerString: 80, drops: [3, 4, 5, 4], width: 4, dropHeight: 0.4, alternateNodes: false },
 };
 
 const KIND_NAMES: Record<PropKind, string> = {
@@ -61,6 +77,8 @@ const KIND_NAMES: Record<PropKind, string> = {
   matrix: "Matrix",
   tree: "Mega Tree",
   star: "Star",
+  candyCanes: "Candy Canes",
+  icicles: "Icicles",
 };
 
 /** The first "Base N" name not already used. */
@@ -146,6 +164,8 @@ export function shapeLabel(shape: ShapeSource): string {
     star: "Star",
     customGrid: "Custom grid",
     polyLine: "Poly line",
+    candyCanes: "Candy canes",
+    icicles: "Icicles",
   };
   return labels[shape.type] ?? shape.type;
 }

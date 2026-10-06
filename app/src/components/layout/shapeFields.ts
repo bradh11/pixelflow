@@ -57,6 +57,32 @@ export const SHAPE_FIELDS: Record<string, ShapeField[]> = {
     SIZE("topRadius", "Top radius", 0),
   ],
   star: [COUNT("points", "Points", 2), COUNT("nodes", "Pixels"), SIZE("outerRadius", "Outer radius"), SIZE("innerRadius", "Inner radius")],
+  candyCanes: [
+    COUNT("canes", "Canes"),
+    COUNT("nodesPerCane", "Pixels per cane"),
+    SIZE("width", "Width", 0.01, "From the first cane's foot to the far side of the last"),
+    NUMBER("skewDeg", "Lean (°)", -90, 90, "How far each cane leans; positive leans left"),
+    SIZE("height", "Cane size (×)", 0.01, "Makes the canes taller and their hooks wider; 1 is the usual size"),
+    SIZE("caneHeight", "Cane height (×)", 0.01, "Makes the canes taller without widening their hooks; 1 is the usual height"),
+    BOOL("reverse", "Hooks point left"),
+    BOOL("sticks", "Straight sticks (no hooks)"),
+    BOOL("alternateNodes", "Pixels go up every other spot and come back down"),
+  ],
+  icicles: [
+    COUNT("strings", "Strings"),
+    COUNT("lightsPerString", "Pixels per string"),
+    SIZE("width", "Width"),
+    SIZE("dropHeight", "Drop length", 0.01, "How far below the line the longest drop hangs"),
+    {
+      kind: "numbers",
+      key: "drops",
+      label: "Drop pattern",
+      min: 0,
+      max: 1000,
+      hint: "Pixels in each drop, repeating along the line, like 3,4,5,4 (a 0 leaves a gap)",
+    },
+    BOOL("alternateNodes", "Pixels go down every other spot and come back up"),
+  ],
 };
 
 /** The value at a dotted `key` in `obj` (undefined when a part is missing). */

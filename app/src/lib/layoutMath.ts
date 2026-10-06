@@ -555,11 +555,12 @@ export function moveGesture(from: Pt, to: Pt, origin: Pt | null, grid: number | 
 // ---- Drawing new props -----------------------------------------------------------------
 
 /** Kinds drawn by dragging from one end to the other (the rest are drawn as a box). */
-export const DRAWN_BY_ENDS: PropKind[] = ["line", "arch"];
+export const DRAWN_BY_ENDS: PropKind[] = ["line", "arch", "candyCanes", "icicles"];
 
 /**
- * A new prop shaped and placed to what was drawn: a line or arch from `a` to `b`, or the
- * other kinds filling the box with corners `a` and `b`. Pixel counts stay as they are.
+ * A new prop shaped and placed to what was drawn: a line, arch, candy canes or icicles from `a`
+ * to `b`, or the other kinds filling the box with corners `a` and `b`. Pixel counts stay as they
+ * are.
  */
 export function drawnProp(kind: PropKind, a: Pt, b: Pt, prop: Prop): Prop {
   const shape = structuredClone(prop.shape);
@@ -572,11 +573,12 @@ export function drawnProp(kind: PropKind, a: Pt, b: Pt, prop: Prop): Prop {
   const place = (x: number, y: number) => {
     transform.position = { ...transform.position, x: tidy(x), y: tidy(y) };
   };
-  if (kind === "line" || kind === "arch") {
+  if (DRAWN_BY_ENDS.includes(kind)) {
     const length = Math.hypot(b.x - a.x, b.y - a.y);
     place((a.x + b.x) / 2, (a.y + b.y) / 2);
     transform.rotationDeg = { ...transform.rotationDeg, z: normalizeDeg((Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI) };
     if (shape.type === "line") shape.length = r(length);
+    if (shape.type === "candyCanes" || shape.type === "icicles") shape.width = r(length);
     if (shape.type === "arch") {
       const ratio = shape.width > 0 ? shape.height / shape.width : 0.5;
       shape.width = r(length);

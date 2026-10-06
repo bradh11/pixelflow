@@ -27,7 +27,7 @@ pub use issue::{Issue, IssueCode, Severity, ValidationReport};
 pub use limits::{
     MAX_ICICLE_DROP_LIGHTS, MAX_ICICLE_DROPS, MAX_NULL_PIXELS, MAX_POLY_VERTICES, MAX_PROP_NODES,
     MAX_REGION_ENTRIES, MAX_REGIONS_PER_PROP, MAX_SEQUENCE_OFFSET_MS, MAX_SHAPE_LAYERS, MAX_SHOW_PIXELS,
-    MAX_SPINNER_ARMS, MAX_SPINNER_HOLLOW, MAX_STAR_POINTS,
+    MAX_SPINNER_ARMS, MAX_SPINNER_HOLLOW, MAX_SPIRAL_TURNS, MAX_STAR_POINTS, shape_problem,
 };
 pub use paths::{
     display_text, file_name_of, is_full_path_text, path_from_text, path_to_text, relative_text, resolve_text,

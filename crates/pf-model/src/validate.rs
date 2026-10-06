@@ -472,6 +472,27 @@ mod tests {
         Prop::new(name, ShapeSource::Generator(shape))
     }
 
+    fn tree(name: &str, strings: u32, strands_per_string: u32, spiral_rotations: f32) -> Prop {
+        let mut shape = Generator::tree(strings, 10, 2.0, 1.0, 0.2, crate::TreeStyle::Round);
+        if let Generator::Tree {
+            strands_per_string: fold,
+            spiral_rotations: spiral,
+            ..
+        } = &mut shape
+        {
+            (*fold, *spiral) = (strands_per_string, spiral_rotations);
+        }
+        Prop::new(name, ShapeSource::Generator(shape))
+    }
+
+    #[test]
+    fn spiral_and_folded_trees_within_the_limits_are_valid() {
+        for prop in [tree("Mega", 16, 3, 2.5), tree("Swirl", 8, 8, -100.0)] {
+            let show = show_with_slot(PortSlot::new(prop.id), prop);
+            assert_eq!(validate_show(&show).issues, vec![]);
+        }
+    }
+
     #[test]
     fn rows_of_arches_and_layered_arches_within_the_limits_are_valid() {
         for prop in [
@@ -539,7 +560,7 @@ mod tests {
     #[test]
     fn each_structural_problem_is_reported() {
         type Mutate = fn(&mut Show);
-        let cases: [(IssueCode, Mutate); 50] = [
+        let cases: [(IssueCode, Mutate); 54] = [
             (IssueCode::InvalidFrameRate, |s| s.settings.frame_rate = 5),
             (IssueCode::DuplicateId, |s| {
                 let dup = s.props[0].clone();
@@ -741,6 +762,22 @@ mod tests {
                     *layers = vec![crate::MAX_PROP_NODES + 1];
                 }
                 s.props.push(Prop::new("Big star", ShapeSource::Generator(shape)))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                let mut p = arch("Apart", 2, 10, vec![]);
+                if let ShapeSource::Generator(Generator::Arch { gap, .. }) = &mut p.shape {
+                    *gap = -0.5;
+                }
+                s.props.push(p)
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(tree("Corkscrew", 4, 0, 1e30))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(tree("Twister", 4, 0, -101.0))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(tree("Folded", 4, 5, 0.0))
             }),
             (IssueCode::LimitExceeded, |s| {
                 let mut p = arch("Hollow", 1, 10, vec![5, 5]);

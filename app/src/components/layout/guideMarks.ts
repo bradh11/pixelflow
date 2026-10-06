@@ -1,24 +1,34 @@
 // Draws the smart guides on the layout canvas while a prop is dragged: lines where edges and
 // centers meet, arrows with their length across equal gaps, and "same width" / "same height"
-// beside boxes of the same size. Thin lines in the accent color over a dark outline, so they
-// read over a bright photo too.
+// beside boxes of the same size. Thin magenta lines (apart from the violet selection) over a
+// dark outline, so they read over a bright photo too.
 
 import type { Box, Pt } from "../../lib/layoutMath";
 import { type Marks, formatGap } from "../../lib/smartGuides";
+import type { Theme } from "../../state/store";
 
-interface Colors {
-  accent: string;
+export interface GuideColors {
+  line: string;
   halo: string;
-  /** Text on an accent label. */
+  /** Text on a label. */
   ink: string;
 }
+
+/**
+ * Guide colors for each app theme. The canvas itself stays dark in both (lights are judged
+ * against a night sky), so both are bright; the light theme's is a shade deeper, like its accents.
+ */
+export const GUIDE_COLORS: Record<Theme, GuideColors> = {
+  dark: { line: "#f472b6", halo: "rgba(0, 0, 0, 0.65)", ink: "#0a0a0c" },
+  light: { line: "#ec4899", halo: "rgba(0, 0, 0, 0.65)", ink: "#0a0a0c" },
+};
 
 const ARROW = 4;
 /** How far outside a box its size mark sits, in screen pixels. */
 const SIZE_OFFSET = 10;
 
 /** Draws `marks` (in world units) with `at` turning world points into screen points. */
-export function drawGuideMarks(ctx: CanvasRenderingContext2D, marks: Marks, at: (p: Pt) => Pt, colors: Colors) {
+export function drawGuideMarks(ctx: CanvasRenderingContext2D, marks: Marks, at: (p: Pt) => Pt, colors: GuideColors) {
   const crisp = (v: number) => Math.round(v) + 0.5;
   const stroke = (path: () => void) => {
     ctx.setLineDash([]);
@@ -26,7 +36,7 @@ export function drawGuideMarks(ctx: CanvasRenderingContext2D, marks: Marks, at: 
     ctx.strokeStyle = colors.halo;
     path();
     ctx.lineWidth = 1;
-    ctx.strokeStyle = colors.accent;
+    ctx.strokeStyle = colors.line;
     path();
   };
 
@@ -86,12 +96,12 @@ function arrow(ctx: CanvasRenderingContext2D, a: Pt, b: Pt, stroke: (path: () =>
   });
 }
 
-/** A small accent pill with `text`, centered on `p`. */
-function label(ctx: CanvasRenderingContext2D, text: string, p: Pt, colors: Colors) {
+/** A small pill in the guide color with `text`, centered on `p`. */
+function label(ctx: CanvasRenderingContext2D, text: string, p: Pt, colors: GuideColors) {
   ctx.font = "600 11px system-ui, -apple-system, sans-serif";
   const w = ctx.measureText(text).width + 8;
   const h = 16;
-  ctx.fillStyle = colors.accent;
+  ctx.fillStyle = colors.line;
   ctx.beginPath();
   if (typeof ctx.roundRect === "function") ctx.roundRect(p.x - w / 2, p.y - h / 2, w, h, 3);
   else ctx.rect(p.x - w / 2, p.y - h / 2, w, h);

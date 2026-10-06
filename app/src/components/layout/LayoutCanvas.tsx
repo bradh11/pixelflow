@@ -66,7 +66,7 @@ import { highlightPixels } from "../../lib/submodels";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { commitGesture, settlePending, unsettled } from "../../state/layoutGestures";
 import { useApp } from "../../state/store";
-import { drawGuideMarks } from "./guideMarks";
+import { GUIDE_COLORS, drawGuideMarks } from "./guideMarks";
 import { type PhotoImage, useLiveFrame } from "./useLayoutData";
 
 /** How close (screen pixels) a click must be to a pixel to pick its prop. */
@@ -359,7 +359,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     }
 
     const marks = d && guides.current?.marks;
-    if (marks) drawGuideMarks(ctx, marks, at, { accent: ACCENT, halo: HALO, ink: BACKDROP });
+    if (marks) drawGuideMarks(ctx, marks, at, GUIDE_COLORS[useApp.getState().theme]);
 
     if (d?.kind === "marquee") {
       const [a, b] = [d.fromScreen, d.toScreen];

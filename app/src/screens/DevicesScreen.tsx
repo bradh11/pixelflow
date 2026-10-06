@@ -59,7 +59,7 @@ function DeviceRow({
       <td className="pr-3">
         {inShow && <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs dark:bg-neutral-800">In show</span>}
       </td>
-      <td className="pr-6">
+      <td className="w-px pr-6 whitespace-nowrap">
         {/* Apart from Open, and in words: forgetting is easy to do by mistake next to it. */}
         <button
           type="button"
@@ -74,7 +74,7 @@ function DeviceRow({
           <X size={12} aria-hidden /> Forget
         </button>
       </td>
-      <td className="text-right whitespace-nowrap">
+      <td className="w-px text-right whitespace-nowrap">
         <Button
           onClick={(e) => {
             e.stopPropagation();
@@ -114,7 +114,7 @@ export function DevicesScreen() {
   const inShow = (device: Device) => snapshot?.show.controllers.some((c) => c.address === device.address) ?? false;
 
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className="mx-auto max-w-7xl">
       <PageHeader
         title="Devices"
         description="Find FPP, Falcon, and WLED controllers on your network and add them to your show. Nothing on your controllers is changed."

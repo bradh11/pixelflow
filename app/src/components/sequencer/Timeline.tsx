@@ -1003,7 +1003,8 @@ const RowHeaders = memo(function RowHeaders({
                 type="button"
                 aria-label={isCollapsed ? `Show ${name}'s layers` : `Fold ${name}'s layers into one line`}
                 aria-expanded={!isCollapsed}
-                className="rounded p-0.5 text-neutral-500 hover:bg-neutral-200/70 dark:hover:bg-neutral-800"
+                title={isCollapsed ? "Show each layer" : "Fold the layers into one line"}
+                className="rounded p-1 text-neutral-500 hover:bg-neutral-200/70 dark:hover:bg-neutral-800"
                 onClick={(e) => {
                   e.stopPropagation();
                   toggleCollapsed(row.id);

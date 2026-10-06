@@ -265,14 +265,14 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
   return (
     <div role="toolbar" aria-label="Sequence" className="flex shrink-0 flex-wrap items-center gap-1 border-b border-neutral-200 px-2 py-1.5 dark:border-neutral-800">
       <ToolButton label="New sequence" onClick={onNew}>
-        <FilePlus size={16} /> <span className="hidden xl:inline">New</span>
+        <FilePlus size={16} /> <span className="hidden xl:inline">New sequence</span>
       </ToolButton>
       <ToolButton label="Open sequence" onClick={onOpen}>
-        <FolderOpen size={16} /> <span className="hidden xl:inline">Open</span>
+        <FolderOpen size={16} /> <span className="hidden xl:inline">Open sequence</span>
       </ToolButton>
       {/* Asks about unsaved changes like New and Open do (the import goes through the same question). */}
       <ToolButton label="Import xLights sequence…" onClick={() => void useApp.getState().importXlightsSequence()}>
-        <FileInput size={16} /> <span className="hidden xl:inline">Import</span>
+        <FileInput size={16} /> <span className="hidden xl:inline">Import .xsq</span>
       </ToolButton>
       <ToolButton label="Save sequence" onClick={() => void act().save()} disabled={s.name === null}>
         <Save size={16} />

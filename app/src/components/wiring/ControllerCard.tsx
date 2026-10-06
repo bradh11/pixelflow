@@ -314,7 +314,8 @@ function PortRow({ controller, port, at, data }: { controller: Controller; port:
           aria-label={`Port ${port.number} settings`}
           aria-expanded={settings}
           onClick={() => setSettings(!settings)}
-          className="flex w-16 shrink-0 items-center gap-1 rounded py-0.5 text-sm font-medium hover:text-accent-600 dark:hover:text-accent-400"
+          title="Port settings: number, pixel limit, remove"
+          className="flex min-h-7 w-16 shrink-0 items-center gap-1 rounded py-0.5 text-sm font-medium hover:text-accent-600 dark:hover:text-accent-400"
         >
           Port {port.number}
           <Settings2 size={12} className="text-neutral-400" aria-hidden />
@@ -349,7 +350,8 @@ function PortRow({ controller, port, at, data }: { controller: Controller; port:
               aria-haspopup="dialog"
               aria-expanded={adding}
               onClick={() => useWiring.setState({ adding: adding ? null : ref })}
-              className="rounded-full border border-neutral-300 px-2 py-0.5 text-xs text-neutral-600 hover:border-accent-500 hover:text-accent-700 dark:border-neutral-700 dark:text-neutral-300 dark:hover:text-accent-300"
+              title="Pick a prop to wire here (or drag one from the list)"
+              className="min-h-7 rounded-full border border-neutral-300 px-2.5 py-0.5 text-xs text-neutral-600 hover:border-accent-500 hover:text-accent-700 dark:border-neutral-700 dark:text-neutral-300 dark:hover:text-accent-300"
             >
               + Add…
             </button>

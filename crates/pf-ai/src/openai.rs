@@ -8,12 +8,14 @@
 //! output is capped with `max_output_tokens`. Reasoning models (see [`is_reasoning_model`]) also
 //! get `reasoning: {effort: "medium"}` and `include: ["reasoning.encrypted_content"]`, so their
 //! reasoning can be replayed without being stored; a model that refuses either setting is asked
-//! once more without them (a 400 means nothing ran).
+//! once more without them (a 400 means nothing ran), and is sent without them from then on.
 //!
 //! **History.** A user message is a `message` item; a reply's output items (reasoning with its
 //! encrypted content, messages, function calls) go back exactly as they came, as OpenAI asks
 //! ("any reasoning items returned in model responses with tool calls must also be passed back
-//! with tool call outputs"); each tool result is a `function_call_output` item with its
+//! with tool call outputs"), except that reasoning goes back only to the model that made it and
+//! only with its encrypted content (after a switch of model mid-chat, the new model couldn't
+//! read it); each tool result is a `function_call_output` item with its
 //! `call_id`. A turn from the other provider goes back as a plain assistant message and
 //! `function_call` items.
 //!
@@ -50,7 +52,8 @@ use crate::provider::{
 use crate::secret::ApiKey;
 use crate::sse::SseReader;
 use serde_json::{Value, json};
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex, PoisonError};
 
 pub const BASE_URL: &str = "https://api.openai.com";
 
@@ -74,6 +77,9 @@ pub struct OpenAi {
     transport: Arc<dyn Transport>,
     base_url: String,
     retry: RetryPolicy,
+    /// Models that refused the reasoning settings: they're sent without them from then on, not
+    /// refused (and asked again) on every step.
+    no_reasoning: Mutex<HashSet<String>>,
 }
 
 impl OpenAi {
@@ -82,6 +88,7 @@ impl OpenAi {
             transport,
             base_url: BASE_URL.to_string(),
             retry: RetryPolicy::default(),
+            no_reasoning: Mutex::default(),
         }
     }
 
@@ -170,7 +177,7 @@ pub fn request_body(request: &TurnRequest<'_>, reasoning: bool) -> Value {
         "stream": true,
         "store": false,
         "instructions": request.system,
-        "input": input_items(request.messages),
+        "input": input_items(request.messages, request.model),
         "tools": tools,
         "max_output_tokens": request.max_tokens,
     });
@@ -181,14 +188,30 @@ pub fn request_body(request: &TurnRequest<'_>, reasoning: bool) -> Value {
     body
 }
 
-/// The conversation as Responses input items.
-fn input_items(messages: &[Message]) -> Vec<Value> {
+/// The conversation as Responses input items, for `model`. A reply's reasoning goes back only to
+/// the model that made it (another can't read its encrypted content), and only with its
+/// encrypted content (stateless replay needs it).
+fn input_items(messages: &[Message], model: &str) -> Vec<Value> {
     let mut out = Vec::new();
     for message in messages {
         match message {
             Message::User(text) => out.push(json!({ "type": "message", "role": "user", "content": text })),
             Message::Assistant(turn) => match &turn.native {
-                Some((ProviderId::Openai, Value::Array(items))) => out.extend(items.iter().cloned()),
+                Some((ProviderId::Openai, native)) if native["items"].is_array() => {
+                    let same_model = native["model"] == model;
+                    out.extend(
+                        native["items"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter(|item| {
+                                item["type"] != "reasoning"
+                                    || (same_model
+                                        && item["encrypted_content"].as_str().is_some_and(|c| !c.is_empty()))
+                            })
+                            .cloned(),
+                    );
+                }
                 _ => {
                     if !turn.text.is_empty() {
                         out.push(json!({ "type": "message", "role": "assistant", "content": turn.text }));
@@ -438,11 +461,20 @@ impl LlmProvider for OpenAi {
         cancel: &Cancel,
         on_event: &mut dyn FnMut(StreamEvent),
     ) -> Result<AssistantTurn, AiError> {
-        let reasoning = is_reasoning_model(request.model);
+        let refused = self
+            .no_reasoning
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(request.model);
+        let reasoning = is_reasoning_model(request.model) && !refused;
         let first = self.responses_request(key, &request_body(request, reasoning));
         let response = match self.send_raw(&first, cancel, on_event) {
             Ok(response) => response,
             Err(error) if reasoning && refuses_reasoning(&error) => {
+                self.no_reasoning
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .insert(request.model.to_string());
                 let plain = self.responses_request(key, &request_body(request, false));
                 self.send_raw(&plain, cancel, on_event)
                     .map_err(|e| send_error(e, key, request.model))?
@@ -562,7 +594,7 @@ fn read_stream(
         return Err(AiError::Interrupted(p));
     };
     let streamed: Vec<Item> = items.into_iter().flatten().collect();
-    finish(streamed, &response, text, refusal, end)
+    finish(streamed, &response, text, refusal, end, model)
 }
 
 /// Turns the reply's output items into a turn. The final response's `output` (when it has one)
@@ -573,6 +605,7 @@ fn finish(
     text: String,
     refusal: String,
     end: End,
+    model: &str,
 ) -> Result<AssistantTurn, AiError> {
     let mut native: Vec<Value> = Vec::new();
     let mut tool_calls = Vec::new();
@@ -636,6 +669,6 @@ fn finish(
         text,
         tool_calls,
         stop,
-        native: Some((ProviderId::Openai, Value::Array(native))),
+        native: Some((ProviderId::Openai, json!({ "model": model, "items": native }))),
     })
 }

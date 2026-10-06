@@ -318,6 +318,74 @@ fn a_model_that_refuses_reasoning_settings_is_asked_again_without_them() {
     assert!(fake.body(0).get("reasoning").is_some());
     assert!(fake.body(1).get("reasoning").is_none());
     assert!(fake.body(1).get("include").is_none());
+
+    // It's remembered: the next steps go without them at once, not a refusal each time.
+    fake.push(Reply::ok(TEXT));
+    turn_with(&provider, "gpt-5-mystery", &hi()).0.unwrap();
+    assert_eq!(fake.requests().len(), 3);
+    assert!(fake.body(2).get("reasoning").is_none());
+    // Other models still get them.
+    fake.push(Reply::ok(TEXT));
+    turn_with(&provider, "gpt-5.1", &hi()).0.unwrap();
+    assert!(fake.body(3).get("reasoning").is_some());
+}
+
+#[test]
+fn reasoning_is_replayed_only_to_the_model_that_made_it() {
+    let (provider, fake) = setup(vec![Reply::ok(REASONING), Reply::ok(TEXT), Reply::ok(TEXT)]);
+    let first = turn_with(&provider, "gpt-6.1-sol", &hi()).0.unwrap();
+    let history = vec![
+        Message::User("Hi".into()),
+        Message::Assistant(first),
+        Message::ToolResults(vec![ToolResult {
+            call_id: "call_fixture_think".into(),
+            content: "{}".into(),
+            is_error: false,
+        }]),
+    ];
+    // The user switched models mid-chat: the other model's encrypted reasoning stays out; the
+    // call and its answer go back.
+    turn_with(&provider, "gpt-4.1", &history).0.unwrap();
+    let kinds = |n: usize| -> Vec<String> {
+        fake.body(n)["input"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i["type"].as_str().unwrap_or_default().to_string())
+            .collect()
+    };
+    assert_eq!(kinds(1), ["message", "function_call", "function_call_output"]);
+    // The same model gets it back.
+    turn_with(&provider, "gpt-6.1-sol", &history).0.unwrap();
+    assert_eq!(
+        kinds(2),
+        ["message", "reasoning", "function_call", "function_call_output"]
+    );
+
+    // A reasoning item without its encrypted content can't be replayed statelessly at all.
+    let bare = REASONING.replace(
+        ",\"encrypted_content\":\"gAAAAAB-fixture-encrypted-reasoning==\"",
+        "",
+    );
+    let (provider, fake) = setup(vec![Reply::ok(bare), Reply::ok(TEXT)]);
+    let first = turn_with(&provider, "gpt-6.1-sol", &hi()).0.unwrap();
+    let history = vec![
+        Message::User("Hi".into()),
+        Message::Assistant(first),
+        Message::ToolResults(vec![ToolResult {
+            call_id: "call_fixture_think".into(),
+            content: "{}".into(),
+            is_error: false,
+        }]),
+    ];
+    turn_with(&provider, "gpt-6.1-sol", &history).0.unwrap();
+    assert!(
+        fake.body(1)["input"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|i| i["type"] != "reasoning")
+    );
 }
 
 #[test]

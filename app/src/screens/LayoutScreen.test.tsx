@@ -505,6 +505,21 @@ describe("LayoutScreen", () => {
     expect(useLayoutEditor.getState().selected).toEqual([next.id]);
   });
 
+  it("moves through the Add prop menu's grid with the arrow keys", async () => {
+    const user = await setup(showWith(line("Gutter", 0, 0)));
+    await user.click(screen.getByRole("button", { name: "Add prop" }));
+    const items = within(screen.getByRole("menu", { name: "Add prop" })).getAllByRole("menuitem");
+    expect(items[0]).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    expect(items[1]).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    expect(items[3]).toHaveFocus();
+    await user.keyboard("{ArrowLeft}");
+    expect(items[2]).toHaveFocus();
+    await user.keyboard("{ArrowUp}");
+    expect(items[0]).toHaveFocus();
+  });
+
   it("closes the Add prop menu when focus leaves it", async () => {
     const user = await setup(showWith(line("Gutter", 0, 0)));
     await user.click(screen.getByRole("button", { name: "Add prop" }));
@@ -531,6 +546,23 @@ describe("LayoutScreen", () => {
     await user.click(screen.getByRole("button", { name: "Add prop" }));
     await user.click(screen.getByRole("menuitem", { name: "Mega tree" }));
     expect(useLayoutEditor.getState().view!.zoom).toBeLessThan(400);
+  });
+
+  it("switches the side panel's tabs with the arrow keys, each tab naming its panel", async () => {
+    const user = await setup(showWith(line("Gutter", 0, 0)));
+    const props = screen.getByRole("tab", { name: /Props/ });
+    expect(props).toHaveAttribute("aria-controls", "side-tabpanel");
+    expect(screen.getByRole("tabpanel", { name: /Props/ })).toBeInTheDocument();
+    props.focus();
+    await user.keyboard("{ArrowRight}");
+    const groups = screen.getByRole("tab", { name: /Groups/ });
+    expect(groups).toHaveAttribute("aria-selected", "true");
+    expect(groups).toHaveFocus();
+    expect(screen.getByRole("tabpanel", { name: /Groups/ })).toBeInTheDocument();
+    // Only the chosen tab is in the Tab order.
+    expect(screen.getByRole("tab", { name: /Props/ })).toHaveAttribute("tabindex", "-1");
+    await user.keyboard("{Home}");
+    expect(screen.getByRole("tab", { name: /Props/ })).toHaveAttribute("aria-selected", "true");
   });
 
   describe("the properties panel", () => {

@@ -100,13 +100,35 @@ export function SidePanel({ floating = false }: { floating?: boolean }) {
         floating ? "absolute inset-y-0 left-0 z-20 shadow-2xl" : "relative"
       }`}
     >
-      <div role="tablist" aria-label="Props or groups" className="flex items-center gap-1 border-b border-neutral-200 p-1 dark:border-neutral-800">
-        <button type="button" role="tab" aria-selected={tab === "props"} className={tabClass(tab === "props")} onClick={() => setSidePanel({ tab: "props" })}>
-          Props <span className="text-xs text-neutral-500 tabular-nums">{props}</span>
-        </button>
-        <button type="button" role="tab" aria-selected={tab === "groups"} className={tabClass(tab === "groups")} onClick={() => setSidePanel({ tab: "groups" })}>
-          Groups <span className="text-xs text-neutral-500 tabular-nums">{groups}</span>
-        </button>
+      <div
+        role="tablist"
+        aria-label="Props or groups"
+        className="flex items-center gap-1 border-b border-neutral-200 p-1 dark:border-neutral-800"
+        onKeyDown={(e) => {
+          // Arrows (and Home, End) move between the tabs, as tabs do.
+          const next = { ArrowLeft: "props", ArrowRight: "groups", Home: "props", End: "groups" }[e.key] as "props" | "groups" | undefined;
+          if (!next) return;
+          e.preventDefault();
+          e.stopPropagation();
+          setSidePanel({ tab: next });
+          document.getElementById(`side-tab-${next}`)?.focus();
+        }}
+      >
+        {(["props", "groups"] as const).map((t) => (
+          <button
+            key={t}
+            id={`side-tab-${t}`}
+            type="button"
+            role="tab"
+            aria-selected={tab === t}
+            aria-controls="side-tabpanel"
+            tabIndex={tab === t ? 0 : -1}
+            className={tabClass(tab === t)}
+            onClick={() => setSidePanel({ tab: t })}
+          >
+            {t === "props" ? "Props" : "Groups"} <span className="text-xs text-neutral-500 tabular-nums">{t === "props" ? props : groups}</span>
+          </button>
+        ))}
         <button
           type="button"
           aria-label="Fold the list away"
@@ -117,7 +139,7 @@ export function SidePanel({ floating = false }: { floating?: boolean }) {
           <PanelLeftClose size={15} aria-hidden />
         </button>
       </div>
-      <div role="tabpanel" aria-label={tab === "props" ? "Props" : "Groups"} className="flex min-h-0 flex-1 flex-col">
+      <div id="side-tabpanel" role="tabpanel" aria-labelledby={`side-tab-${tab}`} className="flex min-h-0 flex-1 flex-col">
         {tab === "props" ? <PropsList /> : <GroupsPanel />}
       </div>
       <div

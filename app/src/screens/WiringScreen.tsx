@@ -2,6 +2,7 @@ import { AlertTriangle, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { usePreviewProps } from "../components/layout/useLayoutData";
 import { ControllerCard, type WiringData } from "../components/wiring/ControllerCard";
+import { GoToScreen } from "../components/GoToScreen";
 import { PropsPanel } from "../components/wiring/PropsPanel";
 import { SlotSettings } from "../components/wiring/SlotSettings";
 import { WiringPreview } from "../components/wiring/WiringPreview";
@@ -194,7 +195,12 @@ export function WiringScreen() {
             </div>
           )}
           {controllers.length === 0 && !adding ? (
-            <EmptyState title="No controllers yet">Add a controller (or import one on the Devices screen), then drag props onto its ports.</EmptyState>
+            <EmptyState title="No controllers yet">
+              <p>Use Add controller above, then drag props onto its ports.</p>
+              <p className="mt-2">
+                Or let PixelFlow <GoToScreen screen="devices">find the controllers on your network</GoToScreen>
+              </p>
+            </EmptyState>
           ) : (
             controllers.map((c) => <ControllerCard key={c.id} controller={c} data={data} />)
           )}

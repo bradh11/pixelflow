@@ -45,6 +45,7 @@ import {
 } from "../../lib/timelineMath";
 import { useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
+import { GoToScreen } from "../GoToScreen";
 import { usePaletteDrag } from "./EffectPalette";
 import { TimingTrackHeaders } from "./TimingTrackHeaders";
 import { LANE_H, RULER_H, TRACK_H, WAVE_H, drawTimeline, topHeight } from "./drawTimeline";
@@ -1138,7 +1139,9 @@ export function AddRowMenu({ doc, show, onClose }: { doc: Sequence; show: Show |
             })}
           </Fragment>
         ))}
-        {props.length === 0 && groups.length === 0 && <p className="px-2 py-2 text-neutral-500">Your show has no props yet. Add some on the Layout screen.</p>}
+        {props.length === 0 && groups.length === 0 && <p className="px-2 py-2 text-neutral-500">
+            Your show has no props yet. <GoToScreen screen="layout">Add props on Layout</GoToScreen>
+          </p>}
       </div>
       <div className="flex justify-end gap-2 border-t border-neutral-200 pt-2 dark:border-neutral-800">
         <button type="button" className="rounded px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={onClose}>

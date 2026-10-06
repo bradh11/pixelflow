@@ -3,6 +3,7 @@ import type { Prop } from "../../api/types";
 import { plural, thousands } from "../../lib/format";
 import type { PropWiring, WiringStatus } from "../../lib/wiringMath";
 import { useWiring } from "../../state/wiring";
+import { GoToScreen } from "../GoToScreen";
 import { Input } from "../ui";
 import { useDragSource } from "./useWiringDrag";
 
@@ -95,11 +96,15 @@ export function PropsPanel({ props, wiring }: { props: Prop[]; wiring: Map<strin
           className={`mt-0.5 text-xs ${unwired > 0 ? "font-medium text-amber-700 dark:text-amber-400" : "text-neutral-500"}`}
           data-testid="unwired-count"
         >
-          {props.length === 0
-            ? "No props yet. Add them on the Layout screen."
-            : unwired === 0
-              ? "Every prop is wired."
-              : `${plural(unwired, "prop")} ${unwired === 1 ? "isn't" : "aren't"} wired yet`}
+          {props.length === 0 ? (
+            <>
+              No props yet. <GoToScreen screen="layout">Add props on Layout</GoToScreen>
+            </>
+          ) : unwired === 0 ? (
+            "Every prop is wired."
+          ) : (
+            `${plural(unwired, "prop")} ${unwired === 1 ? "isn't" : "aren't"} wired yet`
+          )}
         </p>
         <label className="relative mt-2 block">
           <span className="sr-only">Find a prop</span>

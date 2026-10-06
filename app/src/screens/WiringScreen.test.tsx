@@ -478,6 +478,14 @@ describe("wiring screen", () => {
     expect(screen.getByRole("region", { name: "Porch" })).toBeInTheDocument();
   });
 
+  it("empty, it points to where props and controllers come from with buttons", async () => {
+    const user = await setup({ ...demoShow(), props: [], controllers: [] });
+    await user.click(screen.getByRole("button", { name: /find the controllers on your network/ }));
+    expect(useApp.getState().screen).toBe("devices");
+    await user.click(screen.getByRole("button", { name: /Add props on Layout/ }));
+    expect(useApp.getState().screen).toBe("layout");
+  });
+
   it("folds a controller away", async () => {
     const user = await setup();
     await user.click(screen.getByRole("button", { name: "Main FPP" }));

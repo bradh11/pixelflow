@@ -141,6 +141,79 @@ function polyLine(vertices: Vec3[], segments: PolySegment[], spread: number | nu
   return out;
 }
 
+type CandyCanes = Extract<Generator, { type: "candyCanes" }>;
+type Icicles = Extract<Generator, { type: "icicles" }>;
+
+/** Where the `x`th pixel of `n` sits along its cane or drop: alternating goes out every other spot and comes back. */
+function spot(x: number, n: number, alternate: boolean): number {
+  if (!alternate) return x;
+  return x < Math.ceil(n / 2) ? 2 * x : (n - (x + 1)) * 2 + 1;
+}
+
+/** Candy canes as xLights lays them out (one light per node), scaled to `width`. */
+function candyCanes(g: CandyCanes): Vec3[] {
+  const n = g.nodesPerCane;
+  if (g.canes <= 0 || n <= 0) return [];
+  const gap = 2;
+  const caneWidth = (n * 3) / 9;
+  const upright = Math.floor((n * 6) / 9);
+  const arc = n - upright;
+  const total = g.canes * caneWidth + (g.canes - 1) * gap;
+  const k = g.width / total;
+  const radius = (caneWidth / 2) * g.height;
+  const [sin, cos] = [Math.sin(rad(g.skewDeg)), Math.cos(rad(g.skewDeg))];
+  const out: Vec3[] = [];
+  for (let i = 0; i < g.canes && out.length < MAX_POINTS; i++) {
+    const left = i * (caneWidth + gap);
+    for (let x = 0; x < n; x++) {
+      const p = spot(x, n, g.alternateNodes);
+      let foot: number, px: number, py: number;
+      if (g.sticks) {
+        foot = px = left + caneWidth / 2;
+        py = g.caneHeight * p * g.height;
+      } else {
+        foot = g.reverse ? left + caneWidth : left;
+        if (p < upright) {
+          px = foot;
+          py = g.caneHeight * p * g.height;
+        } else {
+          const a = Math.PI - (Math.PI * (p - upright + 1)) / arc;
+          const along = radius + Math.cos(a) * radius;
+          px = g.reverse ? foot - along : foot + along;
+          py = g.caneHeight * ((upright - 1) * g.height + Math.sin(a) * radius);
+        }
+      }
+      const dx = px - foot;
+      out.push(v((dx * cos - py * sin + foot - total / 2) * k, (dx * sin + py * cos) * k));
+    }
+  }
+  return out;
+}
+
+/** Icicles as xLights lays them out: drops filled in turn, a column apart, spread over `width`. */
+function icicles(g: Icicles): Vec3[] {
+  if (g.strings <= 0 || g.lightsPerString <= 0) return [];
+  const drops = g.drops.some((d) => d > 0) ? g.drops : [5];
+  const longest = Math.max(...drops);
+  const spacing = g.dropHeight / Math.max(longest - 1, 1);
+  const spots: [number, number][] = [];
+  let column = -1;
+  for (let s = 0; s < g.strings && spots.length < MAX_POINTS; s++) {
+    column++;
+    let [y, d] = [0, 0];
+    for (let i = 0; i < g.lightsPerString; i++) {
+      while (y >= drops[d]) {
+        column++;
+        y = 0;
+        d = (d + 1) % drops.length;
+      }
+      spots.push([column, spot(y, drops[d], g.alternateNodes)]);
+      y++;
+    }
+  }
+  return spots.map(([col, s]) => v(column === 0 ? 0 : (col / column - 0.5) * g.width, -s * spacing));
+}
+
 function generate(g: Generator): Vec3[] {
   switch (g.type) {
     case "line":
@@ -181,6 +254,10 @@ function generate(g: Generator): Vec3[] {
       return customGrid(g.columns, g.rows, g.cells);
     case "polyLine":
       return polyLine(g.vertices, g.segments, g.spreadNodes);
+    case "candyCanes":
+      return candyCanes(g);
+    case "icicles":
+      return icicles(g);
   }
 }
 

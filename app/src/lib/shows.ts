@@ -123,6 +123,10 @@ export function nodeCount(shape: ShapeSource): number {
       return shape.columns * shape.rows;
     case "tree":
       return shape.strings * shape.nodesPerString;
+    case "candyCanes":
+      return shape.canes * shape.nodesPerCane;
+    case "icicles":
+      return shape.strings * shape.lightsPerString;
     case "customGrid":
       return shape.cells.reduce((max, c) => Math.max(max, c), 0);
     case "polyLine":

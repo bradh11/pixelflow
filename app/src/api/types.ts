@@ -49,7 +49,22 @@ export type Generator =
   | { type: "star"; points: number; nodes: number; outerRadius: number; innerRadius: number }
   | { type: "customGrid"; columns: number; rows: number; cells: number[] }
   /** Points the line runs through, first to last; `segments` has one fewer. `spreadNodes` spreads that many pixels evenly instead. */
-  | { type: "polyLine"; vertices: Vec3[]; segments: PolySegment[]; spreadNodes?: number | null };
+  | { type: "polyLine"; vertices: Vec3[]; segments: PolySegment[]; spreadNodes?: number | null }
+  /** A row of candy canes between two ends, `width` apart, laid out as xLights does. `height` scales the canes and hooks, `caneHeight` stretches them taller. */
+  | {
+      type: "candyCanes";
+      canes: number;
+      nodesPerCane: number;
+      width: number;
+      height: number;
+      caneHeight: number;
+      reverse: boolean;
+      sticks: boolean;
+      alternateNodes: boolean;
+      skewDeg: number;
+    }
+  /** Icicles hanging from a line `width` long: each string fills drops of the `drops` pattern in turn; the longest hangs `dropHeight` below the line. */
+  | { type: "icicles"; strings: number; lightsPerString: number; drops: number[]; width: number; dropHeight: number; alternateNodes: boolean };
 
 export type ShapeSource =
   | ({ source: "generator" } & Generator)

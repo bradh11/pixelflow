@@ -66,6 +66,11 @@ impl AiState {
         )
     }
 
+    /// Lets go of the draft being previewed (its proposal was applied, discarded, or dropped).
+    fn forget_player(&self) {
+        *lock(&self.player) = None;
+    }
+
     fn idle(&self) -> Reply<()> {
         if lock(&self.running).is_some() {
             return Err("The assistant is still answering. Press Stop first.".to_string());
@@ -292,6 +297,7 @@ pub(crate) async fn ai_stop(ai: State<'_, AiState>) -> Reply<()> {
 pub(crate) async fn ai_new_chat(ai: State<'_, AiState>) -> Reply<()> {
     ai.idle()?;
     *lock(&ai.session) = ChatSession::new();
+    ai.forget_player();
     Ok(())
 }
 
@@ -315,6 +321,7 @@ pub(crate) async fn ai_apply(
     let proposal = current_proposal(&ai, &id)?;
     let applied = apply_proposal(&mut state.engine(), &proposal)?;
     lock(&ai.session).applied();
+    ai.forget_player();
     Ok(applied)
 }
 
@@ -331,7 +338,11 @@ pub(crate) async fn ai_sync(state: State<'_, AppState>, ai: State<'_, AiState>) 
         let engine = state.engine();
         (engine.show_generation(), engine.sequence_doc_id())
     };
-    Ok(lock(&ai.session).sync_to(generation, document))
+    let dropped = lock(&ai.session).sync_to(generation, document);
+    if dropped {
+        ai.forget_player();
+    }
+    Ok(dropped)
 }
 
 /// Throws the proposal and its draft away.
@@ -340,6 +351,7 @@ pub(crate) async fn ai_discard(ai: State<'_, AiState>, id: String) -> Reply<()> 
     ai.idle()?;
     current_proposal(&ai, &id)?;
     lock(&ai.session).discarded();
+    ai.forget_player();
     Ok(())
 }
 
@@ -367,23 +379,41 @@ pub(crate) async fn ai_preview_frame(
     position_ms: u64,
 ) -> Reply<Response> {
     ai.idle()?;
-    let mut player = lock(&ai.player);
-    if player.as_ref().is_none_or(|p| p.proposal != id) {
-        let proposal = current_proposal(&ai, &id)?;
-        let doc = proposal
-            .draft_sequence
-            .filter(|_| !proposal.sequence_edits.is_empty())
-            .ok_or_else(|| "This suggestion doesn't change the sequence.".to_string())?;
-        *player = Some(DraftPlayer {
-            proposal: id,
-            renderer: pf_engine::DraftRenderer::new(&proposal.draft_show),
-            doc,
-        });
+    let current = lock(&ai.session).proposal().is_some_and(|p| p.id == id);
+    if !current {
+        ai.forget_player();
+        return Err("That proposal isn't the latest one anymore.".to_string());
     }
-    let frame = player
-        .as_mut()
-        .map(|p| p.renderer.frame(&p.doc, position_ms))
-        .unwrap_or_default();
+    let cached = lock(&ai.player).take().filter(|p| p.proposal == id);
+    let mut player = match cached {
+        Some(player) => player,
+        None => {
+            let proposal = current_proposal(&ai, &id)?;
+            let doc = proposal
+                .draft_sequence
+                .filter(|_| !proposal.sequence_edits.is_empty())
+                .ok_or_else(|| "This suggestion doesn't change the sequence.".to_string())?;
+            DraftPlayer {
+                proposal: id,
+                renderer: pf_engine::DraftRenderer::new(&proposal.draft_show),
+                doc,
+            }
+        }
+    };
+    // Rendering is real work: off the async workers.
+    let (player, frame) = tauri::async_runtime::spawn_blocking(move || {
+        let frame = player.renderer.frame(&player.doc, position_ms);
+        (player, frame)
+    })
+    .await
+    .map_err(|_| "Something went wrong drawing the preview.".to_string())?;
+    // Kept for the next frame, unless the proposal was applied, discarded, or replaced meanwhile.
+    if lock(&ai.session)
+        .proposal()
+        .is_some_and(|p| p.id == player.proposal)
+    {
+        *lock(&ai.player) = Some(player);
+    }
     Ok(Response::new(frame))
 }
 
@@ -732,6 +762,19 @@ mod tests {
             json!([]),
             "previewing applies nothing"
         );
+
+        // Once discarded, the draft no longer plays (nothing is kept for it).
+        call(&t, "ai_discard", json!({ "id": id })).unwrap();
+        assert!(
+            request(
+                &t.webview,
+                "ai_preview_frame",
+                json!({ "id": id, "positionMs": 500 })
+            )
+            .is_err()
+        );
+        let ai = t.app.state::<AiState>();
+        assert!(lock(&ai.player).is_none());
     }
 
     #[test]

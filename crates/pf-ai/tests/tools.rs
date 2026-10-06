@@ -71,11 +71,7 @@ fn shape_samples() -> Vec<Generator> {
             nodes: 50,
             length: 3.0,
         },
-        Generator::Arch {
-            nodes: 25,
-            width: 2.0,
-            height: 1.0,
-        },
+        Generator::arch(25, 2.0, 1.0),
         Generator::Circle {
             nodes: 30,
             radius: 0.5,

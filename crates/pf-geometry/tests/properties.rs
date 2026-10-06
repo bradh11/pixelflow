@@ -21,11 +21,7 @@ fn generator() -> impl Strategy<Value = Generator> {
     let size = 0.1f32..100.0;
     prop_oneof![
         (0u32..500, size.clone()).prop_map(|(nodes, length)| Generator::Line { nodes, length }),
-        (0u32..500, size.clone(), size.clone()).prop_map(|(nodes, width, height)| Generator::Arch {
-            nodes,
-            width,
-            height
-        }),
+        arch(),
         (0u32..500, size.clone()).prop_map(|(nodes, radius)| Generator::Circle { nodes, radius }),
         (
             0u32..40,
@@ -185,6 +181,41 @@ fn cube() -> impl Strategy<Value = Generator> {
                     strand_style,
                     strand_per_layer,
                 }
+            },
+        )
+}
+
+/// Arches: rows of them and layered ones, including arcs and leans past xLights' limits and
+/// layers that hold more or fewer pixels than the arch has.
+fn arch() -> impl Strategy<Value = Generator> {
+    (
+        (0u32..300, 0.1f32..50.0, 0.1f32..50.0, 0u32..6),
+        (-10f32..400.0, -5f32..5.0, -200f32..200.0, any::<bool>()),
+        (
+            proptest::collection::vec(0u32..40, 0..6),
+            0u32..=100,
+            any::<bool>(),
+            any::<bool>(),
+        ),
+    )
+        .prop_map(
+            |(
+                (nodes, width, height, arches),
+                (arc, gap, skew_deg, start_right),
+                (layers, hollow, zig_zag, start_inside),
+            )| Generator::Arch {
+                nodes,
+                width,
+                height,
+                arches,
+                arc,
+                gap,
+                skew_deg,
+                start_right,
+                layers,
+                hollow,
+                zig_zag,
+                start_inside,
             },
         )
 }
@@ -372,11 +403,7 @@ fn a_quarter_turn_maps_right_to_up_for_every_generator() {
             nodes: 5,
             length: 4.0,
         },
-        Generator::Arch {
-            nodes: 7,
-            width: 4.0,
-            height: 2.0,
-        },
+        Generator::arch(7, 4.0, 2.0),
         Generator::Circle {
             nodes: 8,
             radius: 1.5,

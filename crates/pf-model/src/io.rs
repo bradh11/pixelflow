@@ -206,14 +206,7 @@ mod tests {
 
     fn sample_show() -> Show {
         let mut show = Show::new("Round Trip");
-        let prop = Prop::new(
-            "Arch",
-            ShapeSource::Generator(Generator::Arch {
-                nodes: 50,
-                width: 4.0,
-                height: 2.0,
-            }),
-        );
+        let prop = Prop::new("Arch", ShapeSource::Generator(Generator::arch(50, 4.0, 2.0)));
         let mut port = Port::new(1);
         port.slots.push(PortSlot::new(prop.id));
         let mut controller = Controller::new("WLED", "10.0.0.5", Protocol::Ddp);

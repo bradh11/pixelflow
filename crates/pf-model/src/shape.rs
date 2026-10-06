@@ -35,6 +35,7 @@ pub struct MatrixWiring {
     pub start: Corner,
     pub orientation: Orientation,
     /// When true, every other string runs in the opposite direction (zig-zag).
+    #[cfg_attr(feature = "schema", schemars(description = "Every other string runs back."))]
     pub serpentine: bool,
 }
 
@@ -59,6 +60,10 @@ pub enum StrandStyle {
     /// Every strand runs the same way.
     NoZigZag,
     /// Each strand's pixels go out every other spot and come back on the ones between.
+    #[cfg_attr(
+        feature = "schema",
+        schemars(description = "Every other pixel out, the rest back.")
+    )]
     AlternatePixel,
 }
 
@@ -98,14 +103,13 @@ pub enum CubeStyle {
 #[serde(rename_all = "camelCase")]
 pub struct PolySegment {
     /// Pixels on this stretch (unused while the line spreads its pixels evenly).
+    #[cfg_attr(feature = "schema", schemars(description = "Pixels on this stretch."))]
     pub nodes: u32,
     /// The two control points of a curved stretch (a cubic Bézier from this point to the next,
     /// as xLights draws curves), in prop-local coordinates; `None` for a straight stretch.
     #[cfg_attr(
         feature = "schema",
-        schemars(
-            description = "A curved stretch's two Bézier control points (prop-local); absent for a straight one."
-        )
+        schemars(description = "Bézier control points of a curved stretch (prop-local).")
     )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub curve: Option<[Vec3; 2]>,
@@ -123,6 +127,19 @@ fn one() -> f32 {
 
 fn full_turn() -> f32 {
     360.0
+}
+
+fn half_turn() -> f32 {
+    180.0
+}
+
+fn one_count() -> u32 {
+    1
+}
+
+/// xLights' default `Hollow` for layered arches.
+fn arch_hollow() -> u32 {
+    70
 }
 
 /// The shape of a tree (xLights' Tree 360 / Flat / Ribbon).
@@ -150,9 +167,62 @@ fn north() -> f32 {
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Generator {
     /// Straight run of evenly spaced pixels along X, centered on the origin.
+    #[cfg_attr(feature = "schema", schemars(description = "Pixels along X, centered."))]
     Line { nodes: u32, length: f32 },
-    /// Half-ellipse from left to right; origin at the base center.
-    Arch { nodes: u32, width: f32, height: f32 },
+    /// Arches side by side (xLights' Arches), each `width` between its feet and `height` from
+    /// its feet to its top: a part of an ellipse `arc` degrees round (180 is a half ellipse),
+    /// `nodes` pixels each, spaced evenly by angle from the left foot to the right one, with
+    /// `gap` between one arch's right foot and the next one's left foot. Origin at the middle of
+    /// the row, level with the feet. With `layers`, one arch of nested layers instead.
+    #[cfg_attr(
+        feature = "schema",
+        schemars(
+            description = "`arches` arches in a row, each `width` across its feet and `height` tall, `nodes` pixels each; `layers` makes one arch of nested layers. Origin mid-row at the feet."
+        )
+    )]
+    Arch {
+        nodes: u32,
+        width: f32,
+        height: f32,
+        #[serde(default = "one_count")]
+        arches: u32,
+        /// Degrees of the ellipse each arch goes round, 1–180.
+        #[cfg_attr(feature = "schema", schemars(description = "Degrees round, 1–180."))]
+        #[serde(default = "half_turn")]
+        arc: f32,
+        #[serde(default)]
+        gap: f32,
+        /// How far the arches lean, in degrees (positive leans left).
+        #[cfg_attr(feature = "schema", schemars(description = "Lean in degrees, + is left."))]
+        #[serde(default)]
+        skew_deg: f32,
+        /// The first pixel is the last arch's right foot (pixels run right to left).
+        #[cfg_attr(feature = "schema", schemars(description = "Wired from the right."))]
+        #[serde(default)]
+        start_right: bool,
+        /// Pixels on each layer, innermost first; empty for plain arches.
+        #[cfg_attr(
+            feature = "schema",
+            schemars(description = "Pixels per layer, innermost first.")
+        )]
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        layers: Vec<u32>,
+        /// The innermost layer's size, in percent of the outermost.
+        #[cfg_attr(
+            feature = "schema",
+            schemars(description = "Innermost layer's size, % of the outermost.")
+        )]
+        #[serde(default = "arch_hollow")]
+        hollow: u32,
+        /// Every other layer runs back the other way.
+        #[cfg_attr(feature = "schema", schemars(description = "Every other layer runs back."))]
+        #[serde(default)]
+        zig_zag: bool,
+        /// The pixels start on the innermost layer.
+        #[cfg_attr(feature = "schema", schemars(description = "Start on the innermost layer."))]
+        #[serde(default)]
+        start_inside: bool,
+    },
     /// Ring starting at the top and running clockwise; centered.
     Circle { nodes: u32, radius: f32 },
     /// Grid of pixels wired according to `wiring`; centered.
@@ -173,7 +243,7 @@ pub enum Generator {
     #[cfg_attr(
         feature = "schema",
         schemars(
-            description = "Strings running bottom to top; origin at the base center. A round tree is a cone of strings spread round `degrees` from `startAngle`; a flat one fans them out across the front; a ribbon is flat with every string the same length."
+            description = "Strings from base to top; origin at the base center. Round: a cone round `degrees` from `startAngle`; flat: fanned across the front; ribbon: flat, strings equal length."
         )
     )]
     Tree {
@@ -206,7 +276,7 @@ pub enum Generator {
     #[cfg_attr(
         feature = "schema",
         schemars(
-            description = "A line through `vertices` (prop-local) that can bend and curve, pixels running from the first to the last. `segments` has one entry per stretch (one fewer than the vertices) with its pixel count; `spreadNodes`, when set, spreads that many pixels evenly along the whole line instead."
+            description = "A line through `vertices` (prop-local), pixels first to last. `segments`: one per stretch with its pixel count; `spreadNodes` spreads that many evenly instead."
         )
     )]
     PolyLine {
@@ -225,18 +295,27 @@ pub enum Generator {
     #[cfg_attr(
         feature = "schema",
         schemars(
-            description = "A row of candy canes `width` wide, pixels running cane by cane from the left, each up its stick and then round its hook. Origin midway along the row, at the canes' feet."
+            description = "A row of canes `width` wide, pixels cane by cane from the left, up each stick then round its hook. Origin mid-row at the feet."
         )
     )]
     CandyCanes {
         canes: u32,
         nodes_per_cane: u32,
         /// Distance between the two ends the canes stand between.
+        #[cfg_attr(feature = "schema", schemars(description = "Distance between the ends."))]
         width: f32,
         /// xLights' `Height`: scales the canes' height and the size of their hooks (1 is normal).
+        #[cfg_attr(
+            feature = "schema",
+            schemars(description = "Scales canes and hooks; 1 is normal.")
+        )]
         #[serde(default = "one")]
         height: f32,
         /// xLights' `CandyCaneHeight`: stretches the canes taller, hooks included (1 is normal).
+        #[cfg_attr(
+            feature = "schema",
+            schemars(description = "Stretches the canes taller; 1 is normal.")
+        )]
         #[serde(default = "one")]
         cane_height: f32,
         /// Hooks point left instead of right.
@@ -246,17 +325,19 @@ pub enum Generator {
         #[serde(default)]
         sticks: bool,
         /// Each cane's pixels go up every other spot and come back down the ones between.
+        #[cfg_attr(
+            feature = "schema",
+            schemars(description = "Pixels go up every other spot and back.")
+        )]
         #[serde(default)]
         alternate_nodes: bool,
         /// How far each cane leans from upright, in degrees (counter-clockwise).
+        #[cfg_attr(feature = "schema", schemars(description = "Lean in degrees, + is left."))]
         #[serde(default)]
         skew_deg: f32,
         /// The first cane is the rightmost (xLights' `Dir="R"`); pixels still run up each stick
         /// then round its hook.
-        #[cfg_attr(
-            feature = "schema",
-            schemars(description = "The first cane is the rightmost.")
-        )]
+        #[cfg_attr(feature = "schema", schemars(description = "Wired from the right."))]
         #[serde(default)]
         start_right: bool,
     },
@@ -267,13 +348,17 @@ pub enum Generator {
     #[cfg_attr(
         feature = "schema",
         schemars(
-            description = "Icicles hanging below a line `width` wide: each string's pixels fill drops of the sizes in `drops` (repeating), one column apart. Origin midway along the line."
+            description = "Icicles below a line `width` wide; each string fills drops sized by `drops` (repeating), a column apart. Origin mid-line."
         )
     )]
     Icicles {
         strings: u32,
         lights_per_string: u32,
         /// Pixels in each drop, repeating ("3,4,5,4"). No drop with pixels reads as `[5]`.
+        #[cfg_attr(
+            feature = "schema",
+            schemars(description = "Pixels per drop, repeating; 0 is a gap.")
+        )]
         drops: Vec<u32>,
         /// Distance between the two ends.
         width: f32,
@@ -283,12 +368,14 @@ pub enum Generator {
         /// `-Height * length / (columns - 1) * (longest drop - 1)`.
         #[cfg_attr(
             feature = "schema",
-            schemars(
-                description = "How far below the line the longest drop hangs; negative makes the drops stand up."
-            )
+            schemars(description = "How far the longest drop hangs; negative stands up.")
         )]
         drop_height: f32,
         /// Each drop's pixels go down every other spot and come back up the ones between.
+        #[cfg_attr(
+            feature = "schema",
+            schemars(description = "Pixels go down every other spot and back.")
+        )]
         #[serde(default)]
         alternate_nodes: bool,
     },
@@ -301,7 +388,7 @@ pub enum Generator {
     #[cfg_attr(
         feature = "schema",
         schemars(
-            description = "One string once round a window frame `width` by `height` from the `start` corner, with `top`, `sides` (each) and `bottom` pixels along its edges, clockwise unless `counterClockwise`. Centered."
+            description = "One string round a frame `width` by `height` from `start`, with `top`, `sides` (each) and `bottom` pixels. Centered."
         )
     )]
     WindowFrame {
@@ -313,6 +400,7 @@ pub enum Generator {
         #[serde(default)]
         start: Corner,
         /// Runs counter-clockwise round the frame instead of clockwise.
+        #[cfg_attr(feature = "schema", schemars(description = "Runs counter-clockwise."))]
         #[serde(default)]
         counter_clockwise: bool,
     },
@@ -321,9 +409,7 @@ pub enum Generator {
     /// top (or bottom) and runs clockwise (or counter-clockwise); centered.
     #[cfg_attr(
         feature = "schema",
-        schemars(
-            description = "A ring of pixels on a square grid, from the top (or bottom) clockwise (or counter-clockwise). Centered."
-        )
+        schemars(description = "A ring of pixels on a square grid, from the top. Centered.")
     )]
     Wreath {
         nodes: u32,
@@ -341,7 +427,7 @@ pub enum Generator {
     #[cfg_attr(
         feature = "schema",
         schemars(
-            description = "Straight arms radiating from a hollow middle (`hollow` percent), the first pointing down (turned by `startAngle`) and the rest spread over `arc` degrees; `radius` reaches the outermost pixel. Centered."
+            description = "Arms out from a hollow middle (`hollow` %), the first pointing down turned by `startAngle`, spread over `arc`; `radius` to the outermost pixel. Centered."
         )
     )]
     Spinner {
@@ -350,33 +436,35 @@ pub enum Generator {
         /// xLights' `Hollow`, in percent.
         hollow: u32,
         /// Degrees counter-clockwise from straight down to the first arm.
+        #[cfg_attr(
+            feature = "schema",
+            schemars(description = "Degrees from down to the first arm.")
+        )]
         #[serde(default)]
         start_angle: f32,
         /// Degrees the arms are spread over: 360 is all the way round (the last arm a step short
         /// of the first); less than that puts the last arm at the end of the arc.
-        #[cfg_attr(
-            feature = "schema",
-            schemars(description = "Degrees the arms are spread over (360 is all the way round).")
-        )]
+        #[cfg_attr(feature = "schema", schemars(description = "Degrees the arms spread over."))]
         #[serde(default = "full_turn")]
         arc: f32,
         /// Every other arm runs the other way along itself.
+        #[cfg_attr(feature = "schema", schemars(description = "Every other arm runs back."))]
         #[serde(default)]
         zig_zag: bool,
         /// Each arm's pixels go out every other spot and come back in on the ones between
         /// (starting in the middle, whichever end `from_center` picks).
         #[cfg_attr(
             feature = "schema",
-            schemars(
-                description = "Each arm's pixels go out on every other spot and come back on the rest."
-            )
+            schemars(description = "Pixels go out every other spot and back.")
         )]
         #[serde(default)]
         alternate: bool,
         /// Each arm's pixels start in the middle instead of at its tip.
+        #[cfg_attr(feature = "schema", schemars(description = "Pixels start in the middle."))]
         #[serde(default)]
         from_center: bool,
         /// The arms follow each other clockwise instead of counter-clockwise.
+        #[cfg_attr(feature = "schema", schemars(description = "Arms follow clockwise."))]
         #[serde(default)]
         clockwise: bool,
         radius: f32,
@@ -389,7 +477,7 @@ pub enum Generator {
     #[cfg_attr(
         feature = "schema",
         schemars(
-            description = "A globe of `columns` strands of `rows` pixels each, running south to north between `startLatitude` and `endLatitude`, spread round `degrees` of it. Centered."
+            description = "A globe of `columns` strands of `rows` pixels, south to north between the latitudes, round `degrees` of it. Centered."
         )
     )]
     Sphere {
@@ -401,6 +489,7 @@ pub enum Generator {
         #[serde(default = "north")]
         end_latitude: f32,
         /// How far round the globe the columns go; anything less leaves a gap at the back.
+        #[cfg_attr(feature = "schema", schemars(description = "Degrees round the globe."))]
         #[serde(default = "full_turn")]
         degrees: f32,
         #[serde(default)]
@@ -411,6 +500,12 @@ pub enum Generator {
     /// A cube of pixels (xLights' Cube): `width` across, `height` up and `depth` front to back,
     /// `spacing` apart in every direction, wired from the `start` corner in strands and layers
     /// as `style` says. Centered.
+    #[cfg_attr(
+        feature = "schema",
+        schemars(
+            description = "A cube of pixels `spacing` apart, wired from `start` as `style` says. Centered."
+        )
+    )]
     Cube {
         width: u32,
         height: u32,
@@ -424,11 +519,19 @@ pub enum Generator {
         strand_style: StrandStyle,
         /// Each layer is wired the same way, instead of the next layer starting where the last
         /// one ended.
+        #[cfg_attr(
+            feature = "schema",
+            schemars(description = "Each layer starts on the same side.")
+        )]
         #[serde(default)]
         strand_per_layer: bool,
     },
     /// Free-form grid. `cells` is row-major starting at the top row;
     /// 0 is an empty cell and n places node n (1-based) in that cell.
+    #[cfg_attr(
+        feature = "schema",
+        schemars(description = "`cells` row-major from the top row: 0 empty, n is pixel n (1-based).")
+    )]
     CustomGrid {
         columns: u32,
         rows: u32,
@@ -437,11 +540,40 @@ pub enum Generator {
 }
 
 impl Generator {
+    /// One plain half-ellipse arch of `nodes` pixels, `width` between its feet and `height` tall.
+    pub fn arch(nodes: u32, width: f32, height: f32) -> Self {
+        Generator::Arch {
+            nodes,
+            width,
+            height,
+            arches: 1,
+            arc: half_turn(),
+            gap: 0.0,
+            skew_deg: 0.0,
+            start_right: false,
+            layers: Vec::new(),
+            hollow: arch_hollow(),
+            zig_zag: false,
+            start_inside: false,
+        }
+    }
+
     /// Number of pixels this generator produces.
     pub fn node_count(&self) -> u32 {
         match self {
+            Generator::Arch {
+                nodes,
+                arches,
+                layers,
+                ..
+            } => {
+                if layers.is_empty() {
+                    arches.saturating_mul(*nodes)
+                } else {
+                    *nodes
+                }
+            }
             Generator::Line { nodes, .. }
-            | Generator::Arch { nodes, .. }
             | Generator::Circle { nodes, .. }
             | Generator::Wreath { nodes, .. }
             | Generator::Star { nodes, .. } => *nodes,
@@ -855,12 +987,67 @@ mod tests {
     }
 
     #[test]
+    fn arches_count_each_arch_or_their_layers_and_round_trip_their_settings() {
+        let row = Generator::Arch {
+            nodes: 25,
+            width: 2.0,
+            height: 1.0,
+            arches: 4,
+            arc: 120.0,
+            gap: 0.3,
+            skew_deg: -10.0,
+            start_right: true,
+            layers: vec![],
+            hollow: 70,
+            zig_zag: false,
+            start_inside: false,
+        };
+        assert_eq!(row.node_count(), 100);
+        let json = serde_json::to_value(&row).unwrap();
+        assert_eq!(json["type"], "arch");
+        assert_eq!(json["skewDeg"], -10.0);
+        assert_eq!(json["startRight"], true);
+        assert!(json.get("layers").is_none(), "no layers, none written");
+        assert_eq!(serde_json::from_value::<Generator>(json).unwrap(), row);
+
+        let layered = Generator::Arch {
+            nodes: 60,
+            width: 2.0,
+            height: 1.0,
+            arches: 1,
+            arc: 180.0,
+            gap: 0.0,
+            skew_deg: 0.0,
+            start_right: false,
+            layers: vec![10, 20, 30],
+            hollow: 40,
+            zig_zag: true,
+            start_inside: true,
+        };
+        assert_eq!(layered.node_count(), 60, "one arch of layers");
+        let json = serde_json::to_value(&layered).unwrap();
+        assert_eq!(json["layers"], serde_json::json!([10, 20, 30]));
+        assert_eq!(json["startInside"], true);
+        assert_eq!(serde_json::from_value::<Generator>(json).unwrap(), layered);
+
+        // Arches saved before these settings are one half-ellipse arch, as they always were.
+        let old: Generator =
+            serde_json::from_str(r#"{ "type": "arch", "nodes": 50, "width": 4, "height": 2 }"#).unwrap();
+        assert_eq!(old, Generator::arch(50, 4.0, 2.0));
+        assert!(matches!(
+            old,
+            Generator::Arch { arches: 1, arc: 180.0, gap: 0.0, skew_deg: 0.0, start_right: false, hollow: 70, zig_zag: false, start_inside: false, ref layers, .. } if layers.is_empty()
+        ));
+        let mut huge = Generator::arch(2, 1.0, 1.0);
+        if let Generator::Arch { arches, .. } = &mut huge {
+            *arches = u32::MAX;
+        }
+        assert_eq!(huge.node_count(), u32::MAX);
+    }
+
+    #[test]
     fn generator_shape_json_is_flat_and_camel_case() {
-        let shape = ShapeSource::Generator(Generator::Arch {
-            nodes: 50,
-            width: 4.0,
-            height: 2.0,
-        });
+        let shape = ShapeSource::Generator(Generator::arch(50, 4.0, 2.0));
         let json = serde_json::to_value(&shape).unwrap();
         assert_eq!(json["source"], "generator");
         assert_eq!(json["type"], "arch");

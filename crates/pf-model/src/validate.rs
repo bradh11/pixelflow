@@ -464,6 +464,25 @@ mod tests {
         }
     }
 
+    fn arch(name: &str, count: u32, nodes: u32, list: Vec<u32>) -> Prop {
+        let mut shape = Generator::arch(nodes, 2.0, 1.0);
+        if let Generator::Arch { arches, layers, .. } = &mut shape {
+            (*arches, *layers) = (count, list);
+        }
+        Prop::new(name, ShapeSource::Generator(shape))
+    }
+
+    #[test]
+    fn rows_of_arches_and_layered_arches_within_the_limits_are_valid() {
+        for prop in [
+            arch("Row", 8, 25, vec![]),
+            arch("Layered", 1, 60, vec![10, 20, 30]),
+        ] {
+            let show = show_with_slot(PortSlot::new(prop.id), prop);
+            assert_eq!(validate_show(&show).issues, vec![]);
+        }
+    }
+
     #[test]
     fn icicles_and_candy_canes_within_the_limits_are_valid() {
         for prop in [icicles("Eaves", vec![3, 0, 5]), canes("Walk", 3, 18)] {
@@ -501,7 +520,7 @@ mod tests {
     #[test]
     fn each_structural_problem_is_reported() {
         type Mutate = fn(&mut Show);
-        let cases: [(IssueCode, Mutate); 40] = [
+        let cases: [(IssueCode, Mutate); 47] = [
             (IssueCode::InvalidFrameRate, |s| s.settings.frame_rate = 5),
             (IssueCode::DuplicateId, |s| {
                 let dup = s.props[0].clone();
@@ -652,6 +671,43 @@ mod tests {
             }),
             (IssueCode::LimitExceeded, |s| {
                 s.props.push(cube("Thin", 1, 1, crate::MAX_PROP_NODES + 1))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                // The real count of a row of arches, beyond what a 32-bit count can hold.
+                s.props.push(arch("Tunnel", 70_000, 70_000, vec![]))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props
+                    .push(arch("Endless", crate::MAX_PROP_NODES + 1, 0, vec![]))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props
+                    .push(arch("Deep", 1, 10, vec![1; crate::MAX_SHAPE_LAYERS + 1]))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props
+                    .push(arch("Wide layer", 1, 10, vec![crate::MAX_PROP_NODES + 1]))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                let mut p = arch("Flat", 1, 10, vec![]);
+                if let ShapeSource::Generator(Generator::Arch { arc, .. }) = &mut p.shape {
+                    *arc = 0.0;
+                }
+                s.props.push(p)
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                let mut p = arch("Ring", 1, 10, vec![]);
+                if let ShapeSource::Generator(Generator::Arch { arc, .. }) = &mut p.shape {
+                    *arc = 270.0;
+                }
+                s.props.push(p)
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                let mut p = arch("Hollow", 1, 10, vec![5, 5]);
+                if let ShapeSource::Generator(Generator::Arch { hollow, .. }) = &mut p.shape {
+                    *hollow = 101;
+                }
+                s.props.push(p)
             }),
         ];
         for (code, mutate) in cases {

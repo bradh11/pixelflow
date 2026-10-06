@@ -18,6 +18,8 @@ pub const MAX_ICICLE_DROP_LIGHTS: u32 = 1_000;
 pub const MAX_SPINNER_ARMS: u32 = 1_000;
 /// Largest hollow middle a spinner may have, in percent (xLights' `Hollow`).
 pub const MAX_SPINNER_HOLLOW: u32 = 100;
+/// Most layers a layered arch, circle or star may have.
+pub const MAX_SHAPE_LAYERS: usize = 1_000;
 /// Most null pixels a single port slot may have.
 pub const MAX_NULL_PIXELS: u32 = 1_000;
 /// Most a sequence's lights may be moved against its music, either way, in milliseconds.
@@ -87,6 +89,19 @@ pub(crate) fn check_limits(show: &Show) -> Vec<String> {
             arms, hollow, arc, ..
         }) = &prop.shape
             && let Some(problem) = spinner_problem(&prop.name, *arms, *hollow, *arc)
+        {
+            problems.push(problem);
+            continue;
+        }
+        if let ShapeSource::Generator(Generator::Arch {
+            arches,
+            arc,
+            skew_deg,
+            layers,
+            hollow,
+            ..
+        }) = &prop.shape
+            && let Some(problem) = arch_problem(&prop.name, *arches, *arc, *skew_deg, layers, *hollow)
         {
             problems.push(problem);
             continue;
@@ -169,6 +184,12 @@ pub(crate) fn check_limits(show: &Show) -> Vec<String> {
             ShapeSource::Generator(Generator::Spinner {
                 arms, nodes_per_arm, ..
             }) => u64::from(*arms) * u64::from(*nodes_per_arm),
+            ShapeSource::Generator(Generator::Arch {
+                nodes,
+                arches,
+                layers,
+                ..
+            }) if layers.is_empty() => u64::from(*arches) * u64::from(*nodes),
             ShapeSource::Generator(Generator::WindowFrame {
                 top, sides, bottom, ..
             }) => u64::from(*top) + 2 * u64::from(*sides) + u64::from(*bottom),
@@ -297,6 +318,54 @@ fn spinner_problem(name: &str, arms: u32, hollow: u32, arc: f32) -> Option<Strin
         ));
     }
     None
+}
+
+/// What's wrong with a layer list, if anything (`what` names the prop, like "The arch 'Gate'").
+fn layers_problem(what: &str, layers: &[u32]) -> Option<String> {
+    if layers.len() > MAX_SHAPE_LAYERS {
+        return Some(format!(
+            "{what} has {} layers, but PixelFlow supports at most {MAX_SHAPE_LAYERS}.",
+            layers.len()
+        ));
+    }
+    if let Some(&big) = layers.iter().find(|&&n| n > MAX_PROP_NODES) {
+        return Some(format!(
+            "{what} has a layer of {big} pixels, but PixelFlow supports at most {MAX_PROP_NODES}."
+        ));
+    }
+    None
+}
+
+/// What's wrong with an arch's settings, if anything.
+fn arch_problem(
+    name: &str,
+    arches: u32,
+    arc: f32,
+    skew_deg: f32,
+    layers: &[u32],
+    hollow: u32,
+) -> Option<String> {
+    if arches > MAX_PROP_NODES {
+        return Some(format!(
+            "The arch '{name}' is {arches} arches, but PixelFlow supports at most {MAX_PROP_NODES}."
+        ));
+    }
+    if !(1.0..=180.0).contains(&arc) {
+        return Some(format!(
+            "The arch '{name}' goes {arc}° round, but that must be from 1° to 180°."
+        ));
+    }
+    if !(-180.0..=180.0).contains(&skew_deg) {
+        return Some(format!(
+            "The arch '{name}' leans {skew_deg}°, but that must be from -180° to 180°."
+        ));
+    }
+    if hollow > 100 {
+        return Some(format!(
+            "The arch '{name}' has an innermost layer {hollow}% of its size, but that must be at most 100%."
+        ));
+    }
+    layers_problem(&format!("The arch '{name}'"), layers)
 }
 
 /// What's wrong with a sphere's latitudes or sweep, if anything.

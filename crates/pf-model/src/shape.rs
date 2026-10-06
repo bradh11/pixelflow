@@ -52,27 +52,29 @@ impl Default for MatrixWiring {
     }
 }
 
-/// How the pixels run along each strand of a sphere or cube (xLights' strand styles).
+/// How the pixels run along each strand of a sphere or cube (xLights' strand styles): every
+/// other strand back the other way (zig-zag), every strand the same way, or each strand's pixels
+/// out on every other spot and back on the ones between (alternate pixel).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(
+    feature = "schema",
+    schemars(
+        description = "Zig-zag: every other strand runs back; alternatePixel: every other pixel out, the rest back."
+    )
+)]
 #[serde(rename_all = "camelCase")]
 pub enum StrandStyle {
-    /// Every other strand runs back the other way.
     #[default]
     ZigZag,
-    /// Every strand runs the same way.
     NoZigZag,
-    /// Each strand's pixels go out every other spot and come back on the ones between.
-    #[cfg_attr(
-        feature = "schema",
-        schemars(description = "Every other pixel out, the rest back.")
-    )]
     AlternatePixel,
 }
 
 /// The corner of a cube its first pixel is at (xLights' cube `Start`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(description = "The corner of the first pixel."))]
 #[serde(rename_all = "camelCase")]
 pub enum CubeStart {
     #[default]
@@ -89,6 +91,10 @@ pub enum CubeStart {
 /// Which way a cube's strands run and how they stack into layers (xLights' cube `Style`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(
+    feature = "schema",
+    schemars(description = "Which way strands run and layers stack.")
+)]
 #[serde(rename_all = "camelCase")]
 pub enum CubeStyle {
     #[default]
@@ -292,6 +298,13 @@ pub enum Generator {
     /// edges, as xLights does). A flat tree fans its strings out in the front view, from
     /// `base_radius` either side at the bottom to `top_radius` at the top; a ribbon tree does the
     /// same with each string the same length, so the slanted ones end lower.
+    ///
+    /// Wiring follows xLights': the first string is on the `start` side (round trees go round
+    /// the other way from the right) and runs from the bottom or the top; with `serpentine`,
+    /// every other string runs back, starting afresh every `strands_per_string` strings when
+    /// that's set (each physical string folded into that many); with `alternate_nodes`, each
+    /// string's pixels go up every other spot and come back down the ones between. A round tree
+    /// can spiral `spiral_rotations` times round from the base to the top, as xLights winds it.
     #[cfg_attr(
         feature = "schema",
         schemars(
@@ -312,6 +325,20 @@ pub enum Generator {
         degrees: f32,
         #[serde(default)]
         start_angle: f32,
+        #[serde(default)]
+        start: Corner,
+        /// Zig-zag starts afresh every this many strings; 0 never.
+        #[serde(default)]
+        strands_per_string: u32,
+        #[cfg_attr(
+            feature = "schema",
+            schemars(description = "Pixels go up every other spot and back.")
+        )]
+        #[serde(default)]
+        alternate_nodes: bool,
+        /// Turns round a round tree from base to top.
+        #[serde(default)]
+        spiral_rotations: f32,
     },
     /// Star outlines with `points` tips (xLights' Star), pixels spaced evenly along each from the
     /// `start` corner, clockwise (or counter-clockwise). One outline unless `layers` lists the
@@ -617,6 +644,33 @@ pub enum Generator {
 }
 
 impl Generator {
+    /// A tree of `strings` strings of `nodes_per_string` pixels, each running up from the base,
+    /// all the way round from the front, with xLights' wiring options off.
+    pub fn tree(
+        strings: u32,
+        nodes_per_string: u32,
+        height: f32,
+        base_radius: f32,
+        top_radius: f32,
+        style: TreeStyle,
+    ) -> Self {
+        Generator::Tree {
+            strings,
+            nodes_per_string,
+            height,
+            base_radius,
+            top_radius,
+            serpentine: false,
+            style,
+            degrees: full_turn(),
+            start_angle: 0.0,
+            start: Corner::BottomLeft,
+            strands_per_string: 0,
+            alternate_nodes: false,
+            spiral_rotations: 0.0,
+        }
+    }
+
     /// One plain half-ellipse arch of `nodes` pixels, `width` between its feet and `height` tall.
     pub fn arch(nodes: u32, width: f32, height: f32) -> Self {
         Generator::Arch {
@@ -791,6 +845,10 @@ mod tests {
                     style: TreeStyle::Round,
                     degrees: 360.0,
                     start_angle: 0.0,
+                    start: Corner::BottomLeft,
+                    strands_per_string: 0,
+                    alternate_nodes: false,
+                    spiral_rotations: 0.0,
                 },
                 800,
             ),
@@ -1240,6 +1298,10 @@ mod tests {
             style: TreeStyle::Flat,
             degrees: 360.0,
             start_angle: 0.0,
+            start: Corner::BottomLeft,
+            strands_per_string: 0,
+            alternate_nodes: false,
+            spiral_rotations: 0.0,
         })
         .unwrap();
         assert_eq!(json["nodesPerString"], 3);
@@ -1257,8 +1319,29 @@ mod tests {
                 style: TreeStyle::Round,
                 degrees: 360.0,
                 start_angle: 0.0,
+                start: Corner::BottomLeft,
+                strands_per_string: 0,
+                alternate_nodes: false,
+                spiral_rotations: 0.0,
                 ..
             }
         ));
+        // xLights' wiring options round-trip.
+        let mut wired = Generator::tree(14, 50, 6.0, 2.0, 0.3, TreeStyle::Round);
+        if let Generator::Tree {
+            serpentine,
+            start,
+            strands_per_string,
+            spiral_rotations,
+            ..
+        } = &mut wired
+        {
+            (*serpentine, *start, *strands_per_string, *spiral_rotations) = (true, Corner::TopRight, 7, -2.5);
+        }
+        let json = serde_json::to_value(&wired).unwrap();
+        assert_eq!(json["start"], "topRight");
+        assert_eq!(json["strandsPerString"], 7);
+        assert_eq!(json["spiralRotations"], -2.5);
+        assert_eq!(serde_json::from_value::<Generator>(json).unwrap(), wired);
     }
 }

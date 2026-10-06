@@ -107,6 +107,10 @@ fn generate(generator: &Generator) -> Vec<Vec3> {
             style,
             degrees,
             start_angle,
+            start,
+            strands_per_string,
+            alternate_nodes,
+            spiral_rotations,
         } => tree::positions(tree::Tree {
             strings,
             nodes_per_string,
@@ -117,6 +121,10 @@ fn generate(generator: &Generator) -> Vec<Vec3> {
             style,
             degrees,
             start_angle,
+            start,
+            strands_per_string,
+            alternate_nodes,
+            spiral_rotations,
         }),
         Generator::Star {
             points,

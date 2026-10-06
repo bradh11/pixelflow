@@ -59,6 +59,7 @@ fn generator() -> impl Strategy<Value = Generator> {
                 Just(TreeStyle::Ribbon)
             ],
             (1f32..=360.0, -360f32..360.0),
+            (corner(), 0u32..8, any::<bool>(), -12f32..12.0),
         )
             .prop_map(
                 |(
@@ -67,6 +68,7 @@ fn generator() -> impl Strategy<Value = Generator> {
                     serpentine,
                     style,
                     (degrees, start_angle),
+                    (start, strands_per_string, alternate_nodes, spiral_rotations),
                 )| {
                     Generator::Tree {
                         strings,
@@ -78,6 +80,10 @@ fn generator() -> impl Strategy<Value = Generator> {
                         style,
                         degrees,
                         start_angle,
+                        start,
+                        strands_per_string,
+                        alternate_nodes,
+                        spiral_rotations,
                     }
                 }
             ),
@@ -477,6 +483,10 @@ fn a_quarter_turn_maps_right_to_up_for_every_generator() {
             style: TreeStyle::Round,
             degrees: 360.0,
             start_angle: 0.0,
+            start: Corner::BottomLeft,
+            strands_per_string: 0,
+            alternate_nodes: false,
+            spiral_rotations: 0.0,
         },
         Generator::star(5, 20, 1.0, 0.4),
         Generator::CustomGrid {

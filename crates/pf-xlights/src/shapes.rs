@@ -903,26 +903,36 @@ fn matrix(m: &XmlModel) -> Vec<Candidate> {
         .collect()
 }
 
-/// `TreeModel` with one light per node and strands running up (vertical strands from the
-/// bottom left, no spiral, no first-strand offset): a round tree of `render_ht = 3 × rows` units
-/// tall and `render_ht / 1.8` across the base (tapering by `TreeBottomTopRatio`), starting at
-/// `-degrees / 2 + TreeRotation`; or a flat (ribbon) tree `2 × rows` tall, `4 (5) × strands` across
-/// the base and `0.9 × strands` across the top. Upright: xLights' 2D tilt (`TreePerspective`) is
-/// left out.
+/// `TreeModel` with one light per node and vertical strands (no first-strand offset): a round
+/// tree of `render_ht = 3 × rows` units tall and `render_ht / 1.8` across the base (tapering by
+/// `TreeBottomTopRatio`), starting at `-degrees / 2 + TreeRotation` and winding round
+/// `TreeSpiralRotations` times; or a flat (ribbon) tree `2 × rows` tall, `4 (5) × strands` across
+/// the base and `0.9 × strands` across the top. Wired as xLights wires it: from any corner, with
+/// its zig-zag starting afresh with each string folded into several strands, or alternate
+/// pixels. Upright: xLights' 2D tilt (`TreePerspective`) is left out.
 fn tree(m: &XmlModel) -> Vec<Candidate> {
     use pf_model::TreeStyle;
-    if m.text("StrandDir", "Vertical") != "Vertical"
-        || float(m, "TreeSpiralRotations", 0.0) as f32 != 0.0
-        || int(m, "exportFirstStrand", 0) > 1
-    {
+    if m.text("StrandDir", "Vertical") != "Vertical" || int(m, "exportFirstStrand", 0) > 1 {
         return Vec::new();
     }
-    let Some(s) = strands(m) else {
+    let strings = parm(m, "NumStrings", "parm1", 1);
+    let nps = parm(m, "NodesPerString", "parm2", 1);
+    if strings <= 0 || nps <= 0 {
+        return Vec::new();
+    }
+    let sps = parm(m, "StrandsPerString", "parm3", 1).max(1).min(nps);
+    let (Some(strands), Some(per_strand)) = (count(strings.saturating_mul(sps)), count(nps / sps)) else {
         return Vec::new();
     };
-    if !s.ltor || !s.btot {
+    if per_strand == 0 || u64::from(strands) * u64::from(per_strand) > u64::from(pf_model::MAX_PROP_NODES) {
         return Vec::new();
     }
+    // xLights zig-zags within each string, so an even fold is the same as zig-zagging
+    // throughout, and a string of one strand never runs back.
+    let alternate_nodes = flag(m, "AlternateNodes");
+    let serpentine = !alternate_nodes && !flag(m, "NoZig") && sps > 1;
+    let strands_per_string = if serpentine && sps % 2 == 1 { sps as u32 } else { 0 };
+    let (ltor, btot) = start_side(m);
     let t = m.display_as.trim();
     let degrees = if t == "Tree" {
         match int(m, "TreeType", 0) {
@@ -941,7 +951,7 @@ fn tree(m: &XmlModel) -> Vec<Candidate> {
     let Some((unit, mut place)) = solid_placement(m, &boxed(m), [1.0; 3]) else {
         return Vec::new();
     };
-    let (bw, bh) = (f64::from(s.strands), f64::from(s.per_strand));
+    let (bw, bh) = (f64::from(strands), f64::from(per_strand));
     let (style, height, base, top, start_angle) = if degrees > 0 {
         let render_ht = bh * 3.0;
         let mut radius = render_ht / 1.8 / 2.0;
@@ -969,23 +979,23 @@ fn tree(m: &XmlModel) -> Vec<Candidate> {
     };
     let u = f64::from(unit);
     place.position = pf_geometry::apply_transform(Vec3::new(0.0, -(height * u / 2.0) as f32, 0.0), &place);
-    s.serpentine
-        .iter()
-        .map(|&serpentine| {
-            let g = Generator::Tree {
-                strings: s.strands,
-                nodes_per_string: s.per_strand,
-                height: (height * u) as f32,
-                base_radius: (base * u) as f32,
-                top_radius: (top * u) as f32,
-                serpentine,
-                style,
-                degrees: if degrees > 0 { degrees as f32 } else { 360.0 },
-                start_angle: start_angle as f32,
-            };
-            (g, place)
-        })
-        .collect()
+    let spiral = float(m, "TreeSpiralRotations", 0.0) as f32;
+    let g = Generator::Tree {
+        strings: strands,
+        nodes_per_string: per_strand,
+        height: (height * u) as f32,
+        base_radius: (base * u) as f32,
+        top_radius: (top * u) as f32,
+        serpentine,
+        style,
+        degrees: if degrees > 0 { degrees as f32 } else { 360.0 },
+        start_angle: start_angle as f32,
+        start: corner(ltor, btot),
+        strands_per_string,
+        alternate_nodes,
+        spiral_rotations: if style == TreeStyle::Round { spiral } else { 0.0 },
+    };
+    vec![(g, place)]
 }
 
 /// `WindowFrameModel` with one light per node: its pixel counts, start corner and direction,
@@ -2417,9 +2427,133 @@ mod tests {
                 ],
             ),
         );
-        stays_measured("Tree 360", &with(&TREE, &[("TreeSpiralRotations", "1.5")]));
-        stays_measured("Tree 360", &with(&TREE, &[("StartSide", "T")]));
         stays_measured("Tree 360", &with(&TREE, &[("StrandDir", "Horizontal")]));
+        stays_measured("Tree 360", &with(&TREE, &[("exportFirstStrand", "3")]));
+        // A dumb string is one light, however many bulbs it has.
+        stays_measured(
+            "Tree 360",
+            &with(
+                &TREE,
+                &[
+                    ("TreeSpiralRotations", "6"),
+                    ("StringType", "Single Color Intensity"),
+                ],
+            ),
+        );
+    }
+
+    #[test]
+    fn spiral_top_wired_and_folded_trees_import_as_trees() {
+        let variants: [(&str, &[(&str, &str)]); 16] = [
+            ("Tree 360", &[("TreeSpiralRotations", "1.5")]),
+            ("Tree 360", &[("TreeSpiralRotations", "-4"), ("parm2", "100")]),
+            (
+                "Tree 360",
+                &[
+                    ("TreeSpiralRotations", "10.25"),
+                    ("parm1", "16"),
+                    ("parm2", "120"),
+                ],
+            ),
+            (
+                "Tree 360",
+                &[("TreeSpiralRotations", "6"), ("StringType", "Node Single Color")],
+            ),
+            ("Tree 360", &[("StartSide", "T")]),
+            ("Tree 360", &[("Dir", "R")]),
+            (
+                "Tree 360",
+                &[("StartSide", "T"), ("Dir", "R"), ("TreeSpiralRotations", "2")],
+            ),
+            (
+                "Tree 288",
+                &[
+                    ("StartSide", "T"),
+                    ("parm1", "2"),
+                    ("parm2", "400"),
+                    ("parm3", "8"),
+                ],
+            ),
+            (
+                "Tree 360",
+                &[
+                    ("StartSide", "T"),
+                    ("parm1", "1"),
+                    ("parm2", "500"),
+                    ("parm3", "10"),
+                ],
+            ),
+            // Strings folded into an odd number of strands: the zig-zag starts afresh each string.
+            (
+                "Tree 180",
+                &[("Dir", "R"), ("parm1", "2"), ("parm2", "350"), ("parm3", "7")],
+            ),
+            ("Tree 180", &[("parm1", "2"), ("parm2", "250"), ("parm3", "5")]),
+            (
+                "Tree 270",
+                &[
+                    ("Dir", "R"),
+                    ("StartSide", "T"),
+                    ("parm1", "3"),
+                    ("parm2", "150"),
+                    ("parm3", "3"),
+                ],
+            ),
+            ("Tree Ribbon", &[("parm1", "2"), ("parm2", "100"), ("parm3", "5")]),
+            ("Tree 360", &[("AlternateNodes", "true")]),
+            (
+                "Tree 360",
+                &[
+                    ("AlternateNodes", "true"),
+                    ("Dir", "R"),
+                    ("StartSide", "T"),
+                    ("parm2", "49"),
+                ],
+            ),
+            (
+                "Tree Flat",
+                &[("NoZig", "true"), ("parm3", "2"), ("StartSide", "T")],
+            ),
+        ];
+        for (kind, more) in variants {
+            imports_as(kind, &with(&TREE, more));
+        }
+        let g = imports_as(
+            "Tree 180",
+            &with(
+                &TREE,
+                &[
+                    ("Dir", "R"),
+                    ("StartSide", "T"),
+                    ("parm1", "2"),
+                    ("parm2", "350"),
+                    ("parm3", "7"),
+                ],
+            ),
+        );
+        assert!(matches!(
+            g,
+            Generator::Tree {
+                strings: 14,
+                nodes_per_string: 50,
+                serpentine: true,
+                strands_per_string: 7,
+                start: pf_model::Corner::TopRight,
+                ..
+            }
+        ));
+        // An even fold zig-zags all the way round, the same as one long string.
+        assert!(matches!(
+            imports_as(
+                "Tree 360",
+                &with(&TREE, &[("parm1", "1"), ("parm2", "400"), ("parm3", "8")])
+            ),
+            Generator::Tree {
+                serpentine: true,
+                strands_per_string: 0,
+                ..
+            }
+        ));
     }
 
     #[test]

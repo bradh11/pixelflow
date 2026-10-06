@@ -27,6 +27,10 @@ fn rich_prop() -> Prop {
             style: TreeStyle::Round,
             degrees: 360.0,
             start_angle: 0.0,
+            start: Corner::BottomLeft,
+            strands_per_string: 0,
+            alternate_nodes: false,
+            spiral_rotations: 0.0,
         }),
     );
     prop.transform.position = Vec3::new(1.5, 0.0, -2.0);
@@ -90,6 +94,10 @@ fn shape_samples() -> Vec<Generator> {
             style: TreeStyle::Ribbon,
             degrees: 180.0,
             start_angle: 45.0,
+            start: Corner::BottomLeft,
+            strands_per_string: 0,
+            alternate_nodes: false,
+            spiral_rotations: 0.0,
         },
         Generator::star(5, 50, 1.0, 0.4),
         Generator::PolyLine {

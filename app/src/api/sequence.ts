@@ -430,10 +430,17 @@ export function newRow(target: SequenceTarget): Row {
   return { id: crypto.randomUUID(), target, layers: [{ effects: [] }] };
 }
 
+/** The most rows a sequence can have (the engine's MAX_ROWS, crates/pf-sequence/src/limits.rs). */
+export const MAX_ROWS = 10_000;
+
 /**
- * A row for every group and then every prop, each in the show's (layout) order: what a new
- * sequence starts with, as in xLights.
+ * A row for every group (that has members) and then every prop, each in the show's (layout) order:
+ * what a new sequence starts with, as in xLights. At most `limit` rows (the first ones).
  */
-export function rowsForShow(show: Pick<Show, "groups" | "props">): Row[] {
-  return [...show.groups.map((g) => newRow({ group: g.id })), ...show.props.map((p) => newRow({ prop: p.id }))];
+export function rowsForShow(show: Pick<Show, "groups" | "props">, limit = MAX_ROWS): Row[] {
+  const targets: SequenceTarget[] = [
+    ...show.groups.filter((g) => g.members.length > 0).map((g) => ({ group: g.id })),
+    ...show.props.map((p) => ({ prop: p.id })),
+  ];
+  return targets.slice(0, limit).map(newRow);
 }

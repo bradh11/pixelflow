@@ -12,7 +12,7 @@ import { useSequenceKeys } from "../components/sequencer/useSequenceKeys";
 import { Button, EmptyState, Input, UnsavedBadge } from "../components/ui";
 import { ago, fileName, shownPath } from "../lib/format";
 import { formatTime } from "../lib/timelineMath";
-import { rowsForShow } from "../api/sequence";
+import { MAX_ROWS, rowsForShow } from "../api/sequence";
 import { useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
 
@@ -597,7 +597,8 @@ function Modal({ label, children }: { label: string; children: React.ReactNode }
 function NewSequenceDialog({ onClose }: { onClose: () => void }) {
   const backend = useApp((s) => s.backend);
   const show = useApp((s) => s.snapshot?.show);
-  const rowCount = (show?.props.length ?? 0) + (show?.groups.length ?? 0);
+  // Groups with no members light nothing, so they get no row.
+  const rowCount = (show?.props.length ?? 0) + (show?.groups.filter((g) => g.members.length > 0).length ?? 0);
   const [everyRow, setEveryRow] = useState(true);
   const [music, setMusic] = useState<{ path: string; durationMs: number } | null>(null);
   const [name, setName] = useState("");
@@ -665,8 +666,11 @@ function NewSequenceDialog({ onClose }: { onClose: () => void }) {
           <label className="flex items-start gap-2">
             <input type="radio" name="new-sequence-rows" checked={everyRow} onChange={() => setEveryRow(true)} className="mt-0.5 accent-accent-500" />
             <span>
-              A row for every prop and group ({rowCount})
-              <span className="block text-xs text-neutral-500">In layout order, groups first, as xLights does. Remove the ones you don&apos;t need.</span>
+              {rowCount > MAX_ROWS
+                ? `A row for the first ${MAX_ROWS.toLocaleString("en-US")} props and groups (of ${rowCount.toLocaleString("en-US")})`
+                : `A row for every prop and group (${rowCount.toLocaleString("en-US")})`}
+              <span className="block text-xs text-neutral-500">In layout order, groups first, as xLights does. Remove the ones you don&apos;t need.
+                {rowCount > MAX_ROWS && ` A sequence holds at most ${MAX_ROWS.toLocaleString("en-US")} rows; add the rest by hand where you need them.`}</span>
             </span>
           </label>
           <label className="flex items-start gap-2">

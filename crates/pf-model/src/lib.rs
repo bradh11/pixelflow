@@ -9,6 +9,7 @@ mod ids;
 mod io;
 mod issue;
 mod limits;
+mod paths;
 mod primitives;
 mod prop;
 mod region;
@@ -26,6 +27,9 @@ pub use issue::{Issue, IssueCode, Severity, ValidationReport};
 pub use limits::{
     MAX_NULL_PIXELS, MAX_PROP_NODES, MAX_REGION_ENTRIES, MAX_REGIONS_PER_PROP, MAX_SEQUENCE_OFFSET_MS,
     MAX_SHOW_PIXELS, MAX_STAR_POINTS,
+};
+pub use paths::{
+    display_text, file_name_of, is_full_path_text, path_from_text, path_to_text, relative_text, resolve_text,
 };
 pub use primitives::{ColorOrder, Transform, Vec3};
 pub use prop::{Group, GroupMember, Prop};

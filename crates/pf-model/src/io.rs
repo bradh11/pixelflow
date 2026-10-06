@@ -29,7 +29,9 @@ impl From<serde_json::Error> for ModelError {
 type Migration = fn(Value) -> Result<Value, ModelError>;
 
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
-const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7];
+const MIGRATIONS: &[Migration] = &[
+    v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8,
+];
 
 /// Version 2 only adds the `falcon` adapter value, so version 1 documents are already valid.
 fn v1_to_v2(doc: Value) -> Result<Value, ModelError> {
@@ -89,6 +91,12 @@ fn v6_to_v7(mut doc: Value) -> Result<Value, ModelError> {
             region.insert("lines".into(), Value::from(vec![Value::from(line)]));
         }
     }
+    Ok(doc)
+}
+
+/// Version 8 lets file paths be relative to the show file (and keep bytes that aren't UTF-8).
+/// Version 7 files hold full paths, which version 8 reads the same way, so they're already valid.
+fn v7_to_v8(doc: Value) -> Result<Value, ModelError> {
     Ok(doc)
 }
 
@@ -292,6 +300,22 @@ mod tests {
             show_from_json(sparse).unwrap().house_model,
             Some(crate::HouseModel::new("/h.obj"))
         );
+    }
+
+    #[test]
+    fn version_7_full_paths_read_as_they_are() {
+        let v7 = r#"{ "schemaVersion": 7, "name": "Old",
+            "sequences": [ { "id": "77777777-0000-4000-8000-000000000001", "name": "Medley",
+              "path": "/Shows/Medley.fseq", "audio": "/Shows/Medley.mp3" } ],
+            "background": { "path": "/Shows/house.jpg", "x": 0, "y": 0, "width": 10 } }"#;
+        let show = show_from_json(v7).unwrap();
+        assert_eq!(show.schema_version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(show.sequences[0].path, "/Shows/Medley.fseq");
+        assert_eq!(show.sequences[0].audio.as_deref(), Some("/Shows/Medley.mp3"));
+        assert_eq!(show.background.unwrap().path, "/Shows/house.jpg");
+        let saved: Value =
+            serde_json::from_str(&show_to_json(&show_from_json(v7).unwrap()).unwrap()).unwrap();
+        assert_eq!(saved["schemaVersion"], 8);
     }
 
     #[test]

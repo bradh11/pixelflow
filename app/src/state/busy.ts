@@ -15,7 +15,6 @@ export function isBusyOrAsking(): boolean {
     app.pendingReplace !== null ||
     app.naming !== null ||
     app.opening !== null ||
-    app.busy ||
     useSequencer.getState().replacing !== null ||
     useCloseGuard.getState().asking ||
     fileDialogShowing() ||

@@ -363,7 +363,7 @@ export const useApp = create<AppState>((set, get) => {
       return false;
     }
     if (!path) return false;
-    set({ busy: true });
+    set({ busy: true, opening: `Importing ${fileName(path)}…` });
     try {
       const imported = await sequencer.importXlights(path);
       if (!imported) return false;
@@ -379,7 +379,7 @@ export const useApp = create<AppState>((set, get) => {
       });
       return true;
     } finally {
-      set({ busy: false });
+      set({ busy: false, opening: null });
     }
   }
 

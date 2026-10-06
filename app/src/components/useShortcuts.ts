@@ -45,6 +45,8 @@ export function useShortcuts() {
         }
         if (key !== "o" && key !== "n") return;
       }
+      // ⇧⌘W is Close Window (the File menu's), not Close Show.
+      if (key === "w" && e.shiftKey) return;
       if (key === "z" && !inField) {
         e.preventDefault();
         void undoFocused(e.shiftKey);

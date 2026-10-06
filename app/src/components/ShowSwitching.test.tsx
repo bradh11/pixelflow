@@ -539,3 +539,29 @@ describe("Edit → Undo and Redo in the menu bar", () => {
     expect(useApp.getState().snapshot?.show.name).toBe("Changed");
   });
 });
+
+describe("while an edit is on its way to the engine", () => {
+  it("⌘S still saves, after the edit lands", async () => {
+    const { backend, user } = await start();
+    await openHouse(user);
+    const apply = backend.applyEdits.bind(backend);
+    let release!: () => void;
+    backend.applyEdits = async (batch) => {
+      await new Promise<void>((resolve) => (release = resolve));
+      return apply(batch);
+    };
+    act(() => void useApp.getState().apply([{ type: "renameShow", name: "Changed" }]));
+    await waitFor(() => expect(useApp.getState().busy).toBe(true));
+    expect(command("s")).toBe(false);
+    await act(async () => release());
+    await waitFor(() => expect(backend.calls).toContain(`saveShowAs:${HOUSE}`));
+    expect(backend.files.get(HOUSE)?.name).toBe("Changed");
+  });
+
+  it("⇧⌘W is left to the window's Close Window, not taken as Close Show", async () => {
+    const { user } = await start();
+    await openHouse(user);
+    expect(command("w", window, true)).toBe(true);
+    expect(welcome()).not.toBeInTheDocument();
+  });
+});

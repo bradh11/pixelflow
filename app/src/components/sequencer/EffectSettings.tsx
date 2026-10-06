@@ -1,11 +1,11 @@
-import { Trash2 } from "lucide-react";
+import { SlidersHorizontal, Trash2 } from "lucide-react";
 import type { Blend, Effect, EffectParams, Sequence, SequenceTarget } from "../../api/sequence";
 import type { Show } from "../../api/types";
 import { effectBounds, formatTime } from "../../lib/timelineMath";
 import { targetName } from "../../lib/submodels";
 import { useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
-import { BLENDS, type Change, ColorList, FIELD, MsField, Panel, Section, SettingControl, clamp, faceNames } from "./effectControls";
+import { BLENDS, type Change, ColorList, FIELD, FloatingSettings, MsField, Panel, Section, SettingControl, clamp, faceNames } from "./effectControls";
 import { MultiEffectSettings } from "./MultiEffectSettings";
 
 /**
@@ -14,7 +14,15 @@ import { MultiEffectSettings } from "./MultiEffectSettings";
  * pulled or a field typed in is one undo step. Each change is built from the effect as it is when
  * its turn comes and touches only its own setting, so quick changes in a row all stick.
  */
-export function EffectSettings({ doc }: { doc: Sequence }) {
+export function EffectSettings({ doc, floating = false }: { doc: Sequence; floating?: boolean }) {
+  return (
+    <FloatingSettings.Provider value={floating}>
+      <Settings doc={doc} />
+    </FloatingSettings.Provider>
+  );
+}
+
+function Settings({ doc }: { doc: Sequence }) {
   const selection = useSequencer((s) => s.selection);
   const catalog = useSequencer((s) => s.catalog);
   const edit = useSequencer((s) => s.edit);
@@ -23,10 +31,16 @@ export function EffectSettings({ doc }: { doc: Sequence }) {
   const found = selection.length === 1 ? findEffect(doc, selection[0]) : null;
   if (selection.length > 1) return <MultiEffectSettings doc={doc} ids={selection} />;
   if (!found) {
+    // Nothing to show: a slim strip, leaving the room to the timeline.
     return (
-      <Panel>
-        <p className="text-sm text-neutral-500">Select an effect on the timeline to change how it looks.</p>
-      </Panel>
+      <aside
+        aria-label="Effect settings"
+        data-collapsed="true"
+        className="flex w-10 shrink-0 flex-col items-center gap-3 border-l border-neutral-200 py-3 text-neutral-500 dark:border-neutral-800"
+      >
+        <SlidersHorizontal size={16} aria-hidden />
+        <p className="text-xs [writing-mode:vertical-rl]">Select an effect on the timeline to change how it looks.</p>
+      </aside>
     );
   }
   const { effect, rowName, target } = found;

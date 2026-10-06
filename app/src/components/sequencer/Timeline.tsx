@@ -49,6 +49,7 @@ import { GoToScreen } from "../GoToScreen";
 import { usePaletteDrag } from "./EffectPalette";
 import { TimingTrackHeaders } from "./TimingTrackHeaders";
 import { LANE_H, RULER_H, TRACK_H, WAVE_H, drawTimeline, topHeight } from "./drawTimeline";
+import { timelineMinHeight } from "../../lib/sequenceLayout";
 import { resolveAudio } from "../../lib/showFiles";
 
 /** Colors a new effect starts with. */
@@ -777,7 +778,7 @@ export function Timeline({ doc }: { doc: Sequence }) {
   const thumb = Math.min(1, visibleMs / Math.max(1, doc.durationMs));
 
   return (
-    <div className="flex min-h-60 flex-1 flex-col overflow-hidden">
+    <div className="flex flex-1 flex-col overflow-hidden" style={{ minHeight: timelineMinHeight(top) }}>
       <div className="flex min-h-0 flex-1">
         <RowHeaders doc={doc} show={show} lanes={lanes} top={top} scrollY={scrollY} rowsViewport={rowsViewport} />
         <div ref={bodyRef} className="relative min-w-0 flex-1">

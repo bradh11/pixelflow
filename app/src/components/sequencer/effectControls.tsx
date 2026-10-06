@@ -1,5 +1,5 @@
 import { Plus, X } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useId, useRef, useState } from "react";
 import type { Blend, Effect, EffectSetting, Sequence, SequenceTarget, TimingTrack } from "../../api/sequence";
 import type { Show } from "../../api/types";
 import { memberProp } from "../../lib/shows";
@@ -43,9 +43,19 @@ export function faceNames(show: Show | undefined, target: SequenceTarget): strin
   return [...new Set(names)];
 }
 
+/** True when the settings show over the timeline's right edge (a narrow window). */
+export const FloatingSettings = createContext(false);
+
 export function Panel({ children }: { children: React.ReactNode }) {
+  const floating = useContext(FloatingSettings);
   return (
-    <aside aria-label="Effect settings" className="w-72 shrink-0 overflow-auto border-l border-neutral-200 p-3 dark:border-neutral-800">
+    <aside
+      aria-label="Effect settings"
+      data-floating={floating || undefined}
+      className={`w-72 shrink-0 overflow-auto border-l border-neutral-200 p-3 dark:border-neutral-800 ${
+        floating ? "absolute inset-y-0 right-0 z-20 bg-white shadow-2xl dark:bg-neutral-950" : ""
+      }`}
+    >
       {children}
     </aside>
   );

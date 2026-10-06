@@ -509,6 +509,43 @@ function recordTimelineText() {
   return texts;
 }
 
+describe("in a narrow window", () => {
+  /** Lays the workspace (palette, timeline, settings) out `width` px wide. */
+  function workspaceWidth(width: number) {
+    const rect = (w: number, h: number) => ({ x: 0, y: 0, left: 0, top: 0, width: w, height: h, right: w, bottom: h, toJSON: () => ({}) });
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      return (this instanceof HTMLElement && this.dataset.sequenceWorkspace !== undefined ? rect(width, 600) : rect(1000, 600)) as DOMRect;
+    });
+  }
+
+  it("keeps the effect settings to a slim strip until an effect is selected", async () => {
+    await openScreen();
+    const strip = screen.getByRole("complementary", { name: "Effect settings" });
+    expect(strip).toHaveAttribute("data-collapsed", "true");
+    expect(strip).toHaveTextContent("Select an effect on the timeline to change how it looks.");
+    fireEvent.pointerDown(timeline(), { clientX: x(1000), clientY: LANE.archTop, button: 0, pointerId: 1 });
+    fireEvent.pointerUp(timeline(), { clientX: x(1000), clientY: LANE.archTop, pointerId: 1 });
+    expect(screen.getByRole("complementary", { name: "Effect settings" })).not.toHaveAttribute("data-collapsed");
+  });
+
+  it("shows the effects as icons, and floats a selected effect's settings over the timeline", async () => {
+    workspaceWidth(700);
+    await openScreen();
+    const palette = screen.getByRole("complementary", { name: "Effects" });
+    expect(palette).toHaveAttribute("data-compact", "true");
+    const fade = within(palette).getByRole("button", { name: "Fade effect" });
+    expect(fade).toHaveAttribute("data-tip", expect.stringMatching(/^Fade: /));
+    fireEvent.pointerDown(timeline(), { clientX: x(1000), clientY: LANE.archTop, button: 0, pointerId: 1 });
+    fireEvent.pointerUp(timeline(), { clientX: x(1000), clientY: LANE.archTop, pointerId: 1 });
+    expect(screen.getByRole("complementary", { name: "Effect settings" })).toHaveAttribute("data-floating", "true");
+  });
+
+  it("keeps the palette's names where there's room", async () => {
+    await openScreen();
+    expect(screen.getByRole("complementary", { name: "Effects" })).not.toHaveAttribute("data-compact");
+  });
+});
+
 describe("unsaved work", () => {
   it("offers back a sequence kept from last time, asking before it replaces unsaved changes", async () => {
     const show = demoShow();

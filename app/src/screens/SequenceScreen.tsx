@@ -13,6 +13,8 @@ import { Button, EmptyState, Input, UnsavedBadge } from "../components/ui";
 import { ago, fileName, shownPath } from "../lib/format";
 import { formatTime } from "../lib/timelineMath";
 import { MAX_ROWS, rowsForShow } from "../api/sequence";
+import { sequenceArrangement } from "../lib/sequenceLayout";
+import { useElementWidth } from "../lib/useWidth";
 import { type RecentSequence, recentFor, useSequencer } from "../state/sequencer";
 import { saveSequenceAndShow } from "../state/saveAll";
 import { useApp } from "../state/store";
@@ -107,6 +109,8 @@ function Workspace() {
   const show = useApp((s) => s.snapshot?.show);
   const [adding, setAdding] = useState(false);
   const column = useRef<HTMLDivElement>(null);
+  const workspace = useRef<HTMLDivElement>(null);
+  const arrangement = sequenceArrangement(useElementWidth(workspace));
   const [pane, setPane] = useState(loadPane);
   const paneRef = useRef<HTMLDivElement>(null);
   /** The column's height, for the divider's range (kept up to date as the window changes). */
@@ -134,8 +138,8 @@ function Workspace() {
     return r ? fitPreview(r.from + e.clientY - r.startY, total()) : null;
   };
   return (
-    <div className="flex min-h-0 flex-1">
-      <EffectPalette />
+    <div ref={workspace} data-sequence-workspace className="relative flex min-h-0 flex-1">
+      <EffectPalette compact={arrangement.palette === "icons"} />
       <div ref={column} className="flex min-w-0 flex-1 flex-col">
         <BeatsBanner />
         <div ref={paneRef} className="min-h-30 shrink px-2 pt-2 pb-1" style={{ height: pane.big ? `${BIG_SHARE * 100}%` : pane.height !== null ? `${pane.height}px` : `${DEFAULT_SHARE * 100}%` }}>
@@ -200,7 +204,7 @@ function Workspace() {
           <Timeline doc={doc} />
         )}
       </div>
-      <EffectSettings doc={doc} />
+      <EffectSettings doc={doc} floating={arrangement.settings === "floating"} />
     </div>
   );
 }

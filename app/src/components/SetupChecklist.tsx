@@ -10,11 +10,12 @@ import { IconButton } from "./ui";
 /** The checklist's steps for the open show, ticked from the show and what's been done with it. */
 function useSteps(): { key: string | null; steps: SetupStep[] } | null {
   const snapshot = useApp((s) => s.snapshot);
+  const showId = useApp((s) => s.showId);
   const tested = useSetup((s) => s.tested);
   const sequenceOpen = useSequencer((s) => s.doc !== null);
   const recent = useSequencer((s) => s.recent);
   if (!snapshot) return null;
-  const key = setupKey(snapshot);
+  const key = setupKey(snapshot, showId);
   const sequenced = sequenceOpen || recentFor(recent, snapshot.path).mine.length > 0 || snapshot.show.sequences.length > 0;
   return { key, steps: setupSteps(snapshot.show, { tested: key !== null && tested.includes(key), sequenced }) };
 }

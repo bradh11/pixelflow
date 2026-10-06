@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { demoShow } from "../api/demo";
 import { MemoryBackend } from "../api/memory";
-import { setupKey, useSetup } from "../state/setup";
+import { currentSetupKey, useSetup } from "../state/setup";
 import { useApp } from "../state/store";
 import { TestScreen } from "./TestScreen";
 
@@ -39,7 +39,7 @@ describe("test screen", () => {
 
   it("remembers that the show has been tested, for the setup checklist", async () => {
     const { user } = await setup();
-    const key = setupKey(useApp.getState().snapshot);
+    const key = currentSetupKey();
     expect(useSetup.getState().tested).not.toContain(key);
     await user.click(screen.getByRole("button", { name: /^Start/ }));
     await screen.findByText(/Sending/);

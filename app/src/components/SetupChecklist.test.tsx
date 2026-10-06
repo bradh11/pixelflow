@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { demoShow } from "../api/demo";
 import { MemoryBackend, emptyShow } from "../api/memory";
-import { setupKey, useSetup } from "../state/setup";
+import { currentSetupKey, useSetup } from "../state/setup";
 import { useApp } from "../state/store";
 import { CommandPalette } from "./CommandPalette";
 import { Sidebar } from "./Sidebar";
@@ -48,7 +48,7 @@ describe("the setup checklist", () => {
     expect(step(/^Draw your props, done/)).toBeInTheDocument();
     // Not next (there are no controllers yet): its progress shows on hover.
     expect(step(/^Wire your props$/)).toHaveAttribute("data-tip", "1 prop not wired");
-    act(() => useSetup.getState().markTested(setupKey(useApp.getState().snapshot)));
+    act(() => useSetup.getState().markTested(currentSetupKey()));
     expect(step(/^Test your lights, done/)).toBeInTheDocument();
   });
 

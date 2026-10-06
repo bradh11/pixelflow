@@ -82,6 +82,8 @@ interface AppState {
   /** False until the user leaves the welcome screen. */
   started: boolean;
   screen: Screen;
+  /** Names the open show for this run of the app: a new one each time another show takes its place. */
+  showId: string;
   /** The theme in use, light or dark. */
   theme: Theme;
   themeChoice: ThemeChoice;
@@ -333,6 +335,7 @@ export const useApp = create<AppState>((set, get) => {
       return false;
     }
     if (!ok) return false;
+    set({ showId: crypto.randomUUID() });
     // The open sequence belongs to the show being left.
     await useSequencer.getState().closeDocument();
     if (kind === "close") {
@@ -507,6 +510,7 @@ export const useApp = create<AppState>((set, get) => {
   snapshot: null,
   started: false,
   screen: "layout",
+  showId: crypto.randomUUID(),
   theme: resolveTheme(storedThemeChoice()),
   themeChoice: storedThemeChoice(),
   paletteOpen: false,

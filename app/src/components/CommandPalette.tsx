@@ -8,7 +8,7 @@ import { saveFocused, undoFocused } from "../state/menuActions";
 import { useSequencer } from "../state/sequencer";
 import { useView3d } from "../state/view3d";
 import { setLayoutMode } from "./layout3d/useLayout3dKeys";
-import { setupKey, useSetup } from "../state/setup";
+import { currentSetupKey, useSetup } from "../state/setup";
 import { type Screen, useApp } from "../state/store";
 
 interface Action {
@@ -72,7 +72,7 @@ export function CommandPalette() {
       run: useAssistant.getState().toggle,
     },
     { id: "ai-settings", label: "AI settings…", run: () => useAssistant.getState().setSettingsOpen(true) },
-    { id: "setup", label: "Show the setup checklist", run: () => useSetup.getState().setDismissed(setupKey(state.snapshot), false) },
+    { id: "setup", label: "Show the setup checklist", run: () => useSetup.getState().setDismissed(currentSetupKey(), false) },
     go("layout", "Layout"),
     go("devices", "Devices"),
     go("wiring", "Wiring"),

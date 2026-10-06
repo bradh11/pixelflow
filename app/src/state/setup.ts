@@ -3,6 +3,7 @@
 
 import { create } from "zustand";
 import type { ShowSnapshot } from "../api/types";
+import { useApp } from "./store";
 
 const KEY = "pixelflow.setup";
 /** Shows remembered at most (the oldest are forgotten). */
@@ -31,14 +32,25 @@ function save(saved: Saved) {
   }
 }
 
-/** Which show the checklist is about: its file, or its name until it has one. */
-export function setupKey(snapshot: Pick<ShowSnapshot, "path" | "show"> | null): string | null {
+/**
+ * Which show the checklist is about: its file, or until it has one, the id the app gave this
+ * show when it opened (every new show is "Untitled Show", so the name won't do).
+ */
+export function setupKey(snapshot: Pick<ShowSnapshot, "path"> | null, showId: string): string | null {
   if (!snapshot) return null;
-  return snapshot.path ?? `unsaved:${snapshot.show.name}`;
+  return snapshot.path ?? `unsaved:${showId}`;
+}
+
+/** The open show's key. */
+export function currentSetupKey(): string | null {
+  const { snapshot, showId } = useApp.getState();
+  return setupKey(snapshot, showId);
 }
 
 interface SetupState extends Saved {
   markTested(key: string | null): void;
+  /** Moves a show's record to its new key (a new show's first save). */
+  carry(from: string, to: string): void;
   /** Puts the checklist away for the show (or brings it back). */
   setDismissed(key: string | null, dismissed: boolean): void;
 }
@@ -53,6 +65,12 @@ export const useSetup = create<SetupState>((set, get) => ({
     save({ tested, dismissed: get().dismissed });
     set({ tested });
   },
+  carry(from, to) {
+    const move = (list: string[]) => (list.includes(from) ? add(list.filter((k) => k !== from), to) : list);
+    const next = { tested: move(get().tested), dismissed: move(get().dismissed) };
+    save(next);
+    set(next);
+  },
   setDismissed(key, dismissed) {
     if (!key) return;
     const list = dismissed ? add(get().dismissed, key) : get().dismissed.filter((k) => k !== key);
@@ -60,3 +78,9 @@ export const useSetup = create<SetupState>((set, get) => ({
     set({ dismissed: list });
   },
 }));
+
+// A new show saved for the first time keeps what the checklist knew about it.
+useApp.subscribe((state, before) => {
+  if (state.showId !== before.showId || !state.snapshot?.path || !before.snapshot || before.snapshot.path) return;
+  useSetup.getState().carry(`unsaved:${state.showId}`, state.snapshot.path);
+});

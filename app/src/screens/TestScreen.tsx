@@ -4,7 +4,7 @@ import { errorMessage } from "../api/backend";
 import type { OutputStatus, PatternKind, TargetSpec } from "../api/types";
 import { Button, Card, EmptyState, Field, Input, PageHeader, Select } from "../components/ui";
 import { thousands } from "../lib/format";
-import { setupKey, useSetup } from "../state/setup";
+import { currentSetupKey, useSetup } from "../state/setup";
 import { useApp } from "../state/store";
 
 const PATTERNS: { kind: PatternKind; label: string; usesColor: boolean }[] = [
@@ -106,7 +106,7 @@ export function TestScreen() {
     try {
       setStatus(await backend.startOutput({ kind: next.kind ?? kind, color: (next.color ?? color).replace("#", "") }, target));
       setError(null);
-      useSetup.getState().markTested(setupKey(useApp.getState().snapshot));
+      useSetup.getState().markTested(currentSetupKey());
       setRemoved(false);
     } catch (e) {
       setError(errorMessage(e));

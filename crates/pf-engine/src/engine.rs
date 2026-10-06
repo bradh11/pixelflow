@@ -2,10 +2,12 @@
 
 use crate::edit::Edit;
 use crate::error::EngineError;
-use crate::files::{self, FileRole, FileSearch, FoundFile, MissingFile};
+use crate::files::{
+    self, FileCheck, FileRole, FileSearch, FileStatus, FoundFile, MissingFile, MusicCheck, SearchOutcome,
+};
 use crate::history::History;
 use crate::output::{OutputSession, OutputStatus, PatternSpec, TargetSpec, output_key};
-use crate::persist::{self, HistoryEntry};
+use crate::persist::{self, HistoryEntry, HistoryFile, LoadedShow};
 use crate::playback::{
     self, ClockFactory, DocumentRequest, PlayRequest, PlaybackReady, PlaybackSession, PlaybackStatus,
     SessionKind, document_music,
@@ -20,6 +22,7 @@ use pf_patterns::{Target, resolve_target};
 use pf_render::Renderer;
 use pf_render::export::{ExportLayout, ExportSummary};
 use pf_sequence::Sequence;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::mem;
 use std::path::{Path, PathBuf};
@@ -81,6 +84,18 @@ pub struct Engine {
     session: String,
     /// The sequence document and revision last kept, so an unchanged one isn't written again.
     sequence_autosaved: Option<(u64, u64)>,
+    /// Whether each of the show's files was there when last looked at, by path text. Snapshots
+    /// read this, never the disk (see [`Engine::file_check`]).
+    file_status: HashMap<String, bool>,
+    /// For files that were nowhere when the show was opened: where they were when it was saved.
+    was_at: HashMap<String, String>,
+    /// The folder the open show's file says it was saved in (a second place to search).
+    saved_in: Option<PathBuf>,
+    /// Goes up whenever another show is opened or started, so a check or search started before
+    /// that doesn't land on it.
+    show_generation: u64,
+    /// The user's home folder (searches never read all of it).
+    home: Option<PathBuf>,
 }
 
 /// What [`Engine::use_found_files`] did.
@@ -93,6 +108,8 @@ pub struct FilesFound {
     pub found: Vec<FoundFile>,
     /// The files still missing.
     pub still_missing: Vec<MissingFile>,
+    /// True when the search stopped before looking everywhere.
+    pub gave_up: bool,
 }
 
 /// Everything needed to export the open sequence, copied out of the engine so a long export
@@ -174,7 +191,21 @@ impl Engine {
             send_sequence_doc: true,
             session: recovery::new_session(),
             sequence_autosaved: None,
+            file_status: HashMap::new(),
+            was_at: HashMap::new(),
+            saved_in: None,
+            show_generation: 0,
+            home: std::env::var_os("HOME")
+                .or_else(|| std::env::var_os("USERPROFILE"))
+                .map(PathBuf::from)
+                .filter(|p| p.is_absolute()),
         }
+    }
+
+    /// Replaces the home folder searches stay out of (tests use a folder of their own).
+    pub fn with_home(mut self, home: Option<PathBuf>) -> Self {
+        self.home = home;
+        self
     }
 
     /// Replaces how playback keeps time (tests use a silent clock instead of the sound output).
@@ -221,7 +252,8 @@ impl Engine {
             show: self.show.clone(),
             issues,
             channel_map: map,
-            missing_files: files::missing_files(&self.show),
+            missing_files: files::missing_from(&self.show, &self.file_status, &self.was_at),
+            files_checked: files::all_checked(&self.show, &self.file_status),
         }
     }
 
@@ -282,11 +314,21 @@ impl Engine {
         self.snapshot()
     }
 
-    /// Opens a show file. On failure the current show is left untouched.
+    /// Opens a show file. On failure the current show is left untouched. This reads the disk
+    /// (the file, and whether its files are there); to keep that out of a lock around the engine,
+    /// use [`persist::read_show`] and [`Engine::open_read`].
     pub fn open(&mut self, path: &Path) -> Result<ShowSnapshot, EngineError> {
-        let show = persist::load_show(path)?;
-        self.replace_show(show, Some(path.to_path_buf()));
-        Ok(self.snapshot())
+        let loaded = persist::read_show(path)?;
+        Ok(self.open_read(path, loaded))
+    }
+
+    /// Opens a show file read with [`crate::read_show`] from `path`.
+    pub fn open_read(&mut self, path: &Path, loaded: LoadedShow) -> ShowSnapshot {
+        self.replace_show(loaded.show, Some(path.to_path_buf()));
+        self.file_status = loaded.status;
+        self.was_at = loaded.was_at;
+        self.saved_in = loaded.saved_in;
+        self.snapshot()
     }
 
     /// Saves to the current file.
@@ -315,7 +357,7 @@ impl Engine {
             Some(folder) => self.show.with_paths_relative_to(folder),
             None => self.show.clone(),
         };
-        let entry = persist::write_history(&self.history_dir(), &stored, AUTOSAVE_KEEP)?;
+        let entry = persist::write_history(&self.history_dir(), &stored, self.show_folder(), AUTOSAVE_KEEP)?;
         self.autosaved_revision = self.revision;
         Ok(Some(entry))
     }
@@ -326,42 +368,120 @@ impl Engine {
     }
 
     /// Restores an autosaved version as an undoable change.
+    /// This reads the disk; to keep that out of a lock around the engine, use
+    /// [`Engine::history_file`], [`HistoryFile::read`], and [`Engine::restore_read`].
     pub fn restore(&mut self, id: &str) -> Result<ShowSnapshot, EngineError> {
+        let restored = self.history_file(id)?.read()?;
+        Ok(self.restore_read(restored))
+    }
+
+    /// The autosaved version `id`, to read without holding the engine.
+    pub fn history_file(&self, id: &str) -> Result<HistoryFile, EngineError> {
         if id.contains(['/', '\\']) || !self.history().iter().any(|e| e.id == id) {
             return Err(EngineError::UnknownHistoryEntry);
         }
-        let restored = persist::load_show_in(&self.history_dir().join(id), self.show_folder())?;
-        let before = mem::replace(&mut self.show, restored);
+        Ok(HistoryFile {
+            path: self.history_dir().join(id),
+            folder: self.show_folder().map(Path::to_path_buf),
+        })
+    }
+
+    /// Restores an autosaved version read with [`HistoryFile::read`], as an undoable change.
+    pub fn restore_read(&mut self, restored: LoadedShow) -> ShowSnapshot {
+        self.file_status.extend(restored.status);
+        self.was_at.extend(restored.was_at);
+        let before = mem::replace(&mut self.show, restored.show);
         self.history.record(before);
         self.changed();
-        Ok(self.snapshot())
+        self.snapshot()
     }
 
     // --- Files the show refers to -------------------------------------------------------------
 
-    /// The show's files (sequences, music, the photo, the house model) that aren't where it says
-    /// they are. The snapshot lists them too.
+    /// The show's files (sequences, music, the photo, the house model) that the last check found
+    /// aren't where it says they are. The snapshot lists them too. Reads nothing.
     pub fn missing_files(&self) -> Vec<MissingFile> {
-        files::missing_files(&self.show)
+        files::missing_from(&self.show, &self.file_status, &self.was_at)
     }
 
-    /// A search for the missing files in the show's folder and the folders below it, to run
-    /// without holding the engine (see [`FileSearch::run`]); then [`Engine::use_found_files`].
-    /// An unsaved show has no folder to search.
+    /// Which of the show's files to look at: those not looked at yet, or all of them (to notice
+    /// files that came back or went away). Run it without holding the engine, then hand the
+    /// result to [`Engine::publish_file_status`].
+    pub fn file_check(&self, all: bool) -> FileCheck {
+        let mut paths: Vec<String> = files::files_of(&self.show)
+            .into_iter()
+            .map(|(_, _, path)| path.to_string())
+            .filter(|path| !path.trim().is_empty() && (all || !self.file_status.contains_key(path)))
+            .collect();
+        paths.sort();
+        paths.dedup();
+        FileCheck {
+            generation: self.show_generation,
+            paths,
+        }
+    }
+
+    /// Takes in what a [`FileCheck`] found, unless another show was opened since it started.
+    pub fn publish_file_status(&mut self, status: FileStatus) {
+        if status.generation != self.show_generation {
+            return;
+        }
+        self.file_status.extend(status.there);
+        let referenced: HashSet<String> = files::files_of(&self.show)
+            .into_iter()
+            .map(|(_, _, path)| path.to_string())
+            .collect();
+        self.file_status.retain(|path, _| referenced.contains(path));
+    }
+
+    /// Looks at every file of the show now (reads the disk: see [`Engine::file_check`] to do
+    /// that without holding the engine).
+    pub fn check_files(&mut self) {
+        let status = self.file_check(true).run();
+        self.publish_file_status(status);
+    }
+
+    /// A search for the missing files in the show's folder and the folders below it, then in
+    /// the folder its file says it was saved in, to run without holding the engine (see
+    /// [`FileSearch::run`]); then [`Engine::use_found_files`]. An unsaved show has no folder to
+    /// search.
     pub fn file_search(&self) -> Result<FileSearch, EngineError> {
         let folder = self.show_folder().ok_or(EngineError::NoFolderToSearch)?;
-        Ok(FileSearch::new(vec![folder.to_path_buf()], self.missing_files()))
+        let mut folders = vec![folder.to_path_buf()];
+        if let Some(saved_in) = &self.saved_in
+            && !saved_in.starts_with(folder)
+        {
+            folders.push(saved_in.clone());
+        }
+        Ok(FileSearch::new(
+            folders,
+            self.missing_files(),
+            self.home.clone(),
+            self.show_generation,
+        ))
     }
 
     /// Points the show at files a search found, as one undo step. A file the show no longer
-    /// points at the old place for (it was changed meanwhile) is left alone. The answer says
-    /// what was used and what is still missing.
-    pub fn use_found_files(&mut self, found: Vec<FoundFile>) -> Result<FilesFound, EngineError> {
-        let used: Vec<FoundFile> = found
+    /// points at the old place for (it was changed meanwhile) is left alone, and a search started
+    /// before another show was opened is refused. The answer says what was used and what is
+    /// still missing.
+    pub fn use_found_files(&mut self, outcome: SearchOutcome) -> Result<FilesFound, EngineError> {
+        if outcome.generation != self.show_generation {
+            return Err(EngineError::SearchOutdated);
+        }
+        let used: Vec<FoundFile> = outcome
+            .found
             .into_iter()
-            .filter(|f| files::path_of(&self.show, f.file) == Some(f.from.as_str()) && files::exists(&f.to))
+            .filter(|f| files::path_of(&self.show, f.file) == Some(f.from.as_str()))
             .collect();
-        let changes: Vec<(FileRole, String)> = used.iter().map(|f| (f.file, f.to.clone())).collect();
+        for f in &used {
+            self.file_status.insert(f.to.clone(), true);
+        }
+        let changes: Vec<(FileRole, String)> = used
+            .iter()
+            .filter(|f| f.to != f.from)
+            .map(|f| (f.file, f.to.clone()))
+            .collect();
         let edits = files::repoint_edits(&self.show, &changes)?;
         let snapshot = if edits.is_empty() {
             self.snapshot()
@@ -372,16 +492,16 @@ impl Engine {
             still_missing: snapshot.missing_files.clone(),
             snapshot,
             found: used,
+            gave_up: outcome.gave_up,
         })
     }
 
-    /// Points one of the show's files at `to` (a file the user chose with Locate…), as one undo
-    /// step.
+    /// Points one of the show's files at `to` (a file the user chose with Locate…, already
+    /// checked with [`crate::check_chosen_file`]), as one undo step.
     pub fn relink_file(&mut self, file: FileRole, to: &Path) -> Result<ShowSnapshot, EngineError> {
-        if !to.is_file() {
-            return Err(EngineError::FileGone(pf_model::file_name_of(&path_to_text(to))));
-        }
-        let edits = files::repoint_edits(&self.show, &[(file, path_to_text(to))])?;
+        let to = path_to_text(to);
+        let edits = files::repoint_edits(&self.show, &[(file, to.clone())])?;
+        self.file_status.insert(to, true);
         self.apply(edits)
     }
 
@@ -478,12 +598,6 @@ impl Engine {
             .find(|s| s.id == id)
             .ok_or(EngineError::NotFound { kind: "sequence" })?
             .clone();
-        if !files::exists(&entry.path) {
-            return Err(EngineError::Playback(format!(
-                "{} isn't where it was. Use Find again or Locate… to show PixelFlow where it is now.",
-                pf_model::file_name_of(&entry.path)
-            )));
-        }
         let request = PlayRequest {
             path: path_from_text(&entry.path),
             music: entry.audio.as_deref().map(path_from_text),
@@ -840,24 +954,33 @@ impl Engine {
         document_music(open.path.as_deref(), open.doc.audio.as_deref())
     }
 
-    /// The open sequence's music, when it has some that isn't where it says.
-    pub fn sequence_music_missing(&self) -> Option<MissingFile> {
+    /// Whether the open sequence's music is there, copied out to run without holding the engine
+    /// (see [`MusicCheck::run`]). `None` when the sequence has no music it can look for.
+    pub fn sequence_music_check(&self) -> Option<MusicCheck> {
         let open = self.sequence.as_ref()?;
-        files::missing_music(&self.sequence_music()?, &open.doc.name)
+        Some(MusicCheck {
+            path: self.sequence_music()?,
+            sequence_name: open.doc.name.clone(),
+        })
     }
 
-    /// A search for the open sequence's missing music, by name, in the sequence's folder and the
-    /// show's (and the folders below them), to run without holding the engine; then
-    /// [`Engine::use_found_sequence_music`]. Nothing is looked for when the music is there.
+    /// The open sequence's music, when it has some that isn't where it says (reads the disk: see
+    /// [`Engine::sequence_music_check`] to do that without holding the engine).
+    pub fn sequence_music_missing(&self) -> Option<MissingFile> {
+        self.sequence_music_check()?.run()
+    }
+
+    /// A search for the open sequence's music, by name, in the show's folder and the sequence's
+    /// (and the folders below them), to run without holding the engine; then
+    /// [`Engine::use_found_sequence_music`]. Music that is where it says is found there.
     pub fn sequence_music_search(&self) -> Result<FileSearch, EngineError> {
         let open = self.sequence.as_ref().ok_or(EngineError::NoSequence)?;
-        if open.doc.audio.as_deref().is_none_or(|a| a.trim().is_empty()) {
-            return Err(EngineError::NoSequenceMusic);
-        }
+        let music = self.sequence_music().ok_or(EngineError::NoSequenceMusic)?;
         let mut folders: Vec<PathBuf> = Vec::new();
+        // The show's folder first: the files the show owns live there.
         for folder in [
-            open.path.as_deref().and_then(persist::folder_of),
             self.show_folder(),
+            open.path.as_deref().and_then(persist::folder_of),
         ]
         .into_iter()
         .flatten()
@@ -871,33 +994,51 @@ impl Engine {
         if folders.is_empty() {
             return Err(EngineError::SequenceNoFolderToSearch);
         }
+        let name = match open.doc.name.trim() {
+            "" => "this sequence",
+            name => name,
+        };
+        let wanted = MissingFile::new(
+            FileRole::SequenceDocMusic,
+            &path_to_text(&music),
+            format!("Music for {name}"),
+            None,
+        );
         Ok(FileSearch::new(
             folders,
-            self.sequence_music_missing().into_iter().collect(),
+            vec![wanted],
+            self.home.clone(),
+            open.id(),
         ))
     }
 
     /// Points the open sequence's music at what a search found, as one undo step on the
-    /// sequence; nothing changes (and `None` comes back) if its music changed meanwhile.
+    /// sequence. Nothing changes (and `None` comes back) when nothing was found, the music was
+    /// where it said, or the sequence or its music changed meanwhile.
     pub fn use_found_sequence_music(
         &mut self,
-        found: &FoundFile,
+        outcome: &SearchOutcome,
     ) -> Result<Option<SequenceEditResult>, EngineError> {
+        let Some(found) = outcome
+            .found
+            .iter()
+            .find(|f| f.file == FileRole::SequenceDocMusic)
+        else {
+            return Ok(None);
+        };
+        let same_sequence = self.sequence_doc_id() == Some(outcome.generation);
         let still_there = self
             .sequence_music()
             .is_some_and(|music| path_to_text(&music) == found.from);
-        if found.file != FileRole::SequenceDocMusic || !still_there || !files::exists(&found.to) {
+        if !same_sequence || !still_there || found.to == found.from {
             return Ok(None);
         }
         self.set_sequence_music(found.to.clone()).map(Some)
     }
 
-    /// Points the open sequence's music at `to` (a file the user chose with Locate…), as one
-    /// undo step on the sequence.
+    /// Points the open sequence's music at `to` (a file the user chose with Locate…, already
+    /// checked with [`crate::check_chosen_file`]), as one undo step on the sequence.
     pub fn relink_sequence_music(&mut self, to: &Path) -> Result<SequenceEditResult, EngineError> {
-        if !to.is_file() {
-            return Err(EngineError::FileGone(pf_model::file_name_of(&path_to_text(to))));
-        }
         self.set_sequence_music(path_to_text(to))
     }
 
@@ -1228,6 +1369,10 @@ impl Engine {
     }
 
     fn replace_show(&mut self, show: Show, path: Option<PathBuf>) {
+        self.file_status.clear();
+        self.was_at.clear();
+        self.saved_in = None;
+        self.show_generation += 1;
         self.stop_session();
         self.stop_playback();
         self.stop_reason = None;

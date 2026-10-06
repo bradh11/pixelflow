@@ -60,6 +60,8 @@ pub enum EngineError {
     /// A file chosen to replace a missing one that isn't there either (named plainly).
     #[error("{0} isn't there anymore. Choose another file.")]
     FileGone(String),
+    #[error("Another show was opened while PixelFlow was looking. Look again.")]
+    SearchOutdated,
     #[error("The open sequence has no music to look for.")]
     NoSequenceMusic,
 }

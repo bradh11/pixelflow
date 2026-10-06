@@ -233,7 +233,7 @@ impl Show {
 
     /// Every file path the show holds (sequences, their music, the photo, the house model), to
     /// change in place.
-    fn file_paths_mut(&mut self) -> impl Iterator<Item = &mut String> {
+    pub fn file_paths_mut(&mut self) -> impl Iterator<Item = &mut String> {
         let sequences = self
             .sequences
             .iter_mut()

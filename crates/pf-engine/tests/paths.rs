@@ -6,6 +6,7 @@ use pf_model::{Background, HouseModel, SequenceEntry, path_to_text};
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 fn touch(path: &Path) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -82,6 +83,7 @@ fn files_in_the_show_folder_are_saved_relative_and_opened_in_full() {
 
     let json = saved_json(&f.show);
     assert_eq!(json["schemaVersion"], 8);
+    assert_eq!(json["savedIn"], text(&f.root));
     assert_eq!(json["sequences"][0]["path"], "Christmas Medley 2017.fseq");
     assert_eq!(
         json["sequences"][0]["audio"],
@@ -96,7 +98,9 @@ fn files_in_the_show_folder_are_saved_relative_and_opened_in_full() {
     );
 
     // Saving doesn't change the show the engine holds (and leaves nothing unsaved).
+    engine.check_files();
     let snap = engine.snapshot();
+    assert!(snap.files_checked);
     assert!(!snap.dirty);
     assert_eq!(snap.show.sequences[0], entry);
     assert!(snap.missing_files.is_empty(), "{:?}", snap.missing_files);
@@ -190,6 +194,7 @@ fn missing_files_are_listed_plainly() {
     let entry = build(&mut engine, &f);
     fs::remove_file(f.root.join("MP3 Music/Christmas Medley 2017.mp3")).unwrap();
     fs::remove_file(f.root.join("photos/house.jpg")).unwrap();
+    engine.check_files();
     let missing = engine.snapshot().missing_files;
     assert_eq!(missing.len(), 2, "{missing:?}");
     assert_eq!(missing[0].file, FileRole::Music { id: entry.id });
@@ -199,6 +204,7 @@ fn missing_files_are_listed_plainly() {
         "Christmas Medley 2017.mp3 isn't where it was."
     );
     assert_eq!(missing[0].owner, "Music for Medley");
+    assert_eq!(missing[0].was_at, missing[0].path, "nothing better known");
     assert_eq!(missing[1].file, FileRole::Photo);
     assert_eq!(missing[1].owner, "Background photo");
 
@@ -232,6 +238,7 @@ fn finding_missing_files_repoints_them_in_one_undo_step() {
     .unwrap();
     // The fseq is gone for good.
     fs::remove_file(f.root.join("Christmas Medley 2017.fseq")).unwrap();
+    engine.check_files();
     assert_eq!(engine.snapshot().missing_files.len(), 3);
 
     let search = engine.file_search().unwrap();
@@ -275,8 +282,9 @@ fn found_files_are_only_used_while_the_show_still_points_at_the_old_place() {
         f.root.join("Audio/Christmas Medley 2017.mp3"),
     )
     .unwrap();
+    engine.check_files();
     let found = engine.file_search().unwrap().run();
-    assert_eq!(found.len(), 1);
+    assert_eq!(found.found.len(), 1);
     // Meanwhile the user chose other music.
     let mut changed = entry.clone();
     changed.audio = Some(text(&f.root.join("photos/house.jpg")));
@@ -303,6 +311,7 @@ fn finding_one_file_again_leaves_the_others_alone() {
     )
     .unwrap();
     fs::rename(f.root.join("photos/house.jpg"), f.root.join("house.jpg")).unwrap();
+    engine.check_files();
     let search = engine.file_search().unwrap().only(FileRole::Photo);
     assert_eq!(search.wanted().len(), 1);
     let report = engine.use_found_files(search.run()).unwrap();
@@ -350,9 +359,9 @@ fn locating_a_file_repoints_it_as_one_undo_step() {
         )
         .unwrap_err();
     assert_eq!(gone.to_string(), "There is no sequence with that id.");
-    let error = engine
-        .relink_file(FileRole::Photo, &f.root.join("nothing.jpg"))
-        .unwrap_err();
+    // What the user chose is checked before the engine is asked (without holding it).
+    let error = pf_engine::check_chosen_file(&f.root.join("nothing.jpg")).unwrap_err();
+    assert!(pf_engine::check_chosen_file(&model).is_ok());
     assert_eq!(
         error.to_string(),
         "nothing.jpg isn't there anymore. Choose another file."
@@ -393,4 +402,202 @@ fn file_names_that_are_not_utf8_survive_saving_and_opening() {
     if !on_disk {
         assert_eq!(snap.missing_files[0].name, "Caf\u{FFFD}.mp3");
     }
+}
+
+#[test]
+fn snapshots_never_read_the_disk_files_are_checked_apart() {
+    let f = folder();
+    let mut engine = Engine::new(&f.data);
+    build(&mut engine, &f);
+    // Nothing checked yet: nothing is called missing, and the snapshot says it hasn't looked.
+    let snap = engine.snapshot();
+    assert!(!snap.files_checked);
+    assert!(snap.missing_files.is_empty());
+    // The check is copied out (to run without the engine), run, then handed back.
+    let check = engine.file_check(false);
+    assert_eq!(check.len(), 4);
+    fs::remove_file(f.root.join("photos/house.jpg")).unwrap();
+    engine.publish_file_status(check.run());
+    let snap = engine.snapshot();
+    assert!(snap.files_checked);
+    assert_eq!(snap.missing_files.len(), 1);
+
+    // A file coming back shows only after another check: snapshots don't look.
+    touch(&f.root.join("photos/house.jpg"));
+    assert_eq!(engine.snapshot().missing_files.len(), 1);
+    assert_eq!(engine.file_check(false).len(), 0, "nothing new to check");
+    let all = engine.file_check(true);
+    assert_eq!(all.len(), 4);
+    engine.publish_file_status(all.run());
+    assert!(engine.snapshot().missing_files.is_empty());
+
+    // A path an edit brings in waits for the next check.
+    let photo = Background::new(text(&f.root.join("other.jpg")), 0.0, 0.0, 10.0);
+    engine
+        .apply(vec![Edit::SetBackground {
+            background: Some(photo),
+        }])
+        .unwrap();
+    let snap = engine.snapshot();
+    assert!(!snap.files_checked);
+    assert!(snap.missing_files.is_empty());
+    engine.publish_file_status(engine.file_check(false).run());
+    assert_eq!(engine.snapshot().missing_files[0].name, "other.jpg");
+}
+
+#[test]
+fn a_check_or_search_from_before_another_show_opened_is_dropped() {
+    let f = folder();
+    let mut engine = Engine::new(&f.data);
+    build(&mut engine, &f);
+    engine.save_as(&f.show).unwrap();
+    fs::remove_file(f.root.join("photos/house.jpg")).unwrap();
+    let stale = engine.file_check(true).run();
+    touch(&f.root.join("photos/house.jpg"));
+    fs::create_dir_all(f.root.join("Audio")).unwrap();
+    fs::rename(
+        f.root.join("MP3 Music/Christmas Medley 2017.mp3"),
+        f.root.join("Audio/Christmas Medley 2017.mp3"),
+    )
+    .unwrap();
+    engine.check_files();
+    let search = engine.file_search().unwrap().run();
+    assert_eq!(search.found.len(), 1);
+
+    // The same file opened again (a copy, say) is another show.
+    engine.open(&f.show).unwrap();
+    engine.publish_file_status(stale);
+    assert!(
+        engine
+            .snapshot()
+            .missing_files
+            .iter()
+            .all(|m| m.name != "house.jpg"),
+        "the old check doesn't land"
+    );
+    let error = engine.use_found_files(search).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "Another show was opened while PixelFlow was looking. Look again."
+    );
+    assert_eq!(engine.snapshot().missing_files.len(), 1);
+}
+
+#[test]
+fn a_show_file_moved_on_its_own_still_finds_its_files() {
+    let f = folder();
+    let mut engine = Engine::new(&f.data);
+    let entry = build(&mut engine, &f);
+    engine.save_as(&f.show).unwrap();
+    // Only the show file moves, into a folder of its own.
+    let elsewhere = f.root.parent().unwrap().join("Elsewhere");
+    fs::create_dir_all(&elsewhere).unwrap();
+    let alone = elsewhere.join("show.pixelflow.json");
+    fs::rename(&f.show, &alone).unwrap();
+    let mut engine = Engine::new(&f.data);
+    let snap = engine.open(&alone).unwrap();
+    assert_eq!(snap.show.sequences[0], entry, "found where they were saved");
+    assert!(snap.files_checked);
+    assert!(snap.missing_files.is_empty(), "{:?}", snap.missing_files);
+
+    // A file gone from there too says where it really was, and that folder is searched too.
+    fs::create_dir_all(f.root.join("Audio")).unwrap();
+    fs::rename(
+        f.root.join("MP3 Music/Christmas Medley 2017.mp3"),
+        f.root.join("Audio/Christmas Medley 2017.mp3"),
+    )
+    .unwrap();
+    let mut engine = Engine::new(&f.data);
+    let snap = engine.open(&alone).unwrap();
+    assert_eq!(snap.missing_files.len(), 1);
+    let missing = &snap.missing_files[0];
+    assert_eq!(
+        missing.was_at,
+        text(&f.root.join("MP3 Music/Christmas Medley 2017.mp3"))
+    );
+    let search = engine.file_search().unwrap();
+    assert_eq!(search.folders(), [elsewhere.clone(), f.root.clone()]);
+    let report = engine.use_found_files(search.run()).unwrap();
+    assert_eq!(
+        report.found[0].to,
+        text(&f.root.join("Audio/Christmas Medley 2017.mp3"))
+    );
+    assert!(report.still_missing.is_empty());
+}
+
+#[test]
+fn a_show_saved_in_the_home_folder_and_moved_keeps_its_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    touch(&home.join("Carol.fseq"));
+    touch(&home.join("Music/Carol.mp3"));
+    let open_engine = || Engine::new(dir.path().join("data")).with_home(Some(home.clone()));
+    let mut engine = open_engine();
+    let mut entry = SequenceEntry::new("Carol", text(&home.join("Carol.fseq")));
+    entry.audio = Some(text(&home.join("Music/Carol.mp3")));
+    engine
+        .apply(vec![Edit::AddSequence {
+            sequence: entry.clone(),
+        }])
+        .unwrap();
+    engine.save_as(&home.join("xmas.pixelflow.json")).unwrap();
+    fs::create_dir_all(home.join("Shows")).unwrap();
+    let moved = home.join("Shows/xmas.pixelflow.json");
+    fs::rename(home.join("xmas.pixelflow.json"), &moved).unwrap();
+
+    let mut engine = open_engine();
+    let snap = engine.open(&moved).unwrap();
+    assert_eq!(snap.show.sequences[0], entry);
+    assert!(snap.missing_files.is_empty());
+
+    // The home folder it was saved in is a search folder too, but only looked at itself.
+    fs::create_dir_all(home.join("Other")).unwrap();
+    fs::rename(home.join("Music/Carol.mp3"), home.join("Other/Carol.mp3")).unwrap();
+    engine.check_files();
+    let search = engine.file_search().unwrap();
+    assert_eq!(search.folders(), [home.join("Shows"), home.clone()]);
+    assert!(search.run().found.is_empty(), "not the whole home folder");
+    touch(&home.join("Carol.mp3"));
+    assert_eq!(
+        engine.file_search().unwrap().run().found[0].to,
+        text(&home.join("Carol.mp3"))
+    );
+}
+
+#[test]
+fn a_search_gives_up_after_its_time_limit() {
+    let f = folder();
+    let mut engine = Engine::new(&f.data);
+    build(&mut engine, &f);
+    engine.save_as(&f.show).unwrap();
+    fs::remove_file(f.root.join("photos/house.jpg")).unwrap();
+    engine.check_files();
+    let outcome = engine
+        .file_search()
+        .unwrap()
+        .with_time_limit(Duration::ZERO)
+        .run();
+    assert!(outcome.gave_up);
+    let report = engine.use_found_files(outcome).unwrap();
+    assert!(report.gave_up);
+    assert!(report.found.is_empty());
+}
+
+#[test]
+fn finding_a_file_that_came_back_points_nowhere_new() {
+    let f = folder();
+    let mut engine = Engine::new(&f.data);
+    let entry = build(&mut engine, &f);
+    engine.save_as(&f.show).unwrap();
+    fs::rename(f.root.join("photos/house.jpg"), f.root.join("house.tmp")).unwrap();
+    engine.check_files();
+    assert_eq!(engine.snapshot().missing_files.len(), 1);
+    fs::rename(f.root.join("house.tmp"), f.root.join("photos/house.jpg")).unwrap();
+    let report = engine
+        .use_found_files(engine.file_search().unwrap().run())
+        .unwrap();
+    assert_eq!(report.found[0].to, report.found[0].from, "back where it was");
+    assert!(report.still_missing.is_empty());
+    assert_eq!(report.snapshot.show.sequences[0], entry);
+    assert!(!report.snapshot.dirty, "nothing changed");
 }

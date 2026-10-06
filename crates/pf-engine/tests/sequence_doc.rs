@@ -942,19 +942,17 @@ fn missing_music_is_found_again_or_located_as_one_undo_step() {
     let search = engine.sequence_music_search().unwrap();
     assert_eq!(search.folders(), [dir.path().join("Seq")]);
     let found = search.run();
-    assert_eq!(found.len(), 1);
-    let result = engine.use_found_sequence_music(&found[0]).unwrap().expect("used");
+    assert_eq!(found.found.len(), 1);
+    let result = engine.use_found_sequence_music(&found).unwrap().expect("used");
     assert!(result.changed && result.dirty);
     assert_eq!(engine.sequence_music(), Some(now.clone()));
     assert_eq!(engine.sequence_music_missing(), None);
     // Used once: the same find doesn't apply again.
-    assert!(engine.use_found_sequence_music(&found[0]).unwrap().is_none());
+    assert!(engine.use_found_sequence_music(&found).unwrap().is_none());
     engine.undo_sequence().unwrap();
     assert!(engine.sequence_music_missing().is_some());
 
-    let gone = engine
-        .relink_sequence_music(&dir.path().join("nope.mp3"))
-        .unwrap_err();
+    let gone = pf_engine::check_chosen_file(&dir.path().join("nope.mp3")).unwrap_err();
     assert_eq!(
         gone.to_string(),
         "nope.mp3 isn't there anymore. Choose another file."

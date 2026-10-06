@@ -831,7 +831,15 @@ impl PlaybackSession {
         settings: OutputSettings,
         clocks: &ClockFactory,
     ) -> Result<Self, EngineError> {
-        let sequence = Sequence::open(&request.path).map_err(|e| EngineError::Playback(e.to_string()))?;
+        let sequence = Sequence::open(&request.path).map_err(|e| match e {
+            pf_fseq::FseqError::Io(io) if io.kind() == std::io::ErrorKind::NotFound => {
+                EngineError::Playback(format!(
+                    "{} isn't where it was. Use Find again or Locate… to show PixelFlow where it is now.",
+                    pf_model::file_name_of(&pf_model::path_to_text(&request.path))
+                ))
+            }
+            e => EngineError::Playback(e.to_string()),
+        })?;
         let header = sequence.header().clone();
         let channels = header.channels as usize;
         let (routes, notes) = routes(show, channels);

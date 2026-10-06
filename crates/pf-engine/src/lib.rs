@@ -26,10 +26,15 @@ pub use edit::Edit;
 pub use engine::SequenceExport;
 pub use engine::{CheckedShow, Engine, FilesFound};
 pub use error::EngineError;
-pub use files::{FileRole, FileSearch, FoundFile, MissingFile};
+pub use files::{
+    FileCheck, FileRole, FileSearch, FileStatus, FoundFile, MissingFile, MusicCheck, SearchOutcome,
+    check_chosen_file,
+};
 pub use history::History;
 pub use output::{ControllerStatus, OutputStatus, PatternSpec, TargetSpec};
-pub use persist::{HistoryEntry, load_show, save_show_atomic, write_atomic};
+pub use persist::{
+    HistoryEntry, HistoryFile, LoadedShow, load_show, read_show, save_show_atomic, write_atomic,
+};
 pub use pf_render::export::{ExportBlock, ExportLayout, ExportSummary};
 pub use playback::{
     ClockFactory, PlayRequest, PlaybackReady, PlaybackStatus, music_clocks, sequence_entry_for,

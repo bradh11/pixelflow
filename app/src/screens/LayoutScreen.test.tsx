@@ -1292,8 +1292,40 @@ describe("LayoutScreen", () => {
       const layers = screen.getByLabelText("Layers (pixels each, inside first)");
       await user.clear(layers);
       await user.type(layers, "{Enter}");
-      expect(shape()).toMatchObject({ layers: [] });
-      expect(screen.getByLabelText("Arches")).toHaveValue("4");
+      // Back to plain arches: one arch of the layers' pixels, not four.
+      expect(shape()).toMatchObject({ layers: [], arches: 1, nodes: 60 });
+      expect(screen.getByLabelText("Arches")).toHaveValue("1");
+    });
+
+    it("makes an arch of one layer hold that layer's pixels", async () => {
+      const { user, shape } = await selectOnly(placed("arch", "Gate", 0, 0));
+      await user.type(screen.getByLabelText("Layers (pixels each, inside first)"), "30{Enter}");
+      expect(shape()).toMatchObject({ layers: [30], nodes: 30 });
+    });
+
+    it("says which props move when a wired prop's pixel count changes", async () => {
+      const show = emptyShow("x");
+      const arches = { ...placed("arch", "Arches", 0, 0), name: "Arches" };
+      arches.shape = { ...arches.shape, nodes: 50, arches: 4 } as Prop["shape"];
+      const porch = { ...line("Porch", 0, 4) };
+      const controller = newController("Garage", "192.0.2.10", "ddp", 4);
+      const slot = (prop: string) => ({ prop, segment: null, nullPixels: 0, reverse: false, brightness: null, gamma: null, smartReceiver: null });
+      controller.ports[2].slots = [slot(arches.id), slot(porch.id)];
+      const user = await setup({ ...show, props: [arches, porch], controllers: [controller] });
+      act(() => useLayoutEditor.getState().select([arches.id]));
+      await user.type(screen.getByLabelText("Layers (pixels each, inside first)"), "10,20,30{Enter}");
+      expect(screen.getByText("This changes Arches from 200 to 60 pixels; props after it on Port 3 move.")).toBeInTheDocument();
+      // An edit that leaves the count alone says nothing.
+      const curve = screen.getByLabelText("Curve (°)");
+      await user.clear(curve);
+      await user.type(curve, "120{Enter}");
+      expect(screen.queryByText(/This changes Arches/)).not.toBeInTheDocument();
+    });
+
+    it("says nothing about moving props for a prop that isn't wired, or is last on its port", async () => {
+      const { user } = await selectOnly(placed("arch", "Gate", 0, 0));
+      await user.type(screen.getByLabelText("Layers (pixels each, inside first)"), "10,20{Enter}");
+      expect(screen.queryByText(/This changes Gate/)).not.toBeInTheDocument();
     });
 
     it("gives a circle rings inside each other and starts it at the bottom", async () => {
@@ -1306,6 +1338,13 @@ describe("LayoutScreen", () => {
       await user.type(inner, "40{Enter}");
       await user.click(screen.getByLabelText("Starts at the bottom"));
       expect(shape()).toMatchObject({ layers: [10, 20], nodes: 30, innerPercent: 40, startAtBottom: true });
+      // One ring is just a ring: no inner ring to size, but it holds that ring's pixels.
+      const rings = screen.getByLabelText("Rings (pixels each, inside first)");
+      await user.clear(rings);
+      await user.type(rings, "24{Enter}");
+      expect(shape()).toMatchObject({ layers: [24], nodes: 24 });
+      expect(screen.queryByLabelText("Innermost ring (%)")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Starts on the innermost ring")).not.toBeInTheDocument();
     });
 
     it("wires a tree from the top, folds its zig-zag and winds it into a spiral", async () => {

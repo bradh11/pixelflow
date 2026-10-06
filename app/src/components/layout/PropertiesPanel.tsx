@@ -16,7 +16,7 @@ import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { Background, ColorOrder, FileRole, PreviewProp, Prop, ShapeSource, Show } from "../../api/types";
 import { fileName, shownPath, thousands } from "../../lib/format";
-import { alignEdits, distributeEdits, duplicateEdits, removeEdits, updateEdits, wiringOf } from "../../lib/layoutEdits";
+import { alignEdits, distributeEdits, duplicateEdits, portsWithPropsAfter, removeEdits, updateEdits, wiringOf } from "../../lib/layoutEdits";
 import { type Align, tidy } from "../../lib/layoutMath";
 import { nodeCount, shapeLabel } from "../../lib/shows";
 import { useLayoutEditor } from "../../state/layoutEditor";
@@ -51,13 +51,13 @@ const shapeDefaults = (shape: ShapeSource): Record<string, unknown> => ({
 });
 
 /** `shape` with one setting changed. Giving an arch, circle or star its layers makes its pixel
- * count theirs, as xLights does, so no pixels are left over in the middle. */
+ * count theirs, as xLights does, so no pixels are left over in the middle; clearing an arch's
+ * layers leaves one arch of those pixels. */
 function withSetting(shape: ShapeSource, key: string, value: unknown): ShapeSource {
   const next = withField(shape, key, value, shapeDefaults(shape));
-  if (key === "layers" && Array.isArray(value) && value.length > 1 && next.source === "generator" && "nodes" in next) {
-    return { ...next, nodes: (value as number[]).reduce((a, b) => a + b, 0) };
-  }
-  return next;
+  if (key !== "layers" || !Array.isArray(value) || next.source !== "generator" || !("nodes" in next)) return next;
+  if (value.length > 0) return { ...next, nodes: (value as number[]).reduce((a, b) => a + b, 0) };
+  return next.type === "arch" ? { ...next, arches: 1 } : next;
 }
 
 /** A shape's settings: numbers two to a row, then choices, lists, and checkboxes one to a row. */
@@ -258,6 +258,19 @@ function OnePropPanel({ prop, points }: { prop: Prop; points: ArrayLike<number> 
   const shape = prop.shape;
   const fields = shape.source === "generator" ? (SHAPE_FIELDS[shape.type] ?? []) : [];
   const wiring = wiringOf(show, prop.id);
+  // A shape edit that changes how many pixels a wired prop has moves the props after it.
+  const [pixelNote, setPixelNote] = useState<string | null>(null);
+  useEffect(() => setPixelNote(null), [prop.id]);
+  const setShapeField = (key: string, v: unknown) => {
+    const [before, after] = [nodeCount(prop.shape), nodeCount(withSetting(prop.shape, key, v))];
+    const ports = portsWithPropsAfter(show, prop.id);
+    setPixelNote(
+      before !== after && ports.length > 0
+        ? `This changes ${prop.name} from ${thousands(before)} to ${thousands(after)} pixels; props after it on ${ports.join(" and ")} move.`
+        : null,
+    );
+    update((p) => ({ ...p, shape: withSetting(p.shape, key, v) }));
+  };
   const commitName = () => {
     const trimmed = name.trim();
     if (trimmed && trimmed !== prop.name) update((p) => ({ ...p, name: trimmed }));
@@ -288,7 +301,14 @@ function OnePropPanel({ prop, points }: { prop: Prop; points: ArrayLike<number> 
             This prop's pixels were placed one by one (imported), so its size is changed by resizing it on the canvas.
           </p>
         ) : fields.length > 0 ? (
-          <ShapeFields fields={fields} shape={shape} onChange={(key, v) => update((p) => ({ ...p, shape: withSetting(p.shape, key, v) }))} />
+          <>
+            <ShapeFields fields={fields} shape={shape} onChange={setShapeField} />
+            {pixelNote && (
+              <p role="status" className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                {pixelNote}
+              </p>
+            )}
+          </>
         ) : null}
         <label className={`${fields.length > 0 || shape.source === "measured" ? "mt-2 " : ""}flex flex-col gap-1 text-xs`}>
           <span className="text-neutral-500 dark:text-neutral-400">Color order</span>

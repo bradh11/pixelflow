@@ -15,6 +15,8 @@ export type ShapeField = (
 /** `field`, shown only when `when` holds for the shape. */
 const only = (when: (shape: Record<string, unknown>) => boolean, field: ShapeField): ShapeField => ({ ...field, showIf: when });
 const hasLayers = (shape: Record<string, unknown>) => Array.isArray(shape.layers) && shape.layers.length > 0;
+/** Circles and stars nest only with two layers or more; one is just the plain ring or star. */
+const severalLayers = (shape: Record<string, unknown>) => Array.isArray(shape.layers) && shape.layers.length > 1;
 const noLayers = (shape: Record<string, unknown>) => !hasLayers(shape);
 
 export const COUNT = (key: string, label: string, min = 1, hint?: string): ShapeField => ({ kind: "number", key, label, integer: true, min, hint });
@@ -75,10 +77,10 @@ export const SHAPE_FIELDS: Record<string, ShapeField[]> = {
     COUNT("nodes", "Pixels", 1, "All the pixels, on all the rings together"),
     SIZE("radius", "Radius", 0.01, "Of the outermost ring"),
     LAYERS("Rings (pixels each, inside first)", "For rings inside each other: the pixels on each ring, innermost first, like 10,20,30. Leave it empty for one ring"),
-    only(hasLayers, INNER_SIZE("Innermost ring (%)", "The innermost ring's size, in percent of the outermost")),
+    only(severalLayers, INNER_SIZE("Innermost ring (%)", "The innermost ring's size, in percent of the outermost")),
     BOOL("startAtBottom", "Starts at the bottom"),
     BOOL("counterClockwise", "Goes round counter-clockwise"),
-    only(hasLayers, BOOL("startInside", "Starts on the innermost ring")),
+    only(severalLayers, BOOL("startInside", "Starts on the innermost ring")),
   ],
   matrix: [
     COUNT("columns", "Columns"),
@@ -114,7 +116,12 @@ export const SHAPE_FIELDS: Record<string, ShapeField[]> = {
     BOOL("serpentine", "Zig-zag (every other string runs back)"),
     only(
       (shape) => shape.serpentine === true,
-      COUNT("strandsPerString", "Zig-zag restarts every", 0, "For strings folded up and down a few times: how many strands each string makes (0 for one long zig-zag)"),
+      COUNT(
+        "strandsPerString",
+        "Zig-zag restarts every",
+        0,
+        "For strings folded up and down a few times: how many strands each string makes. 0 is one long zig-zag; 1 means no zig-zag, and an even number is the same as 0",
+      ),
     ),
     BOOL("alternateNodes", "Pixels go up every other spot and come back down"),
     only(
@@ -140,8 +147,8 @@ export const SHAPE_FIELDS: Record<string, ShapeField[]> = {
     ),
     BOOL("counterClockwise", "Goes round counter-clockwise"),
     LAYERS("Layers (pixels each, inside first)", "For stars inside each other: the pixels on each, innermost first, like 20,40. Leave it empty for one star"),
-    only(hasLayers, INNER_SIZE("Innermost star (%)", "The innermost star's size, in percent of the outermost")),
-    only(hasLayers, BOOL("startInside", "Starts on the innermost star")),
+    only(severalLayers, INNER_SIZE("Innermost star (%)", "The innermost star's size, in percent of the outermost")),
+    only(severalLayers, BOOL("startInside", "Starts on the innermost star")),
   ],
   candyCanes: [
     COUNT("canes", "Canes"),

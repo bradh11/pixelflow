@@ -354,6 +354,7 @@ mod tests {
                 photos: Default::default(),
                 models: Default::default(),
                 export_cancels: Default::default(),
+                checking_files: Default::default(),
             })
             .manage(AiState::new(KeyVault::new(Box::new(store)), providers))
             .build(context())

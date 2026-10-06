@@ -1349,7 +1349,7 @@ impl OpenSequence {
     pub fn snapshot(&self, show: &Show) -> SequenceSnapshot {
         SequenceSnapshot {
             revision: self.revision,
-            path: self.path.as_ref().map(|p| p.display().to_string()),
+            path: self.path.as_deref().map(pf_model::path_to_text),
             dirty: self.revision != self.saved_revision,
             can_undo: !self.undo.is_empty(),
             can_redo: !self.redo.is_empty(),
@@ -1377,14 +1377,23 @@ impl OpenSequence {
 /// `audio` (relative to `from`) as seen from `to`: relative when it's inside `to`, else a full
 /// path. Full paths stay as they are.
 fn rebase_audio(audio: &str, from: &Path, to: &Path) -> String {
-    let path = Path::new(audio);
-    if path.is_absolute() || audio.is_empty() {
+    if pf_model::is_full_path_text(audio) || audio.is_empty() {
         return audio.to_string();
     }
-    let full = from.join(path);
-    match full.strip_prefix(to) {
-        Ok(relative) => relative.display().to_string(),
-        Err(_) => full.display().to_string(),
+    pf_model::relative_text(&pf_model::resolve_text(audio, from), to)
+}
+
+/// `doc` as a sequence file at `path` stores it: music inside the file's folder (or a folder
+/// below it) relative to that folder, so the folder can move.
+fn stored_at<'a>(path: &Path, doc: &'a Sequence) -> std::borrow::Cow<'a, Sequence> {
+    let folder = path.parent().filter(|p| !p.as_os_str().is_empty());
+    match (folder, doc.audio.as_deref()) {
+        (Some(folder), Some(audio)) if pf_model::relative_text(audio, folder) != audio => {
+            let mut stored = doc.clone();
+            stored.audio = Some(pf_model::relative_text(audio, folder));
+            std::borrow::Cow::Owned(stored)
+        }
+        _ => std::borrow::Cow::Borrowed(doc),
     }
 }
 
@@ -1432,8 +1441,14 @@ pub fn load_sequence(path: &Path) -> Result<Sequence, EngineError> {
     })
 }
 
-/// Saves a sequence so that a crash never leaves a half-written file.
+/// Saves a sequence so that a crash never leaves a half-written file. Music inside the file's
+/// folder is stored relative to it.
 pub fn save_sequence_atomic(path: &Path, doc: &Sequence) -> Result<(), EngineError> {
+    write_sequence(path, &stored_at(path, doc))
+}
+
+/// Writes a sequence file atomically, its music path as it is.
+pub(crate) fn write_sequence(path: &Path, doc: &Sequence) -> Result<(), EngineError> {
     let json = pf_sequence::sequence_to_json(doc).map_err(|e| EngineError::Write {
         path: path.to_path_buf(),
         source: std::io::Error::other(e),

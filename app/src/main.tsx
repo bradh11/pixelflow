@@ -4,7 +4,7 @@ import { App } from "./App";
 import { tauriAssistant } from "./api/assistant";
 import { FakeAssistant } from "./api/memoryAssistant";
 import { useAssistant } from "./state/assistant";
-import { DEMO_PHOTO, demoDevices, demoHousePhoto, demoPlayers, demoShow } from "./api/demo";
+import { DEMO_PHOTO, demoDevices, demoHousePhoto, demoMissingFiles, demoPlayers, demoShow } from "./api/demo";
 import { DEMO_MUSIC, DEMO_SEQUENCE_PATH, demoSequence } from "./api/demoSequence";
 import { MemoryBackend } from "./api/memory";
 import { MemorySequencer } from "./api/memorySequencer";
@@ -29,6 +29,8 @@ if (inTauri()) {
     backend.nextSequencePath = "/Shows/Christmas Medley 2017.fseq";
     backend.images.set(DEMO_PHOTO, demoHousePhoto());
     backend.nextImagePath = DEMO_PHOTO;
+    // `?demo&missing`: the show as if its folder had moved, with files to find again.
+    if (new URLSearchParams(location.search).has("missing")) demoMissingFiles(backend);
   }
   void useApp.getState().connect(backend);
   // A scripted stand-in assistant: no key or network. In the demo it's already set up.

@@ -49,4 +49,19 @@ pub enum EngineError {
     Export(String),
     #[error("That unsaved sequence isn't there anymore.")]
     UnknownRecovery,
+    #[error(
+        "Save the show first, so PixelFlow knows which folder to look in. Or use Locate… to choose the file."
+    )]
+    NoFolderToSearch,
+    #[error(
+        "Save the sequence first, so PixelFlow knows which folder to look in. Or use Locate… to choose the file."
+    )]
+    SequenceNoFolderToSearch,
+    /// A file chosen to replace a missing one that isn't there either (named plainly).
+    #[error("{0} isn't there anymore. Choose another file.")]
+    FileGone(String),
+    #[error("Another show was opened while PixelFlow was looking. Look again.")]
+    SearchOutdated,
+    #[error("The open sequence has no music to look for.")]
+    NoSequenceMusic,
 }

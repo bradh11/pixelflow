@@ -3,7 +3,9 @@
 //! it changes; read-only query tools; and the draft tools (review, start over, propose).
 //!
 //! There is deliberately no tool that saves or exports files, sends to controllers, starts
-//! output or playback, or talks to devices: those stay behind the user's own clicks.
+//! output or playback, or talks to devices: those stay behind the user's own clicks. Nor is
+//! there one that looks at the disk for the show's files or points the show at files found
+//! there (see [`FILE_OPERATIONS`]).
 
 use crate::provider::ToolSpec;
 use pf_engine::{Edit, SequenceEdit};
@@ -108,6 +110,29 @@ fn sentence(tag: &str) -> String {
         Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
         None => words,
     }
+}
+
+/// The engine's operations on the files a show refers to: checking whether they're there,
+/// searching the disk for missing ones, and pointing the show (or the open sequence) at files
+/// found or located. They read the disk and are the user's to start, so the assistant never gets
+/// them as tools, even should one become an edit (an edit whose tag, in snake case, is one of
+/// these is left out of the toolbox).
+pub const FILE_OPERATIONS: &[&str] = &[
+    "check_files",
+    "find_missing_files",
+    "use_found_files",
+    "locate_file",
+    "relink_file",
+    "sequence_music_missing",
+    "find_sequence_music",
+    "use_found_sequence_music",
+    "locate_sequence_music",
+    "relink_sequence_music",
+];
+
+/// Whether the edit `tag` ("relinkFile") is one of the [`FILE_OPERATIONS`].
+pub fn is_file_operation(tag: &str) -> bool {
+    FILE_OPERATIONS.contains(&snake(tag).as_str())
 }
 
 /// The tool name for an edit tag.
@@ -241,6 +266,9 @@ fn variant_tools(
         .into_iter()
         .filter_map(|mut variant| {
             let tag = variant["properties"]["type"]["const"].as_str()?.to_string();
+            if is_file_operation(&tag) {
+                return None;
+            }
             let object = variant.as_object_mut()?;
             let doc = object
                 .remove("description")
@@ -481,4 +509,39 @@ fn draft_tools() -> Vec<Tool> {
             kind: ToolKind::Propose,
         },
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tagged_enum(tags: &[&str]) -> Value {
+        let variants: Vec<Value> = tags
+            .iter()
+            .map(|tag| {
+                json!({
+                    "type": "object",
+                    "properties": { "type": { "type": "string", "const": tag } },
+                    "required": ["type"],
+                })
+            })
+            .collect();
+        json!({ "oneOf": variants })
+    }
+
+    #[test]
+    fn an_edit_that_works_on_files_never_becomes_a_tool() {
+        let tags = ["renameShow", "relinkFile", "useFoundFiles", "relinkSequenceMusic"];
+        let tools = variant_tools(
+            tagged_enum(&tags),
+            show_tool_name,
+            |tag, doc| describe("Draft change to the show", tag, doc),
+            |tag| ToolKind::ShowEdit { tag },
+        );
+        let names: Vec<&str> = tools.iter().map(|t| t.spec.name.as_str()).collect();
+        assert_eq!(names, ["show_rename_show"]);
+        assert!(is_file_operation("relinkFile"));
+        assert!(is_file_operation("checkFiles"));
+        assert!(!is_file_operation("setBackground"));
+    }
 }

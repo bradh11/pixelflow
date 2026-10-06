@@ -21,6 +21,7 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 schemars = { workspace = true, optional = true }
+unicode-normalization.workspace = true
 
 [features]
 # JSON Schemas for edits (the AI assistant's tool definitions are generated from them).

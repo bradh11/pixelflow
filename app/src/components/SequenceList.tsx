@@ -1,7 +1,8 @@
-import { ArrowDown, ArrowUp, Music, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, FileQuestion, Music, Plus, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { SequenceEntry } from "../api/types";
 import { useApp } from "../state/store";
+import { useMissingFiles } from "./MissingFiles";
 import { Button } from "./ui";
 
 /** The show's sequences in playlist order: pick one, add, reorder, or remove. */
@@ -18,6 +19,9 @@ export function SequenceList({
   const backend = useApp((s) => s.backend);
   const run = useApp((s) => s.run);
   const apply = useApp((s) => s.apply);
+  const missing = useMissingFiles();
+  /** Sequences with a file (the .fseq or its music) that isn't where it was. */
+  const lost = new Set(missing.flatMap((m) => ("id" in m.file ? [m.file.id] : [])));
   // Reorder buttons by "<id>:up" / "<id>:down", so focus can follow a moved sequence.
   const buttons = useRef(new Map<string, HTMLButtonElement>());
   const [focusNext, setFocusNext] = useState<string | null>(null);
@@ -76,7 +80,17 @@ export function SequenceList({
                 >
                   <span className={s.id === playing ? "font-semibold text-violet-700 dark:text-violet-300" : ""}>{s.name}</span>
                 </button>
-                {s.audio && <Music size={13} className="shrink-0 text-neutral-400" aria-label="Has music" />}
+                {lost.has(s.id) ? (
+                  <FileQuestion
+                    size={13}
+                    className="shrink-0 text-amber-600 dark:text-amber-400"
+                    aria-label="A file isn't where it was"
+                  >
+                    <title>A file isn't where it was</title>
+                  </FileQuestion>
+                ) : (
+                  s.audio && <Music size={13} className="shrink-0 text-neutral-400" aria-label="Has music" />
+                )}
                 {/* Always shown (touch screens have no hover), quiet until pointed at or focused. */}
                 <span className="flex shrink-0 gap-0.5 opacity-60 focus-within:opacity-100 hover:opacity-100">
                   <Button

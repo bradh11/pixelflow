@@ -3,7 +3,7 @@
 //! names are unique and provider-safe, and no tool reaches outside the draft.
 
 use pf_ai::Toolbox;
-use pf_ai::tools::{ToolKind, sequence_edit, sequence_tool_name, show_edit, show_tool_name};
+use pf_ai::tools::{FILE_OPERATIONS, ToolKind, sequence_edit, sequence_tool_name, show_edit, show_tool_name};
 use pf_engine::{Edit, SequenceEdit};
 use pf_model::{
     Background, Controller, Generator, Group, GroupMember, HouseModel, NodeRun, Port, PortSlot, Prop,
@@ -447,7 +447,7 @@ fn no_tool_reaches_outside_the_draft() {
     // Words that would mean files, output, playback, or devices.
     const OUTSIDE: &[&str] = &[
         "save", "export", "write", "file", "files", "output", "device", "devices", "push", "send", "upload",
-        "start", "play", "fpp", "network", "render", "discover", "import",
+        "start", "play", "fpp", "network", "render", "discover", "import", "relink", "locate", "missing",
     ];
     for tool in Toolbox::new().tools() {
         for word in tool.spec.name.split('_') {
@@ -457,6 +457,33 @@ fn no_tool_reaches_outside_the_draft() {
                 tool.spec.name
             );
         }
+    }
+}
+
+#[test]
+fn no_tool_checks_finds_or_relinks_the_shows_files() {
+    // The engine can check whether the show's files are there, search the disk for missing
+    // ones, and point the show at files found or located: none of that is the assistant's.
+    let names: BTreeSet<String> = Toolbox::new()
+        .tools()
+        .iter()
+        .map(|t| t.spec.name.clone())
+        .collect();
+    for operation in FILE_OPERATIONS {
+        for name in [
+            operation.to_string(),
+            show_tool_name(operation),
+            sequence_tool_name(operation),
+        ] {
+            assert!(!names.contains(&name), "{name} is a tool");
+        }
+    }
+    for name in &names {
+        let edit_name = name
+            .strip_prefix("show_")
+            .or_else(|| name.strip_prefix("sequence_"))
+            .unwrap_or(name);
+        assert!(!FILE_OPERATIONS.contains(&edit_name), "{name} works on files");
     }
 }
 

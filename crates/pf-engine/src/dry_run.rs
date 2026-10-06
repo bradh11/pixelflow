@@ -137,6 +137,20 @@ mod tests {
         let third = engine.show_generation();
         engine.adopt_show(crate::CheckedShow::new(Show::new("C")).unwrap());
         assert_ne!(engine.show_generation(), third);
+
+        // The ways that read the disk without holding the engine replace the show too.
+        let fourth = engine.show_generation();
+        let loaded = crate::persist::read_show(&saved).unwrap();
+        let snapshot = engine.open_read(&saved, loaded);
+        assert_ne!(engine.show_generation(), fourth, "opened off the lock");
+        assert!(snapshot.files_checked);
+        assert_eq!(snapshot.sequence_revision, None, "no sequence is open");
+        engine.apply(vec![Edit::AddProp { prop: line("D", 4) }]).unwrap();
+        let entry = engine.autosave().unwrap().expect("a version to restore");
+        let fifth = engine.show_generation();
+        let restored = engine.history_file(&entry.id).unwrap().read().unwrap();
+        engine.restore_read(restored);
+        assert_ne!(engine.show_generation(), fifth, "restored off the lock");
     }
 
     #[test]

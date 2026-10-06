@@ -1,8 +1,20 @@
 import { create } from "zustand";
 import { type Backend, errorMessage } from "../api/backend";
 import { useSequencer } from "./sequencer";
-import type { Device, Edit, ImportSummary, SequenceImportSummary, Show, ShowSnapshot, SilentPeer } from "../api/types";
+import type {
+  Device,
+  Edit,
+  FileRole,
+  FoundFile,
+  ImportSummary,
+  MissingFile,
+  SequenceImportSummary,
+  Show,
+  ShowSnapshot,
+  SilentPeer,
+} from "../api/types";
 import { fileName } from "../lib/format";
+import { sameFile } from "../lib/showFiles";
 import { useLayoutEditor } from "./layoutEditor";
 import { showViewKey, useView3d } from "./view3d";
 
@@ -43,6 +55,10 @@ interface AppState {
   importReport: { name: string; summary: ImportSummary; notes: string[] } | null;
   /** What the last xLights sequence import brought in, shown until dismissed. */
   sequenceImportReport: { name: string; summary: SequenceImportSummary; notes: string[] } | null;
+  /** What the last search for missing files found, shown until dismissed. */
+  filesReport: { found: FoundFile[]; stillMissing: MissingFile[]; gaveUp: boolean } | null;
+  /** The show (by path) whose "files aren't where they were" notice was put away. */
+  missingNoticeDismissed: string | null;
   /** Test screen target selection; kept here so it survives leaving the screen. */
   testTarget: string;
   /** Music volume (0–1) for playback; the engine keeps the same value. */
@@ -85,6 +101,21 @@ interface AppState {
   dismissSequenceImportReport(): void;
   save(): Promise<boolean>;
   saveAs(): Promise<boolean>;
+  /**
+   * Looks for the show's missing files (or only `file`) in the show's folder and points the show
+   * at what it finds (one undo step), then shows what was found.
+   */
+  findMissingFiles(file?: FileRole): Promise<boolean>;
+  /** Asks where a missing file is now and points the show at it (one undo step). */
+  locateFile(file: FileRole): Promise<boolean>;
+  dismissFilesReport(): void;
+  /**
+   * Asks the backend to look at the show's files (those not looked at yet, or `all`). It runs
+   * beside edits, not in their line, so a slow drive never holds them up; one runs at a time.
+   */
+  checkFiles(all: boolean): Promise<void>;
+  /** Puts away the "files aren't where they were" notice for the open show. */
+  dismissMissingNotice(): void;
   /** Forgets a remembered controller. */
   forgetDevice(address: string): void;
   /** Looks for controllers and re-checks every remembered one; `hosts` checks only those
@@ -159,6 +190,11 @@ async function withPairedSequence(done: Promise<boolean>): Promise<boolean> {
   return ok;
 }
 
+/** Which show a "files aren't where they were" notice belongs to. */
+export function missingNoticeKey(snapshot: ShowSnapshot | null): string {
+  return snapshot?.path ?? "(unsaved)";
+}
+
 export const useApp = create<AppState>((set, get) => {
   /** Replaces the current show without checking for unsaved changes. */
   async function replaceShow(kind: "new" | "open" | "xlights"): Promise<boolean> {
@@ -227,6 +263,9 @@ export const useApp = create<AppState>((set, get) => {
   /** The end of the line of backend calls; each new call waits for the one before it. */
   let queue: Promise<unknown> = Promise.resolve();
 
+  /** Set while a check of the show's files runs (one at a time). */
+  let checkingFiles = false;
+
   /** Runs `call` once every earlier call has finished; resolves with its snapshot, or null on failure. */
   function runInTurn(call: (backend: Backend) => Promise<ShowSnapshot>): Promise<ShowSnapshot | null> {
     const turn = queue.then(async () => {
@@ -239,6 +278,7 @@ export const useApp = create<AppState>((set, get) => {
         // Engine revisions only increase, so never go backwards.
         if (!current || snapshot.revision >= current.revision) {
           set({ snapshot });
+          if (!snapshot.filesChecked) void get().checkFiles(false);
           // The photo was removed (or its adding undone): there's nothing left to move.
           const editor = useLayoutEditor.getState();
           if (!snapshot.show.background && (editor.editPhoto || editor.photoDraft)) {
@@ -287,6 +327,8 @@ export const useApp = create<AppState>((set, get) => {
   pendingReplace: null,
   importReport: null,
   sequenceImportReport: null,
+  filesReport: null,
+  missingNoticeDismissed: null,
   testTarget: "show",
   musicVolume: 1,
   discovery: null,
@@ -298,7 +340,9 @@ export const useApp = create<AppState>((set, get) => {
     const known = loadKnownDevices();
     set({ backend, discovery: known.length ? { devices: known.sort(byKindThenAddress), silent: [] } : get().discovery });
     try {
-      set({ snapshot: await backend.getSnapshot() });
+      const snapshot = await backend.getSnapshot();
+      set({ snapshot });
+      if (!snapshot.filesChecked) void get().checkFiles(false);
     } catch (e) {
       set({ error: errorMessage(e) });
     }
@@ -430,6 +474,48 @@ export const useApp = create<AppState>((set, get) => {
     if (!get().snapshot?.path) return get().saveAs();
     return get().run((b) => b.saveShow());
   },
+
+  findMissingFiles: (file) =>
+    get().run(async (b) => {
+      const report = await b.findMissingFiles(file);
+      set({ filesReport: { found: report.found, stillMissing: report.stillMissing, gaveUp: report.gaveUp } });
+      return report.snapshot;
+    }),
+
+  async locateFile(file) {
+    const ok = await get().run(async (b) => (await b.locateFile(file)) ?? (await b.getSnapshot()));
+    // A file located from the search's report comes off its "still missing" list.
+    const report = get().filesReport;
+    if (ok && report) {
+      const missing = get().snapshot?.missingFiles ?? [];
+      const stillMissing = report.stillMissing.filter((m) => missing.some((x) => sameFile(x.file, m.file)));
+      set({ filesReport: { ...report, stillMissing } });
+    }
+    return ok;
+  },
+
+  dismissFilesReport: () => set({ filesReport: null }),
+
+  async checkFiles(all) {
+    const backend = get().backend;
+    if (!backend || checkingFiles) return;
+    checkingFiles = true;
+    let newer = false;
+    try {
+      const snapshot = await backend.checkFiles(all);
+      const current = get().snapshot;
+      if (get().backend === backend && (!current || snapshot.revision >= current.revision)) set({ snapshot });
+      // An edit landed meanwhile with files of its own to look at.
+      newer = get().backend === backend && get().snapshot?.filesChecked === false && snapshot.revision < (get().snapshot?.revision ?? 0);
+    } catch {
+      // Looked at again on the next change or focus.
+    } finally {
+      checkingFiles = false;
+    }
+    if (newer) await get().checkFiles(false);
+  },
+
+  dismissMissingNotice: () => set({ missingNoticeDismissed: missingNoticeKey(get().snapshot) }),
 
   async saveAs() {
     commitFocusedField();

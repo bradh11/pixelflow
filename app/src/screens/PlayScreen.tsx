@@ -4,10 +4,11 @@ import { errorMessage } from "../api/backend";
 import type { PlaybackStatus, PlayerStatus, PreviewProp, SequenceEntry, Waveform } from "../api/types";
 import { ChannelGrid } from "../components/ChannelGrid";
 import { LivePreview } from "../components/layout3d/LivePreview";
+import { MissingFileNotice, useMissingFile } from "../components/MissingFiles";
 import { SequenceList } from "../components/SequenceList";
 import { WaveformView } from "../components/WaveformView";
 import { Button, EmptyState, PageHeader } from "../components/ui";
-import { clock, fileName, thousands } from "../lib/format";
+import { clock, fileName, shownPath, thousands } from "../lib/format";
 import { useApp } from "../state/store";
 
 /** How often playback state and the preview refresh. */
@@ -131,7 +132,7 @@ function MusicRow({ entry }: { entry: SequenceEntry }) {
       <Music size={14} className="shrink-0 text-neutral-400" />
       {entry.audio ? (
         <>
-          <span className="truncate" title={entry.audio}>
+          <span className="truncate" title={shownPath(entry.audio)}>
             {fileName(entry.audio)}
           </span>
           <Button variant="ghost" onClick={choose}>
@@ -178,6 +179,8 @@ export function PlayScreen() {
   const sequences = snapshot?.show.sequences ?? [];
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = sequences.find((s) => s.id === selectedId) ?? sequences[0] ?? null;
+  const missingSequence = useMissingFile(selected ? { kind: "sequence", id: selected.id } : null);
+  const missingMusic = useMissingFile(selected?.audio ? { kind: "music", id: selected.id } : null);
   const [waveform, setWaveform] = useState<Waveform | null>(null);
   const [waveformLoading, setWaveformLoading] = useState(false);
   const [playAll, setPlayAll] = useState(false);
@@ -492,7 +495,9 @@ export function PlayScreen() {
               Play all and repeat
             </label>
           </div>
+          {missingSequence && <MissingFileNotice missing={missingSequence} />}
           <MusicRow entry={selected} />
+          {missingMusic && <MissingFileNotice missing={missingMusic} />}
           <div className="flex items-center gap-3">
             <Button
               variant="primary"

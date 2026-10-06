@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -28,6 +29,8 @@ const LIST_FILE: &str = "recent.json";
 const THUMBS: &str = "recent-thumbs";
 /// Thumbnails larger than this are ignored (the shell only writes small ones).
 const MAX_THUMB_BYTES: u64 = 64 * 1024;
+/// A list file larger than this isn't one the shell wrote, and is read as empty.
+pub(crate) const MAX_LIST_BYTES: u64 = 256 * 1024;
 /// At most this many dots are drawn in a thumbnail.
 const MAX_DOTS: usize = 1500;
 /// The thumbnail's size, in its own units.
@@ -153,7 +156,7 @@ impl RecentShows {
         let Some(dir) = &self.dir else {
             return Vec::new();
         };
-        let Ok(text) = std::fs::read_to_string(dir.join(LIST_FILE)) else {
+        let Some(text) = read_small(&dir.join(LIST_FILE), MAX_LIST_BYTES) else {
             return Vec::new();
         };
         let mut list: Vec<Stored> = serde_json::from_str(&text).unwrap_or_default();
@@ -164,7 +167,8 @@ impl RecentShows {
     }
 
     /// Writes the list (all at once: a failed write leaves the old file) and removes
-    /// thumbnails nothing refers to any more.
+    /// thumbnails nothing refers to any more. Called with the list locked, like every change
+    /// to the thumbnails, so none is removed while it's being written or put on the list.
     fn write(&self, list: &[Stored]) {
         let Some(dir) = &self.dir else { return };
         if let Err(error) = write_atomic(
@@ -188,8 +192,9 @@ impl RecentShows {
     /// Puts the show at the top of the list (once), keeping at most [`RECENT_LIMIT`].
     pub(crate) fn record(&self, visit: Visit, now: u64) {
         let path = path_to_text(&visit.path);
-        let thumbnail = thumbnail_svg(&visit.points).and_then(|svg| self.write_thumbnail(&path, &svg));
+        let svg = thumbnail_svg(&visit.points);
         let mut entries = self.entries();
+        let thumbnail = svg.and_then(|svg| self.write_thumbnail(&path, &svg));
         let list = entries.get_or_insert_with(Vec::new);
         list.retain(|s| s.path != path);
         list.insert(
@@ -208,6 +213,7 @@ impl RecentShows {
         self.write(list);
     }
 
+    /// Writes a show's thumbnail (with the list locked: see [`Self::write`]).
     fn write_thumbnail(&self, path: &str, svg: &str) -> Option<String> {
         let dir = self.dir.as_ref()?.join(THUMBS);
         let name = format!("{:016x}.svg", stable_hash(path));
@@ -325,15 +331,33 @@ fn stable_hash(text: &str) -> u64 {
     })
 }
 
-fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+/// Writes `bytes` to `path` all at once (a temporary file of its own, then a rename): a crash
+/// or a failed write leaves the old file, and a reader never sees half of it. For the shell's
+/// small lists, which can be rebuilt, so not flushed to the disk first like a show is.
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    static WRITES: AtomicU64 = AtomicU64::new(0);
+    let dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    std::fs::create_dir_all(dir)?;
+    let name = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
+    let n = WRITES.fetch_add(1, Ordering::Relaxed);
+    let temp = dir.join(format!(".{name}.{}.{n}.tmp", std::process::id()));
+    let written = std::fs::write(&temp, bytes).and_then(|()| std::fs::rename(&temp, path));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&temp);
     }
-    let mut temp = path.as_os_str().to_owned();
-    temp.push(".tmp");
-    let temp = PathBuf::from(temp);
-    std::fs::write(&temp, bytes)?;
-    std::fs::rename(&temp, path)
+    written
+}
+
+/// The text of a small file the shell keeps; `None` when it can't be read or is larger than
+/// `limit` (not one the shell wrote).
+pub(crate) fn read_small(path: &Path, limit: u64) -> Option<String> {
+    if std::fs::metadata(path).ok()?.len() > limit {
+        return None;
+    }
+    std::fs::read_to_string(path).ok()
 }
 
 /// A small picture of the layout's pixels seen from the front, as SVG; `None` with no pixels.
@@ -567,6 +591,55 @@ mod tests {
         let many: Vec<f32> = (0..20_000).flat_map(|i| [i as f32, (i % 97) as f32]).collect();
         let svg = thumbnail_svg(&many).unwrap();
         assert!(svg.len() < MAX_THUMB_BYTES as usize, "{}", svg.len());
+    }
+
+    #[test]
+    fn a_listed_thumbnail_is_never_removed_by_a_change_made_at_the_same_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let recent = Arc::new(RecentShows::new(Some(dir.path().to_path_buf())));
+        let show = dir.path().join("house.json");
+        let busy = |work: fn(&RecentShows, &Path)| {
+            let (recent, show) = (Arc::clone(&recent), show.clone());
+            std::thread::spawn(move || {
+                for _ in 0..300 {
+                    work(&recent, &show);
+                }
+            })
+        };
+        let threads = [
+            busy(|r, s| r.record(visit(s, "House"), 1)),
+            busy(|r, s| r.forget(&path_to_text(s))),
+            // Another show's save tidies the thumbnails while House is off the list.
+            busy(|r, s| r.record(visit(&s.with_file_name("shed.json"), "Shed"), 2)),
+        ];
+        let mut broken = 0;
+        while threads.iter().any(|t| !t.is_finished()) {
+            // Looked at between changes: every thumbnail on the list is there.
+            let entries = recent.entries();
+            for s in entries.iter().flatten() {
+                if let Some(name) = &s.thumbnail
+                    && !dir.path().join(THUMBS).join(name).exists()
+                {
+                    broken += 1;
+                }
+            }
+        }
+        assert_eq!(broken, 0, "listed thumbnails missing");
+    }
+
+    #[test]
+    fn a_list_file_too_big_to_be_ours_reads_as_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let huge = format!(
+            "[{}]",
+            vec!["{\"path\":\"/a\",\"name\":\"A\",\"openedAt\":1}"; 20_000].join(",")
+        );
+        std::fs::write(dir.path().join(LIST_FILE), huge).unwrap();
+        assert!(
+            RecentShows::new(Some(dir.path().to_path_buf()))
+                .names()
+                .is_empty()
+        );
     }
 
     #[test]

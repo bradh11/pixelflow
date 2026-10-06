@@ -215,7 +215,7 @@ impl LastFolders {
         let folders = folders.get_or_insert_with(|| {
             self.file
                 .as_ref()
-                .and_then(|f| std::fs::read_to_string(f).ok())
+                .and_then(|f| crate::recent::read_small(f, crate::recent::MAX_LIST_BYTES))
                 .and_then(|text| serde_json::from_str(&text).ok())
                 .unwrap_or_default()
         });
@@ -226,23 +226,21 @@ impl LastFolders {
         self.with(|folders| folders.get(key).map(|t| path_from_text(t)))
     }
 
+    /// Remembers `folder` for `key`. The file is written all at once (a crash mid-write leaves
+    /// the old one), and in turn, so an older list never replaces a newer one.
     fn set(&self, key: &str, folder: &Path) {
         let text = path_to_text(folder);
-        let json = self.with(|folders| {
-            (folders.get(key) != Some(&text)).then(|| {
-                folders.insert(key.to_string(), text);
-                serde_json::to_vec_pretty(folders).unwrap_or_default()
-            })
-        });
-        if let (Some(json), Some(file)) = (json, &self.file) {
-            let written = file
-                .parent()
-                .map_or(Ok(()), std::fs::create_dir_all)
-                .and_then(|()| std::fs::write(file, json));
-            if let Err(error) = written {
+        self.with(|folders| {
+            if folders.get(key) == Some(&text) {
+                return;
+            }
+            folders.insert(key.to_string(), text);
+            let Some(file) = &self.file else { return };
+            let json = serde_json::to_vec_pretty(folders).unwrap_or_default();
+            if let Err(error) = crate::recent::write_atomic(file, &json) {
                 log::warn!("couldn't remember the dialog's folder: {error}");
             }
-        }
+        });
     }
 }
 
@@ -497,6 +495,44 @@ mod tests {
         assert!(slot.take().is_none(), "a second dialog is refused, not queued");
         drop(first);
         assert!(slot.take().is_some(), "free again once the first is answered");
+    }
+
+    #[test]
+    fn the_remembered_folders_file_is_replaced_whole_never_seen_half_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config");
+        let file = config.join(FOLDERS_FILE);
+        let folders = LastFolders::new(Some(config.clone()));
+        folders.set("show", &dir.path().join("start"));
+        let done = std::sync::Arc::new(AtomicBool::new(false));
+        let reader = {
+            let (file, done) = (file.clone(), std::sync::Arc::clone(&done));
+            std::thread::spawn(move || {
+                let mut reads = 0;
+                while !done.load(Ordering::Acquire) {
+                    let text = std::fs::read_to_string(&file).unwrap();
+                    serde_json::from_str::<HashMap<String, String>>(&text)
+                        .unwrap_or_else(|e| panic!("read half a file ({e}): {text:?}"));
+                    reads += 1;
+                }
+                reads
+            })
+        };
+        for i in 0..1000 {
+            folders.set("show", &dir.path().join(format!("Shows {i}")));
+        }
+        done.store(true, Ordering::Release);
+        assert!(reader.join().unwrap() > 0);
+        let names: Vec<_> = std::fs::read_dir(&config)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        assert_eq!(
+            names,
+            vec![std::ffi::OsString::from(FOLDERS_FILE)],
+            "no temporary files left"
+        );
     }
 
     #[test]

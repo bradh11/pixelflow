@@ -40,3 +40,8 @@ export function ago(time: number, now = Date.now()): string {
   const days = Math.floor(hours / 24);
   return `${days} ${days === 1 ? "day" : "days"} ago`;
 }
+
+/** A sequence's name from its file ("Christmas Medley 2017.pfseq.json" is "Christmas Medley 2017"). */
+export function sequenceTitle(path: string): string {
+  return fileName(path).replace(/\.(pfseq\.json|fseq)$/i, "");
+}

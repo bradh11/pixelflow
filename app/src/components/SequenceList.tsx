@@ -53,7 +53,7 @@ export function SequenceList({
   };
 
   return (
-    <aside aria-label="Sequences" className="flex w-64 shrink-0 flex-col gap-2">
+    <aside aria-label="Sequences" className="flex w-72 shrink-0 flex-col gap-2">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-medium text-neutral-500">Sequences</h2>
         <Button onClick={add} aria-label="Add sequence">
@@ -89,7 +89,11 @@ export function SequenceList({
                     <title>A file isn't where it was</title>
                   </FileQuestion>
                 ) : (
-                  s.audio && <Music size={13} className="shrink-0 text-neutral-400" aria-label="Has music" />
+                  s.audio && (
+                    <span title="Has music" className="shrink-0">
+                      <Music size={13} className="text-neutral-400" aria-label="Has music" />
+                    </span>
+                  )
                 )}
                 {/* Always shown (touch screens have no hover), quiet until pointed at or focused. */}
                 <span className="flex shrink-0 gap-0.5 opacity-60 focus-within:opacity-100 hover:opacity-100">
@@ -97,6 +101,7 @@ export function SequenceList({
                     ref={keep(`${s.id}:up`)}
                     variant="ghost"
                     aria-label={`Move ${s.name} up`}
+                    title="Play earlier in the playlist"
                     disabled={i === 0}
                     onClick={() => move(s, i - 1, "up")}
                   >
@@ -106,6 +111,7 @@ export function SequenceList({
                     ref={keep(`${s.id}:down`)}
                     variant="ghost"
                     aria-label={`Move ${s.name} down`}
+                    title="Play later in the playlist"
                     disabled={i === sequences.length - 1}
                     onClick={() => move(s, i + 1, "down")}
                   >
@@ -114,6 +120,7 @@ export function SequenceList({
                   <Button
                     variant="ghost"
                     aria-label={`Remove ${s.name}`}
+                    title={`Take ${s.name} off the playlist (Undo brings it back)`}
                     onClick={() => apply([{ type: "removeSequence", id: s.id }])}
                   >
                     <Trash2 size={12} />

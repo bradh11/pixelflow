@@ -114,6 +114,32 @@ mod tests {
     }
 
     #[test]
+    fn the_show_generation_changes_only_when_another_show_replaces_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut engine = Engine::new(dir.path());
+        let first = engine.show_generation();
+        engine.apply(vec![Edit::AddProp { prop: line("A", 4) }]).unwrap();
+        engine.undo();
+        engine.redo();
+        assert_eq!(
+            engine.show_generation(),
+            first,
+            "edits, undo, and redo keep the show"
+        );
+        let saved = dir.path().join("a.json");
+        engine.save_as(&saved).unwrap();
+        assert_eq!(engine.show_generation(), first, "saving keeps the show");
+        engine.new_show("B");
+        let second = engine.show_generation();
+        assert_ne!(second, first);
+        engine.open(&saved).unwrap();
+        assert_ne!(engine.show_generation(), second);
+        let third = engine.show_generation();
+        engine.adopt_show(crate::CheckedShow::new(Show::new("C")).unwrap());
+        assert_ne!(engine.show_generation(), third);
+    }
+
+    #[test]
     fn preview_positions_match_the_engine_for_the_open_show() {
         let mut engine = Engine::new(std::env::temp_dir());
         engine

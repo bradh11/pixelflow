@@ -31,6 +31,9 @@ pub struct ShowSnapshot {
     pub issues: Vec<Issue>,
     pub channel_map: ChannelMap,
     pub summary: Summary,
+    /// The open sequence's revision, if one is open: undo or redo of a change made to the show
+    /// and the sequence together changes it too (the UI then fetches the sequence again).
+    pub sequence_revision: Option<u64>,
 }
 
 /// Where a prop's pixels are drawn in the preview (front view, or 3D) and where their colors sit

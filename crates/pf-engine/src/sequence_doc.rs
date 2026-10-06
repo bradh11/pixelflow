@@ -604,6 +604,9 @@ pub struct SequenceEditResult {
     pub changes: SequenceChanges,
     /// Problems in the whole sequence now (checked against the current show), errors first.
     pub issues: Vec<SequenceIssue>,
+    /// The show's revision now: it changes too when undo or redo took back (or brought back) a
+    /// show change made together with this sequence change.
+    pub show_revision: u64,
 }
 
 /// The sequence's name, music, length, and frame time.
@@ -1099,14 +1102,17 @@ struct Step {
     bytes: usize,
     /// The gesture this step belongs to: later edits with the same gesture merge into it.
     gesture: Option<String>,
+    /// Identifies the step as it moves between undo and redo.
+    serial: u64,
 }
 
 impl Step {
-    fn new(parts: Parts, gesture: Option<String>) -> Self {
+    fn new(parts: Parts, gesture: Option<String>, serial: u64) -> Self {
         Self {
             bytes: parts.bytes(),
             parts,
             gesture,
+            serial,
         }
     }
 }
@@ -1133,9 +1139,21 @@ pub(crate) struct OpenSequence {
     /// False when the document was opened with repeated row, effect, or track ids: edits then
     /// snapshot the whole document, since parts can't be found reliably by id.
     ids_unique: bool,
+    /// The serial the next new undo step gets.
+    next_serial: u64,
 }
 
 impl OpenSequence {
+    /// The serial of the step undo would take back next.
+    pub fn next_undo(&self) -> Option<u64> {
+        self.undo.last().map(|step| step.serial)
+    }
+
+    /// The serial of the step redo would bring back next.
+    pub fn next_redo(&self) -> Option<u64> {
+        self.redo.last().map(|step| step.serial)
+    }
+
     pub fn new(doc: Sequence, path: Option<PathBuf>, revision: u64) -> Self {
         let ids_unique = check_unique_ids(&doc).is_ok();
         Self {
@@ -1148,6 +1166,7 @@ impl OpenSequence {
             saved_revision: revision,
             id: revision,
             last_gesture: None,
+            next_serial: 1,
             ids_unique,
         }
     }
@@ -1220,7 +1239,9 @@ impl OpenSequence {
             top.bytes = bytes;
             self.trim();
         } else {
-            self.record(Step::new(parts, gesture.map(str::to_owned)));
+            let serial = self.next_serial;
+            self.next_serial += 1;
+            self.record(Step::new(parts, gesture.map(str::to_owned), serial));
         }
         self.last_gesture = gesture.map(str::to_owned);
         self.redo.clear();
@@ -1248,7 +1269,7 @@ impl OpenSequence {
         let now = step.parts.current(&self.doc);
         let changes_for = step.parts.clone();
         step.parts.restore(&mut self.doc);
-        self.redo.push(Step::new(now, step.gesture));
+        self.redo.push(Step::new(now, step.gesture, step.serial));
         self.last_gesture = None;
         self.ids_unique = check_unique_ids(&self.doc).is_ok();
         self.revision += 1;
@@ -1261,7 +1282,7 @@ impl OpenSequence {
         let before = step.parts.current(&self.doc);
         let changes_for = step.parts.clone();
         step.parts.restore(&mut self.doc);
-        self.record(Step::new(before, step.gesture));
+        self.record(Step::new(before, step.gesture, step.serial));
         self.last_gesture = None;
         self.ids_unique = check_unique_ids(&self.doc).is_ok();
         self.revision += 1;
@@ -1347,6 +1368,8 @@ impl OpenSequence {
             changed: changes.is_some(),
             changes: changes.unwrap_or_default(),
             issues: pf_sequence::validate_sequence(&self.doc, show),
+            // Filled in by the engine, which knows the show's revision.
+            show_revision: 0,
         }
     }
 }

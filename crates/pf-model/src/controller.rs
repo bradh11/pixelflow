@@ -17,7 +17,6 @@ pub enum AdapterKind {
 
 /// Channels carried by each sACN universe. Serialized as the number `510` or `512`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(try_from = "u16", into = "u16")]
 pub enum UniverseSize {
     /// 510 channels: exactly 170 RGB pixels, so RGB pixels never straddle universes.
@@ -49,6 +48,21 @@ impl TryFrom<u16> for UniverseSize {
 impl From<UniverseSize> for u16 {
     fn from(size: UniverseSize) -> u16 {
         size.channels()
+    }
+}
+
+#[cfg(feature = "schema")]
+impl schemars::JsonSchema for UniverseSize {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "UniverseSize".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "description": "Channels carried by each sACN universe: 510 (exactly 170 RGB pixels) or 512.",
+            "type": "integer",
+            "enum": [510, 512]
+        })
     }
 }
 

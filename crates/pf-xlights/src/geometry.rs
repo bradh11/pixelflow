@@ -12,7 +12,7 @@ mod grid;
 mod lines;
 mod poly;
 pub(crate) use custom::custom_cells;
-pub(crate) use poly::parse_points;
+pub(crate) use poly::{curve_joints, parse_curves, parse_points};
 mod radial;
 #[cfg(test)]
 mod tests;

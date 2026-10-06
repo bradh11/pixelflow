@@ -140,42 +140,43 @@ fn reversed_segments(segments: &[PolySegment]) -> Vec<PolySegment> {
 /// `NodesPerString` spread over the whole line when the segments have no counts. Wired from the
 /// last point back (`Dir="R"`), the line is turned around so its pixels still run first to last.
 ///
-/// Curved segments are imported straight, as they've always been drawn on import.
+/// Curved stretches (`cPointData`: the stretch, then its two control points) become PixelFlow
+/// curves, which xLights and PixelFlow both walk along in 25 straight pieces.
 fn poly_line(m: &XmlModel) -> Vec<Candidate> {
     let n = int(m, "NumPoints", 2).max(2);
     if n as usize > pf_model::MAX_POLY_VERTICES {
         return Vec::new();
     }
     let n = n as usize;
-    // xLights curves (`cPointData`: 7 fields per curved stretch, its index first) are drawn
-    // straight on import, so a curved line keeps its measured points rather than look editable.
-    let curve_fields: Vec<&str> = m.text("cPointData", "").split(',').collect();
-    if curve_fields
-        .as_chunks::<7>()
-        .0
+    let curves = crate::geometry::parse_curves(m.text("cPointData", ""), n - 1);
+    let raw = parse_points(m.text("PointData", "0.0, 0.0, 0.0, 0.0, 0.0, 0.0"), n);
+    // xLights' poly-point bounds (its curves included, seeded at 100000 and 0 as in xLights): a
+    // nearly flat line (under 0.1 tall) has its straight stretches drawn flat at its lowest
+    // point but not its curves, so a nearly flat line with curves keeps its points.
+    let joints: Vec<[f64; 3]> = curves
         .iter()
-        .any(|c| (0..(n - 1) as i64).contains(&strtol0(c[0])))
-    {
+        .flat_map(|(&i, &(c0, c1))| crate::geometry::curve_joints(raw[i], c0, c1, raw[i + 1]))
+        .collect();
+    let lo_y = raw.iter().chain(&joints).fold(100_000.0f64, |lo, p| lo.min(p[1]));
+    let hi_y = raw.iter().chain(&joints).fold(0.0f64, |hi, p| hi.max(p[1]));
+    let flat = (hi_y - lo_y).abs() < 0.1;
+    if flat && !curves.is_empty() {
         return Vec::new();
     }
-    let raw = parse_points(m.text("PointData", "0.0, 0.0, 0.0, 0.0, 0.0, 0.0"), n);
-    // xLights' poly-point bounds: a nearly flat line (under 0.1 tall) is drawn flat at its lowest
-    // point (bounds seeded at 100000 and 0, as in xLights).
-    let lo_y = raw.iter().fold(100_000.0f64, |lo, p| lo.min(p[1]));
-    let hi_y = raw.iter().fold(0.0f64, |hi, p| hi.max(p[1]));
-    let flat = (hi_y - lo_y).abs() < 0.1;
+    let local = |p: [f64; 3]| Vec3::new(p[0] as f32, p[1] as f32, p[2] as f32) * SCALE;
     let vertices: Vec<Vec3> = raw
         .iter()
         .map(|p| Vec3::new(p[0] as f32, if flat { lo_y } else { p[1] } as f32, p[2] as f32) * SCALE)
         .collect();
     let spread = m.attr("Seg1").is_none();
     let segments: Vec<PolySegment> = (0..n - 1)
-        .map(|i| {
-            PolySegment::straight(if spread {
+        .map(|i| PolySegment {
+            nodes: if spread {
                 0
             } else {
                 int(m, &format!("Seg{}", i + 1), 0).max(0) as u32
-            })
+            },
+            curve: curves.get(&i).map(|&(c0, c1)| [local(c0), local(c1)]),
         })
         .collect();
     let spread_nodes = spread.then(|| parm(m, "NodesPerString", "parm2", 0).max(0) as u32);
@@ -1373,19 +1374,55 @@ mod tests {
         );
     }
 
+    /// A line bending round a curve from (100, 0) to (100, 80), its control points out to the right.
+    const CURVED: [(&str, &str); 6] = [
+        ("NumPoints", "3"),
+        ("PointData", "0,0,0,100,0,0,100,80,0"),
+        ("Seg1", "6"),
+        ("Seg2", "12"),
+        ("cPointData", "1,160,10,0,150,70,0"),
+        ("WorldPosX", "300"),
+    ];
+
+    #[test]
+    fn curved_poly_lines_import_as_curved_poly_lines() {
+        let g = imports_as("Poly Line", &CURVED);
+        let Generator::PolyLine { segments, .. } = g else {
+            panic!("{g:?}")
+        };
+        assert_eq!(segments[0].curve, None);
+        let [c0, c1] = segments[1].curve.expect("the second stretch is curved");
+        assert!((c0 - Vec3::new(1.6, 0.1, 0.0)).length() < 1e-6, "{c0:?}");
+        assert!((c1 - Vec3::new(1.5, 0.7, 0.0)).length() < 1e-6, "{c1:?}");
+        // The measured points follow the curve too: the middle pixel of the curve is well out
+        // to the right of the straight stretch it replaces.
+        let m = model("Poly Line", &CURVED);
+        let middle = measured(&m)[6 + 6];
+        assert!(middle.x > 3.0 + 1.3, "{middle:?}");
+        let variants: [&[(&str, &str)]; 6] = [
+            &[("Dir", "R")],
+            // Spread evenly along the whole line, curves and all.
+            &[("Seg1", ""), ("Seg2", ""), ("NodesPerString", "30")],
+            &[("cPointData", "0,30,-40,0,70,-40,0,1,160,10,0,150,70,0")],
+            &[
+                ("PointData", "0,0,-20,100,0,0,100,80,40"),
+                ("cPointData", "1,160,10,10,150,70,30"),
+            ],
+            &[("ScaleX", "1.5"), ("ScaleY", "0.7")],
+            // Bulging below the points, so the curve sets the bounds.
+            &[("cPointData", "0,30,-60,0,70,-60,0")],
+        ];
+        for more in variants {
+            let attrs: Vec<_> = with(&CURVED, more)
+                .into_iter()
+                .filter(|(_, v)| !v.is_empty())
+                .collect();
+            imports_as("Poly Line", &attrs);
+        }
+    }
+
     #[test]
     fn poly_lines_xlights_lays_out_differently_keep_their_points() {
-        // A curved stretch: imported straight it would look editable but wrong.
-        stays_measured(
-            "Poly Line",
-            &[
-                ("NumPoints", "3"),
-                ("PointData", "0,0,0,100,0,0,100,50,0"),
-                ("Seg1", "4"),
-                ("Seg2", "4"),
-                ("cPointData", "1,0.8,0.2,0,1.0,0.6,0"),
-            ],
-        );
         // A curve record for a stretch that doesn't exist changes nothing.
         imports_as(
             "Poly Line",

@@ -1,5 +1,5 @@
 //! Poly-point models: Poly Line and MultiPoint. Ports of `PolyLineModel.cpp` and
-//! `MultiPointModel.cpp`. Curved Poly Line segments are approximated as straight lines.
+//! `MultiPointModel.cpp`, curved Poly Line stretches included (`BezierCurveCubic3D`).
 
 use super::xform::{Affine, poly_point, quirky_bounds, rot_from_x_axis};
 use super::{
@@ -36,16 +36,63 @@ struct PNode {
     pts: Vec<V3>,
 }
 
-/// A straight segment in normalized space: `point(t) = p1 + R * (t * |a|, 0, 0)`.
-struct Seg {
+/// A straight piece in normalized space: `point(t) = p1 + R * (t * |a|, 0, 0)`, and its length
+/// in the model's own point space.
+struct Piece {
     m: Affine,
     len: f64,
 }
 
-impl Seg {
+impl Piece {
     fn at(&self, t: f64) -> V3 {
         self.m.apply([t, 0.0, 0.0])
     }
+}
+
+/// One stretch between two points: a single straight piece, or a curve's pieces.
+struct Seg {
+    pieces: Vec<Piece>,
+    curved: bool,
+}
+
+/// The joints of a curved stretch as `BezierCurveCubic3D::UpdatePoints` samples it: steps of
+/// 1/25 added up in 32-bit floats while under 1 (de Casteljau), then the end point.
+pub(crate) fn curve_joints(p0: V3, c0: V3, c1: V3, p1: V3) -> Vec<V3> {
+    let f = |v: V3| v.map(|x| x as f32);
+    let (p0, c0, c1, p1) = (f(p0), f(c0), f(c1), f(p1));
+    let lerp = |a: [f32; 3], b: [f32; 3], t: f32| [0, 1, 2].map(|k| a[k] + (b[k] - a[k]) * t);
+    let mut joints = Vec::with_capacity(27);
+    let mut i = 0.0f32;
+    while i < 1.0 {
+        let (a, b, c) = (lerp(p0, c0, i), lerp(c0, c1, i), lerp(c1, p1, i));
+        let p = lerp(lerp(a, b, i), lerp(b, c, i), i);
+        joints.push(p.map(f64::from));
+        i += 1.0 / 25.0;
+    }
+    joints.push(p1.map(f64::from));
+    joints
+}
+
+/// Curved stretches from `cPointData` (seven fields each: the stretch, then two control points),
+/// for stretches that exist, in the model's point space.
+pub(crate) fn parse_curves(s: &str, nseg: usize) -> HashMap<usize, (V3, V3)> {
+    let fields: Vec<&str> = s.split(',').collect();
+    let num = |t: &str| f64::from(strtod(t).unwrap_or(0.0) as f32);
+    fields
+        .as_chunks::<7>()
+        .0
+        .iter()
+        .filter_map(|c| {
+            let seg = usize::try_from(strtol0(c[0])).ok().filter(|&i| i < nseg)?;
+            Some((
+                seg,
+                (
+                    [num(c[1]), num(c[2]), num(c[3])],
+                    [num(c[4]), num(c[5]), num(c[6])],
+                ),
+            ))
+        })
+        .collect()
 }
 
 /// `PolyLineModel::InitModel` with `DistributeLightsEvenly` / `DistributeLightsAcrossIndivSegments`.
@@ -59,12 +106,10 @@ pub(super) fn poly_line(cx: &mut Ctx) -> Raw {
     let np = num_points as usize;
     let pts = parse_points(cx.text("PointData", "0.0, 0.0, 0.0, 0.0, 0.0, 0.0"), np);
     let nseg = np - 1;
-    let curve_fields: Vec<&str> = cx.text("cPointData", "").split(',').collect();
-    let curved =
-        (0..curve_fields.len() / 7).any(|i| (0..nseg as i64).contains(&strtol0(curve_fields[i * 7])));
-    if curved {
-        cx.note("curved poly line segments drawn as straight lines");
-    }
+    let curves: HashMap<usize, Vec<V3>> = parse_curves(cx.text("cPointData", ""), nseg)
+        .into_iter()
+        .map(|(i, (c0, c1))| (i, curve_joints(pts[i], c0, c1, pts[i + 1])))
+        .collect();
     let strings = cx.int("PolyStrings", 1).max(1);
     let drops: Vec<i64> = cx
         .text("DropPattern", "1")
@@ -284,30 +329,47 @@ pub(super) fn poly_line(cx: &mut Ctx) -> Raw {
         }
     }
 
-    // Segments in normalized point space.
-    let (lo, hi) = quirky_bounds(&pts);
-    let n = |p: V3| {
+    // Segments in normalized point space; the bounds take in the curves' joints too.
+    let all: Vec<V3> = pts.iter().chain(curves.values().flatten()).copied().collect();
+    let (lo, hi) = quirky_bounds(&all);
+    // Straight stretches drop a nearly flat height; curves only an exactly flat one.
+    let n = |p: V3, flat: f64| {
         [
             norm(p[0], lo[0], hi[0], 0.0),
-            norm(p[1], lo[1], hi[1], 0.1),
+            norm(p[1], lo[1], hi[1], flat),
             norm(p[2], lo[2], hi[2], 0.0),
         ]
     };
+    let raw_len = |a: V3, b: V3| {
+        let w = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        f64::from(((w[0] * w[0] + w[1] * w[1] + w[2] * w[2]).sqrt()) as f32)
+    };
+    let piece = |p1: V3, p2: V3, y_scale: f64| {
+        let a = [p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]];
+        let scale = (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt();
+        Affine::translate(p1)
+            .then(&rot_from_x_axis(a))
+            .then(&Affine::scale([scale, y_scale, 0.0]))
+    };
     let segs: Vec<Seg> = (0..nseg)
-        .map(|i| {
-            let (p1, p2) = (n(pts[i]), n(pts[i + 1]));
-            let a = [p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]];
-            let scale = (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt();
-            let m = Affine::translate(p1)
-                .then(&rot_from_x_axis(a))
-                .then(&Affine::scale([scale, 0.0, 0.0]));
-            let w = [
-                pts[i + 1][0] - pts[i][0],
-                pts[i + 1][1] - pts[i][1],
-                pts[i + 1][2] - pts[i][2],
-            ];
-            let len = f64::from(((w[0] * w[0] + w[1] * w[1] + w[2] * w[2]).sqrt()) as f32);
-            Seg { m, len }
+        .map(|i| match curves.get(&i) {
+            Some(joints) => Seg {
+                pieces: joints
+                    .windows(2)
+                    .map(|w| Piece {
+                        m: piece(n(w[0], 0.0), n(w[1], 0.0), 1.0),
+                        len: raw_len(w[0], w[1]),
+                    })
+                    .collect(),
+                curved: true,
+            },
+            None => Seg {
+                pieces: vec![Piece {
+                    m: piece(n(pts[i], 0.1), n(pts[i + 1], 0.1), 0.0),
+                    len: raw_len(pts[i], pts[i + 1]),
+                }],
+                curved: false,
+            },
         })
         .collect();
     let model_h = (hi[1] - lo[1]).max(max_h as f64);
@@ -335,7 +397,7 @@ pub(super) fn poly_line(cx: &mut Ctx) -> Raw {
     if place.guard_hit {
         cx.note("some poly line lights could not be placed exactly");
     }
-    let xf = poly_point(cx, &pts, max_h as f64);
+    let xf = poly_point(cx, &all, max_h as f64);
     Raw {
         nodes: nodes.into_iter().map(|n| RawNode::new(n.chan, n.pts)).collect(),
         xf,
@@ -405,7 +467,7 @@ impl Placer<'_> {
         } else {
             num_lights * cpnode as i64
         };
-        let total_len: f64 = segs.iter().map(|s| s.len).sum();
+        let total_len: f64 = segs.iter().flat_map(|s| &s.pieces).map(|p| p.len).sum();
         let divisor = drop_points as f64
             * if !self.single && !icicles {
                 cpnode as f64
@@ -414,9 +476,9 @@ impl Placer<'_> {
             };
         let offset = if divisor > 0.0 { total_len / divisor } else { 0.0 };
         let mut cur = offset / 2.0;
-        let mut segment = 0usize;
+        let (mut segment, mut piece) = (0usize, 0usize);
         let mut seg_start = cur;
-        let mut seg_len = segs[0].len;
+        let mut seg_len = segs[0].pieces[0].len;
         let mut seg_end = seg_start + seg_len;
         let (mut c, mut xpos, mut di) = (0usize, 0i64, 0usize);
         let (mut drop_pos, mut last_drop_pos) = (0i64, 0i64);
@@ -430,14 +492,20 @@ impl Placer<'_> {
                 break;
             }
             while cur > seg_end {
-                if segment == segs.len() - 1 {
+                if piece + 1 < segs[segment].pieces.len() {
+                    piece += 1;
+                    seg_start = seg_end;
+                    seg_len = segs[segment].pieces[piece].len;
+                    seg_end = seg_start + seg_len;
+                } else if segment == segs.len() - 1 {
                     seg_end = cur;
                 } else {
                     sizes[segment] = drop_pos - last_drop_pos;
                     last_drop_pos = drop_pos;
                     segment += 1;
+                    piece = 0;
                     seg_start = seg_end;
-                    seg_len = segs[segment].len;
+                    seg_len = segs[segment].pieces[0].len;
                     seg_end = seg_start + seg_len;
                 }
             }
@@ -446,7 +514,7 @@ impl Placer<'_> {
             } else {
                 0.0
             };
-            let v = segs[segment].at(pos);
+            let v = segs[segment].pieces[piece].at(pos);
             let up = drops[di] < 0;
             let count = drops[di].abs();
             di += 1;
@@ -486,7 +554,12 @@ impl Placer<'_> {
             } else {
                 lights * cpnode as i64
             };
-            let total_length = size as f32;
+            // A curve is walked by its length, a straight stretch by its pixels.
+            let total_length = if seg.curved {
+                seg.pieces.iter().map(|p| p.len as f32).sum()
+            } else {
+                size as f32
+            };
             let (ld, tr) = (lead[segment], trail[segment]);
             let gaps = if icicles {
                 ld + tr + size as f32 - 1.0
@@ -495,6 +568,7 @@ impl Placer<'_> {
             };
             let offset = if gaps > 0.0 { total_length / gaps } else { 0.0 };
             let mut cur = ld * offset;
+            let (mut piece, mut piece_start) = (0usize, 0.0f32);
             let mut c = 0usize;
             let mut m = 0i64;
             let mut guard = 0i64;
@@ -506,12 +580,27 @@ impl Placer<'_> {
                 }
                 let up = drops[di] < 0;
                 let count = drops[di].abs();
-                let t = if size > 0 {
-                    f64::from(cur) / size as f64
+                let v = if seg.curved {
+                    // `DistributeLightsAcrossSegment`: on to the next piece while past this one.
+                    let len = |k: usize| seg.pieces.get(k).map_or(0.0, |p| p.len as f32);
+                    while cur > piece_start + len(piece) && len(piece + 1) > 0.0 {
+                        piece_start += len(piece);
+                        piece += 1;
+                    }
+                    let t = if len(piece) > 0.0 {
+                        (cur - piece_start) / len(piece)
+                    } else {
+                        0.0
+                    };
+                    seg.pieces[piece].at(f64::from(t))
                 } else {
-                    0.0
+                    let t = if size > 0 {
+                        f64::from(cur) / size as f64
+                    } else {
+                        0.0
+                    };
+                    seg.pieces[0].at(t)
                 };
-                let v = seg.at(t);
                 for z in 0..count {
                     if self.single {
                         // xLights indexes lights by `idx` here but its drop offset uses c (= 0).

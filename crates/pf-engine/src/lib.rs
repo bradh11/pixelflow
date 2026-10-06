@@ -23,7 +23,7 @@ mod recovery;
 mod sequence_doc;
 mod snapshot;
 
-pub use dry_run::{edited_sequence, edited_show, preview_props_of};
+pub use dry_run::{DraftRenderer, edited_sequence, edited_show, preview_props_of};
 pub use edit::Edit;
 pub use engine::SequenceExport;
 pub use engine::{CheckedShow, Engine, FilesFound};

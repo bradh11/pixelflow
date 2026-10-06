@@ -53,6 +53,28 @@ pub fn preview_props_of(show: &Show) -> Vec<PreviewProp> {
         .collect()
 }
 
+/// Renders frames of any sequence on any show, laid out like [`preview_props_of`] says: what a
+/// draft's preview plays without touching the open show or sequence.
+pub struct DraftRenderer {
+    renderer: pf_render::Renderer,
+}
+
+impl DraftRenderer {
+    pub fn new(show: &Show) -> Self {
+        let (map, _) = pf_mapping::map_show(show);
+        Self {
+            renderer: pf_render::Renderer::new(show, &map),
+        }
+    }
+
+    /// The frame (show frame bytes) at `position_ms`.
+    pub fn frame(&mut self, doc: &Sequence, position_ms: u64) -> Vec<u8> {
+        let mut frame = vec![0u8; self.renderer.frame_len()];
+        self.renderer.render(doc, position_ms, &mut frame);
+        frame
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,6 +173,28 @@ mod tests {
         let restored = engine.history_file(&entry.id).unwrap().read().unwrap();
         engine.restore_read(restored);
         assert_ne!(engine.show_generation(), fifth, "restored off the lock");
+    }
+
+    #[test]
+    fn a_draft_renders_like_the_engine_renders_the_open_sequence() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut engine = Engine::new(dir.path());
+        let prop = line("A", 4);
+        engine.apply(vec![Edit::AddProp { prop: prop.clone() }]).unwrap();
+        let mut row = Row::new(Target::Prop(prop.id));
+        row.layers[0].effects.push(
+            pf_sequence::Effect::new(pf_sequence::EffectKind::On, 0, 1000)
+                .with_palette(vec![pf_model::Rgb::new(255, 0, 0)]),
+        );
+        engine
+            .new_sequence_doc_with_rows("Song", 2000, None, vec![row])
+            .unwrap();
+        let doc = engine.sequence_document().unwrap().clone();
+        let mut draft = DraftRenderer::new(engine.show());
+        let ours = draft.frame(&doc, 500);
+        assert_eq!(Some(ours.clone()), engine.sequence_doc_frame(500));
+        assert!(ours.contains(&255));
+        assert!(draft.frame(&doc, 1500).iter().all(|&b| b == 0));
     }
 
     #[test]

@@ -85,7 +85,58 @@ fn generator() -> impl Strategy<Value = Generator> {
             })
             .prop_map(|(columns, rows, cells)| Generator::CustomGrid { columns, rows, cells }),
         poly_line(),
+        candy_canes(),
+        icicles(),
     ]
+}
+
+fn candy_canes() -> impl Strategy<Value = Generator> {
+    (
+        (0u32..8, 0u32..60, 0.1f32..20.0),
+        (-3f32..3.0, -3f32..3.0, -90f32..90.0),
+        (any::<bool>(), any::<bool>(), any::<bool>()),
+    )
+        .prop_map(
+            |(
+                (canes, nodes_per_cane, width),
+                (height, cane_height, skew_deg),
+                (reverse, sticks, alternate_nodes),
+            )| {
+                Generator::CandyCanes {
+                    canes,
+                    nodes_per_cane,
+                    width,
+                    height,
+                    cane_height,
+                    reverse,
+                    sticks,
+                    alternate_nodes,
+                    skew_deg,
+                }
+            },
+        )
+}
+
+/// Icicles, including patterns with gaps, no drops at all, or no drop holding pixels.
+fn icicles() -> impl Strategy<Value = Generator> {
+    (
+        0u32..6,
+        0u32..120,
+        proptest::collection::vec(0u32..8, 0..8),
+        0.1f32..20.0,
+        -5f32..5.0,
+        any::<bool>(),
+    )
+        .prop_map(
+            |(strings, lights_per_string, drops, width, drop_height, alternate_nodes)| Generator::Icicles {
+                strings,
+                lights_per_string,
+                drops,
+                width,
+                drop_height,
+                alternate_nodes,
+            },
+        )
 }
 
 /// Poly lines, including damaged ones: too few points, or stretches that don't match them.
@@ -220,6 +271,25 @@ fn a_quarter_turn_maps_right_to_up_for_every_generator() {
                 },
             ],
             spread_nodes: None,
+        },
+        Generator::CandyCanes {
+            canes: 2,
+            nodes_per_cane: 12,
+            width: 3.0,
+            height: 1.2,
+            cane_height: 0.8,
+            reverse: true,
+            sticks: false,
+            alternate_nodes: true,
+            skew_deg: 10.0,
+        },
+        Generator::Icicles {
+            strings: 2,
+            lights_per_string: 10,
+            drops: vec![3, 4, 5, 4],
+            width: 4.0,
+            drop_height: 0.4,
+            alternate_nodes: true,
         },
     ];
     for generator in generators {

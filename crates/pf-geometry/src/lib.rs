@@ -4,8 +4,10 @@
 //! in wiring order (index 0 is the first pixel on the wire).
 
 mod arch;
+mod candy_canes;
 mod circle;
 mod custom_grid;
+mod icicles;
 mod line;
 mod matrix;
 pub mod polyline;
@@ -66,6 +68,42 @@ fn generate(generator: &Generator) -> Vec<Vec3> {
             outer_radius,
             inner_radius,
         } => star::positions(points, nodes, outer_radius, inner_radius),
+        Generator::CandyCanes {
+            canes,
+            nodes_per_cane,
+            width,
+            height,
+            cane_height,
+            reverse,
+            sticks,
+            alternate_nodes,
+            skew_deg,
+        } => candy_canes::positions(candy_canes::Canes {
+            canes,
+            nodes_per_cane,
+            width,
+            height,
+            cane_height,
+            reverse,
+            sticks,
+            alternate_nodes,
+            skew_deg,
+        }),
+        Generator::Icicles {
+            strings,
+            lights_per_string,
+            ref drops,
+            width,
+            drop_height,
+            alternate_nodes,
+        } => icicles::positions(icicles::Icicles {
+            strings,
+            lights_per_string,
+            drops,
+            width,
+            drop_height,
+            alternate_nodes,
+        }),
         Generator::CustomGrid {
             columns,
             rows,

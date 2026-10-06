@@ -333,6 +333,45 @@ mod tests {
         )
     }
 
+    fn icicles(name: &str, drops: Vec<u32>) -> Prop {
+        Prop::new(
+            name,
+            ShapeSource::Generator(Generator::Icicles {
+                strings: 1,
+                lights_per_string: 10,
+                drops,
+                width: 2.0,
+                drop_height: 0.5,
+                alternate_nodes: false,
+            }),
+        )
+    }
+
+    fn canes(name: &str, canes: u32, nodes_per_cane: u32) -> Prop {
+        Prop::new(
+            name,
+            ShapeSource::Generator(Generator::CandyCanes {
+                canes,
+                nodes_per_cane,
+                width: 3.0,
+                height: 1.0,
+                cane_height: 1.0,
+                reverse: false,
+                sticks: false,
+                alternate_nodes: false,
+                skew_deg: 0.0,
+            }),
+        )
+    }
+
+    #[test]
+    fn icicles_and_candy_canes_within_the_limits_are_valid() {
+        for prop in [icicles("Eaves", vec![3, 0, 5]), canes("Walk", 3, 18)] {
+            let show = show_with_slot(PortSlot::new(prop.id), prop);
+            assert_eq!(validate_show(&show).issues, vec![]);
+        }
+    }
+
     #[test]
     fn a_poly_line_with_matching_stretches_is_valid() {
         let prop = poly("Roof", 4, 10);
@@ -362,7 +401,7 @@ mod tests {
     #[test]
     fn each_structural_problem_is_reported() {
         type Mutate = fn(&mut Show);
-        let cases: [(IssueCode, Mutate); 19] = [
+        let cases: [(IssueCode, Mutate); 25] = [
             (IssueCode::InvalidFrameRate, |s| s.settings.frame_rate = 5),
             (IssueCode::DuplicateId, |s| {
                 let dup = s.props[0].clone();
@@ -440,6 +479,27 @@ mod tests {
                     segments.pop();
                 }
                 s.props.push(p)
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props
+                    .push(icicles("Long pattern", vec![1; crate::MAX_ICICLE_DROPS + 1]))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props
+                    .push(icicles("Long drop", vec![3, crate::MAX_ICICLE_DROP_LIGHTS + 1]))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(icicles("Dry", vec![0, 0]))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(icicles("Bare", vec![]))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(canes("Forest", crate::MAX_PROP_NODES + 1, 0))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                // The real count, not the 32-bit one that stops at its largest value.
+                s.props.push(canes("Huge", 70_000, 70_000))
             }),
         ];
         for (code, mutate) in cases {

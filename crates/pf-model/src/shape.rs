@@ -63,6 +63,10 @@ impl PolySegment {
     }
 }
 
+fn one() -> f32 {
+    1.0
+}
+
 /// Parametric prop shapes. Positions are produced by `pf-geometry`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
@@ -111,6 +115,56 @@ pub enum Generator {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         spread_nodes: Option<u32>,
     },
+    /// A row of candy canes standing between two ends (xLights' Candy Canes), laid out as xLights
+    /// does: each cane is a third as wide as it has pixels, two-thirds of its pixels run up the
+    /// stick and the rest round the hook, with a gap of two pixels' spacing between canes. The
+    /// whole row is scaled so it is `width` wide; the origin is midway between the two ends, at
+    /// the foot of the canes. Pixels run cane by cane, left to right, each up its stick and then
+    /// round its hook.
+    CandyCanes {
+        canes: u32,
+        nodes_per_cane: u32,
+        /// Distance between the two ends the canes stand between.
+        width: f32,
+        /// xLights' `Height`: scales the canes' height and the size of their hooks (1 is normal).
+        #[serde(default = "one")]
+        height: f32,
+        /// xLights' `CandyCaneHeight`: stretches the canes taller, hooks included (1 is normal).
+        #[serde(default = "one")]
+        cane_height: f32,
+        /// Hooks point left instead of right.
+        #[serde(default)]
+        reverse: bool,
+        /// Straight sticks, no hooks.
+        #[serde(default)]
+        sticks: bool,
+        /// Each cane's pixels go up every other spot and come back down the ones between.
+        #[serde(default)]
+        alternate_nodes: bool,
+        /// How far each cane leans from upright, in degrees (counter-clockwise).
+        #[serde(default)]
+        skew_deg: f32,
+    },
+    /// Icicles hanging from a line between two ends (xLights' Icicles). Each string's pixels fill
+    /// drops in turn, the drop sizes repeating `drops` from its start (a drop of 0 leaves a gap),
+    /// each drop one column right of the last; the columns are spread evenly over `width`. The
+    /// origin is midway along the line, and the drops hang below it.
+    Icicles {
+        strings: u32,
+        lights_per_string: u32,
+        /// Pixels in each drop, repeating ("3,4,5,4"). No drop with pixels reads as `[5]`.
+        drops: Vec<u32>,
+        /// Distance between the two ends.
+        width: f32,
+        /// How far below the line the longest drop's last pixel hangs (pixels in a drop are this
+        /// over one less than the longest drop apart; for drops of one, this is the spacing).
+        /// Negative makes the drops stand up. From xLights' `Height`, in layout units:
+        /// `-Height * length / (columns - 1) * (longest drop - 1)`.
+        drop_height: f32,
+        /// Each drop's pixels go down every other spot and come back up the ones between.
+        #[serde(default)]
+        alternate_nodes: bool,
+    },
     /// Free-form grid. `cells` is row-major starting at the top row;
     /// 0 is an empty cell and n places node n (1-based) in that cell.
     CustomGrid {
@@ -134,6 +188,16 @@ impl Generator {
                 nodes_per_string,
                 ..
             } => strings.saturating_mul(*nodes_per_string),
+            Generator::CandyCanes {
+                canes,
+                nodes_per_cane,
+                ..
+            } => canes.saturating_mul(*nodes_per_cane),
+            Generator::Icicles {
+                strings,
+                lights_per_string,
+                ..
+            } => strings.saturating_mul(*lights_per_string),
             Generator::CustomGrid { cells, .. } => cells.iter().copied().max().unwrap_or(0),
             Generator::PolyLine {
                 segments,
@@ -264,6 +328,72 @@ mod tests {
         assert_eq!(back, ShapeSource::Generator(poly(None)));
         let spread = serde_json::to_value(poly(Some(7))).unwrap();
         assert_eq!(spread["spreadNodes"], 7);
+    }
+
+    #[test]
+    fn candy_canes_and_icicles_count_and_round_trip_their_settings() {
+        let canes = Generator::CandyCanes {
+            canes: 3,
+            nodes_per_cane: 18,
+            width: 3.0,
+            height: 1.0,
+            cane_height: 1.0,
+            reverse: true,
+            sticks: false,
+            alternate_nodes: false,
+            skew_deg: 0.0,
+        };
+        assert_eq!(canes.node_count(), 54);
+        let json = serde_json::to_value(ShapeSource::Generator(canes.clone())).unwrap();
+        assert_eq!(json["type"], "candyCanes");
+        assert_eq!(json["nodesPerCane"], 18);
+        assert_eq!(json["caneHeight"], 1.0);
+        assert_eq!(json["skewDeg"], 0.0);
+        assert_eq!(
+            serde_json::from_value::<ShapeSource>(json).unwrap(),
+            ShapeSource::Generator(canes)
+        );
+        // Left-out options read as off, sizes as 1.
+        let plain: Generator =
+            serde_json::from_str(r#"{ "type": "candyCanes", "canes": 2, "nodesPerCane": 9, "width": 2 }"#)
+                .unwrap();
+        assert!(matches!(
+            plain,
+            Generator::CandyCanes {
+                height: 1.0,
+                cane_height: 1.0,
+                reverse: false,
+                sticks: false,
+                alternate_nodes: false,
+                skew_deg: 0.0,
+                ..
+            }
+        ));
+
+        let icicles = Generator::Icicles {
+            strings: 2,
+            lights_per_string: 80,
+            drops: vec![3, 4, 5, 4],
+            width: 4.0,
+            drop_height: 0.4,
+            alternate_nodes: false,
+        };
+        assert_eq!(icicles.node_count(), 160);
+        let json = serde_json::to_value(&icicles).unwrap();
+        assert_eq!(json["type"], "icicles");
+        assert_eq!(json["lightsPerString"], 80);
+        assert_eq!(json["drops"], serde_json::json!([3, 4, 5, 4]));
+        assert_eq!(json["dropHeight"].as_f64().unwrap() as f32, 0.4);
+        assert_eq!(serde_json::from_value::<Generator>(json).unwrap(), icicles);
+        let huge = Generator::Icicles {
+            strings: u32::MAX,
+            lights_per_string: 2,
+            drops: vec![1],
+            width: 1.0,
+            drop_height: 1.0,
+            alternate_nodes: false,
+        };
+        assert_eq!(huge.node_count(), u32::MAX);
     }
 
     #[test]

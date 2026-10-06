@@ -10,6 +10,10 @@ pub const MAX_SHOW_PIXELS: u64 = 10_000_000;
 pub const MAX_STAR_POINTS: u32 = 100;
 /// Most points a poly line may have.
 pub const MAX_POLY_VERTICES: usize = 1_000;
+/// Most drops an icicle drop pattern may list.
+pub const MAX_ICICLE_DROPS: usize = 1_000;
+/// Most pixels one icicle drop may have.
+pub const MAX_ICICLE_DROP_LIGHTS: u32 = 1_000;
 /// Most null pixels a single port slot may have.
 pub const MAX_NULL_PIXELS: u32 = 1_000;
 /// Most a sequence's lights may be moved against its music, either way, in milliseconds.
@@ -69,12 +73,29 @@ pub(crate) fn check_limits(show: &Show) -> Vec<String> {
             problems.push(problem);
             continue;
         }
-        if let ShapeSource::Generator(Generator::Tree { strings, .. }) = &prop.shape
+        if let ShapeSource::Generator(Generator::Icicles { drops, .. }) = &prop.shape
+            && let Some(problem) = icicles_problem(&prop.name, drops)
+        {
+            problems.push(problem);
+            continue;
+        }
+        // A row of canes or strings is walked even when it has no pixels, so its length is
+        // capped like a prop's pixels.
+        if let ShapeSource::Generator(
+            Generator::Tree { strings, .. }
+            | Generator::Icicles { strings, .. }
+            | Generator::CandyCanes { canes: strings, .. },
+        ) = &prop.shape
             && *strings > MAX_PROP_NODES
         {
             problems.push(format!(
-                "The tree '{}' has {strings} strings, but PixelFlow supports at most {MAX_PROP_NODES}.",
-                prop.name
+                "The prop '{}' has {strings} {}, but PixelFlow supports at most {MAX_PROP_NODES}.",
+                prop.name,
+                if matches!(prop.shape, ShapeSource::Generator(Generator::CandyCanes { .. })) {
+                    "canes"
+                } else {
+                    "strings"
+                }
             ));
             continue;
         }
@@ -88,6 +109,16 @@ pub(crate) fn check_limits(show: &Show) -> Vec<String> {
                 nodes_per_string,
                 ..
             }) => u64::from(*strings) * u64::from(*nodes_per_string),
+            ShapeSource::Generator(Generator::CandyCanes {
+                canes,
+                nodes_per_cane,
+                ..
+            }) => u64::from(*canes) * u64::from(*nodes_per_cane),
+            ShapeSource::Generator(Generator::Icicles {
+                strings,
+                lights_per_string,
+                ..
+            }) => u64::from(*strings) * u64::from(*lights_per_string),
             ShapeSource::Generator(Generator::PolyLine {
                 segments,
                 spread_nodes: None,
@@ -164,6 +195,27 @@ fn poly_line_problem(name: &str, vertices: &[crate::Vec3], segments: usize) -> O
     }
     if vertices.iter().any(|v| !v.is_finite()) {
         return Some(format!("The poly line '{name}' has a point that isn't a number."));
+    }
+    None
+}
+
+/// What's wrong with an icicle drop pattern, if anything.
+fn icicles_problem(name: &str, drops: &[u32]) -> Option<String> {
+    if drops.len() > MAX_ICICLE_DROPS {
+        return Some(format!(
+            "The icicles '{name}' list {} drops in their pattern, but PixelFlow supports at most {MAX_ICICLE_DROPS}.",
+            drops.len()
+        ));
+    }
+    if let Some(&big) = drops.iter().find(|&&d| d > MAX_ICICLE_DROP_LIGHTS) {
+        return Some(format!(
+            "The icicles '{name}' have a drop of {big} pixels, but PixelFlow supports at most {MAX_ICICLE_DROP_LIGHTS} per drop."
+        ));
+    }
+    if drops.iter().all(|&d| d == 0) {
+        return Some(format!(
+            "The icicles '{name}' need at least one drop with pixels in their drop pattern."
+        ));
     }
     None
 }

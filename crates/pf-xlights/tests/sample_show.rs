@@ -256,6 +256,24 @@ fn editable_shapes_land_on_xlights_positions() {
         "{:?}",
         canes.shape
     );
+    let tree = show.props.iter().find(|p| p.name == "Mega Tree").unwrap();
+    assert!(
+        matches!(
+            tree.shape,
+            ShapeSource::Generator(pf_model::Generator::Tree { strings: 8, .. })
+        ),
+        "{:?}",
+        tree.shape
+    );
+    let matrix = show.props.iter().find(|p| p.name == "Window Matrix").unwrap();
+    assert!(
+        matches!(
+            matrix.shape,
+            ShapeSource::Generator(pf_model::Generator::Matrix { columns: 4, .. })
+        ),
+        "{:?}",
+        matrix.shape
+    );
     let mut editable = 0;
     for prop in &show.props {
         if !matches!(prop.shape, ShapeSource::Generator(_)) {

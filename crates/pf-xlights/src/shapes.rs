@@ -33,6 +33,9 @@ pub(crate) fn editable(model: &XmlModel, points: &[Vec3]) -> Option<Candidate> {
         "Spinner" => spinner(model),
         "Sphere" => sphere(model),
         "Cube" => cube(model),
+        // Same order as xLights' model factory: matrices before trees.
+        t if t.contains("Matrix") && !t.contains("MultiPoint") => matrix(model),
+        t if t.starts_with("Tree") => tree(model),
         _ => Vec::new(),
     };
     candidates.into_iter().find(|(g, t)| fits(g, t, points))
@@ -399,7 +402,7 @@ fn perspective_deg() -> f32 {
 /// depth can take the Y scale instead, which leaves the front view the same. A scale equal in
 /// all three directions is folded into the shape's size (`unit` in layout units per xLights
 /// unit); otherwise it stays in the transform and `unit` is one xLights unit.
-fn tilted_placement(m: &XmlModel, b: &Boxed, scale_mul: [f64; 3]) -> Option<(f32, Transform)> {
+fn tilted_placement(m: &XmlModel, b: &Boxed, scale_mul: [f64; 3], tilt_deg: f32) -> Option<(f32, Transform)> {
     let raw = |k: &str, i: usize| {
         let v = float(m, k, 1.0) * scale_mul[i];
         if v < 0.0 || !v.is_finite() { 1.0 } else { v }
@@ -412,7 +415,7 @@ fn tilted_placement(m: &XmlModel, b: &Boxed, scale_mul: [f64; 3]) -> Option<(f32
         }
         sz = sy;
     }
-    let rotation = Vec3::new(r.x + perspective_deg(), r.y, r.z);
+    let rotation = Vec3::new(r.x + tilt_deg, r.y, r.z);
     if sx == sy && sy == sz {
         let unit = (sx as f32) * SCALE;
         (unit > 0.0).then(|| (unit, transform(b.position, rotation, Vec3::ONE)))
@@ -461,7 +464,7 @@ fn sphere(m: &XmlModel) -> Vec<Candidate> {
         let r = rows as f32 / mx as f32;
         scale_mul = [f64::from(r / 1.8), f64::from(r), f64::from(r / 1.8)];
     }
-    let Some((unit, place)) = tilted_placement(m, &boxed(m), scale_mul) else {
+    let Some((unit, place)) = tilted_placement(m, &boxed(m), scale_mul, perspective_deg()) else {
         return Vec::new();
     };
     let radius = (f64::from(columns.max(rows)) / 1.8 / 2.0) as f32 * unit;
@@ -559,7 +562,7 @@ fn cube(m: &XmlModel) -> Vec<Candidate> {
         StrandStyle::NoZigZag,
         StrandStyle::AlternatePixel,
     ][pick("StrandPerLine", &["Zig Zag", "No Zig Zag", "Aternate Pixel"])];
-    let Some((unit, mut place)) = tilted_placement(m, &boxed(m), [1.0; 3]) else {
+    let Some((unit, mut place)) = tilted_placement(m, &boxed(m), [1.0; 3], perspective_deg()) else {
         return Vec::new();
     };
     let half = |n: u32| ((n as f32 - 1.0) / 2.0 - (n / 2) as f32) * unit;
@@ -575,6 +578,179 @@ fn cube(m: &XmlModel) -> Vec<Candidate> {
         strand_per_layer: m.text("StrandPerLayer", "FALSE") == "TRUE",
     };
     vec![(g, place)]
+}
+
+/// Strings and strands of a matrix-wired model (`MatrixModel`): (strands, pixels per strand),
+/// the zig-zag choices to try, and where wiring starts. xLights zig-zags inside each string, which
+/// is PixelFlow's zig-zag for one string or an even number of strands per string, and no zig-zag
+/// for one strand per string; both are offered and the one that fits is kept.
+struct Strands {
+    strands: u32,
+    per_strand: u32,
+    serpentine: &'static [bool],
+    ltor: bool,
+    btot: bool,
+}
+
+fn strands(m: &XmlModel) -> Option<Strands> {
+    let strings = parm(m, "NumStrings", "parm1", 1);
+    let nps = parm(m, "NodesPerString", "parm2", 1);
+    if strings <= 0 || nps <= 0 || flag(m, "AlternateNodes") {
+        return None;
+    }
+    let sps = parm(m, "StrandsPerString", "parm3", 1).max(1).min(nps);
+    let (strands, per_strand) = (count(strings.saturating_mul(sps))?, count(nps / sps)?);
+    if per_strand == 0 || u64::from(strands) * u64::from(per_strand) > u64::from(pf_model::MAX_PROP_NODES) {
+        return None;
+    }
+    let (ltor, btot) = start_side(m);
+    let serpentine: &'static [bool] = if flag(m, "NoZig") {
+        &[false]
+    } else {
+        &[true, false]
+    };
+    Some(Strands {
+        strands,
+        per_strand,
+        serpentine,
+        ltor,
+        btot,
+    })
+}
+
+/// `MatrixModel` (Horiz Matrix / Vert Matrix) with one light per node, wired from any corner
+/// along rows or columns: PixelFlow's matrix. xLights' grid is one unit a step and not centered
+/// for an even count; the position takes up the half step, and an even scale folds into the size.
+fn matrix(m: &XmlModel) -> Vec<Candidate> {
+    use pf_model::{MatrixWiring, Orientation};
+    let Some(s) = strands(m) else {
+        return Vec::new();
+    };
+    let vertical = m.display_as.trim() == "Vert Matrix" || m.attr("Vertical") == Some("true");
+    let (columns, rows) = if vertical {
+        (s.strands, s.per_strand)
+    } else {
+        (s.per_strand, s.strands)
+    };
+    let b = boxed(m);
+    if b.scale_x <= 0.0 || b.scale_y <= 0.0 {
+        return Vec::new();
+    }
+    let (unit, scale) = if b.scale_x == b.scale_y {
+        ((b.scale_x as f32) * SCALE, Vec3::ONE)
+    } else {
+        (SCALE, Vec3::new(b.scale_x as f32, b.scale_y as f32, 1.0))
+    };
+    let mut place = transform(b.position, b.rotation_deg, scale);
+    let half = |n: u32| ((n as f32 - 1.0) / 2.0 - (n / 2) as f32) * unit;
+    place.position = pf_geometry::apply_transform(Vec3::new(half(columns), half(rows), 0.0), &place);
+    let size = |n: u32| (n.saturating_sub(1).max(1) as f32) * unit;
+    s.serpentine
+        .iter()
+        .map(|&serpentine| {
+            let g = Generator::Matrix {
+                columns,
+                rows,
+                width: size(columns),
+                height: size(rows),
+                wiring: MatrixWiring {
+                    start: corner(s.ltor, s.btot),
+                    orientation: if vertical {
+                        Orientation::Vertical
+                    } else {
+                        Orientation::Horizontal
+                    },
+                    serpentine,
+                },
+            };
+            (g, place)
+        })
+        .collect()
+}
+
+/// `TreeModel` with one light per node and strands running up (vertical strands from the
+/// bottom left, no spiral, no first-strand offset): a round tree of `render_ht = 3 × rows` units
+/// tall and `render_ht / 1.8` across the base (tapering by `TreeBottomTopRatio`), starting at
+/// `-degrees / 2 + TreeRotation`; or a flat (ribbon) tree `2 × rows` tall, `4 (5) × strands` across
+/// the base and `0.9 × strands` across the top. xLights tilts trees by `TreePerspective`.
+fn tree(m: &XmlModel) -> Vec<Candidate> {
+    use pf_model::TreeStyle;
+    if m.text("StrandDir", "Vertical") != "Vertical"
+        || float(m, "TreeSpiralRotations", 0.0) as f32 != 0.0
+        || int(m, "exportFirstStrand", 0) > 1
+    {
+        return Vec::new();
+    }
+    let Some(s) = strands(m) else {
+        return Vec::new();
+    };
+    if !s.ltor || !s.btot {
+        return Vec::new();
+    }
+    let t = m.display_as.trim();
+    let degrees = if t == "Tree" {
+        match int(m, "TreeType", 0) {
+            1 => 0,
+            2 => -1,
+            _ => int(m, "TreeDegrees", 360),
+        }
+    } else {
+        match t.split_once(' ').map(|(_, rest)| rest) {
+            Some("Flat") => 0,
+            Some("Ribbon") => -1,
+            Some(tok) => strtol0(tok),
+            None => 360,
+        }
+    };
+    let tilt = f64::from(float(m, "TreePerspective", 0.2) as f32).to_degrees() as f32;
+    let Some((unit, mut place)) = tilted_placement(m, &boxed(m), [1.0; 3], tilt) else {
+        return Vec::new();
+    };
+    let (bw, bh) = (f64::from(s.strands), f64::from(s.per_strand));
+    let (style, height, base, top, start_angle) = if degrees > 0 {
+        let render_ht = bh * 3.0;
+        let mut radius = render_ht / 1.8 / 2.0;
+        let ratio = f64::from(float(m, "TreeBottomTopRatio", 6.0) as f32);
+        let mut top = if ratio != 0.0 {
+            radius / ratio.abs()
+        } else {
+            radius
+        };
+        if ratio < 0.0 {
+            std::mem::swap(&mut top, &mut radius);
+        }
+        let rotation = f64::from(float(m, "TreeRotation", 3.0) as f32);
+        (
+            TreeStyle::Round,
+            render_ht,
+            radius,
+            top,
+            -(degrees as f64) / 2.0 + rotation,
+        )
+    } else if degrees == -1 {
+        (TreeStyle::Ribbon, bh * 2.0, bw / 2.0 * 5.0, bw / 2.0 * 0.9, 0.0)
+    } else {
+        (TreeStyle::Flat, bh * 2.0, bw / 2.0 * 4.0, bw / 2.0 * 0.9, 0.0)
+    };
+    let u = f64::from(unit);
+    place.position = pf_geometry::apply_transform(Vec3::new(0.0, -(height * u / 2.0) as f32, 0.0), &place);
+    s.serpentine
+        .iter()
+        .map(|&serpentine| {
+            let g = Generator::Tree {
+                strings: s.strands,
+                nodes_per_string: s.per_strand,
+                height: (height * u) as f32,
+                base_radius: (base * u) as f32,
+                top_radius: (top * u) as f32,
+                serpentine,
+                style,
+                degrees: if degrees > 0 { degrees as f32 } else { 360.0 },
+                start_angle: start_angle as f32,
+            };
+            (g, place)
+        })
+        .collect()
 }
 
 /// `WindowFrameModel` with one light per node: its pixel counts, start corner and direction,
@@ -1428,5 +1604,125 @@ mod tests {
         imports_as("Cube", &with(&CUBE, &[("ScaleX", "20")]));
         stays_measured("Cube", &with(&CUBE, &[("CubeShape", "1")]));
         stays_measured("Cube", &with(&CUBE, &[("CubeRowOffset", "1")]));
+    }
+
+    /// 4 strings of 20 (even counts, so xLights' grid isn't centered), scaled evenly.
+    const MATRIX: [(&str, &str); 7] = [
+        ("parm1", "4"),
+        ("parm2", "20"),
+        ("parm3", "1"),
+        ("WorldPosX", "640"),
+        ("WorldPosY", "380"),
+        ("ScaleX", "8"),
+        ("ScaleY", "8"),
+    ];
+
+    #[test]
+    fn matrices_import_as_matrices_wired_from_any_corner() {
+        let g = imports_as("Vert Matrix", &MATRIX);
+        assert!(matches!(
+            g,
+            Generator::Matrix {
+                columns: 4,
+                rows: 20,
+                wiring: pf_model::MatrixWiring {
+                    start: pf_model::Corner::BottomLeft,
+                    orientation: pf_model::Orientation::Vertical,
+                    serpentine: false,
+                },
+                ..
+            }
+        ));
+        let one = with(&MATRIX, &[("parm1", "1"), ("parm2", "80"), ("parm3", "4")]);
+        for display in ["Vert Matrix", "Horiz Matrix"] {
+            for start in STARTS {
+                imports_as(display, &with(&MATRIX, start));
+                let g = imports_as(display, &with(&one, start));
+                assert!(matches!(
+                    g,
+                    Generator::Matrix {
+                        wiring: pf_model::MatrixWiring { serpentine: true, .. },
+                        ..
+                    }
+                ));
+            }
+        }
+        imports_as(
+            "Horiz Matrix",
+            &with(&MATRIX, &[("ScaleY", "3"), ("RotateZ", "20"), ("NoZig", "true")]),
+        );
+        stays_measured("Vert Matrix", &with(&MATRIX, &[("AlternateNodes", "true")]));
+        stays_measured(
+            "Vert Matrix",
+            &with(&MATRIX, &[("parm1", "2"), ("parm2", "60"), ("parm3", "3")]),
+        );
+    }
+
+    /// A mega tree: 8 strings of 50 standing up from the bottom left.
+    const TREE: [(&str, &str); 7] = [
+        ("parm1", "8"),
+        ("parm2", "50"),
+        ("parm3", "1"),
+        ("WorldPosX", "900"),
+        ("WorldPosY", "300"),
+        ("ScaleX", "3"),
+        ("ScaleY", "3"),
+    ];
+
+    #[test]
+    fn trees_import_as_round_flat_and_ribbon_trees() {
+        let g = imports_as("Tree 360", &TREE);
+        assert!(matches!(
+            g,
+            Generator::Tree {
+                strings: 8,
+                nodes_per_string: 50,
+                serpentine: false,
+                style: pf_model::TreeStyle::Round,
+                ..
+            }
+        ));
+        let Generator::Tree {
+            start_angle, degrees, ..
+        } = imports_as("Tree 180", &TREE)
+        else {
+            panic!()
+        };
+        assert_eq!((degrees, start_angle), (180.0, -87.0));
+        let flat = imports_as("Tree Flat", &TREE);
+        assert!(matches!(
+            flat,
+            Generator::Tree {
+                style: pf_model::TreeStyle::Flat,
+                ..
+            }
+        ));
+        let ribbon = imports_as("Tree Ribbon", &TREE);
+        assert!(matches!(
+            ribbon,
+            Generator::Tree {
+                style: pf_model::TreeStyle::Ribbon,
+                ..
+            }
+        ));
+        imports_as("Tree", &with(&TREE, &[("TreeType", "0"), ("TreeDegrees", "270")]));
+        imports_as(
+            "Tree 360",
+            &with(&TREE, &[("parm1", "1"), ("parm2", "400"), ("parm3", "8")]),
+        );
+        imports_as(
+            "Tree 360",
+            &with(
+                &TREE,
+                &[
+                    ("TreeBottomTopRatio", "-3"),
+                    ("TreePerspective", "0.4"),
+                    ("TreeRotation", "20"),
+                ],
+            ),
+        );
+        stays_measured("Tree 360", &with(&TREE, &[("TreeSpiralRotations", "1.5")]));
+        stays_measured("Tree 360", &with(&TREE, &[("StartSide", "T")]));
+        stays_measured("Tree 360", &with(&TREE, &[("StrandDir", "Horizontal")]));
     }
 }

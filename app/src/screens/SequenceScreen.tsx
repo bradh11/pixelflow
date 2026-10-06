@@ -2,6 +2,7 @@ import { AlertTriangle, AudioLines, CheckCircle2, Download, FileInput, FilePlus,
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { errorMessage } from "../api/backend";
+import { MissingFileNotice } from "../components/MissingFiles";
 import { EffectPalette } from "../components/sequencer/EffectPalette";
 import { EffectSettings } from "../components/sequencer/EffectSettings";
 import { SequencePreview } from "../components/sequencer/SequencePreview";
@@ -91,6 +92,7 @@ export function SequenceScreen() {
     <div className="flex h-full min-h-0 flex-col">
       <Toolbar onNew={() => guard(() => setCreating(true))} onOpen={() => guard(() => void openFile())} />
       <NoticeLine />
+      {doc && <MissingMusicLine />}
       <RecoveryOffer onRecover={(id) => guard(() => void useSequencer.getState().recover(id))} />
       {doc ? <Workspace /> : <Start onNew={() => setCreating(true)} onOpen={openFile} />}
       {creating && <NewSequenceDialog onClose={() => setCreating(false)} />}
@@ -447,6 +449,24 @@ function NoticeLine() {
       <button type="button" aria-label="Dismiss" className="rounded p-1 hover:bg-neutral-200/70 dark:hover:bg-neutral-800" onClick={dismiss}>
         <X size={14} />
       </button>
+    </div>
+  );
+}
+
+/** The sequence's music, when it isn't where the sequence says: find it again or locate it. */
+function MissingMusicLine() {
+  const audio = useSequencer((s) => s.doc?.audio ?? null);
+  const path = useSequencer((s) => s.path);
+  const docKey = useSequencer((s) => s.docKey);
+  const missing = useSequencer((s) => s.musicMissing);
+  const { checkMusic, findMusic, locateMusic } = useSequencer.getState();
+  useEffect(() => {
+    void checkMusic();
+  }, [audio, path, docKey, checkMusic]);
+  if (!missing) return null;
+  return (
+    <div className="border-b border-amber-200 px-3 py-2 dark:border-amber-900/70">
+      <MissingFileNotice missing={missing} onFind={() => void findMusic()} onLocate={() => void locateMusic()} />
     </div>
   );
 }

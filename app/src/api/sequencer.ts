@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import type { PlaybackStatus, ShowSnapshot, XlightsSequenceImported } from "./types";
+import type { FoundFile, MissingFile, PlaybackStatus, ShowSnapshot, XlightsSequenceImported } from "./types";
 import type {
   Analysis,
   EffectInfo,
@@ -26,6 +26,12 @@ const TIMING_FILTERS = [
   { name: "xLights timing", extensions: ["xtiming"] },
   { name: "Audacity labels", extensions: ["txt"] },
 ];
+
+/** What looking for the open sequence's music found: where (now used), and the edit that did it. */
+export interface MusicFound {
+  found: FoundFile | null;
+  result: SequenceEditResult | null;
+}
 
 /** Everything the sequencer asks of the engine. Errors reject with a plain-language message. */
 export interface SequencerApi {
@@ -95,6 +101,15 @@ export interface SequencerApi {
    * unsaved sequence. It replaces the open sequence without asking: check `getSequenceDoc()`
    * for unsaved changes first (the store's importXlightsSequence does). */
   importXlightsSequence(path: string): Promise<XlightsSequenceImported>;
+  /** The open sequence's music, when it isn't where the sequence says; else null. */
+  sequenceMusicMissing(): Promise<MissingFile | null>;
+  /**
+   * Looks for the open sequence's missing music by name in the sequence's folder and the show's
+   * (and the folders below them), and uses it when found (one undo step on the sequence).
+   */
+  findSequenceMusic(): Promise<MusicFound>;
+  /** Asks where the open sequence's music is now (a native dialog) and uses it; null when cancelled. */
+  locateSequenceMusic(): Promise<SequenceEditResult | null>;
   /** Native dialogs; null when cancelled. */
   pickXlightsSequencePath(): Promise<string | null>;
   pickSequenceDocPath(): Promise<string | null>;
@@ -146,6 +161,9 @@ export const tauriSequencer: SequencerApi = {
   },
   pickTimingExportPath: async (defaultName) => (await save({ defaultPath: defaultName, filters: TIMING_FILTERS.slice(1) })) ?? null,
   importXlightsSequence: (path) => invoke("import_xlights_sequence", { path }),
+  sequenceMusicMissing: () => invoke("sequence_music_missing"),
+  findSequenceMusic: () => invoke("find_sequence_music"),
+  locateSequenceMusic: () => invoke("locate_sequence_music"),
   pickXlightsSequencePath: async () => {
     const path = await open({ multiple: false, directory: false, filters: XSQ_FILTER });
     return typeof path === "string" ? path : null;

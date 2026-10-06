@@ -48,6 +48,7 @@ import { useApp } from "../../state/store";
 import { usePaletteDrag } from "./EffectPalette";
 import { TimingTrackHeaders } from "./TimingTrackHeaders";
 import { LANE_H, RULER_H, TRACK_H, WAVE_H, drawTimeline, topHeight } from "./drawTimeline";
+import { resolveAudio } from "../../lib/showFiles";
 
 /** Colors a new effect starts with. */
 export const DEFAULT_COLORS = ["#ff0000", "#00c000", "#ffffff"];
@@ -120,13 +121,7 @@ type Ghost = { lane: number; startMs: number; endMs: number; newLayer: boolean }
 
 export { targetName };
 
-/** Music paths relative to the sequence file are found next to it. */
-export function resolveAudio(audio: string | null, docPath: string | null): string | null {
-  if (!audio) return null;
-  if (/^([a-zA-Z]:[\\/]|[\\/])/.test(audio) || !docPath) return audio;
-  const folder = docPath.replace(/[\\/][^\\/]*$/, "");
-  return `${folder}/${audio}`;
-}
+export { resolveAudio };
 
 function useSize(ref: React.RefObject<HTMLElement | null>) {
   const [size, setSize] = useState({ width: 0, height: 0 });

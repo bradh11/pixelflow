@@ -10,7 +10,15 @@ export function plural(n: number, word: string): string {
 
 /** File name from a path, for titles. */
 export function fileName(path: string): string {
-  return path.split(/[\\/]/).pop() ?? path;
+  return shownPath(path.split(/[\\/]/).pop() ?? path);
+}
+
+/**
+ * A path for people to read. Paths from the engine are kept exactly, so a byte that isn't UTF-8
+ * (possible on Linux) arrives as a NUL and two hex digits; it shows as "�".
+ */
+export function shownPath(path: string): string {
+  return path.replace(/\u0000[0-9a-fA-F]{2}/g, "�");
 }
 
 /** Seconds as a clock: 75 → "1:15", 3725 → "1:02:05". */

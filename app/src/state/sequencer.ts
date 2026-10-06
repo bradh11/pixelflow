@@ -17,8 +17,9 @@ import {
   type SequenceSnapshot,
 } from "../api/sequence";
 import type { SequencerApi } from "../api/sequencer";
-import type { PlaybackStatus, XlightsSequenceImported } from "../api/types";
-import { clock, fileName, plural } from "../lib/format";
+import type { MissingFile, PlaybackStatus, XlightsSequenceImported } from "../api/types";
+import { clock, fileName, plural, shownPath } from "../lib/format";
+import { folderOf } from "../lib/showFiles";
 import { tapEdits } from "../lib/timelineMath";
 import { useApp } from "./store";
 
@@ -182,6 +183,15 @@ interface SequencerState {
   /** Fetches the sequence's problems again (the show changed: props may have gone or come back). */
   refreshIssues(): Promise<void>;
   dismissNotice(): void;
+  /** The open sequence's music when it isn't where the sequence says (see checkMusic). */
+  musicMissing: MissingFile | null;
+  /** Asks whether the open sequence's music is where it says (after opening, or new music). */
+  checkMusic(): Promise<void>;
+  /** Looks for the missing music in the sequence's and the show's folders and uses it if found
+   * (one undo step on the sequence), saying what happened. */
+  findMusic(): Promise<boolean>;
+  /** Asks where the music is now and uses that file (one undo step on the sequence). */
+  locateMusic(): Promise<boolean>;
 }
 
 function report(e: unknown) {
@@ -721,6 +731,57 @@ export const useSequencer = create<SequencerState>((set, get) => {
     },
 
     dismissNotice: () => set({ notice: null }),
+
+    musicMissing: null,
+
+    async checkMusic() {
+      const { api } = get();
+      if (!api || !get().doc?.audio) {
+        set({ musicMissing: null });
+        return;
+      }
+      const missing = await guarded(() => api.sequenceMusicMissing());
+      if (get().api === api) set({ musicMissing: missing });
+    },
+
+    async findMusic() {
+      const { api } = get();
+      const missing = get().musicMissing;
+      if (!api || !missing) return false;
+      const ok = await serial(() =>
+        guarded(async () => {
+          const { found, result } = await api.findSequenceMusic();
+          if (result) await absorb(result, api);
+          set({
+            notice: found
+              ? { tone: "done", text: `Found ${found.name} in ${shownPath(folderOf(found.to))}. Undo puts the old place back.`, notes: [], saveShow: false }
+              : {
+                  tone: "info",
+                  text: `PixelFlow couldn't find ${missing.name} in the sequence's or the show's folder. Use Locate… to choose it.`,
+                  notes: [],
+                  saveShow: false,
+                },
+          });
+          return found !== null;
+        }),
+      );
+      await get().checkMusic();
+      return ok === true;
+    },
+
+    async locateMusic() {
+      const { api } = get();
+      if (!api || !get().doc) return false;
+      const ok = await serial(() =>
+        guarded(async () => {
+          const result = await api.locateSequenceMusic();
+          if (result) await absorb(result, api);
+          return result !== null;
+        }),
+      );
+      await get().checkMusic();
+      return ok === true;
+    },
 
     dismissBeats: () => set({ suggestBeats: false }),
     reveal: () => set({ revealAt: get().revealAt + 1 }),

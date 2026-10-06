@@ -1,8 +1,20 @@
 import { create } from "zustand";
 import { type Backend, errorMessage } from "../api/backend";
 import { useSequencer } from "./sequencer";
-import type { Device, Edit, ImportSummary, SequenceImportSummary, Show, ShowSnapshot, SilentPeer } from "../api/types";
+import type {
+  Device,
+  Edit,
+  FileRole,
+  FoundFile,
+  ImportSummary,
+  MissingFile,
+  SequenceImportSummary,
+  Show,
+  ShowSnapshot,
+  SilentPeer,
+} from "../api/types";
 import { fileName } from "../lib/format";
+import { sameFile } from "../lib/showFiles";
 import { useLayoutEditor } from "./layoutEditor";
 import { showViewKey, useView3d } from "./view3d";
 
@@ -43,6 +55,10 @@ interface AppState {
   importReport: { name: string; summary: ImportSummary; notes: string[] } | null;
   /** What the last xLights sequence import brought in, shown until dismissed. */
   sequenceImportReport: { name: string; summary: SequenceImportSummary; notes: string[] } | null;
+  /** What the last search for missing files found, shown until dismissed. */
+  filesReport: { found: FoundFile[]; stillMissing: MissingFile[] } | null;
+  /** The show (by path) whose "files aren't where they were" notice was put away. */
+  missingNoticeDismissed: string | null;
   /** Test screen target selection; kept here so it survives leaving the screen. */
   testTarget: string;
   /** Music volume (0–1) for playback; the engine keeps the same value. */
@@ -85,6 +101,16 @@ interface AppState {
   dismissSequenceImportReport(): void;
   save(): Promise<boolean>;
   saveAs(): Promise<boolean>;
+  /**
+   * Looks for the show's missing files (or only `file`) in the show's folder and points the show
+   * at what it finds (one undo step), then shows what was found.
+   */
+  findMissingFiles(file?: FileRole): Promise<boolean>;
+  /** Asks where a missing file is now and points the show at it (one undo step). */
+  locateFile(file: FileRole): Promise<boolean>;
+  dismissFilesReport(): void;
+  /** Puts away the "files aren't where they were" notice for the open show. */
+  dismissMissingNotice(): void;
   /** Forgets a remembered controller. */
   forgetDevice(address: string): void;
   /** Looks for controllers and re-checks every remembered one; `hosts` checks only those
@@ -143,6 +169,11 @@ const KIND_ORDER: Record<string, number> = { fpp: 0, falcon: 1, wled: 2 };
 function byKindThenAddress(a: KnownDevice, b: KnownDevice): number {
   const key = (d: KnownDevice) => d.address.split(".").map((part) => part.padStart(3, "0")).join(".");
   return (KIND_ORDER[a.kind] ?? 9) - (KIND_ORDER[b.kind] ?? 9) || key(a).localeCompare(key(b));
+}
+
+/** Which show a "files aren't where they were" notice belongs to. */
+export function missingNoticeKey(snapshot: ShowSnapshot | null): string {
+  return snapshot?.path ?? "(unsaved)";
 }
 
 export const useApp = create<AppState>((set, get) => {
@@ -273,6 +304,8 @@ export const useApp = create<AppState>((set, get) => {
   pendingReplace: null,
   importReport: null,
   sequenceImportReport: null,
+  filesReport: null,
+  missingNoticeDismissed: null,
   testTarget: "show",
   musicVolume: 1,
   discovery: null,
@@ -416,6 +449,29 @@ export const useApp = create<AppState>((set, get) => {
     if (!get().snapshot?.path) return get().saveAs();
     return get().run((b) => b.saveShow());
   },
+
+  findMissingFiles: (file) =>
+    get().run(async (b) => {
+      const report = await b.findMissingFiles(file);
+      set({ filesReport: { found: report.found, stillMissing: report.stillMissing } });
+      return report.snapshot;
+    }),
+
+  async locateFile(file) {
+    const ok = await get().run(async (b) => (await b.locateFile(file)) ?? (await b.getSnapshot()));
+    // A file located from the search's report comes off its "still missing" list.
+    const report = get().filesReport;
+    if (ok && report) {
+      const missing = get().snapshot?.missingFiles ?? [];
+      const stillMissing = report.stillMissing.filter((m) => missing.some((x) => sameFile(x.file, m.file)));
+      set({ filesReport: { ...report, stillMissing } });
+    }
+    return ok;
+  },
+
+  dismissFilesReport: () => set({ filesReport: null }),
+
+  dismissMissingNotice: () => set({ missingNoticeDismissed: missingNoticeKey(get().snapshot) }),
 
   async saveAs() {
     commitFocusedField();

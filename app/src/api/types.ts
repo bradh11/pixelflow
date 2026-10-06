@@ -271,6 +271,50 @@ export interface ShowSnapshot {
   issues: Issue[];
   channelMap: ChannelMap;
   summary: Summary;
+  /** The show's files (sequences, music, the photo, the house model) that aren't where it says. */
+  missingFiles: MissingFile[];
+}
+
+/**
+ * Which file the show (or the open sequence) refers to. Paths in the show are "path text": a
+ * path as written, where a byte that isn't UTF-8 (Linux) is a NUL followed by two hex digits.
+ * Show them with fileName; pass them back to the backend unchanged.
+ */
+export type FileRole =
+  | { kind: "sequence"; id: Uuid }
+  | { kind: "music"; id: Uuid }
+  | { kind: "photo" }
+  | { kind: "houseModel" }
+  | { kind: "sequenceDocMusic" };
+
+/** A file that isn't where the show (or the open sequence) says it is. */
+export interface MissingFile {
+  file: FileRole;
+  /** The file's name ("Christmas Medley 2017.mp3"). */
+  name: string;
+  /** Where it was. */
+  path: string;
+  /** What it belongs to ("Music for Medley", "Background photo"). */
+  owner: string;
+  /** "Christmas Medley 2017.mp3 isn't where it was." */
+  message: string;
+}
+
+/** A missing file found again, and now used. */
+export interface FoundFile {
+  file: FileRole;
+  name: string;
+  /** Where it was. */
+  from: string;
+  /** Where it is now. */
+  to: string;
+}
+
+/** What looking for the show's missing files did (all of it is one undo step). */
+export interface FilesFound {
+  snapshot: ShowSnapshot;
+  found: FoundFile[];
+  stillMissing: MissingFile[];
 }
 
 export type Edit =

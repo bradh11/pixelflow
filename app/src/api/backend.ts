@@ -9,6 +9,8 @@ import type {
   PlayerStatus,
   Discovery,
   Edit,
+  FileRole,
+  FilesFound,
   HistoryEntry,
   OutputStatus,
   PatternSpec,
@@ -26,6 +28,14 @@ export interface Backend {
   openShow(path: string): Promise<ShowSnapshot>;
   saveShow(): Promise<ShowSnapshot>;
   saveShowAs(path: string): Promise<ShowSnapshot>;
+  /**
+   * Looks for the show's missing files (or only `file`) by name in the show's folder and the
+   * folders below it, and points the show at what it finds (one undo step). Rejects with a plain
+   * message when the show hasn't been saved (it has no folder yet).
+   */
+  findMissingFiles(file?: FileRole): Promise<FilesFound>;
+  /** Asks where a file is now (a native dialog) and points the show at it (one undo step); null when cancelled. */
+  locateFile(file: FileRole): Promise<ShowSnapshot | null>;
   listHistory(): Promise<HistoryEntry[]>;
   restoreHistory(id: string): Promise<ShowSnapshot>;
   startOutput(pattern: PatternSpec, target: TargetSpec): Promise<OutputStatus>;

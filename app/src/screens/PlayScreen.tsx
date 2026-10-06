@@ -4,6 +4,7 @@ import { errorMessage } from "../api/backend";
 import type { PlaybackStatus, PlayerStatus, PreviewProp, SequenceEntry, Waveform } from "../api/types";
 import { ChannelGrid } from "../components/ChannelGrid";
 import { LivePreview } from "../components/layout3d/LivePreview";
+import { MissingFileNotice, useMissingFile } from "../components/MissingFiles";
 import { SequenceList } from "../components/SequenceList";
 import { WaveformView } from "../components/WaveformView";
 import { Button, EmptyState, PageHeader } from "../components/ui";
@@ -178,6 +179,8 @@ export function PlayScreen() {
   const sequences = snapshot?.show.sequences ?? [];
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = sequences.find((s) => s.id === selectedId) ?? sequences[0] ?? null;
+  const missingSequence = useMissingFile(selected ? { kind: "sequence", id: selected.id } : null);
+  const missingMusic = useMissingFile(selected?.audio ? { kind: "music", id: selected.id } : null);
   const [waveform, setWaveform] = useState<Waveform | null>(null);
   const [waveformLoading, setWaveformLoading] = useState(false);
   const [playAll, setPlayAll] = useState(false);
@@ -492,7 +495,9 @@ export function PlayScreen() {
               Play all and repeat
             </label>
           </div>
+          {missingSequence && <MissingFileNotice missing={missingSequence} />}
           <MusicRow entry={selected} />
+          {missingMusic && <MissingFileNotice missing={missingMusic} />}
           <div className="flex items-center gap-3">
             <Button
               variant="primary"

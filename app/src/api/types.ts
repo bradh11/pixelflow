@@ -597,6 +597,61 @@ export interface FppSequence {
   channels: number;
 }
 
+/** What to send to an FPP: the open sequence (exported for it, named `name` there), or one of
+ * the show's `.fseq` files as it is. */
+export type SendSource = { kind: "openSequence"; name: string } | { kind: "file"; path: string };
+
+/** A file name on an FPP, whether it's taken, and the name that would keep both. */
+export interface NameCheck {
+  name: string;
+  exists: boolean;
+  keepBothName: string;
+}
+
+/** What sending would do, read from the FPP before anything is sent. */
+export interface FppSendPlan {
+  sequence: NameCheck;
+  music: NameCheck | null;
+  playlists: string[];
+  /** A name for a new playlist (the sequence's). */
+  newPlaylistName: string;
+  freeBytes: number | null;
+}
+
+export type PlaylistChoice = { kind: "none" } | { kind: "existing"; name: string } | { kind: "new"; name: string };
+
+/** What the user chose in the Send to FPP dialog. */
+export interface FppSendRequest {
+  source: SendSource;
+  /** The music on this computer, if any. */
+  music: string | null;
+  /** File names on the FPP (as planned, or the keep-both names). */
+  sequenceName: string;
+  musicName: string | null;
+  /** False to use the copy of the music already on the FPP. */
+  uploadMusic: boolean;
+  playlist: PlaylistChoice;
+}
+
+export type FppSendStep = "export" | "sequence" | "music" | "playlist";
+
+export interface FppSendProgress {
+  step: FppSendStep;
+  percent: number;
+  done: number;
+  total: number;
+}
+
+/** What a send put on the FPP. */
+export interface FppSendResult {
+  sequenceName: string;
+  musicName: string | null;
+  playlist: string | null;
+  /** What "Play it now" starts (a playlist or a sequence file). */
+  playName: string;
+  notes: string[];
+}
+
 /** A sequence playing on the controllers. */
 export interface PlaybackStatus {
   state: "playing" | "paused" | "ended";

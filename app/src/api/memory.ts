@@ -3,6 +3,13 @@ import type {
   ChannelMap,
   DeviceDetails,
   FppSequence,
+  FppSendPlan,
+  FppSendProgress,
+  FppSendRequest,
+  FppSendResult,
+  FppSendStep,
+  NameCheck,
+  SendSource,
   PlayerStatus,
   PlaybackStatus,
   ImportSummary,
@@ -418,6 +425,101 @@ export class MemoryBackend implements Backend {
     };
   }
 
+  /** The fake FPP's music, playlists (sequence files on each), and free space, by address. */
+  fppFiles: Record<string, { media: string[]; playlists: Record<string, string[]>; freeBytes: number }> = {};
+  /** How long each step of a fake send takes (ms): 0 in tests, a little in the demo. */
+  fppSendStepMs = 0;
+  /** Makes the next send fail with this message. */
+  fppSendError: string | null = null;
+  private sendCancels = 0;
+
+  private fppFilesOf(address: string) {
+    this.player(address);
+    return (this.fppFiles[address] ??= { media: [], playlists: {}, freeBytes: 8e9 });
+  }
+
+  async fppSequenceNames(address: string) {
+    return this.player(address).sequences.map((s) => `${s.name}.fseq`);
+  }
+
+  async fppSendPlan(address: string, source: SendSource, music: string | null): Promise<FppSendPlan> {
+    const player = this.player(address);
+    const files = this.fppFilesOf(address);
+    const sequence = fppName(source.kind === "file" ? fileName(source.path).replace(/\.fseq$/i, "") : source.name, "fseq");
+    const check = (list: string[], name: string): NameCheck => {
+      const taken = (n: string) => list.some((f) => f.toLowerCase() === n.toLowerCase());
+      const dot = name.lastIndexOf(".");
+      const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
+      let n = 2;
+      while (taken(`${stem} (${n})${ext}`)) n++;
+      return { name, exists: taken(name), keepBothName: `${stem} (${n})${ext}` };
+    };
+    let musicCheck: NameCheck | null = null;
+    if (music) {
+      const file = fileName(music);
+      const ext = /\.(mp3|ogg|m4a|wav|au|m4p|wma|flac|aac)$/i.exec(file)?.[1];
+      if (!ext) throw new Error(`The FPP can't play ${file} with a sequence. Choose an mp3, ogg, m4a, wav, or flac file.`);
+      musicCheck = check(files.media, fppName(file.slice(0, -ext.length - 1), ext));
+    }
+    return {
+      sequence: check(
+        player.sequences.map((s) => `${s.name}.fseq`),
+        sequence,
+      ),
+      music: musicCheck,
+      playlists: Object.keys(files.playlists).sort(),
+      newPlaylistName: sequence.replace(/\.fseq$/, "").replace(/[^-a-zA-Z0-9_ ]/g, "").trim() || "PixelFlow",
+      freeBytes: files.freeBytes,
+    };
+  }
+
+  async fppSend(address: string, request: FppSendRequest, onProgress?: (progress: FppSendProgress) => void): Promise<FppSendResult> {
+    this.calls.push(`fppSend:${address}:${request.sequenceName}:${request.playlist.kind}`);
+    const player = this.player(address);
+    const files = this.fppFilesOf(address);
+    const started = this.sendCancels;
+    const step = async (name: FppSendStep, total: number) => {
+      for (const percent of [0, 25, 50, 75, 100]) {
+        if (this.sendCancels !== started) throw new Error("The upload was cancelled.");
+        onProgress?.({ step: name, percent, done: (total * percent) / 100, total });
+        if (this.fppSendStepMs) await new Promise((r) => setTimeout(r, this.fppSendStepMs));
+      }
+    };
+    if (request.source.kind === "openSequence") await step("export", 1200);
+    if (this.fppSendError) {
+      const error = this.fppSendError;
+      this.fppSendError = null;
+      throw new Error(error);
+    }
+    await step("sequence", 24_000_000);
+    if (request.uploadMusic && request.musicName) await step("music", 4_000_000);
+    if (this.sendCancels !== started) throw new Error("The upload was cancelled.");
+    const stem = request.sequenceName.replace(/\.fseq$/i, "");
+    if (!player.sequences.some((s) => s.name === stem)) {
+      player.sequences.push({ name: stem, frames: this.sequenceDurationMs / 50, stepMs: 50, channels: 4800 });
+    }
+    if (request.uploadMusic && request.musicName && !files.media.includes(request.musicName)) files.media.push(request.musicName);
+    let playlist: string | null = null;
+    if (request.playlist.kind !== "none") {
+      playlist = request.playlist.name;
+      const items = (files.playlists[playlist] ??= []);
+      if (!items.includes(request.sequenceName)) items.push(request.sequenceName);
+    }
+    onProgress?.({ step: "playlist", percent: 100, done: 1, total: 1 });
+    return {
+      sequenceName: request.sequenceName,
+      musicName: request.musicName,
+      playlist,
+      playName: request.playlist.kind === "new" ? request.playlist.name : request.sequenceName,
+      notes: [],
+    };
+  }
+
+  async cancelFppSend() {
+    this.calls.push("cancelFppSend");
+    this.sendCancels++;
+  }
+
   async fppStop(address: string, gracefully: boolean) {
     this.calls.push(`fppStop:${address}:${gracefully ? "gracefully" : "now"}`);
     const player = this.player(address);
@@ -703,6 +805,17 @@ export class MemoryBackend implements Backend {
 
 /** New ids for an import plan's controller and props, as the engine creates for each import. */
 /** A controller added from an FPP's output list: no ports yet, but it knows its sequence channels. */
+/** A name as the FPP keeps it (as the shell's `fpp_file_name` does), ending in `.ext`. */
+function fppName(name: string, ext: string): string {
+  const stem = name
+    .replace(/[/\\]/g, " ")
+    .replace(/[^\w\s\-~,;[\]().]/g, "")
+    .replace(/\.{2,}/g, ".")
+    .replace(/ {2,}/g, " ")
+    .replace(/^[ .]+|[ .]+$/g, "");
+  return `${stem || "Sequence"}.${ext.toLowerCase()}`;
+}
+
 function isPlaceholder(c: Show["controllers"][number]): boolean {
   return c.ports.length === 0 && c.sequenceChannels !== null;
 }

@@ -32,6 +32,8 @@ pub(crate) fn editable(model: &XmlModel, points: &[Vec3]) -> Option<Candidate> {
         "Window Frame" => window_frame(model),
         "Wreath" => wreath(model),
         "Spinner" => spinner(model),
+        "Circle" => circle(model),
+        "Star" => star(model),
         "Sphere" => sphere(model),
         "Cube" => cube(model),
         "Custom" => custom(model),
@@ -1022,6 +1024,154 @@ fn window_frame(m: &XmlModel) -> Vec<Candidate> {
     vec![(generator, transform(b.position, b.rotation_deg, Vec3::ONE))]
 }
 
+/// xLights' layer sizes for a ringed model (Circle, Star) of `lights` pixels: `LayerSizes` (or
+/// the legacy list in `legacy`, a circle's written the other way round), one layer of every
+/// pixel when there's at most one; a circle's cut down so they hold no more than the model.
+fn ring_sizes(m: &XmlModel, legacy: &str, lights: i64) -> Vec<i64> {
+    let mut layers = match m.attr(legacy).filter(|s| !s.is_empty()) {
+        Some(s) if legacy == "circleSizes" => {
+            let reversed: Vec<&str> = s.split(',').rev().collect();
+            crate::geometry::layer_sizes(&reversed.join(","))
+        }
+        Some(s) => crate::geometry::layer_sizes(s),
+        None => crate::geometry::layer_sizes(m.text("LayerSizes", "")),
+    };
+    if layers.len() <= 1 {
+        return vec![lights];
+    }
+    if legacy != "circleSizes" {
+        return layers;
+    }
+    // `CircleModel::InitCircle`; xLights' `SetLayerSize` ignores a size of 0.
+    let mut held = 0;
+    for size in layers.iter_mut() {
+        if held + *size > lights && held < lights {
+            *size = lights - held;
+        }
+        held += *size;
+    }
+    layers
+}
+
+/// `CircleModel` with one light per node: its rings (innermost first, as PixelFlow lists them),
+/// spaced from the outermost (`max ring / 2` units across, scaled) in to `centerPercent` of it,
+/// and where and which way each ring starts.
+fn circle(m: &XmlModel) -> Vec<Candidate> {
+    let lights = parm(m, "NumStrings", "parm1", 1)
+        .max(0)
+        .saturating_mul(parm(m, "NodesPerString", "parm2", 1).max(0));
+    let Some(nodes) = count(lights).filter(|&n| n > 0 && n <= pf_model::MAX_PROP_NODES) else {
+        return Vec::new();
+    };
+    let sizes = ring_sizes(m, "circleSizes", lights);
+    let center = parm(m, "centerPercent", "parm3", 0);
+    if sizes.len() > pf_model::MAX_SHAPE_LAYERS || !(0..=100).contains(&center) {
+        return Vec::new();
+    }
+    let Some((radius, place)) =
+        round_placement(&boxed(m), sizes.iter().copied().max().unwrap_or(1) as f64 / 2.0)
+    else {
+        return Vec::new();
+    };
+    let start_inside = m.attr("InsideOut") == Some("1");
+    // xLights goes round its rings in its own list's order backwards, from the outside, or
+    // from the inside out with the same counts, so the counts follow the radii only then.
+    let mut layers: Vec<u32> = if sizes.len() > 1 {
+        sizes.iter().filter_map(|&n| count(n)).collect()
+    } else {
+        Vec::new()
+    };
+    if start_inside {
+        layers.reverse();
+    }
+    let generator = Generator::Circle {
+        nodes,
+        radius,
+        layers,
+        inner_percent: center as u32,
+        start_inside,
+        start_at_bottom: m.attr("StartSide") == Some("B"),
+        counter_clockwise: m.attr("Dir") == Some("R"),
+    };
+    vec![(generator, place)]
+}
+
+/// `StarModel` with one light per node: its points, layers, start and direction, and its size:
+/// the outermost tips `buffer / 2` units out (xLights' buffer grows with the layers inside),
+/// the corners between them `starRatio` times nearer, before scaling.
+fn star(m: &XmlModel) -> Vec<Candidate> {
+    use pf_model::StarStart;
+    let lights = parm(m, "NumStrings", "parm1", 1)
+        .max(0)
+        .saturating_mul(parm(m, "NodesPerString", "parm2", 1).max(0));
+    let points = parm(m, "StarPoints", "parm3", 5).max(2);
+    let Some(nodes) = count(lights).filter(|&n| n > 0 && n <= pf_model::MAX_PROP_NODES) else {
+        return Vec::new();
+    };
+    let sizes = ring_sizes(m, "starSizes", lights);
+    if points > i64::from(pf_model::MAX_STAR_POINTS) || sizes.len() > pf_model::MAX_SHAPE_LAYERS {
+        return Vec::new();
+    }
+    let lc = sizes.len();
+    // `StarModel::InitModel`: each layer's share of the buffer, inflated for the layers outside it.
+    let buffer = (0..lc)
+        .map(|l| {
+            let outside = (lc - l - 1) as f32;
+            1 + (f64::from(sizes[l] as f32) * (1.0 + f64::from(outside / lc as f32))) as i64
+        })
+        .max()
+        .unwrap_or(1);
+    let ratio = f64::from(float(m, "starRatio", 2.618034) as f32).max(1.0);
+    let mut inner_percent = int(m, "starCenterPercent", -1);
+    if lc > 1 && inner_percent == -1 {
+        inner_percent = (100.0f32 / lc as f32) as i64;
+    }
+    if lc > 1 && !(0..=100).contains(&inner_percent) {
+        return Vec::new();
+    }
+    let location = match m.attr("StarStartLocation").filter(|s| !s.is_empty()) {
+        Some(s) => s.to_string(),
+        None => {
+            let (ltor, btot) = (m.text("Dir", "L") == "L", m.text("StartSide", "B") == "B");
+            match (ltor, btot) {
+                (true, true) => "Bottom Ctr-CW",
+                (true, false) => "Top Ctr-CCW",
+                (false, true) => "Bottom Ctr-CCW",
+                (false, false) => "Top Ctr-CW",
+            }
+            .to_string()
+        }
+    };
+    let start = if location.contains("Top") {
+        StarStart::Top
+    } else if location.contains("Bottom Ctr") {
+        StarStart::Bottom
+    } else if location.contains("Left") {
+        StarStart::LeftLeg
+    } else {
+        StarStart::RightLeg
+    };
+    let Some((outer, place)) = round_placement(&boxed(m), buffer as f64 / 2.0) else {
+        return Vec::new();
+    };
+    let generator = Generator::Star {
+        points: points as u32,
+        nodes,
+        outer_radius: outer,
+        inner_radius: (f64::from(outer) / ratio) as f32,
+        start,
+        counter_clockwise: location.contains("-CCW"),
+        layers: if lc > 1 {
+            sizes.iter().filter_map(|&n| count(n)).collect()
+        } else {
+            Vec::new()
+        },
+        inner_percent: if lc > 1 { inner_percent as u32 } else { 50 },
+        start_inside: location.contains("Inside"),
+    };
+    vec![(generator, place)]
+}
+
 /// `WreathModel` with one light per node: its lights, where they start and which way they go,
 /// and its grid of `lights / 2` steps across the radius. xLights draws a wreath of an odd number
 /// of lights a step down and left of its middle, so that one is moved to match.
@@ -1531,6 +1681,163 @@ mod tests {
                 ],
             ),
         );
+    }
+
+    /// A ring of 50 pixels, a little wider than tall.
+    const CIRCLE: [(&str, &str); 6] = [
+        ("NumStrings", "1"),
+        ("NodesPerString", "50"),
+        ("WorldPosX", "300"),
+        ("WorldPosY", "200"),
+        ("ScaleX", "2.5"),
+        ("ScaleY", "2"),
+    ];
+
+    #[test]
+    fn circles_import_as_circles_with_their_rings() {
+        let g = imports_as("Circle", &CIRCLE);
+        let Generator::Circle {
+            nodes,
+            radius,
+            ref layers,
+            start_at_bottom,
+            counter_clockwise,
+            ..
+        } = g
+        else {
+            panic!("{g:?}")
+        };
+        assert_eq!((nodes, start_at_bottom, counter_clockwise), (50, false, false));
+        assert!(layers.is_empty());
+        assert!((radius - 25.0 * 2.5 * SCALE).abs() < 1e-6);
+        let variants: [&[(&str, &str)]; 9] = [
+            &[("StartSide", "B")],
+            &[("Dir", "R")],
+            &[("StartSide", "T"), ("Dir", "R"), ("RotateZ", "30")],
+            &[("NumStrings", "3"), ("NodesPerString", "20")],
+            &[
+                ("NodesPerString", "60"),
+                ("LayerSizes", "10,20,30"),
+                ("centerPercent", "20"),
+            ],
+            &[
+                ("NodesPerString", "60"),
+                ("LayerSizes", "10,20,30"),
+                ("InsideOut", "1"),
+                ("StartSide", "B"),
+            ],
+            &[
+                ("NodesPerString", "60"),
+                ("circleSizes", "30,20,10"),
+                ("parm3", "35"),
+                ("Dir", "R"),
+            ],
+            // More pixels than the rings hold, and fewer.
+            &[("NodesPerString", "70"), ("LayerSizes", "10,20,30")],
+            &[
+                ("NodesPerString", "45"),
+                ("LayerSizes", "10,20,30"),
+                ("InsideOut", "1"),
+            ],
+        ];
+        for more in variants {
+            imports_as("Circle", &with(&CIRCLE, more));
+        }
+        let g = imports_as(
+            "Circle",
+            &with(
+                &CIRCLE,
+                &[
+                    ("NodesPerString", "60"),
+                    ("LayerSizes", "10,20,30"),
+                    ("InsideOut", "1"),
+                ],
+            ),
+        );
+        // xLights counts the rings from the outside even when it starts inside.
+        assert!(matches!(
+            g,
+            Generator::Circle { start_inside: true, ref layers, .. } if *layers == [30, 20, 10]
+        ));
+    }
+
+    /// A five-point star of 50 pixels.
+    const STAR: [(&str, &str); 6] = [
+        ("NumStrings", "1"),
+        ("NodesPerString", "50"),
+        ("WorldPosX", "500"),
+        ("WorldPosY", "300"),
+        ("ScaleX", "2"),
+        ("ScaleY", "2"),
+    ];
+
+    #[test]
+    fn stars_import_as_stars_from_every_start() {
+        let mut variants: Vec<Vec<(&str, &str)>> = [
+            "Top Ctr-CW",
+            "Top Ctr-CCW",
+            "Bottom Ctr-CW",
+            "Bottom Ctr-CCW",
+            "Left Bottom-CW",
+            "Left Bottom-CCW",
+            "Right Bottom-CW",
+            "Right Bottom-CCW",
+        ]
+        .into_iter()
+        .map(|start| with(&STAR, &[("StarStartLocation", start)]))
+        .collect();
+        for start in ["Top Ctr-CW Inside", "Bottom Ctr-CCW Inside", "Top Ctr-CCW"] {
+            variants.push(with(
+                &STAR,
+                &[
+                    ("StarStartLocation", start),
+                    ("NodesPerString", "90"),
+                    ("LayerSizes", "20,30,40"),
+                ],
+            ));
+        }
+        for points in ["4", "6", "7"] {
+            for start in ["Bottom Ctr-CW", "Left Bottom-CCW", "Right Bottom-CW"] {
+                variants.push(with(
+                    &STAR,
+                    &[("StarStartLocation", start), ("StarPoints", points)],
+                ));
+            }
+        }
+        variants.push(with(
+            &STAR,
+            &[("Dir", "R"), ("StartSide", "T"), ("starRatio", "3.5")],
+        ));
+        variants.push(with(
+            &STAR,
+            &[("parm3", "8"), ("ScaleY", "1.2"), ("RotateZ", "-20")],
+        ));
+        variants.push(with(
+            &STAR,
+            &[
+                ("NodesPerString", "95"),
+                ("LayerSizes", "20,30,40"),
+                ("starCenterPercent", "40"),
+            ],
+        ));
+        variants.push(with(
+            &STAR,
+            &[("NodesPerString", "80"), ("LayerSizes", "20,30,40")],
+        ));
+        for attrs in &variants {
+            imports_as("Star", attrs);
+        }
+        let g = imports_as("Star", &with(&STAR, &[("StarStartLocation", "Left Bottom-CCW")]));
+        assert!(matches!(
+            g,
+            Generator::Star {
+                points: 5,
+                nodes: 50,
+                start: pf_model::StarStart::LeftLeg,
+                counter_clockwise: true,
+                ..
+            }
+        ));
     }
 
     /// Two strings of icicles hanging along 300 of slightly sloping gutter.

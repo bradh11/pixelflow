@@ -779,7 +779,7 @@ fn what_the_user_is_looking_at_goes_with_the_message() {
     let Message::User(text) = &provider.requests()[0][0] else {
         panic!()
     };
-    assert!(text.starts_with("<context>\nScreen: \"sequence\"\nSelected props (1): \"Roofline\"\nOpen sequence: \"Wizards\" (3:12.000)\nPlayhead: 0:31.200\n</context>"), "{text}");
+    assert!(text.starts_with("<context>\nScreen: \"sequence\"\nSelected props (1): \"Roofline\"\nOpen sequence: \"Wizards\" (3:12.000, no song)\nPlayhead: 0:31.200\n</context>"), "{text}");
     assert!(text.ends_with("What's this?"));
     assert!(results_in(&provider, 1)[0].0.contains("Roofline"));
 

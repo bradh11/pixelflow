@@ -14,6 +14,7 @@
 
 pub mod agent;
 pub mod anthropic;
+pub mod arrange;
 pub mod diff;
 pub mod draft;
 pub mod error;
@@ -23,7 +24,9 @@ pub mod openai;
 pub mod provider;
 pub mod run;
 pub mod secret;
+pub mod song;
 pub mod sse;
+pub mod summary;
 pub mod tools;
 
 #[cfg(any(test, feature = "test-fixtures"))]

@@ -73,8 +73,16 @@ impl Diff {
         if self.changes.is_empty() {
             return "The draft has no changes yet.".to_string();
         }
+        const LISTED_EFFECTS: usize = 40;
         let mut out = String::new();
+        let mut effects = 0;
         for change in &self.changes {
+            if change.section == Section::Effect {
+                effects += 1;
+                if effects > LISTED_EFFECTS {
+                    continue;
+                }
+            }
             let action = match change.action {
                 Action::Added => "Add",
                 Action::Removed => "Remove",
@@ -85,6 +93,12 @@ impl Diff {
                 out.push_str(&format!(" ({})", change.details.join("; ")));
             }
             out.push('\n');
+        }
+        if effects > LISTED_EFFECTS {
+            out.push_str(&format!(
+                "- …and {} more effect changes ({effects} in all); list_sequence_effects shows them by row or time.\n",
+                effects - LISTED_EFFECTS
+            ));
         }
         out
     }
@@ -1062,6 +1076,26 @@ mod tests {
         assert_eq!(d.changes.len(), 1);
         assert_eq!(d.changes[0].name, "Timing track order");
         assert_eq!(d.changes[0].details, ["Bars, Beats"]);
+    }
+
+    #[test]
+    fn a_long_list_of_effects_is_summed_up_for_the_model() {
+        let effect = |i: usize| Change {
+            section: Section::Effect,
+            action: Action::Added,
+            name: format!("Twinkle {i}"),
+            id: None,
+            details: Vec::new(),
+            warnings: Vec::new(),
+        };
+        let diff = Diff {
+            changes: (0..100).map(effect).collect(),
+        };
+        let text = diff.describe();
+        assert!(text.contains("Twinkle 39") && !text.contains("Twinkle 40"));
+        assert!(text.ends_with(
+            "- …and 60 more effect changes (100 in all); list_sequence_effects shows them by row or time.\n"
+        ));
     }
 
     #[test]

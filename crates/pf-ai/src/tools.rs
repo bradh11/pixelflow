@@ -24,6 +24,16 @@ pub enum ToolKind {
         tag: String,
     },
     Query(Query),
+    /// Reads the open sequence's song (tempo, beats, bars, sections).
+    AnalyzeSong,
+    /// Adds the song's timing tracks to the draft.
+    AddSongTiming,
+    /// One effect on many rows, along timing marks.
+    PlaceEffects,
+    /// Copies a stretch of effects to other times.
+    RepeatEffects,
+    /// Offers the user a button to start a new sequence from a song.
+    AskForSong,
     ReviewDraft,
     ResetDraft,
     Propose,
@@ -71,6 +81,7 @@ impl Toolbox {
         let mut tools = query_tools();
         tools.extend(show_edit_tools());
         tools.extend(sequence_edit_tools());
+        tools.extend(song_tools());
         tools.extend(draft_tools());
         compact_large_unions(&mut tools);
         share_large_definitions(&mut tools);
@@ -150,7 +161,7 @@ pub fn sequence_tool_name(tag: &str) -> String {
 /// it with the system prompt; past this it crowds the conversation out.
 pub const TOOL_BUDGET_BYTES: usize = 64_000;
 /// How much of [`TOOL_BUDGET_BYTES`] stays free for new tools, edits, and options.
-pub const TOOL_HEADROOM_BYTES: usize = 6_000;
+pub const TOOL_HEADROOM_BYTES: usize = 12_000;
 /// The most one tool may weigh: a large union belongs behind a lookup tool instead (see
 /// [`compact_large_unions`]).
 pub const ONE_TOOL_BUDGET_BYTES: usize = 8_000;
@@ -616,6 +627,92 @@ fn query_tools() -> Vec<Tool> {
                 &["trackId"],
             ),
             Query::TimingMarks,
+        ),
+    ]
+}
+
+fn tool(name: &str, description: &str, input_schema: Value, kind: ToolKind) -> Tool {
+    Tool {
+        spec: ToolSpec {
+            name: name.into(),
+            description: description.into(),
+            input_schema,
+        },
+        kind,
+    }
+}
+
+/// Starting a sequence from a song, reading the song, and placing many effects in one call.
+fn song_tools() -> Vec<Tool> {
+    let ms = || json!({ "type": "integer", "minimum": 0 });
+    let ids = || json!({ "type": "array", "items": { "type": "string" } });
+    vec![
+        tool(
+            "ask_for_song",
+            "Shows the user a Choose a song button that starts a new, unsaved sequence from a song of theirs, with a row per prop and group. Use it when no sequence is open (or they want a new one), then end your turn: their next message says when it's open.",
+            object(json!({}), &[]),
+            ToolKind::AskForSong,
+        ),
+        tool(
+            "analyze_song",
+            "The open sequence's song: tempo, beat count, bar start times, and sections with their energy (0–1) and level.",
+            object(json!({}), &[]),
+            ToolKind::AnalyzeSong,
+        ),
+        tool(
+            "add_song_timing",
+            "Adds the song's timing tracks to the draft (Beats labeled 1–4, numbered Bars, labeled Sections, Onsets), reusing ones already there; answers their ids.",
+            object(
+                json!({ "tracks": { "type": "array", "items": { "enum": crate::song::TRACK_CHOICES }, "description": "Default: beats, bars, sections." } }),
+                &[],
+            ),
+            ToolKind::AddSongTiming,
+        ),
+        tool(
+            "place_effects",
+            "Puts one effect on many rows from fromMs to toMs: one each, or cut at a timing track's marks (`track`: id or name; `marksEach` marks per effect) and shared out by `spread`: together, alternate (neighbours take turns), sweep (one row after another), build (rows join one by one). Refused where it overlaps effects on that layer, unless replace.",
+            object(
+                json!({
+                    "rowIds": ids(),
+                    "fromMs": ms(),
+                    "toMs": ms(),
+                    "effect": {
+                        "type": "object",
+                        "description": "kind and settings as list_effect_kinds gives them; colors as \"#rrggbb\".",
+                        "properties": {
+                            "kind": { "type": "string" },
+                            "settings": { "type": "object" },
+                            "colors": { "type": "array", "items": { "type": "string" } },
+                            "blend": { "enum": ["normal", "add", "max", "multiply"] },
+                            "fadeInMs": ms(),
+                            "fadeOutMs": ms(),
+                        },
+                        "required": ["kind"],
+                    },
+                    "track": { "type": "string" },
+                    "marksEach": { "type": "integer", "minimum": 1 },
+                    "spread": { "enum": crate::arrange::SPREADS },
+                    "layer": { "type": "integer", "minimum": 0, "description": "Default 0, the bottom; one past the top adds a layer." },
+                    "replace": { "type": "boolean" },
+                }),
+                &["rowIds", "fromMs", "toMs", "effect"],
+            ),
+            ToolKind::PlaceEffects,
+        ),
+        tool(
+            "repeat_effects",
+            "Copies every effect starting from fromMs to toMs (on all rows, or rowIds) to each time in startsMs, keeping rows, layers, and lengths. Refused where a copy overlaps effects, unless replace.",
+            object(
+                json!({
+                    "fromMs": ms(),
+                    "toMs": ms(),
+                    "startsMs": { "type": "array", "items": ms() },
+                    "rowIds": ids(),
+                    "replace": { "type": "boolean" },
+                }),
+                &["fromMs", "toMs", "startsMs"],
+            ),
+            ToolKind::RepeatEffects,
         ),
     ]
 }

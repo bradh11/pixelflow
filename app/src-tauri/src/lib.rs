@@ -336,6 +336,7 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         assistant::ai_apply,
         assistant::ai_discard,
         assistant::ai_preview,
+        assistant::ai_preview_frame,
         assistant::ai_sync,
         files::check_files,
         files::find_missing_files,

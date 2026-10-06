@@ -16,6 +16,13 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tauri::ipc::Response;
 use tauri::{AppHandle, Emitter, Runtime, State};
 
+/// A proposal's draft sequence ready to play: its renderer and the sequence.
+struct DraftPlayer {
+    proposal: String,
+    renderer: pf_engine::DraftRenderer,
+    doc: pf_sequence::Sequence,
+}
+
 /// The event a chat turn streams on.
 pub(crate) const ASSISTANT_EVENT: &str = "assistant-event";
 
@@ -31,6 +38,8 @@ pub(crate) struct AiState {
     running: Mutex<Option<Cancel>>,
     /// Numbers turns, so the window can tell their events apart.
     turns: Mutex<u64>,
+    /// The proposal whose draft sequence is being previewed.
+    player: Mutex<Option<DraftPlayer>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -45,6 +54,7 @@ impl AiState {
             session: Arc::default(),
             running: Mutex::default(),
             turns: Mutex::default(),
+            player: Mutex::default(),
         }
     }
 
@@ -347,6 +357,36 @@ pub(crate) async fn ai_preview(ai: State<'_, AiState>, id: String) -> Reply<Resp
     )))
 }
 
+/// The proposal's draft sequence at `position_ms`, drawn on its draft show (show frame bytes,
+/// raw, laid out like [`ai_preview`]'s pixels): the preview plays the draft without applying it.
+/// Nothing is sent to the controllers.
+#[tauri::command]
+pub(crate) async fn ai_preview_frame(
+    ai: State<'_, AiState>,
+    id: String,
+    position_ms: u64,
+) -> Reply<Response> {
+    ai.idle()?;
+    let mut player = lock(&ai.player);
+    if player.as_ref().is_none_or(|p| p.proposal != id) {
+        let proposal = current_proposal(&ai, &id)?;
+        let doc = proposal
+            .draft_sequence
+            .filter(|_| !proposal.sequence_edits.is_empty())
+            .ok_or_else(|| "This suggestion doesn't change the sequence.".to_string())?;
+        *player = Some(DraftPlayer {
+            proposal: id,
+            renderer: pf_engine::DraftRenderer::new(&proposal.draft_show),
+            doc,
+        });
+    }
+    let frame = player
+        .as_mut()
+        .map(|p| p.renderer.frame(&p.doc, position_ms))
+        .unwrap_or_default();
+    Ok(Response::new(frame))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -621,6 +661,77 @@ mod tests {
         let undone = call(&t, "undo", json!({})).unwrap();
         assert_eq!(undone["show"], original["show"]);
         assert_eq!(undone["canUndo"], false);
+    }
+
+    #[test]
+    fn a_sequence_proposal_plays_in_the_preview_without_applying() {
+        let t = app_with(MemoryStore::new());
+        call(
+            &t,
+            "set_api_key",
+            json!({ "provider": "anthropic", "key": FAKE_KEY }),
+        )
+        .unwrap();
+        // No sequence open: the assistant offers the song picker.
+        t.anthropic.push(Reply::ok(sse(
+            "You don't have a sequence open yet.",
+            &[("ask_for_song", json!({}))],
+        )));
+        t.anthropic
+            .push(Reply::ok(sse("Pick a song and I'll build it.", &[])));
+        let send =
+            json!({ "provider": "anthropic", "model": "claude-opus-5-5", "message": "Make me a sequence" });
+        let reply = call(&t, "ai_send", send).unwrap();
+        assert_eq!(reply["chooseSong"], true);
+
+        // The user picked a song; the app made the sequence. Now the draft fills it.
+        call(
+            &t,
+            "new_sequence_doc",
+            json!({ "name": "Jingle", "durationMs": 10_000, "audio": null }),
+        )
+        .unwrap();
+        let track = pf_sequence::TimingTrack::new("Beats", pf_sequence::TimingKind::Beats, vec![]);
+        t.anthropic.push(Reply::ok(sse(
+            "",
+            &[(
+                "sequence_add_timing_track",
+                json!({ "track": serde_json::to_value(&track).unwrap() }),
+            )],
+        )));
+        t.anthropic.push(Reply::ok(sse("Here it is.", &[])));
+        let reply = call(
+            &t,
+            "ai_send",
+            json!({ "provider": "anthropic", "model": "claude-opus-5-5", "message": "I chose a song." }),
+        )
+        .unwrap();
+        let proposal = &reply["proposal"];
+        assert_eq!(proposal["changesSequence"], true);
+        assert_eq!(proposal["timeline"]["durationMs"], 10_000);
+        assert_eq!(proposal["sections"][0]["label"], "Whole sequence");
+        let id = proposal["id"].as_str().unwrap();
+        let frame = request(
+            &t.webview,
+            "ai_preview_frame",
+            json!({ "id": id, "positionMs": 500 }),
+        )
+        .unwrap();
+        assert!(matches!(frame, InvokeResponseBody::Raw(_)));
+        assert!(
+            request(
+                &t.webview,
+                "ai_preview_frame",
+                json!({ "id": "another", "positionMs": 0 })
+            )
+            .is_err()
+        );
+        let doc = call(&t, "get_sequence_doc", json!({})).unwrap();
+        assert_eq!(
+            doc["sequence"]["timingTracks"],
+            json!([]),
+            "previewing applies nothing"
+        );
     }
 
     #[test]

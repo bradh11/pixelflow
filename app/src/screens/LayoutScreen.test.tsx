@@ -283,6 +283,18 @@ describe("LayoutScreen", () => {
     expect(edits).toHaveLength(3);
   });
 
+  it("makes a tree flat, or part of the way round, from the properties panel", async () => {
+    const tree = { ...newProp("tree", emptyShow("x")), name: "Mega Tree" };
+    const user = await setup(showWith(tree));
+    act(() => useLayoutEditor.getState().select([tree.id]));
+    await user.selectOptions(screen.getByLabelText("Style"), "flat");
+    const round = screen.getByLabelText("Goes round (°)");
+    await user.clear(round);
+    await user.type(round, "180{Enter}");
+    expect(backend.show.props[0].shape).toMatchObject({ style: "flat", degrees: 180 });
+    expect(edits).toHaveLength(2);
+  });
+
   it("says where a prop is wired, or that it isn't", async () => {
     const wired = line("Gutter", 0, 0);
     const show = showWith(wired, line("Fence", 0, 4));

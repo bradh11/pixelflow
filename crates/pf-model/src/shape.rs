@@ -112,6 +112,16 @@ fn full_turn() -> f32 {
     360.0
 }
 
+/// The shape of a tree (xLights' Tree 360 / Flat / Ribbon).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TreeStyle {
+    #[default]
+    Round,
+    Flat,
+    Ribbon,
+}
+
 fn south() -> f32 {
     -86.0
 }
@@ -139,7 +149,12 @@ pub enum Generator {
         #[serde(default)]
         wiring: MatrixWiring,
     },
-    /// Cone of strings running bottom to top; origin at the base center.
+    /// Strings running bottom to top; origin at the base center. A round tree is a cone: string
+    /// `s` stands at `start_angle + s × degrees / strings` round from the front (or
+    /// `degrees / (strings - 1)` apart when `degrees` is under 350, so a part tree reaches both
+    /// edges, as xLights does). A flat tree fans its strings out in the front view, from
+    /// `base_radius` either side at the bottom to `top_radius` at the top; a ribbon tree does the
+    /// same with each string the same length, so the slanted ones end lower.
     Tree {
         strings: u32,
         nodes_per_string: u32,
@@ -148,6 +163,12 @@ pub enum Generator {
         top_radius: f32,
         #[serde(default)]
         serpentine: bool,
+        #[serde(default)]
+        style: TreeStyle,
+        #[serde(default = "full_turn")]
+        degrees: f32,
+        #[serde(default)]
+        start_angle: f32,
     },
     /// Star outline with `points` tips, pixels spaced evenly along the outline; centered.
     Star {
@@ -441,6 +462,9 @@ mod tests {
                     base_radius: 1.0,
                     top_radius: 0.1,
                     serpentine: false,
+                    style: TreeStyle::Round,
+                    degrees: 360.0,
+                    start_angle: 0.0,
                 },
                 800,
             ),
@@ -787,9 +811,28 @@ mod tests {
             base_radius: 1.0,
             top_radius: 0.5,
             serpentine: true,
+            style: TreeStyle::Flat,
+            degrees: 360.0,
+            start_angle: 0.0,
         })
         .unwrap();
         assert_eq!(json["nodesPerString"], 3);
         assert_eq!(json["baseRadius"], 1.0);
+        assert_eq!(json["style"], "flat");
+        assert_eq!(json["startAngle"], 0.0);
+        // Trees saved before styles were added are round, all the way round.
+        let old: Generator = serde_json::from_str(
+            r#"{ "type": "tree", "strings": 2, "nodesPerString": 3, "height": 1, "baseRadius": 1, "topRadius": 0 }"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            old,
+            Generator::Tree {
+                style: TreeStyle::Round,
+                degrees: 360.0,
+                start_angle: 0.0,
+                ..
+            }
+        ));
     }
 }

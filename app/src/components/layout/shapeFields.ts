@@ -59,8 +59,16 @@ export const SHAPE_FIELDS: Record<string, ShapeField[]> = {
     COUNT("strings", "Strings"),
     COUNT("nodesPerString", "Pixels per string"),
     SIZE("height", "Height"),
-    SIZE("baseRadius", "Base radius"),
-    SIZE("topRadius", "Top radius", 0),
+    SIZE("baseRadius", "Base radius", 0.01, "For a flat or ribbon tree, half its width at the bottom"),
+    SIZE("topRadius", "Top radius", 0, "For a flat or ribbon tree, half its width at the top"),
+    NUMBER("degrees", "Goes round (°)", 1, 360, "A round tree: 360 all the way round, 180 a half tree against a wall"),
+    NUMBER("startAngle", "First string at (°)", -360, 360, "A round tree: how far round from the front the first string stands"),
+    CHOICE("style", "Style", [
+      ["round", "Round (a cone)"],
+      ["flat", "Flat (strings fanned out)"],
+      ["ribbon", "Ribbon (fanned, strings the same length)"],
+    ]),
+    BOOL("serpentine", "Zig-zag (every other string runs top to bottom)"),
   ],
   star: [COUNT("points", "Points", 2), COUNT("nodes", "Pixels"), SIZE("outerRadius", "Outer radius"), SIZE("innerRadius", "Inner radius")],
   candyCanes: [

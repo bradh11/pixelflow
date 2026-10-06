@@ -45,6 +45,12 @@ export type Generator =
       baseRadius: number;
       topRadius: number;
       serpentine?: boolean;
+      /** Round (a cone, the default), or fanned out flat, or a ribbon. */
+      style?: "round" | "flat" | "ribbon";
+      /** How far round a round tree goes (default 360). */
+      degrees?: number;
+      /** Where the first string of a round tree stands, degrees round from the front (default 0). */
+      startAngle?: number;
     }
   | { type: "star"; points: number; nodes: number; outerRadius: number; innerRadius: number }
   | { type: "customGrid"; columns: number; rows: number; cells: number[] }

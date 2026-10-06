@@ -4,7 +4,7 @@
 use pf_geometry::{local_positions, world_positions};
 use pf_model::{
     Corner, CubeStart, CubeStyle, Generator, MatrixWiring, Orientation, PolySegment, Prop, Provenance,
-    ShapeSource, StrandStyle, Transform, Vec3,
+    ShapeSource, StrandStyle, Transform, TreeStyle, Vec3,
 };
 use proptest::prelude::*;
 
@@ -54,21 +54,35 @@ fn generator() -> impl Strategy<Value = Generator> {
                 }
             }),
         (
-            0u32..32,
-            0u32..100,
-            size.clone(),
-            size.clone(),
-            size.clone(),
-            any::<bool>()
+            (0u32..32, 0u32..100),
+            (size.clone(), size.clone(), size.clone()),
+            any::<bool>(),
+            prop_oneof![
+                Just(TreeStyle::Round),
+                Just(TreeStyle::Flat),
+                Just(TreeStyle::Ribbon)
+            ],
+            (1f32..=360.0, -360f32..360.0),
         )
             .prop_map(
-                |(strings, nodes_per_string, height, base_radius, top_radius, serpentine)| Generator::Tree {
-                    strings,
-                    nodes_per_string,
-                    height,
-                    base_radius,
-                    top_radius,
+                |(
+                    (strings, nodes_per_string),
+                    (height, base_radius, top_radius),
                     serpentine,
+                    style,
+                    (degrees, start_angle),
+                )| {
+                    Generator::Tree {
+                        strings,
+                        nodes_per_string,
+                        height,
+                        base_radius,
+                        top_radius,
+                        serpentine,
+                        style,
+                        degrees,
+                        start_angle,
+                    }
                 }
             ),
         (0u32..12, 0u32..500, size.clone(), size).prop_map(|(points, nodes, outer_radius, inner_radius)| {
@@ -380,6 +394,9 @@ fn a_quarter_turn_maps_right_to_up_for_every_generator() {
             base_radius: 1.5,
             top_radius: 0.2,
             serpentine: true,
+            style: TreeStyle::Round,
+            degrees: 360.0,
+            start_angle: 0.0,
         },
         Generator::Star {
             points: 5,

@@ -342,13 +342,22 @@ function generate(g: Generator): Vec3[] {
     }
     case "tree": {
       const out: Vec3[] = [];
-      for (let s = 0; s < g.strings && out.length < MAX_POINTS; s++) {
-        const angle = (2 * Math.PI * s) / g.strings;
+      const n = g.strings;
+      const [style, degrees, startAngle] = [g.style ?? "round", g.degrees ?? 360, g.startAngle ?? 0];
+      const step = degrees < 350 && n > 1 ? degrees / (n - 1) : degrees / Math.max(n, 1);
+      for (let s = 0; s < n && out.length < MAX_POINTS; s++) {
+        const angle = rad(startAngle + s * step);
+        const across = (s + 0.5 - n / 2) / (n / 2);
+        const [xb, xt] = [across * g.baseRadius, across * g.topRadius];
+        const slant = Math.hypot(g.height, xt - xb);
         for (let j = 0; j < g.nodesPerString; j++) {
           let t = spread(j, g.nodesPerString);
           if (g.serpentine && s % 2 === 1) t = 1 - t;
-          const r = g.baseRadius + (g.topRadius - g.baseRadius) * t;
-          out.push(v(r * Math.sin(angle), t * g.height, r * Math.cos(angle)));
+          if (style === "round") {
+            const r = g.baseRadius + (g.topRadius - g.baseRadius) * t;
+            out.push(v(r * Math.sin(angle), t * g.height, r * Math.cos(angle)));
+          } else if (style === "flat") out.push(v(xb + (xt - xb) * t, t * g.height));
+          else out.push(v(xb + (xt - xb) * t, slant > 0 ? (t * g.height * g.height) / slant : 0));
         }
       }
       return out;

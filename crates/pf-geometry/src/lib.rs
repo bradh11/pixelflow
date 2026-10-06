@@ -62,14 +62,20 @@ fn generate(generator: &Generator) -> Vec<Vec3> {
             base_radius,
             top_radius,
             serpentine,
-        } => tree::positions(
+            style,
+            degrees,
+            start_angle,
+        } => tree::positions(tree::Tree {
             strings,
             nodes_per_string,
             height,
             base_radius,
             top_radius,
             serpentine,
-        ),
+            style,
+            degrees,
+            start_angle,
+        }),
         Generator::Star {
             points,
             nodes,

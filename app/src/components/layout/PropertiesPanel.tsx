@@ -34,6 +34,8 @@ const COLOR_ORDERS: ColorOrder[] = ["RGB", "RBG", "GRB", "GBR", "BRG", "BGR", "R
 /** Nested settings a shape may leave out (an older matrix has no wiring of its own). */
 const SHAPE_DEFAULTS: Record<string, unknown> = {
   wiring: { start: "bottomLeft", orientation: "horizontal", serpentine: true },
+  degrees: 360,
+  startAngle: 0,
 };
 
 /** A shape's settings: numbers two to a row, then choices, lists, and checkboxes one to a row. */

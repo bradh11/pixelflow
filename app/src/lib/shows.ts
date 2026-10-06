@@ -70,6 +70,9 @@ const DEFAULT_SHAPES: Record<PropKind, ShapeSource> = {
     baseRadius: 1.5,
     topRadius: 0.1,
     serpentine: true,
+    style: "round",
+    degrees: 360,
+    startAngle: 0,
   },
   star: { source: "generator", type: "star", points: 5, nodes: 100, outerRadius: 1, innerRadius: 0.4 },
   candyCanes: {

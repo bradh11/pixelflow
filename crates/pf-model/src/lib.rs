@@ -36,7 +36,7 @@ pub use region::{
 };
 pub use shape::{
     Corner, CubeStart, CubeStyle, Generator, MatrixWiring, Orientation, PolySegment, Provenance, ShapeSource,
-    StrandStyle,
+    StrandStyle, TreeStyle,
 };
 pub use show::{Background, CURRENT_SCHEMA_VERSION, HouseModel, SequenceEntry, Show, ShowSettings};
 pub use validate::validate_show;

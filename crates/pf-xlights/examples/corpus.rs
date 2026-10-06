@@ -20,7 +20,9 @@ fn main() {
         let started = Instant::now();
         let result = std::panic::catch_unwind(|| pf_xlights::import_folder(dir));
         let took = started.elapsed();
-        let name = dir.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+        let name = dir
+            .file_name()
+            .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
         let imported = match result {
             Err(_) => {
                 println!("## {name}: PANICKED after {took:.2?}");
@@ -58,7 +60,9 @@ fn main() {
         let props = imported.show.props.len();
         all_shapes += shapes;
         all_props += props;
-        let check = pf_model::check_show(&imported.show).map(|_| ()).map_err(|e| e.to_string());
+        let check = pf_model::check_show(&imported.show)
+            .map(|_| ())
+            .map_err(|e| e.to_string());
         println!(
             "## {name}: {props} props, {shapes} editable shapes ({:.0}%), {} pixels, {} notes, {took:.2?}{}",
             percent(shapes, props),
@@ -85,5 +89,9 @@ fn main() {
 }
 
 fn percent(part: usize, whole: usize) -> f64 {
-    if whole == 0 { 0.0 } else { part as f64 * 100.0 / whole as f64 }
+    if whole == 0 {
+        0.0
+    } else {
+        part as f64 * 100.0 / whole as f64
+    }
 }

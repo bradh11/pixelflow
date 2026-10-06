@@ -8,6 +8,7 @@ import { WiringPreview } from "../components/wiring/WiringPreview";
 import { useDragEscape } from "../components/wiring/useWiringDrag";
 import { Button, Card, EmptyState, Field, Input, PageHeader, Select } from "../components/ui";
 import { CONTROLLER_KINDS, FALCON_PIXELS_AT_40FPS, controllerOfKind, kindById, kindPixelLimit } from "../lib/controllerKinds";
+import { addressProblem } from "../lib/controllerEdit";
 import { uniqueName } from "../lib/shows";
 import { channelsPerPixel, findPort, nodeCounts, propWiring, resolveSlot, slotLabel, unwiredInLayoutOrder, wiringProblems } from "../lib/wiringMath";
 import { useApp } from "../state/store";
@@ -23,8 +24,9 @@ function AddControllerForm({ onDone }: { onDone: () => void }) {
   const [ports, setPorts] = useState(4);
   const known = kindById(kind);
   const limit = kindPixelLimit(known, ports);
+  const problem = !name.trim() ? "Give the controller a name." : addressProblem(address);
   const submit = async () => {
-    if (!name.trim() || !address.trim()) return;
+    if (problem) return;
     const ok = await apply([{ type: "addController", controller: controllerOfKind(kind, name.trim(), address.trim(), protocol, ports) }]);
     if (ok) onDone();
   };
@@ -57,7 +59,7 @@ function AddControllerForm({ onDone }: { onDone: () => void }) {
           </Select>
         </Field>
         <Field label="IP address">
-          <Input value={address} placeholder="192.168.1.50" onChange={(e) => setAddress(e.target.value)} />
+          <Input value={address} placeholder="e.g. 192.168.1.50" onChange={(e) => setAddress(e.target.value)} />
         </Field>
         <Field label="Protocol">
           <Select value={protocol} onChange={(e) => setProtocol(e.target.value as "ddp" | "sacn")}>
@@ -69,13 +71,14 @@ function AddControllerForm({ onDone }: { onDone: () => void }) {
           <Input type="number" min={1} max={256} value={ports} onChange={(e) => setPorts(Math.max(1, Math.min(256, Math.floor(Number(e.target.value)) || 1)))} />
         </Field>
         <div className="flex items-end gap-2">
-          <Button type="submit" variant="primary" disabled={!name.trim() || !address.trim()}>
+          <Button type="submit" variant="primary" disabled={problem !== null} title={problem ?? undefined}>
             Add
           </Button>
           <Button variant="ghost" onClick={onDone}>
             Cancel
           </Button>
         </div>
+        {problem && <p className="col-span-full text-xs text-neutral-500">{problem}</p>}
         {limit !== null && (
           <p className="col-span-full text-xs text-neutral-500">
             With {ports} ports in use, each drives up to {limit.toLocaleString("en-US")} pixels

@@ -409,13 +409,73 @@ describe("wiring screen", () => {
     await user.click(screen.getByRole("button", { name: /add controller/i }));
     await user.selectOptions(screen.getByLabelText("Controller type"), "Falcon F16V5");
     expect(screen.getByLabelText("Ports")).toHaveValue(16);
-    await user.type(screen.getByPlaceholderText("192.168.1.50"), "10.0.0.20");
+    expect(screen.getByRole("button", { name: "Add" })).toBeDisabled();
+    expect(screen.getByText("Enter the controller's IP address, like 192.168.1.50.")).toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText("e.g. 192.168.1.50"), "10.0.0.20");
     await user.click(screen.getByRole("button", { name: "Add" }));
     const falcon = backend.show.controllers[2];
     expect(falcon.adapter).toBe("falcon");
     expect(falcon.ports).toHaveLength(16);
     expect(falcon.ports.every((p) => p.maxPixels === 1024)).toBe(true);
     expect(screen.getAllByRole("meter")).toHaveLength(16);
+  });
+
+  it("edits a controller in place as one undo step, keeping its wiring and what was found on the network", async () => {
+    const user = await setup();
+    const before = structuredClone(backend.show.controllers[0]);
+    await user.click(screen.getByRole("button", { name: "Edit Main FPP" }));
+    const form = screen.getByRole("form", { name: "Edit Main FPP" });
+    const name = within(form).getByLabelText("Name");
+    await user.clear(name);
+    await user.type(name, "House FPP");
+    const address = within(form).getByLabelText("IP address");
+    await user.clear(address);
+    await user.type(address, "192.168.1.51");
+    await user.type(within(form).getByLabelText("Start universe"), "20");
+    await user.click(within(form).getByRole("button", { name: "Save" }));
+    expect(edits).toHaveLength(1);
+    const c = backend.show.controllers[0];
+    expect(c).toMatchObject({ id: before.id, name: "House FPP", address: "192.168.1.51", ports: before.ports, sequenceChannels: before.sequenceChannels });
+    expect(c.protocol).toMatchObject({ type: "sacn", startUniverse: 20 });
+    expect(screen.queryByRole("form", { name: "Edit Main FPP" })).not.toBeInTheDocument();
+    expect(chip("Garage Arch on House FPP port 1")).toBeInTheDocument();
+    await act(() => useApp.getState().undo());
+    expect(backend.show.controllers[0]).toEqual(before);
+  });
+
+  it("explains what's wrong before saving a controller, and Cancel leaves it as it was", async () => {
+    const user = await setup();
+    await user.click(screen.getByRole("button", { name: "Edit Porch WLED" }));
+    const form = screen.getByRole("form", { name: "Edit Porch WLED" });
+    const address = within(form).getByLabelText("IP address");
+    await user.clear(address);
+    await user.type(address, "192.168.1.600");
+    expect(within(form).getByText("192.168.1.600 isn't a valid IP address: each of the four numbers must be 0 to 255.")).toBeInTheDocument();
+    expect(within(form).getByRole("button", { name: "Save" })).toBeDisabled();
+    await user.clear(address);
+    await user.type(address, "192.168.1.50");
+    expect(within(form).getByText("Main FPP already uses 192.168.1.50.")).toBeInTheDocument();
+    await user.click(within(form).getByRole("button", { name: "Cancel" }));
+    expect(edits).toHaveLength(0);
+    expect(backend.show.controllers[1].address).toBe("192.168.1.60");
+  });
+
+  it("switches a controller between DDP and sACN, and renames it with a double-click", async () => {
+    const user = await setup();
+    await user.click(screen.getByRole("button", { name: "Edit Porch WLED" }));
+    const form = screen.getByRole("form", { name: "Edit Porch WLED" });
+    expect(within(form).queryByLabelText("Start universe")).not.toBeInTheDocument();
+    await user.selectOptions(within(form).getByLabelText("Protocol"), "sacn");
+    await user.selectOptions(within(form).getByLabelText("Channels per universe"), "512");
+    await user.click(within(form).getByRole("button", { name: "Save" }));
+    expect(backend.show.controllers[1].protocol).toEqual({ type: "sacn", startUniverse: null, universeSize: 512, allowPixelStraddle: false, multicast: false });
+
+    await user.dblClick(screen.getByRole("button", { name: "Porch WLED" }));
+    const rename = screen.getByRole("textbox", { name: "Name of Porch WLED" });
+    await user.clear(rename);
+    await user.type(rename, "Porch{Enter}");
+    expect(backend.show.controllers[1].name).toBe("Porch");
+    expect(screen.getByRole("region", { name: "Porch" })).toBeInTheDocument();
   });
 
   it("folds a controller away", async () => {

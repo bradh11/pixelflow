@@ -426,8 +426,9 @@ export class MemoryBackend implements Backend {
     };
   }
 
-  /** The fake FPP's music, playlists (sequence files on each), and free space, by address. */
-  fppFiles: Record<string, { media: string[]; playlists: Record<string, string[]>; freeBytes: number }> = {};
+  /** The fake FPP's music, playlists (sequence files on each), free space (null when it doesn't
+   * say), and channel-layout warnings, by address. */
+  fppFiles: Record<string, { media: string[]; playlists: Record<string, string[]>; freeBytes: number | null; layoutWarnings?: string[] }> = {};
   /** How long each step of a fake send takes (ms): 0 in tests, a little in the demo. */
   fppSendStepMs = 0;
   /** Makes the next send fail with this message. */
@@ -453,7 +454,8 @@ export class MemoryBackend implements Backend {
       const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
       let n = 2;
       while (taken(`${stem} (${n})${ext}`)) n++;
-      return { name, exists: taken(name), keepBothName: `${stem} (${n})${ext}` };
+      const fppName = list.find((f) => f === name) ?? list.find((f) => f.toLowerCase() === name.toLowerCase()) ?? null;
+      return { name, exists: fppName !== null, fppName, keepBothName: `${stem} (${n})${ext}` };
     };
     let musicCheck: NameCheck | null = null;
     if (music) {
@@ -471,6 +473,7 @@ export class MemoryBackend implements Backend {
       playlists: Object.keys(files.playlists).sort(),
       newPlaylistName: sequence.replace(/\.fseq$/, "").replace(/[^-a-zA-Z0-9_ ]/g, "").trim() || "PixelFlow",
       freeBytes: files.freeBytes,
+      layoutWarnings: files.layoutWarnings ?? [],
     };
   }
 
@@ -479,14 +482,30 @@ export class MemoryBackend implements Backend {
     const player = this.player(address);
     const files = this.fppFilesOf(address);
     const started = this.sendCancels;
+    const cancelled = "The upload was cancelled. Nothing on the FPP was changed.";
     const step = async (name: FppSendStep, total: number) => {
       for (const percent of [0, 25, 50, 75, 100]) {
-        if (this.sendCancels !== started) throw new Error("The upload was cancelled.");
-        onProgress?.({ step: name, percent, done: (total * percent) / 100, total });
+        if (this.sendCancels !== started && name !== "commit") throw new Error(cancelled);
+        onProgress?.({ sendId: request.sendId, step: name, percent, done: (total * percent) / 100, total });
         if (this.fppSendStepMs) await new Promise((r) => setTimeout(r, this.fppSendStepMs));
       }
     };
+    // Like the shell: nothing is replaced unless the user chose to replace that very file.
+    const sequences = player.sequences.map((s) => `${s.name}.fseq`);
+    const refuse = (list: string[], name: string, replace: boolean) => {
+      const found = list.find((f) => f.toLowerCase() === name.toLowerCase());
+      if (found !== undefined && !(replace && found === name)) {
+        throw new Error(
+          `The FPP now has a file called ${found} that wasn't there when you chose what to send, so nothing was replaced. Check again and choose what to do.`,
+        );
+      }
+    };
     if (request.source.kind === "openSequence") await step("export", 1200);
+    refuse(sequences, request.sequenceName, request.replaceSequence);
+    if (request.musicName) {
+      if (request.uploadMusic) refuse(files.media, request.musicName, request.replaceMusic);
+      else if (!files.media.includes(request.musicName)) throw new Error(`The FPP no longer has ${request.musicName}. Check again and choose what to do.`);
+    }
     if (this.fppSendError) {
       const error = this.fppSendError;
       this.fppSendError = null;
@@ -494,25 +513,30 @@ export class MemoryBackend implements Backend {
     }
     await step("sequence", 24_000_000);
     if (request.uploadMusic && request.musicName) await step("music", 4_000_000);
-    if (this.sendCancels !== started) throw new Error("The upload was cancelled.");
+    if (this.sendCancels !== started) throw new Error(cancelled);
+    await step("commit", 1);
     const stem = request.sequenceName.replace(/\.fseq$/i, "");
     if (!player.sequences.some((s) => s.name === stem)) {
       player.sequences.push({ name: stem, frames: this.sequenceDurationMs / 50, stepMs: 50, channels: 4800 });
     }
     if (request.uploadMusic && request.musicName && !files.media.includes(request.musicName)) files.media.push(request.musicName);
     let playlist: string | null = null;
-    if (request.playlist.kind !== "none") {
-      playlist = request.playlist.name;
+    const notes: string[] = [];
+    const choice = request.playlist;
+    if (choice.kind === "new" && Object.keys(files.playlists).some((p) => p.toLowerCase() === choice.name.toLowerCase())) {
+      notes.push(`The FPP already has a playlist called "${choice.name}". The sequence is on the FPP; add it to a playlist on FPP's Playlists page.`);
+    } else if (choice.kind !== "none") {
+      playlist = choice.name;
       const items = (files.playlists[playlist] ??= []);
       if (!items.includes(request.sequenceName)) items.push(request.sequenceName);
     }
-    onProgress?.({ step: "playlist", percent: 100, done: 1, total: 1 });
+    onProgress?.({ sendId: request.sendId, step: "playlist", percent: 100, done: 1, total: 1 });
     return {
       sequenceName: request.sequenceName,
       musicName: request.musicName,
       playlist,
-      playName: request.playlist.kind === "new" ? request.playlist.name : request.sequenceName,
-      notes: [],
+      playName: request.playlist.kind === "new" && playlist ? playlist : request.sequenceName,
+      notes,
     };
   }
 

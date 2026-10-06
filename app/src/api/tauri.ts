@@ -52,7 +52,9 @@ export const tauriBackend: Backend = {
   fppSendPlan: (address, source, music) => invoke("fpp_send_plan", { address, source, music }),
   fppSend: async (address, request, onProgress) => {
     const unlisten = onProgress
-      ? await listen<FppSendProgress>(FPP_SEND_PROGRESS_EVENT, (event) => onProgress(event.payload))
+      ? await listen<FppSendProgress>(FPP_SEND_PROGRESS_EVENT, (event) => {
+          if (event.payload.sendId === request.sendId) onProgress(event.payload);
+        })
       : null;
     try {
       return await invoke<FppSendResult>("fpp_send", { address, request });

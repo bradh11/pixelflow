@@ -603,8 +603,12 @@ export type SendSource = { kind: "openSequence"; name: string } | { kind: "file"
 
 /** A file name on an FPP, whether it's taken, and the name that would keep both. */
 export interface NameCheck {
+  /** The name PixelFlow would give the file. */
   name: string;
+  /** A file by that name is on the FPP, whatever its capitals. */
   exists: boolean;
+  /** The clashing file's name on the FPP, exactly as the FPP spells it (replace or reuse that). */
+  fppName: string | null;
   keepBothName: string;
 }
 
@@ -615,7 +619,10 @@ export interface FppSendPlan {
   playlists: string[];
   /** A name for a new playlist (the sequence's). */
   newPlaylistName: string;
+  /** Free space on the FPP, when it says. */
   freeBytes: number | null;
+  /** Where the sequence's channels don't match the FPP's outputs (sending still works). */
+  layoutWarnings: string[];
 }
 
 export type PlaylistChoice = { kind: "none" } | { kind: "existing"; name: string } | { kind: "new"; name: string };
@@ -625,17 +632,26 @@ export interface FppSendRequest {
   source: SendSource;
   /** The music on this computer, if any. */
   music: string | null;
-  /** File names on the FPP (as planned, or the keep-both names). */
+  /** File names on the FPP: as planned, the keep-both names, or (to replace or reuse) the FPP's
+   * own spelling. */
   sequenceName: string;
   musicName: string | null;
   /** False to use the copy of the music already on the FPP. */
   uploadMusic: boolean;
+  /** The user chose to replace the FPP's file of that name; without it nothing is replaced. */
+  replaceSequence: boolean;
+  replaceMusic: boolean;
   playlist: PlaylistChoice;
+  /** Tells this send's progress apart from any other's. */
+  sendId: number;
 }
 
-export type FppSendStep = "export" | "sequence" | "music" | "playlist";
+/** "commit" and "playlist" come after the commit point: files are moving into place, and Cancel
+ * no longer applies. */
+export type FppSendStep = "export" | "sequence" | "music" | "commit" | "playlist";
 
 export interface FppSendProgress {
+  sendId: number;
   step: FppSendStep;
   percent: number;
   done: number;

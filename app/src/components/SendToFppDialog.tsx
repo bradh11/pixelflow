@@ -1,7 +1,7 @@
 import { CheckCircle2, Music, Play, Send } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "../api/backend";
-import type { Controller, FppSendPlan, FppSendProgress, FppSendResult, PlaylistChoice, SendSource } from "../api/types";
+import type { Controller, FppSendPlan, FppSendProgress, FppSendResult, NameCheck, PlaylistChoice, SendSource } from "../api/types";
 import { fileName, shownPath } from "../lib/format";
 import { type KnownDevice, useApp } from "../state/store";
 import { Button, Input, Select } from "./ui";
@@ -48,27 +48,52 @@ function sizeText(bytes: number): string {
   return `${Math.ceil(bytes / 1024)} KB`;
 }
 
+/** Between an error and the FPP's own words for it (as the shell writes errors). */
+const DETAIL = "\n\nFPP said: ";
+
+/** An error, with the FPP's own words (if any) under a Details disclosure. */
+function ErrorText({ message }: { message: string }) {
+  const [text, detail] = message.split(DETAIL);
+  return (
+    <div role="alert" className="flex flex-col gap-1 text-sm text-red-600 dark:text-red-400">
+      <p>{text}</p>
+      {detail && (
+        <details className="text-xs text-neutral-600 dark:text-neutral-400">
+          <summary className="cursor-pointer">Details</summary>
+          <p className="mt-1 break-words">{detail}</p>
+        </details>
+      )}
+    </div>
+  );
+}
+
 const STEP_TEXT: Record<FppSendProgress["step"], string> = {
   export: "Preparing the sequence for the FPP…",
   sequence: "Sending the sequence…",
   music: "Sending the music…",
-  playlist: "Adding it to the playlist…",
+  commit: "Finishing on the FPP…",
+  playlist: "Finishing on the FPP…",
 };
 
-/** Replace the FPP's file, keep both (send under another name), or (music only) use the FPP's copy. */
-type Clash = "replace" | "keep" | "use";
+/** Replace the FPP's file, keep both (send under another name), or (music only) use the FPP's
+ * copy; null until the user picks. */
+type Clash = "replace" | "keep" | "use" | null;
+
+/** "Play it now" waits for a yes when the FPP is busy or has a show coming up. */
+type Playing = "no" | "checking" | { ask: string } | "starting" | "yes";
 
 type Phase =
-  | { kind: "choose"; note?: string }
+  | { kind: "choose"; error?: string }
   | { kind: "sending"; progress: FppSendProgress | null }
-  | { kind: "done"; result: FppSendResult; playing: "no" | "starting" | "yes"; playError?: string }
-  | { kind: "failed"; message: string };
+  | { kind: "done"; result: FppSendResult; playing: Playing; playError?: string };
 
 const OTHER = "__other__";
+let nextSendId = 1;
 
 /**
  * Sends a sequence and its music to an FPP: pick the FPP, the music, and a playlist, then Send.
- * Nothing changes on the FPP until Send is clicked; playing it there is a further click.
+ * Nothing changes on the FPP until Send is clicked, nothing there is replaced unless the user
+ * picks Replace, and playing it there is a further click.
  */
 export function SendToFppDialog({
   source,
@@ -99,90 +124,112 @@ export function SendToFppDialog({
   });
   const [typing, setTyping] = useState(choices.length === 0);
   const [typed, setTyped] = useState("");
-  const target = typing ? typed.trim() : address;
+  /** The typed address, once the user asks for it to be checked. */
+  const [checkedTyped, setCheckedTyped] = useState("");
+  const target = typing ? checkedTyped : address;
   const [music, setMusic] = useState<string | null>(initialMusic);
   const [plan, setPlan] = useState<FppSendPlan | null>(null);
   const [planError, setPlanError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
-  const [sequenceClash, setSequenceClash] = useState<Clash>("replace");
-  const [musicClash, setMusicClash] = useState<Clash>("replace");
+  const [sequenceClash, setSequenceClash] = useState<Clash>(null);
+  const [musicClash, setMusicClash] = useState<Clash>(null);
   const [playlistKind, setPlaylistKind] = useState<PlaylistChoice["kind"]>("none");
   const [existing, setExisting] = useState("");
   const [newName, setNewName] = useState("");
   const [phase, setPhase] = useState<Phase>({ kind: "choose" });
   const dialog = useRef<HTMLDivElement>(null);
+  const cancelButton = useRef<HTMLButtonElement>(null);
+  const doneButton = useRef<HTMLButtonElement>(null);
   const fppName = choices.find((c) => c.address === target)?.name ?? target;
-  const sending = phase.kind === "sending";
+  const committing = phase.kind === "sending" && (phase.progress?.step === "commit" || phase.progress?.step === "playlist");
+  const sendingRef = useRef(false);
+  sendingRef.current = phase.kind === "sending";
+  const cancel = () => void backend?.cancelFppSend();
 
-  // What's on the FPP, read again when the FPP or the music changes (reading changes nothing).
+  // What's on the FPP, read again when the FPP or the music changes, or after a failed send
+  // (reading changes nothing). Clash choices start empty each time.
   const [checkTurn, setCheckTurn] = useState(0);
   useEffect(() => {
     setPlan(null);
     setPlanError(null);
+    setSequenceClash(null);
+    setMusicClash(null);
     if (!backend || !target) return;
     let current = true;
     setChecking(true);
-    const timer = setTimeout(
-      () => {
-        backend.fppSendPlan(target, source, music).then(
-          (p) => {
-            if (!current) return;
-            setPlan(p);
-            setExisting((name) => (p.playlists.includes(name) ? name : (p.playlists[0] ?? "")));
-            setNewName((name) => name || p.newPlaylistName);
-            setChecking(false);
-          },
-          (e) => {
-            if (!current) return;
-            setPlanError(errorMessage(e));
-            setChecking(false);
-          },
-        );
+    backend.fppSendPlan(target, source, music).then(
+      (p) => {
+        if (!current) return;
+        setPlan(p);
+        setExisting((name) => (p.playlists.includes(name) ? name : ""));
+        setNewName((name) => name || p.newPlaylistName);
+        setChecking(false);
       },
-      typing ? 400 : 0,
+      (e) => {
+        if (!current) return;
+        setPlanError(errorMessage(e));
+        setChecking(false);
+      },
     );
     return () => {
       current = false;
-      clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [backend, target, music, checkTurn]);
 
-  // Escape closes (not while sending: Cancel stops the send first).
   useEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     dialog.current?.querySelector<HTMLElement>("select, input, button")?.focus();
     return () => {
+      // Gone mid-send (a screen change): stop it before anything is replaced.
+      if (sendingRef.current) cancel();
       if (opener?.isConnected) opener.focus();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // Escape closes; while sending it cancels instead (until files start moving into place).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       e.preventDefault();
       e.stopPropagation();
-      if (!sending) onClose();
+      if (phase.kind === "sending") {
+        if (!committing) cancel();
+      } else onClose();
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [sending, onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase.kind, committing, onClose]);
+  // Focus follows the dialog's step.
+  useEffect(() => {
+    if (phase.kind === "sending") cancelButton.current?.focus();
+    if (phase.kind === "done") doneButton.current?.focus();
+  }, [phase.kind]);
 
   const chooseMusic = async () => {
     const picked = await backend?.pickAudioPath();
     if (picked) setMusic(picked);
   };
 
-  const playlist = (): PlaylistChoice => {
-    if (playlistKind === "existing" && existing) return { kind: "existing", name: existing };
-    if (playlistKind === "new" && newName.trim()) return { kind: "new", name: newName.trim() };
+  const newNameTaken = plan?.playlists.find((p) => p.toLowerCase() === newName.trim().toLowerCase()) ?? null;
+  const playlist = (): PlaylistChoice | null => {
+    if (playlistKind === "existing") return existing ? { kind: "existing", name: existing } : null;
+    if (playlistKind === "new") return newName.trim() && !newNameTaken ? { kind: "new", name: newName.trim() } : null;
     return { kind: "none" };
   };
+  const clashesChosen = Boolean(plan) && (!plan!.sequence.exists || sequenceClash !== null) && (!plan!.music?.exists || musicClash !== null);
+  const ready = Boolean(plan) && !checking && clashesChosen && playlist() !== null;
+
+  /** The name to send under: the FPP's own spelling to replace or reuse, else ours or keep-both. */
+  const nameFor = (check: NameCheck, clash: Clash) =>
+    !check.exists ? check.name : clash === "keep" ? check.keepBothName : (check.fppName ?? check.name);
 
   const send = async () => {
-    if (!backend || !plan || !target) return;
+    const choice = playlist();
+    if (!backend || !plan || !target || !ready || !choice) return;
     rememberFpp(target);
-    const sequenceName = plan.sequence.exists && sequenceClash === "keep" ? plan.sequence.keepBothName : plan.sequence.name;
-    const musicName = plan.music ? (plan.music.exists && musicClash === "keep" ? plan.music.keepBothName : plan.music.name) : null;
+    const sendId = nextSendId++;
     setPhase({ kind: "sending", progress: null });
     try {
       const result = await backend.fppSend(
@@ -190,27 +237,26 @@ export function SendToFppDialog({
         {
           source,
           music,
-          sequenceName,
-          musicName,
+          sequenceName: nameFor(plan.sequence, sequenceClash),
+          musicName: plan.music ? nameFor(plan.music, musicClash) : null,
           uploadMusic: !(plan.music?.exists && musicClash === "use"),
-          playlist: playlist(),
+          replaceSequence: plan.sequence.exists && sequenceClash === "replace",
+          replaceMusic: Boolean(plan.music?.exists && musicClash === "replace"),
+          playlist: choice,
+          sendId,
         },
         (progress) => setPhase((p) => (p.kind === "sending" ? { kind: "sending", progress } : p)),
       );
       setPhase({ kind: "done", result, playing: "no" });
       onSent?.(target, result);
     } catch (e) {
-      const message = errorMessage(e);
-      if (message === "The upload was cancelled.") {
-        setPhase({ kind: "choose", note: "Sending was stopped. Send again when you're ready." });
-        setCheckTurn((n) => n + 1);
-      } else {
-        setPhase({ kind: "failed", message });
-      }
+      // Read the FPP again: what's there may have changed, and nothing is pre-chosen.
+      setPhase({ kind: "choose", error: errorMessage(e) });
+      setCheckTurn((n) => n + 1);
     }
   };
 
-  const playNow = async (result: FppSendResult) => {
+  const start = async (result: FppSendResult) => {
     if (!backend) return;
     setPhase({ kind: "done", result, playing: "starting" });
     try {
@@ -218,6 +264,28 @@ export function SendToFppDialog({
       setPhase({ kind: "done", result, playing: "yes" });
     } catch (e) {
       setPhase({ kind: "done", result, playing: "no", playError: errorMessage(e) });
+    }
+  };
+
+  /** Checks what the FPP is doing first: starting replaces whatever is playing. */
+  const playNow = async (result: FppSendResult) => {
+    if (!backend) return;
+    setPhase({ kind: "done", result, playing: "checking" });
+    let status;
+    try {
+      status = await backend.fppStatus(target);
+    } catch (e) {
+      setPhase({ kind: "done", result, playing: "no", playError: `Couldn't check what ${fppName} is doing: ${errorMessage(e)}` });
+      return;
+    }
+    if (status.state === "playing" || status.state === "paused") {
+      const current = status.playlist ?? status.sequence ?? "what it's playing";
+      setPhase({ kind: "done", result, playing: { ask: `Stop ${current} and play this now?` } });
+    } else if (status.nextPlaylist) {
+      const when = status.nextStart ? ` (${status.nextStart})` : "";
+      setPhase({ kind: "done", result, playing: { ask: `${status.nextPlaylist} is scheduled${when}. Play this now anyway?` } });
+    } else {
+      await start(result);
     }
   };
 
@@ -238,7 +306,7 @@ export function SendToFppDialog({
           </p>
         </div>
 
-        {(phase.kind === "choose" || phase.kind === "failed") && (
+        {phase.kind === "choose" && (
           <>
             <FppPicker
               choices={choices}
@@ -253,6 +321,10 @@ export function SendToFppDialog({
                 }
               }}
               onType={setTyped}
+              onCheck={() => {
+                setCheckedTyped(typed.trim());
+                setCheckTurn((n) => n + 1);
+              }}
             />
 
             <div className="flex flex-col gap-1 text-sm">
@@ -283,10 +355,10 @@ export function SendToFppDialog({
               </p>
             )}
             {planError && (
-              <div role="alert" className="flex items-start justify-between gap-2 rounded-md bg-red-50 p-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
-                <span>{planError}</span>
+              <div className="flex items-start justify-between gap-2 rounded-md bg-red-50 p-2 dark:bg-red-950/40">
+                <ErrorText message={planError} />
                 <Button variant="ghost" onClick={() => setCheckTurn((n) => n + 1)}>
-                  Try again
+                  Check again
                 </Button>
               </div>
             )}
@@ -295,16 +367,20 @@ export function SendToFppDialog({
               <>
                 {plan.sequence.exists && (
                   <ClashChoice
-                    label={`${fppName} already has a sequence called ${plan.sequence.name}.`}
-                    keepBothName={plan.sequence.keepBothName}
+                    group="send-sequence-clash"
+                    check={plan.sequence}
+                    label={`${fppName} already has a sequence called ${plan.sequence.fppName ?? plan.sequence.name}.`}
+                    replaceNote={`Playlists on the FPP that play ${plan.sequence.fppName ?? plan.sequence.name} will play this one instead.`}
                     value={sequenceClash}
                     onChange={setSequenceClash}
                   />
                 )}
                 {plan.music?.exists && (
                   <ClashChoice
-                    label={`${fppName} already has music called ${plan.music.name}.`}
-                    keepBothName={plan.music.keepBothName}
+                    group="send-music-clash"
+                    check={plan.music}
+                    label={`${fppName} already has music called ${plan.music.fppName ?? plan.music.name}.`}
+                    replaceNote={`Anything on the FPP that uses ${plan.music.fppName ?? plan.music.name} will play this file instead.`}
                     value={musicClash}
                     onChange={setMusicClash}
                     offerUse
@@ -315,35 +391,42 @@ export function SendToFppDialog({
                   kind={playlistKind}
                   existing={existing}
                   newName={newName}
+                  newNameTaken={newNameTaken}
                   onKind={setPlaylistKind}
                   onExisting={setExisting}
                   onNewName={setNewName}
                 />
-                {plan.freeBytes !== null && <p className="text-xs text-neutral-500">{fppName} has {sizeText(plan.freeBytes)} free.</p>}
+                {plan.layoutWarnings.length > 0 && (
+                  <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                    <p className="font-medium">The channels may not match {fppName}'s outputs:</p>
+                    <ul className="mt-1 list-disc pl-5">
+                      {plan.layoutWarnings.map((w) => (
+                        <li key={w}>{w}</li>
+                      ))}
+                    </ul>
+                    <p className="mt-1 text-xs">You can still send it.</p>
+                  </div>
+                )}
+                <p className="text-xs text-neutral-500">
+                  {plan.freeBytes !== null ? `${fppName} has ${sizeText(plan.freeBytes)} free.` : "Couldn't read the FPP's free space."}
+                </p>
               </>
             )}
 
-            {phase.kind === "choose" && phase.note && (
-              <p role="status" className="text-sm text-amber-700 dark:text-amber-400">
-                {phase.note}
-              </p>
-            )}
-            {phase.kind === "failed" && (
-              <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-                {phase.message}
-              </p>
-            )}
+            {phase.error && <ErrorText message={phase.error} />}
 
             <div className="flex justify-end gap-2">
               <Button onClick={onClose}>Close</Button>
-              <Button variant="primary" disabled={!plan || checking} onClick={() => void send()}>
-                <Send size={14} /> {phase.kind === "failed" ? "Try again" : "Send"}
+              <Button variant="primary" disabled={!ready} onClick={() => void send()}>
+                <Send size={14} /> {phase.error ? "Try again" : "Send"}
               </Button>
             </div>
           </>
         )}
 
-        {phase.kind === "sending" && <Sending progress={phase.progress} fppName={fppName} onCancel={() => void backend?.cancelFppSend()} />}
+        {phase.kind === "sending" && (
+          <Sending progress={phase.progress} fppName={fppName} committing={committing} cancelRef={cancelButton} onCancel={cancel} />
+        )}
 
         {phase.kind === "done" && (
           <div className="flex flex-col gap-3">
@@ -360,25 +443,36 @@ export function SendToFppDialog({
                 {note}
               </p>
             ))}
-            {phase.playError && (
-              <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-                {phase.playError}
-              </p>
-            )}
+            {phase.playError && <ErrorText message={phase.playError} />}
             {phase.playing === "yes" && <p className="text-sm text-green-700 dark:text-green-400">Playing on {fppName}.</p>}
-            <div className="flex justify-end gap-2">
-              <Button onClick={onClose}>Close</Button>
-              {phase.playing !== "yes" && (
-                <Button
-                  variant="primary"
-                  disabled={phase.playing === "starting"}
-                  title={`Starts ${phase.result.playName} on ${fppName} now`}
-                  onClick={() => void playNow(phase.result)}
-                >
-                  <Play size={14} /> {phase.playing === "starting" ? "Starting…" : "Play it now on the FPP"}
-                </Button>
-              )}
-            </div>
+            {typeof phase.playing === "object" ? (
+              <div className="flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-sm dark:border-amber-800 dark:bg-amber-950/30">
+                <p>{phase.playing.ask}</p>
+                <div className="flex justify-end gap-2">
+                  <Button ref={doneButton} onClick={() => setPhase({ kind: "done", result: phase.result, playing: "no" })}>
+                    Not now
+                  </Button>
+                  <Button variant="primary" onClick={() => void start(phase.result)}>
+                    <Play size={14} /> Stop it and play this
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex justify-end gap-2">
+                <Button onClick={onClose}>Close</Button>
+                {phase.playing !== "yes" && (
+                  <Button
+                    ref={doneButton}
+                    variant="primary"
+                    disabled={phase.playing === "starting" || phase.playing === "checking"}
+                    title={`Starts ${phase.result.playName} on ${fppName} now`}
+                    onClick={() => void playNow(phase.result)}
+                  >
+                    <Play size={14} /> {phase.playing === "no" ? "Play it now on the FPP" : "Starting…"}
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -393,6 +487,7 @@ function FppPicker({
   typed,
   onPick,
   onType,
+  onCheck,
 }: {
   choices: FppChoice[];
   address: string;
@@ -400,6 +495,8 @@ function FppPicker({
   typed: string;
   onPick: (value: string) => void;
   onType: (value: string) => void;
+  /** Check the typed address (nothing is contacted while typing). */
+  onCheck: () => void;
 }) {
   return (
     <div className="flex flex-col gap-1 text-sm">
@@ -417,47 +514,75 @@ function FppPicker({
         </Select>
       )}
       {typing && (
-        <Input
-          id={choices.length ? undefined : "send-fpp"}
-          aria-label="FPP address"
-          placeholder="e.g. 192.168.1.50 or fpp.local"
-          value={typed}
-          onChange={(e) => onType(e.target.value)}
-        />
+        <div className="flex gap-2">
+          <Input
+            id={choices.length ? undefined : "send-fpp"}
+            aria-label="FPP address"
+            className="flex-1"
+            placeholder="e.g. 192.168.1.50 or fpp.local"
+            value={typed}
+            onChange={(e) => onType(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && typed.trim()) onCheck();
+            }}
+          />
+          <Button disabled={!typed.trim()} onClick={onCheck}>
+            Check
+          </Button>
+        </div>
       )}
       {choices.length === 0 && (
-        <span className="text-xs text-neutral-500">Type its address, or find it first on the Devices screen.</span>
+        <span className="text-xs text-neutral-500">Type its address and press Check, or find it first on the Devices screen.</span>
       )}
     </div>
   );
 }
 
 function ClashChoice({
+  group,
+  check,
   label,
-  keepBothName,
+  replaceNote,
   value,
   onChange,
   offerUse,
 }: {
+  /** The radio group's name. */
+  group: string;
+  check: NameCheck;
   label: string;
-  keepBothName: string;
+  /** What Replace affects. */
+  replaceNote: string;
   value: Clash;
   onChange: (value: Clash) => void;
   /** Music: the FPP's copy may be the same song. */
   offerUse?: boolean;
 }) {
+  const otherCapitals = check.fppName !== null && check.fppName !== check.name;
   return (
-    <fieldset className="flex flex-col gap-1 rounded-md border border-amber-300 bg-amber-50 p-2 text-sm dark:border-amber-800 dark:bg-amber-950/30">
+    <fieldset
+      role="radiogroup"
+      aria-label={label}
+      className="flex flex-col gap-1 rounded-md border border-amber-300 bg-amber-50 p-2 text-sm dark:border-amber-800 dark:bg-amber-950/30"
+    >
       <legend className="px-1 font-medium text-amber-800 dark:text-amber-300">{label}</legend>
+      {otherCapitals && (
+        <p className="text-xs text-amber-800 dark:text-amber-300">
+          It's spelled {check.fppName} there (different capitals from {check.name}).
+        </p>
+      )}
+      <p className="text-xs text-neutral-600 dark:text-neutral-400">Choose what to do:</p>
       <label className="flex items-center gap-2">
-        <input type="radio" checked={value === "replace"} onChange={() => onChange("replace")} /> Replace it
+        <input type="radio" name={group} checked={value === "replace"} onChange={() => onChange("replace")} /> Replace it
       </label>
+      <p className="ml-6 text-xs text-amber-800 dark:text-amber-300">{replaceNote}</p>
       <label className="flex items-center gap-2">
-        <input type="radio" checked={value === "keep"} onChange={() => onChange("keep")} /> Keep both: send this one as {keepBothName}
+        <input type="radio" name={group} checked={value === "keep"} onChange={() => onChange("keep")} /> Keep both: send this one as{" "}
+        {check.keepBothName}
       </label>
       {offerUse && (
         <label className="flex items-center gap-2">
-          <input type="radio" checked={value === "use"} onChange={() => onChange("use")} /> Use the one already on the FPP
+          <input type="radio" name={group} checked={value === "use"} onChange={() => onChange("use")} /> Use the one already on the FPP
         </label>
       )}
     </fieldset>
@@ -469,6 +594,7 @@ function PlaylistPicker({
   kind,
   existing,
   newName,
+  newNameTaken,
   onKind,
   onExisting,
   onNewName,
@@ -477,19 +603,21 @@ function PlaylistPicker({
   kind: PlaylistChoice["kind"];
   existing: string;
   newName: string;
+  /** The FPP playlist the new name matches, whatever its capitals. */
+  newNameTaken: string | null;
   onKind: (kind: PlaylistChoice["kind"]) => void;
   onExisting: (name: string) => void;
   onNewName: (name: string) => void;
 }) {
-  const taken = kind === "new" && playlists.includes(newName.trim());
   return (
     <fieldset className="flex flex-col gap-1.5 text-sm">
       <legend className="mb-1 text-neutral-600 dark:text-neutral-400">FPP playlist</legend>
       <label className="flex items-center gap-2">
-        <input type="radio" checked={kind === "none"} onChange={() => onKind("none")} /> Don't add it to a playlist
+        <input type="radio" name="send-playlist" checked={kind === "none"} onChange={() => onKind("none")} /> Don't add it to a playlist
       </label>
       <label className="flex flex-wrap items-center gap-2">
-        <input type="radio" checked={kind === "existing"} disabled={playlists.length === 0} onChange={() => onKind("existing")} /> Add it to
+        <input type="radio" name="send-playlist" checked={kind === "existing"} disabled={playlists.length === 0} onChange={() => onKind("existing")} /> Add it
+        to
         {playlists.length > 0 ? (
           <Select
             aria-label="Playlist"
@@ -499,6 +627,7 @@ function PlaylistPicker({
               onKind("existing");
             }}
           >
+            <option value="">Choose a playlist…</option>
             {playlists.map((p) => (
               <option key={p} value={p}>
                 {p}
@@ -510,7 +639,7 @@ function PlaylistPicker({
         )}
       </label>
       <label className="flex flex-wrap items-center gap-2">
-        <input type="radio" checked={kind === "new"} onChange={() => onKind("new")} /> A new playlist called
+        <input type="radio" name="send-playlist" checked={kind === "new"} onChange={() => onKind("new")} /> A new playlist called
         <Input
           aria-label="New playlist name"
           value={newName}
@@ -520,14 +649,31 @@ function PlaylistPicker({
           }}
         />
       </label>
-      {taken && <span className="text-xs text-neutral-500">There's already a playlist called {newName.trim()}; it'll be added to that one.</span>}
+      {kind === "new" && newNameTaken && (
+        <span className="text-xs text-red-600 dark:text-red-400">
+          The FPP already has a playlist called {newNameTaken}. Choose it under "Add it to", or pick another name.
+        </span>
+      )}
       <span className="text-xs text-neutral-500">A playlist is what FPP's scheduler plays at set times.</span>
     </fieldset>
   );
 }
 
-function Sending({ progress, fppName, onCancel }: { progress: FppSendProgress | null; fppName: string; onCancel: () => void }) {
-  const percent = progress?.percent ?? 0;
+function Sending({
+  progress,
+  fppName,
+  committing,
+  cancelRef,
+  onCancel,
+}: {
+  progress: FppSendProgress | null;
+  fppName: string;
+  /** Files are moving into place: too late to cancel. */
+  committing: boolean;
+  cancelRef: React.Ref<HTMLButtonElement>;
+  onCancel: () => void;
+}) {
+  const percent = committing ? 100 : (progress?.percent ?? 0);
   const bytes = progress && (progress.step === "sequence" || progress.step === "music") && progress.total > 0;
   return (
     <div className="flex flex-col gap-3">
@@ -536,10 +682,13 @@ function Sending({ progress, fppName, onCancel }: { progress: FppSendProgress | 
       </p>
       <progress aria-label="Sending to the FPP" className="w-full accent-violet-600" max={100} value={percent} />
       <p className="text-xs text-neutral-500 tabular-nums">
-        {percent}%{bytes ? ` · ${sizeText(progress.done)} of ${sizeText(progress.total)}` : ""}
+        {committing ? "Moving the files into place. This can't be cancelled now." : `${percent}%`}
+        {bytes ? ` · ${sizeText(progress.done)} of ${sizeText(progress.total)}` : ""}
       </p>
       <div className="flex justify-end">
-        <Button onClick={onCancel}>Cancel</Button>
+        <Button ref={cancelRef} disabled={committing} onClick={onCancel} title={committing ? "Too late to cancel: the files are moving into place" : "Stop sending; nothing on the FPP changes"}>
+          Cancel
+        </Button>
       </div>
     </div>
   );

@@ -6,9 +6,13 @@ import {
   type Align,
   type Box,
   type Gesture,
+  type Size,
+  type View,
   alignMoves,
   besideBox,
+  boxCenter,
   boxOfPoints,
+  toWorld,
   unionBox,
   copyName,
   distributeMoves,
@@ -106,6 +110,47 @@ export function besideOthers(prop: Prop, show: Show, preview: PreviewProp[] = []
   const existing = unionBox(show.props.map((p) => boxOfPoints(drawn.get(p.id) ?? frontView(p))));
   const at = besideBox(existing, boxOfPoints(frontView(prop)));
   return { ...prop, transform: { ...prop.transform, position: { ...prop.transform.position, ...at } } };
+}
+
+/** The part of the layout a view shows on a canvas of `size`; null before the canvas has a size. */
+export function visibleBox(view: View, size: Size): Box | null {
+  if (size.width <= 0 || size.height <= 0) return null;
+  const a = toWorld(view, size, { x: 0, y: size.height });
+  const b = toWorld(view, size, { x: size.width, y: 0 });
+  return { minX: a.x, minY: a.y, maxX: b.x, maxY: b.y };
+}
+
+/**
+ * A new prop centred in `visible` (what the canvas shows). When another prop is already centred
+ * there (the last one added, say), it steps down and to the right until it's clear, so props added
+ * one after another fan out instead of stacking. Without a visible area, it goes beside the others.
+ */
+export function placedInView(prop: Prop, show: Show, preview: PreviewProp[], visible: Box | null): Prop {
+  if (!visible) return besideOthers(prop, show, preview);
+  const own = boxOfPoints(frontView(prop));
+  if (!own) return prop;
+  const drawn = new Map(preview.map((p) => [p.prop, p.points]));
+  const centres = show.props
+    .map((p) => boxOfPoints(drawn.get(p.id) ?? frontView(p)))
+    .filter((b): b is Box => b !== null)
+    .map(boxCenter);
+  const target = boxCenter(visible);
+  const width = visible.maxX - visible.minX;
+  const height = visible.maxY - visible.minY;
+  const step = Math.max(Math.min(width, height) * 0.05, 1e-3);
+  let { cx, cy } = target;
+  // Fan out until clear, but never past the edge of what's shown (then start a new fan).
+  for (let i = 0; i < 400 && centres.some((c) => Math.abs(c.cx - cx) < step / 2 && Math.abs(c.cy - cy) < step / 2); i++) {
+    cx += step;
+    cy -= step;
+    if (cx > visible.maxX - width * 0.1 || cy < visible.minY + height * 0.1) {
+      cx = target.cx + step * 0.5 * ((i % 7) + 1);
+      cy = target.cy;
+    }
+  }
+  const at = boxCenter(own);
+  const { position } = prop.transform;
+  return { ...prop, transform: { ...prop.transform, position: { ...position, x: tidy(position.x + cx - at.cx), y: tidy(position.y + cy - at.cy) } } };
 }
 
 /** "Port 2 on Falcon_F16V5_B9F5", one entry per place the prop is wired; empty when it isn't. */

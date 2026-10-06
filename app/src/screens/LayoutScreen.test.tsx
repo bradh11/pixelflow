@@ -441,12 +441,33 @@ describe("LayoutScreen", () => {
     expect(backend.show.background).toBeNull();
   });
 
-  it("adds a prop from the menu beside the others", async () => {
+  it("adds a prop from the menu in the middle of the canvas, selected, and steps the next one aside", async () => {
+    const user = await setup(showWith(line("Gutter", 0, 0), line("Fence", 40, 0)));
+    // Looking at an empty part of the layout.
+    act(() => useLayoutEditor.getState().setView({ cx: 100, cy: 50, zoom: 20 }));
+    await user.click(screen.getByRole("button", { name: "Add prop" }));
+    await user.click(within(screen.getByRole("menu", { name: "Add prop" })).getByRole("menuitem", { name: "Line / string" }));
+    expect(edits).toHaveLength(1);
+    const added = backend.show.props[2];
+    // A 5-unit line centred on its origin, in the middle of the view.
+    expect(added.transform.position).toMatchObject({ x: expect.closeTo(100, 1), y: expect.closeTo(50, 1) });
+    expect(useLayoutEditor.getState().selected).toEqual([added.id]);
+    expect(useLayoutEditor.getState().view).toEqual({ cx: 100, cy: 50, zoom: 20 });
+
+    await user.click(screen.getByRole("button", { name: "Add prop" }));
+    await user.click(screen.getByRole("menuitem", { name: "Line / string" }));
+    const next = backend.show.props[3];
+    expect(next.transform.position.x).toBeGreaterThan(added.transform.position.x);
+    expect(next.transform.position.y).toBeLessThan(added.transform.position.y);
+    expect(useLayoutEditor.getState().selected).toEqual([next.id]);
+  });
+
+  it("zooms out to show a new prop bigger than the view", async () => {
     const user = await setup(showWith(line("Gutter", 0, 0)));
-    await user.selectOptions(screen.getByLabelText("Prop type"), "line");
-    await user.click(screen.getByRole("button", { name: /add prop/i }));
-    const added = backend.show.props[1];
-    expect(added.transform.position.x).toBeCloseTo(6);
+    act(() => useLayoutEditor.getState().setView({ cx: 0, cy: 0, zoom: 400 }));
+    await user.click(screen.getByRole("button", { name: "Add prop" }));
+    await user.click(screen.getByRole("menuitem", { name: "Mega tree" }));
+    expect(useLayoutEditor.getState().view!.zoom).toBeLessThan(400);
   });
 
   describe("while edits are on their way", () => {

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { Background, Phoneme, Prop } from "../api/types";
-import type { Gesture, View } from "../lib/layoutMath";
+import type { Gesture, Size, View } from "../lib/layoutMath";
 import type { PropKind } from "../lib/shows";
 
 /**
@@ -131,3 +131,20 @@ export const useLayoutEditor = create<LayoutEditorState>((set, get) => ({
   setHighlight: (highlight) => set({ highlight }),
   setPolyPoint: (polyPoint) => set({ polyPoint }),
 }));
+
+/** Measures the 2D layout canvas on screen; set by the canvas while it's there. */
+let measureCanvas: (() => Size) | null = null;
+
+/** Lets the canvas on screen be measured; the returned function stops it. */
+export function registerCanvas(measure: () => Size): () => void {
+  measureCanvas = measure;
+  return () => {
+    if (measureCanvas === measure) measureCanvas = null;
+  };
+}
+
+/** The 2D layout canvas's size now, or null when there isn't one on screen. */
+export function canvasSize(): Size | null {
+  const size = measureCanvas?.();
+  return size && size.width > 0 && size.height > 0 ? size : null;
+}

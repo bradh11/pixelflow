@@ -85,7 +85,7 @@ import {
   snapResize,
 } from "../../lib/smartGuides";
 import { highlightPixels } from "../../lib/submodels";
-import { useLayoutEditor } from "../../state/layoutEditor";
+import { registerCanvas, useLayoutEditor } from "../../state/layoutEditor";
 import { commitGesture, settlePending, unsettled } from "../../state/layoutGestures";
 import { useApp } from "../../state/store";
 import { GUIDE_COLORS, drawGuideMarks } from "./guideMarks";
@@ -643,6 +643,9 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
 
   // Fit everything in once the canvas has a size and the props have arrived.
   useEffect(fitIfNeeded, [preview, show.props.length, photo.aspect]);
+
+  // Add prop places new props in the middle of what this canvas shows.
+  useEffect(() => registerCanvas(size), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const canvas = canvasRef.current;

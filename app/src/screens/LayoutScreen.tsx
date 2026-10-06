@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Trash2 } from "lucide-react";
 import { memo, useRef, useState } from "react";
 import { errorMessage } from "../api/backend";
 import type { Prop } from "../api/types";
@@ -9,11 +9,12 @@ import { FALLBACK_ASPECT, imageAspect, useBackgroundImage, usePreviewProps, useP
 import { useLayoutKeys } from "../components/layout/useLayoutKeys";
 import { Layout3dView } from "../components/layout3d/Layout3dView";
 import { useLayout3dKeys } from "../components/layout3d/useLayout3dKeys";
-import { Button, EmptyState, Input, PageHeader, Select } from "../components/ui";
+import { Button, EmptyState, Input, PageHeader } from "../components/ui";
 import { thousands } from "../lib/format";
-import { besideOthers, updateEdits } from "../lib/layoutEdits";
+import { updateEdits } from "../lib/layoutEdits";
+import { AddPropMenu } from "../components/layout/AddPropMenu";
 import { boxOfPoints, defaultBackground, unionBox } from "../lib/layoutMath";
-import { PROP_KINDS, type PropKind, newProp, shapeLabel } from "../lib/shows";
+import { shapeLabel } from "../lib/shows";
 import { useLayoutEditor } from "../state/layoutEditor";
 import { useApp } from "../state/store";
 import { showViewKey, useView3d } from "../state/view3d";
@@ -105,7 +106,6 @@ export function LayoutScreen() {
   const snapshot = useApp((s) => s.snapshot);
   const apply = useApp((s) => s.apply);
   const backend = useApp((s) => s.backend);
-  const [kind, setKind] = useState<PropKind>("arch");
   const preview = usePreviewProps();
   const photo = useBackgroundImage(snapshot?.show.background?.path);
   const in3d = useView3d((s) => s.mode === "3d");
@@ -115,8 +115,6 @@ export function LayoutScreen() {
   useLayout3dKeys();
   if (!snapshot) return null;
   const show = snapshot.show;
-
-  const add = () => apply((latest) => [{ type: "addProp", prop: besideOthers(newProp(kind, latest), latest, preview.props) }]);
 
   const choosePhoto = async () => {
     if (!backend) return;
@@ -145,16 +143,7 @@ export function LayoutScreen() {
         description="Draw your display over a photo of your house, then wire each prop to a controller port."
         actions={
           <>
-            <Select aria-label="Prop type" value={kind} onChange={(e) => setKind(e.target.value as PropKind)}>
-              {PROP_KINDS.map((k) => (
-                <option key={k.kind} value={k.kind}>
-                  {k.label}
-                </option>
-              ))}
-            </Select>
-            <Button variant="primary" onClick={add}>
-              <Plus size={16} /> Add prop
-            </Button>
+            <AddPropMenu preview={preview.props} />
           </>
         }
       />
@@ -170,10 +159,10 @@ export function LayoutScreen() {
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-neutral-300">
               <p className="max-w-sm rounded-lg bg-black/60 px-4 py-3">
                 {in3d
-                  ? "No props yet. Switch to 2D (V) to draw them, or choose a prop type and Add prop."
+                  ? "No props yet. Use Add prop above, or switch to 2D (V) to draw them."
                   : show.background
-                    ? "Pick a tool above, like Arch or Matrix, and drag on the photo where that prop is."
-                    : "Pick a tool above, like Arch or Matrix, and drag here to draw a prop. Add a photo of your house to draw right over it."}
+                    ? "Use Add prop, or pick a tool above, like Arch or Matrix, and drag on the photo where that prop is."
+                    : "Use Add prop, or pick a tool above, like Arch or Matrix, and drag here to draw a prop. Add a photo of your house to draw right over it."}
               </p>
             </div>
           )}

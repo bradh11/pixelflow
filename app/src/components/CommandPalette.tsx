@@ -1,7 +1,7 @@
 import { Command } from "cmdk";
 import { useEffect } from "react";
-import { besideOthers } from "../lib/layoutEdits";
-import { PROP_KINDS, newProp } from "../lib/shows";
+import { PROP_KINDS } from "../lib/shows";
+import { addPropInView } from "../state/addProp";
 import { useAssistant } from "../state/assistant";
 import { type Screen, useApp } from "../state/store";
 
@@ -58,10 +58,7 @@ export function CommandPalette() {
     ...PROP_KINDS.map(({ kind, label }) => ({
       id: `add-${kind}`,
       label: `Add prop: ${label}`,
-      run: () => {
-        const show = useApp.getState().snapshot?.show;
-        if (show) void state.apply([{ type: "addProp", prop: besideOthers(newProp(kind, show), show) }]);
-      },
+      run: () => void addPropInView(kind),
     })),
     {
       id: "theme",

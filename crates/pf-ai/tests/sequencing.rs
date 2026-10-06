@@ -572,6 +572,33 @@ fn a_pattern_repeats_across_the_song() {
     assert!(placed(&session, &a, 0).iter().all(|e| e.0 != 12000), "only row B");
 }
 
+#[test]
+fn a_start_past_the_end_is_refused_not_a_crash() {
+    let s = setup(Some("/music/song.mp3"));
+    let a = s.rows[0].clone();
+    let provider = ScriptedProvider::new(vec![
+        calls(
+            "",
+            &[
+                (
+                    "place_effects",
+                    json!({ "rowIds": [a], "fromMs": 0, "toMs": 1000, "effect": { "kind": "on" } }),
+                ),
+                (
+                    "repeat_effects",
+                    json!({ "fromMs": 0, "toMs": 1000, "startsMs": [4000, u64::MAX] }),
+                ),
+            ],
+        ),
+        says("Fixed."),
+    ]);
+    let (mut session, _) = session();
+    ask(&mut session, &provider, &s.engine, "Repeat").0.unwrap();
+    let (text, is_error) = results_in(&provider, 1).remove(1);
+    assert!(is_error && text.contains("past the end"), "{text}");
+    assert_eq!(placed(&session, &a, 0), [(0, 1000)], "nothing copied");
+}
+
 /// An OpenAI Responses stream with one function call (then nothing else).
 fn openai_call(name: &str, input: &Value) -> String {
     let item = json!({ "id": "fc_1", "type": "function_call", "status": "completed", "call_id": "call_1", "name": name, "arguments": input.to_string() });

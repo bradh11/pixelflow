@@ -407,6 +407,12 @@ pub fn repeat(draft: &mut Draft, input: &Value) -> Result<String, String> {
     if starts.is_empty() || starts.len() > MAX_REPEATS {
         return Err(format!("Give between 1 and {MAX_REPEATS} start times."));
     }
+    if let Some(late) = starts.iter().find(|&&s| s >= doc.duration_ms) {
+        return Err(format!(
+            "Nothing was copied: a start time ({late} ms) is past the end of the sequence at {}.",
+            format_ms(doc.duration_ms)
+        ));
+    }
     let only = text_list(&input["rowIds"], "rowIds")?;
     let rows: Vec<&Row> = if only.is_empty() {
         doc.rows.iter().collect()
@@ -437,11 +443,12 @@ pub fn repeat(draft: &mut Draft, input: &Value) -> Result<String, String> {
     let mut plan = Plan::new(draft, input["replace"].as_bool().unwrap_or(false));
     for &start in &starts {
         for &(row, layer, effect) in &pattern {
-            let begin = start + (effect.start_ms - from);
+            // Starts are inside the sequence (checked above), so this can't overflow.
+            let begin = start.saturating_add(effect.start_ms - from);
             if begin >= doc.duration_ms {
                 continue;
             }
-            let end = (begin + effect.duration_ms()).min(doc.duration_ms);
+            let end = begin.saturating_add(effect.duration_ms()).min(doc.duration_ms);
             plan.add(row, layer, placed(effect, begin, end), &keep)?;
         }
     }

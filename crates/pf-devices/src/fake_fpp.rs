@@ -70,13 +70,18 @@ impl StoredFile {
 
 /// A file in FPP's upload folder: a received piece (`<name>.patch.<offset>`) or a put-together
 /// upload (`<name>`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct UploadFile {
     /// Where the piece starts in its file (0 for a put-together upload).
     pub offset: u64,
     pub size: u64,
     pub sum: Checksum,
+    /// The file's first bytes (up to 64 KiB), for checking headers.
+    pub head: Vec<u8>,
 }
+
+/// How much of the start of each upload is kept (an `.fseq`'s header and variable headers).
+const HEAD_BYTES: usize = 64 * 1024;
 
 /// Everything the fake FPP knows; tests read and change it through [`FakeFpp::state`].
 #[derive(Debug)]
@@ -87,6 +92,8 @@ pub struct FakeFppState {
     pub music: BTreeMap<String, StoredFile>,
     /// The upload folder, by file name.
     pub uploads: BTreeMap<String, UploadFile>,
+    /// The first bytes of each file moved into place, by name.
+    pub heads: BTreeMap<String, Vec<u8>>,
     /// Playlists by name, as FPP stores them.
     pub playlists: BTreeMap<String, Value>,
     /// Playlist files FPP can't parse (its GET answers `null`), by name.
@@ -124,6 +131,7 @@ impl Default for FakeFppState {
             sequences: BTreeMap::new(),
             music: BTreeMap::new(),
             uploads: BTreeMap::new(),
+            heads: BTreeMap::new(),
             playlists: BTreeMap::new(),
             broken_playlists: Vec::new(),
             free_bytes: 8 * 1024 * 1024 * 1024,
@@ -466,6 +474,7 @@ fn route(s: &mut FakeFppState, method: &str, segments: &[&str], body: &[u8]) -> 
                 size: file.size,
                 checksum: file.sum.value(),
             };
+            s.heads.insert((*name).to_string(), file.head.clone());
             let lower = name.to_ascii_lowercase();
             if lower.ends_with(".fseq") {
                 s.sequences.insert((*name).to_string(), stored);
@@ -564,6 +573,10 @@ fn upload(
                 return Ok(());
             };
             file.sum.add_at(at, &buffer[..fits as usize]);
+            let room = HEAD_BYTES.saturating_sub(file.head.len());
+            if file.offset == 0 && room > 0 {
+                file.head.extend_from_slice(&buffer[..(fits as usize).min(room)]);
+            }
             file.size += fits;
             s.free_bytes -= fits;
         }
@@ -578,13 +591,18 @@ fn upload(
             .uploads
             .iter()
             .filter(|(file, _)| file.starts_with(&prefix))
-            .map(|(file, f)| (file.clone(), *f))
+            .map(|(file, f)| (file.clone(), f.clone()))
             .collect();
         let size: u64 = pieces.iter().map(|(_, f)| f.size).sum();
         if size == total {
             let sum = pieces
                 .iter()
                 .fold(Checksum::default(), |sum, (_, f)| sum.combine(f.sum));
+            let head = pieces
+                .iter()
+                .find(|(_, f)| f.offset == 0)
+                .map(|(_, f)| f.head.clone())
+                .unwrap_or_default();
             for (file, _) in &pieces {
                 s.uploads.remove(file);
             }
@@ -595,6 +613,7 @@ fn upload(
                     offset: 0,
                     size: total.saturating_sub(short),
                     sum,
+                    head,
                 },
             );
         }

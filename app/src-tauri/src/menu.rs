@@ -1,5 +1,5 @@
 //! The macOS menu bar: the standard menus, with a File menu for shows (New, Open…, Open Recent,
-//! Close Show, Save, Save As…). The window does the work: each item sends it a [`MENU_EVENT`],
+//! Close Show, Save, Save As…), and Edit → Undo / Redo that reach the show and the sequence. The window does the work: each item sends it a [`MENU_EVENT`],
 //! and it runs the same action as its show menu and shortcuts (asking about unsaved changes
 //! first). A recent show chosen here is opened through `open_show` like any other.
 //!
@@ -36,6 +36,8 @@ pub(crate) enum MenuAction {
     CloseShow,
     Save,
     SaveAs,
+    Undo,
+    Redo,
 }
 
 /// The action for a menu item's id (a recent show only while it's still on the list).
@@ -46,6 +48,8 @@ pub(crate) fn action_for(id: &str, recent: &RecentShows) -> Option<MenuAction> {
         "close-show" => MenuAction::CloseShow,
         "save" => MenuAction::Save,
         "save-as" => MenuAction::SaveAs,
+        "undo" => MenuAction::Undo,
+        "redo" => MenuAction::Redo,
         CLEAR_RECENT => MenuAction::ClearRecent,
         _ => {
             let path = id.strip_prefix(RECENT_PREFIX)?;
@@ -105,8 +109,11 @@ pub(crate) fn build<R: Runtime>(app: &AppHandle<R>, recent: &RecentShows) -> tau
                 "Edit",
                 true,
                 &[
-                    &PredefinedMenuItem::undo(app, None)?,
-                    &PredefinedMenuItem::redo(app, None)?,
+                    // The app's own items: the system's would only reach text fields, so
+                    // choosing them with the mouse never undid a show or sequence change. The
+                    // window undoes in a text field while one is being typed in.
+                    &item("undo", "Undo", Some("CmdOrCtrl+Z"))?,
+                    &item("redo", "Redo", Some("CmdOrCtrl+Shift+Z"))?,
                     &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::cut(app, None)?,
                     &PredefinedMenuItem::copy(app, None)?,
@@ -239,6 +246,13 @@ mod tests {
         );
         assert_eq!(action_for("recent:/etc/passwd", &recent), None);
         assert_eq!(action_for("something-else", &recent), None);
+        // Edit → Undo and Redo reach the show and the open sequence, not only text fields.
+        assert_eq!(action_for("undo", &recent), Some(MenuAction::Undo));
+        assert_eq!(action_for("redo", &recent), Some(MenuAction::Redo));
+        assert_eq!(
+            serde_json::to_value(MenuAction::Undo).unwrap(),
+            serde_json::json!({ "action": "undo" })
+        );
         // Quit and Close Window go through the window's close (and its question), not here.
         assert_eq!(action_for(QUIT, &recent), None);
         assert_eq!(action_for(CLOSE_WINDOW, &recent), None);

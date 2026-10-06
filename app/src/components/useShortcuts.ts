@@ -1,8 +1,7 @@
 import { useEffect } from "react";
 import { useAssistant } from "../state/assistant";
 import { isBusyOrAsking } from "../state/busy";
-import { saveFocused } from "../state/menuActions";
-import { useSequencer } from "../state/sequencer";
+import { saveFocused, undoFocused } from "../state/menuActions";
 import { useApp } from "../state/store";
 
 /**
@@ -29,8 +28,6 @@ export function useShortcuts() {
         if (APP_KEYS.has(key) && !(inField && key === "z")) e.preventDefault();
         return;
       }
-      // On the Sequence screen, undo, redo, and save act on the open sequence.
-      const seq = state.screen === "sequence" && useSequencer.getState().doc ? useSequencer.getState() : null;
       const handlers: Record<string, () => unknown> = {
         k: () => state.setPaletteOpen(!state.paletteOpen),
         l: () => useAssistant.getState().toggle(),
@@ -50,8 +47,7 @@ export function useShortcuts() {
       }
       if (key === "z" && !inField) {
         e.preventDefault();
-        if (seq) void (e.shiftKey ? seq.redo() : seq.undo());
-        else void (e.shiftKey ? state.redo() : state.undo());
+        void undoFocused(e.shiftKey);
         return;
       }
       const handler = handlers[key];

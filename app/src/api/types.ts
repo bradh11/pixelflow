@@ -691,7 +691,9 @@ export type MenuAction =
   | { action: "clearRecent" }
   | { action: "closeShow" }
   | { action: "save" }
-  | { action: "saveAs" };
+  | { action: "saveAs" }
+  | { action: "undo" }
+  | { action: "redo" };
 
 /** What a file dialog is for; the shell picks its filters, title, and starting folder. */
 export type PickKind =

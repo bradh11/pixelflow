@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { demoShow } from "../api/demo";
 import { DEMO_SEQUENCE_PATH, demoSequence } from "../api/demoSequence";
@@ -438,5 +438,47 @@ describe("while a file dialog, or a question, is up", () => {
     act(() => void (closed = backend.requestClose()));
     expect(closed).toBe(true);
     await user.click(screen.getByRole("button", { name: "Cancel" }));
+  });
+});
+
+describe("Edit → Undo and Redo in the menu bar", () => {
+  it("undo and redo the show when no text field has focus", async () => {
+    const { backend, user } = await start();
+    await openHouse(user);
+    await act(() => useApp.getState().apply([{ type: "renameShow", name: "Changed" }]));
+    (document.activeElement as HTMLElement | null)?.blur();
+    await act(() => backend.chooseMenu({ action: "undo" }));
+    await waitFor(() => expect(useApp.getState().snapshot?.show.name).toBe("Demo House"));
+    await act(() => backend.chooseMenu({ action: "redo" }));
+    await waitFor(() => expect(useApp.getState().snapshot?.show.name).toBe("Changed"));
+  });
+
+  it("leave a text field's undo to the field", async () => {
+    const { backend, user } = await start();
+    await openHouse(user);
+    await act(() => useApp.getState().apply([{ type: "renameShow", name: "Changed" }]));
+    await user.dblClick(showMenuButton());
+    const field = screen.getByRole("textbox", { name: "Show name" });
+    expect(field).toHaveFocus();
+    const execCommand = vi.fn(() => true);
+    Object.defineProperty(document, "execCommand", { value: execCommand, configurable: true });
+    try {
+      await act(() => backend.chooseMenu({ action: "undo" }));
+      expect(execCommand).toHaveBeenCalledWith("undo");
+      expect(useApp.getState().snapshot?.show.name).toBe("Changed");
+    } finally {
+      delete (document as { execCommand?: unknown }).execCommand;
+    }
+  });
+
+  it("wait while a question is up", async () => {
+    const { backend, user } = await start();
+    await openHouse(user);
+    await act(() => useApp.getState().apply([{ type: "renameShow", name: "Changed" }]));
+    await user.keyboard("{Meta>}n{/Meta}");
+    await screen.findByRole("dialog", { name: "Save changes to Changed?" });
+    (document.activeElement as HTMLElement | null)?.blur();
+    await act(() => backend.chooseMenu({ action: "undo" }));
+    expect(useApp.getState().snapshot?.show.name).toBe("Changed");
   });
 });

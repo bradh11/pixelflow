@@ -25,8 +25,12 @@ pub enum Corner {
 )]
 #[serde(rename_all = "camelCase")]
 pub enum Orientation {
+    /// Strings run along rows.
+    #[cfg_attr(feature = "schema", schemars(description = ""))]
     #[default]
     Horizontal,
+    /// Strings run along columns.
+    #[cfg_attr(feature = "schema", schemars(description = ""))]
     Vertical,
 }
 
@@ -65,9 +69,15 @@ impl Default for MatrixWiring {
 )]
 #[serde(rename_all = "camelCase")]
 pub enum StrandStyle {
+    /// Every other strand runs back the other way.
+    #[cfg_attr(feature = "schema", schemars(description = ""))]
     #[default]
     ZigZag,
+    /// Every strand runs the same way.
+    #[cfg_attr(feature = "schema", schemars(description = ""))]
     NoZigZag,
+    /// Each strand's pixels go out every other spot and come back on the ones between.
+    #[cfg_attr(feature = "schema", schemars(description = ""))]
     AlternatePixel,
 }
 
@@ -161,10 +171,18 @@ fn arch_hollow() -> u32 {
 )]
 #[serde(rename_all = "camelCase")]
 pub enum StarStart {
+    /// The top tip.
+    #[cfg_attr(feature = "schema", schemars(description = ""))]
     #[default]
     Top,
+    /// The inner corner at the bottom (a star with an even number of points turns so it has one).
+    #[cfg_attr(feature = "schema", schemars(description = ""))]
     Bottom,
+    /// The bottom left tip.
+    #[cfg_attr(feature = "schema", schemars(description = ""))]
     LeftLeg,
+    /// The bottom right tip.
+    #[cfg_attr(feature = "schema", schemars(description = ""))]
     RightLeg,
 }
 

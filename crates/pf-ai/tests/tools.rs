@@ -695,6 +695,26 @@ fn tool_sizes() -> (usize, Vec<(usize, String)>) {
 }
 
 #[test]
+fn choices_documented_only_in_rust_are_plain_name_lists() {
+    let toolbox = Toolbox::new();
+    let add = toolbox
+        .tools()
+        .iter()
+        .find(|t| t.spec.name == "show_add_prop")
+        .unwrap();
+    let defs = &add.spec.input_schema["$defs"];
+    assert_eq!(
+        defs["StarStart"]["enum"],
+        json!(["top", "bottom", "leftLeg", "rightLeg"])
+    );
+    assert_eq!(defs["StarStart"]["type"], "string");
+    assert!(defs["StarStart"].get("oneOf").is_none());
+    assert_eq!(defs["Orientation"]["enum"], json!(["horizontal", "vertical"]));
+    // Choices whose names are explained to the model keep their explanations.
+    assert!(defs["BufferStyle"]["oneOf"][0].get("description").is_some());
+}
+
+#[test]
 fn tool_definitions_stay_small() {
     let (total, sizes) = tool_sizes();
     println!(

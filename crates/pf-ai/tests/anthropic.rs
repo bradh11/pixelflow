@@ -84,7 +84,13 @@ fn a_streamed_tool_call_is_assembled_and_text_streams() {
     let body = fake.body(0);
     assert_eq!(body["model"], "claude-opus-5-5");
     assert_eq!(body["stream"], true);
-    assert_eq!(body["system"], "You are a test.");
+    // An explicit breakpoint on the system prompt caches the tools and system prompt together
+    // (tools render first); automatic caching covers the growing conversation.
+    assert_eq!(
+        body["system"],
+        json!([{ "type": "text", "text": "You are a test.", "cache_control": { "type": "ephemeral" } }])
+    );
+    assert_eq!(body["cache_control"], json!({ "type": "ephemeral" }));
     assert_eq!(body["tools"][0]["name"], "show_rename_show");
     assert_eq!(body["tools"][0]["eager_input_streaming"], true);
     assert_eq!(
@@ -249,8 +255,8 @@ fn errors_become_plain_messages_without_the_key() {
 #[test]
 fn rate_limits_and_overload_are_retried_then_explained() {
     let (provider, fake) = setup(vec![
-        Reply::status(429, error_body("rate_limit_error", "slow down")),
-        Reply::status(529, error_body("overloaded_error", "Overloaded")),
+        Reply::status(429, error_body("rate_limit_error", "slow down")).with_retry_after(1),
+        Reply::status(529, error_body("overloaded_error", "Overloaded")).with_retry_after(1),
         Reply::ok(TEXT),
     ]);
     let (result, events) = turn(&provider, "claude-opus-5-5", &[Message::User("Hi".into())]);
@@ -258,7 +264,7 @@ fn rate_limits_and_overload_are_retried_then_explained() {
     assert_eq!(fake.requests().len(), 3);
     assert!(matches!(events[0], StreamEvent::Retrying { attempt: 1, .. }));
 
-    let busy = || Reply::status(529, error_body("overloaded_error", "Overloaded"));
+    let busy = || Reply::status(529, error_body("overloaded_error", "Overloaded")).with_retry_after(1);
     let (provider, _) = setup(vec![busy(), busy(), busy()]);
     let (result, _) = turn(&provider, "claude-opus-5-5", &[Message::User("Hi".into())]);
     assert_eq!(result.unwrap_err(), AiError::Overloaded(ProviderId::Anthropic));
@@ -276,13 +282,15 @@ fn network_failures_and_dropped_streams() {
     assert_eq!(result.unwrap_err(), AiError::Network(ProviderId::Anthropic));
     assert_eq!(fake.requests().len(), 3);
 
-    let (provider, _) = setup(vec![Reply::Timeout, Reply::Timeout, Reply::Timeout]);
+    // A timeout after sending may mean the provider is working on it: not sent again.
+    let (provider, timed_out) = setup(vec![Reply::Timeout, Reply::Timeout, Reply::Timeout]);
     assert_eq!(
         turn(&provider, "claude-opus-5-5", &[Message::User("Hi".into())])
             .0
             .unwrap_err(),
         AiError::Timeout(ProviderId::Anthropic)
     );
+    assert_eq!(timed_out.requests().len(), 1);
 
     // A stream cut off before message_stop is never treated as a whole reply (or retried).
     let cut = TOOL_USE.split("event: message_delta").next().unwrap().to_string();
@@ -333,6 +341,33 @@ fn refusals_and_cut_off_replies_are_reported_not_run() {
         turn.tool_calls[0].input_error.is_some(),
         "a cut-off input is flagged, not parsed leniently"
     );
+}
+
+#[test]
+fn malformed_streams_are_bad_responses_not_crashes() {
+    let start = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{}}\n\n";
+    let cases = [
+        // A block index far past the blocks so far.
+        format!(
+            "{start}data: {{\"type\":\"content_block_start\",\"index\":100000000,\"content_block\":{{\"type\":\"text\",\"text\":\"\"}}}}\n\n"
+        ),
+        // A block that isn't an object, then deltas into it.
+        format!(
+            "{start}data: {{\"type\":\"content_block_start\",\"index\":0,\"content_block\":\"oops\"}}\n\ndata: {{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{{\"type\":\"signature_delta\",\"signature\":\"x\"}}}}\n\n"
+        ),
+        format!(
+            "{start}data: {{\"type\":\"content_block_start\",\"index\":0,\"content_block\":7}}\n\ndata: {{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{{\"type\":\"text_delta\",\"text\":\"x\"}}}}\n\n"
+        ),
+    ];
+    for body in cases {
+        let (provider, _) = setup(vec![Reply::ok(body.clone())]);
+        let result = turn(&provider, "claude-haiku-4-5", &[Message::User("Hi".into())]).0;
+        assert_eq!(
+            result.unwrap_err(),
+            AiError::BadResponse(ProviderId::Anthropic),
+            "{body}"
+        );
+    }
 }
 
 #[test]

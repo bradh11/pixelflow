@@ -17,6 +17,12 @@ pub struct SseReader<R> {
 
 /// Longest line accepted (a reply's single chunk is far smaller).
 const MAX_LINE: usize = 4 * 1024 * 1024;
+/// Largest event accepted (all its data lines together).
+const MAX_EVENT: usize = 8 * 1024 * 1024;
+
+fn too_big() -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, "an event in the stream is too large")
+}
 
 impl<R: BufRead> SseReader<R> {
     pub fn new(inner: R) -> Self {
@@ -32,10 +38,16 @@ impl<R: BufRead> SseReader<R> {
         let mut data: Option<String> = None;
         loop {
             self.line.clear();
-            let read = Read::take(&mut self.inner, MAX_LINE as u64).read_line(&mut self.line)?;
+            let read = Read::take(&mut self.inner, MAX_LINE as u64 + 1).read_line(&mut self.line)?;
             if read == 0 {
                 // End of stream: a last event without its blank line still counts.
                 return Ok(data.map(|data| SseEvent { event, data }));
+            }
+            if read > MAX_LINE {
+                return Err(too_big());
+            }
+            if data.as_ref().is_some_and(|d| d.len() + read > MAX_EVENT) {
+                return Err(too_big());
             }
             let line = self.line.trim_end_matches(['\n', '\r']);
             if line.is_empty() {
@@ -97,6 +109,24 @@ mod tests {
                     data: "{}".into()
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn oversized_lines_and_events_are_refused() {
+        let long_line = format!("data: {}\n\n", "x".repeat(MAX_LINE + 10));
+        let mut reader = SseReader::new(long_line.as_bytes());
+        assert!(
+            reader.next_event().is_err(),
+            "a line past the limit is an error, not split"
+        );
+
+        let chunk = format!("data: {}\n", "y".repeat(MAX_LINE - 100));
+        let many = chunk.repeat(MAX_EVENT / MAX_LINE + 2) + "\n";
+        let mut reader = SseReader::new(many.as_bytes());
+        assert!(
+            reader.next_event().is_err(),
+            "an event past the limit is an error"
         );
     }
 

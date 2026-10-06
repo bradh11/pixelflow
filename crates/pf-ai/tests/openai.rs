@@ -89,6 +89,8 @@ fn streamed_tool_calls_are_assembled_by_index() {
     let body = fake.body(0);
     assert_eq!(body["model"], "gpt-5.1");
     assert_eq!(body["stream"], true);
+    // Each step's output is capped (reasoning models accept this parameter).
+    assert_eq!(body["max_completion_tokens"], 1000);
     assert_eq!(
         body["messages"][0],
         json!({ "role": "system", "content": "You are a test." })
@@ -225,7 +227,8 @@ fn errors_become_plain_messages_without_the_key() {
 
 #[test]
 fn rate_limits_are_retried_and_a_dropped_stream_is_reported() {
-    let limited = || Reply::status(429, error_body("rate_limit_exceeded", "Rate limit reached"));
+    let limited =
+        || Reply::status(429, error_body("rate_limit_exceeded", "Rate limit reached")).with_retry_after(1);
     let (provider, fake) = setup(vec![limited(), Reply::ok(TEXT)]);
     assert!(turn(&provider, &[Message::User("Hi".into())]).0.is_ok());
     assert_eq!(fake.requests().len(), 2);

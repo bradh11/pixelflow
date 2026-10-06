@@ -104,6 +104,7 @@ pub fn request_body(request: &TurnRequest<'_>) -> Value {
     json!({
         "model": request.model,
         "stream": true,
+        "max_completion_tokens": request.max_tokens,
         "messages": messages,
         "tools": tools,
     })
@@ -246,8 +247,11 @@ impl LlmProvider for OpenAi {
         };
         let mut response = self.send(&request, key, None, cancel, &mut |_| {})?;
         let mut body = String::new();
-        std::io::Read::read_to_string(&mut response.body, &mut body)
-            .map_err(|_| AiError::Interrupted(self.id()))?;
+        std::io::Read::read_to_string(
+            &mut std::io::Read::take(&mut response.body, crate::http::MAX_LIST_BODY),
+            &mut body,
+        )
+        .map_err(|_| AiError::Interrupted(self.id()))?;
         let page: Value = serde_json::from_str(&body).map_err(|_| AiError::BadResponse(self.id()))?;
         let data = page["data"].as_array().ok_or(AiError::BadResponse(self.id()))?;
         let mut models: Vec<(i64, String)> = data

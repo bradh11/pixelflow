@@ -30,6 +30,10 @@ pub enum Reply {
     },
     Unreachable,
     Timeout,
+    /// Timed out before the request was sent.
+    ConnectTimeout,
+    /// The connection broke (perhaps after the request was sent).
+    Failed,
 }
 
 impl Reply {
@@ -118,6 +122,8 @@ impl Transport for FakeTransport {
             }),
             Reply::Unreachable => Err(TransportError::Unreachable),
             Reply::Timeout => Err(TransportError::Timeout),
+            Reply::ConnectTimeout => Err(TransportError::ConnectTimeout),
+            Reply::Failed => Err(TransportError::Failed),
         }
     }
 }

@@ -125,9 +125,11 @@ pub fn request_body(request: &TurnRequest<'_>) -> Value {
         "model": request.model,
         "max_tokens": request.max_tokens,
         "stream": true,
-        // Caches the tools, system prompt, and conversation so far (the prefix only grows).
+        // Automatic caching for the conversation so far (the prefix only grows)...
         "cache_control": { "type": "ephemeral" },
-        "system": request.system,
+        // ...plus a fixed breakpoint on the system prompt, which caches the tools (rendered
+        // before it) and the system prompt together, whatever happens later in the chat.
+        "system": [{ "type": "text", "text": request.system, "cache_control": { "type": "ephemeral" } }],
         "tools": tools,
         "messages": messages(request.messages),
     })
@@ -282,8 +284,11 @@ impl LlmProvider for Anthropic {
             };
             let mut response = self.send(&request, key, None, cancel, &mut |_| {})?;
             let mut body = String::new();
-            std::io::Read::read_to_string(&mut response.body, &mut body)
-                .map_err(|_| AiError::Interrupted(self.id()))?;
+            std::io::Read::read_to_string(
+                &mut std::io::Read::take(&mut response.body, crate::http::MAX_LIST_BODY),
+                &mut body,
+            )
+            .map_err(|_| AiError::Interrupted(self.id()))?;
             let page: Value = serde_json::from_str(&body).map_err(|_| AiError::BadResponse(self.id()))?;
             let data = page["data"].as_array().ok_or(AiError::BadResponse(self.id()))?;
             models.extend(data.iter().filter_map(model_info));
@@ -395,23 +400,26 @@ fn read_stream(
         match kind {
             "content_block_start" => {
                 let mut value = data["content_block"].clone();
+                if !value.is_object() {
+                    return Err(AiError::BadResponse(p));
+                }
                 if value["type"] == "tool_use" {
                     on_event(StreamEvent::ToolStarted {
                         name: value["name"].as_str().unwrap_or_default().to_string(),
                     });
                     value["input"] = json!({});
                 }
-                let index = data["index"].as_u64().unwrap_or(blocks.len() as u64) as usize;
-                while blocks.len() <= index {
-                    blocks.push(Block {
-                        value: Value::Null,
-                        partial_json: String::new(),
-                    });
-                }
-                blocks[index] = Block {
+                // Blocks arrive in order: the next one, or (again) one already started.
+                let index = data["index"].as_u64().unwrap_or(blocks.len() as u64);
+                let block = Block {
                     value,
                     partial_json: String::new(),
                 };
+                match usize::try_from(index) {
+                    Ok(i) if i < blocks.len() => blocks[i] = block,
+                    Ok(i) if i == blocks.len() && i < MAX_BLOCKS => blocks.push(block),
+                    _ => return Err(AiError::BadResponse(p)),
+                }
             }
             "content_block_delta" => {
                 let index = data["index"].as_u64().unwrap_or(0) as usize;
@@ -434,7 +442,12 @@ fn read_stream(
                         delta["thinking"].as_str().unwrap_or_default(),
                     ),
                     "signature_delta" => {
-                        block.value["signature"] = json!(delta["signature"].as_str().unwrap_or_default());
+                        if let Some(object) = block.value.as_object_mut() {
+                            object.insert(
+                                "signature".into(),
+                                json!(delta["signature"].as_str().unwrap_or_default()),
+                            );
+                        }
                     }
                     // Citations and anything newer: kept as the block arrived.
                     _ => {}
@@ -468,10 +481,19 @@ fn read_stream(
     finish(blocks, stop)
 }
 
+/// Content blocks in one reply, at most.
+const MAX_BLOCKS: usize = 1024;
+
 fn append(value: &mut Value, field: &str, more: &str) {
-    let mut text = value[field].as_str().unwrap_or_default().to_string();
-    text.push_str(more);
-    value[field] = json!(text);
+    if let Some(object) = value.as_object_mut() {
+        let mut text = object
+            .get(field)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        text.push_str(more);
+        object.insert(field.to_string(), json!(text));
+    }
 }
 
 /// Turns the streamed blocks into a turn. After a mid-reply fallback (a `fallback` block marks

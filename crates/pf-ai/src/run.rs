@@ -32,7 +32,7 @@ fn ok(content: impl Into<String>) -> Outcome {
 
 fn err(content: impl Into<String>) -> Outcome {
     Outcome::Answer {
-        content: content.into(),
+        content: cap(content.into()),
         is_error: true,
     }
 }
@@ -59,7 +59,7 @@ pub fn run_tool(toolbox: &Toolbox, call: &ToolCall, draft: &mut Draft) -> Outcom
     let Some(tool) = toolbox.find(&call.name) else {
         return err(format!(
             "There is no tool called \"{}\". You can only read the show and draft changes for the user to review: you can't save or export files, send to controllers, start output or playback, or contact devices. If the user wants one of those, tell them where to do it in PixelFlow.",
-            call.name
+            call.name.chars().take(64).collect::<String>()
         ));
     };
     if let Some(problem) = &call.input_error {

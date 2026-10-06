@@ -80,9 +80,20 @@ impl fmt::Debug for HttpResponse {
 pub enum TransportError {
     /// Couldn't connect: no network, the name didn't resolve, or the connection was refused.
     Unreachable,
+    /// Gave up before the request was sent (resolving, connecting, or sending its headers).
+    ConnectTimeout,
+    /// Gave up after the request was sent: the provider may be working on it.
     Timeout,
-    /// The connection failed some other way.
+    /// The connection failed some other way (perhaps after the request was sent).
     Failed,
+}
+
+impl TransportError {
+    /// True when the request certainly never reached the provider, so sending it again can't
+    /// run (or bill) it twice.
+    pub fn never_sent(self) -> bool {
+        matches!(self, TransportError::Unreachable | TransportError::ConnectTimeout)
+    }
 }
 
 /// Sends requests. Implemented by [`UreqTransport`] and, in tests, by recorded replies.
@@ -123,6 +134,9 @@ impl UreqTransport {
 
 fn transport_error(error: &ureq::Error) -> TransportError {
     match error {
+        ureq::Error::Timeout(
+            ureq::Timeout::Resolve | ureq::Timeout::Connect | ureq::Timeout::SendRequest,
+        ) => TransportError::ConnectTimeout,
         ureq::Error::Timeout(_) => TransportError::Timeout,
         ureq::Error::HostNotFound | ureq::Error::ConnectionFailed => TransportError::Unreachable,
         ureq::Error::Io(e) if e.kind() == std::io::ErrorKind::TimedOut => TransportError::Timeout,
@@ -164,9 +178,7 @@ impl Transport for UreqTransport {
             .headers()
             .get("retry-after")
             .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.trim().parse::<f64>().ok())
-            .filter(|s| s.is_finite() && *s >= 0.0)
-            .map(Duration::from_secs_f64);
+            .and_then(parse_retry_after);
         let reader = response.into_body().into_reader();
         Ok(HttpResponse {
             status,
@@ -174,6 +186,15 @@ impl Transport for UreqTransport {
             body: Box::new(BufReader::new(reader)),
         })
     }
+}
+
+/// A `retry-after` header in seconds, capped at an hour (anything else is ignored).
+pub fn parse_retry_after(text: &str) -> Option<Duration> {
+    let seconds = text.trim().parse::<f64>().ok()?;
+    if !seconds.is_finite() || seconds < 0.0 {
+        return None;
+    }
+    Duration::try_from_secs_f64(seconds.min(3600.0)).ok()
 }
 
 /// How often, and after how long, to try again.
@@ -207,6 +228,9 @@ impl RetryPolicy {
     }
 }
 
+/// The largest models list read.
+pub const MAX_LIST_BODY: u64 = 16 * 1024 * 1024;
+
 /// The largest error body read (error replies are small JSON).
 const MAX_ERROR_BODY: u64 = 64 * 1024;
 
@@ -225,17 +249,20 @@ pub enum SendError {
     Cancelled,
 }
 
-/// Statuses that mean "nothing happened, try again later": request timeout, rate limit, server
-/// errors, and Anthropic's "overloaded". (`retryable` can veto, e.g. OpenAI's "out of credit" 429.)
-fn retryable_status(status: u16) -> bool {
-    matches!(status, 408 | 429 | 500 | 502 | 503 | 504 | 529)
+/// Replies that say "not now, come back in a while" and did no work: rate limited, unavailable,
+/// or (Anthropic) overloaded, with a `retry-after` hint. Anything else that follows a sent
+/// request (a server error, a timeout) may have been processed, and billed, so it isn't sent
+/// again. (`retryable` can veto, e.g. OpenAI's "out of credit" 429.)
+fn retryable_status(status: u16, retry_after: Option<Duration>) -> bool {
+    matches!(status, 429 | 503 | 529) && retry_after.is_some()
 }
 
-/// Sends `request`, retrying only when it's safe: the connection failed before any reply, or
-/// the provider answered with a "try again later" status before doing any work. A reply that
-/// has started streaming is never retried. Waits honor `retry-after` (up to the policy's
-/// maximum) and stop early when cancelled. `retryable` sees each error reply and may refuse a
-/// retry; `on_retry` hears about each one.
+/// Sends `request`, retrying only when it can't run twice: it never reached the provider
+/// (couldn't connect, or timed out before it was sent), or the provider turned it away with a
+/// "come back in a while" status and a `retry-after` hint. A reply that has started streaming is
+/// never retried. Waits honor `retry-after` (up to the policy's maximum) and stop early when
+/// cancelled. `retryable` sees each error reply and may refuse a retry; `on_retry` hears about
+/// each one.
 pub fn send_with_retries(
     transport: &dyn Transport,
     request: &HttpRequest,
@@ -260,14 +287,14 @@ pub fn send_with_retries(
                     status: response.status,
                     body,
                 };
-                let again = retryable_status(reply.status) && retryable(&reply);
+                let again = retryable_status(reply.status, response.retry_after) && retryable(&reply);
                 if !again || attempt >= policy.attempts {
                     return Err(SendError::Status(reply));
                 }
                 (SendError::Status(reply), response.retry_after)
             }
             Err(error) => {
-                if attempt >= policy.attempts {
+                if !error.never_sent() || attempt >= policy.attempts {
                     return Err(SendError::Transport(error));
                 }
                 (SendError::Transport(error), None)
@@ -338,12 +365,13 @@ mod tests {
     }
 
     #[test]
-    fn busy_and_unreachable_are_retried_then_succeed() {
+    fn busy_with_a_hint_and_never_sent_are_retried_then_succeed() {
         let fake = FakeTransport::new(vec![
             Reply::status(
                 529,
                 r#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#,
-            ),
+            )
+            .with_retry_after(1),
             Reply::Unreachable,
             Reply::ok("hello"),
         ]);
@@ -352,6 +380,41 @@ mod tests {
         response.body.read_to_string(&mut body).unwrap();
         assert_eq!(body, "hello");
         assert_eq!(fake.requests().len(), 3);
+
+        let fake = FakeTransport::new(vec![Reply::ConnectTimeout, Reply::ok("hello")]);
+        assert!(send(&fake).is_ok(), "a connect timeout means nothing was sent");
+        assert_eq!(fake.requests().len(), 2);
+    }
+
+    #[test]
+    fn a_request_that_may_have_been_processed_is_not_sent_again() {
+        // Each of these could follow a request the provider already received (and bills).
+        for first in [
+            Reply::Timeout,
+            Reply::Failed,
+            Reply::status(500, ""),
+            Reply::status(502, ""),
+            Reply::status(504, ""),
+            Reply::status(408, ""),
+            // Busy, but with no hint of when to come back.
+            Reply::status(529, ""),
+            Reply::status(429, ""),
+            Reply::status(503, ""),
+        ] {
+            let shown = format!("{first:?}");
+            let fake = FakeTransport::new(vec![first, Reply::ok("never")]);
+            assert!(send(&fake).is_err(), "{shown}");
+            assert_eq!(fake.requests().len(), 1, "{shown} is not retried");
+        }
+    }
+
+    #[test]
+    fn a_huge_retry_after_is_clamped_not_a_panic() {
+        assert_eq!(parse_retry_after("1e30"), Some(Duration::from_secs(3600)));
+        assert_eq!(parse_retry_after(" 2 "), Some(Duration::from_secs(2)));
+        assert_eq!(parse_retry_after("-1"), None);
+        assert_eq!(parse_retry_after("NaN"), None);
+        assert_eq!(parse_retry_after("soon"), None);
     }
 
     #[test]
@@ -367,9 +430,9 @@ mod tests {
     #[test]
     fn retries_stop_after_the_policy_and_when_vetoed() {
         let fake = FakeTransport::new(vec![
-            Reply::status(503, ""),
-            Reply::status(503, ""),
-            Reply::status(503, ""),
+            Reply::status(503, "").with_retry_after(1),
+            Reply::status(503, "").with_retry_after(1),
+            Reply::status(503, "").with_retry_after(1),
         ]);
         assert!(matches!(
             send(&fake),
@@ -377,7 +440,10 @@ mod tests {
         ));
         assert_eq!(fake.requests().len(), 3);
 
-        let fake = FakeTransport::new(vec![Reply::status(429, "no credit"), Reply::ok("never")]);
+        let fake = FakeTransport::new(vec![
+            Reply::status(429, "no credit").with_retry_after(1),
+            Reply::ok("never"),
+        ]);
         let result = send_with_retries(
             &fake,
             &request(),
@@ -395,7 +461,10 @@ mod tests {
 
     #[test]
     fn stop_ends_the_wait_between_retries() {
-        let fake = FakeTransport::new(vec![Reply::status(429, ""), Reply::ok("never")]);
+        let fake = FakeTransport::new(vec![
+            Reply::status(429, "").with_retry_after(30),
+            Reply::ok("never"),
+        ]);
         let cancel = Cancel::new();
         let policy = RetryPolicy {
             attempts: 3,

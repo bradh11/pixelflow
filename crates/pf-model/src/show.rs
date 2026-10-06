@@ -17,8 +17,9 @@ use std::path::Path;
 /// regions, face colors, and a group's `submodels`; 8 = file paths (sequences, music, the photo,
 /// the house model) are relative to the show file when the file is inside its folder, and keep
 /// bytes that aren't UTF-8 (see `paths.rs`); the file also records the folder it was saved in
-/// (`savedIn`), so a show file moved on its own still finds its files.
-pub const CURRENT_SCHEMA_VERSION: u32 = 8;
+/// (`savedIn`), so a show file moved on its own still finds its files; 9 = more prop shapes
+/// (`polyLine` and the other xLights prop types).
+pub const CURRENT_SCHEMA_VERSION: u32 = 9;
 
 /// Show-wide settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

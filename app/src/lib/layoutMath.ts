@@ -555,11 +555,12 @@ export function moveGesture(from: Pt, to: Pt, origin: Pt | null, grid: number | 
 // ---- Drawing new props -----------------------------------------------------------------
 
 /** Kinds drawn by dragging from one end to the other (the rest are drawn as a box). */
-export const DRAWN_BY_ENDS: PropKind[] = ["line", "arch"];
+export const DRAWN_BY_ENDS: PropKind[] = ["line", "arch", "candyCanes", "icicles"];
 
 /**
- * A new prop shaped and placed to what was drawn: a line or arch from `a` to `b`, or the
- * other kinds filling the box with corners `a` and `b`. Pixel counts stay as they are.
+ * A new prop shaped and placed to what was drawn: a line, arch, candy canes or icicles from `a`
+ * to `b`, or the other kinds filling the box with corners `a` and `b`. Pixel counts stay as they
+ * are.
  */
 export function drawnProp(kind: PropKind, a: Pt, b: Pt, prop: Prop): Prop {
   const shape = structuredClone(prop.shape);
@@ -572,11 +573,12 @@ export function drawnProp(kind: PropKind, a: Pt, b: Pt, prop: Prop): Prop {
   const place = (x: number, y: number) => {
     transform.position = { ...transform.position, x: tidy(x), y: tidy(y) };
   };
-  if (kind === "line" || kind === "arch") {
+  if (DRAWN_BY_ENDS.includes(kind)) {
     const length = Math.hypot(b.x - a.x, b.y - a.y);
     place((a.x + b.x) / 2, (a.y + b.y) / 2);
     transform.rotationDeg = { ...transform.rotationDeg, z: normalizeDeg((Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI) };
     if (shape.type === "line") shape.length = r(length);
+    if (shape.type === "candyCanes" || shape.type === "icicles") shape.width = r(length);
     if (shape.type === "arch") {
       const ratio = shape.width > 0 ? shape.height / shape.width : 0.5;
       shape.width = r(length);
@@ -592,9 +594,22 @@ export function drawnProp(kind: PropKind, a: Pt, b: Pt, prop: Prop): Prop {
     shape.height = r(h);
     shape.baseRadius = r(w / 2);
     shape.topRadius = r((w / 2) * taper);
-  } else if (shape.type === "circle") {
+  } else if (shape.type === "windowFrame") {
+    place(cx, cy);
+    shape.width = r(w);
+    shape.height = r(h);
+  } else if (shape.type === "circle" || shape.type === "wreath" || shape.type === "spinner" || shape.type === "sphere") {
     place(cx, cy);
     shape.radius = r(Math.min(w, h) / 2);
+  } else if (shape.type === "customGrid") {
+    // Its squares are one unit apart: scale them evenly to fit the box.
+    place(cx, cy);
+    const s = r(Math.min(w / Math.max(shape.columns - 1, 1), h / Math.max(shape.rows - 1, 1)));
+    transform.scale = { x: s, y: s, z: s };
+  } else if (shape.type === "cube") {
+    // The front face fits the box: the spacing that fits both across and up.
+    place(cx, cy);
+    shape.spacing = r(Math.min(w / Math.max(shape.width - 1, 1), h / Math.max(shape.height - 1, 1)));
   } else if (shape.type === "star") {
     place(cx, cy);
     const ratio = shape.outerRadius > 0 ? shape.innerRadius / shape.outerRadius : 0.4;

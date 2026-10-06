@@ -24,6 +24,14 @@ export interface MatrixWiring {
   serpentine: boolean;
 }
 
+/** One stretch of a poly line, from one of its points to the next. */
+export interface PolySegment {
+  /** Pixels on this stretch (unused while the line spreads its pixels evenly). */
+  nodes: number;
+  /** The two control points of a curved stretch (a cubic Bézier), prop-local; absent when straight. */
+  curve?: [Vec3, Vec3] | null;
+}
+
 export type Generator =
   | { type: "line"; nodes: number; length: number }
   | { type: "arch"; nodes: number; width: number; height: number }
@@ -37,9 +45,98 @@ export type Generator =
       baseRadius: number;
       topRadius: number;
       serpentine?: boolean;
+      /** Round (a cone, the default), or fanned out flat, or a ribbon. */
+      style?: "round" | "flat" | "ribbon";
+      /** How far round a round tree goes (default 360). */
+      degrees?: number;
+      /** Where the first string of a round tree stands, degrees round from the front (default 0). */
+      startAngle?: number;
     }
   | { type: "star"; points: number; nodes: number; outerRadius: number; innerRadius: number }
-  | { type: "customGrid"; columns: number; rows: number; cells: number[] };
+  | { type: "customGrid"; columns: number; rows: number; cells: number[] }
+  /** Points the line runs through, first to last; `segments` has one fewer. `spreadNodes` spreads that many pixels evenly instead. */
+  | { type: "polyLine"; vertices: Vec3[]; segments: PolySegment[]; spreadNodes?: number | null }
+  /** A row of candy canes between two ends, `width` apart, laid out as xLights does. `height` scales the canes and hooks, `caneHeight` stretches them taller. */
+  | {
+      type: "candyCanes";
+      canes: number;
+      nodesPerCane: number;
+      width: number;
+      height: number;
+      caneHeight: number;
+      reverse: boolean;
+      sticks: boolean;
+      alternateNodes: boolean;
+      skewDeg: number;
+      /** The first cane is the rightmost (the data comes in there). */
+      startRight?: boolean;
+    }
+  /** Icicles hanging from a line `width` long: each string fills drops of the `drops` pattern in turn; the longest hangs `dropHeight` below the line. */
+  | { type: "icicles"; strings: number; lightsPerString: number; drops: number[]; width: number; dropHeight: number; alternateNodes: boolean }
+  /** A window frame `width` by `height`: one string once round it from the `start` corner, spaced as xLights does. */
+  | {
+      type: "windowFrame";
+      top: number;
+      sides: number;
+      bottom: number;
+      width: number;
+      height: number;
+      start: MatrixWiring["start"];
+      counterClockwise: boolean;
+    }
+  /** A ring of pixels rounded to a square grid, as xLights places wreath lights. */
+  | { type: "wreath"; nodes: number; radius: number; startAtBottom: boolean; counterClockwise: boolean }
+  /** Arms radiating from a hollow middle (`hollow` percent), the first pointing down turned by `startAngle`, spread over `arc` degrees; `radius` reaches the outermost pixel. */
+  | {
+      type: "spinner";
+      arms: number;
+      nodesPerArm: number;
+      hollow: number;
+      startAngle: number;
+      arc: number;
+      zigZag: boolean;
+      alternate: boolean;
+      fromCenter: boolean;
+      clockwise: boolean;
+      radius: number;
+    }
+  /** A globe of `columns` strands of `rows` pixels between two latitudes, round `degrees` of it. */
+  | {
+      type: "sphere";
+      columns: number;
+      rows: number;
+      radius: number;
+      startLatitude?: number;
+      endLatitude?: number;
+      degrees?: number;
+      start?: MatrixWiring["start"];
+      strandStyle?: StrandStyle;
+    }
+  /** A cube of `width` × `height` × `depth` pixels `spacing` apart, wired from a corner as xLights does. */
+  | {
+      type: "cube";
+      width: number;
+      height: number;
+      depth: number;
+      spacing: number;
+      start?: CubeStart;
+      style?: CubeStyle;
+      strandStyle?: StrandStyle;
+      strandPerLayer?: boolean;
+    };
+
+/** How pixels run along each strand of a sphere or cube. */
+export type StrandStyle = "zigZag" | "noZigZag" | "alternatePixel";
+export type CubeStart =
+  | "frontBottomLeft"
+  | "frontBottomRight"
+  | "frontTopLeft"
+  | "frontTopRight"
+  | "backBottomLeft"
+  | "backBottomRight"
+  | "backTopLeft"
+  | "backTopRight";
+export type CubeStyle = "verticalFrontBack" | "verticalLeftRight" | "horizontalFrontBack" | "horizontalLeftRight" | "stackedFrontBack" | "stackedLeftRight";
 
 export type ShapeSource =
   | ({ source: "generator" } & Generator)

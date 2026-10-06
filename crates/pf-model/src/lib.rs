@@ -25,8 +25,9 @@ pub use ids::{ControllerId, GroupId, PropId, RegionId, SequenceId};
 pub use io::{ModelError, check_show, show_file_from_json, show_file_to_json, show_from_json, show_to_json};
 pub use issue::{Issue, IssueCode, Severity, ValidationReport};
 pub use limits::{
-    MAX_NULL_PIXELS, MAX_PROP_NODES, MAX_REGION_ENTRIES, MAX_REGIONS_PER_PROP, MAX_SEQUENCE_OFFSET_MS,
-    MAX_SHOW_PIXELS, MAX_STAR_POINTS,
+    MAX_ICICLE_DROP_LIGHTS, MAX_ICICLE_DROPS, MAX_NULL_PIXELS, MAX_POLY_VERTICES, MAX_PROP_NODES,
+    MAX_REGION_ENTRIES, MAX_REGIONS_PER_PROP, MAX_SEQUENCE_OFFSET_MS, MAX_SHOW_PIXELS, MAX_SPINNER_ARMS,
+    MAX_SPINNER_HOLLOW, MAX_STAR_POINTS,
 };
 pub use paths::{
     display_text, file_name_of, is_full_path_text, path_from_text, path_to_text, relative_text, resolve_text,
@@ -37,6 +38,9 @@ pub use region::{
     BufferStyle, FaceColors, FaceDefinition, LineLayout, NodeRange, NodeRun, Phoneme, Region, RegionKind,
     RegionRef, SubmodelLine, format_line, parse_line,
 };
-pub use shape::{Corner, Generator, MatrixWiring, Orientation, Provenance, ShapeSource};
+pub use shape::{
+    Corner, CubeStart, CubeStyle, Generator, MatrixWiring, Orientation, PolySegment, Provenance, ShapeSource,
+    StrandStyle, TreeStyle,
+};
 pub use show::{Background, CURRENT_SCHEMA_VERSION, HouseModel, SequenceEntry, Show, ShowSettings};
 pub use validate::validate_show;

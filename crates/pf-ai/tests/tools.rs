@@ -6,8 +6,9 @@ use pf_ai::Toolbox;
 use pf_ai::tools::{FILE_OPERATIONS, ToolKind, sequence_edit, sequence_tool_name, show_edit, show_tool_name};
 use pf_engine::{Edit, SequenceEdit};
 use pf_model::{
-    Background, Controller, Generator, Group, GroupMember, HouseModel, NodeRun, Port, PortSlot, Prop,
-    Protocol, Region, RegionRef, SacnConfig, SequenceEntry, ShapeSource, Vec3,
+    Background, Controller, Corner, CubeStart, CubeStyle, Generator, Group, GroupMember, HouseModel, NodeRun,
+    PolySegment, Port, PortSlot, Prop, Protocol, Region, RegionRef, SacnConfig, SequenceEntry, ShapeSource,
+    StrandStyle, TreeStyle, Vec3,
 };
 use pf_sequence::{Effect, EffectKind, EffectParams, Mark, Palette, Row, Target, TimingKind, TimingTrack};
 use serde_json::{Value, json};
@@ -23,6 +24,9 @@ fn rich_prop() -> Prop {
             base_radius: 1.0,
             top_radius: 0.1,
             serpentine: true,
+            style: TreeStyle::Round,
+            degrees: 360.0,
+            start_angle: 0.0,
         }),
     );
     prop.transform.position = Vec3::new(1.5, 0.0, -2.0);
@@ -60,6 +64,148 @@ fn group(prop: &Prop) -> Group {
     g
 }
 
+/// One of every prop shape that isn't in `rich_prop` or the other samples, with its options set.
+fn shape_samples() -> Vec<Generator> {
+    vec![
+        Generator::Line {
+            nodes: 50,
+            length: 3.0,
+        },
+        Generator::Arch {
+            nodes: 25,
+            width: 2.0,
+            height: 1.0,
+        },
+        Generator::Circle {
+            nodes: 30,
+            radius: 0.5,
+        },
+        Generator::Matrix {
+            columns: 16,
+            rows: 8,
+            width: 2.0,
+            height: 1.0,
+            wiring: Default::default(),
+        },
+        Generator::Tree {
+            strings: 8,
+            nodes_per_string: 20,
+            height: 2.0,
+            base_radius: 0.8,
+            top_radius: 0.0,
+            serpentine: false,
+            style: TreeStyle::Ribbon,
+            degrees: 180.0,
+            start_angle: 45.0,
+        },
+        Generator::Star {
+            points: 5,
+            nodes: 50,
+            outer_radius: 1.0,
+            inner_radius: 0.4,
+        },
+        Generator::PolyLine {
+            vertices: vec![Vec3::ZERO, Vec3::new(1.0, 0.5, 0.0), Vec3::new(2.0, 0.0, 0.0)],
+            segments: vec![
+                PolySegment::straight(10),
+                PolySegment {
+                    nodes: 12,
+                    curve: Some([Vec3::new(1.2, 0.8, 0.0), Vec3::new(1.8, 0.4, 0.0)]),
+                },
+            ],
+            spread_nodes: Some(20),
+        },
+        Generator::CandyCanes {
+            canes: 4,
+            nodes_per_cane: 18,
+            width: 3.0,
+            height: 1.0,
+            cane_height: 1.2,
+            reverse: true,
+            sticks: false,
+            alternate_nodes: true,
+            skew_deg: 5.0,
+            start_right: true,
+        },
+        Generator::Icicles {
+            strings: 2,
+            lights_per_string: 50,
+            drops: vec![3, 4, 5, 4],
+            width: 4.0,
+            drop_height: 0.6,
+            alternate_nodes: false,
+        },
+        Generator::WindowFrame {
+            top: 20,
+            sides: 30,
+            bottom: 20,
+            width: 1.0,
+            height: 1.5,
+            start: Corner::TopRight,
+            counter_clockwise: true,
+        },
+        Generator::Wreath {
+            nodes: 40,
+            radius: 0.6,
+            start_at_bottom: true,
+            counter_clockwise: false,
+        },
+        Generator::Spinner {
+            arms: 6,
+            nodes_per_arm: 10,
+            hollow: 20,
+            start_angle: 30.0,
+            arc: 360.0,
+            zig_zag: true,
+            alternate: false,
+            from_center: true,
+            clockwise: false,
+            radius: 1.0,
+        },
+        Generator::Sphere {
+            columns: 12,
+            rows: 10,
+            radius: 1.0,
+            start_latitude: -80.0,
+            end_latitude: 80.0,
+            degrees: 360.0,
+            start: Corner::BottomRight,
+            strand_style: StrandStyle::AlternatePixel,
+        },
+        Generator::Cube {
+            width: 5,
+            height: 5,
+            depth: 5,
+            spacing: 0.2,
+            start: CubeStart::BackTopRight,
+            style: CubeStyle::StackedLeftRight,
+            strand_style: StrandStyle::NoZigZag,
+            strand_per_layer: true,
+        },
+    ]
+}
+
+/// The `type` of every prop shape: each must have a sample that fits its tool.
+fn shape_type(shape: &Generator) -> &'static str {
+    match shape {
+        Generator::Line { .. } => "line",
+        Generator::Arch { .. } => "arch",
+        Generator::Circle { .. } => "circle",
+        Generator::Matrix { .. } => "matrix",
+        Generator::Tree { .. } => "tree",
+        Generator::Star { .. } => "star",
+        Generator::PolyLine { .. } => "polyLine",
+        Generator::CandyCanes { .. } => "candyCanes",
+        Generator::Icicles { .. } => "icicles",
+        Generator::WindowFrame { .. } => "windowFrame",
+        Generator::Wreath { .. } => "wreath",
+        Generator::Spinner { .. } => "spinner",
+        Generator::Sphere { .. } => "sphere",
+        Generator::Cube { .. } => "cube",
+        Generator::CustomGrid { .. } => "customGrid",
+    }
+}
+
 /// At least one real edit of every show edit type.
 fn show_samples() -> Vec<Edit> {
     let prop = rich_prop();
@@ -84,6 +230,16 @@ fn show_samples() -> Vec<Edit> {
             ),
         },
         Edit::UpdateProp { prop: prop.clone() },
+        Edit::UpdateProp {
+            prop: Prop::new(
+                "Roofline",
+                ShapeSource::Generator(Generator::PolyLine {
+                    vertices: vec![Vec3::ZERO, Vec3::new(2.0, 1.0, 0.0)],
+                    segments: vec![PolySegment::straight(20)],
+                    spread_nodes: None,
+                }),
+            ),
+        },
         Edit::RemoveProp { id: prop.id },
         Edit::AddGroup { group: group(&prop) },
         Edit::UpdateGroup { group: group(&prop) },
@@ -122,6 +278,11 @@ fn show_samples() -> Vec<Edit> {
         },
         Edit::SetHouseModel { house_model: None },
     ]
+    .into_iter()
+    .chain(shape_samples().into_iter().map(|shape| Edit::AddProp {
+        prop: Prop::new(shape_type(&shape), ShapeSource::Generator(shape)),
+    }))
+    .collect()
 }
 
 /// At least one real edit of every sequence edit type, with every effect kind.
@@ -356,6 +517,42 @@ fn every_show_edit_yields_a_valid_tool_that_round_trips() {
         let tool = toolbox.find(&show_tool_name(&tag)).expect("tool exists");
         assert_valid_against(&tool.spec.input_schema, &input(&edit), &tool.spec.name);
         assert_eq!(show_edit(&tag, &input(&edit)).unwrap(), edit, "{tag} round-trips");
+    }
+}
+
+#[test]
+fn every_prop_shape_fits_the_add_prop_tool_and_round_trips() {
+    let toolbox = Toolbox::new();
+    let tool = toolbox.find(&show_tool_name("addProp")).expect("tool exists");
+    let mut types = BTreeSet::new();
+    for shape in shape_samples().into_iter().chain([Generator::CustomGrid {
+        columns: 2,
+        rows: 1,
+        cells: vec![1, 2],
+    }]) {
+        let kind = shape_type(&shape);
+        assert_eq!(tag(&shape), kind, "the shape's JSON type");
+        types.insert(kind);
+        let edit = Edit::AddProp {
+            prop: Prop::new(kind, ShapeSource::Generator(shape)),
+        };
+        assert_valid_against(&tool.spec.input_schema, &input(&edit), kind);
+        assert_eq!(
+            show_edit("addProp", &input(&edit)).unwrap(),
+            edit,
+            "{kind} round-trips"
+        );
+    }
+    // `shape_type` matches every Generator variant, so a new one fails to compile until it has a
+    // sample here too.
+    assert_eq!(types.len(), 15, "a sample of every shape");
+    // The tool's schema lists every shape kind.
+    let listed = tool.spec.input_schema.to_string();
+    for kind in &types {
+        assert!(
+            listed.contains(&format!("\"{kind}\"")),
+            "{kind} isn't in the tool schema"
+        );
     }
 }
 

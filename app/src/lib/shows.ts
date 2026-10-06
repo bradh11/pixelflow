@@ -5,19 +5,53 @@ export function memberProp(member: GroupMember): string {
   return typeof member === "string" ? member : member.prop;
 }
 
-export type PropKind = "line" | "arch" | "circle" | "matrix" | "tree" | "star";
+export type PropKind =
+  | "line"
+  | "polyLine"
+  | "arch"
+  | "circle"
+  | "matrix"
+  | "tree"
+  | "star"
+  | "candyCanes"
+  | "icicles"
+  | "windowFrame"
+  | "wreath"
+  | "spinner"
+  | "sphere"
+  | "cube"
+  | "customGrid";
 
 export const PROP_KINDS: { kind: PropKind; label: string }[] = [
   { kind: "arch", label: "Arch" },
   { kind: "line", label: "Line / string" },
+  { kind: "polyLine", label: "Poly line (bends)" },
   { kind: "matrix", label: "Matrix" },
   { kind: "tree", label: "Mega tree" },
   { kind: "star", label: "Star" },
-  { kind: "circle", label: "Circle / wreath" },
+  { kind: "circle", label: "Circle" },
+  { kind: "wreath", label: "Wreath" },
+  { kind: "candyCanes", label: "Candy canes" },
+  { kind: "icicles", label: "Icicles" },
+  { kind: "windowFrame", label: "Window frame" },
+  { kind: "spinner", label: "Spinner" },
+  { kind: "sphere", label: "Sphere" },
+  { kind: "cube", label: "Cube" },
+  { kind: "customGrid", label: "Custom grid" },
 ];
 
 const DEFAULT_SHAPES: Record<PropKind, ShapeSource> = {
   line: { source: "generator", type: "line", nodes: 50, length: 5 },
+  polyLine: {
+    source: "generator",
+    type: "polyLine",
+    vertices: [
+      { x: -2.5, y: 0, z: 0 },
+      { x: 0, y: 1.5, z: 0 },
+      { x: 2.5, y: 0, z: 0 },
+    ],
+    segments: [{ nodes: 29 }, { nodes: 29 }],
+  },
   arch: { source: "generator", type: "arch", nodes: 50, width: 4, height: 2 },
   circle: { source: "generator", type: "circle", nodes: 50, radius: 1 },
   matrix: {
@@ -38,17 +72,102 @@ const DEFAULT_SHAPES: Record<PropKind, ShapeSource> = {
     baseRadius: 1.5,
     topRadius: 0.1,
     serpentine: true,
+    style: "round",
+    degrees: 360,
+    startAngle: 0,
   },
   star: { source: "generator", type: "star", points: 5, nodes: 100, outerRadius: 1, innerRadius: 0.4 },
+  candyCanes: {
+    source: "generator",
+    type: "candyCanes",
+    canes: 3,
+    nodesPerCane: 18,
+    width: 3,
+    height: 1,
+    caneHeight: 1,
+    reverse: false,
+    sticks: false,
+    alternateNodes: false,
+    skewDeg: 0,
+    startRight: false,
+  },
+  icicles: { source: "generator", type: "icicles", strings: 2, lightsPerString: 80, drops: [3, 4, 5, 4], width: 4, dropHeight: 0.4, alternateNodes: false },
+  windowFrame: {
+    source: "generator",
+    type: "windowFrame",
+    top: 20,
+    sides: 15,
+    bottom: 20,
+    width: 2,
+    height: 1.5,
+    start: "bottomLeft",
+    counterClockwise: false,
+  },
+  wreath: { source: "generator", type: "wreath", nodes: 50, radius: 0.8, startAtBottom: false, counterClockwise: false },
+  spinner: {
+    source: "generator",
+    type: "spinner",
+    arms: 6,
+    nodesPerArm: 20,
+    hollow: 20,
+    startAngle: 0,
+    arc: 360,
+    zigZag: false,
+    alternate: false,
+    fromCenter: false,
+    clockwise: false,
+    radius: 1,
+  },
+  sphere: {
+    source: "generator",
+    type: "sphere",
+    columns: 16,
+    rows: 20,
+    radius: 1,
+    startLatitude: -86,
+    endLatitude: 86,
+    degrees: 360,
+    start: "bottomLeft",
+    strandStyle: "zigZag",
+  },
+  cube: {
+    source: "generator",
+    type: "cube",
+    width: 5,
+    height: 5,
+    depth: 5,
+    spacing: 0.25,
+    start: "frontBottomLeft",
+    style: "verticalFrontBack",
+    strandStyle: "zigZag",
+    strandPerLayer: false,
+  },
+  // A small heart to start from.
+  customGrid: {
+    source: "generator",
+    type: "customGrid",
+    columns: 5,
+    rows: 5,
+    cells: [0, 5, 0, 7, 0, 4, 0, 6, 0, 8, 3, 0, 0, 0, 9, 0, 2, 0, 10, 0, 0, 0, 1, 0, 0],
+  },
 };
 
 const KIND_NAMES: Record<PropKind, string> = {
   line: "Line",
+  polyLine: "Poly Line",
   arch: "Arch",
   circle: "Circle",
   matrix: "Matrix",
   tree: "Mega Tree",
   star: "Star",
+  candyCanes: "Candy Canes",
+  icicles: "Icicles",
+  windowFrame: "Window Frame",
+  wreath: "Wreath",
+  spinner: "Spinner",
+  sphere: "Sphere",
+  cube: "Cube",
+  customGrid: "Custom Grid",
 };
 
 /** The first "Base N" name not already used. */
@@ -111,8 +230,24 @@ export function nodeCount(shape: ShapeSource): number {
       return shape.columns * shape.rows;
     case "tree":
       return shape.strings * shape.nodesPerString;
+    case "candyCanes":
+      return shape.canes * shape.nodesPerCane;
+    case "icicles":
+      return shape.strings * shape.lightsPerString;
+    case "windowFrame":
+      return shape.top + 2 * shape.sides + shape.bottom;
+    case "wreath":
+      return shape.nodes;
+    case "spinner":
+      return shape.arms * shape.nodesPerArm;
+    case "sphere":
+      return shape.columns * shape.rows;
+    case "cube":
+      return shape.width * shape.height * shape.depth;
     case "customGrid":
       return shape.cells.reduce((max, c) => Math.max(max, c), 0);
+    case "polyLine":
+      return shape.spreadNodes ?? shape.segments.reduce((n, s) => n + s.nodes, 0);
   }
 }
 
@@ -127,6 +262,14 @@ export function shapeLabel(shape: ShapeSource): string {
     tree: "Tree",
     star: "Star",
     customGrid: "Custom grid",
+    polyLine: "Poly line",
+    candyCanes: "Candy canes",
+    icicles: "Icicles",
+    windowFrame: "Window frame",
+    wreath: "Wreath",
+    spinner: "Spinner",
+    sphere: "Sphere",
+    cube: "Cube",
   };
   return labels[shape.type] ?? shape.type;
 }

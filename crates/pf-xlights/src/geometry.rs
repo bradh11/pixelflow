@@ -11,13 +11,15 @@ mod custom;
 mod grid;
 mod lines;
 mod poly;
+pub(crate) use custom::custom_cells;
+pub(crate) use poly::parse_points;
 mod radial;
 #[cfg(test)]
 mod tests;
 mod xform;
 
 use crate::model::XmlModel;
-use xform::Affine;
+pub(crate) use xform::{Affine, rot_from_x_axis};
 
 /// One xLights node: where its channels start within the model's block and where its lights are.
 #[derive(Debug, Clone, PartialEq)]
@@ -48,6 +50,30 @@ pub struct Geometry {
 
 /// Most lights (or strings) imported for one model; larger models are skipped with a note.
 const MAX_LIGHTS: i64 = 1_000_000;
+
+/// Each node's position in xLights' 3D layout (the middle of its lights, x right, y up, z toward
+/// the viewer), in channel order like [`geometry`], but without the slight tilt xLights' 2D view
+/// gives trees, spheres and cubes (`SetPerspective2D`, which its 3D view doesn't use): the real
+/// shape, which is what an imported shape is checked against.
+pub fn upright_positions(model: &XmlModel) -> Vec<[f32; 3]> {
+    let mut cx = Ctx::new(model);
+    cx.upright = true;
+    let raw = dispatch(&mut cx);
+    let mut nodes: Vec<(i64, [f32; 3])> = raw
+        .nodes
+        .iter()
+        .map(|n| {
+            let k = n.pts.len().max(1) as f64;
+            let s = n.pts.iter().fold([0.0f64; 3], |a, p| {
+                let w = raw.xf.apply(*p);
+                [a[0] + w[0], a[1] + w[1], a[2] + w[2]]
+            });
+            (n.chan, [(s[0] / k) as f32, (s[1] / k) as f32, (s[2] / k) as f32])
+        })
+        .collect();
+    nodes.sort_by_key(|n| n.0);
+    nodes.into_iter().map(|n| n.1).collect()
+}
 
 /// Computes a model's nodes, channels, and positions.
 pub fn geometry(model: &XmlModel) -> Geometry {
@@ -296,6 +322,8 @@ struct Ctx<'a> {
     unknown: Option<String>,
     /// See [`Geometry::absolute_channels`].
     absolute: bool,
+    /// Leave out the tilt xLights' 2D view gives trees, spheres and cubes (see [`upright_positions`]).
+    upright: bool,
 }
 
 impl<'a> Ctx<'a> {
@@ -319,6 +347,7 @@ impl<'a> Ctx<'a> {
             capped_block: None,
             unknown: None,
             absolute: false,
+            upright: false,
         }
     }
 
@@ -556,12 +585,12 @@ fn strtol(s: &str) -> Option<i64> {
 }
 
 /// [`strtol`] with no digits reading as 0.
-fn strtol0(s: &str) -> i64 {
+pub(crate) fn strtol0(s: &str) -> i64 {
     strtol(s).unwrap_or(0)
 }
 
 /// `strtod`: the longest leading decimal number in `s`.
-fn strtod(s: &str) -> Option<f64> {
+pub(crate) fn strtod(s: &str) -> Option<f64> {
     let s = s.trim_start();
     let b = s.as_bytes();
     let mut i = 0;

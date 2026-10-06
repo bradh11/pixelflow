@@ -8,6 +8,7 @@ publish.workspace = true
 
 [dependencies]
 pf-model.workspace = true
+pf-geometry.workspace = true
 pf-sequence.workspace = true
 roxmltree.workspace = true
 zstd.workspace = true

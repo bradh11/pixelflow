@@ -319,6 +319,167 @@ mod tests {
         )
     }
 
+    /// A poly line through `points` points along X, `nodes` pixels on each stretch.
+    fn poly(name: &str, points: usize, nodes: u32) -> Prop {
+        Prop::new(
+            name,
+            ShapeSource::Generator(Generator::PolyLine {
+                vertices: (0..points)
+                    .map(|i| crate::Vec3::new(i as f32, 0.0, 0.0))
+                    .collect(),
+                segments: vec![crate::PolySegment::straight(nodes); points.saturating_sub(1)],
+                spread_nodes: None,
+            }),
+        )
+    }
+
+    fn icicles(name: &str, drops: Vec<u32>) -> Prop {
+        Prop::new(
+            name,
+            ShapeSource::Generator(Generator::Icicles {
+                strings: 1,
+                lights_per_string: 10,
+                drops,
+                width: 2.0,
+                drop_height: 0.5,
+                alternate_nodes: false,
+            }),
+        )
+    }
+
+    fn canes(name: &str, canes: u32, nodes_per_cane: u32) -> Prop {
+        Prop::new(
+            name,
+            ShapeSource::Generator(Generator::CandyCanes {
+                canes,
+                nodes_per_cane,
+                width: 3.0,
+                height: 1.0,
+                cane_height: 1.0,
+                reverse: false,
+                sticks: false,
+                alternate_nodes: false,
+                skew_deg: 0.0,
+                start_right: false,
+            }),
+        )
+    }
+
+    fn spinner(name: &str, arms: u32, nodes_per_arm: u32, hollow: u32, arc: f32) -> Prop {
+        Prop::new(
+            name,
+            ShapeSource::Generator(Generator::Spinner {
+                arms,
+                nodes_per_arm,
+                hollow,
+                start_angle: 0.0,
+                arc,
+                zig_zag: false,
+                alternate: false,
+                from_center: false,
+                clockwise: false,
+                radius: 1.0,
+            }),
+        )
+    }
+
+    fn frame(name: &str, top: u32, sides: u32, bottom: u32) -> Prop {
+        Prop::new(
+            name,
+            ShapeSource::Generator(Generator::WindowFrame {
+                top,
+                sides,
+                bottom,
+                width: 2.0,
+                height: 1.0,
+                start: crate::Corner::BottomLeft,
+                counter_clockwise: false,
+            }),
+        )
+    }
+
+    #[test]
+    fn window_frames_wreaths_and_spinners_within_the_limits_are_valid() {
+        let wreath = Prop::new(
+            "Door",
+            ShapeSource::Generator(Generator::Wreath {
+                nodes: 50,
+                radius: 1.0,
+                start_at_bottom: false,
+                counter_clockwise: false,
+            }),
+        );
+        for prop in [
+            frame("Window", 10, 8, 10),
+            wreath,
+            spinner("Fan", crate::MAX_SPINNER_ARMS, 2, 100, 360.0),
+            spinner("Half", 6, 10, 0, 1.0),
+        ] {
+            let show = show_with_slot(PortSlot::new(prop.id), prop);
+            assert_eq!(validate_show(&show).issues, vec![]);
+        }
+    }
+
+    fn sphere(name: &str, columns: u32, rows: u32, latitudes: (f32, f32), degrees: f32) -> Prop {
+        Prop::new(
+            name,
+            ShapeSource::Generator(Generator::Sphere {
+                columns,
+                rows,
+                radius: 1.0,
+                start_latitude: latitudes.0,
+                end_latitude: latitudes.1,
+                degrees,
+                start: crate::Corner::BottomLeft,
+                strand_style: crate::StrandStyle::ZigZag,
+            }),
+        )
+    }
+
+    fn cube(name: &str, width: u32, height: u32, depth: u32) -> Prop {
+        Prop::new(
+            name,
+            ShapeSource::Generator(Generator::Cube {
+                width,
+                height,
+                depth,
+                spacing: 0.1,
+                start: crate::CubeStart::FrontBottomLeft,
+                style: crate::CubeStyle::VerticalFrontBack,
+                strand_style: crate::StrandStyle::ZigZag,
+                strand_per_layer: false,
+            }),
+        )
+    }
+
+    #[test]
+    fn spheres_and_cubes_within_the_limits_are_valid() {
+        for prop in [
+            sphere("Globe", 16, 25, (-86.0, 86.0), 360.0),
+            sphere("Dome", 10, 10, (-90.0, 90.0), 1.0),
+            cube("Box", 10, 10, 10),
+        ] {
+            let show = show_with_slot(PortSlot::new(prop.id), prop);
+            assert_eq!(validate_show(&show).issues, vec![]);
+        }
+    }
+
+    #[test]
+    fn icicles_and_candy_canes_within_the_limits_are_valid() {
+        for prop in [icicles("Eaves", vec![3, 0, 5]), canes("Walk", 3, 18)] {
+            let show = show_with_slot(PortSlot::new(prop.id), prop);
+            assert_eq!(validate_show(&show).issues, vec![]);
+        }
+    }
+
+    #[test]
+    fn a_poly_line_with_matching_stretches_is_valid() {
+        let prop = poly("Roof", 4, 10);
+        assert_eq!(prop.node_count(), 30);
+        let show = show_with_slot(PortSlot::new(prop.id), prop);
+        assert_eq!(validate_show(&show).issues, vec![]);
+    }
+
     fn show_with_slot(slot: PortSlot, prop: Prop) -> Show {
         let mut show = Show::new("Test");
         let mut port = Port::new(1);
@@ -340,7 +501,7 @@ mod tests {
     #[test]
     fn each_structural_problem_is_reported() {
         type Mutate = fn(&mut Show);
-        let cases: [(IssueCode, Mutate); 16] = [
+        let cases: [(IssueCode, Mutate); 40] = [
             (IssueCode::InvalidFrameRate, |s| s.settings.frame_rate = 5),
             (IssueCode::DuplicateId, |s| {
                 let dup = s.props[0].clone();
@@ -407,6 +568,90 @@ mod tests {
             }),
             (IssueCode::LimitExceeded, |s| {
                 s.props.push(line("Huge", crate::MAX_PROP_NODES + 1))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(poly("Too bendy", crate::MAX_POLY_VERTICES + 1, 0))
+            }),
+            (IssueCode::LimitExceeded, |s| s.props.push(poly("Dot", 1, 0))),
+            (IssueCode::LimitExceeded, |s| {
+                let mut p = poly("Odd", 3, 10);
+                if let ShapeSource::Generator(Generator::PolyLine { segments, .. }) = &mut p.shape {
+                    segments.pop();
+                }
+                s.props.push(p)
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props
+                    .push(icicles("Long pattern", vec![1; crate::MAX_ICICLE_DROPS + 1]))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props
+                    .push(icicles("Long drop", vec![3, crate::MAX_ICICLE_DROP_LIGHTS + 1]))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(icicles("Dry", vec![0, 0]))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(icicles("Bare", vec![]))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(canes("Forest", crate::MAX_PROP_NODES + 1, 0))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                // The real count, not the 32-bit one that stops at its largest value.
+                s.props.push(canes("Huge", 70_000, 70_000))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props
+                    .push(spinner("Windmill", crate::MAX_SPINNER_ARMS + 1, 1, 20, 360.0))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(spinner("Hole", 4, 5, 101, 360.0))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(spinner("No sweep", 4, 5, 20, 0.0))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(spinner("Past round", 4, 5, 20, 361.0))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(spinner("Big fan", 1_000, u32::MAX, 20, 360.0))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                // Both sides count, beyond what a 32-bit count can hold.
+                s.props.push(frame("Huge", u32::MAX, u32::MAX, 1))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props
+                    .push(sphere("Big globe", 70_000, 70_000, (-86.0, 86.0), 360.0))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(sphere("Past the pole", 4, 4, (-95.0, 86.0), 360.0))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(sphere("No sweep", 4, 4, (-86.0, 86.0), 0.0))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(sphere("Past round", 4, 4, (-86.0, 86.0), 400.0))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(cube("Big box", 2_000, 2_000, 2_000))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(sphere("Wide", u32::MAX, 0, (-86.0, 86.0), 360.0))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(cube("Flat", u32::MAX, u32::MAX, 0))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                let mut p = poly("Bent", 2, 5);
+                if let ShapeSource::Generator(Generator::PolyLine { segments, .. }) = &mut p.shape {
+                    segments[0].curve = Some([crate::Vec3::new(f32::NAN, 0.0, 0.0), crate::Vec3::ZERO]);
+                }
+                s.props.push(p)
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(cube("Thin", 1, 1, crate::MAX_PROP_NODES + 1))
             }),
         ];
         for (code, mutate) in cases {

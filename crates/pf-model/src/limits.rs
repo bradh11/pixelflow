@@ -8,6 +8,16 @@ pub const MAX_PROP_NODES: u32 = 1_000_000;
 pub const MAX_SHOW_PIXELS: u64 = 10_000_000;
 /// Most points a star may have.
 pub const MAX_STAR_POINTS: u32 = 100;
+/// Most points a poly line may have.
+pub const MAX_POLY_VERTICES: usize = 1_000;
+/// Most drops an icicle drop pattern may list.
+pub const MAX_ICICLE_DROPS: usize = 1_000;
+/// Most pixels one icicle drop may have.
+pub const MAX_ICICLE_DROP_LIGHTS: u32 = 1_000;
+/// Most arms a spinner may have.
+pub const MAX_SPINNER_ARMS: u32 = 1_000;
+/// Largest hollow middle a spinner may have, in percent (xLights' `Hollow`).
+pub const MAX_SPINNER_HOLLOW: u32 = 100;
 /// Most null pixels a single port slot may have.
 pub const MAX_NULL_PIXELS: u32 = 1_000;
 /// Most a sequence's lights may be moved against its music, either way, in milliseconds.
@@ -59,25 +69,114 @@ pub(crate) fn check_limits(show: &Show) -> Vec<String> {
             ));
             continue;
         }
-        if let ShapeSource::Generator(Generator::Tree { strings, .. }) = &prop.shape
+        if let ShapeSource::Generator(Generator::PolyLine {
+            vertices, segments, ..
+        }) = &prop.shape
+            && let Some(problem) = poly_line_problem(&prop.name, vertices, segments)
+        {
+            problems.push(problem);
+            continue;
+        }
+        if let ShapeSource::Generator(Generator::Icicles { drops, .. }) = &prop.shape
+            && let Some(problem) = icicles_problem(&prop.name, drops)
+        {
+            problems.push(problem);
+            continue;
+        }
+        if let ShapeSource::Generator(Generator::Spinner {
+            arms, hollow, arc, ..
+        }) = &prop.shape
+            && let Some(problem) = spinner_problem(&prop.name, *arms, *hollow, *arc)
+        {
+            problems.push(problem);
+            continue;
+        }
+        if let ShapeSource::Generator(Generator::Sphere {
+            start_latitude,
+            end_latitude,
+            degrees,
+            ..
+        }) = &prop.shape
+            && let Some(problem) = sphere_problem(&prop.name, *start_latitude, *end_latitude, *degrees)
+        {
+            problems.push(problem);
+            continue;
+        }
+        // A row of canes or strings is walked even when it has no pixels, so its length is
+        // capped like a prop's pixels.
+        if let ShapeSource::Generator(
+            Generator::Tree { strings, .. }
+            | Generator::Icicles { strings, .. }
+            | Generator::CandyCanes { canes: strings, .. },
+        ) = &prop.shape
             && *strings > MAX_PROP_NODES
         {
             problems.push(format!(
-                "The tree '{}' has {strings} strings, but PixelFlow supports at most {MAX_PROP_NODES}.",
+                "The prop '{}' has {strings} {}, but PixelFlow supports at most {MAX_PROP_NODES}.",
+                prop.name,
+                if matches!(prop.shape, ShapeSource::Generator(Generator::CandyCanes { .. })) {
+                    "canes"
+                } else {
+                    "strings"
+                }
+            ));
+            continue;
+        }
+        // A sphere's or cube's sides are walked even when another side is 0, so each is capped.
+        let sides: &[(u32, &str)] = match &prop.shape {
+            ShapeSource::Generator(Generator::Sphere { columns, rows, .. }) => {
+                &[(*columns, "strands around"), (*rows, "pixels per strand")]
+            }
+            ShapeSource::Generator(Generator::Cube {
+                width, height, depth, ..
+            }) => &[
+                (*width, "pixels across"),
+                (*height, "pixels up"),
+                (*depth, "pixels deep"),
+            ],
+            _ => &[],
+        };
+        if let Some((n, what)) = sides.iter().find(|(n, _)| *n > MAX_PROP_NODES) {
+            problems.push(format!(
+                "The prop '{}' has {n} {what}, but PixelFlow supports at most {MAX_PROP_NODES}.",
                 prop.name
             ));
             continue;
         }
         // `node_count()` saturates at u32::MAX, so compute the real count here.
         let nodes = match &prop.shape {
-            ShapeSource::Generator(Generator::Matrix { columns, rows, .. }) => {
-                u64::from(*columns) * u64::from(*rows)
-            }
+            ShapeSource::Generator(
+                Generator::Matrix { columns, rows, .. } | Generator::Sphere { columns, rows, .. },
+            ) => u64::from(*columns) * u64::from(*rows),
+            ShapeSource::Generator(Generator::Cube {
+                width, height, depth, ..
+            }) => u64::from(*width) * u64::from(*height) * u64::from(*depth),
             ShapeSource::Generator(Generator::Tree {
                 strings,
                 nodes_per_string,
                 ..
             }) => u64::from(*strings) * u64::from(*nodes_per_string),
+            ShapeSource::Generator(Generator::CandyCanes {
+                canes,
+                nodes_per_cane,
+                ..
+            }) => u64::from(*canes) * u64::from(*nodes_per_cane),
+            ShapeSource::Generator(Generator::Icicles {
+                strings,
+                lights_per_string,
+                ..
+            }) => u64::from(*strings) * u64::from(*lights_per_string),
+            ShapeSource::Generator(Generator::Spinner {
+                arms, nodes_per_arm, ..
+            }) => u64::from(*arms) * u64::from(*nodes_per_arm),
+            ShapeSource::Generator(Generator::WindowFrame {
+                top, sides, bottom, ..
+            }) => u64::from(*top) + 2 * u64::from(*sides) + u64::from(*bottom),
+            ShapeSource::Generator(Generator::PolyLine {
+                segments,
+                spread_nodes: None,
+                ..
+            }) => segments.iter().map(|s| u64::from(s.nodes)).sum(),
             _ => u64::from(prop.node_count()),
         };
         total += nodes;
@@ -125,4 +224,94 @@ pub(crate) fn check_limits(show: &Show) -> Vec<String> {
         }
     }
     problems
+}
+
+/// What's wrong with a poly line's points, if anything.
+fn poly_line_problem(
+    name: &str,
+    vertices: &[crate::Vec3],
+    segments: &[crate::PolySegment],
+) -> Option<String> {
+    let mut curves = segments.iter().filter_map(|s| s.curve).flatten();
+    let segments = segments.len();
+    let n = vertices.len();
+    if n < 2 {
+        return Some(format!(
+            "The poly line '{name}' has {n} point{}, but it needs at least 2.",
+            if n == 1 { "" } else { "s" }
+        ));
+    }
+    if n > MAX_POLY_VERTICES {
+        return Some(format!(
+            "The poly line '{name}' has {n} points, but PixelFlow supports at most {MAX_POLY_VERTICES}."
+        ));
+    }
+    if segments != n - 1 {
+        return Some(format!(
+            "The poly line '{name}' has {n} points, so it needs {} stretches between them, but it has {segments}.",
+            n - 1
+        ));
+    }
+    if vertices.iter().any(|v| !v.is_finite()) || curves.any(|v| !v.is_finite()) {
+        return Some(format!("The poly line '{name}' has a point that isn't a number."));
+    }
+    None
+}
+
+/// What's wrong with an icicle drop pattern, if anything.
+fn icicles_problem(name: &str, drops: &[u32]) -> Option<String> {
+    if drops.len() > MAX_ICICLE_DROPS {
+        return Some(format!(
+            "The icicles '{name}' list {} drops in their pattern, but PixelFlow supports at most {MAX_ICICLE_DROPS}.",
+            drops.len()
+        ));
+    }
+    if let Some(&big) = drops.iter().find(|&&d| d > MAX_ICICLE_DROP_LIGHTS) {
+        return Some(format!(
+            "The icicles '{name}' have a drop of {big} pixels, but PixelFlow supports at most {MAX_ICICLE_DROP_LIGHTS} per drop."
+        ));
+    }
+    if drops.iter().all(|&d| d == 0) {
+        return Some(format!(
+            "The icicles '{name}' need at least one drop with pixels in their drop pattern."
+        ));
+    }
+    None
+}
+
+/// What's wrong with a spinner's arms, if anything.
+fn spinner_problem(name: &str, arms: u32, hollow: u32, arc: f32) -> Option<String> {
+    if arms > MAX_SPINNER_ARMS {
+        return Some(format!(
+            "The spinner '{name}' has {arms} arms, but PixelFlow supports at most {MAX_SPINNER_ARMS}."
+        ));
+    }
+    if hollow > MAX_SPINNER_HOLLOW {
+        return Some(format!(
+            "The spinner '{name}' has a hollow middle of {hollow}%, but PixelFlow supports at most {MAX_SPINNER_HOLLOW}%."
+        ));
+    }
+    if !(arc > 0.0 && arc <= 360.0) {
+        return Some(format!(
+            "The spinner '{name}' spreads its arms over {arc}°, but that must be more than 0° and at most 360°."
+        ));
+    }
+    None
+}
+
+/// What's wrong with a sphere's latitudes or sweep, if anything.
+fn sphere_problem(name: &str, start_latitude: f32, end_latitude: f32, degrees: f32) -> Option<String> {
+    for latitude in [start_latitude, end_latitude] {
+        if !(-90.0..=90.0).contains(&latitude) {
+            return Some(format!(
+                "The sphere '{name}' reaches latitude {latitude}°, but latitudes run from -90° to 90°."
+            ));
+        }
+    }
+    if !(degrees > 0.0 && degrees <= 360.0) {
+        return Some(format!(
+            "The sphere '{name}' goes {degrees}° round, but that must be more than 0° and at most 360°."
+        ));
+    }
+    None
 }

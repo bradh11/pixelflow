@@ -71,6 +71,21 @@ fn parse_compressed(s: &str) -> (Vec<Cell>, bool) {
     (cells, bad)
 }
 
+/// A custom model's occupied cells as `[node number, row, column, layer]`, read as xLights does
+/// (the compressed form when there is one); `None` when some cells had negative positions.
+pub(crate) fn custom_cells(grid: &str, compressed: &str) -> Option<Vec<[i64; 4]>> {
+    let cells = if compressed.is_empty() {
+        parse_grid(grid)
+    } else {
+        let (cells, bad) = parse_compressed(compressed);
+        if bad {
+            return None;
+        }
+        cells
+    };
+    Some(cells.iter().map(|c| [c.value, c.row, c.col, c.layer]).collect())
+}
+
 /// `CustomModel` (`InitCustomMatrix` and its `SetStringStartChannels` override).
 pub(super) fn custom(cx: &mut Ctx) -> Raw {
     let depth = cx.int("Depth", 1).max(1);

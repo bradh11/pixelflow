@@ -3,6 +3,7 @@ import { emptyShow } from "../api/memory";
 import type { Background, PreviewProp, Transform } from "../api/types";
 import { applyTransform, frontView, localPositions } from "./geometry";
 import {
+  DRAWN_BY_ENDS,
   resizeView,
   alignMoves,
   backgroundBox,
@@ -360,6 +361,23 @@ describe("drawing new props", () => {
     expect(prop.transform.rotationDeg.z).toBe(0);
   });
 
+  it("stands candy canes and hangs icicles between where the drag started and ended", () => {
+    const [a, b] = [{ x: 1, y: 1 }, { x: 5, y: 4 }];
+    expect(DRAWN_BY_ENDS).toEqual(expect.arrayContaining(["candyCanes", "icicles"]));
+    for (const kind of ["candyCanes", "icicles"] as const) {
+      const base = newProp(kind, show);
+      const prop = drawnProp(kind, a, b, base);
+      expect(prop.shape).toMatchObject({ width: 5 });
+      expect(prop.transform.position).toMatchObject({ x: 3, y: 2.5 });
+      expect(prop.transform.rotationDeg.z).toBeCloseTo((Math.atan2(3, 4) * 180) / Math.PI, 2);
+      // The first cane's foot, or the first drop's top, is where the drag started.
+      const [first] = localPositions(prop.shape).map((p) => applyTransform(p, prop.transform));
+      expect(first.x).toBeCloseTo(1);
+      expect(first.y).toBeCloseTo(1);
+      if (kind === "icicles") expect(prop.shape).toMatchObject({ dropHeight: (base.shape as { dropHeight: number }).dropHeight });
+    }
+  });
+
   it("fills the drawn box with a matrix, tree, circle, or star", () => {
     const a = { x: 2, y: 1 };
     const b = { x: 6, y: 7 };
@@ -375,6 +393,40 @@ describe("drawing new props", () => {
     expect(circle.maxX - circle.minX).toBeCloseTo(4, 1);
     expect((circle.minY + circle.maxY) / 2).toBeCloseTo(4, 1);
     expect(box("star").maxY).toBeCloseTo(6);
+  });
+
+  it("fills the drawn box with a window frame, and fits a wreath or spinner in it", () => {
+    const a = { x: 2, y: 1 };
+    const b = { x: 6, y: 7 };
+    const frame = boxOfPoints(frontView(drawnProp("windowFrame", a, b, newProp("windowFrame", show))))!;
+    expect([frame.minX, frame.minY, frame.maxX, frame.maxY].map((v) => Math.round(v * 1e4) / 1e4)).toEqual([2, 1, 6, 7]);
+    for (const kind of ["wreath", "spinner"] as const) {
+      const prop = drawnProp(kind, a, b, newProp(kind, show));
+      expect(prop.shape).toMatchObject({ radius: 2 });
+      expect(prop.transform.position).toMatchObject({ x: 4, y: 4 });
+    }
+    const wreath = boxOfPoints(frontView(drawnProp("wreath", a, b, newProp("wreath", show))))!;
+    expect(wreath.maxY).toBeCloseTo(6);
+    expect(wreath.maxX - wreath.minX).toBeCloseTo(4, 1);
+  });
+
+  it("scales a custom grid evenly to fit the drawn box", () => {
+    const grid = drawnProp("customGrid", { x: 0, y: 0 }, { x: 8, y: 4 }, newProp("customGrid", show));
+    expect(grid.transform.scale).toEqual({ x: 1, y: 1, z: 1 });
+    expect(grid.transform.position).toMatchObject({ x: 4, y: 2 });
+  });
+
+  it("fits a sphere in the drawn box, and a cube's front face", () => {
+    const a = { x: 2, y: 1 };
+    const b = { x: 6, y: 7 };
+    const sphere = drawnProp("sphere", a, b, newProp("sphere", show));
+    expect(sphere.shape).toMatchObject({ radius: 2 });
+    expect(sphere.transform.position).toMatchObject({ x: 4, y: 4 });
+    // A 5×5×5 cube: four gaps across fit in 4 wide.
+    const cube = drawnProp("cube", a, b, newProp("cube", show));
+    expect(cube.shape).toMatchObject({ spacing: 1 });
+    const front = boxOfPoints(frontView(cube))!;
+    expect([front.minX, front.maxX, front.minY, front.maxY]).toEqual([2, 6, 2, 6]);
   });
 
   it("places a clicked prop at the click with its own size", () => {

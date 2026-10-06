@@ -1709,6 +1709,7 @@ version = "0.1.0"
 dependencies = [
  "pf-model",
  "proptest",
+ "serde_json",
 ]
 
 [[package]]
@@ -1780,6 +1781,7 @@ dependencies = [
 name = "pf-xlights"
 version = "0.1.0"
 dependencies = [
+ "pf-geometry",
  "pf-mapping",
  "pf-model",
  "pf-render",

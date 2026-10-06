@@ -4,16 +4,27 @@
 //! in wiring order (index 0 is the first pixel on the wire).
 
 mod arch;
+mod candy_canes;
 mod circle;
+mod cube;
 mod custom_grid;
+mod icicles;
 mod line;
 mod matrix;
+pub mod polyline;
+mod sphere;
+mod spinner;
 mod star;
 mod transform;
 mod tree;
+mod window_frame;
+mod wreath;
 
 use pf_model::{Generator, Prop, ShapeSource, Vec3};
 
+pub use cube::cube_cells;
+pub use icicles::icicle_column_gaps;
+pub use sphere::globe_point;
 pub use transform::apply_transform;
 
 /// Pixel positions in prop-local coordinates, in wiring order.
@@ -51,25 +62,158 @@ fn generate(generator: &Generator) -> Vec<Vec3> {
             base_radius,
             top_radius,
             serpentine,
-        } => tree::positions(
+            style,
+            degrees,
+            start_angle,
+        } => tree::positions(tree::Tree {
             strings,
             nodes_per_string,
             height,
             base_radius,
             top_radius,
             serpentine,
-        ),
+            style,
+            degrees,
+            start_angle,
+        }),
         Generator::Star {
             points,
             nodes,
             outer_radius,
             inner_radius,
         } => star::positions(points, nodes, outer_radius, inner_radius),
+        Generator::CandyCanes {
+            canes,
+            nodes_per_cane,
+            width,
+            height,
+            cane_height,
+            reverse,
+            sticks,
+            alternate_nodes,
+            skew_deg,
+            start_right,
+        } => candy_canes::positions(candy_canes::Canes {
+            canes,
+            nodes_per_cane,
+            width,
+            height,
+            cane_height,
+            reverse,
+            sticks,
+            alternate_nodes,
+            skew_deg,
+            start_right,
+        }),
+        Generator::Icicles {
+            strings,
+            lights_per_string,
+            ref drops,
+            width,
+            drop_height,
+            alternate_nodes,
+        } => icicles::positions(icicles::Icicles {
+            strings,
+            lights_per_string,
+            drops,
+            width,
+            drop_height,
+            alternate_nodes,
+        }),
+        Generator::WindowFrame {
+            top,
+            sides,
+            bottom,
+            width,
+            height,
+            start,
+            counter_clockwise,
+        } => window_frame::positions(window_frame::Frame {
+            top,
+            sides,
+            bottom,
+            width,
+            height,
+            start,
+            counter_clockwise,
+        }),
+        Generator::Wreath {
+            nodes,
+            radius,
+            start_at_bottom,
+            counter_clockwise,
+        } => wreath::positions(nodes, radius, start_at_bottom, counter_clockwise),
+        Generator::Spinner {
+            arms,
+            nodes_per_arm,
+            hollow,
+            start_angle,
+            arc,
+            zig_zag,
+            alternate,
+            from_center,
+            clockwise,
+            radius,
+        } => spinner::positions(spinner::Spinner {
+            arms,
+            nodes_per_arm,
+            hollow,
+            start_angle,
+            arc,
+            zig_zag,
+            alternate,
+            from_center,
+            clockwise,
+            radius,
+        }),
+        Generator::Sphere {
+            columns,
+            rows,
+            radius,
+            start_latitude,
+            end_latitude,
+            degrees,
+            start,
+            strand_style,
+        } => sphere::positions(sphere::Sphere {
+            columns,
+            rows,
+            radius,
+            start_latitude,
+            end_latitude,
+            degrees,
+            start,
+            strand_style,
+        }),
+        Generator::Cube {
+            width,
+            height,
+            depth,
+            spacing,
+            start,
+            style,
+            strand_style,
+            strand_per_layer,
+        } => cube::positions(cube::Cube {
+            width,
+            height,
+            depth,
+            spacing,
+            start,
+            style,
+            strand_style,
+            strand_per_layer,
+        }),
         Generator::CustomGrid {
             columns,
             rows,
             ref cells,
         } => custom_grid::positions(columns, rows, cells),
+        Generator::PolyLine {
+            ref vertices,
+            ref segments,
+            spread_nodes,
+        } => polyline::positions(vertices, segments, spread_nodes),
     }
 }
 

@@ -6,8 +6,9 @@ import { MemoryBackend, emptyShow } from "../api/memory";
 import type { Edit, Prop, Show } from "../api/types";
 import { newController } from "../lib/shows";
 import { type Handle, type Pt, frameOfPoints, handlePositions, toScreen, toWorld } from "../lib/layoutMath";
-import { newProp } from "../lib/shows";
+import { newProp, nodeCount } from "../lib/shows";
 import { formatGap } from "../lib/smartGuides";
+import { GUIDE_COLORS } from "../components/layout/guideMarks";
 import { useLayoutEditor } from "../state/layoutEditor";
 import { useApp } from "../state/store";
 import { DesktopLikeBackend } from "../test/desktopBackend";
@@ -123,7 +124,7 @@ describe("LayoutScreen", () => {
     expect(canvas()).toHaveAccessibleDescription(/Click a prop to select it/);
     expect(canvas()).toHaveAccessibleDescription(/Command-A to select every prop/);
     expect(canvas()).toHaveAccessibleDescription(/Command-D duplicates it/);
-    expect(canvas()).toHaveAccessibleDescription(/pick Line, Arch, Matrix, Tree, Circle, or Star in the tool bar/);
+    expect(canvas()).toHaveAccessibleDescription(/pick Line, Arch, Matrix, Tree, or a shape under More shapes/);
     const tools = screen.getByRole("toolbar", { name: "Layout tools" });
     expect(within(tools).getByRole("button", { name: "Select" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByLabelText("Name of Gutter")).toBeInTheDocument();
@@ -272,6 +273,51 @@ describe("LayoutScreen", () => {
     expect(edits).toHaveLength(before);
     await user.selectOptions(screen.getByLabelText("Color order"), "GRB");
     expect(backend.show.props[0].colorOrder).toBe("GRB");
+  });
+
+  it("sets how a matrix is wired from the properties panel", async () => {
+    const user = await setup(showWith(placed("matrix", "Window", 0, 0)));
+    act(() => useLayoutEditor.getState().select([backend.show.props[0].id]));
+    await user.selectOptions(screen.getByLabelText("Strings run"), "vertical");
+    await user.selectOptions(screen.getByLabelText("First pixel"), "topRight");
+    await user.click(screen.getByLabelText(/Zig-zag/));
+    expect(backend.show.props[0].shape).toMatchObject({ wiring: { start: "topRight", orientation: "vertical", serpentine: false } });
+    expect(edits).toHaveLength(3);
+  });
+
+  it("makes a tree flat, or part of the way round, from the properties panel", async () => {
+    const tree = { ...newProp("tree", emptyShow("x")), name: "Mega Tree" };
+    const user = await setup(showWith(tree));
+    act(() => useLayoutEditor.getState().select([tree.id]));
+    await user.selectOptions(screen.getByLabelText("Style"), "flat");
+    const round = screen.getByLabelText("Goes round (°)");
+    await user.clear(round);
+    await user.type(round, "180{Enter}");
+    expect(backend.show.props[0].shape).toMatchObject({ style: "flat", degrees: 180 });
+    expect(edits).toHaveLength(2);
+  });
+
+  it("numbers a custom grid's squares in order, empties them, clears and resizes it, one undo step each", async () => {
+    const grid = { ...newProp("customGrid", emptyShow("x")), name: "Sign" };
+    grid.shape = { source: "generator", type: "customGrid", columns: 3, rows: 2, cells: [0, 0, 0, 0, 0, 0] };
+    const user = await setup(showWith(grid));
+    act(() => useLayoutEditor.getState().select([grid.id]));
+    const cells = () => backend.show.props[0].shape as Extract<Prop["shape"], { type: "customGrid" }>;
+    await user.click(screen.getByRole("gridcell", { name: "Row 2, column 1: empty" }));
+    await user.click(screen.getByRole("gridcell", { name: "Row 1, column 3: empty" }));
+    await user.click(screen.getByRole("gridcell", { name: "Row 1, column 1: empty" }));
+    expect(cells().cells).toEqual([3, 0, 2, 1, 0, 0]);
+    await user.click(screen.getByRole("gridcell", { name: "Row 1, column 3: pixel 2" }));
+    expect(cells().cells).toEqual([3, 0, 0, 1, 0, 0]);
+    const columns = screen.getByLabelText("Columns");
+    await user.clear(columns);
+    await user.type(columns, "2{Enter}");
+    expect(cells()).toMatchObject({ columns: 2, rows: 2, cells: [3, 0, 1, 0] });
+    await user.click(screen.getByRole("button", { name: "Clear all" }));
+    expect(cells().cells).toEqual([0, 0, 0, 0]);
+    expect(edits).toHaveLength(6);
+    await act(() => useApp.getState().undo());
+    expect(cells().cells).toEqual([3, 0, 1, 0]);
   });
 
   it("says where a prop is wired, or that it isn't", async () => {
@@ -838,6 +884,379 @@ describe("LayoutScreen", () => {
     }
   });
 
+  describe("poly lines", () => {
+    const polyOf = (name: string) => backend.show.props.find((p) => p.name === name)!.shape as Extract<Prop["shape"], { type: "polyLine" }>;
+    const worldPoints = (name: string) => {
+      const prop = backend.show.props.find((p) => p.name === name)!;
+      return polyOf(name).vertices.map((v) => ({ x: v.x + prop.transform.position.x, y: v.y + prop.transform.position.y }));
+    };
+    const doubleClick = () => act(async () => void fireEvent.doubleClick(canvas()));
+
+    /** A poly line from (x, y) through each point given as offsets, 10 pixels a stretch. */
+    function polyLine(name: string, x: number, y: number, ...offsets: [number, number][]): Prop {
+      const prop = { ...newProp("polyLine", emptyShow("x")), name };
+      prop.transform.position = { x, y, z: 0 };
+      prop.shape = {
+        source: "generator",
+        type: "polyLine",
+        vertices: offsets.map(([dx, dy]) => ({ x: dx, y: dy, z: 0 })),
+        segments: offsets.slice(1).map(() => ({ nodes: 10 })),
+      };
+      return prop;
+    }
+
+    it("draws a line that bends, a click per point, finished with a double-click as one undo step", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      await user.click(screen.getByRole("button", { name: "Poly Line" }));
+      expect(screen.getByText(/double-click or Enter to finish/)).toBeInTheDocument();
+      await click({ x: 4, y: 1 });
+      await click({ x: 7, y: 1 });
+      await click({ x: 7, y: 3 });
+      await click({ x: 7, y: 3 });
+      await doubleClick();
+      expect(edits).toHaveLength(1);
+      const [add] = edits[0];
+      const prop = (add as { prop: Prop }).prop;
+      expect(prop.shape).toMatchObject({ type: "polyLine", segments: [{ nodes: 30 }, { nodes: 20 }] });
+      const pts = worldPoints(prop.name);
+      [{ x: 4, y: 1 }, { x: 7, y: 1 }, { x: 7, y: 3 }].forEach((p, i) => {
+        expect(pts[i].x).toBeCloseTo(p.x, 1);
+        expect(pts[i].y).toBeCloseTo(p.y, 1);
+      });
+      await waitFor(() => expect(useLayoutEditor.getState().selected).toEqual([prop.id]));
+      expect(screen.getByRole("button", { name: "Select" })).toHaveAttribute("aria-pressed", "true");
+      await act(() => useApp.getState().undo());
+      expect(backend.show.props).toHaveLength(1);
+    });
+
+    it("finishes with Enter, takes the last point off with Backspace, and stops with Escape", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      await user.click(screen.getByRole("button", { name: "Poly Line" }));
+      await click({ x: 4, y: 1 });
+      await click({ x: 6, y: 1 });
+      await click({ x: 6, y: 4 });
+      await user.keyboard("{Backspace}");
+      expect(backend.show.props).toHaveLength(1);
+      await user.keyboard("{Enter}");
+      expect(edits).toHaveLength(1);
+      expect(polyOf((edits[0][0] as { prop: Prop }).prop.name).vertices).toHaveLength(2);
+
+      await user.click(screen.getByRole("button", { name: "Poly Line" }));
+      await click({ x: 4, y: 3 });
+      await click({ x: 6, y: 3 });
+      await user.keyboard("{Escape}");
+      expect(screen.getByRole("button", { name: "Poly Line" })).toHaveAttribute("aria-pressed", "true");
+      await user.keyboard("{Enter}");
+      expect(edits).toHaveLength(1);
+    });
+
+    it("takes a point off with Backspace while drawing, never the selected props, even after a trip to 3D", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      // The canvas is mounted again on the way back from 3D, after the layout keys.
+      await user.click(screen.getByRole("button", { name: "3D" }));
+      await user.click(screen.getByRole("button", { name: "2D" }));
+      await waitFor(() => expect(canvas()).toBeInTheDocument());
+      act(() => useLayoutEditor.getState().select([backend.show.props[0].id]));
+      await user.click(screen.getByRole("button", { name: "Poly Line" }));
+      await click({ x: 4, y: 1 });
+      await click({ x: 6, y: 1 });
+      await click({ x: 6, y: 3 });
+      await user.keyboard("{Backspace}");
+      await user.keyboard("{Delete}");
+      expect(backend.show.props.map((p) => p.name)).toEqual(["Gutter"]);
+      expect(edits).toEqual([]);
+      await click({ x: 8, y: 1 });
+      await user.keyboard("{Enter}");
+      expect(edits).toHaveLength(1);
+      expect(polyOf((edits[0][0] as { prop: Prop }).prop.name).vertices).toHaveLength(2);
+      expect(backend.show.props).toHaveLength(2);
+    });
+
+    it("ignores the second click of a double-click, even a pixel off", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      await user.click(screen.getByRole("button", { name: "Poly Line" }));
+      await click({ x: 4, y: 1 });
+      await click({ x: 7, y: 1 });
+      const s = screenAt({ x: 7, y: 1 });
+      await act(async () => {
+        fireEvent.pointerDown(canvas(), { clientX: s.x + 1, clientY: s.y + 0.6, button: 0, pointerId: 1, detail: 2 });
+        fireEvent.pointerUp(canvas(), { clientX: s.x + 1, clientY: s.y + 0.6, button: 0, pointerId: 1, detail: 2 });
+      });
+      await doubleClick();
+      const prop = (edits[0][0] as { prop: Prop }).prop;
+      expect(polyOf(prop.name).segments).toEqual([{ nodes: 30 }]);
+    });
+
+    it("treats a click right next to the last point as the same point", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      await user.click(screen.getByRole("button", { name: "Poly Line" }));
+      await click({ x: 4, y: 1 });
+      await click({ x: 7, y: 1 });
+      const s = screenAt({ x: 7, y: 1 });
+      await act(async () => {
+        fireEvent.pointerDown(canvas(), { clientX: s.x + 2, clientY: s.y, button: 0, pointerId: 1 });
+        fireEvent.pointerUp(canvas(), { clientX: s.x + 2, clientY: s.y, button: 0, pointerId: 1 });
+      });
+      await user.keyboard("{Enter}");
+      expect(polyOf((edits[0][0] as { prop: Prop }).prop.name).vertices).toHaveLength(2);
+    });
+
+    it("keeps a stretch at 45° steps with Shift, and joins another line's end exactly", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      await user.click(screen.getByRole("button", { name: "Poly Line" }));
+      // The gutter runs from (-2.5, 0) to (2.5, 0): start just off its right end.
+      await click({ x: 2.55, y: 0.04 });
+      await click({ x: 6, y: 0.4 }, { shiftKey: true });
+      await user.keyboard("{Enter}");
+      const prop = (edits[0][0] as { prop: Prop }).prop;
+      expect(prop.transform.position).toEqual({ x: 2.5, y: 0, z: 0 });
+      expect(polyOf(prop.name).vertices[1].y).toBeCloseTo(0, 5);
+    });
+
+    it("moves a point by dragging it, joining the end of another line, as one undo step", async () => {
+      await setup(showWith(line("Gutter", 0, 0), polyLine("Roof", 4, 2, [0, 0], [2, 1], [4, 0])));
+      act(() => useLayoutEditor.getState().select([backend.show.props[1].id]));
+      await drag({ x: 4, y: 2 }, { x: 2.55, y: 0.05 });
+      expect(edits).toHaveLength(1);
+      const pts = worldPoints("Roof");
+      expect(pts[0].x).toBeCloseTo(2.5, 5);
+      expect(pts[0].y).toBeCloseTo(0, 5);
+      expect(pts[1]).toEqual({ x: 6, y: 3 });
+      await act(() => useApp.getState().undo());
+      expect(worldPoints("Roof")[0]).toEqual({ x: 4, y: 2 });
+    });
+
+    it("adds a point with a click on a stretch's middle, removes one with Option-click or Delete, and bends a stretch by dragging its middle", async () => {
+      const user = await setup(showWith(polyLine("Roof", 0, 0, [0, 0], [4, 0], [4, 4])));
+      act(() => useLayoutEditor.getState().select([backend.show.props[0].id]));
+      await click({ x: 2, y: 0 });
+      expect(polyOf("Roof").vertices).toHaveLength(4);
+      expect(polyOf("Roof").segments.map((s) => s.nodes)).toEqual([5, 5, 10]);
+      expect(useLayoutEditor.getState().polyPoint).toMatchObject({ index: 1 });
+      await user.keyboard("{Delete}");
+      expect(polyOf("Roof").vertices).toHaveLength(3);
+      expect(backend.show.props).toHaveLength(1);
+      await click({ x: 4, y: 4 }, { altKey: true });
+      expect(polyOf("Roof").vertices).toEqual([
+        { x: 0, y: 0, z: 0 },
+        { x: 4, y: 0, z: 0 },
+      ]);
+      await drag({ x: 2, y: 0 }, { x: 2, y: 1.5 });
+      const curve = polyOf("Roof").segments[0].curve!;
+      expect(curve[0].y).toBeCloseTo(2, 2);
+      expect(edits).toHaveLength(4);
+    });
+
+    it("sets each stretch's pixels, spreads them evenly, and curves or straightens a stretch from the panel", async () => {
+      const user = await setup(showWith(polyLine("Roof", 0, 0, [0, 0], [4, 0], [4, 4])));
+      act(() => useLayoutEditor.getState().select([backend.show.props[0].id]));
+      const stretches = within(screen.getByRole("list", { name: "Stretches" }));
+      const second = stretches.getByLabelText(/Stretch 2 pixels \(4 long\)/);
+      await user.clear(second);
+      await user.type(second, "25{Enter}");
+      expect(polyOf("Roof").segments.map((s) => s.nodes)).toEqual([10, 25]);
+      await user.click(screen.getByRole("button", { name: "Curve stretch 1" }));
+      expect(polyOf("Roof").segments[0].curve).toBeTruthy();
+      await user.click(screen.getByRole("button", { name: "Straighten stretch 1" }));
+      expect(polyOf("Roof").segments[0].curve).toBeUndefined();
+      await user.click(screen.getByLabelText("Spread the pixels evenly along the whole line"));
+      expect(polyOf("Roof").spreadNodes).toBe(35);
+      expect(screen.getByLabelText("Pixels")).toHaveValue("35");
+      expect(edits).toHaveLength(4);
+    });
+
+    it("splits a poly line at the picked point into two props, as one undo step", async () => {
+      const user = await setup(showWith(polyLine("Roof", 0, 0, [0, 0], [4, 0], [4, 4])));
+      act(() => useLayoutEditor.getState().select([backend.show.props[0].id]));
+      await click({ x: 4, y: 0 });
+      await user.click(screen.getByRole("button", { name: "Split here" }));
+      expect(edits).toHaveLength(1);
+      expect(backend.show.props.map((p) => p.name)).toEqual(["Roof", "Roof (2)"]);
+      expect(polyOf("Roof").vertices).toHaveLength(2);
+      expect(worldPoints("Roof (2)")).toEqual([
+        { x: 4, y: 0 },
+        { x: 4, y: 4 },
+      ]);
+      await act(() => useApp.getState().undo());
+      expect(backend.show.props).toHaveLength(1);
+    });
+
+    it("adds a bend to a straight line, then drags the bend", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      act(() => useLayoutEditor.getState().select([backend.show.props[0].id]));
+      await user.click(screen.getByRole("button", { name: "Add bend" }));
+      expect(polyOf("Gutter").vertices).toHaveLength(3);
+      expect(nodeCount(backend.show.props[0].shape)).toBe(50);
+      await drag({ x: 0, y: 0 }, { x: 0, y: 1 });
+      expect(worldPoints("Gutter")[1]).toEqual({ x: 0, y: 1 });
+    });
+
+    it("joins two lines whose ends touch into one poly line, saying what happens to the second's wiring", async () => {
+      const roof = polyLine("Roof", 2.5, 0, [0, 0], [2, 2]);
+      const show = showWith(line("Gutter", 0, 0), roof);
+      const controller = newController("Porch", "10.0.0.9", "ddp", 1);
+      controller.ports[0].slots.push({ prop: roof.id, segment: null, nullPixels: 0, reverse: false, brightness: null, gamma: null, smartReceiver: null });
+      show.controllers.push(controller);
+      const user = await setup(show);
+      act(() => useLayoutEditor.getState().select(backend.show.props.map((p) => p.id)));
+      expect(screen.getByText(/Roof's own wiring is removed; the joined line keeps Gutter's/)).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Join into one poly line" }));
+      expect(edits).toHaveLength(1);
+      expect(backend.show.props.map((p) => p.name)).toEqual(["Gutter"]);
+      expect(backend.show.controllers[0].ports[0].slots).toEqual([]);
+      const pts = worldPoints("Gutter");
+      [{ x: -2.5, y: 0 }, { x: 2.5, y: 0 }, { x: 4.5, y: 2 }].forEach((p, i) => {
+        expect(pts[i].x).toBeCloseTo(p.x, 5);
+        expect(pts[i].y).toBeCloseTo(p.y, 5);
+      });
+      expect(nodeCount(backend.show.props[0].shape)).toBe(60);
+      await act(() => useApp.getState().undo());
+      expect(backend.show.props).toHaveLength(2);
+    });
+
+    it("lets either line keep its wiring when joining, carries submodels, and warns which line runs backwards", async () => {
+      // Both lines start where they meet, so one has to run backwards.
+      const roof = polyLine("Roof", 2.5, 0, [0, 0], [2, 2]);
+      const eave = polyLine("Eave", 2.5, 0, [0, 0], [3, 0]);
+      eave.regions = [{ id: "e1", name: "Tip", kind: "nodes", lines: [[{ first: 0, last: 1 }]], layout: "horizontal", buffer: "default" }];
+      const show = showWith(roof, eave);
+      const controller = newController("Porch", "10.0.0.9", "ddp", 1);
+      controller.ports[0].slots.push({ prop: roof.id, segment: null, nullPixels: 0, reverse: false, brightness: null, gamma: null, smartReceiver: null });
+      show.controllers.push(controller);
+      const user = await setup(show);
+      act(() => useLayoutEditor.getState().select([roof.id, eave.id]));
+      expect(screen.getByText(/Eave will run backwards, from its far end/)).toBeInTheDocument();
+      await user.click(screen.getByRole("radio", { name: "Roof" }));
+      expect(screen.getByText(/become one poly line named Roof/)).toBeInTheDocument();
+      expect(screen.getByText(/Roof's controller port feeds it from there/)).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Join into one poly line" }));
+      expect(edits).toHaveLength(1);
+      expect(backend.show.props.map((p) => p.name)).toEqual(["Roof"]);
+      expect(backend.show.controllers[0].ports[0].slots.map((s) => s.prop)).toEqual([roof.id]);
+      // Eave's 10 pixels run backwards first: its pixels 0-1 are now 9-8.
+      expect(backend.show.props[0].regions).toEqual([{ ...eave.regions[0], lines: [[{ first: 9, last: 8 }]] }]);
+    });
+
+    it("deletes a two-point line when its picked point is deleted (a line needs two points)", async () => {
+      const user = await setup(showWith(polyLine("Roof", 0, 0, [0, 0], [4, 0])));
+      act(() => useLayoutEditor.getState().select([backend.show.props[0].id]));
+      await click({ x: 4, y: 0 });
+      expect(useLayoutEditor.getState().polyPoint).toMatchObject({ index: 1 });
+      await user.keyboard("{Delete}");
+      expect(backend.show.props).toEqual([]);
+      expect(edits).toHaveLength(1);
+    });
+
+    it("offers the less common shapes under More shapes", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      await user.click(screen.getByRole("button", { name: "More shapes" }));
+      await user.click(screen.getByRole("menuitem", { name: "Star" }));
+      expect(useLayoutEditor.getState().tool).toBe("star");
+      expect(screen.getByRole("button", { name: "Star" })).toHaveAttribute("aria-pressed", "true");
+      await user.click(screen.getByRole("button", { name: "Star" }));
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+      expect(useLayoutEditor.getState().tool).toBe("star");
+    });
+  });
+
+  /** Picks `name` under More shapes, drags from `a` to `b`, and returns the prop added. */
+  async function drawFromMore(user: ReturnType<typeof userEvent.setup>, name: string, a: Pt, b: Pt): Promise<Prop> {
+    await user.click(screen.getByRole("button", { name: "More shapes" }));
+    await user.click(screen.getByRole("menuitem", { name }));
+    await drag(a, b);
+    expect(edits).toHaveLength(1);
+    const [add] = edits[0];
+    expect(add.type).toBe("addProp");
+    const prop = (add as { prop: Prop }).prop;
+    await waitFor(() => expect(useLayoutEditor.getState().selected).toEqual([prop.id]));
+    return prop;
+  }
+
+  describe("candy canes and icicles", () => {
+    it("draws candy canes from one end to the other and turns their hooks from the panel", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      const prop = await drawFromMore(user, "Candy canes", { x: 2, y: 1 }, { x: 6, y: 1 });
+      expect(prop.shape).toMatchObject({ type: "candyCanes", canes: 3, nodesPerCane: 18, width: expect.closeTo(4, 1) });
+      expect(prop.transform.position).toMatchObject({ x: expect.closeTo(4, 1), y: expect.closeTo(1, 1) });
+      expect(screen.getByLabelText("Pixels per cane")).toHaveValue("18");
+      await user.click(screen.getByLabelText("Hooks point left"));
+      expect(edits).toHaveLength(2);
+      expect(edits[1]).toEqual([{ type: "updateProp", prop: expect.objectContaining({ shape: expect.objectContaining({ reverse: true }) }) }]);
+    });
+
+    it("draws icicles along a line and changes their drop pattern from the panel", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      const prop = await drawFromMore(user, "Icicles", { x: -2, y: 3 }, { x: 4, y: 3 });
+      expect(prop.shape).toMatchObject({ type: "icicles", drops: [3, 4, 5, 4], width: expect.closeTo(6, 1) });
+      const pattern = screen.getByLabelText("Drop pattern");
+      expect(pattern).toHaveValue("3,4,5,4");
+      await user.clear(pattern);
+      await user.type(pattern, "2, 6,0{Enter}");
+      expect(edits).toHaveLength(2);
+      expect(edits[1]).toEqual([{ type: "updateProp", prop: expect.objectContaining({ shape: expect.objectContaining({ drops: [2, 6, 0] }) }) }]);
+      expect(backend.show.props.at(-1)!.shape).toMatchObject({ drops: [2, 6, 0] });
+    });
+  });
+
+  describe("window frames, wreaths and spinners", () => {
+    /** The one edit after the prop was added: an update to its shape. */
+    const shapeEdit = () => {
+      expect(edits).toHaveLength(2);
+      const [update] = edits[1];
+      expect(update.type).toBe("updateProp");
+      return (update as { prop: Prop }).prop.shape;
+    };
+
+    it("draws a window frame as a box and picks the corner its string starts at from the panel", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      const prop = await drawFromMore(user, "Window frame", { x: 1, y: 1 }, { x: 5, y: 4 });
+      expect(prop.shape).toMatchObject({ type: "windowFrame", width: expect.closeTo(4, 1), height: expect.closeTo(3, 1) });
+      expect(prop.transform.position).toMatchObject({ x: expect.closeTo(3, 1), y: expect.closeTo(2.5, 1) });
+      expect(screen.getByLabelText("Pixels across the top")).toHaveValue("20");
+      await user.selectOptions(screen.getByLabelText("First pixel"), "topRight");
+      expect(shapeEdit()).toMatchObject({ start: "topRight" });
+    });
+
+    it("draws a wreath in a box and starts it at the bottom from the panel", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      const prop = await drawFromMore(user, "Wreath", { x: 0, y: 0 }, { x: 4, y: 4 });
+      expect(prop.shape).toMatchObject({ type: "wreath", nodes: 50, radius: expect.closeTo(2, 1) });
+      await user.click(screen.getByLabelText("Starts at the bottom"));
+      expect(shapeEdit()).toMatchObject({ startAtBottom: true });
+    });
+
+    it("draws a spinner in a box and changes its arms from the panel", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      const prop = await drawFromMore(user, "Spinner", { x: 0, y: 0 }, { x: 4, y: 4 });
+      expect(prop.shape).toMatchObject({ type: "spinner", arms: 6, radius: expect.closeTo(2, 1) });
+      const arms = screen.getByLabelText("Arms");
+      await user.clear(arms);
+      await user.type(arms, "8{Enter}");
+      expect(shapeEdit()).toMatchObject({ arms: 8 });
+      expect(backend.show.props.at(-1)!.shape).toMatchObject({ arms: 8 });
+    });
+
+    it("draws a sphere in a box and sets how far round it goes from the panel", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      const prop = await drawFromMore(user, "Sphere", { x: 0, y: 0 }, { x: 4, y: 4 });
+      expect(prop.shape).toMatchObject({ type: "sphere", columns: 16, rows: 20, radius: expect.closeTo(2, 1) });
+      expect(screen.getByLabelText("Lowest pixels (latitude °)")).toHaveValue("-86");
+      const round = screen.getByLabelText("Goes round (°)");
+      await user.clear(round);
+      await user.type(round, "180{Enter}");
+      expect(shapeEdit()).toMatchObject({ degrees: 180 });
+    });
+
+    it("draws a cube in a box and picks its wiring style from the panel", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      const prop = await drawFromMore(user, "Cube", { x: 0, y: 0 }, { x: 4, y: 4 });
+      expect(prop.shape).toMatchObject({ type: "cube", width: 5, spacing: expect.closeTo(1, 1) });
+      await user.selectOptions(screen.getByLabelText("Strands run"), "stackedLeftRight");
+      expect(shapeEdit()).toMatchObject({ style: "stackedLeftRight" });
+    });
+  });
+
   describe("smart guides", () => {
     const zoom = () => useLayoutEditor.getState().view!.zoom;
     async function frameOf(name: string) {
@@ -850,13 +1269,18 @@ describe("LayoutScreen", () => {
       prop.shape = { ...prop.shape, width: 3 } as Prop["shape"];
       return prop;
     }
-    /** Records the text drawn on the canvas, drawing at once instead of on the next frame. */
+    /**
+     * Records the text drawn on the canvas, and the color of each line stroked, drawing at once
+     * instead of on the next frame.
+     */
     async function recordText() {
       const texts: string[] = [];
+      const strokes: string[] = [];
       const context = new Proxy({} as Record<string | symbol, unknown>, {
         get: (target, key) => {
           if (key in target) return target[key];
           if (key === "fillText") return (text: string) => texts.push(text);
+          if (key === "stroke") return () => strokes.push(String(target.strokeStyle));
           if (key === "measureText") return (text: string) => ({ width: text.length * 6 });
           return () => {};
         },
@@ -872,6 +1296,7 @@ describe("LayoutScreen", () => {
       await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
       return {
         texts,
+        strokes,
         restore() {
           HTMLCanvasElement.prototype.getContext = getContext;
           vi.unstubAllGlobals();
@@ -1052,5 +1477,160 @@ describe("LayoutScreen", () => {
       expect(position("B").y).toBe(3.5);
       expect(edits).toHaveLength(2);
     });
+
+    describe("on poly lines", () => {
+      /** A poly line from (x, y) through each point given as offsets, 10 pixels a stretch. */
+      function polyLine(name: string, x: number, y: number, ...offsets: [number, number][]): Prop {
+        const prop = { ...newProp("polyLine", emptyShow("x")), name };
+        prop.transform.position = { x, y, z: 0 };
+        prop.shape = {
+          source: "generator",
+          type: "polyLine",
+          vertices: offsets.map(([dx, dy]) => ({ x: dx, y: dy, z: 0 })),
+          segments: offsets.slice(1).map(() => ({ nodes: 10 })),
+        };
+        return prop;
+      }
+      /** The world points of the poly line `prop`. */
+      function pointsOf(prop: Prop): Pt[] {
+        const shape = prop.shape as Extract<Prop["shape"], { type: "polyLine" }>;
+        return shape.vertices.map((v) => ({ x: v.x + prop.transform.position.x, y: v.y + prop.transform.position.y }));
+      }
+      const added = () => (edits[0][0] as { prop: Prop }).prop;
+      const guideColor = () => GUIDE_COLORS[useApp.getState().theme].line;
+      /** Zooms out so everything drawn here is on screen (only what's on screen guides). */
+      const zoomOut = () => act(() => useLayoutEditor.getState().setView({ cx: 6, cy: 3, zoom: 30 }));
+      function expectAt(p: Pt, want: Pt) {
+        expect(p.x).toBeCloseTo(want.x, 3);
+        expect(p.y).toBeCloseTo(want.y, 3);
+      }
+
+      it("line each point up with other props and the points placed before it; Option places one freely", async () => {
+        const user = await setup(showWith(placed("matrix", "A", 0, 0)));
+        zoomOut();
+        const a = await frameOf("A");
+        const px = 2 / zoom();
+        await user.click(screen.getByRole("button", { name: "Poly Line" }));
+        // Two pixels right of A's right edge.
+        await click({ x: a.maxX + px, y: a.maxY + 3 });
+        // Two pixels below level with A's top.
+        await click({ x: a.maxX + 4, y: a.maxY - px });
+        // Two pixels above level with the first point.
+        await click({ x: a.maxX + 8, y: a.maxY + 3 + px });
+        // The same, with Option held: where it was clicked.
+        await click({ x: a.maxX + 12, y: a.maxY + 3 + px }, { altKey: true });
+        await user.keyboard("{Enter}");
+        expect(edits).toHaveLength(1);
+        const pts = pointsOf(added());
+        expectAt(pts[0], { x: a.maxX, y: a.maxY + 3 });
+        expectAt(pts[1], { x: a.maxX + 4, y: a.maxY });
+        expectAt(pts[2], { x: a.maxX + 8, y: a.maxY + 3 });
+        expectAt(pts[3], { x: a.maxX + 12, y: a.maxY + 3 + px });
+      });
+
+      it("don't move points when turned off", async () => {
+        const user = await setup(showWith(placed("matrix", "A", 0, 0)));
+        const a = await frameOf("A");
+        const px = 2 / zoom();
+        await user.click(screen.getByRole("button", { name: "Smart guides" }));
+        await user.click(screen.getByRole("button", { name: "Poly Line" }));
+        await click({ x: a.maxX + px, y: a.maxY + 3 });
+        await click({ x: a.maxX + 4, y: a.maxY - px });
+        await user.keyboard("{Enter}");
+        const pts = pointsOf(added());
+        expectAt(pts[0], { x: a.maxX + px, y: a.maxY + 3 });
+        expectAt(pts[1], { x: a.maxX + 4, y: a.maxY - px });
+      });
+
+      it("slide a point held at 45° with Shift along its line to a guide", async () => {
+        const user = await setup(showWith(placed("matrix", "A", 0, 0)));
+        const a = await frameOf("A");
+        await user.click(screen.getByRole("button", { name: "Poly Line" }));
+        await click({ x: a.maxX - 8, y: 5 });
+        // Just past A's right edge, a little uphill: Shift keeps it level.
+        await click({ x: a.maxX + 2 / zoom(), y: 5.3 }, { shiftKey: true });
+        await user.keyboard("{Enter}");
+        const pts = pointsOf(added());
+        expectAt(pts[1], { x: a.maxX, y: 5 });
+      });
+
+      it("join another line's end before lining up with a guide nearer still", async () => {
+        // The gutter ends at (2.5, 0); A's left edge is just right of that.
+        const user = await setup(showWith(line("Gutter", 0, 0), placed("matrix", "A", 4.65, 3)));
+        const a = await frameOf("A");
+        const at = { x: 2.5 + (a.minX - 2.5) * 0.8, y: 0.02 };
+        // In reach of both, and nearer A's edge than the line's end.
+        expect(Math.abs(a.minX - at.x) * zoom()).toBeLessThan(6);
+        expect(Math.abs(a.minX - at.x)).toBeLessThan(Math.abs(2.5 - at.x));
+        await user.click(screen.getByRole("button", { name: "Poly Line" }));
+        await click(at);
+        await click({ x: 6, y: -3 });
+        await user.keyboard("{Enter}");
+        expect(added().transform.position).toEqual({ x: 2.5, y: 0, z: 0 });
+      });
+
+      it("draw the guides while placing a point, and none with Option held", async () => {
+        const user = await setup(showWith(placed("matrix", "A", 0, 0)));
+        const a = await frameOf("A");
+        await user.click(screen.getByRole("button", { name: "Poly Line" }));
+        const canvasText = await recordText();
+        try {
+          await act(async () => pointer("pointerMove", { x: a.maxX + 2 / zoom(), y: a.maxY + 3 }));
+          expect(canvasText.strokes).toContain(guideColor());
+          canvasText.strokes.length = 0;
+          await act(async () => pointer("pointerMove", { x: a.maxX + 2 / zoom(), y: a.maxY + 3 }, { altKey: true }));
+          expect(canvasText.strokes).not.toContain(guideColor());
+        } finally {
+          canvasText.restore();
+        }
+      });
+
+      it("line a dragged point up with other props and the line's other points, drawing the guides; Option drags it freely", async () => {
+        await setup(showWith(placed("matrix", "A", 0, 0), polyLine("Roof", 6, 4, [0, 0], [3, 2], [6, 0])));
+        zoomOut();
+        const a = await frameOf("A");
+        const px = 2 / zoom();
+        act(() => useLayoutEditor.getState().select([backend.show.props[1].id]));
+        const canvasText = await recordText();
+        try {
+          // The middle point, to two pixels right of A's right edge and below level with the first point.
+          await act(async () => {
+            pointer("pointerDown", { x: 9, y: 6 });
+            pointer("pointerMove", { x: a.maxX + px, y: 4 - px });
+          });
+          expect(canvasText.strokes).toContain(guideColor());
+          await act(async () => pointer("pointerUp", { x: a.maxX + px, y: 4 - px }));
+        } finally {
+          canvasText.restore();
+        }
+        expect(edits).toHaveLength(1);
+        const roof = () => backend.show.props.find((p) => p.name === "Roof")!;
+        expectAt(pointsOf(roof())[1], { x: a.maxX, y: 4 });
+        // Back out with Option held: where it was dropped.
+        await drag({ x: a.maxX, y: 4 }, { x: a.maxX + px, y: 4 + 3 * px }, { altKey: true });
+        expect(edits).toHaveLength(2);
+        expectAt(pointsOf(roof())[1], { x: a.maxX + px, y: 4 + 3 * px });
+      });
+    });
+
+    it.each(["Candy canes", "Icicles", "Window frame", "Wreath", "Spinner", "Sphere", "Cube"])(
+      "snap the %s drawn from More shapes to other props' edges",
+      async (name) => {
+        const user = await setup(showWith(placed("matrix", "A", 0, 0)));
+        act(() => useLayoutEditor.getState().setView({ cx: 4, cy: 4, zoom: 30 }));
+        const a = await frameOf("A");
+        const px = 2 / zoom();
+        // Without the guide, the prop would sit half of that further right: far enough to tell.
+        expect(px / 2).toBeGreaterThan(0.01);
+        await user.click(screen.getByRole("button", { name: "More shapes" }));
+        await user.click(screen.getByRole("menuitem", { name }));
+        // From two pixels right of A's right edge: drawn by its ends or as a box, its middle is
+        // 2.5 right of that edge.
+        await drag({ x: a.maxX + px, y: a.maxY + 3 }, { x: a.maxX + 5, y: a.maxY + 8 });
+        expect(edits).toHaveLength(1);
+        const prop = (edits[0][0] as { prop: Prop }).prop;
+        expect(prop.transform.position.x).toBeCloseTo(a.maxX + 2.5, 2);
+      },
+    );
   });
 });

@@ -183,9 +183,22 @@ const SHARED_DEFINITIONS: &[(&str, &str, &str)] = &[
     ("EffectParams", "sequence_add_effect", "effect.params"),
 ];
 
+/// A value that is its type's empty one: `false`, `0`, `null`, `""`, `[]` or `{}`.
+fn is_empty_value(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::Bool(b) => !b,
+        Value::Number(n) => n.as_f64() == Some(0.0),
+        Value::String(s) => s.is_empty(),
+        Value::Array(a) => a.is_empty(),
+        Value::Object(o) => o.is_empty(),
+    }
+}
+
 /// Rewrites `$ref`s to shared definitions outside their owning tool, then drops the definitions
 /// those tools no longer use. Also drops `format` annotations (number widths), which don't
-/// constrain anything here.
+/// constrain anything here, and defaults that are the type's empty value (`false`, `0`, `null`,
+/// nothing), which say no more than leaving the field out does.
 fn share_large_definitions(tools: &mut [Tool]) {
     fn rewrite(
         value: &mut Value,
@@ -196,6 +209,9 @@ fn share_large_definitions(tools: &mut [Tool]) {
             Value::Object(map) => {
                 if map.get("format").is_some_and(Value::is_string) {
                     map.remove("format");
+                }
+                if map.get("default").is_some_and(is_empty_value) {
+                    map.remove("default");
                 }
                 if let Some(Value::String(r)) = map.get("$ref")
                     && let Some(name) = r.strip_prefix("#/$defs/")
@@ -527,6 +543,36 @@ mod tests {
             })
             .collect();
         json!({ "oneOf": variants })
+    }
+
+    #[test]
+    fn only_empty_defaults_are_dropped() {
+        let mut tools = vec![Tool {
+            spec: ToolSpec {
+                name: "t".into(),
+                description: "A tool for the test.".into(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "flag": { "type": "boolean", "default": false },
+                        "angle": { "type": "number", "default": 0.0 },
+                        "count": { "type": "integer", "default": 0 },
+                        "list": { "type": "array", "default": [] },
+                        "maybe": { "type": ["string", "null"], "default": null },
+                        "on": { "type": "boolean", "default": true },
+                        "turn": { "type": "number", "default": 360.0 },
+                    },
+                }),
+            },
+            kind: ToolKind::ResetDraft,
+        }];
+        share_large_definitions(&mut tools);
+        let props = &tools[0].spec.input_schema["properties"];
+        for field in ["flag", "angle", "count", "list", "maybe"] {
+            assert!(props[field].get("default").is_none(), "{field}");
+        }
+        assert_eq!(props["on"]["default"], true);
+        assert_eq!(props["turn"]["default"], 360.0);
     }
 
     #[test]

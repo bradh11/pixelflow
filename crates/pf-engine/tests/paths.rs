@@ -82,7 +82,7 @@ fn files_in_the_show_folder_are_saved_relative_and_opened_in_full() {
     engine.save_as(&f.show).unwrap();
 
     let json = saved_json(&f.show);
-    assert_eq!(json["schemaVersion"], 8);
+    assert_eq!(json["schemaVersion"], 9);
     assert_eq!(json["savedIn"], text(&f.root));
     assert_eq!(json["sequences"][0]["path"], "Christmas Medley 2017.fseq");
     assert_eq!(

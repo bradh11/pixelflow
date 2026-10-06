@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { ShapeSource, Transform, Vec3 } from "../api/types";
-import { applyTransform, frontView, localPositions } from "./geometry";
+import { applyTransform, deepView, frontView, localPositions } from "./geometry";
 import { newProp, nodeCount, PROP_KINDS } from "./shows";
 import { emptyShow } from "../api/memory";
+import sharedShapes from "../../../crates/pf-geometry/tests/fixtures/shapes.json";
 
 const close = (a: Vec3, b: Partial<Vec3>) => {
   expect(a.x).toBeCloseTo(b.x ?? 0, 4);
@@ -89,6 +90,30 @@ describe("localPositions (mirrors pf-geometry)", () => {
   it("uses measured points as they are", () => {
     const points = [{ x: 1, y: 2, z: 3 }];
     expect(localPositions({ source: "measured", points, provenance: "import" })).toBe(points);
+  });
+});
+
+describe("the shapes pf-geometry checks itself against (crates/pf-geometry/tests/fixtures/shapes.json)", () => {
+  for (const { name, shape, positions } of sharedShapes as { name: string; shape: ShapeSource; positions: number[][] }[]) {
+    it(`puts the pixels of "${name}" where the engine does`, () => {
+      const ours = localPositions(shape);
+      expect(ours).toHaveLength(positions.length);
+      expect(nodeCount(shape)).toBe(positions.length);
+      ours.forEach((p, i) => {
+        const [x, y, z] = positions[i];
+        expect(Math.max(Math.abs(p.x - x), Math.abs(p.y - y), Math.abs(p.z - z)), `pixel ${i}`).toBeLessThan(1e-4);
+      });
+    });
+  }
+});
+
+describe("3D shapes", () => {
+  it("gives spheres and cubes real depth in the 3D view", () => {
+    for (const kind of ["sphere", "cube"] as const) {
+      const xyz = deepView(newProp(kind, emptyShow("x")));
+      const zs = Array.from(xyz).filter((_, i) => i % 3 === 2);
+      expect(Math.max(...zs) - Math.min(...zs), kind).toBeGreaterThan(0.5);
+    }
   });
 });
 

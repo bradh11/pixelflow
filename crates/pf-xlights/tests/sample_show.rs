@@ -185,15 +185,22 @@ fn positions_follow_the_xlights_layout() {
     let show = sample().show;
     let bounds = |name: &str| {
         let prop = show.props.iter().find(|p| p.name == name).unwrap();
-        let ShapeSource::Measured { points, .. } = &prop.shape else {
-            panic!("measured")
-        };
-        points
+        pf_geometry::world_positions(prop)
             .iter()
             .fold((f32::MAX, f32::MAX, f32::MIN, f32::MIN), |(x0, y0, x1, y1), p| {
                 (x0.min(p.x), y0.min(p.y), x1.max(p.x), y1.max(p.y))
             })
     };
+    // The roofline is a single line in xLights, so it comes in as an editable line.
+    let roofline = show.props.iter().find(|p| p.name == "Roofline").unwrap();
+    assert!(
+        matches!(
+            roofline.shape,
+            ShapeSource::Generator(pf_model::Generator::Line { .. })
+        ),
+        "{:?}",
+        roofline.shape
+    );
     let roof = bounds("Roofline");
     assert!(
         (roof.0 - 1.0).abs() < 0.02 && (roof.2 - 11.0).abs() < 0.02,
@@ -225,4 +232,100 @@ fn positions_follow_the_xlights_layout() {
             (x0, y0, x1, y1)
         );
     }
+}
+
+/// Props imported as editable shapes put every pixel exactly where xLights' own layout does
+/// (each node at the middle of its lights, in channel order), as measured imports always have.
+#[test]
+fn editable_shapes_land_on_xlights_positions() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/sample-show");
+    let layout =
+        pf_xlights::parse_layout(&std::fs::read_to_string(dir.join("xlights_rgbeffects.xml")).unwrap())
+            .unwrap();
+    let show = sample().show;
+    let canes = show.props.iter().find(|p| p.name == "Candy Canes").unwrap();
+    assert!(
+        matches!(
+            canes.shape,
+            ShapeSource::Generator(pf_model::Generator::CandyCanes {
+                canes: 2,
+                nodes_per_cane: 18,
+                ..
+            })
+        ),
+        "{:?}",
+        canes.shape
+    );
+    let tree = show.props.iter().find(|p| p.name == "Mega Tree").unwrap();
+    assert!(
+        matches!(
+            tree.shape,
+            ShapeSource::Generator(pf_model::Generator::Tree { strings: 8, .. })
+        ),
+        "{:?}",
+        tree.shape
+    );
+    let star = show.props.iter().find(|p| p.name == "Porch Star").unwrap();
+    assert!(
+        matches!(
+            star.shape,
+            ShapeSource::Generator(pf_model::Generator::CustomGrid {
+                columns: 4,
+                rows: 5,
+                ..
+            })
+        ),
+        "{:?}",
+        star.shape
+    );
+    let matrix = show.props.iter().find(|p| p.name == "Window Matrix").unwrap();
+    assert!(
+        matches!(
+            matrix.shape,
+            ShapeSource::Generator(pf_model::Generator::Matrix { columns: 4, .. })
+        ),
+        "{:?}",
+        matrix.shape
+    );
+    let mut editable = 0;
+    for prop in &show.props {
+        if !matches!(prop.shape, ShapeSource::Generator(_)) {
+            continue;
+        }
+        editable += 1;
+        let model = layout.models.iter().find(|m| m.name == prop.name).unwrap();
+        // xLights' 3D layout, depth included, without the tilt its 2D view gives trees.
+        let xlights = pf_xlights::upright_positions(model);
+        let ours = pf_geometry::world_positions(prop);
+        assert_eq!(ours.len(), xlights.len(), "{}", prop.name);
+        for (a, b) in ours.iter().zip(&xlights) {
+            assert!(
+                (a.x - b[0] * 0.01).abs() < 2e-3
+                    && (a.y - b[1] * 0.01).abs() < 2e-3
+                    && (a.z - b[2] * 0.01).abs() < 2e-3,
+                "{}: {a:?} vs {b:?}",
+                prop.name
+            );
+        }
+        // The same nodes as the front-view layout: for everything but the tree, in the same places.
+        let front = pf_xlights::geometry(model);
+        assert_eq!(front.nodes.len(), xlights.len(), "{}", prop.name);
+    }
+    // Every editable model in the sample show stays editable.
+    assert_eq!(
+        editable, 5,
+        "roofline, candy canes, mega tree, porch star, window matrix"
+    );
+    let tree = show.props.iter().find(|p| p.name == "Mega Tree").unwrap();
+    let depth = pf_geometry::world_positions(tree)
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(lo, hi), p| (lo.min(p.z), hi.max(p.z)));
+    assert!(depth.1 - depth.0 > 1.0, "the mega tree is round in 3D: {depth:?}");
+    assert_eq!(tree.transform.rotation_deg, pf_model::Vec3::ZERO, "and upright");
+    let notes = sample().notes;
+    assert!(
+        notes.iter().any(|n| n
+            == "xLights draws trees, spheres and cubes with a slight tilt in its 2D view; PixelFlow shows their real shape: Mega Tree."),
+        "{notes:#?}"
+    );
 }

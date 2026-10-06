@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 /// A physical light element: an arch, a matrix, a tree, etc.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Prop {
     pub id: PropId,
@@ -57,6 +58,7 @@ impl Prop {
 /// Serialized as the prop's id (a plain string, as every group member was before submodels)
 /// or as `{ "prop": …, "region": … }`, so older show files read unchanged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum GroupMember {
     Prop(PropId),
@@ -88,6 +90,7 @@ impl From<RegionRef> for GroupMember {
 /// A named, ordered set of props and submodels. Order matters: effects that run along the
 /// group (a chase) count pixels member by member, as xLights does.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Group {
     pub id: GroupId,

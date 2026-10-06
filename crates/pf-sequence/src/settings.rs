@@ -230,6 +230,7 @@ macro_rules! effect_params {
     ) => {
         $(#[$meta])*
         #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+        #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
         #[serde(default, rename_all = "camelCase")]
         pub struct $name {
             $( $(#[doc = $doc])* pub $field: $ty, )*

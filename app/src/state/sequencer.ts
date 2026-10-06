@@ -284,6 +284,16 @@ export const useSequencer = create<SequencerState>((set, get) => {
     set({ recent });
   }
 
+  /** Like `absorb`, for undo and redo: when the step also took back (or brought back) a show change
+   * made together with it (an assistant proposal), the show fetches itself again. */
+  async function absorbPaired(result: SequenceEditResult, from: SequencerApi) {
+    await absorb(result, from);
+    const show = useApp.getState().snapshot;
+    if (result.changed && result.showRevision !== undefined && show && result.showRevision > show.revision) {
+      void useApp.getState().run((backend) => backend.getSnapshot());
+    }
+  }
+
   /** Brings the copy up to date from a light reply, or fetches the whole document if it fell behind. */
   async function absorb(result: SequenceEditResult, from: SequencerApi) {
     const { doc, revision, api } = get();
@@ -474,14 +484,14 @@ export const useSequencer = create<SequencerState>((set, get) => {
     async undo() {
       const { api } = get();
       if (!api || !get().doc) return false;
-      const ok = await serial(() => guarded(async () => (await absorb(await api.undoSequence(), api), true)));
+      const ok = await serial(() => guarded(async () => (await absorbPaired(await api.undoSequence(), api), true)));
       return ok === true;
     },
 
     async redo() {
       const { api } = get();
       if (!api || !get().doc) return false;
-      const ok = await serial(() => guarded(async () => (await absorb(await api.redoSequence(), api), true)));
+      const ok = await serial(() => guarded(async () => (await absorbPaired(await api.redoSequence(), api), true)));
       return ok === true;
     },
 

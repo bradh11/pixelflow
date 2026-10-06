@@ -5,6 +5,7 @@ use std::ops::{Add, Mul, Sub};
 
 /// A 3D point or vector in layout units. +X is right, +Y is up, +Z points toward the viewer.
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Vec3 {
     pub x: f32,
     pub y: f32,
@@ -52,6 +53,7 @@ impl Mul<f32> for Vec3 {
 /// Placement of a prop in the layout. Applied as scale, then rotation (X, then Y, then Z,
 /// in degrees), then translation.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Transform {
     pub position: Vec3,
@@ -71,6 +73,7 @@ impl Default for Transform {
 
 /// Order in which a pixel expects its color channels on the wire.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "UPPERCASE")]
 pub enum ColorOrder {
     #[default]

@@ -12,9 +12,12 @@ import {
   Network,
   Redo2,
   Save,
+  Sparkles,
   Sun,
   Undo2,
 } from "lucide-react";
+import { useAssistant } from "../state/assistant";
+import { AssistantPanel } from "./assistant/AssistantPanel";
 import { useEffect, useState, type ReactNode } from "react";
 import { errorMessage } from "../api/backend";
 import { fileName, plural, shownPath, thousands } from "../lib/format";
@@ -122,6 +125,7 @@ function TopBar() {
         <IconButton label={theme === "dark" ? "Light theme" : "Dark theme"} onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
           {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
         </IconButton>
+        <AssistantButton />
         <button
           type="button"
           onClick={() => setPaletteOpen(true)}
@@ -316,8 +320,30 @@ function CurrentScreen() {
   }
 }
 
+/** Opens and closes the assistant panel (⌘L). */
+function AssistantButton() {
+  const open = useAssistant((s) => s.open);
+  const toggle = useAssistant((s) => s.toggle);
+  return (
+    <button
+      type="button"
+      aria-pressed={open}
+      onClick={toggle}
+      title="Assistant (⌘L)"
+      className={`ml-1 flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-sm ${
+        open
+          ? "border-accent-500 bg-accent-50 text-accent-600 dark:bg-accent-600/15 dark:text-accent-400"
+          : "border-neutral-300 text-neutral-500 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+      }`}
+    >
+      <Sparkles size={14} aria-hidden /> Assistant <kbd className="text-xs">⌘L</kbd>
+    </button>
+  );
+}
+
 export function AppShell() {
   const screen = useApp((s) => s.screen);
+  const assistantOpen = useAssistant((s) => s.open);
   return (
     <div className="flex h-full flex-col">
       <TopBar />
@@ -327,6 +353,7 @@ export function AppShell() {
         <main className={`min-w-0 flex-1 ${screen === "sequence" ? "overflow-hidden" : "overflow-auto p-6"}`}>
           <CurrentScreen />
         </main>
+        {assistantOpen && <AssistantPanel />}
       </div>
       <StatusBar />
     </div>

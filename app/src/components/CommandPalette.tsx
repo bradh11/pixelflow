@@ -2,6 +2,7 @@ import { Command } from "cmdk";
 import { useEffect } from "react";
 import { besideOthers } from "../lib/layoutEdits";
 import { PROP_KINDS, newProp } from "../lib/shows";
+import { useAssistant } from "../state/assistant";
 import { type Screen, useApp } from "../state/store";
 
 interface Action {
@@ -42,6 +43,13 @@ export function CommandPalette() {
     { id: "save-as", label: "Save as…", shortcut: "⇧⌘S", run: state.saveAs },
     { id: "undo", label: "Undo", shortcut: "⌘Z", run: state.undo },
     { id: "redo", label: "Redo", shortcut: "⇧⌘Z", run: state.redo },
+    {
+      id: "assistant",
+      label: useAssistant.getState().open ? "Close the assistant" : "Open the assistant",
+      shortcut: "⌘L",
+      run: useAssistant.getState().toggle,
+    },
+    { id: "ai-settings", label: "AI settings…", run: () => useAssistant.getState().setSettingsOpen(true) },
     go("layout", "Layout"),
     go("wiring", "Wiring"),
     go("devices", "Devices"),

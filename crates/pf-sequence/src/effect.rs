@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 /// The colors an effect draws with. An empty palette draws white.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Palette {
     #[serde(default)]
@@ -32,6 +33,7 @@ impl Palette {
 /// blend with each other: a later row covers an earlier one by coverage (where it's lit).
 /// Layer 0 is the bottom layer (the opposite of xLights, where layer 1 is drawn on top).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum Blend {
     /// Covers what's below (where the effect is lit).
@@ -47,6 +49,7 @@ pub enum Blend {
 
 /// One timed effect on a layer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Effect {
     pub id: EffectId,
@@ -112,6 +115,7 @@ impl Effect {
 
 /// The kinds of effect PixelFlow can render.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum EffectKind {
     On,
@@ -221,6 +225,7 @@ impl EffectKind {
 /// Settings for each kind of effect. Missing settings take their defaults, so
 /// `{ "kind": "chase" }` is a complete chase.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum EffectParams {
     On(OnParams),
@@ -336,6 +341,7 @@ impl EffectParams {
 
 /// Spreads the palette across the prop instead of using one color.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum Gradient {
     #[default]
@@ -350,6 +356,7 @@ choices!(Gradient { "none" => "None", "horizontal" => "Left to right", "vertical
 
 /// Which way something moves along the pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum Direction {
     /// Toward higher pixel numbers, rightward, or upward.
@@ -362,6 +369,7 @@ choices!(Direction { "forward" => "Forward", "reverse" => "Reverse" });
 
 /// Across (horizontal) or up and down (vertical).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum Axis {
     Horizontal,
@@ -372,6 +380,7 @@ pub enum Axis {
 choices!(Axis { "horizontal" => "Across", "vertical" => "Up and down" });
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum FadeDirection {
     #[default]
@@ -382,6 +391,7 @@ pub enum FadeDirection {
 choices!(FadeDirection { "in" => "Fade in", "out" => "Fade out" });
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum MeteorDirection {
     #[default]
@@ -395,6 +405,7 @@ choices!(MeteorDirection { "down" => "Down", "up" => "Up", "left" => "Left", "ri
 
 /// A singing face's eyes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum FaceEyes {
     Open,
@@ -408,6 +419,7 @@ choices!(FaceEyes { "open" => "Open", "auto" => "Open, blinking", "closed" => "C
 
 /// Where a singing face's colors come from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum FaceColorSource {
     /// The colors the face was made with (the palette when it has none).

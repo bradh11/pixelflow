@@ -4,6 +4,7 @@
 //! `async` so they run off the UI thread (opening files and resolving controller addresses
 //! can take a moment).
 
+mod assistant;
 mod devices;
 mod files;
 mod house;
@@ -223,6 +224,20 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         layout::read_image,
         house::pick_house_model,
         house::read_house_model,
+        assistant::ai_key_storage,
+        assistant::set_api_key,
+        assistant::use_api_key_for_session,
+        assistant::has_api_key,
+        assistant::api_key_location,
+        assistant::delete_api_key,
+        assistant::list_ai_models,
+        assistant::ai_send,
+        assistant::ai_stop,
+        assistant::ai_new_chat,
+        assistant::ai_apply,
+        assistant::ai_discard,
+        assistant::ai_preview,
+        assistant::ai_sync,
         files::check_files,
         files::find_missing_files,
         files::locate_file,
@@ -252,6 +267,7 @@ pub fn run() {
                 export_cancels: Default::default(),
                 checking_files: Default::default(),
             });
+            app.manage(assistant::AiState::live());
             let handle = app.handle().clone();
             std::thread::Builder::new()
                 .name("pixelflow-autosave".into())

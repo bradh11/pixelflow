@@ -271,6 +271,9 @@ export interface ShowSnapshot {
   issues: Issue[];
   channelMap: ChannelMap;
   summary: Summary;
+  /** The open sequence's revision: changes when undo or redo also took back (or brought back) a
+   * sequence change made together with the show change. Absent where there's no such pairing. */
+  sequenceRevision?: number | null;
   /** The show's files (sequences, music, the photo, the house model) that aren't where it says. */
   missingFiles: MissingFile[];
   /** False until every file the show refers to has been looked at (ask with checkFiles):

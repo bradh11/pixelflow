@@ -60,6 +60,22 @@ impl<'de> Deserialize<'de> for Rgb {
     }
 }
 
+/// Colors are `"#rrggbb"` text in JSON (see the `Serialize` impl above).
+#[cfg(feature = "schema")]
+impl schemars::JsonSchema for Rgb {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Rgb".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": "string",
+            "pattern": "^#?[0-9a-fA-F]{6}$",
+            "description": "A color as six hex digits, like \"#ff8000\"."
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

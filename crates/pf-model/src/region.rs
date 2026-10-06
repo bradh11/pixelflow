@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 
 /// Half-open range of node indices `[start, end)`, 0-based.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct NodeRange {
     pub start: u32,
     pub end: u32,
@@ -38,6 +39,7 @@ impl NodeRange {
 /// A run of pixels on a submodel line: nodes `first` to `last` (0-based, both included), in
 /// that order, so `first > last` runs backwards (xLights' `10-1`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct NodeRun {
     pub first: u32,
     pub last: u32,
@@ -88,6 +90,7 @@ pub type SubmodelLine = Vec<Option<NodeRun>>;
 
 /// How a submodel's lines are laid out for effects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum LineLayout {
     /// Each line is a row, the first at the bottom; pixels run left to right.
@@ -99,6 +102,7 @@ pub enum LineLayout {
 
 /// How effects see a submodel's pixels (xLights' submodel "buffer style").
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum BufferStyle {
     /// Lines side by side (rows or columns), in the order they're listed.
@@ -114,6 +118,7 @@ pub enum BufferStyle {
 
 /// Mouth shapes (Preston Blair phoneme set) used by singing faces.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "UPPERCASE")]
 pub enum Phoneme {
     Ai,
@@ -169,6 +174,7 @@ impl Phoneme {
 
 /// Colors a face was designed with (xLights' "custom colors"). A feature without one is white.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct FaceColors {
     #[serde(default)]
@@ -183,6 +189,7 @@ pub struct FaceColors {
 
 /// Maps face features to node ranges on a prop.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct FaceDefinition {
     #[serde(default)]
@@ -212,6 +219,7 @@ impl FaceDefinition {
 
 /// What a region covers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum RegionKind {
     /// A submodel made of lines of pixels.
@@ -236,6 +244,7 @@ fn new_region_id() -> RegionId {
 
 /// A named subset of a prop's pixels.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Region {
     /// Sequence rows and groups point at a region by id, so renaming it keeps them.
@@ -360,6 +369,7 @@ impl Region {
 
 /// A region of one prop, as a group member.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct RegionRef {
     pub prop: PropId,

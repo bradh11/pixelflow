@@ -16,7 +16,7 @@ use crate::recovery::{self, SequenceRecovery};
 use crate::sequence_doc::{self, OpenSequence, SequenceEdit, SequenceEditResult, SequenceSnapshot};
 use crate::snapshot::{PreviewProp, ShowSnapshot, Summary};
 use pf_mapping::ChannelMap;
-use pf_model::{IssueCode, SequenceId, Severity, Show, ValidationReport, path_from_text, path_to_text};
+use pf_model::{SequenceId, Severity, Show, ValidationReport, path_from_text, path_to_text};
 use pf_output::{OutputSettings, Transport, UdpTransport};
 use pf_patterns::{Target, resolve_target};
 use pf_render::Renderer;
@@ -36,6 +36,23 @@ const UNDO_BYTE_BUDGET: usize = 256 * 1024 * 1024;
 const AUTOSAVE_KEEP: usize = 50;
 
 type TransportFactory = Box<dyn Fn() -> io::Result<Box<dyn Transport>> + Send>;
+
+/// Pairs remembered (the oldest are forgotten first).
+const MAX_LINKS: usize = 2 * UNDO_LIMIT;
+
+/// A show undo step and a sequence undo step made together (by their serials).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LinkedStep {
+    document: u64,
+    show: u64,
+    sequence: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Direction {
+    Undo,
+    Redo,
+}
 
 /// A show checked exactly as opening a show file checks it (size limits included), ready for
 /// [`Engine::adopt_show`]. Checking a large show takes a while, so it happens before the engine
@@ -80,6 +97,8 @@ pub struct Engine {
     preview_renderer: Option<(u64, Renderer)>,
     /// Whether a playing sequence document is sent to the controllers (else only the preview).
     send_sequence_doc: bool,
+    /// Show and sequence steps made together, undone and redone together.
+    links: Vec<LinkedStep>,
     /// Whether a playing sequence document plays again from the top when it reaches the end.
     loop_sequence_doc: bool,
     /// Names this run's kept unsaved sequence (see [`Engine::autosave_sequence`]).
@@ -93,8 +112,9 @@ pub struct Engine {
     was_at: HashMap<String, String>,
     /// The folder the open show's file says it was saved in (a second place to search).
     saved_in: Option<PathBuf>,
-    /// Goes up whenever another show is opened or started, so a check or search started before
-    /// that doesn't land on it.
+    /// Goes up whenever another show replaces the open one (new, open, adopt, restore), so a
+    /// check or search started before that doesn't land on it, and work begun on the old show
+    /// (an assistant's draft) can tell it's gone.
     show_generation: u64,
     /// The user's home folder (searches never read all of it).
     home: Option<PathBuf>,
@@ -191,6 +211,7 @@ impl Engine {
             sequence_revision: 0,
             preview_renderer: None,
             send_sequence_doc: true,
+            links: Vec::new(),
             loop_sequence_doc: false,
             session: recovery::new_session(),
             sequence_autosaved: None,
@@ -235,6 +256,13 @@ impl Engine {
         self.revision
     }
 
+    /// Changes whenever a different show takes the open one's place: a new show, an opened or
+    /// imported one, or a restored saved version. Edits, undo, and redo keep it. Lets work begun
+    /// on one show (a draft, say) tell that the show it was for is gone.
+    pub fn show_generation(&self) -> u64 {
+        self.show_generation
+    }
+
     /// The full state for the UI.
     pub fn snapshot(&self) -> ShowSnapshot {
         let (map, report) = analyze(&self.show);
@@ -255,6 +283,7 @@ impl Engine {
             show: self.show.clone(),
             issues,
             channel_map: map,
+            sequence_revision: self.sequence.as_ref().map(OpenSequence::snapshot_revision),
             missing_files: files::missing_from(&self.show, &self.file_status, &self.was_at),
             files_checked: files::all_checked(&self.show, &self.file_status),
         }
@@ -263,14 +292,7 @@ impl Engine {
     /// Applies a batch of edits as one undo step. Nothing changes if any edit fails or the
     /// result would exceed PixelFlow's size limits.
     pub fn apply(&mut self, edits: Vec<Edit>) -> Result<ShowSnapshot, EngineError> {
-        let mut next = self.show.clone();
-        for edit in &edits {
-            edit.apply(&mut next)?;
-        }
-        let report = pf_model::validate_show(&next);
-        if let Some(issue) = report.issues.iter().find(|i| i.code == IssueCode::LimitExceeded) {
-            return Err(EngineError::TooLarge(issue.message.clone()));
-        }
+        let next = crate::dry_run::edited_show(&self.show, &edits)?;
         if next == self.show {
             return Ok(self.snapshot());
         }
@@ -280,7 +302,28 @@ impl Engine {
         Ok(self.snapshot())
     }
 
+    /// Undoes the last show change (and, when it was made together with a sequence change that's
+    /// also next to undo, that too: see [`Engine::apply_with_sequence`]).
     pub fn undo(&mut self) -> ShowSnapshot {
+        let partner = self.linked(Direction::Undo).is_some();
+        self.undo_show();
+        if partner {
+            self.undo_sequence_alone();
+        }
+        self.snapshot()
+    }
+
+    /// Redoes the last undone show change (and its sequence partner, like [`Engine::undo`]).
+    pub fn redo(&mut self) -> ShowSnapshot {
+        let partner = self.linked(Direction::Redo).is_some();
+        self.redo_show();
+        if partner {
+            self.redo_sequence_alone();
+        }
+        self.snapshot()
+    }
+
+    fn undo_show(&mut self) {
         if self.history.can_undo() {
             let current = mem::replace(&mut self.show, Show::new(""));
             if let Some(previous) = self.history.undo(current) {
@@ -288,10 +331,9 @@ impl Engine {
             }
             self.changed();
         }
-        self.snapshot()
     }
 
-    pub fn redo(&mut self) -> ShowSnapshot {
+    fn redo_show(&mut self) {
         if self.history.can_redo() {
             let current = mem::replace(&mut self.show, Show::new(""));
             if let Some(next) = self.history.redo(current) {
@@ -299,7 +341,51 @@ impl Engine {
             }
             self.changed();
         }
-        self.snapshot()
+    }
+
+    /// Applies show edits and edits to the open sequence together, as **one** undo step: undo
+    /// (from the show or from the sequence) takes both back while both are next in line to undo,
+    /// and redo brings both back. Both halves are checked first; if either is refused, nothing
+    /// changes and no undo or redo step is left behind.
+    pub fn apply_with_sequence(
+        &mut self,
+        edits: Vec<Edit>,
+        sequence_edits: Vec<SequenceEdit>,
+    ) -> Result<(ShowSnapshot, SequenceEditResult), EngineError> {
+        let open = self.sequence.as_ref().ok_or(EngineError::NoSequence)?;
+        crate::dry_run::edited_sequence(&open.doc, &sequence_edits)?;
+        crate::dry_run::edited_show(&self.show, &edits)?;
+        let show_before = self.history.next_undo();
+        self.apply(edits)?;
+        let result = self.edit_sequence(sequence_edits)?;
+        let open = self.sequence.as_ref().expect("checked above");
+        if let (Some(show), Some(sequence)) = (self.history.next_undo(), open.next_undo())
+            && Some(show) != show_before
+            && result.changed
+        {
+            self.links.push(LinkedStep {
+                document: open.id(),
+                show,
+                sequence,
+            });
+            // Old pairs can't come back once their steps have aged out of both histories.
+            let excess = self.links.len().saturating_sub(MAX_LINKS);
+            self.links.drain(..excess);
+        }
+        Ok((self.snapshot(), result))
+    }
+
+    /// The pair whose show half and sequence half are both next to undo (or redo).
+    fn linked(&self, direction: Direction) -> Option<LinkedStep> {
+        let open = self.sequence.as_ref()?;
+        let (show, sequence) = match direction {
+            Direction::Undo => (self.history.next_undo()?, open.next_undo()?),
+            Direction::Redo => (self.history.next_redo()?, open.next_redo()?),
+        };
+        self.links
+            .iter()
+            .find(|l| l.document == open.id() && l.show == show && l.sequence == sequence)
+            .copied()
     }
 
     /// Starts a new, empty, unsaved show (stops output and clears undo history).
@@ -395,6 +481,7 @@ impl Engine {
         self.was_at.extend(restored.was_at);
         let before = mem::replace(&mut self.show, restored.show);
         self.history.record(before);
+        self.show_generation += 1;
         self.changed();
         self.snapshot()
     }
@@ -926,29 +1013,54 @@ impl Engine {
         Ok(self.sequence_result(changes))
     }
 
+    /// Undoes the last sequence change (and, when it was made together with a show change that's
+    /// also next to undo, that too: see [`Engine::apply_with_sequence`]).
     pub fn undo_sequence(&mut self) -> Result<SequenceEditResult, EngineError> {
-        let open = self.sequence.as_mut().ok_or(EngineError::NoSequence)?;
-        let changes = open.undo();
-        if changes.is_some() {
-            self.sequence_changed();
+        self.sequence.as_ref().ok_or(EngineError::NoSequence)?;
+        let partner = self.linked(Direction::Undo).is_some();
+        let changes = self.undo_sequence_alone();
+        if partner {
+            self.undo_show();
         }
         Ok(self.sequence_result(changes))
     }
 
+    /// Redoes the last undone sequence change (and its show partner, like
+    /// [`Engine::undo_sequence`]).
     pub fn redo_sequence(&mut self) -> Result<SequenceEditResult, EngineError> {
-        let open = self.sequence.as_mut().ok_or(EngineError::NoSequence)?;
-        let changes = open.redo();
+        self.sequence.as_ref().ok_or(EngineError::NoSequence)?;
+        let partner = self.linked(Direction::Redo).is_some();
+        let changes = self.redo_sequence_alone();
+        if partner {
+            self.redo_show();
+        }
+        Ok(self.sequence_result(changes))
+    }
+
+    fn undo_sequence_alone(&mut self) -> Option<sequence_doc::SequenceChanges> {
+        let changes = self.sequence.as_mut()?.undo();
         if changes.is_some() {
             self.sequence_changed();
         }
-        Ok(self.sequence_result(changes))
+        changes
+    }
+
+    fn redo_sequence_alone(&mut self) -> Option<sequence_doc::SequenceChanges> {
+        let changes = self.sequence.as_mut()?.redo();
+        if changes.is_some() {
+            self.sequence_changed();
+        }
+        changes
     }
 
     fn sequence_result(&self, changes: Option<sequence_doc::SequenceChanges>) -> SequenceEditResult {
-        self.sequence
+        let mut result = self
+            .sequence
             .as_ref()
             .expect("a sequence is open")
-            .edit_result(changes, &self.show)
+            .edit_result(changes, &self.show);
+        result.show_revision = self.revision;
+        result
     }
 
     /// The open sequence's music file (relative paths resolved next to the document), if any.
@@ -1402,6 +1514,7 @@ impl Engine {
         self.show = show;
         self.path = path;
         self.history.clear();
+        self.links.clear();
         self.revision += 1;
         self.saved_revision = self.revision;
         self.autosaved_revision = self.revision;

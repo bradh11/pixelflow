@@ -10,6 +10,7 @@
 //! [`SequenceEdit`]s, [`Engine::play_sequence_doc`] plays it live with its music, and
 //! [`Engine::sequence_export`] exports it as an `.fseq` file for FPP.
 
+mod dry_run;
 mod edit;
 mod engine;
 mod error;
@@ -22,6 +23,7 @@ mod recovery;
 mod sequence_doc;
 mod snapshot;
 
+pub use dry_run::{edited_sequence, edited_show, preview_props_of};
 pub use edit::Edit;
 pub use engine::SequenceExport;
 pub use engine::{CheckedShow, Engine, FilesFound};

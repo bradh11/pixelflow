@@ -1,5 +1,7 @@
 import { useEffect } from "react";
 import { AppShell } from "./components/AppShell";
+import { AiSettings } from "./components/assistant/AiSettings";
+import { DraftPreview } from "./components/assistant/DraftPreview";
 import { CommandPalette } from "./components/CommandPalette";
 import { ConfirmClose, ConfirmDiscard, ConfirmReplaceSequence } from "./components/ConfirmDiscard";
 import { ErrorBanner } from "./components/ErrorBanner";
@@ -50,6 +52,8 @@ export function App() {
       <ImportReport />
       <FilesReport />
       <SequenceImportReport />
+      <AiSettings />
+      <DraftPreview />
     </>
   );
 }

@@ -291,6 +291,27 @@ fn found_files_are_only_used_while_the_show_still_points_at_the_old_place() {
 }
 
 #[test]
+fn finding_one_file_again_leaves_the_others_alone() {
+    let f = folder();
+    let mut engine = Engine::new(&f.data);
+    build(&mut engine, &f);
+    engine.save_as(&f.show).unwrap();
+    fs::create_dir_all(f.root.join("Audio")).unwrap();
+    fs::rename(
+        f.root.join("MP3 Music/Christmas Medley 2017.mp3"),
+        f.root.join("Audio/Christmas Medley 2017.mp3"),
+    )
+    .unwrap();
+    fs::rename(f.root.join("photos/house.jpg"), f.root.join("house.jpg")).unwrap();
+    let search = engine.file_search().unwrap().only(FileRole::Photo);
+    assert_eq!(search.wanted().len(), 1);
+    let report = engine.use_found_files(search.run()).unwrap();
+    assert_eq!(report.found.len(), 1);
+    assert_eq!(report.found[0].file, FileRole::Photo);
+    assert_eq!(report.still_missing.len(), 1, "the music is still to find");
+}
+
+#[test]
 fn an_unsaved_show_has_no_folder_to_search() {
     let f = folder();
     let mut engine = Engine::new(&f.data);

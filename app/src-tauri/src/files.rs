@@ -13,12 +13,19 @@ use std::path::{Path, PathBuf};
 use tauri::State;
 use tauri_plugin_dialog::DialogExt;
 
-/// Looks for every missing file of the show by name in the show's folder and the folders below
-/// it, and points the show at the ones it finds, as one undo step. The answer says what was
-/// found where, and what is still missing.
+/// Looks for every missing file of the show (or only `file`) by name in the show's folder and
+/// the folders below it, and points the show at the ones it finds, as one undo step. The
+/// answer says what was found where, and what is still missing.
 #[tauri::command]
-pub(crate) async fn find_missing_files(state: State<'_, AppState>) -> Reply<FilesFound> {
+pub(crate) async fn find_missing_files(
+    state: State<'_, AppState>,
+    file: Option<FileRole>,
+) -> Reply<FilesFound> {
     let search = state.engine().file_search().map_err(message)?;
+    let search = match file {
+        Some(file) => search.only(file),
+        None => search,
+    };
     let folders = search.folders().to_vec();
     let found = tauri::async_runtime::spawn_blocking(move || search.run())
         .await

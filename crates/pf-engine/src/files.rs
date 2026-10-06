@@ -228,6 +228,12 @@ impl FileSearch {
         &self.wanted
     }
 
+    /// The same search, for `file` alone ("Find again" on one file).
+    pub fn only(mut self, file: FileRole) -> Self {
+        self.wanted.retain(|w| w.file == file);
+        self
+    }
+
     /// Finds each missing file by its name: in the searched folders and up to three folder levels
     /// below them, skipping hidden and `Library` folders and never following links. When several
     /// files have the name, the one in folders named like the old ones wins, then the closest.

@@ -1633,6 +1633,15 @@ mod tests {
         assert_eq!(missing[0]["message"], "house.png isn't where it was.");
         assert_eq!(missing[1]["file"], json!({ "kind": "houseModel" }));
 
+        // Find again on the model alone: nothing found, nothing changed.
+        let report = call(
+            &webview,
+            "find_missing_files",
+            json!({ "file": { "kind": "houseModel" } }),
+        )
+        .unwrap();
+        assert_eq!(report["found"], json!([]));
+        assert_eq!(report["stillMissing"].as_array().unwrap().len(), 2);
         let report = call(&webview, "find_missing_files", json!({})).unwrap();
         assert_eq!(report["found"].as_array().unwrap().len(), 1);
         assert_eq!(report["found"][0]["to"], json!(moved.to_str().unwrap()));

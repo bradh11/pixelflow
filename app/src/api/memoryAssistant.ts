@@ -13,9 +13,9 @@ import type {
 } from "./assistant";
 import { providerName } from "./assistant";
 import { MemoryBackend } from "./memory";
-import type { Edit, PreviewSet, Show } from "./types";
+import type { Edit, PreviewSet, Prop, Show } from "./types";
 import { besideOthers } from "../lib/layoutEdits";
-import { type PropKind, newProp } from "../lib/shows";
+import { type PropKind, newProp, nodeCount } from "../lib/shows";
 
 const MODELS: Record<ProviderId, ModelInfo[]> = {
   anthropic: [
@@ -46,10 +46,20 @@ function countIn(message: string): number {
   return Math.max(1, Math.min(6, Number.isFinite(n) ? n : 1));
 }
 
+/** An added prop described like the app's review card does. */
+function propDetails(prop: Prop): string[] {
+  const kind = prop.shape.source === "generator" ? prop.shape.type : "measured points";
+  const round = (n: number) => Math.round(n * 1000) / 1000;
+  const p = prop.transform.position;
+  return [`kind: ${kind}`, `pixels: ${nodeCount(prop.shape)}`, `position: x ${round(p.x)}, y ${round(p.y)}, z ${round(p.z)}`];
+}
+
 interface Pending {
   proposal: ProposalView;
   edits: Edit[];
   draft: Show;
+  /** The show it was made for (see MemoryBackend.generation). */
+  generation: number;
 }
 
 /**
@@ -158,12 +168,12 @@ export class FakeAssistant implements AssistantApi {
       }
       onEvent({ kind: "activity", label: "Drafting: add prop" });
       const added = edits.flatMap((e) => (e.type === "addProp" ? [e.prop] : []));
-      const changes: Change[] = added.map((p) => ({ section: "prop", action: "added", name: p.name, id: p.id, details: [] }));
+      const changes: Change[] = added.map((p) => ({ section: "prop", action: "added", name: p.name, id: p.id, details: propDetails(p), warnings: [] }));
       if (count > 1) {
         const group = { id: crypto.randomUUID(), name: `${plural[0].toUpperCase()}${plural.slice(1)}`, members: added.map((p) => p.id) };
         draft.groups.push(group);
         edits.push({ type: "addGroup", group });
-        changes.push({ section: "group", action: "added", name: group.name, id: group.id, details: [] });
+        changes.push({ section: "group", action: "added", name: group.name, id: group.id, details: [`members: ${added.map((p) => p.name).join(", ")}`], warnings: [] });
         onEvent({ kind: "activity", label: "Drafting: add group" });
       }
       const words = count > 1 ? `${count} ${plural}` : `a ${kind.label}`;
@@ -173,7 +183,7 @@ export class FakeAssistant implements AssistantApi {
     if (rename && rename[3].trim()) {
       const name = rename[3].trim();
       const draft = { ...structuredClone(show), name };
-      const changes: Change[] = [{ section: "show", action: "changed", name, id: null, details: [`name: "${show.name}" → "${name}"`] }];
+      const changes: Change[] = [{ section: "show", action: "changed", name, id: null, details: [`name: "${show.name}" → "${name}"`], warnings: [] }];
       return this.propose(`Renames the show to "${name}".`, changes, [{ type: "renameShow", name }], draft, onEvent, "Ready when you are.");
     }
     onEvent({ kind: "activity", label: "Looking at your show" });
@@ -196,7 +206,7 @@ export class FakeAssistant implements AssistantApi {
       changesShow: true,
       changesSequence: false,
     };
-    this.pending = { proposal, edits, draft };
+    this.pending = { proposal, edits, draft, generation: this.backend.generation };
     onEvent({ kind: "proposal", proposal });
     await this.stream(closing, onEvent);
     return { text: closing, proposal };
@@ -215,8 +225,19 @@ export class FakeAssistant implements AssistantApi {
     return this.pending;
   }
 
+  async sync() {
+    if (this.pending && this.pending.generation !== this.backend.generation) {
+      this.pending = null;
+      return true;
+    }
+    return false;
+  }
+
   async apply(id: string): Promise<Applied> {
-    const { edits } = this.current(id);
+    const { edits, generation } = this.current(id);
+    if (generation !== this.backend.generation) {
+      throw new Error("A different show is open now, so this suggestion no longer applies. Ask again.");
+    }
     this.calls.push("apply");
     const snapshot = await this.backend.applyEdits(edits);
     this.pending = null;

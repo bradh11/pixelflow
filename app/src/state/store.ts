@@ -145,6 +145,20 @@ function byKindThenAddress(a: KnownDevice, b: KnownDevice): number {
   return (KIND_ORDER[a.kind] ?? 9) - (KIND_ORDER[b.kind] ?? 9) || key(a).localeCompare(key(b));
 }
 
+/**
+ * After a show undo or redo: when it also took back (or brought back) a sequence change made
+ * together with it (an assistant proposal), the open sequence fetches itself again.
+ */
+async function withPairedSequence(done: Promise<boolean>): Promise<boolean> {
+  const ok = await done;
+  const paired = useApp.getState().snapshot?.sequenceRevision;
+  const sequencer = useSequencer.getState();
+  if (ok && typeof paired === "number" && sequencer.doc && paired !== sequencer.revision) {
+    await sequencer.refreshIssues();
+  }
+  return ok;
+}
+
 export const useApp = create<AppState>((set, get) => {
   /** Replaces the current show without checking for unsaved changes. */
   async function replaceShow(kind: "new" | "open" | "xlights"): Promise<boolean> {
@@ -309,8 +323,8 @@ export const useApp = create<AppState>((set, get) => {
   run: async (call) => (await runInTurn(call)) !== null,
   apply: async (edits) => (await sendEdits(edits)) !== null,
   edit: async (edits) => (await sendEdits(edits))?.revision ?? null,
-  undo: () => get().run((b) => b.undo()),
-  redo: () => get().run((b) => b.redo()),
+  undo: () => withPairedSequence(get().run((b) => b.undo())),
+  redo: () => withPairedSequence(get().run((b) => b.redo())),
 
   async newShow() {
     if (get().started && get().snapshot?.dirty) {

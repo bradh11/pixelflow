@@ -50,7 +50,8 @@ export interface ChatItem {
   proposalId?: string;
 }
 
-export type ProposalStatus = "open" | "applied" | "discarded";
+/** "dropped": the show (or sequence) it was made for was replaced, so it no longer applies. */
+export type ProposalStatus = "open" | "applied" | "discarded" | "dropped";
 
 interface AssistantState {
   api: AssistantApi | null;
@@ -270,4 +271,25 @@ export const useAssistant = create<AssistantState>((set, get) => {
 
     hidePreview: () => set({ preview: null }),
   };
+});
+
+/** When the show or the open sequence is replaced, an open proposal made for the old one is dropped. */
+function dropStaleProposal() {
+  const { api, proposal, proposalStatus, streaming } = useAssistant.getState();
+  if (!api || !proposal || proposalStatus !== "open" || streaming) return;
+  void api.sync().then(
+    (dropped) => {
+      if (dropped && useAssistant.getState().proposal?.id === proposal.id) {
+        useAssistant.setState({ proposalStatus: "dropped", preview: null });
+      }
+    },
+    () => undefined,
+  );
+}
+
+useApp.subscribe((state, before) => {
+  if (state.snapshot !== before.snapshot) dropStaleProposal();
+});
+useSequencer.subscribe((state, before) => {
+  if (state.docKey !== before.docKey) dropStaleProposal();
 });

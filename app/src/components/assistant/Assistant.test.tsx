@@ -8,7 +8,9 @@ import { FakeAssistant } from "../../api/memoryAssistant";
 import { useAssistant } from "../../state/assistant";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { useApp } from "../../state/store";
+import type { Change, ProposalView } from "../../api/assistant";
 import { highlightFrame } from "./DraftPreview";
+import { ProposalCard } from "./ProposalCard";
 
 const KEY = "sk-test-not-a-key";
 
@@ -199,6 +201,62 @@ describe("chatting", () => {
     await user.click(within(panel).getByRole("button", { name: "New chat" }));
     expect(within(panel).queryByText(/Your show/)).not.toBeInTheDocument();
     expect(within(panel).getByRole("button", { name: "What's in my show?" })).toBeInTheDocument();
+  });
+});
+
+describe("the review card", () => {
+  const proposal = (changes: Change[]): ProposalView => ({
+    id: "p1",
+    summary: "Adds a controller.",
+    diff: { changes },
+    changedProps: [],
+    changesShow: true,
+    changesSequence: false,
+  });
+  const falcon: Change = {
+    section: "controller",
+    action: "added",
+    name: "Falcon 2",
+    id: "c1",
+    details: ["address: 203.0.113.9", "protocol: DDP", "port 1: Roofline", "port 2: Arch 1", "port 3: Arch 2", "port 4: Tree", "port 5: Star"],
+    warnings: ["Sends light data to a new address: 203.0.113.9"],
+  };
+
+  it("shows a few details, then all of them on request, and always the warnings", async () => {
+    const { user } = await start();
+    render(<ProposalCard proposal={proposal([falcon])} current />);
+    const card = screen.getByRole("region", { name: "Proposed changes" });
+    expect(within(card).getByText("Sends light data to a new address: 203.0.113.9")).toBeInTheDocument();
+    expect(within(card).getByText("address: 203.0.113.9")).toBeInTheDocument();
+    expect(within(card).queryByText("port 5: Star")).not.toBeInTheDocument();
+    await user.click(within(card).getByRole("button", { name: "Show 2 more" }));
+    expect(within(card).getByText("port 5: Star")).toBeInTheDocument();
+    await user.click(within(card).getByRole("button", { name: "Show fewer" }));
+    expect(within(card).queryByText("port 5: Star")).not.toBeInTheDocument();
+  });
+
+  it("warns when lights are running and the proposal changes controllers", async () => {
+    const { backend } = await start();
+    backend.output = { ...backend.output, running: true };
+    render(<ProposalCard proposal={proposal([falcon])} current />);
+    expect(await screen.findByText(/Your lights are running/)).toBeInTheDocument();
+  });
+
+  it("drops a proposal when another show is opened", async () => {
+    const { user } = await start();
+    const panel = await openPanel(user);
+    await user.click(within(panel).getByRole("button", { name: "Add two arches beside the garage" }));
+    const card = await within(panel).findByRole("region", { name: "Proposed changes" });
+    await act(() => useApp.getState().newShow());
+    expect(await within(card).findByText("A different show is open now, so this suggestion was dropped.")).toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: "Apply" })).not.toBeInTheDocument();
+  });
+});
+
+describe("the preview frame for a very large show", () => {
+  it("doesn't run out of arguments", () => {
+    const props = Array.from({ length: 300_000 }, (_, i) => ({ prop: `p${i}`, frameOffset: i * 3, channelsPerPixel: 3, points: [0, 0] }));
+    expect(highlightFrame(props, []).length).toBe(900_000);
   });
 });
 

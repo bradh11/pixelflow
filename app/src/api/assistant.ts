@@ -51,6 +51,8 @@ export interface Change {
   name: string;
   id: string | null;
   details: string[];
+  /** What deserves a careful look: where light data goes, files the assistant chose. */
+  warnings: string[];
 }
 
 /** The assistant's finished draft, for the user to review. */
@@ -108,6 +110,9 @@ export interface AssistantApi {
   discard(id: string): Promise<void>;
   /** The draft show's pixels (front view), to preview without applying. */
   preview(id: string): Promise<PreviewSet>;
+  /** Drops the proposal when the show or sequence it was made for isn't open anymore (call after
+   * either is replaced). True when it was dropped. */
+  sync(): Promise<boolean>;
 }
 
 /** The event the app streams replies on. */
@@ -136,4 +141,5 @@ export const tauriAssistant: AssistantApi = {
   apply: (id) => invoke("ai_apply", { id }),
   discard: (id) => invoke("ai_discard", { id }),
   preview: async (id) => decodePreview(await invoke<ArrayBuffer | number[]>("ai_preview", { id })),
+  sync: () => invoke("ai_sync"),
 };

@@ -12,7 +12,7 @@ const UNCHANGED: [number, number, number] = [55, 55, 66];
 /** A frame that colors changed props and dims the others, for the preview canvas. */
 export function highlightFrame(props: PreviewProp[], changed: string[]): Uint8Array {
   const marked = new Set(changed);
-  const size = Math.max(0, ...props.map((p) => p.frameOffset + (p.points.length / 2) * p.channelsPerPixel));
+  const size = props.reduce((most, p) => Math.max(most, p.frameOffset + (p.points.length / 2) * p.channelsPerPixel), 0);
   const frame = new Uint8Array(size);
   for (const p of props) {
     const [r, g, b] = marked.has(p.prop) ? CHANGED : UNCHANGED;

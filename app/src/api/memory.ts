@@ -45,6 +45,8 @@ export class MemoryBackend implements Backend {
   nextSavePath: string | null = null;
   /** Calls made, for test assertions. */
   calls: string[] = [];
+  /** Changes whenever another show replaces the open one (like the engine's show generation). */
+  generation = 0;
   /** Devices "on the network" (see `demoDevices()`); empty by default. */
   deviceNetwork: { details: DeviceDetails[]; silent: SilentPeer[] } = { details: [], silent: [] };
   /** What the folder picker returns, and what importing any xLights folder produces. */
@@ -167,6 +169,7 @@ export class MemoryBackend implements Backend {
     if (!found) throw new Error("There is no saved version with that id.");
     this.undoStack.push(this.show);
     this.show = structuredClone(found.show);
+    this.generation++;
     this.revision++;
     return this.snapshot();
   }
@@ -527,6 +530,7 @@ export class MemoryBackend implements Backend {
   private replace(show: Show, path: string | null) {
     this.show = show;
     this.path = path;
+    this.generation++;
     this.undoStack = [];
     this.redoStack = [];
     this.revision++;

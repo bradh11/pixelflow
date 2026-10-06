@@ -8,7 +8,7 @@ use super::{
 use std::collections::HashMap;
 
 /// `PolyPointScreenLocation::SetDataFromString`: `x,y,z` triples padded with zeros.
-fn parse_points(s: &str, n: usize) -> Vec<V3> {
+pub(crate) fn parse_points(s: &str, n: usize) -> Vec<V3> {
     let mut v: Vec<f64> = s
         .split(',')
         .map(|t| {

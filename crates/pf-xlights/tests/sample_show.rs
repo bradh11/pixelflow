@@ -185,15 +185,22 @@ fn positions_follow_the_xlights_layout() {
     let show = sample().show;
     let bounds = |name: &str| {
         let prop = show.props.iter().find(|p| p.name == name).unwrap();
-        let ShapeSource::Measured { points, .. } = &prop.shape else {
-            panic!("measured")
-        };
-        points
+        pf_geometry::world_positions(prop)
             .iter()
             .fold((f32::MAX, f32::MAX, f32::MIN, f32::MIN), |(x0, y0, x1, y1), p| {
                 (x0.min(p.x), y0.min(p.y), x1.max(p.x), y1.max(p.y))
             })
     };
+    // The roofline is a single line in xLights, so it comes in as an editable line.
+    let roofline = show.props.iter().find(|p| p.name == "Roofline").unwrap();
+    assert!(
+        matches!(
+            roofline.shape,
+            ShapeSource::Generator(pf_model::Generator::Line { .. })
+        ),
+        "{:?}",
+        roofline.shape
+    );
     let roof = bounds("Roofline");
     assert!(
         (roof.0 - 1.0).abs() < 0.02 && (roof.2 - 11.0).abs() < 0.02,
@@ -225,4 +232,42 @@ fn positions_follow_the_xlights_layout() {
             (x0, y0, x1, y1)
         );
     }
+}
+
+/// Props imported as editable shapes put every pixel exactly where xLights' own layout does
+/// (each node at the middle of its lights, in channel order), as measured imports always have.
+#[test]
+fn editable_shapes_land_on_xlights_positions() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/sample-show");
+    let layout =
+        pf_xlights::parse_layout(&std::fs::read_to_string(dir.join("xlights_rgbeffects.xml")).unwrap())
+            .unwrap();
+    let show = sample().show;
+    let mut editable = 0;
+    for prop in &show.props {
+        if !matches!(prop.shape, ShapeSource::Generator(_)) {
+            continue;
+        }
+        editable += 1;
+        let model = layout.models.iter().find(|m| m.name == prop.name).unwrap();
+        let xlights: Vec<[f32; 2]> = pf_xlights::geometry(model)
+            .nodes
+            .iter()
+            .map(|n| {
+                let k = n.points.len() as f32;
+                let (x, y) = n.points.iter().fold((0.0, 0.0), |(x, y), p| (x + p[0], y + p[1]));
+                [x / k * 0.01, y / k * 0.01]
+            })
+            .collect();
+        let ours = pf_geometry::world_positions(prop);
+        assert_eq!(ours.len(), xlights.len(), "{}", prop.name);
+        for (a, b) in ours.iter().zip(&xlights) {
+            assert!(
+                (a.x - b[0]).abs() < 2e-3 && (a.y - b[1]).abs() < 2e-3,
+                "{}: {a:?} vs {b:?}",
+                prop.name
+            );
+        }
+    }
+    assert!(editable >= 1, "the roofline at least is editable");
 }

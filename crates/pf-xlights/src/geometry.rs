@@ -11,6 +11,7 @@ mod custom;
 mod grid;
 mod lines;
 mod poly;
+pub(crate) use poly::parse_points;
 mod radial;
 #[cfg(test)]
 mod tests;
@@ -556,12 +557,12 @@ fn strtol(s: &str) -> Option<i64> {
 }
 
 /// [`strtol`] with no digits reading as 0.
-fn strtol0(s: &str) -> i64 {
+pub(crate) fn strtol0(s: &str) -> i64 {
     strtol(s).unwrap_or(0)
 }
 
 /// `strtod`: the longest leading decimal number in `s`.
-fn strtod(s: &str) -> Option<f64> {
+pub(crate) fn strtod(s: &str) -> Option<f64> {
     let s = s.trim_start();
     let b = s.as_bytes();
     let mut i = 0;

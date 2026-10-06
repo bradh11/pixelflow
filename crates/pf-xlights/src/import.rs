@@ -366,13 +366,21 @@ fn build_show_within(
                 Vec3::new(x / n * LAYOUT_SCALE, y / n * LAYOUT_SCALE, 0.0)
             })
             .collect();
-        let mut prop = Prop::new(
-            model.name.clone(),
-            ShapeSource::Measured {
-                points,
-                provenance: Provenance::Import,
-            },
-        );
+        // An editable shape when PixelFlow has one that lands every pixel where xLights does.
+        let mut prop = match crate::shapes::editable(model, &points) {
+            Some((generator, transform)) => {
+                let mut prop = Prop::new(model.name.clone(), ShapeSource::Generator(generator));
+                prop.transform = transform;
+                prop
+            }
+            None => Prop::new(
+                model.name.clone(),
+                ShapeSource::Measured {
+                    points,
+                    provenance: Provenance::Import,
+                },
+            ),
+        };
         let (order, exact) = color_order(model.text("StringType", "RGB Nodes"), g.channels_per_node);
         if !exact {
             odd_colors.push(model.name.clone());

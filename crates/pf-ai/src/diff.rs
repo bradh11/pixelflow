@@ -2,7 +2,7 @@
 //! proposal card shows exactly what applying would do (an edit undone by a later one shows
 //! nothing; a prop changed twice shows once).
 
-use pf_model::Show;
+use pf_model::{Controller, Group, GroupMember, Prop, Protocol, SequenceEntry, Show};
 use pf_sequence::{Effect, EffectId, Row, Sequence, Target, format_ms};
 use serde::Serialize;
 use serde_json::Value;
@@ -41,8 +41,10 @@ pub struct Change {
     pub name: String,
     /// The item's id, when it has one.
     pub id: Option<String>,
-    /// For changed items: what changed ("name: "A" → "B"").
+    /// What it is (for added items) or what changed ("name: "A" → "B"), in full.
     pub details: Vec<String>,
+    /// What deserves a careful look: where light data will be sent, files the assistant chose.
+    pub warnings: Vec<String>,
 }
 
 /// Every change, show first, then the open sequence.
@@ -88,9 +90,6 @@ impl Diff {
     }
 }
 
-/// Details listed per changed item before "and N more".
-const MAX_DETAILS: usize = 6;
-
 /// Compares two shows (and, when both are given, two versions of the open sequence).
 pub fn diff(before: &Show, after: &Show, sequences: Option<(&Sequence, &Sequence)>) -> Diff {
     let mut changes = Vec::new();
@@ -98,32 +97,72 @@ pub fn diff(before: &Show, after: &Show, sequences: Option<(&Sequence, &Sequence
     keyed(
         &before.props,
         &after.props,
-        |p| p.id.to_string(),
-        |p| p.name.clone(),
+        Keys {
+            id: |p: &Prop| p.id.to_string(),
+            name: |p: &Prop| p.name.clone(),
+            lines: None::<fn(&Prop) -> Vec<String>>,
+            added: Some(prop_lines),
+            warn: no_warnings,
+        },
         Section::Prop,
         &mut changes,
     );
+    let group_lines = |g: &Group| vec![format!("members: {}", member_names(after, g))];
     keyed(
         &before.groups,
         &after.groups,
-        |g| g.id.to_string(),
-        |g| g.name.clone(),
+        Keys {
+            id: |g: &Group| g.id.to_string(),
+            name: |g: &Group| g.name.clone(),
+            lines: Some(group_lines),
+            added: Some(group_lines),
+            warn: no_warnings,
+        },
         Section::Group,
         &mut changes,
     );
+    let known: BTreeSet<&str> = before.controllers.iter().map(|c| c.address.as_str()).collect();
+    let controller_lines = |c: &Controller| controller_lines(c, after);
     keyed(
         &before.controllers,
         &after.controllers,
-        |c| c.id.to_string(),
-        |c| c.name.clone(),
+        Keys {
+            id: |c: &Controller| c.id.to_string(),
+            name: |c: &Controller| c.name.clone(),
+            lines: Some(controller_lines),
+            added: Some(controller_lines),
+            warn: |old: Option<&Controller>, new: &Controller| controller_warnings(old, new, &known),
+        },
         Section::Controller,
         &mut changes,
     );
     keyed(
         &before.sequences,
         &after.sequences,
-        |s| s.id.to_string(),
-        |s| s.name.clone(),
+        Keys {
+            id: |s: &SequenceEntry| s.id.to_string(),
+            name: |s: &SequenceEntry| s.name.clone(),
+            lines: None::<fn(&SequenceEntry) -> Vec<String>>,
+            added: Some(|s: &SequenceEntry| {
+                vec![
+                    format!("file: {}", s.path),
+                    format!("music: {}", s.audio.as_deref().unwrap_or("none")),
+                    format!("offset: {} ms", s.offset_ms),
+                ]
+            }),
+            warn: |old: Option<&SequenceEntry>, new: &SequenceEntry| {
+                let mut out = Vec::new();
+                if old.is_none_or(|o| o.path != new.path) {
+                    out.push(chosen_file(&new.path));
+                }
+                if let Some(audio) = &new.audio
+                    && old.is_none_or(|o| o.audio.as_ref() != Some(audio))
+                {
+                    out.push(chosen_file(audio));
+                }
+                out
+            },
+        },
         Section::Playlist,
         &mut changes,
     );
@@ -144,6 +183,7 @@ pub fn diff(before: &Show, after: &Show, sequences: Option<(&Sequence, &Sequence
                     .collect::<Vec<_>>()
                     .join(", "),
             ],
+            warnings: Vec::new(),
         });
     }
     if let Some((old, new)) = sequences {
@@ -152,30 +192,173 @@ pub fn diff(before: &Show, after: &Show, sequences: Option<(&Sequence, &Sequence
     Diff { changes }
 }
 
+fn no_warnings<T>(_: Option<&T>, _: &T) -> Vec<String> {
+    Vec::new()
+}
+
+/// A warning for a file path the assistant set.
+fn chosen_file(path: &str) -> String {
+    format!("Points at a file the assistant chose: {path}")
+}
+
+fn prop_lines(prop: &Prop) -> Vec<String> {
+    let shape = json(&prop.shape);
+    let kind = shape["type"]
+        .as_str()
+        .map(words)
+        .unwrap_or_else(|| "measured points".to_string());
+    let p = prop.transform.position;
+    vec![
+        format!("kind: {kind}"),
+        format!("pixels: {}", prop.node_count()),
+        format!(
+            "position: x {}, y {}, z {}",
+            number(p.x),
+            number(p.y),
+            number(p.z)
+        ),
+    ]
+}
+
+fn number(value: f32) -> String {
+    show_value(&json(&f64::from(value)))
+}
+
+fn prop_name(show: &Show, id: pf_model::PropId) -> String {
+    show.props
+        .iter()
+        .find(|p| p.id == id)
+        .map(|p| p.name.clone())
+        .unwrap_or_else(|| "a missing prop".into())
+}
+
+fn member_names(show: &Show, group: &Group) -> String {
+    if group.members.is_empty() {
+        return "none".into();
+    }
+    group
+        .members
+        .iter()
+        .map(|m| match m {
+            GroupMember::Prop(id) => prop_name(show, *id),
+            GroupMember::Region(r) => target_name(
+                show,
+                Target::Region {
+                    prop: r.prop,
+                    region: r.region,
+                },
+            ),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// A controller in full: where its data goes, how, and what's on each port.
+fn controller_lines(c: &Controller, show: &Show) -> Vec<String> {
+    let protocol = match &c.protocol {
+        Protocol::Ddp => "DDP".to_string(),
+        Protocol::Sacn(sacn) => {
+            let from = match sacn.start_universe {
+                Some(u) => format!("universes from {u}"),
+                None => "universes assigned automatically".to_string(),
+            };
+            let multicast = if sacn.multicast { ", multicast" } else { "" };
+            format!(
+                "sACN, {from} ({} channels each){multicast}",
+                sacn.universe_size.channels()
+            )
+        }
+    };
+    let mut lines = vec![format!("address: {}", c.address), format!("protocol: {protocol}")];
+    if c.adapter != pf_model::AdapterKind::Generic {
+        lines.push(format!(
+            "device type: {}",
+            words(json(&c.adapter).as_str().unwrap_or_default())
+        ));
+    }
+    for port in &c.ports {
+        let names: Vec<String> = port.slots.iter().map(|s| prop_name(show, s.prop)).collect();
+        let props = if names.is_empty() {
+            "nothing".to_string()
+        } else {
+            names.join(", ")
+        };
+        lines.push(format!("port {}: {props}", port.number));
+    }
+    if let Some(channels) = &c.sequence_channels {
+        lines.push(format!(
+            "sequence channels: {}–{}",
+            channels.start,
+            u64::from(channels.start) + u64::from(channels.count).saturating_sub(1)
+        ));
+    }
+    lines
+}
+
+/// Where light data will now be sent, and whether that's somewhere new.
+fn controller_warnings(old: Option<&Controller>, new: &Controller, known: &BTreeSet<&str>) -> Vec<String> {
+    let mut out = Vec::new();
+    let is_new = !known.contains(new.address.as_str());
+    match old {
+        None if is_new => out.push(format!("Sends light data to a new address: {}", new.address)),
+        None => out.push(format!("Sends light data to {}", new.address)),
+        Some(old) if old.address != new.address => out.push(format!(
+            "Sends light data to {}{} (was {})",
+            if is_new { "a new address: " } else { "" },
+            new.address,
+            old.address
+        )),
+        Some(_) => {}
+    }
+    if let Some(old) = old
+        && (old.protocol != new.protocol
+            || old.ports != new.ports
+            || old.sequence_channels != new.sequence_channels)
+    {
+        out.push("Changes what this controller is sent".to_string());
+    }
+    out
+}
+
 fn show_settings(before: &Show, after: &Show, out: &mut Vec<Change>) {
     let mut details = Vec::new();
+    let mut warnings = Vec::new();
     if before.name != after.name {
         details.push(format!("name: \"{}\" → \"{}\"", before.name, after.name));
     }
     let (a, b) = (json(&before.settings), json(&after.settings));
     field_changes(&a, &b, &mut Vec::new(), &mut details, 0);
-    for (label, x, y) in [
+    let paths = [
         (
             "background photo",
+            before.background.as_ref().map(|b| b.path.as_str()),
+            after.background.as_ref().map(|b| b.path.as_str()),
             json(&before.background),
             json(&after.background),
         ),
-        ("house model", json(&before.house_model), json(&after.house_model)),
-    ] {
-        match (x.is_null(), y.is_null()) {
-            (true, false) => details.push(format!("{label}: added")),
-            (false, true) => details.push(format!("{label}: removed")),
-            (false, false) if x != y => {
+        (
+            "house model",
+            before.house_model.as_ref().map(|m| m.path.as_str()),
+            after.house_model.as_ref().map(|m| m.path.as_str()),
+            json(&before.house_model),
+            json(&after.house_model),
+        ),
+    ];
+    for (label, old_path, new_path, x, y) in paths {
+        match (old_path, new_path) {
+            (None, Some(path)) => details.push(format!("{label}: added ({path})")),
+            (Some(_), None) => details.push(format!("{label}: removed")),
+            (Some(_), Some(_)) if x != y => {
                 let mut inner = Vec::new();
                 field_changes(&x, &y, &mut vec![label.to_string()], &mut inner, 0);
                 details.extend(inner);
             }
             _ => {}
+        }
+        if let Some(path) = new_path
+            && old_path != Some(path)
+        {
+            warnings.push(chosen_file(path));
         }
     }
     if !details.is_empty() {
@@ -184,7 +367,8 @@ fn show_settings(before: &Show, after: &Show, out: &mut Vec<Change>) {
             action: Action::Changed,
             name: after.name.clone(),
             id: None,
-            details: trim(details),
+            details,
+            warnings,
         });
     }
 }
@@ -193,64 +377,111 @@ fn json<T: Serialize>(value: &T) -> Value {
     serde_json::to_value(value).unwrap_or(Value::Null)
 }
 
+/// How to compare and describe one kind of item.
+struct Keys<I, N, L, A, W> {
+    id: I,
+    name: N,
+    /// Describes an item line by line ("key: value"); changed items list the lines that differ.
+    /// Without it, changes are listed field by field.
+    lines: Option<L>,
+    /// Describes an added item.
+    added: Option<A>,
+    /// Warnings for an added (old `None`) or changed item.
+    warn: W,
+}
+
 /// Items matched by id: added, removed, or changed (with what changed).
-fn keyed<T: Serialize>(
+fn keyed<T, I, N, L, A, W>(
     before: &[T],
     after: &[T],
-    id: impl Fn(&T) -> String,
-    name: impl Fn(&T) -> String,
+    keys: Keys<I, N, L, A, W>,
     section: Section,
     out: &mut Vec<Change>,
-) {
-    let old: HashMap<String, &T> = before.iter().map(|item| (id(item), item)).collect();
-    let new: HashMap<String, &T> = after.iter().map(|item| (id(item), item)).collect();
+) where
+    T: Serialize,
+    I: Fn(&T) -> String,
+    N: Fn(&T) -> String,
+    L: Fn(&T) -> Vec<String>,
+    A: Fn(&T) -> Vec<String>,
+    W: Fn(Option<&T>, &T) -> Vec<String>,
+{
+    let old: HashMap<String, &T> = before.iter().map(|item| ((keys.id)(item), item)).collect();
+    let new: HashMap<String, &T> = after.iter().map(|item| ((keys.id)(item), item)).collect();
     for item in after {
-        let key = id(item);
+        let key = (keys.id)(item);
         match old.get(&key) {
             None => out.push(Change {
                 section,
                 action: Action::Added,
-                name: name(item),
+                name: (keys.name)(item),
                 id: Some(key),
-                details: Vec::new(),
+                details: keys.added.as_ref().map(|a| a(item)).unwrap_or_default(),
+                warnings: (keys.warn)(None, item),
             }),
             Some(previous) => {
                 let (a, b) = (json(*previous), json(item));
-                if a != b {
-                    let mut details = Vec::new();
-                    field_changes(&a, &b, &mut Vec::new(), &mut details, 0);
-                    out.push(Change {
-                        section,
-                        action: Action::Changed,
-                        name: name(item),
-                        id: Some(key),
-                        details: trim(details),
-                    });
+                if a == b {
+                    continue;
                 }
+                let mut details = Vec::new();
+                match &keys.lines {
+                    Some(lines) => {
+                        let (old_name, new_name) = ((keys.name)(previous), (keys.name)(item));
+                        if old_name != new_name {
+                            details.push(format!("name: \"{old_name}\" → \"{new_name}\""));
+                        }
+                        details.extend(line_changes(&lines(previous), &lines(item)));
+                    }
+                    None => field_changes(&a, &b, &mut Vec::new(), &mut details, 0),
+                }
+                out.push(Change {
+                    section,
+                    action: Action::Changed,
+                    name: (keys.name)(item),
+                    id: Some(key),
+                    details,
+                    warnings: (keys.warn)(Some(previous), item),
+                });
             }
         }
     }
     for item in before {
-        let key = id(item);
+        let key = (keys.id)(item);
         if !new.contains_key(&key) {
             out.push(Change {
                 section,
                 action: Action::Removed,
-                name: name(item),
+                name: (keys.name)(item),
                 id: Some(key),
                 details: Vec::new(),
+                warnings: Vec::new(),
             });
         }
     }
 }
 
-fn trim(mut details: Vec<String>) -> Vec<String> {
-    if details.len() > MAX_DETAILS {
-        let more = details.len() - (MAX_DETAILS - 1);
-        details.truncate(MAX_DETAILS - 1);
-        details.push(format!("and {more} more"));
+/// "key: value" lines that differ, as "key: old → new" (in the new lines' order, then removed).
+fn line_changes(old: &[String], new: &[String]) -> Vec<String> {
+    let split = |line: &String| match line.split_once(": ") {
+        Some((key, value)) => (key.to_string(), value.to_string()),
+        None => (line.clone(), String::new()),
+    };
+    let old: Vec<(String, String)> = old.iter().map(split).collect();
+    let new: Vec<(String, String)> = new.iter().map(split).collect();
+    let mut out = Vec::new();
+    for (key, value) in &new {
+        match old.iter().find(|(k, _)| k == key) {
+            Some((_, was)) if was == value => {}
+            Some((_, was)) => out.push(format!("{key}: {was} → {value}")),
+            None => out.push(format!("{key}: none → {value}")),
+        }
     }
-    details
+    for (key, was) in &old {
+        if !new.iter().any(|(k, _)| k == key) {
+            out.push(format!("{key}: {was} → none"));
+        }
+    }
+    out
 }
 
 /// "colorOrder" → "color order".
@@ -426,6 +657,13 @@ fn sequence(before: &Sequence, after: &Sequence, show: &Show, out: &mut Vec<Chan
             name: after.name.clone(),
             id: None,
             details,
+            warnings: after
+                .audio
+                .as_deref()
+                .filter(|audio| before.audio.as_deref() != Some(*audio))
+                .map(chosen_file)
+                .into_iter()
+                .collect(),
         });
     }
 
@@ -441,6 +679,7 @@ fn sequence(before: &Sequence, after: &Sequence, show: &Show, out: &mut Vec<Chan
                 name: row_name(row),
                 id: Some(row.id.to_string()),
                 details: Vec::new(),
+                warnings: Vec::new(),
             }),
             Some(old) if old.target != row.target || old.layers.len() != row.layers.len() => {
                 let mut details = Vec::new();
@@ -456,6 +695,7 @@ fn sequence(before: &Sequence, after: &Sequence, show: &Show, out: &mut Vec<Chan
                     name: row_name(row),
                     id: Some(row.id.to_string()),
                     details,
+                    warnings: Vec::new(),
                 });
             }
             Some(_) => {}
@@ -469,6 +709,7 @@ fn sequence(before: &Sequence, after: &Sequence, show: &Show, out: &mut Vec<Chan
                 name: row_name(row),
                 id: Some(row.id.to_string()),
                 details: Vec::new(),
+                warnings: Vec::new(),
             });
         }
     }
@@ -486,6 +727,7 @@ fn sequence(before: &Sequence, after: &Sequence, show: &Show, out: &mut Vec<Chan
             name: "Row order".into(),
             id: None,
             details: Vec::new(),
+            warnings: Vec::new(),
         });
     }
 
@@ -504,6 +746,7 @@ fn sequence(before: &Sequence, after: &Sequence, show: &Show, out: &mut Vec<Chan
             name: effect_name(effect, row, show),
             id: Some(id.to_string()),
             details: Vec::new(),
+            warnings: Vec::new(),
         });
     }
     let mut changed: Vec<_> = new_effects
@@ -541,7 +784,8 @@ fn sequence(before: &Sequence, after: &Sequence, show: &Show, out: &mut Vec<Chan
             action: Action::Changed,
             name: effect_name(effect, row, show),
             id: Some(id.to_string()),
-            details: trim(details),
+            details,
+            warnings: Vec::new(),
         });
     }
     let mut removed: Vec<_> = old_effects
@@ -556,6 +800,7 @@ fn sequence(before: &Sequence, after: &Sequence, show: &Show, out: &mut Vec<Chan
             name: effect_name(effect, row, show),
             id: Some(id.to_string()),
             details: Vec::new(),
+            warnings: Vec::new(),
         });
     }
 
@@ -570,6 +815,7 @@ fn sequence(before: &Sequence, after: &Sequence, show: &Show, out: &mut Vec<Chan
                 name: track.name.clone(),
                 id: Some(track.id.to_string()),
                 details: vec![format!("{} marks", track.marks.len())],
+                warnings: Vec::new(),
             }),
             Some(old) if *old != track => {
                 let mut details = Vec::new();
@@ -590,6 +836,7 @@ fn sequence(before: &Sequence, after: &Sequence, show: &Show, out: &mut Vec<Chan
                     name: track.name.clone(),
                     id: Some(track.id.to_string()),
                     details,
+                    warnings: Vec::new(),
                 });
             }
             Some(_) => {}
@@ -603,8 +850,33 @@ fn sequence(before: &Sequence, after: &Sequence, show: &Show, out: &mut Vec<Chan
                 name: track.name.clone(),
                 id: Some(track.id.to_string()),
                 details: Vec::new(),
+                warnings: Vec::new(),
             });
         }
+    }
+    let kept = |doc: &Sequence, other: &HashMap<pf_sequence::TimingTrackId, &pf_sequence::TimingTrack>| {
+        doc.timing_tracks
+            .iter()
+            .filter(|t| other.contains_key(&t.id))
+            .map(|t| t.id)
+            .collect::<Vec<_>>()
+    };
+    if kept(before, &new_tracks) != kept(after, &old_tracks) {
+        out.push(Change {
+            section: Section::Sequence,
+            action: Action::Changed,
+            name: "Timing track order".into(),
+            id: None,
+            details: vec![
+                after
+                    .timing_tracks
+                    .iter()
+                    .map(|t| t.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            ],
+            warnings: Vec::new(),
+        });
     }
 }
 
@@ -626,6 +898,170 @@ mod tests {
                 length: 1.0,
             }),
         )
+    }
+
+    fn controller(name: &str, address: &str, prop: &Prop) -> pf_model::Controller {
+        let mut c = pf_model::Controller::new(name, address, pf_model::Protocol::Ddp);
+        let mut port = pf_model::Port::new(1);
+        port.slots.push(pf_model::PortSlot::new(prop.id));
+        c.ports.push(port);
+        c
+    }
+
+    #[test]
+    fn an_added_controller_shows_where_its_data_goes() {
+        let mut before = Show::new("Show");
+        let roof = line("Roofline");
+        before.props.push(roof.clone());
+        before.controllers.push(controller("Bench", "10.0.0.5", &roof));
+        let mut after = before.clone();
+        let mut falcon = controller("Falcon 2", "203.0.113.9", &roof);
+        falcon.protocol = pf_model::Protocol::Sacn(pf_model::SacnConfig {
+            start_universe: Some(20),
+            ..Default::default()
+        });
+        after.controllers.push(falcon);
+        let d = diff(&before, &after, None);
+        let added = &d.changes[0];
+        assert_eq!(
+            (added.section, added.action),
+            (Section::Controller, Action::Added)
+        );
+        assert_eq!(
+            added.details,
+            [
+                "address: 203.0.113.9",
+                "protocol: sACN, universes from 20 (510 channels each)",
+                "port 1: Roofline",
+            ]
+        );
+        assert_eq!(added.warnings, ["Sends light data to a new address: 203.0.113.9"]);
+
+        // One at an address already in the show is still flagged (data goes there), but not as new.
+        let mut again = before.clone();
+        again.controllers.push(controller("Bench 2", "10.0.0.5", &roof));
+        let d = diff(&before, &again, None);
+        assert_eq!(d.changes[0].warnings, ["Sends light data to 10.0.0.5"]);
+    }
+
+    #[test]
+    fn a_changed_controller_lists_every_change_and_flags_new_addresses() {
+        let mut before = Show::new("Show");
+        let roof = line("Roofline");
+        let arch = line("Arch");
+        before.props = vec![roof.clone(), arch.clone()];
+        before.controllers.push(controller("Bench", "10.0.0.5", &roof));
+        let mut after = before.clone();
+        let c = &mut after.controllers[0];
+        c.address = "203.0.113.9".into();
+        let mut port = pf_model::Port::new(2);
+        port.slots.push(pf_model::PortSlot::new(arch.id));
+        c.ports.push(port);
+        c.sequence_channels = Some(pf_model::SequenceChannels {
+            start: 1,
+            count: 90,
+            raw_ddp_offsets: false,
+        });
+        let d = diff(&before, &after, None);
+        assert_eq!(
+            d.changes[0].details,
+            [
+                "address: 10.0.0.5 → 203.0.113.9",
+                "port 2: none → Arch",
+                "sequence channels: none → 1–90",
+            ]
+        );
+        assert_eq!(
+            d.changes[0].warnings,
+            [
+                "Sends light data to a new address: 203.0.113.9 (was 10.0.0.5)",
+                "Changes what this controller is sent",
+            ]
+        );
+    }
+
+    #[test]
+    fn added_props_groups_and_files_show_their_details() {
+        let before = Show::new("Show");
+        let mut after = before.clone();
+        let mut arch = Prop::new(
+            "Arch 1",
+            ShapeSource::Generator(Generator::Arch {
+                nodes: 50,
+                width: 2.0,
+                height: 1.0,
+            }),
+        );
+        arch.transform.position = pf_model::Vec3::new(1.5, 0.0, -2.0);
+        after.props.push(arch.clone());
+        let mut group = Group::new("Arches");
+        group.members.push(arch.id.into());
+        after.groups.push(group);
+        let mut entry = pf_model::SequenceEntry::new("Wizards", "/shows/wizards.fseq");
+        entry.audio = Some("/music/wizards.mp3".into());
+        after.sequences.push(entry);
+        after.background = Some(pf_model::Background::new("/photos/house.jpg", 0.0, 0.0, 10.0));
+        let d = diff(&before, &after, None);
+        let by = |s: Section| d.changes.iter().find(|c| c.section == s).unwrap();
+        assert_eq!(
+            by(Section::Prop).details,
+            ["kind: arch", "pixels: 50", "position: x 1.5, y 0, z -2"]
+        );
+        assert_eq!(by(Section::Group).details, ["members: Arch 1"]);
+        assert_eq!(
+            by(Section::Playlist).details,
+            [
+                "file: /shows/wizards.fseq",
+                "music: /music/wizards.mp3",
+                "offset: 0 ms"
+            ]
+        );
+        assert_eq!(
+            by(Section::Playlist).warnings,
+            [
+                "Points at a file the assistant chose: /shows/wizards.fseq",
+                "Points at a file the assistant chose: /music/wizards.mp3"
+            ]
+        );
+        assert_eq!(
+            by(Section::Show).details,
+            ["background photo: added (/photos/house.jpg)"]
+        );
+        assert_eq!(
+            by(Section::Show).warnings,
+            ["Points at a file the assistant chose: /photos/house.jpg"]
+        );
+    }
+
+    #[test]
+    fn every_detail_of_a_changed_item_is_listed() {
+        let mut before = Show::new("Show");
+        before.props.push(line("A"));
+        let mut after = before.clone();
+        let p = &mut after.props[0];
+        p.name = "B".into();
+        p.transform.position = pf_model::Vec3::new(1.0, 2.0, 3.0);
+        p.transform.rotation_deg = pf_model::Vec3::new(4.0, 5.0, 6.0);
+        p.transform.scale = pf_model::Vec3::new(2.0, 2.0, 2.0);
+        let d = diff(&before, &after, None);
+        assert_eq!(d.changes[0].details.len(), 10, "{:?}", d.changes[0].details);
+        assert!(!d.changes[0].details.iter().any(|x| x.starts_with("and ")));
+    }
+
+    #[test]
+    fn timing_track_order_is_a_change() {
+        let show = Show::new("Show");
+        let mut before = Sequence::new("Song", 60_000);
+        before.timing_tracks = vec![
+            TimingTrack::new("Beats", TimingKind::Beats, vec![]),
+            TimingTrack::new("Bars", TimingKind::Bars, vec![]),
+        ];
+        let mut after = before.clone();
+        after.timing_tracks.reverse();
+        let d = diff(&show, &show, Some((&before, &after)));
+        assert_eq!(d.changes.len(), 1);
+        assert_eq!(d.changes[0].name, "Timing track order");
+        assert_eq!(d.changes[0].details, ["Bars, Beats"]);
     }
 
     #[test]

@@ -203,6 +203,12 @@ function LiveOutput() {
   );
 }
 
+/** "No problems", "3 warnings", "1 error", or "1 error, 2 warnings": only what there is. */
+export function problemCount(errors: number, warnings: number): string {
+  if (errors === 0 && warnings === 0) return "No problems";
+  return [errors ? plural(errors, "error") : "", warnings ? plural(warnings, "warning") : ""].filter(Boolean).join(", ");
+}
+
 function StatusBar() {
   const snapshot = useApp((s) => s.snapshot);
   const findMissingFiles = useApp((s) => s.findMissingFiles);
@@ -240,12 +246,13 @@ function StatusBar() {
         type="button"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
-        className={`ml-auto flex items-center gap-1 rounded px-2 py-0.5 ${
+        data-tip={issueCount === 0 ? "Nothing in the show needs fixing" : "Show what needs fixing"}
+        className={`ml-auto flex h-7 items-center gap-1 rounded px-2 hover:bg-neutral-200/70 dark:hover:bg-neutral-800 ${
           errors ? "text-red-600 dark:text-red-400" : warnings ? "text-amber-600 dark:text-amber-400" : ""
         }`}
       >
-        <AlertTriangle size={12} />
-        {issueCount === 0 ? "No problems" : `${plural(errors, "error")}, ${plural(warnings, "warning")}`}
+        <AlertTriangle size={12} aria-hidden />
+        {problemCount(errors, warnings)}
       </button>
       {open && issueCount > 0 && (
         <div

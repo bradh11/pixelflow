@@ -76,7 +76,7 @@ describe("missing files", () => {
     await user.click(within(banner).getByRole("button", { name: "Not now" }));
     expect(screen.queryByRole("region", { name: "Missing files" })).not.toBeInTheDocument();
     // Still listed with the show's problems.
-    await user.click(screen.getByRole("button", { name: /0 errors, 2 warnings/ }));
+    await user.click(screen.getByRole("button", { name: /^2 warnings$/ }));
     const problems = screen.getByRole("dialog", { name: "Problems" });
     expect(within(problems).getByText("2 files aren't where they were")).toBeInTheDocument();
     expect(within(problems).getByRole("group", { name: "house.jpg isn't where it was." })).toHaveTextContent("Background photo");

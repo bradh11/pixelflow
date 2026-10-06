@@ -7,7 +7,10 @@ import { PROP_SORTS, type PropSort, listedProps, rangeSelect, wiredProps } from 
 import { shapeLabel } from "../../lib/shows";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { useApp } from "../../state/store";
+import { confirmAction } from "../../state/confirm";
+import { useSequencer } from "../../state/sequencer";
 import { toastWithUndo } from "../../state/undoToast";
+import { deleteUseWarning } from "../../lib/sequenceUse";
 import { Input, Select } from "../ui";
 import { useVirtualRows } from "./useVirtualRows";
 
@@ -27,6 +30,11 @@ const rowId = (id: string) => `props-list-${id}`;
 
 /** Deletes a prop, with a toast that can take it back. */
 export async function deleteProps(ids: string[], names: string[]) {
+  // Rows in the open sequence that light these props would be left showing nothing: ask first.
+  const subject = names.length === 1 ? names[0] : `These ${names.length} props`;
+  const warning = deleteUseWarning(useSequencer.getState().doc, subject, { props: ids }, names.length > 1);
+  const title = names.length === 1 ? `Delete ${names[0]}?` : `Delete ${names.length} props?`;
+  if (warning && !(await confirmAction({ title, message: warning, confirm: "Delete anyway" }))) return;
   const revision = await useApp.getState().edit(removeEdits(ids));
   if (revision === null) return;
   useLayoutEditor.getState().select(useLayoutEditor.getState().selected.filter((id) => !ids.includes(id)));

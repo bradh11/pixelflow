@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, GripVertical, Group as GroupIcon, Plus, Trash2, X } from "lucide-react";
-import { type KeyboardEvent, type PointerEvent, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { Group, GroupMember, Show } from "../../api/types";
 import { plural } from "../../lib/format";
 import {
@@ -16,7 +16,9 @@ import { submodelsOf } from "../../lib/submodels";
 import { groupSelected } from "../../state/groups";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { useApp } from "../../state/store";
+import { useSequencer } from "../../state/sequencer";
 import { toastWithUndo } from "../../state/undoToast";
+import { deleteUseWarning } from "../../lib/sequenceUse";
 import { Button, Input, Select } from "../ui";
 
 /** The group's name, saved on Enter or leaving the field (an empty name goes back). */
@@ -192,6 +194,12 @@ function GroupEditor({ show, group }: { show: Show; group: Group }) {
   const selected = useLayoutEditor((s) => s.selected);
   const inGroup = new Set(group.members.map(memberKey));
   const toAdd = selected.filter((id) => !inGroup.has(id) && show.props.some((p) => p.id === id));
+  const [asking, setAsking] = useState<string | null>(null);
+  const remove = async () => {
+    setAsking(null);
+    useLayoutEditor.getState().setSidePanel({ group: null });
+    toastWithUndo(`Deleted ${group.name}`, await edit(removeGroupEdits(group.id)));
+  };
   return (
     <div className="flex flex-col gap-2 border-t border-neutral-200 bg-neutral-50 p-2 dark:border-neutral-800 dark:bg-neutral-950/50">
       <NameField group={group} />
@@ -200,16 +208,32 @@ function GroupEditor({ show, group }: { show: Show; group: Group }) {
         <Plus size={14} /> Add selected {toAdd.length > 0 ? `(${toAdd.length})` : "props"}
       </Button>
       <AddMemberPicker show={show} group={group} />
-      <Button
-        variant="danger"
-        className="w-full text-xs"
-        onClick={async () => {
-          useLayoutEditor.getState().setSidePanel({ group: null });
-          toastWithUndo(`Deleted ${group.name}`, await edit(removeGroupEdits(group.id)));
-        }}
-      >
-        <Trash2 size={14} /> Delete group
-      </Button>
+      {asking ? (
+        <div role="alert" className="flex flex-col gap-2 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+          <p>{asking}</p>
+          <div className="flex gap-2">
+            <Button variant="danger" className="text-xs" onClick={() => void remove()}>
+              <Trash2 size={14} aria-hidden /> Delete anyway
+            </Button>
+            <Button className="text-xs" onClick={() => setAsking(null)}>
+              Keep it
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button
+          variant="danger"
+          className="w-full text-xs"
+          onClick={() => {
+            // Rows in the open sequence that light this group would be left showing nothing.
+            const warning = deleteUseWarning(useSequencer.getState().doc, `Group “${group.name}”`, { group: group.id });
+            if (warning) setAsking(warning);
+            else void remove();
+          }}
+        >
+          <Trash2 size={14} /> Delete group
+        </Button>
+      )}
     </div>
   );
 }
@@ -222,6 +246,13 @@ export function GroupsPanel() {
   const show = useApp((s) => s.snapshot!.show);
   const selected = useLayoutEditor((s) => s.selected.length);
   const open = useLayoutEditor((s) => s.sidePanel.group);
+  // How many rows of the open sequence light each group (shown, and asked about before deleting).
+  const doc = useSequencer((s) => s.doc);
+  const used = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of doc?.rows ?? []) if ("group" in row.target) counts.set(row.target.group, (counts.get(row.target.group) ?? 0) + 1);
+    return counts;
+  }, [doc]);
   const setSidePanel = useLayoutEditor((s) => s.setSidePanel);
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -251,7 +282,14 @@ export function GroupsPanel() {
                 >
                   {expanded ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
                   <span className="min-w-0 flex-1 truncate">{g.name}</span>
-                  <span className="shrink-0 text-xs text-neutral-500 tabular-nums">{plural(g.members.length, "member")}</span>
+                  <span className="shrink-0 text-right text-xs text-neutral-500 tabular-nums">
+                    {plural(g.members.length, "member")}
+                    {doc && (used.get(g.id) ?? 0) > 0 && (
+                      <span className="block text-[10px] text-violet-700 dark:text-violet-300">
+                        {plural(used.get(g.id)!, "row")} in {doc.name}
+                      </span>
+                    )}
+                  </span>
                 </button>
                 {expanded && <GroupEditor show={show} group={g} />}
               </li>

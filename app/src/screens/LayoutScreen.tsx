@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { errorMessage } from "../api/backend";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { AddPropMenu } from "../components/layout/AddPropMenu";
 import { LayoutCanvas, type LayoutCanvasHandle } from "../components/layout/LayoutCanvas";
 import { LayoutToolbar } from "../components/layout/LayoutToolbar";
@@ -83,6 +84,7 @@ export function LayoutScreen() {
           <PropertiesPanel preview={preview.props} photoProblem={photo.problem} onRetryPhoto={photo.reload} onChoosePhoto={() => void choosePhoto()} />
         </div>
       </div>
+      <ConfirmDialog />
     </div>
   );
 }

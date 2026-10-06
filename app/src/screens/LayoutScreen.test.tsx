@@ -11,6 +11,8 @@ import { formatGap } from "../lib/smartGuides";
 import { GUIDE_COLORS } from "../components/layout/guideMarks";
 import { useLayoutEditor } from "../state/layoutEditor";
 import { useApp } from "../state/store";
+import { useSequencer } from "../state/sequencer";
+import { newEffect, newRow, type Sequence, type SequenceTarget } from "../api/sequence";
 import { useToasts } from "../state/toast";
 import { DesktopLikeBackend } from "../test/desktopBackend";
 import { LayoutScreen } from "./LayoutScreen";
@@ -93,6 +95,23 @@ async function click(world: Pt, init: Record<string, unknown> = {}) {
     pointer("pointerDown", world, init);
     pointer("pointerUp", world, init);
   });
+}
+
+/** An open sequence named Medley with a row per (target, effect count). */
+function sequenceWith(...rows: [SequenceTarget, number][]): Sequence {
+  return {
+    schemaVersion: 1,
+    name: "Medley",
+    audio: null,
+    durationMs: 60_000,
+    frameMs: 25,
+    timingTracks: [],
+    rows: rows.map(([target, effects]) => {
+      const row = newRow(target);
+      row.layers[0].effects = Array.from({ length: effects }, (_, i) => newEffect("on", i * 100, i * 100 + 50));
+      return row;
+    }),
+  };
 }
 
 const lastToast = () => useToasts.getState().toasts.at(-1)?.text;
@@ -533,6 +552,25 @@ describe("LayoutScreen", () => {
       expect(option("Pixel 2000")).toHaveAttribute("aria-selected", "true");
     });
 
+    it("asks before deleting props the open sequence uses, from the keyboard or the list", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0), line("Fence", 0, 4)));
+      const [gutter] = backend.show.props;
+      useSequencer.setState({ doc: sequenceWith([{ prop: gutter.id }, 4]) });
+      await click({ x: 1, y: 0 });
+      await user.keyboard("{Delete}");
+      const dialog = screen.getByRole("alertdialog", { name: "Delete Gutter?" });
+      expect(dialog).toHaveTextContent("Gutter lights 1 row with 4 effects in Medley. Delete it anyway?");
+      expect(edits).toHaveLength(0);
+      await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+      expect(backend.show.props).toHaveLength(2);
+      await user.click(screen.getByRole("button", { name: "Delete Gutter" }));
+      await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete anyway" }));
+      expect(backend.show.props.map((p) => p.name)).toEqual(["Fence"]);
+      // Props no row uses go without asking.
+      await user.click(screen.getByRole("button", { name: "Delete Fence" }));
+      expect(backend.show.props).toEqual([]);
+    });
+
     it("deletes a prop from its row, with an Undo in the toast", async () => {
       const user = await setup(showWith(line("Gutter", 0, 0), line("Fence", 0, 4)));
       await user.click(screen.getByRole("button", { name: "Delete Gutter" }));
@@ -600,6 +638,24 @@ describe("LayoutScreen", () => {
       await user.click(screen.getByRole("button", { name: "Delete group" }));
       expect(backend.show.groups).toEqual([]);
       expect(lastToast()).toBe("Deleted Front");
+    });
+
+    it("warns before deleting a group the open sequence uses, naming the sequence and what it would strand", async () => {
+      const show = showWith(line("A1", 0, 0));
+      show.groups = [{ id: "g", name: "All Arches", members: [show.props[0].id] }];
+      const user = await setup(show);
+      useSequencer.setState({ doc: sequenceWith([{ group: "g" }, 2], [{ group: "g" }, 1]) });
+      await user.click(groupsTab());
+      expect(screen.getByRole("button", { name: /^All Arches/ })).toHaveTextContent("2 rows in Medley");
+      await user.click(screen.getByRole("button", { name: /^All Arches/ }));
+      await user.click(screen.getByRole("button", { name: "Delete group" }));
+      expect(screen.getByRole("alert")).toHaveTextContent("Group “All Arches” lights 2 rows with 3 effects in Medley. Delete it anyway?");
+      expect(edits).toHaveLength(0);
+      await user.click(screen.getByRole("button", { name: "Keep it" }));
+      expect(backend.show.groups).toHaveLength(1);
+      await user.click(screen.getByRole("button", { name: "Delete group" }));
+      await user.click(screen.getByRole("button", { name: "Delete anyway" }));
+      expect(backend.show.groups).toEqual([]);
     });
 
     it("reorders members by dragging their handles", async () => {

@@ -6,6 +6,7 @@ import { useAssistant } from "../state/assistant";
 import { useLayoutEditor } from "../state/layoutEditor";
 import { useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
+import { useConfirm } from "../state/confirm";
 import { useToasts } from "../state/toast";
 import { useView3d } from "../state/view3d";
 import { useWiring } from "../state/wiring";
@@ -31,4 +32,5 @@ afterEach(() => {
   useWiring.setState(useWiring.getInitialState(), true);
   useAssistant.setState(useAssistant.getInitialState(), true);
   useToasts.setState(useToasts.getInitialState(), true);
+  useConfirm.setState(useConfirm.getInitialState(), true);
 });

@@ -1,9 +1,12 @@
 import { useEffect } from "react";
 import { AppShell } from "./components/AppShell";
+import { AiSettings } from "./components/assistant/AiSettings";
+import { DraftPreview } from "./components/assistant/DraftPreview";
 import { CommandPalette } from "./components/CommandPalette";
 import { ConfirmClose, ConfirmDiscard, ConfirmReplaceSequence } from "./components/ConfirmDiscard";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { ImportReport } from "./components/ImportReport";
+import { FilesReport } from "./components/MissingFiles";
 import { SequenceImportReport } from "./components/SequenceImportReport";
 import { Welcome } from "./components/Welcome";
 import { useShortcuts } from "./components/useShortcuts";
@@ -32,6 +35,12 @@ export function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+  // Coming back to PixelFlow: files may have come back or gone away meanwhile.
+  useEffect(() => {
+    const onFocus = () => void useApp.getState().checkFiles(true);
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
   return (
     <>
       {started ? <AppShell /> : <Welcome />}
@@ -41,7 +50,10 @@ export function App() {
       <ConfirmClose />
       <ErrorBanner />
       <ImportReport />
+      <FilesReport />
       <SequenceImportReport />
+      <AiSettings />
+      <DraftPreview />
     </>
   );
 }

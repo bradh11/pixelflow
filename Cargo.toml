@@ -26,6 +26,8 @@ mdns-sd = "0.21.4"
 zstd = "0.14.0"
 flate2 = "1.1.10"
 realfft = "3.5.0"
+schemars = { version = "=1.2.2", default-features = false, features = ["derive", "std", "uuid1"] }
+unicode-normalization = "0.1.25"
 rodio = { version = "0.22.2", default-features = false, features = ["playback", "mp3", "wav", "flac", "vorbis", "mp4"] }
 pf-model = { path = "crates/pf-model" }
 pf-geometry = { path = "crates/pf-geometry" }

@@ -187,6 +187,9 @@ export interface SequenceEditResult {
   changes: SequenceChanges;
   /** Problems in the whole sequence now, errors first. */
   issues: SequenceIssue[];
+  /** The show's revision now: it changes when undo or redo also took back (or brought back) a show
+   * change made together with this one. Absent where there's no such pairing. */
+  showRevision?: number;
 }
 
 /** No changes (for building replies). */

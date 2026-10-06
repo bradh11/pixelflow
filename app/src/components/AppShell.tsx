@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  Search,
   AudioLines,
   Cable,
   Command,
@@ -11,12 +12,15 @@ import {
   Network,
   Redo2,
   Save,
+  Sparkles,
   Sun,
   Undo2,
 } from "lucide-react";
+import { useAssistant } from "../state/assistant";
+import { AssistantPanel } from "./assistant/AssistantPanel";
 import { useEffect, useState, type ReactNode } from "react";
 import { errorMessage } from "../api/backend";
-import { fileName, plural, thousands } from "../lib/format";
+import { fileName, plural, shownPath, thousands } from "../lib/format";
 import { useShallow } from "zustand/react/shallow";
 import { type Screen, useApp } from "../state/store";
 import { DevicesScreen } from "../screens/DevicesScreen";
@@ -27,6 +31,8 @@ import { SequenceScreen } from "../screens/SequenceScreen";
 import { useSequencer } from "../state/sequencer";
 import { TestScreen } from "../screens/TestScreen";
 import { WiringScreen } from "../screens/WiringScreen";
+import { MissingFileNotice, MissingFilesBanner } from "./MissingFiles";
+import { Button } from "./ui";
 
 const NAV: { screen: Screen; label: string; icon: ReactNode }[] = [
   { screen: "layout", label: "Layout", icon: <LayoutGrid size={18} /> },
@@ -84,7 +90,7 @@ function TopBar() {
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-neutral-200 px-3 dark:border-neutral-800">
       <span className="font-semibold text-accent-600 dark:text-accent-400">PixelFlow</span>
       <span className="text-neutral-300 dark:text-neutral-700">/</span>
-      <span className="truncate font-medium" title={snapshot.path ?? undefined}>
+      <span className="truncate font-medium" title={snapshot.path ? shownPath(snapshot.path) : undefined}>
         {title}
       </span>
       {snapshot.dirty && (
@@ -96,7 +102,7 @@ function TopBar() {
       {both && (
         <>
           <span className="text-neutral-300 dark:text-neutral-700">/</span>
-          <span className="truncate font-medium" title={sequencePath ?? undefined}>
+          <span className="truncate font-medium" title={sequencePath ? shownPath(sequencePath) : undefined}>
             {sequenceName}
           </span>
           {sequenceDirty && (
@@ -119,6 +125,7 @@ function TopBar() {
         <IconButton label={theme === "dark" ? "Light theme" : "Dark theme"} onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
           {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
         </IconButton>
+        <AssistantButton />
         <button
           type="button"
           onClick={() => setPaletteOpen(true)}
@@ -211,8 +218,11 @@ function LiveOutput() {
 
 function StatusBar() {
   const snapshot = useApp((s) => s.snapshot);
+  const findMissingFiles = useApp((s) => s.findMissingFiles);
+  const busy = useApp((s) => s.busy);
   const [open, setOpen] = useState(false);
-  const issueCount = snapshot?.issues.length ?? 0;
+  const missing = snapshot?.missingFiles ?? [];
+  const issueCount = (snapshot?.issues.length ?? 0) + missing.length;
 
   useEffect(() => {
     if (!open) return;
@@ -230,7 +240,8 @@ function StatusBar() {
   if (!snapshot) return null;
   const { summary, issues } = snapshot;
   const errors = issues.filter((i) => i.severity === "error").length;
-  const warnings = issues.length - errors;
+  // A file that isn't where it was is a warning: the show still opens and plays without it.
+  const warnings = issues.length - errors + missing.length;
   return (
     <footer className="relative flex h-8 shrink-0 items-center gap-4 border-t border-neutral-200 px-3 text-xs text-neutral-500 dark:border-neutral-800">
       <span>
@@ -247,14 +258,31 @@ function StatusBar() {
         }`}
       >
         <AlertTriangle size={12} />
-        {issues.length === 0 ? "No problems" : `${plural(errors, "error")}, ${plural(warnings, "warning")}`}
+        {issueCount === 0 ? "No problems" : `${plural(errors, "error")}, ${plural(warnings, "warning")}`}
       </button>
-      {open && issues.length > 0 && (
+      {open && issueCount > 0 && (
         <div
           role="dialog"
           aria-label="Problems"
           className="absolute right-2 bottom-9 z-20 max-h-80 w-[28rem] overflow-auto rounded-lg border border-neutral-200 bg-white p-3 text-sm shadow-xl dark:border-neutral-800 dark:bg-neutral-900"
         >
+          {missing.length > 0 && (
+            <section aria-label="Missing files" className="mb-3 flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="font-medium text-amber-700 dark:text-amber-400">
+                  {missing.length === 1 ? "1 file isn't where it was" : `${missing.length} files aren't where they were`}
+                </h3>
+                {missing.length > 1 && snapshot.path && (
+                  <Button disabled={busy} onClick={() => void findMissingFiles()}>
+                    <Search size={14} aria-hidden /> Find all missing files
+                  </Button>
+                )}
+              </div>
+              {missing.map((m) => (
+                <MissingFileNotice key={`${m.file.kind}:${"id" in m.file ? m.file.id : ""}`} missing={m} showOwner />
+              ))}
+            </section>
+          )}
           <ul className="flex flex-col gap-3">
             {issues.map((issue, i) => (
               <li key={i}>
@@ -292,16 +320,40 @@ function CurrentScreen() {
   }
 }
 
+/** Opens and closes the assistant panel (⌘L). */
+function AssistantButton() {
+  const open = useAssistant((s) => s.open);
+  const toggle = useAssistant((s) => s.toggle);
+  return (
+    <button
+      type="button"
+      aria-pressed={open}
+      onClick={toggle}
+      title="Assistant (⌘L)"
+      className={`ml-1 flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-sm ${
+        open
+          ? "border-accent-500 bg-accent-50 text-accent-600 dark:bg-accent-600/15 dark:text-accent-400"
+          : "border-neutral-300 text-neutral-500 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+      }`}
+    >
+      <Sparkles size={14} aria-hidden /> Assistant <kbd className="text-xs">⌘L</kbd>
+    </button>
+  );
+}
+
 export function AppShell() {
   const screen = useApp((s) => s.screen);
+  const assistantOpen = useAssistant((s) => s.open);
   return (
     <div className="flex h-full flex-col">
       <TopBar />
+      <MissingFilesBanner />
       <div className="flex min-h-0 flex-1">
         <Sidebar />
         <main className={`min-w-0 flex-1 ${screen === "sequence" ? "overflow-hidden" : "overflow-auto p-6"}`}>
           <CurrentScreen />
         </main>
+        {assistantOpen && <AssistantPanel />}
       </div>
       <StatusBar />
     </div>

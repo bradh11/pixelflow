@@ -54,13 +54,17 @@ pub fn estimated_bytes(show: &Show) -> usize {
 
 /// Undo and redo stacks of whole-show snapshots. Snapshotting the whole show makes every
 /// edit (including multi-edit batches) undoable as one step, with no per-edit inverse logic.
+///
+/// Each step has a serial number that stays with it as it moves between the stacks, so a step
+/// can be recognized (to undo it together with a sequence step made at the same time).
 #[derive(Debug, Clone)]
 pub struct History {
-    undo: Vec<(Show, usize)>,
-    redo: Vec<(Show, usize)>,
+    undo: Vec<(Show, usize, u64)>,
+    redo: Vec<(Show, usize, u64)>,
     undo_bytes: usize,
     limit: usize,
     byte_budget: usize,
+    next_serial: u64,
 }
 
 impl History {
@@ -73,18 +77,31 @@ impl History {
             undo_bytes: 0,
             limit: limit.max(1),
             byte_budget,
+            next_serial: 1,
         }
     }
 
     /// Records the show as it was before a change. Clears the redo stack.
     pub fn record(&mut self, before: Show) {
         let bytes = estimated_bytes(&before);
-        self.push_undo(before, bytes);
+        let serial = self.next_serial;
+        self.next_serial += 1;
+        self.push_undo(before, bytes, serial);
         self.redo.clear();
     }
 
-    fn push_undo(&mut self, show: Show, bytes: usize) {
-        self.undo.push((show, bytes));
+    /// The serial of the step undo would take back next.
+    pub fn next_undo(&self) -> Option<u64> {
+        self.undo.last().map(|step| step.2)
+    }
+
+    /// The serial of the step redo would bring back next.
+    pub fn next_redo(&self) -> Option<u64> {
+        self.redo.last().map(|step| step.2)
+    }
+
+    fn push_undo(&mut self, show: Show, bytes: usize, serial: u64) {
+        self.undo.push((show, bytes, serial));
         self.undo_bytes += bytes;
         let mut drop_count = 0;
         let mut kept_bytes = self.undo_bytes;
@@ -100,18 +117,18 @@ impl History {
 
     /// Returns the show to restore for undo, remembering `current` for redo.
     pub fn undo(&mut self, current: Show) -> Option<Show> {
-        let (previous, bytes) = self.undo.pop()?;
+        let (previous, bytes, serial) = self.undo.pop()?;
         self.undo_bytes -= bytes;
         let current_bytes = estimated_bytes(&current);
-        self.redo.push((current, current_bytes));
+        self.redo.push((current, current_bytes, serial));
         Some(previous)
     }
 
     /// Returns the show to restore for redo, remembering `current` for undo.
     pub fn redo(&mut self, current: Show) -> Option<Show> {
-        let (next, _) = self.redo.pop()?;
+        let (next, _, serial) = self.redo.pop()?;
         let current_bytes = estimated_bytes(&current);
-        self.push_undo(current, current_bytes);
+        self.push_undo(current, current_bytes, serial);
         Some(next)
     }
 

@@ -1,0 +1,670 @@
+//! The AI assistant's commands: API keys (write-only), the model list, chat turns streamed as
+//! events, and the proposal's preview, Apply, and Discard.
+//!
+//! Keys go in and never come back out: no command returns one, and `ApiKey` can't even be
+//! serialized. Provider calls run on a blocking thread from Rust; the engine is locked only to
+//! copy the show before a turn and to apply a proposal, never during a network call.
+
+use crate::layout::{Dims, encode_preview};
+use crate::{AppState, Reply};
+use pf_ai::{
+    AiError, ApiKey, Applied, Cancel, ChatEvent, ChatSession, KeyLocation, KeyVault, ModelInfo, ProviderId,
+    Providers, TurnReply, UiContext, Workspace, apply_proposal,
+};
+use serde::Serialize;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use tauri::ipc::Response;
+use tauri::{AppHandle, Emitter, Runtime, State};
+
+/// The event a chat turn streams on.
+pub(crate) const ASSISTANT_EVENT: &str = "assistant-event";
+
+/// The longest model id accepted.
+const MAX_MODEL_ID: usize = 200;
+
+/// The assistant's state, managed beside the engine's.
+pub(crate) struct AiState {
+    vault: Arc<KeyVault>,
+    providers: Providers,
+    session: Arc<Mutex<ChatSession>>,
+    /// The turn in progress (its Stop), if any.
+    running: Mutex<Option<Cancel>>,
+    /// Numbers turns, so the window can tell their events apart.
+    turns: Mutex<u64>,
+}
+
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+impl AiState {
+    pub(crate) fn new(vault: KeyVault, providers: Providers) -> Self {
+        Self {
+            vault: Arc::new(vault),
+            providers,
+            session: Arc::default(),
+            running: Mutex::default(),
+            turns: Mutex::default(),
+        }
+    }
+
+    /// The real thing: the OS credential store and HTTPS to the providers.
+    pub(crate) fn live() -> Self {
+        Self::new(
+            KeyVault::os(),
+            pf_ai::providers(Arc::new(pf_ai::http::UreqTransport::new())),
+        )
+    }
+
+    fn idle(&self) -> Reply<()> {
+        if lock(&self.running).is_some() {
+            return Err("The assistant is still answering. Press Stop first.".to_string());
+        }
+        Ok(())
+    }
+}
+
+/// Marks the turn in progress as over when dropped.
+struct Running<'a>(&'a Mutex<Option<Cancel>>);
+
+impl Drop for Running<'_> {
+    fn drop(&mut self) {
+        *lock(self.0) = None;
+    }
+}
+
+fn text(error: AiError) -> String {
+    error.to_string()
+}
+
+async fn off_thread<T: Send + 'static>(work: impl FnOnce() -> Reply<T> + Send + 'static) -> Reply<T> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|_| "Something went wrong in the assistant.".to_string())?
+}
+
+/// Where keys can be kept on this computer.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct KeyStorage {
+    /// "Keychain", "Windows Credential Manager", or "system keyring".
+    name: &'static str,
+    available: bool,
+}
+
+#[tauri::command]
+pub(crate) async fn ai_key_storage(ai: State<'_, AiState>) -> Reply<KeyStorage> {
+    let vault = Arc::clone(&ai.vault);
+    off_thread(move || {
+        Ok(KeyStorage {
+            name: pf_ai::keychain_name(),
+            available: vault.keychain_available(),
+        })
+    })
+    .await
+}
+
+/// Saves a key in the OS credential store. When there is none, the error says so and the
+/// window offers [`use_api_key_for_session`].
+#[tauri::command]
+pub(crate) async fn set_api_key(
+    ai: State<'_, AiState>,
+    provider: ProviderId,
+    key: ApiKey,
+) -> Reply<KeyLocation> {
+    let vault = Arc::clone(&ai.vault);
+    off_thread(move || vault.save(provider, key).map_err(text)).await
+}
+
+/// Keeps a key in memory until PixelFlow quits (never written anywhere).
+#[tauri::command]
+pub(crate) async fn use_api_key_for_session(
+    ai: State<'_, AiState>,
+    provider: ProviderId,
+    key: ApiKey,
+) -> Reply<KeyLocation> {
+    Ok(ai.vault.use_for_session(provider, key))
+}
+
+#[tauri::command]
+pub(crate) async fn has_api_key(ai: State<'_, AiState>, provider: ProviderId) -> Reply<bool> {
+    let vault = Arc::clone(&ai.vault);
+    off_thread(move || vault.has(provider).map_err(text)).await
+}
+
+/// Where the provider's key is kept ("keychain" or "session"), or null.
+#[tauri::command]
+pub(crate) async fn api_key_location(
+    ai: State<'_, AiState>,
+    provider: ProviderId,
+) -> Reply<Option<KeyLocation>> {
+    let vault = Arc::clone(&ai.vault);
+    off_thread(move || vault.location(provider).map_err(text)).await
+}
+
+#[tauri::command]
+pub(crate) async fn delete_api_key(ai: State<'_, AiState>, provider: ProviderId) -> Reply<()> {
+    let vault = Arc::clone(&ai.vault);
+    off_thread(move || vault.remove(provider).map_err(text)).await
+}
+
+/// The provider's chat models that can use tools, live from the provider, best first.
+#[tauri::command]
+pub(crate) async fn list_ai_models(ai: State<'_, AiState>, provider: ProviderId) -> Reply<Vec<ModelInfo>> {
+    let vault = Arc::clone(&ai.vault);
+    let llm = ai.providers.get(provider);
+    off_thread(move || {
+        let key = vault.key(provider).map_err(text)?;
+        llm.list_models(&key, &Cancel::new()).map_err(text)
+    })
+    .await
+}
+
+/// One streamed chat event, tagged with its turn.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AssistantEvent {
+    turn: u64,
+    event: ChatEvent,
+}
+
+/// Sends a message to the assistant. Its reply streams as [`ASSISTANT_EVENT`] events; the
+/// result is the whole reply and any proposal. The show is copied first (the engine isn't held
+/// while the model works), and nothing the model does changes it.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn ai_send<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+    ai: State<'_, AiState>,
+    provider: ProviderId,
+    model: String,
+    message: String,
+    context: Option<UiContext>,
+) -> Reply<TurnReply> {
+    let model = model.trim().to_string();
+    if model.is_empty() || model.len() > MAX_MODEL_ID {
+        return Err("Pick a model in Settings → AI first.".to_string());
+    }
+    let cancel = {
+        let mut running = lock(&ai.running);
+        if running.is_some() {
+            return Err("The assistant is still answering. Wait for it, or press Stop.".to_string());
+        }
+        let cancel = Cancel::new();
+        *running = Some(cancel.clone());
+        cancel
+    };
+    // However this ends (an error, a panic, the window going away), the assistant is free again.
+    let _running = Running(&ai.running);
+    let turn = {
+        let mut turns = lock(&ai.turns);
+        *turns += 1;
+        *turns
+    };
+    let workspace = {
+        let engine = state.engine();
+        Workspace::from_engine(&engine, context.unwrap_or_default())
+    };
+    let vault = Arc::clone(&ai.vault);
+    let llm = ai.providers.get(provider);
+    let session = Arc::clone(&ai.session);
+    off_thread(move || {
+        let key = vault.key(provider).map_err(text)?;
+        let mut session = lock(&session);
+        session
+            .run_turn(
+                llm.as_ref(),
+                &key,
+                &model,
+                &message,
+                workspace,
+                &cancel,
+                &mut |event| {
+                    // A closed window can't show the reply; the turn finishes anyway.
+                    let _ = app.emit(ASSISTANT_EVENT, AssistantEvent { turn, event });
+                },
+            )
+            .map_err(text)
+    })
+    .await
+}
+
+/// Stops the reply in progress (the turn ends at its next step and says "Stopped.").
+#[tauri::command]
+pub(crate) async fn ai_stop(ai: State<'_, AiState>) -> Reply<()> {
+    if let Some(cancel) = lock(&ai.running).as_ref() {
+        cancel.cancel();
+    }
+    Ok(())
+}
+
+/// Starts a new chat (forgetting the old one and its draft).
+#[tauri::command]
+pub(crate) async fn ai_new_chat(ai: State<'_, AiState>) -> Reply<()> {
+    ai.idle()?;
+    *lock(&ai.session) = ChatSession::new();
+    Ok(())
+}
+
+fn current_proposal(ai: &AiState, id: &str) -> Reply<pf_ai::Proposal> {
+    lock(&ai.session)
+        .proposal()
+        .filter(|p| p.id == id)
+        .cloned()
+        .ok_or_else(|| "That proposal isn't the latest one anymore.".to_string())
+}
+
+/// Applies the proposal: the show changes as one undo step (and the open sequence as one
+/// sequence undo step). Only ever called from the user's Apply.
+#[tauri::command]
+pub(crate) async fn ai_apply(
+    state: State<'_, AppState>,
+    ai: State<'_, AiState>,
+    id: String,
+) -> Reply<Applied> {
+    ai.idle()?;
+    let proposal = current_proposal(&ai, &id)?;
+    let applied = apply_proposal(&mut state.engine(), &proposal)?;
+    lock(&ai.session).applied();
+    Ok(applied)
+}
+
+/// Drops the draft and proposal when the show (or sequence document) they were made for isn't
+/// open anymore; the window calls this after the show or sequence is replaced. True when
+/// something was dropped. While the assistant is answering, nothing is dropped yet (Apply
+/// checks again, and the next message starts over).
+#[tauri::command]
+pub(crate) async fn ai_sync(state: State<'_, AppState>, ai: State<'_, AiState>) -> Reply<bool> {
+    if ai.idle().is_err() {
+        return Ok(false);
+    }
+    let (generation, document) = {
+        let engine = state.engine();
+        (engine.show_generation(), engine.sequence_doc_id())
+    };
+    Ok(lock(&ai.session).sync_to(generation, document))
+}
+
+/// Throws the proposal and its draft away.
+#[tauri::command]
+pub(crate) async fn ai_discard(ai: State<'_, AiState>, id: String) -> Reply<()> {
+    ai.idle()?;
+    current_proposal(&ai, &id)?;
+    lock(&ai.session).discarded();
+    Ok(())
+}
+
+/// The proposal's show as pixel positions (front view), raw like `preview_props`, for showing
+/// the draft without applying it.
+#[tauri::command]
+pub(crate) async fn ai_preview(ai: State<'_, AiState>, id: String) -> Reply<Response> {
+    // (The chat is busy for the whole turn; waiting on it here would hold up other commands.)
+    ai.idle()?;
+    let proposal = current_proposal(&ai, &id)?;
+    Ok(Response::new(encode_preview(
+        0,
+        &pf_engine::preview_props_of(&proposal.draft_show),
+        Dims::Flat,
+    )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::devices::DeviceAccess;
+    use crate::{context, with_commands};
+    use pf_ai::MemoryStore;
+    use pf_ai::http::RetryPolicy;
+    use pf_ai::testing::{FAKE_KEY, FakeTransport, Reply};
+    use pf_engine::Engine;
+    use serde_json::{Value, json};
+    use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponseBody};
+    use tauri::test::{INVOKE_KEY, MockRuntime, get_ipc_response, mock_builder};
+    use tauri::webview::InvokeRequest;
+    use tauri::{App, Listener, Manager, WebviewWindow, WebviewWindowBuilder};
+
+    struct TestApp {
+        app: App<MockRuntime>,
+        webview: WebviewWindow<MockRuntime>,
+        anthropic: Arc<FakeTransport>,
+        _dir: tempfile::TempDir,
+    }
+
+    /// The app with a fake credential store and recorded provider replies: no keychain, no
+    /// network.
+    fn app_with(store: MemoryStore) -> TestApp {
+        let dir = tempfile::tempdir().unwrap();
+        let (transport, _) = pf_output::RecordingTransport::new();
+        let engine = Engine::new(dir.path())
+            .with_transport(move || Ok(Box::new(transport.clone()) as Box<dyn pf_output::Transport>));
+        let anthropic = Arc::new(FakeTransport::default());
+        let openai = Arc::new(FakeTransport::default());
+        let providers = Providers {
+            anthropic: Arc::new(
+                pf_ai::anthropic::Anthropic::new(anthropic.clone()).with_retry(RetryPolicy::immediate()),
+            ),
+            openai: Arc::new(pf_ai::openai::OpenAi::new(openai).with_retry(RetryPolicy::immediate())),
+        };
+        let app = with_commands(mock_builder())
+            .manage(AppState {
+                engine: Mutex::new(engine),
+                devices: DeviceAccess::fake(pf_devices::testing::network()),
+                waveforms: Mutex::default(),
+                photos: Default::default(),
+                models: Default::default(),
+                export_cancels: Default::default(),
+                checking_files: Default::default(),
+            })
+            .manage(AiState::new(KeyVault::new(Box::new(store)), providers))
+            .build(context())
+            .unwrap();
+        let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        TestApp {
+            app,
+            webview,
+            anthropic,
+            _dir: dir,
+        }
+    }
+
+    fn request(
+        webview: &WebviewWindow<MockRuntime>,
+        cmd: &str,
+        args: Value,
+    ) -> Result<InvokeResponseBody, Value> {
+        get_ipc_response(
+            webview,
+            InvokeRequest {
+                cmd: cmd.into(),
+                callback: CallbackFn(0),
+                error: CallbackFn(1),
+                url: webview.url().unwrap(),
+                body: InvokeBody::Json(args),
+                headers: Default::default(),
+                invoke_key: INVOKE_KEY.to_string(),
+            },
+        )
+    }
+
+    /// Calls a command like the window does. No reply may ever contain the key.
+    fn call(t: &TestApp, cmd: &str, args: Value) -> Result<Value, Value> {
+        let reply = request(&t.webview, cmd, args).map(|body| body.deserialize::<Value>().unwrap());
+        let shown = format!("{reply:?}");
+        assert!(!shown.contains(FAKE_KEY), "{cmd} returned the key: {shown}");
+        reply
+    }
+
+    /// One streamed Anthropic reply: optional text, then optional tool calls.
+    fn sse(text: &str, tools: &[(&str, Value)]) -> String {
+        let mut out =
+            String::from("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{}}\n\n");
+        let mut index = 0;
+        if !text.is_empty() {
+            out += &format!(
+                "event: content_block_start\ndata: {}\n\nevent: content_block_delta\ndata: {}\n\nevent: content_block_stop\ndata: {{\"type\":\"content_block_stop\",\"index\":0}}\n\n",
+                json!({ "type": "content_block_start", "index": 0, "content_block": { "type": "text", "text": "" } }),
+                json!({ "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": text } }),
+            );
+            index += 1;
+        }
+        for (i, (name, input)) in tools.iter().enumerate() {
+            out += &format!(
+                "event: content_block_start\ndata: {}\n\nevent: content_block_delta\ndata: {}\n\nevent: content_block_stop\ndata: {}\n\n",
+                json!({ "type": "content_block_start", "index": index, "content_block": { "type": "tool_use", "id": format!("toolu_{i}"), "name": name, "input": {} } }),
+                json!({ "type": "content_block_delta", "index": index, "delta": { "type": "input_json_delta", "partial_json": input.to_string() } }),
+                json!({ "type": "content_block_stop", "index": index }),
+            );
+            index += 1;
+        }
+        let stop = if tools.is_empty() { "end_turn" } else { "tool_use" };
+        out += &format!(
+            "event: message_delta\ndata: {}\n\nevent: message_stop\ndata: {{\"type\":\"message_stop\"}}\n\n",
+            json!({ "type": "message_delta", "delta": { "stop_reason": stop } })
+        );
+        out
+    }
+
+    #[test]
+    fn keys_go_in_but_never_come_back_out() {
+        let t = app_with(MemoryStore::new());
+        let storage = call(&t, "ai_key_storage", json!({})).unwrap();
+        assert_eq!(storage["available"], true);
+        assert_eq!(
+            call(&t, "has_api_key", json!({ "provider": "anthropic" })).unwrap(),
+            false
+        );
+        assert_eq!(
+            call(
+                &t,
+                "set_api_key",
+                json!({ "provider": "anthropic", "key": FAKE_KEY })
+            )
+            .unwrap(),
+            "keychain"
+        );
+        assert_eq!(
+            call(&t, "has_api_key", json!({ "provider": "anthropic" })).unwrap(),
+            true
+        );
+        assert_eq!(
+            call(&t, "has_api_key", json!({ "provider": "openai" })).unwrap(),
+            false
+        );
+        assert_eq!(
+            call(&t, "api_key_location", json!({ "provider": "anthropic" })).unwrap(),
+            "keychain"
+        );
+        call(&t, "delete_api_key", json!({ "provider": "anthropic" })).unwrap();
+        assert_eq!(
+            call(&t, "has_api_key", json!({ "provider": "anthropic" })).unwrap(),
+            false
+        );
+
+        // A key that isn't one is refused without echoing it.
+        let err = call(
+            &t,
+            "set_api_key",
+            json!({ "provider": "openai", "key": "sk bad key" }),
+        )
+        .unwrap_err();
+        assert!(!err.to_string().contains("sk bad key"), "{err}");
+    }
+
+    #[test]
+    fn without_a_credential_store_keys_can_be_used_for_the_session() {
+        let t = app_with(MemoryStore::unavailable());
+        assert_eq!(call(&t, "ai_key_storage", json!({})).unwrap()["available"], false);
+        let err = call(
+            &t,
+            "set_api_key",
+            json!({ "provider": "openai", "key": FAKE_KEY }),
+        )
+        .unwrap_err();
+        assert!(err.as_str().unwrap().contains("for this session only"), "{err}");
+        assert_eq!(
+            call(
+                &t,
+                "use_api_key_for_session",
+                json!({ "provider": "openai", "key": FAKE_KEY })
+            )
+            .unwrap(),
+            "session"
+        );
+        assert_eq!(
+            call(&t, "has_api_key", json!({ "provider": "openai" })).unwrap(),
+            true
+        );
+        assert_eq!(
+            call(&t, "api_key_location", json!({ "provider": "openai" })).unwrap(),
+            "session"
+        );
+    }
+
+    #[test]
+    fn a_chat_turn_drafts_previews_and_applies_as_one_undo_step() {
+        let t = app_with(MemoryStore::new());
+        let send = json!({ "provider": "anthropic", "model": "claude-opus-5-5", "message": "Call the show Christmas" });
+        assert_eq!(
+            call(&t, "ai_send", send.clone()).unwrap_err(),
+            "Add your Anthropic API key in Settings → AI first."
+        );
+        call(
+            &t,
+            "set_api_key",
+            json!({ "provider": "anthropic", "key": FAKE_KEY }),
+        )
+        .unwrap();
+        let original = call(&t, "get_snapshot", json!({})).unwrap();
+
+        t.anthropic.push(Reply::ok(sse(
+            "Renaming it.",
+            &[("show_rename_show", json!({ "name": "Christmas" }))],
+        )));
+        t.anthropic.push(Reply::ok(sse(
+            "",
+            &[(
+                "propose_changes",
+                json!({ "summary": "Renames the show to Christmas." }),
+            )],
+        )));
+        t.anthropic.push(Reply::ok(sse("Take a look.", &[])));
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let heard = Arc::clone(&events);
+        t.app.listen_any(ASSISTANT_EVENT, move |event| {
+            lock(&heard).push(serde_json::from_str::<Value>(event.payload()).unwrap());
+        });
+        let reply = call(&t, "ai_send", send).unwrap();
+        assert_eq!(reply["text"], "Renaming it.\n\nTake a look.");
+        let proposal = &reply["proposal"];
+        assert_eq!(proposal["summary"], "Renames the show to Christmas.");
+        assert_eq!(
+            proposal["diff"]["changes"][0]["details"][0],
+            "name: \"Untitled Show\" → \"Christmas\""
+        );
+        let heard = lock(&events).clone();
+        // (Turn 2: the send without a key was turn 1.)
+        assert_eq!(
+            heard[0],
+            json!({ "turn": 2, "event": { "kind": "text", "text": "Renaming it." } })
+        );
+        assert!(heard.iter().any(|e| e["event"]["kind"] == "proposal"));
+
+        // The key went only in the header, and the show is unchanged until Apply.
+        let requests = t.anthropic.requests();
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[0].header("x-api-key").unwrap(), FAKE_KEY);
+        assert!(
+            requests
+                .iter()
+                .all(|r| !r.body.as_deref().unwrap_or("").contains(FAKE_KEY))
+        );
+        assert_eq!(call(&t, "get_snapshot", json!({})).unwrap(), original);
+
+        let id = proposal["id"].as_str().unwrap();
+        let preview = request(&t.webview, "ai_preview", json!({ "id": id })).unwrap();
+        assert!(matches!(preview, InvokeResponseBody::Raw(_)));
+        assert_eq!(
+            call(&t, "ai_apply", json!({ "id": "not-the-one" })).unwrap_err(),
+            "That proposal isn't the latest one anymore."
+        );
+        let applied = call(&t, "ai_apply", json!({ "id": id })).unwrap();
+        assert_eq!(applied["snapshot"]["show"]["name"], "Christmas");
+        assert_eq!(applied["snapshot"]["canUndo"], true);
+        assert_eq!(applied["sequence"], Value::Null);
+        // Applied once: the proposal is gone.
+        assert!(call(&t, "ai_apply", json!({ "id": id })).is_err());
+        let undone = call(&t, "undo", json!({})).unwrap();
+        assert_eq!(undone["show"], original["show"]);
+        assert_eq!(undone["canUndo"], false);
+    }
+
+    #[test]
+    fn opening_another_show_drops_the_proposal() {
+        let t = app_with(MemoryStore::new());
+        call(
+            &t,
+            "set_api_key",
+            json!({ "provider": "anthropic", "key": FAKE_KEY }),
+        )
+        .unwrap();
+        t.anthropic.push(Reply::ok(sse(
+            "",
+            &[("show_rename_show", json!({ "name": "Christmas" }))],
+        )));
+        t.anthropic.push(Reply::ok(sse("Renamed.", &[])));
+        let reply = call(
+            &t,
+            "ai_send",
+            json!({ "provider": "anthropic", "model": "claude-opus-5-5", "message": "rename" }),
+        )
+        .unwrap();
+        let id = reply["proposal"]["id"].as_str().unwrap().to_string();
+        assert_eq!(call(&t, "ai_sync", json!({})).unwrap(), false, "same show: kept");
+        call(&t, "new_show", json!({ "name": "Show B" })).unwrap();
+        assert_eq!(
+            call(&t, "ai_sync", json!({})).unwrap(),
+            true,
+            "another show: dropped"
+        );
+        assert_eq!(
+            call(&t, "ai_apply", json!({ "id": id })).unwrap_err(),
+            "That proposal isn't the latest one anymore."
+        );
+        assert_eq!(
+            call(&t, "get_snapshot", json!({})).unwrap()["show"]["name"],
+            "Show B"
+        );
+    }
+
+    #[test]
+    fn provider_errors_are_plain_and_the_chat_can_start_over() {
+        let t = app_with(MemoryStore::new());
+        call(
+            &t,
+            "set_api_key",
+            json!({ "provider": "anthropic", "key": FAKE_KEY }),
+        )
+        .unwrap();
+        t.anthropic.push(Reply::status(
+            401,
+            json!({ "type": "error", "error": { "type": "authentication_error", "message": "invalid x-api-key" } }).to_string(),
+        ));
+        let err = call(
+            &t,
+            "ai_send",
+            json!({ "provider": "anthropic", "model": "claude-opus-5-5", "message": "hi" }),
+        )
+        .unwrap_err();
+        assert!(
+            err.as_str()
+                .unwrap()
+                .starts_with("Anthropic didn't accept your API key."),
+            "{err}"
+        );
+        assert_eq!(
+            call(
+                &t,
+                "ai_send",
+                json!({ "provider": "anthropic", "model": " ", "message": "hi" })
+            )
+            .unwrap_err(),
+            "Pick a model in Settings → AI first."
+        );
+        call(&t, "ai_stop", json!({})).unwrap();
+        call(&t, "ai_new_chat", json!({})).unwrap();
+
+        t.anthropic.push(Reply::ok(
+            json!({ "data": [{ "type": "model", "id": "claude-opus-5-5", "display_name": "Claude Opus 5.5" }], "has_more": false })
+                .to_string(),
+        ));
+        let models = call(&t, "list_ai_models", json!({ "provider": "anthropic" })).unwrap();
+        assert_eq!(
+            models,
+            json!([{ "id": "claude-opus-5-5", "name": "Claude Opus 5.5", "recommended": true }])
+        );
+        assert!(t.app.try_state::<AiState>().is_some());
+    }
+}

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { newProp } from "../lib/shows";
 import { MemoryBackend, emptyShow } from "./memory";
 import { EFFECT_CATALOG, MemorySequencer, formatMs } from "./memorySequencer";
@@ -235,6 +235,25 @@ describe("MemorySequencer with a show", () => {
     expect(again.show.sequences[0].id).toBe(snap.show.sequences[0].id);
     const other = await seq.addSequenceDocToShow("/Shows/Other.fseq");
     expect(other.show.sequences[1].name).toBe("Song (2)");
+  });
+
+  it("loops on the backend's clock when asked, from the top again at the end", async () => {
+    const { backend, seq } = await withShow();
+    const now = vi.spyOn(Date, "now").mockReturnValue(100_000);
+    expect(await seq.setSequenceDocLoop(true)).toBeNull();
+    const status = await seq.playSequenceDoc(9_000);
+    expect(status).toMatchObject({ state: "playing", looping: true });
+    now.mockReturnValue(101_500);
+    expect(await backend.playbackStatus()).toMatchObject({ state: "playing", positionMs: 500, looping: true });
+    expect(Array.from((await backend.liveFrame()).slice(0, 3))).toEqual([0, 0, 0]);
+    now.mockReturnValue(102_000);
+    expect(Array.from((await backend.liveFrame()).slice(0, 3))).toEqual([255, 0, 0]);
+    // Turned off while playing: it plays out to the end this time round.
+    expect(await seq.setSequenceDocLoop(false)).toMatchObject({ looping: false, positionMs: 1000 });
+    now.mockReturnValue(111_000);
+    expect(await backend.playbackStatus()).toMatchObject({ state: "ended", positionMs: 10_000 });
+    expect(seq.calls).toContain("setSequenceDocLoop:true");
+    now.mockRestore();
   });
 
   it("starts a sequence with its music, and offers back kept unsaved work", async () => {

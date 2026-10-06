@@ -15,6 +15,7 @@ import {
   Maximize,
   MousePointer2,
   Rainbow,
+  Ruler,
   Shapes,
   Slash,
   Spline,
@@ -68,6 +69,18 @@ export const MORE_TOOLS: ToolInfo[] = [
   { tool: "customGrid", label: "Custom grid", hint: "Drag a box where the grid goes, then number its squares in the properties panel", icon: LayoutGrid },
 ];
 
+/**
+ * When a button's label shows. The bar keeps to one row: as it narrows, the toggles and Fit
+ * show only their icons first, then every button does (the label is still the button's name,
+ * and its hint shows on hover).
+ */
+export type LabelShown = "always" | "wide" | "medium";
+const LABEL_CLASS: Record<LabelShown, string | undefined> = {
+  always: undefined,
+  wide: "sr-only @min-[1200px]:not-sr-only",
+  medium: "sr-only @min-[1000px]:not-sr-only",
+};
+
 function ToolButton({
   pressed,
   label,
@@ -76,6 +89,7 @@ function ToolButton({
   disabled,
   popup,
   expanded,
+  labelShown = "medium",
   children,
 }: {
   pressed?: boolean;
@@ -86,6 +100,7 @@ function ToolButton({
   /** Opens a menu (with a small arrow after the label). */
   popup?: boolean;
   expanded?: boolean;
+  labelShown?: LabelShown;
   children: ReactNode;
 }) {
   return (
@@ -107,7 +122,7 @@ function ToolButton({
       }`}
     >
       {children}
-      <span>{label}</span>
+      <span className={LABEL_CLASS[labelShown]}>{label}</span>
       {popup && <ChevronDown size={14} aria-hidden />}
     </button>
   );
@@ -204,6 +219,7 @@ export function LayoutToolbar({ hasPhoto, onChoosePhoto }: { hasPhoto: boolean; 
       setView: s.setView,
     })),
   );
+  const smartGuides = useLayoutEditor((s) => s.smartGuides);
   const mode = useView3d((s) => s.mode);
   const in3d = mode === "3d";
   const camera = useView3d((s) => s.camera);
@@ -216,7 +232,7 @@ export function LayoutToolbar({ hasPhoto, onChoosePhoto }: { hasPhoto: boolean; 
     <div
       role="toolbar"
       aria-label="Layout tools"
-      className="mb-3 flex flex-wrap items-center gap-0.5 rounded-lg border border-neutral-200 bg-white p-1 dark:border-neutral-800 dark:bg-neutral-900"
+      className="@container mb-3 flex flex-wrap items-center gap-0.5 rounded-lg border border-neutral-200 bg-white p-1 dark:border-neutral-800 dark:bg-neutral-900"
     >
       <span className="mr-1">
         <ModeSwitch mode={mode} onChange={setLayoutMode} hint="V switches" />
@@ -231,8 +247,17 @@ export function LayoutToolbar({ hasPhoto, onChoosePhoto }: { hasPhoto: boolean; 
       })}
       <MoreShapes tool={editPhoto ? "select" : tool} setTool={setTool} in3d={in3d} />
       <Divider />
-      <ToolButton pressed={snap} label="Snap to grid" hint="Line props up on a grid as you move and draw" onClick={() => setSnap(!snap)}>
+      <ToolButton pressed={snap} label="Snap to grid" hint="Line props up on a grid as you move and draw" labelShown="wide" onClick={() => setSnap(!snap)}>
         <Magnet size={16} aria-hidden />
+      </ToolButton>
+      <ToolButton
+        pressed={smartGuides}
+        label="Smart guides"
+        hint="Line props up with others, space them evenly, and match sizes as you move, resize, and draw (hold Option/Alt to place freely)"
+        labelShown="wide"
+        onClick={() => useLayoutEditor.getState().setSmartGuides(!smartGuides)}
+      >
+        <Ruler size={16} aria-hidden />
       </ToolButton>
       <Divider />
       <button type="button" aria-label="Zoom out" title="Zoom out" onClick={() => zoom(1 / 1.25)} className="rounded-md p-1.5 hover:bg-neutral-200/70 dark:hover:bg-neutral-800">
@@ -241,7 +266,7 @@ export function LayoutToolbar({ hasPhoto, onChoosePhoto }: { hasPhoto: boolean; 
       <button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => zoom(1.25)} className="rounded-md p-1.5 hover:bg-neutral-200/70 dark:hover:bg-neutral-800">
         <ZoomIn size={16} aria-hidden />
       </button>
-      <ToolButton label="Fit" hint="Show the whole display" onClick={() => (in3d ? camera({ kind: "fit" }) : setView(null))}>
+      <ToolButton label="Fit" hint="Show the whole display" labelShown="wide" onClick={() => (in3d ? camera({ kind: "fit" }) : setView(null))}>
         <Maximize size={16} aria-hidden />
       </ToolButton>
       <Divider />

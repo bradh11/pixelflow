@@ -3,13 +3,13 @@
 use crate::layout::{PickedPhotos, label, open_without_waiting};
 use crate::{AppState, Reply};
 use std::io::{self, Read};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tauri::State;
 use tauri::ipc::Response;
 use tauri_plugin_dialog::DialogExt;
 
 /// Model files the 3D view can show: glTF (binary or self-contained text) and OBJ.
-const MODEL_EXTENSIONS: &[&str] = &["glb", "gltf", "obj"];
+pub(crate) const MODEL_EXTENSIONS: &[&str] = &["glb", "gltf", "obj"];
 /// Larger models are refused rather than loaded into the window.
 const MAX_MODEL_BYTES: u64 = 256 * 1024 * 1024;
 
@@ -22,7 +22,7 @@ pub(crate) type PickedModels = PickedPhotos;
 pub(crate) async fn pick_house_model<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
-) -> Reply<Option<PathBuf>> {
+) -> Reply<Option<String>> {
     let dialog = app.dialog().clone();
     let picked = tauri::async_runtime::spawn_blocking(move || {
         dialog
@@ -36,15 +36,17 @@ pub(crate) async fn pick_house_model<R: tauri::Runtime>(
     let Some(path) = picked.and_then(|p| p.into_path().ok()) else {
         return Ok(None);
     };
-    state.models.add(path.clone());
-    Ok(Some(path))
+    let text = pf_model::path_to_text(&path);
+    state.models.add(path);
+    Ok(Some(text))
 }
 
 /// The bytes of a house model, sent raw. Only models the user picked, or that came with a show
 /// read from disk, are read, and only if they really are model files. A path the window put
 /// in the show with an edit is not enough on its own.
 #[tauri::command]
-pub(crate) async fn read_house_model(state: State<'_, AppState>, path: PathBuf) -> Reply<Response> {
+pub(crate) async fn read_house_model(state: State<'_, AppState>, path: String) -> Reply<Response> {
+    let path = pf_model::path_from_text(&path);
     if !state.models.contains(&path) {
         return Err(
             "PixelFlow can only show a model you picked. Choose it with Add house model… or Replace…".into(),

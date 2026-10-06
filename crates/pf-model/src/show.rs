@@ -2,6 +2,7 @@
 
 use crate::{Controller, ControllerId, Group, Prop, PropId, Region, RegionId, SequenceId, Vec3};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 /// Schema version written by this build.
 ///
@@ -13,12 +14,16 @@ use serde::{Deserialize, Serialize};
 /// controller's `sequenceChannels`; 4 = adds the show's `sequences`; 5 = adds the show's
 /// `background` photo; 6 = adds the show's `houseModel`; 7 = submodels and faces: regions get
 /// an `id`, `nodes` regions become `lines` with a `layout` and `buffer` style, `subBuffer`
-/// regions, face colors, and a group's `submodels`; 8 = more prop shapes (`polyLine` and the
-/// other xLights prop types).
-pub const CURRENT_SCHEMA_VERSION: u32 = 8;
+/// regions, face colors, and a group's `submodels`; 8 = file paths (sequences, music, the photo,
+/// the house model) are relative to the show file when the file is inside its folder, and keep
+/// bytes that aren't UTF-8 (see `paths.rs`); the file also records the folder it was saved in
+/// (`savedIn`), so a show file moved on its own still finds its files; 9 = more prop shapes
+/// (`polyLine` and the other xLights prop types).
+pub const CURRENT_SCHEMA_VERSION: u32 = 9;
 
 /// Show-wide settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ShowSettings {
     /// Output frames per second (20–100).
@@ -40,6 +45,7 @@ impl Default for ShowSettings {
 
 /// A complete show: layout, groups, and controller wiring.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Show {
     pub schema_version: u32,
@@ -67,6 +73,7 @@ pub struct Show {
 ///
 /// Its height follows the image's own shape, so only the width is stored.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Background {
     /// The image file.
@@ -118,6 +125,7 @@ impl Background {
 
 /// A 3D model of the house (glTF/GLB or OBJ file) for the 3D view, placed in layout units.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct HouseModel {
     /// The model file.
@@ -172,6 +180,7 @@ impl HouseModel {
 
 /// A rendered sequence (`.fseq`) in the show, with its music.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct SequenceEntry {
     pub id: SequenceId,
@@ -226,6 +235,36 @@ impl Show {
 
     pub fn controller(&self, id: ControllerId) -> Option<&Controller> {
         self.controllers.iter().find(|c| c.id == id)
+    }
+
+    /// Every file path the show holds (sequences, their music, the photo, the house model), to
+    /// change in place.
+    pub fn file_paths_mut(&mut self) -> impl Iterator<Item = &mut String> {
+        let sequences = self
+            .sequences
+            .iter_mut()
+            .flat_map(|s| std::iter::once(&mut s.path).chain(s.audio.as_mut()));
+        sequences
+            .chain(self.background.as_mut().map(|b| &mut b.path))
+            .chain(self.house_model.as_mut().map(|m| &mut m.path))
+    }
+
+    /// The show as a file in `folder` stores it: files inside `folder` (or a folder below it)
+    /// relative to it, other files in full (see [`crate::relative_text`]).
+    pub fn with_paths_relative_to(&self, folder: &Path) -> Show {
+        let mut show = self.clone();
+        for path in show.file_paths_mut() {
+            *path = crate::relative_text(path, folder);
+        }
+        show
+    }
+
+    /// Makes the show's relative file paths full ones, starting in `folder` (the folder of the
+    /// file it was read from).
+    pub fn resolve_paths(&mut self, folder: &Path) {
+        for path in self.file_paths_mut() {
+            *path = crate::resolve_text(path, folder);
+        }
     }
 }
 
@@ -343,6 +382,60 @@ mod tests {
             let problem = background.problem().expect("a problem");
             assert!(problem.contains(expected), "{problem}");
         }
+    }
+
+    fn show_with_files() -> Show {
+        let mut show = Show::new("Files");
+        let mut medley = SequenceEntry::new("Medley", "/Shows/Haas/Christmas Medley 2017.fseq");
+        medley.audio = Some("/Shows/Haas/MP3 Music/Christmas Medley 2017.mp3".into());
+        show.sequences.push(medley);
+        show.sequences
+            .push(SequenceEntry::new("Elsewhere", "/Volumes/USB/Wizards.fseq"));
+        show.background = Some(Background::new("/Shows/Haas/photos/house.jpg", 0.0, 0.0, 10.0));
+        show.house_model = Some(HouseModel::new("/Users/me/Models/house.glb"));
+        show
+    }
+
+    #[test]
+    fn files_in_the_show_folder_are_stored_relative_and_read_back_in_full() {
+        let show = show_with_files();
+        let stored = show.with_paths_relative_to(Path::new("/Shows/Haas"));
+        assert_eq!(stored.sequences[0].path, "Christmas Medley 2017.fseq");
+        assert_eq!(
+            stored.sequences[0].audio.as_deref(),
+            Some("MP3 Music/Christmas Medley 2017.mp3")
+        );
+        assert_eq!(
+            stored.sequences[1].path, "/Volumes/USB/Wizards.fseq",
+            "outside: in full"
+        );
+        assert_eq!(stored.sequences[1].audio, None);
+        assert_eq!(stored.background.as_ref().unwrap().path, "photos/house.jpg");
+        assert_eq!(
+            stored.house_model.as_ref().unwrap().path,
+            "/Users/me/Models/house.glb"
+        );
+
+        // The folder moved: the relative files follow it, the others stay put.
+        let mut moved = stored.clone();
+        moved.resolve_paths(Path::new("/Users/me/Shows/Haas"));
+        assert_eq!(
+            moved.sequences[0].path,
+            "/Users/me/Shows/Haas/Christmas Medley 2017.fseq"
+        );
+        assert_eq!(
+            moved.sequences[0].audio.as_deref(),
+            Some("/Users/me/Shows/Haas/MP3 Music/Christmas Medley 2017.mp3")
+        );
+        assert_eq!(moved.sequences[1].path, "/Volumes/USB/Wizards.fseq");
+        assert_eq!(
+            moved.background.as_ref().unwrap().path,
+            "/Users/me/Shows/Haas/photos/house.jpg"
+        );
+
+        let mut same = stored;
+        same.resolve_paths(Path::new("/Shows/Haas"));
+        assert_eq!(same, show);
     }
 
     #[test]

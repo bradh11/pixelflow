@@ -76,6 +76,8 @@ pub struct PlaybackStatus {
     pub volume: f32,
     /// True when playing an authored sequence document rather than a file.
     pub authored: bool,
+    /// Playing again from the top each time it reaches the end (lights and music together).
+    pub looping: bool,
 }
 
 /// New controllers and layout to send to, after an edit to the show.
@@ -105,6 +107,8 @@ struct Control {
     /// How far the lights run ahead of the music.
     offset_ms: i32,
     volume: f32,
+    /// At the end, go back to the top and play on (see [`PlaybackSession::set_looping`]).
+    looping: bool,
     /// Why the music isn't playing at all.
     music_note: Option<String>,
     /// Trouble with the music after it started.
@@ -125,6 +129,7 @@ impl Default for Control {
             error: None,
             offset_ms: 0,
             volume: 1.0,
+            looping: false,
             music_note: None,
             clock_note: None,
             rebuild: None,
@@ -632,7 +637,7 @@ fn run_player(
         let (total, step) = frames.source.timing();
         let step = step.max(1);
         let step_ms = u64::from(step);
-        let (paused, seek, offset, volume, ended, rebuild) = {
+        let (paused, seek, offset, volume, ended, looping, rebuild) = {
             let mut c = lock(control);
             c.frames = total;
             c.frame_ms = step;
@@ -642,6 +647,7 @@ fn run_player(
                 c.offset_ms,
                 c.volume,
                 c.ended,
+                c.looping,
                 c.rebuild.take(),
             )
         };
@@ -671,11 +677,24 @@ fn run_player(
             note = trouble;
         }
         let music_ms = time.now_ms();
-        let light = match seek {
+        let mut light = match seek {
             // A jump while paused shows exactly the frame asked for.
             Some(target) if paused => target,
             _ => light_for(music_ms, offset),
         };
+        if looping && !paused && !ended && total > 0 && light / step_ms >= u64::from(total) {
+            // Round again: the music goes back to its top the moment the lights reach their end,
+            // and the lights follow it from there, so the two start every loop together and
+            // nothing builds up between them. (The player wakes on frame boundaries, so this is
+            // within a few ms of the end; the music's jump lands before its next sample.)
+            time.jump(music_for(0, offset));
+            shown = None;
+            if dark {
+                dark = false;
+                lock(control).lights_done = false;
+            }
+            light = light_for(time.now_ms(), offset);
+        }
         let due = light / step_ms;
         // An edited sequence or show redraws the current frame, even while paused.
         let changed = frames.source.changed();
@@ -789,6 +808,8 @@ pub(crate) struct DocumentRequest {
     /// Send to the controllers (false: only the preview plays).
     pub send: bool,
     pub volume: f32,
+    /// Play again from the top each time it reaches the end.
+    pub looping: bool,
 }
 
 /// Everything [`PlaybackSession::launch`] needs besides the frames.
@@ -799,6 +820,7 @@ struct Launch {
     music: Option<PathBuf>,
     offset_ms: i32,
     volume: f32,
+    looping: bool,
 }
 
 /// A sequence playing: a player thread producing frames on time and the output thread sending them.
@@ -831,7 +853,15 @@ impl PlaybackSession {
         settings: OutputSettings,
         clocks: &ClockFactory,
     ) -> Result<Self, EngineError> {
-        let sequence = Sequence::open(&request.path).map_err(|e| EngineError::Playback(e.to_string()))?;
+        let sequence = Sequence::open(&request.path).map_err(|e| match e {
+            pf_fseq::FseqError::Io(io) if io.kind() == std::io::ErrorKind::NotFound => {
+                EngineError::Playback(format!(
+                    "{} isn't where it was. Use Find again or Locate… to show PixelFlow where it is now.",
+                    pf_model::file_name_of(&pf_model::path_to_text(&request.path))
+                ))
+            }
+            e => EngineError::Playback(e.to_string()),
+        })?;
         let header = sequence.header().clone();
         let channels = header.channels as usize;
         let (routes, notes) = routes(show, channels);
@@ -855,6 +885,7 @@ impl PlaybackSession {
             music: request.music.clone(),
             offset_ms: request.offset_ms,
             volume: request.volume,
+            looping: false,
         };
         let kind = SessionKind::File {
             request: request.clone(),
@@ -898,6 +929,7 @@ impl PlaybackSession {
             show_error,
             send,
             volume,
+            looping,
         } = request;
         let (plan, notes) = document_plan(show, map, show_error.as_deref(), send, doc.frame_ms);
         let updates = Arc::new(LiveUpdates::default());
@@ -914,6 +946,7 @@ impl PlaybackSession {
             music: music.clone(),
             offset_ms: 0,
             volume,
+            looping,
         };
         let kind = SessionKind::Document {
             music,
@@ -979,6 +1012,7 @@ impl PlaybackSession {
             frame_ms: step_ms as u32,
             offset_ms: launch.offset_ms,
             volume: launch.volume,
+            looping: launch.looping,
             ..Control::default()
         }));
         let stop = Arc::new(AtomicBool::new(false));
@@ -1159,6 +1193,12 @@ impl PlaybackSession {
         lock(&self.control).volume = volume.clamp(0.0, 1.0);
     }
 
+    /// Plays again from the top each time the lights reach the end (the music jumps back with
+    /// them), instead of ending. Turned on after the end, it doesn't start again by itself.
+    pub fn set_looping(&self, looping: bool) {
+        lock(&self.control).looping = looping;
+    }
+
     /// What the session plays and what it was built from.
     pub fn kind(&self) -> &SessionKind {
         &self.kind
@@ -1233,6 +1273,7 @@ impl PlaybackSession {
             offset_ms: c.offset_ms,
             volume: c.volume,
             authored,
+            looping: c.looping,
         }
     }
 
@@ -1282,13 +1323,15 @@ impl Drop for PlaybackSession {
 
 /// Resolves a document's music path: relative paths are relative to the document's folder.
 pub(crate) fn document_music(doc_path: Option<&Path>, audio: Option<&str>) -> Option<PathBuf> {
-    let audio = PathBuf::from(audio.filter(|a| !a.is_empty())?);
-    if audio.is_absolute() {
-        return Some(audio);
+    let audio = audio.filter(|a| !a.is_empty())?;
+    if pf_model::is_full_path_text(audio) {
+        return Some(pf_model::path_from_text(audio));
     }
     // Relative music is next to the document; an unsaved document has no folder yet, so its
     // relative music isn't looked for (not in whatever folder the app happens to run in).
-    doc_path.and_then(Path::parent).map(|dir| dir.join(audio))
+    doc_path
+        .and_then(Path::parent)
+        .map(|dir| pf_model::path_from_text(&pf_model::resolve_text(audio, dir)))
 }
 
 /// A show entry for the sequence file at `path`: named after the file, with its music when it
@@ -1299,9 +1342,9 @@ pub fn sequence_entry_for(path: &Path) -> Result<pf_model::SequenceEntry, Engine
         .file_stem()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "Sequence".to_string());
-    let mut entry = pf_model::SequenceEntry::new(name, path.display().to_string());
+    let mut entry = pf_model::SequenceEntry::new(name, pf_model::path_to_text(path));
     entry.audio =
-        pf_audio::find_audio(path, sequence.header().media.as_deref()).map(|p| p.display().to_string());
+        pf_audio::find_audio(path, sequence.header().media.as_deref()).map(|p| pf_model::path_to_text(&p));
     Ok(entry)
 }
 

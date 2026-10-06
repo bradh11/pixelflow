@@ -1,6 +1,7 @@
 //! Authoring a sequence document: edits with undo, files, live playback through the output plan
 //! (captured in memory, with a silent clock), previews, and export.
 
+use pf_audio::AudioClock;
 use pf_engine::{ClockFactory, Edit, Engine, EngineError, SequenceEdit};
 use pf_model::{Controller, Generator, Port, PortSlot, Prop, Protocol, ShapeSource};
 use pf_output::{Recorded, RecordingTransport, Transport};
@@ -299,7 +300,7 @@ fn the_music_is_found_next_to_the_document_and_playback_follows_its_clock() {
         log.lock()
             .unwrap()
             .push(music.map_or("none".into(), |m| m.display().to_string()));
-        Ok(Box::new(pf_audio::SilentClock::new()) as Box<dyn pf_audio::AudioClock>)
+        Ok(Box::new(pf_audio::SilentClock::new()) as Box<dyn AudioClock>)
     });
     let mut engine = engine.with_clocks(clocks);
     new_doc(&mut engine, 10_000);
@@ -892,4 +893,221 @@ fn recovered_work_saves_back_to_its_file_and_can_be_thrown_away() {
     assert_eq!(Engine::new(dir.path()).sequence_recoveries().len(), 1);
     engine.close_sequence_doc();
     assert!(Engine::new(dir.path()).sequence_recoveries().is_empty());
+}
+
+/// A sequence saved in `dir/Seq` with music in `dir/Seq/Music`.
+fn saved_with_music(engine: &mut Engine, dir: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
+    let song = dir.join("Seq/Music/Carol.mp3");
+    std::fs::create_dir_all(song.parent().unwrap()).unwrap();
+    std::fs::write(&song, b"x").unwrap();
+    let file = dir.join("Seq/Carol.pfseq.json");
+    engine
+        .new_sequence_doc("Carol", 5_000, Some(&pf_model::path_to_text(&song)))
+        .unwrap();
+    engine.save_sequence_doc_as(&file).unwrap();
+    (file, song)
+}
+
+fn saved_audio(file: &Path) -> serde_json::Value {
+    let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
+    json["audio"].clone()
+}
+
+#[test]
+fn music_in_the_sequence_folder_is_saved_relative_and_follows_a_move() {
+    let (mut engine, _, dir) = engine();
+    let (file, song) = saved_with_music(&mut engine, dir.path());
+    assert_eq!(saved_audio(&file), "Music/Carol.mp3");
+    assert_eq!(engine.sequence_music(), Some(song));
+    assert_eq!(engine.sequence_music_missing(), None);
+
+    let moved = dir.path().join("Elsewhere");
+    std::fs::rename(dir.path().join("Seq"), &moved).unwrap();
+    engine.open_sequence_doc(&moved.join("Carol.pfseq.json")).unwrap();
+    assert_eq!(engine.sequence_music(), Some(moved.join("Music/Carol.mp3")));
+    assert_eq!(engine.sequence_music_missing(), None);
+}
+
+#[test]
+fn missing_music_is_found_again_or_located_as_one_undo_step() {
+    let (mut engine, _, dir) = engine();
+    let (file, song) = saved_with_music(&mut engine, dir.path());
+    let now = dir.path().join("Seq/Audio/Carol.mp3");
+    std::fs::create_dir_all(now.parent().unwrap()).unwrap();
+    std::fs::rename(&song, &now).unwrap();
+    engine.open_sequence_doc(&file).unwrap();
+
+    let missing = engine.sequence_music_missing().expect("missing");
+    assert_eq!(missing.message, "Carol.mp3 isn't where it was.");
+    assert_eq!(missing.owner, "Music for Carol");
+    let search = engine.sequence_music_search().unwrap();
+    assert_eq!(search.folders(), [dir.path().join("Seq")]);
+    let found = search.run();
+    assert_eq!(found.found.len(), 1);
+    let result = engine.use_found_sequence_music(&found).unwrap().expect("used");
+    assert!(result.changed && result.dirty);
+    assert_eq!(engine.sequence_music(), Some(now.clone()));
+    assert_eq!(engine.sequence_music_missing(), None);
+    // Used once: the same find doesn't apply again.
+    assert!(engine.use_found_sequence_music(&found).unwrap().is_none());
+    engine.undo_sequence().unwrap();
+    assert!(engine.sequence_music_missing().is_some());
+
+    let gone = pf_engine::check_chosen_file(&dir.path().join("nope.mp3")).unwrap_err();
+    assert_eq!(
+        gone.to_string(),
+        "nope.mp3 isn't there anymore. Choose another file."
+    );
+    engine.relink_sequence_music(&now).unwrap();
+    assert_eq!(engine.sequence_music(), Some(now));
+    // Saved relative to the sequence file.
+    engine.save_sequence_doc().unwrap();
+    assert_eq!(saved_audio(&file), "Audio/Carol.mp3");
+}
+
+#[test]
+fn recovered_work_finds_relative_music_next_to_its_original_file() {
+    let (mut engine, _, dir) = engine();
+    let (file, song) = saved_with_music(&mut engine, dir.path());
+    engine.open_sequence_doc(&file).unwrap();
+    assert_eq!(
+        engine.sequence_document().unwrap().audio.as_deref(),
+        Some("Music/Carol.mp3")
+    );
+    let row = Row::new(Target::Prop(engine.show().props[0].id));
+    engine
+        .edit_sequence(vec![SequenceEdit::AddRow { row, index: None }])
+        .unwrap();
+    assert!(engine.autosave_sequence().unwrap());
+    let mut next = Engine::new(dir.path());
+    let offered = next.sequence_recoveries();
+    next.recover_sequence(&offered[0].id).unwrap();
+    assert_eq!(next.sequence_music(), Some(song));
+}
+
+/// A silent music clock the test can read, which notes every jump with where the music was.
+struct SharedClock {
+    inner: Arc<Mutex<pf_audio::SilentClock>>,
+    /// (music position when asked to jump, where to), in ms.
+    jumps: Arc<Mutex<Vec<(u64, u64)>>>,
+}
+
+impl AudioClock for SharedClock {
+    fn start(&mut self, position: Duration) {
+        self.inner.lock().unwrap().start(position);
+    }
+    fn pause(&mut self) {
+        self.inner.lock().unwrap().pause();
+    }
+    fn resume(&mut self) {
+        self.inner.lock().unwrap().resume();
+    }
+    fn seek(&mut self, position: Duration) {
+        let mut clock = self.inner.lock().unwrap();
+        let from = clock.position().as_millis() as u64;
+        self.jumps
+            .lock()
+            .unwrap()
+            .push((from, position.as_millis() as u64));
+        clock.seek(position);
+    }
+    fn position(&self) -> Duration {
+        self.inner.lock().unwrap().position()
+    }
+    fn set_volume(&mut self, _volume: f32) {}
+}
+
+#[test]
+fn looping_plays_again_from_the_top_with_the_music_in_step() {
+    let (engine, recorded, _dir) = engine();
+    let music: Arc<Mutex<pf_audio::SilentClock>> = Default::default();
+    let jumps: Arc<Mutex<Vec<(u64, u64)>>> = Default::default();
+    let (shared, noted) = (music.clone(), jumps.clone());
+    let clocks: ClockFactory = Arc::new(move |_music: Option<&Path>| {
+        Ok(Box::new(SharedClock {
+            inner: shared.clone(),
+            jumps: noted.clone(),
+        }) as Box<dyn AudioClock>)
+    });
+    let mut engine = engine.with_clocks(clocks);
+    let row = new_doc(&mut engine, 200);
+    engine
+        .edit_sequence(vec![
+            SequenceEdit::AddEffect {
+                row,
+                layer: 0,
+                effect: on(Rgb::RED, 0, 100),
+            },
+            SequenceEdit::AddEffect {
+                row,
+                layer: 0,
+                effect: on(Rgb::GREEN, 100, 200),
+            },
+        ])
+        .unwrap();
+    assert!(!engine.sequence_doc_loop(), "off by default");
+    assert!(engine.set_sequence_doc_loop(true).is_none(), "nothing playing");
+    assert!(engine.sequence_doc_loop());
+
+    let status = engine.play_sequence_doc(0).unwrap();
+    assert!(status.looping);
+    wait_until(|| {
+        let status = engine.playback_status().unwrap();
+        assert_ne!(status.state, "ended", "a looping sequence never ends");
+        assert!(status.position_ms <= 200, "{status:?}");
+        jumps.lock().unwrap().len() >= 3
+    });
+
+    // Each time round, the music goes back to its very top as soon as the lights reach the end
+    // (within a frame or two), so nothing builds up between them from one loop to the next.
+    for &(from, to) in jumps.lock().unwrap().iter().take(3) {
+        assert_eq!(to, 0, "the music starts again from the top");
+        assert!(
+            (200..250).contains(&from),
+            "jumped back {from} ms in, for a 200 ms sequence"
+        );
+    }
+    let lights = engine.playback_status().unwrap().position_ms;
+    let heard = music.lock().unwrap().position().as_millis() as u64;
+    assert!(
+        heard.abs_diff(lights) <= 50,
+        "lights at {lights} ms and music at {heard} ms after three loops"
+    );
+
+    // The controllers got every loop: red, green, then red again.
+    let mut colors: Vec<Vec<u8>> = packets(&recorded).iter().map(|p| p[10..40].to_vec()).collect();
+    colors.dedup();
+    let red_again = colors
+        .windows(3)
+        .any(|w| w[0] == solid([255, 0, 0]) && w[1] == solid([0, 255, 0]) && w[2] == solid([255, 0, 0]));
+    assert!(red_again, "sent across the loop: {colors:?}");
+
+    // Turning it off lets the sequence finish this time round.
+    let status = engine.set_sequence_doc_loop(false).unwrap();
+    assert!(!status.looping);
+    wait_until(|| engine.playback_status().unwrap().state == "ended");
+
+    // Stopping while looping stops.
+    engine.set_sequence_doc_loop(true);
+    engine.play_sequence_doc(0).unwrap();
+    engine.stop_playback();
+    assert!(engine.playback_status().is_none());
+}
+
+#[test]
+fn a_looping_sequence_paused_at_the_end_stays_there_until_played() {
+    let (mut engine, _recorded, _dir) = engine();
+    new_doc(&mut engine, 200);
+    engine.set_sequence_doc_loop(true);
+    engine.play_sequence_doc(0).unwrap();
+    engine.set_playback_paused(true).unwrap();
+    engine.seek_playback(200).unwrap();
+    std::thread::sleep(Duration::from_millis(60));
+    let status = engine.playback_status().unwrap();
+    assert_eq!((status.state, status.position_ms), ("paused", 175));
+    // Playing on from there goes round to the top.
+    engine.set_playback_paused(false).unwrap();
+    wait_until(|| engine.playback_status().unwrap().position_ms < 100);
+    assert_eq!(engine.playback_status().unwrap().state, "playing");
+    engine.stop_playback();
 }

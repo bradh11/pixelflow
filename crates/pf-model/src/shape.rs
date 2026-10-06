@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 /// Corner of a matrix where the first pixel is wired.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum Corner {
     #[default]
@@ -16,6 +17,7 @@ pub enum Corner {
 
 /// Direction the wiring runs first in a matrix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum Orientation {
     /// Strings run along rows.
@@ -27,6 +29,7 @@ pub enum Orientation {
 
 /// How a matrix's pixels are wired.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", default)]
 pub struct MatrixWiring {
     pub start: Corner,
@@ -47,6 +50,7 @@ impl Default for MatrixWiring {
 
 /// How the pixels run along each strand of a sphere or cube (xLights' strand styles).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum StrandStyle {
     /// Every other strand runs back the other way.
@@ -60,6 +64,7 @@ pub enum StrandStyle {
 
 /// The corner of a cube its first pixel is at (xLights' cube `Start`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum CubeStart {
     #[default]
@@ -75,6 +80,7 @@ pub enum CubeStart {
 
 /// Which way a cube's strands run and how they stack into layers (xLights' cube `Style`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum CubeStyle {
     #[default]
@@ -88,12 +94,19 @@ pub enum CubeStyle {
 
 /// One stretch of a poly line, from one of its points to the next.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct PolySegment {
     /// Pixels on this stretch (unused while the line spreads its pixels evenly).
     pub nodes: u32,
     /// The two control points of a curved stretch (a cubic Bézier from this point to the next,
     /// as xLights draws curves), in prop-local coordinates; `None` for a straight stretch.
+    #[cfg_attr(
+        feature = "schema",
+        schemars(
+            description = "A curved stretch's two Bézier control points (prop-local); absent for a straight one."
+        )
+    )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub curve: Option<[Vec3; 2]>,
 }
@@ -114,6 +127,7 @@ fn full_turn() -> f32 {
 
 /// The shape of a tree (xLights' Tree 360 / Flat / Ribbon).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum TreeStyle {
     #[default]
@@ -132,6 +146,7 @@ fn north() -> f32 {
 
 /// Parametric prop shapes. Positions are produced by `pf-geometry`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Generator {
     /// Straight run of evenly spaced pixels along X, centered on the origin.
@@ -155,6 +170,12 @@ pub enum Generator {
     /// edges, as xLights does). A flat tree fans its strings out in the front view, from
     /// `base_radius` either side at the bottom to `top_radius` at the top; a ribbon tree does the
     /// same with each string the same length, so the slanted ones end lower.
+    #[cfg_attr(
+        feature = "schema",
+        schemars(
+            description = "Strings running bottom to top; origin at the base center. A round tree is a cone of strings spread round `degrees` from `startAngle`; a flat one fans them out across the front; a ribbon is flat with every string the same length."
+        )
+    )]
     Tree {
         strings: u32,
         nodes_per_string: u32,
@@ -182,6 +203,12 @@ pub enum Generator {
     /// pixel count, spaced evenly with half a gap at each end (so the pixels stay evenly spaced
     /// across a corner), unless `spread_nodes` is set: then that many pixels are spread evenly
     /// along the whole line, the first on the first point, as xLights' "auto distribute" does.
+    #[cfg_attr(
+        feature = "schema",
+        schemars(
+            description = "A line through `vertices` (prop-local) that can bend and curve, pixels running from the first to the last. `segments` has one entry per stretch (one fewer than the vertices) with its pixel count; `spreadNodes`, when set, spreads that many pixels evenly along the whole line instead."
+        )
+    )]
     PolyLine {
         vertices: Vec<Vec3>,
         /// One per stretch: `vertices.len() - 1` of them.
@@ -195,6 +222,12 @@ pub enum Generator {
     /// whole row is scaled so it is `width` wide; the origin is midway between the two ends, at
     /// the foot of the canes. Pixels run cane by cane, left to right, each up its stick and then
     /// round its hook.
+    #[cfg_attr(
+        feature = "schema",
+        schemars(
+            description = "A row of candy canes `width` wide, pixels running cane by cane from the left, each up its stick and then round its hook. Origin midway along the row, at the canes' feet."
+        )
+    )]
     CandyCanes {
         canes: u32,
         nodes_per_cane: u32,
@@ -220,6 +253,10 @@ pub enum Generator {
         skew_deg: f32,
         /// The first cane is the rightmost (xLights' `Dir="R"`); pixels still run up each stick
         /// then round its hook.
+        #[cfg_attr(
+            feature = "schema",
+            schemars(description = "The first cane is the rightmost.")
+        )]
         #[serde(default)]
         start_right: bool,
     },
@@ -227,6 +264,12 @@ pub enum Generator {
     /// drops in turn, the drop sizes repeating `drops` from its start (a drop of 0 leaves a gap),
     /// each drop one column right of the last; the columns are spread evenly over `width`. The
     /// origin is midway along the line, and the drops hang below it.
+    #[cfg_attr(
+        feature = "schema",
+        schemars(
+            description = "Icicles hanging below a line `width` wide: each string's pixels fill drops of the sizes in `drops` (repeating), one column apart. Origin midway along the line."
+        )
+    )]
     Icicles {
         strings: u32,
         lights_per_string: u32,
@@ -238,6 +281,12 @@ pub enum Generator {
         /// over one less than the longest drop apart; for drops of one, this is the spacing).
         /// Negative makes the drops stand up. From xLights' `Height`, in layout units:
         /// `-Height * length / (columns - 1) * (longest drop - 1)`.
+        #[cfg_attr(
+            feature = "schema",
+            schemars(
+                description = "How far below the line the longest drop hangs; negative makes the drops stand up."
+            )
+        )]
         drop_height: f32,
         /// Each drop's pixels go down every other spot and come back up the ones between.
         #[serde(default)]
@@ -249,6 +298,12 @@ pub enum Generator {
     /// a side, the sides run from the bottom corner to the top one and the top and bottom pixels
     /// sit between them; starting along the top or bottom, those take the corners instead.
     /// `width` is between the two sides and `height` between the top and bottom; centered.
+    #[cfg_attr(
+        feature = "schema",
+        schemars(
+            description = "One string once round a window frame `width` by `height` from the `start` corner, with `top`, `sides` (each) and `bottom` pixels along its edges, clockwise unless `counterClockwise`. Centered."
+        )
+    )]
     WindowFrame {
         top: u32,
         sides: u32,
@@ -264,6 +319,12 @@ pub enum Generator {
     /// A wreath (xLights' Wreath): a ring like a circle, but each pixel rounded to the nearest
     /// point of a square grid `radius / (nodes / 2)` apart, as xLights places them. Starts at the
     /// top (or bottom) and runs clockwise (or counter-clockwise); centered.
+    #[cfg_attr(
+        feature = "schema",
+        schemars(
+            description = "A ring of pixels on a square grid, from the top (or bottom) clockwise (or counter-clockwise). Centered."
+        )
+    )]
     Wreath {
         nodes: u32,
         radius: f32,
@@ -277,6 +338,12 @@ pub enum Generator {
     /// `start_angle`) and the rest spread counter-clockwise (or clockwise) over `arc` degrees.
     /// The hollow middle is `hollow` percent of twice an arm's pixels, in steps; `radius` is
     /// from the middle to the outermost pixel. Centered.
+    #[cfg_attr(
+        feature = "schema",
+        schemars(
+            description = "Straight arms radiating from a hollow middle (`hollow` percent), the first pointing down (turned by `startAngle`) and the rest spread over `arc` degrees; `radius` reaches the outermost pixel. Centered."
+        )
+    )]
     Spinner {
         arms: u32,
         nodes_per_arm: u32,
@@ -287,6 +354,10 @@ pub enum Generator {
         start_angle: f32,
         /// Degrees the arms are spread over: 360 is all the way round (the last arm a step short
         /// of the first); less than that puts the last arm at the end of the arc.
+        #[cfg_attr(
+            feature = "schema",
+            schemars(description = "Degrees the arms are spread over (360 is all the way round).")
+        )]
         #[serde(default = "full_turn")]
         arc: f32,
         /// Every other arm runs the other way along itself.
@@ -294,6 +365,12 @@ pub enum Generator {
         zig_zag: bool,
         /// Each arm's pixels go out every other spot and come back in on the ones between
         /// (starting in the middle, whichever end `from_center` picks).
+        #[cfg_attr(
+            feature = "schema",
+            schemars(
+                description = "Each arm's pixels go out on every other spot and come back on the rest."
+            )
+        )]
         #[serde(default)]
         alternate: bool,
         /// Each arm's pixels start in the middle instead of at its tip.
@@ -309,6 +386,12 @@ pub enum Generator {
     /// round `degrees` of the globe, `radius` from its middle. The first column is at the back,
     /// the next ones round the left side to the front (round the right side when `start` is on
     /// the right); a `start` at the top runs the first strand down from the north. Centered.
+    #[cfg_attr(
+        feature = "schema",
+        schemars(
+            description = "A globe of `columns` strands of `rows` pixels each, running south to north between `startLatitude` and `endLatitude`, spread round `degrees` of it. Centered."
+        )
+    )]
     Sphere {
         columns: u32,
         rows: u32,
@@ -404,6 +487,7 @@ impl Generator {
 
 /// Where measured positions came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum Provenance {
     CameraMap,
@@ -413,6 +497,7 @@ pub enum Provenance {
 
 /// The source of a prop's pixel positions.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "source", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ShapeSource {
     /// Positions computed from parameters.

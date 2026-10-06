@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 /// One change to the show. Batches of edits are applied atomically by [`crate::Engine::apply`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Edit {
     RenameShow {

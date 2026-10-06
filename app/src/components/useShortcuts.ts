@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useAssistant } from "../state/assistant";
 import { useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
 
@@ -15,6 +16,7 @@ export function useShortcuts() {
       const seq = state.screen === "sequence" && useSequencer.getState().doc ? useSequencer.getState() : null;
       const handlers: Record<string, () => unknown> = {
         k: () => state.setPaletteOpen(!state.paletteOpen),
+        l: () => useAssistant.getState().toggle(),
         s: () => (seq ? (e.shiftKey ? seq.saveAs() : seq.save()) : e.shiftKey ? state.saveAs() : state.save()),
         o: () => state.openShow(),
         n: () => state.newShow(),

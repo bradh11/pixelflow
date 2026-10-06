@@ -12,7 +12,7 @@ use tauri::ipc::Response;
 use tauri_plugin_dialog::DialogExt;
 
 /// Image files the layout can show behind the props.
-const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "bmp"];
+pub(crate) const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "bmp"];
 /// Larger photos are refused rather than loaded into the window.
 const MAX_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
 
@@ -39,7 +39,7 @@ impl PickedPhotos {
 pub(crate) async fn pick_image<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
-) -> Reply<Option<PathBuf>> {
+) -> Reply<Option<String>> {
     let dialog = app.dialog().clone();
     let picked = tauri::async_runtime::spawn_blocking(move || {
         dialog
@@ -53,8 +53,9 @@ pub(crate) async fn pick_image<R: tauri::Runtime>(
     let Some(path) = picked.and_then(|p| p.into_path().ok()) else {
         return Ok(None);
     };
-    state.photos.add(path.clone());
-    Ok(Some(path))
+    let text = pf_model::path_to_text(&path);
+    state.photos.add(path);
+    Ok(Some(text))
 }
 
 /// The bytes of a background photo, sent raw so the window can show it without any file access
@@ -62,7 +63,8 @@ pub(crate) async fn pick_image<R: tauri::Runtime>(
 /// and only if they really are image files. A path the window put in the show with an edit is
 /// not enough on its own.
 #[tauri::command]
-pub(crate) async fn read_image(state: State<'_, AppState>, path: PathBuf) -> Reply<Response> {
+pub(crate) async fn read_image(state: State<'_, AppState>, path: String) -> Reply<Response> {
+    let path = pf_model::path_from_text(&path);
     if !state.photos.contains(&path) {
         return Err(
             "PixelFlow can only show a photo you picked. Choose it with Choose photo… or Replace…".into(),

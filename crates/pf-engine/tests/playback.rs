@@ -197,11 +197,9 @@ fn explains_when_nothing_can_play() {
     let missing = engine
         .start_playback(&dir.path().join("nope.fseq"), 0)
         .unwrap_err();
-    assert!(
-        missing
-            .to_string()
-            .starts_with("Could not read the sequence file"),
-        "{missing}"
+    assert_eq!(
+        missing.to_string(),
+        "nope.fseq isn't where it was. Use Find again or Locate… to show PixelFlow where it is now."
     );
 }
 
@@ -811,4 +809,14 @@ fn a_sequence_entry_finds_its_music() {
         Some(song.display().to_string())
     );
     assert!(pf_engine::sequence_entry_for(&dir.path().join("nope.fseq")).is_err());
+}
+
+#[test]
+fn looping_an_authored_sequence_does_not_loop_a_rendered_file() {
+    let (mut engine, _recorded, dir) = engine_with_show(true);
+    engine.set_sequence_doc_loop(true);
+    let path = write_sequence(dir.path());
+    let status = engine.start_playback(&path, 0).unwrap();
+    assert!(!status.looping);
+    wait_until(|| engine.playback_status().unwrap().state == "ended");
 }

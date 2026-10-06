@@ -1,7 +1,8 @@
-import { AlertTriangle, AudioLines, CheckCircle2, Download, FileInput, FilePlus, FolderOpen, History, Info, ListMusic, ListPlus, Magnet, Pause, Play, Save, Send, Square, X } from "lucide-react";
+import { AlertTriangle, AudioLines, CheckCircle2, Download, FileInput, FilePlus, FolderOpen, History, Info, ListMusic, ListPlus, Magnet, Pause, Play, Repeat, Save, Send, Square, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { errorMessage } from "../api/backend";
+import { MissingFileNotice } from "../components/MissingFiles";
 import { EffectPalette } from "../components/sequencer/EffectPalette";
 import { EffectSettings } from "../components/sequencer/EffectSettings";
 import { SequencePreview } from "../components/sequencer/SequencePreview";
@@ -9,7 +10,7 @@ import { AddTimingTrackDialog } from "../components/sequencer/TimingDialogs";
 import { AddRowMenu, Timeline } from "../components/sequencer/Timeline";
 import { useSequenceKeys } from "../components/sequencer/useSequenceKeys";
 import { Button, EmptyState, Input } from "../components/ui";
-import { ago, fileName } from "../lib/format";
+import { ago, fileName, shownPath } from "../lib/format";
 import { formatTime } from "../lib/timelineMath";
 import { useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
@@ -91,6 +92,7 @@ export function SequenceScreen() {
     <div className="flex h-full min-h-0 flex-col">
       <Toolbar onNew={() => guard(() => setCreating(true))} onOpen={() => guard(() => void openFile())} />
       <NoticeLine />
+      {doc && <MissingMusicLine />}
       <RecoveryOffer onRecover={(id) => guard(() => void useSequencer.getState().recover(id))} />
       {doc ? <Workspace /> : <Start onNew={() => setCreating(true)} onOpen={openFile} />}
       {creating && <NewSequenceDialog onClose={() => setCreating(false)} />}
@@ -201,12 +203,28 @@ function Workspace() {
   );
 }
 
-function ToolButton({ label, onClick, disabled, children, pressed }: { label: string; onClick: () => void; disabled?: boolean; pressed?: boolean; children: React.ReactNode }) {
+function ToolButton({
+  label,
+  shortcut,
+  onClick,
+  disabled,
+  children,
+  pressed,
+}: {
+  label: string;
+  /** The key that does the same, shown in the tooltip. */
+  shortcut?: string;
+  onClick: () => void;
+  disabled?: boolean;
+  pressed?: boolean;
+  children: React.ReactNode;
+}) {
   return (
     <button
       type="button"
       aria-label={label}
-      title={label}
+      title={shortcut ? `${label} (${shortcut})` : label}
+      aria-keyshortcuts={shortcut}
       aria-pressed={pressed}
       onClick={onClick}
       disabled={disabled}
@@ -234,6 +252,8 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
       dirty: st.dirty,
       playing: st.status?.state === "playing",
       active: st.status !== null,
+      atStart: st.playheadMs === 0,
+      looping: st.looping,
       detecting: st.detecting,
       snapping: st.snapping,
       sendToControllers: st.sendToControllers,
@@ -258,7 +278,7 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
       </ToolButton>
       {s.name !== null && (
         <>
-          <span className="mx-1 max-w-48 truncate font-medium" title={s.path ?? undefined}>
+          <span className="mx-1 max-w-48 truncate font-medium" title={s.path ? shownPath(s.path) : undefined}>
             {s.name}
             {s.dirty && (
               <>
@@ -273,8 +293,12 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
           <ToolButton label={s.playing ? "Pause" : "Play"} onClick={() => void (s.playing ? act().pause() : act().play())}>
             {s.playing ? <Pause size={16} /> : <Play size={16} />}
           </ToolButton>
-          <ToolButton label="Stop" onClick={() => void act().stop()} disabled={!s.active}>
+          {/* Stop leaves the playhead where it is; pressed again, it goes back to the start. */}
+          <ToolButton label={s.active || s.atStart ? "Stop" : "Back to the start"} onClick={() => void act().stop()} disabled={!s.active && s.atStart}>
             <Square size={15} />
+          </ToolButton>
+          <ToolButton label="Loop playback" shortcut="L" pressed={s.looping} onClick={() => act().setLooping(!s.looping)}>
+            <Repeat size={16} />
           </ToolButton>
           <PlayheadTime durationMs={s.durationMs} />
           <span className="mx-1 h-5 w-px bg-neutral-200 dark:bg-neutral-800" />
@@ -451,6 +475,24 @@ function NoticeLine() {
   );
 }
 
+/** The sequence's music, when it isn't where the sequence says: find it again or locate it. */
+function MissingMusicLine() {
+  const audio = useSequencer((s) => s.doc?.audio ?? null);
+  const path = useSequencer((s) => s.path);
+  const docKey = useSequencer((s) => s.docKey);
+  const missing = useSequencer((s) => s.musicMissing);
+  const { checkMusic, findMusic, locateMusic } = useSequencer.getState();
+  useEffect(() => {
+    void checkMusic();
+  }, [audio, path, docKey, checkMusic]);
+  if (!missing) return null;
+  return (
+    <div className="border-b border-amber-200 px-3 py-2 dark:border-amber-900/70">
+      <MissingFileNotice missing={missing} onFind={() => void findMusic()} onLocate={() => void locateMusic()} />
+    </div>
+  );
+}
+
 /** Unsaved sequences PixelFlow kept when it last closed, to open again or throw away. */
 function RecoveryOffer({ onRecover }: { onRecover: (id: string) => void }) {
   const recoveries = useSequencer((s) => s.recoveries);
@@ -534,7 +576,7 @@ function Start({ onNew, onOpen }: { onNew: () => void; onOpen: (path?: string) =
             <ul className="mt-2 flex flex-col">
               {recent.map((path) => (
                 <li key={path}>
-                  <button type="button" className="w-full truncate rounded px-2 py-1.5 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800" title={path} onClick={() => void onOpen(path)}>
+                  <button type="button" className="w-full truncate rounded px-2 py-1.5 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800" title={shownPath(path)} onClick={() => void onOpen(path)}>
                     {fileName(path)}
                   </button>
                 </li>
@@ -603,7 +645,7 @@ function NewSequenceDialog({ onClose }: { onClose: () => void }) {
             {reading ? "Reading the music…" : music ? "Choose other music…" : "Choose music…"}
           </Button>
           {music && (
-            <span className="truncate text-neutral-600 dark:text-neutral-300" title={music.path}>
+            <span className="truncate text-neutral-600 dark:text-neutral-300" title={shownPath(music.path)}>
               {fileName(music.path)} · {formatTime(music.durationMs, 1000)}
             </span>
           )}

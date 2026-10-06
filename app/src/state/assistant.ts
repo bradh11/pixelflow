@@ -1,0 +1,295 @@
+// The assistant panel's state: the chat as shown, the proposal under review, and which provider
+// and model to use. The chat itself (and the draft) live in the app; API keys never pass through
+// here (Settings sends a typed key straight to the app and forgets it).
+
+import { create } from "zustand";
+import { type AssistantApi, type ProposalView, type ProviderId, providerName } from "../api/assistant";
+import { errorMessage } from "../api/backend";
+import type { PreviewSet } from "../api/types";
+import { useLayoutEditor } from "./layoutEditor";
+import { useSequencer } from "./sequencer";
+import { useApp } from "./store";
+
+const SETTINGS_KEY = "pixelflow.ai";
+
+/** Provider and model per provider: not secrets, so kept in local storage. */
+interface SavedSettings {
+  provider: ProviderId;
+  models: Partial<Record<ProviderId, string>>;
+}
+
+function loadSettings(): SavedSettings {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "{}") as Partial<SavedSettings>;
+    const provider = saved.provider === "openai" ? "openai" : "anthropic";
+    const models: SavedSettings["models"] = {};
+    for (const id of ["anthropic", "openai"] as const) {
+      const model = saved.models?.[id];
+      if (typeof model === "string" && model.length > 0 && model.length <= 200) models[id] = model;
+    }
+    return { provider, models };
+  } catch {
+    return { provider: "anthropic", models: {} };
+  }
+}
+
+function saveSettings(settings: SavedSettings) {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  } catch {
+    // Storage unavailable; the choice still holds for this session.
+  }
+}
+
+/** One line of the chat as shown. */
+export interface ChatItem {
+  id: number;
+  /** "proposal" marks where a proposal card sits in the chat. */
+  role: "user" | "assistant" | "error" | "proposal";
+  text: string;
+  proposalId?: string;
+}
+
+/** "dropped": the show (or sequence) it was made for was replaced, so it no longer applies. */
+export type ProposalStatus = "open" | "applied" | "discarded" | "dropped";
+
+interface AssistantState {
+  api: AssistantApi | null;
+  open: boolean;
+  settingsOpen: boolean;
+  provider: ProviderId;
+  /** The model picked for each provider. */
+  models: Partial<Record<ProviderId, string>>;
+  /** Whether the current provider has a key (null until checked). */
+  hasKey: boolean | null;
+  items: ChatItem[];
+  streaming: boolean;
+  /** What the assistant is doing right now ("Looking at your props"). */
+  activity: string | null;
+  proposal: ProposalView | null;
+  proposalStatus: ProposalStatus;
+  /** The draft's pixels while previewing it. */
+  preview: PreviewSet | null;
+  busy: boolean;
+
+  connect(api: AssistantApi): Promise<void>;
+  setOpen(open: boolean): void;
+  toggle(): void;
+  setSettingsOpen(open: boolean): void;
+  setProvider(provider: ProviderId): Promise<void>;
+  setModel(model: string): void;
+  /** Checks whether the current provider has a key (after Settings changes it). */
+  refreshKey(): Promise<void>;
+  send(text: string): Promise<void>;
+  stop(): Promise<void>;
+  newChat(): Promise<void>;
+  apply(): Promise<boolean>;
+  discard(): Promise<void>;
+  showPreview(): Promise<void>;
+  hidePreview(): void;
+}
+
+let nextItem = 1;
+
+const saved = loadSettings();
+
+export const useAssistant = create<AssistantState>((set, get) => {
+  /** Adds to the last assistant line, or starts one. */
+  function appendText(text: string) {
+    const items = get().items;
+    const last = items[items.length - 1];
+    if (last?.role === "assistant") set({ items: [...items.slice(0, -1), { ...last, text: last.text + text }] });
+    else set({ items: [...items, { id: nextItem++, role: "assistant", text }] });
+  }
+
+  function add(role: ChatItem["role"], text: string, proposalId?: string) {
+    set({ items: [...get().items, { id: nextItem++, role, text, proposalId }] });
+  }
+
+  /** What the user is looking at, for the assistant. */
+  function context() {
+    const app = useApp.getState();
+    const sequencer = useSequencer.getState();
+    const onSequence = app.screen === "sequence" && sequencer.doc !== null;
+    return {
+      screen: app.screen,
+      selectedProps: useLayoutEditor.getState().selected,
+      selectedEffects: onSequence ? sequencer.selection : [],
+      playheadMs: onSequence ? sequencer.playheadMs : null,
+    };
+  }
+
+  return {
+    api: null,
+    open: false,
+    settingsOpen: false,
+    provider: saved.provider,
+    models: saved.models,
+    hasKey: null,
+    items: [],
+    streaming: false,
+    activity: null,
+    proposal: null,
+    proposalStatus: "open",
+    preview: null,
+    busy: false,
+
+    async connect(api) {
+      set({ api });
+      await get().refreshKey();
+    },
+
+    setOpen: (open) => set({ open }),
+    toggle: () => set({ open: !get().open }),
+    setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
+
+    async setProvider(provider) {
+      set({ provider, hasKey: null });
+      saveSettings({ provider, models: get().models });
+      await get().refreshKey();
+    },
+
+    setModel(model) {
+      const models = { ...get().models, [get().provider]: model };
+      set({ models });
+      saveSettings({ provider: get().provider, models });
+    },
+
+    async refreshKey() {
+      const { api, provider } = get();
+      if (!api) return;
+      try {
+        const hasKey = await api.hasApiKey(provider);
+        if (get().provider === provider) set({ hasKey });
+      } catch (e) {
+        set({ hasKey: false });
+        add("error", errorMessage(e));
+      }
+    },
+
+    async send(text) {
+      const { api, provider, models, streaming } = get();
+      const message = text.trim();
+      if (!api || streaming || !message) return;
+      const model = models[provider];
+      add("user", message);
+      if (!model) {
+        add("error", `Pick a ${providerName(provider)} model in Settings → AI first.`);
+        return;
+      }
+      set({ streaming: true, activity: "Thinking" });
+      let streamed = false;
+      try {
+        const reply = await api.send(provider, model, message, context(), (event) => {
+          switch (event.kind) {
+            case "text":
+              streamed = true;
+              set({ activity: null });
+              appendText(event.text);
+              break;
+            case "activity":
+              set({ activity: event.label });
+              break;
+            case "retrying":
+              set({ activity: `${providerName(provider)} is busy; trying again in ${event.seconds} s` });
+              break;
+            case "proposal":
+              set({ proposal: event.proposal, proposalStatus: "open", preview: null });
+              add("proposal", "", event.proposal.id);
+              break;
+          }
+        });
+        if (reply.proposal && get().proposal?.id !== reply.proposal.id) {
+          set({ proposal: reply.proposal, proposalStatus: "open", preview: null });
+          add("proposal", "", reply.proposal.id);
+        }
+        if (reply.text && !streamed) add("assistant", reply.text);
+      } catch (e) {
+        add("error", errorMessage(e));
+      } finally {
+        set({ streaming: false, activity: null });
+      }
+    },
+
+    async stop() {
+      await get().api?.stop();
+    },
+
+    async newChat() {
+      const { api, streaming } = get();
+      if (!api || streaming) return;
+      try {
+        await api.newChat();
+        set({ items: [], proposal: null, proposalStatus: "open", preview: null });
+      } catch (e) {
+        add("error", errorMessage(e));
+      }
+    },
+
+    async apply() {
+      const { api, proposal } = get();
+      if (!api || !proposal || get().busy) return false;
+      set({ busy: true });
+      let applied = false;
+      // In the show's edit queue, so it lands in order with the user's own edits.
+      const ok = await useApp.getState().run(async (backend) => {
+        const result = await api.apply(proposal.id);
+        applied = true;
+        return result.snapshot ?? (await backend.getSnapshot());
+      });
+      if (applied) {
+        set({ proposalStatus: "applied", preview: null });
+        if (proposal.changesSequence) await useSequencer.getState().refreshIssues();
+      } else if (!ok) {
+        add("error", useApp.getState().error ?? "The proposal couldn't be applied.");
+        useApp.setState({ error: null });
+      }
+      set({ busy: false });
+      return applied;
+    },
+
+    async discard() {
+      const { api, proposal } = get();
+      if (!api || !proposal) return;
+      try {
+        await api.discard(proposal.id);
+        set({ proposalStatus: "discarded", preview: null });
+      } catch (e) {
+        add("error", errorMessage(e));
+      }
+    },
+
+    async showPreview() {
+      const { api, proposal } = get();
+      if (!api || !proposal) return;
+      try {
+        set({ preview: await api.preview(proposal.id) });
+      } catch (e) {
+        add("error", errorMessage(e));
+      }
+    },
+
+    hidePreview: () => set({ preview: null }),
+  };
+});
+
+/** When the show or the open sequence is replaced, an open proposal made for the old one is dropped. */
+function dropStaleProposal() {
+  const { api, proposal, proposalStatus, streaming } = useAssistant.getState();
+  if (!api || !proposal || proposalStatus !== "open" || streaming) return;
+  void api.sync().then(
+    (dropped) => {
+      if (dropped && useAssistant.getState().proposal?.id === proposal.id) {
+        useAssistant.setState({ proposalStatus: "dropped", preview: null });
+      }
+    },
+    () => undefined,
+  );
+}
+
+useApp.subscribe((state, before) => {
+  if (state.snapshot !== before.snapshot) dropStaleProposal();
+});
+useSequencer.subscribe((state, before) => {
+  if (state.docKey !== before.docKey) dropStaleProposal();
+});

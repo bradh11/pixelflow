@@ -30,7 +30,7 @@ type Migration = fn(Value) -> Result<Value, ModelError>;
 
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
 const MIGRATIONS: &[Migration] = &[
-    v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8,
+    v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9,
 ];
 
 /// Version 2 only adds the `falcon` adapter value, so version 1 documents are already valid.
@@ -94,8 +94,14 @@ fn v6_to_v7(mut doc: Value) -> Result<Value, ModelError> {
     Ok(doc)
 }
 
-/// Version 8 only adds new prop shapes, so version 7 documents are already valid.
+/// Version 8 lets file paths be relative to the show file (and keep bytes that aren't UTF-8).
+/// Version 7 files hold full paths, which version 8 reads the same way, so they're already valid.
 fn v7_to_v8(doc: Value) -> Result<Value, ModelError> {
+    Ok(doc)
+}
+
+/// Version 9 only adds new prop shapes, so version 8 documents are already valid.
+fn v8_to_v9(doc: Value) -> Result<Value, ModelError> {
     Ok(doc)
 }
 
@@ -124,7 +130,35 @@ const _: () = assert!(
 
 /// Parses a show file, upgrading older schema versions to the current one.
 pub fn show_from_json(text: &str) -> Result<Show, ModelError> {
+    show_from_value(serde_json::from_str(text)?)
+}
+
+/// Parses a show file and the folder it says it was saved in (`savedIn`, path text), when it
+/// says. Relative file paths in the show start in that folder if they aren't found next to the
+/// file now: the show file may have moved on its own.
+pub fn show_file_from_json(text: &str) -> Result<(Show, Option<String>), ModelError> {
     let mut doc: Value = serde_json::from_str(text)?;
+    let saved_in = doc
+        .as_object_mut()
+        .and_then(|o| o.remove("savedIn"))
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .filter(|s| !s.is_empty());
+    Ok((show_from_value(doc)?, saved_in))
+}
+
+/// A show file: the show, then the folder it is being saved in (`savedIn`, path text), if given.
+pub fn show_file_to_json(show: &Show, saved_in: Option<&str>) -> Result<String, ModelError> {
+    #[derive(serde::Serialize)]
+    struct ShowFile<'a> {
+        #[serde(flatten)]
+        show: &'a Show,
+        #[serde(rename = "savedIn", skip_serializing_if = "Option::is_none")]
+        saved_in: Option<&'a str>,
+    }
+    Ok(serde_json::to_string_pretty(&ShowFile { show, saved_in })?)
+}
+
+fn show_from_value(mut doc: Value) -> Result<Show, ModelError> {
     let raw = doc.get("schemaVersion").ok_or(ModelError::MissingSchemaVersion)?;
     let version = match raw.as_u64() {
         Some(v) if v > 0 => v,
@@ -214,19 +248,73 @@ mod tests {
     }
 
     #[test]
-    fn version_7_files_open_and_poly_lines_round_trip() {
-        let v7 = r#"{ "schemaVersion": 7, "name": "Old", "props": [] }"#;
-        assert_eq!(show_from_json(v7).unwrap().schema_version, 8);
-        let mut show = Show::new("Bends");
-        show.props.push(Prop::new(
-            "Roof",
-            ShapeSource::Generator(Generator::PolyLine {
-                vertices: vec![crate::Vec3::ZERO, crate::Vec3::new(2.0, 1.0, 0.0)],
-                segments: vec![crate::PolySegment::straight(20)],
-                spread_nodes: None,
-            }),
-        ));
-        let back = show_from_json(&show_to_json(&show).unwrap()).unwrap();
+    fn version_7_and_8_files_open_unchanged_and_save_as_version_9() {
+        // A show with no new prop shapes, saved now, then labelled as written by older versions:
+        // 7 (full paths) and 8 (relative paths and `savedIn`, which still has no new shapes).
+        let mut show = sample_show();
+        show.sequences
+            .push(crate::SequenceEntry::new("Medley", "Medley.fseq"));
+        let text = show_file_to_json(&show, Some("/Shows/Haas")).unwrap();
+        assert!(text.contains("\"schemaVersion\": 9"), "written as version 9");
+        for version in [7, 8, 9] {
+            let old = text.replace("\"schemaVersion\": 9", &format!("\"schemaVersion\": {version}"));
+            let (read, saved_in) = show_file_from_json(&old).unwrap();
+            assert_eq!(read, show, "version {version} reads as it was");
+            assert_eq!(read.schema_version, 9);
+            assert_eq!(saved_in.as_deref(), Some("/Shows/Haas"), "version {version}");
+            let saved: Value = serde_json::from_str(&show_to_json(&read).unwrap()).unwrap();
+            assert_eq!(saved["schemaVersion"], 9);
+        }
+    }
+
+    #[test]
+    fn version_9_files_keep_the_new_prop_shapes() {
+        let mut show = Show::new("Shapes");
+        for (name, shape) in [
+            (
+                "Roof",
+                Generator::PolyLine {
+                    vertices: vec![crate::Vec3::ZERO, crate::Vec3::new(2.0, 1.0, 0.0)],
+                    segments: vec![crate::PolySegment::straight(20)],
+                    spread_nodes: None,
+                },
+            ),
+            (
+                "Canes",
+                Generator::CandyCanes {
+                    canes: 3,
+                    nodes_per_cane: 18,
+                    width: 3.0,
+                    height: 1.0,
+                    cane_height: 1.0,
+                    reverse: false,
+                    sticks: false,
+                    alternate_nodes: false,
+                    skew_deg: 0.0,
+                    start_right: false,
+                },
+            ),
+            (
+                "Cube",
+                Generator::Cube {
+                    width: 3,
+                    height: 3,
+                    depth: 3,
+                    spacing: 0.2,
+                    start: crate::CubeStart::BackTopLeft,
+                    style: crate::CubeStyle::StackedFrontBack,
+                    strand_style: crate::StrandStyle::NoZigZag,
+                    strand_per_layer: true,
+                },
+            ),
+        ] {
+            show.props.push(Prop::new(name, ShapeSource::Generator(shape)));
+        }
+        let text = show_to_json(&show).unwrap();
+        let saved: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(saved["schemaVersion"], 9);
+        assert_eq!(saved["props"][0]["shape"]["type"], "polyLine");
+        let back = show_from_json(&text).unwrap();
         assert_eq!(back.props, show.props);
     }
 
@@ -316,6 +404,45 @@ mod tests {
             show_from_json(sparse).unwrap().house_model,
             Some(crate::HouseModel::new("/h.obj"))
         );
+    }
+
+    #[test]
+    fn show_files_remember_the_folder_they_were_saved_in() {
+        let show = sample_show();
+        let text = show_file_to_json(&show, Some("/Shows/Haas 2024")).unwrap();
+        let saved: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(saved["savedIn"], "/Shows/Haas 2024");
+        assert!(
+            text.find("\"schemaVersion\"").unwrap() < text.find("\"savedIn\"").unwrap(),
+            "the show reads first"
+        );
+        let (read, saved_in) = show_file_from_json(&text).unwrap();
+        assert_eq!(read, show);
+        assert_eq!(saved_in.as_deref(), Some("/Shows/Haas 2024"));
+
+        // Files without it (version 7, or written without a folder) read as before.
+        let plain = show_file_to_json(&show, None).unwrap();
+        assert!(!plain.contains("savedIn"));
+        assert_eq!(show_file_from_json(&plain).unwrap(), (show.clone(), None));
+        // A savedIn that isn't text is ignored rather than refusing the show.
+        let odd = text.replace("\"/Shows/Haas 2024\"", "5");
+        assert_eq!(show_file_from_json(&odd).unwrap(), (show, None));
+    }
+
+    #[test]
+    fn version_7_full_paths_read_as_they_are() {
+        let v7 = r#"{ "schemaVersion": 7, "name": "Old",
+            "sequences": [ { "id": "77777777-0000-4000-8000-000000000001", "name": "Medley",
+              "path": "/Shows/Medley.fseq", "audio": "/Shows/Medley.mp3" } ],
+            "background": { "path": "/Shows/house.jpg", "x": 0, "y": 0, "width": 10 } }"#;
+        let show = show_from_json(v7).unwrap();
+        assert_eq!(show.schema_version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(show.sequences[0].path, "/Shows/Medley.fseq");
+        assert_eq!(show.sequences[0].audio.as_deref(), Some("/Shows/Medley.mp3"));
+        assert_eq!(show.background.unwrap().path, "/Shows/house.jpg");
+        let saved: Value =
+            serde_json::from_str(&show_to_json(&show_from_json(v7).unwrap()).unwrap()).unwrap();
+        assert_eq!(saved["schemaVersion"], 9);
     }
 
     #[test]

@@ -197,11 +197,9 @@ fn explains_when_nothing_can_play() {
     let missing = engine
         .start_playback(&dir.path().join("nope.fseq"), 0)
         .unwrap_err();
-    assert!(
-        missing
-            .to_string()
-            .starts_with("Could not read the sequence file"),
-        "{missing}"
+    assert_eq!(
+        missing.to_string(),
+        "nope.fseq isn't where it was. Use Find again or Locate… to show PixelFlow where it is now."
     );
 }
 

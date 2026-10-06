@@ -7,7 +7,9 @@
 import catalogJson from "./effectCatalog.json";
 import type { MemoryBackend } from "./memory";
 import { renderSequenceFrame } from "./memoryRender";
-import type { PlaybackStatus, SequenceImportSummary, ShowSnapshot } from "./types";
+import type { MissingFile, PlaybackStatus, SequenceImportSummary, ShowSnapshot } from "./types";
+import { fileName } from "../lib/format";
+import { missingFile, resolveAudio } from "../lib/showFiles";
 import {
   noChanges,
   type Analysis,
@@ -27,7 +29,7 @@ import {
   type TimingImported,
   type TimingTrack,
 } from "./sequence";
-import type { SequencerApi } from "./sequencer";
+import type { MusicFound, SequencerApi } from "./sequencer";
 import * as marks from "./timingMarks";
 import { formatMs } from "./timingMarks";
 
@@ -747,6 +749,39 @@ export class MemorySequencer implements SequencerApi {
 
   async pickXlightsSequencePath() {
     return this.nextXlightsSequencePath;
+  }
+
+  /** The open sequence's music file (relative music next to the document), like the engine. */
+  private musicPath(): string | null {
+    return resolveAudio(this.doc?.audio ?? null, this.path);
+  }
+
+  async sequenceMusicMissing(): Promise<MissingFile | null> {
+    const music = this.musicPath();
+    if (!music || !this.backend?.missingPaths.has(music)) return null;
+    return missingFile({ kind: "sequenceDocMusic" }, music, `Music for ${this.open_().name.trim() || "this sequence"}`);
+  }
+
+  private setMusic(audio: string) {
+    const doc = this.open_();
+    return this.editSequence([{ type: "updateInfo", name: doc.name, audio, durationMs: doc.durationMs, frameMs: doc.frameMs }]);
+  }
+
+  async findSequenceMusic(): Promise<MusicFound> {
+    this.calls.push("findSequenceMusic");
+    const missing = await this.sequenceMusicMissing();
+    const to = missing ? this.backend?.findable.get(missing.path) : undefined;
+    if (!missing || !to) return { found: null, result: null, gaveUp: false };
+    const result = await this.setMusic(to);
+    return { found: { file: missing.file, name: missing.name, from: missing.path, to, also: [] }, result, gaveUp: false };
+  }
+
+  async locateSequenceMusic() {
+    this.calls.push("locateSequenceMusic");
+    const to = this.backend?.nextLocatePath;
+    if (!to) return null;
+    if (this.backend?.missingPaths.has(to)) fail(`${fileName(to)} isn't there anymore. Choose another file.`);
+    return this.setMusic(to);
   }
 
   async pickSequenceDocPath() {

@@ -14,8 +14,8 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import type { Background, ColorOrder, PreviewProp, Prop, ShapeSource, Show } from "../../api/types";
-import { fileName, thousands } from "../../lib/format";
+import type { Background, ColorOrder, FileRole, PreviewProp, Prop, ShapeSource, Show } from "../../api/types";
+import { fileName, shownPath, thousands } from "../../lib/format";
 import { alignEdits, distributeEdits, duplicateEdits, removeEdits, updateEdits, wiringOf } from "../../lib/layoutEdits";
 import { type Align, tidy } from "../../lib/layoutMath";
 import { nodeCount, shapeLabel } from "../../lib/shows";
@@ -24,6 +24,7 @@ import { useApp } from "../../state/store";
 import { useView3d } from "../../state/view3d";
 import { HouseModelPanel } from "../layout3d/HouseModelPanel";
 import { SubmodelsSection } from "./SubmodelsSection";
+import { MissingFileNotice, useMissingFile } from "../MissingFiles";
 import { Button, Input, Select } from "../ui";
 
 const COLOR_ORDERS: ColorOrder[] = ["RGB", "RBG", "GRB", "GBR", "BRG", "BGR", "RGBW", "GRBW"];
@@ -339,9 +340,12 @@ function ManyPropsPanel({ ids, preview }: { ids: string[]; preview: PreviewProp[
   );
 }
 
+const PHOTO: FileRole = { kind: "photo" };
+
 function PhotoPanel({ problem, onRetry, onChoosePhoto }: { problem: string | null; onRetry: () => void; onChoosePhoto: () => void }) {
   const apply = useApp((s) => s.apply);
   const background = useApp((s) => s.snapshot!.show.background ?? null);
+  const missing = useMissingFile(PHOTO);
   const { editPhoto, setEditPhoto, photoDraft, setPhotoDraft } = useLayoutEditor(
     useShallow((s) => ({ editPhoto: s.editPhoto, setEditPhoto: s.setEditPhoto, photoDraft: s.photoDraft, setPhotoDraft: s.setPhotoDraft })),
   );
@@ -372,10 +376,14 @@ function PhotoPanel({ problem, onRetry, onChoosePhoto }: { problem: string | nul
   };
   return (
     <Section title="Background photo">
-      <p className="mb-2 truncate text-sm" title={background.path}>
+      <p className="mb-2 truncate text-sm" title={shownPath(background.path)}>
         {fileName(background.path)}
       </p>
-      {problem && (
+      {missing ? (
+        <div className="mb-2">
+          <MissingFileNotice missing={missing} />
+        </div>
+      ) : problem && (
         <div className="mb-2 text-sm text-red-600 dark:text-red-400">
           <p>{problem}</p>
           <button type="button" className="mt-1 text-accent-500 underline" onClick={onRetry}>

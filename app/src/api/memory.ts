@@ -10,7 +10,10 @@ import type {
   Discovery,
   SilentPeer,
   Edit,
+  FileRole,
+  FilesFound,
   HistoryEntry,
+  MissingFile,
   OutputStatus,
   PatternSpec,
   PreviewSet,
@@ -22,6 +25,8 @@ import type {
 import { deepView, frontView } from "../lib/geometry";
 import { mapControllers } from "./memoryMapping";
 import { channelsPerPixel, memberProp, newController, nodeCount } from "../lib/shows";
+import { fileName } from "../lib/format";
+import { filesOf, missingFile, repointEdits, sameFile } from "../lib/showFiles";
 
 /**
  * An in-memory stand-in for the engine, used by tests and when the UI runs in a plain
@@ -60,6 +65,20 @@ export class MemoryBackend implements Backend {
   /** House model files by path, and the path the "choose model" dialog returns. */
   models = new Map<string, Uint8Array>();
   nextModelPath: string | null = null;
+  /** Files that aren't "on disk" any more (moved or deleted), by path. */
+  missingPaths = new Set<string>();
+  /** Where a search of the show's folder finds a missing file, by the path it had. */
+  findable = new Map<string, string>();
+  /** What the "Locate…" dialog returns. */
+  nextLocatePath: string | null = null;
+  /** Whether snapshots say every file has been looked at (checkFiles sets it). */
+  filesChecked = true;
+  /** Where a missing file really was, when the show file moved without it, by its path. */
+  wasAt = new Map<string, string>();
+  /** Other files a search finds that fit as well, by the missing file's path. */
+  alsoFound = new Map<string, string[]>();
+  /** Whether a search stops before looking everywhere. */
+  searchGivesUp = false;
   private playbackStopReason_: string | null = null;
   private playing: {
     path: string;
@@ -156,6 +175,40 @@ export class MemoryBackend implements Backend {
     this.path = path;
     this.savedRevision = this.revision;
     return this.snapshot();
+  }
+
+  /** The show's files that aren't "on disk", like the engine lists them. */
+  missingFiles(): MissingFile[] {
+    return filesOf(this.show)
+      .filter((f) => f.path.trim() && this.missingPaths.has(f.path))
+      .map((f) => missingFile(f.file, f.path, f.owner, this.wasAt.get(f.path)));
+  }
+
+  async checkFiles(all: boolean) {
+    this.calls.push(all ? "checkFiles:all" : "checkFiles");
+    this.filesChecked = true;
+    return this.snapshot();
+  }
+
+  async findMissingFiles(file?: FileRole): Promise<FilesFound> {
+    this.calls.push(file ? `findMissingFiles:${file.kind}` : "findMissingFiles");
+    if (!this.path) throw new Error("Save the show first, so PixelFlow knows which folder to look in. Or use Locate… to choose the file.");
+    const found = this.missingFiles()
+      .filter((m) => !file || sameFile(m.file, file))
+      .flatMap((m) => {
+        const to = this.findable.get(m.path);
+        return to ? [{ file: m.file, name: m.name, from: m.path, to, also: this.alsoFound.get(m.path) ?? [] }] : [];
+      });
+    const snapshot = found.length ? await this.applyEdits(repointEdits(this.show, found)) : this.snapshot();
+    return { snapshot, found, stillMissing: snapshot.missingFiles, gaveUp: this.searchGivesUp };
+  }
+
+  async locateFile(file: FileRole) {
+    this.calls.push(`locateFile:${file.kind}`);
+    const to = this.nextLocatePath;
+    if (!to) return null;
+    if (this.missingPaths.has(to)) throw new Error(`${fileName(to)} isn't there anymore. Choose another file.`);
+    return this.applyEdits(repointEdits(this.show, [{ file, to }]));
   }
 
   async listHistory() {
@@ -471,7 +524,7 @@ export class MemoryBackend implements Backend {
   }
 
   async readImage(path: string) {
-    const image = this.images.get(path);
+    const image = this.missingPaths.has(path) ? undefined : this.images.get(path);
     if (!image) throw new Error("This photo was moved or deleted. Choose it again with Replace…");
     return image.slice();
   }
@@ -481,7 +534,7 @@ export class MemoryBackend implements Backend {
   }
 
   async readHouseModel(path: string) {
-    const model = this.models.get(path);
+    const model = this.missingPaths.has(path) ? undefined : this.models.get(path);
     if (!model) throw new Error("This model was moved or deleted. Choose it again with Replace…");
     return model.slice();
   }
@@ -565,6 +618,8 @@ export class MemoryBackend implements Backend {
         controllers: this.show.controllers.length,
         universes: channelMap.controllers.reduce((sum, c) => sum + (c.addressing.type === "sacn" ? c.addressing.universes.length : 0), 0),
       },
+      missingFiles: this.filesChecked ? this.missingFiles() : [],
+      filesChecked: this.filesChecked,
     };
   }
 }
@@ -599,7 +654,7 @@ export interface AuthoredPlayback {
 
 export function emptyShow(name: string): Show {
   return {
-    schemaVersion: 7,
+    schemaVersion: 8,
     name,
     settings: { frameRate: 40 },
     props: [],

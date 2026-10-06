@@ -1,5 +1,6 @@
 //! What the UI sees after every change.
 
+use crate::files::MissingFile;
 use pf_mapping::ChannelMap;
 use pf_model::{Issue, PropId, Show};
 use serde::Serialize;
@@ -31,6 +32,12 @@ pub struct ShowSnapshot {
     pub issues: Vec<Issue>,
     pub channel_map: ChannelMap,
     pub summary: Summary,
+    /// The show's files (sequences, music, the photo, the house model) that aren't where it
+    /// says they are.
+    pub missing_files: Vec<MissingFile>,
+    /// False until every file the show refers to has been looked at (see
+    /// [`crate::Engine::file_check`]): only files looked at can be called missing.
+    pub files_checked: bool,
 }
 
 /// Where a prop's pixels are drawn in the preview (front view, or 3D) and where their colors sit

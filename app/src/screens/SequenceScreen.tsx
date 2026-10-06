@@ -2,6 +2,7 @@ import { AlertTriangle, AudioLines, CheckCircle2, Download, FileInput, FilePlus,
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { errorMessage } from "../api/backend";
+import { MissingFileNotice } from "../components/MissingFiles";
 import { EffectPalette } from "../components/sequencer/EffectPalette";
 import { EffectSettings } from "../components/sequencer/EffectSettings";
 import { SequencePreview } from "../components/sequencer/SequencePreview";
@@ -9,7 +10,7 @@ import { AddTimingTrackDialog } from "../components/sequencer/TimingDialogs";
 import { AddRowMenu, Timeline } from "../components/sequencer/Timeline";
 import { useSequenceKeys } from "../components/sequencer/useSequenceKeys";
 import { Button, EmptyState, Input } from "../components/ui";
-import { ago, fileName } from "../lib/format";
+import { ago, fileName, shownPath } from "../lib/format";
 import { formatTime } from "../lib/timelineMath";
 import { useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
@@ -91,6 +92,7 @@ export function SequenceScreen() {
     <div className="flex h-full min-h-0 flex-col">
       <Toolbar onNew={() => guard(() => setCreating(true))} onOpen={() => guard(() => void openFile())} />
       <NoticeLine />
+      {doc && <MissingMusicLine />}
       <RecoveryOffer onRecover={(id) => guard(() => void useSequencer.getState().recover(id))} />
       {doc ? <Workspace /> : <Start onNew={() => setCreating(true)} onOpen={openFile} />}
       {creating && <NewSequenceDialog onClose={() => setCreating(false)} />}
@@ -276,7 +278,7 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
       </ToolButton>
       {s.name !== null && (
         <>
-          <span className="mx-1 max-w-48 truncate font-medium" title={s.path ?? undefined}>
+          <span className="mx-1 max-w-48 truncate font-medium" title={s.path ? shownPath(s.path) : undefined}>
             {s.name}
             {s.dirty && (
               <>
@@ -473,6 +475,24 @@ function NoticeLine() {
   );
 }
 
+/** The sequence's music, when it isn't where the sequence says: find it again or locate it. */
+function MissingMusicLine() {
+  const audio = useSequencer((s) => s.doc?.audio ?? null);
+  const path = useSequencer((s) => s.path);
+  const docKey = useSequencer((s) => s.docKey);
+  const missing = useSequencer((s) => s.musicMissing);
+  const { checkMusic, findMusic, locateMusic } = useSequencer.getState();
+  useEffect(() => {
+    void checkMusic();
+  }, [audio, path, docKey, checkMusic]);
+  if (!missing) return null;
+  return (
+    <div className="border-b border-amber-200 px-3 py-2 dark:border-amber-900/70">
+      <MissingFileNotice missing={missing} onFind={() => void findMusic()} onLocate={() => void locateMusic()} />
+    </div>
+  );
+}
+
 /** Unsaved sequences PixelFlow kept when it last closed, to open again or throw away. */
 function RecoveryOffer({ onRecover }: { onRecover: (id: string) => void }) {
   const recoveries = useSequencer((s) => s.recoveries);
@@ -556,7 +576,7 @@ function Start({ onNew, onOpen }: { onNew: () => void; onOpen: (path?: string) =
             <ul className="mt-2 flex flex-col">
               {recent.map((path) => (
                 <li key={path}>
-                  <button type="button" className="w-full truncate rounded px-2 py-1.5 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800" title={path} onClick={() => void onOpen(path)}>
+                  <button type="button" className="w-full truncate rounded px-2 py-1.5 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800" title={shownPath(path)} onClick={() => void onOpen(path)}>
                     {fileName(path)}
                   </button>
                 </li>
@@ -625,7 +645,7 @@ function NewSequenceDialog({ onClose }: { onClose: () => void }) {
             {reading ? "Reading the music…" : music ? "Choose other music…" : "Choose music…"}
           </Button>
           {music && (
-            <span className="truncate text-neutral-600 dark:text-neutral-300" title={music.path}>
+            <span className="truncate text-neutral-600 dark:text-neutral-300" title={shownPath(music.path)}>
               {fileName(music.path)} · {formatTime(music.durationMs, 1000)}
             </span>
           )}

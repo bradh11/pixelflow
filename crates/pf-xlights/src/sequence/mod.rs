@@ -950,7 +950,7 @@ pub fn import_sequence_file(
     match (&import.media_file, animation) {
         (Some(media), false) => match find_audio(path, Some(media)) {
             Some(found) => {
-                let found = found.display().to_string();
+                let found = pf_model::path_to_text(&found);
                 if found.chars().count() <= MAX_TEXT_LEN {
                     import.sequence.audio = Some(found);
                 }
@@ -965,7 +965,7 @@ pub fn import_sequence_file(
         },
         (None, false) if !file.head.sequence_type.trim().is_empty() => {
             if let Some(found) = find_audio(path, None) {
-                import.sequence.audio = Some(found.display().to_string());
+                import.sequence.audio = Some(pf_model::path_to_text(&found));
             }
         }
         _ => {}

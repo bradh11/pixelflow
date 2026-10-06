@@ -7,7 +7,7 @@
 
 use crate::error::EngineError;
 use crate::persist::write_atomic;
-use crate::sequence_doc::{load_sequence, save_sequence_atomic};
+use crate::sequence_doc::{load_sequence, write_sequence};
 use pf_sequence::Sequence;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -75,10 +75,10 @@ pub(crate) fn write(
     doc: &Sequence,
     path: Option<&Path>,
 ) -> Result<(), EngineError> {
-    save_sequence_atomic(&dir.join(format!("{session}{DOC_SUFFIX}")), doc)?;
+    write_sequence(&dir.join(format!("{session}{DOC_SUFFIX}")), doc)?;
     let meta = Meta {
         name: doc.name.clone(),
-        path: path.map(|p| p.display().to_string()),
+        path: path.map(pf_model::path_to_text),
         saved_at_ms: now_ms(),
     };
     let json = serde_json::to_vec_pretty(&meta).map_err(|e| EngineError::Write {
@@ -130,5 +130,5 @@ pub(crate) fn load(dir: &Path, id: &str, except: &str) -> Result<(Sequence, Opti
         .find(|r| r.id == id)
         .ok_or(EngineError::UnknownRecovery)?;
     let doc = load_sequence(&dir.join(format!("{id}{DOC_SUFFIX}")))?;
-    Ok((doc, recovery.path.map(PathBuf::from)))
+    Ok((doc, recovery.path.as_deref().map(pf_model::path_from_text)))
 }

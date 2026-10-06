@@ -108,9 +108,10 @@ pub(crate) async fn set_playback_volume(
 #[tauri::command]
 pub(crate) async fn audio_waveform(
     state: State<'_, AppState>,
-    path: PathBuf,
+    path: String,
     slices: usize,
 ) -> Reply<Waveform> {
+    let path = pf_model::path_from_text(&path);
     let slices = slices.clamp(1, 20_000);
     let file = path.clone();
     let version = tauri::async_runtime::spawn_blocking(move || std::fs::metadata(&file))

@@ -1,8 +1,8 @@
 import { Box } from "lucide-react";
 import { useEffect, useState } from "react";
 import { errorMessage } from "../../api/backend";
-import type { HouseModel, PreviewProp, Show } from "../../api/types";
-import { fileName } from "../../lib/format";
+import type { FileRole, HouseModel, PreviewProp, Show } from "../../api/types";
+import { fileName, shownPath } from "../../lib/format";
 import { type Box3, fitModelPlacement, v3 } from "../../lib/layout3d";
 import { boxOfPoints, unionBox } from "../../lib/layoutMath";
 import { useApp } from "../../state/store";
@@ -10,6 +10,9 @@ import { useView3d } from "../../state/view3d";
 import { Button } from "../ui";
 import { NumberField, Section } from "../layout/PropertiesPanel";
 import { measureModel } from "./scene";
+import { MissingFileNotice, useMissingFile } from "../MissingFiles";
+
+const HOUSE_MODEL: FileRole = { kind: "houseModel" };
 
 /** What a new house model is sized to: the photo's width, or else the props'. */
 function fitTarget(show: Show, preview: PreviewProp[]): Box3 | null {
@@ -35,6 +38,7 @@ export function HouseModelPanel({ preview }: { preview: PreviewProp[] }) {
   const apply = useApp((s) => s.apply);
   const backend = useApp((s) => s.backend);
   const model = useApp((s) => s.snapshot?.show.houseModel ?? null);
+  const missing = useMissingFile(HOUSE_MODEL);
   const [busy, setBusy] = useState(false);
   const [strength, setStrength] = useState<number | null>(null);
   useEffect(() => setStrength(null), [model?.opacity]);
@@ -80,9 +84,14 @@ export function HouseModelPanel({ preview }: { preview: PreviewProp[] }) {
   const v = (key: "position" | "rotationDeg", axis: "x" | "y" | "z") => (n: number) => update((m) => ({ ...m, [key]: { ...m[key], [axis]: n } }));
   return (
     <Section title="House model">
-      <p className="mb-2 truncate text-sm" title={model.path}>
+      <p className="mb-2 truncate text-sm" title={shownPath(model.path)}>
         {fileName(model.path)}
       </p>
+      {missing && (
+        <div className="mb-2">
+          <MissingFileNotice missing={missing} />
+        </div>
+      )}
       <div className="grid grid-cols-3 gap-2">
         <NumberField label="Model X" value={model.position.x} onCommit={v("position", "x")} />
         <NumberField label="Model Y" value={model.position.y} onCommit={v("position", "y")} />

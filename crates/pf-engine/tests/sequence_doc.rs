@@ -895,6 +895,96 @@ fn recovered_work_saves_back_to_its_file_and_can_be_thrown_away() {
     assert!(Engine::new(dir.path()).sequence_recoveries().is_empty());
 }
 
+/// A sequence saved in `dir/Seq` with music in `dir/Seq/Music`.
+fn saved_with_music(engine: &mut Engine, dir: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
+    let song = dir.join("Seq/Music/Carol.mp3");
+    std::fs::create_dir_all(song.parent().unwrap()).unwrap();
+    std::fs::write(&song, b"x").unwrap();
+    let file = dir.join("Seq/Carol.pfseq.json");
+    engine
+        .new_sequence_doc("Carol", 5_000, Some(&pf_model::path_to_text(&song)))
+        .unwrap();
+    engine.save_sequence_doc_as(&file).unwrap();
+    (file, song)
+}
+
+fn saved_audio(file: &Path) -> serde_json::Value {
+    let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
+    json["audio"].clone()
+}
+
+#[test]
+fn music_in_the_sequence_folder_is_saved_relative_and_follows_a_move() {
+    let (mut engine, _, dir) = engine();
+    let (file, song) = saved_with_music(&mut engine, dir.path());
+    assert_eq!(saved_audio(&file), "Music/Carol.mp3");
+    assert_eq!(engine.sequence_music(), Some(song));
+    assert_eq!(engine.sequence_music_missing(), None);
+
+    let moved = dir.path().join("Elsewhere");
+    std::fs::rename(dir.path().join("Seq"), &moved).unwrap();
+    engine.open_sequence_doc(&moved.join("Carol.pfseq.json")).unwrap();
+    assert_eq!(engine.sequence_music(), Some(moved.join("Music/Carol.mp3")));
+    assert_eq!(engine.sequence_music_missing(), None);
+}
+
+#[test]
+fn missing_music_is_found_again_or_located_as_one_undo_step() {
+    let (mut engine, _, dir) = engine();
+    let (file, song) = saved_with_music(&mut engine, dir.path());
+    let now = dir.path().join("Seq/Audio/Carol.mp3");
+    std::fs::create_dir_all(now.parent().unwrap()).unwrap();
+    std::fs::rename(&song, &now).unwrap();
+    engine.open_sequence_doc(&file).unwrap();
+
+    let missing = engine.sequence_music_missing().expect("missing");
+    assert_eq!(missing.message, "Carol.mp3 isn't where it was.");
+    assert_eq!(missing.owner, "Music for Carol");
+    let search = engine.sequence_music_search().unwrap();
+    assert_eq!(search.folders(), [dir.path().join("Seq")]);
+    let found = search.run();
+    assert_eq!(found.found.len(), 1);
+    let result = engine.use_found_sequence_music(&found).unwrap().expect("used");
+    assert!(result.changed && result.dirty);
+    assert_eq!(engine.sequence_music(), Some(now.clone()));
+    assert_eq!(engine.sequence_music_missing(), None);
+    // Used once: the same find doesn't apply again.
+    assert!(engine.use_found_sequence_music(&found).unwrap().is_none());
+    engine.undo_sequence().unwrap();
+    assert!(engine.sequence_music_missing().is_some());
+
+    let gone = pf_engine::check_chosen_file(&dir.path().join("nope.mp3")).unwrap_err();
+    assert_eq!(
+        gone.to_string(),
+        "nope.mp3 isn't there anymore. Choose another file."
+    );
+    engine.relink_sequence_music(&now).unwrap();
+    assert_eq!(engine.sequence_music(), Some(now));
+    // Saved relative to the sequence file.
+    engine.save_sequence_doc().unwrap();
+    assert_eq!(saved_audio(&file), "Audio/Carol.mp3");
+}
+
+#[test]
+fn recovered_work_finds_relative_music_next_to_its_original_file() {
+    let (mut engine, _, dir) = engine();
+    let (file, song) = saved_with_music(&mut engine, dir.path());
+    engine.open_sequence_doc(&file).unwrap();
+    assert_eq!(
+        engine.sequence_document().unwrap().audio.as_deref(),
+        Some("Music/Carol.mp3")
+    );
+    let row = Row::new(Target::Prop(engine.show().props[0].id));
+    engine
+        .edit_sequence(vec![SequenceEdit::AddRow { row, index: None }])
+        .unwrap();
+    assert!(engine.autosave_sequence().unwrap());
+    let mut next = Engine::new(dir.path());
+    let offered = next.sequence_recoveries();
+    next.recover_sequence(&offered[0].id).unwrap();
+    assert_eq!(next.sequence_music(), Some(song));
+}
+
 /// A silent music clock the test can read, which notes every jump with where the music was.
 struct SharedClock {
     inner: Arc<Mutex<pf_audio::SilentClock>>,

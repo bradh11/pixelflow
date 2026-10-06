@@ -1,5 +1,5 @@
 import type { DeviceDetails, FppSequence, NodeRange, Phoneme, PlayerStatus, PortSlot, Prop, Region, Show, SilentPeer, StringConfig } from "./types";
-import { emptyShow } from "./memory";
+import { type MemoryBackend, emptyShow } from "./memory";
 import { newController, newProp } from "../lib/shows";
 
 /** A small sample show for browser-only UI development (`?demo`). */
@@ -87,6 +87,26 @@ function demoFace(): Region {
 
 /** Where the demo show's house photo "is". */
 export const DEMO_PHOTO = "/Photos/Demo House.svg";
+
+/**
+ * The demo show as if it had been opened from a folder that moved (`?demo&missing`): two songs
+ * and the photo aren't where they were. A search finds the medley's music and the photo; the
+ * other sequence file has to be located.
+ */
+export function demoMissingFiles(backend: MemoryBackend) {
+  const medley = "/Shows/Christmas Medley 2017.mp3";
+  backend.show.sequences = [
+    { id: crypto.randomUUID(), name: "Christmas Medley 2017", path: "/Shows/Christmas Medley 2017.fseq", audio: medley, offsetMs: 0 },
+    { id: crypto.randomUUID(), name: "Wizards in Winter", path: "/Shows/Wizards in Winter.fseq", audio: "/Shows/Wizards in Winter.mp3", offsetMs: 0 },
+  ];
+  backend.path = "/Shows/Demo House.pixelflow.json";
+  backend.files.set(backend.path, structuredClone(backend.show));
+  backend.missingPaths = new Set([medley, "/Shows/Wizards in Winter.fseq", DEMO_PHOTO]);
+  backend.findable.set(medley, "/Shows/Music/Christmas Medley 2017.mp3");
+  backend.findable.set(DEMO_PHOTO, "/Shows/Photos/Demo House.svg");
+  backend.images.set("/Shows/Photos/Demo House.svg", demoHousePhoto());
+  backend.nextLocatePath = "/Volumes/USB/Wizards in Winter.fseq";
+}
 
 /**
  * A drawing of a house at night (1600 × 1000), standing in for a photo in the demo. Layout

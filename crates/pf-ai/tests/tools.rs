@@ -251,6 +251,63 @@ fn sequence_samples() -> Vec<SequenceEdit> {
     out
 }
 
+/// The variant's name, by an exhaustive match: a new `Edit` variant doesn't compile here until
+/// it's named, and then the count checks fail until it has a sample.
+fn show_variant(edit: &Edit) -> &'static str {
+    match edit {
+        Edit::RenameShow { .. } => "RenameShow",
+        Edit::SetFrameRate { .. } => "SetFrameRate",
+        Edit::AddProp { .. } => "AddProp",
+        Edit::UpdateProp { .. } => "UpdateProp",
+        Edit::RemoveProp { .. } => "RemoveProp",
+        Edit::AddGroup { .. } => "AddGroup",
+        Edit::UpdateGroup { .. } => "UpdateGroup",
+        Edit::RemoveGroup { .. } => "RemoveGroup",
+        Edit::AddController { .. } => "AddController",
+        Edit::UpdateController { .. } => "UpdateController",
+        Edit::RemoveController { .. } => "RemoveController",
+        Edit::AddSequence { .. } => "AddSequence",
+        Edit::UpdateSequence { .. } => "UpdateSequence",
+        Edit::RemoveSequence { .. } => "RemoveSequence",
+        Edit::MoveSequence { .. } => "MoveSequence",
+        Edit::SetBackground { .. } => "SetBackground",
+        Edit::SetHouseModel { .. } => "SetHouseModel",
+    }
+}
+
+/// Like [`show_variant`], for sequence edits.
+fn sequence_variant(edit: &SequenceEdit) -> &'static str {
+    match edit {
+        SequenceEdit::UpdateInfo { .. } => "UpdateInfo",
+        SequenceEdit::AddRow { .. } => "AddRow",
+        SequenceEdit::RemoveRow { .. } => "RemoveRow",
+        SequenceEdit::MoveRow { .. } => "MoveRow",
+        SequenceEdit::AddLayer { .. } => "AddLayer",
+        SequenceEdit::RemoveLayer { .. } => "RemoveLayer",
+        SequenceEdit::AddEffect { .. } => "AddEffect",
+        SequenceEdit::UpdateEffect { .. } => "UpdateEffect",
+        SequenceEdit::SetEffectTiming { .. } => "SetEffectTiming",
+        SequenceEdit::SetEffectParams { .. } => "SetEffectParams",
+        SequenceEdit::MoveEffect { .. } => "MoveEffect",
+        SequenceEdit::RemoveEffect { .. } => "RemoveEffect",
+        SequenceEdit::AddTimingTrack { .. } => "AddTimingTrack",
+        SequenceEdit::UpdateTimingTrack { .. } => "UpdateTimingTrack",
+        SequenceEdit::RemoveTimingTrack { .. } => "RemoveTimingTrack",
+        SequenceEdit::RenameTimingTrack { .. } => "RenameTimingTrack",
+        SequenceEdit::MoveTimingTrack { .. } => "MoveTimingTrack",
+        SequenceEdit::AddMarks { .. } => "AddMarks",
+        SequenceEdit::SetMark { .. } => "SetMark",
+        SequenceEdit::RemoveMarks { .. } => "RemoveMarks",
+        SequenceEdit::SplitMark { .. } => "SplitMark",
+        SequenceEdit::MergeMarks { .. } => "MergeMarks",
+        SequenceEdit::GenerateMarks { .. } => "GenerateMarks",
+        SequenceEdit::CopyMarks { .. } => "CopyMarks",
+        SequenceEdit::SpreadLyrics { .. } => "SpreadLyrics",
+        SequenceEdit::LabelMarks { .. } => "LabelMarks",
+        SequenceEdit::BreakIntoWords { .. } => "BreakIntoWords",
+    }
+}
+
 fn tag(value: &impl serde::Serialize) -> String {
     serde_json::to_value(value).unwrap()["type"]
         .as_str()
@@ -292,6 +349,8 @@ fn every_show_edit_yields_a_valid_tool_that_round_trips() {
     // a sample here (and so is proven to work).
     assert_eq!(tool_tags, sample_tags, "every show edit has a tool and a sample");
     assert_eq!(tool_tags.len(), 17);
+    let variants: BTreeSet<&str> = samples.iter().map(show_variant).collect();
+    assert_eq!(variants.len(), 17, "the samples cover every Edit variant");
     for edit in samples {
         let tag = tag(&edit);
         let tool = toolbox.find(&show_tool_name(&tag)).expect("tool exists");
@@ -317,6 +376,9 @@ fn every_sequence_edit_yields_a_valid_tool_that_round_trips() {
         tool_tags, sample_tags,
         "every sequence edit has a tool and a sample"
     );
+    assert_eq!(tool_tags.len(), 27);
+    let variants: BTreeSet<&str> = samples.iter().map(sequence_variant).collect();
+    assert_eq!(variants.len(), 27, "the samples cover every SequenceEdit variant");
     for edit in samples {
         let tag = tag(&edit);
         let tool = toolbox.find(&sequence_tool_name(&tag)).expect("tool exists");
@@ -396,6 +458,60 @@ fn no_tool_reaches_outside_the_draft() {
             );
         }
     }
+}
+
+/// The tool definitions as sent to Anthropic (bytes of JSON), largest first.
+fn tool_sizes() -> (usize, Vec<(usize, String)>) {
+    let mut sizes: Vec<(usize, String)> = Toolbox::new()
+        .tools()
+        .iter()
+        .map(|t| {
+            let sent = json!({ "name": t.spec.name, "description": t.spec.description, "input_schema": t.spec.input_schema });
+            (sent.to_string().len(), t.spec.name.clone())
+        })
+        .collect();
+    sizes.sort_by(|a, b| b.cmp(a));
+    (sizes.iter().map(|(s, _)| s).sum(), sizes)
+}
+
+#[test]
+fn tool_definitions_stay_small() {
+    let (total, sizes) = tool_sizes();
+    println!(
+        "tools: {} definitions, {total} bytes (~{} tokens)",
+        sizes.len(),
+        total / 4
+    );
+    for (size, name) in sizes.iter().take(6) {
+        println!("  {size:>6} {name}");
+    }
+    // Was 114 KB with every large definition repeated in each tool that takes it.
+    assert!(total < 64_000, "tool definitions grew to {total} bytes");
+    // Each large definition is spelled out in one tool only.
+    for (def, owner) in [
+        ("Prop", "show_add_prop"),
+        ("Controller", "show_add_controller"),
+        ("Effect", "sequence_add_effect"),
+        ("EffectParams", "sequence_add_effect"),
+    ] {
+        let carriers: Vec<String> = Toolbox::new()
+            .tools()
+            .iter()
+            .filter(|t| t.spec.input_schema["$defs"].get(def).is_some())
+            .map(|t| t.spec.name.clone())
+            .collect();
+        assert_eq!(carriers, [owner], "{def}");
+    }
+    let update = Toolbox::new()
+        .find("show_update_prop")
+        .unwrap()
+        .spec
+        .input_schema
+        .clone();
+    assert_eq!(
+        update["properties"]["prop"]["description"],
+        "A Prop, exactly as `prop` in the show_add_prop tool's input."
+    );
 }
 
 #[test]

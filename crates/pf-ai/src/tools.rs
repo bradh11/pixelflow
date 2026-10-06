@@ -69,6 +69,7 @@ impl Toolbox {
         tools.extend(show_edit_tools());
         tools.extend(sequence_edit_tools());
         tools.extend(draft_tools());
+        share_large_definitions(&mut tools);
         Self { tools }
     }
 
@@ -147,6 +148,85 @@ fn referenced_defs(schema: &Value, defs: &Map<String, Value>) -> BTreeSet<String
     seen
 }
 
+/// Large definitions spelled out in full in one tool only (the one that adds such a thing); every
+/// other tool that takes one refers to it there, so a request doesn't carry the same 10 KB schema
+/// four times. The reference still accepts the item (as any object): the engine checks it on use.
+const SHARED_DEFINITIONS: &[(&str, &str, &str)] = &[
+    ("Prop", "show_add_prop", "prop"),
+    ("Controller", "show_add_controller", "controller"),
+    ("Effect", "sequence_add_effect", "effect"),
+    ("EffectParams", "sequence_add_effect", "effect.params"),
+];
+
+/// Rewrites `$ref`s to shared definitions outside their owning tool, then drops the definitions
+/// those tools no longer use. Also drops `format` annotations (number widths), which don't
+/// constrain anything here.
+fn share_large_definitions(tools: &mut [Tool]) {
+    fn rewrite(
+        value: &mut Value,
+        owner_of: &dyn Fn(&str) -> Option<(&'static str, &'static str)>,
+        tool: &str,
+    ) {
+        match value {
+            Value::Object(map) => {
+                if map.get("format").is_some_and(Value::is_string) {
+                    map.remove("format");
+                }
+                if let Some(Value::String(r)) = map.get("$ref")
+                    && let Some(name) = r.strip_prefix("#/$defs/")
+                    && let Some((owner, field)) = owner_of(name)
+                    && owner != tool
+                {
+                    *value = json!({
+                        "type": "object",
+                        "description": format!("A {name}, exactly as `{field}` in the {owner} tool's input."),
+                    });
+                    return;
+                }
+                map.values_mut().for_each(|v| rewrite(v, owner_of, tool));
+            }
+            Value::Array(items) => items.iter_mut().for_each(|v| rewrite(v, owner_of, tool)),
+            _ => {}
+        }
+    }
+    let owner_of = |name: &str| {
+        SHARED_DEFINITIONS
+            .iter()
+            .find(|(def, _, _)| *def == name)
+            .map(|(_, owner, field)| (*owner, *field))
+    };
+    for tool in tools.iter_mut() {
+        let name = tool.spec.name.clone();
+        let schema = &mut tool.spec.input_schema;
+        let Some(defs) = schema.get("$defs").and_then(Value::as_object).cloned() else {
+            rewrite(schema, &owner_of, &name);
+            continue;
+        };
+        rewrite(schema, &owner_of, &name);
+        let mut body = schema.clone();
+        if let Some(object) = body.as_object_mut() {
+            object.remove("$defs");
+        }
+        let mut rewritten_defs = Map::new();
+        for (def, mut definition) in defs {
+            rewrite(&mut definition, &owner_of, &name);
+            rewritten_defs.insert(def, definition);
+        }
+        let used = referenced_defs(&body, &rewritten_defs);
+        let kept: Map<String, Value> = rewritten_defs
+            .into_iter()
+            .filter(|(def, _)| used.contains(def))
+            .collect();
+        if let Some(object) = schema.as_object_mut() {
+            if kept.is_empty() {
+                object.remove("$defs");
+            } else {
+                object.insert("$defs".into(), Value::Object(kept));
+            }
+        }
+    }
+}
+
 /// One tool per variant of an internally tagged (`"type"`) enum's schema: the variant's fields
 /// become the tool's input (the tag is implied by the tool), with the definitions it uses.
 fn variant_tools(
@@ -193,14 +273,12 @@ fn variant_tools(
         .collect()
 }
 
-fn hints(tag: &str) -> &'static str {
-    if tag.starts_with("add") {
-        " A new item needs a new random UUID (version 4) as its id; existing ids come from the list and get tools."
-    } else if tag.starts_with("update") {
-        " Send the whole item as it should be: get it first, then change only what you mean to change."
-    } else {
-        ""
-    }
+/// A tool's description: what the edit does, from its doc comment (or its name). What every edit
+/// tool has in common (drafts only, ids, whole-item updates) is said once, in the system prompt.
+fn describe(prefix: &str, tag: &str, doc: Option<&str>) -> String {
+    let what = doc.map(|d| d.replace('\n', " ")).unwrap_or_else(|| sentence(tag));
+    let stop = if what.ends_with('.') { "" } else { "." };
+    format!("{prefix}: {what}{stop}")
 }
 
 /// One tool per show [`Edit`] variant.
@@ -209,18 +287,7 @@ pub fn show_edit_tools() -> Vec<Tool> {
     variant_tools(
         root,
         show_tool_name,
-        |tag, doc| {
-            format!(
-                "{}{} Changes your draft of the show only; the user reviews the proposal before anything changes.{}",
-                doc.map(str::to_string).unwrap_or_else(|| sentence(tag)),
-                if doc.is_some_and(|d| d.ends_with('.')) {
-                    ""
-                } else {
-                    "."
-                },
-                hints(tag)
-            )
-        },
+        |tag, doc| describe("Draft change to the show", tag, doc),
         |tag| ToolKind::ShowEdit { tag },
     )
 }
@@ -231,18 +298,7 @@ pub fn sequence_edit_tools() -> Vec<Tool> {
     variant_tools(
         root,
         sequence_tool_name,
-        |tag, doc| {
-            format!(
-                "{}{} Changes your draft of the open sequence only (fails when no sequence is open).{}",
-                doc.map(|d| d.replace('\n', " ")).unwrap_or_else(|| sentence(tag)),
-                if doc.is_some_and(|d| d.ends_with('.')) {
-                    ""
-                } else {
-                    "."
-                },
-                hints(tag)
-            )
-        },
+        |tag, doc| describe("Draft change to the open sequence", tag, doc),
         |tag| ToolKind::SequenceEdit { tag },
     )
 }

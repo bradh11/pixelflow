@@ -1,15 +1,8 @@
 import {
   AlertTriangle,
   Search,
-  AudioLines,
-  Cable,
   Command,
-  Film,
-  FlaskConical,
-  History,
-  LayoutGrid,
   Moon,
-  Network,
   Redo2,
   Save,
   Sparkles,
@@ -22,7 +15,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { errorMessage } from "../api/backend";
 import { fileName, plural, shownPath, thousands } from "../lib/format";
 import { useShallow } from "zustand/react/shallow";
-import { type Screen, useApp } from "../state/store";
+import { useApp } from "../state/store";
 import { DevicesScreen } from "../screens/DevicesScreen";
 import { HistoryScreen } from "../screens/HistoryScreen";
 import { LayoutScreen } from "../screens/LayoutScreen";
@@ -33,18 +26,10 @@ import { TestScreen } from "../screens/TestScreen";
 import { WiringScreen } from "../screens/WiringScreen";
 import { MissingFileNotice, MissingFilesBanner } from "./MissingFiles";
 import { ShowMenu } from "./ShowMenu";
+import { Sidebar } from "./Sidebar";
+import { ASSISTANT_OVERLAY_BELOW, useWindowWidth } from "../lib/useWidth";
 import { Button, UnsavedBadge } from "./ui";
 import { saveFocused } from "../state/menuActions";
-
-const NAV: { screen: Screen; label: string; icon: ReactNode }[] = [
-  { screen: "layout", label: "Layout", icon: <LayoutGrid size={18} /> },
-  { screen: "wiring", label: "Wiring", icon: <Cable size={18} /> },
-  { screen: "devices", label: "Devices", icon: <Network size={18} /> },
-  { screen: "sequence", label: "Sequence", icon: <AudioLines size={18} /> },
-  { screen: "play", label: "Play", icon: <Film size={18} /> },
-  { screen: "test", label: "Test", icon: <FlaskConical size={18} /> },
-  { screen: "history", label: "History", icon: <History size={18} /> },
-];
 
 function IconButton({ label, onClick, disabled, dim, children }: { label: string; onClick: () => void; disabled?: boolean; dim?: boolean; children: ReactNode }) {
   return (
@@ -138,35 +123,6 @@ function TopBar() {
         </button>
       </div>
     </header>
-  );
-}
-
-function Sidebar() {
-  const screen = useApp((s) => s.screen);
-  const setScreen = useApp((s) => s.setScreen);
-  const toRecover = useSequencer((s) => s.recoveries.length > 0);
-  return (
-    <nav aria-label="Screens" className="flex w-44 shrink-0 flex-col gap-1 border-r border-neutral-200 p-2 dark:border-neutral-800">
-      {NAV.map((item) => (
-        <button
-          key={item.screen}
-          type="button"
-          aria-current={screen === item.screen ? "page" : undefined}
-          onClick={() => setScreen(item.screen)}
-          className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm ${
-            screen === item.screen
-              ? "bg-accent-50 font-medium text-accent-600 dark:bg-accent-600/15 dark:text-accent-400"
-              : "text-neutral-600 hover:bg-neutral-200/70 dark:text-neutral-300 dark:hover:bg-neutral-800"
-          }`}
-        >
-          {item.icon}
-          {item.label}
-          {item.screen === "sequence" && toRecover && (
-            <span className="ml-auto h-2 w-2 rounded-full bg-amber-500" title="Unsaved work to recover" aria-hidden />
-          )}
-        </button>
-      ))}
-    </nav>
   );
 }
 
@@ -347,16 +303,18 @@ function AssistantButton() {
 export function AppShell() {
   const screen = useApp((s) => s.screen);
   const assistantOpen = useAssistant((s) => s.open);
+  // In a narrow window the assistant floats over the screen rather than squeezing it.
+  const overlay = useWindowWidth() < ASSISTANT_OVERLAY_BELOW;
   return (
     <div className="flex h-full flex-col">
       <TopBar />
       <MissingFilesBanner />
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1">
         <Sidebar />
         <main className={`min-w-0 flex-1 ${screen === "sequence" ? "overflow-hidden" : "overflow-auto p-6"}`}>
           <CurrentScreen />
         </main>
-        {assistantOpen && <AssistantPanel />}
+        {assistantOpen && <AssistantPanel overlay={overlay} />}
       </div>
       <StatusBar />
     </div>

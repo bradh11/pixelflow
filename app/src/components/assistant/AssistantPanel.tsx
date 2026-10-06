@@ -7,8 +7,11 @@ import { ProposalCard } from "./ProposalCard";
 
 const SUGGESTIONS = ["Add two arches beside the garage", "What's in my show?", "Rename the show to Christmas 2026"];
 
-/** The chat with the assistant, beside the current screen. Replies stream in; changes come as a proposal card. */
-export function AssistantPanel() {
+/**
+ * The chat with the assistant, beside the current screen, or floating over its right side when
+ * the window is too narrow to share (`overlay`). Replies stream in; changes come as a proposal card.
+ */
+export function AssistantPanel({ overlay = false }: { overlay?: boolean }) {
   const items = useAssistant((s) => s.items);
   const streaming = useAssistant((s) => s.streaming);
   const activity = useAssistant((s) => s.activity);
@@ -39,7 +42,19 @@ export function AssistantPanel() {
   return (
     <aside
       aria-label="Assistant"
-      className="flex w-96 shrink-0 flex-col border-l border-neutral-200 bg-neutral-50/60 dark:border-neutral-800 dark:bg-neutral-950/40"
+      data-overlay={overlay}
+      onKeyDown={(e) => {
+        // Floating over the screen, Escape puts it away (as a drawer does).
+        if (overlay && e.key === "Escape" && !e.defaultPrevented) {
+          e.preventDefault();
+          setOpen(false);
+        }
+      }}
+      className={`flex w-96 max-w-[calc(100%-3rem)] shrink-0 flex-col border-l border-neutral-200 dark:border-neutral-800 ${
+        overlay
+          ? "absolute inset-y-0 right-0 z-30 bg-neutral-50 shadow-2xl dark:bg-neutral-950"
+          : "bg-neutral-50/60 dark:bg-neutral-950/40"
+      }`}
     >
       <header className="flex h-11 shrink-0 items-center gap-1 border-b border-neutral-200 px-3 dark:border-neutral-800">
         <Sparkles size={16} className="text-accent-600 dark:text-accent-400" aria-hidden />

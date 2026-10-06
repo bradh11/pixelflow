@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
-import { afterEach } from "vitest";
+import { afterEach, beforeEach } from "vitest";
 import { usePaletteDrag } from "../components/sequencer/EffectPalette";
 import { useAssistant } from "../state/assistant";
 import { useLayoutEditor } from "../state/layoutEditor";
@@ -20,6 +20,11 @@ globalThis.ResizeObserver ??= class {
 Element.prototype.scrollIntoView ??= function scrollIntoView() {};
 // jsdom has no 2D canvas; the preview draws nothing in tests.
 HTMLCanvasElement.prototype.getContext = (() => null) as typeof HTMLCanvasElement.prototype.getContext;
+
+// A wide desktop window unless a test narrows it (jsdom starts at 1024).
+beforeEach(() => {
+  window.innerWidth = 1920;
+});
 
 afterEach(() => {
   cleanup();

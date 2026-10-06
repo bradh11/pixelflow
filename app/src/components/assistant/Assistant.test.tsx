@@ -34,6 +34,28 @@ async function openPanel(user: ReturnType<typeof userEvent.setup>) {
   return screen.getByRole("complementary", { name: "Assistant" });
 }
 
+describe("the assistant in a narrow window", () => {
+  it("floats over the screen below 1440 px, and takes a column of its own above", async () => {
+    window.innerWidth = 1280;
+    const { user } = await start();
+    const panel = await openPanel(user);
+    expect(panel).toHaveAttribute("data-overlay", "true");
+    act(() => {
+      window.innerWidth = 1600;
+      window.dispatchEvent(new Event("resize"));
+    });
+    expect(screen.getByRole("complementary", { name: "Assistant" })).toHaveAttribute("data-overlay", "false");
+  });
+
+  it("floating, Escape puts it away", async () => {
+    window.innerWidth = 1024;
+    const { user } = await start();
+    await openPanel(user);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("complementary", { name: "Assistant" })).not.toBeInTheDocument();
+  });
+});
+
 describe("opening the assistant", () => {
   it("opens from the top bar, with ⌘L, and from the command palette", async () => {
     const { user } = await start();

@@ -2,7 +2,7 @@
 // in-browser backend and the layout editor. Every generator returns `nodeCount()` points in
 // prop-local coordinates, in wiring order.
 
-import type { Generator, MatrixWiring, PolySegment, Prop, ShapeSource, Transform, Vec3 } from "../api/types";
+import type { CubeStart, CubeStyle, Generator, MatrixWiring, PolySegment, Prop, ShapeSource, StrandStyle, Transform, Vec3 } from "../api/types";
 
 const v = (x: number, y: number, z = 0): Vec3 => ({ x, y, z });
 
@@ -369,7 +369,112 @@ function generate(g: Generator): Vec3[] {
       return wreath(g.nodes, g.radius, g.startAtBottom, g.counterClockwise);
     case "spinner":
       return spinner(g);
+    case "sphere":
+      return sphere(g);
+    case "cube":
+      return cube(g);
   }
+}
+
+/** How far along its strand the `y`th of `n` pixels sits (pf-geometry's `along_strand`). */
+function alongStrand(y: number, n: number, strand: number, style: StrandStyle): number {
+  if (style === "zigZag") return strand % 2 === 1 ? n - 1 - y : y;
+  if (style === "noZigZag") return y;
+  return y < Math.ceil(n / 2) ? 2 * y : (n - (y + 1)) * 2 + 1;
+}
+
+/** A sphere as xLights lays it out: strands round a globe, the first at the back running up from the south. */
+function sphere(g: Extract<Generator, { type: "sphere" }>): Vec3[] {
+  const { columns, rows, radius } = g;
+  const [lat0, lat1, degrees] = [g.startLatitude ?? -86, g.endLatitude ?? 86, g.degrees ?? 360];
+  const start = g.start ?? "bottomLeft";
+  const style = g.strandStyle ?? "zigZag";
+  const fromLeft = start === "bottomLeft" || start === "topLeft";
+  const fromBottom = start === "bottomLeft" || start === "bottomRight";
+  const remove = rad(360 - degrees);
+  const fudge = rad((360 - degrees) / columns);
+  const vIncr = rows > 1 ? rad(lat1 - lat0) / (rows - 1) : 0;
+  const out: Vec3[] = [];
+  for (let x = 0; x < columns && out.length < MAX_POINTS; x++) {
+    const column = fromLeft ? x : columns - 1 - x;
+    const h = Math.PI / 2 + 0.003 - remove / 2 + (column * (-2 * Math.PI + remove - fudge)) / columns;
+    for (let y = 0; y < rows; y++) {
+      const along = alongStrand(y, rows, x, style);
+      const row = fromBottom ? along : rows - 1 - along;
+      const vv = rad(lat0 - 90) + row * vIncr;
+      const sv = Math.sin(vv);
+      out.push(v(Math.cos(h) * sv * radius, Math.cos(vv) * radius, Math.sin(h) * sv * radius));
+    }
+  }
+  return out;
+}
+
+/** `{ turns about X, Y, Z, mirror }` per start corner and style, in xLights' order (pf-geometry's cube table). */
+const CUBE_TRANSFORMS = [
+  [1, 0, -1, 0], [0, 0, -1, 1], [0, -1, 0, 1], [0, 0, 0, 0], [-1, 2, 0, 1], [-1, -1, 0, 0],
+  [1, 0, -1, 1], [0, 0, -1, 0], [0, -1, 0, 0], [0, 0, 0, 1], [-1, 2, 0, 0], [-1, -1, 0, 1],
+  [1, 0, 1, 1], [0, 0, 1, 0], [0, -1, 2, 0], [0, 0, 2, 1], [-1, 2, 2, 0], [-1, -1, 2, 1],
+  [1, 0, 1, 0], [0, 0, 1, 1], [0, -1, 2, 1], [0, 0, 2, 0], [-1, 2, 2, 1], [-1, -1, 2, 0],
+  [-1, 0, -1, 1], [0, 2, 1, 0], [0, 1, 0, 0], [0, 2, 0, 1], [-1, 0, 0, 0], [-1, 1, 0, 1],
+  [-1, 0, -1, 0], [0, 2, 1, 1], [0, 1, 0, 1], [0, 2, 0, 0], [-1, 0, 0, 1], [-1, 1, 0, 0],
+  [-1, 0, 1, 0], [0, 2, -1, 1], [0, -1, 2, 0], [2, 0, 0, 0], [-1, 2, 2, 0], [1, -1, 0, 0],
+  [-1, 0, 1, 1], [0, 2, -1, 0], [0, -1, 2, 1], [2, 0, 0, 1], [-1, 2, 2, 1], [1, -1, 0, 1],
+];
+const CUBE_STARTS: CubeStart[] = ["frontBottomLeft", "frontBottomRight", "frontTopLeft", "frontTopRight", "backBottomLeft", "backBottomRight", "backTopLeft", "backTopRight"];
+const CUBE_STYLES: CubeStyle[] = ["verticalFrontBack", "verticalLeftRight", "horizontalFrontBack", "horizontalLeftRight", "stackedFrontBack", "stackedLeftRight"];
+
+/** Each pixel's cell `[x, y, z]` (x from the left, y from the bottom, z from the front) in wiring order. */
+function cubeCells(w0: number, h0: number, d0: number, start: CubeStart, style: CubeStyle, strandStyle: StrandStyle, perLayer: boolean): [number, number, number][] {
+  const strand = strandStyle === "zigZag" ? 0 : strandStyle === "noZigZag" ? 1 : 2;
+  const [xr, yr, zr, mirror] = CUBE_TRANSFORMS[CUBE_STARTS.indexOf(start) * 6 + CUBE_STYLES.indexOf(style)];
+  let [width, height, depth] = [w0, h0, d0];
+  if (Math.abs(zr) === 1) [width, height] = [height, width];
+  if (Math.abs(yr) === 1) [width, depth] = [depth, width];
+  if (Math.abs(xr) === 1) [height, depth] = [depth, height];
+  const total = Math.min(width * height * depth, MAX_POINTS);
+  const out: [number, number, number][] = [];
+  for (let i = 0; i < total; i++) {
+    const z = Math.floor(i / (width * height));
+    const base = i % (width * height);
+    let y = Math.floor(base / width);
+    let x: number;
+    if ((strand === 1 || y % 2 === 0) && strand !== 2) x = base % width;
+    else if (strand === 2) {
+      const pos = (base % width) + 1;
+      x = pos <= Math.floor((width + 1) / 2) ? 2 * (pos - 1) : (width - pos) * 2 + 1;
+    } else x = width - (base % width) - 1;
+    if (!perLayer && z % 2 !== 0) {
+      y = height - y - 1;
+      if (height % 2 !== 0 && strand === 0) x = width - x - 1;
+    }
+    let [px, py, pz] = [x, y, z];
+    let [w, h, d] = [width, height, depth];
+    for (let k = 0; k < Math.abs(xr); k++) {
+      if (xr > 0) [py, pz] = [d - pz - 1, py];
+      else [pz, py] = [h - py - 1, pz];
+      [h, d] = [d, h];
+    }
+    for (let k = 0; k < Math.abs(yr); k++) {
+      if (yr > 0) [pz, px] = [w - px - 1, pz];
+      else [px, pz] = [d - pz - 1, px];
+      [w, d] = [d, w];
+    }
+    for (let k = 0; k < Math.abs(zr); k++) {
+      if (zr > 0) [px, py] = [py, w - px - 1];
+      else [px, py] = [h - py - 1, px];
+      [w, h] = [h, w];
+    }
+    if (mirror > 0) px = w - px - 1;
+    out.push([px, py, pz]);
+  }
+  return out;
+}
+
+/** A cube's pixels `spacing` apart, centered, the front layer toward +z. */
+function cube(g: Extract<Generator, { type: "cube" }>): Vec3[] {
+  const mid = (n: number) => (n - 1) / 2;
+  const cells = cubeCells(g.width, g.height, g.depth, g.start ?? "frontBottomLeft", g.style ?? "verticalFrontBack", g.strandStyle ?? "zigZag", g.strandPerLayer ?? false);
+  return cells.map(([x, y, z]) => v((x - mid(g.width)) * g.spacing, (y - mid(g.height)) * g.spacing, (mid(g.depth) - z) * g.spacing));
 }
 
 /** Pixel positions in prop-local coordinates, in wiring order. */

@@ -17,7 +17,9 @@ export type PropKind =
   | "icicles"
   | "windowFrame"
   | "wreath"
-  | "spinner";
+  | "spinner"
+  | "sphere"
+  | "cube";
 
 export const PROP_KINDS: { kind: PropKind; label: string }[] = [
   { kind: "arch", label: "Arch" },
@@ -32,6 +34,8 @@ export const PROP_KINDS: { kind: PropKind; label: string }[] = [
   { kind: "icicles", label: "Icicles" },
   { kind: "windowFrame", label: "Window frame" },
   { kind: "spinner", label: "Spinner" },
+  { kind: "sphere", label: "Sphere" },
+  { kind: "cube", label: "Cube" },
 ];
 
 const DEFAULT_SHAPES: Record<PropKind, ShapeSource> = {
@@ -108,6 +112,8 @@ const DEFAULT_SHAPES: Record<PropKind, ShapeSource> = {
     clockwise: false,
     radius: 1,
   },
+  sphere: { source: "generator", type: "sphere", columns: 16, rows: 20, radius: 1 },
+  cube: { source: "generator", type: "cube", width: 5, height: 5, depth: 5, spacing: 0.25 },
 };
 
 const KIND_NAMES: Record<PropKind, string> = {
@@ -123,6 +129,8 @@ const KIND_NAMES: Record<PropKind, string> = {
   windowFrame: "Window Frame",
   wreath: "Wreath",
   spinner: "Spinner",
+  sphere: "Sphere",
+  cube: "Cube",
 };
 
 /** The first "Base N" name not already used. */
@@ -195,6 +203,10 @@ export function nodeCount(shape: ShapeSource): number {
       return shape.nodes;
     case "spinner":
       return shape.arms * shape.nodesPerArm;
+    case "sphere":
+      return shape.columns * shape.rows;
+    case "cube":
+      return shape.width * shape.height * shape.depth;
     case "customGrid":
       return shape.cells.reduce((max, c) => Math.max(max, c), 0);
     case "polyLine":
@@ -219,6 +231,8 @@ export function shapeLabel(shape: ShapeSource): string {
     windowFrame: "Window frame",
     wreath: "Wreath",
     spinner: "Spinner",
+    sphere: "Sphere",
+    cube: "Cube",
   };
   return labels[shape.type] ?? shape.type;
 }

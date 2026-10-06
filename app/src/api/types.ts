@@ -91,7 +91,44 @@ export type Generator =
       fromCenter: boolean;
       clockwise: boolean;
       radius: number;
+    }
+  /** A globe of `columns` strands of `rows` pixels between two latitudes, round `degrees` of it. */
+  | {
+      type: "sphere";
+      columns: number;
+      rows: number;
+      radius: number;
+      startLatitude?: number;
+      endLatitude?: number;
+      degrees?: number;
+      start?: MatrixWiring["start"];
+      strandStyle?: StrandStyle;
+    }
+  /** A cube of `width` × `height` × `depth` pixels `spacing` apart, wired from a corner as xLights does. */
+  | {
+      type: "cube";
+      width: number;
+      height: number;
+      depth: number;
+      spacing: number;
+      start?: CubeStart;
+      style?: CubeStyle;
+      strandStyle?: StrandStyle;
+      strandPerLayer?: boolean;
     };
+
+/** How pixels run along each strand of a sphere or cube. */
+export type StrandStyle = "zigZag" | "noZigZag" | "alternatePixel";
+export type CubeStart =
+  | "frontBottomLeft"
+  | "frontBottomRight"
+  | "frontTopLeft"
+  | "frontTopRight"
+  | "backBottomLeft"
+  | "backBottomRight"
+  | "backTopLeft"
+  | "backTopRight";
+export type CubeStyle = "verticalFrontBack" | "verticalLeftRight" | "horizontalFrontBack" | "horizontalLeftRight" | "stackedFrontBack" | "stackedLeftRight";
 
 export type ShapeSource =
   | ({ source: "generator" } & Generator)

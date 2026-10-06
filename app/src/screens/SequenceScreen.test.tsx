@@ -12,6 +12,7 @@ import type { Effect, Sequence } from "../api/sequence";
 import { useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
 import { runMenuAction } from "../state/menuActions";
+import { useToasts } from "../state/toast";
 
 // The timeline is 1000 × 600 px at the window's corner: the demo's minute fits at 60 ms per pixel.
 // Above the rows: ruler 24 + music 44 + two timing tracks of 18 = 104 px. Rows are 30 px a lane:
@@ -136,19 +137,55 @@ describe("sequence screen", () => {
     expect(seq.undoStack.length).toBe(before + 1);
   });
 
-  it("undoes the show from here when the sequence has nothing to undo, and says so", async () => {
-    const { user, backend } = await openScreen();
-    expect(screen.getByRole("button", { name: "Undo (sequence)" })).toBeDisabled();
-    const star = backend.show.props.find((p) => p.name === "Porch Star")!;
-    await act(() => useApp.getState().apply([{ type: "updateProp", prop: { ...star, name: "Roof Star" } }]));
-    const undo = screen.getByRole("button", { name: "Undo (show)" });
-    expect(undo).toHaveAttribute("data-tip", "Undo (show): Rename Porch Star to Roof Star");
-    await user.click(undo);
-    expect(backend.show.props.some((p) => p.name === "Porch Star")).toBe(true);
-    // And ⌘Z does the same.
-    await act(() => useApp.getState().apply([{ type: "updateProp", prop: { ...star, name: "Roof Star" } }]));
-    await user.keyboard("{Meta>}z{/Meta}");
-    await waitFor(() => expect(backend.show.props.some((p) => p.name === "Porch Star")).toBe(true));
+  describe("undo on the Sequence screen", () => {
+    const names = (backend: MemoryBackend) => backend.show.props.map((p) => p.name);
+    const press = (shift = false, repeat = false) => act(() => void fireEvent.keyDown(document.body, { key: "z", metaKey: true, shiftKey: shift, repeat }));
+    async function renameStar(backend: MemoryBackend, name: string) {
+      const star = backend.show.props.find((p) => p.name.endsWith("Star"))!;
+      await act(() => useApp.getState().apply([{ type: "updateProp", prop: { ...star, name } }]));
+    }
+
+    it("acts only on the sequence; with nothing to undo there, ⌘Z offers the layout change instead", async () => {
+      const { user, backend } = await openScreen();
+      await renameStar(backend, "Roof Star");
+      await renameStar(backend, "Gable Star");
+      // The button says which document it acts on, and the sequence has nothing to undo.
+      expect(screen.getByRole("button", { name: "Undo (sequence)" })).toBeDisabled();
+      await press();
+      expect(names(backend)).toContain("Gable Star");
+      const hint = useToasts.getState().toasts.at(-1)!;
+      expect(hint.text).toBe("Nothing to undo in the sequence. Undo the layout change “Rename Roof Star to Gable Star”?");
+      expect(hint.action?.label).toBe("Undo layout change");
+      // Held down, the key repeats: nothing more happens, to either document.
+      await press(false, true);
+      await press(false, true);
+      expect(useToasts.getState().toasts.filter((t) => t.text.startsWith("Nothing to undo"))).toHaveLength(1);
+      expect(names(backend)).toContain("Gable Star");
+      // The hint's button takes back one layout step.
+      await act(async () => void (await hint.action!.run()));
+      expect(names(backend)).toContain("Roof Star");
+      void user;
+    });
+
+    it("redoes what was last undone, in order", async () => {
+      const { backend, seq } = await openScreen();
+      await renameStar(backend, "Roof Star");
+      const first = seq.doc!.rows[0].layers[0].effects[0];
+      await act(() => useSequencer.getState().edit([{ type: "removeEffect", id: first.id }]));
+      // Undo the sequence edit, then (offered by the hint) the layout change.
+      await press();
+      expect(seq.doc!.rows[0].layers[0].effects[0].id).toBe(first.id);
+      await press();
+      await act(async () => void (await useToasts.getState().toasts.at(-1)!.action!.run()));
+      expect(names(backend)).toContain("Porch Star");
+      expect(screen.getByRole("button", { name: "Redo (show)" })).toBeEnabled();
+      // Redo brings back the layout change first (the last thing undone), then the sequence edit.
+      await press(true);
+      await waitFor(() => expect(names(backend)).toContain("Roof Star"));
+      expect(seq.doc!.rows[0].layers[0].effects[0].id).toBe(first.id);
+      await press(true);
+      await waitFor(() => expect(seq.doc!.rows[0].layers[0].effects[0].id).not.toBe(first.id));
+    });
   });
 
   it("adds an effect at the playhead from the keyboard", async () => {

@@ -29,7 +29,7 @@ import { ShowMenu } from "./ShowMenu";
 import { Sidebar } from "./Sidebar";
 import { ASSISTANT_OVERLAY_BELOW, useWindowWidth } from "../lib/useWidth";
 import { Button, UnsavedBadge } from "./ui";
-import { saveFocused, undoFocused } from "../state/menuActions";
+import { redoTarget, saveFocused, undoFocused } from "../state/menuActions";
 import { nextLabels, useUndoLabels } from "../state/undoLabels";
 
 function IconButton({
@@ -76,7 +76,8 @@ function useUndoButton(redo: boolean) {
   const show = useApp(useShallow((s) => ({ can: (redo ? s.snapshot?.canRedo : s.snapshot?.canUndo) ?? false, revision: s.snapshot?.revision })));
   const names = useUndoLabels();
   const both = onSequence && hasSequence;
-  const target = both && (seq.can || !show.can) ? "sequence" : "show";
+  // On the Sequence screen Undo works on the sequence only; Redo follows what was undone there.
+  const target = !both ? "show" : redo ? redoTarget() : "sequence";
   const verb = redo ? "Redo" : "Undo";
   const label = both ? `${verb} (${target})` : verb;
   const name = target === "sequence" ? nextLabels(names.sequence, seq.revision) : nextLabels(names.show, show.revision);

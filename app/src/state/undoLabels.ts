@@ -48,5 +48,14 @@ export function nextLabels(s: LabelStacks, revision: number | null | undefined):
   return { undo: s.undo.at(-1)?.label ?? null, redo: s.redo.at(-1)?.label ?? null };
 }
 
-/** The names for the show and for the open sequence. */
-export const useUndoLabels = create<{ show: LabelStacks; sequence: LabelStacks }>(() => ({ show: NO_LABELS, sequence: NO_LABELS }));
+export type UndoDoc = "show" | "sequence";
+
+/**
+ * The names for the show and for the open sequence; and on the Sequence screen, which document
+ * each undo there took back, newest last (so Redo brings them back in turn).
+ */
+export const useUndoLabels = create<{ show: LabelStacks; sequence: LabelStacks; undone: UndoDoc[] }>(() => ({
+  show: NO_LABELS,
+  sequence: NO_LABELS,
+  undone: [],
+}));

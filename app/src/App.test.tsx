@@ -167,6 +167,28 @@ describe("command palette", () => {
     }
   });
 
+  it("reaches every screen, and the main action of each", async () => {
+    const user = await startFresh();
+    for (const [command, heading] of [
+      ["go to sequence", "Sequence"],
+      ["go to play", "Play"],
+      ["go to devices", "Devices"],
+    ]) {
+      await user.keyboard("{Meta>}k{/Meta}");
+      await user.type(screen.getByPlaceholderText("Type a command…"), command);
+      await user.keyboard("{Enter}");
+      expect(screen.getByRole("heading", { name: heading })).toBeInTheDocument();
+    }
+    await user.keyboard("{Meta>}k{/Meta}");
+    await user.type(screen.getByPlaceholderText("Type a command…"), "sequence");
+    expect(screen.getByRole("option", { name: "Open sequence…" })).toBeInTheDocument();
+    await user.clear(screen.getByPlaceholderText("Type a command…"));
+    await user.type(screen.getByPlaceholderText("Type a command…"), "scan the network");
+    await user.keyboard("{Enter}");
+    expect(useApp.getState().screen).toBe("devices");
+    expect(backend.calls).toContain("discoverDevices::network");
+  });
+
   it("opens with ⌘K and runs commands", async () => {
     const user = await startFresh();
     await user.keyboard("{Meta>}k{/Meta}");

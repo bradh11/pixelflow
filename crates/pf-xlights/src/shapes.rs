@@ -28,6 +28,9 @@ pub(crate) fn editable(model: &XmlModel, points: &[Vec3]) -> Option<Candidate> {
         "Single Line" => single_line(model, points.len()),
         "Candy Canes" => candy_canes(model),
         "Icicles" => icicles(model),
+        "Window Frame" => window_frame(model),
+        "Wreath" => wreath(model),
+        "Spinner" => spinner(model),
         _ => Vec::new(),
     };
     candidates.into_iter().find(|(g, t)| fits(g, t, points))
@@ -335,6 +338,156 @@ fn icicles(m: &XmlModel) -> Vec<Candidate> {
         alternate_nodes: flag(m, "AlternateNodes"),
     };
     vec![(generator, between_ends(&tp, m.attr("Dir") == Some("R")))]
+}
+
+/// Where a boxed model (Window Frame, Wreath, Spinner) sits, as `BoxedScreenLocation` places it:
+/// centered on `WorldPos`, scaled by `ScaleX/Y`, then turned by `RotateX`, `RotateY` and
+/// `RotateZ` in turn, which PixelFlow's transform does in the same order. (xLights turns by a
+/// slightly short pi, a few millionths of a degree off; well within the import tolerance.)
+struct Boxed {
+    position: Vec3,
+    rotation_deg: Vec3,
+    scale_x: f64,
+    scale_y: f64,
+}
+
+fn boxed(m: &XmlModel) -> Boxed {
+    // xLights ignores a negative scale and a turn of more than half way round.
+    let scale = |k: &str| Some(float(m, k, 1.0)).filter(|&v| v >= 0.0).unwrap_or(1.0);
+    let turn = |k: &str| {
+        Some(float(m, k, 0.0))
+            .filter(|v| (-180.0..=180.0).contains(v))
+            .unwrap_or(0.0) as f32
+    };
+    Boxed {
+        position: world_pos(m),
+        rotation_deg: Vec3::new(turn("RotateX"), turn("RotateY"), turn("RotateZ")),
+        scale_x: scale("ScaleX"),
+        scale_y: scale("ScaleY"),
+    }
+}
+
+/// Where a string starts, from xLights' `Dir` and `StartSide`: (from the left, from the bottom).
+fn start_side(m: &XmlModel) -> (bool, bool) {
+    (
+        m.attr("Dir") != Some("R"),
+        m.attr("StartSide").is_none_or(|s| s == "B"),
+    )
+}
+
+/// A round boxed model's size, folded into `steps` of its own (one xLights unit each) across
+/// its radius, and any difference between its height and width kept in its transform.
+fn round_placement(b: &Boxed, steps: f64) -> Option<(f32, Transform)> {
+    if b.scale_x <= 0.0 {
+        return None;
+    }
+    let radius = (steps * b.scale_x) as f32 * SCALE;
+    let squash = Vec3::new(1.0, (b.scale_y / b.scale_x) as f32, 1.0);
+    Some((radius, transform(b.position, b.rotation_deg, squash)))
+}
+
+/// `WindowFrameModel` with one light per node: its pixel counts, start corner and direction,
+/// and its size (xLights spaces the sides' pixels one unit apart and makes the frame two wider
+/// than its longer row, before scaling).
+fn window_frame(m: &XmlModel) -> Vec<Candidate> {
+    let (Some(top), Some(sides), Some(bottom)) = (
+        count(parm(m, "TopNodes", "parm1", 0).max(0)),
+        count(parm(m, "SideNodes", "parm2", 0).max(0)),
+        count(parm(m, "BottomNodes", "parm3", 0).max(0)),
+    ) else {
+        return Vec::new();
+    };
+    if u64::from(top) + 2 * u64::from(sides) + u64::from(bottom) > u64::from(pf_model::MAX_PROP_NODES) {
+        return Vec::new();
+    }
+    let start = match start_side(m) {
+        (true, true) => pf_model::Corner::BottomLeft,
+        (false, true) => pf_model::Corner::BottomRight,
+        (true, false) => pf_model::Corner::TopLeft,
+        (false, false) => pf_model::Corner::TopRight,
+    };
+    let counter_clockwise = !matches!(m.text("Rotation", "CW"), "CW" | "Clockwise");
+    let b = boxed(m);
+    let across = f64::from(top.max(bottom) + 2);
+    let up = (i64::from(sides) - 1).max(1) as f64;
+    let generator = Generator::WindowFrame {
+        top,
+        sides,
+        bottom,
+        width: (across * b.scale_x) as f32 * SCALE,
+        height: (up * b.scale_y) as f32 * SCALE,
+        start,
+        counter_clockwise,
+    };
+    vec![(generator, transform(b.position, b.rotation_deg, Vec3::ONE))]
+}
+
+/// `WreathModel` with one light per node: its lights, where they start and which way they go,
+/// and its grid of `lights / 2` steps across the radius. xLights draws a wreath of an odd number
+/// of lights a step down and left of its middle, so that one is moved to match.
+fn wreath(m: &XmlModel) -> Vec<Candidate> {
+    let lights = parm(m, "NumStrings", "parm1", 1)
+        .max(0)
+        .saturating_mul(parm(m, "NodesPerString", "parm2", 50).max(0));
+    let Some(nodes) = count(lights).filter(|&n| n > 0 && n <= pf_model::MAX_PROP_NODES) else {
+        return Vec::new();
+    };
+    let (ltor, btot) = start_side(m);
+    let b = boxed(m);
+    let Some((radius, mut place)) = round_placement(&b, f64::from((nodes / 2).max(1))) else {
+        return Vec::new();
+    };
+    if nodes % 2 == 1 {
+        let step = (b.scale_x as f32) * SCALE;
+        place.position = pf_geometry::apply_transform(Vec3::new(-step, -step, 0.0), &place);
+    }
+    let generator = Generator::Wreath {
+        nodes,
+        radius,
+        start_at_bottom: btot,
+        counter_clockwise: ltor != btot,
+    };
+    vec![(generator, place)]
+}
+
+/// `SpinnerModel` with one light per node: its arms (strings times arms per string), pixels per
+/// arm, hollow middle, start angle, arc and options, and its size: the outermost pixel is half a
+/// unit beyond the arm's last step past the hollow middle, before scaling.
+fn spinner(m: &XmlModel) -> Vec<Candidate> {
+    let strings = parm(m, "NumStrings", "parm1", 1).max(0);
+    let (Some(arms), Some(nodes_per_arm)) = (
+        count(strings.saturating_mul(parm(m, "ArmsPerString", "parm3", 1).max(0))),
+        count(parm(m, "NodesPerArm", "parm2", 1).max(0)),
+    ) else {
+        return Vec::new();
+    };
+    let (hollow, arc) = (int(m, "Hollow", 20), int(m, "Arc", 360));
+    if arms > pf_model::MAX_SPINNER_ARMS
+        || u64::from(arms) * u64::from(nodes_per_arm) > u64::from(pf_model::MAX_PROP_NODES)
+        || !(0..=i64::from(pf_model::MAX_SPINNER_HOLLOW)).contains(&hollow)
+        || !(1..=360).contains(&arc)
+    {
+        return Vec::new();
+    }
+    let (ltor, btot) = start_side(m);
+    let npa = f64::from(nodes_per_arm);
+    let steps = npa - 0.5 + hollow as f64 * 2.0 * npa / 100.0;
+    let Some((radius, place)) = round_placement(&boxed(m), steps) else {
+        return Vec::new();
+    };
+    let generator = Generator::Spinner {
+        arms,
+        nodes_per_arm,
+        hollow: hollow as u32,
+        start_angle: int(m, "StartAngle", 0) as f32,
+        arc: arc as f32,
+        zig_zag: flag(m, "ZigZag"),
+        alternate: flag(m, "Alternate"),
+        from_center: !btot,
+        clockwise: !ltor,
+        radius,
+    };
+    vec![(generator, place)]
 }
 
 #[cfg(test)]
@@ -704,5 +857,249 @@ mod tests {
             &with(&ICICLES, &[("StringType", "Single Color White")]),
         );
         stays_measured("Icicles", &with(&ICICLES, &[("DropPattern", "3,2000")]));
+    }
+
+    /// Where an imported model's prop is placed.
+    #[track_caller]
+    fn placed(display_as: &str, attrs: &[(&str, &str)]) -> Transform {
+        let m = model(display_as, attrs);
+        editable(&m, &measured(&m)).unwrap().1
+    }
+
+    /// Every way xLights starts a string: from either side, at the top or the bottom.
+    const STARTS: [&[(&str, &str)]; 4] = [
+        &[],
+        &[("Dir", "R")],
+        &[("StartSide", "T")],
+        &[("Dir", "R"), ("StartSide", "T")],
+    ];
+
+    /// A window frame 10 across the top, 6 up each side and 8 across the bottom, stretched.
+    const FRAME: [(&str, &str); 7] = [
+        ("TopNodes", "10"),
+        ("SideNodes", "6"),
+        ("BottomNodes", "8"),
+        ("WorldPosX", "200"),
+        ("WorldPosY", "300"),
+        ("ScaleX", "4"),
+        ("ScaleY", "5"),
+    ];
+
+    #[test]
+    fn window_frames_import_as_window_frames_of_the_same_size() {
+        let g = imports_as("Window Frame", &FRAME);
+        let Generator::WindowFrame {
+            top,
+            sides,
+            bottom,
+            width,
+            height,
+            start,
+            counter_clockwise,
+        } = g
+        else {
+            panic!("{g:?}")
+        };
+        assert_eq!((top, sides, bottom), (10, 6, 8));
+        assert_eq!((start, counter_clockwise), (pf_model::Corner::BottomLeft, false));
+        // Two wider than the top's ten, and five steps tall, at 4 and 5 units a step.
+        assert!((width - 0.48).abs() < 1e-6, "{width}");
+        assert!((height - 0.25).abs() < 1e-6, "{height}");
+        let t = placed("Window Frame", &FRAME);
+        assert_eq!(t, transform(Vec3::new(2.0, 3.0, 0.0), Vec3::ZERO, Vec3::ONE));
+    }
+
+    #[test]
+    fn window_frames_started_and_turned_every_way_import_exactly() {
+        let corners = [
+            pf_model::Corner::BottomLeft,
+            pf_model::Corner::BottomRight,
+            pf_model::Corner::TopLeft,
+            pf_model::Corner::TopRight,
+        ];
+        for (start, corner) in STARTS.iter().zip(corners) {
+            for rotation in [None, Some("CCW"), Some("Counter Clockwise"), Some("Clockwise")] {
+                let mut attrs = with(&FRAME, start);
+                attrs.extend(rotation.map(|r| ("Rotation", r)));
+                let g = imports_as("Window Frame", &attrs);
+                assert!(
+                    matches!(g, Generator::WindowFrame { start: s, counter_clockwise: ccw, .. }
+                        if s == corner && ccw == matches!(rotation, Some("CCW" | "Counter Clockwise"))),
+                    "{attrs:?}: {g:?}"
+                );
+            }
+        }
+        let variants: [&[(&str, &str)]; 7] = [
+            &[("RotateZ", "30")],
+            &[("RotateX", "20"), ("RotateY", "-15"), ("RotateZ", "100")],
+            // One pixel on top sits a step in from the corner, as in xLights.
+            &[("TopNodes", "1"), ("BottomNodes", "1")],
+            &[("SideNodes", "1"), ("Rotation", "CCW")],
+            &[("SideNodes", "0"), ("StartSide", "T")],
+            &[("TopNodes", "0"), ("Dir", "R")],
+            &[("ScaleY", "0.5"), ("ScaleZ", "3")],
+        ];
+        for more in variants {
+            imports_as("Window Frame", &with(&FRAME, more));
+        }
+        imports_as("Window Frame", &[("parm1", "4"), ("parm2", "3"), ("parm3", "4")]);
+    }
+
+    #[test]
+    fn window_frames_with_dumb_strings_keep_their_points() {
+        stays_measured(
+            "Window Frame",
+            &with(&FRAME, &[("StringType", "Single Color Red")]),
+        );
+    }
+
+    /// A wreath of 30 lights, 3 units a grid step.
+    const WREATH: [(&str, &str); 6] = [
+        ("NumStrings", "1"),
+        ("NodesPerString", "30"),
+        ("WorldPosX", "500"),
+        ("WorldPosY", "250"),
+        ("ScaleX", "3"),
+        ("ScaleY", "3"),
+    ];
+
+    #[test]
+    fn wreaths_import_as_wreaths_on_the_same_grid() {
+        let g = imports_as("Wreath", &WREATH);
+        // xLights starts at the bottom and goes clockwise unless told otherwise; 15 grid steps
+        // of 3 units each across the radius.
+        assert_eq!(
+            g,
+            Generator::Wreath {
+                nodes: 30,
+                radius: 0.45,
+                start_at_bottom: true,
+                counter_clockwise: false,
+            }
+        );
+        let t = placed("Wreath", &WREATH);
+        assert_eq!(t, transform(Vec3::new(5.0, 2.5, 0.0), Vec3::ZERO, Vec3::ONE));
+        let flips = [(true, false), (true, true), (false, true), (false, false)];
+        for (start, (bottom, ccw)) in STARTS.iter().zip(flips) {
+            let g = imports_as("Wreath", &with(&WREATH, start));
+            assert!(
+                matches!(g, Generator::Wreath { start_at_bottom: b, counter_clockwise: c, .. }
+                    if b == bottom && c == ccw),
+                "{start:?}: {g:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn wreaths_of_any_count_size_and_turn_import_exactly() {
+        let variants: [&[(&str, &str)]; 7] = [
+            // An odd count: xLights draws it a grid step down and left of its middle.
+            &[("NodesPerString", "7")],
+            &[("NodesPerString", "1")],
+            &[("NumStrings", "2"), ("NodesPerString", "25")],
+            &[("ScaleY", "1.5")],
+            &[("NodesPerString", "9"), ("RotateZ", "40"), ("ScaleY", "2")],
+            &[("RotateX", "30"), ("RotateY", "20")],
+            &[("NodesPerString", "6"), ("Dir", "R")],
+        ];
+        for more in variants {
+            imports_as("Wreath", &with(&WREATH, more));
+        }
+        let t = placed("Wreath", &with(&WREATH, &[("NodesPerString", "7")]));
+        assert!((t.position - Vec3::new(4.97, 2.47, 0.0)).length() < 1e-5, "{t:?}");
+        imports_as("Wreath", &[("parm1", "1"), ("parm2", "12")]);
+        stays_measured("Wreath", &with(&WREATH, &[("StringType", "Single Color White")]));
+    }
+
+    /// Two strings of three arms of ten pixels, a fifth hollow, 5 units a pixel step.
+    const SPINNER: [(&str, &str); 8] = [
+        ("NumStrings", "2"),
+        ("NodesPerArm", "10"),
+        ("ArmsPerString", "3"),
+        ("Hollow", "20"),
+        ("WorldPosX", "100"),
+        ("WorldPosY", "400"),
+        ("ScaleX", "5"),
+        ("ScaleY", "5"),
+    ];
+
+    #[test]
+    fn spinners_import_as_spinners_of_the_same_size() {
+        let g = imports_as("Spinner", &SPINNER);
+        let Generator::Spinner {
+            arms,
+            nodes_per_arm,
+            hollow,
+            start_angle,
+            arc,
+            zig_zag,
+            alternate,
+            from_center,
+            clockwise,
+            radius,
+        } = g
+        else {
+            panic!("{g:?}")
+        };
+        assert_eq!((arms, nodes_per_arm, hollow), (6, 10, 20));
+        assert_eq!((start_angle, arc), (0.0, 360.0));
+        assert_eq!(
+            (zig_zag, alternate, from_center, clockwise),
+            (false, false, false, false)
+        );
+        // The outermost pixel is 9.5 steps plus a hollow of 4 out, at 5 units a step.
+        assert!((radius - 0.675).abs() < 1e-6, "{radius}");
+        let t = placed("Spinner", &SPINNER);
+        assert_eq!(t, transform(Vec3::new(1.0, 4.0, 0.0), Vec3::ZERO, Vec3::ONE));
+    }
+
+    #[test]
+    fn spinners_set_up_every_way_xlights_offers_import_exactly() {
+        for start in STARTS {
+            imports_as("Spinner", &with(&SPINNER, start));
+        }
+        let g = imports_as("Spinner", &with(&SPINNER, &[("Dir", "R"), ("StartSide", "T")]));
+        assert!(matches!(
+            g,
+            Generator::Spinner {
+                from_center: true,
+                clockwise: true,
+                ..
+            }
+        ));
+        let variants: [&[(&str, &str)]; 10] = [
+            &[("StartAngle", "35")],
+            &[("Arc", "180"), ("StartAngle", "-90")],
+            &[("Arc", "90"), ("Dir", "R")],
+            &[("ZigZag", "true")],
+            &[("ZigZag", "true"), ("StartSide", "T")],
+            &[("Alternate", "true"), ("StartSide", "T")],
+            &[("Hollow", "0")],
+            &[("Hollow", "80"), ("ScaleY", "2")],
+            &[("RotateZ", "-60"), ("RotateX", "10")],
+            // Many arms: their angles drift as xLights' do.
+            &[
+                ("NumStrings", "1"),
+                ("ArmsPerString", "250"),
+                ("NodesPerArm", "3"),
+            ],
+        ];
+        for more in variants {
+            imports_as("Spinner", &with(&SPINNER, more));
+        }
+        imports_as("Spinner", &[("parm1", "1"), ("parm2", "8"), ("parm3", "4")]);
+    }
+
+    #[test]
+    fn spinners_past_pixelflow_limits_or_with_dumb_strings_keep_their_points() {
+        stays_measured("Spinner", &with(&SPINNER, &[("Hollow", "150")]));
+        stays_measured("Spinner", &with(&SPINNER, &[("Hollow", "-10")]));
+        stays_measured("Spinner", &with(&SPINNER, &[("Arc", "0")]));
+        stays_measured("Spinner", &with(&SPINNER, &[("Arc", "400")]));
+        stays_measured(
+            "Spinner",
+            &with(&SPINNER, &[("NumStrings", "1"), ("ArmsPerString", "1001")]),
+        );
+        stays_measured("Spinner", &with(&SPINNER, &[("StringType", "Single Color Red")]));
     }
 }

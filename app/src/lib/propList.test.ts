@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { demoShow } from "../api/demo";
 import { emptyShow } from "../api/memory";
 import type { Prop, Show } from "../api/types";
-import { listedProps, rangeSelect, wiredProps } from "./propList";
+import { listedProps, needsWiring, rangeSelect, wiringStatuses } from "./propList";
 import { newProp } from "./shows";
 
 function show(): { show: Show; pixels: Map<string, number> } {
@@ -14,7 +14,7 @@ const names = (props: Prop[]) => props.map((p) => p.name);
 describe("listedProps", () => {
   it("keeps layout order, or sorts by name, pixels, type, or wiring", () => {
     const { show: s, pixels } = show();
-    const wired = wiredProps(s);
+    const wired = wiringStatuses(s, pixels);
     const list = (sort: Parameters<typeof listedProps>[1]["sort"]) => names(listedProps(s.props, { sort, query: "", unwiredOnly: false }, pixels, wired));
     expect(list("layout")).toEqual(["Garage Arch", "Mega Tree", "Window Matrix", "Porch Star"]);
     expect(list("name")).toEqual(["Garage Arch", "Mega Tree", "Porch Star", "Window Matrix"]);
@@ -26,7 +26,7 @@ describe("listedProps", () => {
 
   it("finds props by any part of their name or type, ignoring case", () => {
     const { show: s, pixels } = show();
-    const find = (query: string) => names(listedProps(s.props, { sort: "layout", query, unwiredOnly: false }, pixels, wiredProps(s)));
+    const find = (query: string) => names(listedProps(s.props, { sort: "layout", query, unwiredOnly: false }, pixels, wiringStatuses(s, pixels)));
     expect(find("tree")).toEqual(["Mega Tree"]);
     expect(find("  ARCH ")).toEqual(["Garage Arch"]);
     expect(find("matrix")).toEqual(["Window Matrix"]);
@@ -35,13 +35,13 @@ describe("listedProps", () => {
 
   it("can show only the props not wired yet", () => {
     const { show: s, pixels } = show();
-    expect(names(listedProps(s.props, { sort: "layout", query: "", unwiredOnly: true }, pixels, wiredProps(s)))).toEqual(["Porch Star"]);
+    expect(names(listedProps(s.props, { sort: "layout", query: "", unwiredOnly: true }, pixels, wiringStatuses(s, pixels)))).toEqual(["Porch Star"]);
   });
 
   it("sorts names the way people count (Arch 2 before Arch 10)", () => {
     const s = emptyShow("x");
     s.props = [10, 2, 1].map((n) => ({ ...newProp("arch", s), name: `Arch ${n}` }));
-    expect(names(listedProps(s.props, { sort: "name", query: "", unwiredOnly: false }, new Map(), new Set()))).toEqual(["Arch 1", "Arch 2", "Arch 10"]);
+    expect(names(listedProps(s.props, { sort: "name", query: "", unwiredOnly: false }, new Map(), new Map()))).toEqual(["Arch 1", "Arch 2", "Arch 10"]);
   });
 
   it("stays quick with thousands of props", () => {
@@ -49,7 +49,7 @@ describe("listedProps", () => {
     const base = newProp("line", s);
     s.props = Array.from({ length: 5000 }, (_, i) => ({ ...base, id: `p${i}`, name: `Line ${5000 - i}` }));
     const started = performance.now();
-    const listed = listedProps(s.props, { sort: "name", query: "line 4", unwiredOnly: false }, new Map(), new Set());
+    const listed = listedProps(s.props, { sort: "name", query: "line 4", unwiredOnly: false }, new Map(), new Map());
     expect(performance.now() - started).toBeLessThan(200);
     expect(listed[0].name).toBe("Line 4");
   });
@@ -66,9 +66,16 @@ describe("rangeSelect", () => {
   });
 });
 
-describe("wiredProps", () => {
-  it("is every prop on some port", () => {
-    const s = demoShow();
-    expect([...wiredProps(s)].sort()).toEqual([s.props[0].id, s.props[1].id, s.props[2].id].sort());
+describe("wiringStatuses", () => {
+  it("says which props are wired, partly wired, or not wired", () => {
+    const { show: s, pixels } = show();
+    // Only the first 400 of the mega tree's 800 pixels are on a port.
+    s.controllers[0].ports[1].slots[0].segment = { start: 0, end: 400 };
+    const status = wiringStatuses(s, pixels);
+    expect(s.props.map((p) => status.get(p.id))).toEqual(["wired", "partial", "wired", "unwired"]);
+    expect(["unwired", "partial", "twice", "wired"].map((w) => needsWiring(w as never))).toEqual([true, true, false, false]);
+    // "Not wired" includes the partly wired, and they sort first after the unwired.
+    expect(names(listedProps(s.props, { sort: "layout", query: "", unwiredOnly: true }, pixels, status))).toEqual(["Mega Tree", "Porch Star"]);
+    expect(names(listedProps(s.props, { sort: "unwired", query: "", unwiredOnly: false }, pixels, status))).toEqual(["Porch Star", "Mega Tree", "Garage Arch", "Window Matrix"]);
   });
 });

@@ -526,7 +526,7 @@ describe("LayoutScreen", () => {
       expect(screen.getByText("2 of 3 props")).toBeInTheDocument();
       await user.selectOptions(screen.getByLabelText("Sort props"), "name");
       expect(shown()).toEqual(["Gutter 2", "Gutter 10"]);
-      await user.click(screen.getByRole("checkbox", { name: "Not wired" }));
+      await user.click(screen.getByRole("checkbox", { name: "Not wired (or partly)" }));
       expect(shown()).toEqual(["Gutter 2"]);
       await user.clear(screen.getByPlaceholderText("Find props"));
       expect(shown()).toEqual(["Fence", "Gutter 2"]);

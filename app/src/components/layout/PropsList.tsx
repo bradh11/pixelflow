@@ -3,7 +3,8 @@ import { type KeyboardEvent, type MouseEvent, memo, useCallback, useEffect, useM
 import type { Prop } from "../../api/types";
 import { thousands } from "../../lib/format";
 import { removeEdits, updateEdits } from "../../lib/layoutEdits";
-import { PROP_SORTS, type PropSort, listedProps, rangeSelect, wiredProps } from "../../lib/propList";
+import { PROP_SORTS, type PropSort, listedProps, rangeSelect, wiringStatuses } from "../../lib/propList";
+import type { WiringStatus } from "../../lib/wiringMath";
 import { shapeLabel } from "../../lib/shows";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { useApp } from "../../state/store";
@@ -73,7 +74,7 @@ interface RowProps {
   prop: Prop;
   top: number;
   pixels: number;
-  wired: boolean;
+  wiring: WiringStatus;
   selected: boolean;
   active: boolean;
   renaming: boolean;
@@ -81,13 +82,22 @@ interface RowProps {
   onRename: (id: string | null) => void;
 }
 
-const Row = memo(function Row({ prop, top, pixels, wired, selected, active, renaming, onPick, onRename }: RowProps) {
+/** How each wiring state looks and reads in the list. */
+const WIRING: Record<WiringStatus, { dot: string; label: string }> = {
+  wired: { dot: "bg-emerald-500/70", label: "Wired" },
+  partial: { dot: "border-2 border-amber-500 bg-transparent", label: "Partly wired" },
+  unwired: { dot: "bg-amber-500", label: "Not wired yet" },
+  twice: { dot: "bg-red-500", label: "Wired twice" },
+};
+
+const Row = memo(function Row({ prop, top, pixels, wiring, selected, active, renaming, onPick, onRename }: RowProps) {
+  const look = WIRING[wiring];
   return (
     <div
       role="option"
       id={rowId(prop.id)}
       aria-selected={selected}
-      title={`${prop.name}: ${shapeLabel(prop.shape)}, ${thousands(pixels)} pixels${wired ? "" : ", not wired yet"}. Double-click to rename.`}
+      title={`${prop.name}: ${shapeLabel(prop.shape)}, ${thousands(pixels)} pixels${wiring === "wired" ? "" : `, ${look.label.toLowerCase()}`}. Double-click to rename.`}
       onClick={(e) => onPick(prop.id, e)}
       onDoubleClick={() => onRename(prop.id)}
       style={{ top, height: ROW_PX }}
@@ -97,13 +107,13 @@ const Row = memo(function Row({ prop, top, pixels, wired, selected, active, rena
     >
       <span
         aria-hidden
-        className={`h-2 w-2 shrink-0 rounded-full ${wired ? "bg-emerald-500/70" : "bg-amber-500"}`}
-        title={wired ? "Wired" : "Not wired yet"}
+        className={`h-2 w-2 shrink-0 rounded-full ${look.dot}`}
+        title={look.label}
       />
       {renaming ? <RenameField prop={prop} onDone={() => onRename(null)} /> : <span className="min-w-0 flex-1 truncate">{prop.name}</span>}
       <span className="hidden shrink-0 text-xs text-neutral-500 @min-[15rem]:inline">{shapeLabel(prop.shape)}</span>
       <span className="w-12 shrink-0 text-right text-xs text-neutral-500 tabular-nums">{thousands(pixels)}</span>
-      <span className="sr-only">{wired ? "" : ", not wired"}</span>
+      <span className="sr-only">{wiring === "wired" ? "" : `, ${look.label.toLowerCase()}`}</span>
       <button
         type="button"
         tabIndex={-1}
@@ -139,8 +149,8 @@ export function PropsList() {
   const scroller = useRef<HTMLDivElement>(null);
 
   const pixels = useMemo(() => new Map(channelMap.props.map((p) => [p.prop, p.nodes])), [channelMap]);
-  const wired = useMemo(() => wiredProps(show), [show]);
-  const listed = useMemo(() => listedProps(show.props, { sort, query, unwiredOnly }, pixels, wired), [show.props, sort, query, unwiredOnly, pixels, wired]);
+  const wiring = useMemo(() => wiringStatuses(show, pixels), [show, pixels]);
+  const listed = useMemo(() => listedProps(show.props, { sort, query, unwiredOnly }, pixels, wiring), [show.props, sort, query, unwiredOnly, pixels, wiring]);
   const order = useMemo(() => listed.map((p) => p.id), [listed]);
   const picked = useMemo(() => new Set(selected), [selected]);
   const { first, last, total, reveal } = useVirtualRows(scroller, listed.length, ROW_PX);
@@ -233,9 +243,9 @@ export function PropsList() {
               </option>
             ))}
           </Select>
-          <label className="flex shrink-0 items-center gap-1 text-xs text-neutral-600 dark:text-neutral-400" title="Only the props not wired to a controller yet">
+          <label className="flex shrink-0 items-center gap-1 text-xs text-neutral-600 dark:text-neutral-400" title="Only the props not wired to a controller yet, or only partly wired">
             <input type="checkbox" checked={unwiredOnly} onChange={(e) => setUnwiredOnly(e.target.checked)} className="accent-accent-500" />
-            Not wired
+            Not wired (or partly)
           </label>
         </div>
         <p className="text-xs text-neutral-500" aria-live="polite">
@@ -271,7 +281,7 @@ export function PropsList() {
                 prop={prop}
                 top={(first + i) * ROW_PX}
                 pixels={pixels.get(prop.id) ?? 0}
-                wired={wired.has(prop.id)}
+                wiring={wiring.get(prop.id) ?? "unwired"}
                 selected={picked.has(prop.id)}
                 active={active === prop.id}
                 renaming={renaming === prop.id}

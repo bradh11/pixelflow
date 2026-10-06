@@ -158,6 +158,19 @@ describe("missing files", () => {
     expect(useSequencer.getState().canUndo).toBe(true);
   });
 
+  it("says a file is missing once: the screen's note waits while the show's banner names the same file", async () => {
+    const { backend, user } = await openMoved();
+    const seq = new MemorySequencer(backend);
+    seq.files.set("/Shows/Haas 2024/Medley.pfseq.json", { schemaVersion: 2, name: "Medley", audio: SONG, durationMs: 60_000, frameMs: 25, timingTracks: [], rows: [] });
+    await seq.openSequenceDoc("/Shows/Haas 2024/Medley.pfseq.json");
+    await useSequencer.getState().connect(seq);
+    await user.click(screen.getByRole("button", { name: "Sequence" }));
+    await waitFor(() => expect(useSequencer.getState().musicMissing).not.toBeNull());
+    expect(screen.queryByRole("group", { name: "Christmas Medley 2017.mp3 isn't where it was." })).not.toBeInTheDocument();
+    await user.click(within(screen.getByRole("region", { name: "Missing files" })).getByRole("button", { name: "Not now" }));
+    expect(await screen.findByRole("group", { name: "Christmas Medley 2017.mp3 isn't where it was." })).toBeInTheDocument();
+  });
+
   it("asks for the files to be checked when the show hasn't looked at them yet, and on focus", async () => {
     const backend = new MemoryBackend(showWithFiles());
     await backend.saveShowAs(SHOW_FILE);

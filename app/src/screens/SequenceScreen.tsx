@@ -2,7 +2,7 @@ import { AlertTriangle, AudioLines, CheckCircle2, Download, FileInput, FilePlus,
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { errorMessage } from "../api/backend";
-import { MissingFileNotice } from "../components/MissingFiles";
+import { MissingFileNotice, useMissingBannerNames } from "../components/MissingFiles";
 import { EffectPalette } from "../components/sequencer/EffectPalette";
 import { EffectSettings } from "../components/sequencer/EffectSettings";
 import { SequencePreview } from "../components/sequencer/SequencePreview";
@@ -490,10 +490,12 @@ function MissingMusicLine() {
   const docKey = useSequencer((s) => s.docKey);
   const missing = useSequencer((s) => s.musicMissing);
   const { checkMusic, findMusic, locateMusic } = useSequencer.getState();
+  // One alarm at a time: while the show's banner names this file, it speaks for it.
+  const bannerShown = useMissingBannerNames(missing?.name ?? null);
   useEffect(() => {
     void checkMusic();
   }, [audio, path, docKey, checkMusic]);
-  if (!missing) return null;
+  if (!missing || bannerShown) return null;
   return (
     <div className="border-b border-amber-200 px-3 py-2 dark:border-amber-900/70">
       <MissingFileNotice missing={missing} onFind={() => void findMusic()} onLocate={() => void locateMusic()} />

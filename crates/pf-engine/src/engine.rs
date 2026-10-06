@@ -251,6 +251,16 @@ impl Engine {
         &self.show
     }
 
+    /// Where the show is saved, once it has been (cheap: no snapshot is made).
+    pub fn show_path(&self) -> Option<&Path> {
+        self.path.as_deref()
+    }
+
+    /// Where the open sequence is saved, if one is open and has been saved.
+    pub fn sequence_path(&self) -> Option<&Path> {
+        self.sequence.as_ref()?.path.as_deref()
+    }
+
     /// Goes up by one with every change to the show (edits, undo, redo, opening another show).
     pub fn revision(&self) -> u64 {
         self.revision

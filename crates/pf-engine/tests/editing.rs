@@ -292,3 +292,20 @@ fn a_show_a_file_couldnt_hold_is_refused_with_a_plain_message() {
     assert!(matches!(err, pf_engine::EngineError::InvalidShow(_)), "{err:?}");
     assert!(err.to_string().contains("null pixels"), "{err}");
 }
+
+#[test]
+fn the_show_and_sequence_paths_are_known_without_a_snapshot() {
+    let (mut engine, dir) = engine();
+    assert_eq!(engine.show_path(), None);
+    assert_eq!(engine.sequence_path(), None);
+    let path = dir.path().join("house.pixelflow.json");
+    engine.save_as(&path).unwrap();
+    assert_eq!(engine.show_path(), Some(path.as_path()));
+    engine.new_sequence_doc("Song", 10_000, None).unwrap();
+    assert_eq!(engine.sequence_path(), None);
+    let doc = dir.path().join("song.pfseq.json");
+    engine.save_sequence_doc_as(&doc).unwrap();
+    assert_eq!(engine.sequence_path(), Some(doc.as_path()));
+    engine.new_show("Other");
+    assert_eq!(engine.show_path(), None);
+}

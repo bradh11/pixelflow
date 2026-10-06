@@ -5,7 +5,8 @@
 // A poly line's points are prop-local; the prop's transform places them. Editing works on flat
 // props (turned only in the front view), whose local points map one-to-one onto the canvas.
 
-import type { PolySegment, Prop, ShapeSource, Transform, Vec3 } from "../api/types";
+import type { PolySegment, Prop, Region, ShapeSource, Transform, Vec3 } from "../api/types";
+import { type PixelMove, freeRegionName, moveRegion } from "./regionRemap";
 import { applyTransform, bezier, pathLength, pointAlong, stretchPath } from "./geometry";
 import { type Pt, constrainAngle, flatAngle, snapPoint, tidy } from "./layoutMath";
 
@@ -351,46 +352,90 @@ function reversed(shape: PolyShape): PolyShape {
   };
 }
 
-/** How two lines join: `a` keeps its id and wiring; `startsOnB` when the joined line now starts on `b`'s far end. */
+/**
+ * Two lines joined into one. `prop` is the joined line: it keeps the id, name, wiring and
+ * placement of the line `kept`, and `removed` is the other line's id. `first` is the line whose
+ * start is the joined line's start (where the data comes in); `reversed`, if any, is the line
+ * that now runs the other way. Both lines' submodels and faces are carried over to their new
+ * pixels; `dropped` names any that couldn't be (a rectangle of a line whose pixels moved).
+ */
 export interface Join {
   prop: Prop;
-  startsOnB: boolean;
+  kept: string;
+  removed: string;
+  first: string;
+  reversed: string | null;
+  dropped: string[];
 }
 
 /**
  * `a` and `b` (Lines or Poly Lines) as one poly line, when an end of one is within `tolerance`
- * (world units) of an end of the other. The joined line runs through `a` in its own direction,
- * with `b` carried on from whichever end of `a` it touches, and keeps `a`'s id, name, wiring,
- * and placement. Spread-out pixels become per-stretch counts first.
+ * (world units) of an end of the other: the line touching at its end comes first and the other
+ * carries on from there (when both touch at their starts, or both at their ends, `b` is turned
+ * round). By default the line that comes first keeps its wiring; `keep` (a's or b's id) picks the
+ * other. Spread-out pixels become per-stretch counts first.
  */
-export function joinLines(a: Prop, b: Prop, tolerance: number): Join | null {
+export function joinLines(a: Prop, b: Prop, tolerance: number, keep?: string): Join | null {
   if (!joinable(a) || !joinable(b) || a.id === b.id) return null;
   const wa = toWorldPoly(a);
   const wb = toWorldPoly(b);
   if (!wa || !wb) return null;
   const pa = setSpread(wa, false);
   const pb = setSpread(wb, false);
+  const [na, nb] = [nodeTotal(pa), nodeTotal(pb)];
   const ends = (s: PolyShape) => [s.vertices[0], s.vertices[s.vertices.length - 1]];
   const [aStart, aEnd] = ends(pa);
   const [bStart, bEnd] = ends(pb);
-  const options: [number, () => PolyShape, boolean][] = [
-    [dist2(aEnd, bStart), () => chain(pa, pb), false],
-    [dist2(aEnd, bEnd), () => chain(pa, reversed(pb)), false],
-    [dist2(aStart, bEnd), () => chain(pb, pa), true],
-    [dist2(aStart, bStart), () => chain(reversed(pb), pa), true],
+  // [distance, joined line, the line first, where a's and b's pixels go, b turned round]
+  type Option = [number, () => PolyShape, Prop, number, number, boolean];
+  const options: Option[] = [
+    [dist2(aEnd, bStart), () => chain(pa, pb), a, 0, na, false],
+    [dist2(aEnd, bEnd), () => chain(pa, reversed(pb)), a, 0, na, true],
+    [dist2(aStart, bEnd), () => chain(pb, pa), b, nb, 0, false],
+    [dist2(aStart, bStart), () => chain(reversed(pb), pa), b, nb, 0, true],
   ];
-  const [d, build, startsOnB] = options.reduce((best, o) => (o[0] < best[0] ? o : best));
+  const [d, build, first, aAt, bAt, bReversed] = options.reduce((best, o) => (o[0] < best[0] ? o : best));
   if (d > tolerance) return null;
+  const kept = keep === a.id || keep === b.id ? (keep === a.id ? a : b) : first;
+  const other = kept.id === a.id ? b : a;
   const world = build();
-  const local = (p: Vec3) => tidyV(toLocal(a.transform, p));
+  const local = (p: Vec3) => tidyV(toLocal(kept.transform, p));
   const shape: PolyShape = {
     source: "generator",
     type: "polyLine",
     vertices: world.vertices.map(local),
     segments: world.segments.map((s) => (s.curve ? { ...s, curve: [local(s.curve[0]), local(s.curve[1])] } : s)),
   };
-  return { prop: { ...a, shape }, startsOnB };
+  const moves = new Map<string, PixelMove>([
+    [a.id, { from: 0, to: na, offset: aAt, reverse: false }],
+    [b.id, { from: 0, to: nb, offset: bAt, reverse: bReversed }],
+  ]);
+  const dropped: string[] = [];
+  const regions: Region[] = [];
+  const taken = new Set<string>();
+  for (const line of [kept, other]) {
+    for (const r of line.regions) {
+      const moved = moveRegion(r, moves.get(line.id)!);
+      if (!moved) {
+        dropped.push(`${r.name} (${line.name})`);
+        continue;
+      }
+      const name = line === kept ? moved.name : freeRegionName(moved.name, taken);
+      taken.add(name.trim().toLowerCase());
+      regions.push({ ...moved, name });
+    }
+  }
+  return {
+    prop: { ...kept, shape, regions },
+    kept: kept.id,
+    removed: other.id,
+    first: first.id,
+    reversed: bReversed ? b.id : null,
+    dropped,
+  };
 }
+
+const nodeTotal = (s: PolyShape) => s.spreadNodes ?? s.segments.reduce((n, x) => n + x.nodes, 0);
 
 /** `first` then `second`, `second`'s first point dropped (it's where `first` ends). */
 function chain(first: PolyShape, second: PolyShape): PolyShape {
@@ -412,9 +457,18 @@ export function splitAt(prop: Prop, i: number, id: string, name: string): [Prop,
   const { spreadNodes: _spread, ...base } = shape;
   const first: PolyShape = { ...base, vertices: shape.vertices.slice(0, i + 1), segments: shape.segments.slice(0, i) };
   const second: PolyShape = { ...base, vertices: shape.vertices.slice(i), segments: shape.segments.slice(i) };
+  // Each part keeps the submodels' and faces' pixels that are on it.
+  const [k, n] = [nodeTotal(first), nodeTotal(shape)];
+  const part = (m: PixelMove) => prop.regions.flatMap((r) => moveRegion(r, m) ?? []);
   return [
-    { ...prop, shape: first },
-    { ...structuredClone(prop), id, name, shape: second, regions: [] },
+    { ...prop, shape: first, regions: part({ from: 0, to: k, offset: 0, reverse: false }) },
+    {
+      ...structuredClone(prop),
+      id,
+      name,
+      shape: second,
+      regions: part({ from: k, to: n, offset: -k, reverse: false }).map((r) => ({ ...r, id: crypto.randomUUID() })),
+    },
   ];
 }
 

@@ -1112,6 +1112,29 @@ describe("LayoutScreen", () => {
       expect(backend.show.props).toHaveLength(2);
     });
 
+    it("lets either line keep its wiring when joining, carries submodels, and warns which line runs backwards", async () => {
+      // Both lines start where they meet, so one has to run backwards.
+      const roof = polyLine("Roof", 2.5, 0, [0, 0], [2, 2]);
+      const eave = polyLine("Eave", 2.5, 0, [0, 0], [3, 0]);
+      eave.regions = [{ id: "e1", name: "Tip", kind: "nodes", lines: [[{ first: 0, last: 1 }]], layout: "horizontal", buffer: "default" }];
+      const show = showWith(roof, eave);
+      const controller = newController("Porch", "10.0.0.9", "ddp", 1);
+      controller.ports[0].slots.push({ prop: roof.id, segment: null, nullPixels: 0, reverse: false, brightness: null, gamma: null, smartReceiver: null });
+      show.controllers.push(controller);
+      const user = await setup(show);
+      act(() => useLayoutEditor.getState().select([roof.id, eave.id]));
+      expect(screen.getByText(/Eave will run backwards, from its far end/)).toBeInTheDocument();
+      await user.click(screen.getByRole("radio", { name: "Roof" }));
+      expect(screen.getByText(/become one poly line named Roof/)).toBeInTheDocument();
+      expect(screen.getByText(/Roof's controller port feeds it from there/)).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Join into one poly line" }));
+      expect(edits).toHaveLength(1);
+      expect(backend.show.props.map((p) => p.name)).toEqual(["Roof"]);
+      expect(backend.show.controllers[0].ports[0].slots.map((s) => s.prop)).toEqual([roof.id]);
+      // Eave's 10 pixels run backwards first: its pixels 0-1 are now 9-8.
+      expect(backend.show.props[0].regions).toEqual([{ ...eave.regions[0], lines: [[{ first: 9, last: 8 }]] }]);
+    });
+
     it("offers the less common shapes under More shapes", async () => {
       const user = await setup(showWith(line("Gutter", 0, 0)));
       await user.click(screen.getByRole("button", { name: "More shapes" }));

@@ -1,4 +1,5 @@
 import { Merge, Scissors, Spline } from "lucide-react";
+import { useState } from "react";
 import type { Prop, Show } from "../../api/types";
 import { updateEdits, wiringOf } from "../../lib/layoutEdits";
 import { tidy } from "../../lib/layoutMath";
@@ -154,16 +155,19 @@ export function AddBendButton({ prop }: { prop: Prop }) {
 
 /**
  * For two selected lines whose ends touch: join them into one poly line (one undo step). The
- * first one picked keeps its name and wiring; what happens to the second is said up front.
+ * line whose start becomes the joined line's start keeps its wiring unless the other is picked;
+ * both lines' submodels and faces follow their pixels. What happens is said before the click.
  */
 export function JoinLines({ ids }: { ids: string[] }) {
   const apply = useApp((s) => s.apply);
   const show = useApp((s) => s.snapshot?.show);
   const select = useLayoutEditor((s) => s.select);
+  const [keep, setKeep] = useState<string | null>(null);
   if (!show || ids.length !== 2) return null;
   const [a, b] = ids.map((id) => show.props.find((p) => p.id === id));
   if (!a || !b || !joinable(a) || !joinable(b)) return null;
-  const join = joinLines(a, b, JOIN_TOLERANCE);
+  const chosen = keep === a.id || keep === b.id ? keep : undefined;
+  const join = joinLines(a, b, JOIN_TOLERANCE, chosen);
   if (!join) {
     return (
       <Section title="Join">
@@ -171,31 +175,48 @@ export function JoinLines({ ids }: { ids: string[] }) {
       </Section>
     );
   }
+  const name = (id: string | null) => (id === a.id ? a.name : b.name);
+  const kept = name(join.kept);
   const notes: string[] = [];
-  if (wiringOf(show, b.id).length > 0) notes.push(`${b.name}'s own wiring is removed; the joined line keeps ${a.name}'s.`);
-  if (join.startsOnB) notes.push(`The joined line starts at ${b.name}'s far end, so ${a.name}'s wiring now feeds ${b.name} first.`);
-  if (a.regions.length > 0 && join.startsOnB) notes.push(`${a.name}'s submodels count pixels from the new start, so check them.`);
+  if (join.reversed) notes.push(`${name(join.reversed)} will run backwards, from its far end, in the joined line.`);
+  if (join.kept !== join.first && wiringOf(show, join.kept).length > 0) {
+    notes.push(`The joined line starts at ${name(join.first)}'s start, so ${kept}'s controller port feeds it from there.`);
+  }
+  if (wiringOf(show, join.removed).length > 0) notes.push(`${name(join.removed)}'s own wiring is removed; the joined line keeps ${kept}'s.`);
+  if (join.dropped.length > 0) notes.push(`These can't move with their pixels and are left out: ${join.dropped.join(", ")}.`);
+  const regions = a.regions.length + b.regions.length;
   return (
     <Section title="Join">
+      <fieldset className="mb-2 text-sm">
+        <legend className="mb-1 text-xs text-neutral-500 dark:text-neutral-400">Keep the name and wiring of</legend>
+        {[a, b].map((p) => (
+          <label key={p.id} className="mr-4 inline-flex items-center gap-1.5">
+            <input type="radio" name="join-keep" checked={join.kept === p.id} onChange={() => setKeep(p.id)} />
+            {p.name}
+            {p.id === join.first && <span className="text-neutral-500"> (comes first)</span>}
+          </label>
+        ))}
+      </fieldset>
       <Button
         onClick={async () => {
           const ok = await apply((latest) => {
             const [la, lb] = ids.map((id) => latest.props.find((p) => p.id === id));
-            const now = la && lb ? joinLines(la, lb, JOIN_TOLERANCE) : null;
+            const now = la && lb ? joinLines(la, lb, JOIN_TOLERANCE, join.kept) : null;
             return now
               ? [
                   { type: "updateProp", prop: now.prop },
-                  { type: "removeProp", id: lb!.id },
+                  { type: "removeProp", id: now.removed },
                 ]
               : [];
           });
-          if (ok) select([a.id]);
+          if (ok) select([join.kept]);
         }}
       >
         <Merge size={16} aria-hidden /> Join into one poly line
       </Button>
       <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
-        {a.name} and {b.name} become one poly line named {a.name}.
+        {a.name} and {b.name} become one poly line named {kept}, starting at {name(join.first)}'s start.
+        {regions > 0 && " Submodels and faces of both lines move with their pixels."}
       </p>
       {notes.length > 0 && (
         <ul className="mt-1 list-disc pl-4 text-sm text-amber-700 dark:text-amber-400">

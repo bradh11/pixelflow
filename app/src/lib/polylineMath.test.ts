@@ -192,18 +192,40 @@ describe("lines into poly lines, joined and split", () => {
     const a = prop(poly([[0, 0], [2, 0]], 4), [0, 0]);
     const b = line(2, 6, [2, 1], 90); // from (2, 0) up to (2, 2)
     const joined = joinLines(a, b, 0.05)!;
-    expect(joined.startsOnB).toBe(false);
+    expect(joined).toMatchObject({ kept: a.id, removed: b.id, first: a.id, reversed: null });
     expect(joined.prop.id).toBe(a.id);
     const shape = joined.prop.shape as PolyShape;
     shape.vertices.forEach((p, i) => near(p, [v(0, 0), v(2, 0), v(2, 2)][i]));
     expect(shape.segments.map((s) => s.nodes)).toEqual([4, 6]);
   });
 
-  it("carries the other line on from whichever end of the first it touches", () => {
+  it("puts the line whose end touches first, and keeps its wiring unless told otherwise", () => {
+    const a = prop(poly([[0, 0], [2, 0]], 4), [3, 0]); // from (3, 0) to (5, 0)
+    const b = prop(poly([[0, 0], [3, 0]], 6), [0, 0]); // from (0, 0) to (3, 0): it leads into a
+    a.regions = [{ id: "ra", name: "Tip", kind: "nodes", lines: [[{ first: 0, last: 1 }]], layout: "horizontal", buffer: "default" }];
+    b.regions = [{ id: "rb", name: "Tip", kind: "nodes", lines: [[{ first: 5, last: 4 }]], layout: "horizontal", buffer: "default" }];
+    const joined = joinLines(a, b, 0.05)!;
+    expect(joined).toMatchObject({ kept: b.id, removed: a.id, first: b.id, reversed: null, dropped: [] });
+    expect(joined.prop.id).toBe(b.id);
+    // b's pixels stay where they were; a's come after them, and its submodel follows them.
+    expect(joined.prop.regions).toEqual([
+      b.regions[0],
+      { ...a.regions[0], name: "Tip (2)", lines: [[{ first: 6, last: 7 }]] },
+    ]);
+    const keepA = joinLines(a, b, 0.05, a.id)!;
+    expect(keepA).toMatchObject({ kept: a.id, removed: b.id, first: b.id });
+    expect(keepA.prop.transform).toEqual(a.transform);
+    expect(keepA.prop.regions.map((r) => r.name)).toEqual(["Tip", "Tip (2)"]);
+    expect(polyHandles(keepA.prop)!.vertices.map((p) => p.x)).toEqual(polyHandles(joined.prop)!.vertices.map((p) => p.x));
+  });
+
+  it("turns the second line round when both start (or both end) at the join, its submodels too", () => {
     const a = prop(poly([[0, 0], [2, 0]], 4), [5, 5], 180); // from (5, 5) to (3, 5)
     const b = prop(poly([[0, 0], [1, 0]], 3), [5, 5], 90); // from (5, 5) up to (5, 6)
+    b.regions = [{ id: "rb", name: "Bottom", kind: "nodes", lines: [[{ first: 0, last: 0 }]], layout: "horizontal", buffer: "default" }];
     const joined = joinLines(a, b, 0.05)!;
-    expect(joined.startsOnB).toBe(true);
+    expect(joined).toMatchObject({ kept: b.id, first: b.id, reversed: b.id });
+    expect(joined.prop.regions[0]).toMatchObject({ lines: [[{ first: 2, last: 2 }]] });
     const points = polyHandles(joined.prop)!.vertices;
     [{ x: 5, y: 6 }, { x: 5, y: 5 }, { x: 3, y: 5 }].forEach((p, i) => near(points[i], p));
     expect((joined.prop.shape as PolyShape).segments.map((s) => s.nodes)).toEqual([3, 4]);
@@ -218,11 +240,21 @@ describe("lines into poly lines, joined and split", () => {
 
   it("splits at a point: the first part keeps the prop, the second is new", () => {
     const p = prop(setSpread(poly([[0, 0], [1, 0], [2, 0], [3, 0]], 10), true), [1, 0]);
-    p.regions = [{ id: "r", name: "Left", kind: "subBuffer", x1: 0, y1: 0, x2: 50, y2: 100 }];
+    p.regions = [
+      { id: "r", name: "Left", kind: "subBuffer", x1: 0, y1: 0, x2: 50, y2: 100 },
+      { id: "s", name: "Middle", kind: "nodes", lines: [[{ first: 8, last: 12 }]], layout: "horizontal", buffer: "default" },
+      { id: "t", name: "End", kind: "nodes", lines: [[{ first: 29, last: 25 }]], layout: "horizontal", buffer: "default" },
+    ];
     const [first, second] = splitAt(p, 1, "new", "P 2")!;
     expect(first.id).toBe(p.id);
     expect((first.shape as PolyShape).vertices).toEqual([v(0, 0), v(1, 0)]);
-    expect(second).toMatchObject({ id: "new", name: "P 2", regions: [], transform: p.transform });
+    // Each part keeps the submodel pixels on it, counted from its own start.
+    expect(first.regions.map((r) => r.name)).toEqual(["Left", "Middle"]);
+    expect(first.regions[1]).toMatchObject({ lines: [[{ first: 8, last: 9 }]] });
+    expect(second).toMatchObject({ id: "new", name: "P 2", transform: p.transform });
+    expect(second.regions.map((r) => r.name)).toEqual(["Middle", "End"]);
+    expect(second.regions[1]).toMatchObject({ lines: [[{ first: 19, last: 15 }]] });
+    expect(second.regions.every((r) => !["r", "s", "t"].includes(r.id))).toBe(true);
     expect((second.shape as PolyShape).vertices).toEqual([v(1, 0), v(2, 0), v(3, 0)]);
     expect(nodeCount(first.shape) + nodeCount(second.shape)).toBe(30);
     expect(splitAt(p, 0, "x", "x")).toBeNull();

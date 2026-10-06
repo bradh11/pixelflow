@@ -488,6 +488,14 @@ describe("LayoutScreen", () => {
     expect(useLayoutEditor.getState().selected).toEqual([next.id]);
   });
 
+  it("closes the Add prop menu when focus leaves it", async () => {
+    const user = await setup(showWith(line("Gutter", 0, 0)));
+    await user.click(screen.getByRole("button", { name: "Add prop" }));
+    expect(screen.getByRole("menu", { name: "Add prop" })).toBeInTheDocument();
+    act(() => canvas().focus());
+    expect(screen.queryByRole("menu", { name: "Add prop" })).not.toBeInTheDocument();
+  });
+
   it("zooms out to show a new prop bigger than the view", async () => {
     const user = await setup(showWith(line("Gutter", 0, 0)));
     act(() => useLayoutEditor.getState().setView({ cx: 0, cy: 0, zoom: 400 }));
@@ -550,6 +558,8 @@ describe("LayoutScreen", () => {
       await user.type(name, "Roof line{Enter}");
       expect(backend.show.props[0].name).toBe("Roof line");
       expect(edits).toHaveLength(1);
+      // The keyboard stays in the list.
+      expect(list()).toHaveFocus();
     });
 
     it("draws only the rows in view, so thousands of props stay quick, and shows what the canvas picks", async () => {
@@ -608,9 +618,22 @@ describe("LayoutScreen", () => {
       expect(members("Group 1")).toEqual(["A3", "A1"]);
       expect(lastToast()).toBe("Made Group 1 from 2 props");
 
+      // The same props again make no second group: it says which group they are.
+      act(() => useLayoutEditor.getState().select([a3, a1]));
+      await user.keyboard("{Meta>}g{/Meta}");
+      expect(backend.show.groups).toHaveLength(1);
+      expect(lastToast()).toBe("These props are already Group 1");
+      expect(screen.getByRole("button", { name: "Already Group 1" })).toBeDisabled();
+
+      // Opening a group selects its props; folding it leaves the selection alone.
+      await user.click(screen.getByRole("button", { name: /^Group 1/ }));
       act(() => useLayoutEditor.getState().select([a2]));
       await user.click(screen.getByRole("button", { name: /^Group 1/ }));
       expect(useLayoutEditor.getState().selected).toEqual([a3, a1]);
+      act(() => useLayoutEditor.getState().select([a2]));
+      await user.click(screen.getByRole("button", { name: /^Group 1/ }));
+      expect(screen.getByRole("button", { name: /^Group 1/ })).toHaveAttribute("aria-expanded", "false");
+      expect(useLayoutEditor.getState().selected).toEqual([a2]);
     });
 
     it("renames, adds and removes members (submodels too), reorders them, and deletes, each one undo step", async () => {

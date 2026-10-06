@@ -106,7 +106,7 @@ function OffsetControl({ entry }: { entry: SequenceEntry }) {
         {[-50, -10, 10, 50].map((delta) => (
           <Button
             key={delta}
-            aria-label={`Lights ${delta > 0 ? "earlier" : "later"} by ${Math.abs(delta)} ms`}
+            aria-label={`${delta > 0 ? "+" : "−"}${Math.abs(delta)} ms: lights ${delta > 0 ? "earlier" : "later"}`}
             title={`Lights ${Math.abs(delta)} ms ${delta > 0 ? "earlier" : "later"}`}
             disabled={delta > 0 ? entry.offsetMs >= MAX_OFFSET_MS : entry.offsetMs <= -MAX_OFFSET_MS}
             onClick={() => set(target.current + delta)}

@@ -13,7 +13,7 @@ import {
   renameGroupEdits,
 } from "../../lib/groupEdits";
 import { submodelsOf } from "../../lib/submodels";
-import { groupSelected } from "../../state/groups";
+import { groupSelected, sameGroup } from "../../state/groups";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { useApp } from "../../state/store";
 import { useSequencer } from "../../state/sequencer";
@@ -93,10 +93,15 @@ function MemberList({ show, group }: { show: Show; group: Group }) {
   const [drag, setDrag] = useState<{ from: number; over: number } | null>(null);
   const [focusKey, setFocusKey] = useState<string | null>(null);
 
-  // After a keyboard move, keep the focus on the member that moved.
+  // After a keyboard move, keep the focus on the member that moved, once, when the move lands
+  // (later changes, made with the mouse elsewhere, leave the focus where it is).
+  const members = useRef(group.members);
   useEffect(() => {
+    const moved = members.current !== group.members;
+    members.current = group.members;
     if (!focusKey) return;
     list.current?.querySelector<HTMLElement>(`[data-member="${CSS.escape(focusKey)}"]`)?.focus();
+    if (moved) setFocusKey(null);
   }, [group.members, focusKey]);
 
   /** Where a pointer at `y` would drop: before the member whose middle is below it. */
@@ -244,7 +249,9 @@ function GroupEditor({ show, group }: { show: Show; group: Group }) {
  */
 export function GroupsPanel() {
   const show = useApp((s) => s.snapshot!.show);
-  const selected = useLayoutEditor((s) => s.selected.length);
+  const picked = useLayoutEditor((s) => s.selected);
+  const selected = picked.length;
+  const already = sameGroup(show, picked);
   const open = useLayoutEditor((s) => s.sidePanel.group);
   // How many rows of the open sequence light each group (shown, and asked about before deleting).
   const doc = useSequencer((s) => s.doc);
@@ -257,8 +264,14 @@ export function GroupsPanel() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex flex-col gap-1.5 border-b border-neutral-200 p-2 dark:border-neutral-800">
-        <Button variant="primary" className="w-full" disabled={selected === 0} onClick={() => void groupSelected()} title="Make a group of the selected props, in the order you picked them (⌘G)">
-          <GroupIcon size={15} aria-hidden /> Group selected{selected > 0 ? ` (${selected})` : ""}
+        <Button
+          variant="primary"
+          className="w-full"
+          disabled={selected === 0 || already !== undefined}
+          onClick={() => void groupSelected()}
+          title={already ? `The selected props are ${already.name}` : "Make a group of the selected props, in the order you picked them (⌘G)"}
+        >
+          <GroupIcon size={15} aria-hidden /> {already ? `Already ${already.name}` : `Group selected${selected > 0 ? ` (${selected})` : ""}`}
         </Button>
         <p className="text-xs text-neutral-500">{selected === 0 ? "Select props on the canvas or in the Props list, then group them (⌘G)." : "Shortcut: ⌘G. The order you pick them in is the group's order."}</p>
       </div>
@@ -276,7 +289,8 @@ export function GroupsPanel() {
                   title="Select this group's props, and edit the group"
                   className={`flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800/70 ${expanded ? "font-medium" : ""}`}
                   onClick={() => {
-                    useLayoutEditor.getState().select(groupPropIds(show, g));
+                    // Opening a group selects its props; folding it leaves the selection alone.
+                    if (!expanded) useLayoutEditor.getState().select(groupPropIds(show, g));
                     setSidePanel({ group: expanded ? null : g.id });
                   }}
                 >

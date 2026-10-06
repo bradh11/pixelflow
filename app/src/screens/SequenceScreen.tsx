@@ -207,12 +207,15 @@ function Workspace() {
 function ToolButton({
   label,
   shortcut,
+  hint,
   onClick,
   disabled,
   children,
   pressed,
 }: {
   label: string;
+  /** Said on hover instead of the label. */
+  hint?: string;
   /** The key that does the same, shown in the tooltip. */
   shortcut?: string;
   onClick: () => void;
@@ -224,7 +227,7 @@ function ToolButton({
     <button
       type="button"
       aria-label={label}
-      title={shortcut ? `${label} (${shortcut})` : label}
+      title={hint ?? (shortcut ? `${label} (${shortcut})` : label)}
       aria-keyshortcuts={shortcut}
       aria-pressed={pressed}
       onClick={onClick}
@@ -271,8 +274,12 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
         <FolderOpen size={16} /> <span className="hidden xl:inline">Open sequence</span>
       </ToolButton>
       {/* Asks about unsaved changes like New and Open do (the import goes through the same question). */}
-      <ToolButton label="Import xLights sequence…" onClick={() => void useApp.getState().importXlightsSequence()}>
-        <FileInput size={16} /> <span className="hidden xl:inline">Import .xsq</span>
+      <ToolButton
+        label="Import from xLights…"
+        hint="Import an xLights sequence (.xsq) onto this show's props and groups"
+        onClick={() => void useApp.getState().importXlightsSequence()}
+      >
+        <FileInput size={16} /> <span className="hidden xl:inline">Import from xLights</span>
       </ToolButton>
       <ToolButton label="Save sequence" onClick={() => void act().save()} disabled={s.name === null}>
         <Save size={16} />

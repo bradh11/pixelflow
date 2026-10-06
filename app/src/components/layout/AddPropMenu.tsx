@@ -46,7 +46,13 @@ export function AddPropMenu({ preview }: { preview: PreviewProp[] }) {
     };
   }, [open]);
   return (
-    <div ref={box} className="relative">
+    <div
+      ref={box}
+      className="relative"
+      onBlur={(e) => {
+        if (open && !box.current?.contains(e.relatedTarget as Node | null)) setOpen(false);
+      }}
+    >
       <Button ref={trigger} variant="primary" aria-haspopup="menu" aria-expanded={open} title="Add a prop in the middle of the canvas" onClick={() => setOpen(!open)}>
         <Plus size={16} aria-hidden /> Add prop <ChevronDown size={14} aria-hidden />
       </Button>

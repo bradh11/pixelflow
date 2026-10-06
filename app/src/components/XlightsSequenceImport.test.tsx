@@ -87,7 +87,7 @@ describe("xLights sequence import", () => {
     await screen.findByRole("dialog", { name: "Imported Carol of the Bells" });
     await user.click(screen.getByRole("button", { name: "Done" }));
     // Now the toolbar has the action too; the imported sequence is unsaved, so it asks first.
-    await user.click(screen.getByRole("button", { name: "Import xLights sequence…" }));
+    await user.click(screen.getByRole("button", { name: "Import from xLights…" }));
     await askedAbout("Carol of the Bells");
     expect(seq.calls.filter((c) => c.startsWith("importXlightsSequence"))).toHaveLength(1);
   });
@@ -105,7 +105,7 @@ describe("xLights sequence import", () => {
     const imports = () => seq.calls.filter((c) => c.startsWith("importXlightsSequence")).length;
 
     // From the toolbar: one question (not a second, app-wide one), and nothing imported yet.
-    await user.click(await screen.findByRole("button", { name: "Import xLights sequence…" }));
+    await user.click(await screen.findByRole("button", { name: "Import from xLights…" }));
     const ask = await askedAbout(medley);
     expect(imports()).toBe(0);
     expect(useApp.getState().pendingReplace).toBeNull();

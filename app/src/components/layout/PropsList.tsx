@@ -46,7 +46,9 @@ export async function deleteProps(ids: string[], names: string[]) {
 function RenameField({ prop, onDone }: { prop: Prop; onDone: () => void }) {
   const apply = useApp((s) => s.apply);
   const [name, setName] = useState(prop.name);
+  const cancelled = useRef(false);
   const commit = () => {
+    if (cancelled.current) return;
     const trimmed = name.trim();
     if (trimmed && trimmed !== prop.name) void apply(updateEdits(prop.id, (p) => ({ ...p, name: trimmed })));
     onDone();
@@ -63,7 +65,10 @@ function RenameField({ prop, onDone }: { prop: Prop; onDone: () => void }) {
       onKeyDown={(e) => {
         e.stopPropagation();
         if (e.key === "Enter") e.currentTarget.blur();
-        if (e.key === "Escape") onDone();
+        if (e.key === "Escape") {
+          cancelled.current = true;
+          onDone();
+        }
       }}
       className="min-w-0 flex-1 rounded border border-accent-500 bg-white px-1 text-sm dark:bg-neutral-950"
     />
@@ -188,6 +193,11 @@ export function PropsList() {
   const pickNow = useRef(pick);
   pickNow.current = pick;
   const onPick = useCallback((id: string, e: MouseEvent) => pickNow.current(id, e), []);
+  // Done renaming: the keyboard goes back to the list (not the page, where arrows nudge props).
+  const onRename = useCallback((id: string | null) => {
+    setRenaming(id);
+    if (id === null) scroller.current?.focus({ preventScroll: true });
+  }, []);
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (order.length === 0) return;
@@ -286,7 +296,7 @@ export function PropsList() {
                 active={active === prop.id}
                 renaming={renaming === prop.id}
                 onPick={onPick}
-                onRename={setRenaming}
+                onRename={onRename}
               />
             ))}
           </div>

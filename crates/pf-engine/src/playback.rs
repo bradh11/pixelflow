@@ -76,6 +76,8 @@ pub struct PlaybackStatus {
     pub volume: f32,
     /// True when playing an authored sequence document rather than a file.
     pub authored: bool,
+    /// Playing again from the top each time it reaches the end (lights and music together).
+    pub looping: bool,
 }
 
 /// New controllers and layout to send to, after an edit to the show.
@@ -105,6 +107,8 @@ struct Control {
     /// How far the lights run ahead of the music.
     offset_ms: i32,
     volume: f32,
+    /// At the end, go back to the top and play on (see [`PlaybackSession::set_looping`]).
+    looping: bool,
     /// Why the music isn't playing at all.
     music_note: Option<String>,
     /// Trouble with the music after it started.
@@ -125,6 +129,7 @@ impl Default for Control {
             error: None,
             offset_ms: 0,
             volume: 1.0,
+            looping: false,
             music_note: None,
             clock_note: None,
             rebuild: None,
@@ -632,7 +637,7 @@ fn run_player(
         let (total, step) = frames.source.timing();
         let step = step.max(1);
         let step_ms = u64::from(step);
-        let (paused, seek, offset, volume, ended, rebuild) = {
+        let (paused, seek, offset, volume, ended, looping, rebuild) = {
             let mut c = lock(control);
             c.frames = total;
             c.frame_ms = step;
@@ -642,6 +647,7 @@ fn run_player(
                 c.offset_ms,
                 c.volume,
                 c.ended,
+                c.looping,
                 c.rebuild.take(),
             )
         };
@@ -671,11 +677,24 @@ fn run_player(
             note = trouble;
         }
         let music_ms = time.now_ms();
-        let light = match seek {
+        let mut light = match seek {
             // A jump while paused shows exactly the frame asked for.
             Some(target) if paused => target,
             _ => light_for(music_ms, offset),
         };
+        if looping && !paused && !ended && total > 0 && light / step_ms >= u64::from(total) {
+            // Round again: the music goes back to its top the moment the lights reach their end,
+            // and the lights follow it from there, so the two start every loop together and
+            // nothing builds up between them. (The player wakes on frame boundaries, so this is
+            // within a few ms of the end; the music's jump lands before its next sample.)
+            time.jump(music_for(0, offset));
+            shown = None;
+            if dark {
+                dark = false;
+                lock(control).lights_done = false;
+            }
+            light = light_for(time.now_ms(), offset);
+        }
         let due = light / step_ms;
         // An edited sequence or show redraws the current frame, even while paused.
         let changed = frames.source.changed();
@@ -789,6 +808,8 @@ pub(crate) struct DocumentRequest {
     /// Send to the controllers (false: only the preview plays).
     pub send: bool,
     pub volume: f32,
+    /// Play again from the top each time it reaches the end.
+    pub looping: bool,
 }
 
 /// Everything [`PlaybackSession::launch`] needs besides the frames.
@@ -799,6 +820,7 @@ struct Launch {
     music: Option<PathBuf>,
     offset_ms: i32,
     volume: f32,
+    looping: bool,
 }
 
 /// A sequence playing: a player thread producing frames on time and the output thread sending them.
@@ -855,6 +877,7 @@ impl PlaybackSession {
             music: request.music.clone(),
             offset_ms: request.offset_ms,
             volume: request.volume,
+            looping: false,
         };
         let kind = SessionKind::File {
             request: request.clone(),
@@ -898,6 +921,7 @@ impl PlaybackSession {
             show_error,
             send,
             volume,
+            looping,
         } = request;
         let (plan, notes) = document_plan(show, map, show_error.as_deref(), send, doc.frame_ms);
         let updates = Arc::new(LiveUpdates::default());
@@ -914,6 +938,7 @@ impl PlaybackSession {
             music: music.clone(),
             offset_ms: 0,
             volume,
+            looping,
         };
         let kind = SessionKind::Document {
             music,
@@ -979,6 +1004,7 @@ impl PlaybackSession {
             frame_ms: step_ms as u32,
             offset_ms: launch.offset_ms,
             volume: launch.volume,
+            looping: launch.looping,
             ..Control::default()
         }));
         let stop = Arc::new(AtomicBool::new(false));
@@ -1159,6 +1185,12 @@ impl PlaybackSession {
         lock(&self.control).volume = volume.clamp(0.0, 1.0);
     }
 
+    /// Plays again from the top each time the lights reach the end (the music jumps back with
+    /// them), instead of ending. Turned on after the end, it doesn't start again by itself.
+    pub fn set_looping(&self, looping: bool) {
+        lock(&self.control).looping = looping;
+    }
+
     /// What the session plays and what it was built from.
     pub fn kind(&self) -> &SessionKind {
         &self.kind
@@ -1233,6 +1265,7 @@ impl PlaybackSession {
             offset_ms: c.offset_ms,
             volume: c.volume,
             authored,
+            looping: c.looping,
         }
     }
 

@@ -301,7 +301,8 @@ export class MemoryBackend implements Backend {
     if (!this.playing) return null;
     const { path, positionMs, since, sequence, music, authored } = this.playing;
     const duration = authored?.durationMs ?? this.sequenceDurationMs;
-    const position = Math.min(duration, positionMs + (since === null ? 0 : Date.now() - since));
+    const played = positionMs + (since === null ? 0 : Date.now() - since);
+    const position = authored?.looping && duration > 0 ? played % duration : Math.min(duration, played);
     const ended = position >= duration;
     return {
       state: ended ? "ended" : since === null ? "paused" : "playing",
@@ -319,6 +320,7 @@ export class MemoryBackend implements Backend {
       offsetMs: this.show.sequences.find((s) => s.id === sequence)?.offsetMs ?? 0,
       volume: this.volume,
       authored: authored !== undefined,
+      looping: authored?.looping ?? false,
     };
   }
 
@@ -364,6 +366,16 @@ export class MemoryBackend implements Backend {
     this.playbackStopReason_ = null;
     this.playing = { path: authored.path, positionMs, since: Date.now(), sequence: null, music: authored.music, authored };
     return this.playbackNow()!;
+  }
+
+  /** Loops a playing authored sequence, or stops looping it, from where it is now; null when
+   * none is playing. */
+  setAuthoredLooping(looping: boolean): PlaybackStatus | null {
+    const now = this.playbackNow();
+    if (!this.playing?.authored || !now) return null;
+    const { since } = this.playing;
+    this.playing = { ...this.playing, positionMs: now.positionMs, since: since === null ? null : Date.now(), authored: { ...this.playing.authored, looping } };
+    return this.playbackNow();
   }
 
   async setPlaybackVolume(volume: number) {
@@ -579,6 +591,8 @@ export interface AuthoredPlayback {
   music: string | null;
   durationMs: number;
   frameMs: number;
+  /** Goes round again from the top at the end instead of ending. */
+  looping: boolean;
   /** The show frame at a moment. */
   frame(positionMs: number): Uint8Array;
 }

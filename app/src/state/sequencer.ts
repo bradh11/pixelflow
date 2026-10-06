@@ -23,6 +23,8 @@ import { tapEdits } from "../lib/timelineMath";
 import { useApp } from "./store";
 
 const RECENT_KEY = "pixelflow.recentSequences";
+/** Whether playback loops, remembered on this computer. */
+const LOOP_KEY = "pixelflow.sequenceLoop";
 const RECENT_LIMIT = 6;
 
 function loadRecent(): string[] {
@@ -31,6 +33,22 @@ function loadRecent(): string[] {
     return Array.isArray(saved) ? saved.filter((p): p is string => typeof p === "string").slice(0, RECENT_LIMIT) : [];
   } catch {
     return [];
+  }
+}
+
+function loadLoop(): boolean {
+  try {
+    return localStorage.getItem(LOOP_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function saveLoop(on: boolean) {
+  try {
+    localStorage.setItem(LOOP_KEY, String(on));
+  } catch {
+    // Storage unavailable: looping still applies until the app closes.
   }
 }
 
@@ -99,6 +117,8 @@ interface SequencerState {
   /** The authored sequence playing, or null. */
   status: PlaybackStatus | null;
   sendToControllers: boolean;
+  /** Playback goes round again from the top at the end (the engine jumps the music back too). */
+  looping: boolean;
   snapping: boolean;
   collapsed: string[];
   clipboard: Copied[];
@@ -112,6 +132,8 @@ interface SequencerState {
   docKey: number;
   /** Bumped to ask the timeline to bring the selection (or the playhead) and the active row into view. */
   revealAt: number;
+  /** What the last reveal asked for: the selection (else the playhead), or the playhead alone. */
+  revealTarget: "selection" | "playhead";
   /** Unsaved sequences an earlier run kept, to offer back. */
   recoveries: SequenceRecovery[];
   notice: Notice | null;
@@ -163,9 +185,13 @@ interface SequencerState {
   toggleCollapsed(rowId: string): void;
   setSnapping(on: boolean): void;
   setSendToControllers(on: boolean): Promise<void>;
+  /** Turns looping on or off (remembered on this computer); a playing sequence switches at once. */
+  setLooping(on: boolean): void;
   copy(): void;
   play(): Promise<void>;
   pause(): Promise<void>;
+  /** Stops playback, leaving the playhead where it is; pressed again while stopped, goes back to
+   * the start (playhead, timeline, and preview). */
   stop(): Promise<void>;
   seek(ms: number): Promise<void>;
   /** Polls playback while it runs (the screen calls this on a timer). */
@@ -174,8 +200,9 @@ interface SequencerState {
   exportFseq(addToShow: boolean): Promise<ExportSummary | null>;
   cancelExport(): Promise<void>;
   dismissBeats(): void;
-  /** Brings the selected effect (or else the playhead) and the active row into view on the timeline. */
-  reveal(): void;
+  /** Brings the selected effect (or else the playhead) and the active row into view on the
+   * timeline; with "playhead", the playhead alone. */
+  reveal(target?: "selection" | "playhead"): void;
   /** Opens a kept unsaved sequence (ask first if the open one has changes). */
   recover(id: string): Promise<boolean>;
   discardRecovery(id: string): Promise<void>;
@@ -199,6 +226,17 @@ export const useSequencer = create<SequencerState>((set, get) => {
   let lastTap: { track: string; startMs: number } | null = null;
   /** Set when the user cancels the running export, so its failure isn't reported as an error. */
   let cancelled = false;
+
+  /** Lets go of the player (if one is running), leaving the playhead where it is. */
+  async function halt() {
+    const backend = useApp.getState().backend;
+    lastTap = null;
+    if (!backend || !get().status) return;
+    ++transport;
+    // Stopped as far as the screen is concerned at once; late answers are ignored.
+    set({ status: null });
+    await guarded(() => backend.stopPlayback());
+  }
 
   /** The next document's key; a new document starts tap to time afresh. */
   function newDocKey() {
@@ -285,6 +323,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
     playheadMs: 0,
     status: null,
     sendToControllers: false,
+    looping: loadLoop(),
     snapping: true,
     collapsed: [],
     clipboard: [],
@@ -294,6 +333,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
     detecting: false,
     docKey: 0,
     revealAt: 0,
+    revealTarget: "selection",
     recoveries: [],
     notice: null,
     replacing: null,
@@ -308,6 +348,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
         if (snapshot) adopt(snapshot);
         // Editing shouldn't light up the house until asked.
         await api.setSequenceDocOutput(get().sendToControllers);
+        await api.setSequenceDocLoop(get().looping);
       });
     },
 
@@ -316,7 +357,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
       if (!api) return false;
       const ok = await serial(() =>
         guarded(async () => {
-          await get().stop();
+          await halt();
           // With its music from the start: nothing to undo, nothing unsaved.
           adopt(await api.newSequenceDoc(name, durationMs, audio));
           set({ selection: [], markSelection: null, activeTrack: null, playheadMs: 0, collapsed: [], suggestBeats: audio !== null, docKey: newDocKey(), notice: null });
@@ -331,7 +372,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
       if (!api) return false;
       const ok = await serial(async () => {
         try {
-          await get().stop();
+          await halt();
           adopt(await api.openSequenceDoc(path));
           set({ selection: [], markSelection: null, activeTrack: null, playheadMs: 0, collapsed: [], suggestBeats: false, docKey: newDocKey(), notice: null });
           return true;
@@ -357,7 +398,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
       if (!api) return null;
       return serial(() =>
         guarded(async () => {
-          await get().stop();
+          await halt();
           const imported = await api.importXlightsSequence(path);
           // Opened like any other document: unsaved, so it's kept (autosaved) until it's saved.
           adopt(imported.snapshot);
@@ -544,6 +585,17 @@ export const useSequencer = create<SequencerState>((set, get) => {
       if (status?.authored) set({ status });
     },
 
+    setLooping(on) {
+      set({ looping: on });
+      saveLoop(on);
+      const api = get().api;
+      if (!api) return;
+      const turn = transport;
+      void guarded(() => api.setSequenceDocLoop(on)).then((status) => {
+        if (status?.authored && turn === transport && get().status) set({ status });
+      });
+    },
+
     copy() {
       const { doc, selection } = get();
       if (!doc) return;
@@ -589,13 +641,13 @@ export const useSequencer = create<SequencerState>((set, get) => {
     },
 
     async stop() {
-      const backend = useApp.getState().backend;
+      if (get().status) {
+        await halt();
+        return;
+      }
       lastTap = null;
-      if (!backend || !get().status) return;
-      ++transport;
-      // Stopped as far as the screen is concerned at once; late answers are ignored.
-      set({ status: null });
-      await guarded(() => backend.stopPlayback());
+      get().setPlayhead(0);
+      get().reveal("playhead");
     },
 
     async seek(ms) {
@@ -681,7 +733,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
       if (!api) return false;
       const ok = await serial(() =>
         guarded(async () => {
-          await get().stop();
+          await halt();
           adopt(await api.recoverSequence(id));
           set({
             selection: [],
@@ -723,6 +775,6 @@ export const useSequencer = create<SequencerState>((set, get) => {
     dismissNotice: () => set({ notice: null }),
 
     dismissBeats: () => set({ suggestBeats: false }),
-    reveal: () => set({ revealAt: get().revealAt + 1 }),
+    reveal: (target = "selection") => set({ revealAt: get().revealAt + 1, revealTarget: target }),
   };
 });

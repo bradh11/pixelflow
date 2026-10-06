@@ -399,6 +399,8 @@ export class MemorySequencer implements SequencerApi {
   private exportCancels = 0;
   /** Whether a playing sequence would go out to the controllers. */
   sendToControllers = true;
+  /** Whether a playing sequence goes round again from the top at the end. */
+  looping = false;
   /** How long edit, undo, and redo replies take to come back (tests of a slow engine). The edit
    * itself lands at once, as in the engine; only the answer is late. */
   replyDelayMs = 0;
@@ -572,6 +574,7 @@ export class MemorySequencer implements SequencerApi {
         music: doc.audio,
         durationMs: doc.durationMs,
         frameMs: doc.frameMs,
+        looping: this.looping,
         frame: (ms) => renderSequenceFrame(live(), backend.show, ms),
       },
       positionMs,
@@ -582,6 +585,12 @@ export class MemorySequencer implements SequencerApi {
     this.calls.push(`setSequenceDocOutput:${send}`);
     this.sendToControllers = send;
     return (await this.backend?.playbackStatus()) ?? null;
+  }
+
+  async setSequenceDocLoop(looping: boolean) {
+    this.calls.push(`setSequenceDocLoop:${looping}`);
+    this.looping = looping;
+    return this.backend?.setAuthoredLooping(looping) ?? null;
   }
 
   async addSequenceDocToShow(path: string): Promise<ShowSnapshot> {

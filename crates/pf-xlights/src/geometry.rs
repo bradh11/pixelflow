@@ -18,7 +18,7 @@ mod tests;
 mod xform;
 
 use crate::model::XmlModel;
-use xform::Affine;
+pub(crate) use xform::{Affine, rot_from_x_axis};
 
 /// One xLights node: where its channels start within the model's block and where its lights are.
 #[derive(Debug, Clone, PartialEq)]

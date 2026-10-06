@@ -8,7 +8,7 @@ use std::f64::consts::PI;
 
 /// `out = m * v + t` with `m` row-major.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct Affine {
+pub(crate) struct Affine {
     pub m: [[f64; 3]; 3],
     pub t: V3,
 }
@@ -103,7 +103,7 @@ fn length(a: V3) -> f64 {
 }
 
 /// `VectorMath::rotationMatrixFromXAxisToVector` (note its near-axis snapping thresholds).
-pub(super) fn rot_from_x_axis(a: V3) -> Affine {
+pub(crate) fn rot_from_x_axis(a: V3) -> Affine {
     let len = length(a);
     if len.is_nan() || len <= 0.0 {
         return Affine::IDENTITY;

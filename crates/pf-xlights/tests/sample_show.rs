@@ -243,6 +243,19 @@ fn editable_shapes_land_on_xlights_positions() {
         pf_xlights::parse_layout(&std::fs::read_to_string(dir.join("xlights_rgbeffects.xml")).unwrap())
             .unwrap();
     let show = sample().show;
+    let canes = show.props.iter().find(|p| p.name == "Candy Canes").unwrap();
+    assert!(
+        matches!(
+            canes.shape,
+            ShapeSource::Generator(pf_model::Generator::CandyCanes {
+                canes: 2,
+                nodes_per_cane: 18,
+                ..
+            })
+        ),
+        "{:?}",
+        canes.shape
+    );
     let mut editable = 0;
     for prop in &show.props {
         if !matches!(prop.shape, ShapeSource::Generator(_)) {
@@ -269,5 +282,8 @@ fn editable_shapes_land_on_xlights_positions() {
             );
         }
     }
-    assert!(editable >= 1, "the roofline at least is editable");
+    assert!(
+        editable >= 2,
+        "the roofline and candy canes at least are editable"
+    );
 }

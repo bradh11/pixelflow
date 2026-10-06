@@ -6,9 +6,10 @@
 //! measured points, in channel order); otherwise the model keeps its measured points. So an
 //! import always looks and maps exactly as before, whichever way a model is set up.
 
-use crate::geometry::{parse_points, strtod, strtol0};
+use crate::geometry::{Affine, parse_points, rot_from_x_axis, strtod, strtol0};
 use crate::model::XmlModel;
 use pf_model::{Generator, PolySegment, Prop, ShapeSource, Transform, Vec3};
+use std::f64::consts::PI;
 
 /// xLights layout units per PixelFlow unit (see `import::LAYOUT_SCALE`).
 const SCALE: f32 = 0.01;
@@ -25,6 +26,8 @@ pub(crate) fn editable(model: &XmlModel, points: &[Vec3]) -> Option<Candidate> {
     let candidates = match model.display_as.trim() {
         "Poly Line" => poly_line(model),
         "Single Line" => single_line(model, points.len()),
+        "Candy Canes" => candy_canes(model),
+        "Icicles" => icicles(model),
         _ => Vec::new(),
     };
     candidates.into_iter().find(|(g, t)| fits(g, t, points))
@@ -174,6 +177,164 @@ fn single_line(m: &XmlModel, nodes: usize) -> Vec<Candidate> {
         )
     };
     vec![candidate(d), candidate(d * -1.0)]
+}
+
+/// Where a three-point model (Arches, Candy Canes, Icicles) sits, as
+/// `ThreePointScreenLocation` places it: `WorldPos` is point 1, and its local x axis runs
+/// `length` (xLights units) toward point 2, turned by `turn`.
+struct ThreePoint {
+    start: [f64; 3],
+    length: f64,
+    turn: Affine,
+}
+
+fn three_point(m: &XmlModel) -> ThreePoint {
+    let start = ["WorldPosX", "WorldPosY", "WorldPosZ"].map(|k| float(m, k, 0.0));
+    let (x2, y2, z2) = (float(m, "X2", 0.0), float(m, "Y2", 0.0), float(m, "Z2", 0.0));
+    // xLights nudges a zero-length model, and turns one drawn right to left about Y.
+    let x = if x2 == 0.0 && y2 == 0.0 && z2 == 0.0 {
+        0.001
+    } else {
+        x2
+    };
+    let swapped = x2 < 0.0;
+    let a = if swapped { [-x, -y2, -z2] } else { [x, y2, z2] };
+    let mut turn = rot_from_x_axis(a);
+    if swapped {
+        turn = turn.then(&Affine::rot_y(PI));
+    }
+    turn = turn.then(&Affine::rot_x(float(m, "RotateX", 0.0).to_radians()));
+    ThreePoint {
+        start,
+        length: (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt(),
+        turn,
+    }
+}
+
+/// The placement of a PixelFlow shape drawn between two ends (origin midway, x along the line)
+/// that reproduces a three-point model. `mirror` turns the shape half round about Y, for a
+/// model wired from point 2 whose shape is the mirror image of the one PixelFlow draws.
+fn between_ends(tp: &ThreePoint, mirror: bool) -> Transform {
+    let mid = tp.turn.apply([tp.length / 2.0, 0.0, 0.0]);
+    let turn = if mirror {
+        tp.turn.then(&Affine::rot_y(PI))
+    } else {
+        tp.turn
+    };
+    let at = |i: usize| ((tp.start[i] + mid[i]) * f64::from(SCALE)) as f32;
+    transform(Vec3::new(at(0), at(1), at(2)), euler_degrees(&turn.m), Vec3::ONE)
+}
+
+/// Rotations about X, then Y, then Z (degrees, as `pf_geometry::apply_transform` applies them)
+/// that make the turn `m`, preferring a half turn about Y to half turns about X and Z.
+fn euler_degrees(m: &[[f64; 3]; 3]) -> Vec3 {
+    let y = (-m[2][0]).clamp(-1.0, 1.0).asin();
+    let (mut x, mut z) = if y.cos() > 1e-9 {
+        (m[2][1].atan2(m[2][2]), m[1][0].atan2(m[0][0]))
+    } else {
+        (0.0, (-m[0][1]).atan2(m[1][1]))
+    };
+    let mut y = y.to_degrees();
+    (x, z) = (x.to_degrees(), z.to_degrees());
+    if (x.abs() - 180.0).abs() < 1e-6 && y.abs() < 1e-6 {
+        (x, y, z) = (0.0, 180.0, z - 180.0);
+    }
+    // Rounded so float noise doesn't show up as stray hundred-thousandths of a degree.
+    let tidy = |d: f64| {
+        let d = (d * 1e6).round() / 1e6;
+        let d = if d <= -180.0 { d + 360.0 } else { d };
+        (if d == 0.0 { 0.0 } else { d }) as f32
+    };
+    Vec3::new(tidy(x), tidy(y), tidy(z))
+}
+
+/// An xLights `"true"` flag.
+fn flag(m: &XmlModel, key: &str) -> bool {
+    m.attr(key) == Some("true")
+}
+
+/// A count PixelFlow can hold, or `None` for a negative or oversized one.
+fn count(v: i64) -> Option<u32> {
+    u32::try_from(v).ok()
+}
+
+/// `CandyCaneModel` with one light per node: its settings, and the canes scaled to the distance
+/// between its two points. Wired from the last cane (`Dir="R"`), each cane still runs up its
+/// stick first, so the canes are the mirror image of a row with the hooks the other way.
+fn candy_canes(m: &XmlModel) -> Vec<Candidate> {
+    let (Some(canes), Some(nodes_per_cane)) = (
+        count(parm(m, "NumCanes", "parm1", 1)),
+        count(parm(m, "NodesPerCane", "parm2", 1)),
+    ) else {
+        return Vec::new();
+    };
+    if u64::from(canes) * u64::from(nodes_per_cane) > u64::from(pf_model::MAX_PROP_NODES) {
+        return Vec::new();
+    }
+    let skew = if m.attr("CandyCaneSkew").is_some() {
+        int(m, "CandyCaneSkew", 0)
+    } else {
+        int(m, "Angle", 0)
+    } as f32;
+    let mirror = m.attr("Dir") == Some("R");
+    let tp = three_point(m);
+    let generator = Generator::CandyCanes {
+        canes,
+        nodes_per_cane,
+        width: tp.length as f32 * SCALE,
+        height: float(m, "Height", 1.0) as f32,
+        cane_height: float(m, "CandyCaneHeight", 1.0) as f32,
+        reverse: flag(m, "CandyCaneReverse") != mirror,
+        sticks: flag(m, "CandyCaneSticks"),
+        alternate_nodes: flag(m, "AlternateNodes"),
+        skew_deg: if mirror { -skew } else { skew },
+    };
+    vec![(generator, between_ends(&tp, mirror))]
+}
+
+/// `IciclesModel` without shear: its settings, its columns spread over the distance between its
+/// two points, and its drops hanging as far as xLights' `Height` scales them (see
+/// `Generator::Icicles::drop_height`). Wired from point 2 (`Dir="R"`), it's turned half round.
+fn icicles(m: &XmlModel) -> Vec<Candidate> {
+    let (Some(strings), Some(lights_per_string)) = (
+        count(parm(m, "NumStrings", "parm1", 1)),
+        count(parm(m, "NodesPerString", "parm2", 1)),
+    ) else {
+        return Vec::new();
+    };
+    if u64::from(strings) * u64::from(lights_per_string) > u64::from(pf_model::MAX_PROP_NODES)
+        || float(m, "Shear", 0.0) != 0.0
+    {
+        return Vec::new();
+    }
+    // `IciclesModel::ParseDropSizes`: negative drops are left out, and no drops means drops of 5.
+    let mut drops: Vec<u32> = m
+        .text("DropPattern", "3,4,5,4")
+        .split(',')
+        .map(strtol0)
+        .filter(|&d| d >= 0)
+        .map(|d| u32::try_from(d).unwrap_or(u32::MAX))
+        .collect();
+    if drops.iter().all(|&d| d == 0) {
+        drops = vec![5];
+    }
+    if drops.len() > pf_model::MAX_ICICLE_DROPS || drops.iter().any(|&d| d > pf_model::MAX_ICICLE_DROP_LIGHTS)
+    {
+        return Vec::new();
+    }
+    let tp = three_point(m);
+    let gaps = pf_geometry::icicle_column_gaps(strings, lights_per_string, &drops).max(1) as f64;
+    let longest = drops.iter().copied().max().unwrap_or(1).saturating_sub(1).max(1);
+    let spacing = -float(m, "Height", 1.0) * tp.length / gaps * f64::from(SCALE);
+    let generator = Generator::Icicles {
+        strings,
+        lights_per_string,
+        drops,
+        width: tp.length as f32 * SCALE,
+        drop_height: (spacing * f64::from(longest)) as f32,
+        alternate_nodes: flag(m, "AlternateNodes"),
+    };
+    vec![(generator, between_ends(&tp, m.attr("Dir") == Some("R")))]
 }
 
 #[cfg(test)]
@@ -363,5 +524,185 @@ mod tests {
             "Single Line",
             &[("parm1", "2"), ("parm2", "3"), ("Dir", "R"), ("X2", "300")],
         );
+    }
+
+    /// `base` with `more` set, later settings replacing earlier ones as in an XML element.
+    fn with<'a>(base: &[(&'a str, &'a str)], more: &[(&'a str, &'a str)]) -> Vec<(&'a str, &'a str)> {
+        let mut attrs: Vec<_> = base
+            .iter()
+            .filter(|(k, _)| !more.iter().any(|(m, _)| m == k))
+            .copied()
+            .collect();
+        attrs.extend_from_slice(more);
+        attrs
+    }
+
+    /// A row of three candy canes 200 wide, sloping up to the right a little.
+    const CANES: [(&str, &str); 6] = [
+        ("NumCanes", "3"),
+        ("NodesPerCane", "18"),
+        ("WorldPosX", "300"),
+        ("WorldPosY", "80"),
+        ("X2", "200"),
+        ("Y2", "30"),
+    ];
+
+    #[test]
+    fn candy_canes_import_as_candy_canes_between_their_two_points() {
+        let g = imports_as("Candy Canes", &CANES);
+        let Generator::CandyCanes {
+            canes,
+            nodes_per_cane,
+            width,
+            height,
+            reverse,
+            sticks,
+            ..
+        } = g
+        else {
+            panic!("{g:?}")
+        };
+        assert_eq!(
+            (canes, nodes_per_cane, height, reverse, sticks),
+            (3, 18, 1.0, false, false)
+        );
+        assert!((width - (2.0f32 * 2.0 + 0.3 * 0.3).sqrt()).abs() < 1e-5);
+        // Midway between the two points, turned toward point 2.
+        let m = model("Candy Canes", &CANES);
+        let (_, t) = editable(&m, &measured(&m)).unwrap();
+        assert!((t.position - Vec3::new(4.0, 0.95, 0.0)).length() < 1e-5, "{t:?}");
+        assert_eq!((t.rotation_deg.x, t.rotation_deg.y), (0.0, 0.0));
+        assert!(
+            (t.rotation_deg.z - 0.3f32.atan2(2.0).to_degrees()).abs() < 1e-4,
+            "{t:?}"
+        );
+    }
+
+    #[test]
+    fn candy_canes_set_up_every_way_xlights_offers_import_exactly() {
+        let variants: [&[(&str, &str)]; 10] = [
+            &[("CandyCaneReverse", "true")],
+            &[("CandyCaneSticks", "true")],
+            &[("AlternateNodes", "true")],
+            &[("Height", "1.6"), ("CandyCaneHeight", "0.7")],
+            &[("CandyCaneSkew", "12")],
+            &[("Angle", "-8")],
+            &[("Dir", "R")],
+            &[
+                ("Dir", "R"),
+                ("CandyCaneReverse", "true"),
+                ("CandyCaneSkew", "20"),
+            ],
+            // Drawn right to left, and tipped back.
+            &[("X2", "-150"), ("Y2", "-40"), ("RotateX", "25")],
+            // In depth, wired from the right, from the old parm attributes.
+            &[("Z2", "60"), ("RotateX", "-10"), ("Dir", "R"), ("NumCanes", "2")],
+        ];
+        for more in variants {
+            imports_as("Candy Canes", &with(&CANES, more));
+        }
+        // Nearly level: xLights draws it level, so it imports level.
+        let m = model("Candy Canes", &with(&CANES, &[("Y2", "0.2")]));
+        let (_, t) = editable(&m, &measured(&m)).unwrap();
+        assert_eq!(t.rotation_deg, Vec3::ZERO);
+        // Right to left: a half turn about Y rather than about X and Z.
+        let m = model("Candy Canes", &with(&CANES, &[("X2", "-200"), ("Y2", "0")]));
+        let (_, t) = editable(&m, &measured(&m)).unwrap();
+        assert_eq!(t.rotation_deg, Vec3::new(0.0, 180.0, 0.0));
+        // Wired from the right: the mirror image of canes hooking the other way.
+        let g = imports_as(
+            "Candy Canes",
+            &with(&CANES, &[("Dir", "R"), ("CandyCaneSkew", "20")]),
+        );
+        assert!(matches!(
+            g,
+            Generator::CandyCanes {
+                reverse: true,
+                skew_deg: -20.0,
+                ..
+            }
+        ));
+        imports_as("Candy Canes", &[("parm1", "2"), ("parm2", "12"), ("X2", "100")]);
+    }
+
+    #[test]
+    fn candy_canes_with_dumb_strings_or_several_lights_per_pixel_keep_their_points() {
+        stays_measured(
+            "Candy Canes",
+            &with(&CANES, &[("StringType", "Single Color Red")]),
+        );
+        stays_measured("Candy Canes", &with(&CANES, &[("LightsPerNode", "3")]));
+    }
+
+    /// Two strings of icicles hanging along 300 of slightly sloping gutter.
+    const ICICLES: [(&str, &str); 8] = [
+        ("NumStrings", "2"),
+        ("NodesPerString", "40"),
+        ("DropPattern", "3,4,5,4"),
+        ("WorldPosX", "100"),
+        ("WorldPosY", "500"),
+        ("X2", "300"),
+        ("Y2", "-20"),
+        ("Height", "-0.5"),
+    ];
+
+    #[test]
+    fn icicles_import_as_icicles_hanging_from_their_line() {
+        let g = imports_as("Icicles", &ICICLES);
+        let Generator::Icicles {
+            strings,
+            lights_per_string,
+            ref drops,
+            width,
+            drop_height,
+            alternate_nodes,
+        } = g
+        else {
+            panic!("{g:?}")
+        };
+        assert_eq!((strings, lights_per_string, alternate_nodes), (2, 40, false));
+        assert_eq!(drops, &[3, 4, 5, 4]);
+        let length = (3.0f32 * 3.0 + 0.2 * 0.2).sqrt();
+        assert!((width - length).abs() < 1e-5);
+        // 40 pixels fill eleven drops of 3,4,5,4 (the last one partly) on each of two strings:
+        // columns 0 to 21. Height -0.5 spaces the pixels half a column apart, and the longest
+        // drop, of 5, hangs 4 of those.
+        assert!(
+            (drop_height - 0.5 * length / 21.0 * 4.0).abs() < 1e-5,
+            "{drop_height}"
+        );
+    }
+
+    #[test]
+    fn icicles_set_up_every_way_xlights_offers_import_exactly() {
+        let variants: [&[(&str, &str)]; 8] = [
+            &[("AlternateNodes", "true")],
+            &[("Dir", "R")],
+            &[("DropPattern", "2,0,6,1")],
+            &[("DropPattern", "")],
+            &[("Height", "0.8")],
+            &[("X2", "-250"), ("Y2", "60"), ("RotateX", "15")],
+            &[("NumStrings", "1"), ("NodesPerString", "3"), ("DropPattern", "5")],
+            &[
+                ("NumStrings", "3"),
+                ("NodesPerString", "7"),
+                ("Z2", "40"),
+                ("Dir", "R"),
+            ],
+        ];
+        for more in variants {
+            imports_as("Icicles", &with(&ICICLES, more));
+        }
+        imports_as("Icicles", &[("parm1", "2"), ("parm2", "9"), ("X2", "100")]);
+    }
+
+    #[test]
+    fn sheared_or_dumb_icicles_and_huge_drops_keep_their_points() {
+        stays_measured("Icicles", &with(&ICICLES, &[("Shear", "0.3")]));
+        stays_measured(
+            "Icicles",
+            &with(&ICICLES, &[("StringType", "Single Color White")]),
+        );
+        stays_measured("Icicles", &with(&ICICLES, &[("DropPattern", "3,2000")]));
     }
 }

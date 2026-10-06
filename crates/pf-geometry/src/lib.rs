@@ -17,6 +17,7 @@ mod tree;
 
 use pf_model::{Generator, Prop, ShapeSource, Vec3};
 
+pub use icicles::icicle_column_gaps;
 pub use transform::apply_transform;
 
 /// Pixel positions in prop-local coordinates, in wiring order.

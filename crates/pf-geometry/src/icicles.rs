@@ -27,30 +27,7 @@ pub(crate) fn positions(ic: Icicles) -> Vec<Vec3> {
     let longest = drops.iter().copied().max().unwrap_or(1);
     let spacing = ic.drop_height / longest.saturating_sub(1).max(1) as f32;
 
-    // Columns and spots down the drop, each string starting a new column and the pattern over.
-    let mut spots = Vec::with_capacity(ic.strings as usize * ic.lights_per_string as usize);
-    let mut column: i64 = -1;
-    for _ in 0..ic.strings {
-        column += 1;
-        let (mut y, mut d) = (0u32, 0usize);
-        for _ in 0..ic.lights_per_string {
-            while y >= drops[d] {
-                column += 1;
-                y = 0;
-                d = (d + 1) % drops.len();
-            }
-            let n = drops[d];
-            let spot = if !ic.alternate_nodes {
-                y
-            } else if y < n.div_ceil(2) {
-                2 * y
-            } else {
-                (n - (y + 1)) * 2 + 1
-            };
-            spots.push((column, spot));
-            y += 1;
-        }
-    }
+    let (spots, column) = spots(ic.strings, ic.lights_per_string, drops, ic.alternate_nodes);
     let last = column as f32;
     spots
         .into_iter()
@@ -63,6 +40,44 @@ pub(crate) fn positions(ic: Icicles) -> Vec<Vec3> {
             Vec3::new(x, -(spot as f32) * spacing, 0.0)
         })
         .collect()
+}
+
+/// How many column widths icicles span from their first column to their last (xLights' render
+/// width before it turns a single column into one), for working out their spacing.
+pub fn icicle_column_gaps(strings: u32, lights_per_string: u32, drops: &[u32]) -> u64 {
+    if strings == 0 || lights_per_string == 0 || drops.iter().all(|&d| d == 0) {
+        return 0;
+    }
+    spots(strings, lights_per_string, drops, false).1 as u64
+}
+
+/// Each pixel's column and spot down its drop, each string starting a new column and the
+/// pattern over, and the last column. `drops` must hold a drop with pixels.
+fn spots(strings: u32, lights_per_string: u32, drops: &[u32], alternate: bool) -> (Vec<(i64, u32)>, i64) {
+    let mut spots = Vec::with_capacity(strings as usize * lights_per_string as usize);
+    let mut column: i64 = -1;
+    for _ in 0..strings {
+        column += 1;
+        let (mut y, mut d) = (0u32, 0usize);
+        for _ in 0..lights_per_string {
+            while y >= drops[d] {
+                column += 1;
+                y = 0;
+                d = (d + 1) % drops.len();
+            }
+            let n = drops[d];
+            let spot = if !alternate {
+                y
+            } else if y < n.div_ceil(2) {
+                2 * y
+            } else {
+                (n - (y + 1)) * 2 + 1
+            };
+            spots.push((column, spot));
+            y += 1;
+        }
+    }
+    (spots, column)
 }
 
 #[cfg(test)]
@@ -145,5 +160,13 @@ mod tests {
         assert_close(fives[5], Vec3::new(1.0, 0.0, 0.0));
         assert!(icicles(0, 6, &[3]).is_empty());
         assert!(icicles(2, 0, &[3]).is_empty());
+    }
+
+    #[test]
+    fn counts_the_column_widths_from_first_to_last() {
+        assert_eq!(icicle_column_gaps(2, 4, &[3]), 3);
+        assert_eq!(icicle_column_gaps(1, 4, &[2, 0, 2]), 2);
+        assert_eq!(icicle_column_gaps(1, 3, &[5]), 0);
+        assert_eq!(icicle_column_gaps(1, 3, &[0]), 0);
     }
 }

@@ -72,7 +72,7 @@ pub(crate) fn check_limits(show: &Show) -> Vec<String> {
         if let ShapeSource::Generator(Generator::PolyLine {
             vertices, segments, ..
         }) = &prop.shape
-            && let Some(problem) = poly_line_problem(&prop.name, vertices, segments.len())
+            && let Some(problem) = poly_line_problem(&prop.name, vertices, segments)
         {
             problems.push(problem);
             continue;
@@ -119,6 +119,27 @@ pub(crate) fn check_limits(show: &Show) -> Vec<String> {
                 } else {
                     "strings"
                 }
+            ));
+            continue;
+        }
+        // A sphere's or cube's sides are walked even when another side is 0, so each is capped.
+        let sides: &[(u32, &str)] = match &prop.shape {
+            ShapeSource::Generator(Generator::Sphere { columns, rows, .. }) => {
+                &[(*columns, "strands around"), (*rows, "pixels per strand")]
+            }
+            ShapeSource::Generator(Generator::Cube {
+                width, height, depth, ..
+            }) => &[
+                (*width, "pixels across"),
+                (*height, "pixels up"),
+                (*depth, "pixels deep"),
+            ],
+            _ => &[],
+        };
+        if let Some((n, what)) = sides.iter().find(|(n, _)| *n > MAX_PROP_NODES) {
+            problems.push(format!(
+                "The prop '{}' has {n} {what}, but PixelFlow supports at most {MAX_PROP_NODES}.",
+                prop.name
             ));
             continue;
         }
@@ -206,7 +227,13 @@ pub(crate) fn check_limits(show: &Show) -> Vec<String> {
 }
 
 /// What's wrong with a poly line's points, if anything.
-fn poly_line_problem(name: &str, vertices: &[crate::Vec3], segments: usize) -> Option<String> {
+fn poly_line_problem(
+    name: &str,
+    vertices: &[crate::Vec3],
+    segments: &[crate::PolySegment],
+) -> Option<String> {
+    let mut curves = segments.iter().filter_map(|s| s.curve).flatten();
+    let segments = segments.len();
     let n = vertices.len();
     if n < 2 {
         return Some(format!(
@@ -225,7 +252,7 @@ fn poly_line_problem(name: &str, vertices: &[crate::Vec3], segments: usize) -> O
             n - 1
         ));
     }
-    if vertices.iter().any(|v| !v.is_finite()) {
+    if vertices.iter().any(|v| !v.is_finite()) || curves.any(|v| !v.is_finite()) {
         return Some(format!("The poly line '{name}' has a point that isn't a number."));
     }
     None

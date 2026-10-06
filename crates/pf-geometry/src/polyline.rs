@@ -4,7 +4,7 @@ use pf_model::{PolySegment, Vec3};
 
 /// Straight pieces a curved stretch is measured and walked along (the TypeScript mirror in
 /// `app/src/lib/geometry.ts` uses the same number, so both put pixels in the same places).
-pub const CURVE_STEPS: usize = 32;
+pub const CURVE_STEPS: usize = 25;
 
 /// The point at `t` (0–1) along a cubic Bézier from `a` to `b` with control points `c`.
 pub fn bezier(a: Vec3, c: [Vec3; 2], b: Vec3, t: f32) -> Vec3 {
@@ -155,8 +155,9 @@ mod tests {
             &[PolySegment { nodes: 1, curve }],
             None,
         );
-        // Symmetric curve: the middle of its length is its peak, at t = 0.5.
-        assert_close(p[0], v(1.0, 0.75));
+        // Symmetric curve: the middle of its length is its peak, at t = 0.5 (within how finely the
+        // curve is measured: its 25 pieces put a joint either side of the peak).
+        assert!((p[0] - v(1.0, 0.75)).length() < 2e-3, "{p:?}");
         assert_close(
             bezier(v(0.0, 0.0), [v(0.0, 1.0), v(2.0, 1.0)], v(2.0, 0.0), 0.0),
             v(0.0, 0.0),

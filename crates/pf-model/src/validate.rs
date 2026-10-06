@@ -501,7 +501,7 @@ mod tests {
     #[test]
     fn each_structural_problem_is_reported() {
         type Mutate = fn(&mut Show);
-        let cases: [(IssueCode, Mutate); 36] = [
+        let cases: [(IssueCode, Mutate); 40] = [
             (IssueCode::InvalidFrameRate, |s| s.settings.frame_rate = 5),
             (IssueCode::DuplicateId, |s| {
                 let dup = s.props[0].clone();
@@ -636,6 +636,22 @@ mod tests {
             }),
             (IssueCode::LimitExceeded, |s| {
                 s.props.push(cube("Big box", 2_000, 2_000, 2_000))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(sphere("Wide", u32::MAX, 0, (-86.0, 86.0), 360.0))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(cube("Flat", u32::MAX, u32::MAX, 0))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                let mut p = poly("Bent", 2, 5);
+                if let ShapeSource::Generator(Generator::PolyLine { segments, .. }) = &mut p.shape {
+                    segments[0].curve = Some([crate::Vec3::new(f32::NAN, 0.0, 0.0), crate::Vec3::ZERO]);
+                }
+                s.props.push(p)
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                s.props.push(cube("Thin", 1, 1, crate::MAX_PROP_NODES + 1))
             }),
         ];
         for (code, mutate) in cases {

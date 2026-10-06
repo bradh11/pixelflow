@@ -69,7 +69,7 @@ function customGrid(columns: number, rows: number, cells: number[]): Vec3[] {
 }
 
 /** Straight pieces a curved stretch is measured along (the same as pf-geometry's CURVE_STEPS). */
-export const CURVE_STEPS = 32;
+export const CURVE_STEPS = 25;
 
 /** The point at `t` (0–1) along a cubic Bézier from `a` to `b` with control points `c`. */
 export function bezier(a: Vec3, c: readonly [Vec3, Vec3], b: Vec3, t: number): Vec3 {

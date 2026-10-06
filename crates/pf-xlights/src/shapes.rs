@@ -144,6 +144,17 @@ fn poly_line(m: &XmlModel) -> Vec<Candidate> {
         return Vec::new();
     }
     let n = n as usize;
+    // xLights curves (`cPointData`: 7 fields per curved stretch, its index first) are drawn
+    // straight on import, so a curved line keeps its measured points rather than look editable.
+    let curve_fields: Vec<&str> = m.text("cPointData", "").split(',').collect();
+    if curve_fields
+        .as_chunks::<7>()
+        .0
+        .iter()
+        .any(|c| (0..(n - 1) as i64).contains(&strtol0(c[0])))
+    {
+        return Vec::new();
+    }
     let raw = parse_points(m.text("PointData", "0.0, 0.0, 0.0, 0.0, 0.0, 0.0"), n);
     // xLights' poly-point bounds: a nearly flat line (under 0.1 tall) is drawn flat at its lowest
     // point (bounds seeded at 100000 and 0, as in xLights).
@@ -1040,6 +1051,27 @@ mod tests {
 
     #[test]
     fn poly_lines_xlights_lays_out_differently_keep_their_points() {
+        // A curved stretch: imported straight it would look editable but wrong.
+        stays_measured(
+            "Poly Line",
+            &[
+                ("NumPoints", "3"),
+                ("PointData", "0,0,0,100,0,0,100,50,0"),
+                ("Seg1", "4"),
+                ("Seg2", "4"),
+                ("cPointData", "1,0.8,0.2,0,1.0,0.6,0"),
+            ],
+        );
+        // A curve record for a stretch that doesn't exist changes nothing.
+        imports_as(
+            "Poly Line",
+            &[
+                ("NumPoints", "2"),
+                ("PointData", "0,0,0,100,0,0"),
+                ("Seg1", "4"),
+                ("cPointData", "5,0.8,0.2,0,1.0,0.6,0"),
+            ],
+        );
         // Icicle drops, and a corner given to one side.
         stays_measured(
             "Poly Line",

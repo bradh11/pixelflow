@@ -9,6 +9,8 @@ import { useApp } from "../state/store";
 import { useConfirm } from "../state/confirm";
 import { useSetup } from "../state/setup";
 import { useUndoLabels } from "../state/undoLabels";
+import { usePropertiesPanel } from "../components/layout/PropertiesDock";
+import { useListWidth } from "../components/layout/SidePanel";
 import { useToasts } from "../state/toast";
 import { useView3d } from "../state/view3d";
 import { useWiring } from "../state/wiring";
@@ -42,4 +44,6 @@ afterEach(() => {
   useConfirm.setState(useConfirm.getInitialState(), true);
   useSetup.setState({ tested: [], dismissed: [] });
   useUndoLabels.setState(useUndoLabels.getInitialState(), true);
+  usePropertiesPanel.setState({ pref: "auto", hinted: false });
+  useListWidth.setState({ width: 256 });
 });

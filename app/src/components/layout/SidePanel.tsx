@@ -1,5 +1,6 @@
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { create } from "zustand";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { useApp } from "../../state/store";
 import { GroupsPanel } from "./GroupsPanel";
@@ -12,6 +13,12 @@ export const MAX_WIDTH = 520;
 const STEP = 16;
 
 const clampWidth = (w: number) => Math.round(Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, w)));
+
+/** The list's width (remembered), for the panel and for the screen arranging round it. */
+export const useListWidth = create<{ width: number; setWidth(width: number): void }>((set) => ({
+  width: storedWidth(),
+  setWidth: (width) => set({ width }),
+}));
 
 function storedWidth(): number {
   try {
@@ -42,9 +49,12 @@ export function SidePanel({ floating = false }: { floating?: boolean }) {
   const setSidePanel = useLayoutEditor((s) => s.setSidePanel);
   const props = useApp((s) => s.snapshot?.show.props.length ?? 0);
   const groups = useApp((s) => s.snapshot?.show.groups.length ?? 0);
-  const [width, setWidth] = useState(storedWidth);
+  const width = useListWidth((s) => s.width);
+  const setWidth = useListWidth((s) => s.setWidth);
   const resizing = useRef<{ startX: number; from: number } | null>(null);
   const [floatShown, setFloatShown] = useState(false);
+  const railButton = useRef<HTMLButtonElement>(null);
+  const floatBox = useRef<HTMLDivElement>(null);
   // Going floating puts the list away; something opening a group (Cmd-G) brings it out.
   useEffect(() => setFloatShown(false), [floating]);
   const opened = useRef({ tab, group });
@@ -53,19 +63,30 @@ export function SidePanel({ floating = false }: { floating?: boolean }) {
     opened.current = { tab, group };
     if (open && group !== null && (before.tab !== tab || before.group !== group)) setFloatShown(true);
   }, [open, tab, group]);
+  // Floating, Escape or a click outside puts it away (Escape gives the focus back to its button).
   useEffect(() => {
     if (!floating || !floatShown) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !e.defaultPrevented) setFloatShown(false);
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      setFloatShown(false);
+      railButton.current?.focus();
+    };
+    const onDown = (e: PointerEvent) => {
+      if (!floatBox.current?.contains(e.target as Node)) setFloatShown(false);
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onDown);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerdown", onDown);
+    };
   }, [floating, floatShown]);
 
   const shown = floating ? floatShown : open;
   const rail = (
     <div className="flex w-9 shrink-0 flex-col items-center rounded-lg border border-neutral-200 bg-white py-1 dark:border-neutral-800 dark:bg-neutral-900">
       <button
+        ref={railButton}
         type="button"
         aria-label="Show the props and groups list"
         title="Show the props and groups list"
@@ -82,7 +103,8 @@ export function SidePanel({ floating = false }: { floating?: boolean }) {
       </button>
     </div>
   );
-  if (!shown) return rail;
+  // Floating, the rail keeps its place in the tree (so its button keeps the focus) as the list comes and goes.
+  if (!shown) return floating ? <div ref={floatBox} className="relative flex shrink-0">{rail}</div> : rail;
 
   const tabClass = (on: boolean) =>
     `flex-1 rounded-md px-2 py-1 text-sm ${on ? "bg-accent-50 font-medium text-accent-700 dark:bg-accent-600/15 dark:text-accent-300" : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"}`;
@@ -184,7 +206,7 @@ export function SidePanel({ floating = false }: { floating?: boolean }) {
   );
   if (!floating) return panel;
   return (
-    <div className="relative flex shrink-0">
+    <div ref={floatBox} className="relative flex shrink-0">
       {rail}
       {panel}
     </div>

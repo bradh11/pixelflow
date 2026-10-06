@@ -5,6 +5,7 @@ import {
   CandyCane,
   ChevronDown,
   CircleHelp,
+  PanelRight,
   Circle,
   CircleDot,
   Droplets,
@@ -32,6 +33,7 @@ import { DEFAULT_VIEW, MAX_ZOOM, MIN_ZOOM } from "../../lib/layoutMath";
 import { type Tool, useLayoutEditor } from "../../state/layoutEditor";
 import { useView3d } from "../../state/view3d";
 import { ModeSwitch } from "../layout3d/ModeSwitch";
+import { usePropertiesOpen } from "./PropertiesDock";
 import { drawsProps, setLayoutMode } from "../layout3d/useLayout3dKeys";
 
 export interface ToolInfo {
@@ -268,6 +270,25 @@ function PopoverButton({
   );
 }
 
+/** Opens or puts away the properties panel (it opens by itself while a prop is selected). */
+function PropertiesToggle() {
+  const { open, hasSelection, toggle } = usePropertiesOpen();
+  return (
+    <span className="relative">
+      <ToolButton
+        pressed={open}
+        label="Properties"
+        hint={open ? "Put the properties panel away" : hasSelection ? "Show the selected prop's properties" : "Keep the properties panel open"}
+        labelShown="view"
+        onClick={toggle}
+      >
+        <PanelRight size={16} aria-hidden />
+      </ToolButton>
+      {hasSelection && !open && <span aria-hidden className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-accent-500" />}
+    </span>
+  );
+}
+
 /** Draw tools are 2D only (for now): what their buttons say in 3D. */
 const DRAW_IN_2D = "Drawing works in the 2D view — switch with V";
 
@@ -357,6 +378,7 @@ export function LayoutToolbar({ photo, tips }: { photo: ReactNode; tips: string[
           <ImagePlus size={16} aria-hidden />
         </ToolButton>
       )}
+      <PropertiesToggle />
       <PopoverButton label="Tips" hint="How to draw, select, and get around" icon={<CircleHelp size={16} aria-hidden />} labelShown="view">
         <h3 className="mb-2 text-xs font-semibold tracking-wide text-neutral-500 uppercase">Tips</h3>
         <ul className="list-disc space-y-1 pl-4 text-neutral-600 dark:text-neutral-400">

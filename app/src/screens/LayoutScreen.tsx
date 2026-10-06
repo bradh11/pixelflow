@@ -6,7 +6,7 @@ import { LayoutCanvas, type LayoutCanvasHandle } from "../components/layout/Layo
 import { LayoutToolbar } from "../components/layout/LayoutToolbar";
 import { PhotoControls, PropertiesPanel, TIPS_2D, TIPS_3D } from "../components/layout/PropertiesPanel";
 import { PropertiesDock } from "../components/layout/PropertiesDock";
-import { SidePanel } from "../components/layout/SidePanel";
+import { SidePanel, useListWidth } from "../components/layout/SidePanel";
 import { FALLBACK_ASPECT, imageAspect, useBackgroundImage, usePreviewProps, usePreviewProps3d } from "../components/layout/useLayoutData";
 import { useLayoutKeys } from "../components/layout/useLayoutKeys";
 import { Layout3dView } from "../components/layout3d/Layout3dView";
@@ -32,13 +32,13 @@ export interface LayoutArrangement {
 }
 
 /**
- * How the props list and the properties panel sit beside a canvas row `row` px wide (null: not
- * measured, so both stay docked). Open, the properties float first (the list stays, beside a
- * canvas of at least 480 px); in a narrower row the list is put away too.
+ * How the props list (`list` px wide) and the properties panel sit beside a canvas row `row` px
+ * wide (null: not measured, so both stay docked). Open, the properties float first (the list
+ * stays, beside a canvas of at least 480 px); in a narrower row the list is put away too.
  */
-export function layoutArrangement(row: number | null): LayoutArrangement {
-  if (row === null || row - LIST_WIDTH - PROPERTIES_WIDTH - GAPS >= MIN_CANVAS) return { list: "docked", properties: "docked" };
-  if (row - LIST_WIDTH - RAIL_WIDTH - GAPS >= MIN_CANVAS) return { list: "docked", properties: "floating" };
+export function layoutArrangement(row: number | null, list = LIST_WIDTH): LayoutArrangement {
+  if (row === null || row - list - PROPERTIES_WIDTH - GAPS >= MIN_CANVAS) return { list: "docked", properties: "docked" };
+  if (row - list - GAPS / 2 >= MIN_CANVAS) return { list: "docked", properties: "floating" };
   return { list: "floating", properties: row - RAIL_WIDTH - PROPERTIES_WIDTH - GAPS >= MIN_CANVAS ? "docked" : "floating" };
 }
 
@@ -67,7 +67,7 @@ function FirstTips({ tips }: { tips: string[] }) {
   return (
     <section
       aria-label="Tips"
-      className="absolute bottom-3 left-3 z-10 max-w-xs rounded-lg border border-neutral-200 bg-white/95 p-3 text-xs shadow-lg dark:border-neutral-800 dark:bg-neutral-900/95"
+      className="absolute top-3 right-3 z-10 max-w-64 rounded-lg border border-neutral-200 bg-white/95 p-3 text-xs shadow-lg dark:border-neutral-800 dark:bg-neutral-900/95"
     >
       <div className="mb-1 flex items-center justify-between gap-2">
         <h2 className="font-semibold">Getting around</h2>
@@ -76,10 +76,11 @@ function FirstTips({ tips }: { tips: string[] }) {
         </IconButton>
       </div>
       <ul className="list-disc space-y-1 pl-4 text-neutral-600 dark:text-neutral-400">
-        {tips.map((tip) => (
+        {tips.slice(0, 3).map((tip) => (
           <li key={tip}>{tip}</li>
         ))}
       </ul>
+      <p className="mt-1.5 text-neutral-500">More under Tips above.</p>
     </section>
   );
 }
@@ -95,7 +96,8 @@ export function LayoutScreen() {
   const preview3d = usePreviewProps3d(in3d);
   const canvas = useRef<LayoutCanvasHandle>(null);
   const row = useRef<HTMLDivElement>(null);
-  const arrangement = useElementWidth(row, layoutArrangement);
+  const listWidth = useListWidth((s) => s.width);
+  const arrangement = useElementWidth(row, (w) => layoutArrangement(w, listWidth), listWidth);
   useLayoutKeys(canvas);
   useLayout3dKeys();
   if (!snapshot) return null;

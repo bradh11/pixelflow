@@ -40,29 +40,30 @@ export function useWindowBand(): WindowBand {
 
 /**
  * Something worked out from an element's width (`derive` gets null until it has been laid out,
- * as in tests), kept up to date as the element changes size. Re-renders only when the derived
- * value changes (compared by its JSON).
+ * as in tests), kept up to date as the element changes size (and when `key` changes).
+ * Re-renders only when the derived value changes (compared by its JSON).
  */
-export function useElementWidth<T>(ref: RefObject<HTMLElement | null>, derive: (width: number | null) => T): T {
+export function useElementWidth<T>(ref: RefObject<HTMLElement | null>, derive: (width: number | null) => T, key?: unknown): T {
   const [value, setValue] = useState(() => derive(null));
   const derived = useRef(derive);
   derived.current = derive;
+  const shown = useRef(JSON.stringify(value));
+  // `key`: something else `derive` depends on; when it changes, it's worked out again.
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    let last = JSON.stringify(derived.current(null));
     const measure = () => {
       const w = Math.round(el.getBoundingClientRect().width);
       const next = derived.current(w > 0 ? w : null);
-      const key = JSON.stringify(next);
-      if (key === last) return;
-      last = key;
+      const json = JSON.stringify(next);
+      if (json === shown.current) return;
+      shown.current = json;
       setValue(next);
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [ref]);
+  }, [ref, key]);
   return value;
 }

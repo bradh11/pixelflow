@@ -568,12 +568,17 @@ describe("LayoutScreen", () => {
   describe("the properties panel", () => {
     const panel = () => screen.queryByRole("complementary", { name: "Properties" });
 
-    it("folds to a strip with nothing selected, and opens when a prop is selected", async () => {
+    const toggle = () => within(screen.getByRole("toolbar", { name: "Layout tools" })).getByRole("button", { name: "Properties" });
+
+    it("takes no room with nothing selected, and opens when a prop is selected", async () => {
       await setup(showWith(line("Gutter", 0, 0)));
       expect(panel()).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Show properties" })).toHaveAttribute("aria-expanded", "false");
+      // No empty strip beside the canvas: the tool bar's Properties button is the way to it.
+      expect(screen.queryByRole("button", { name: "Show properties" })).not.toBeInTheDocument();
+      expect(toggle()).toHaveAttribute("aria-pressed", "false");
       act(() => useLayoutEditor.getState().select([backend.show.props[0].id]));
       expect(within(panel()!).getByLabelText("Name")).toHaveValue("Gutter");
+      expect(toggle()).toHaveAttribute("aria-pressed", "true");
       act(() => useLayoutEditor.getState().select([]));
       expect(panel()).not.toBeInTheDocument();
     });
@@ -589,13 +594,19 @@ describe("LayoutScreen", () => {
       render(<LayoutScreen />);
       act(() => useLayoutEditor.getState().select([backend.show.props[0].id]));
       expect(panel()).not.toBeInTheDocument();
-      await user.click(screen.getByRole("button", { name: "Show properties" }));
+      // Picking a prop says, once, that the properties are hidden, with a way back.
+      const hint = useToasts.getState().toasts.at(-1)!;
+      expect(hint.text).toBe("The properties panel is hidden.");
+      expect(hint.action?.label).toBe("Show it");
+      act(() => useLayoutEditor.getState().select([backend.show.props[1].id]));
+      expect(useToasts.getState().toasts.filter((t) => t.text === "The properties panel is hidden.")).toHaveLength(1);
+      await user.click(toggle());
       expect(panel()).toBeInTheDocument();
     });
 
     it("can be kept open with nothing selected, and remembers that", async () => {
       const user = await setup(showWith(line("Gutter", 0, 0)));
-      await user.click(screen.getByRole("button", { name: "Show properties" }));
+      await user.click(toggle());
       expect(within(panel()!).getByText(/Nothing selected/)).toBeInTheDocument();
       cleanup();
       render(<LayoutScreen />);
@@ -613,10 +624,13 @@ describe("LayoutScreen", () => {
       expect(screen.queryByRole("dialog", { name: "Photo" })).not.toBeInTheDocument();
     });
 
-    it("shows the tips once over the canvas, then under the Tips button", async () => {
+    it("shows the tips once over the canvas, briefly, then under the Tips button", async () => {
       const user = await setup(showWith(line("Gutter", 0, 0)));
       const tips = screen.getByRole("region", { name: "Tips" });
       expect(within(tips).getByText(/Pick a tool above/)).toBeInTheDocument();
+      // Three of them, and where the rest are.
+      expect(within(tips).getAllByRole("listitem")).toHaveLength(3);
+      expect(tips).toHaveTextContent("More under Tips above.");
       await user.click(within(tips).getByRole("button", { name: "Got it" }));
       expect(screen.queryByRole("region", { name: "Tips" })).not.toBeInTheDocument();
       cleanup();
@@ -643,14 +657,15 @@ describe("LayoutScreen", () => {
       expect(layoutArrangement(1216)).toEqual({ list: "docked", properties: "docked" });
       // 1440 wide with the assistant docked: the list stays, and the properties float when open.
       expect(layoutArrangement(832)).toEqual({ list: "docked", properties: "floating" });
-      expect(layoutArrangement(920)).toEqual({ list: "docked", properties: "floating" });
-      expect(layoutArrangement(760)).toEqual({ list: "floating", properties: "floating" });
-      expect(layoutArrangement(860)).toEqual({ list: "docked", properties: "floating" });
-      expect(layoutArrangement(700)).toEqual({ list: "floating", properties: "floating" });
+      expect(layoutArrangement(760)).toEqual({ list: "docked", properties: "floating" });
+      expect(layoutArrangement(740)).toEqual({ list: "floating", properties: "floating" });
+      // A list widened by hand counts at its own width.
+      expect(layoutArrangement(1216, 520)).toEqual({ list: "docked", properties: "floating" });
+      expect(layoutArrangement(900, 520)).toEqual({ list: "floating", properties: "docked" });
     });
 
     it("puts the props list away beside the canvas, and floats it over the canvas when asked", async () => {
-      rowWidth(760);
+      rowWidth(740);
       const user = await setup(showWith(line("Gutter", 0, 0)));
       expect(screen.queryByRole("listbox", { name: "Props" })).not.toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: "Show the props and groups list" }));
@@ -659,12 +674,17 @@ describe("LayoutScreen", () => {
       expect(within(list).getByRole("option", { name: /^Gutter/ })).toBeInTheDocument();
       await user.keyboard("{Escape}");
       expect(screen.queryByRole("listbox", { name: "Props" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Show the props and groups list" })).toHaveFocus();
       // Put away by hand while floating, it still opens docked in a wide window.
       expect(useLayoutEditor.getState().sidePanel.open).toBe(true);
+      // A click outside it puts it away too.
+      await user.click(screen.getByRole("button", { name: "Show the props and groups list" }));
+      fireEvent.pointerDown(canvas());
+      expect(screen.queryByRole("listbox", { name: "Props" })).not.toBeInTheDocument();
     });
 
     it("opens the floating list when grouping (⌘G) needs it", async () => {
-      rowWidth(760);
+      rowWidth(740);
       const user = await setup(showWith(line("A", 0, 0), line("B", 0, 5)));
       act(() => useLayoutEditor.getState().select(backend.show.props.map((p) => p.id)));
       canvas().focus();

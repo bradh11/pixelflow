@@ -2,9 +2,12 @@
 //!
 //! The list lives in `recent.json` in the app's config folder, with a small picture of each
 //! show's layout beside it (in `recent-thumbs/`). Only the shell writes it, and only when a show
-//! has really been opened, saved, or restored: the window can read the list, take shows off it,
-//! or clear it, but never put a path on it. Opening a show from the list goes through
-//! `open_show` like any other open.
+//! has really been opened, saved, or restored. The window can read the list, take shows off it,
+//! or clear it; it has no command that puts a path on it. But `open_show` and `save_show_as`
+//! take the path from the window (normally one a dialog just gave it; nothing checks that), so
+//! the window can still put any valid show file it names on the list by opening it, and any
+//! path by saving there. Opening a show from the list goes through `open_show` like any other
+//! open.
 
 use crate::pickers::{Pick, PickKind};
 use crate::{AppState, Reply};

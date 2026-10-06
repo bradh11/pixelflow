@@ -144,6 +144,8 @@ async fn open_sample_show(state: State<'_, AppState>) -> Reply<ShowSnapshot> {
     Ok(state.engine().start_from(show))
 }
 
+/// Opens the show file at `path`. The path comes from the window (normally one the Open dialog
+/// just gave it, but any path is accepted) and the show goes on the recent list.
 #[tauri::command]
 async fn open_show<R: Runtime>(
     app: AppHandle<R>,
@@ -197,6 +199,8 @@ async fn save_show<R: Runtime>(app: AppHandle<R>, state: State<'_, AppState>) ->
     Ok(snapshot)
 }
 
+/// Saves the show at `path` and puts it on the recent list. The path comes from the window
+/// (normally one the Save dialog just gave it, but any path is accepted).
 #[tauri::command]
 async fn save_show_as<R: Runtime>(
     app: AppHandle<R>,

@@ -523,6 +523,16 @@ fn every_show_edit_yields_a_valid_tool_that_round_trips() {
     }
 }
 
+fn shape_of(edit: &Edit) -> Generator {
+    match edit {
+        Edit::AddProp { prop } => match &prop.shape {
+            ShapeSource::Generator(g) => g.clone(),
+            other => panic!("{other:?}"),
+        },
+        other => panic!("{other:?}"),
+    }
+}
+
 #[test]
 fn every_prop_shape_fits_the_add_prop_tool_and_round_trips() {
     let toolbox = Toolbox::new();
@@ -540,6 +550,12 @@ fn every_prop_shape_fits_the_add_prop_tool_and_round_trips() {
             prop: Prop::new(kind, ShapeSource::Generator(shape)),
         };
         assert_valid_against(&tool.spec.input_schema, &input(&edit), kind);
+        // The full settings the lookup gives fit the shape too.
+        assert_valid_against(
+            &shape_settings(kind).expect("a lookup for every shape"),
+            &serde_json::to_value(shape_of(&edit)).unwrap(),
+            kind,
+        );
         assert_eq!(
             show_edit("addProp", &input(&edit)).unwrap(),
             edit,
@@ -687,42 +703,62 @@ fn no_tool_checks_finds_or_relinks_the_shows_files() {
     }
 }
 
-/// The tool definitions as sent to Anthropic (bytes of JSON), largest first.
-fn tool_sizes() -> (usize, Vec<(usize, String)>) {
-    let mut sizes: Vec<(usize, String)> = Toolbox::new()
-        .tools()
-        .iter()
-        .map(|t| {
-            let sent = json!({ "name": t.spec.name, "description": t.spec.description, "input_schema": t.spec.input_schema });
-            (sent.to_string().len(), t.spec.name.clone())
-        })
-        .collect();
-    sizes.sort_by(|a, b| b.cmp(a));
-    (sizes.iter().map(|(s, _)| s).sum(), sizes)
+/// A provider, its tools' total size, and each tool's size and name.
+type ToolSizes = (&'static str, usize, Vec<(usize, String)>);
+
+/// The tool definitions exactly as each provider's request carries them (bytes of JSON),
+/// largest first, per provider.
+fn tool_sizes() -> Vec<ToolSizes> {
+    let specs = Toolbox::new().specs();
+    let request = pf_ai::provider::TurnRequest {
+        model: "any",
+        system: "",
+        tools: &specs,
+        messages: &[],
+        max_tokens: 1,
+    };
+    [
+        ("Anthropic", pf_ai::anthropic::request_body(&request)),
+        ("OpenAI", pf_ai::openai::request_body(&request, true)),
+    ]
+    .into_iter()
+    .map(|(provider, body)| {
+        let mut sizes: Vec<(usize, String)> = body["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| (t.to_string().len(), t["name"].as_str().unwrap().to_string()))
+            .collect();
+        sizes.sort_by(|a, b| b.cmp(a));
+        let total = body["tools"].to_string().len();
+        (provider, total, sizes)
+    })
+    .collect()
 }
 
 #[test]
 fn tool_definitions_stay_small() {
-    let (total, sizes) = tool_sizes();
-    println!(
-        "tools: {} definitions, {total} bytes (~{} tokens)",
-        sizes.len(),
-        total / 4
-    );
-    for (size, name) in sizes.iter().take(6) {
-        println!("  {size:>6} {name}");
-    }
-    // Was 114 KB with every large definition repeated in each tool that takes it, then 63.5 KB
-    // with every prop shape and effect kind spelled out.
-    assert!(
-        total + TOOL_HEADROOM_BYTES <= TOOL_BUDGET_BYTES,
-        "tool definitions grew to {total} bytes: less than {TOOL_HEADROOM_BYTES} bytes of headroom is left"
-    );
-    for (size, name) in &sizes {
-        assert!(
-            *size <= ONE_TOOL_BUDGET_BYTES,
-            "{name} is {size} bytes, over the {ONE_TOOL_BUDGET_BYTES}-byte budget for one tool"
+    for (provider, total, sizes) in tool_sizes() {
+        println!(
+            "{provider} tools: {} definitions, {total} bytes (~{} tokens)",
+            sizes.len(),
+            total / 4
         );
+        for (size, name) in sizes.iter().take(6) {
+            println!("  {size:>6} {name}");
+        }
+        // Was 114 KB with every large definition repeated in each tool that takes it, then 63.5
+        // KB with every prop shape and effect kind spelled out.
+        assert!(
+            total + TOOL_HEADROOM_BYTES <= TOOL_BUDGET_BYTES,
+            "{provider}: tool definitions grew to {total} bytes: less than {TOOL_HEADROOM_BYTES} bytes of headroom is left"
+        );
+        for (size, name) in &sizes {
+            assert!(
+                *size <= ONE_TOOL_BUDGET_BYTES,
+                "{provider}: {name} is {size} bytes, over the {ONE_TOOL_BUDGET_BYTES}-byte budget for one tool"
+            );
+        }
     }
     // Each large definition is spelled out in one tool only.
     for (def, owner) in [

@@ -87,13 +87,15 @@ fn layered(a: &Arch, theta: f64, half: f64) -> Vec<(f64, f64)> {
         } else {
             let step = (max_len - 1) as f32 / (it as f32 - 1.0);
             for x in 0..it {
-                if idx < nodes {
-                    let mut xx = (x as f32 * step).round() as i64;
-                    if !forward {
-                        xx = max_len - 1 - xx;
-                    }
-                    spots[idx] = (xx, yy);
+                // Past the last pixel, the rest of the layer changes nothing.
+                if idx >= nodes {
+                    break;
                 }
+                let mut xx = (x as f32 * step).round() as i64;
+                if !forward {
+                    xx = max_len - 1 - xx;
+                }
+                spots[idx] = (xx, yy);
                 idx += 1;
             }
         }

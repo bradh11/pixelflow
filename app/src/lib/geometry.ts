@@ -407,7 +407,7 @@ function arch(g: Arch): Vec3[] {
     } else {
       const step = Math.fround(Math.fround(maxLen - 1) / Math.fround(it - 1));
       for (let x = 0; x < it; x++, idx++) {
-        if (idx >= nodes) continue;
+        if (idx >= nodes) break;
         let xx = Math.round(Math.fround(x * step));
         if (!forward) xx = maxLen - 1 - xx;
         spots[idx] = [xx, yy];

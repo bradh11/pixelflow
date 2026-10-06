@@ -168,8 +168,8 @@ export class MemoryBackend implements Backend {
 
   async openSampleShow() {
     this.calls.push("openSampleShow");
+    // Unsaved, but nothing to ask about until it's changed (like a new show).
     this.replace(sampleShow(), null);
-    this.revision++; // unsaved
     return this.snapshot();
   }
 

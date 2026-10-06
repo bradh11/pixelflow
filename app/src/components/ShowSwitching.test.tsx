@@ -135,8 +135,12 @@ describe("the start page", () => {
     const snapshot = useApp.getState().snapshot!;
     expect(snapshot.show.name).toBe("Demo House");
     expect(snapshot.path).toBeNull();
-    expect(snapshot.dirty).toBe(true);
+    // Nothing to ask about until it's changed: closing it goes straight to the start page.
+    expect(snapshot.dirty).toBe(false);
     expect(backend.calls).toContain("openSampleShow");
+    await act(() => useApp.getState().closeShow());
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(welcome()).toBeInTheDocument();
   });
 });
 

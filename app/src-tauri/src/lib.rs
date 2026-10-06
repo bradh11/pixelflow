@@ -132,13 +132,13 @@ async fn new_show(state: State<'_, AppState>, name: String) -> Reply<ShowSnapsho
 const SAMPLE_SHOW: &str = include_str!("../../src/api/sampleShow.json");
 
 /// Opens the sample show as a new, unsaved show: saving it asks where, so the copy built into
-/// the app is never written.
+/// the app is never written. Like a new show, it has nothing to save until it's changed.
 #[tauri::command]
 async fn open_sample_show(state: State<'_, AppState>) -> Reply<ShowSnapshot> {
     let show: Show =
         serde_json::from_str(SAMPLE_SHOW).map_err(|e| format!("The sample show couldn't be read ({e})."))?;
     let show = pf_engine::CheckedShow::new(show).map_err(message)?;
-    Ok(state.engine().adopt_show(show))
+    Ok(state.engine().start_from(show))
 }
 
 #[tauri::command]
@@ -2018,7 +2018,8 @@ mod tests {
         let snapshot = call(&webview, "open_sample_show", json!({})).unwrap();
         assert_eq!(snapshot["show"]["name"], "Demo House");
         assert_eq!(snapshot["path"], Value::Null);
-        assert_eq!(snapshot["dirty"], true);
+        // Nothing to ask about until the user changes it.
+        assert_eq!(snapshot["dirty"], false);
         assert_eq!(snapshot["summary"]["props"], 4);
         assert_eq!(snapshot["summary"]["controllers"], 2);
         // Not a file of the user's: it isn't a recent show.

@@ -1282,13 +1282,15 @@ impl Drop for PlaybackSession {
 
 /// Resolves a document's music path: relative paths are relative to the document's folder.
 pub(crate) fn document_music(doc_path: Option<&Path>, audio: Option<&str>) -> Option<PathBuf> {
-    let audio = PathBuf::from(audio.filter(|a| !a.is_empty())?);
-    if audio.is_absolute() {
-        return Some(audio);
+    let audio = audio.filter(|a| !a.is_empty())?;
+    if pf_model::is_full_path_text(audio) {
+        return Some(pf_model::path_from_text(audio));
     }
     // Relative music is next to the document; an unsaved document has no folder yet, so its
     // relative music isn't looked for (not in whatever folder the app happens to run in).
-    doc_path.and_then(Path::parent).map(|dir| dir.join(audio))
+    doc_path
+        .and_then(Path::parent)
+        .map(|dir| pf_model::path_from_text(&pf_model::resolve_text(audio, dir)))
 }
 
 /// A show entry for the sequence file at `path`: named after the file, with its music when it
@@ -1299,9 +1301,9 @@ pub fn sequence_entry_for(path: &Path) -> Result<pf_model::SequenceEntry, Engine
         .file_stem()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "Sequence".to_string());
-    let mut entry = pf_model::SequenceEntry::new(name, path.display().to_string());
+    let mut entry = pf_model::SequenceEntry::new(name, pf_model::path_to_text(path));
     entry.audio =
-        pf_audio::find_audio(path, sequence.header().media.as_deref()).map(|p| p.display().to_string());
+        pf_audio::find_audio(path, sequence.header().media.as_deref()).map(|p| pf_model::path_to_text(&p));
     Ok(entry)
 }
 

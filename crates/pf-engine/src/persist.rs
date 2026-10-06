@@ -13,21 +13,46 @@ const HISTORY_SUFFIX: &str = ".pixelflow.json";
 
 static SAVE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-/// Reads and parses a show file (running schema migrations).
+/// The folder a file is in, when the path names one.
+pub(crate) fn folder_of(path: &Path) -> Option<&Path> {
+    path.parent().filter(|p| !p.as_os_str().is_empty())
+}
+
+/// Reads and parses a show file (running schema migrations). File paths stored relative to the
+/// show file come back in full, starting in its folder.
 pub fn load_show(path: &Path) -> Result<Show, EngineError> {
+    load_show_in(path, folder_of(path))
+}
+
+/// Reads a show file whose relative file paths start in `folder` (an autosaved copy kept away
+/// from the show file it belongs to), or stay relative without one.
+pub(crate) fn load_show_in(path: &Path, folder: Option<&Path>) -> Result<Show, EngineError> {
     let text = fs::read_to_string(path).map_err(|source| EngineError::Read {
         path: path.to_path_buf(),
         source,
     })?;
-    pf_model::show_from_json(&text).map_err(|source| EngineError::InvalidFile {
+    let mut show = pf_model::show_from_json(&text).map_err(|source| EngineError::InvalidFile {
         path: path.to_path_buf(),
         source,
-    })
+    })?;
+    if let Some(folder) = folder {
+        show.resolve_paths(folder);
+    }
+    Ok(show)
 }
 
 /// Writes the show so that a crash never leaves a half-written file: write a temporary file
-/// in the same folder, flush it to disk, then rename it over the target.
+/// in the same folder, flush it to disk, then rename it over the target. Files inside the show
+/// file's folder are stored relative to it, so the folder can move.
 pub fn save_show_atomic(path: &Path, show: &Show) -> Result<(), EngineError> {
+    match folder_of(path) {
+        Some(folder) => write_show(path, &show.with_paths_relative_to(folder)),
+        None => write_show(path, show),
+    }
+}
+
+/// Writes the show as it is (paths unchanged), atomically.
+fn write_show(path: &Path, show: &Show) -> Result<(), EngineError> {
     let json = pf_model::show_to_json(show).map_err(|e| EngineError::Write {
         path: path.to_path_buf(),
         source: std::io::Error::other(e),
@@ -72,7 +97,9 @@ pub struct HistoryEntry {
     pub size_bytes: u64,
 }
 
-/// Writes a timestamped copy of the show into `dir`, keeping the newest `keep` copies.
+/// Writes a timestamped copy of the show into `dir`, keeping the newest `keep` copies. File
+/// paths are written as `show` holds them (relative to the show file's folder, when it has one:
+/// see [`load_show_in`]).
 pub(crate) fn write_history(dir: &Path, show: &Show, keep: usize) -> Result<HistoryEntry, EngineError> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -84,7 +111,7 @@ pub(crate) fn write_history(dir: &Path, show: &Show, keep: usize) -> Result<Hist
     }
     let id = format!("{stamp}{HISTORY_SUFFIX}");
     let path = dir.join(&id);
-    save_show_atomic(&path, show)?;
+    write_show(&path, show)?;
     let entries = list_history(dir);
     for old in entries.iter().skip(keep.max(1)) {
         let _ = fs::remove_file(dir.join(&old.id));

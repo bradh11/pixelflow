@@ -31,6 +31,8 @@ pub(crate) fn editable(model: &XmlModel, points: &[Vec3]) -> Option<Candidate> {
         "Window Frame" => window_frame(model),
         "Wreath" => wreath(model),
         "Spinner" => spinner(model),
+        "Sphere" => sphere(model),
+        "Cube" => cube(model),
         _ => Vec::new(),
     };
     candidates.into_iter().find(|(g, t)| fits(g, t, points))
@@ -384,6 +386,195 @@ fn round_placement(b: &Boxed, steps: f64) -> Option<(f32, Transform)> {
     let radius = (steps * b.scale_x) as f32 * SCALE;
     let squash = Vec3::new(1.0, (b.scale_y / b.scale_x) as f32, 1.0);
     Some((radius, transform(b.position, b.rotation_deg, squash)))
+}
+
+/// The perspective tilt xLights' 2D view gives spheres and cubes (`RotX(0.1)` in single precision).
+fn perspective_deg() -> f32 {
+    f64::from(0.1f32).to_degrees() as f32
+}
+
+/// Where a sphere or cube sits in PixelFlow: xLights draws it `T * Rz * Ry * Rx * S * RotX(tilt)`,
+/// which is PixelFlow's transform with the tilt added to the turn about X when that turn
+/// commutes with the scale (equal Y and Z scales); when the model isn't turned about X or Y, the
+/// depth can take the Y scale instead, which leaves the front view the same. A scale equal in
+/// all three directions is folded into the shape's size (`unit` in layout units per xLights
+/// unit); otherwise it stays in the transform and `unit` is one xLights unit.
+fn tilted_placement(m: &XmlModel, b: &Boxed, scale_mul: [f64; 3]) -> Option<(f32, Transform)> {
+    let raw = |k: &str, i: usize| {
+        let v = float(m, k, 1.0) * scale_mul[i];
+        if v < 0.0 || !v.is_finite() { 1.0 } else { v }
+    };
+    let (sx, sy, mut sz) = (raw("ScaleX", 0), raw("ScaleY", 1), raw("ScaleZ", 2));
+    let r = b.rotation_deg;
+    if sy != sz {
+        if r.x != 0.0 || r.y != 0.0 {
+            return None;
+        }
+        sz = sy;
+    }
+    let rotation = Vec3::new(r.x + perspective_deg(), r.y, r.z);
+    if sx == sy && sy == sz {
+        let unit = (sx as f32) * SCALE;
+        (unit > 0.0).then(|| (unit, transform(b.position, rotation, Vec3::ONE)))
+    } else {
+        let scale = Vec3::new(sx as f32, sy as f32, sz as f32);
+        Some((SCALE, transform(b.position, rotation, scale)))
+    }
+}
+
+/// xLights' corner names for (from the left, from the bottom).
+fn corner(ltor: bool, btot: bool) -> pf_model::Corner {
+    use pf_model::Corner::*;
+    match (ltor, btot) {
+        (true, true) => BottomLeft,
+        (false, true) => BottomRight,
+        (true, false) => TopLeft,
+        (false, false) => TopRight,
+    }
+}
+
+/// `SphereModel` with one light per node: vertical-matrix strands (strings times strands per
+/// string) of pixels round a globe whose radius is `max(columns, rows) / 1.8 / 2` units, between
+/// `StartLatitude` and `EndLatitude`, `Degrees` round. xLights zig-zags within each string, which
+/// is PixelFlow's zig-zag for one string or an even number of strands per string, and no zig-zag
+/// for one strand per string; both are offered and the one that fits is kept.
+fn sphere(m: &XmlModel) -> Vec<Candidate> {
+    use pf_model::StrandStyle;
+    let strings = parm(m, "NumStrings", "parm1", 1);
+    let nps = parm(m, "NodesPerString", "parm2", 1);
+    let sps = parm(m, "StrandsPerString", "parm3", 1).max(1).min(nps.max(1));
+    if strings <= 0 || nps <= 0 {
+        return Vec::new();
+    }
+    let rows = nps / sps;
+    let (Some(columns), Some(rows)) = (count(strings.saturating_mul(sps)), count(rows)) else {
+        return Vec::new();
+    };
+    if u64::from(columns) * u64::from(rows) > u64::from(pf_model::MAX_PROP_NODES) || rows == 0 {
+        return Vec::new();
+    }
+    // Files from before xLights' version 8 spheres keep their old size.
+    let version = m.attr("versionNumber").unwrap_or("");
+    let mut scale_mul = [1.0; 3];
+    if version.is_empty() || strtol0(version) < 8 {
+        let mx = rows.max(columns);
+        let r = rows as f32 / mx as f32;
+        scale_mul = [f64::from(r / 1.8), f64::from(r), f64::from(r / 1.8)];
+    }
+    let Some((unit, place)) = tilted_placement(m, &boxed(m), scale_mul) else {
+        return Vec::new();
+    };
+    let radius = (f64::from(columns.max(rows)) / 1.8 / 2.0) as f32 * unit;
+    let (ltor, btot) = start_side(m);
+    let styles: &[StrandStyle] = if flag(m, "AlternateNodes") {
+        &[StrandStyle::AlternatePixel]
+    } else if flag(m, "NoZig") {
+        &[StrandStyle::NoZigZag]
+    } else {
+        &[StrandStyle::ZigZag, StrandStyle::NoZigZag]
+    };
+    styles
+        .iter()
+        .map(|&strand_style| {
+            let g = Generator::Sphere {
+                columns,
+                rows,
+                radius,
+                start_latitude: int(m, "StartLatitude", -86) as f32,
+                end_latitude: int(m, "EndLatitude", 86) as f32,
+                degrees: int(m, "Degrees", 360) as f32,
+                start: corner(ltor, btot),
+                strand_style,
+            };
+            (g, place)
+        })
+        .collect()
+}
+
+/// `CubeModel` with one light per node, as a cube (not a cylinder, and without offset rows):
+/// cells one xLights unit apart, wired by its start corner, style and strand style. xLights
+/// doesn't center a cube with an even count; the position takes up the half step.
+fn cube(m: &XmlModel) -> Vec<Candidate> {
+    use pf_model::{CubeStart::*, CubeStyle::*, StrandStyle};
+    let (w, h, d) = (
+        parm(m, "CubeWidth", "parm1", 1),
+        parm(m, "CubeHeight", "parm2", 1),
+        parm(m, "CubeDepth", "parm3", 1),
+    );
+    let (Some(width), Some(height), Some(depth)) = (count(w), count(h), count(d)) else {
+        return Vec::new();
+    };
+    if width == 0
+        || height == 0
+        || depth == 0
+        || u64::from(width) * u64::from(height) * u64::from(depth) > u64::from(pf_model::MAX_PROP_NODES)
+        || int(m, "CubeShape", 0) == 1
+        || (int(m, "CubeRowOffset", 0) != 0 && depth > 1)
+    {
+        return Vec::new();
+    }
+    let pick = |key: &str, names: &[&str]| names.iter().position(|n| m.text(key, "") == *n).unwrap_or(0);
+    let start = [
+        FrontBottomLeft,
+        FrontBottomRight,
+        FrontTopLeft,
+        FrontTopRight,
+        BackBottomLeft,
+        BackBottomRight,
+        BackTopLeft,
+        BackTopRight,
+    ][pick(
+        "Start",
+        &[
+            "Front Bottom Left",
+            "Front Bottom Right",
+            "Front Top Left",
+            "Front Top Right",
+            "Back Bottom Left",
+            "Back Bottom Right",
+            "Back Top Left",
+            "Back Top Right",
+        ],
+    )];
+    let style = [
+        VerticalFrontBack,
+        VerticalLeftRight,
+        HorizontalFrontBack,
+        HorizontalLeftRight,
+        StackedFrontBack,
+        StackedLeftRight,
+    ][pick(
+        "Style",
+        &[
+            "Vertical Front/Back",
+            "Vertical Left/Right",
+            "Horizontal Front/Back",
+            "Horizontal Left/Right",
+            "Stacked Front/Back",
+            "Stacked Left/Right",
+        ],
+    )];
+    let strand_style = [
+        StrandStyle::ZigZag,
+        StrandStyle::NoZigZag,
+        StrandStyle::AlternatePixel,
+    ][pick("StrandPerLine", &["Zig Zag", "No Zig Zag", "Aternate Pixel"])];
+    let Some((unit, mut place)) = tilted_placement(m, &boxed(m), [1.0; 3]) else {
+        return Vec::new();
+    };
+    let half = |n: u32| ((n as f32 - 1.0) / 2.0 - (n / 2) as f32) * unit;
+    place.position = pf_geometry::apply_transform(Vec3::new(half(width), half(height), half(depth)), &place);
+    let g = Generator::Cube {
+        width,
+        height,
+        depth,
+        spacing: unit,
+        start,
+        style,
+        strand_style,
+        strand_per_layer: m.text("StrandPerLayer", "FALSE") == "TRUE",
+    };
+    vec![(g, place)]
 }
 
 /// `WindowFrameModel` with one light per node: its pixel counts, start corner and direction,
@@ -1101,5 +1292,141 @@ mod tests {
             &with(&SPINNER, &[("NumStrings", "1"), ("ArmsPerString", "1001")]),
         );
         stays_measured("Spinner", &with(&SPINNER, &[("StringType", "Single Color Red")]));
+    }
+
+    /// A version-8 sphere of 6 strings of 12, scaled evenly.
+    const SPHERE: [(&str, &str); 8] = [
+        ("NumStrings", "6"),
+        ("NodesPerString", "12"),
+        ("versionNumber", "8"),
+        ("WorldPosX", "400"),
+        ("WorldPosY", "300"),
+        ("ScaleX", "20"),
+        ("ScaleY", "20"),
+        ("ScaleZ", "20"),
+    ];
+
+    #[test]
+    fn spheres_import_as_spheres_with_xlights_tilt() {
+        let g = imports_as("Sphere", &SPHERE);
+        // Six strands, each its own string, run the same way: no zig-zag.
+        assert!(matches!(
+            g,
+            Generator::Sphere {
+                columns: 6,
+                rows: 12,
+                start: pf_model::Corner::BottomLeft,
+                strand_style: pf_model::StrandStyle::NoZigZag,
+                ..
+            }
+        ));
+        let t = placed("Sphere", &SPHERE);
+        assert!((t.rotation_deg.x - 0.1f32.to_degrees()).abs() < 1e-4);
+        assert_eq!(t.scale, Vec3::ONE);
+        // One string zig-zagging over its strands; every start corner; alternating; stretched
+        // flat; older files; part way round between other latitudes.
+        let one = with(
+            &SPHERE,
+            &[
+                ("NumStrings", "1"),
+                ("NodesPerString", "72"),
+                ("StrandsPerString", "6"),
+            ],
+        );
+        assert!(matches!(
+            imports_as("Sphere", &one),
+            Generator::Sphere {
+                strand_style: pf_model::StrandStyle::ZigZag,
+                ..
+            }
+        ));
+        for start in STARTS {
+            imports_as("Sphere", &with(&one, start));
+        }
+        imports_as("Sphere", &with(&SPHERE, &[("AlternateNodes", "true")]));
+        imports_as("Sphere", &with(&SPHERE, &[("ScaleY", "35"), ("RotateZ", "30")]));
+        imports_as("Sphere", &with(&SPHERE, &[("versionNumber", "7")]));
+        imports_as(
+            "Sphere",
+            &with(
+                &SPHERE,
+                &[
+                    ("StartLatitude", "-40"),
+                    ("EndLatitude", "70"),
+                    ("Degrees", "270"),
+                ],
+            ),
+        );
+        // Three strands per string zig-zag inside each string only; tipped back while stretched.
+        stays_measured(
+            "Sphere",
+            &with(
+                &SPHERE,
+                &[
+                    ("NumStrings", "2"),
+                    ("NodesPerString", "36"),
+                    ("StrandsPerString", "3"),
+                ],
+            ),
+        );
+        stays_measured("Sphere", &with(&SPHERE, &[("ScaleY", "35"), ("RotateX", "20")]));
+    }
+
+    /// A 3 × 4 × 2 cube (even width and depth, so xLights doesn't center it), scaled evenly.
+    const CUBE: [(&str, &str); 8] = [
+        ("CubeWidth", "4"),
+        ("CubeHeight", "3"),
+        ("CubeDepth", "2"),
+        ("WorldPosX", "100"),
+        ("WorldPosY", "50"),
+        ("ScaleX", "10"),
+        ("ScaleY", "10"),
+        ("ScaleZ", "10"),
+    ];
+
+    #[test]
+    fn cubes_import_as_cubes_in_every_style() {
+        let g = imports_as("Cube", &CUBE);
+        assert!(matches!(
+            g,
+            Generator::Cube {
+                width: 4,
+                height: 3,
+                depth: 2,
+                ..
+            }
+        ));
+        let starts = [
+            "Front Bottom Left",
+            "Front Top Right",
+            "Back Bottom Right",
+            "Back Top Left",
+        ];
+        let styles = [
+            "Vertical Front/Back",
+            "Vertical Left/Right",
+            "Horizontal Front/Back",
+            "Horizontal Left/Right",
+            "Stacked Front/Back",
+            "Stacked Left/Right",
+        ];
+        for start in starts {
+            for style in styles {
+                for strand in ["Zig Zag", "No Zig Zag", "Aternate Pixel"] {
+                    let attrs = with(
+                        &CUBE,
+                        &[("Start", start), ("Style", style), ("StrandPerLine", strand)],
+                    );
+                    imports_as("Cube", &attrs);
+                }
+            }
+        }
+        imports_as(
+            "Cube",
+            &with(&CUBE, &[("StrandPerLayer", "TRUE"), ("RotateZ", "15")]),
+        );
+        imports_as("Cube", &with(&CUBE, &[("ScaleX", "20")]));
+        stays_measured("Cube", &with(&CUBE, &[("CubeShape", "1")]));
+        stays_measured("Cube", &with(&CUBE, &[("CubeRowOffset", "1")]));
     }
 }

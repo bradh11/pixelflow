@@ -163,6 +163,17 @@ pub(crate) async fn set_sequence_doc_output(
     Ok(state.engine().set_sequence_doc_output(send))
 }
 
+/// Whether the open sequence plays again from the top each time it reaches the end, its music
+/// going back with it (switches at once while playing). Returns the playback state, if anything
+/// is playing.
+#[tauri::command]
+pub(crate) async fn set_sequence_doc_loop(
+    state: State<'_, AppState>,
+    looping: bool,
+) -> Reply<Option<PlaybackStatus>> {
+    Ok(state.engine().set_sequence_doc_loop(looping))
+}
+
 /// Adds an exported `.fseq` of the open sequence to the show's playlist (one undo step on the
 /// show), named after the sequence and with its music.
 #[tauri::command]

@@ -70,6 +70,9 @@ export interface SequencerApi {
   playSequenceDoc(positionMs: number): Promise<PlaybackStatus>;
   /** Whether a playing sequence goes out to the controllers (true) or only to the preview. */
   setSequenceDocOutput(send: boolean): Promise<PlaybackStatus | null>;
+  /** Whether the open sequence plays again from the top each time it reaches the end (switches
+   * at once while it plays); the playback state, if it's playing. */
+  setSequenceDocLoop(looping: boolean): Promise<PlaybackStatus | null>;
   /** Adds an exported `.fseq` of the open sequence to the show's playlist (one undo step on the show). */
   addSequenceDocToShow(path: string): Promise<ShowSnapshot>;
   /** How an export would lay out the controllers' channels. */
@@ -138,6 +141,7 @@ export const tauriSequencer: SequencerApi = {
     new Uint8Array(await invoke<ArrayBuffer>("sequence_doc_frame", { positionMs })),
   playSequenceDoc: (positionMs) => invoke("play_sequence_doc", { positionMs }),
   setSequenceDocOutput: (send) => invoke("set_sequence_doc_output", { send }),
+  setSequenceDocLoop: (looping) => invoke("set_sequence_doc_loop", { looping }),
   addSequenceDocToShow: (path) => invoke("add_sequence_doc_to_show", { path }),
   sequenceExportLayout: () => invoke("sequence_export_layout"),
   exportSequenceDoc: async (path, onProgress) => {

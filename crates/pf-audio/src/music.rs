@@ -433,6 +433,26 @@ mod tests {
     }
 
     #[test]
+    fn a_jump_to_the_top_at_the_end_plays_the_song_again_from_the_next_sample() {
+        // How a looping sequence goes round: the jump lands on the audio thread before its next
+        // sample, so the song starts over with no gap and no slip, loop after loop.
+        let (mut music, mut output, _dir) = player_without_output();
+        music.start(Duration::from_millis(1500));
+        for _ in 0..3 {
+            pull(&mut output, 495);
+            music.seek(Duration::ZERO);
+            let first = output.next().unwrap();
+            assert!(ramp_ms(first) < 1.0, "{} ms", ramp_ms(first));
+            let sample = pull(&mut output, 20);
+            assert!((ramp_ms(sample) - 20.0).abs() < 2.0, "{}", ramp_ms(sample));
+            assert_near(music.position(), 20);
+            pull(&mut output, 1480);
+            assert_near(music.position(), 1500);
+        }
+        assert!(!music.finished());
+    }
+
+    #[test]
     fn stands_still_while_paused_and_seeks_while_paused() {
         let (mut music, mut output, _dir) = player_without_output();
         music.start(Duration::ZERO);

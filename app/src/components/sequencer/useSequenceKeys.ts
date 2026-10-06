@@ -15,8 +15,9 @@ function beatTimes(): number[] {
  * The Sequence screen's keys (not while typing in a field): Space plays and pauses; arrows move
  * the selected effects, or the playhead, by a frame (with Shift, to the next beat); Up and Down pick
  * the row above or below and the effect under the playhead on it; Home and End
- * jump; Delete removes; ⌘C, ⌘V, and ⌘D copy, paste at the playhead, and duplicate; ⌘A selects
- * everything; Escape clears the selection; T taps a timing mark in at the playhead (tap to time).
+ * jump (the timeline follows the playhead there); Delete removes; ⌘C, ⌘V, and ⌘D copy, paste at
+ * the playhead, and duplicate; ⌘A selects everything; Escape clears the selection; T taps a timing
+ * mark in at the playhead (tap to time); L turns looping on and off.
  * Undo, redo, and save are global shortcuts.
  */
 export function useSequenceKeys() {
@@ -93,7 +94,12 @@ export function useSequenceKeys() {
       if (key === "Home" || key === "End") {
         e.preventDefault();
         void s.seek(key === "Home" ? 0 : doc.durationMs);
-        s.reveal();
+        s.reveal("playhead");
+        return;
+      }
+      if ((key === "l" || key === "L") && !mod && !e.altKey) {
+        e.preventDefault();
+        if (!e.repeat) s.setLooping(!s.looping);
         return;
       }
       if ((key === "t" || key === "T") && !mod && !e.altKey) {

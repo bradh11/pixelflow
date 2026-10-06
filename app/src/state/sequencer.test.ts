@@ -61,6 +61,71 @@ describe("sequencer playback", () => {
   });
 });
 
+describe("stop and loop", () => {
+  it("stops where it is, then a second Stop goes back to the start", async () => {
+    const { backend, store } = await connected();
+    await store.play();
+    await useSequencer.getState().seek(20_000);
+    await useSequencer.getState().stop();
+    expect(useSequencer.getState().status).toBeNull();
+    expect(useSequencer.getState().playheadMs).toBe(20_000);
+    const stops = backend.calls.filter((c) => c === "stopPlayback").length;
+    expect(stops).toBe(1);
+
+    const reveals = useSequencer.getState().revealAt;
+    await useSequencer.getState().stop();
+    expect(useSequencer.getState().playheadMs).toBe(0);
+    // The timeline goes back to the start too, even with an effect selected.
+    expect(useSequencer.getState().revealAt).toBe(reveals + 1);
+    expect(useSequencer.getState().revealTarget).toBe("playhead");
+    expect(backend.calls.filter((c) => c === "stopPlayback")).toHaveLength(stops);
+  });
+
+  it("loops when asked, remembering it, and keeps the player at the end of the song", async () => {
+    const { seq, store } = await connected();
+    store.setLooping(true);
+    expect(useSequencer.getState().looping).toBe(true);
+    expect(localStorage.getItem("pixelflow.sequenceLoop")).toBe("true");
+    await vi.waitFor(() => expect(seq.calls).toContain("setSequenceDocLoop:true"));
+
+    await useSequencer.getState().play();
+    await useSequencer.getState().seek(59_990);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    await useSequencer.getState().pollPlayback();
+    // Round again from the top: still playing, near the start.
+    expect(useSequencer.getState().status).toMatchObject({ state: "playing", looping: true });
+    expect(useSequencer.getState().playheadMs).toBeLessThan(1000);
+
+    // Stopping while looping behaves like any stop: once to stop, again to go back to the start.
+    await useSequencer.getState().stop();
+    expect(useSequencer.getState().status).toBeNull();
+    useSequencer.getState().setLooping(false);
+    expect(localStorage.getItem("pixelflow.sequenceLoop")).toBe("false");
+    await vi.waitFor(() => expect(seq.calls).toContain("setSequenceDocLoop:false"));
+  });
+
+  it("tells a newly connected engine whether to loop, and reads the setting back on the next start", async () => {
+    useSequencer.setState({ looping: true });
+    const { seq } = await connected();
+    expect(seq.calls).toContain("setSequenceDocLoop:true");
+    useSequencer.setState({ looping: false });
+
+    localStorage.setItem("pixelflow.sequenceLoop", "true");
+    vi.resetModules();
+    const fresh = await import("./sequencer");
+    expect(fresh.useSequencer.getState().looping).toBe(true);
+    // Storage that can't be read starts with looping off.
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    vi.resetModules();
+    const blocked = await import("./sequencer");
+    expect(blocked.useSequencer.getState().looping).toBe(false);
+    vi.restoreAllMocks();
+    localStorage.removeItem("pixelflow.sequenceLoop");
+  });
+});
+
 describe("tap to time", () => {
   it("drops each mark where the music is, between playback polls too", async () => {
     const { seq } = await connected();

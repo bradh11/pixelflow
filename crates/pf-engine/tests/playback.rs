@@ -807,3 +807,13 @@ fn a_sequence_entry_finds_its_music() {
     );
     assert!(pf_engine::sequence_entry_for(&dir.path().join("nope.fseq")).is_err());
 }
+
+#[test]
+fn looping_an_authored_sequence_does_not_loop_a_rendered_file() {
+    let (mut engine, _recorded, dir) = engine_with_show(true);
+    engine.set_sequence_doc_loop(true);
+    let path = write_sequence(dir.path());
+    let status = engine.start_playback(&path, 0).unwrap();
+    assert!(!status.looping);
+    wait_until(|| engine.playback_status().unwrap().state == "ended");
+}

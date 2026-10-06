@@ -517,6 +517,8 @@ export interface PlaybackStatus {
   volume: number;
   /** True when playing an authored sequence document (see api/sequence.ts) rather than a file. */
   authored: boolean;
+  /** Plays again from the top each time it reaches the end, music and lights together. */
+  looping: boolean;
 }
 
 /** A song's length and peak loudness (0–1) in equal slices of time. */

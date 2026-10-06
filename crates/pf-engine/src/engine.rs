@@ -80,6 +80,8 @@ pub struct Engine {
     preview_renderer: Option<(u64, Renderer)>,
     /// Whether a playing sequence document is sent to the controllers (else only the preview).
     send_sequence_doc: bool,
+    /// Whether a playing sequence document plays again from the top when it reaches the end.
+    loop_sequence_doc: bool,
     /// Names this run's kept unsaved sequence (see [`Engine::autosave_sequence`]).
     session: String,
     /// The sequence document and revision last kept, so an unchanged one isn't written again.
@@ -189,6 +191,7 @@ impl Engine {
             sequence_revision: 0,
             preview_renderer: None,
             send_sequence_doc: true,
+            loop_sequence_doc: false,
             session: recovery::new_session(),
             sequence_autosaved: None,
             file_status: HashMap::new(),
@@ -1177,6 +1180,7 @@ impl Engine {
             show_error: first_error(&report).map(|i| i.message.clone()),
             send: self.send_sequence_doc,
             volume: self.volume,
+            looping: self.loop_sequence_doc,
         };
         let transport = (self.transport)().map_err(EngineError::Network)?;
         self.playback_generation += 1;
@@ -1245,6 +1249,24 @@ impl Engine {
     /// Whether a playing sequence document goes out to the controllers.
     pub fn sequence_doc_output(&self) -> bool {
         self.send_sequence_doc
+    }
+
+    /// Whether the open sequence plays again from the top each time it reaches the end, its music
+    /// going back with it (off by default). A playing document switches at once. Rendered files
+    /// (the Play screen) never loop.
+    pub fn set_sequence_doc_loop(&mut self, looping: bool) -> Option<PlaybackStatus> {
+        self.loop_sequence_doc = looping;
+        let session = self
+            .playback
+            .as_ref()
+            .filter(|s| matches!(s.kind(), SessionKind::Document { .. }))?;
+        session.set_looping(looping);
+        Some(session.status())
+    }
+
+    /// Whether the open sequence plays again from the top when it reaches the end.
+    pub fn sequence_doc_loop(&self) -> bool {
+        self.loop_sequence_doc
     }
 
     /// What exporting the open sequence needs, to run without holding the engine.

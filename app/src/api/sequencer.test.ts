@@ -92,6 +92,7 @@ describe("tauriSequencer", () => {
     await tauriSequencer.effectCatalog();
     await tauriSequencer.detectBeats();
     await tauriSequencer.setSequenceDocOutput(false);
+    await tauriSequencer.setSequenceDocLoop(true);
     await tauriSequencer.addSequenceDocToShow("/shows/song.fseq");
     await tauriSequencer.importTimingFile("/shows/Lyrics.xtiming");
     await tauriSequencer.exportTimingTrack("t1", "/shows/Lyrics.txt");
@@ -108,6 +109,7 @@ describe("tauriSequencer", () => {
       ["effect_catalog"],
       ["detect_beats"],
       ["set_sequence_doc_output", { send: false }],
+      ["set_sequence_doc_loop", { looping: true }],
       ["add_sequence_doc_to_show", { path: "/shows/song.fseq" }],
       ["import_timing_file", { path: "/shows/Lyrics.xtiming" }],
       ["export_timing_track", { id: "t1", path: "/shows/Lyrics.txt" }],

@@ -35,6 +35,8 @@ interface LayoutEditorState {
   snap: boolean;
   /** Grid spacing in layout units. */
   grid: number;
+  /** Snap to other props' edges, centers, gaps, and sizes while moving, resizing, and drawing. */
+  smartGuides: boolean;
   /** When on, dragging moves and resizes the background photo instead of props. */
   editPhoto: boolean;
   /** The photo as it is being changed (dragged, or its strength slid), before it's saved. */
@@ -59,10 +61,22 @@ interface LayoutEditorState {
   toggle(id: string): void;
   clear(): void;
   setSnap(snap: boolean): void;
+  setSmartGuides(on: boolean): void;
   setEditPhoto(on: boolean): void;
   setPhotoDraft(draft: Background | null): void;
   setView(view: View | null): void;
   setHighlight(highlight: Highlight | null): void;
+}
+
+const SMART_GUIDES_KEY = "pixelflow.smartGuides";
+
+/** Smart guides as last set on this computer: on unless turned off. */
+function storedSmartGuides(): boolean {
+  try {
+    return localStorage.getItem(SMART_GUIDES_KEY) !== "false";
+  } catch {
+    return true;
+  }
 }
 
 /** The highlight, if its prop is still selected. */
@@ -73,6 +87,7 @@ export const useLayoutEditor = create<LayoutEditorState>((set, get) => ({
   selected: [],
   snap: false,
   grid: 0.5,
+  smartGuides: storedSmartGuides(),
   editPhoto: false,
   photoDraft: null,
   view: null,
@@ -93,6 +108,14 @@ export const useLayoutEditor = create<LayoutEditorState>((set, get) => ({
   },
   clear: () => set({ selected: [], highlight: null }),
   setSnap: (snap) => set({ snap }),
+  setSmartGuides: (smartGuides) => {
+    try {
+      localStorage.setItem(SMART_GUIDES_KEY, String(smartGuides));
+    } catch {
+      // Storage unavailable: the setting still applies for this session.
+    }
+    set({ smartGuides });
+  },
   setEditPhoto: (editPhoto) =>
     set({ editPhoto, tool: "select", selected: editPhoto ? [] : get().selected, highlight: editPhoto ? null : get().highlight }),
   setPhotoDraft: (photoDraft) => set({ photoDraft }),

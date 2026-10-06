@@ -1,4 +1,4 @@
-import { AlertTriangle, AudioLines, CheckCircle2, Download, FileInput, FilePlus, FolderOpen, History, Info, ListMusic, ListPlus, Magnet, Pause, Play, Save, Send, Square, X } from "lucide-react";
+import { AlertTriangle, AudioLines, CheckCircle2, Download, FileInput, FilePlus, FolderOpen, History, Info, ListMusic, ListPlus, Magnet, Pause, Play, Repeat, Save, Send, Square, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { errorMessage } from "../api/backend";
@@ -203,12 +203,28 @@ function Workspace() {
   );
 }
 
-function ToolButton({ label, onClick, disabled, children, pressed }: { label: string; onClick: () => void; disabled?: boolean; pressed?: boolean; children: React.ReactNode }) {
+function ToolButton({
+  label,
+  shortcut,
+  onClick,
+  disabled,
+  children,
+  pressed,
+}: {
+  label: string;
+  /** The key that does the same, shown in the tooltip. */
+  shortcut?: string;
+  onClick: () => void;
+  disabled?: boolean;
+  pressed?: boolean;
+  children: React.ReactNode;
+}) {
   return (
     <button
       type="button"
       aria-label={label}
-      title={label}
+      title={shortcut ? `${label} (${shortcut})` : label}
+      aria-keyshortcuts={shortcut}
       aria-pressed={pressed}
       onClick={onClick}
       disabled={disabled}
@@ -236,6 +252,8 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
       dirty: st.dirty,
       playing: st.status?.state === "playing",
       active: st.status !== null,
+      atStart: st.playheadMs === 0,
+      looping: st.looping,
       detecting: st.detecting,
       snapping: st.snapping,
       sendToControllers: st.sendToControllers,
@@ -275,8 +293,12 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
           <ToolButton label={s.playing ? "Pause" : "Play"} onClick={() => void (s.playing ? act().pause() : act().play())}>
             {s.playing ? <Pause size={16} /> : <Play size={16} />}
           </ToolButton>
-          <ToolButton label="Stop" onClick={() => void act().stop()} disabled={!s.active}>
+          {/* Stop leaves the playhead where it is; pressed again, it goes back to the start. */}
+          <ToolButton label={s.active || s.atStart ? "Stop" : "Back to the start"} onClick={() => void act().stop()} disabled={!s.active && s.atStart}>
             <Square size={15} />
+          </ToolButton>
+          <ToolButton label="Loop playback" shortcut="L" pressed={s.looping} onClick={() => act().setLooping(!s.looping)}>
+            <Repeat size={16} />
           </ToolButton>
           <PlayheadTime durationMs={s.durationMs} />
           <span className="mx-1 h-5 w-px bg-neutral-200 dark:bg-neutral-800" />

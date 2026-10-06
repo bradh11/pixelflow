@@ -207,6 +207,7 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         sequencer::sequence_doc_frame,
         sequencer::play_sequence_doc,
         sequencer::set_sequence_doc_output,
+        sequencer::set_sequence_doc_loop,
         sequencer::add_sequence_doc_to_show,
         sequencer::sequence_export_layout,
         sequencer::export_sequence_doc,
@@ -1159,7 +1160,21 @@ mod tests {
         // Preview only, while editing: switching keeps it playing.
         let status = call(&webview, "set_sequence_doc_output", json!({ "send": false })).unwrap();
         assert_eq!(status["state"], "playing");
+        assert_eq!(status["looping"], false);
+        // Looping switches at once while playing, and is kept for the next play.
+        let status = call(&webview, "set_sequence_doc_loop", json!({ "looping": true })).unwrap();
+        assert_eq!(
+            (status["state"].clone(), status["looping"].clone()),
+            (json!("playing"), json!(true))
+        );
         call(&webview, "stop_playback", json!({})).unwrap();
+        let status = call(&webview, "play_sequence_doc", json!({ "positionMs": 0 })).unwrap();
+        assert_eq!(status["looping"], true);
+        call(&webview, "stop_playback", json!({})).unwrap();
+        assert_eq!(
+            call(&webview, "set_sequence_doc_loop", json!({ "looping": false })).unwrap(),
+            json!(null)
+        );
         assert_eq!(
             call(&webview, "set_sequence_doc_output", json!({ "send": true })).unwrap(),
             json!(null)

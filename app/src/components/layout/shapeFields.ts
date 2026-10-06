@@ -87,7 +87,7 @@ export const SHAPE_FIELDS: Record<string, ShapeField[]> = {
     COUNT("strings", "Strings"),
     COUNT("lightsPerString", "Pixels per string"),
     SIZE("width", "Width"),
-    SIZE("dropHeight", "Drop length", 0.01, "How far below the line the longest drop hangs"),
+    NUMBER("dropHeight", "Drop length", -1000, 1000, "How far below the line the longest drop hangs; below zero, the drops stand up instead"),
     {
       kind: "numbers",
       key: "drops",
@@ -153,7 +153,7 @@ export const SHAPE_FIELDS: Record<string, ShapeField[]> = {
         ["backTopLeft", "Back top left"],
         ["backTopRight", "Back top right"],
       ],
-      "The corner where the data comes in",
+      "The corner where the data comes in. For the across and stacked styles, xLights starts a \"back top\" cube at the front, and so does PixelFlow",
     ),
     CHOICE(
       "style",
@@ -186,10 +186,10 @@ export function withField<T>(obj: T, key: string, value: unknown, defaults: Reco
   return { ...o, [head]: withField(inner, rest.join("."), value) } as T;
 }
 
-/** "3,4,5,4" as numbers, or null when it isn't a list of whole numbers within the bounds. */
+/** "3,4,5,4" as numbers, or null when it isn't a list of whole numbers within the bounds with at least one not 0. */
 export function parseNumbers(text: string, min: number, max = Infinity): number[] | null {
   const parts = text.split(",").map((s) => s.trim());
   if (parts.length === 0 || parts.some((p) => p === "")) return null;
   const nums = parts.map(Number);
-  return nums.every((n) => Number.isInteger(n) && n >= min && n <= max) ? nums : null;
+  return nums.every((n) => Number.isInteger(n) && n >= min && n <= max) && nums.some((n) => n !== 0) ? nums : null;
 }

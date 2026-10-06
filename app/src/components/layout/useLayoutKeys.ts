@@ -119,9 +119,12 @@ export function useLayoutKeys(canvas: RefObject<LayoutCanvasHandle | null>) {
       if (ids.length === 0) return;
       if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
-        // A point picked on the selected poly line goes, not the whole line.
+        // A point picked on the selected poly line goes, not the whole line, unless the line
+        // would be left with fewer than two points: then the line goes.
         const point = editor.polyPoint;
-        if (point && ids.length === 1 && ids[0] === point.prop) {
+        const picked = point && show.props.find((p) => p.id === point.prop);
+        const pointed = picked && isPoly(picked.shape) && picked.shape.vertices.length > 2;
+        if (point && pointed && ids.length === 1 && ids[0] === point.prop) {
           editor.setPolyPoint(null);
           void app.apply(updateEdits(point.prop, (p) => (isPoly(p.shape) ? { ...p, shape: removeVertex(p.shape, point.index) ?? p.shape } : p)));
           return;

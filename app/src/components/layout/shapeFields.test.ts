@@ -17,5 +17,8 @@ describe("shape fields", () => {
     expect(parseNumbers("3,0", 1)).toBeNull();
     expect(parseNumbers("2.5", 1)).toBeNull();
     expect(parseNumbers("120", 1, 100)).toBeNull();
+    // Zeros leave gaps, but a list of only gaps has nothing in it.
+    expect(parseNumbers("0,3,0", 0)).toEqual([0, 3, 0]);
+    expect(parseNumbers("0, 0", 0)).toBeNull();
   });
 });

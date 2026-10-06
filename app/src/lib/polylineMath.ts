@@ -215,12 +215,12 @@ export function segmentMiddle(shape: PolyShape, k: number): Vec3 {
 
 /**
  * A new point in the middle of stretch `k`, splitting it in two: its pixels are shared out
- * (the first half gets the odd one) and a curve is cut exactly in two.
+ * (the second half gets the odd one, as xLights does) and a curve is cut exactly in two.
  */
 export function insertVertex(shape: PolyShape, k: number): PolyShape {
   const [a, b] = [shape.vertices[k], shape.vertices[k + 1]];
   const seg = shape.segments[k] ?? { nodes: 0 };
-  const first = Math.ceil(seg.nodes / 2);
+  const first = Math.floor(seg.nodes / 2);
   let left: PolySegment = { nodes: first };
   let right: PolySegment = { nodes: seg.nodes - first };
   let mid = lerp(a, b, 0.5);

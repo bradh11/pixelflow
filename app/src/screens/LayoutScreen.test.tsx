@@ -1135,6 +1135,16 @@ describe("LayoutScreen", () => {
       expect(backend.show.props[0].regions).toEqual([{ ...eave.regions[0], lines: [[{ first: 9, last: 8 }]] }]);
     });
 
+    it("deletes a two-point line when its picked point is deleted (a line needs two points)", async () => {
+      const user = await setup(showWith(polyLine("Roof", 0, 0, [0, 0], [4, 0])));
+      act(() => useLayoutEditor.getState().select([backend.show.props[0].id]));
+      await click({ x: 4, y: 0 });
+      expect(useLayoutEditor.getState().polyPoint).toMatchObject({ index: 1 });
+      await user.keyboard("{Delete}");
+      expect(backend.show.props).toEqual([]);
+      expect(edits).toHaveLength(1);
+    });
+
     it("offers the less common shapes under More shapes", async () => {
       const user = await setup(showWith(line("Gutter", 0, 0)));
       await user.click(screen.getByRole("button", { name: "More shapes" }));

@@ -15,7 +15,7 @@ describe("the layout tool bar's labels", () => {
   });
 
   it("put each button in its group", () => {
-    render(<LayoutToolbar hasPhoto onChoosePhoto={() => undefined} />);
+    render(<LayoutToolbar photo={null} tips={[]} />);
     const bar = screen.getByRole("toolbar", { name: "Layout tools" });
     const group = (name: string) =>
       [...within(bar).getByRole("button", { name }).querySelectorAll("span")].find((s) => s.textContent === name)?.className;
@@ -23,7 +23,8 @@ describe("the layout tool bar's labels", () => {
     expect(group("Tree")).toBe(LABEL_CLASS.tools);
     expect(group("More shapes")).toBe(LABEL_CLASS.shapes);
     expect(group("Fit")).toBe(LABEL_CLASS.view);
-    expect(group("Edit photo")).toBe(LABEL_CLASS.view);
+    expect(group("Photo")).toBe(LABEL_CLASS.view);
+    expect(group("Tips")).toBe(LABEL_CLASS.view);
     expect(group("Snap to grid")).toBe(LABEL_CLASS.toggles);
     expect(group("Smart guides")).toBe(LABEL_CLASS.toggles);
   });

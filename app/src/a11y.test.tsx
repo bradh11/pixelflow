@@ -121,9 +121,12 @@ describe("every control has a name, and icon-only buttons have tooltips", () => 
     await user.click(screen.getByRole("button", { name: "More shapes" }));
     found.push(...problems("more shapes menu"));
     await user.keyboard("{Escape}");
-    // The 1000 px stand-in canvas row floats the list: bring it out.
-    await user.click(screen.getByRole("button", { name: "Show the props and groups list" }));
     found.push(...problems("props list"));
+    await user.click(screen.getByRole("button", { name: /^Photo/ }));
+    found.push(...problems("photo panel"));
+    await user.click(screen.getByRole("button", { name: "Tips" }));
+    found.push(...problems("tips"));
+    await user.keyboard("{Escape}");
     await user.click(screen.getByRole("tab", { name: /Groups/ }));
     found.push(...problems("groups tab"));
     expect(found).toEqual([]);

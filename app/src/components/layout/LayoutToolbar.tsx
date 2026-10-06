@@ -4,6 +4,7 @@ import {
   Globe,
   CandyCane,
   ChevronDown,
+  CircleHelp,
   Circle,
   CircleDot,
   Droplets,
@@ -103,8 +104,8 @@ function ToolButton({
   hint: string;
   onClick: () => void;
   disabled?: boolean;
-  /** Opens a menu (with a small arrow after the label). */
-  popup?: boolean;
+  /** Opens a menu or a small panel (with a small arrow after the label). */
+  popup?: boolean | "dialog";
   expanded?: boolean;
   labelShown?: LabelShown;
   children: ReactNode;
@@ -113,7 +114,7 @@ function ToolButton({
     <button
       type="button"
       aria-pressed={pressed}
-      aria-haspopup={popup ? "menu" : undefined}
+      aria-haspopup={popup === "dialog" ? "dialog" : popup ? "menu" : undefined}
       aria-expanded={popup ? expanded : undefined}
       title={hint}
       // aria-disabled rather than disabled: the hint saying why still shows on hover.
@@ -209,11 +210,73 @@ function MoreShapes({ tool, setTool, in3d }: { tool: Tool; setTool: (t: Tool) =>
   );
 }
 
+/**
+ * A tool bar button that opens a small panel under it (the photo's settings, the tips). Escape,
+ * or a click outside, closes it.
+ */
+function PopoverButton({
+  label,
+  hint,
+  icon,
+  labelShown,
+  children,
+}: {
+  label: string;
+  hint: string;
+  icon: ReactNode;
+  labelShown: LabelShown;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    box.current?.querySelector<HTMLElement>("[role=dialog] button, [role=dialog] input")?.focus();
+    // Ahead of the layout keys, so Escape only closes the panel.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
+      box.current?.querySelector<HTMLElement>("button")?.focus();
+    };
+    const onDown = (e: PointerEvent) => {
+      if (!box.current?.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("pointerdown", onDown);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("pointerdown", onDown);
+    };
+  }, [open]);
+  return (
+    <div ref={box} className="relative">
+      <ToolButton label={label} hint={hint} onClick={() => setOpen(!open)} popup="dialog" expanded={open} labelShown={labelShown}>
+        {icon}
+      </ToolButton>
+      {open && (
+        <div
+          role="dialog"
+          aria-label={label}
+          className="absolute top-full right-0 z-30 mt-1 w-72 rounded-lg border border-neutral-200 bg-white p-3 text-sm text-neutral-800 shadow-xl dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
+        >
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Draw tools are 2D only (for now): what their buttons say in 3D. */
 const DRAW_IN_2D = "Drawing works in the 2D view — switch with V";
 
 /** Tools for drawing and arranging, plus snap, zoom, and the background photo. */
-export function LayoutToolbar({ hasPhoto, onChoosePhoto }: { hasPhoto: boolean; onChoosePhoto: () => void }) {
+/**
+ * `photo`: the background photo's settings, shown from the Photo button; `tips`: how to get
+ * around, shown from the Tips button.
+ */
+export function LayoutToolbar({ photo, tips }: { photo: ReactNode; tips: string[] }) {
   // Not the view: panning and zooming don't need the tool bar redrawn.
   const { tool, setTool, snap, setSnap, editPhoto, setEditPhoto, setView } = useLayoutEditor(
     useShallow((s) => ({
@@ -277,22 +340,31 @@ export function LayoutToolbar({ hasPhoto, onChoosePhoto }: { hasPhoto: boolean; 
         <Maximize size={16} aria-hidden />
       </ToolButton>
       <Divider />
-      {hasPhoto ? (
-        <ToolButton
-          pressed={editPhoto}
-          label="Edit photo"
-          hint={in3d ? "Move the photo in the 2D view — switch with V" : "Drag the photo to move it, or its corners to resize it"}
-          disabled={in3d}
-          labelShown="view"
-          onClick={() => setEditPhoto(!editPhoto)}
-        >
-          <ImagePlus size={16} aria-hidden />
-        </ToolButton>
-      ) : (
-        <ToolButton label="Add photo…" hint="Draw your display over a photo of your house" labelShown="view" onClick={onChoosePhoto}>
+      <PopoverButton
+        label={in3d ? "Photo and model" : "Photo"}
+        hint={
+          in3d
+            ? "The photo of your house and its 3D model behind the props"
+            : "The photo of your house behind the props: add, move or resize, dim, replace, or remove it"
+        }
+        icon={<ImagePlus size={16} aria-hidden />}
+        labelShown="view"
+      >
+        {photo}
+      </PopoverButton>
+      {editPhoto && (
+        <ToolButton pressed label="Done moving photo" hint="Stop moving the photo" labelShown="always" onClick={() => setEditPhoto(false)}>
           <ImagePlus size={16} aria-hidden />
         </ToolButton>
       )}
+      <PopoverButton label="Tips" hint="How to draw, select, and get around" icon={<CircleHelp size={16} aria-hidden />} labelShown="view">
+        <h3 className="mb-2 text-xs font-semibold tracking-wide text-neutral-500 uppercase">Tips</h3>
+        <ul className="list-disc space-y-1 pl-4 text-neutral-600 dark:text-neutral-400">
+          {tips.map((tip) => (
+            <li key={tip}>{tip}</li>
+          ))}
+        </ul>
+      </PopoverButton>
     </div>
   );
 }

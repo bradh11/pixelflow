@@ -1,5 +1,5 @@
 import { Profiler, StrictMode } from "react";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryBackend, emptyShow } from "../api/memory";
@@ -120,6 +120,12 @@ function sequenceWith(...rows: [SequenceTarget, number][]): Sequence {
   };
 }
 
+/** Opens the tool bar's Photo panel (where the photo's settings are), unless it's open. */
+async function openPhoto(user: ReturnType<typeof userEvent.setup>) {
+  if (!screen.queryByRole("dialog", { name: /^Photo/ })) await user.click(screen.getByRole("button", { name: /^Photo/ }));
+  return screen.getByRole("dialog", { name: /^Photo/ });
+}
+
 const lastToast = () => useToasts.getState().toasts.at(-1)?.text;
 
 const position = (name: string) => backend.show.props.find((p) => p.name === name)!.transform.position;
@@ -175,7 +181,8 @@ describe("LayoutScreen", () => {
     expect(edits).toEqual([]);
     await user.keyboard("{Escape}");
     expect(useLayoutEditor.getState().selected).toEqual([]);
-    expect(screen.getByText("Background photo")).toBeInTheDocument();
+    // With nothing selected, the properties fold away and leave the room to the canvas.
+    expect(screen.queryByRole("complementary", { name: "Properties" })).not.toBeInTheDocument();
     expect(screen.getByTestId("selection-announcer")).toHaveTextContent("Nothing selected");
   });
 
@@ -444,6 +451,7 @@ describe("LayoutScreen", () => {
     const user = await setup(showWith(line("Gutter", 0, 0)));
     backend.images.set("/photos/house.jpg", new Uint8Array([1, 2, 3]));
     backend.nextImagePath = "/photos/house.jpg";
+    await openPhoto(user);
     await user.click(screen.getByRole("button", { name: "Choose photo…" }));
     await waitFor(() => expect(backend.show.background).toBeTruthy());
     const bg = backend.show.background!;
@@ -462,13 +470,16 @@ describe("LayoutScreen", () => {
     expect(backend.show.background?.opacity).toBeCloseTo(0.3);
 
     await user.click(screen.getByRole("button", { name: "Move or resize photo" }));
-    expect(screen.getByRole("button", { name: "Edit photo" })).toHaveAttribute("aria-pressed", "true");
+    expect(useLayoutEditor.getState().editPhoto).toBe(true);
     const box = { x: bg.x + bg.width / 2, y: bg.y - 1 };
     await drag(box, { x: box.x + 2, y: box.y });
     expect(edits).toHaveLength(3);
     expect(backend.show.background?.x).toBeCloseTo(bg.x + 2);
 
-    await user.click(screen.getByRole("button", { name: "Done moving photo" }));
+    // While the photo moves, the tool bar has a button to stop.
+    await user.click(within(screen.getByRole("toolbar", { name: "Layout tools" })).getByRole("button", { name: "Done moving photo" }));
+    expect(useLayoutEditor.getState().editPhoto).toBe(false);
+    await openPhoto(user);
     await user.click(screen.getByRole("button", { name: "Remove photo" }));
     expect(backend.show.background).toBeNull();
   });
@@ -522,6 +533,68 @@ describe("LayoutScreen", () => {
     expect(useLayoutEditor.getState().view!.zoom).toBeLessThan(400);
   });
 
+  describe("the properties panel", () => {
+    const panel = () => screen.queryByRole("complementary", { name: "Properties" });
+
+    it("folds to a strip with nothing selected, and opens when a prop is selected", async () => {
+      await setup(showWith(line("Gutter", 0, 0)));
+      expect(panel()).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Show properties" })).toHaveAttribute("aria-expanded", "false");
+      act(() => useLayoutEditor.getState().select([backend.show.props[0].id]));
+      expect(within(panel()!).getByLabelText("Name")).toHaveValue("Gutter");
+      act(() => useLayoutEditor.getState().select([]));
+      expect(panel()).not.toBeInTheDocument();
+    });
+
+    it("put away, stays away while props are picked, and remembers that", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0), line("Fence", 0, 4)));
+      act(() => useLayoutEditor.getState().select([backend.show.props[0].id]));
+      await user.click(screen.getByRole("button", { name: "Hide properties" }));
+      expect(panel()).not.toBeInTheDocument();
+      act(() => useLayoutEditor.getState().select([backend.show.props[1].id]));
+      expect(panel()).not.toBeInTheDocument();
+      cleanup();
+      render(<LayoutScreen />);
+      act(() => useLayoutEditor.getState().select([backend.show.props[0].id]));
+      expect(panel()).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Show properties" }));
+      expect(panel()).toBeInTheDocument();
+    });
+
+    it("can be kept open with nothing selected, and remembers that", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      await user.click(screen.getByRole("button", { name: "Show properties" }));
+      expect(within(panel()!).getByText(/Nothing selected/)).toBeInTheDocument();
+      cleanup();
+      render(<LayoutScreen />);
+      expect(panel()).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Hide properties" }));
+      expect(panel()).not.toBeInTheDocument();
+    });
+
+    it("leaves the photo's settings to the tool bar's Photo button", async () => {
+      const user = await setup({ ...showWith(line("Gutter", 0, 0)), background: { path: "/house.jpg", x: -10, y: 8, width: 20, opacity: 0.7 } });
+      const photo = await openPhoto(user);
+      for (const name of ["Move or resize photo", "Replace…", "Remove photo"]) expect(within(photo).getByRole("button", { name })).toBeInTheDocument();
+      expect(within(photo).getByLabelText("Photo strength")).toBeInTheDocument();
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("dialog", { name: "Photo" })).not.toBeInTheDocument();
+    });
+
+    it("shows the tips once over the canvas, then under the Tips button", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      const tips = screen.getByRole("region", { name: "Tips" });
+      expect(within(tips).getByText(/Pick a tool above/)).toBeInTheDocument();
+      await user.click(within(tips).getByRole("button", { name: "Got it" }));
+      expect(screen.queryByRole("region", { name: "Tips" })).not.toBeInTheDocument();
+      cleanup();
+      render(<LayoutScreen />);
+      expect(screen.queryByRole("region", { name: "Tips" })).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Tips" }));
+      expect(within(screen.getByRole("dialog", { name: "Tips" })).getByText(/Pick a tool above/)).toBeInTheDocument();
+    });
+  });
+
   describe("in a narrow window", () => {
     /** Lays the canvas row out `width` px wide (jsdom lays nothing out). */
     function rowWidth(width: number) {
@@ -536,12 +609,16 @@ describe("LayoutScreen", () => {
     it("arranges the panels to keep the canvas at least 480 px wide", () => {
       expect(layoutArrangement(null)).toEqual({ list: "docked", properties: "docked" });
       expect(layoutArrangement(1216)).toEqual({ list: "docked", properties: "docked" });
-      expect(layoutArrangement(920)).toEqual({ list: "floating", properties: "docked" });
+      // 1440 wide with the assistant docked: the list stays, and the properties float when open.
+      expect(layoutArrangement(832)).toEqual({ list: "docked", properties: "floating" });
+      expect(layoutArrangement(920)).toEqual({ list: "docked", properties: "floating" });
+      expect(layoutArrangement(760)).toEqual({ list: "floating", properties: "floating" });
+      expect(layoutArrangement(860)).toEqual({ list: "docked", properties: "floating" });
       expect(layoutArrangement(700)).toEqual({ list: "floating", properties: "floating" });
     });
 
     it("puts the props list away beside the canvas, and floats it over the canvas when asked", async () => {
-      rowWidth(920);
+      rowWidth(760);
       const user = await setup(showWith(line("Gutter", 0, 0)));
       expect(screen.queryByRole("listbox", { name: "Props" })).not.toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: "Show the props and groups list" }));
@@ -555,7 +632,7 @@ describe("LayoutScreen", () => {
     });
 
     it("opens the floating list when grouping (⌘G) needs it", async () => {
-      rowWidth(920);
+      rowWidth(760);
       const user = await setup(showWith(line("A", 0, 0), line("B", 0, 5)));
       act(() => useLayoutEditor.getState().select(backend.show.props.map((p) => p.id)));
       canvas().focus();
@@ -567,9 +644,9 @@ describe("LayoutScreen", () => {
       rowWidth(700);
       const user = await setup(showWith(line("Gutter", 0, 0)));
       expect(screen.queryByRole("complementary", { name: "Properties" })).not.toBeInTheDocument();
-      await user.click(screen.getByRole("button", { name: "Show properties" }));
-      expect(screen.getByRole("complementary", { name: "Properties" })).toBeInTheDocument();
-      await user.click(screen.getByRole("button", { name: "Put properties away" }));
+      act(() => useLayoutEditor.getState().select([backend.show.props[0].id]));
+      expect(screen.getByRole("complementary", { name: "Properties" }).closest("[data-floating]")).not.toBeNull();
+      await user.click(screen.getByRole("button", { name: "Hide properties" }));
       expect(screen.queryByRole("complementary", { name: "Properties" })).not.toBeInTheDocument();
     });
   });
@@ -1137,6 +1214,7 @@ describe("LayoutScreen", () => {
     const user = await setup(showWith(line("Gutter", 0, 0)));
     backend.images.set("/photos/house.jpg", new Uint8Array([1, 2, 3]));
     backend.nextImagePath = "/photos/house.jpg";
+    await openPhoto(user);
     await user.click(screen.getByRole("button", { name: "Choose photo…" }));
     await waitFor(() => expect(backend.show.background).toBeTruthy());
 
@@ -1151,13 +1229,14 @@ describe("LayoutScreen", () => {
     expect(edits).toHaveLength(2);
 
     await user.click(screen.getByRole("button", { name: "Move or resize photo" }));
-    expect(screen.getByRole("button", { name: "Edit photo" })).toHaveAttribute("aria-pressed", "true");
+    expect(useLayoutEditor.getState().editPhoto).toBe(true);
     await user.click(screen.getByRole("button", { name: "Remove photo" }));
     expect(useLayoutEditor.getState().editPhoto).toBe(false);
-    expect(screen.getByRole("button", { name: "Add photo…" })).not.toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("button", { name: "Done moving photo" })).not.toBeInTheDocument();
 
     await act(() => useApp.getState().undo());
-    await user.click(screen.getByRole("button", { name: "Edit photo" }));
+    await openPhoto(user);
+    await user.click(screen.getByRole("button", { name: "Move or resize photo" }));
     expect(useLayoutEditor.getState().editPhoto).toBe(true);
     await act(() => useApp.getState().undo());
     await act(() => useApp.getState().undo());
@@ -1169,6 +1248,7 @@ describe("LayoutScreen", () => {
     const user = await setup(showWith(line("Gutter", 0, 0)));
     backend.images.set("/photos/house.jpg", new Uint8Array([1, 2, 3]));
     backend.nextImagePath = "/photos/house.jpg";
+    await openPhoto(user);
     await user.click(screen.getByRole("button", { name: "Choose photo…" }));
     await waitFor(() => expect(backend.show.background).toBeTruthy());
     const reads = vi.spyOn(backend, "readImage");

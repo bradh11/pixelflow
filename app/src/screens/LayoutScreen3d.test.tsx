@@ -122,6 +122,13 @@ async function clickAt(p: V3, init: Record<string, unknown> = {}) {
   });
 }
 
+
+/** Opens the tool bar's Photo panel (where the photo's settings are), unless it's open. */
+async function openPhoto(user: ReturnType<typeof userEvent.setup>) {
+  if (!screen.queryByRole("dialog", { name: /^Photo/ })) await user.click(screen.getByRole("button", { name: /^Photo/ }));
+  return screen.getByRole("dialog", { name: /^Photo/ });
+}
+
 describe("the 3D layout", () => {
   const descriptors = {
     clientWidth: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth"),
@@ -319,7 +326,8 @@ describe("the 3D layout", () => {
     const user = await setup(show);
     expect(screen.queryByLabelText("Photo depth")).not.toBeInTheDocument();
     await open3d(user);
-    expect(screen.getByText(/Drag to orbit/, { selector: "li" })).toBeInTheDocument();
+    expect(screen.getAllByText(/Drag to orbit/, { selector: "li" }).length).toBeGreaterThan(0);
+    await openPhoto(user);
     fireEvent.change(screen.getByLabelText("Photo depth"), { target: { value: "3.5" } });
     expect(screen.getByText(/Photo depth in 3D: 3.5 behind/)).toBeInTheDocument();
     expect(JSON.parse(localStorage.getItem("pixelflow.view3d:unsaved:Test House")!).photoDepth).toBe(3.5);
@@ -332,6 +340,7 @@ describe("the 3D layout", () => {
     backend.models.set("/models/house.obj", new TextEncoder().encode("v 0 0 0"));
     backend.nextModelPath = "/models/house.obj";
     await open3d(user);
+    await openPhoto(user);
     await user.click(screen.getByRole("button", { name: "Add house model…" }));
     await waitFor(() => expect(backend.show.houseModel).toBeTruthy());
     expect(backend.show.houseModel).toEqual({
@@ -359,6 +368,7 @@ describe("the 3D layout", () => {
     show.background = { path: "/house.jpg", x: -10, y: 8, width: 20, opacity: 0.7 };
     const user = await setup(show);
     await open3d(user);
+    await openPhoto(user);
     fireEvent.change(screen.getByLabelText("Photo depth"), { target: { value: "3.5" } });
     await user.keyboard("4");
     await waitFor(() => expect(JSON.parse(localStorage.getItem("pixelflow.view3d:unsaved:Test House") ?? "{}").orbit?.yaw).toBeCloseTo(Math.PI / 2), {
@@ -387,6 +397,7 @@ describe("the 3D layout", () => {
     const reads = vi.spyOn(backend, "readHouseModel");
     await open3d(user);
     await waitFor(() => expect(scene().calls).toContain("setModel:/models/house.obj"));
+    await openPhoto(user);
     await user.click(screen.getByRole("button", { name: "Fit to display" }));
     await waitFor(() => expect(edits).toHaveLength(1));
     // The file's box (y 0 to 6, z -4 to 4) tilted -90 stands 8 tall (y -4 to 4) and 6 deep (z -6 to 0).
@@ -403,6 +414,7 @@ describe("the 3D layout", () => {
     const read = backend.readHouseModel.bind(backend);
     let release = () => {};
     const reads = vi.spyOn(backend, "readHouseModel").mockImplementation((path) => new Promise((done) => (release = () => done(read(path)))));
+    await openPhoto(user);
     await user.click(screen.getByRole("button", { name: "Add house model…" }));
     expect(screen.getByRole("button", { name: "Loading model…" })).toBeDisabled();
     await act(async () => release());

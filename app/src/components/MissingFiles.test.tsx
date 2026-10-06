@@ -130,7 +130,8 @@ describe("missing files", () => {
   });
 
   it("shows a missing photo in the layout's photo panel", async () => {
-    await openMoved();
+    const { user } = await openMoved();
+    await user.click(await screen.findByRole("button", { name: /^Photo/ }));
     const panel = await screen.findByRole("group", { name: "house.jpg isn't where it was." });
     expect(panel).toHaveTextContent("It was in /Shows/Haas 2024/photos.");
     expect(within(panel).getByRole("button", { name: "Locate house.jpg" })).toBeInTheDocument();

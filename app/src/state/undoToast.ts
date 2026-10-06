@@ -13,7 +13,7 @@ export function toastWithUndo(text: string, revision: number | null) {
     run: () => {
       const app = useApp.getState();
       if (app.snapshot?.revision === revision) return app.undo();
-      toast("Other changes came after that one: use Undo (⌘Z) to step back through them.");
+      toast("Other changes came after that one: use Undo (⌘Z) to step back through them.", undefined, "info");
     },
   });
 }

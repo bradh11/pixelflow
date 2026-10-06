@@ -1,19 +1,31 @@
-import { CheckCircle2, X } from "lucide-react";
+import { CheckCircle2, Info, X } from "lucide-react";
 import { useToasts } from "../state/toast";
 
-/** Brief confirmations at the bottom of the window; they go by themselves. */
+/**
+ * Brief confirmations at the bottom right (clear of the timeline's scrollbar and the canvas's
+ * middle); they go by themselves, but wait while pointed at or focused.
+ */
 export function Toasts() {
   const toasts = useToasts((s) => s.toasts);
-  const dismiss = useToasts((s) => s.dismiss);
+  const { dismiss, pause, resume } = useToasts.getState();
   return (
-    <div aria-live="polite" data-testid="toasts" className="pointer-events-none fixed bottom-10 left-1/2 z-50 flex -translate-x-1/2 flex-col items-center gap-2">
+    <div aria-live="polite" data-testid="toasts" className="pointer-events-none fixed right-4 bottom-10 z-50 flex flex-col items-end gap-2">
       {toasts.map((t) => (
         <div
           key={t.id}
           data-testid="toast"
-          className="pointer-events-auto flex items-center gap-2 rounded-full border border-neutral-200 bg-white py-1.5 pr-1.5 pl-3 text-sm shadow-lg dark:border-neutral-700 dark:bg-neutral-800"
+          data-tone={t.tone}
+          onPointerEnter={() => pause(t.id)}
+          onPointerLeave={() => resume(t.id)}
+          onFocus={() => pause(t.id)}
+          onBlur={() => resume(t.id)}
+          className="pointer-events-auto flex max-w-sm items-center gap-2 rounded-full border border-neutral-200 bg-white py-1.5 pr-1.5 pl-3 text-sm shadow-lg dark:border-neutral-700 dark:bg-neutral-800"
         >
-          <CheckCircle2 size={15} className="shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
+          {t.tone === "success" ? (
+            <CheckCircle2 size={15} className="shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
+          ) : (
+            <Info size={15} className="shrink-0 text-sky-600 dark:text-sky-400" aria-hidden />
+          )}
           <span>{t.text}</span>
           {t.action && (
             <button

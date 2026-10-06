@@ -11,18 +11,33 @@ const VARIANTS: Record<Variant, string> = {
   danger: "text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/60",
 };
 
-export function Button({
-  variant = "secondary",
-  className = "",
-  ...props
-}: ComponentProps<"button"> & { variant?: Variant }) {
+type ButtonProps = ComponentProps<"button"> & { variant?: Variant; "data-tip"?: string; "data-tip-key"?: string };
+
+export function Button({ variant = "secondary", className = "", ...props }: ButtonProps) {
+  // A button named only by its aria-label (an icon) shows that name as its tooltip.
+  const tip = props["data-tip"] ?? (props.title === undefined ? props["aria-label"] : undefined);
   return (
     <button
       type="button"
       className={`inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${VARIANTS[variant]} ${className}`}
       {...props}
+      data-tip={tip}
     />
   );
+}
+
+/**
+ * A button showing only an icon: `label` is its name, and shows as its tooltip (or `hint`, when
+ * that says more), with the `shortcut` that does the same.
+ */
+export function IconButton({
+  label,
+  hint,
+  shortcut,
+  className = "rounded-md p-2 text-neutral-600 hover:bg-neutral-200/70 disabled:opacity-30 disabled:hover:bg-transparent dark:text-neutral-300 dark:hover:bg-neutral-800",
+  ...props
+}: Omit<ComponentProps<"button">, "title"> & { label: string; hint?: string; shortcut?: string }) {
+  return <button type="button" aria-label={label} data-tip={hint ?? label} data-tip-key={shortcut} className={className} {...props} />;
 }
 
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {

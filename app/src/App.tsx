@@ -10,6 +10,7 @@ import { FilesReport } from "./components/MissingFiles";
 import { SequenceImportReport } from "./components/SequenceImportReport";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { Toasts } from "./components/Toasts";
+import { TooltipLayer } from "./components/Tooltip";
 import { NameShowDialog, OpeningStatus } from "./components/ShowDialogs";
 import { Welcome } from "./components/Welcome";
 import { useShortcuts } from "./components/useShortcuts";
@@ -76,6 +77,7 @@ export function App() {
       <ConfirmDialog />
       <NameShowDialog />
       <OpeningStatus />
+      <TooltipLayer />
     </>
   );
 }

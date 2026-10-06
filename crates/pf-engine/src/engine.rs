@@ -13,7 +13,7 @@ use crate::recovery::{self, SequenceRecovery};
 use crate::sequence_doc::{self, OpenSequence, SequenceEdit, SequenceEditResult, SequenceSnapshot};
 use crate::snapshot::{PreviewProp, ShowSnapshot, Summary};
 use pf_mapping::ChannelMap;
-use pf_model::{IssueCode, SequenceId, Severity, Show, ValidationReport};
+use pf_model::{SequenceId, Severity, Show, ValidationReport};
 use pf_output::{OutputSettings, Transport, UdpTransport};
 use pf_patterns::{Target, resolve_target};
 use pf_render::Renderer;
@@ -214,14 +214,7 @@ impl Engine {
     /// Applies a batch of edits as one undo step. Nothing changes if any edit fails or the
     /// result would exceed PixelFlow's size limits.
     pub fn apply(&mut self, edits: Vec<Edit>) -> Result<ShowSnapshot, EngineError> {
-        let mut next = self.show.clone();
-        for edit in &edits {
-            edit.apply(&mut next)?;
-        }
-        let report = pf_model::validate_show(&next);
-        if let Some(issue) = report.issues.iter().find(|i| i.code == IssueCode::LimitExceeded) {
-            return Err(EngineError::TooLarge(issue.message.clone()));
-        }
+        let next = crate::dry_run::edited_show(&self.show, &edits)?;
         if next == self.show {
             return Ok(self.snapshot());
         }

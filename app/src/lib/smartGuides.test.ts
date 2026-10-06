@@ -8,6 +8,7 @@ import {
   guidesActive,
   nearbyBoxes,
   snapMove,
+  snapAlong,
   snapPointTo,
   snapResize,
 } from "./smartGuides";
@@ -196,6 +197,42 @@ describe("snapMove: equal spacing", () => {
   });
 });
 
+describe("snapMove: both axes at once", () => {
+  // Row A: 0…2 and 4…6, y 0…1, a gap of 2. D, far off to the right, gives the y guides.
+  const rowA = [box(0, 0, 2, 1), box(4, 0, 6, 1)];
+
+  it("spaces along the row the up-and-down snap puts the box in", () => {
+    // D's bottom at 1.07. The box's bottom at 1.17 is 0.17 above row A (out of it, by more than
+    // the threshold); snapping it down to D's bottom leaves it 0.07 above, so in row A.
+    const index = guideIndex([...rowA, box(30, 1.07, 31, 3)]);
+    const start = box(20, 1.17, 22, 2.17);
+    const r = snapMove(index, start, { dx: -11.9, dy: 0 }, { threshold: T });
+    expect(r.dy).toBeCloseTo(-0.1);
+    expect(r.dx).toBeCloseTo(-12); // 2 after the second box in row A
+    expect(rounded(r.marks.gaps)).toEqual(expect.arrayContaining([{ axis: "x", from: 6, to: 8, at: expect.any(Number) }]));
+  });
+
+  it("doesn't space along a row the up-and-down snap takes the box out of", () => {
+    // D's bottom at 1.2. The box's bottom at 1.11 is in row A (0.11 above it); snapping it up to
+    // D's bottom leaves it 0.2 above, out of the row: no gap to match, and none drawn.
+    const index = guideIndex([...rowA, box(30, 1.2, 31, 4)]);
+    const start = box(20, 1.11, 22, 2.11);
+    const r = snapMove(index, start, { dx: -11.9, dy: 0 }, { threshold: T });
+    expect(r.dy).toBeCloseTo(0.09);
+    expect(r.dx).toBeCloseTo(-11.9);
+    expect(r.marks.gaps).toEqual([]);
+  });
+
+  it("counts a box a few pixels short of overlapping as in the row", () => {
+    // The moving box is 0.1 (4 px at zoom 40) above row A: still in it.
+    const index = guideIndex(rowA);
+    const start = box(20, 1.1, 22, 2.1);
+    const r = snapMove(index, start, { dx: -11.9, dy: 0 }, { threshold: T, lock: { y: true } });
+    expect(r.dx).toBeCloseTo(-12);
+    expect(r.marks.gaps).toHaveLength(2);
+  });
+});
+
 describe("snapMove: with the grid", () => {
   const index = guideIndex([box(0, 0, 2, 1)]);
   const start = box(10.3, 10, 12.3, 11);
@@ -288,6 +325,44 @@ describe("snapPointTo", () => {
   });
 });
 
+describe("snapAlong", () => {
+  const index = guideIndex([box(0, 0, 2, 1)]);
+
+  it("snaps the end of a level line along it to another prop's edge", () => {
+    const r = snapAlong(index, { x: -5, y: 7 }, { x: 2.1, y: 7 }, { threshold: T });
+    expect(r.point).toEqual({ x: 2, y: 7 });
+    expect(r.marks.guides).toEqual([{ axis: "x", at: 2, from: 0, to: 7 }]);
+  });
+
+  it("snaps the end of an upright line along it", () => {
+    const r = snapAlong(index, { x: 9, y: 5 }, { x: 9, y: 0.6 }, { threshold: T });
+    expect(r.point).toEqual({ x: 9, y: 0.5 });
+  });
+
+  it("keeps a 45° line at 45°, moving its end along it to whichever guide is nearer", () => {
+    // From (-3, -3.9) at 45°: the end at (1.96, 1.06) is 0.04 from x = 2 and 0.06 from y = 1.
+    const r = snapAlong(index, { x: -3, y: -3.9 }, { x: 1.96, y: 1.06 }, { threshold: T });
+    expect(r.point.x).toBeCloseTo(2);
+    expect(r.point.y).toBeCloseTo(1.1);
+    expect(r.marks.guides.map((g) => g.axis)).toEqual(["x"]);
+  });
+
+  it("leaves the end where it was when no guide is near", () => {
+    const r = snapAlong(index, { x: -5, y: 7 }, { x: 4, y: 7 }, { threshold: T });
+    expect(r.point).toEqual({ x: 4, y: 7 });
+    expect(r.marks.guides).toEqual([]);
+  });
+});
+
+describe("ties", () => {
+  it("go to the lower line when an edge is exactly between two", () => {
+    const index = guideIndex([box(0, 0, 2, 1), box(0.2, 3, 5, 4)]);
+    // The left edge at 0.1: 0.1 from 0 and from 0.2.
+    const r = snapMove(index, box(10, 10, 12, 11), { dx: -9.9, dy: 0 }, { threshold: T });
+    expect(r.dx).toBeCloseTo(-10);
+  });
+});
+
 describe("nearbyBoxes", () => {
   it("keeps the boxes in view, and only the nearest few when there are many", () => {
     const boxes = [box(0, 0, 1, 1), box(100, 100, 101, 101), box(5, 0, 6, 1), box(-9, 0, -8, 1)];
@@ -313,7 +388,17 @@ describe("speed", () => {
     const start = box(200, 200, 202, 201);
     const t0 = performance.now();
     for (let i = 0; i < 200; i++) snapMove(index, start, { dx: -100 - i * 0.37, dy: -150 + i * 0.11 }, { threshold: T });
-    // Generous: about 1 ms a move on a slow machine.
-    expect(performance.now() - t0).toBeLessThan(400);
+    // Well under 0.5 ms a move even on a slow machine (about 0.03 ms on a laptop).
+    expect(performance.now() - t0).toBeLessThan(100);
+  });
+
+  it("stays quick in one long row, where every prop is a neighbour", () => {
+    const boxes: Box[] = [];
+    for (let i = 0; i < 500; i++) boxes.push(box(i * 3, 0, i * 3 + 2, 1));
+    const index = guideIndex(boxes);
+    const start = box(-20, 0, -18, 1);
+    const t0 = performance.now();
+    for (let i = 0; i < 200; i++) snapMove(index, start, { dx: 100 + i * 3.37, dy: 0.01 }, { threshold: T });
+    expect(performance.now() - t0).toBeLessThan(150);
   });
 });

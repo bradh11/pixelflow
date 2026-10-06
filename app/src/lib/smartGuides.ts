@@ -152,10 +152,13 @@ function alignOffset(index: GuideIndex, b: Box, a: Axis, t: number): number | nu
   return best;
 }
 
-/** The other boxes in `b`'s row (for "x": overlapping it up and down) or column. */
-function rowOf(index: GuideIndex, b: Box, a: Axis): Box[] {
+/**
+ * The other boxes in `b`'s row (for "x": overlapping it up and down) or column, counting those
+ * up to `tol` (the snapping distance) short of overlapping, so hand-placed rows don't flicker.
+ */
+function rowOf(index: GuideIndex, b: Box, a: Axis, tol: number): Box[] {
   const c = across(a);
-  return index.boxes.filter((o) => lo(o, c) <= hi(b, c) + EPS && hi(o, c) >= lo(b, c) - EPS);
+  return index.boxes.filter((o) => lo(o, c) <= hi(b, c) + tol && hi(o, c) >= lo(b, c) - tol);
 }
 
 interface RowGap {
@@ -189,7 +192,7 @@ function neighbours(row: Box[], b: Box, a: Axis, slack: number): { before: Box |
 
 /** How far to move `b` along `a` to make a gap equal another in its row, or to sit midway, if within `t`. */
 function spacingOffset(index: GuideIndex, b: Box, a: Axis, t: number): number | null {
-  const row = rowOf(index, b, a);
+  const row = rowOf(index, b, a, t);
   if (row.length === 0) return null;
   const { before, after } = neighbours(row, b, a, t);
   let best: number | null = null;
@@ -234,8 +237,8 @@ function gapMark(p: Box, q: Box, a: Axis): Gap {
 }
 
 /** The gaps either side of `b` along `a` that equal each other or a gap between other props, and those gaps. */
-function equalGaps(index: GuideIndex, b: Box, a: Axis): Gap[] {
-  const row = rowOf(index, b, a);
+function equalGaps(index: GuideIndex, b: Box, a: Axis, tol: number): Gap[] {
+  const row = rowOf(index, b, a, tol);
   if (row.length === 0) return [];
   const { before, after } = neighbours(row, b, a, EPS);
   const gaps = rowGaps(row, a);
@@ -257,9 +260,9 @@ function equalGaps(index: GuideIndex, b: Box, a: Axis): Gap[] {
 }
 
 /** What to draw for a box `b` at rest among the others: shared edges and centers, and equal gaps. */
-function moveMarks(index: GuideIndex, b: Box): Marks {
+function moveMarks(index: GuideIndex, b: Box, tol: number): Marks {
   const guides = AXES.flatMap((a) => alignGuides(index, b, a, [lo(b, a), mid(b, a), hi(b, a)]));
-  const gaps = AXES.flatMap((a) => equalGaps(index, b, a));
+  const gaps = AXES.flatMap((a) => equalGaps(index, b, a, tol));
   return guides.length || gaps.length ? { guides, gaps, sizes: [] } : NO_MARKS;
 }
 
@@ -272,7 +275,8 @@ export interface MoveSnap {
 /**
  * Moving the box `start` by `raw`, snapped to the guides within `threshold` (layout units) on
  * each axis. An axis with no guide that near takes `fallback` (the grid's move) instead, and a
- * `lock`ed axis (held straight with Shift) is never snapped.
+ * `lock`ed axis (held straight with Shift) is never snapped. Up and down is snapped first, so the
+ * row whose gaps the left-right snap matches is the row the box ends up in.
  */
 export function snapMove(
   index: GuideIndex,
@@ -281,16 +285,16 @@ export function snapMove(
   opts: { threshold: number; fallback?: { dx: number; dy: number }; lock?: { x?: boolean; y?: boolean } },
 ): MoveSnap {
   const fallback = opts.fallback ?? raw;
-  const moved = shift(start, raw.dx, raw.dy);
-  const along = (a: Axis) => {
+  const along = (a: Axis, moved: Box) => {
     const [r, f] = a === "x" ? [raw.dx, fallback.dx] : [raw.dy, fallback.dy];
     if (opts.lock?.[a] || index.boxes.length === 0) return f;
     const off = better(alignOffset(index, moved, a, opts.threshold), spacingOffset(index, moved, a, opts.threshold));
     return off === null ? f : r + off;
   };
-  const [dx, dy] = [along("x"), along("y")];
+  const dy = along("y", shift(start, raw.dx, raw.dy));
+  const dx = along("x", shift(start, raw.dx, dy));
   if (index.boxes.length === 0) return { dx, dy, marks: NO_MARKS };
-  return { dx, dy, marks: moveMarks(index, shift(start, dx, dy)) };
+  return { dx, dy, marks: moveMarks(index, shift(start, dx, dy), opts.threshold) };
 }
 
 /** The box `start` after a resize gesture with no turn. */
@@ -375,4 +379,26 @@ export function snapPointTo(index: GuideIndex, p: Pt, opts: { threshold: number;
   const at: Box = { minX: point.x, maxX: point.x, minY: point.y, maxY: point.y };
   const guides = [...(sx === null ? [] : alignGuides(index, at, "x", [point.x])), ...(sy === null ? [] : alignGuides(index, at, "y", [point.y]))];
   return { point, marks: { guides, gaps: [], sizes: [] } };
+}
+
+/**
+ * The end `to` of a line held straight from `from` (level, upright, or at 45°, with Shift), slid
+ * along that line to the nearer guide on whichever coordinate it changes, if one is within
+ * `threshold`. The line keeps its angle.
+ */
+export function snapAlong(index: GuideIndex, from: Pt, to: Pt, opts: { threshold: number }): { point: Pt; marks: Marks } {
+  const [dx, dy] = [to.x - from.x, to.y - from.y];
+  let best: { a: Axis; off: number } | null = null;
+  for (const a of AXES) {
+    const [d, v] = a === "x" ? [dx, to.x] : [dy, to.y];
+    if (Math.abs(d) < 1e-9) continue;
+    const target = nearest(index.lines[a], v, opts.threshold);
+    if (target !== null && (!best || Math.abs(target - v) < Math.abs(best.off))) best = { a, off: target - v };
+  }
+  if (!best) return { point: to, marks: NO_MARKS };
+  // Moving one coordinate by `off` moves the other in proportion, along the line.
+  const t = best.off / (best.a === "x" ? dx : dy);
+  const point = best.a === "x" ? { x: to.x + best.off, y: to.y + dy * t } : { x: to.x + dx * t, y: to.y + best.off };
+  const at: Box = { minX: point.x, maxX: point.x, minY: point.y, maxY: point.y };
+  return { point, marks: { guides: alignGuides(index, at, best.a, [best.a === "x" ? point.x : point.y]), gaps: [], sizes: [] } };
 }

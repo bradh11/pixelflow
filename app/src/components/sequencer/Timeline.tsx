@@ -212,9 +212,10 @@ export function Timeline({ doc }: { doc: Sequence }) {
   useEffect(() => {
     if (revealAt === 0 || size.width === 0) return;
     const s = useSequencer.getState();
-    const placed = s.selection.length > 0 ? index.byId.get(s.selection[0]) : undefined;
+    const playheadOnly = s.revealTarget === "playhead";
+    const placed = !playheadOnly && s.selection.length > 0 ? index.byId.get(s.selection[0]) : undefined;
     const laneIndex = placed ? laneOf(lanes, placed.rowId, placed.layer) : lanes.findIndex((l) => l.rowId === s.activeRow);
-    const lane = lanes[laneIndex];
+    const lane = playheadOnly ? undefined : lanes[laneIndex];
     if (lane) {
       setScrollY((y) => {
         const next = lane.y < y ? lane.y : lane.y + lane.h > y + rowsViewport ? lane.y + lane.h - rowsViewport : y;

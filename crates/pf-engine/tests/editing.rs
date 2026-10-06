@@ -292,3 +292,60 @@ fn a_show_a_file_couldnt_hold_is_refused_with_a_plain_message() {
     assert!(matches!(err, pf_engine::EngineError::InvalidShow(_)), "{err:?}");
     assert!(err.to_string().contains("null pixels"), "{err}");
 }
+
+#[test]
+fn the_show_and_sequence_paths_are_known_without_a_snapshot() {
+    let (mut engine, dir) = engine();
+    assert_eq!(engine.show_path(), None);
+    assert_eq!(engine.sequence_path(), None);
+    let path = dir.path().join("house.pixelflow.json");
+    engine.save_as(&path).unwrap();
+    assert_eq!(engine.show_path(), Some(path.as_path()));
+    engine.new_sequence_doc("Song", 10_000, None).unwrap();
+    assert_eq!(engine.sequence_path(), None);
+    let doc = dir.path().join("song.pfseq.json");
+    engine.save_sequence_doc_as(&doc).unwrap();
+    assert_eq!(engine.sequence_path(), Some(doc.as_path()));
+    engine.new_show("Other");
+    assert_eq!(engine.show_path(), None);
+}
+
+#[test]
+fn a_show_started_from_an_example_has_nothing_to_save_until_it_changes() {
+    let (mut engine, _dir) = engine();
+    let mut show = pf_model::Show::new("Demo House");
+    show.props.push(line("Roof", 10));
+    let snapshot = engine.start_from(pf_engine::CheckedShow::new(show).unwrap());
+    assert_eq!(snapshot.show.name, "Demo House");
+    assert!(!snapshot.dirty && snapshot.path.is_none() && !snapshot.can_undo);
+    assert!(!engine.has_unsaved_changes());
+    // Nothing for the autosave to keep either.
+    assert_eq!(engine.autosave().unwrap(), None);
+    let snapshot = engine
+        .apply(vec![Edit::AddProp {
+            prop: line("Arch", 5),
+        }])
+        .unwrap();
+    assert!(snapshot.dirty);
+}
+
+#[test]
+fn unsaved_changes_count_the_show_and_the_open_sequence() {
+    let (mut engine, dir) = engine();
+    assert!(!engine.has_unsaved_changes());
+    engine
+        .apply(vec![Edit::AddProp {
+            prop: line("Arch", 5),
+        }])
+        .unwrap();
+    assert!(engine.has_unsaved_changes());
+    engine.save_as(&dir.path().join("house.pixelflow.json")).unwrap();
+    assert!(!engine.has_unsaved_changes());
+    engine.new_sequence_doc("Song", 10_000, None).unwrap();
+    assert!(!engine.has_unsaved_changes());
+    let row = pf_sequence::Row::new(pf_sequence::Target::Prop(engine.show().props[0].id));
+    engine
+        .edit_sequence(vec![pf_engine::SequenceEdit::AddRow { row, index: None }])
+        .unwrap();
+    assert!(engine.has_unsaved_changes());
+}

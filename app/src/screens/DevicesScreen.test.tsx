@@ -18,7 +18,7 @@ async function startApp() {
 
 async function openDevices() {
   const app = await startApp();
-  await app.user.click(screen.getByRole("button", { name: /start fresh/i }));
+  await app.user.click(screen.getByRole("button", { name: /^new show/i }));
   await app.user.click(screen.getByRole("button", { name: "Devices" }));
   return app;
 }

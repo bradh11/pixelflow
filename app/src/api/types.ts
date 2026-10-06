@@ -667,6 +667,48 @@ export interface ImportSummary {
   groups: number;
 }
 
+/** A show opened or saved lately (the shell keeps the list; the window only reads it). */
+export interface RecentShow {
+  /** The show file, as path text: pass it back unchanged. */
+  path: string;
+  name: string;
+  /** When it was last opened or saved (milliseconds since 1970). */
+  openedAt: number;
+  props: number;
+  pixels: number;
+  controllers: number;
+  /** A small SVG picture of the layout, or null. */
+  thumbnail: string | null;
+  /** Whether the file is still there ("unknown": its drive didn't answer in time). */
+  status: "here" | "missing" | "unknown";
+}
+
+/** A File menu item chosen in the menu bar (macOS). */
+export type MenuAction =
+  | { action: "newShow" }
+  | { action: "openShow" }
+  | { action: "openRecent"; path: string }
+  | { action: "clearRecent" }
+  | { action: "closeShow" }
+  | { action: "save" }
+  | { action: "saveAs" }
+  | { action: "undo" }
+  | { action: "redo" };
+
+/** What a file dialog is for; the shell picks its filters, title, and starting folder. */
+export type PickKind =
+  | "show"
+  | "showSave"
+  | "xlightsFolder"
+  | "xlightsSequence"
+  | "fseq"
+  | "fseqExport"
+  | "music"
+  | "sequenceDoc"
+  | "sequenceDocSave"
+  | "timingFile"
+  | "timingExport";
+
 /** The show an xLights import produced, with a report of anything not imported exactly. */
 export interface XlightsImported {
   snapshot: ShowSnapshot;

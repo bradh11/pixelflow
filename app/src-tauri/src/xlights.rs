@@ -1,10 +1,10 @@
 //! Importing an xLights show folder, and xLights sequences onto the open show.
 
+use crate::PathArg;
 use crate::{AppState, Reply, message};
 use pf_engine::{CheckedShow, SequenceSnapshot, ShowSnapshot};
 use pf_xlights::{ImportSummary, SequenceImportSummary};
 use serde::Serialize;
-use std::path::PathBuf;
 use tauri::State;
 
 /// The imported show and what wasn't imported exactly.
@@ -19,7 +19,8 @@ pub(crate) struct XlightsImported {
 /// Imports the xLights show in `folder` as a new, unsaved show. Reading, converting, and
 /// checking the show all happen off the engine lock.
 #[tauri::command]
-pub(crate) async fn import_xlights(state: State<'_, AppState>, folder: PathBuf) -> Reply<XlightsImported> {
+pub(crate) async fn import_xlights(state: State<'_, AppState>, folder: PathArg) -> Reply<XlightsImported> {
+    let from = folder.0.clone();
     let (show, summary, notes) = tauri::async_runtime::spawn_blocking(move || {
         let imported = pf_xlights::import_folder(&folder).map_err(|e| e.to_string())?;
         let show = CheckedShow::new(imported.show).map_err(message)?;
@@ -27,7 +28,16 @@ pub(crate) async fn import_xlights(state: State<'_, AppState>, folder: PathBuf) 
     })
     .await
     .map_err(|_| "Something went wrong reading the xLights show.".to_string())??;
-    let snapshot = state.engine().adopt_show(show);
+    let snapshot = {
+        let mut engine = state.engine();
+        let snapshot = engine.adopt_show(show);
+        // Its first save starts in the xLights folder.
+        *state
+            .imported_from
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((engine.show_generation(), from));
+        snapshot
+    };
     let snapshot = state.trusting(snapshot);
     Ok(XlightsImported {
         snapshot,
@@ -52,7 +62,7 @@ pub(crate) struct XlightsSequenceImported {
 #[tauri::command]
 pub(crate) async fn import_xlights_sequence(
     state: State<'_, AppState>,
-    path: PathBuf,
+    path: PathArg,
 ) -> Reply<XlightsSequenceImported> {
     let show = state.engine().show().clone();
     let imported = tauri::async_runtime::spawn_blocking(move || {

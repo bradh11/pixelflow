@@ -251,6 +251,16 @@ impl Engine {
         &self.show
     }
 
+    /// Where the show is saved, once it has been (cheap: no snapshot is made).
+    pub fn show_path(&self) -> Option<&Path> {
+        self.path.as_deref()
+    }
+
+    /// Where the open sequence is saved, if one is open and has been saved.
+    pub fn sequence_path(&self) -> Option<&Path> {
+        self.sequence.as_ref()?.path.as_deref()
+    }
+
     /// Goes up by one with every change to the show (edits, undo, redo, opening another show).
     pub fn revision(&self) -> u64 {
         self.revision
@@ -401,6 +411,20 @@ impl Engine {
         // Unsaved, so the user is asked before it's discarded.
         self.changed();
         self.snapshot()
+    }
+
+    /// Starts a new, unsaved show from `show` (an example built into the app): like a new show,
+    /// there's nothing to save, and nothing to ask about, until it's changed. Saving it asks
+    /// where, since it has no file.
+    pub fn start_from(&mut self, show: CheckedShow) -> ShowSnapshot {
+        self.replace_show(show.0, None);
+        self.snapshot()
+    }
+
+    /// Whether the show or the open sequence has changes that haven't been saved (cheap: no
+    /// snapshot is made).
+    pub fn has_unsaved_changes(&self) -> bool {
+        self.revision != self.saved_revision || self.sequence.as_ref().is_some_and(|o| o.is_dirty())
     }
 
     /// Opens a show file. On failure the current show is left untouched. This reads the disk

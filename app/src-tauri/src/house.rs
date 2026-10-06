@@ -6,7 +6,6 @@ use std::io::{self, Read};
 use std::path::Path;
 use tauri::State;
 use tauri::ipc::Response;
-use tauri_plugin_dialog::DialogExt;
 
 /// Model files the 3D view can show: glTF (binary or self-contained text) and OBJ.
 pub(crate) const MODEL_EXTENSIONS: &[&str] = &["glb", "gltf", "obj"];
@@ -23,17 +22,8 @@ pub(crate) async fn pick_house_model<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Reply<Option<String>> {
-    let dialog = app.dialog().clone();
-    let picked = tauri::async_runtime::spawn_blocking(move || {
-        dialog
-            .file()
-            .add_filter("3D model", MODEL_EXTENSIONS)
-            .set_title("Choose a 3D model of your house")
-            .blocking_pick_file()
-    })
-    .await
-    .map_err(|_| "Something went wrong opening the model dialog.".to_string())?;
-    let Some(path) = picked.and_then(|p| p.into_path().ok()) else {
+    let request = crate::pickers::Pick::of(crate::pickers::PickKind::HouseModel);
+    let Some(path) = crate::pickers::pick(&app, &state, request).await? else {
         return Ok(None);
     };
     let text = pf_model::path_to_text(&path);

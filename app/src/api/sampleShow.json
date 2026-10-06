@@ -1,0 +1,645 @@
+{
+  "schemaVersion": 9,
+  "name": "Demo House",
+  "settings": {
+    "frameRate": 40
+  },
+  "props": [
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "name": "Garage Arch",
+      "shape": {
+        "source": "generator",
+        "type": "arch",
+        "nodes": 50,
+        "width": 4,
+        "height": 2
+      },
+      "transform": {
+        "position": {
+          "x": -6,
+          "y": 0,
+          "z": 0
+        },
+        "rotationDeg": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "scale": {
+          "x": 1,
+          "y": 1,
+          "z": 1
+        }
+      },
+      "colorOrder": "RGB",
+      "regions": [
+        {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "name": "Left half",
+          "kind": "nodes",
+          "lines": [
+            [
+              {
+                "first": 0,
+                "last": 24
+              }
+            ]
+          ],
+          "layout": "horizontal",
+          "buffer": "default"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000003",
+          "name": "Right half",
+          "kind": "nodes",
+          "lines": [
+            [
+              {
+                "first": 49,
+                "last": 25
+              }
+            ]
+          ],
+          "layout": "horizontal",
+          "buffer": "default"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000004",
+          "name": "Ends",
+          "kind": "nodes",
+          "lines": [
+            [
+              {
+                "first": 0,
+                "last": 5
+              }
+            ],
+            [
+              {
+                "first": 49,
+                "last": 44
+              }
+            ]
+          ],
+          "layout": "horizontal",
+          "buffer": "stackedStrands"
+        }
+      ],
+      "tags": []
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000005",
+      "name": "Mega Tree",
+      "shape": {
+        "source": "generator",
+        "type": "tree",
+        "strings": 16,
+        "nodesPerString": 50,
+        "height": 5,
+        "baseRadius": 1.5,
+        "topRadius": 0.1,
+        "serpentine": true,
+        "style": "round",
+        "degrees": 360,
+        "startAngle": 0
+      },
+      "transform": {
+        "position": {
+          "x": 8,
+          "y": 0,
+          "z": 0
+        },
+        "rotationDeg": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "scale": {
+          "x": 1,
+          "y": 1,
+          "z": 1
+        }
+      },
+      "colorOrder": "RGB",
+      "regions": [],
+      "tags": []
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000006",
+      "name": "Window Matrix",
+      "shape": {
+        "source": "generator",
+        "type": "matrix",
+        "columns": 32,
+        "rows": 16,
+        "width": 4,
+        "height": 2,
+        "wiring": {
+          "start": "bottomLeft",
+          "orientation": "horizontal",
+          "serpentine": true
+        }
+      },
+      "transform": {
+        "position": {
+          "x": 0.5,
+          "y": 3.8,
+          "z": 0
+        },
+        "rotationDeg": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "scale": {
+          "x": 1,
+          "y": 1,
+          "z": 1
+        }
+      },
+      "colorOrder": "GRB",
+      "regions": [
+        {
+          "id": "00000000-0000-4000-8000-000000000007",
+          "name": "Top half",
+          "kind": "subBuffer",
+          "x1": 0,
+          "y1": 50,
+          "x2": 100,
+          "y2": 100
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000008",
+          "name": "Singer",
+          "kind": "face",
+          "mouths": {
+            "AI": [
+              {
+                "start": 75,
+                "end": 85
+              },
+              {
+                "start": 107,
+                "end": 117
+              },
+              {
+                "start": 139,
+                "end": 149
+              },
+              {
+                "start": 171,
+                "end": 181
+              },
+              {
+                "start": 203,
+                "end": 213
+              }
+            ],
+            "E": [
+              {
+                "start": 105,
+                "end": 119
+              },
+              {
+                "start": 137,
+                "end": 151
+              },
+              {
+                "start": 169,
+                "end": 183
+              }
+            ],
+            "ETC": [
+              {
+                "start": 108,
+                "end": 116
+              },
+              {
+                "start": 140,
+                "end": 148
+              },
+              {
+                "start": 172,
+                "end": 180
+              }
+            ],
+            "FV": [
+              {
+                "start": 140,
+                "end": 148
+              },
+              {
+                "start": 172,
+                "end": 180
+              }
+            ],
+            "L": [
+              {
+                "start": 108,
+                "end": 116
+              },
+              {
+                "start": 140,
+                "end": 148
+              },
+              {
+                "start": 172,
+                "end": 180
+              },
+              {
+                "start": 204,
+                "end": 212
+              }
+            ],
+            "MBP": [
+              {
+                "start": 138,
+                "end": 150
+              }
+            ],
+            "O": [
+              {
+                "start": 45,
+                "end": 51
+              },
+              {
+                "start": 77,
+                "end": 83
+              },
+              {
+                "start": 109,
+                "end": 115
+              },
+              {
+                "start": 141,
+                "end": 147
+              },
+              {
+                "start": 173,
+                "end": 179
+              },
+              {
+                "start": 205,
+                "end": 211
+              },
+              {
+                "start": 237,
+                "end": 243
+              }
+            ],
+            "REST": [
+              {
+                "start": 140,
+                "end": 148
+              }
+            ],
+            "U": [
+              {
+                "start": 110,
+                "end": 114
+              },
+              {
+                "start": 142,
+                "end": 146
+              },
+              {
+                "start": 174,
+                "end": 178
+              }
+            ],
+            "WQ": [
+              {
+                "start": 78,
+                "end": 82
+              },
+              {
+                "start": 110,
+                "end": 114
+              },
+              {
+                "start": 142,
+                "end": 146
+              },
+              {
+                "start": 174,
+                "end": 178
+              },
+              {
+                "start": 206,
+                "end": 210
+              }
+            ]
+          },
+          "eyesOpen": [
+            {
+              "start": 328,
+              "end": 331
+            },
+            {
+              "start": 373,
+              "end": 376
+            },
+            {
+              "start": 392,
+              "end": 395
+            },
+            {
+              "start": 341,
+              "end": 344
+            },
+            {
+              "start": 360,
+              "end": 363
+            },
+            {
+              "start": 405,
+              "end": 408
+            }
+          ],
+          "eyesClosed": [
+            {
+              "start": 373,
+              "end": 376
+            },
+            {
+              "start": 360,
+              "end": 363
+            }
+          ],
+          "outline": [
+            {
+              "start": 0,
+              "end": 32
+            },
+            {
+              "start": 480,
+              "end": 512
+            },
+            {
+              "start": 63,
+              "end": 64
+            },
+            {
+              "start": 32,
+              "end": 33
+            },
+            {
+              "start": 64,
+              "end": 65
+            },
+            {
+              "start": 95,
+              "end": 96
+            },
+            {
+              "start": 127,
+              "end": 128
+            },
+            {
+              "start": 96,
+              "end": 97
+            },
+            {
+              "start": 128,
+              "end": 129
+            },
+            {
+              "start": 159,
+              "end": 160
+            },
+            {
+              "start": 191,
+              "end": 192
+            },
+            {
+              "start": 160,
+              "end": 161
+            },
+            {
+              "start": 192,
+              "end": 193
+            },
+            {
+              "start": 223,
+              "end": 224
+            },
+            {
+              "start": 255,
+              "end": 256
+            },
+            {
+              "start": 224,
+              "end": 225
+            },
+            {
+              "start": 256,
+              "end": 257
+            },
+            {
+              "start": 287,
+              "end": 288
+            },
+            {
+              "start": 319,
+              "end": 320
+            },
+            {
+              "start": 288,
+              "end": 289
+            },
+            {
+              "start": 320,
+              "end": 321
+            },
+            {
+              "start": 351,
+              "end": 352
+            },
+            {
+              "start": 383,
+              "end": 384
+            },
+            {
+              "start": 352,
+              "end": 353
+            },
+            {
+              "start": 384,
+              "end": 385
+            },
+            {
+              "start": 415,
+              "end": 416
+            },
+            {
+              "start": 447,
+              "end": 448
+            },
+            {
+              "start": 416,
+              "end": 417
+            },
+            {
+              "start": 448,
+              "end": 449
+            },
+            {
+              "start": 479,
+              "end": 480
+            }
+          ],
+          "colors": {
+            "mouths": {
+              "AI": "#ff2d2d",
+              "E": "#ff2d2d",
+              "ETC": "#ff2d2d",
+              "FV": "#ff2d2d",
+              "L": "#ff2d2d",
+              "MBP": "#ff2d2d",
+              "O": "#ff2d2d",
+              "REST": "#ff2d2d",
+              "U": "#ff2d2d",
+              "WQ": "#ff2d2d"
+            },
+            "eyesOpen": "#3cb4ff",
+            "eyesClosed": "#3cb4ff",
+            "outline": "#1fbf4f"
+          }
+        }
+      ],
+      "tags": []
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000009",
+      "name": "Porch Star",
+      "shape": {
+        "source": "generator",
+        "type": "star",
+        "points": 5,
+        "nodes": 100,
+        "outerRadius": 1,
+        "innerRadius": 0.4
+      },
+      "transform": {
+        "position": {
+          "x": -3,
+          "y": 8.2,
+          "z": 0
+        },
+        "rotationDeg": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "scale": {
+          "x": 1,
+          "y": 1,
+          "z": 1
+        }
+      },
+      "colorOrder": "RGB",
+      "regions": [],
+      "tags": []
+    }
+  ],
+  "groups": [],
+  "controllers": [
+    {
+      "id": "00000000-0000-4000-8000-000000000010",
+      "name": "Main FPP",
+      "address": "192.168.1.50",
+      "adapter": "generic",
+      "protocol": {
+        "type": "sacn",
+        "startUniverse": null,
+        "universeSize": 510,
+        "allowPixelStraddle": false,
+        "multicast": false
+      },
+      "ports": [
+        {
+          "number": 1,
+          "maxPixels": null,
+          "brightness": 100,
+          "gamma": 1,
+          "slots": [
+            {
+              "prop": "00000000-0000-4000-8000-000000000001",
+              "segment": null,
+              "nullPixels": 0,
+              "reverse": false,
+              "brightness": null,
+              "gamma": null,
+              "smartReceiver": null
+            },
+            {
+              "prop": "00000000-0000-4000-8000-000000000006",
+              "segment": null,
+              "nullPixels": 0,
+              "reverse": false,
+              "brightness": null,
+              "gamma": null,
+              "smartReceiver": null
+            }
+          ]
+        },
+        {
+          "number": 2,
+          "maxPixels": null,
+          "brightness": 100,
+          "gamma": 1,
+          "slots": [
+            {
+              "prop": "00000000-0000-4000-8000-000000000005",
+              "segment": null,
+              "nullPixels": 0,
+              "reverse": false,
+              "brightness": null,
+              "gamma": null,
+              "smartReceiver": null
+            }
+          ]
+        },
+        {
+          "number": 3,
+          "maxPixels": null,
+          "brightness": 100,
+          "gamma": 1,
+          "slots": []
+        },
+        {
+          "number": 4,
+          "maxPixels": null,
+          "brightness": 100,
+          "gamma": 1,
+          "slots": []
+        }
+      ],
+      "sequenceChannels": {
+        "start": 1,
+        "count": 4800
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000011",
+      "name": "Porch WLED",
+      "address": "192.168.1.60",
+      "adapter": "generic",
+      "protocol": {
+        "type": "ddp"
+      },
+      "ports": [
+        {
+          "number": 1,
+          "maxPixels": null,
+          "brightness": 100,
+          "gamma": 1,
+          "slots": []
+        }
+      ],
+      "sequenceChannels": null
+    }
+  ],
+  "sequences": []
+}

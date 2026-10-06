@@ -13,7 +13,7 @@ import { Button, EmptyState, Input, UnsavedBadge } from "../components/ui";
 import { ago, fileName, shownPath } from "../lib/format";
 import { formatTime } from "../lib/timelineMath";
 import { MAX_ROWS, rowsForShow } from "../api/sequence";
-import { useSequencer } from "../state/sequencer";
+import { type RecentSequence, recentFor, useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
 
 /** How often playback is checked while a sequence plays. */
@@ -543,8 +543,29 @@ function BeatsBanner() {
   );
 }
 
+function RecentSequences({ label, list, onOpen }: { label: string; list: RecentSequence[]; onOpen: (path: string) => Promise<void> }) {
+  if (list.length === 0) return null;
+  return (
+    <section className="mt-6" aria-label={label}>
+      <h2 className="text-sm font-semibold text-neutral-500">{label}</h2>
+      <ul className="mt-2 flex flex-col">
+        {list.map(({ path }) => (
+          <li key={path}>
+            <button type="button" className="w-full truncate rounded px-2 py-1.5 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800" title={shownPath(path)} onClick={() => void onOpen(path)}>
+              {fileName(path)}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function Start({ onNew, onOpen }: { onNew: () => void; onOpen: (path?: string) => Promise<void> }) {
   const recent = useSequencer((s) => s.recent);
+  const showPath = useApp((s) => s.snapshot?.path ?? null);
+  // Sequences used with this show come first.
+  const { mine, others } = recentFor(recent, showPath);
   return (
     <div className="flex flex-1 items-start justify-center overflow-auto p-10">
       <div className="w-full max-w-xl">
@@ -571,20 +592,8 @@ function Start({ onNew, onOpen }: { onNew: () => void; onOpen: (path?: string) =
             <span className="text-sm text-neutral-500">An .xsq file, onto this show&apos;s props and groups.</span>
           </button>
         </div>
-        {recent.length > 0 && (
-          <section className="mt-6" aria-label="Recent sequences">
-            <h2 className="text-sm font-semibold text-neutral-500">Recent</h2>
-            <ul className="mt-2 flex flex-col">
-              {recent.map((path) => (
-                <li key={path}>
-                  <button type="button" className="w-full truncate rounded px-2 py-1.5 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800" title={shownPath(path)} onClick={() => void onOpen(path)}>
-                    {fileName(path)}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
+        <RecentSequences label="With this show" list={mine} onOpen={onOpen} />
+        <RecentSequences label={mine.length > 0 ? "Other recent sequences" : "Recent sequences"} list={others} onOpen={onOpen} />
       </div>
     </div>
   );

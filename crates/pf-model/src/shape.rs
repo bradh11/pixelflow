@@ -15,15 +15,18 @@ pub enum Corner {
     TopRight,
 }
 
-/// Direction the wiring runs first in a matrix.
+/// Direction the wiring runs first in a matrix: strings along rows (horizontal) or along
+/// columns (vertical).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(
+    feature = "schema",
+    schemars(description = "Strings run along rows or columns.")
+)]
 #[serde(rename_all = "camelCase")]
 pub enum Orientation {
-    /// Strings run along rows.
     #[default]
     Horizontal,
-    /// Strings run along columns.
     Vertical,
 }
 
@@ -142,6 +145,27 @@ fn arch_hollow() -> u32 {
     70
 }
 
+/// Where a star's pixels start: its top tip, the inner corner at its bottom (a star with an even
+/// number of points turns so it has one), or the tip of its bottom left or right leg.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(
+    feature = "schema",
+    schemars(description = "Top tip, bottom inner corner, or a bottom leg's tip.")
+)]
+#[serde(rename_all = "camelCase")]
+pub enum StarStart {
+    #[default]
+    Top,
+    Bottom,
+    LeftLeg,
+    RightLeg,
+}
+
+fn half_percent() -> u32 {
+    50
+}
+
 /// The shape of a tree (xLights' Tree 360 / Flat / Ribbon).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -223,8 +247,36 @@ pub enum Generator {
         #[serde(default)]
         start_inside: bool,
     },
-    /// Ring starting at the top and running clockwise; centered.
-    Circle { nodes: u32, radius: f32 },
+    /// Rings of pixels (xLights' Circle), one unless `layers` lists the pixels on each ring,
+    /// innermost first; the rings are evenly spaced from `radius` in to `inner_percent` of it.
+    /// Each ring starts at the top (or bottom) and runs clockwise (or counter-clockwise); the
+    /// string goes round the outermost ring first, or the innermost with `start_inside`. Pixels
+    /// beyond the rings sit in the middle. Centered.
+    #[cfg_attr(
+        feature = "schema",
+        schemars(
+            description = "Rings of pixels from the top, clockwise; `layers` lists each ring's pixels, innermost first. Centered."
+        )
+    )]
+    Circle {
+        nodes: u32,
+        radius: f32,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        layers: Vec<u32>,
+        /// The innermost ring's radius, in percent of the outermost.
+        #[cfg_attr(
+            feature = "schema",
+            schemars(description = "Innermost ring's size, % of the outermost.")
+        )]
+        #[serde(default = "half_percent")]
+        inner_percent: u32,
+        #[serde(default)]
+        start_inside: bool,
+        #[serde(default)]
+        start_at_bottom: bool,
+        #[serde(default)]
+        counter_clockwise: bool,
+    },
     /// Grid of pixels wired according to `wiring`; centered.
     Matrix {
         columns: u32,
@@ -261,12 +313,37 @@ pub enum Generator {
         #[serde(default)]
         start_angle: f32,
     },
-    /// Star outline with `points` tips, pixels spaced evenly along the outline; centered.
+    /// Star outlines with `points` tips (xLights' Star), pixels spaced evenly along each from the
+    /// `start` corner, clockwise (or counter-clockwise). One outline unless `layers` lists the
+    /// pixels on each, innermost first: the outlines are nested, the innermost `inner_percent`
+    /// of the outermost's size, the string going round the outermost first (or the innermost,
+    /// with `start_inside`). Pixels beyond the outlines sit in the middle. Centered.
+    #[cfg_attr(
+        feature = "schema",
+        schemars(
+            description = "Star outlines with `points` tips, pixels evenly along each from `start`, clockwise; `layers` lists each outline's pixels, innermost first. Centered."
+        )
+    )]
     Star {
         points: u32,
         nodes: u32,
         outer_radius: f32,
         inner_radius: f32,
+        #[serde(default)]
+        start: StarStart,
+        #[serde(default)]
+        counter_clockwise: bool,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        layers: Vec<u32>,
+        /// The innermost outline's size, in percent of the outermost.
+        #[cfg_attr(
+            feature = "schema",
+            schemars(description = "Innermost layer's size, % of the outermost.")
+        )]
+        #[serde(default = "half_percent")]
+        inner_percent: u32,
+        #[serde(default)]
+        start_inside: bool,
     },
     /// A line through any number of points, which can bend and curve (xLights' Poly Line).
     /// Pixels run from the first point to the last. Each stretch between two points has its own
@@ -554,6 +631,34 @@ impl Generator {
             layers: Vec::new(),
             hollow: arch_hollow(),
             zig_zag: false,
+            start_inside: false,
+        }
+    }
+
+    /// One ring of `nodes` pixels from the top, clockwise.
+    pub fn circle(nodes: u32, radius: f32) -> Self {
+        Generator::Circle {
+            nodes,
+            radius,
+            layers: Vec::new(),
+            inner_percent: half_percent(),
+            start_inside: false,
+            start_at_bottom: false,
+            counter_clockwise: false,
+        }
+    }
+
+    /// One star outline of `nodes` pixels from the top tip, clockwise.
+    pub fn star(points: u32, nodes: u32, outer_radius: f32, inner_radius: f32) -> Self {
+        Generator::Star {
+            points,
+            nodes,
+            outer_radius,
+            inner_radius,
+            start: StarStart::Top,
+            counter_clockwise: false,
+            layers: Vec::new(),
+            inner_percent: half_percent(),
             start_inside: false,
         }
     }
@@ -1043,6 +1148,49 @@ mod tests {
             *arches = u32::MAX;
         }
         assert_eq!(huge.node_count(), u32::MAX);
+    }
+
+    #[test]
+    fn circles_and_stars_round_trip_their_layers_and_starts() {
+        let circle = Generator::Circle {
+            nodes: 60,
+            radius: 1.0,
+            layers: vec![10, 20, 30],
+            inner_percent: 30,
+            start_inside: true,
+            start_at_bottom: true,
+            counter_clockwise: true,
+        };
+        assert_eq!(circle.node_count(), 60);
+        let json = serde_json::to_value(&circle).unwrap();
+        assert_eq!(json["innerPercent"], 30);
+        assert_eq!(json["startAtBottom"], true);
+        assert_eq!(serde_json::from_value::<Generator>(json).unwrap(), circle);
+        let star = Generator::Star {
+            points: 6,
+            nodes: 80,
+            outer_radius: 1.0,
+            inner_radius: 0.4,
+            start: StarStart::LeftLeg,
+            counter_clockwise: true,
+            layers: vec![30, 50],
+            inner_percent: 40,
+            start_inside: true,
+        };
+        let json = serde_json::to_value(&star).unwrap();
+        assert_eq!(json["start"], "leftLeg");
+        assert_eq!(json["layers"], serde_json::json!([30, 50]));
+        assert_eq!(serde_json::from_value::<Generator>(json).unwrap(), star);
+        // Saved before these settings: one ring or outline from the top, clockwise.
+        let old: Generator =
+            serde_json::from_str(r#"{ "type": "circle", "nodes": 50, "radius": 1 }"#).unwrap();
+        assert_eq!(old, Generator::circle(50, 1.0));
+        assert!(serde_json::to_value(&old).unwrap().get("layers").is_none());
+        let old: Generator = serde_json::from_str(
+            r#"{ "type": "star", "points": 5, "nodes": 50, "outerRadius": 1, "innerRadius": 0.4 }"#,
+        )
+        .unwrap();
+        assert_eq!(old, Generator::star(5, 50, 1.0, 0.4));
     }
 
     #[test]

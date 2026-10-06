@@ -57,7 +57,11 @@ fn imports_props_controllers_and_groups() {
     assert_eq!(arches.color_order, ColorOrder::Grb);
     assert!(matches!(
         arches.shape,
-        ShapeSource::Generator(pf_model::Generator::Arch { arches: 3, nodes: 50, .. })
+        ShapeSource::Generator(pf_model::Generator::Arch {
+            arches: 3,
+            nodes: 50,
+            ..
+        })
     ));
     let everything = show.groups.iter().find(|g| g.name == "Everything").unwrap();
     // The nested group is flattened in place, and the submodel keeps its spot in the list.

@@ -484,6 +484,25 @@ mod tests {
     }
 
     #[test]
+    fn layered_circles_and_stars_within_the_limits_are_valid() {
+        let mut circle = Generator::circle(60, 1.0);
+        if let Generator::Circle { layers, .. } = &mut circle {
+            *layers = vec![10, 20, 30];
+        }
+        let mut star = Generator::star(5, 60, 1.0, 0.4);
+        if let Generator::Star { layers, .. } = &mut star {
+            *layers = vec![20, 40];
+        }
+        for prop in [
+            Prop::new("Target", ShapeSource::Generator(circle)),
+            Prop::new("Topper", ShapeSource::Generator(star)),
+        ] {
+            let show = show_with_slot(PortSlot::new(prop.id), prop);
+            assert_eq!(validate_show(&show).issues, vec![]);
+        }
+    }
+
+    #[test]
     fn icicles_and_candy_canes_within_the_limits_are_valid() {
         for prop in [icicles("Eaves", vec![3, 0, 5]), canes("Walk", 3, 18)] {
             let show = show_with_slot(PortSlot::new(prop.id), prop);
@@ -520,7 +539,7 @@ mod tests {
     #[test]
     fn each_structural_problem_is_reported() {
         type Mutate = fn(&mut Show);
-        let cases: [(IssueCode, Mutate); 47] = [
+        let cases: [(IssueCode, Mutate); 50] = [
             (IssueCode::InvalidFrameRate, |s| s.settings.frame_rate = 5),
             (IssueCode::DuplicateId, |s| {
                 let dup = s.props[0].clone();
@@ -701,6 +720,27 @@ mod tests {
                     *arc = 270.0;
                 }
                 s.props.push(p)
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                let mut shape = Generator::circle(10, 1.0);
+                if let Generator::Circle { inner_percent, .. } = &mut shape {
+                    *inner_percent = 120;
+                }
+                s.props.push(Prop::new("Halo", ShapeSource::Generator(shape)))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                let mut shape = Generator::circle(10, 1.0);
+                if let Generator::Circle { layers, .. } = &mut shape {
+                    *layers = vec![1; crate::MAX_SHAPE_LAYERS + 1];
+                }
+                s.props.push(Prop::new("Target", ShapeSource::Generator(shape)))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                let mut shape = Generator::star(5, 10, 1.0, 0.4);
+                if let Generator::Star { layers, .. } = &mut shape {
+                    *layers = vec![crate::MAX_PROP_NODES + 1];
+                }
+                s.props.push(Prop::new("Big star", ShapeSource::Generator(shape)))
             }),
             (IssueCode::LimitExceeded, |s| {
                 let mut p = arch("Hollow", 1, 10, vec![5, 5]);

@@ -106,6 +106,33 @@ pub(crate) fn check_limits(show: &Show) -> Vec<String> {
             problems.push(problem);
             continue;
         }
+        let rings = match &prop.shape {
+            ShapeSource::Generator(Generator::Circle {
+                layers,
+                inner_percent,
+                ..
+            }) => Some(("circle", layers, *inner_percent)),
+            ShapeSource::Generator(Generator::Star {
+                layers,
+                inner_percent,
+                ..
+            }) => Some(("star", layers, *inner_percent)),
+            _ => None,
+        };
+        if let Some((what, layers, inner_percent)) = rings {
+            let name = format!("The {what} '{}'", prop.name);
+            let problem = if inner_percent > 100 {
+                Some(format!(
+                    "{name} has an innermost layer {inner_percent}% of its size, but that must be at most 100%."
+                ))
+            } else {
+                layers_problem(&name, layers)
+            };
+            if let Some(problem) = problem {
+                problems.push(problem);
+                continue;
+            }
+        }
         if let ShapeSource::Generator(Generator::Sphere {
             start_latitude,
             end_latitude,

@@ -1522,7 +1522,14 @@ mod tests {
         // More pixels than the layers hold: xLights piles the rest at the inner layer's start.
         imports_as(
             "Arches",
-            &with(&ARCHES, &[("NumArches", "1"), ("NodesPerArch", "70"), ("LayerSizes", "10,20,30")]),
+            &with(
+                &ARCHES,
+                &[
+                    ("NumArches", "1"),
+                    ("NodesPerArch", "70"),
+                    ("LayerSizes", "10,20,30"),
+                ],
+            ),
         );
     }
 

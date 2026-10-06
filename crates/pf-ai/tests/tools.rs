@@ -72,10 +72,7 @@ fn shape_samples() -> Vec<Generator> {
             length: 3.0,
         },
         Generator::arch(25, 2.0, 1.0),
-        Generator::Circle {
-            nodes: 30,
-            radius: 0.5,
-        },
+        Generator::circle(30, 0.5),
         Generator::Matrix {
             columns: 16,
             rows: 8,
@@ -94,12 +91,7 @@ fn shape_samples() -> Vec<Generator> {
             degrees: 180.0,
             start_angle: 45.0,
         },
-        Generator::Star {
-            points: 5,
-            nodes: 50,
-            outer_radius: 1.0,
-            inner_radius: 0.4,
-        },
+        Generator::star(5, 50, 1.0, 0.4),
         Generator::PolyLine {
             vertices: vec![Vec3::ZERO, Vec3::new(1.0, 0.5, 0.0), Vec3::new(2.0, 0.0, 0.0)],
             segments: vec![

@@ -4,7 +4,7 @@
 use pf_geometry::{local_positions, world_positions};
 use pf_model::{
     Corner, CubeStart, CubeStyle, Generator, MatrixWiring, Orientation, PolySegment, Prop, Provenance,
-    ShapeSource, StrandStyle, Transform, TreeStyle, Vec3,
+    ShapeSource, StarStart, StrandStyle, Transform, TreeStyle, Vec3,
 };
 use proptest::prelude::*;
 
@@ -22,7 +22,7 @@ fn generator() -> impl Strategy<Value = Generator> {
     prop_oneof![
         (0u32..500, size.clone()).prop_map(|(nodes, length)| Generator::Line { nodes, length }),
         arch(),
-        (0u32..500, size.clone()).prop_map(|(nodes, radius)| Generator::Circle { nodes, radius }),
+        circle(),
         (
             0u32..40,
             0u32..40,
@@ -81,14 +81,7 @@ fn generator() -> impl Strategy<Value = Generator> {
                     }
                 }
             ),
-        (0u32..12, 0u32..500, size.clone(), size).prop_map(|(points, nodes, outer_radius, inner_radius)| {
-            Generator::Star {
-                points,
-                nodes,
-                outer_radius,
-                inner_radius,
-            }
-        }),
+        star(),
         (1u32..20, 1u32..20)
             .prop_flat_map(|(columns, rows)| {
                 let cells = proptest::collection::vec(0u32..50, (columns * rows) as usize);
@@ -181,6 +174,68 @@ fn cube() -> impl Strategy<Value = Generator> {
                     strand_style,
                     strand_per_layer,
                 }
+            },
+        )
+}
+
+/// Circles, plain and layered, including layers holding more or fewer pixels than the circle.
+fn circle() -> impl Strategy<Value = Generator> {
+    (
+        (0u32..300, 0.1f32..50.0),
+        (proptest::collection::vec(0u32..40, 0..6), 0u32..=100),
+        (any::<bool>(), any::<bool>(), any::<bool>()),
+    )
+        .prop_map(
+            |(
+                (nodes, radius),
+                (layers, inner_percent),
+                (start_inside, start_at_bottom, counter_clockwise),
+            )| {
+                Generator::Circle {
+                    nodes,
+                    radius,
+                    layers,
+                    inner_percent,
+                    start_inside,
+                    start_at_bottom,
+                    counter_clockwise,
+                }
+            },
+        )
+}
+
+/// Stars from every start, plain and layered.
+fn star() -> impl Strategy<Value = Generator> {
+    let start = prop_oneof![
+        Just(StarStart::Top),
+        Just(StarStart::Bottom),
+        Just(StarStart::LeftLeg),
+        Just(StarStart::RightLeg)
+    ];
+    (
+        (0u32..12, 0u32..300, 0.1f32..50.0, 0.0f32..50.0),
+        (start, any::<bool>()),
+        (
+            proptest::collection::vec(0u32..40, 0..6),
+            0u32..=100,
+            any::<bool>(),
+        ),
+    )
+        .prop_map(
+            |(
+                (points, nodes, outer_radius, inner_radius),
+                (start, counter_clockwise),
+                (layers, inner_percent, start_inside),
+            )| Generator::Star {
+                points,
+                nodes,
+                outer_radius,
+                inner_radius,
+                start,
+                counter_clockwise,
+                layers,
+                inner_percent,
+                start_inside,
             },
         )
 }
@@ -404,10 +459,7 @@ fn a_quarter_turn_maps_right_to_up_for_every_generator() {
             length: 4.0,
         },
         Generator::arch(7, 4.0, 2.0),
-        Generator::Circle {
-            nodes: 8,
-            radius: 1.5,
-        },
+        Generator::circle(8, 1.5),
         Generator::Matrix {
             columns: 4,
             rows: 3,
@@ -426,12 +478,7 @@ fn a_quarter_turn_maps_right_to_up_for_every_generator() {
             degrees: 360.0,
             start_angle: 0.0,
         },
-        Generator::Star {
-            points: 5,
-            nodes: 20,
-            outer_radius: 1.0,
-            inner_radius: 0.4,
-        },
+        Generator::star(5, 20, 1.0, 0.4),
         Generator::CustomGrid {
             columns: 3,
             rows: 2,

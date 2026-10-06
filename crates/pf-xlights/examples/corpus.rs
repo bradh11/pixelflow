@@ -7,8 +7,6 @@
 //! ```
 //!
 //! `--notes` prints the import's notes; `--list` names the props that kept measured points.
-//! ```text
-//! ```
 
 use pf_model::ShapeSource;
 use std::collections::{BTreeMap, HashMap};

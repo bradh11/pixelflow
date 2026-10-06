@@ -413,6 +413,20 @@ impl Engine {
         self.snapshot()
     }
 
+    /// Starts a new, unsaved show from `show` (an example built into the app): like a new show,
+    /// there's nothing to save, and nothing to ask about, until it's changed. Saving it asks
+    /// where, since it has no file.
+    pub fn start_from(&mut self, show: CheckedShow) -> ShowSnapshot {
+        self.replace_show(show.0, None);
+        self.snapshot()
+    }
+
+    /// Whether the show or the open sequence has changes that haven't been saved (cheap: no
+    /// snapshot is made).
+    pub fn has_unsaved_changes(&self) -> bool {
+        self.revision != self.saved_revision || self.sequence.as_ref().is_some_and(|o| o.is_dirty())
+    }
+
     /// Opens a show file. On failure the current show is left untouched. This reads the disk
     /// (the file, and whether its files are there); to keep that out of a lock around the engine,
     /// use [`persist::read_show`] and [`Engine::open_read`].

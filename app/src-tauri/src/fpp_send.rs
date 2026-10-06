@@ -303,6 +303,16 @@ async fn off_thread<T: Send + 'static>(work: impl FnOnce() -> Reply<T> + Send + 
         .map_err(|_| "Something went wrong talking to the FPP.".to_string())?
 }
 
+/// The music to send, as a full path: a sequence's own music may be named relative to the
+/// sequence file (as the open sequence's music is resolved for playing).
+fn full_music(state: &AppState, music: Option<PathArg>) -> Option<PathArg> {
+    let music = music?;
+    if music.is_absolute() {
+        return Some(music);
+    }
+    Some(PathArg(state.engine().sequence_music().unwrap_or(music.0)))
+}
+
 /// Reads what sending would do: the names on the FPP and whether they're taken, its playlists,
 /// and its free space (changes nothing).
 #[tauri::command]
@@ -312,6 +322,7 @@ pub(crate) async fn fpp_send_plan(
     source: SendSource,
     music: Option<PathArg>,
 ) -> Reply<SendPlan> {
+    let music = full_music(&state, music);
     let http = Arc::clone(&state.devices.upload_http);
     off_thread(move || {
         let files = fpp_upload::read_files(http.as_ref(), &address).map_err(device_error)?;
@@ -327,8 +338,9 @@ pub(crate) async fn fpp_send<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
     address: String,
-    request: SendRequest,
+    mut request: SendRequest,
 ) -> Reply<SendResult> {
+    request.music = full_music(&state, request.music.take());
     let prepared = match &request.source {
         SendSource::OpenSequence { .. } => {
             Prepared::Export(Box::new(state.engine().sequence_export().map_err(message)?))

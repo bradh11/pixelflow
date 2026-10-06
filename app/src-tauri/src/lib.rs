@@ -1573,6 +1573,44 @@ mod tests {
     }
 
     #[test]
+    fn the_open_sequences_own_music_is_found_next_to_it() {
+        let fpp = pf_devices::testing::FakeFpp::start();
+        let (_app, webview, dir) = app();
+        authored(&webview);
+        std::fs::write(dir.path().join("Song.mp3"), b"music").unwrap();
+        call(
+            &webview,
+            "edit_sequence",
+            json!({ "edits": [{ "type": "updateInfo", "name": "Song", "audio": "Song.mp3",
+                                "durationMs": 2000, "frameMs": 25 }] }),
+        )
+        .unwrap();
+        call(
+            &webview,
+            "save_sequence_doc_as",
+            json!({ "path": dir.path().join("Song.pfseq.json") }),
+        )
+        .unwrap();
+        let source = json!({ "kind": "openSequence", "name": "Song" });
+        let plan = call(
+            &webview,
+            "fpp_send_plan",
+            json!({ "address": fpp.address(), "source": source, "music": "Song.mp3" }),
+        )
+        .unwrap();
+        assert_eq!(plan["music"]["name"], "Song.mp3");
+        call(
+            &webview,
+            "fpp_send",
+            json!({ "address": fpp.address(), "request": {
+                "source": source, "music": "Song.mp3", "sequenceName": "Song.fseq", "musicName": "Song.mp3",
+                "uploadMusic": true, "playlist": { "kind": "none" } } }),
+        )
+        .unwrap();
+        assert_eq!(fpp.state().music["Song.mp3"].size, 5);
+    }
+
+    #[test]
     fn the_sequences_on_an_fpp_are_listed_in_one_request() {
         let (_app, webview, _dir) = app();
         let names = call(

@@ -6,7 +6,7 @@
 //! measured points, in channel order); otherwise the model keeps its measured points. So an
 //! import always looks and maps exactly as before, whichever way a model is set up.
 
-use crate::geometry::{Affine, parse_points, rot_from_x_axis, strtod, strtol0};
+use crate::geometry::{Affine, custom_cells, parse_points, rot_from_x_axis, strtod, strtol0};
 use crate::model::XmlModel;
 use pf_model::{Generator, PolySegment, Prop, ShapeSource, Transform, Vec3};
 use std::f64::consts::PI;
@@ -33,6 +33,7 @@ pub(crate) fn editable(model: &XmlModel, points: &[Vec3]) -> Option<Candidate> {
         "Spinner" => spinner(model),
         "Sphere" => sphere(model),
         "Cube" => cube(model),
+        "Custom" => custom(model),
         // Same order as xLights' model factory: matrices before trees.
         t if t.contains("Matrix") && !t.contains("MultiPoint") => matrix(model),
         t if t.starts_with("Tree") => tree(model),
@@ -578,6 +579,46 @@ fn cube(m: &XmlModel) -> Vec<Candidate> {
         strand_per_layer: m.text("StrandPerLayer", "FALSE") == "TRUE",
     };
     vec![(g, place)]
+}
+
+/// `CustomModel` with one layer: its grid cropped to the occupied cells (xLights centers a
+/// custom model on them, as PixelFlow centers its grid), one unit a cell, scaled by `ScaleX/Y`.
+/// Numbering with gaps, several layers or a very large grid stay measured.
+fn custom(m: &XmlModel) -> Vec<Candidate> {
+    let Some(cells) = custom_cells(m.text("CustomModel", ""), m.text("CustomModelCompressed", "")) else {
+        return Vec::new();
+    };
+    let Some(first) = cells.first() else {
+        return Vec::new();
+    };
+    if cells.iter().any(|c| c[3] != first[3]) {
+        return Vec::new();
+    }
+    let (min_r, max_r) = cells
+        .iter()
+        .fold((i64::MAX, i64::MIN), |(a, b), c| (a.min(c[1]), b.max(c[1])));
+    let (min_c, max_c) = cells
+        .iter()
+        .fold((i64::MAX, i64::MIN), |(a, b), c| (a.min(c[2]), b.max(c[2])));
+    let (columns, rows) = (max_c - min_c + 1, max_r - min_r + 1);
+    if columns.saturating_mul(rows) > i64::from(pf_model::MAX_PROP_NODES) {
+        return Vec::new();
+    }
+    let mut grid = vec![0u32; (columns * rows) as usize];
+    for c in &cells {
+        let Ok(value) = u32::try_from(c[0]) else {
+            return Vec::new();
+        };
+        grid[((c[1] - min_r) * columns + c[2] - min_c) as usize] = value;
+    }
+    let b = boxed(m);
+    let scale = Vec3::new(b.scale_x as f32, b.scale_y as f32, b.scale_x as f32) * SCALE;
+    let g = Generator::CustomGrid {
+        columns: columns as u32,
+        rows: rows as u32,
+        cells: grid,
+    };
+    vec![(g, transform(b.position, b.rotation_deg, scale))]
 }
 
 /// Strings and strands of a matrix-wired model (`MatrixModel`): (strands, pixels per strand),
@@ -1724,5 +1765,41 @@ mod tests {
         stays_measured("Tree 360", &with(&TREE, &[("TreeSpiralRotations", "1.5")]));
         stays_measured("Tree 360", &with(&TREE, &[("StartSide", "T")]));
         stays_measured("Tree 360", &with(&TREE, &[("StrandDir", "Horizontal")]));
+    }
+
+    #[test]
+    fn custom_models_import_as_custom_grids_cropped_to_their_pixels() {
+        let base = [
+            ("CustomModel", ",,,;,1,,2;,,,;3,,4,"),
+            ("WorldPosX", "300"),
+            ("WorldPosY", "200"),
+            ("ScaleX", "12"),
+            ("ScaleY", "8"),
+        ];
+        let g = imports_as("Custom", &base);
+        // Rows 1 to 3, columns 0 to 3.
+        assert_eq!(
+            g,
+            Generator::CustomGrid {
+                columns: 4,
+                rows: 3,
+                cells: vec![0, 1, 0, 2, 0, 0, 0, 0, 3, 0, 4, 0],
+            }
+        );
+        // A pixel over two squares sits between them, in both.
+        imports_as(
+            "Custom",
+            &with(&base, &[("CustomModel", "1,1,2;3,,4"), ("RotateZ", "45")]),
+        );
+        imports_as(
+            "Custom",
+            &with(&base, &[("CustomModelCompressed", "1,0,0;2,0,3;3,2,1")]),
+        );
+        // Numbering with a gap leaves the channels a gap too; two layers have depth.
+        stays_measured("Custom", &with(&base, &[("CustomModel", "1,,5")]));
+        stays_measured(
+            "Custom",
+            &with(&base, &[("CustomModel", "1,2|3,4"), ("Depth", "2")]),
+        );
     }
 }

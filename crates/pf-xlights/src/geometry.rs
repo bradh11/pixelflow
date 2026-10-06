@@ -11,6 +11,7 @@ mod custom;
 mod grid;
 mod lines;
 mod poly;
+pub(crate) use custom::custom_cells;
 pub(crate) use poly::parse_points;
 mod radial;
 #[cfg(test)]

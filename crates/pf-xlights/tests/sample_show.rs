@@ -265,6 +265,19 @@ fn editable_shapes_land_on_xlights_positions() {
         "{:?}",
         tree.shape
     );
+    let star = show.props.iter().find(|p| p.name == "Porch Star").unwrap();
+    assert!(
+        matches!(
+            star.shape,
+            ShapeSource::Generator(pf_model::Generator::CustomGrid {
+                columns: 4,
+                rows: 5,
+                ..
+            })
+        ),
+        "{:?}",
+        star.shape
+    );
     let matrix = show.props.iter().find(|p| p.name == "Window Matrix").unwrap();
     assert!(
         matches!(

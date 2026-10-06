@@ -87,10 +87,17 @@ export function ShowMenu() {
 
   useEffect(() => {
     if (!open) return;
-    void useApp.getState().refreshRecent();
+    const firstRecent = () => panel.current?.querySelector<HTMLElement>("[data-recent-item]");
     const items = panel.current?.querySelectorAll<HTMLElement>('[role="menuitem"]');
-    const first = menu === "recent" ? panel.current?.querySelector<HTMLElement>("[data-recent-item]") : null;
-    (first ?? items?.[0])?.focus();
+    ((menu === "recent" ? firstRecent() : null) ?? items?.[0])?.focus();
+    void useApp
+      .getState()
+      .refreshRecent()
+      .then(() => {
+        // Asked for the recent shows before the list had come in.
+        const focused = document.activeElement;
+        if (menu === "recent" && !focused?.hasAttribute("data-recent-item")) firstRecent()?.focus();
+      });
     const onPointer = (e: PointerEvent) => {
       const target = e.target as Node;
       if (!panel.current?.contains(target) && !trigger.current?.contains(target)) useApp.getState().setShowMenu("closed");
@@ -175,8 +182,8 @@ export function ShowMenu() {
                   <span className="flex h-6 w-9 shrink-0 items-center justify-center overflow-hidden rounded bg-neutral-900 dark:bg-black">
                     {show.thumbnail && <img src={thumbnailUrl(show.thumbnail)} alt="" className="h-full w-full object-contain" />}
                   </span>
-                  <span className={`min-w-0 flex-1 truncate ${missing ? "text-neutral-400 line-through decoration-neutral-400/60" : ""}`} title={shownPath(show.path)}>
-                    {show.name}
+                  <span className="min-w-0 flex-1 truncate" title={shownPath(show.path)}>
+                    <span className={missing ? "text-neutral-400 line-through decoration-neutral-400/60" : ""}>{show.name}</span>
                     <span className="ml-1.5 text-xs text-neutral-500">{missing ? "moved — Locate…" : fileName(show.path)}</span>
                   </span>
                   {current && <Check size={14} className="shrink-0 text-accent-600 dark:text-accent-400" aria-label="Open now" />}

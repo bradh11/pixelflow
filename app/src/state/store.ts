@@ -474,6 +474,7 @@ export const useApp = create<AppState>((set, get) => {
       const snapshot = await backend.getSnapshot();
       set({ snapshot });
       if (!snapshot.filesChecked) void get().checkFiles(false);
+      void get().refreshRecent();
     } catch (e) {
       set({ error: errorMessage(e) });
     }

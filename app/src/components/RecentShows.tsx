@@ -43,7 +43,7 @@ export function RecentShowCard({ show, now = Date.now() }: { show: RecentShow; n
       <span className="block truncate text-xs text-neutral-500 dark:text-neutral-400" title={shownPath(show.path)}>
         {folder || shownPath(show.path)}
       </span>
-      <span className="mt-0.5 block truncate text-xs text-neutral-500 dark:text-neutral-400">
+      <span className="mt-0.5 block text-xs text-neutral-500 sm:truncate dark:text-neutral-400">
         {missing ? "Moved or deleted" : `Opened ${ago(show.openedAt, now)}`} · {showCounts(show)}
       </span>
     </span>
@@ -51,11 +51,11 @@ export function RecentShowCard({ show, now = Date.now() }: { show: RecentShow; n
   if (missing) {
     return (
       <li className="flex flex-wrap items-center gap-3 rounded-xl border border-dashed border-neutral-300 p-3 dark:border-neutral-700" aria-label={`${show.name} (moved or deleted)`}>
-        <span className="flex min-w-0 flex-1 items-center gap-3 opacity-60">
+        <span className="flex min-w-[14rem] flex-1 items-center gap-3 opacity-60">
           <Thumbnail show={show} className="h-14 w-[5.5rem]" />
           {details}
         </span>
-        <span className="flex gap-1">
+        <span className="ml-auto flex gap-1">
           <button
             type="button"
             disabled={busy}

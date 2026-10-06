@@ -6,12 +6,14 @@ import { Button } from "./ui";
 /** "Name your show": asked before a new show's first save, so it isn't saved as "Untitled Show". */
 export function NameShowDialog() {
   const offered = useApp((s) => s.naming);
+  return offered === null ? null : <NameShowForm offered={offered} />;
+}
+
+function NameShowForm({ offered }: { offered: string }) {
   const resolve = useApp((s) => s.resolveNaming);
-  const [name, setName] = useState("");
+  const [name, setName] = useState(offered);
 
   useEffect(() => {
-    if (offered === null) return;
-    setName(offered);
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       e.preventDefault();
@@ -20,9 +22,8 @@ export function NameShowDialog() {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [offered, resolve]);
+  }, [resolve]);
 
-  if (offered === null) return null;
   const ok = name.trim().length > 0;
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">

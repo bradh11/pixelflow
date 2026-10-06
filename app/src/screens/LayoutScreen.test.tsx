@@ -1283,7 +1283,8 @@ describe("LayoutScreen", () => {
       await user.type(curve, "120{Enter}");
       expect(shape()).toMatchObject({ arches: 4, gap: 0.5, arc: 120 });
       await user.type(screen.getByLabelText("Layers (pixels each, inside first)"), "10,20,30{Enter}");
-      expect(shape()).toMatchObject({ layers: [10, 20, 30] });
+      // The arch's pixels become the layers' pixels.
+      expect(shape()).toMatchObject({ layers: [10, 20, 30], nodes: 60 });
       expect(screen.queryByLabelText("Arches")).not.toBeInTheDocument();
       expect(screen.getByLabelText("Innermost layer (%)")).toHaveValue("70");
       await user.click(screen.getByLabelText("Starts on the innermost layer"));
@@ -1304,7 +1305,7 @@ describe("LayoutScreen", () => {
       await user.clear(inner);
       await user.type(inner, "40{Enter}");
       await user.click(screen.getByLabelText("Starts at the bottom"));
-      expect(shape()).toMatchObject({ layers: [10, 20], innerPercent: 40, startAtBottom: true });
+      expect(shape()).toMatchObject({ layers: [10, 20], nodes: 30, innerPercent: 40, startAtBottom: true });
     });
 
     it("wires a tree from the top, folds its zig-zag and winds it into a spiral", async () => {

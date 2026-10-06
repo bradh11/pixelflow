@@ -50,6 +50,16 @@ const shapeDefaults = (shape: ShapeSource): Record<string, unknown> => ({
   ...(shape.source === "generator" ? TYPE_DEFAULTS[shape.type] : undefined),
 });
 
+/** `shape` with one setting changed. Giving an arch, circle or star its layers makes its pixel
+ * count theirs, as xLights does, so no pixels are left over in the middle. */
+function withSetting(shape: ShapeSource, key: string, value: unknown): ShapeSource {
+  const next = withField(shape, key, value, shapeDefaults(shape));
+  if (key === "layers" && Array.isArray(value) && value.length > 1 && next.source === "generator" && "nodes" in next) {
+    return { ...next, nodes: (value as number[]).reduce((a, b) => a + b, 0) };
+  }
+  return next;
+}
+
 /** A shape's settings: numbers two to a row, then choices, lists, and checkboxes one to a row. */
 function ShapeFields({ fields, shape, onChange }: { fields: ShapeField[]; shape: ShapeSource; onChange: (key: string, value: unknown) => void }) {
   const defaults = shapeDefaults(shape);
@@ -278,7 +288,7 @@ function OnePropPanel({ prop, points }: { prop: Prop; points: ArrayLike<number> 
             This prop's pixels were placed one by one (imported), so its size is changed by resizing it on the canvas.
           </p>
         ) : fields.length > 0 ? (
-          <ShapeFields fields={fields} shape={shape} onChange={(key, v) => update((p) => ({ ...p, shape: withField(p.shape, key, v, shapeDefaults(p.shape)) }))} />
+          <ShapeFields fields={fields} shape={shape} onChange={(key, v) => update((p) => ({ ...p, shape: withSetting(p.shape, key, v) }))} />
         ) : null}
         <label className={`${fields.length > 0 || shape.source === "measured" ? "mt-2 " : ""}flex flex-col gap-1 text-xs`}>
           <span className="text-neutral-500 dark:text-neutral-400">Color order</span>

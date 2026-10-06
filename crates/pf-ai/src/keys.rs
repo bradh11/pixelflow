@@ -263,14 +263,22 @@ impl KeyVault {
 
 fn store_message(error: StoreError, action: &str) -> AiError {
     let name = keychain_name();
+    // A key that can't be saved can still be used until PixelFlow quits.
+    let session = if action == "save" {
+        " Or use it for this session only."
+    } else {
+        ""
+    };
     AiError::KeyStore(match error {
         StoreError::Unavailable => format!(
             "This computer has no {name} PixelFlow can use, so the key can't be saved. You can use it for this session only."
         ),
         StoreError::Denied => format!(
-            "PixelFlow couldn't {action} the key: the {name} is locked or access was refused. Unlock it and try again."
+            "PixelFlow couldn't {action} the key: the {name} is locked or access was refused. Unlock it and try again.{session}"
         ),
-        StoreError::Failed => format!("PixelFlow couldn't {action} the key in the {name}. Try again."),
+        StoreError::Failed => {
+            format!("PixelFlow couldn't {action} the key in the {name}. Try again.{session}")
+        }
     })
 }
 
@@ -347,6 +355,46 @@ mod tests {
         assert_eq!(vault.key(ProviderId::Openai).unwrap().expose(), FAKE);
         vault.remove(ProviderId::Openai).unwrap();
         assert!(!vault.has(ProviderId::Openai).unwrap());
+    }
+
+    /// A credential store that's there but locked.
+    struct Locked;
+    impl CredentialStore for Locked {
+        fn get(&self, _: &str) -> Result<Option<ApiKey>, StoreError> {
+            Err(StoreError::Denied)
+        }
+        fn set(&self, _: &str, _: &ApiKey) -> Result<(), StoreError> {
+            Err(StoreError::Denied)
+        }
+        fn delete(&self, _: &str) -> Result<(), StoreError> {
+            Err(StoreError::Denied)
+        }
+        fn available(&self) -> bool {
+            true
+        }
+    }
+
+    #[test]
+    fn a_locked_store_is_explained_and_the_session_still_works() {
+        let vault = KeyVault::new(Box::new(Locked));
+        let err = vault
+            .save(ProviderId::Anthropic, ApiKey::new(FAKE).unwrap())
+            .unwrap_err();
+        let text = err.to_string();
+        assert!(
+            text.contains("locked or access was refused")
+                && text.ends_with("Or use it for this session only."),
+            "{text}"
+        );
+        assert!(
+            vault
+                .has(ProviderId::Anthropic)
+                .unwrap_err()
+                .to_string()
+                .contains("couldn't read the key")
+        );
+        vault.use_for_session(ProviderId::Anthropic, ApiKey::new(FAKE).unwrap());
+        assert_eq!(vault.key(ProviderId::Anthropic).unwrap().expose(), FAKE);
     }
 
     #[test]

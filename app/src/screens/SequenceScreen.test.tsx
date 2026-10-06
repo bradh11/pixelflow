@@ -703,3 +703,41 @@ describe("sequence screen with a slow engine", () => {
     expect(seq.undoStack.length).toBe(before + 2);
   });
 });
+
+describe("saving", () => {
+  const toolbar = () => screen.getByRole("toolbar", { name: "Sequence" });
+  const removeFirstRow = () => act(() => useSequencer.getState().edit([{ type: "removeRow", id: useSequencer.getState().doc!.rows[0].id }]));
+
+  it("⌘S saves the sequence and the show when both have changes, and says what it saved", async () => {
+    const { backend, user } = await openScreen();
+    backend.nextSavePath = "/Shows/Demo House.pixelflow.json";
+    await removeFirstRow();
+    await act(() => useApp.getState().apply([{ type: "setFrameRate", fps: 30 }]));
+    expect(within(toolbar()).getByText("Sequence not saved")).toBeInTheDocument();
+    await user.keyboard("{Meta>}s{/Meta}");
+    await waitFor(() => expect(useApp.getState().snapshot!.dirty).toBe(false));
+    expect(useSequencer.getState().dirty).toBe(false);
+    expect(backend.calls).toContain("saveShowAs:/Shows/Demo House.pixelflow.json");
+    expect(screen.getByTestId("toast")).toHaveTextContent("Saved Christmas Medley 2017 and Demo House");
+    expect(within(toolbar()).queryByText("Sequence not saved")).not.toBeInTheDocument();
+  });
+
+  it("⌘S saves only the sequence when the show has no changes", async () => {
+    const { backend, user } = await openScreen();
+    await removeFirstRow();
+    await user.keyboard("{Meta>}s{/Meta}");
+    await waitFor(() => expect(useSequencer.getState().dirty).toBe(false));
+    expect(backend.calls.some((c) => c.startsWith("saveShow"))).toBe(false);
+    expect(screen.getByTestId("toast")).toHaveTextContent("Saved Christmas Medley 2017");
+  });
+
+  it("the Save sequence button saves just the sequence, and says so", async () => {
+    const { user } = await openScreen();
+    await removeFirstRow();
+    await act(() => useApp.getState().apply([{ type: "setFrameRate", fps: 30 }]));
+    await user.click(within(toolbar()).getByRole("button", { name: "Save sequence" }));
+    await waitFor(() => expect(useSequencer.getState().dirty).toBe(false));
+    expect(useApp.getState().snapshot!.dirty).toBe(true);
+    expect(screen.getByTestId("toast")).toHaveTextContent("Saved Christmas Medley 2017");
+  });
+});

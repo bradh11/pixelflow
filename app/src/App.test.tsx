@@ -104,6 +104,7 @@ describe("saving", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(backend.calls).toContain("saveShowAs:/shows/new.pixelflow.json");
     expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("toast").at(-1)).toHaveTextContent("Saved Untitled Show");
 
     backend.nextSavePath = null;
     await addProp(user);

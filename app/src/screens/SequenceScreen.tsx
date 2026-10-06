@@ -9,7 +9,7 @@ import { SequencePreview } from "../components/sequencer/SequencePreview";
 import { AddTimingTrackDialog } from "../components/sequencer/TimingDialogs";
 import { AddRowMenu, Timeline } from "../components/sequencer/Timeline";
 import { useSequenceKeys } from "../components/sequencer/useSequenceKeys";
-import { Button, EmptyState, Input } from "../components/ui";
+import { Button, EmptyState, Input, UnsavedBadge } from "../components/ui";
 import { ago, fileName, shownPath } from "../lib/format";
 import { formatTime } from "../lib/timelineMath";
 import { useSequencer } from "../state/sequencer";
@@ -280,15 +280,8 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
         <>
           <span className="mx-1 max-w-48 truncate font-medium" title={s.path ? shownPath(s.path) : undefined}>
             {s.name}
-            {s.dirty && (
-              <>
-                <span className="ml-1 text-xs text-neutral-500" aria-hidden>
-                  ●
-                </span>
-                <span className="sr-only"> (not saved)</span>
-              </>
-            )}
           </span>
+          {s.dirty && <UnsavedBadge doc="sequence" />}
           <span className="mx-1 h-5 w-px bg-neutral-200 dark:bg-neutral-800" />
           <ToolButton label={s.playing ? "Pause" : "Play"} onClick={() => void (s.playing ? act().pause() : act().play())}>
             {s.playing ? <Pause size={16} /> : <Play size={16} />}

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useAssistant } from "../state/assistant";
+import { saveSequenceAndShow } from "../state/saveAll";
 import { useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
 
@@ -17,7 +18,8 @@ export function useShortcuts() {
       const handlers: Record<string, () => unknown> = {
         k: () => state.setPaletteOpen(!state.paletteOpen),
         l: () => useAssistant.getState().toggle(),
-        s: () => (seq ? (e.shiftKey ? seq.saveAs() : seq.save()) : e.shiftKey ? state.saveAs() : state.save()),
+        // On the Sequence screen ⌘S saves the sequence and, when it has changes, the show too.
+        s: () => (seq ? (e.shiftKey ? seq.saveAs() : saveSequenceAndShow()) : e.shiftKey ? state.saveAs() : state.save()),
         o: () => state.openShow(),
         n: () => state.newShow(),
       };

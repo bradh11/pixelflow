@@ -1,3 +1,4 @@
+import { House, Music } from "lucide-react";
 import type { ComponentProps, InputHTMLAttributes, ReactNode } from "react";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger";
@@ -61,6 +62,25 @@ export function Input({ className = "", ...props }: InputHTMLAttributes<HTMLInpu
 
 export function Select({ className = "", ...props }: ComponentProps<"select">) {
   return <select className={`${CONTROL} ${className}`} {...props} />;
+}
+
+const UNSAVED = {
+  show: { label: "Show not saved", Icon: House, style: "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300" },
+  sequence: { label: "Sequence not saved", Icon: Music, style: "border-violet-300 bg-violet-50 text-violet-800 dark:border-violet-800 dark:bg-violet-950/50 dark:text-violet-300" },
+};
+
+/**
+ * "Show not saved" or "Sequence not saved": the two documents are saved separately, so each says
+ * so in its own color and icon (amber with a house for the show, violet with a note for a sequence).
+ */
+export function UnsavedBadge({ doc }: { doc: "show" | "sequence" }) {
+  const { label, Icon, style } = UNSAVED[doc];
+  return (
+    <span role="note" className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap ${style}`}>
+      <Icon size={12} aria-hidden />
+      {label}
+    </span>
+  );
 }
 
 export function PageHeader({ title, description, actions }: { title: string; description?: string; actions?: ReactNode }) {

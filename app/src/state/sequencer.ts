@@ -21,7 +21,7 @@ import type { MissingFile, PlaybackStatus, XlightsSequenceImported } from "../ap
 import { clock, fileName, plural, shownPath } from "../lib/format";
 import { folderOf } from "../lib/showFiles";
 import { tapEdits } from "../lib/timelineMath";
-import { useApp } from "./store";
+import { type SaveOptions, saidSaved, useApp } from "./store";
 
 const RECENT_KEY = "pixelflow.recentSequences";
 /** Whether playback loops, remembered on this computer. */
@@ -158,8 +158,9 @@ interface SequencerState {
   /** Answers the question: Save (then replace; it keeps asking if the save fails or is
    * cancelled), Don't save, or Cancel. True when the waiting action ran. */
   resolveReplacing(choice: "save" | "discard" | "cancel"): Promise<boolean>;
-  save(): Promise<boolean>;
-  saveAs(): Promise<boolean>;
+  /** Saves the sequence (asking where the first time); a toast says so unless `quiet`. */
+  save(options?: SaveOptions): Promise<boolean>;
+  saveAs(options?: SaveOptions): Promise<boolean>;
   /**
    * Applies edits as one undo step (or merged into `gesture`'s step), in order after every earlier
    * call. Edits given as a function are built from the latest document when their turn comes; an
@@ -450,21 +451,21 @@ export const useSequencer = create<SequencerState>((set, get) => {
       return true;
     },
 
-    async save() {
+    async save(options) {
       const { api, path } = get();
       if (!api || !get().doc) return false;
-      if (!path) return get().saveAs();
+      if (!path) return get().saveAs(options);
       const ok = await serial(() => guarded(async () => (adopt(await api.saveSequenceDoc()), true)));
-      return ok === true;
+      return saidSaved(ok === true, get().doc?.name, options);
     },
 
-    async saveAs() {
+    async saveAs(options) {
       const { api, doc, path } = get();
       if (!api || !doc) return false;
       const target = await guarded(() => api.pickSequenceDocSavePath(path ? fileName(path) : `${doc.name}.pfseq.json`));
       if (!target) return false;
       const ok = await serial(() => guarded(async () => (adopt(await api.saveSequenceDocAs(target)), true)));
-      return ok === true;
+      return saidSaved(ok === true, get().doc?.name, options);
     },
 
     async edit(edits, gesture) {

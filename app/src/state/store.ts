@@ -16,6 +16,7 @@ import type {
 import { fileName } from "../lib/format";
 import { sameFile } from "../lib/showFiles";
 import { useLayoutEditor } from "./layoutEditor";
+import { toast } from "./toast";
 import { showViewKey, useView3d } from "./view3d";
 
 /**
@@ -24,6 +25,17 @@ import { showViewKey, useView3d } from "./view3d";
  * was still on its way.
  */
 export type EditsFrom = Edit[] | ((show: Show) => Edit[]);
+
+/** `quiet`: no "Saved …" toast (the caller says what it saved itself). */
+export interface SaveOptions {
+  quiet?: boolean;
+}
+
+/** Says the show or sequence was saved, unless asked not to (an event passed as options is ignored). */
+export function saidSaved(ok: boolean, name: string | undefined, options?: SaveOptions): boolean {
+  if (ok && name && options?.quiet !== true) toast(`Saved ${name}`);
+  return ok;
+}
 
 export type Screen = "layout" | "wiring" | "devices" | "sequence" | "play" | "test" | "history";
 export type Theme = "dark" | "light";
@@ -99,8 +111,9 @@ interface AppState {
    * about the open sequence's unsaved changes first, like New and Open on the Sequence screen). */
   importXlightsSequence(): Promise<boolean>;
   dismissSequenceImportReport(): void;
-  save(): Promise<boolean>;
-  saveAs(): Promise<boolean>;
+  /** Saves the show (asking where the first time); a toast says so unless `quiet`. */
+  save(options?: SaveOptions): Promise<boolean>;
+  saveAs(options?: SaveOptions): Promise<boolean>;
   /**
    * Looks for the show's missing files (or only `file`) in the show's folder and points the show
    * at what it finds (one undo step), then shows what was found.
@@ -469,10 +482,10 @@ export const useApp = create<AppState>((set, get) => {
     }
   },
 
-  async save() {
+  async save(options) {
     commitFocusedField();
-    if (!get().snapshot?.path) return get().saveAs();
-    return get().run((b) => b.saveShow());
+    if (!get().snapshot?.path) return get().saveAs(options);
+    return saidSaved(await get().run((b) => b.saveShow()), get().snapshot?.show.name, options);
   },
 
   findMissingFiles: (file) =>
@@ -517,7 +530,7 @@ export const useApp = create<AppState>((set, get) => {
 
   dismissMissingNotice: () => set({ missingNoticeDismissed: missingNoticeKey(get().snapshot) }),
 
-  async saveAs() {
+  async saveAs(options) {
     commitFocusedField();
     const backend = get().backend;
     const snapshot = get().snapshot;
@@ -525,13 +538,14 @@ export const useApp = create<AppState>((set, get) => {
     const suggested = snapshot.path ? fileName(snapshot.path) : `${snapshot.show.name}.pixelflow.json`;
     const path = await backend.pickSavePath(suggested);
     if (!path) return false;
-    return get().run(async (b) => {
+    const ok = await get().run(async (b) => {
       const before = get().snapshot ?? snapshot;
       const saved = await b.saveShowAs(path);
       // Before the new path reaches the screens: the 3D camera and photo depth follow the show.
       useView3d.getState().carryShow(showViewKey(before.path, before.show.name), showViewKey(saved.path, saved.show.name));
       return saved;
     });
+    return saidSaved(ok, get().snapshot?.show.name, options);
   },
 };
 });

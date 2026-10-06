@@ -8,6 +8,7 @@ mod circle;
 mod custom_grid;
 mod line;
 mod matrix;
+pub mod polyline;
 mod star;
 mod transform;
 mod tree;
@@ -70,6 +71,11 @@ fn generate(generator: &Generator) -> Vec<Vec3> {
             rows,
             ref cells,
         } => custom_grid::positions(columns, rows, cells),
+        Generator::PolyLine {
+            ref vertices,
+            ref segments,
+            spread_nodes,
+        } => polyline::positions(vertices, segments, spread_nodes),
     }
 }
 

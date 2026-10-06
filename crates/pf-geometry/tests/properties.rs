@@ -3,7 +3,7 @@
 
 use pf_geometry::{local_positions, world_positions};
 use pf_model::{
-    Corner, Generator, MatrixWiring, Orientation, Prop, Provenance, ShapeSource, Transform, Vec3,
+    Corner, Generator, MatrixWiring, Orientation, PolySegment, Prop, Provenance, ShapeSource, Transform, Vec3,
 };
 use proptest::prelude::*;
 
@@ -84,7 +84,30 @@ fn generator() -> impl Strategy<Value = Generator> {
                 (Just(columns), Just(rows), cells)
             })
             .prop_map(|(columns, rows, cells)| Generator::CustomGrid { columns, rows, cells }),
+        poly_line(),
     ]
+}
+
+/// Poly lines, including damaged ones: too few points, or stretches that don't match them.
+fn poly_line() -> impl Strategy<Value = Generator> {
+    let point = (-50f32..50.0, -50f32..50.0, -5f32..5.0).prop_map(|(x, y, z)| Vec3::new(x, y, z));
+    let segment =
+        (0u32..60, proptest::option::of((point.clone(), point.clone()))).prop_map(|(nodes, curve)| {
+            PolySegment {
+                nodes,
+                curve: curve.map(|(a, b)| [a, b]),
+            }
+        });
+    (
+        proptest::collection::vec(point, 0..12),
+        proptest::collection::vec(segment, 0..12),
+        proptest::option::of(0u32..300),
+    )
+        .prop_map(|(vertices, segments, spread_nodes)| Generator::PolyLine {
+            vertices,
+            segments,
+            spread_nodes,
+        })
 }
 
 proptest! {
@@ -186,6 +209,17 @@ fn a_quarter_turn_maps_right_to_up_for_every_generator() {
             columns: 3,
             rows: 2,
             cells: vec![1, 0, 2, 0, 3, 0],
+        },
+        Generator::PolyLine {
+            vertices: vec![Vec3::ZERO, Vec3::new(2.0, 0.0, 0.0), Vec3::new(2.0, 3.0, 0.0)],
+            segments: vec![
+                PolySegment::straight(4),
+                PolySegment {
+                    nodes: 6,
+                    curve: Some([Vec3::new(3.0, 1.0, 0.0), Vec3::new(3.0, 2.0, 0.0)]),
+                },
+            ],
+            spread_nodes: None,
         },
     ];
     for generator in generators {

@@ -6,6 +6,7 @@ import {
   Maximize,
   MousePointer2,
   Rainbow,
+  Ruler,
   Slash,
   Star,
   TreePine,
@@ -87,6 +88,7 @@ export function LayoutToolbar({ hasPhoto, onChoosePhoto }: { hasPhoto: boolean; 
       setView: s.setView,
     })),
   );
+  const smartGuides = useLayoutEditor((s) => s.smartGuides);
   const mode = useView3d((s) => s.mode);
   const in3d = mode === "3d";
   const camera = useView3d((s) => s.camera);
@@ -115,6 +117,14 @@ export function LayoutToolbar({ hasPhoto, onChoosePhoto }: { hasPhoto: boolean; 
       <Divider />
       <ToolButton pressed={snap} label="Snap to grid" hint="Line props up on a grid as you move and draw" onClick={() => setSnap(!snap)}>
         <Magnet size={16} aria-hidden />
+      </ToolButton>
+      <ToolButton
+        pressed={smartGuides}
+        label="Smart guides"
+        hint="Line props up with others, space them evenly, and match sizes as you move, resize, and draw (hold Option/Alt to place freely)"
+        onClick={() => useLayoutEditor.getState().setSmartGuides(!smartGuides)}
+      >
+        <Ruler size={16} aria-hidden />
       </ToolButton>
       <Divider />
       <button type="button" aria-label="Zoom out" title="Zoom out" onClick={() => zoom(1 / 1.25)} className="rounded-md p-1.5 hover:bg-neutral-200/70 dark:hover:bg-neutral-800">

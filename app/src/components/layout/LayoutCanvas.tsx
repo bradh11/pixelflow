@@ -50,10 +50,23 @@ import {
 } from "../../lib/layoutMath";
 import { batchPixels, drawBatches } from "../../lib/pixelBatches";
 import { type PropKind, newProp, nodeCount } from "../../lib/shows";
+import {
+  type GuideIndex,
+  type Marks,
+  guideIndex,
+  guideThreshold,
+  guidesActive,
+  nearbyBoxes,
+  snapAlong,
+  snapMove,
+  snapPointTo,
+  snapResize,
+} from "../../lib/smartGuides";
 import { highlightPixels } from "../../lib/submodels";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { commitGesture, settlePending, unsettled } from "../../state/layoutGestures";
 import { useApp } from "../../state/store";
+import { GUIDE_COLORS, drawGuideMarks } from "./guideMarks";
 import { type PhotoImage, useLiveFrame } from "./useLayoutData";
 
 /** How close (screen pixels) a click must be to a pixel to pick its prop. */
@@ -139,6 +152,10 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
   const spaceHeld = useRef(false);
   /** Where the pointer last was on the canvas (screen pixels), so Shift can take effect mid-drag. */
   const lastPointer = useRef<Pt | null>(null);
+  /** Smart guides for the drag in progress: the other props' boxes, the dragged box as it started, and what to draw. */
+  const guides = useRef<{ index: GuideIndex; start: Box | null; marks: Marks | null } | null>(null);
+  /** Modifier keys as last seen, so pressing or letting go of one mid-drag takes effect at once. */
+  const held = useRef({ shift: false, alt: false });
   const frameRequest = useRef<number | null>(null);
   const [cursor, setCursor] = useState("default");
   const [hovered, setHovered] = useState<string | null>(null);
@@ -195,6 +212,39 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
   };
 
   const hitProp = (props: PreviewProp[], w: Pt, v: View) => hitTest(props, w, HIT_PX / v.zoom, propAngles(latest.current.show.props));
+
+  /** Sets up smart guides for a drag starting now: every prop on screen except `moving` (the nearest, if many) guides `start`. */
+  const startGuides = (props: PreviewProp[], moving: string[], start: Box | null) => {
+    const [v, s, skip] = [currentView(), size(), new Set(moving)];
+    const view = boxFrom(toWorld(v, s, { x: 0, y: 0 }), toWorld(v, s, { x: s.width, y: s.height }));
+    const boxes = props.flatMap((p) => (skip.has(p.prop) ? [] : (boxOfPoints(p.points) ?? [])));
+    const near = start ? { x: (start.minX + start.maxX) / 2, y: (start.minY + start.maxY) / 2 } : { x: v.cx, y: v.cy };
+    guides.current = { index: guideIndex(nearbyBoxes(boxes, view, near)), start, marks: null };
+  };
+
+  /** The smart guides to snap to now: none while they're off or Alt is held. */
+  const activeGuides = () => {
+    const g = guides.current;
+    return g && guidesActive(useLayoutEditor.getState().smartGuides, { altKey: held.current.alt }) ? g : null;
+  };
+
+  /** A point being drawn, on a smart guide if one is near, or else at `fallback` (the grid's point). */
+  const guidedPoint = (w: Pt, fallback: Pt): Pt => {
+    const g = activeGuides();
+    if (!g) return fallback;
+    const r = snapPointTo(g.index, w, { threshold: guideThreshold(currentView().zoom), fallback });
+    g.marks = r.marks;
+    return r.point;
+  };
+
+  /** The end `to` of a line held straight from `from`, slid along it to a smart guide if one is near. */
+  const guidedAlong = (from: Pt, to: Pt): Pt => {
+    const g = activeGuides();
+    if (!g) return to;
+    const r = snapAlong(g.index, from, to, { threshold: guideThreshold(currentView().zoom) });
+    g.marks = r.marks;
+    return r.point;
+  };
 
   const draw = useCallback(() => {
     frameRequest.current = null;
@@ -307,6 +357,9 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
         ctx.stroke();
       }
     }
+
+    const marks = d && guides.current?.marks;
+    if (marks) drawGuideMarks(ctx, marks, at, GUIDE_COLORS[useApp.getState().theme]);
 
     if (d?.kind === "marquee") {
       const [a, b] = [d.fromScreen, d.toScreen];
@@ -441,6 +494,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     const quietTarget = (t: EventTarget | null) => t === canvasRef.current || t === document.body;
     const down = (e: KeyboardEvent) => {
       if (e.key === "Shift") return shiftChanged(true);
+      if (e.key === "Alt") return altChanged(true);
       // ⌘-Space and the like belong to the system, which may keep the key's release to itself.
       if (e.key === " " && quietTarget(e.target) && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
@@ -457,6 +511,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     };
     const up = (e: KeyboardEvent) => {
       if (e.key === "Shift") shiftChanged(false);
+      if (e.key === "Alt") altChanged(false);
       if (e.key === " ") releaseSpace();
     };
     // A key let go while the window is in the background never says so: forget Space then.
@@ -474,6 +529,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     const d = drag.current;
     if (!d) return false;
     drag.current = null;
+    guides.current = null;
     if (d.kind === "photo") useLayoutEditor.getState().setPhotoDraft(null);
     redraw();
     return true;
@@ -498,6 +554,8 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     }
     const s = point(e);
     lastPointer.current = s;
+    held.current = { shift: e.shiftKey, alt: e.altKey };
+    guides.current = null;
     const v = currentView();
     const w = toWorld(v, size(), s);
     const st = useLayoutEditor.getState();
@@ -518,7 +576,8 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
       return;
     }
     if (st.tool !== "select") {
-      const p = st.snap ? snapPoint(w, st.grid) : w;
+      startGuides(effectivePreview(), [], null);
+      const p = guidedPoint(w, st.snap ? snapPoint(w, st.grid) : w);
       drag.current = { kind: "draw", tool: st.tool, from: p, to: p, fromScreen: s, toScreen: s };
       redraw();
       return;
@@ -538,6 +597,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
       if (handle) {
         const gesture: Gesture = { kind: "scale", ax: 0, ay: 0, fx: 1, fy: 1 };
         drag.current = { kind: "scale", ids, frame: sel.frame, handle, from: w, gesture, stretchable: sel.stretchable };
+        startGuides(props, ids, sel.frame.box);
         return;
       }
     }
@@ -546,6 +606,8 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
       const origin = first ? { x: first.transform.position.x, y: first.transform.position.y } : null;
       const gesture: Gesture = { kind: "move", dx: 0, dy: 0 };
       drag.current = { kind: "move", ids, from: w, fromScreen: s, origin, gesture, narrowTo, deselect };
+      const moving = new Set(ids);
+      startGuides(props, ids, frameOfPoints(props.filter((p) => moving.has(p.prop)).map((p) => p.points), 0)?.box ?? null);
     };
     const hit = hitProp(props, w, v);
     if (hit) {
@@ -602,6 +664,9 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     const v = currentView();
     const w = toWorld(v, size(), s);
     const st = useLayoutEditor.getState();
+    if (guides.current) guides.current.marks = null;
+    const g = activeGuides();
+    const threshold = guideThreshold(v.zoom);
     switch (d.kind) {
       case "pan":
         st.setView(panBy(v, s.x - d.last.x, s.y - d.last.y));
@@ -611,9 +676,23 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
         // Until the pointer has really moved, it's still a click.
         if (Math.hypot(s.x - d.fromScreen.x, s.y - d.fromScreen.y) < CLICK_PX && isNoop(d.gesture)) break;
         d.gesture = moveGesture(d.from, w, d.origin, st.snap ? st.grid : null, straight);
+        const raw = moveGesture(d.from, w, d.origin, null, straight);
+        if (g?.start && raw.kind === "move" && d.gesture.kind === "move") {
+          // Smart guides win where one is near; the grid applies elsewhere. Shift's held axis stays put.
+          const sideways = Math.abs(w.x - d.from.x) >= Math.abs(w.y - d.from.y);
+          const lock = straight ? { x: !sideways, y: sideways } : undefined;
+          const r = snapMove(g.index, g.start, raw, { threshold, fallback: d.gesture, lock });
+          d.gesture = { kind: "move", dx: r.dx, dy: r.dy };
+          g.marks = r.marks;
+        }
         break;
       case "scale":
         d.gesture = scaleGesture(d.frame, d.handle, d.from, w, straight || !d.stretchable);
+        if (g?.start) {
+          const r = snapResize(g.index, g.start, d.handle, d.gesture, { threshold, keepAspect: straight || !d.stretchable });
+          d.gesture = r.gesture;
+          g.marks = r.marks;
+        }
         break;
       case "rotate":
         d.gesture = rotateGesture(d.center, d.from, w, straight);
@@ -624,7 +703,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
         break;
       case "draw": {
         const to = st.snap ? snapPoint(w, st.grid) : w;
-        d.to = straight && DRAWN_BY_ENDS.includes(d.tool) ? constrainAngle(d.from, to) : to;
+        d.to = straight && DRAWN_BY_ENDS.includes(d.tool) ? guidedAlong(d.from, constrainAngle(d.from, to)) : guidedPoint(w, to);
         d.toScreen = s;
         break;
       }
@@ -638,14 +717,23 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
   };
 
   /** Shift pressed or let go mid-drag takes effect at once, without waiting for the pointer to move. */
-  function shiftChanged(held: boolean) {
+  function shiftChanged(on: boolean) {
+    held.current.shift = on;
     const d = drag.current;
-    if (d && d.kind !== "pan" && lastPointer.current) follow(d, lastPointer.current, held);
+    if (d && d.kind !== "pan" && lastPointer.current) follow(d, lastPointer.current, on);
+  }
+
+  /** Alt (Option) pressed or let go mid-drag turns smart guides off or back on at once. */
+  function altChanged(on: boolean) {
+    held.current.alt = on;
+    const d = drag.current;
+    if (d && d.kind !== "pan" && lastPointer.current) follow(d, lastPointer.current, held.current.shift);
   }
 
   const onPointerMove = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     const s = point(e);
     lastPointer.current = s;
+    held.current = { shift: e.shiftKey, alt: e.altKey };
     const d = drag.current;
     if (!d) return updateHover(s);
     follow(d, s, e.shiftKey);
@@ -655,6 +743,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     canvasRef.current?.releasePointerCapture?.(e.pointerId);
     const d = drag.current;
     drag.current = null;
+    guides.current = null;
     if (!d) return;
     const st = useLayoutEditor.getState();
     const { apply } = useApp.getState();
@@ -733,6 +822,8 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
         clears it. To draw a new prop, pick Line, Arch, Matrix, Tree, Circle, or Star in the tool bar and drag here; hold Shift
         to keep a line or arch level, upright, or at 45 degrees. Drag empty space, or scroll with two fingers, to move
         around; pinch, or hold Command and scroll, to zoom. Every prop is also in the props list below.
+        With Smart guides on, props snap to line up with, space evenly from, and match the size of others as you move,
+        resize, and draw them; hold Option (Alt) to place them freely.
       </p>
       <SelectionAnnouncer show={show} />
       {hoveredName && (

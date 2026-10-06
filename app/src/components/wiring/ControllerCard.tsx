@@ -24,6 +24,7 @@ import {
   updatePortEdits,
 } from "../../lib/wiringMath";
 import { useApp } from "../../state/store";
+import { toastWithUndo } from "../../state/undoToast";
 import { samePort, sameSlot, useWiring } from "../../state/wiring";
 import { NumberField } from "../layout/PropertiesPanel";
 import { Button } from "../ui";
@@ -423,6 +424,7 @@ function RenameField({ controller, onDone }: { controller: Controller; onDone: (
 /** One controller: its ports as rows, each with its chain of props in wiring order. */
 export function ControllerCard({ controller, data }: { controller: Controller; data: WiringData }) {
   const apply = useApp((s) => s.apply);
+  const edit = useApp((s) => s.edit);
   const collapsed = useWiring((s) => s.collapsed.includes(controller.id));
   const [editing, setEditing] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -478,7 +480,10 @@ export function ControllerCard({ controller, data }: { controller: Controller; d
             variant="danger"
             aria-label={`Delete ${controller.name}`}
             title={wired > 0 ? `Delete this controller (unwires ${plural(wired, "prop")}; Undo brings it back)` : "Delete this controller"}
-            onClick={() => void apply([{ type: "removeController", id: controller.id }])}
+            onClick={async () => {
+              const revision = await edit([{ type: "removeController", id: controller.id }]);
+              toastWithUndo(wired > 0 ? `Deleted ${controller.name} and unwired ${plural(wired, "prop")}` : `Deleted ${controller.name}`, revision);
+            }}
           >
             <Trash2 size={16} />
           </Button>

@@ -5,6 +5,7 @@ import { demoShow } from "../api/demo";
 import { MemoryBackend } from "../api/memory";
 import type { Edit, Show } from "../api/types";
 import { useApp } from "../state/store";
+import { useToasts } from "../state/toast";
 import { useWiring } from "../state/wiring";
 import { WiringScreen } from "./WiringScreen";
 
@@ -476,6 +477,17 @@ describe("wiring screen", () => {
     await user.type(rename, "Porch{Enter}");
     expect(backend.show.controllers[1].name).toBe("Porch");
     expect(screen.getByRole("region", { name: "Porch" })).toBeInTheDocument();
+  });
+
+  it("deleting a controller says what it unwired, and its Undo brings it all back", async () => {
+    const user = await setup();
+    const before = structuredClone(backend.show.controllers);
+    await user.click(screen.getByRole("button", { name: "Delete Main FPP" }));
+    expect(backend.show.controllers.map((c) => c.name)).toEqual(["Porch WLED"]);
+    const toast = useToasts.getState().toasts.at(-1)!;
+    expect(toast.text).toBe("Deleted Main FPP and unwired 3 props");
+    await act(async () => void (await toast.action!.run()));
+    expect(backend.show.controllers).toEqual(before);
   });
 
   it("empty, it points to where props and controllers come from with buttons", async () => {

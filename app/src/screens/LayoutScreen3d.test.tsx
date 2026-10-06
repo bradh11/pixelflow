@@ -229,6 +229,23 @@ describe("the 3D layout", () => {
     expect(backend.show.props[0].transform.position.z).toBe(0);
   });
 
+  it("sets depth, tilt, and turn in the properties panel", async () => {
+    const user = await setup(showWith(line("Gutter", 0, 0)));
+    await open3d(user);
+    act(() => useLayoutEditor.getState().select([backend.show.props[0].id]));
+    for (const [label, value] of [
+      ["Position Z", "1.5"],
+      ["Tilt (X°)", "-10"],
+      ["Turn (Y°)", "30"],
+    ]) {
+      const field = screen.getByLabelText(label);
+      await user.clear(field);
+      await user.type(field, `${value}{Enter}`);
+    }
+    expect(backend.show.props[0].transform.position.z).toBe(1.5);
+    expect(backend.show.props[0].transform.rotationDeg).toEqual({ x: -10, y: 30, z: 0 });
+  });
+
   it("zooms to a prop on double-click, and fits everything in on a double-click elsewhere", async () => {
     const user = await setup(showWith(line("Gutter", 0, 0), line("Fence", 20, 6)));
     await open3d(user);

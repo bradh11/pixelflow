@@ -256,21 +256,13 @@ describe("LayoutScreen", () => {
     await user.clear(x);
     await user.type(x, "7.5{Enter}");
     expect(position("Gutter").x).toBe(7.5);
-    const rotation = screen.getByLabelText("Rotation (degrees)");
+    const rotation = screen.getByLabelText("Rotation°");
     await user.clear(rotation);
     await user.type(rotation, "45{Enter}");
     expect(backend.show.props[0].transform.rotationDeg.z).toBe(45);
-    for (const [label, value] of [
-      ["Position Z", "1.5"],
-      ["Tilt (X°)", "-10"],
-      ["Turn (Y°)", "30"],
-    ]) {
-      const field = screen.getByLabelText(label);
-      await user.clear(field);
-      await user.type(field, `${value}{Enter}`);
-    }
-    expect(backend.show.props[0].transform.position).toEqual({ x: 7.5, y: 0, z: 1.5 });
-    expect(backend.show.props[0].transform.rotationDeg).toEqual({ x: -10, y: 30, z: 45 });
+    // Depth, tilt, and turn belong to the 3D view.
+    for (const label of ["Position Z", "Tilt (X°)", "Turn (Y°)"]) expect(screen.queryByLabelText(label)).not.toBeInTheDocument();
+    expect(backend.show.props[0].transform.position).toEqual({ x: 7.5, y: 0, z: 0 });
     const before = edits.length;
     await user.clear(pixels);
     await user.type(pixels, "lots{Enter}");

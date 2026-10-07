@@ -5,6 +5,7 @@
 //! can take a moment).
 
 mod assistant;
+mod camera_map;
 mod device_setup;
 mod devices;
 mod files;
@@ -274,6 +275,10 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         start_output,
         stop_output,
         output_status,
+        camera_map::camera_map_target,
+        camera_map::camera_map_sync,
+        camera_map::camera_map_decode,
+        camera_map::camera_map_plan,
         devices::discover_devices,
         devices::inspect_device,
         devices::import_device,
@@ -599,6 +604,154 @@ mod tests {
         assert_eq!(snapshot["summary"]["props"], 0);
         let snapshot = call(&webview, "redo", json!({})).unwrap();
         assert_eq!(snapshot["summary"]["props"], 1);
+    }
+
+    #[test]
+    fn camera_mapping_runs_from_target_to_plan() {
+        let (_app, webview, _dir) = app();
+        let line = json!({
+            "id": "11111111-0000-4000-8000-000000000002",
+            "name": "Roof Line",
+            "shape": { "source": "generator", "type": "line", "nodes": 4, "length": 3 },
+            "colorOrder": "RGB",
+        });
+        call(
+            &webview,
+            "apply_edits",
+            json!({ "edits": [{ "type": "addProp", "prop": line }] }),
+        )
+        .unwrap();
+        let target = json!({ "type": "prop", "id": "11111111-0000-4000-8000-000000000002" });
+        let info = call(
+            &webview,
+            "camera_map_target",
+            json!({ "target": target, "base": "four" }),
+        )
+        .unwrap();
+        assert_eq!(info["pixels"], 4);
+        assert_eq!(info["props"][0]["name"], "Roof Line");
+        let spec = pf_camera_map::CodeSpec::new(4, pf_camera_map::Base::Four);
+        assert_eq!(info["seconds"], f64::from(spec.duration()));
+        let nobody = json!({ "type": "prop", "id": "11111111-0000-4000-8000-0000000000ff" });
+        assert!(
+            call(
+                &webview,
+                "camera_map_target",
+                json!({ "target": nobody, "base": "four" })
+            )
+            .is_err()
+        );
+
+        // Brightness of a video starting 1 s before the sequence.
+        let slots = spec.slots();
+        let samples: Vec<Value> = (0..600)
+            .map(|i| {
+                let t = f64::from(i) / 30.0;
+                let k = ((t - 1.0) / 0.5).floor();
+                let lit = k >= 0.0 && slots[k as usize % slots.len()] == pf_camera_map::Slot::White;
+                json!({ "t": t, "v": if lit { 50.0 } else { 10.0 } })
+            })
+            .collect();
+        let sync = call(
+            &webview,
+            "camera_map_sync",
+            json!({ "samples": samples, "pixels": 4, "base": "four" }),
+        )
+        .unwrap();
+        assert!((sync["start"].as_f64().unwrap() - 1.0).abs() < 0.05, "{sync}");
+        assert_eq!(sync["windows"].as_array().unwrap().len(), slots.len());
+        let flat: Vec<Value> = (0..600)
+            .map(|i| json!({ "t": f64::from(i) / 30.0, "v": 10.0 }))
+            .collect();
+        assert!(
+            call(
+                &webview,
+                "camera_map_sync",
+                json!({ "samples": flat, "pixels": 4, "base": "four" })
+            )
+            .is_err()
+        );
+
+        // One frame per slot: the four pixels 10 px apart along a row of a 48 × 16 frame.
+        let (w, h) = (48usize, 16usize);
+        let mut bytes = Vec::new();
+        for slot in &slots {
+            let mut frame = vec![5u8; w * h * 3];
+            for i in 0..4u32 {
+                let rgb = match spec.symbol(*slot, i) {
+                    pf_camera_map::Symbol::Off => continue,
+                    pf_camera_map::Symbol::Red => [220, 30, 20],
+                    pf_camera_map::Symbol::Green => [30, 220, 60],
+                    pf_camera_map::Symbol::Blue => [20, 60, 220],
+                    pf_camera_map::Symbol::White => [230, 230, 230],
+                };
+                for (dx, dy, f) in [(0, 0, 1.0), (1, 0, 0.5), (-1, 0, 0.5), (0, 1, 0.5), (0, -1, 0.5)] {
+                    let (x, y) = ((9 + 10 * i as i32 + dx) as usize, (8 + dy) as usize);
+                    for c in 0..3 {
+                        frame[(y * w + x) * 3 + c] = (f * f64::from(rgb[c])) as u8 + 5;
+                    }
+                }
+            }
+            bytes.extend(frame);
+        }
+        let request = |header: Option<String>| {
+            let mut headers = tauri::http::HeaderMap::new();
+            if let Some(h) = header {
+                headers.insert(camera_map::FRAMES_HEADER, h.parse().unwrap());
+            }
+            InvokeRequest {
+                cmd: "camera_map_decode".into(),
+                callback: CallbackFn(0),
+                error: CallbackFn(1),
+                url: webview.url().unwrap(),
+                body: InvokeBody::Raw(bytes.clone()),
+                headers,
+                invoke_key: INVOKE_KEY.to_string(),
+            }
+        };
+        let header = json!({ "width": w, "height": h, "pixels": 4, "base": "four" }).to_string();
+        let decoded: Value = get_ipc_response(&webview, request(Some(header)))
+            .unwrap()
+            .deserialize()
+            .unwrap();
+        let found: Vec<(u64, f64)> = decoded["pixels"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| (p["index"].as_u64().unwrap(), p["x"].as_f64().unwrap()))
+            .collect();
+        assert_eq!(
+            found.iter().map(|f| f.0).collect::<Vec<_>>(),
+            [0, 1, 2, 3],
+            "{decoded}"
+        );
+        assert!(
+            found
+                .iter()
+                .all(|(i, x)| (x - (9.0 + 10.0 * *i as f64)).abs() < 0.1)
+        );
+        assert!(get_ipc_response(&webview, request(None)).is_err());
+
+        let plan = call(
+            &webview,
+            "camera_map_plan",
+            json!({ "target": target, "pixels": 4, "decoded": decoded, "anchors": [] }),
+        )
+        .unwrap();
+        assert_eq!(plan["props"][0]["nodes"], 4);
+        assert_eq!(plan["plan"]["props"][0]["found"], 4);
+        // The line is 3 units long in the layout: 1 unit between pixels, as measured.
+        let points = plan["plan"]["props"][0]["points"].as_array().unwrap();
+        let gap = points[1][0].as_f64().unwrap() - points[0][0].as_f64().unwrap();
+        assert!((gap - 1.0).abs() < 1e-3, "{plan}");
+        assert!(
+            call(
+                &webview,
+                "camera_map_plan",
+                json!({ "target": target, "pixels": 5, "decoded": decoded, "anchors": [] })
+            )
+            .is_err()
+        );
     }
 
     #[test]

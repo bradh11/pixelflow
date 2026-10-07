@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { demoShow } from "../api/demo";
 import { MemoryBackend } from "../api/memory";
 import type { Edit, Show } from "../api/types";
+import { wiringBox, wiringView } from "../components/wiring/WiringPreview";
+import { toScreen } from "../lib/layoutMath";
 import { newController } from "../lib/shows";
 import { useApp } from "../state/store";
 import { useToasts } from "../state/toast";
@@ -612,6 +614,125 @@ describe("wiring screen", () => {
     expect(screen.queryByRole("button", { name: "Garage Arch on Main FPP port 1" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Main FPP" }));
     expect(chip("Garage Arch on Main FPP port 1")).toBeInTheDocument();
+  });
+
+  describe("wiring on the layout", () => {
+    /** The demo show without its photo, so the canvas shows just the props. */
+    const plain = () => ({ ...demoShow(), background: null });
+
+    /** Clicks the prop's middle pixel on the click-to-wire canvas. */
+    async function clickOn(name: string) {
+      const preview = (await backend.previewProps()).props;
+      const id = backend.show.props.find((p) => p.name === name)!.id;
+      const points = preview.find((p) => p.prop === id)!.points;
+      const mid = Math.floor(points.length / 4) * 2;
+      const s = toScreen(wiringView(wiringBox(preview, null, 0), CANVAS), CANVAS, { x: points[mid], y: points[mid + 1] });
+      const canvas = document.querySelector("[data-wire-canvas]")!;
+      await act(async () => fireEvent.click(canvas, { clientX: s.x, clientY: s.y }));
+    }
+    const chain = () => within(screen.getByRole("list", { name: /in wiring order/ })).getAllByRole("listitem").map((li) => li.textContent);
+    const wire = (port: number, controller: string) => screen.getByRole("button", { name: `Wire port ${port} of ${controller} on the layout` });
+
+    it("adds props in the order they're clicked, as one undo step when done", async () => {
+      const user = await setup(plain());
+      await act(async () => {}); // the props' positions arrive
+      await user.click(wire(1, "Porch WLED"));
+      expect(screen.getByRole("heading", { name: "Wiring Porch WLED · Port 1" })).toHaveFocus();
+      await clickOn("Porch Star");
+      await clickOn("Garage Arch");
+      // Wired on another port: it asks first.
+      expect(screen.getByRole("group", { name: "What to do with this prop" })).toHaveTextContent("Garage Arch is on Main FPP · Port 1. Move it here?");
+      await user.click(screen.getByRole("button", { name: "Move it here" }));
+      await clickOn("Mega Tree");
+      await user.click(screen.getByRole("button", { name: "Move it here" }));
+      expect(chain()).toEqual(["1Porch Star", "2Garage Arch", "3Mega Tree"]);
+      // Nothing changes until Done.
+      expect(edits).toHaveLength(0);
+      // The running count: Star 100 + Arch 50 + Tree 800.
+      expect(screen.getByRole("complementary", { name: "Wiring this port" })).toHaveTextContent("950 px");
+
+      await user.click(screen.getByRole("button", { name: "Done" }));
+      expect(names(1, 0)).toEqual(["Porch Star", "Garage Arch", "Mega Tree"]);
+      expect(names(0, 0)).toEqual(["Window Matrix"]);
+      expect(names(0, 1)).toEqual([]);
+      expect(edits).toHaveLength(1);
+      await waitFor(() => expect(wire(1, "Porch WLED")).toHaveFocus());
+      await act(() => useApp.getState().undo());
+      expect(names(1, 0)).toEqual([]);
+      expect(names(0, 0)).toEqual(["Garage Arch", "Window Matrix"]);
+    });
+
+    it("clicking a prop already on the port removes it or moves it to the end", async () => {
+      const user = await setup(plain());
+      await act(async () => {});
+      await user.click(wire(1, "Main FPP"));
+      await clickOn("Garage Arch");
+      expect(screen.getByRole("group", { name: "What to do with this prop" })).toHaveTextContent("Garage Arch is already on this port.");
+      await user.click(screen.getByRole("button", { name: "Move to end" }));
+      expect(chain()).toEqual(["1Window Matrix", "2Garage Arch"]);
+      await clickOn("Window Matrix");
+      await user.click(screen.getByRole("button", { name: "Remove" }));
+      expect(chain()).toEqual(["1Garage Arch"]);
+      await user.click(screen.getByRole("button", { name: "Done" }));
+      expect(names(0, 0)).toEqual(["Garage Arch"]);
+      expect(edits).toHaveLength(1);
+    });
+
+    it("Escape closes the question, then leaves without changing anything", async () => {
+      const user = await setup(plain());
+      await act(async () => {});
+      await user.click(wire(1, "Porch WLED"));
+      await clickOn("Porch Star");
+      await clickOn("Mega Tree");
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("group", { name: "What to do with this prop" })).not.toBeInTheDocument();
+      expect(chain()).toEqual(["1Porch Star"]);
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("heading", { name: /^Wiring Porch WLED/ })).not.toBeInTheDocument();
+      expect(edits).toHaveLength(0);
+      expect(names(1, 0)).toEqual([]);
+      await waitFor(() => expect(wire(1, "Porch WLED")).toHaveFocus());
+    });
+
+    it("works from the keyboard: pick props from a list in order", async () => {
+      const user = await setup(plain());
+      wire(1, "Porch WLED").focus();
+      await user.keyboard("{Enter}");
+      const next = screen.getByRole("list", { name: "Props to add, in the order you pick them" });
+      // Unwired first.
+      expect(within(next).getAllByRole("button")[0]).toHaveTextContent("Porch Star");
+      await user.type(screen.getByLabelText("Find a prop to wire next"), "star");
+      within(next).getByRole("button", { name: /Porch Star/ }).focus();
+      await user.keyboard("{Enter}");
+      await user.clear(screen.getByLabelText("Find a prop to wire next"));
+      within(next).getByRole("button", { name: /Mega Tree/ }).focus();
+      await user.keyboard("{Enter}");
+      screen.getByRole("button", { name: "Move it here" }).focus();
+      await user.keyboard("{Enter}");
+      expect(chain()).toEqual(["1Porch Star", "2Mega Tree"]);
+      screen.getByRole("button", { name: "Move Porch Star to the end" }).focus();
+      await user.keyboard("{Enter}");
+      expect(chain()).toEqual(["1Mega Tree", "2Porch Star"]);
+      screen.getByRole("button", { name: "Done" }).focus();
+      await user.keyboard("{Enter}");
+      expect(names(1, 0)).toEqual(["Mega Tree", "Porch Star"]);
+      expect(edits).toHaveLength(1);
+    });
+
+    it("wires onto the smart receiver picked", async () => {
+      const show = plain();
+      show.controllers[0].ports[0].slots[0].smartReceiver = 1;
+      show.controllers[0].ports[0].slots[1].smartReceiver = 2;
+      const user = await setup(show);
+      await user.click(wire(1, "Main FPP"));
+      expect(screen.getByRole("radio", { name: "Receiver B" })).toBeChecked();
+      await user.click(screen.getByRole("radio", { name: "Receiver A" }));
+      await user.click(within(screen.getByRole("list", { name: "Props to add, in the order you pick them" })).getByRole("button", { name: /Porch Star/ }));
+      await user.click(screen.getByRole("button", { name: "Done" }));
+      const slots = backend.show.controllers[0].ports[0].slots;
+      expect(names(0, 0)).toEqual(["Garage Arch", "Porch Star", "Window Matrix"]);
+      expect(slots.map((s) => s.smartReceiver)).toEqual([1, 1, 2]);
+    });
   });
 
   it("describes the hovered port's wiring under the preview", async () => {

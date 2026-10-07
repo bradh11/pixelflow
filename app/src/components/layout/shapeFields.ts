@@ -1,12 +1,23 @@
 // The settings the properties panel offers for each kind of generated prop, in plain words.
 // Keys name the shape's own fields (a dot reaches into a nested one, like "wiring.start").
 
-export type ShapeField =
+export type ShapeField = (
   | { kind: "number"; key: string; label: string; integer?: boolean; min: number; max?: number; hint?: string }
   | { kind: "bool"; key: string; label: string; hint?: string }
   | { kind: "choice"; key: string; label: string; options: { value: string; label: string }[]; hint?: string }
-  /** Whole numbers typed as a comma list, like an icicle drop pattern "3,4,5,4". */
-  | { kind: "numbers"; key: string; label: string; min: number; max?: number; hint?: string };
+  /** Whole numbers typed as a comma list, like an icicle drop pattern "3,4,5,4"; `allowEmpty` lets it be cleared. */
+  | { kind: "numbers"; key: string; label: string; min: number; max?: number; hint?: string; allowEmpty?: boolean }
+) & {
+  /** Shown only when this says so for the shape (a setting that only matters with another one). */
+  showIf?: (shape: Record<string, unknown>) => boolean;
+};
+
+/** `field`, shown only when `when` holds for the shape. */
+const only = (when: (shape: Record<string, unknown>) => boolean, field: ShapeField): ShapeField => ({ ...field, showIf: when });
+const hasLayers = (shape: Record<string, unknown>) => Array.isArray(shape.layers) && shape.layers.length > 0;
+/** Circles and stars nest only with two layers or more; one is just the plain ring or star. */
+const severalLayers = (shape: Record<string, unknown>) => Array.isArray(shape.layers) && shape.layers.length > 1;
+const noLayers = (shape: Record<string, unknown>) => !hasLayers(shape);
 
 export const COUNT = (key: string, label: string, min = 1, hint?: string): ShapeField => ({ kind: "number", key, label, integer: true, min, hint });
 export const SIZE = (key: string, label: string, min = 0.01, hint?: string): ShapeField => ({ kind: "number", key, label, min, hint });
@@ -19,6 +30,10 @@ export const CHOICE = (key: string, label: string, options: [string, string][], 
   options: options.map(([value, l]) => ({ value, label: l })),
   hint,
 });
+
+/** A list of pixels per layer (innermost first) that may be left empty for one layer. */
+const LAYERS = (label: string, hint: string): ShapeField => ({ kind: "numbers", key: "layers", label, min: 1, max: 1_000_000, allowEmpty: true, hint });
+const INNER_SIZE = (label: string, hint: string): ShapeField => ({ kind: "number", key: "innerPercent", label, integer: true, min: 0, max: 100, hint });
 
 const CORNERS: [string, string][] = [
   ["bottomLeft", "Bottom left"],
@@ -36,8 +51,37 @@ const STRAND_STYLES: [string, string][] = [
 /** The size and pixel settings for each kind of generated prop. */
 export const SHAPE_FIELDS: Record<string, ShapeField[]> = {
   line: [COUNT("nodes", "Pixels"), SIZE("length", "Length")],
-  arch: [COUNT("nodes", "Pixels"), SIZE("width", "Width"), SIZE("height", "Height")],
-  circle: [COUNT("nodes", "Pixels"), SIZE("radius", "Radius")],
+  arch: [
+    COUNT("nodes", "Pixels", 1, "Pixels on each arch (on a layered arch, on all its layers together)"),
+    only(noLayers, COUNT("arches", "Arches", 1, "Arches in a row, one after another on the same string")),
+    SIZE("width", "Width", 0.01, "Between an arch's two feet"),
+    SIZE("height", "Height", 0.01, "From the feet to the top"),
+    NUMBER("arc", "Curve (°)", 1, 180, "How much of a circle each arch is: 180 is a half circle, less is a flatter arch"),
+    NUMBER("skewDeg", "Lean (°)", -180, 180, "How far the arches lean; positive leans left"),
+    only(noLayers, SIZE("gap", "Gap between arches", 0, "From one arch's right foot to the next one's left foot")),
+    {
+      kind: "numbers",
+      key: "layers",
+      label: "Layers (pixels each, inside first)",
+      min: 1,
+      max: 1_000_000,
+      allowEmpty: true,
+      hint: "For an arch made of arches inside each other: the pixels on each, innermost first, like 20,30,40. Leave it empty for plain arches",
+    },
+    only(hasLayers, { kind: "number", key: "hollow", label: "Innermost layer (%)", integer: true, min: 0, max: 100, hint: "The innermost arch's size, in percent of the outermost" }),
+    BOOL("startRight", "First pixel on the right (the data comes in there)"),
+    only(hasLayers, BOOL("startInside", "Starts on the innermost layer")),
+    only(hasLayers, BOOL("zigZag", "Every other layer runs back the other way")),
+  ],
+  circle: [
+    COUNT("nodes", "Pixels", 1, "All the pixels, on all the rings together"),
+    SIZE("radius", "Radius", 0.01, "Of the outermost ring"),
+    LAYERS("Rings (pixels each, inside first)", "For rings inside each other: the pixels on each ring, innermost first, like 10,20,30. Leave it empty for one ring"),
+    only(severalLayers, INNER_SIZE("Innermost ring (%)", "The innermost ring's size, in percent of the outermost")),
+    BOOL("startAtBottom", "Starts at the bottom"),
+    BOOL("counterClockwise", "Goes round counter-clockwise"),
+    only(severalLayers, BOOL("startInside", "Starts on the innermost ring")),
+  ],
   matrix: [
     COUNT("columns", "Columns"),
     COUNT("rows", "Rows"),
@@ -68,9 +112,44 @@ export const SHAPE_FIELDS: Record<string, ShapeField[]> = {
       ["flat", "Flat (strings fanned out)"],
       ["ribbon", "Ribbon (fanned, strings the same length)"],
     ]),
-    BOOL("serpentine", "Zig-zag (every other string runs top to bottom)"),
+    CHOICE("start", "First pixel", CORNERS, "Where the data comes in: a top corner runs the first string down, a right one goes round the other way"),
+    BOOL("serpentine", "Zig-zag (every other string runs back)"),
+    only(
+      (shape) => shape.serpentine === true,
+      COUNT(
+        "strandsPerString",
+        "Zig-zag restarts every",
+        0,
+        "For strings folded up and down a few times: how many strands each string makes. 0 is one long zig-zag; 1 means no zig-zag, and an even number is the same as 0",
+      ),
+    ),
+    BOOL("alternateNodes", "Pixels go up every other spot and come back down"),
+    only(
+      (shape) => (shape.style ?? "round") === "round",
+      NUMBER("spiralRotations", "Spiral turns", -100, 100, "How many times the strings wind round the tree on the way up; 0 runs them straight up"),
+    ),
   ],
-  star: [COUNT("points", "Points", 2), COUNT("nodes", "Pixels"), SIZE("outerRadius", "Outer radius"), SIZE("innerRadius", "Inner radius")],
+  star: [
+    COUNT("points", "Points", 2),
+    COUNT("nodes", "Pixels", 1, "All the pixels, on all the outlines together"),
+    SIZE("outerRadius", "Outer radius", 0.01, "Out to the tips"),
+    SIZE("innerRadius", "Inner radius", 0.01, "Out to the corners between the tips"),
+    CHOICE(
+      "start",
+      "First pixel",
+      [
+        ["top", "Top tip"],
+        ["bottom", "Bottom, between the legs"],
+        ["leftLeg", "Bottom left tip"],
+        ["rightLeg", "Bottom right tip"],
+      ],
+      "Where the data comes in. Starting at the bottom turns a star with an even number of points so a corner is there",
+    ),
+    BOOL("counterClockwise", "Goes round counter-clockwise"),
+    LAYERS("Layers (pixels each, inside first)", "For stars inside each other: the pixels on each, innermost first, like 20,40. Leave it empty for one star"),
+    only(severalLayers, INNER_SIZE("Innermost star (%)", "The innermost star's size, in percent of the outermost")),
+    only(severalLayers, BOOL("startInside", "Starts on the innermost star")),
+  ],
   candyCanes: [
     COUNT("canes", "Canes"),
     COUNT("nodesPerCane", "Pixels per cane"),
@@ -186,8 +265,9 @@ export function withField<T>(obj: T, key: string, value: unknown, defaults: Reco
   return { ...o, [head]: withField(inner, rest.join("."), value) } as T;
 }
 
-/** "3,4,5,4" as numbers, or null when it isn't a list of whole numbers within the bounds with at least one not 0. */
-export function parseNumbers(text: string, min: number, max = Infinity): number[] | null {
+/** "3,4,5,4" as numbers, or null when it isn't a list of whole numbers within the bounds with at least one not 0 (with `allowEmpty`, blank reads as no numbers). */
+export function parseNumbers(text: string, min: number, max = Infinity, allowEmpty = false): number[] | null {
+  if (allowEmpty && text.trim() === "") return [];
   const parts = text.split(",").map((s) => s.trim());
   if (parts.length === 0 || parts.some((p) => p === "")) return null;
   const nums = parts.map(Number);

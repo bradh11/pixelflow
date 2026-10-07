@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xrgb>
+  <models>
+    <model name="Bike Frame" DisplayAs="Poly Line" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="1" parm2="40" parm3="1"
+           WorldPosX="400.0" WorldPosY="300.0" WorldPosZ="0.0" ScaleX="1.0" ScaleY="1.0" ScaleZ="1.0"
+           NumPoints="4" PointData="-100.0,0.0,0.0,0.0,60.0,0.0,100.0,0.0,0.0,0.0,-60.0,0.0"
+           cPointData="0,-100.0,40.0,0.000000,-40.0,60.0,0.000000,2,100.0,-40.0,0.000000,40.0,-60.0,0.000000,"
+           Seg1="10" Seg2="10" Seg3="10" StartChannel="1" versionNumber="7"/>
+    <model name="Garland" DisplayAs="Poly Line" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="1" parm2="30" parm3="1"
+           WorldPosX="100.0" WorldPosY="600.0" WorldPosZ="0.0" ScaleX="1.0" ScaleY="1.0" ScaleZ="1.0"
+           NumPoints="3" PointData="0.0,0.0,0.0,150.0,0.0,0.0,300.0,0.0,0.0"
+           cPointData="0,40.0,-50.0,0.000000,110.0,-50.0,0.000000,1,190.0,-50.0,0.000000,260.0,-50.0,0.000000,"
+           StartChannel="121" versionNumber="7"/>
+  </models>
+  <modelGroups/>
+</xrgb>

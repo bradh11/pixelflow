@@ -68,7 +68,8 @@ fn number(node: Node<'_, '_>, key: &str) -> u32 {
 
 /// Reads every controller in file order and assigns absolute channels.
 pub fn parse_networks(xml: &str) -> Result<Vec<XController>, XlightsError> {
-    let doc = crate::xml::parse(xml).map_err(|e| XlightsError::BadFile("xlights_networks.xml", e))?;
+    let xml = crate::xml::without_bare_doctype(xml);
+    let doc = crate::xml::parse(&xml).map_err(|e| XlightsError::BadFile("xlights_networks.xml", e))?;
     let root = doc.root_element();
     let mut controllers = Vec::new();
     let mut next = 1u32;

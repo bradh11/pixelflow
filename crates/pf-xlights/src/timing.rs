@@ -61,7 +61,8 @@ pub fn parse_xtiming(text: &str, duration_ms: u64, file: &str) -> Result<TimingF
     if text.len() > MAX_TIMING_FILE_BYTES {
         return Err(bad(file, too_big(text.len())));
     }
-    let doc = xml::parse(text).map_err(|reason| bad(file, reason))?;
+    let text = xml::without_bare_doctype(text);
+    let doc = xml::parse(&text).map_err(|reason| bad(file, reason))?;
     let root = doc.root_element();
     let timings: Vec<_> = match root.tag_name().name() {
         "timing" => vec![root],

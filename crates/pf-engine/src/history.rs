@@ -15,6 +15,11 @@ pub fn estimated_bytes(show: &Show) -> usize {
                     vertices, segments, ..
                 }) => 12 * vertices.len() + 32 * segments.len(),
                 ShapeSource::Generator(Generator::Icicles { drops, .. }) => 4 * drops.len(),
+                ShapeSource::Generator(
+                    Generator::Arch { layers, .. }
+                    | Generator::Circle { layers, .. }
+                    | Generator::Star { layers, .. },
+                ) => 4 * layers.len(),
                 ShapeSource::Generator(_) => 0,
             };
             // What a region holds in memory: its runs and gaps (a run of any length is one

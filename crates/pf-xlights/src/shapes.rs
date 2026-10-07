@@ -26,11 +26,14 @@ pub(crate) fn editable(model: &XmlModel, points: &[Vec3]) -> Option<Candidate> {
     let candidates = match model.display_as.trim() {
         "Poly Line" => poly_line(model),
         "Single Line" => single_line(model, points.len()),
+        "Arches" => arches(model),
         "Candy Canes" => candy_canes(model),
         "Icicles" => icicles(model),
         "Window Frame" => window_frame(model),
         "Wreath" => wreath(model),
         "Spinner" => spinner(model),
+        "Circle" => circle(model),
+        "Star" => star(model),
         "Sphere" => sphere(model),
         "Cube" => cube(model),
         "Custom" => custom(model),
@@ -39,6 +42,13 @@ pub(crate) fn editable(model: &XmlModel, points: &[Vec3]) -> Option<Candidate> {
         t if t.starts_with("Tree") => tree(model),
         _ => Vec::new(),
     };
+    // Only shapes a show file can hold: one the show's limits refuse would stop the whole
+    // show from opening, where measured points import fine. Checked first, so an odd shape is
+    // never laid out.
+    let candidates: Vec<Candidate> = candidates
+        .into_iter()
+        .filter(|(g, _)| pf_model::shape_problem(&model.name, g).is_none())
+        .collect();
     if candidates.is_empty() {
         return None;
     }
@@ -137,42 +147,43 @@ fn reversed_segments(segments: &[PolySegment]) -> Vec<PolySegment> {
 /// `NodesPerString` spread over the whole line when the segments have no counts. Wired from the
 /// last point back (`Dir="R"`), the line is turned around so its pixels still run first to last.
 ///
-/// Curved segments are imported straight, as they've always been drawn on import.
+/// Curved stretches (`cPointData`: the stretch, then its two control points) become PixelFlow
+/// curves, which xLights and PixelFlow both walk along in 25 straight pieces.
 fn poly_line(m: &XmlModel) -> Vec<Candidate> {
     let n = int(m, "NumPoints", 2).max(2);
     if n as usize > pf_model::MAX_POLY_VERTICES {
         return Vec::new();
     }
     let n = n as usize;
-    // xLights curves (`cPointData`: 7 fields per curved stretch, its index first) are drawn
-    // straight on import, so a curved line keeps its measured points rather than look editable.
-    let curve_fields: Vec<&str> = m.text("cPointData", "").split(',').collect();
-    if curve_fields
-        .as_chunks::<7>()
-        .0
+    let curves = crate::geometry::parse_curves(m.text("cPointData", ""), n - 1);
+    let raw = parse_points(m.text("PointData", "0.0, 0.0, 0.0, 0.0, 0.0, 0.0"), n);
+    // xLights' poly-point bounds (its curves included, seeded at 100000 and 0 as in xLights): a
+    // nearly flat line (under 0.1 tall) has its straight stretches drawn flat at its lowest
+    // point but not its curves, so a nearly flat line with curves keeps its points.
+    let joints: Vec<[f64; 3]> = curves
         .iter()
-        .any(|c| (0..(n - 1) as i64).contains(&strtol0(c[0])))
-    {
+        .flat_map(|(&i, &(c0, c1))| crate::geometry::curve_joints(raw[i], c0, c1, raw[i + 1]))
+        .collect();
+    let lo_y = raw.iter().chain(&joints).fold(100_000.0f64, |lo, p| lo.min(p[1]));
+    let hi_y = raw.iter().chain(&joints).fold(0.0f64, |hi, p| hi.max(p[1]));
+    let flat = (hi_y - lo_y).abs() < 0.1;
+    if flat && !curves.is_empty() {
         return Vec::new();
     }
-    let raw = parse_points(m.text("PointData", "0.0, 0.0, 0.0, 0.0, 0.0, 0.0"), n);
-    // xLights' poly-point bounds: a nearly flat line (under 0.1 tall) is drawn flat at its lowest
-    // point (bounds seeded at 100000 and 0, as in xLights).
-    let lo_y = raw.iter().fold(100_000.0f64, |lo, p| lo.min(p[1]));
-    let hi_y = raw.iter().fold(0.0f64, |hi, p| hi.max(p[1]));
-    let flat = (hi_y - lo_y).abs() < 0.1;
+    let local = |p: [f64; 3]| Vec3::new(p[0] as f32, p[1] as f32, p[2] as f32) * SCALE;
     let vertices: Vec<Vec3> = raw
         .iter()
         .map(|p| Vec3::new(p[0] as f32, if flat { lo_y } else { p[1] } as f32, p[2] as f32) * SCALE)
         .collect();
     let spread = m.attr("Seg1").is_none();
     let segments: Vec<PolySegment> = (0..n - 1)
-        .map(|i| {
-            PolySegment::straight(if spread {
+        .map(|i| PolySegment {
+            nodes: if spread {
                 0
             } else {
                 int(m, &format!("Seg{}", i + 1), 0).max(0) as u32
-            })
+            },
+            curve: curves.get(&i).map(|&(c0, c1)| [local(c0), local(c1)]),
         })
         .collect();
     let spread_nodes = spread.then(|| parm(m, "NodesPerString", "parm2", 0).max(0) as u32);
@@ -341,6 +352,171 @@ fn candy_canes(m: &XmlModel) -> Vec<Candidate> {
         start_right: m.attr("Dir") == Some("R"),
     };
     vec![(generator, between_ends(&tp, false))]
+}
+
+/// `ArchesModel` with one light per node: its arches (or layers) and settings, sized and placed
+/// so they land where xLights draws them. xLights builds each arch from `l` steps (pixels per
+/// arch, or the longest layer): an ellipse `l - 1` across and `l × Height` up about a center `l`
+/// in from the arch's start, `l + (l - 1) sin(arc / 2)` steps an arch plus `Gap` between; the
+/// row is scaled to the distance between its two points. Arches whose lowest pixel sits above
+/// one step are moved down by it (unscaled by `Height`), which the placement takes up.
+fn arches(m: &XmlModel) -> Vec<Candidate> {
+    let layers: Vec<u32> = crate::geometry::layer_sizes(m.text("LayerSizes", ""))
+        .into_iter()
+        .filter_map(count)
+        .collect();
+    let (Some(arch_count), Some(nodes)) = (
+        count(parm(m, "NumArches", "parm1", 1).max(0)),
+        count(parm(m, "NodesPerArch", "parm2", 1).max(0)),
+    ) else {
+        return Vec::new();
+    };
+    if parm(m, "LightsPerNode", "parm3", 1) != 1
+        || nodes == 0
+        || layers.len() > pf_model::MAX_SHAPE_LAYERS
+        || (layers.is_empty()
+            && (arch_count == 0
+                || u64::from(arch_count) * u64::from(nodes) > u64::from(pf_model::MAX_PROP_NODES)))
+        || nodes > pf_model::MAX_PROP_NODES
+    {
+        return Vec::new();
+    }
+    let arc = m.attr("Arc").or_else(|| m.attr("arc")).map_or(180, strtol0);
+    if !(1..=180).contains(&arc) {
+        return Vec::new();
+    }
+    let skew = if m.attr("ArchesSkew").is_some() {
+        int(m, "ArchesSkew", 0)
+    } else {
+        int(m, "Angle", 0)
+    };
+    let hollow = int(m, "Hollow", 70);
+    if !(-180..=180).contains(&skew) || (!layers.is_empty() && !(0..=100).contains(&hollow)) {
+        return Vec::new();
+    }
+    let height = float(m, "Height", 1.0);
+    let gap_steps = int(m, "Gap", 0) as f64;
+    let ltor = m.attr("Dir") != Some("R");
+    let half = (arc as f64).to_radians() / 2.0;
+    let (sin_half, cos_half) = half.sin_cos();
+    // Steps along each arch (the longest layer's), and the arch's width in steps.
+    let l = f64::from(layers.iter().copied().max().unwrap_or(nodes));
+    let arch_steps = l + (l - 1.0) * sin_half;
+    let render_wi = if layers.is_empty() {
+        arch_steps * f64::from(arch_count) + f64::from(arch_count - 1) * gap_steps
+    } else {
+        arch_steps
+    };
+    let tp = three_point(m);
+    let s = tp.length / render_wi;
+    // The lowest pixel's height, in unscaled steps, as xLights moves the arches down by it.
+    let lowest = l * lowest_cos(
+        &layers,
+        nodes,
+        ltor,
+        m.attr("StartSide").is_none_or(|v| v == "B"),
+        m.attr("ZigZag") == Some("true"),
+        half,
+    );
+    let shift = if lowest > 1.0 { lowest } else { 0.0 };
+    // Ellipse semi-axes (layout units).
+    let (ea, eb) = ((l - 1.0) * s, l * height * s);
+    let (sin_skew, cos_skew) = (skew as f64).to_radians().sin_cos();
+    let spacing = arch_steps + gap_steps;
+    let row = if layers.is_empty() {
+        f64::from(arch_count - 1) * spacing
+    } else {
+        0.0
+    };
+    // The generator's origin (mid-row, level with the outermost feet) in xLights' scaled local
+    // space: the row's middle, the feet `eb · cos(half)` above the ellipse centers, leaned.
+    let feet = eb * cos_half;
+    let origin = [
+        s * (l + row / 2.0) - feet * sin_skew,
+        feet * cos_skew - s * shift,
+        0.0,
+    ];
+    let w = (2.0 * ea * sin_half) as f32 * SCALE;
+    let h = (eb * (1.0 - cos_half)) as f32 * SCALE;
+    if !w.is_finite() || !h.is_finite() {
+        return Vec::new();
+    }
+    let layered = !layers.is_empty();
+    let generator = Generator::Arch {
+        nodes,
+        width: w,
+        height: h,
+        arches: if layered { 1 } else { arch_count },
+        arc: arc as f32,
+        gap: (s * (spacing - 2.0 * (l - 1.0) * sin_half)) as f32 * SCALE,
+        skew_deg: skew as f32,
+        start_right: !ltor,
+        hollow: if layered { hollow as u32 } else { 70 },
+        zig_zag: layered && m.attr("ZigZag") == Some("true"),
+        start_inside: layered && m.attr("StartSide").is_some_and(|v| v != "B"),
+        layers,
+    };
+    vec![(generator, placed_at(&tp, origin))]
+}
+
+/// The smallest `cos(angle)` of the pixels of an xLights arch of `nodes` pixels (layered when
+/// `layers` isn't empty), angles running from `-half` to `half`; xLights moves arches down by
+/// the lowest pixel's height.
+fn lowest_cos(layers: &[u32], nodes: u32, ltor: bool, outside_first: bool, zig_zag: bool, half: f64) -> f64 {
+    if layers.is_empty() {
+        return if nodes > 1 { half.cos() } else { 1.0 };
+    }
+    // Which spots along the longest layer the pixels take (`ArchesModel::InitModel`).
+    let max_len = i64::from(layers.iter().copied().max().unwrap_or(1));
+    let mut spots = vec![0i64; nodes as usize];
+    let (mut idx, mut forward) = (0usize, ltor);
+    for layer in 0..layers.len() {
+        if idx >= spots.len() {
+            break;
+        }
+        let it = layers[if outside_first {
+            layers.len() - layer - 1
+        } else {
+            layer
+        }];
+        if it == 1 {
+            spots[idx] = max_len / 2;
+            idx += 1;
+        } else {
+            let step = (max_len - 1) as f32 / (it as f32 - 1.0);
+            for x in 0..it {
+                // Past the last pixel, the rest of the layer changes nothing.
+                if idx >= spots.len() {
+                    break;
+                }
+                let xx = (x as f32 * step).round() as i64;
+                spots[idx] = if forward { xx } else { max_len - 1 - xx };
+                idx += 1;
+            }
+        }
+        if zig_zag {
+            forward = !forward;
+        }
+    }
+    let midpt = (max_len - 1) as f64 / 2.0;
+    spots
+        .iter()
+        .map(|&x| {
+            if midpt == 0.0 {
+                1.0
+            } else {
+                (-half + 2.0 * half * x as f64 / midpt / 2.0).cos()
+            }
+        })
+        .fold(f64::INFINITY, f64::min)
+}
+
+/// The placement of a PixelFlow shape whose origin is at `origin` in a three-point model's own
+/// (scaled) space.
+fn placed_at(tp: &ThreePoint, origin: [f64; 3]) -> Transform {
+    let at = tp.turn.apply(origin);
+    let p = |i: usize| ((tp.start[i] + at[i]) * f64::from(SCALE)) as f32;
+    transform(Vec3::new(p(0), p(1), p(2)), euler_degrees(&tp.turn.m), Vec3::ONE)
 }
 
 /// `IciclesModel` without shear: its settings, its columns spread over the distance between its
@@ -737,26 +913,36 @@ fn matrix(m: &XmlModel) -> Vec<Candidate> {
         .collect()
 }
 
-/// `TreeModel` with one light per node and strands running up (vertical strands from the
-/// bottom left, no spiral, no first-strand offset): a round tree of `render_ht = 3 × rows` units
-/// tall and `render_ht / 1.8` across the base (tapering by `TreeBottomTopRatio`), starting at
-/// `-degrees / 2 + TreeRotation`; or a flat (ribbon) tree `2 × rows` tall, `4 (5) × strands` across
-/// the base and `0.9 × strands` across the top. Upright: xLights' 2D tilt (`TreePerspective`) is
-/// left out.
+/// `TreeModel` with one light per node and vertical strands (no first-strand offset): a round
+/// tree of `render_ht = 3 × rows` units tall and `render_ht / 1.8` across the base (tapering by
+/// `TreeBottomTopRatio`), starting at `-degrees / 2 + TreeRotation` and winding round
+/// `TreeSpiralRotations` times; or a flat (ribbon) tree `2 × rows` tall, `4 (5) × strands` across
+/// the base and `0.9 × strands` across the top. Wired as xLights wires it: from any corner, with
+/// its zig-zag starting afresh with each string folded into several strands, or alternate
+/// pixels. Upright: xLights' 2D tilt (`TreePerspective`) is left out.
 fn tree(m: &XmlModel) -> Vec<Candidate> {
     use pf_model::TreeStyle;
-    if m.text("StrandDir", "Vertical") != "Vertical"
-        || float(m, "TreeSpiralRotations", 0.0) as f32 != 0.0
-        || int(m, "exportFirstStrand", 0) > 1
-    {
+    if m.text("StrandDir", "Vertical") != "Vertical" || int(m, "exportFirstStrand", 0) > 1 {
         return Vec::new();
     }
-    let Some(s) = strands(m) else {
+    let strings = parm(m, "NumStrings", "parm1", 1);
+    let nps = parm(m, "NodesPerString", "parm2", 1);
+    if strings <= 0 || nps <= 0 {
+        return Vec::new();
+    }
+    let sps = parm(m, "StrandsPerString", "parm3", 1).max(1).min(nps);
+    let (Some(strands), Some(per_strand)) = (count(strings.saturating_mul(sps)), count(nps / sps)) else {
         return Vec::new();
     };
-    if !s.ltor || !s.btot {
+    if per_strand == 0 || u64::from(strands) * u64::from(per_strand) > u64::from(pf_model::MAX_PROP_NODES) {
         return Vec::new();
     }
+    // xLights zig-zags within each string, so an even fold is the same as zig-zagging
+    // throughout, and a string of one strand never runs back.
+    let alternate_nodes = flag(m, "AlternateNodes");
+    let serpentine = !alternate_nodes && !flag(m, "NoZig") && sps > 1;
+    let strands_per_string = if serpentine && sps % 2 == 1 { sps as u32 } else { 0 };
+    let (ltor, btot) = start_side(m);
     let t = m.display_as.trim();
     let degrees = if t == "Tree" {
         match int(m, "TreeType", 0) {
@@ -775,7 +961,7 @@ fn tree(m: &XmlModel) -> Vec<Candidate> {
     let Some((unit, mut place)) = solid_placement(m, &boxed(m), [1.0; 3]) else {
         return Vec::new();
     };
-    let (bw, bh) = (f64::from(s.strands), f64::from(s.per_strand));
+    let (bw, bh) = (f64::from(strands), f64::from(per_strand));
     let (style, height, base, top, start_angle) = if degrees > 0 {
         let render_ht = bh * 3.0;
         let mut radius = render_ht / 1.8 / 2.0;
@@ -803,23 +989,23 @@ fn tree(m: &XmlModel) -> Vec<Candidate> {
     };
     let u = f64::from(unit);
     place.position = pf_geometry::apply_transform(Vec3::new(0.0, -(height * u / 2.0) as f32, 0.0), &place);
-    s.serpentine
-        .iter()
-        .map(|&serpentine| {
-            let g = Generator::Tree {
-                strings: s.strands,
-                nodes_per_string: s.per_strand,
-                height: (height * u) as f32,
-                base_radius: (base * u) as f32,
-                top_radius: (top * u) as f32,
-                serpentine,
-                style,
-                degrees: if degrees > 0 { degrees as f32 } else { 360.0 },
-                start_angle: start_angle as f32,
-            };
-            (g, place)
-        })
-        .collect()
+    let spiral = float(m, "TreeSpiralRotations", 0.0) as f32;
+    let g = Generator::Tree {
+        strings: strands,
+        nodes_per_string: per_strand,
+        height: (height * u) as f32,
+        base_radius: (base * u) as f32,
+        top_radius: (top * u) as f32,
+        serpentine,
+        style,
+        degrees: if degrees > 0 { degrees as f32 } else { 360.0 },
+        start_angle: start_angle as f32,
+        start: corner(ltor, btot),
+        strands_per_string,
+        alternate_nodes,
+        spiral_rotations: if style == TreeStyle::Round { spiral } else { 0.0 },
+    };
+    vec![(g, place)]
 }
 
 /// `WindowFrameModel` with one light per node: its pixel counts, start corner and direction,
@@ -856,6 +1042,154 @@ fn window_frame(m: &XmlModel) -> Vec<Candidate> {
         counter_clockwise,
     };
     vec![(generator, transform(b.position, b.rotation_deg, Vec3::ONE))]
+}
+
+/// xLights' layer sizes for a ringed model (Circle, Star) of `lights` pixels: `LayerSizes` (or
+/// the legacy list in `legacy`, a circle's written the other way round), one layer of every
+/// pixel when there's at most one; a circle's cut down so they hold no more than the model.
+fn ring_sizes(m: &XmlModel, legacy: &str, lights: i64) -> Vec<i64> {
+    let mut layers = match m.attr(legacy).filter(|s| !s.is_empty()) {
+        Some(s) if legacy == "circleSizes" => {
+            let reversed: Vec<&str> = s.split(',').rev().collect();
+            crate::geometry::layer_sizes(&reversed.join(","))
+        }
+        Some(s) => crate::geometry::layer_sizes(s),
+        None => crate::geometry::layer_sizes(m.text("LayerSizes", "")),
+    };
+    if layers.len() <= 1 {
+        return vec![lights];
+    }
+    if legacy != "circleSizes" {
+        return layers;
+    }
+    // `CircleModel::InitCircle`; xLights' `SetLayerSize` ignores a size of 0.
+    let mut held = 0;
+    for size in layers.iter_mut() {
+        if held + *size > lights && held < lights {
+            *size = lights - held;
+        }
+        held += *size;
+    }
+    layers
+}
+
+/// `CircleModel` with one light per node: its rings (innermost first, as PixelFlow lists them),
+/// spaced from the outermost (`max ring / 2` units across, scaled) in to `centerPercent` of it,
+/// and where and which way each ring starts.
+fn circle(m: &XmlModel) -> Vec<Candidate> {
+    let lights = parm(m, "NumStrings", "parm1", 1)
+        .max(0)
+        .saturating_mul(parm(m, "NodesPerString", "parm2", 1).max(0));
+    let Some(nodes) = count(lights).filter(|&n| n > 0 && n <= pf_model::MAX_PROP_NODES) else {
+        return Vec::new();
+    };
+    let sizes = ring_sizes(m, "circleSizes", lights);
+    let center = parm(m, "centerPercent", "parm3", 0);
+    if sizes.len() > pf_model::MAX_SHAPE_LAYERS || !(0..=100).contains(&center) {
+        return Vec::new();
+    }
+    let Some((radius, place)) =
+        round_placement(&boxed(m), sizes.iter().copied().max().unwrap_or(1) as f64 / 2.0)
+    else {
+        return Vec::new();
+    };
+    let start_inside = m.attr("InsideOut") == Some("1");
+    // xLights goes round its rings in its own list's order backwards, from the outside, or
+    // from the inside out with the same counts, so the counts follow the radii only then.
+    let mut layers: Vec<u32> = if sizes.len() > 1 {
+        sizes.iter().filter_map(|&n| count(n)).collect()
+    } else {
+        Vec::new()
+    };
+    if start_inside {
+        layers.reverse();
+    }
+    let generator = Generator::Circle {
+        nodes,
+        radius,
+        layers,
+        inner_percent: center as u32,
+        start_inside,
+        start_at_bottom: m.attr("StartSide") == Some("B"),
+        counter_clockwise: m.attr("Dir") == Some("R"),
+    };
+    vec![(generator, place)]
+}
+
+/// `StarModel` with one light per node: its points, layers, start and direction, and its size:
+/// the outermost tips `buffer / 2` units out (xLights' buffer grows with the layers inside),
+/// the corners between them `starRatio` times nearer, before scaling.
+fn star(m: &XmlModel) -> Vec<Candidate> {
+    use pf_model::StarStart;
+    let lights = parm(m, "NumStrings", "parm1", 1)
+        .max(0)
+        .saturating_mul(parm(m, "NodesPerString", "parm2", 1).max(0));
+    let points = parm(m, "StarPoints", "parm3", 5).max(2);
+    let Some(nodes) = count(lights).filter(|&n| n > 0 && n <= pf_model::MAX_PROP_NODES) else {
+        return Vec::new();
+    };
+    let sizes = ring_sizes(m, "starSizes", lights);
+    if points > i64::from(pf_model::MAX_STAR_POINTS) || sizes.len() > pf_model::MAX_SHAPE_LAYERS {
+        return Vec::new();
+    }
+    let lc = sizes.len();
+    // `StarModel::InitModel`: each layer's share of the buffer, inflated for the layers outside it.
+    let buffer = (0..lc)
+        .map(|l| {
+            let outside = (lc - l - 1) as f32;
+            1 + (f64::from(sizes[l] as f32) * (1.0 + f64::from(outside / lc as f32))) as i64
+        })
+        .max()
+        .unwrap_or(1);
+    let ratio = f64::from(float(m, "starRatio", 2.618034) as f32).max(1.0);
+    let mut inner_percent = int(m, "starCenterPercent", -1);
+    if lc > 1 && inner_percent == -1 {
+        inner_percent = (100.0f32 / lc as f32) as i64;
+    }
+    if lc > 1 && !(0..=100).contains(&inner_percent) {
+        return Vec::new();
+    }
+    let location = match m.attr("StarStartLocation").filter(|s| !s.is_empty()) {
+        Some(s) => s.to_string(),
+        None => {
+            let (ltor, btot) = (m.text("Dir", "L") == "L", m.text("StartSide", "B") == "B");
+            match (ltor, btot) {
+                (true, true) => "Bottom Ctr-CW",
+                (true, false) => "Top Ctr-CCW",
+                (false, true) => "Bottom Ctr-CCW",
+                (false, false) => "Top Ctr-CW",
+            }
+            .to_string()
+        }
+    };
+    let start = if location.contains("Top") {
+        StarStart::Top
+    } else if location.contains("Bottom Ctr") {
+        StarStart::Bottom
+    } else if location.contains("Left") {
+        StarStart::LeftLeg
+    } else {
+        StarStart::RightLeg
+    };
+    let Some((outer, place)) = round_placement(&boxed(m), buffer as f64 / 2.0) else {
+        return Vec::new();
+    };
+    let generator = Generator::Star {
+        points: points as u32,
+        nodes,
+        outer_radius: outer,
+        inner_radius: (f64::from(outer) / ratio) as f32,
+        start,
+        counter_clockwise: location.contains("-CCW"),
+        layers: if lc > 1 {
+            sizes.iter().filter_map(|&n| count(n)).collect()
+        } else {
+            Vec::new()
+        },
+        inner_percent: if lc > 1 { inner_percent as u32 } else { 50 },
+        start_inside: location.contains("Inside"),
+    };
+    vec![(generator, place)]
 }
 
 /// `WreathModel` with one light per node: its lights, where they start and which way they go,
@@ -1049,19 +1383,55 @@ mod tests {
         );
     }
 
+    /// A line bending round a curve from (100, 0) to (100, 80), its control points out to the right.
+    const CURVED: [(&str, &str); 6] = [
+        ("NumPoints", "3"),
+        ("PointData", "0,0,0,100,0,0,100,80,0"),
+        ("Seg1", "6"),
+        ("Seg2", "12"),
+        ("cPointData", "1,160,10,0,150,70,0"),
+        ("WorldPosX", "300"),
+    ];
+
+    #[test]
+    fn curved_poly_lines_import_as_curved_poly_lines() {
+        let g = imports_as("Poly Line", &CURVED);
+        let Generator::PolyLine { segments, .. } = g else {
+            panic!("{g:?}")
+        };
+        assert_eq!(segments[0].curve, None);
+        let [c0, c1] = segments[1].curve.expect("the second stretch is curved");
+        assert!((c0 - Vec3::new(1.6, 0.1, 0.0)).length() < 1e-6, "{c0:?}");
+        assert!((c1 - Vec3::new(1.5, 0.7, 0.0)).length() < 1e-6, "{c1:?}");
+        // The measured points follow the curve too: the middle pixel of the curve is well out
+        // to the right of the straight stretch it replaces.
+        let m = model("Poly Line", &CURVED);
+        let middle = measured(&m)[6 + 6];
+        assert!(middle.x > 3.0 + 1.3, "{middle:?}");
+        let variants: [&[(&str, &str)]; 6] = [
+            &[("Dir", "R")],
+            // Spread evenly along the whole line, curves and all.
+            &[("Seg1", ""), ("Seg2", ""), ("NodesPerString", "30")],
+            &[("cPointData", "0,30,-40,0,70,-40,0,1,160,10,0,150,70,0")],
+            &[
+                ("PointData", "0,0,-20,100,0,0,100,80,40"),
+                ("cPointData", "1,160,10,10,150,70,30"),
+            ],
+            &[("ScaleX", "1.5"), ("ScaleY", "0.7")],
+            // Bulging below the points, so the curve sets the bounds.
+            &[("cPointData", "0,30,-60,0,70,-60,0")],
+        ];
+        for more in variants {
+            let attrs: Vec<_> = with(&CURVED, more)
+                .into_iter()
+                .filter(|(_, v)| !v.is_empty())
+                .collect();
+            imports_as("Poly Line", &attrs);
+        }
+    }
+
     #[test]
     fn poly_lines_xlights_lays_out_differently_keep_their_points() {
-        // A curved stretch: imported straight it would look editable but wrong.
-        stays_measured(
-            "Poly Line",
-            &[
-                ("NumPoints", "3"),
-                ("PointData", "0,0,0,100,0,0,100,50,0"),
-                ("Seg1", "4"),
-                ("Seg2", "4"),
-                ("cPointData", "1,0.8,0.2,0,1.0,0.6,0"),
-            ],
-        );
         // A curve record for a stretch that doesn't exist changes nothing.
         imports_as(
             "Poly Line",
@@ -1254,6 +1624,326 @@ mod tests {
             &with(&CANES, &[("StringType", "Single Color Red")]),
         );
         stays_measured("Candy Canes", &with(&CANES, &[("LightsPerNode", "3")]));
+    }
+
+    /// Three arches of 25 pixels across 450, sloping up a little.
+    const ARCHES: [(&str, &str); 6] = [
+        ("NumArches", "3"),
+        ("NodesPerArch", "25"),
+        ("WorldPosX", "100"),
+        ("WorldPosY", "40"),
+        ("X2", "450"),
+        ("Y2", "20"),
+    ];
+
+    #[test]
+    fn arches_import_as_a_row_of_arches_between_their_two_points() {
+        let g = imports_as("Arches", &ARCHES);
+        let Generator::Arch {
+            nodes,
+            arches,
+            arc,
+            gap,
+            start_right,
+            ref layers,
+            ..
+        } = g
+        else {
+            panic!("{g:?}")
+        };
+        assert_eq!((nodes, arches, arc, start_right), (25, 3, 180.0, false));
+        assert!(layers.is_empty());
+        // xLights leaves one step between arches: the line over 3 arches of 49 steps.
+        let step = (450f32 * 450.0 + 20.0 * 20.0).sqrt() / 147.0 * SCALE;
+        assert!((gap - step).abs() < 1e-5, "{gap} vs {step}");
+        // Several arches and the old parm attributes.
+        imports_as("Arches", &[("parm1", "2"), ("parm2", "12"), ("X2", "100")]);
+        imports_as("Arches", &[("X2", "100")]);
+    }
+
+    #[test]
+    fn arches_set_up_every_way_xlights_offers_import_exactly() {
+        let variants: [&[(&str, &str)]; 12] = [
+            &[("Arc", "120")],
+            &[("arc", "40"), ("Gap", "12")],
+            &[("Gap", "30"), ("Height", "0.6")],
+            &[("ArchesSkew", "25")],
+            &[("Angle", "-15"), ("Arc", "150")],
+            &[("Dir", "R")],
+            &[
+                ("Dir", "R"),
+                ("Arc", "90"),
+                ("ArchesSkew", "-30"),
+                ("Height", "1.8"),
+            ],
+            &[("NumArches", "1"), ("NodesPerArch", "1")],
+            // Drawn right to left, tipped back, in depth.
+            &[("X2", "-300"), ("Y2", "-10"), ("RotateX", "20")],
+            &[("Z2", "80"), ("RotateX", "-15"), ("Dir", "R")],
+            // Layered: one arch, nested layers from the outside or the inside.
+            &[
+                ("NumArches", "1"),
+                ("NodesPerArch", "60"),
+                ("LayerSizes", "10,20,30"),
+            ],
+            &[
+                ("NumArches", "1"),
+                ("NodesPerArch", "64"),
+                ("LayerSizes", "1,7,24,30"),
+                ("Hollow", "40"),
+                ("ZigZag", "true"),
+                ("StartSide", "T"),
+                ("Dir", "R"),
+                ("Arc", "130"),
+                ("ArchesSkew", "10"),
+            ],
+        ];
+        for more in variants {
+            imports_as("Arches", &with(&ARCHES, more));
+        }
+        let g = imports_as(
+            "Arches",
+            &with(
+                &ARCHES,
+                &[
+                    ("NumArches", "1"),
+                    ("NodesPerArch", "66"),
+                    ("LayerSizes", "6,25,30"),
+                    ("StartSide", "T"),
+                ],
+            ),
+        );
+        assert!(matches!(
+            g,
+            Generator::Arch { nodes: 66, hollow: 70, start_inside: true, ref layers, .. } if *layers == [6, 25, 30]
+        ));
+    }
+
+    #[test]
+    fn arches_xlights_lays_out_beyond_pixelflow_keep_their_points() {
+        // Dumb strings still have a node per light on an arch, so they import as arches.
+        imports_as("Arches", &with(&ARCHES, &[("StringType", "Single Color Red")]));
+        stays_measured("Arches", &with(&ARCHES, &[("LightsPerNode", "3")]));
+        stays_measured("Arches", &with(&ARCHES, &[("Arc", "200")]));
+        // More pixels than the layers hold: xLights piles the rest at the inner layer's start.
+        imports_as(
+            "Arches",
+            &with(
+                &ARCHES,
+                &[
+                    ("NumArches", "1"),
+                    ("NodesPerArch", "70"),
+                    ("LayerSizes", "10,20,30"),
+                ],
+            ),
+        );
+    }
+
+    #[test]
+    fn models_whose_shape_breaks_the_show_limits_keep_their_points() {
+        // Each of these lands exactly as a shape whose layer list a show file can't hold, so
+        // the whole show would fail to open; measured points keep it importable.
+        stays_measured(
+            "Arches",
+            &[
+                ("parm1", "1"),
+                ("parm2", "2"),
+                ("LayerSizes", "400000000,1"),
+                ("X2", "100"),
+            ],
+        );
+        stays_measured(
+            "Star",
+            &[
+                ("parm1", "1"),
+                ("parm2", "20"),
+                ("parm3", "5"),
+                ("LayerSizes", "10,5000000"),
+            ],
+        );
+        stays_measured(
+            "Circle",
+            &[
+                ("parm1", "1"),
+                ("parm2", "20"),
+                ("parm3", "50"),
+                ("circleSizes", "20,5000000,4000000"),
+            ],
+        );
+    }
+
+    #[test]
+    fn a_huge_layer_in_a_tiny_arch_is_read_quickly() {
+        let m = model(
+            "Arches",
+            &[
+                ("parm1", "1"),
+                ("parm2", "2"),
+                ("LayerSizes", "9000000000000000000,1"),
+                ("X2", "100"),
+            ],
+        );
+        let started = std::time::Instant::now();
+        let points = measured(&m);
+        let _ = editable(&m, &points);
+        assert!(started.elapsed().as_millis() < 200, "{:?}", started.elapsed());
+    }
+
+    /// A ring of 50 pixels, a little wider than tall.
+    const CIRCLE: [(&str, &str); 6] = [
+        ("NumStrings", "1"),
+        ("NodesPerString", "50"),
+        ("WorldPosX", "300"),
+        ("WorldPosY", "200"),
+        ("ScaleX", "2.5"),
+        ("ScaleY", "2"),
+    ];
+
+    #[test]
+    fn circles_import_as_circles_with_their_rings() {
+        let g = imports_as("Circle", &CIRCLE);
+        let Generator::Circle {
+            nodes,
+            radius,
+            ref layers,
+            start_at_bottom,
+            counter_clockwise,
+            ..
+        } = g
+        else {
+            panic!("{g:?}")
+        };
+        assert_eq!((nodes, start_at_bottom, counter_clockwise), (50, false, false));
+        assert!(layers.is_empty());
+        assert!((radius - 25.0 * 2.5 * SCALE).abs() < 1e-6);
+        let variants: [&[(&str, &str)]; 9] = [
+            &[("StartSide", "B")],
+            &[("Dir", "R")],
+            &[("StartSide", "T"), ("Dir", "R"), ("RotateZ", "30")],
+            &[("NumStrings", "3"), ("NodesPerString", "20")],
+            &[
+                ("NodesPerString", "60"),
+                ("LayerSizes", "10,20,30"),
+                ("centerPercent", "20"),
+            ],
+            &[
+                ("NodesPerString", "60"),
+                ("LayerSizes", "10,20,30"),
+                ("InsideOut", "1"),
+                ("StartSide", "B"),
+            ],
+            &[
+                ("NodesPerString", "60"),
+                ("circleSizes", "30,20,10"),
+                ("parm3", "35"),
+                ("Dir", "R"),
+            ],
+            // More pixels than the rings hold, and fewer.
+            &[("NodesPerString", "70"), ("LayerSizes", "10,20,30")],
+            &[
+                ("NodesPerString", "45"),
+                ("LayerSizes", "10,20,30"),
+                ("InsideOut", "1"),
+            ],
+        ];
+        for more in variants {
+            imports_as("Circle", &with(&CIRCLE, more));
+        }
+        let g = imports_as(
+            "Circle",
+            &with(
+                &CIRCLE,
+                &[
+                    ("NodesPerString", "60"),
+                    ("LayerSizes", "10,20,30"),
+                    ("InsideOut", "1"),
+                ],
+            ),
+        );
+        // xLights counts the rings from the outside even when it starts inside.
+        assert!(matches!(
+            g,
+            Generator::Circle { start_inside: true, ref layers, .. } if *layers == [30, 20, 10]
+        ));
+    }
+
+    /// A five-point star of 50 pixels.
+    const STAR: [(&str, &str); 6] = [
+        ("NumStrings", "1"),
+        ("NodesPerString", "50"),
+        ("WorldPosX", "500"),
+        ("WorldPosY", "300"),
+        ("ScaleX", "2"),
+        ("ScaleY", "2"),
+    ];
+
+    #[test]
+    fn stars_import_as_stars_from_every_start() {
+        let mut variants: Vec<Vec<(&str, &str)>> = [
+            "Top Ctr-CW",
+            "Top Ctr-CCW",
+            "Bottom Ctr-CW",
+            "Bottom Ctr-CCW",
+            "Left Bottom-CW",
+            "Left Bottom-CCW",
+            "Right Bottom-CW",
+            "Right Bottom-CCW",
+        ]
+        .into_iter()
+        .map(|start| with(&STAR, &[("StarStartLocation", start)]))
+        .collect();
+        for start in ["Top Ctr-CW Inside", "Bottom Ctr-CCW Inside", "Top Ctr-CCW"] {
+            variants.push(with(
+                &STAR,
+                &[
+                    ("StarStartLocation", start),
+                    ("NodesPerString", "90"),
+                    ("LayerSizes", "20,30,40"),
+                ],
+            ));
+        }
+        for points in ["4", "6", "7"] {
+            for start in ["Bottom Ctr-CW", "Left Bottom-CCW", "Right Bottom-CW"] {
+                variants.push(with(
+                    &STAR,
+                    &[("StarStartLocation", start), ("StarPoints", points)],
+                ));
+            }
+        }
+        variants.push(with(
+            &STAR,
+            &[("Dir", "R"), ("StartSide", "T"), ("starRatio", "3.5")],
+        ));
+        variants.push(with(
+            &STAR,
+            &[("parm3", "8"), ("ScaleY", "1.2"), ("RotateZ", "-20")],
+        ));
+        variants.push(with(
+            &STAR,
+            &[
+                ("NodesPerString", "95"),
+                ("LayerSizes", "20,30,40"),
+                ("starCenterPercent", "40"),
+            ],
+        ));
+        variants.push(with(
+            &STAR,
+            &[("NodesPerString", "80"), ("LayerSizes", "20,30,40")],
+        ));
+        for attrs in &variants {
+            imports_as("Star", attrs);
+        }
+        let g = imports_as("Star", &with(&STAR, &[("StarStartLocation", "Left Bottom-CCW")]));
+        assert!(matches!(
+            g,
+            Generator::Star {
+                points: 5,
+                nodes: 50,
+                start: pf_model::StarStart::LeftLeg,
+                counter_clockwise: true,
+                ..
+            }
+        ));
     }
 
     /// Two strings of icicles hanging along 300 of slightly sloping gutter.
@@ -1833,9 +2523,133 @@ mod tests {
                 ],
             ),
         );
-        stays_measured("Tree 360", &with(&TREE, &[("TreeSpiralRotations", "1.5")]));
-        stays_measured("Tree 360", &with(&TREE, &[("StartSide", "T")]));
         stays_measured("Tree 360", &with(&TREE, &[("StrandDir", "Horizontal")]));
+        stays_measured("Tree 360", &with(&TREE, &[("exportFirstStrand", "3")]));
+        // A dumb string is one light, however many bulbs it has.
+        stays_measured(
+            "Tree 360",
+            &with(
+                &TREE,
+                &[
+                    ("TreeSpiralRotations", "6"),
+                    ("StringType", "Single Color Intensity"),
+                ],
+            ),
+        );
+    }
+
+    #[test]
+    fn spiral_top_wired_and_folded_trees_import_as_trees() {
+        let variants: [(&str, &[(&str, &str)]); 16] = [
+            ("Tree 360", &[("TreeSpiralRotations", "1.5")]),
+            ("Tree 360", &[("TreeSpiralRotations", "-4"), ("parm2", "100")]),
+            (
+                "Tree 360",
+                &[
+                    ("TreeSpiralRotations", "10.25"),
+                    ("parm1", "16"),
+                    ("parm2", "120"),
+                ],
+            ),
+            (
+                "Tree 360",
+                &[("TreeSpiralRotations", "6"), ("StringType", "Node Single Color")],
+            ),
+            ("Tree 360", &[("StartSide", "T")]),
+            ("Tree 360", &[("Dir", "R")]),
+            (
+                "Tree 360",
+                &[("StartSide", "T"), ("Dir", "R"), ("TreeSpiralRotations", "2")],
+            ),
+            (
+                "Tree 288",
+                &[
+                    ("StartSide", "T"),
+                    ("parm1", "2"),
+                    ("parm2", "400"),
+                    ("parm3", "8"),
+                ],
+            ),
+            (
+                "Tree 360",
+                &[
+                    ("StartSide", "T"),
+                    ("parm1", "1"),
+                    ("parm2", "500"),
+                    ("parm3", "10"),
+                ],
+            ),
+            // Strings folded into an odd number of strands: the zig-zag starts afresh each string.
+            (
+                "Tree 180",
+                &[("Dir", "R"), ("parm1", "2"), ("parm2", "350"), ("parm3", "7")],
+            ),
+            ("Tree 180", &[("parm1", "2"), ("parm2", "250"), ("parm3", "5")]),
+            (
+                "Tree 270",
+                &[
+                    ("Dir", "R"),
+                    ("StartSide", "T"),
+                    ("parm1", "3"),
+                    ("parm2", "150"),
+                    ("parm3", "3"),
+                ],
+            ),
+            ("Tree Ribbon", &[("parm1", "2"), ("parm2", "100"), ("parm3", "5")]),
+            ("Tree 360", &[("AlternateNodes", "true")]),
+            (
+                "Tree 360",
+                &[
+                    ("AlternateNodes", "true"),
+                    ("Dir", "R"),
+                    ("StartSide", "T"),
+                    ("parm2", "49"),
+                ],
+            ),
+            (
+                "Tree Flat",
+                &[("NoZig", "true"), ("parm3", "2"), ("StartSide", "T")],
+            ),
+        ];
+        for (kind, more) in variants {
+            imports_as(kind, &with(&TREE, more));
+        }
+        let g = imports_as(
+            "Tree 180",
+            &with(
+                &TREE,
+                &[
+                    ("Dir", "R"),
+                    ("StartSide", "T"),
+                    ("parm1", "2"),
+                    ("parm2", "350"),
+                    ("parm3", "7"),
+                ],
+            ),
+        );
+        assert!(matches!(
+            g,
+            Generator::Tree {
+                strings: 14,
+                nodes_per_string: 50,
+                serpentine: true,
+                strands_per_string: 7,
+                start: pf_model::Corner::TopRight,
+                ..
+            }
+        ));
+        // An even fold zig-zags all the way round, the same as one long string.
+        assert!(matches!(
+            imports_as(
+                "Tree 360",
+                &with(&TREE, &[("parm1", "1"), ("parm2", "400"), ("parm3", "8")])
+            ),
+            Generator::Tree {
+                serpentine: true,
+                strands_per_string: 0,
+                ..
+            }
+        ));
     }
 
     #[test]

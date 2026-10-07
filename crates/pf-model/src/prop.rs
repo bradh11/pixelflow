@@ -128,14 +128,7 @@ mod tests {
 
     #[test]
     fn channel_count_uses_color_order() {
-        let mut prop = Prop::new(
-            "Arch",
-            ShapeSource::Generator(Generator::Arch {
-                nodes: 50,
-                width: 4.0,
-                height: 2.0,
-            }),
-        );
+        let mut prop = Prop::new("Arch", ShapeSource::Generator(Generator::arch(50, 4.0, 2.0)));
         assert_eq!(prop.channel_count(), 150);
         prop.color_order = ColorOrder::Grbw;
         assert_eq!(prop.channel_count(), 200);

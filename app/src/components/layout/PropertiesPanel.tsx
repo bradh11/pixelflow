@@ -17,7 +17,7 @@ import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { Background, ColorOrder, FileRole, PreviewProp, Prop, ShapeSource, Show } from "../../api/types";
 import { fileName, shownPath, thousands } from "../../lib/format";
-import { alignEdits, distributeEdits, duplicateEdits, removeEdits, updateEdits, wiringOf } from "../../lib/layoutEdits";
+import { alignEdits, distributeEdits, duplicateEdits, portsWithPropsAfter, removeEdits, updateEdits, wiringOf } from "../../lib/layoutEdits";
 import { type Align, tidy } from "../../lib/layoutMath";
 import { nodeCount, shapeLabel } from "../../lib/shows";
 import { useLayoutEditor } from "../../state/layoutEditor";
@@ -35,18 +35,40 @@ import { Button, Input, Select } from "../ui";
 
 const COLOR_ORDERS: ColorOrder[] = ["RGB", "RBG", "GRB", "GBR", "BRG", "BGR", "RGBW", "GRBW"];
 
-/** Nested settings a shape may leave out (an older matrix has no wiring of its own). */
-const SHAPE_DEFAULTS: Record<string, unknown> = {
+/** Settings a shape may leave out (an older matrix has no wiring of its own), and what they read as. */
+const COMMON_DEFAULTS: Record<string, unknown> = {
   wiring: { start: "bottomLeft", orientation: "horizontal", serpentine: true },
   degrees: 360,
   startAngle: 0,
 };
+const TYPE_DEFAULTS: Record<string, Record<string, unknown>> = {
+  arch: { arches: 1, arc: 180, gap: 0, skewDeg: 0, hollow: 70, startRight: false, zigZag: false, startInside: false },
+  circle: { innerPercent: 50, startInside: false, startAtBottom: false, counterClockwise: false },
+  star: { start: "top", counterClockwise: false, innerPercent: 50, startInside: false },
+  tree: { start: "bottomLeft", strandsPerString: 0, alternateNodes: false, spiralRotations: 0 },
+};
+const shapeDefaults = (shape: ShapeSource): Record<string, unknown> => ({
+  ...COMMON_DEFAULTS,
+  ...(shape.source === "generator" ? TYPE_DEFAULTS[shape.type] : undefined),
+});
+
+/** `shape` with one setting changed. Giving an arch, circle or star its layers makes its pixel
+ * count theirs, as xLights does, so no pixels are left over in the middle; clearing an arch's
+ * layers leaves one arch of those pixels. */
+function withSetting(shape: ShapeSource, key: string, value: unknown): ShapeSource {
+  const next = withField(shape, key, value, shapeDefaults(shape));
+  if (key !== "layers" || !Array.isArray(value) || next.source !== "generator" || !("nodes" in next)) return next;
+  if (value.length > 0) return { ...next, nodes: (value as number[]).reduce((a, b) => a + b, 0) };
+  return next.type === "arch" ? { ...next, arches: 1 } : next;
+}
 
 /** A shape's settings: numbers two to a row, then choices, lists, and checkboxes one to a row. */
 function ShapeFields({ fields, shape, onChange }: { fields: ShapeField[]; shape: ShapeSource; onChange: (key: string, value: unknown) => void }) {
-  const value = (key: string) => fieldValue(shape, key) ?? fieldValue(SHAPE_DEFAULTS, key);
-  const numbers = fields.filter((f) => f.kind === "number");
-  const others = fields.filter((f) => f.kind !== "number");
+  const defaults = shapeDefaults(shape);
+  const value = (key: string) => fieldValue(shape, key) ?? fieldValue(defaults, key);
+  const shown = fields.filter((f) => !f.showIf || f.showIf(shape as unknown as Record<string, unknown>));
+  const numbers = shown.filter((f) => f.kind === "number");
+  const others = shown.filter((f) => f.kind !== "number");
   return (
     <>
       <div className="grid grid-cols-2 gap-2">
@@ -89,7 +111,15 @@ function ShapeFields({ fields, shape, onChange }: { fields: ShapeField[]; shape:
           </label>
         ) : f.kind === "numbers" ? (
           <div key={f.key} className="mt-2">
-            <ListField label={f.label} hint={f.hint} value={(value(f.key) as number[] | undefined) ?? []} min={f.min} max={f.max} onCommit={(v) => onChange(f.key, v)} />
+            <ListField
+              label={f.label}
+              hint={f.hint}
+              value={(value(f.key) as number[] | undefined) ?? []}
+              min={f.min}
+              max={f.max}
+              allowEmpty={f.allowEmpty}
+              onCommit={(v) => onChange(f.key, v)}
+            />
           </div>
         ) : null,
       )}
@@ -98,12 +128,28 @@ function ShapeFields({ fields, shape, onChange }: { fields: ShapeField[]; shape:
 }
 
 /** A comma list of whole numbers ("3,4,5,4"), saved on Enter or leaving it; goes back if it isn't valid. */
-function ListField({ label, hint, value, min, max, onCommit }: { label: string; hint?: string; value: number[]; min: number; max?: number; onCommit: (v: number[]) => void }) {
+function ListField({
+  label,
+  hint,
+  value,
+  min,
+  max,
+  allowEmpty,
+  onCommit,
+}: {
+  label: string;
+  hint?: string;
+  value: number[];
+  min: number;
+  max?: number;
+  allowEmpty?: boolean;
+  onCommit: (v: number[]) => void;
+}) {
   const shown = value.join(",");
   const [draft, setDraft] = useState(shown);
   useEffect(() => setDraft(shown), [shown]);
   const commit = () => {
-    const nums = parseNumbers(draft, min, max);
+    const nums = parseNumbers(draft, min, max, allowEmpty);
     if (!nums) return setDraft(shown);
     if (nums.join(",") !== shown) onCommit(nums);
   };
@@ -213,6 +259,19 @@ function OnePropPanel({ prop, points }: { prop: Prop; points: ArrayLike<number> 
   const shape = prop.shape;
   const fields = shape.source === "generator" ? (SHAPE_FIELDS[shape.type] ?? []) : [];
   const wiring = wiringOf(show, prop.id);
+  // A shape edit that changes how many pixels a wired prop has moves the props after it.
+  const [pixelNote, setPixelNote] = useState<string | null>(null);
+  useEffect(() => setPixelNote(null), [prop.id]);
+  const setShapeField = (key: string, v: unknown) => {
+    const [before, after] = [nodeCount(prop.shape), nodeCount(withSetting(prop.shape, key, v))];
+    const ports = portsWithPropsAfter(show, prop.id);
+    setPixelNote(
+      before !== after && ports.length > 0
+        ? `This changes ${prop.name} from ${thousands(before)} to ${thousands(after)} pixels; props after it on ${ports.join(" and ")} move.`
+        : null,
+    );
+    update((p) => ({ ...p, shape: withSetting(p.shape, key, v) }));
+  };
   const in3d = useView3d((s) => s.mode === "3d");
   // In 2D, depth, tilt, and turn show only when set, so a prop that looks squashed says why.
   const showZ = in3d || t.position.z !== 0;
@@ -267,7 +326,14 @@ function OnePropPanel({ prop, points }: { prop: Prop; points: ArrayLike<number> 
             This prop's pixels were placed one by one (imported), so its size is changed by resizing it on the canvas.
           </p>
         ) : fields.length > 0 ? (
-          <ShapeFields fields={fields} shape={shape} onChange={(key, v) => update((p) => ({ ...p, shape: withField(p.shape, key, v, SHAPE_DEFAULTS) }))} />
+          <>
+            <ShapeFields fields={fields} shape={shape} onChange={setShapeField} />
+            {pixelNote && (
+              <p role="status" className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                {pixelNote}
+              </p>
+            )}
+          </>
         ) : null}
         <label className={`${fields.length > 0 || shape.source === "measured" ? "mt-2 " : ""}flex flex-col gap-1 text-xs`}>
           <span className="text-neutral-500 dark:text-neutral-400">Color order</span>

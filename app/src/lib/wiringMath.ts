@@ -496,6 +496,42 @@ export interface PortChannels {
   universes: [number, number] | null;
 }
 
+/** Where one slot's lit pixels start on its controller (counted from 1), and the universes they
+ * span (sACN). */
+export interface SlotChannels {
+  first: number;
+  universes: [number, number] | null;
+}
+
+/** Each slot's channels, in slot order; null for a slot that carries nothing. The channel map's
+ * spans for a port come in slot order, skipping slots with nothing to carry. */
+export function slotChannels(map: ChannelMap, controller: string, port: Port, nodes: NodeCounts): (SlotChannels | null)[] {
+  const output = map.controllers.find((c) => c.controller === controller);
+  const spans = output?.spans.filter((s) => s.port === port.number) ?? [];
+  let next = 0;
+  return port.slots.map((slot) => {
+    const range = slotRange(slot, nodes);
+    if (!output || !range || range.end === range.start) return null;
+    const i = spans.findIndex((s, j) => j >= next && s.prop === slot.prop && s.pixels === range.end - range.start);
+    if (i < 0) return null;
+    next = i + 1;
+    const span = spans[i];
+    const end = span.controllerChannel + span.pixels * span.channelsPerPixel;
+    let universes: [number, number] | null = null;
+    if (output.addressing.type === "sacn") {
+      const touched = output.addressing.universes.filter((u) => u.controllerChannel < end && span.controllerChannel < u.controllerChannel + u.len).map((u) => u.universe);
+      if (touched.length > 0) universes = [Math.min(...touched), Math.max(...touched)];
+    }
+    return { first: span.controllerChannel + 1, universes };
+  });
+}
+
+/** "U1–4", "U3", or "" for none. */
+export function universeText(universes: [number, number] | null): string {
+  if (!universes) return "";
+  return universes[0] === universes[1] ? `U${universes[0]}` : `U${universes[0]}–${universes[1]}`;
+}
+
 export function portChannels(map: ChannelMap, controller: string, port: number): PortChannels | null {
   const output = map.controllers.find((c) => c.controller === controller);
   const spans = output?.spans.filter((s) => s.port === port) ?? [];
@@ -520,8 +556,8 @@ export interface WiringPath {
   start: Pt | null;
   /** The first pixel the port's data reaches. */
   firstPixel: Pt | null;
-  /** Each prop's pixels in the order the data reaches them. */
-  runs: { prop: string; points: Pt[] }[];
+  /** Each prop's pixels in the order the data reaches them, with its slot's place on the port. */
+  runs: { prop: string; slot: number; points: Pt[] }[];
   /** Wire between the controller and the first prop, and from each prop's last pixel to the next one's first. */
   jumps: { from: Pt; to: Pt }[];
 }
@@ -530,7 +566,7 @@ export interface WiringPath {
 export function wiringPath(port: Port, preview: PreviewProp[]): WiringPath {
   const byId = new Map(preview.map((p) => [p.prop, p.points]));
   const runs: WiringPath["runs"] = [];
-  for (const slot of port.slots) {
+  for (const [index, slot] of port.slots.entries()) {
     const points = byId.get(slot.prop);
     if (!points) continue;
     const count = Math.floor(points.length / 2);
@@ -545,7 +581,7 @@ export function wiringPath(port: Port, preview: PreviewProp[]): WiringPath {
       const n = slot.reverse ? end - 1 - i : start + i;
       return { x: points[n * 2], y: points[n * 2 + 1] };
     };
-    runs.push({ prop: slot.prop, points: order.map(at) });
+    runs.push({ prop: slot.prop, slot: index, points: order.map(at) });
   }
   if (runs.length === 0) return { start: null, firstPixel: null, runs: [], jumps: [] };
   const firstPixel = runs[0].points[0];
@@ -566,13 +602,9 @@ export interface Rect {
   bottom: number;
 }
 
-/** Where a drop at `p` goes among chips laid out in lines (left to right, then down): before the
- * first chip on a later line, or on the same line whose middle is past the pointer. */
-export function dropIndex(chips: Rect[], p: Pt): number {
-  for (let i = 0; i < chips.length; i++) {
-    const r = chips[i];
-    if (p.y < r.top) return i;
-    if (p.y <= r.bottom && p.x < (r.left + r.right) / 2) return i;
-  }
-  return chips.length;
+/** Where a drop at height `y` goes among table rows (top to bottom): before the first row whose
+ * middle is below it, else after the last. */
+export function rowDropIndex(rows: Rect[], y: number): number {
+  const i = rows.findIndex((r) => y < (r.top + r.bottom) / 2);
+  return i < 0 ? rows.length : i;
 }

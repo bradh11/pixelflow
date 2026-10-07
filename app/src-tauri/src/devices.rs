@@ -411,7 +411,7 @@ pub(crate) fn open_device_page(address: String, page: Option<String>) -> Reply<(
         Some(p) if DEVICE_PAGES.contains(&p) => p,
         Some(p) => return Err(format!("{p} isn't a page PixelFlow opens.")),
     };
-    let url = format!("http://{address}/{page}");
+    let url = pf_devices::device_url(address, &format!("/{page}"));
     #[cfg(target_os = "macos")]
     let mut command = std::process::Command::new("open");
     #[cfg(target_os = "windows")]

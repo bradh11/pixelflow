@@ -43,6 +43,15 @@ pub trait Http: Send + Sync {
     }
 }
 
+/// The `http://` URL for `path` on `host`. A bare IPv6 address is put in brackets, as URLs need.
+pub fn device_url(host: &str, path: &str) -> String {
+    if host.parse::<std::net::Ipv6Addr>().is_ok() {
+        format!("http://[{host}]{path}")
+    } else {
+        format!("http://{host}{path}")
+    }
+}
+
 /// A short, plain reason for a failed request (no library error text).
 fn plain_reason(error: &ureq::Error) -> String {
     match error {
@@ -139,12 +148,12 @@ impl HttpClient {
 
 impl Http for HttpClient {
     fn get(&self, host: &str, path: &str) -> Result<String, DeviceError> {
-        let url = format!("http://{host}{path}");
+        let url = device_url(host, path);
         Self::finish(host, path, self.agent.get(&url).call())
     }
 
     fn post_json(&self, host: &str, path: &str, body: &str) -> Result<String, DeviceError> {
-        let url = format!("http://{host}{path}");
+        let url = device_url(host, path);
         let response = self
             .agent
             .post(&url)
@@ -162,7 +171,7 @@ impl Http for HttpClient {
         body: &mut dyn Read,
         length: u64,
     ) -> Result<String, DeviceError> {
-        let url = format!("http://{host}{path}");
+        let url = device_url(host, path);
         let mut request = match method {
             "PATCH" => self.agent.patch(&url),
             "PUT" => self.agent.put(&url),
@@ -179,7 +188,7 @@ impl Http for HttpClient {
     }
 
     fn delete(&self, host: &str, path: &str) -> Result<String, DeviceError> {
-        let url = format!("http://{host}{path}");
+        let url = device_url(host, path);
         Self::finish(host, path, self.agent.delete(&url).call())
     }
 }
@@ -253,6 +262,15 @@ impl Http for FakeHttp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn urls_bracket_bare_ipv6_addresses() {
+        assert_eq!(device_url("192.0.2.10", "/api"), "http://192.0.2.10/api");
+        assert_eq!(device_url("fpp.local:8080", "/"), "http://fpp.local:8080/");
+        assert_eq!(device_url("fe80::1", "/json/info"), "http://[fe80::1]/json/info");
+        assert_eq!(device_url("2001:db8::5", "/"), "http://[2001:db8::5]/");
+        assert_eq!(device_url("[2001:db8::5]:8080", "/"), "http://[2001:db8::5]:8080/");
+    }
 
     #[test]
     fn fake_answers_recorded_requests_and_logs_them() {

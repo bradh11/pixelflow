@@ -278,3 +278,86 @@ fn an_xlights_import_saved_with_save_opens_again() {
         stdout(&validated)
     );
 }
+
+#[test]
+fn a_closed_output_pipe_is_a_clean_exit() {
+    // `pixelflow map show | head -1`: the reader goes away before anything is printed.
+    for args in [vec!["map"], vec!["map", "--json"], vec!["validate"]] {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_pixelflow"))
+            .args(&args)
+            .arg(demo_show())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("failed to run pixelflow");
+        drop(child.stdout.take());
+        let output = child.wait_with_output().unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(stderr, "", "{args:?}");
+        assert_eq!(output.status.code(), Some(0), "{args:?}");
+    }
+}
+
+#[test]
+fn malformed_json_exits_2_with_a_message() {
+    let path = std::env::temp_dir().join(format!("pixelflow-malformed-{}.json", std::process::id()));
+    std::fs::write(&path, "{ \"schemaVersion\": 11, ").unwrap();
+    for command in ["validate", "map"] {
+        let output = pixelflow(&[command, path.to_str().unwrap()]);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "{command}: {stderr}");
+        assert!(stderr.contains("could not load"), "{command}: {stderr}");
+        assert!(output.stdout.is_empty(), "{command}");
+    }
+    std::fs::remove_file(&path).ok();
+}
+
+/// The demo show with `edit` applied, saved to a temporary file named after `tag`.
+fn edited_demo(tag: &str, edit: impl FnOnce(&mut serde_json::Value)) -> PathBuf {
+    let mut doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(demo_show()).unwrap()).unwrap();
+    edit(&mut doc);
+    let path = std::env::temp_dir().join(format!("pixelflow-{tag}-{}.json", std::process::id()));
+    std::fs::write(&path, doc.to_string()).unwrap();
+    path
+}
+
+#[test]
+fn map_json_exits_0_even_when_the_show_has_errors() {
+    // `map` describes the wiring; `validate` is the command that fails on errors.
+    let path = edited_demo("map-errors", |doc| {
+        doc["controllers"][0]["ports"][0]["brightness"] = 200.into();
+    });
+    let mapped = pixelflow(&["map", "--json", path.to_str().unwrap()]);
+    let validated = pixelflow(&["validate", path.to_str().unwrap()]);
+    std::fs::remove_file(&path).ok();
+    assert_eq!(mapped.status.code(), Some(0));
+    let map: serde_json::Value = serde_json::from_slice(&mapped.stdout).unwrap();
+    assert!(map["frameLen"].as_u64().unwrap() > 0);
+    assert_eq!(validated.status.code(), Some(1));
+}
+
+#[test]
+fn validate_lists_errors_before_warnings() {
+    // The model's checks run first and find a warning (a prop with no pixels); the wiring
+    // checks find an error after it (a prop wired twice). The error is printed first.
+    let path = edited_demo("order", |doc| {
+        let mut empty = doc["props"][0].clone();
+        empty["id"] = "11111111-0000-4000-8000-0000000000ee".into();
+        empty["name"] = "Empty".into();
+        empty["shape"]["nodes"] = 0.into();
+        doc["props"].as_array_mut().unwrap().push(empty);
+        let twice = doc["controllers"][0]["ports"][0]["slots"][0].clone();
+        doc["controllers"][1]["ports"][0]["slots"]
+            .as_array_mut()
+            .unwrap()
+            .push(twice);
+    });
+    let output = pixelflow(&["validate", path.to_str().unwrap()]);
+    std::fs::remove_file(&path).ok();
+    let text = stdout(&output);
+    assert_eq!(output.status.code(), Some(1), "{text}");
+    let error = text.find("  error").expect(&text);
+    let warning = text.find("  warning").expect(&text);
+    assert!(error < warning, "{text}");
+}

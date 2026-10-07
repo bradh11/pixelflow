@@ -6,6 +6,14 @@
 
 use triple_buffer::{Input, Output, triple_buffer};
 
+// Each half lives on its own thread (renderer and output), so both must stay `Send`: a change
+// that breaks this fails to build here rather than in the engine.
+const _: () = {
+    const fn assert_send<T: Send>() {}
+    assert_send::<FrameWriter>();
+    assert_send::<FrameReader>();
+};
+
 /// Creates a connected writer/reader pair for frames of `len` bytes, initially all zero.
 pub fn frame_buffers(len: usize) -> (FrameWriter, FrameReader) {
     let (input, output) = triple_buffer(&vec![0u8; len]);

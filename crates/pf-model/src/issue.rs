@@ -25,8 +25,19 @@ pub enum IssueCode {
     InvalidFrameRate,
     InvalidGamma,
     LimitExceeded,
+    /// A prop's shape settings PixelFlow can't build (a number that isn't finite, a custom
+    /// grid whose cells don't match its size, a setting out of range).
+    InvalidShape,
+    /// A prop's position, rotation or scale isn't a finite number.
+    InvalidTransform,
     InvalidBackground,
     InvalidHouseModel,
+    /// Port 0: ports are numbered from 1, as printed on the controller.
+    InvalidPortNumber,
+    /// Two ports on one controller with the same number.
+    DuplicatePort,
+    /// A controller with no IP address or hostname.
+    MissingAddress,
     // Wiring checks (pf-mapping).
     PortOverCapacity,
     UnassignedNodes,

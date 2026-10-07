@@ -1,5 +1,21 @@
 //! `pixelflow` command-line tool.
 
+/// `print!` that returns an error instead of panicking when stdout is closed (`| head`).
+macro_rules! out {
+    ($($arg:tt)*) => {{
+        use std::io::Write as _;
+        write!(std::io::stdout(), $($arg)*)
+    }};
+}
+
+/// `println!` that returns an error instead of panicking when stdout is closed (`| head`).
+macro_rules! outln {
+    ($($arg:tt)*) => {{
+        use std::io::Write as _;
+        writeln!(std::io::stdout(), $($arg)*)
+    }};
+}
+
 mod devices;
 mod report;
 mod test_pattern;
@@ -61,13 +77,26 @@ enum Command {
 }
 
 fn main() -> ExitCode {
-    match run(Cli::parse()) {
+    let result = run(Cli::parse()).and_then(|code| {
+        use std::io::Write as _;
+        std::io::stdout().flush()?;
+        Ok(code)
+    });
+    match result {
         Ok(code) => code,
+        // Whoever was reading the output stopped (`pixelflow map show | head`): nothing is wrong.
+        Err(err) if is_closed_pipe(&err) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("error: {err:#}");
             ExitCode::from(2)
         }
     }
+}
+
+fn is_closed_pipe(err: &anyhow::Error) -> bool {
+    err.chain()
+        .filter_map(|e| e.downcast_ref::<std::io::Error>())
+        .any(|e| e.kind() == std::io::ErrorKind::BrokenPipe)
 }
 
 fn run(cli: Cli) -> Result<ExitCode> {
@@ -77,8 +106,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let mut report = pf_model::validate_show(&show);
             let (map, wiring) = pf_mapping::map_show(&show);
             report.extend(wiring);
-            print!("{}", report::summary(&show, &map));
-            print!("{}", report::issues(&report));
+            out!("{}", report::summary(&show, &map))?;
+            out!("{}", report::issues(&report))?;
             Ok(if report.has_errors() {
                 ExitCode::FAILURE
             } else {
@@ -89,9 +118,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let show = load(&show)?;
             let (map, _) = pf_mapping::map_show(&show);
             if json {
-                println!("{}", serde_json::to_string_pretty(&map)?);
+                outln!("{}", serde_json::to_string_pretty(&map)?)?;
             } else {
-                print!("{}", report::channel_map(&show, &map));
+                out!("{}", report::channel_map(&show, &map))?;
             }
             Ok(ExitCode::SUCCESS)
         }
@@ -104,12 +133,17 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Xlights { folder, save } => {
             let imported = pf_xlights::import_folder(&folder)?;
             let s = &imported.summary;
-            println!(
+            outln!(
                 "{}: {} props, {} pixels, {} controllers, {} props wired, {} groups",
-                imported.show.name, s.props, s.pixels, s.controllers, s.wired, s.groups
-            );
+                imported.show.name,
+                s.props,
+                s.pixels,
+                s.controllers,
+                s.wired,
+                s.groups
+            )?;
             for note in &imported.notes {
-                println!("  - {note}");
+                outln!("  - {note}")?;
             }
             if let Some(path) = save {
                 // Checked as opening the file will check it, so a saved import always opens.
@@ -117,7 +151,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                     pf_model::check_show(&imported.show).context("the imported show can't be saved")?;
                 let json = pf_model::show_to_json(&show)?;
                 std::fs::write(&path, json).with_context(|| format!("could not save {}", path.display()))?;
-                println!("Saved {}", path.display());
+                outln!("Saved {}", path.display())?;
             }
             Ok(ExitCode::SUCCESS)
         }
@@ -125,7 +159,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let show = load(&show)?;
             let imported = pf_xlights::import_sequence_file(&file, &show, pf_audio::find_audio)?;
             let (seq, s) = (&imported.sequence, &imported.summary);
-            println!(
+            outln!(
                 "{}: {} long, {} rows, {} effects ({} exact, {} approximated, {} placeholders, {} not imported), {} timing tracks, {} marks ({} lyrics, {} not imported)",
                 seq.name,
                 pf_sequence::format_ms(seq.duration_ms),
@@ -139,13 +173,13 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 s.marks,
                 s.lyric_marks,
                 s.marks_skipped
-            );
+            )?;
             match &seq.audio {
-                Some(audio) => println!("Music: {audio}"),
-                None => println!("Music: none"),
+                Some(audio) => outln!("Music: {audio}")?,
+                None => outln!("Music: none")?,
             }
             for note in &imported.notes {
-                println!("  - {note}");
+                outln!("  - {note}")?;
             }
             if let Some(path) = save {
                 // Checked as opening the file will check it, so a saved import always opens.
@@ -153,7 +187,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                     pf_sequence::check_sequence(seq).context("the imported sequence can't be saved")?;
                 let json = pf_sequence::sequence_to_json(&checked)?;
                 std::fs::write(&path, json).with_context(|| format!("could not save {}", path.display()))?;
-                println!("Saved {}", path.display());
+                outln!("Saved {}", path.display())?;
             }
             Ok(ExitCode::SUCCESS)
         }

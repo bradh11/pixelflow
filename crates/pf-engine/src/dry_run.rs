@@ -5,19 +5,19 @@ use crate::edit::Edit;
 use crate::error::EngineError;
 use crate::sequence_doc::{OpenSequence, SequenceEdit};
 use crate::snapshot::PreviewProp;
-use pf_model::{IssueCode, Show};
+use pf_model::Show;
 use pf_sequence::Sequence;
 
 /// The show after `edits`, checked exactly as [`crate::Engine::apply`] checks a batch: every edit
-/// must apply and the result must stay within PixelFlow's size limits. `show` is not changed.
+/// must apply and the result must still open as a show file: within PixelFlow's size limits,
+/// with shapes it can build and numbers that are finite. `show` is not changed.
 pub fn edited_show(show: &Show, edits: &[Edit]) -> Result<Show, EngineError> {
     let mut next = show.clone();
     for edit in edits {
         edit.apply(&mut next)?;
     }
-    let report = pf_model::validate_show(&next);
-    if let Some(issue) = report.issues.iter().find(|i| i.code == IssueCode::LimitExceeded) {
-        return Err(EngineError::TooLarge(issue.message.clone()));
+    if let Some(issue) = pf_model::limit_issues(&next).into_iter().next() {
+        return Err(EngineError::TooLarge(issue.message));
     }
     Ok(next)
 }

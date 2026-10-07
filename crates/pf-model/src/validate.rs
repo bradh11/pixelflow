@@ -62,13 +62,19 @@ fn check_house_model(show: &Show, report: &mut ValidationReport) {
     }
 }
 
+/// The problems that stop a show file from opening: sizes past PixelFlow's limits, shapes it
+/// can't build, numbers that aren't finite. They're among [`validate_show`]'s errors too, but an
+/// edit or import that causes one must be refused outright, since the show couldn't be saved
+/// and opened again.
+pub fn limit_issues(show: &Show) -> Vec<Issue> {
+    limits::check_limits(show)
+        .into_iter()
+        .map(|p| Issue::error(p.code, p.message).with_fix(p.fix))
+        .collect()
+}
+
 fn check_limits(show: &Show, report: &mut ValidationReport) {
-    for problem in limits::check_limits(show) {
-        report.push(
-            Issue::error(IssueCode::LimitExceeded, problem)
-                .with_fix("Reduce the size, or split it into smaller props."),
-        );
-    }
+    report.issues.extend(limit_issues(show));
 }
 
 fn check_frame_rate(show: &Show, report: &mut ValidationReport) {
@@ -92,10 +98,15 @@ fn check_duplicates<'a, Id: Eq + Hash>(
     let mut seen = HashSet::new();
     for (id, name) in items {
         if !seen.insert(id) {
-            report.push(Issue::error(
-                IssueCode::DuplicateId,
-                format!("The {kind} '{name}' has the same id as another {kind}."),
-            ));
+            report.push(
+                Issue::error(
+                    IssueCode::DuplicateId,
+                    format!("The {kind} '{name}' has the same id as another {kind}."),
+                )
+                .with_fix(format!(
+                    "Delete one of the two {kind}s, then add it again if you still need it; a new {kind} gets its own id."
+                )),
+            );
         }
     }
 }
@@ -124,13 +135,18 @@ fn check_regions(prop: &Prop, report: &mut ValidationReport) {
     for region in &prop.regions {
         let what = region.kind_word();
         if !ids.insert(region.id) {
-            report.push(Issue::error(
-                IssueCode::DuplicateId,
-                format!(
-                    "The {what} '{}' on '{}' has the same id as another one on the prop.",
-                    region.name, prop.name
-                ),
-            ));
+            report.push(
+                Issue::error(
+                    IssueCode::DuplicateId,
+                    format!(
+                        "The {what} '{}' on '{}' has the same id as another one on the prop.",
+                        region.name, prop.name
+                    ),
+                )
+                .with_fix(format!(
+                    "Delete the {what} in the prop's Submodels & faces, then add it again."
+                )),
+            );
         }
         if let Some(problem) = region.problem() {
             let problem = if region.name.trim().is_empty() {
@@ -228,16 +244,55 @@ fn check_groups(show: &Show, props: &HashMap<PropId, &Prop>, report: &mut Valida
 
 fn check_controllers(show: &Show, props: &HashMap<PropId, &Prop>, report: &mut ValidationReport) {
     for controller in &show.controllers {
+        if controller.address.trim().is_empty() {
+            report.push(
+                Issue::warning(
+                    IssueCode::MissingAddress,
+                    format!(
+                        "The controller '{}' has no IP address, so nothing is sent to it.",
+                        controller.name
+                    ),
+                )
+                .with_fix("Enter the controller's IP address on the Wiring screen."),
+            );
+        }
+        let mut numbers = HashSet::new();
         for port in &controller.ports {
             let where_ = format!("port {} on '{}'", port.number, controller.name);
+            if port.number == 0 {
+                report.push(
+                    Issue::error(
+                        IssueCode::InvalidPortNumber,
+                        format!(
+                            "'{}' has a port 0, but ports are numbered from 1, as printed on the controller.",
+                            controller.name
+                        ),
+                    )
+                    .with_fix("Renumber the port to match the controller."),
+                );
+            } else if !numbers.insert(port.number) {
+                report.push(
+                    Issue::error(
+                        IssueCode::DuplicatePort,
+                        format!(
+                            "'{}' has port {} twice, so both would send to the same output.",
+                            controller.name, port.number
+                        ),
+                    )
+                    .with_fix("Renumber one of the ports, or move its props onto the other."),
+                );
+            }
             if port.brightness > 100 {
-                report.push(Issue::error(
-                    IssueCode::InvalidBrightness,
-                    format!(
-                        "The brightness of {where_} is {}%, but it must be 0–100%.",
-                        port.brightness
-                    ),
-                ));
+                report.push(
+                    Issue::error(
+                        IssueCode::InvalidBrightness,
+                        format!(
+                            "The brightness of {where_} is {}%, but it must be 0–100%.",
+                            port.brightness
+                        ),
+                    )
+                    .with_fix("Set the port's brightness between 0 and 100%."),
+                );
             }
             if !port.gamma.is_finite() || port.gamma <= 0.0 {
                 report.push(
@@ -291,13 +346,16 @@ fn check_controllers(show: &Show, props: &HashMap<PropId, &Prop>, report: &mut V
                     );
                 }
                 if slot.brightness.is_some_and(|b| b > 100) {
-                    report.push(Issue::error(
-                        IssueCode::InvalidBrightness,
-                        format!(
-                            "The brightness override for '{}' on {where_} must be 0–100%.",
-                            prop.name
-                        ),
-                    ));
+                    report.push(
+                        Issue::error(
+                            IssueCode::InvalidBrightness,
+                            format!(
+                                "The brightness override for '{}' on {where_} must be 0–100%.",
+                                prop.name
+                            ),
+                        )
+                        .with_fix("Set the brightness override between 0 and 100%, or clear it."),
+                    );
                 }
             }
         }
@@ -560,7 +618,7 @@ mod tests {
     #[test]
     fn each_structural_problem_is_reported() {
         type Mutate = fn(&mut Show);
-        let cases: [(IssueCode, Mutate); 54] = [
+        let cases: [(IssueCode, Mutate); 68] = [
             (IssueCode::InvalidFrameRate, |s| s.settings.frame_rate = 5),
             (IssueCode::DuplicateId, |s| {
                 let dup = s.props[0].clone();
@@ -628,49 +686,47 @@ mod tests {
             (IssueCode::LimitExceeded, |s| {
                 s.props.push(line("Huge", crate::MAX_PROP_NODES + 1))
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 s.props.push(poly("Too bendy", crate::MAX_POLY_VERTICES + 1, 0))
             }),
-            (IssueCode::LimitExceeded, |s| s.props.push(poly("Dot", 1, 0))),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| s.props.push(poly("Dot", 1, 0))),
+            (IssueCode::InvalidShape, |s| {
                 let mut p = poly("Odd", 3, 10);
                 if let ShapeSource::Generator(Generator::PolyLine { segments, .. }) = &mut p.shape {
                     segments.pop();
                 }
                 s.props.push(p)
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 s.props
                     .push(icicles("Long pattern", vec![1; crate::MAX_ICICLE_DROPS + 1]))
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 s.props
                     .push(icicles("Long drop", vec![3, crate::MAX_ICICLE_DROP_LIGHTS + 1]))
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 s.props.push(icicles("Dry", vec![0, 0]))
             }),
-            (IssueCode::LimitExceeded, |s| {
-                s.props.push(icicles("Bare", vec![]))
-            }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| s.props.push(icicles("Bare", vec![]))),
+            (IssueCode::InvalidShape, |s| {
                 s.props.push(canes("Forest", crate::MAX_PROP_NODES + 1, 0))
             }),
             (IssueCode::LimitExceeded, |s| {
                 // The real count, not the 32-bit one that stops at its largest value.
                 s.props.push(canes("Huge", 70_000, 70_000))
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 s.props
                     .push(spinner("Windmill", crate::MAX_SPINNER_ARMS + 1, 1, 20, 360.0))
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 s.props.push(spinner("Hole", 4, 5, 101, 360.0))
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 s.props.push(spinner("No sweep", 4, 5, 20, 0.0))
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 s.props.push(spinner("Past round", 4, 5, 20, 361.0))
             }),
             (IssueCode::LimitExceeded, |s| {
@@ -684,120 +740,255 @@ mod tests {
                 s.props
                     .push(sphere("Big globe", 70_000, 70_000, (-86.0, 86.0), 360.0))
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 s.props.push(sphere("Past the pole", 4, 4, (-95.0, 86.0), 360.0))
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 s.props.push(sphere("No sweep", 4, 4, (-86.0, 86.0), 0.0))
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 s.props.push(sphere("Past round", 4, 4, (-86.0, 86.0), 400.0))
             }),
             (IssueCode::LimitExceeded, |s| {
                 s.props.push(cube("Big box", 2_000, 2_000, 2_000))
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 s.props.push(sphere("Wide", u32::MAX, 0, (-86.0, 86.0), 360.0))
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 s.props.push(cube("Flat", u32::MAX, u32::MAX, 0))
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 let mut p = poly("Bent", 2, 5);
                 if let ShapeSource::Generator(Generator::PolyLine { segments, .. }) = &mut p.shape {
                     segments[0].curve = Some([crate::Vec3::new(f32::NAN, 0.0, 0.0), crate::Vec3::ZERO]);
                 }
                 s.props.push(p)
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 s.props.push(cube("Thin", 1, 1, crate::MAX_PROP_NODES + 1))
             }),
             (IssueCode::LimitExceeded, |s| {
                 // The real count of a row of arches, beyond what a 32-bit count can hold.
                 s.props.push(arch("Tunnel", 70_000, 70_000, vec![]))
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 s.props
                     .push(arch("Endless", crate::MAX_PROP_NODES + 1, 0, vec![]))
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 s.props
                     .push(arch("Deep", 1, 10, vec![1; crate::MAX_SHAPE_LAYERS + 1]))
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 s.props
                     .push(arch("Wide layer", 1, 10, vec![crate::MAX_PROP_NODES + 1]))
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 let mut p = arch("Flat", 1, 10, vec![]);
                 if let ShapeSource::Generator(Generator::Arch { arc, .. }) = &mut p.shape {
                     *arc = 0.0;
                 }
                 s.props.push(p)
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 let mut p = arch("Ring", 1, 10, vec![]);
                 if let ShapeSource::Generator(Generator::Arch { arc, .. }) = &mut p.shape {
                     *arc = 270.0;
                 }
                 s.props.push(p)
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 let mut shape = Generator::circle(10, 1.0);
                 if let Generator::Circle { inner_percent, .. } = &mut shape {
                     *inner_percent = 120;
                 }
                 s.props.push(Prop::new("Halo", ShapeSource::Generator(shape)))
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 let mut shape = Generator::circle(10, 1.0);
                 if let Generator::Circle { layers, .. } = &mut shape {
                     *layers = vec![1; crate::MAX_SHAPE_LAYERS + 1];
                 }
                 s.props.push(Prop::new("Target", ShapeSource::Generator(shape)))
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 let mut shape = Generator::star(5, 10, 1.0, 0.4);
                 if let Generator::Star { layers, .. } = &mut shape {
                     *layers = vec![crate::MAX_PROP_NODES + 1];
                 }
                 s.props.push(Prop::new("Big star", ShapeSource::Generator(shape)))
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 let mut p = arch("Apart", 2, 10, vec![]);
                 if let ShapeSource::Generator(Generator::Arch { gap, .. }) = &mut p.shape {
                     *gap = -0.5;
                 }
                 s.props.push(p)
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 s.props.push(tree("Corkscrew", 4, 0, 1e30))
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 s.props.push(tree("Twister", 4, 0, -101.0))
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 s.props.push(tree("Folded", 4, 5, 0.0))
             }),
-            (IssueCode::LimitExceeded, |s| {
+            (IssueCode::InvalidShape, |s| {
                 let mut p = arch("Hollow", 1, 10, vec![5, 5]);
                 if let ShapeSource::Generator(Generator::Arch { hollow, .. }) = &mut p.shape {
                     *hollow = 101;
                 }
                 s.props.push(p)
             }),
+            (IssueCode::DuplicateId, |s| {
+                let group = Group::new("Twins");
+                s.groups.push(group.clone());
+                s.groups.push(group);
+            }),
+            (IssueCode::DuplicateId, |s| {
+                let dup = s.controllers[0].clone();
+                s.controllers.push(Controller { ports: vec![], ..dup });
+            }),
+            (IssueCode::DuplicateId, |s| {
+                let sequence = crate::SequenceEntry::new("Song", "song.pfseq.json");
+                s.sequences.push(sequence.clone());
+                s.sequences.push(sequence);
+            }),
+            (IssueCode::InvalidBrightness, |s| {
+                s.controllers[0].ports[0].slots[0].brightness = Some(101)
+            }),
+            (IssueCode::InvalidShape, |s| {
+                s.props.push(Prop::new(
+                    "Grid",
+                    ShapeSource::Generator(Generator::CustomGrid {
+                        columns: 2,
+                        rows: 2,
+                        cells: vec![1, 2, 3],
+                    }),
+                ))
+            }),
+            (IssueCode::InvalidShape, |s| {
+                s.props.push(Prop::new(
+                    "Line",
+                    ShapeSource::Generator(Generator::Line {
+                        nodes: 5,
+                        length: f32::NAN,
+                    }),
+                ))
+            }),
+            (IssueCode::InvalidShape, |s| {
+                s.props.push(Prop::new(
+                    "Tree",
+                    ShapeSource::Generator(Generator::tree(
+                        4,
+                        5,
+                        f32::INFINITY,
+                        1.0,
+                        0.0,
+                        crate::TreeStyle::Round,
+                    )),
+                ))
+            }),
+            (IssueCode::InvalidShape, |s| {
+                s.props.push(Prop::new(
+                    "Measured",
+                    ShapeSource::Measured {
+                        points: vec![crate::Vec3::new(0.0, f32::NAN, 0.0)],
+                        provenance: crate::Provenance::Import,
+                    },
+                ))
+            }),
+            (IssueCode::InvalidTransform, |s| {
+                s.props[0].transform.position.x = f32::NAN
+            }),
+            (IssueCode::InvalidTransform, |s| {
+                s.props[0].transform.rotation_deg.z = f32::INFINITY
+            }),
+            (IssueCode::InvalidTransform, |s| {
+                s.props[0].transform.scale.y = f32::NEG_INFINITY
+            }),
+            (IssueCode::InvalidPortNumber, |s| {
+                s.controllers[0].ports[0].number = 0
+            }),
+            (IssueCode::DuplicatePort, |s| {
+                s.controllers[0].ports.push(Port::new(1))
+            }),
+            (IssueCode::MissingAddress, |s| {
+                s.controllers[0].address = "  ".into()
+            }),
         ];
-        for (code, mutate) in cases {
+        let mut wrong = Vec::new();
+        for (i, (code, mutate)) in cases.into_iter().enumerate() {
             let prop = line("A", 10);
             let mut show = show_with_slot(PortSlot::new(prop.id), prop);
             mutate(&mut show);
             let report = validate_show(&show);
-            assert!(
-                report.has_code(code),
-                "expected {code:?}, got {:?}",
-                report.issues
-            );
+            // The expected problem and no other error: one mistake isn't reported as several.
+            // (A shape that can't be built may also warn that the prop has no pixels.)
+            let only = report.has_code(code)
+                && report
+                    .issues
+                    .iter()
+                    .all(|i| i.code == code || i.severity == crate::Severity::Warning);
+            if !only {
+                wrong.push(format!("case {i}: expected {code:?}, got {:?}", report.issues));
+            }
         }
+        assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+    }
+
+    #[test]
+    fn every_error_says_how_to_fix_it() {
+        let prop = line("A", 10);
+        let mut show = show_with_slot(PortSlot::new(prop.id), prop);
+        show.props.push(show.props[0].clone());
+        show.controllers[0].ports[0].brightness = 101;
+        show.controllers[0].ports[0].slots[0].brightness = Some(101);
+        show.controllers[0].ports[0].slots[0].null_pixels = crate::MAX_NULL_PIXELS + 1;
+        let report = validate_show(&show);
+        for code in [
+            IssueCode::DuplicateId,
+            IssueCode::InvalidBrightness,
+            IssueCode::LimitExceeded,
+        ] {
+            assert!(report.has_code(code), "{code:?}: {:?}", report.issues);
+        }
+        for issue in &report.issues {
+            assert!(issue.fix.is_some(), "{issue:?}");
+        }
+        let nulls = report
+            .issues
+            .iter()
+            .find(|i| i.code == IssueCode::LimitExceeded)
+            .unwrap();
+        assert!(nulls.fix.as_deref().unwrap().contains("null pixels"), "{nulls:?}");
+    }
+
+    #[test]
+    fn problems_that_stop_a_file_opening_are_the_limit_issues() {
+        let prop = line("A", 10);
+        let mut show = show_with_slot(PortSlot::new(prop.id), prop);
+        assert_eq!(limit_issues(&show), vec![]);
+
+        // Port and address problems are ordinary errors: the file still opens.
+        show.controllers[0].ports.push(Port::new(0));
+        show.controllers[0].address = String::new();
+        assert_eq!(limit_issues(&show), vec![]);
+
+        show.props[0].transform.scale.x = f32::NAN;
+        show.props.push(Prop::new(
+            "Grid",
+            ShapeSource::Generator(Generator::CustomGrid {
+                columns: 1,
+                rows: 1,
+                cells: vec![],
+            }),
+        ));
+        let codes: Vec<IssueCode> = limit_issues(&show).iter().map(|i| i.code).collect();
+        assert_eq!(codes, vec![IssueCode::InvalidTransform, IssueCode::InvalidShape]);
+        assert!(crate::check_show(&show).is_err());
     }
 
     #[test]

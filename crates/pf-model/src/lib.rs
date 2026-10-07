@@ -43,4 +43,4 @@ pub use shape::{
     StarStart, StrandStyle, TreeStyle,
 };
 pub use show::{Background, CURRENT_SCHEMA_VERSION, HouseModel, SequenceEntry, Show, ShowSettings};
-pub use validate::validate_show;
+pub use validate::{limit_issues, validate_show};

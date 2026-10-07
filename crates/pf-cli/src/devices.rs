@@ -45,9 +45,9 @@ pub fn discover(args: &DiscoverArgs) -> Result<ExitCode> {
     let sweep = HttpClient::with_connect_timeout(Duration::from_millis(400), Duration::from_millis(1500));
     let found = pf_devices::discover(&client(), &sweep, &options);
     if args.json {
-        println!("{}", serde_json::to_string_pretty(&found)?);
+        outln!("{}", serde_json::to_string_pretty(&found)?)?;
     } else {
-        print!("{}", discovery_table(&found));
+        out!("{}", discovery_table(&found))?;
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -60,14 +60,14 @@ pub fn device(args: &DeviceArgs) -> Result<ExitCode> {
         .with_context(|| format!("could not read the configuration of {}", args.address))?;
     let plan = plan_import(&device, &config, &Show::new("Preview"));
     if args.json {
-        println!(
+        outln!(
             "{}",
             serde_json::to_string_pretty(
                 &serde_json::json!({ "device": device, "config": config, "import": plan })
             )?
-        );
+        )?;
     } else {
-        print!("{}", describe(&device, &config, &plan));
+        out!("{}", describe(&device, &config, &plan))?;
     }
     Ok(ExitCode::SUCCESS)
 }

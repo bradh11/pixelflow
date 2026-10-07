@@ -36,6 +36,8 @@ if (inTauri()) {
     backend.fppSoftwares = demoFppSoftware();
     backend.openUrl = (url) => void window.open(url, "_blank", "noopener");
     backend.fppSendStepMs = 150;
+    // Camera mapping offers a made-up video of the lights flashing.
+    backend.cameraMapSamples = true;
     backend.nextSequencePath = "/Shows/Christmas Medley 2017.fseq";
     backend.images.set(DEMO_PHOTO, demoHousePhoto());
     backend.nextImagePath = DEMO_PHOTO;

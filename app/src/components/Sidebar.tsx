@@ -76,7 +76,7 @@ export function Sidebar() {
           key={item.screen}
           type="button"
           data-screen={item.screen}
-          aria-current={screen === item.screen ? "page" : undefined}
+          aria-current={screen === item.screen || (item.screen === "test" && screen === "cameraMap") ? "page" : undefined}
           data-tip={rail ? item.label : undefined}
           onClick={() => setScreen(item.screen)}
           className={`relative flex items-center gap-2 rounded-md py-2 text-sm ${rail ? "justify-center px-0" : "px-3"} ${

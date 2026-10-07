@@ -66,8 +66,8 @@ const COLORS: Record<string, [number, number, number]> = {
 
 /**
  * A made-up phone video of `owners` flashing the sequence, filmed slightly tilted, with a few
- * things to find: a dead pixel and a reflection on the first prop, and the second prop's red
- * and green swapped.
+ * things to find: a dead pixel and a reflection on the first prop, the second prop's red and
+ * green swapped, and a last prop that isn't the shape the layout says.
  */
 export function sampleCapture(owners: Owner[], base: CodeBase): SampleCapture {
   const pixels = owners.length;
@@ -90,7 +90,12 @@ export function sampleCapture(owners: Owner[], base: CodeBase): SampleCapture {
     const [dx, dy] = [(ax / ANALYSIS - 960) / scale, -(ay / ANALYSIS - 560) / scale];
     return [cx + c * dx + s * dy, cy - s * dx + c * dy];
   };
-  const truth = layout.map(toImage);
+  // The last prop (of three or more) isn't quite the shape the layout has: it sags.
+  const sagging = props.length > 2 ? props[props.length - 1] : null;
+  const truth = layout.map((p, i): [number, number] => {
+    const [x, y] = toImage(p);
+    return owners[i].prop === sagging ? [x, y + 14 * Math.sin(owners[i].node * 0.7)] : [x, y];
+  });
   const first = owners.filter((o) => o.prop === props[0]).map((_, i) => i);
   const dead = first.length > 12 ? first[10] : -1;
   const reflected = first.slice(0, 3);

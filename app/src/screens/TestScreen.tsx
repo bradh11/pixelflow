@@ -1,4 +1,4 @@
-import { Play, RefreshCw, Square } from "lucide-react";
+import { Camera, Play, RefreshCw, Square } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { errorMessage } from "../api/backend";
 import type { ControllerCheck, OutputStatus, PatternKind, TargetSpec } from "../api/types";
@@ -223,6 +223,13 @@ export function TestScreen() {
       <PageHeader
         title="Test"
         description="Send a test pattern to your controllers to check wiring and pixel order. Output stops with a blackout."
+        actions={
+          show.props.length > 0 && (
+            <Button onClick={() => useApp.getState().setScreen("cameraMap")} title="Find where every pixel really is by filming the lights">
+              <Camera size={16} aria-hidden /> Camera mapping
+            </Button>
+          )
+        }
       />
       {show.controllers.length === 0 ? (
         <EmptyState title="No controllers to test">

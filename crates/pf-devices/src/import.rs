@@ -3,11 +3,11 @@
 use crate::config::{Destination, DeviceConfig, DeviceInput};
 use crate::device::{Device, DeviceKind};
 use pf_model::{
-    AdapterKind, ColorOrder, Controller, Generator, Port, PortSlot, Prop, Protocol, SacnConfig,
+    AdapterKind, ColorOrder, Controller, Generator, Port, PortSlot, Prop, PropId, Protocol, SacnConfig,
     SequenceChannels, ShapeSource, Show, UniverseSize, Vec3,
 };
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 /// What importing a device would add to the show.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -43,6 +43,17 @@ pub(crate) fn unique(base: &str, taken: &mut HashSet<String>) -> String {
 
 /// Plans an import of `device` with `config` into `show` (nothing is changed yet).
 pub fn plan_import(device: &Device, config: &DeviceConfig, show: &Show) -> ImportPlan {
+    plan_import_using(device, config, show, &BTreeMap::new())
+}
+
+/// [`plan_import`], wiring the props in `use_props` (by [`crate::setup::string_key`]) instead of
+/// making starter props for those strings. Props not in the show are ignored.
+pub fn plan_import_using(
+    device: &Device,
+    config: &DeviceConfig,
+    show: &Show,
+    use_props: &BTreeMap<String, PropId>,
+) -> ImportPlan {
     let mut notes = config.notes.clone();
     let mut controller_names: HashSet<String> = show.controllers.iter().map(|c| c.name.clone()).collect();
     let mut prop_names: HashSet<String> = show.props.iter().map(|p| p.name.clone()).collect();
@@ -85,6 +96,26 @@ pub fn plan_import(device: &Device, config: &DeviceConfig, show: &Show) -> Impor
         port.max_pixels = port_config.max_pixels;
         let several = port_config.strings.len() > 1;
         for (i, string) in port_config.strings.iter().enumerate() {
+            let existing = use_props
+                .get(&crate::setup::string_key(port_config.number, i))
+                .and_then(|id| show.prop(*id));
+            if let Some(prop) = existing {
+                if prop.node_count() != string.pixels {
+                    notes.push(format!(
+                        "Port {} string {} wires {}, which has {} pixels; the string has {}.",
+                        port_config.number,
+                        i + 1,
+                        prop.name,
+                        prop.node_count(),
+                        string.pixels
+                    ));
+                }
+                let mut slot = PortSlot::new(prop.id);
+                slot.smart_receiver = string.smart_receiver;
+                slot.controller_color_order = Some(string.color_order);
+                port.slots.push(slot);
+                continue;
+            }
             let fallback = if several {
                 format!("{controller_name} Port {} String {}", port_config.number, i + 1)
             } else {
@@ -163,7 +194,7 @@ pub fn plan_import(device: &Device, config: &DeviceConfig, show: &Show) -> Impor
     }
     ImportPlan {
         already_in_show,
-        can_import: !props.is_empty(),
+        can_import: controller.ports.iter().any(|p| !p.slots.is_empty()),
         controller,
         props,
         notes,
@@ -339,7 +370,7 @@ pub fn plan_fpp_setup(device: &Device, config: &DeviceConfig, show: &Show) -> Fp
 mod tests {
     use super::*;
     use crate::config::{Destination, PortConfig, StringConfig};
-    use pf_model::ColorOrder;
+    use pf_model::{ColorOrder, PropId};
 
     fn device() -> Device {
         Device {
@@ -437,6 +468,39 @@ mod tests {
         assert_eq!(
             plan.notes[2],
             "The controller applies its own settings (Port 1 \"Arch\": reversed, 50% brightness, gamma 2.2; Port 3 \"Garage Falcon Port 3 String 1\": reversed, 50% brightness, gamma 2.2; Port 3 \"Garage Falcon Port 3 String 2\": reversed, 50% brightness, gamma 2.2), so PixelFlow sends unadjusted data."
+        );
+    }
+
+    #[test]
+    fn strings_can_wire_props_already_in_the_show() {
+        let mut show = Show::new("t");
+        let arch = Prop::new(
+            "Garage Arch",
+            ShapeSource::Generator(Generator::Line {
+                nodes: 40,
+                length: 1.0,
+            }),
+        );
+        let arch_id = arch.id;
+        show.props.push(arch);
+        let use_props = std::collections::BTreeMap::from([("port1/string1".to_string(), arch_id)]);
+        let plan = plan_import_using(&device(), &config(), &show, &use_props);
+        // Port 1's string wires the existing prop; port 3's two strings get starter props.
+        assert_eq!(plan.controller.ports[0].slots[0].prop, arch_id);
+        assert_eq!(plan.props.len(), 2);
+        assert!(plan.props.iter().all(|p| p.id != arch_id));
+        assert!(
+            plan.notes
+                .iter()
+                .any(|n| n == "Port 1 string 1 wires Garage Arch, which has 40 pixels; the string has 50."),
+            "{:?}",
+            plan.notes
+        );
+        // A prop that isn't in the show is ignored: a starter prop is made instead.
+        let gone = std::collections::BTreeMap::from([("port1/string1".to_string(), PropId::new())]);
+        assert_eq!(
+            plan_import_using(&device(), &config(), &show, &gone).props.len(),
+            3
         );
     }
 

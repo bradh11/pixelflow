@@ -42,6 +42,7 @@ pub use fingerprint::classify_home_page;
 pub use http::{FakeHttp, Http, HttpClient};
 pub use identify::{identify, read_config};
 pub use import::{
-    FppSetupPlan, ImportPlan, SetupSkip, is_placeholder, plan_destination_import, plan_fpp_setup, plan_import,
+    FppSetupPlan, ImportPlan, SetupSkip, is_placeholder, plan_destination_import, plan_fpp_setup,
+    plan_import, plan_import_using,
 };
 pub use reach::{FakeReach, Reach, ReachCheck, TcpReach, check_reach, local_networks, on_local_network};

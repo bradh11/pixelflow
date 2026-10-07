@@ -74,6 +74,21 @@ describe("devices", () => {
     expect(screen.queryByText("In show")).not.toBeInTheDocument();
   });
 
+  it("says what was actually imported when the controller changed since it was reviewed", async () => {
+    const { user, backend } = await openDevices();
+    await user.click(screen.getByRole("button", { name: "Scan network" }));
+    await user.click(await screen.findByRole("button", { name: "Open Falcon_F16V5_B9F5" }));
+    const dialog = await screen.findByRole("dialog", { name: "Import Falcon_F16V5_B9F5" });
+    // Someone removes port 2 on the controller while the review is open.
+    const falcon = backend.deviceNetwork.details.find((d) => d.device.address === "192.0.2.20")!;
+    falcon.config.ports = falcon.config.ports.slice(0, 1);
+    falcon.plan.controller.ports = falcon.plan.controller.ports.slice(0, 1);
+    falcon.plan.props = falcon.plan.props.slice(0, 1);
+
+    await user.click(within(dialog).getByRole("button", { name: "Add to show" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Added Falcon_F16V5_B9F5: 1 prop on 1 port.");
+  });
+
   it("opens an FPP's own page, and goes back to the list", async () => {
     const { user } = await openDevices();
     await user.click(screen.getByRole("button", { name: "Scan network" }));

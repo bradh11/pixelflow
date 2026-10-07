@@ -425,7 +425,15 @@ export class MemoryBackend implements Backend {
     details.plan.alreadyInShow = here.some((c) => !isPlaceholder(c));
     if (!details.plan.alreadyInShow && here.length > 0) {
       details.plan.notes.push(`Fills in ${here[0].name}, added from your FPP's output list.`);
+      details.plan.notes.push(
+        `An FPP sends its sequence to ${here[0].name}: while a playlist or sequence is running on that FPP, it overrides PixelFlow's live output, so stop it while using PixelFlow.`,
+      );
     }
+    // Like the engine: names already in the show are numbered ("Tree 2").
+    const controllerNames = new Set(this.show.controllers.map((c) => c.name));
+    details.plan.controller.name = numbered(details.plan.controller.name, controllerNames);
+    const propNames = new Set(this.show.props.map((p) => p.name));
+    for (const prop of details.plan.props) prop.name = numbered(prop.name, propNames);
     return withFreshIds(details);
   }
 
@@ -1252,6 +1260,14 @@ export class MemoryBackend implements Backend {
 /** A controller added from an FPP's output list: no ports yet, but it knows its sequence channels. */
 function isPlaceholder(c: Show["controllers"][number]): boolean {
   return c.ports.length === 0 && c.sequenceChannels !== null;
+}
+
+/** `base`, or `base 2`, `base 3`, ... — the first not in `taken` (which it is then added to). */
+function numbered(base: string, taken: Set<string>): string {
+  let name = base;
+  for (let n = 2; taken.has(name); n++) name = `${base} ${n}`;
+  taken.add(name);
+  return name;
 }
 
 function withFreshIds(details: DeviceDetails): DeviceDetails {

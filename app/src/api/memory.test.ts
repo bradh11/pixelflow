@@ -130,6 +130,24 @@ describe("MemoryBackend", () => {
     const details = await backend.inspectDevice("192.0.2.20");
     expect(details.plan.alreadyInShow).toBe(false);
     expect(details.plan.notes).toContain("Fills in Falcon_F16V5_B9F5, added from your FPP's output list.");
+    expect(details.plan.notes).toContain(
+      "An FPP sends its sequence to Falcon_F16V5_B9F5: while a playlist or sequence is running on that FPP, it overrides PixelFlow's live output, so stop it while using PixelFlow.",
+    );
+  });
+
+  it("numbers the names of a controller imported again, like the engine", async () => {
+    const backend = new MemoryBackend();
+    backend.deviceNetwork = demoDevices();
+    const first = await backend.inspectDevice("192.0.2.20");
+    await backend.importDevice("192.0.2.20");
+    const again = await backend.inspectDevice("192.0.2.20");
+    expect(again.plan.controller.name).toBe(`${first.plan.controller.name} 2`);
+    expect(again.plan.props.map((p) => p.name)).toEqual(first.plan.props.map((p) => `${p.name} 2`));
+    // The demo network itself is left as it was.
+    expect((await backend.inspectDevice("192.0.2.20")).plan.controller.name).toBe(`${first.plan.controller.name} 2`);
+    expect(backend.deviceNetwork.details.find((d) => d.device.address === "192.0.2.20")?.plan.controller.name).toBe(
+      first.plan.controller.name,
+    );
   });
 
   it("previews each prop's real shape where its transform puts it", async () => {

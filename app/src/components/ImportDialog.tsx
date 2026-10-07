@@ -1,7 +1,7 @@
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "../api/backend";
-import type { DeviceDetails, DeviceInput, UseProps } from "../api/types";
+import type { DeviceDetails, DeviceInput, Show, UseProps } from "../api/types";
 import { plural, thousands } from "../lib/format";
 import { useApp } from "../state/store";
 import { PropPicker } from "./devices/DeviceDialog";
@@ -16,6 +16,19 @@ function describeInput(input: DeviceInput): string {
     case "unsupported":
       return `${input.description} (not supported yet; PixelFlow will send DDP)`;
   }
+}
+
+/** What importing the device at `address` changed from `before` to `after`: the controller added
+ * (or filled in) there, its new props, the props already in the show it wired, and its ports. */
+function importedSummary(before: Show, after: Show, address: string): string {
+  const oldProps = new Set(before.props.map((p) => p.id));
+  const oldControllers = new Set(before.controllers.map((c) => c.id));
+  const here = after.controllers.filter((c) => c.address === address);
+  const controller = here.find((c) => !oldControllers.has(c.id)) ?? here[here.length - 1];
+  if (!controller) return "Added the controller. Undo with ⌘Z.";
+  const added = after.props.filter((p) => !oldProps.has(p.id)).length;
+  const yours = controller.ports.flatMap((p) => p.slots).filter((s) => oldProps.has(s.prop)).length;
+  return `Added ${controller.name}: ${plural(added, "prop")}${yours ? ` and ${yours} of yours` : ""} on ${plural(controller.ports.length, "port")}. Undo with ⌘Z.`;
 }
 
 /** Reads a device's configuration and shows exactly what importing it would add. (An FPP has a
@@ -61,14 +74,13 @@ export function ImportDialog({
     if (!details || busy) return;
     setBusy(true);
     const chosen = Object.fromEntries(Object.entries(useProps).filter(([, prop]) => prop));
+    const before = useApp.getState().snapshot?.show;
     const ok = await run((b) => b.importDevice(address, chosen));
     setBusy(false);
     if (ok) {
-      const { plan } = details;
-      const reused = Object.keys(chosen).length;
-      onImported(
-        `Added ${plan.controller.name}: ${plan.props.length - reused} props${reused ? ` and ${reused} of yours` : ""} on ${plan.controller.ports.length} ports. Undo with ⌘Z.`,
-      );
+      // The import reads the device again, so describe what it added, not what was reviewed.
+      const after = useApp.getState().snapshot?.show;
+      onImported(after && before ? importedSummary(before, after, address) : `Added ${details.plan.controller.name}.`);
       onClose();
     }
   };

@@ -5,7 +5,7 @@ import type { PlaybackStatus, PlayerStatus, PreviewProp, SequenceEntry, Waveform
 import { ChannelGrid } from "../components/ChannelGrid";
 import { LivePreview } from "../components/layout3d/LivePreview";
 import { MissingFileNotice, useMissingFile } from "../components/MissingFiles";
-import { SequenceList } from "../components/SequenceList";
+import { AddSequenceButton, SequenceList } from "../components/SequenceList";
 import { WaveformView } from "../components/WaveformView";
 import { Button, EmptyState, ScreenHeader } from "../components/ui";
 import { clock, fileName, sequenceTitle, shownPath, thousands } from "../lib/format";
@@ -405,7 +405,9 @@ export function PlayScreen() {
 
   return (
     <div className="flex h-full flex-col">
-      <ScreenHeader title="Play" />
+      <ScreenHeader title="Play">
+        <AddSequenceButton onSelect={setSelectedId} />
+      </ScreenHeader>
 
       {busyFpps.map((fpp) => (
         <div

@@ -31,7 +31,7 @@ import { CustomGridSection } from "./CustomGridSection";
 import { isPoly } from "../../lib/polylineMath";
 import { SHAPE_FIELDS, type ShapeField, fieldValue, parseNumbers, withField } from "./shapeFields";
 import { MissingFileNotice, useMissingFile } from "../MissingFiles";
-import { Button, Input, Select } from "../ui";
+import { Button, Input, More, Select } from "../ui";
 
 const COLOR_ORDERS: ColorOrder[] = ["RGB", "RBG", "GRB", "GBR", "BRG", "BGR", "RGBW", "GRBW"];
 
@@ -228,7 +228,7 @@ export function NumberField({
 
 export function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="border-t border-neutral-200 py-3 first:border-t-0 first:pt-0 dark:border-neutral-800">
+    <section aria-label={title} className="border-t border-neutral-200 py-3 first:border-t-0 first:pt-0 dark:border-neutral-800">
       <h3 className="mb-2 text-xs font-medium tracking-wide text-neutral-500 uppercase">{title}</h3>
       {children}
     </section>
@@ -320,38 +320,24 @@ function OnePropPanel({ prop, points }: { prop: Prop; points: ArrayLike<number> 
       </Section>
       {isPoly(shape) && <PolyLineSection prop={prop} shape={shape} />}
       {shape.source === "generator" && shape.type === "customGrid" && <CustomGridSection prop={prop} shape={shape} />}
-      <Section title="Size and pixels">
-        {shape.source === "measured" ? (
-          <p className="text-sm text-neutral-500">
-            This prop's pixels were placed one by one (imported), so its size is changed by resizing it on the canvas.
-          </p>
-        ) : fields.length > 0 ? (
-          <>
-            <ShapeFields fields={fields} shape={shape} onChange={setShapeField} />
-            {pixelNote && (
-              <p role="status" className="mt-2 text-xs text-amber-700 dark:text-amber-400">
-                {pixelNote}
-              </p>
-            )}
-          </>
-        ) : null}
-        <label className={`${fields.length > 0 || shape.source === "measured" ? "mt-2 " : ""}flex flex-col gap-1 text-xs`}>
-          <span className="text-neutral-500 dark:text-neutral-400">Color order</span>
-          <Select
-            value={prop.colorOrder}
-            onChange={(e) => {
-              const colorOrder = e.target.value as ColorOrder;
-              update((p) => ({ ...p, colorOrder }));
-            }}
-          >
-            {COLOR_ORDERS.map((o) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </Select>
-        </label>
-      </Section>
+      {(shape.source === "measured" || fields.length > 0) && (
+        <Section title="Size and pixels">
+          {shape.source === "measured" ? (
+            <p className="text-sm text-neutral-500">
+              This prop's pixels were placed one by one (imported), so its size is changed by resizing it on the canvas.
+            </p>
+          ) : fields.length > 0 ? (
+            <>
+              <ShapeFields fields={fields} shape={shape} onChange={setShapeField} />
+              {pixelNote && (
+                <p role="status" className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                  {pixelNote}
+                </p>
+              )}
+            </>
+          ) : null}
+        </Section>
+      )}
       <Section title="Placement">
         {/* Depth, tilt, and turn only mean something in the 3D view, so they're shown there. */}
         <div className={`grid gap-2 ${showZ ? "grid-cols-3" : "grid-cols-2"}`}>
@@ -365,10 +351,28 @@ function OnePropPanel({ prop, points }: { prop: Prop; points: ArrayLike<number> 
           {showTurn && <NumberField label="Turn (Y°)" hint="Turned to face left or right (around Y)" value={t.rotationDeg.y} onCommit={(turn) => setTransform({ turn })} />}
         </div>
         {!(showZ && showTilt && showTurn) && <p className="mt-1 text-xs text-neutral-500">Depth, tilt, and turn are in the 3D view (V).</p>}
-        <div className="mt-2 grid grid-cols-2 gap-2">
-          <NumberField label="Scale X" value={t.scale.x} nonZero onCommit={(sx) => setTransform({ sx })} />
-          <NumberField label="Scale Y" value={t.scale.y} nonZero onCommit={(sy) => setTransform({ sy })} />
-        </div>
+        <More id="layout-prop" label="More: color order and scale">
+          <label className="flex flex-col gap-1 text-xs">
+            <span className="text-neutral-500 dark:text-neutral-400">Color order</span>
+            <Select
+              value={prop.colorOrder}
+              onChange={(e) => {
+                const colorOrder = e.target.value as ColorOrder;
+                update((p) => ({ ...p, colorOrder }));
+              }}
+            >
+              {COLOR_ORDERS.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <NumberField label="Scale X" value={t.scale.x} nonZero onCommit={(sx) => setTransform({ sx })} />
+            <NumberField label="Scale Y" value={t.scale.y} nonZero onCommit={(sy) => setTransform({ sy })} />
+          </div>
+        </More>
       </Section>
       <SubmodelsSection prop={prop} points={points} />
       <Section title="Actions">

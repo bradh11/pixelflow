@@ -51,7 +51,7 @@ describe("play", () => {
   it("adds a sequence with its music, plays it, and lines the lights up with the music", async () => {
     const { user, backend } = await openPlay(true);
     const list = screen.getByRole("complementary", { name: "Sequences" });
-    await user.click(within(list).getByRole("button", { name: "Add sequence" }));
+    await user.click(screen.getByRole("button", { name: "Add sequence" }));
     expect(backend.calls).toContain("addSequence:/Shows/Christmas Medley 2017.fseq");
     expect(await within(list).findByText("Christmas Medley 2017")).toBeInTheDocument();
     const transport = screen.getByRole("region", { name: "Transport" });

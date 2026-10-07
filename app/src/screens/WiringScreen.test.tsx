@@ -574,6 +574,7 @@ describe("wiring screen", () => {
     const form = screen.getByRole("form", { name: "Edit Porch WLED" });
     expect(within(form).queryByLabelText("Start universe")).not.toBeInTheDocument();
     await user.selectOptions(within(form).getByLabelText("Protocol"), "sacn");
+    await user.click(within(form).getByRole("button", { name: /^More: universe size/ }));
     await user.selectOptions(within(form).getByLabelText("Channels per universe"), "512");
     await user.click(within(form).getByRole("button", { name: "Save" }));
     expect(backend.show.controllers[1].protocol).toEqual({ type: "sacn", startUniverse: null, universeSize: 512, allowPixelStraddle: false, multicast: false });

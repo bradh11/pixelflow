@@ -185,8 +185,8 @@ fn sacn_targets(x: &XController, notes: &mut Vec<String>) -> Vec<Target> {
         };
         let size = run[0].channels;
         let universe_size = match size {
-            510 => UniverseSize::Channels510,
-            512 => UniverseSize::Channels512,
+            510 => UniverseSize::CHANNELS_510,
+            512 => UniverseSize::CHANNELS_512,
             _ => {
                 notes.push(format!(
                     "{name} uses {size} channels per universe; PixelFlow sends 510 or 512, so it wasn't imported."

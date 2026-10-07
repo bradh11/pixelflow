@@ -366,7 +366,7 @@ mod tests {
                 address: "127.0.0.2".into(),
                 protocol: Protocol::Sacn(SacnConfig {
                     start_universe: Some(10),
-                    universe_size: UniverseSize::Channels512,
+                    universe_size: UniverseSize::CHANNELS_512,
                     ..SacnConfig::default()
                 }),
                 start: 6147,

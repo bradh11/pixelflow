@@ -19,7 +19,7 @@ fn case() -> impl Strategy<Value = Case> {
     (
         proptest::collection::vec((1u32..400, any::<bool>(), 0u32..5), 1..12),
         1usize..5,
-        prop_oneof![Just(UniverseSize::Channels510), Just(UniverseSize::Channels512)],
+        prop_oneof![Just(UniverseSize::CHANNELS_510), Just(UniverseSize::CHANNELS_512)],
         any::<bool>(),
     )
         .prop_map(|(props, ports, size, straddle)| Case {

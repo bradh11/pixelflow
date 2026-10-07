@@ -55,14 +55,14 @@ pub fn plan_import(device: &Device, config: &DeviceConfig, show: &Show) -> Impor
             ..
         } => {
             let universe_size = if *channels_per_universe == 512 {
-                UniverseSize::Channels512
+                UniverseSize::CHANNELS_512
             } else {
                 if *channels_per_universe != 510 {
                     notes.push(format!(
                         "The controller uses {channels_per_universe} channels per universe; PixelFlow uses 510 or 512."
                     ));
                 }
-                UniverseSize::Channels510
+                UniverseSize::CHANNELS_510
             };
             Protocol::Sacn(SacnConfig {
                 start_universe: Some(*start_universe),
@@ -186,13 +186,13 @@ pub fn plan_destination_import(destination: &Destination, show: &Show) -> Import
     let name = unique(base, &mut controller_names);
     let mut notes = Vec::new();
     let universe_size = match destination.universe_size {
-        Some(512) => UniverseSize::Channels512,
-        Some(510) | None => UniverseSize::Channels510,
+        Some(512) => UniverseSize::CHANNELS_512,
+        Some(510) | None => UniverseSize::CHANNELS_510,
         Some(other) => {
             notes.push(format!(
                 "The FPP sends {other} channels per universe; PixelFlow uses 510 or 512 channels per universe."
             ));
-            UniverseSize::Channels510
+            UniverseSize::CHANNELS_510
         }
     };
     let sacn = |multicast| {
@@ -556,11 +556,11 @@ mod tests {
             };
             (sacn.universe_size, plan.notes)
         };
-        assert_eq!(universe_size(Some(512)).0, UniverseSize::Channels512);
-        assert_eq!(universe_size(Some(510)).0, UniverseSize::Channels510);
-        assert_eq!(universe_size(None).0, UniverseSize::Channels510);
+        assert_eq!(universe_size(Some(512)).0, UniverseSize::CHANNELS_512);
+        assert_eq!(universe_size(Some(510)).0, UniverseSize::CHANNELS_510);
+        assert_eq!(universe_size(None).0, UniverseSize::CHANNELS_510);
         let (size, notes) = universe_size(Some(170));
-        assert_eq!(size, UniverseSize::Channels510);
+        assert_eq!(size, UniverseSize::CHANNELS_510);
         assert!(notes[0].contains("510 or 512 channels per universe"), "{notes:?}");
     }
 

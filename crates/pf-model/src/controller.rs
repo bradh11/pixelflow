@@ -146,7 +146,7 @@ pub struct Port {
     pub number: u16,
     /// Most pixels (including null pixels) the port can drive, if known. Counted as boards count
     /// it, in RGB pixels (three channels each), so an RGBW pixel uses 1⅓. When the port feeds
-    /// smart receivers, each receiver's output has this limit.
+    /// smart receivers, they share this one limit (as in xLights).
     #[serde(default)]
     pub max_pixels: Option<u32>,
     /// Brightness in percent (0–100).

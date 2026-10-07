@@ -345,11 +345,23 @@ describe("unsaved changes on new and open", () => {
 });
 
 describe("test output safety", () => {
+  /** Wires the show's first prop to port 1 of controller `at`. */
+  async function wireFirstProp(at: number) {
+    await act(async () => {
+      await useApp.getState().apply((show) => {
+        const c = show.controllers[at];
+        const slot = { prop: show.props[0].id, segment: null, nullPixels: 0, reverse: false, brightness: null, gamma: null, smartReceiver: null };
+        return [{ type: "updateController", controller: { ...c, ports: c.ports.map((p, i) => (i === 0 ? { ...p, slots: [slot] } : p)) } }];
+      });
+    });
+  }
+
   async function wired() {
     const user = await startFresh();
     await addProp(user);
     await user.click(screen.getByRole("button", { name: "Wiring" }));
     await addController(user, "10.0.0.20");
+    await wireFirstProp(0);
     return user;
   }
 
@@ -380,6 +392,7 @@ describe("test output safety", () => {
   it("falls back to the whole show with a notice when the chosen target disappears", async () => {
     const user = await wired();
     await addController(user, "10.0.0.21");
+    await wireFirstProp(1);
     await user.click(screen.getByRole("button", { name: "Test" }));
     await user.selectOptions(screen.getByLabelText("Target"), "Controller 1 · port 1");
     await user.click(screen.getByRole("button", { name: "Wiring" }));

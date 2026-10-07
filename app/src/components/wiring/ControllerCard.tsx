@@ -11,7 +11,6 @@ import {
   addPortEdits,
   capacityOptions,
   moveSlotByEdits,
-  portCapacities,
   portCapacity,
   portChannels,
   portPixels,
@@ -180,34 +179,54 @@ function Chip({ controller, port, at, index, slot, prop, data }: { controller: C
 
 const BAR: Record<string, string> = { ok: "bg-emerald-500", near: "bg-amber-500", slow: "bg-amber-500", over: "bg-red-500" };
 
+/** "A 50 · B 512": each smart receiver's share of the port's pixels. */
+function receiverBreakdown(c: Capacity): string {
+  return c.receivers.map((r) => `${r.receiver === null ? "Port" : receiverName(r.receiver)} ${thousands(r.used)}`).join(" · ");
+}
+
+/** One bar per port: every smart receiver on it counts against the port's one limit (as in xLights). */
 function CapacityBar({ port, controller, c }: { port: Port; controller: Controller; c: Capacity }) {
-  const receiver = c.receiver === null ? "" : ` receiver ${receiverName(c.receiver)}`;
+  const breakdown = c.receivers.length > 0 ? receiverBreakdown(c) : "";
   if (c.limit === null) {
     return (
-      <span className="text-xs text-neutral-500 tabular-nums">
-        {receiver && `${receiverName(c.receiver!)} · `}
+      <span className="text-xs text-neutral-500 tabular-nums" title={breakdown ? `Smart receivers: ${breakdown} px` : undefined}>
         {thousands(c.used)} px
       </span>
     );
   }
   const share = c.limit > 0 ? Math.min(1, c.used / c.limit) : 1;
   const notes = [
+    breakdown && `Smart receivers share the port's limit: ${breakdown} px.`,
     c.refresh !== null && `About ${thousands(c.refresh)} pixels refresh in time at the show's frame rate (xLights' figure for Falcon V4/V5 boards).`,
     controller.adapter === "falcon" && "The board also counts any null pixels it is set to skip itself; those aren't counted here.",
   ].filter(Boolean);
+  // Each receiver's share drawn as a segment of the one bar, so the split shows at a glance.
+  let at = 0;
+  const segments = c.receivers.map((r) => {
+    const left = at;
+    at += c.limit! > 0 ? r.used / c.limit! : 1;
+    return { key: r.receiver ?? "port", left: Math.min(1, left), width: Math.max(0, Math.min(1, at) - Math.min(1, left)) };
+  });
   return (
     <div className="flex min-w-0 items-center gap-2" data-capacity={c.level} title={notes.join(" ") || undefined}>
-      {receiver && <span className="text-[10px] font-semibold text-neutral-500">{receiverName(c.receiver!)}</span>}
+      {breakdown && (
+        <span className="text-[10px] text-neutral-500 tabular-nums" data-testid={`receivers-${port.number}`}>
+          {breakdown}
+        </span>
+      )}
       <div
         role="meter"
-        aria-label={`Port ${port.number}${receiver} pixels used`}
+        aria-label={`Port ${port.number} pixels used`}
         aria-valuemin={0}
         aria-valuemax={c.limit}
         aria-valuenow={c.used}
-        aria-valuetext={`${thousands(c.used)} of ${thousands(c.limit)} pixels`}
+        aria-valuetext={`${thousands(c.used)} of ${thousands(c.limit)} pixels${breakdown ? ` (${breakdown})` : ""}`}
         className="relative h-1.5 w-28 shrink-0 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800"
       >
         <div className={`h-full rounded-full ${BAR[c.level]}`} style={{ width: `${share * 100}%` }} />
+        {segments.slice(1).map((s) => (
+          <span key={s.key} aria-hidden className="absolute top-0 bottom-0 w-px bg-white dark:bg-neutral-900" style={{ left: `${s.left * 100}%` }} />
+        ))}
         {c.refresh !== null && <span aria-hidden className="absolute top-0 bottom-0 w-px bg-neutral-500" style={{ left: `${(c.refresh / c.limit) * 100}%` }} />}
       </div>
       <span
@@ -242,7 +261,7 @@ function PortSettings({ controller, port, at, onClose }: { controller: Controlle
       />
       <OptionalNumberField
         label="Pixel limit"
-        hint="Most pixels this port can drive, null pixels included (RGBW pixels count as 1⅓). With smart receivers, each receiver gets this many. Leave empty if you don't know."
+        hint="Most pixels this port can drive, null pixels included (RGBW pixels count as 1⅓). Smart receivers on the port share this limit. Leave empty if you don't know."
         value={port.maxPixels}
         min={1}
         max={1_000_000}
@@ -279,10 +298,8 @@ function PortRow({ controller, port, at, data }: { controller: Controller; port:
   const [settings, setSettings] = useState(false);
   const rowRef = useRef<HTMLLIElement>(null);
   const addRef = useRef<HTMLButtonElement>(null);
-  const capacities = portCapacities(port, data.nodes, capacityOptions(data.show, controller, data.cpp));
-  const worst = portCapacity(port, data.nodes, capacityOptions(data.show, controller, data.cpp));
+  const capacity = portCapacity(port, data.nodes, capacityOptions(data.show, controller, data.cpp));
   const channels = portChannels(data.channelMap, controller.id, port.number);
-  const messages = capacities.filter((c) => c.message);
 
   // After a keyboard move, an unwire, or closing a chip's settings: focus that chip where it is
   // now (or the Add button when it's gone and the port is empty).
@@ -307,7 +324,7 @@ function PortRow({ controller, port, at, data }: { controller: Controller; port:
       onPointerLeave={() => useWiring.getState().hover(null)}
       className={`border-t border-neutral-200 px-2 py-2 dark:border-neutral-800 ${
         over !== null ? "bg-accent-50 dark:bg-accent-600/10" : highlighted ? "bg-neutral-50 dark:bg-neutral-800/40" : ""
-      } ${worst.level === "over" ? "border-l-2 border-l-red-500" : ""}`}
+      } ${capacity.level === "over" ? "border-l-2 border-l-red-500" : ""}`}
     >
       <div className="flex flex-wrap items-start gap-x-3 gap-y-1.5">
         <button
@@ -361,9 +378,7 @@ function PortRow({ controller, port, at, data }: { controller: Controller; port:
           </span>
         </div>
         <div className="flex w-full flex-col items-end gap-0.5 sm:w-auto">
-          {capacities.map((c) => (
-            <CapacityBar key={c.receiver ?? "port"} port={port} controller={controller} c={c} />
-          ))}
+          <CapacityBar port={port} controller={controller} c={capacity} />
           {channels && (
             <span className="text-[11px] text-neutral-500 tabular-nums" data-testid={`channels-${port.number}`}>
               {channels.universes
@@ -374,15 +389,14 @@ function PortRow({ controller, port, at, data }: { controller: Controller; port:
           )}
         </div>
       </div>
-      {messages.map((c) => (
+      {capacity.message && (
         <p
-          key={c.receiver ?? "port"}
-          role={c.level === "over" ? "alert" : undefined}
-          className={`mt-1 ml-[4.75rem] text-xs ${c.level === "over" ? "text-red-600 dark:text-red-400" : "text-amber-700 dark:text-amber-400"}`}
+          role={capacity.level === "over" ? "alert" : undefined}
+          className={`mt-1 ml-[4.75rem] text-xs ${capacity.level === "over" ? "text-red-600 dark:text-red-400" : "text-amber-700 dark:text-amber-400"}`}
         >
-          {c.message}
+          {capacity.message}
         </p>
-      ))}
+      )}
       {settings && <PortSettings controller={controller} port={port} at={at} onClose={() => setSettings(false)} />}
     </li>
   );

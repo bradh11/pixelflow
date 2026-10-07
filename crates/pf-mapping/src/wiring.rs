@@ -44,7 +44,7 @@ fn wire_controller(
 ) -> WiredController {
     let mut out = WiredController::default();
     for port in &controller.ports {
-        let mut loads: Vec<OutputLoad> = Vec::new();
+        let mut load = PortLoad::default();
         for slot in &port.slots {
             let Some(&i) = index.get(&slot.prop) else {
                 continue;
@@ -88,59 +88,57 @@ fn wire_controller(
                 }
             }
             let pixels = u64::from(slot.null_pixels) + u64::from(range.len());
-            let load = match loads.iter_mut().find(|l| l.receiver == slot.smart_receiver) {
-                Some(load) => load,
-                None => {
-                    loads.push(OutputLoad {
-                        receiver: slot.smart_receiver,
-                        channels: 0,
-                        wide: false,
-                    });
-                    loads.last_mut().expect("just pushed")
-                }
-            };
             load.channels += pixels * u64::from(cpp);
             load.wide |= pixels > 0 && cpp > 3;
+            if let Some(r) = slot.smart_receiver
+                && !load.receivers.contains(&r)
+            {
+                load.receivers.push(r);
+            }
         }
         if let Some(max) = port.max_pixels {
-            for load in &loads {
-                check_capacity(controller, port.number, max, load, report);
-            }
+            check_capacity(controller, port.number, max, &load, report);
         }
     }
     out
 }
 
-/// Pixels on one physical output: a port, or one smart receiver's output on that port.
-struct OutputLoad {
-    receiver: Option<u8>,
+/// Pixels on one port, across any smart receivers it feeds.
+#[derive(Default)]
+struct PortLoad {
     channels: u64,
     /// Some pixels carry more than 3 channels (RGBW).
     wide: bool,
+    /// The smart receivers the port feeds, in wiring order.
+    receivers: Vec<u8>,
 }
 
 /// Port limits are counted the way the boards (and xLights) count them: in channels, three per
-/// pixel, so an RGBW pixel takes the time of 1⅓ RGB pixels. Each smart receiver hanging off a port
-/// drives its own output, so each gets the port's whole limit. Over the limit is a warning, not an
-/// error: PixelFlow still sends every channel; the board just can't drive (or refresh) them all.
+/// pixel, so an RGBW pixel takes the time of 1⅓ RGB pixels. Smart receivers on a port share the
+/// port's one limit, as in xLights: their pixels are added up and checked together. Over the limit
+/// is a warning, not an error: PixelFlow still sends every channel; the board just can't drive (or
+/// refresh) them all.
 fn check_capacity(
     controller: &Controller,
     port: u16,
     max: u32,
-    load: &OutputLoad,
+    load: &PortLoad,
     report: &mut ValidationReport,
 ) {
     let pixels = load.channels.div_ceil(3);
     if pixels <= u64::from(max) {
         return;
     }
-    let output = match load.receiver {
-        Some(r) => format!(
-            "Port {port} (smart receiver {}) on '{}'",
-            receiver_name(r),
-            controller.name
+    let shared = match load.receivers.as_slice() {
+        [] => String::new(),
+        [one] => format!(", on smart receiver {}", receiver_name(*one)),
+        many => format!(
+            ", shared by smart receivers {}",
+            many.iter()
+                .map(|r| receiver_name(*r))
+                .collect::<Vec<_>>()
+                .join(", ")
         ),
-        None => format!("Port {port} on '{}'", controller.name),
     };
     let counting = if load.wide {
         ", counting each RGBW pixel as 1⅓ because it carries 4 channels"
@@ -151,7 +149,8 @@ fn check_capacity(
         Issue::warning(
             IssueCode::PortOverCapacity,
             format!(
-                "{output} is over capacity by {} pixels ({pixels} of {max}{counting}).",
+                "Port {port} on '{}' is over capacity by {} pixels ({pixels} of {max}{shared}{counting}).",
+                controller.name,
                 pixels - u64::from(max)
             ),
         )

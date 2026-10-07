@@ -138,7 +138,7 @@ export function SlotSettings({ selected, data }: { selected: SlotRef; data: Wiri
           />
           <OptionalNumberField
             label="Smart receiver"
-            hint="Only for ports that feed smart receivers: which receiver this prop hangs off (1 is A, 2 is B, …). Each receiver gets the port's whole pixel limit."
+            hint="Only for ports that feed smart receivers: which receiver this prop hangs off (1 is A, 2 is B, …). All receivers on a port share its pixel limit."
             value={slot.smartReceiver}
             min={0}
             max={255}

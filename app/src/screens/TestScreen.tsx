@@ -1,9 +1,10 @@
-import { Play, Square } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Play, RefreshCw, Square } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { errorMessage } from "../api/backend";
-import type { OutputStatus, PatternKind, TargetSpec } from "../api/types";
+import type { ControllerCheck, OutputStatus, PatternKind, TargetSpec } from "../api/types";
 import { Button, Card, EmptyState, Field, Input, PageHeader, Select } from "../components/ui";
 import { thousands } from "../lib/format";
+import { type TestDestination, describeUse, isDemoShow, sendingSummary, testDestinations } from "../lib/testTargets";
 import { currentSetupKey, useSetup } from "../state/setup";
 import { useApp } from "../state/store";
 
@@ -34,6 +35,67 @@ const STATE_STYLE: Record<string, string> = {
   degraded: "text-amber-600 dark:text-amber-400",
   unresolved: "text-red-600 dark:text-red-400",
 };
+
+const NOT_ANSWERING = "Not answering — check it's powered on and on the same network as this computer";
+
+/** Whether each listed controller answers: looked at again whenever `when` changes (the target, or Check again). */
+function useReachability(addresses: string[], when: string): Map<string, ControllerCheck> | null {
+  const backend = useApp((s) => s.backend);
+  const key = addresses.join("\n");
+  const [result, setResult] = useState<{ key: string; when: string; checks: Map<string, ControllerCheck> } | null>(null);
+  useEffect(() => {
+    if (!backend || !key) return;
+    let cancelled = false;
+    backend
+      .checkControllers(key.split("\n"))
+      .then((checks) => {
+        if (!cancelled) setResult({ key, when, checks: new Map(checks.map((c) => [c.address, c])) });
+      })
+      .catch(() => {
+        // Not knowing isn't a problem worth showing: the rows stay "Checking…" until Check again.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [backend, key, when]);
+  return result && result.key === key && result.when === when ? result.checks : null;
+}
+
+/** The controllers the chosen target sends to, each with whether it answers. */
+function SendsTo({ destinations, checks, onCheckAgain }: { destinations: TestDestination[]; checks: Map<string, ControllerCheck> | null; onCheckAgain: () => void }) {
+  return (
+    <section aria-label="Sends to" className="mt-3 border-t border-neutral-200 pt-2 dark:border-neutral-800">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <h2 className="text-xs font-medium tracking-wide text-neutral-500 uppercase">Sends to</h2>
+        <Button variant="ghost" className="px-2! py-0.5! text-xs" onClick={onCheckAgain} title="Check again whether each controller answers">
+          <RefreshCw size={12} aria-hidden /> Check again
+        </Button>
+      </div>
+      <ul className="flex flex-col gap-1 text-sm">
+        {destinations.map((d) => {
+          const check = checks?.get(d.controller.address.trim());
+          const state = !checks ? "checking" : check?.answering ? "answering" : "silent";
+          return (
+            <li key={d.controller.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5" data-reach={state}>
+              <span
+                aria-hidden
+                className={`h-2 w-2 shrink-0 rounded-full ${state === "answering" ? "bg-green-500" : state === "silent" ? "bg-amber-500" : "bg-neutral-400"}`}
+              />
+              <span className="font-medium">{d.controller.name}</span>
+              <span className="font-mono text-xs text-neutral-600 dark:text-neutral-400">{d.controller.address}</span>
+              <span className="text-xs text-neutral-500 tabular-nums">{describeUse(d)}</span>
+              <span
+                className={`text-xs ${state === "answering" ? "text-green-700 dark:text-green-400" : state === "silent" ? "text-amber-700 dark:text-amber-400" : "text-neutral-500"}`}
+              >
+                {state === "answering" ? "Answering" : state === "silent" ? NOT_ANSWERING : "Checking…"}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
 
 /** Sends live test patterns to the real controllers. */
 export function TestScreen() {
@@ -86,6 +148,18 @@ export function TestScreen() {
     ]),
   ];
   const targetMissing = !targets.some((t) => t.value === targetValue);
+  const targetSpec = (targets.find((t) => t.value === targetValue) ?? targets[0]).spec;
+  const channelMap = snapshot?.channelMap;
+  const specKey = JSON.stringify(targetSpec);
+  const destinations = useMemo(
+    () => (show && channelMap ? testDestinations(show, channelMap, JSON.parse(specKey) as TargetSpec) : []),
+    [show, channelMap, specKey],
+  );
+  const [again, setAgain] = useState(0);
+  const checks = useReachability(
+    destinations.map((d) => d.controller.address.trim()).filter(Boolean),
+    `${specKey} ${again}`,
+  );
   useEffect(() => {
     if (!targetMissing || !show) return;
     setTargetValue("show");
@@ -94,6 +168,9 @@ export function TestScreen() {
 
   if (!snapshot || !backend || !show) return null;
   const pattern = PATTERNS.find((p) => p.kind === kind)!;
+  const nothingToSend = destinations.length === 0;
+  const listed = destinations.map((d) => checks?.get(d.controller.address.trim()));
+  const elsewhere = isDemoShow(show) || (listed.length > 0 && listed.every((c) => c?.onLocalNetwork === false));
 
   /** Drops a change still waiting to reach the lights. */
   const cancelLive = () => {
@@ -233,7 +310,18 @@ export function TestScreen() {
                 </div>
               </div>
               <div className="flex items-end gap-2">
-                <Button variant="primary" onClick={() => void start()} title={running ? "Start the test again from the beginning" : "Start sending the test pattern"}>
+                <Button
+                  variant="primary"
+                  onClick={() => void start()}
+                  disabled={nothingToSend && !running}
+                  title={
+                    nothingToSend && !running
+                      ? "Nothing on this target is wired to a controller, so there's nothing to send"
+                      : running
+                        ? "Start the test again from the beginning"
+                        : "Start sending the test pattern"
+                  }
+                >
                   <Play size={16} /> {running ? "Restart" : "Start"}
                 </Button>
                 <Button onClick={stop} disabled={!running}>
@@ -241,6 +329,26 @@ export function TestScreen() {
                 </Button>
               </div>
             </div>
+            {nothingToSend ? (
+              <div role="status" className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-200 pt-2 text-sm dark:border-neutral-800">
+                <span className="text-amber-700 dark:text-amber-400">
+                  Nothing on this target is wired to a controller yet, so there's nothing to send. Wire its props to a controller port first.
+                </span>
+                <Button className="px-2! py-0.5! text-xs" onClick={() => useApp.getState().setScreen("wiring")}>
+                  Go to Wiring
+                </Button>
+              </div>
+            ) : (
+              <SendsTo destinations={destinations} checks={checks} onCheckAgain={() => setAgain((n) => n + 1)} />
+            )}
+            {elsewhere && (
+              <p className="mt-2 flex flex-wrap items-center gap-2 text-xs text-neutral-600 dark:text-neutral-400">
+                This show's controllers aren't on your network. Add your own on the Devices screen.
+                <Button variant="ghost" className="px-2! py-0.5! text-xs" onClick={() => useApp.getState().setScreen("devices")}>
+                  Go to Devices
+                </Button>
+              </p>
+            )}
             {running && <p className="mt-3 text-xs text-neutral-500">Changes show on the lights right away while the test runs.</p>}
             {removed && (
               <p role="status" className="mt-3 text-sm text-amber-600 dark:text-amber-400">
@@ -257,8 +365,12 @@ export function TestScreen() {
             <div className="mb-3 flex items-center gap-3 text-sm">
               <span className={`h-2.5 w-2.5 rounded-full ${running ? "bg-green-500" : "bg-neutral-400"}`} />
               {running ? (
-                <span>
-                  Sending · {status!.achievedFps.toFixed(1)} fps · {thousands(status!.frames)} frames
+                <span className="min-w-0">
+                  <span className="font-medium">Sending {sendingSummary(pattern.label, pattern.usesColor ? color : null, destinations)}</span>
+                  <span className="text-neutral-500">
+                    {" "}
+                    · {status!.achievedFps.toFixed(1)} fps · {thousands(status!.frames)} frames
+                  </span>
                 </span>
               ) : (
                 <span className="text-neutral-500">{status?.stopReason ?? "Output stopped"}</span>

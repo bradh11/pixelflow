@@ -1,4 +1,4 @@
-import { type PointerEvent as ReactPointerEvent, type Ref, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type Ref, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { Background, PreviewProp, PreviewSet, Prop, Show } from "../../api/types";
 import { applyTransform, frontView } from "../../lib/geometry";
 import {
@@ -85,6 +85,8 @@ import {
   snapResize,
 } from "../../lib/smartGuides";
 import { highlightPixels } from "../../lib/submodels";
+import { isMenuKey, useContextMenu } from "../../state/contextMenu";
+import { pickForMenu, propMenuItems } from "../../state/layoutActions";
 import { registerCanvas, useLayoutEditor } from "../../state/layoutEditor";
 import { commitGesture, settlePending, unsettled } from "../../state/layoutGestures";
 import { useApp } from "../../state/store";
@@ -207,6 +209,8 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
   const frame = useRef<Uint8Array | null>(null);
   const spaceHeld = useRef(false);
   /** Where the pointer last was on the canvas (screen pixels), so Shift can take effect mid-drag. */
+  /** A right-button press: whether it moved (a pan), and whether the menu was asked for meanwhile. */
+  const rightPress = useRef<{ from: Pt; client: Pt; moved: boolean; asked: boolean; down: boolean } | null>(null);
   const lastPointer = useRef<Pt | null>(null);
   /** Smart guides for the drag in progress: the other props' boxes, the dragged box as it started, and what to draw. */
   const guides = useRef<{ index: GuideIndex; start: Box | null; marks: Marks | null } | null>(null);
@@ -644,6 +648,18 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
   // Fit everything in once the canvas has a size and the props have arrived.
   useEffect(fitIfNeeded, [preview, show.props.length, photo.aspect]);
 
+  // Bring to view: centred on the props, zoomed out only as far as they need to fit.
+  const reveal = useLayoutEditor((s) => s.reveal);
+  useEffect(() => {
+    if (!reveal) return;
+    useLayoutEditor.setState({ reveal: null });
+    const wanted = new Set(reveal);
+    const box = unionBox(effectivePreview().filter((p) => wanted.has(p.prop)).map((p) => boxOfPoints(p.points)));
+    if (!box) return;
+    const fitted = fitView(box, size());
+    useLayoutEditor.getState().setView({ ...fitted, zoom: Math.min(currentView().zoom, fitted.zoom) });
+  }, [reveal]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Add prop places new props in the middle of what this canvas shows.
   useEffect(() => registerCanvas(size), []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -793,6 +809,39 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     return click ? placedProp(base, d.from) : drawnProp(d.tool, d.from, d.to, base);
   }
 
+  /**
+   * The right-click menu for the prop under `s` (picking it, unless it's in the selection), or
+   * for the empty layout. A right-button drag pans instead, so it opens once the button is let go
+   * without moving.
+   */
+  const openMenu = (s: Pt, client: Pt) => {
+    const v = currentView();
+    const hit = hitProp(effectivePreview(), toWorld(v, size(), s), v);
+    openMenuFor(hit ? pickForMenu(hit) : [], client);
+  };
+  const openMenuFor = (ids: string[], client: Pt) => {
+    const props = latest.current.show.props;
+    const label = ids.length === 1 ? (props.find((p) => p.id === ids[0])?.name ?? "Prop") : ids.length > 1 ? `${ids.length} props` : "Layout";
+    useContextMenu.getState().open({ x: client.x, y: client.y, label, items: propMenuItems(ids), opener: canvasRef.current });
+  };
+  const onContextMenu = (e: ReactMouseEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    const right = rightPress.current;
+    if (right?.down) {
+      right.asked = true;
+      return;
+    }
+    if (right?.moved) return;
+    openMenu(point(e), { x: e.clientX, y: e.clientY });
+  };
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLCanvasElement>) => {
+    if (!isMenuKey(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const box = e.currentTarget.getBoundingClientRect();
+    openMenuFor(useLayoutEditor.getState().selected, { x: box.left + box.width / 2, y: box.top + box.height / 2 });
+  };
+
   const onPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     if (e.button !== 0 && e.button !== 1 && e.button !== 2) return;
     const canvas = canvasRef.current!;
@@ -807,6 +856,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     lastPointer.current = s;
     held.current = { shift: e.shiftKey, alt: e.altKey };
     guides.current = null;
+    rightPress.current = e.button === 2 ? { from: s, client: { x: e.clientX, y: e.clientY }, moved: false, asked: false, down: true } : null;
     const v = currentView();
     const w = toWorld(v, size(), s);
     const st = useLayoutEditor.getState();
@@ -1071,6 +1121,8 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
   const onPointerMove = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     const s = point(e);
     lastPointer.current = s;
+    const right = rightPress.current;
+    if (right?.down && Math.hypot(s.x - right.from.x, s.y - right.from.y) >= CLICK_PX) right.moved = true;
     held.current = { shift: e.shiftKey, alt: e.altKey };
     const d = drag.current;
     if (!d) return updateHover(s);
@@ -1079,6 +1131,12 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
 
   const onPointerUp = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     canvasRef.current?.releasePointerCapture?.(e.pointerId);
+    const right = rightPress.current;
+    if (right && e.button === 2) {
+      right.down = false;
+      // The menu asked for while the button was down (macOS asks on press) opens now, unless it panned.
+      if (right.asked && !right.moved) openMenu(right.from, right.client);
+    }
     const d = drag.current;
     drag.current = null;
     guides.current = null;
@@ -1176,7 +1234,8 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
           if (polyDrawing.current) finishPoly();
         }}
         onPointerLeave={() => setHovered(null)}
-        onContextMenu={(e) => e.preventDefault()}
+        onContextMenu={onContextMenu}
+        onKeyDown={onKeyDown}
       />
       <p id="layout-canvas-help" className="sr-only">
         Click a prop to select it, or shift-click to select more. Shift-drag across empty space to select everything inside,
@@ -1193,7 +1252,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
         around; pinch, or hold Command and scroll, to zoom. Every prop is also in the props list below.
         With Smart guides on, props snap to line up with, space evenly from, and match the size of others as you move,
         resize, and draw them, and poly line points line up with other props and points; hold Option (Alt) to place them
-        freely.
+        freely. Right-click a prop, or press Shift-F10, for a menu of what can be done with it.
       </p>
       <SelectionAnnouncer show={show} />
       {drawingPoly && (

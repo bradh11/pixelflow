@@ -300,6 +300,7 @@ describe("LayoutScreen", () => {
     await user.type(pixels, "lots{Enter}");
     expect(pixels).toHaveValue("120");
     expect(edits).toHaveLength(before);
+    await user.click(screen.getByRole("button", { name: /^More: color order/ }));
     await user.selectOptions(screen.getByLabelText("Color order"), "GRB");
     expect(backend.show.props[0].colorOrder).toBe("GRB");
   });
@@ -1207,6 +1208,7 @@ describe("LayoutScreen", () => {
   it("allows a negative scale (mirrored) but not zero", async () => {
     const user = await setup(showWith(line("Gutter", 0, 0)));
     act(() => useLayoutEditor.getState().select([backend.show.props[0].id]));
+    await user.click(screen.getByRole("button", { name: /^More: color order/ }));
     const sx = screen.getByLabelText("Scale X");
     await user.clear(sx);
     await user.type(sx, "-1{Enter}");

@@ -43,7 +43,7 @@ export function saidSaved(ok: boolean, name: string | undefined, options?: SaveO
   return ok;
 }
 
-export type Screen = "layout" | "wiring" | "devices" | "sequence" | "play" | "test" | "history";
+export type Screen = "layout" | "wiring" | "devices" | "sequence" | "play" | "test" | "history" | "settings";
 
 /**
  * Something that leaves the open show: a new show, the Open dialog, the xLights import, the demo
@@ -201,7 +201,7 @@ interface AppState {
   /** Looks for controllers and re-checks every remembered one; `hosts` checks only those
    * addresses. Found controllers are remembered; ones that don't answer stay, marked. */
   scan(hosts?: string[]): Promise<boolean>;
-  /** From the welcome screen: start a new show, open Devices, and scan. */
+  /** From the welcome screen: start a new show, open Controllers, and scan. */
   discoverFromWelcome(): Promise<void>;
 }
 

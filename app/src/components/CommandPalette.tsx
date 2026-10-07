@@ -1,11 +1,13 @@
 import { Command } from "cmdk";
 import { useEffect } from "react";
 import { fileName } from "../lib/format";
+import { hintFor } from "../lib/shortcuts";
 import { PROP_KINDS } from "../lib/shows";
 import { addPropInView } from "../state/addProp";
 import { useAssistant } from "../state/assistant";
 import { saveFocused, undoFocused } from "../state/menuActions";
 import { useSequencer } from "../state/sequencer";
+import { useShortcutSheet } from "../state/shortcutSheet";
 import { useView3d } from "../state/view3d";
 import { setLayoutMode } from "./layout3d/useLayout3dKeys";
 import { currentSetupKey, useSetup } from "../state/setup";
@@ -52,29 +54,31 @@ export function CommandPalette() {
     run: () => (show.status === "missing" ? state.locateRecent(show.path) : state.openRecent(show.path)),
   }));
   const actions: Action[] = [
-    { id: "new", label: "New show", shortcut: "⌘N", run: state.newShow },
-    { id: "open", label: "Open show…", shortcut: "⌘O", run: state.openShow },
-    { id: "open-recent", label: "Open recent show…", shortcut: "⇧⌘O", run: () => state.setShowMenu("recent") },
-    { id: "close-show", label: "Close show", shortcut: "⌘W", run: state.closeShow },
+    { id: "new", label: "New show", shortcut: hintFor("new"), run: state.newShow },
+    { id: "open", label: "Open show…", shortcut: hintFor("open"), run: state.openShow },
+    { id: "open-recent", label: "Open recent show…", shortcut: hintFor("open-recent"), run: () => state.setShowMenu("recent") },
+    { id: "close-show", label: "Close show", shortcut: hintFor("close-show"), run: state.closeShow },
     { id: "rename-show", label: "Rename show…", run: () => state.setRenaming(true) },
     { id: "clear-recent", label: "Clear recent shows", run: state.clearRecent },
     { id: "demo", label: "Try the demo show", run: state.openSample },
     { id: "import-xlights", label: "Import from xLights…", run: state.importXlights },
     { id: "import-xlights-sequence", label: "Import xLights sequence…", run: state.importXlightsSequence },
-    { id: "save", label: "Save", shortcut: "⌘S", run: () => saveFocused(false) },
-    { id: "save-as", label: "Save as…", shortcut: "⇧⌘S", run: state.saveAs },
-    { id: "undo", label: "Undo", shortcut: "⌘Z", run: () => undoFocused(false) },
-    { id: "redo", label: "Redo", shortcut: "⇧⌘Z", run: () => undoFocused(true) },
+    { id: "save", label: "Save", shortcut: hintFor("save"), run: () => saveFocused(false) },
+    { id: "save-as", label: "Save as…", shortcut: hintFor("save-as"), run: state.saveAs },
+    { id: "undo", label: "Undo", shortcut: hintFor("undo"), run: () => undoFocused(false) },
+    { id: "redo", label: "Redo", shortcut: hintFor("redo"), run: () => undoFocused(true) },
     {
       id: "assistant",
       label: useAssistant.getState().open ? "Close the assistant" : "Open the assistant",
-      shortcut: "⌘L",
+      shortcut: hintFor("assistant"),
       run: useAssistant.getState().toggle,
     },
+    { id: "shortcuts", label: "Keyboard shortcuts", shortcut: hintFor("shortcuts"), run: () => useShortcutSheet.getState().setOpen(true) },
+    { id: "settings", label: "Settings", shortcut: hintFor("settings"), run: () => state.setScreen("settings") },
     { id: "ai-settings", label: "AI settings…", run: () => useAssistant.getState().setSettingsOpen(true) },
     { id: "setup", label: "Show the setup checklist", run: () => useSetup.getState().setDismissed(currentSetupKey(), false) },
     go("layout", "Layout"),
-    go("devices", "Devices"),
+    go("devices", "Controllers"),
     go("wiring", "Wiring"),
     go("test", "Test"),
     go("sequence", "Sequence"),
@@ -105,7 +109,7 @@ export function CommandPalette() {
     {
       id: "layout-mode",
       label: in3d ? "Layout: switch to the 2D view" : "Layout: switch to the 3D view",
-      shortcut: "V",
+      shortcut: hintFor("layout-mode"),
       run: () => {
         state.setScreen("layout");
         setLayoutMode(in3d ? "2d" : "3d");

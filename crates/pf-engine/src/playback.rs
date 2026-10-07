@@ -868,7 +868,7 @@ impl PlaybackSession {
         if routes.is_empty() {
             return Err(EngineError::Playback(
                 "None of your controllers knows which sequence channels are theirs yet. Add them from \
-                 your FPP's output list on the Devices screen."
+                 your FPP's output list on the Controllers screen."
                     .to_string(),
             ));
         }

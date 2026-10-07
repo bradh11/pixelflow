@@ -97,7 +97,7 @@ describe("test screen", () => {
   it("notes when the show's controllers aren't on this computer's network", async () => {
     await setup();
     // The demo show: always.
-    expect(screen.getByText("This show's controllers aren't on your network. Add your own on the Devices screen.")).toBeInTheDocument();
+    expect(screen.getByText("This show's controllers aren't on your network. Add your own on the Controllers screen.")).toBeInTheDocument();
   });
 
   it("notes it for any show whose controllers are all off this computer's networks, and not otherwise", async () => {
@@ -106,7 +106,7 @@ describe("test screen", () => {
       show.controllers = show.controllers.map((c, i) => ({ ...c, name: `Mine ${i}`, address: `10.28.128.${175 + i}` }));
       return show;
     };
-    const note = "This show's controllers aren't on your network. Add your own on the Devices screen.";
+    const note = "This show's controllers aren't on your network. Add your own on the Controllers screen.";
     await setup(own(), (b) => (b.localPrefixes = ["10.28.128."]));
     await screen.findByText(/^Not answering/);
     expect(screen.queryByText(note)).not.toBeInTheDocument();

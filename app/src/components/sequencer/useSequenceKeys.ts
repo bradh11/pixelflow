@@ -1,7 +1,7 @@
 import { useEffect } from "react";
-import type { Sequence, SequenceEdit } from "../../api/sequence";
-import { buildIndex, markIndices, nudgeEdits, pasteEffects, stepTime } from "../../lib/timelineMath";
-import { type Copied, newGesture, useSequencer } from "../../state/sequencer";
+import { markIndices, nudgeEdits, stepTime } from "../../lib/timelineMath";
+import { copyEffects, deleteEffects, duplicateEffects, pasteEffectsAtPlayhead } from "../../state/sequenceActions";
+import { newGesture, useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
 
 /** Beat times from the sequence's beats track (or its first track), for Shift-steps. */
@@ -24,23 +24,6 @@ export function useSequenceKeys() {
   useEffect(() => {
     /** The arrow key being held: its repeats make one undo step. */
     let nudge = "";
-    /** Pastes copies built from the document as it is when the paste's turn comes, then selects them. */
-    const pasteAt = (copies: (doc: Sequence) => { copies: Copied[]; atMs: number }) => {
-      const s = useSequencer.getState();
-      let made: string[] = [];
-      void s
-        .edit((doc) => {
-          const { copies: chosen, atMs } = copies(doc);
-          const edits = pasteEffects(doc, buildIndex(doc), chosen, atMs);
-          made = edits.flatMap((x) => (x.type === "addEffect" ? [x.effect.id] : []));
-          return edits;
-        })
-        .then((ok) => {
-          if (!ok || made.length === 0) return;
-          useSequencer.getState().select(made);
-          useSequencer.getState().reveal();
-        });
-    };
     const onKey = (e: KeyboardEvent) => {
       // Something else already took the key (a palette item adding an effect, a dialog closing).
       if (e.defaultPrevented) return;
@@ -125,11 +108,7 @@ export function useSequenceKeys() {
       }
       if ((key === "Delete" || key === "Backspace") && s.selection.length > 0) {
         e.preventDefault();
-        const ids = s.selection;
-        void s.edit((latest) => {
-          const index = buildIndex(latest);
-          return ids.filter((id) => index.byId.has(id)).map((id): SequenceEdit => ({ type: "removeEffect", id }));
-        });
+        deleteEffects(s.selection);
         return;
       }
       if (key === "Escape" && s.selection.length > 0) {
@@ -143,22 +122,13 @@ export function useSequenceKeys() {
         s.select(doc.rows.flatMap((r) => r.layers.flatMap((l) => l.effects.map((x) => x.id))));
       } else if (lower === "c" && s.selection.length > 0) {
         e.preventDefault();
-        s.copy();
+        copyEffects();
       } else if (lower === "v" && s.clipboard.length > 0) {
         e.preventDefault();
-        const { clipboard, playheadMs } = s;
-        pasteAt(() => ({ copies: clipboard, atMs: playheadMs }));
+        pasteEffectsAtPlayhead();
       } else if (lower === "d" && s.selection.length > 0) {
         e.preventDefault();
-        const ids = s.selection;
-        pasteAt((latest) => {
-          const index = buildIndex(latest);
-          const copies = ids.flatMap((id) => {
-            const p = index.byId.get(id);
-            return p ? [{ rowId: p.rowId, effect: p.effect }] : [];
-          });
-          return { copies, atMs: Math.max(0, ...copies.map((c) => c.effect.endMs)) };
-        });
+        duplicateEffects(s.selection);
       }
     };
     window.addEventListener("keydown", onKey);

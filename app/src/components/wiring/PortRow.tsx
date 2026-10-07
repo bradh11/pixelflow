@@ -24,6 +24,7 @@ import {
   updatePortEdits,
   updateSlotEdits,
 } from "../../lib/wiringMath";
+import { isMenuKey, useContextMenu } from "../../state/contextMenu";
 import { useApp } from "../../state/store";
 import { portKey, samePort, sameSlot, useWiring } from "../../state/wiring";
 import { NumberField } from "../layout/PropertiesPanel";
@@ -89,7 +90,32 @@ function SlotRow({ controller, port, at, index, slot, prop, data, channels, rece
   };
   const toggle = () => useWiring.getState().select(selected ? null : ref);
 
+  const chip = useRef<HTMLButtonElement>(null);
+  const openMenu = (x: number, y: number) =>
+    useContextMenu.getState().open({
+      x,
+      y,
+      label,
+      opener: chip.current,
+      items: [
+        { label: "Settings", run: () => useWiring.getState().select(ref) },
+        { label: "Move up", run: () => void move(-1), disabled: index === 0 },
+        { label: "Move down", run: () => void move(1), disabled: index === port.slots.length - 1 },
+        {
+          label: slot.reverse ? "Start at the near end" : "Start at the other end",
+          run: () => void apply((show) => updateSlotEdits(show, ref, (s) => ({ ...s, reverse: !slot.reverse }))),
+        },
+        { label: "Unwire", run: unwire, danger: true, separated: true },
+      ],
+    });
+
   const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
+    if (isMenuKey(e)) {
+      e.preventDefault();
+      const box = e.currentTarget.getBoundingClientRect();
+      openMenu(box.left, box.bottom);
+      return;
+    }
     if (e.key === "ArrowUp" || e.key === "ArrowDown") {
       e.preventDefault();
       if (e.altKey) void move(e.key === "ArrowUp" ? -1 : 1);
@@ -111,6 +137,10 @@ function SlotRow({ controller, port, at, index, slot, prop, data, channels, rece
   return (
     <tr
       data-wiring-row=""
+      onContextMenu={(e) => {
+        e.preventDefault();
+        openMenu(e.clientX, e.clientY);
+      }}
       onPointerEnter={() => useWiring.setState({ hovered: ref, hoveredProp: slot.prop })}
       onPointerLeave={() => useWiring.setState({ hoveredProp: null })}
       style={drop ? { boxShadow: DROP_LINE[drop] } : undefined}
@@ -138,6 +168,7 @@ function SlotRow({ controller, port, at, index, slot, prop, data, channels, rece
       </td>
       <td className="max-w-0 py-1 pr-1.5">
         <button
+          ref={chip}
           type="button"
           data-wiring-chip=""
           data-controller={controller.id}

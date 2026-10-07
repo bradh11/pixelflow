@@ -14,6 +14,8 @@ import { useListWidth } from "../components/layout/SidePanel";
 import { useToasts } from "../state/toast";
 import { useView3d } from "../state/view3d";
 import { useWiring } from "../state/wiring";
+import { useShortcutSheet } from "../state/shortcutSheet";
+import { useContextMenu } from "../state/contextMenu";
 
 // jsdom lacks these browser APIs; the command palette (cmdk) uses them.
 globalThis.ResizeObserver ??= class {
@@ -46,4 +48,6 @@ afterEach(() => {
   useUndoLabels.setState(useUndoLabels.getInitialState(), true);
   usePropertiesPanel.setState({ pref: "auto", hinted: false });
   useListWidth.setState({ width: 256 });
+  useShortcutSheet.setState({ open: false });
+  useContextMenu.setState({ menu: null });
 });

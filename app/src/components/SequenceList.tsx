@@ -5,7 +5,26 @@ import { useApp } from "../state/store";
 import { useMissingFiles } from "./MissingFiles";
 import { Button } from "./ui";
 
-/** The show's sequences in playlist order: pick one, add, reorder, or remove. */
+/** Adds a rendered sequence (.fseq) to the playlist, picked from a file dialog, and selects it. */
+export function AddSequenceButton({ onSelect }: { onSelect: (id: string) => void }) {
+  const backend = useApp((s) => s.backend);
+  const run = useApp((s) => s.run);
+  const add = async () => {
+    const path = await backend?.pickSequencePath();
+    if (!path) return;
+    if (await run((b) => b.addSequence(path))) {
+      const added = useApp.getState().snapshot?.show.sequences.at(-1);
+      if (added) onSelect(added.id);
+    }
+  };
+  return (
+    <Button onClick={add} aria-label="Add sequence" data-tip="Add a rendered sequence (.fseq) to the playlist">
+      <Plus size={14} aria-hidden /> Add sequence
+    </Button>
+  );
+}
+
+/** The show's sequences in playlist order: pick one, reorder, or remove (Add is in the screen's header). */
 export function SequenceList({
   selected,
   playing,
@@ -16,8 +35,6 @@ export function SequenceList({
   onSelect: (id: string) => void;
 }) {
   const sequences = useApp((s) => s.snapshot?.show.sequences ?? NO_SEQUENCES);
-  const backend = useApp((s) => s.backend);
-  const run = useApp((s) => s.run);
   const apply = useApp((s) => s.apply);
   const missing = useMissingFiles();
   /** Sequences with a file (the .fseq or its music) that isn't where it was. */
@@ -30,15 +47,6 @@ export function SequenceList({
     buttons.current.get(focusNext)?.focus();
     setFocusNext(null);
   }, [focusNext, sequences]);
-
-  const add = async () => {
-    const path = await backend?.pickSequencePath();
-    if (!path) return;
-    if (await run((b) => b.addSequence(path))) {
-      const added = useApp.getState().snapshot?.show.sequences.at(-1);
-      if (added) onSelect(added.id);
-    }
-  };
 
   const move = async (s: SequenceEntry, index: number, direction: "up" | "down") => {
     if (!(await apply([{ type: "moveSequence", id: s.id, index }]))) return;
@@ -54,19 +62,14 @@ export function SequenceList({
 
   return (
     <aside aria-label="Sequences" className="flex w-72 shrink-0 flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium text-neutral-500">Sequences</h2>
-        <Button onClick={add} aria-label="Add sequence">
-          <Plus size={14} /> Add
-        </Button>
-      </div>
+      <h2 className="text-sm font-medium text-neutral-500">Sequences</h2>
       {sequences.length === 0 ? (
         <div className="flex flex-col items-start gap-2 rounded-lg border border-dashed border-neutral-300 p-4 text-sm text-neutral-500 dark:border-neutral-700">
           <p>No sequences on the playlist yet. Make one on the Sequence screen and add it to the playlist from there.</p>
           <Button variant="primary" onClick={() => useApp.getState().setScreen("sequence")}>
             Make a sequence
           </Button>
-          <p className="text-xs">Or Add a rendered sequence (.fseq); PixelFlow finds its music next to it.</p>
+          <p className="text-xs">Or use Add sequence above for a rendered sequence (.fseq); PixelFlow finds its music next to it.</p>
         </div>
       ) : (
         <ol className="flex flex-col gap-1">

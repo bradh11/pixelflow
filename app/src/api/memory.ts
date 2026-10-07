@@ -702,7 +702,7 @@ export class MemoryBackend implements Backend {
     this.calls.push(`startPlayback:${path}`);
     if (!this.show.controllers.some((c) => c.sequenceChannels)) {
       throw new Error(
-        "None of your controllers knows which sequence channels are theirs yet. Add them from your FPP's output list on the Devices screen.",
+        "None of your controllers knows which sequence channels are theirs yet. Add them from your FPP's output list on the Controllers screen.",
       );
     }
     this.output = { ...this.output, running: false };

@@ -42,7 +42,7 @@ describe("first run", () => {
     await startApp();
     expect(screen.getByRole("heading", { name: "Welcome to PixelFlow" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /import from xlights/i })).toBeEnabled();
-    expect(screen.getByRole("button", { name: /discover my devices/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /find my controllers/i })).toBeEnabled();
   });
 
   it("start fresh opens an empty show", async () => {
@@ -172,7 +172,7 @@ describe("command palette", () => {
     for (const [command, heading] of [
       ["go to sequence", "Sequence"],
       ["go to play", "Play"],
-      ["go to devices", "Devices"],
+      ["go to controllers", "Controllers"],
     ]) {
       await user.keyboard("{Meta>}k{/Meta}");
       await user.type(screen.getByPlaceholderText("Type a command…"), command);

@@ -66,7 +66,7 @@ describe("the start page", () => {
     expect(house).toHaveTextContent("4 props · 1,234 pixels · 2 controllers");
     expect(house.querySelector("img")?.getAttribute("src")).toMatch(/^data:image\/svg\+xml/);
     // The other ways to start are still there.
-    for (const name of [/^new show/i, /^open…/i, /^import from xlights/i, /^try the demo show/i, /^discover my devices/i]) {
+    for (const name of [/^new show/i, /^open…/i, /^import from xlights/i, /^try the demo show/i, /^find my controllers/i]) {
       expect(screen.getByRole("button", { name })).toBeEnabled();
     }
   });

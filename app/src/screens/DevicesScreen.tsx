@@ -122,7 +122,7 @@ export function DevicesScreen() {
   return (
     <div className="mx-auto max-w-7xl">
       <PageHeader
-        title="Devices"
+        title="Controllers"
         description="Find FPP, Falcon, and WLED controllers on your network and add them to your show. Nothing on your controllers is changed."
         actions={
           <Button variant="primary" onClick={() => scan()} disabled={scanning}>

@@ -15,7 +15,7 @@ import { useFppStatus } from "./useFppStatus";
 const NO_DEVICES: Device[] = [];
 
 /**
- * An FPP's own page on the Devices screen: what it's playing, its health, what's stored on it,
+ * An FPP's own page on the Controllers screen: what it's playing, its health, what's stored on it,
  * where it sends its sequence (and setting up the show from that), and its schedule. Only Play,
  * Stop, and Send change anything on the FPP, and only when clicked.
  */
@@ -77,8 +77,8 @@ export function FppDevicePage({ device, onBack }: { device: Device; onBack: () =
         <button
           ref={back}
           type="button"
-          aria-label="Back to devices"
-          data-tip="Back to devices"
+          aria-label="Back to controllers"
+          data-tip="Back to controllers"
           onClick={onBack}
           className="rounded-md p-1.5 text-neutral-600 hover:bg-neutral-200/70 dark:text-neutral-300 dark:hover:bg-neutral-800"
         >

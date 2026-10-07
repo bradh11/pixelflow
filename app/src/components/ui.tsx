@@ -1,5 +1,5 @@
-import { House, Music } from "lucide-react";
-import type { ComponentProps, InputHTMLAttributes, ReactNode } from "react";
+import { ChevronDown, ChevronRight, House, Music } from "lucide-react";
+import { type ComponentProps, type InputHTMLAttributes, type ReactNode, useId, useState } from "react";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger";
 
@@ -38,6 +38,60 @@ export function IconButton({
   ...props
 }: Omit<ComponentProps<"button">, "title"> & { label: string; hint?: string; shortcut?: string }) {
   return <button type="button" aria-label={label} data-tip={hint ?? label} data-tip-key={shortcut} className={className} {...props} />;
+}
+
+const MORE_KEY = "pixelflow.more";
+
+function loadMore(): Record<string, boolean> {
+  try {
+    const saved = JSON.parse(localStorage.getItem(MORE_KEY) ?? "{}") as unknown;
+    return saved && typeof saved === "object" ? (saved as Record<string, boolean>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Whether the "More" disclosure called `id` was left open on this computer. */
+export function moreOpen(id: string): boolean {
+  return loadMore()[id] === true;
+}
+
+function saveMore(id: string, open: boolean) {
+  try {
+    localStorage.setItem(MORE_KEY, JSON.stringify({ ...loadMore(), [id]: open }));
+  } catch {
+    // Storage unavailable: it stays as it is until the form closes.
+  }
+}
+
+/**
+ * Fields most people leave alone, folded under a "More" button. Whether it's open is remembered
+ * on this computer by `id`, so a form opens the way it was last left.
+ */
+/** `forceOpen`: start open whatever was remembered, because something inside is set and should be seen. */
+export function More({ id, label = "More", forceOpen = false, children }: { id: string; label?: string; forceOpen?: boolean; children: ReactNode }) {
+  const [open, setOpen] = useState(() => forceOpen || moreOpen(id));
+  const region = useId();
+  return (
+    <div className="mt-3">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={region}
+        onClick={() => {
+          saveMore(id, !open);
+          setOpen(!open);
+        }}
+        className="flex items-center gap-1 rounded text-xs font-medium text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
+      >
+        {open ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
+        {label}
+      </button>
+      <div id={region} role="group" aria-label={label} hidden={!open} className="mt-2">
+        {open && children}
+      </div>
+    </div>
+  );
 }
 
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {

@@ -127,7 +127,7 @@ describe("every control has a name, and icon-only buttons have tooltips", () => 
   it("on every screen, with the assistant open", async () => {
     const { user } = await openApp();
     const found: string[] = [];
-    for (const name of ["layout", "devices", "wiring", "test", "sequence", "play", "history"] as const) {
+    for (const name of ["layout", "devices", "wiring", "test", "sequence", "play", "history", "settings"] as const) {
       go(name);
       found.push(...problems(name));
     }

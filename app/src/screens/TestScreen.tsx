@@ -343,9 +343,9 @@ export function TestScreen() {
             )}
             {elsewhere && (
               <p className="mt-2 flex flex-wrap items-center gap-2 text-xs text-neutral-600 dark:text-neutral-400">
-                This show's controllers aren't on your network. Add your own on the Devices screen.
+                This show's controllers aren't on your network. Add your own on the Controllers screen.
                 <Button variant="ghost" className="px-2! py-0.5! text-xs" onClick={() => useApp.getState().setScreen("devices")}>
-                  Go to Devices
+                  Go to Controllers
                 </Button>
               </p>
             )}

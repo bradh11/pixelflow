@@ -21,6 +21,7 @@ import {
   faceNames,
 } from "./effectControls";
 import { MultiEffectSettings } from "./MultiEffectSettings";
+import { More } from "../ui";
 
 /**
  * The selected effect's settings, built from the engine's effect catalog: its kind's settings,
@@ -126,21 +127,7 @@ function Settings({ doc }: { doc: Sequence }) {
         </Section>
       )}
 
-      <Section title="Mixing">
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-neutral-600 dark:text-neutral-400">With the layers below</span>
-          <select className={FIELD} value={effect.blend} onChange={(e) => {
-              const blend = e.target.value as Blend;
-              void change((x) => ({ ...x, blend }));
-            }}
-          >
-            {BLENDS.map((b) => (
-              <option key={b.value} value={b.value} title={b.help}>
-                {b.label}
-              </option>
-            ))}
-          </select>
-        </label>
+      <Section title="Fades">
         <div className="grid grid-cols-2 gap-2">
           <MsField
             key={`${id}:fadeIn`}
@@ -159,34 +146,51 @@ function Settings({ doc }: { doc: Sequence }) {
         </div>
       </Section>
 
-      <Section title="Timing">
-        <div className="grid grid-cols-2 gap-2">
-          <MsField
-            key={`${id}:start`}
-            label="Starts (ms)"
-            value={effect.startMs}
-            onCommit={(v) =>
-              change((x, latest) => {
-                // Not past its end, and not into the effect before it on its layer.
-                const lo = effectBounds(latest, x.id)?.lo ?? 0;
-                return { ...x, startMs: clamp(v, lo, x.endMs - latest.frameMs) };
-              })
-            }
-          />
-          <MsField
-            key={`${id}:end`}
-            label="Ends (ms)"
-            value={effect.endMs}
-            onCommit={(v) =>
-              change((x, latest) => {
-                // Not before its start, and not into the effect after it on its layer.
-                const hi = Math.min(latest.durationMs, effectBounds(latest, x.id)?.hi ?? latest.durationMs);
-                return { ...x, endMs: clamp(v, x.startMs + latest.frameMs, hi) };
-              })
-            }
-          />
+      <More id="effect-settings" label="More: mixing and exact timing">
+        <div className="flex flex-col gap-2.5">
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-neutral-600 dark:text-neutral-400">With the layers below</span>
+            <select className={FIELD} value={effect.blend} onChange={(e) => {
+                const blend = e.target.value as Blend;
+                void change((x) => ({ ...x, blend }));
+              }}
+            >
+              {BLENDS.map((b) => (
+                <option key={b.value} value={b.value} title={b.help}>
+                  {b.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <h4 className="mt-1 text-xs font-semibold tracking-wide text-neutral-500 uppercase">Timing</h4>
+          <div className="grid grid-cols-2 gap-2">
+            <MsField
+              key={`${id}:start`}
+              label="Starts (ms)"
+              value={effect.startMs}
+              onCommit={(v) =>
+                change((x, latest) => {
+                  // Not past its end, and not into the effect before it on its layer.
+                  const lo = effectBounds(latest, x.id)?.lo ?? 0;
+                  return { ...x, startMs: clamp(v, lo, x.endMs - latest.frameMs) };
+                })
+              }
+            />
+            <MsField
+              key={`${id}:end`}
+              label="Ends (ms)"
+              value={effect.endMs}
+              onCommit={(v) =>
+                change((x, latest) => {
+                  // Not before its start, and not into the effect after it on its layer.
+                  const hi = Math.min(latest.durationMs, effectBounds(latest, x.id)?.hi ?? latest.durationMs);
+                  return { ...x, endMs: clamp(v, x.startMs + latest.frameMs, hi) };
+                })
+              }
+            />
+          </div>
         </div>
-      </Section>
+      </More>
     </Panel>
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { comboLabel } from "../lib/shortcuts";
 
 /**
  * The app's one tooltip. Mounted once (in `App`), it shows a short label beside whatever the
@@ -25,16 +26,6 @@ interface Shown {
   shortcut: string | null;
 }
 
-/** "Meta+Shift+S" as the keys are labelled on a Mac. */
-function keysLabel(keys: string): string {
-  return keys
-    .split(" ")[0]
-    .replace(/Meta\+/g, "⌘")
-    .replace(/Shift\+/g, "⇧")
-    .replace(/Alt\+/g, "⌥")
-    .replace(/Control\+/g, "Ctrl+");
-}
-
 /** Whether the text already names the shortcut as a word of its own: "Save (⌘S)". */
 function mentions(text: string, shortcut: string): boolean {
   const escaped = shortcut.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -46,7 +37,7 @@ function tipOf(el: HTMLElement): Shown | null {
   if (!text) return null;
   const keys = el.dataset.tipKey ?? el.getAttribute("aria-keyshortcuts");
   // A shortcut already in the text ("Save (⌘S)") isn't repeated.
-  const shortcut = keys ? keysLabel(keys) : null;
+  const shortcut = keys ? comboLabel(keys.split(" ")[0]) : null;
   return { el, text, shortcut: shortcut && !mentions(text, shortcut) ? shortcut : null };
 }
 

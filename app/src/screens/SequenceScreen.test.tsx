@@ -57,6 +57,12 @@ async function openScreen(withSequence = true) {
   return { backend, seq, user, show };
 }
 
+/** Opens the effect settings' "More" (mixing and exact timing), unless it's open. */
+async function openMore(user: ReturnType<typeof userEvent.setup>, panel: HTMLElement) {
+  const more = within(panel).getByRole("button", { name: /^More: mixing/ });
+  if (more.getAttribute("aria-expanded") !== "true") await user.click(more);
+}
+
 function rowEffects(doc: Sequence, name: string, show: ReturnType<typeof demoShow>): Effect[] {
   const prop = show.props.find((p) => p.name === name)!;
   const row = doc.rows.find((r) => "prop" in r.target && r.target.prop === prop.id)!;
@@ -298,6 +304,7 @@ describe("sequence screen", () => {
     await waitFor(() => expect(find().palette.colors).toHaveLength(3));
     fireEvent.change(within(panel).getByLabelText("Color 1"), { target: { value: "#123456" } });
     await waitFor(() => expect(find().palette.colors[0]).toBe("#123456"));
+    await openMore(user, panel);
     await user.selectOptions(within(panel).getByRole("combobox", { name: "With the layers below" }), "add");
     await waitFor(() => expect(find().blend).toBe("add"));
   });
@@ -801,6 +808,7 @@ describe("sequence screen with a slow engine", () => {
     expect([last.startMs, last.endMs]).toEqual([52_000, 56_000]);
     act(() => useSequencer.getState().select([last.id]));
     const panel = screen.getByRole("complementary", { name: "Effect settings" });
+    await openMore(user, panel);
     const ends = within(panel).getByLabelText("Ends (ms)");
     const before = seq.undoStack.length;
     const sent = seq.calls.length;
@@ -838,6 +846,7 @@ describe("sequence screen with a slow engine", () => {
     act(() => useSequencer.getState().select([wave.id]));
     const panel = screen.getByRole("complementary", { name: "Effect settings" });
     await user.selectOptions(within(panel).getByRole("combobox", { name: "Direction" }), "reverse");
+    await openMore(user, panel);
     await user.selectOptions(within(panel).getByRole("combobox", { name: "With the layers below" }), "add");
     const slider = within(panel).getByRole("slider", { name: "Waves" });
     fireEvent.change(slider, { target: { value: "3" } });

@@ -2,7 +2,9 @@ import { useEffect, useId, useState, type ReactNode } from "react";
 import type { Controller } from "../../api/types";
 import { type ControllerDraft, type DraftProblems, MAX_UNIVERSE, checkDraft, controllerDraft, controllerEdits } from "../../lib/controllerEdit";
 import { useApp } from "../../state/store";
-import { Button, Input, Select } from "../ui";
+import { Button, Input, More, Select } from "../ui";
+
+const LEGEND = "col-span-full mb-1 text-xs font-semibold tracking-wide text-neutral-500 uppercase";
 
 const FIELD_NAMES: Record<keyof DraftProblems, string> = { name: "name", address: "address", startUniverse: "start universe" };
 
@@ -75,7 +77,7 @@ export function ControllerEditForm({ controller, onDone }: { controller: Control
   return (
     <form
       aria-label={`Edit ${controller.name}`}
-      className="grid grid-cols-1 gap-3 border-t border-neutral-200 bg-neutral-50 p-3 sm:grid-cols-2 lg:grid-cols-4 dark:border-neutral-800 dark:bg-neutral-950/60"
+      className="flex flex-col gap-3 border-t border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-950/60"
       onSubmit={(e) => {
         e.preventDefault();
         void save();
@@ -87,65 +89,77 @@ export function ControllerEditForm({ controller, onDone }: { controller: Control
         }
       }}
     >
-      <Field label="Name" id={id("name")} problem={problems.name} warning={warnings.name}>
-        <Input
-          id={id("name")}
-          autoFocus
-          value={draft.name}
-          aria-invalid={!!problems.name}
-          aria-describedby={described("name")}
-          onChange={(e) => set({ name: e.target.value })}
-        />
-      </Field>
-      <Field label="IP address" id={id("address")} problem={problems.address} warning={warnings.address}>
-        <Input
-          id={id("address")}
-          value={draft.address}
-          placeholder={multicast ? "Not needed for multicast" : "e.g. 192.168.1.50"}
-          aria-invalid={!!problems.address}
-          aria-describedby={described("address")}
-          onChange={(e) => set({ address: e.target.value })}
-        />
-      </Field>
-      <Field label="Protocol" id={id("protocol")}>
-        <Select id={id("protocol")} value={draft.protocol} onChange={(e) => set({ protocol: e.target.value as ControllerDraft["protocol"] })}>
-          <option value="ddp">DDP</option>
-          <option value="sacn">sACN (E1.31)</option>
-        </Select>
-      </Field>
-      {draft.protocol === "sacn" ? (
-        <>
-          <Field
-            label="Start universe"
-            id={id("startUniverse")}
-            problem={problems.startUniverse}
-            hint="The first universe this controller listens on. Leave it empty and PixelFlow picks one that doesn't clash."
-          >
+      <div className="grid grid-cols-1 gap-x-6 gap-y-3 lg:grid-cols-2">
+        <fieldset className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <legend className={LEGEND}>Controller</legend>
+          <Field label="Name" id={id("name")} problem={problems.name} warning={warnings.name}>
             <Input
-              id={id("startUniverse")}
-              inputMode="numeric"
-              value={draft.startUniverse}
-              placeholder="Automatic"
-              aria-invalid={!!problems.startUniverse}
-              aria-describedby={described("startUniverse")}
-              onChange={(e) => set({ startUniverse: e.target.value })}
+              id={id("name")}
+              autoFocus
+              value={draft.name}
+              aria-invalid={!!problems.name}
+              aria-describedby={described("name")}
+              onChange={(e) => set({ name: e.target.value })}
             />
           </Field>
-          <Field label="Channels per universe" id={id("universeSize")} hint="510 fits exactly 170 RGB pixels in each universe. Match what the controller is set to.">
-            <Select id={id("universeSize")} value={draft.universeSize} onChange={(e) => set({ universeSize: Number(e.target.value) === 512 ? 512 : 510 })}>
-              <option value={510}>510</option>
-              <option value={512}>512</option>
+          <Field label="IP address" id={id("address")} problem={problems.address} warning={warnings.address}>
+            <Input
+              id={id("address")}
+              value={draft.address}
+              placeholder={multicast ? "Not needed for multicast" : "e.g. 192.168.1.50"}
+              aria-invalid={!!problems.address}
+              aria-describedby={described("address")}
+              onChange={(e) => set({ address: e.target.value })}
+            />
+          </Field>
+        </fieldset>
+        <fieldset className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <legend className={LEGEND}>Output</legend>
+          <Field label="Protocol" id={id("protocol")}>
+            <Select id={id("protocol")} value={draft.protocol} onChange={(e) => set({ protocol: e.target.value as ControllerDraft["protocol"] })}>
+              <option value="ddp">DDP</option>
+              <option value="sacn">sACN (E1.31)</option>
             </Select>
           </Field>
-          <label className="flex items-center gap-2 self-end pb-2 text-sm">
-            <input type="checkbox" checked={draft.multicast} onChange={(e) => set({ multicast: e.target.checked })} className="accent-accent-500" />
-            Multicast
-          </label>
-        </>
-      ) : (
-        <p className="self-end pb-2 text-xs text-neutral-500">DDP needs no universes: channels follow the wiring.</p>
+          {draft.protocol === "sacn" ? (
+            <Field
+              label="Start universe"
+              id={id("startUniverse")}
+              problem={problems.startUniverse}
+              hint="The first universe this controller listens on. Leave it empty and PixelFlow picks one that doesn't clash."
+            >
+              <Input
+                id={id("startUniverse")}
+                inputMode="numeric"
+                value={draft.startUniverse}
+                placeholder="Automatic"
+                aria-invalid={!!problems.startUniverse}
+                aria-describedby={described("startUniverse")}
+                onChange={(e) => set({ startUniverse: e.target.value })}
+              />
+            </Field>
+          ) : (
+            <p className="self-end pb-2 text-xs text-neutral-500">DDP needs no universes: channels follow the wiring.</p>
+          )}
+        </fieldset>
+      </div>
+      {draft.protocol === "sacn" && (
+        <More id="controller-edit" label="More: universe size and multicast" forceOpen={multicast}>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Channels per universe" id={id("universeSize")} hint="510 fits exactly 170 RGB pixels in each universe. Match what the controller is set to.">
+              <Select id={id("universeSize")} value={draft.universeSize} onChange={(e) => set({ universeSize: Number(e.target.value) === 512 ? 512 : 510 })}>
+                <option value={510}>510</option>
+                <option value={512}>512</option>
+              </Select>
+            </Field>
+            <label className="flex items-center gap-2 self-end pb-2 text-sm">
+              <input type="checkbox" checked={draft.multicast} onChange={(e) => set({ multicast: e.target.checked })} className="accent-accent-500" />
+              Multicast
+            </label>
+          </div>
+        </More>
       )}
-      <div className="col-span-full flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button type="submit" variant="primary" disabled={!ok}>
           Save
         </Button>

@@ -3,6 +3,8 @@ import { AppShell } from "./components/AppShell";
 import { AiSettings } from "./components/assistant/AiSettings";
 import { DraftPreview } from "./components/assistant/DraftPreview";
 import { CommandPalette } from "./components/CommandPalette";
+import { ContextMenuLayer } from "./components/ContextMenu";
+import { ShortcutSheet } from "./components/ShortcutSheet";
 import { ConfirmClose, ConfirmDiscard, ConfirmReplaceSequence } from "./components/ConfirmDiscard";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { ImportReport } from "./components/ImportReport";
@@ -73,6 +75,7 @@ export function App() {
     <>
       {started ? <AppShell /> : <Welcome />}
       <CommandPalette />
+      <ShortcutSheet />
       <ConfirmDiscard />
       <ConfirmReplaceSequence />
       <ConfirmClose />
@@ -86,6 +89,7 @@ export function App() {
       <ConfirmDialog />
       <NameShowDialog />
       <OpeningStatus />
+      <ContextMenuLayer />
       <TooltipLayer />
     </>
   );

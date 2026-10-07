@@ -64,6 +64,7 @@ interface LayoutEditorState {
   clear(): void;
   setSnap(snap: boolean): void;
   setSmartGuides(on: boolean): void;
+  setGrid(grid: number): void;
   setEditPhoto(on: boolean): void;
   setPhotoDraft(draft: Background | null): void;
   setView(view: View | null): void;
@@ -72,9 +73,29 @@ interface LayoutEditorState {
   /** The props and groups list beside the canvas: shown or folded away, which tab, and the group open in it. */
   sidePanel: { open: boolean; tab: "props" | "groups"; group: string | null };
   setSidePanel(change: Partial<LayoutEditorState["sidePanel"]>): void;
+  /** The prop whose name is being typed over in the props list. */
+  renaming: string | null;
+  setRenaming(id: string | null): void;
+  /** Props the 2D canvas is asked to bring into view; it clears this once it has. */
+  reveal: string[] | null;
 }
 
 const SMART_GUIDES_KEY = "pixelflow.smartGuides";
+const GRID_KEY = "pixelflow.grid";
+
+/** The grid spacings offered (layout units). */
+export const GRID_SIZES = [0.25, 0.5, 1, 2] as const;
+const DEFAULT_GRID = 0.5;
+
+/** The grid spacing as last set on this computer. */
+function storedGrid(): number {
+  try {
+    const saved = Number(localStorage.getItem(GRID_KEY));
+    return (GRID_SIZES as readonly number[]).includes(saved) ? saved : DEFAULT_GRID;
+  } catch {
+    return DEFAULT_GRID;
+  }
+}
 const SIDE_PANEL_KEY = "pixelflow.layoutSidePanel";
 
 /** The props list as last left on this computer: shown unless folded away. */
@@ -106,7 +127,7 @@ export const useLayoutEditor = create<LayoutEditorState>((set, get) => ({
   tool: "select",
   selected: [],
   snap: false,
-  grid: 0.5,
+  grid: storedGrid(),
   smartGuides: storedSmartGuides(),
   editPhoto: false,
   photoDraft: null,
@@ -137,12 +158,23 @@ export const useLayoutEditor = create<LayoutEditorState>((set, get) => ({
     }
     set({ smartGuides });
   },
+  setGrid: (grid) => {
+    try {
+      localStorage.setItem(GRID_KEY, String(grid));
+    } catch {
+      // Storage unavailable: the setting still applies for this session.
+    }
+    set({ grid });
+  },
   setEditPhoto: (editPhoto) =>
     set({ editPhoto, tool: "select", selected: editPhoto ? [] : get().selected, highlight: editPhoto ? null : get().highlight }),
   setPhotoDraft: (photoDraft) => set({ photoDraft }),
   setView: (view) => set({ view }),
   setHighlight: (highlight) => set({ highlight }),
   setPolyPoint: (polyPoint) => set({ polyPoint }),
+  renaming: null,
+  setRenaming: (renaming) => set({ renaming }),
+  reveal: null,
   sidePanel: { open: storedSidePanelOpen(), tab: "props", group: null },
   setSidePanel: (change) => {
     const sidePanel = { ...get().sidePanel, ...change };

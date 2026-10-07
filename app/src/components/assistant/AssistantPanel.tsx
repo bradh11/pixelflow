@@ -5,6 +5,7 @@ import { type ChatItem, useAssistant } from "../../state/assistant";
 import { useSequencer } from "../../state/sequencer";
 import { Button } from "../ui";
 import { ProposalCard } from "./ProposalCard";
+import { hintFor } from "../../lib/shortcuts";
 
 const SUGGESTIONS = ["Create a compelling sequence", "Add two arches beside the garage", "What's in my show?", "Rename the show to Christmas 2026"];
 
@@ -128,7 +129,7 @@ export function AssistantPanel({ overlay = false, compact = false }: { overlay?:
           <Button variant="ghost" aria-label="AI settings" title="AI settings" onClick={() => setSettingsOpen(true)}>
             <Settings size={16} aria-hidden />
           </Button>
-          <Button variant="ghost" aria-label="Close assistant" title="Close (⌘L)" onClick={() => setOpen(false)}>
+          <Button variant="ghost" aria-label="Close assistant" title={`Close (${hintFor("assistant")})`} onClick={() => setOpen(false)}>
             <X size={16} aria-hidden />
           </Button>
         </div>

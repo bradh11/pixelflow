@@ -526,7 +526,7 @@ function FppPicker({
         </div>
       )}
       {choices.length === 0 && (
-        <span className="text-xs text-neutral-500">Type its address and press Check, or find it first on the Devices screen.</span>
+        <span className="text-xs text-neutral-500">Type its address and press Check, or find it first on the Controllers screen.</span>
       )}
     </div>
   );

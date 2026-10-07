@@ -19,16 +19,16 @@ async function startApp() {
 async function openDevices() {
   const app = await startApp();
   await app.user.click(screen.getByRole("button", { name: /^new show/i }));
-  await app.user.click(screen.getByRole("button", { name: "Devices" }));
+  await app.user.click(screen.getByRole("button", { name: "Controllers" }));
   return app;
 }
 
 describe("devices", () => {
-  it("discover my devices from the welcome screen scans right away", async () => {
+  it("find my controllers from the welcome screen scans right away", async () => {
     const { user, backend } = await startApp();
-    await user.click(screen.getByRole("button", { name: /discover my devices/i }));
+    await user.click(screen.getByRole("button", { name: /find my controllers/i }));
     expect(await screen.findByText("Falcon_F16V5_B9F5")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Devices" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Controllers" })).toBeInTheDocument();
     expect(backend.calls).toContain("discoverDevices::network");
   });
 
@@ -71,8 +71,8 @@ describe("devices", () => {
     expect(await screen.findByRole("heading", { name: "FPP" })).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(await screen.findByRole("region", { name: "Now playing" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Back to devices" }));
-    expect(screen.getByRole("heading", { name: "Devices" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Back to controllers" }));
+    expect(screen.getByRole("heading", { name: "Controllers" })).toBeInTheDocument();
     expect(screen.getByText("Porch WLED")).toBeInTheDocument();
   });
 
@@ -84,7 +84,7 @@ describe("devices", () => {
     await user.click(await screen.findByRole("button", { name: "Add 1 controller" }));
     expect(await screen.findByText("Your show has every controller this FPP sends to.")).toBeInTheDocument();
     expect(useApp.getState().snapshot!.show.controllers.map((c) => [c.name, c.ports.length])).toEqual([["Falcon_F16V5_B9F5", 0]]);
-    await user.click(screen.getByRole("button", { name: "Back to devices" }));
+    await user.click(screen.getByRole("button", { name: "Back to controllers" }));
 
     await user.click(screen.getByRole("button", { name: "Open Falcon_F16V5_B9F5" }));
     const review = await screen.findByRole("dialog");

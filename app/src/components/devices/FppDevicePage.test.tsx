@@ -25,7 +25,7 @@ function stocked(setup?: (backend: MemoryBackend) => void) {
   return backend;
 }
 
-/** Opens the FPP's page from the Devices screen, as a user does. */
+/** Opens the FPP's page from the Controllers screen, as a user does. */
 async function openPage(setup?: (backend: MemoryBackend) => void) {
   const backend = stocked(setup);
   await useApp.getState().connect(backend);

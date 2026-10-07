@@ -163,7 +163,7 @@ fn place(show: &Show, map: &ChannelMap) -> (ExportLayout, Vec<Placed>) {
     if had_known && !appended.is_empty() {
         notes.push(format!(
             "{} {} no sequence channels set, so {} placed after the others from channel {first_appended}. \
-             Add them from your FPP's output list on the Devices screen so FPP sends them the right data.",
+             Add them from your FPP's output list on the Controllers screen so FPP sends them the right data.",
             appended.join(", "),
             if appended.len() == 1 { "has" } else { "have" },
             if appended.len() == 1 {
@@ -348,7 +348,7 @@ mod tests {
             layout.notes,
             vec![
                 "Garage has 9 channels wired, but its sequence channels (1–6) only hold 6; the rest are left out.",
-                "Porch has no sequence channels set, so it was placed after the others from channel 131. Add them from your FPP's output list on the Devices screen so FPP sends them the right data.",
+                "Porch has no sequence channels set, so it was placed after the others from channel 131. Add them from your FPP's output list on the Controllers screen so FPP sends them the right data.",
             ]
         );
     }

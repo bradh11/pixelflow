@@ -197,8 +197,9 @@ fn is_empty_value(value: &Value) -> bool {
 
 /// Rewrites `$ref`s to shared definitions outside their owning tool, then drops the definitions
 /// those tools no longer use. Also drops `format` annotations (number widths), which don't
-/// constrain anything here, and defaults that are the type's empty value (`false`, `0`, `null`,
-/// nothing), which say no more than leaving the field out does.
+/// constrain anything here, defaults that are the type's empty value (`false`, `0`, `null`,
+/// nothing), which say no more than leaving the field out does, and empty descriptions; and
+/// writes a choice of plain names as an `enum`.
 fn share_large_definitions(tools: &mut [Tool]) {
     fn rewrite(
         value: &mut Value,
@@ -213,6 +214,10 @@ fn share_large_definitions(tools: &mut [Tool]) {
                 if map.get("default").is_some_and(is_empty_value) {
                     map.remove("default");
                 }
+                // An empty description (set to keep a Rust doc comment out of the schema) says nothing.
+                if map.get("description").is_some_and(|d| d.as_str() == Some("")) {
+                    map.remove("description");
+                }
                 if let Some(Value::String(r)) = map.get("$ref")
                     && let Some(name) = r.strip_prefix("#/$defs/")
                     && let Some((owner, field)) = owner_of(name)
@@ -225,6 +230,24 @@ fn share_large_definitions(tools: &mut [Tool]) {
                     return;
                 }
                 map.values_mut().for_each(|v| rewrite(v, owner_of, tool));
+                // A choice of plain names (variants documented in Rust only) as the short `enum`.
+                let names: Option<Vec<Value>> =
+                    map.get("oneOf").and_then(Value::as_array).and_then(|items| {
+                        items
+                            .iter()
+                            .map(|item| {
+                                let item = item.as_object()?;
+                                (item.len() == 2 && item.get("type") == Some(&json!("string")))
+                                    .then(|| item.get("const").cloned())
+                                    .flatten()
+                            })
+                            .collect()
+                    });
+                if let Some(names) = names {
+                    map.remove("oneOf");
+                    map.insert("type".into(), json!("string"));
+                    map.insert("enum".into(), Value::Array(names));
+                }
             }
             Value::Array(items) => items.iter_mut().for_each(|v| rewrite(v, owner_of, tool)),
             _ => {}

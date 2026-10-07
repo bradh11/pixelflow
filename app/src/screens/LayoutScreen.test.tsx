@@ -1728,6 +1728,126 @@ describe("LayoutScreen", () => {
     });
   });
 
+  describe("xLights settings for arches, circles, stars and trees", () => {
+    /** Selects the only prop and returns a reader for its shape in the backend. */
+    async function selectOnly(prop: Prop) {
+      const user = await setup(showWith(prop));
+      act(() => useLayoutEditor.getState().select([prop.id]));
+      return { user, shape: () => backend.show.props[0].shape as unknown as Record<string, unknown> };
+    }
+
+    it("sets an arch's count, curve and gap, and swaps to the layer settings once it has layers", async () => {
+      const { user, shape } = await selectOnly(placed("arch", "Gate", 0, 0));
+      expect(screen.getByLabelText("Curve (°)")).toHaveValue("180");
+      expect(screen.queryByLabelText("Innermost layer (%)")).not.toBeInTheDocument();
+      const arches = screen.getByLabelText("Arches");
+      await user.clear(arches);
+      await user.type(arches, "4{Enter}");
+      const gap = screen.getByLabelText("Gap between arches");
+      await user.clear(gap);
+      await user.type(gap, "0.5{Enter}");
+      const curve = screen.getByLabelText("Curve (°)");
+      await user.clear(curve);
+      await user.type(curve, "200{Enter}");
+      expect(curve).toHaveValue("180");
+      await user.clear(curve);
+      await user.type(curve, "120{Enter}");
+      expect(shape()).toMatchObject({ arches: 4, gap: 0.5, arc: 120 });
+      await user.type(screen.getByLabelText("Layers (pixels each, inside first)"), "10,20,30{Enter}");
+      // The arch's pixels become the layers' pixels.
+      expect(shape()).toMatchObject({ layers: [10, 20, 30], nodes: 60 });
+      expect(screen.queryByLabelText("Arches")).not.toBeInTheDocument();
+      expect(screen.getByLabelText("Innermost layer (%)")).toHaveValue("70");
+      await user.click(screen.getByLabelText("Starts on the innermost layer"));
+      expect(shape()).toMatchObject({ startInside: true });
+      const layers = screen.getByLabelText("Layers (pixels each, inside first)");
+      await user.clear(layers);
+      await user.type(layers, "{Enter}");
+      // Back to plain arches: one arch of the layers' pixels, not four.
+      expect(shape()).toMatchObject({ layers: [], arches: 1, nodes: 60 });
+      expect(screen.getByLabelText("Arches")).toHaveValue("1");
+    });
+
+    it("makes an arch of one layer hold that layer's pixels", async () => {
+      const { user, shape } = await selectOnly(placed("arch", "Gate", 0, 0));
+      await user.type(screen.getByLabelText("Layers (pixels each, inside first)"), "30{Enter}");
+      expect(shape()).toMatchObject({ layers: [30], nodes: 30 });
+    });
+
+    it("says which props move when a wired prop's pixel count changes", async () => {
+      const show = emptyShow("x");
+      const arches = { ...placed("arch", "Arches", 0, 0), name: "Arches" };
+      arches.shape = { ...arches.shape, nodes: 50, arches: 4 } as Prop["shape"];
+      const porch = { ...line("Porch", 0, 4) };
+      const controller = newController("Garage", "192.0.2.10", "ddp", 4);
+      const slot = (prop: string) => ({ prop, segment: null, nullPixels: 0, reverse: false, brightness: null, gamma: null, smartReceiver: null });
+      controller.ports[2].slots = [slot(arches.id), slot(porch.id)];
+      const user = await setup({ ...show, props: [arches, porch], controllers: [controller] });
+      act(() => useLayoutEditor.getState().select([arches.id]));
+      await user.type(screen.getByLabelText("Layers (pixels each, inside first)"), "10,20,30{Enter}");
+      expect(screen.getByText("This changes Arches from 200 to 60 pixels; props after it on Port 3 move.")).toBeInTheDocument();
+      // An edit that leaves the count alone says nothing.
+      const curve = screen.getByLabelText("Curve (°)");
+      await user.clear(curve);
+      await user.type(curve, "120{Enter}");
+      expect(screen.queryByText(/This changes Arches/)).not.toBeInTheDocument();
+    });
+
+    it("says nothing about moving props for a prop that isn't wired, or is last on its port", async () => {
+      const { user } = await selectOnly(placed("arch", "Gate", 0, 0));
+      await user.type(screen.getByLabelText("Layers (pixels each, inside first)"), "10,20{Enter}");
+      expect(screen.queryByText(/This changes Gate/)).not.toBeInTheDocument();
+    });
+
+    it("gives a circle rings inside each other and starts it at the bottom", async () => {
+      const circle = { ...newProp("circle", emptyShow("x")), name: "Halo" };
+      const { user, shape } = await selectOnly(circle);
+      expect(screen.queryByLabelText("Innermost ring (%)")).not.toBeInTheDocument();
+      await user.type(screen.getByLabelText("Rings (pixels each, inside first)"), "10,20{Enter}");
+      const inner = screen.getByLabelText("Innermost ring (%)");
+      await user.clear(inner);
+      await user.type(inner, "40{Enter}");
+      await user.click(screen.getByLabelText("Starts at the bottom"));
+      expect(shape()).toMatchObject({ layers: [10, 20], nodes: 30, innerPercent: 40, startAtBottom: true });
+      // One ring is just a ring: no inner ring to size, but it holds that ring's pixels.
+      const rings = screen.getByLabelText("Rings (pixels each, inside first)");
+      await user.clear(rings);
+      await user.type(rings, "24{Enter}");
+      expect(shape()).toMatchObject({ layers: [24], nodes: 24 });
+      expect(screen.queryByLabelText("Innermost ring (%)")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Starts on the innermost ring")).not.toBeInTheDocument();
+    });
+
+    it("wires a tree from the top, folds its zig-zag and winds it into a spiral", async () => {
+      const tree = { ...newProp("tree", emptyShow("x")), name: "Mega" };
+      const { user, shape } = await selectOnly(tree);
+      await user.selectOptions(screen.getByLabelText("First pixel"), "topLeft");
+      // The fold only shows with zig-zag on.
+      const zigZag = screen.getByLabelText("Zig-zag (every other string runs back)");
+      if ((zigZag as HTMLInputElement).checked) await user.click(zigZag);
+      expect(screen.queryByLabelText("Zig-zag restarts every")).not.toBeInTheDocument();
+      await user.click(zigZag);
+      const fold = screen.getByLabelText("Zig-zag restarts every");
+      await user.clear(fold);
+      await user.type(fold, "3{Enter}");
+      const spiral = screen.getByLabelText("Spiral turns");
+      await user.clear(spiral);
+      await user.type(spiral, "2.5{Enter}");
+      expect(shape()).toMatchObject({ start: "topLeft", serpentine: true, strandsPerString: 3, spiralRotations: 2.5 });
+      // Only round trees wind round.
+      await user.selectOptions(screen.getByLabelText("Style"), "flat");
+      expect(screen.queryByLabelText("Spiral turns")).not.toBeInTheDocument();
+    });
+
+    it("starts a star at a leg and runs it counter-clockwise", async () => {
+      const star = { ...newProp("star", emptyShow("x")), name: "Topper" };
+      const { user, shape } = await selectOnly(star);
+      await user.selectOptions(screen.getByLabelText("First pixel"), "leftLeg");
+      await user.click(screen.getByLabelText("Goes round counter-clockwise"));
+      expect(shape()).toMatchObject({ start: "leftLeg", counterClockwise: true });
+    });
+  });
+
   describe("smart guides", () => {
     const zoom = () => useLayoutEditor.getState().view!.zoom;
     async function frameOf(name: string) {

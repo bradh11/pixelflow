@@ -27,6 +27,10 @@ fn rich_prop() -> Prop {
             style: TreeStyle::Round,
             degrees: 360.0,
             start_angle: 0.0,
+            start: Corner::BottomLeft,
+            strands_per_string: 0,
+            alternate_nodes: false,
+            spiral_rotations: 0.0,
         }),
     );
     prop.transform.position = Vec3::new(1.5, 0.0, -2.0);
@@ -71,15 +75,8 @@ fn shape_samples() -> Vec<Generator> {
             nodes: 50,
             length: 3.0,
         },
-        Generator::Arch {
-            nodes: 25,
-            width: 2.0,
-            height: 1.0,
-        },
-        Generator::Circle {
-            nodes: 30,
-            radius: 0.5,
-        },
+        Generator::arch(25, 2.0, 1.0),
+        Generator::circle(30, 0.5),
         Generator::Matrix {
             columns: 16,
             rows: 8,
@@ -97,13 +94,12 @@ fn shape_samples() -> Vec<Generator> {
             style: TreeStyle::Ribbon,
             degrees: 180.0,
             start_angle: 45.0,
+            start: Corner::BottomLeft,
+            strands_per_string: 0,
+            alternate_nodes: false,
+            spiral_rotations: 0.0,
         },
-        Generator::Star {
-            points: 5,
-            nodes: 50,
-            outer_radius: 1.0,
-            inner_radius: 0.4,
-        },
+        Generator::star(5, 50, 1.0, 0.4),
         Generator::PolyLine {
             vertices: vec![Vec3::ZERO, Vec3::new(1.0, 0.5, 0.0), Vec3::new(2.0, 0.0, 0.0)],
             segments: vec![
@@ -696,6 +692,26 @@ fn tool_sizes() -> (usize, Vec<(usize, String)>) {
         .collect();
     sizes.sort_by(|a, b| b.cmp(a));
     (sizes.iter().map(|(s, _)| s).sum(), sizes)
+}
+
+#[test]
+fn choices_documented_only_in_rust_are_plain_name_lists() {
+    let toolbox = Toolbox::new();
+    let add = toolbox
+        .tools()
+        .iter()
+        .find(|t| t.spec.name == "show_add_prop")
+        .unwrap();
+    let defs = &add.spec.input_schema["$defs"];
+    assert_eq!(
+        defs["StarStart"]["enum"],
+        json!(["top", "bottom", "leftLeg", "rightLeg"])
+    );
+    assert_eq!(defs["StarStart"]["type"], "string");
+    assert!(defs["StarStart"].get("oneOf").is_none());
+    assert_eq!(defs["Orientation"]["enum"], json!(["horizontal", "vertical"]));
+    // Choices whose names are explained to the model keep their explanations.
+    assert!(defs["BufferStyle"]["oneOf"][0].get("description").is_some());
 }
 
 #[test]

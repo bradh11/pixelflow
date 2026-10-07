@@ -29,28 +29,72 @@ function matrixCell(k: number, columns: number, rows: number, wiring: MatrixWiri
   return [col, row];
 }
 
-function starPoints(points: number, nodes: number, outer: number, inner: number): Vec3[] {
-  if (points <= 0 || nodes <= 0) return range(nodes).map(() => v(0, 0));
-  const vertices = range(points * 2).map((i) => {
-    const r = i % 2 === 0 ? outer : inner;
-    const angle = Math.PI / 2 - (Math.PI * i) / points;
-    return v(r * Math.cos(angle), r * Math.sin(angle));
-  });
-  const edges = vertices.map((a, i) => [a, vertices[(i + 1) % vertices.length]] as const);
-  const length = (a: Vec3, b: Vec3) => Math.hypot(b.x - a.x, b.y - a.y);
-  const perimeter = edges.reduce((sum, [a, b]) => sum + length(a, b), 0);
-  return range(nodes).map((i) => {
-    let distance = (perimeter * i) / nodes;
-    for (const [a, b] of edges) {
-      const edge = length(a, b);
-      if (distance <= edge && edge > 0) {
-        const t = distance / edge;
-        return v(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
-      }
-      distance -= edge;
+type Circle = Extract<Generator, { type: "circle" }>;
+
+/** Rings as xLights lays them out (pf-geometry's circle.rs): each from the top (or bottom), the outermost ring first unless `startInside`. */
+function circle(g: Circle): Vec3[] {
+  const rings = (g.layers?.length ?? 0) > 1 ? g.layers! : [g.nodes];
+  const lc = rings.length;
+  const inner = (g.radius * (g.innerPercent ?? 50)) / 100;
+  const start = g.startAtBottom ? -Math.PI : 0;
+  const out: Vec3[] = [];
+  let left = Math.min(g.nodes, MAX_POINTS);
+  for (let k = 0; k < lc; k++) {
+    const ring = g.startInside ? k : lc - 1 - k;
+    const radius = lc === 1 ? g.radius : inner + ((g.radius - inner) * ring) / (lc - 1);
+    const count = Math.min(left, rings[ring]);
+    for (let n = 0; n < count; n++) {
+      let angle = start + (2 * Math.PI * n) / count;
+      if (g.counterClockwise) angle = -angle;
+      out.push(v(Math.sin(angle) * radius, Math.cos(angle) * radius));
     }
-    return vertices[0];
-  });
+    left -= count;
+  }
+  while (out.length < Math.min(g.nodes, MAX_POINTS)) out.push(v(0, 0));
+  return out;
+}
+
+type Star = Extract<Generator, { type: "star" }>;
+
+/** Star outlines as xLights lays them out (pf-geometry's star.rs): pixels evenly along each from the start corner; angles run clockwise from the top. */
+function star(g: Star): Vec3[] {
+  const total = Math.min(g.nodes, MAX_POINTS);
+  if (g.points <= 0) return range(total).map(() => v(0, 0));
+  const layers = (g.layers?.length ?? 0) > 1 ? g.layers! : [g.nodes];
+  const lc = layers.length;
+  const gap = (2 * Math.PI) / g.points;
+  const odd = g.points % 2 === 1;
+  const start = g.start ?? "top";
+  const [startAngle, startOuter] =
+    start === "top" ? [0, true] : start === "bottom" ? [Math.PI, false] : start === "leftLeg" ? [Math.PI + (odd ? gap / 2 : 0), true] : [Math.PI - (odd ? gap / 2 : 0), true];
+  const dir = g.counterClockwise ? -1 : 1;
+  const segments = 2 * g.points;
+  const out: Vec3[] = [];
+  let left = total;
+  for (let k = 0; k < lc && left > 0; k++) {
+    const layer = g.startInside ? k : lc - 1 - k;
+    const p = (g.innerPercent ?? 50) / 100;
+    const size = lc === 1 ? 1 : p + ((1 - p) * layer) / (lc - 1);
+    const corner = (c: number): [number, number] => {
+      const r = ((c % 2 === 0) === startOuter ? g.outerRadius : g.innerRadius) * size;
+      const a = startAngle + (dir * c * gap) / 2;
+      return [r * Math.sin(a), r * Math.cos(a)];
+    };
+    const [a, b] = [corner(0), corner(1)];
+    const edge = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const n = layers[layer];
+    const count = Math.min(n, left);
+    for (let i = 0; i < count; i++) {
+      const d = (edge * segments * i) / n;
+      const seg = edge > 0 ? Math.min(Math.floor(d / edge), segments - 1) : 0;
+      const t = edge > 0 ? (d - seg * edge) / edge : 0;
+      const [p0, q0] = [corner(seg), corner(seg + 1)];
+      out.push(v(p0[0] + (q0[0] - p0[0]) * t, p0[1] + (q0[1] - p0[1]) * t));
+    }
+    left -= count;
+  }
+  while (out.length < total) out.push(v(0, 0));
+  return out;
 }
 
 function customGrid(columns: number, rows: number, cells: number[]): Vec3[] {
@@ -320,20 +364,151 @@ function spinner(g: Spinner): Vec3[] {
   return out;
 }
 
+type Arch = Extract<Generator, { type: "arch" }>;
+
+/** Arches as xLights lays them out: parts of an ellipse `arc` degrees round, feet `width` apart on y = 0, in a row or nested in layers (pf-geometry's arch.rs). */
+function arch(g: Arch): Vec3[] {
+  const arc = Number.isFinite(g.arc ?? 180) ? Math.min(Math.max(g.arc ?? 180, 1), 180) : 180;
+  const theta = rad(arc);
+  const half = theta / 2;
+  const ea = g.width / 2 / Math.sin(half);
+  const eb = g.height / (1 - Math.cos(half));
+  const drop = eb * Math.cos(half);
+  const skew = rad(g.skewDeg ?? 0);
+  const place = (x: number, adj: number, angle: number) => {
+    const px = x + ea * adj * Math.sin(angle);
+    const py = eb * adj * Math.cos(angle) - drop;
+    return v(px - py * Math.sin(skew), py * Math.cos(skew));
+  };
+  const layers = g.layers ?? [];
+  if (layers.length === 0) {
+    const n = g.arches ?? 1;
+    const gap = g.gap ?? 0;
+    const total = n * g.width + Math.max(n - 1, 0) * gap;
+    const out: Vec3[] = [];
+    for (let k = 0; k < n && out.length < MAX_POINTS; k++) {
+      const x = -total / 2 + g.width / 2 + k * (g.width + gap);
+      for (const i of range(g.nodes)) out.push(place(x, 1, -half + theta * spread(i, g.nodes)));
+    }
+    return g.startRight ? out.reverse() : out;
+  }
+  // Layered: each pixel's spot along the outermost layer and its layer, as xLights numbers them.
+  const lc = layers.length;
+  const maxLen = Math.max(...layers);
+  const nodes = Math.min(g.nodes, MAX_POINTS);
+  const spots: [number, number][] = Array.from({ length: nodes }, () => [0, 0]);
+  let idx = 0;
+  let forward = !g.startRight;
+  for (let layer = 0; layer < lc && idx < nodes; layer++) {
+    const yy = g.startInside ? layer : lc - layer - 1;
+    const it = layers[yy];
+    if (it === 1) {
+      spots[idx++] = [Math.floor(maxLen / 2), yy];
+    } else {
+      const step = Math.fround(Math.fround(maxLen - 1) / Math.fround(it - 1));
+      for (let x = 0; x < it; x++, idx++) {
+        if (idx >= nodes) break;
+        let xx = Math.round(Math.fround(x * step));
+        if (!forward) xx = maxLen - 1 - xx;
+        spots[idx] = [xx, yy];
+      }
+    }
+    if (g.zigZag) forward = !forward;
+  }
+  const midpt = (maxLen - 1) / 2;
+  const layerGap = lc > 1 ? (1 - (g.hollow ?? 70) / 100) / (lc - 1) : 0;
+  return spots.map(([x, y]) => place(0, 1 - layerGap * (lc - 1 - y), midpt === 0 ? 0 : -half + (theta * x) / midpt / 2));
+}
+
+type Tree = Extract<Generator, { type: "tree" }>;
+
+/** Each row's height (in rows) and turn (radians) up a spiral tree, as xLights winds it (pf-geometry's spiral_offsets, in 32-bit floats like it). */
+export function spiralOffsets(rows: number, spiral: number, radius: number, topRadius: number): [number[], number[]] {
+  const f = Math.fround;
+  const heights = Array.from({ length: rows }, (_, x) => x);
+  const turns = Array.from({ length: rows }, () => 0);
+  if (spiral === 0 || rows === 0) return [heights, turns];
+  const bh = f(rows);
+  const pi = f(Math.PI);
+  const gap = f(f(f(radius) - f(topRadius)) / 10);
+  const lengths: number[] = [];
+  let total = 0;
+  for (let x = 0; x < 10; x++) {
+    let l = f(f(f(2 * pi) * f(f(radius) - f(gap * x))) - f(gap / 2));
+    l = f(l * f(f(spiral) / 10));
+    l = f(Math.sqrt(f(f(l * l) + f(f(f(bh / 10) * bh) / 10))));
+    lengths.push(l);
+    total = f(total + l);
+  }
+  for (let x = 0; x < 10; x++) lengths[x] = f(lengths[x] / total);
+  let stretch = 0;
+  let inStretch = Math.round(f(lengths[0] * bh));
+  let done = 0;
+  for (let x = 1; x < rows; x++) {
+    if (done >= inStretch) {
+      stretch = Math.min(stretch + 1, 9);
+      done = 0;
+      inStretch = stretch === 9 ? rows - x : Math.round(f(lengths[stretch] * bh));
+    }
+    if (inStretch > 0) {
+      heights[x] = f(heights[x - 1] + f(bh / 10 / inStretch));
+      turns[x] = f(turns[x - 1] + f(f(f(f(f(spiral) * 2) * pi) / 10) / inStretch));
+    } else {
+      heights[x] = heights[x - 1];
+      turns[x] = turns[x - 1];
+    }
+    done++;
+  }
+  return [heights, turns];
+}
+
+/** Trees as xLights lays and wires them (pf-geometry's tree.rs): strings from the start corner, zig-zag restarting each folded string, alternate pixels, spiral windings. */
+function tree(g: Tree): Vec3[] {
+  const out: Vec3[] = [];
+  const n = g.strings;
+  const per = g.nodesPerString;
+  const [style, degrees, startAngle] = [g.style ?? "round", g.degrees ?? 360, g.startAngle ?? 0];
+  const start = g.start ?? "bottomLeft";
+  const fromRight = start === "bottomRight" || start === "topRight";
+  const fromTop = start === "topLeft" || start === "topRight";
+  const step = degrees < 350 && n > 1 ? degrees / (n - 1) : degrees / Math.max(n, 1);
+  const spiral = g.spiralRotations ?? 0;
+  const unit = Math.fround(g.height / Math.fround(3 * per));
+  const wound =
+    style === "round" && spiral !== 0 && Number.isFinite(spiral) && Number.isFinite(unit) && unit !== 0
+      ? spiralOffsets(per, spiral, Math.fround(g.baseRadius / unit), Math.fround(g.topRadius / unit))
+      : null;
+  const sps = g.strandsPerString ?? 0;
+  for (let s = 0; s < n && out.length < MAX_POINTS; s++) {
+    const spot = fromRight ? n - 1 - s : s;
+    const angle = rad(startAngle + spot * step);
+    const across = (spot + 0.5 - n / 2) / (n / 2);
+    const [xb, xt] = [across * g.baseRadius, across * g.topRadius];
+    const slant = Math.hypot(g.height, xt - xb);
+    const fold = sps > 0 ? s % sps : s;
+    for (let j = 0; j < per; j++) {
+      const along = g.alternateNodes ? (j < Math.ceil(per / 2) ? 2 * j : (per - (j + 1)) * 2 + 1) : g.serpentine && fold % 2 === 1 ? per - 1 - j : j;
+      const row = fromTop ? per - 1 - along : along;
+      const t = wound ? (per > 1 ? wound[0][row] / (per - 1) : 0.5) : spread(row, per);
+      const turn = wound ? wound[1][row] : 0;
+      if (style === "round") {
+        const r = g.baseRadius + (g.topRadius - g.baseRadius) * t;
+        out.push(v(r * Math.sin(angle + turn), t * g.height, r * Math.cos(angle + turn)));
+      } else if (style === "flat") out.push(v(xb + (xt - xb) * t, t * g.height));
+      else out.push(v(xb + (xt - xb) * t, slant > 0 ? (t * g.height * g.height) / slant : 0));
+    }
+  }
+  return out;
+}
+
 function generate(g: Generator): Vec3[] {
   switch (g.type) {
     case "line":
       return range(g.nodes).map((i) => v(-g.length / 2 + spread(i, g.nodes) * g.length, 0));
     case "arch":
-      return range(g.nodes).map((i) => {
-        const angle = Math.PI * (1 - spread(i, g.nodes));
-        return v((g.width / 2) * Math.cos(angle), g.height * Math.sin(angle));
-      });
+      return arch(g);
     case "circle":
-      return range(g.nodes).map((i) => {
-        const angle = Math.PI / 2 - (2 * Math.PI * i) / g.nodes;
-        return v(g.radius * Math.cos(angle), g.radius * Math.sin(angle));
-      });
+      return circle(g);
     case "matrix": {
       const wiring = g.wiring ?? { start: "bottomLeft", orientation: "horizontal", serpentine: true };
       return range(g.columns * g.rows).map((k) => {
@@ -341,30 +516,10 @@ function generate(g: Generator): Vec3[] {
         return v(-g.width / 2 + spread(col, g.columns) * g.width, -g.height / 2 + spread(row, g.rows) * g.height);
       });
     }
-    case "tree": {
-      const out: Vec3[] = [];
-      const n = g.strings;
-      const [style, degrees, startAngle] = [g.style ?? "round", g.degrees ?? 360, g.startAngle ?? 0];
-      const step = degrees < 350 && n > 1 ? degrees / (n - 1) : degrees / Math.max(n, 1);
-      for (let s = 0; s < n && out.length < MAX_POINTS; s++) {
-        const angle = rad(startAngle + s * step);
-        const across = (s + 0.5 - n / 2) / (n / 2);
-        const [xb, xt] = [across * g.baseRadius, across * g.topRadius];
-        const slant = Math.hypot(g.height, xt - xb);
-        for (let j = 0; j < g.nodesPerString; j++) {
-          let t = spread(j, g.nodesPerString);
-          if (g.serpentine && s % 2 === 1) t = 1 - t;
-          if (style === "round") {
-            const r = g.baseRadius + (g.topRadius - g.baseRadius) * t;
-            out.push(v(r * Math.sin(angle), t * g.height, r * Math.cos(angle)));
-          } else if (style === "flat") out.push(v(xb + (xt - xb) * t, t * g.height));
-          else out.push(v(xb + (xt - xb) * t, slant > 0 ? (t * g.height * g.height) / slant : 0));
-        }
-      }
-      return out;
-    }
+    case "tree":
+      return tree(g);
     case "star":
-      return starPoints(g.points, g.nodes, g.outerRadius, g.innerRadius);
+      return star(g);
     case "customGrid":
       return customGrid(g.columns, g.rows, g.cells);
     case "polyLine":

@@ -32,7 +32,9 @@ import { useSequencer } from "../state/sequencer";
 import { TestScreen } from "../screens/TestScreen";
 import { WiringScreen } from "../screens/WiringScreen";
 import { MissingFileNotice, MissingFilesBanner } from "./MissingFiles";
-import { Button } from "./ui";
+import { ShowMenu } from "./ShowMenu";
+import { Button, UnsavedBadge } from "./ui";
+import { saveFocused } from "../state/menuActions";
 
 const NAV: { screen: Screen; label: string; icon: ReactNode }[] = [
   { screen: "layout", label: "Layout", icon: <LayoutGrid size={18} /> },
@@ -44,7 +46,7 @@ const NAV: { screen: Screen; label: string; icon: ReactNode }[] = [
   { screen: "history", label: "History", icon: <History size={18} /> },
 ];
 
-function IconButton({ label, onClick, disabled, children }: { label: string; onClick: () => void; disabled?: boolean; children: ReactNode }) {
+function IconButton({ label, onClick, disabled, dim, children }: { label: string; onClick: () => void; disabled?: boolean; dim?: boolean; children: ReactNode }) {
   return (
     <button
       type="button"
@@ -52,14 +54,14 @@ function IconButton({ label, onClick, disabled, children }: { label: string; onC
       title={label}
       onClick={onClick}
       disabled={disabled}
-      className="rounded-md p-2 text-neutral-600 hover:bg-neutral-200/70 disabled:opacity-30 disabled:hover:bg-transparent dark:text-neutral-300 dark:hover:bg-neutral-800"
+      className={`rounded-md p-2 text-neutral-600 hover:bg-neutral-200/70 disabled:opacity-30 disabled:hover:bg-transparent dark:text-neutral-300 dark:hover:bg-neutral-800 ${dim ? "opacity-40 hover:opacity-100" : ""}`}
     >
       {children}
     </button>
   );
 }
 
-/** On the Sequence screen, undo, redo, and save act on the open sequence; elsewhere on the show.
+/** On the Sequence screen, undo and redo act on the open sequence; elsewhere on the show.
  * (Only what the buttons need is watched, so playback doesn't redraw the top bar.) */
 function useUndoTarget() {
   const onSequence = useApp((s) => s.screen === "sequence");
@@ -67,37 +69,38 @@ function useUndoTarget() {
   const seq = useSequencer(useShallow((s) => ({ canUndo: s.canUndo, canRedo: s.canRedo })));
   const show = useApp(useShallow((s) => ({ canUndo: s.snapshot?.canUndo ?? false, canRedo: s.snapshot?.canRedo ?? false })));
   if (onSequence && hasSequence) {
-    const { undo, redo, save } = useSequencer.getState();
-    return { sequence: true, undo, redo, save, ...seq };
+    const { undo, redo } = useSequencer.getState();
+    return { sequence: true, undo, redo, ...seq };
   }
-  const { undo, redo, save } = useApp.getState();
-  return { sequence: false, undo, redo, save, ...show };
+  const { undo, redo } = useApp.getState();
+  return { sequence: false, undo, redo, ...show };
 }
 
 function TopBar() {
   const snapshot = useApp((s) => s.snapshot);
   const theme = useApp((s) => s.theme);
-  const { setPaletteOpen, setTheme } = useApp.getState();
+  const { setPaletteOpen, setTheme, closeShow } = useApp.getState();
   const target = useUndoTarget();
   const sequenceName = useSequencer((s) => s.doc?.name ?? null);
   const sequenceDirty = useSequencer((s) => s.dirty);
   const sequencePath = useSequencer((s) => s.path);
   if (!snapshot) return null;
-  const title = snapshot.show.name;
   // On the Sequence screen, the show and the sequence each say whether they're saved.
   const both = target.sequence && sequenceName !== null;
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-neutral-200 px-3 dark:border-neutral-800">
-      <span className="font-semibold text-accent-600 dark:text-accent-400">PixelFlow</span>
+      <button
+        type="button"
+        title="Close the show and go to the start page"
+        aria-label="PixelFlow home (closes the show)"
+        onClick={() => void closeShow()}
+        className="shrink-0 rounded-md px-1 font-semibold text-accent-600 hover:bg-neutral-200/70 dark:text-accent-400 dark:hover:bg-neutral-800"
+      >
+        PixelFlow
+      </button>
       <span className="text-neutral-300 dark:text-neutral-700">/</span>
-      <span className="truncate font-medium" title={snapshot.path ? shownPath(snapshot.path) : undefined}>
-        {title}
-      </span>
-      {snapshot.dirty && (
-        <span role="note" className="shrink-0 text-xs text-neutral-500" aria-label={both ? "Unsaved changes to the show" : "Unsaved changes"}>
-          {both ? "● Show not saved" : "● Unsaved"}
-        </span>
-      )}
+      <ShowMenu />
+      {snapshot.dirty && <UnsavedBadge doc="show" />}
       {snapshot.path && !both && <span className="hidden truncate text-xs text-neutral-500 lg:inline">{fileName(snapshot.path)}</span>}
       {both && (
         <>
@@ -105,11 +108,6 @@ function TopBar() {
           <span className="truncate font-medium" title={sequencePath ? shownPath(sequencePath) : undefined}>
             {sequenceName}
           </span>
-          {sequenceDirty && (
-            <span role="note" className="shrink-0 text-xs text-neutral-500" aria-label="Unsaved changes to the sequence">
-              ● Sequence not saved
-            </span>
-          )}
         </>
       )}
       <div className="ml-auto flex items-center gap-1">
@@ -119,7 +117,12 @@ function TopBar() {
         <IconButton label={target.sequence ? "Redo (sequence)" : "Redo"} onClick={target.redo} disabled={!target.canRedo}>
           <Redo2 size={18} />
         </IconButton>
-        <IconButton label={target.sequence ? "Save sequence" : "Save"} onClick={target.save}>
+        {/* The same save as ⌘S and File → Save; quiet when there's nothing to save. */}
+        <IconButton
+          label={target.sequence ? "Save (the sequence, and the show if it changed)" : "Save"}
+          onClick={() => void saveFocused(false)}
+          dim={!snapshot.dirty && !(target.sequence && sequenceDirty)}
+        >
           <Save size={18} />
         </IconButton>
         <IconButton label={theme === "dark" ? "Light theme" : "Dark theme"} onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>

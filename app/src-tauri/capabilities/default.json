@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The main window: core APIs, native open/save dialogs, and closing itself once unsaved work is settled.",
+  "description": "The main window: core APIs, and closing itself once unsaved work is settled. File dialogs are shown by the shell (see pickers.rs), not the window.",
   "windows": ["main"],
-  "permissions": ["core:default", "core:window:allow-destroy", "dialog:allow-open", "dialog:allow-save"]
+  "permissions": ["core:default", "core:window:allow-destroy"]
 }

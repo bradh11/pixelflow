@@ -7,6 +7,7 @@ import {
   AlignStartHorizontal,
   AlignStartVertical,
   AlignVerticalDistributeCenter,
+  Cable,
   Copy,
   ImagePlus,
   Trash2,
@@ -23,6 +24,7 @@ import { useLayoutEditor } from "../../state/layoutEditor";
 import { useApp } from "../../state/store";
 import { useView3d } from "../../state/view3d";
 import { HouseModelPanel } from "../layout3d/HouseModelPanel";
+import { deleteProps } from "./PropsList";
 import { SubmodelsSection } from "./SubmodelsSection";
 import { AddBendButton, JoinLines, PolyLineSection } from "./PolyLineSection";
 import { CustomGridSection } from "./CustomGridSection";
@@ -237,7 +239,6 @@ function OnePropPanel({ prop, points }: { prop: Prop; points: ArrayLike<number> 
   const apply = useApp((s) => s.apply);
   const show = useApp((s) => s.snapshot!.show);
   const setScreen = useApp((s) => s.setScreen);
-  const clear = useLayoutEditor((s) => s.clear);
   const [name, setName] = useState(prop.name);
   useEffect(() => setName(prop.name), [prop.name]);
   // Each change applies to the prop as it is when the edit is sent, so it can't undo a move on its way.
@@ -271,6 +272,11 @@ function OnePropPanel({ prop, points }: { prop: Prop; points: ArrayLike<number> 
     );
     update((p) => ({ ...p, shape: withSetting(p.shape, key, v) }));
   };
+  const in3d = useView3d((s) => s.mode === "3d");
+  // In 2D, depth, tilt, and turn show only when set, so a prop that looks squashed says why.
+  const showZ = in3d || t.position.z !== 0;
+  const showTilt = in3d || t.rotationDeg.x !== 0;
+  const showTurn = in3d || t.rotationDeg.y !== 0;
   const commitName = () => {
     const trimmed = name.trim();
     if (trimmed && trimmed !== prop.name) update((p) => ({ ...p, name: trimmed }));
@@ -291,6 +297,25 @@ function OnePropPanel({ prop, points }: { prop: Prop; points: ArrayLike<number> 
         </label>
         <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
           {shapeLabel(shape)} · {thousands(nodeCount(shape))} pixels
+        </p>
+        {/* Where it's wired, up top: it's the next thing to check after placing a prop. */}
+        <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-sm" data-testid="prop-wiring">
+          <Cable size={13} aria-hidden className={wiring.length > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"} />
+          {wiring.length > 0 ? (
+            wiring.map((w, i) => (
+              <span key={w} className="text-neutral-700 dark:text-neutral-300">
+                {i > 0 && "· "}
+                <span>{w}</span>
+              </span>
+            ))
+          ) : (
+            <span className="text-amber-700 dark:text-amber-400">
+              Not wired.{" "}
+              <button type="button" className="text-accent-600 underline dark:text-accent-400" onClick={() => setScreen("wiring")}>
+                Wire it to a controller
+              </button>
+            </span>
+          )}
         </p>
       </Section>
       {isPoly(shape) && <PolyLineSection prop={prop} shape={shape} />}
@@ -328,48 +353,29 @@ function OnePropPanel({ prop, points }: { prop: Prop; points: ArrayLike<number> 
         </label>
       </Section>
       <Section title="Placement">
-        <div className="grid grid-cols-3 gap-2">
+        {/* Depth, tilt, and turn only mean something in the 3D view, so they're shown there. */}
+        <div className={`grid gap-2 ${showZ ? "grid-cols-3" : "grid-cols-2"}`}>
           <NumberField label="Position X" value={t.position.x} onCommit={(x) => setTransform({ x })} />
           <NumberField label="Position Y" value={t.position.y} onCommit={(y) => setTransform({ y })} />
-          <NumberField label="Position Z" hint="Depth: toward the street" value={t.position.z} onCommit={(z) => setTransform({ z })} />
+          {showZ && <NumberField label="Position Z" hint="Depth: toward the street" value={t.position.z} onCommit={(z) => setTransform({ z })} />}
         </div>
-        <div className="mt-2 grid grid-cols-3 gap-2">
-          <NumberField label="Rotation (degrees)" hint="Turned in the front view (around Z)" value={t.rotationDeg.z} onCommit={(rotation) => setTransform({ rotation })} />
-          <NumberField label="Tilt (X°)" hint="Tipped forward or back (around X)" value={t.rotationDeg.x} onCommit={(tilt) => setTransform({ tilt })} />
-          <NumberField label="Turn (Y°)" hint="Turned to face left or right (around Y)" value={t.rotationDeg.y} onCommit={(turn) => setTransform({ turn })} />
+        <div className={`mt-2 grid gap-2 ${showTilt || showTurn ? "grid-cols-3" : "grid-cols-2"}`}>
+          <NumberField label="Rotation°" hint="Turned in the front view (around Z), in degrees" value={t.rotationDeg.z} onCommit={(rotation) => setTransform({ rotation })} />
+          {showTilt && <NumberField label="Tilt (X°)" hint="Tipped forward or back (around X)" value={t.rotationDeg.x} onCommit={(tilt) => setTransform({ tilt })} />}
+          {showTurn && <NumberField label="Turn (Y°)" hint="Turned to face left or right (around Y)" value={t.rotationDeg.y} onCommit={(turn) => setTransform({ turn })} />}
         </div>
+        {!(showZ && showTilt && showTurn) && <p className="mt-1 text-xs text-neutral-500">Depth, tilt, and turn are in the 3D view (V).</p>}
         <div className="mt-2 grid grid-cols-2 gap-2">
           <NumberField label="Scale X" value={t.scale.x} nonZero onCommit={(sx) => setTransform({ sx })} />
           <NumberField label="Scale Y" value={t.scale.y} nonZero onCommit={(sy) => setTransform({ sy })} />
         </div>
-      </Section>
-      <Section title="Wiring">
-        {wiring.length > 0 ? (
-          <ul className="text-sm">
-            {wiring.map((w) => (
-              <li key={w}>{w}</li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-neutral-500">
-            Not wired.{" "}
-            <button type="button" className="text-accent-500 underline" onClick={() => setScreen("wiring")}>
-              Wire it to a controller
-            </button>
-          </p>
-        )}
       </Section>
       <SubmodelsSection prop={prop} points={points} />
       <Section title="Actions">
         <div className="flex flex-wrap gap-2">
           <AddBendButton prop={prop} />
           <DuplicateButton ids={[prop.id]} />
-          <Button
-            variant="danger"
-            onClick={async () => {
-              if (await apply(removeEdits([prop.id]))) clear();
-            }}
-          >
+          <Button variant="danger" title="Delete this prop (Undo brings it back)" onClick={() => void deleteProps([prop.id], [prop.name])}>
             <Trash2 size={16} aria-hidden /> Delete prop
           </Button>
         </div>

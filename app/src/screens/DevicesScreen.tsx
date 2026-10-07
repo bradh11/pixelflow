@@ -58,18 +58,22 @@ function DeviceRow({
       <td className="pr-3">
         {inShow && <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs dark:bg-neutral-800">In show</span>}
       </td>
-      <td className="text-right whitespace-nowrap">
-        <Button
-          variant="ghost"
+      <td className="pr-6">
+        {/* Apart from Open, and in words: forgetting is easy to do by mistake next to it. */}
+        <button
+          type="button"
           aria-label={`Forget ${device.name}`}
-          title="Forget this controller"
+          title="Take this controller off the list on this computer (your show isn't changed)"
           onClick={(e) => {
             e.stopPropagation();
             onForget();
           }}
+          className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs text-neutral-500 hover:bg-neutral-200/70 hover:text-neutral-800 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
         >
-          <X size={14} />
-        </Button>
+          <X size={12} aria-hidden /> Forget
+        </button>
+      </td>
+      <td className="text-right whitespace-nowrap">
         <Button
           onClick={(e) => {
             e.stopPropagation();
@@ -168,6 +172,9 @@ export function DevicesScreen() {
               <th className="pb-2 font-medium">Address</th>
               <th className="pb-2 font-medium">Found by</th>
               <th />
+              <th>
+                <span className="sr-only">Forget</span>
+              </th>
               <th />
             </tr>
           </thead>

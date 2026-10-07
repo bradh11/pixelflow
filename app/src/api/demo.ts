@@ -1,5 +1,5 @@
 import type { DeviceDetails, FppSequence, NodeRange, Phoneme, PlayerStatus, PortSlot, Prop, Region, Show, SilentPeer, StringConfig } from "./types";
-import { type MemoryBackend, emptyShow } from "./memory";
+import { type MemoryBackend, emptyShow, layoutThumbnail } from "./memory";
 import { newController, newProp } from "../lib/shows";
 
 /** A small sample show for browser-only UI development (`?demo`). */
@@ -93,6 +93,46 @@ export const DEMO_PHOTO = "/Photos/Demo House.svg";
  * and the photo aren't where they were. A search finds the medley's music and the photo; the
  * other sequence file has to be located.
  */
+/** Where the demo show is "saved" in the browser demo. */
+export const DEMO_SHOW_PATH = "/Users/me/Documents/PixelFlow/Demo House/Demo House.pixelflow.json";
+
+/**
+ * A recent shows list for the browser demo: the demo house (open now), two more shows, and one
+ * that was moved, so the start page and the show menu have something to show.
+ */
+export function demoRecentShows(backend: MemoryBackend) {
+  const hour = 3_600_000;
+  const now = Date.now();
+  const garage = emptyShow("Garage Mini Show");
+  garage.props = [
+    { ...newProp("arch", garage), name: "Arch" },
+    { ...newProp("line", garage), name: "Roofline", transform: { ...newProp("line", garage).transform, position: { x: -3, y: 4, z: 0 } } },
+  ];
+  const street = emptyShow("Maple Street 2025");
+  street.props = [newProp("tree", street), { ...newProp("matrix", street), transform: { ...newProp("matrix", street).transform, position: { x: 6, y: 2, z: 0 } } }];
+  const garagePath = "/Users/me/Documents/PixelFlow/Garage/Garage Mini Show.pixelflow.json";
+  const streetPath = "/Volumes/Lights NAS/Shows/Maple Street 2025.pixelflow.json";
+  backend.files.set(DEMO_SHOW_PATH, structuredClone(backend.show));
+  backend.files.set(garagePath, garage);
+  backend.files.set(streetPath, street);
+  const shows: [string, Show, number, number, number][] = [
+    [DEMO_SHOW_PATH, backend.show, 0.2, 4_175, 2],
+    [garagePath, garage, 26, 300, 1],
+    [streetPath, street, 24 * 9, 12_400, 6],
+    ["/Users/me/Desktop/Old Layout/Halloween 2024.pixelflow.json", emptyShow("Halloween 2024"), 24 * 40, 2_048, 3],
+  ];
+  backend.recent = shows.map(([path, show, hoursAgo, pixels, controllers]) => ({
+    path,
+    name: show.name,
+    openedAt: now - hoursAgo * hour,
+    props: show.props.length || 9,
+    pixels,
+    controllers,
+    thumbnail: layoutThumbnail(show),
+    status: "here",
+  }));
+}
+
 export function demoMissingFiles(backend: MemoryBackend) {
   const medley = "/Shows/Christmas Medley 2017.mp3";
   backend.show.sequences = [
@@ -172,9 +212,9 @@ export function demoDevices(): { details: DeviceDetails[]; silent: SilentPeer[] 
           destinations: [
             { address: "192.0.2.20", description: "Falcon_F16V5_B9F5", protocol: "DDP", channels: 6147, startChannel: 1, startUniverse: null, universeSize: null, ddpRaw: false, unevenUniverses: false },
           ],
-          notes: ["This FPP has no pixel outputs of its own; it sends to the controllers listed below. Add them to your show from here."],
+          notes: ["This FPP has no pixel outputs of its own; it sends to the controllers listed above. Add each one with its Add to show button."],
         },
-        plan: { controller: fppController, props: [], notes: ["This FPP has no pixel outputs of its own; it sends to the controllers listed below. Add them to your show from here."], alreadyInShow: false, canImport: false },
+        plan: { controller: fppController, props: [], notes: ["This FPP has no pixel outputs of its own; it sends to the controllers listed above. Add each one with its Add to show button."], alreadyInShow: false, canImport: false },
       },
       {
         device: { address: "192.0.2.20", kind: "falcon", name: "Falcon_F16V5_B9F5", model: "F16v5", firmware: "F16V5 v2.00", mode: null, foundBy: ["fppPeer"] },

@@ -1,3 +1,4 @@
+import { waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { MemoryBackend, emptyShow } from "../api/memory";
 import type { Device, Discovery, Show, ShowSnapshot } from "../api/types";
@@ -24,15 +25,38 @@ describe("app store", () => {
     expect(useApp.getState().started).toBe(true);
   });
 
-  it("save asks for a path the first time and does nothing if cancelled", async () => {
+  it("save asks for a name and a path the first time and does nothing if cancelled", async () => {
     const backend = await connected();
+    // Cancelling the name.
+    let saving = useApp.getState().save();
+    await waitFor(() => expect(useApp.getState().naming).toBe("Untitled Show"));
+    useApp.getState().resolveNaming(null);
+    expect(await saving).toBe(false);
+    // Cancelling the file dialog.
     backend.nextSavePath = null;
-    expect(await useApp.getState().save()).toBe(false);
+    saving = useApp.getState().save();
+    await waitFor(() => expect(useApp.getState().naming).not.toBeNull());
+    useApp.getState().resolveNaming("Backyard");
+    expect(await saving).toBe(false);
     expect(backend.calls.some((c) => c.startsWith("saveShowAs"))).toBe(false);
 
     backend.nextSavePath = "/shows/a.json";
     expect(await useApp.getState().save()).toBe(true);
     expect(useApp.getState().snapshot?.path).toBe("/shows/a.json");
+    expect(useApp.getState().snapshot?.show.name).toBe("Backyard");
+  });
+
+  it("a named show's first save suggests its name as the file name, without asking", async () => {
+    const backend = new MemoryBackend(emptyShow("Front Yard"));
+    await useApp.getState().connect(backend);
+    let suggested = "";
+    backend.pickSavePath = async (name?: string) => {
+      suggested = name ?? "";
+      return "/shows/front.json";
+    };
+    expect(await useApp.getState().save()).toBe(true);
+    expect(useApp.getState().naming).toBeNull();
+    expect(suggested).toBe("Front Yard.pixelflow.json");
   });
 
   it("runs backend calls one at a time, in the order they were made", async () => {

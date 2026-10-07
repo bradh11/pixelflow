@@ -9,6 +9,7 @@ import {
   type Effect,
   type EffectInfo,
   type ExportSummary,
+  type Row,
   type Sequence,
   type SequenceEdit,
   type SequenceEditResult,
@@ -21,20 +22,43 @@ import type { MissingFile, PlaybackStatus, XlightsSequenceImported } from "../ap
 import { clock, fileName, plural, shownPath } from "../lib/format";
 import { folderOf } from "../lib/showFiles";
 import { tapEdits } from "../lib/timelineMath";
-import { useApp } from "./store";
+import { type SaveOptions, saidSaved, useApp } from "./store";
 
 const RECENT_KEY = "pixelflow.recentSequences";
 /** Whether playback loops, remembered on this computer. */
 const LOOP_KEY = "pixelflow.sequenceLoop";
-const RECENT_LIMIT = 6;
+const RECENT_LIMIT = 12;
 
-function loadRecent(): string[] {
+/** A sequence opened or saved lately, and the show (by path) it was used with. */
+export interface RecentSequence {
+  path: string;
+  /** The show's file, or null when the show wasn't saved (or the entry is from before shows
+   * were kept with sequences). */
+  show: string | null;
+}
+
+export function loadRecent(): RecentSequence[] {
   try {
     const saved: unknown = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
-    return Array.isArray(saved) ? saved.filter((p): p is string => typeof p === "string").slice(0, RECENT_LIMIT) : [];
+    if (!Array.isArray(saved)) return [];
+    return saved
+      .map((entry): RecentSequence | null => {
+        if (typeof entry === "string") return { path: entry, show: null };
+        if (typeof entry !== "object" || entry === null) return null;
+        const { path, show } = entry as Record<string, unknown>;
+        return typeof path === "string" ? { path, show: typeof show === "string" ? show : null } : null;
+      })
+      .filter((r): r is RecentSequence => r !== null)
+      .slice(0, RECENT_LIMIT);
   } catch {
     return [];
   }
+}
+
+/** The recent sequences used with `show` first (newest first), then the others. */
+export function recentFor(recent: RecentSequence[], show: string | null): { mine: RecentSequence[]; others: RecentSequence[] } {
+  const mine = show ? recent.filter((r) => r.show === show) : [];
+  return { mine, others: recent.filter((r) => !mine.includes(r)) };
 }
 
 function loadLoop(): boolean {
@@ -53,9 +77,9 @@ function saveLoop(on: boolean) {
   }
 }
 
-function saveRecent(paths: string[]) {
+function saveRecent(recent: RecentSequence[]) {
   try {
-    localStorage.setItem(RECENT_KEY, JSON.stringify(paths));
+    localStorage.setItem(RECENT_KEY, JSON.stringify(recent));
   } catch {
     // Storage unavailable; the list still works for this session.
   }
@@ -123,7 +147,8 @@ interface SequencerState {
   snapping: boolean;
   collapsed: string[];
   clipboard: Copied[];
-  recent: string[];
+  /** Sequences opened or saved lately, with the show each was used with. */
+  recent: RecentSequence[];
   /** An export in progress (0–100), or null. */
   exporting: number | null;
   /** Set right after a new sequence with music: offer to find its beats. */
@@ -143,7 +168,11 @@ interface SequencerState {
   replacing: (() => void) | null;
 
   connect(api: SequencerApi): Promise<void>;
-  newSequence(name: string, durationMs: number, audio: string | null): Promise<boolean>;
+  /** Closes the open sequence (the show it belongs to is being left); unsaved changes are
+   * dropped, so ask first. */
+  closeDocument(): Promise<void>;
+  /** Starts a new sequence (with `rows`, when given: see `rowsForShow`). */
+  newSequence(name: string, durationMs: number, audio: string | null, rows?: Row[]): Promise<boolean>;
   open(path: string): Promise<boolean>;
   /** Imports the xLights sequence at `path` and opens it (unsaved), replacing the open one
    * without asking; the import report, or null when it failed (the error is shown). */
@@ -158,8 +187,9 @@ interface SequencerState {
   /** Answers the question: Save (then replace; it keeps asking if the save fails or is
    * cancelled), Don't save, or Cancel. True when the waiting action ran. */
   resolveReplacing(choice: "save" | "discard" | "cancel"): Promise<boolean>;
-  save(): Promise<boolean>;
-  saveAs(): Promise<boolean>;
+  /** Saves the sequence (asking where the first time); a toast says so unless `quiet`. */
+  save(options?: SaveOptions): Promise<boolean>;
+  saveAs(options?: SaveOptions): Promise<boolean>;
   /**
    * Applies edits as one undo step (or merged into `gesture`'s step), in order after every earlier
    * call. Edits given as a function are built from the latest document when their turn comes; an
@@ -279,7 +309,8 @@ export const useSequencer = create<SequencerState>((set, get) => {
   }
 
   function remember(path: string) {
-    const recent = [path, ...get().recent.filter((p) => p !== path)].slice(0, RECENT_LIMIT);
+    const show = useApp.getState().snapshot?.path ?? null;
+    const recent = [{ path, show }, ...get().recent.filter((r) => r.path !== path)].slice(0, RECENT_LIMIT);
     saveRecent(recent);
     set({ recent });
   }
@@ -372,14 +403,41 @@ export const useSequencer = create<SequencerState>((set, get) => {
       });
     },
 
-    async newSequence(name, durationMs, audio) {
+    async closeDocument() {
+      const { api, doc } = get();
+      if (!api || !doc) return;
+      await serial(async () => {
+        await halt();
+        await guarded(() => api.closeSequenceDoc());
+        set({
+          doc: null,
+          path: null,
+          dirty: false,
+          canUndo: false,
+          canRedo: false,
+          issues: [],
+          selection: [],
+          markSelection: null,
+          activeTrack: null,
+          activeRow: null,
+          playheadMs: 0,
+          collapsed: [],
+          suggestBeats: false,
+          notice: null,
+          musicMissing: null,
+          docKey: newDocKey(),
+        });
+      });
+    },
+
+    async newSequence(name, durationMs, audio, rows) {
       const { api } = get();
       if (!api) return false;
       const ok = await serial(() =>
         guarded(async () => {
           await halt();
           // With its music from the start: nothing to undo, nothing unsaved.
-          adopt(await api.newSequenceDoc(name, durationMs, audio));
+          adopt(await api.newSequenceDoc(name, durationMs, audio, rows));
           set({ selection: [], markSelection: null, activeTrack: null, playheadMs: 0, collapsed: [], suggestBeats: audio !== null, docKey: newDocKey(), notice: null });
           return true;
         }),
@@ -399,8 +457,8 @@ export const useSequencer = create<SequencerState>((set, get) => {
         } catch (e) {
           // A recent file that can't be opened any more (moved or deleted) comes off the list.
           const recent = get().recent;
-          if (recent.includes(path)) {
-            const left = recent.filter((p) => p !== path);
+          if (recent.some((r) => r.path === path)) {
+            const left = recent.filter((r) => r.path !== path);
             saveRecent(left);
             set({ recent: left });
             useApp.setState({ error: `${errorMessage(e)} It's been taken off your recent sequences.` });
@@ -450,21 +508,21 @@ export const useSequencer = create<SequencerState>((set, get) => {
       return true;
     },
 
-    async save() {
+    async save(options) {
       const { api, path } = get();
       if (!api || !get().doc) return false;
-      if (!path) return get().saveAs();
+      if (!path) return get().saveAs(options);
       const ok = await serial(() => guarded(async () => (adopt(await api.saveSequenceDoc()), true)));
-      return ok === true;
+      return saidSaved(ok === true, get().doc?.name, options);
     },
 
-    async saveAs() {
+    async saveAs(options) {
       const { api, doc, path } = get();
       if (!api || !doc) return false;
       const target = await guarded(() => api.pickSequenceDocSavePath(path ? fileName(path) : `${doc.name}.pfseq.json`));
       if (!target) return false;
       const ok = await serial(() => guarded(async () => (adopt(await api.saveSequenceDocAs(target)), true)));
-      return ok === true;
+      return saidSaved(ok === true, get().doc?.name, options);
     },
 
     async edit(edits, gesture) {

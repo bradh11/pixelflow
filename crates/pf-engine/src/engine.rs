@@ -251,6 +251,16 @@ impl Engine {
         &self.show
     }
 
+    /// Where the show is saved, once it has been (cheap: no snapshot is made).
+    pub fn show_path(&self) -> Option<&Path> {
+        self.path.as_deref()
+    }
+
+    /// Where the open sequence is saved, if one is open and has been saved.
+    pub fn sequence_path(&self) -> Option<&Path> {
+        self.sequence.as_ref()?.path.as_deref()
+    }
+
     /// Goes up by one with every change to the show (edits, undo, redo, opening another show).
     pub fn revision(&self) -> u64 {
         self.revision
@@ -401,6 +411,20 @@ impl Engine {
         // Unsaved, so the user is asked before it's discarded.
         self.changed();
         self.snapshot()
+    }
+
+    /// Starts a new, unsaved show from `show` (an example built into the app): like a new show,
+    /// there's nothing to save, and nothing to ask about, until it's changed. Saving it asks
+    /// where, since it has no file.
+    pub fn start_from(&mut self, show: CheckedShow) -> ShowSnapshot {
+        self.replace_show(show.0, None);
+        self.snapshot()
+    }
+
+    /// Whether the show or the open sequence has changes that haven't been saved (cheap: no
+    /// snapshot is made).
+    pub fn has_unsaved_changes(&self) -> bool {
+        self.revision != self.saved_revision || self.sequence.as_ref().is_some_and(|o| o.is_dirty())
     }
 
     /// Opens a show file. On failure the current show is left untouched. This reads the disk
@@ -855,11 +879,28 @@ impl Engine {
         duration_ms: u64,
         audio: Option<&str>,
     ) -> Result<SequenceSnapshot, EngineError> {
+        self.new_sequence_doc_with_rows(name, duration_ms, audio, Vec::new())
+    }
+
+    /// Starts a new sequence that already has `rows` (a row for every prop and group, as xLights
+    /// starts one), replacing the open one without asking. Like [`Engine::new_sequence_doc`],
+    /// there's nothing to undo and nothing unsaved. Rows are checked as opening a file would check
+    /// them; on failure the open sequence is left untouched.
+    pub fn new_sequence_doc_with_rows(
+        &mut self,
+        name: &str,
+        duration_ms: u64,
+        audio: Option<&str>,
+        rows: Vec<pf_sequence::Row>,
+    ) -> Result<SequenceSnapshot, EngineError> {
         let mut doc = Sequence::new(name, duration_ms);
         doc.audio = audio.filter(|a| !a.trim().is_empty()).map(str::to_owned);
+        doc.rows = rows;
         if let Some(problem) = pf_sequence::limit_problems(&doc).into_iter().next() {
             return Err(EngineError::TooLarge(problem));
         }
+        crate::sequence_doc::check_unique_ids(&doc)?;
+        let doc = pf_sequence::check_sequence(&doc).map_err(|e| EngineError::TooLarge(e.to_string()))?;
         self.replace_sequence(OpenSequence::new(doc, None, self.sequence_revision + 1));
         Ok(self.sequence_snapshot_unchecked())
     }

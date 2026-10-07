@@ -18,7 +18,7 @@ async function startApp() {
 
 async function openDevices() {
   const app = await startApp();
-  await app.user.click(screen.getByRole("button", { name: /start fresh/i }));
+  await app.user.click(screen.getByRole("button", { name: /^new show/i }));
   await app.user.click(screen.getByRole("button", { name: "Devices" }));
   return app;
 }
@@ -70,7 +70,7 @@ describe("devices", () => {
     await user.click(await screen.findByRole("button", { name: "Review FPP" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText(/Sends 6,147 channels by DDP to Falcon_F16V5_B9F5/)).toBeInTheDocument();
-    expect(within(dialog).getByText(/Add them to your show from here/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/sends to the controllers listed above. Add each one with its Add to show button/)).toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: /import|add to show/i })).not.toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Close" })).toBeInTheDocument();
     await user.keyboard("{Escape}");

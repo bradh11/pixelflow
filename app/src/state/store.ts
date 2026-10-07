@@ -8,6 +8,7 @@ import type {
   FoundFile,
   ImportSummary,
   MissingFile,
+  RecentShow,
   SequenceImportSummary,
   Show,
   ShowSnapshot,
@@ -16,6 +17,7 @@ import type {
 import { fileName } from "../lib/format";
 import { sameFile } from "../lib/showFiles";
 import { useLayoutEditor } from "./layoutEditor";
+import { toast } from "./toast";
 import { showViewKey, useView3d } from "./view3d";
 
 /**
@@ -25,7 +27,27 @@ import { showViewKey, useView3d } from "./view3d";
  */
 export type EditsFrom = Edit[] | ((show: Show) => Edit[]);
 
+/** `quiet`: no "Saved …" toast (the caller says what it saved itself). */
+export interface SaveOptions {
+  quiet?: boolean;
+}
+
+/** Says the show or sequence was saved, unless asked not to (an event passed as options is ignored). */
+export function saidSaved(ok: boolean, name: string | undefined, options?: SaveOptions): boolean {
+  if (ok && name && options?.quiet !== true) toast(`Saved ${name}`);
+  return ok;
+}
+
 export type Screen = "layout" | "wiring" | "devices" | "sequence" | "play" | "test" | "history";
+
+/**
+ * Something that leaves the open show: a new show, the Open dialog, the xLights import, the demo
+ * show, closing it, or one of the recent shows (opened, or located where it went).
+ */
+export type ReplaceKind = "new" | "open" | "xlights" | "sample" | "close" | { recent: string } | { locate: string };
+
+/** A new show's name until the user gives it one. */
+export const UNTITLED = "Untitled Show";
 export type Theme = "dark" | "light";
 
 const THEME_KEY = "pixelflow.theme";
@@ -48,9 +70,20 @@ interface AppState {
   paletteOpen: boolean;
   error: string | null;
   busy: boolean;
-  /** Set when New/Open was asked for while the show has unsaved changes. (Replacing the open
-   * sequence asks through the sequencer's own question: see `useSequencer.replaceAfterAsking`.) */
-  pendingReplace: "new" | "open" | "xlights" | null;
+  /** Set when something would leave the show while it (or the open sequence, which closes with
+   * it) has unsaved changes: the question is showing. (Replacing only the open sequence asks
+   * through the sequencer's own question: see `useSequencer.replaceAfterAsking`.) */
+  pendingReplace: ReplaceKind | null;
+  /** Shows opened or saved lately, newest first (the shell keeps the list). */
+  recent: RecentShow[];
+  /** What's being opened, said while it happens ("Opening House…"), or null. */
+  opening: string | null;
+  /** The show menu in the top bar: closed, open, or open with its recent shows in focus. */
+  showMenu: "closed" | "open" | "recent";
+  /** True while the show's name is being edited in the top bar. */
+  renaming: boolean;
+  /** Asking for the show's name before its first save: the name offered. */
+  naming: string | null;
   /** What the last xLights import brought in, shown until dismissed. */
   importReport: { name: string; summary: ImportSummary; notes: string[] } | null;
   /** What the last xLights sequence import brought in, shown until dismissed. */
@@ -92,6 +125,23 @@ interface AppState {
   redo(): Promise<boolean>;
   newShow(): Promise<boolean>;
   openShow(): Promise<boolean>;
+  /** Opens a recent show through the same open as the Open dialog (asks about unsaved work first). */
+  openRecent(path: string): Promise<boolean>;
+  /** For a recent show that has moved: asks where it is now, and opens it. */
+  locateRecent(path: string): Promise<boolean>;
+  forgetRecent(path: string): Promise<void>;
+  clearRecent(): Promise<void>;
+  refreshRecent(): Promise<void>;
+  /** Opens the demo show as a new, unsaved show. */
+  openSample(): Promise<boolean>;
+  /** Leaves the show (and its open sequence) for the start page, asking about unsaved work. */
+  closeShow(): Promise<boolean>;
+  /** Renames the show (one undo step); blank or unchanged names change nothing. */
+  renameShow(name: string): Promise<boolean>;
+  setShowMenu(menu: "closed" | "open" | "recent"): void;
+  setRenaming(renaming: boolean): void;
+  /** Answers "Name your show": the name, or null to cancel the save. */
+  resolveNaming(name: string | null): void;
   /** Imports an xLights show folder as a new show (asks about unsaved changes first). */
   importXlights(): Promise<boolean>;
   dismissImportReport(): void;
@@ -99,8 +149,9 @@ interface AppState {
    * about the open sequence's unsaved changes first, like New and Open on the Sequence screen). */
   importXlightsSequence(): Promise<boolean>;
   dismissSequenceImportReport(): void;
-  save(): Promise<boolean>;
-  saveAs(): Promise<boolean>;
+  /** Saves the show (asking where the first time); a toast says so unless `quiet`. */
+  save(options?: SaveOptions): Promise<boolean>;
+  saveAs(options?: SaveOptions): Promise<boolean>;
   /**
    * Looks for the show's missing files (or only `file`) in the show's folder and points the show
    * at what it finds (one undo step), then shows what was found.
@@ -196,32 +247,120 @@ export function missingNoticeKey(snapshot: ShowSnapshot | null): string {
 }
 
 export const useApp = create<AppState>((set, get) => {
-  /** Replaces the current show without checking for unsaved changes. */
-  async function replaceShow(kind: "new" | "open" | "xlights"): Promise<boolean> {
+  /** Says what's happening while a show opens (and logs how long it took, for debugging). */
+  async function opening<T>(text: string, work: () => Promise<T>): Promise<T> {
+    set({ opening: text });
+    try {
+      return await work();
+    } finally {
+      set({ opening: null });
+    }
+  }
+
+  /** Replaces the current show without checking for unsaved changes. The open sequence goes
+   * with it once the new show is open. */
+  async function replaceShow(kind: ReplaceKind): Promise<boolean> {
     const backend = get().backend;
     if (!backend) return false;
-    let ok: boolean;
-    if (kind === "xlights") {
-      const folder = await backend.pickShowFolder();
-      if (!folder) return false;
-      ok = await get().run(async (b) => {
-        const imported = await b.importXlights(folder);
-        set({ importReport: { name: imported.snapshot.show.name, summary: imported.summary, notes: imported.notes } });
-        return imported.snapshot;
-      });
-    } else if (kind === "new") {
-      ok = await get().run((b) => b.newShow("Untitled Show"));
-    } else {
-      const path = await backend.pickOpenPath();
-      if (!path) return false;
-      ok = await get().run((b) => b.openShow(path));
+    const asked = performance.now();
+    let picked = asked;
+    let ok = false;
+    try {
+      if (kind === "xlights") {
+        const folder = await opening("Opening the folder dialog…", () => backend.pickShowFolder());
+        if (!folder) return false;
+        picked = performance.now();
+        ok = await opening(`Importing ${fileName(folder)}…`, () =>
+          get().run(async (b) => {
+            const imported = await b.importXlights(folder);
+            set({ importReport: { name: imported.snapshot.show.name, summary: imported.summary, notes: imported.notes } });
+            return imported.snapshot;
+          }),
+        );
+      } else if (kind === "new" || kind === "close") {
+        ok = await get().run((b) => b.newShow(UNTITLED));
+      } else if (kind === "sample") {
+        ok = await opening("Opening the demo show…", () => get().run((b) => b.openSampleShow()));
+      } else if (kind === "open") {
+        const path = await opening("Opening the file dialog…", () => backend.pickOpenPath());
+        if (!path) return false;
+        picked = performance.now();
+        ok = await opening(`Opening ${fileName(path)}…`, () => get().run((b) => b.openShow(path)));
+      } else if ("recent" in kind) {
+        const path = kind.recent;
+        const name = get().recent.find((r) => r.path === path)?.name ?? fileName(path);
+        ok = await opening(`Opening ${name}…`, () => get().run((b) => b.openShow(path)));
+        if (!ok) {
+          // It stays on the list, marked, with Locate… and Remove from list.
+          await get().refreshRecent();
+          const error = get().error;
+          set({ error: `${error ?? `${name} couldn't be opened.`} It's still in your recent shows: use Locate… to find it, or remove it from the list.` });
+        }
+      } else {
+        const path = kind.locate;
+        let cancelled = false;
+        ok = await opening("Opening the file dialog…", () =>
+          get().run(async (b) => {
+            const located = await b.locateRecentShow(path);
+            if (located) return located;
+            cancelled = true;
+            return b.getSnapshot();
+          }),
+        );
+        if (cancelled) return false;
+      }
+    } catch (e) {
+      set({ error: errorMessage(e) });
+      return false;
     }
-    if (ok) {
-      set({ started: true, screen: "layout" });
+    if (!ok) return false;
+    // The open sequence belongs to the show being left.
+    await useSequencer.getState().closeDocument();
+    if (kind === "close") {
+      set({ started: false, showMenu: "closed" });
+    } else {
+      set({ started: true, screen: "layout", showMenu: "closed" });
       // A different show: start the layout editor fresh, fitted to it.
       useLayoutEditor.setState({ selected: [], view: null, editPhoto: false, photoDraft: null, tool: "select", nudge: null, highlight: null });
     }
-    return ok;
+    void get().refreshRecent();
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() =>
+        console.debug(
+          `[pixelflow] ${typeof kind === "string" ? kind : Object.keys(kind)[0]}: chosen after ${Math.round(picked - asked)} ms, ` +
+            `ready ${Math.round(performance.now() - picked)} ms after that`,
+        ),
+      );
+    }
+    return true;
+  }
+
+  /** Leaves the show for `kind`, first asking about unsaved work (the show's and the open
+   * sequence's, in one question) when there is any. */
+  function leaveShow(kind: ReplaceKind): Promise<boolean> {
+    const sequencer = useSequencer.getState();
+    const unsaved = (get().started && get().snapshot?.dirty) || (sequencer.doc !== null && sequencer.dirty);
+    if (unsaved) {
+      set({ pendingReplace: kind, showMenu: "closed" });
+      return Promise.resolve(false);
+    }
+    return replaceShow(kind);
+  }
+
+  /** Resolves the "Name your show" question. */
+  let answerName: ((name: string | null) => void) | null = null;
+
+  /** Asks for the show's name (before its first save); null when cancelled. */
+  function askName(offered: string): Promise<string | null> {
+    answerName?.(null);
+    set({ naming: offered });
+    return new Promise((resolve) => {
+      answerName = (name) => {
+        answerName = null;
+        set({ naming: null });
+        resolve(name);
+      };
+    });
   }
 
   /** Picks an xLights sequence and opens its import on the Sequence screen, replacing the open
@@ -237,7 +376,7 @@ export const useApp = create<AppState>((set, get) => {
       return false;
     }
     if (!path) return false;
-    set({ busy: true });
+    set({ busy: true, opening: `Importing ${fileName(path)}…` });
     try {
       const imported = await sequencer.importXlights(path);
       if (!imported) return false;
@@ -253,7 +392,7 @@ export const useApp = create<AppState>((set, get) => {
       });
       return true;
     } finally {
-      set({ busy: false });
+      set({ busy: false, opening: null });
     }
   }
 
@@ -325,6 +464,11 @@ export const useApp = create<AppState>((set, get) => {
   error: null,
   busy: false,
   pendingReplace: null,
+  recent: [],
+  opening: null,
+  showMenu: "closed",
+  renaming: false,
+  naming: null,
   importReport: null,
   sequenceImportReport: null,
   filesReport: null,
@@ -343,6 +487,7 @@ export const useApp = create<AppState>((set, get) => {
       const snapshot = await backend.getSnapshot();
       set({ snapshot });
       if (!snapshot.filesChecked) void get().checkFiles(false);
+      void get().refreshRecent();
     } catch (e) {
       set({ error: errorMessage(e) });
     }
@@ -370,29 +515,63 @@ export const useApp = create<AppState>((set, get) => {
   undo: () => withPairedSequence(get().run((b) => b.undo())),
   redo: () => withPairedSequence(get().run((b) => b.redo())),
 
-  async newShow() {
-    if (get().started && get().snapshot?.dirty) {
-      set({ pendingReplace: "new" });
-      return false;
-    }
-    return replaceShow("new");
+  newShow: () => leaveShow("new"),
+  openShow: () => leaveShow("open"),
+  importXlights: () => leaveShow("xlights"),
+  openSample: () => leaveShow("sample"),
+  openRecent: (path) => leaveShow({ recent: path }),
+  locateRecent: (path) => leaveShow({ locate: path }),
+
+  async closeShow() {
+    if (!get().started) return false;
+    return leaveShow("close");
   },
 
-  async openShow() {
-    if (get().started && get().snapshot?.dirty) {
-      set({ pendingReplace: "open" });
-      return false;
+  async refreshRecent() {
+    const backend = get().backend;
+    if (!backend) return;
+    try {
+      const recent = await backend.listRecentShows();
+      if (get().backend === backend) set({ recent });
+    } catch {
+      // Shown again the next time the list is looked at.
     }
-    return replaceShow("open");
   },
 
-  async importXlights() {
-    if (get().started && get().snapshot?.dirty) {
-      set({ pendingReplace: "xlights" });
-      return false;
+  async forgetRecent(path) {
+    const backend = get().backend;
+    if (!backend) return;
+    set({ recent: get().recent.filter((r) => r.path !== path) });
+    try {
+      await backend.forgetRecentShow(path);
+    } catch (e) {
+      set({ error: errorMessage(e) });
     }
-    return replaceShow("xlights");
+    await get().refreshRecent();
   },
+
+  async clearRecent() {
+    const backend = get().backend;
+    if (!backend) return;
+    set({ recent: [] });
+    try {
+      await backend.clearRecentShows();
+    } catch (e) {
+      set({ error: errorMessage(e) });
+    }
+    await get().refreshRecent();
+  },
+
+  async renameShow(name) {
+    const trimmed = name.trim();
+    set({ renaming: false });
+    if (!trimmed || trimmed === get().snapshot?.show.name) return false;
+    return get().apply([{ type: "renameShow", name: trimmed }]);
+  },
+
+  setShowMenu: (showMenu) => set({ showMenu }),
+  setRenaming: (renaming) => set({ renaming, showMenu: "closed" }),
+  resolveNaming: (name) => answerName?.(name),
 
   dismissImportReport: () => set({ importReport: null }),
 
@@ -410,7 +589,13 @@ export const useApp = create<AppState>((set, get) => {
       set({ pendingReplace: null });
       return false;
     }
-    if (choice === "save" && !(await get().save())) return false;
+    if (choice === "save") {
+      // Everything unsaved: the open sequence (it closes with the show), then the show. A save
+      // that fails or is cancelled keeps the question up.
+      const sequencer = useSequencer.getState();
+      if (sequencer.doc && sequencer.dirty && !(await sequencer.save())) return false;
+      if (get().started && get().snapshot?.dirty && !(await get().save())) return false;
+    }
     set({ pendingReplace: null });
     return replaceShow(kind);
   },
@@ -469,10 +654,12 @@ export const useApp = create<AppState>((set, get) => {
     }
   },
 
-  async save() {
+  async save(options) {
     commitFocusedField();
-    if (!get().snapshot?.path) return get().saveAs();
-    return get().run((b) => b.saveShow());
+    if (!get().snapshot?.path) return get().saveAs(options);
+    const ok = await get().run((b) => b.saveShow());
+    if (ok) void get().refreshRecent();
+    return saidSaved(ok, get().snapshot?.show.name, options);
   },
 
   findMissingFiles: (file) =>
@@ -517,21 +704,30 @@ export const useApp = create<AppState>((set, get) => {
 
   dismissMissingNotice: () => set({ missingNoticeDismissed: missingNoticeKey(get().snapshot) }),
 
-  async saveAs() {
+  async saveAs(options) {
     commitFocusedField();
     const backend = get().backend;
-    const snapshot = get().snapshot;
+    let snapshot = get().snapshot;
     if (!backend || !snapshot) return false;
+    // A show saved for the first time gets a real name, not "Untitled Show".
+    if (!snapshot.path && snapshot.show.name === UNTITLED) {
+      const name = (await askName(snapshot.show.name))?.trim();
+      if (!name) return false;
+      if (name !== snapshot.show.name && !(await get().apply([{ type: "renameShow", name }]))) return false;
+      snapshot = get().snapshot ?? snapshot;
+    }
     const suggested = snapshot.path ? fileName(snapshot.path) : `${snapshot.show.name}.pixelflow.json`;
     const path = await backend.pickSavePath(suggested);
     if (!path) return false;
-    return get().run(async (b) => {
+    const ok = await get().run(async (b) => {
       const before = get().snapshot ?? snapshot;
       const saved = await b.saveShowAs(path);
       // Before the new path reaches the screens: the 3D camera and photo depth follow the show.
       useView3d.getState().carryShow(showViewKey(before.path, before.show.name), showViewKey(saved.path, saved.show.name));
       return saved;
     });
+    if (ok) void get().refreshRecent();
+    return saidSaved(ok, get().snapshot?.show.name, options);
   },
 };
 });

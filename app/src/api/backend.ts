@@ -10,6 +10,8 @@ import type {
   Discovery,
   Edit,
   FileRole,
+  MenuAction,
+  RecentShow,
   FilesFound,
   HistoryEntry,
   OutputStatus,
@@ -25,6 +27,8 @@ export interface Backend {
   undo(): Promise<ShowSnapshot>;
   redo(): Promise<ShowSnapshot>;
   newShow(name: string): Promise<ShowSnapshot>;
+  /** Opens the demo show built into the app as a new, unsaved show (saving asks where). */
+  openSampleShow(): Promise<ShowSnapshot>;
   openShow(path: string): Promise<ShowSnapshot>;
   saveShow(): Promise<ShowSnapshot>;
   saveShowAs(path: string): Promise<ShowSnapshot>;
@@ -121,6 +125,22 @@ export interface Backend {
   onCloseRequested(allow: () => boolean): Promise<() => void>;
   /** Closes the window for good, without asking again. */
   closeWindow(): Promise<void>;
+  /**
+   * Shows opened or saved lately, newest first, each saying whether its file is still there.
+   * Only opening, saving, and restoring a show put it on the list.
+   */
+  listRecentShows(): Promise<RecentShow[]>;
+  /** Takes a show off the recent list (the file is left alone). */
+  forgetRecentShow(path: string): Promise<void>;
+  clearRecentShows(): Promise<void>;
+  /**
+   * For a recent show that isn't where it was: asks where it is now (a native dialog), opens
+   * it, and lists it in place of the old entry. Null when cancelled.
+   */
+  locateRecentShow(path: string): Promise<ShowSnapshot | null>;
+  /** Calls `handler` for each File menu item chosen in the menu bar; resolves with a function
+   * that stops listening. */
+  onMenu(handler: (action: MenuAction) => void): Promise<() => void>;
 }
 
 /** Turns anything thrown by a backend call into a message for the user. */

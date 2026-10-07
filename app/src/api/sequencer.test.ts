@@ -4,7 +4,6 @@ const invoke = vi.fn();
 const listen = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: (...args: unknown[]) => listen(...args) }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
 
 import {
   EFFECT_KINDS,
@@ -12,6 +11,8 @@ import {
   newEffect,
   newRow,
   noChanges,
+  MAX_ROWS,
+  rowsForShow,
   type ExportProgress,
   type Sequence,
   type SequenceEdit,
@@ -75,6 +76,25 @@ describe("tauriSequencer", () => {
   beforeEach(() => {
     invoke.mockReset();
     listen.mockReset();
+  });
+
+  it("starts a new sequence with its rows when given", async () => {
+    invoke.mockResolvedValue(null);
+    const rows = rowsForShow({ groups: [{ id: "g", name: "G", members: ["p"] }], props: [] });
+    await tauriSequencer.newSequenceDoc("Song", 1000, null, rows);
+    expect(invoke.mock.calls).toEqual([["new_sequence_doc", { name: "Song", durationMs: 1000, audio: null, rows }]]);
+    expect(rows).toEqual([{ id: expect.any(String), target: { group: "g" }, layers: [{ effects: [] }] }]);
+  });
+
+  it("rows for a show skip empty groups and stop at the most a sequence can have", () => {
+    const props = Array.from({ length: 12 }, (_, i) => ({ id: `p${i}` }) as never);
+    const groups = [
+      { id: "empty", name: "Nothing", members: [] },
+      { id: "g", name: "G", members: ["p0"] },
+    ];
+    expect(rowsForShow({ groups, props }).map((r) => r.target)).toEqual([{ group: "g" }, ...Array.from({ length: 12 }, (_, i) => ({ prop: `p${i}` }))]);
+    expect(rowsForShow({ groups, props }, 5)).toHaveLength(5);
+    expect(MAX_ROWS).toBe(10_000);
   });
 
   it("calls the shell's commands with camelCase arguments", async () => {
@@ -147,5 +167,14 @@ describe("tauriSequencer", () => {
     const frame = await tauriSequencer.sequenceDocFrame(100);
     expect(Array.from(frame)).toEqual([1, 2, 3]);
     expect(invoke).toHaveBeenCalledWith("sequence_doc_frame", { positionMs: 100 });
+  });
+
+  it("asks the shell for every file dialog, by kind", async () => {
+    invoke.mockResolvedValue("/shows/Caf\u0000e9.pfseq.json");
+    expect(await tauriSequencer.pickSequenceDocSavePath("Song.pfseq.json")).toBe("/shows/Caf\u0000e9.pfseq.json");
+    expect(invoke).toHaveBeenCalledWith("pick_path", { kind: "sequenceDocSave", name: "Song.pfseq.json" });
+    invoke.mockResolvedValue(null);
+    expect(await tauriSequencer.pickXlightsSequencePath()).toBeNull();
+    expect(invoke).toHaveBeenLastCalledWith("pick_path", { kind: "xlightsSequence" });
   });
 });

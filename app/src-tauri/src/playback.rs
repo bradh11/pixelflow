@@ -1,6 +1,6 @@
 //! Sequence playback commands and the live preview.
 
-use crate::{AppState, Reply, message};
+use crate::{AppState, PathArg, Reply, message};
 use pf_audio::Waveform;
 use pf_engine::{PlaybackStatus, ShowSnapshot};
 use pf_model::SequenceId;
@@ -15,7 +15,7 @@ use tauri::ipc::Response;
 #[tauri::command]
 pub(crate) async fn start_playback(
     state: State<'_, AppState>,
-    path: PathBuf,
+    path: PathArg,
     position_ms: u64,
 ) -> Reply<PlaybackStatus> {
     state.engine().start_playback(&path, position_ms).map_err(message)
@@ -69,7 +69,7 @@ pub(crate) async fn sequence_frame(state: State<'_, AppState>) -> Reply<Response
 
 /// Adds the sequence file at `path` to the show (finding its music next to it), as one undo step.
 #[tauri::command]
-pub(crate) async fn add_sequence(state: State<'_, AppState>, path: PathBuf) -> Reply<ShowSnapshot> {
+pub(crate) async fn add_sequence(state: State<'_, AppState>, path: PathArg) -> Reply<ShowSnapshot> {
     let entry = tauri::async_runtime::spawn_blocking(move || pf_engine::sequence_entry_for(&path))
         .await
         .map_err(|_| "Something went wrong reading the sequence.".to_string())?

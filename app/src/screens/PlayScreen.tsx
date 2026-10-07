@@ -8,7 +8,7 @@ import { MissingFileNotice, useMissingFile } from "../components/MissingFiles";
 import { SequenceList } from "../components/SequenceList";
 import { WaveformView } from "../components/WaveformView";
 import { Button, EmptyState, PageHeader } from "../components/ui";
-import { clock, fileName, shownPath, thousands } from "../lib/format";
+import { clock, fileName, sequenceTitle, shownPath, thousands } from "../lib/format";
 import { useApp } from "../state/store";
 
 /** How often playback state and the preview refresh. */
@@ -98,23 +98,30 @@ function OffsetControl({ entry }: { entry: SequenceEntry }) {
     }
   };
   return (
-    <div className="flex flex-wrap items-center gap-2 text-sm" role="group" aria-label="Music alignment">
-      <span className="min-w-56 text-neutral-600 dark:text-neutral-300">{describeOffset(entry.offsetMs)}</span>
-      {[-50, -10, 10, 50].map((delta) => (
-        <Button
-          key={delta}
-          aria-label={`Lights ${delta > 0 ? "earlier" : "later"} by ${Math.abs(delta)} ms`}
-          disabled={delta > 0 ? entry.offsetMs >= MAX_OFFSET_MS : entry.offsetMs <= -MAX_OFFSET_MS}
-          onClick={() => set(target.current + delta)}
-        >
-          {delta > 0 ? `+${delta}` : delta}
-        </Button>
-      ))}
-      {entry.offsetMs !== 0 && (
-        <Button variant="ghost" onClick={() => set(0)}>
-          Reset
-        </Button>
-      )}
+    <div className="flex flex-col gap-1 text-sm" role="group" aria-label="Music alignment">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-medium text-neutral-700 dark:text-neutral-200" title="Move the lights earlier or later against the music, if they look out of step">
+          Light timing
+        </span>
+        {[-50, -10, 10, 50].map((delta) => (
+          <Button
+            key={delta}
+            aria-label={`${delta > 0 ? "+" : "−"}${Math.abs(delta)} ms: lights ${delta > 0 ? "earlier" : "later"}`}
+            title={`Lights ${Math.abs(delta)} ms ${delta > 0 ? "earlier" : "later"}`}
+            disabled={delta > 0 ? entry.offsetMs >= MAX_OFFSET_MS : entry.offsetMs <= -MAX_OFFSET_MS}
+            onClick={() => set(target.current + delta)}
+            className="tabular-nums"
+          >
+            {delta > 0 ? `+${delta}` : `−${Math.abs(delta)}`} ms
+          </Button>
+        ))}
+        {entry.offsetMs !== 0 && (
+          <Button variant="ghost" onClick={() => set(0)}>
+            Reset
+          </Button>
+        )}
+      </div>
+      <span className="text-xs text-neutral-500">{describeOffset(entry.offsetMs)}</span>
     </div>
   );
 }
@@ -129,7 +136,9 @@ function MusicRow({ entry }: { entry: SequenceEntry }) {
   };
   return (
     <div className="flex items-center gap-2 text-sm">
-      <Music size={14} className="shrink-0 text-neutral-400" />
+      <span title="Music" className="shrink-0">
+        <Music size={14} className="text-neutral-400" aria-hidden />
+      </span>
       {entry.audio ? (
         <>
           <span className="truncate" title={shownPath(entry.audio)}>
@@ -138,8 +147,8 @@ function MusicRow({ entry }: { entry: SequenceEntry }) {
           <Button variant="ghost" onClick={choose}>
             Change…
           </Button>
-          <Button variant="ghost" onClick={() => apply([{ type: "updateSequence", sequence: { ...entry, audio: null } }])}>
-            Remove
+          <Button variant="ghost" title="Play this sequence without music" onClick={() => apply([{ type: "updateSequence", sequence: { ...entry, audio: null } }])}>
+            Remove music
           </Button>
         </>
       ) : (
@@ -191,7 +200,7 @@ export function PlayScreen() {
   /** The sequence playing, when it isn't the selected one (shown as a summary). */
   const elsewhere = status && !current ? status : null;
   const elsewhereName = elsewhere
-    ? (sequences.find((s) => s.id === elsewhere.sequence)?.name ?? fileName(elsewhere.path))
+    ? (sequences.find((s) => s.id === elsewhere.sequence)?.name ?? sequenceTitle(elsewhere.path))
     : null;
 
   const run = useCallback(
@@ -464,12 +473,13 @@ export function PlayScreen() {
           {elsewhere.state !== "ended" && (
             <Button
               aria-label={elsewhere.state === "playing" ? "Pause" : "Resume"}
+              title={elsewhere.state === "playing" ? "Pause" : "Resume"}
               onClick={() => run(() => backend!.pausePlayback(elsewhere.state === "playing"))}
             >
               {elsewhere.state === "playing" ? <Pause size={14} /> : <Play size={14} />}
             </Button>
           )}
-          <Button aria-label="Stop" onClick={stop}>
+          <Button aria-label="Stop" title="Stop" onClick={stop}>
             <Square size={14} />
           </Button>
           {elsewhere.sequence && (
@@ -502,6 +512,7 @@ export function PlayScreen() {
             <Button
               variant="primary"
               aria-label={current?.state === "playing" ? "Pause" : "Play"}
+              title={current?.state === "playing" ? "Pause" : "Play"}
               onClick={() =>
                 !current || current.state === "ended"
                   ? playSelected(0)
@@ -510,10 +521,10 @@ export function PlayScreen() {
             >
               {current?.state === "playing" ? <Pause size={16} /> : <Play size={16} />}
             </Button>
-            <Button aria-label="Restart" onClick={() => seekTo(0)}>
+            <Button aria-label="Restart" title="Back to the start" onClick={() => seekTo(0)}>
               <RotateCcw size={16} />
             </Button>
-            <Button aria-label="Stop" onClick={stop} disabled={!current}>
+            <Button aria-label="Stop" title="Stop" onClick={stop} disabled={!current}>
               <Square size={16} />
             </Button>
             <div className="min-w-0 flex-1">

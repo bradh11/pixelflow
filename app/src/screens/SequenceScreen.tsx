@@ -9,10 +9,12 @@ import { SequencePreview } from "../components/sequencer/SequencePreview";
 import { AddTimingTrackDialog } from "../components/sequencer/TimingDialogs";
 import { AddRowMenu, Timeline } from "../components/sequencer/Timeline";
 import { useSequenceKeys } from "../components/sequencer/useSequenceKeys";
-import { Button, EmptyState, Input } from "../components/ui";
+import { Button, EmptyState, Input, UnsavedBadge } from "../components/ui";
 import { ago, fileName, shownPath } from "../lib/format";
 import { formatTime } from "../lib/timelineMath";
-import { useSequencer } from "../state/sequencer";
+import { MAX_ROWS, rowsForShow } from "../api/sequence";
+import { type RecentSequence, recentFor, useSequencer } from "../state/sequencer";
+import { saveSequenceAndShow } from "../state/saveAll";
 import { useApp } from "../state/store";
 
 /** How often playback is checked while a sequence plays. */
@@ -206,12 +208,15 @@ function Workspace() {
 function ToolButton({
   label,
   shortcut,
+  hint,
   onClick,
   disabled,
   children,
   pressed,
 }: {
   label: string;
+  /** Said on hover instead of the label. */
+  hint?: string;
   /** The key that does the same, shown in the tooltip. */
   shortcut?: string;
   onClick: () => void;
@@ -223,7 +228,7 @@ function ToolButton({
     <button
       type="button"
       aria-label={label}
-      title={shortcut ? `${label} (${shortcut})` : label}
+      title={hint ?? (shortcut ? `${label} (${shortcut})` : label)}
       aria-keyshortcuts={shortcut}
       aria-pressed={pressed}
       onClick={onClick}
@@ -264,31 +269,28 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
   return (
     <div role="toolbar" aria-label="Sequence" className="flex shrink-0 flex-wrap items-center gap-1 border-b border-neutral-200 px-2 py-1.5 dark:border-neutral-800">
       <ToolButton label="New sequence" onClick={onNew}>
-        <FilePlus size={16} /> <span className="hidden xl:inline">New</span>
+        <FilePlus size={16} /> <span className="hidden xl:inline">New sequence</span>
       </ToolButton>
       <ToolButton label="Open sequence" onClick={onOpen}>
-        <FolderOpen size={16} /> <span className="hidden xl:inline">Open</span>
+        <FolderOpen size={16} /> <span className="hidden xl:inline">Open sequence</span>
       </ToolButton>
       {/* Asks about unsaved changes like New and Open do (the import goes through the same question). */}
-      <ToolButton label="Import xLights sequence…" onClick={() => void useApp.getState().importXlightsSequence()}>
-        <FileInput size={16} /> <span className="hidden xl:inline">Import</span>
+      <ToolButton
+        label="Import from xLights…"
+        hint="Import an xLights sequence (.xsq) onto this show's props and groups"
+        onClick={() => void useApp.getState().importXlightsSequence()}
+      >
+        <FileInput size={16} /> <span className="hidden xl:inline">Import from xLights</span>
       </ToolButton>
-      <ToolButton label="Save sequence" onClick={() => void act().save()} disabled={s.name === null}>
+      <ToolButton label="Save" hint="Save the sequence, and the show if it changed (⌘S)" onClick={() => void saveSequenceAndShow()} disabled={s.name === null}>
         <Save size={16} />
       </ToolButton>
       {s.name !== null && (
         <>
           <span className="mx-1 max-w-48 truncate font-medium" title={s.path ? shownPath(s.path) : undefined}>
             {s.name}
-            {s.dirty && (
-              <>
-                <span className="ml-1 text-xs text-neutral-500" aria-hidden>
-                  ●
-                </span>
-                <span className="sr-only"> (not saved)</span>
-              </>
-            )}
           </span>
+          {s.dirty && <UnsavedBadge doc="sequence" />}
           <span className="mx-1 h-5 w-px bg-neutral-200 dark:bg-neutral-800" />
           <ToolButton label={s.playing ? "Pause" : "Play"} onClick={() => void (s.playing ? act().pause() : act().play())}>
             {s.playing ? <Pause size={16} /> : <Play size={16} />}
@@ -542,8 +544,29 @@ function BeatsBanner() {
   );
 }
 
+function RecentSequences({ label, list, onOpen }: { label: string; list: RecentSequence[]; onOpen: (path: string) => Promise<void> }) {
+  if (list.length === 0) return null;
+  return (
+    <section className="mt-6" aria-label={label}>
+      <h2 className="text-sm font-semibold text-neutral-500">{label}</h2>
+      <ul className="mt-2 flex flex-col">
+        {list.map(({ path }) => (
+          <li key={path}>
+            <button type="button" className="w-full truncate rounded px-2 py-1.5 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800" title={shownPath(path)} onClick={() => void onOpen(path)}>
+              {fileName(path)}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function Start({ onNew, onOpen }: { onNew: () => void; onOpen: (path?: string) => Promise<void> }) {
   const recent = useSequencer((s) => s.recent);
+  const showPath = useApp((s) => s.snapshot?.path ?? null);
+  // Sequences used with this show come first.
+  const { mine, others } = recentFor(recent, showPath);
   return (
     <div className="flex flex-1 items-start justify-center overflow-auto p-10">
       <div className="w-full max-w-xl">
@@ -570,20 +593,8 @@ function Start({ onNew, onOpen }: { onNew: () => void; onOpen: (path?: string) =
             <span className="text-sm text-neutral-500">An .xsq file, onto this show&apos;s props and groups.</span>
           </button>
         </div>
-        {recent.length > 0 && (
-          <section className="mt-6" aria-label="Recent sequences">
-            <h2 className="text-sm font-semibold text-neutral-500">Recent</h2>
-            <ul className="mt-2 flex flex-col">
-              {recent.map((path) => (
-                <li key={path}>
-                  <button type="button" className="w-full truncate rounded px-2 py-1.5 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800" title={shownPath(path)} onClick={() => void onOpen(path)}>
-                    {fileName(path)}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
+        <RecentSequences label="With this show" list={mine} onOpen={onOpen} />
+        <RecentSequences label={mine.length > 0 ? "Other recent sequences" : "Recent sequences"} list={others} onOpen={onOpen} />
       </div>
     </div>
   );
@@ -602,6 +613,10 @@ function Modal({ label, children }: { label: string; children: React.ReactNode }
 /** Starts a sequence from a song (its length comes from the music), or a silent one of a set length. */
 function NewSequenceDialog({ onClose }: { onClose: () => void }) {
   const backend = useApp((s) => s.backend);
+  const show = useApp((s) => s.snapshot?.show);
+  // Groups with no members light nothing, so they get no row.
+  const rowCount = (show?.props.length ?? 0) + (show?.groups.filter((g) => g.members.length > 0).length ?? 0);
+  const [everyRow, setEveryRow] = useState(true);
   const [music, setMusic] = useState<{ path: string; durationMs: number } | null>(null);
   const [name, setName] = useState("");
   const [seconds, setSeconds] = useState(60);
@@ -626,7 +641,9 @@ function NewSequenceDialog({ onClose }: { onClose: () => void }) {
 
   const create = async () => {
     const durationMs = music ? music.durationMs : Math.round(seconds * 1000);
-    const ok = await useSequencer.getState().newSequence(name.trim() || "New sequence", durationMs, music?.path ?? null);
+    const latest = useApp.getState().snapshot?.show;
+    const rows = everyRow && latest ? rowsForShow(latest) : [];
+    const ok = await useSequencer.getState().newSequence(name.trim() || "New sequence", durationMs, music?.path ?? null, rows);
     if (ok) onClose();
   };
 
@@ -661,6 +678,26 @@ function NewSequenceDialog({ onClose }: { onClose: () => void }) {
             <Input type="number" min={1} max={14_400} value={seconds} onChange={(e) => setSeconds(Math.max(1, Number(e.target.value) || 1))} />
           </label>
         )}
+        <fieldset className="flex flex-col gap-1.5">
+          <legend className="mb-1 text-neutral-600 dark:text-neutral-400">Rows</legend>
+          <label className="flex items-start gap-2">
+            <input type="radio" name="new-sequence-rows" checked={everyRow} onChange={() => setEveryRow(true)} className="mt-0.5 accent-accent-500" />
+            <span>
+              {rowCount > MAX_ROWS
+                ? `A row for the first ${MAX_ROWS.toLocaleString("en-US")} props and groups (of ${rowCount.toLocaleString("en-US")})`
+                : `A row for every prop and group (${rowCount.toLocaleString("en-US")})`}
+              <span className="block text-xs text-neutral-500">In layout order, groups first, as xLights does. Remove the ones you don&apos;t need.
+                {rowCount > MAX_ROWS && ` A sequence holds at most ${MAX_ROWS.toLocaleString("en-US")} rows; add the rest by hand where you need them.`}</span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2">
+            <input type="radio" name="new-sequence-rows" checked={!everyRow} onChange={() => setEveryRow(false)} className="mt-0.5 accent-accent-500" />
+            <span>
+              Start empty
+              <span className="block text-xs text-neutral-500">Add rows yourself as you go.</span>
+            </span>
+          </label>
+        </fieldset>
         <p className="text-xs text-neutral-500">Frames are 25 ms apart (40 per second).</p>
       </div>
       <div className="mt-5 flex justify-end gap-2">

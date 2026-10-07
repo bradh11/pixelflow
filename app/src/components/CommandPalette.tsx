@@ -1,15 +1,17 @@
 import { Command } from "cmdk";
 import { useEffect } from "react";
-import { besideOthers } from "../lib/layoutEdits";
-import { PROP_KINDS, newProp } from "../lib/shows";
+import { fileName } from "../lib/format";
+import { PROP_KINDS } from "../lib/shows";
+import { addPropInView } from "../state/addProp";
 import { useAssistant } from "../state/assistant";
+import { saveFocused } from "../state/menuActions";
 import { type Screen, useApp } from "../state/store";
 
 interface Action {
   id: string;
   label: string;
   shortcut?: string;
-  run: () => void;
+  run: () => unknown;
 }
 
 /** ⌘K / Ctrl+K: search and run any command. */
@@ -27,6 +29,10 @@ export function CommandPalette() {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, setOpen]);
 
+  useEffect(() => {
+    if (open) void useApp.getState().refreshRecent();
+  }, [open]);
+
   if (!open) return null;
 
   const go = (screen: Screen, label: string): Action => ({
@@ -34,12 +40,22 @@ export function CommandPalette() {
     label: `Go to ${label}`,
     run: () => state.setScreen(screen),
   });
+  const recent: Action[] = state.recent.map((show) => ({
+    id: `recent-${show.path}`,
+    label: `Open recent: ${show.name} (${fileName(show.path)})${show.status === "missing" ? " — moved, Locate…" : ""}`,
+    run: () => (show.status === "missing" ? state.locateRecent(show.path) : state.openRecent(show.path)),
+  }));
   const actions: Action[] = [
     { id: "new", label: "New show", shortcut: "⌘N", run: state.newShow },
     { id: "open", label: "Open show…", shortcut: "⌘O", run: state.openShow },
+    { id: "open-recent", label: "Open recent show…", shortcut: "⇧⌘O", run: () => state.setShowMenu("recent") },
+    { id: "close-show", label: "Close show", shortcut: "⌘W", run: state.closeShow },
+    { id: "rename-show", label: "Rename show…", run: () => state.setRenaming(true) },
+    { id: "clear-recent", label: "Clear recent shows", run: state.clearRecent },
+    { id: "demo", label: "Try the demo show", run: state.openSample },
     { id: "import-xlights", label: "Import from xLights…", run: state.importXlights },
     { id: "import-xlights-sequence", label: "Import xLights sequence…", run: state.importXlightsSequence },
-    { id: "save", label: "Save", shortcut: "⌘S", run: state.save },
+    { id: "save", label: "Save", shortcut: "⌘S", run: () => saveFocused(false) },
     { id: "save-as", label: "Save as…", shortcut: "⇧⌘S", run: state.saveAs },
     { id: "undo", label: "Undo", shortcut: "⌘Z", run: state.undo },
     { id: "redo", label: "Redo", shortcut: "⇧⌘Z", run: state.redo },
@@ -58,10 +74,7 @@ export function CommandPalette() {
     ...PROP_KINDS.map(({ kind, label }) => ({
       id: `add-${kind}`,
       label: `Add prop: ${label}`,
-      run: () => {
-        const show = useApp.getState().snapshot?.show;
-        if (show) void state.apply([{ type: "addProp", prop: besideOthers(newProp(kind, show), show) }]);
-      },
+      run: () => void addPropInView(kind),
     })),
     {
       id: "theme",
@@ -84,20 +97,33 @@ export function CommandPalette() {
         />
         <Command.List className="max-h-80 overflow-auto p-2">
           <Command.Empty className="px-3 py-6 text-center text-sm text-neutral-500">No matching commands.</Command.Empty>
-          {actions.map((action) => (
-            <Command.Item
-              key={action.id}
-              value={action.label}
-              onSelect={() => {
-                setOpen(false);
-                action.run();
-              }}
-              className="flex cursor-pointer items-center justify-between rounded-md px-3 py-2 text-sm data-[selected=true]:bg-accent-50 data-[selected=true]:text-accent-600 dark:data-[selected=true]:bg-accent-600/15 dark:data-[selected=true]:text-accent-400"
-            >
-              {action.label}
-              {action.shortcut && <kbd className="text-xs text-neutral-400">{action.shortcut}</kbd>}
-            </Command.Item>
-          ))}
+          {[
+            { heading: "Commands", list: actions },
+            { heading: "Open Recent", list: recent },
+          ].map(({ heading, list }) =>
+            list.length === 0 ? null : (
+              <Command.Group
+                key={heading}
+                heading={heading}
+                className="[&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:text-neutral-500"
+              >
+                {list.map((action) => (
+                  <Command.Item
+                    key={action.id}
+                    value={action.label}
+                    onSelect={() => {
+                      setOpen(false);
+                      void action.run();
+                    }}
+                    className="flex cursor-pointer items-center justify-between rounded-md px-3 py-2 text-sm data-[selected=true]:bg-accent-50 data-[selected=true]:text-accent-600 dark:data-[selected=true]:bg-accent-600/15 dark:data-[selected=true]:text-accent-400"
+                  >
+                    {action.label}
+                    {action.shortcut && <kbd className="text-xs text-neutral-400">{action.shortcut}</kbd>}
+                  </Command.Item>
+                ))}
+              </Command.Group>
+            ),
+          )}
         </Command.List>
       </Command>
     </div>

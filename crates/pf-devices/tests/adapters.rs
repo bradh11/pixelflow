@@ -171,7 +171,12 @@ fn falcon_e131_inputs_that_are_not_one_even_run_are_flagged() {
     ] {
         let http = network()
             .with_post(FALCON, "/api", &falcon_query("ST", 1), &st1)
-            .with_post(FALCON, "/api", &falcon_query("IN", 0), &in0.replace(second, entry));
+            .with_post(
+                FALCON,
+                "/api",
+                &falcon_query("IN", 0),
+                &in0.replace(second, entry),
+            );
         let config = falcon_config(&http).unwrap();
         assert_eq!(
             config.notes.iter().filter(|n| n.contains(UNEVEN)).count(),
@@ -562,8 +567,16 @@ fn wled_bus_type_range_edges() {
     let config = read_config(&http, &identify(&http, WLED, None).unwrap()).unwrap();
     let kept: Vec<_> = config.ports.iter().map(|p| p.number).collect();
     assert_eq!(kept, vec![1, 2]);
-    assert!(config.notes.contains(&"Output 3 isn't a pixel output (type 40); it was skipped.".to_string()));
-    assert!(config.notes.contains(&"Output 4 isn't a pixel output (type 47); it was skipped.".to_string()));
+    assert!(
+        config
+            .notes
+            .contains(&"Output 3 isn't a pixel output (type 40); it was skipped.".to_string())
+    );
+    assert!(
+        config
+            .notes
+            .contains(&"Output 4 isn't a pixel output (type 47); it was skipped.".to_string())
+    );
 }
 
 const WLED_GAP: &str = "outputs don't follow one another";
@@ -586,10 +599,17 @@ fn wled_outputs_must_run_on_from_led_zero() {
     // starts right after output 1's 60 LEDs even though output 1 also skips one.
     let config = wled_with_starts(0, 60);
     assert_eq!(
-        (config.ports[0].strings[0].pixels, config.ports[0].strings[0].null_pixels),
+        (
+            config.ports[0].strings[0].pixels,
+            config.ports[0].strings[0].null_pixels
+        ),
         (60, 1)
     );
-    assert!(config.notes.iter().all(|n| !n.contains(WLED_GAP)), "{:?}", config.notes);
+    assert!(
+        config.notes.iter().all(|n| !n.contains(WLED_GAP)),
+        "{:?}",
+        config.notes
+    );
     for (first, second) in [(0, 70), (0, 61), (10, 70), (60, 0)] {
         let config = wled_with_starts(first, second);
         assert_eq!(

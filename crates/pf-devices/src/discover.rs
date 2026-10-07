@@ -650,10 +650,18 @@ mod tests {
         let mut found = Found::default();
         found.add(ip(10, 0, 0, 1), None);
         found.add(ip(10, 0, 0, 1), Some(DeviceKind::Fpp));
-        assert_eq!(found.0[&ip(10, 0, 0, 1)], Some(DeviceKind::Fpp), "a later reply fills in the kind");
+        assert_eq!(
+            found.0[&ip(10, 0, 0, 1)],
+            Some(DeviceKind::Fpp),
+            "a later reply fills in the kind"
+        );
         found.add(ip(10, 0, 0, 1), None);
         found.add(ip(10, 0, 0, 1), Some(DeviceKind::Falcon));
-        assert_eq!(found.0[&ip(10, 0, 0, 1)], Some(DeviceKind::Fpp), "the first known kind stays");
+        assert_eq!(
+            found.0[&ip(10, 0, 0, 1)],
+            Some(DeviceKind::Fpp),
+            "the first known kind stays"
+        );
     }
 
     #[test]

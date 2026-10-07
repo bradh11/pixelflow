@@ -269,7 +269,10 @@ mod tests {
         assert_eq!(device_url("fpp.local:8080", "/"), "http://fpp.local:8080/");
         assert_eq!(device_url("fe80::1", "/json/info"), "http://[fe80::1]/json/info");
         assert_eq!(device_url("2001:db8::5", "/"), "http://[2001:db8::5]/");
-        assert_eq!(device_url("[2001:db8::5]:8080", "/"), "http://[2001:db8::5]:8080/");
+        assert_eq!(
+            device_url("[2001:db8::5]:8080", "/"),
+            "http://[2001:db8::5]:8080/"
+        );
     }
 
     #[test]

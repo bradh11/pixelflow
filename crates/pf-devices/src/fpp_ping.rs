@@ -151,7 +151,10 @@ mod tests {
         assert!(parse_ping(&ping_with_extra(117)).is_none());
         let ping = parse_ping(&ping_with_extra(118)).unwrap();
         assert_eq!(ping.hostname, "FPP");
-        assert_eq!(ping.hardware, "", "the hardware field lies past the end of a v2 ping");
+        assert_eq!(
+            ping.hardware, "",
+            "the hardware field lies past the end of a v2 ping"
+        );
         // The length field claims more than arrived.
         let mut short = ping_with_extra(118);
         short[5..7].copy_from_slice(&119u16.to_le_bytes());

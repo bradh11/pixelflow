@@ -393,6 +393,50 @@ fn output_a_new_plan_drops_is_blacked_out_and_its_sacn_streams_ended() {
 }
 
 #[test]
+fn a_controller_switching_protocol_or_to_multicast_is_not_blacked_out_the_old_way() {
+    let show = show();
+    let (handle, recorded) = start_lit(&show);
+    wait_until(|| sent_to(&recorded, SACN_DEST).len() >= 3);
+
+    // The WLED now takes sACN, and the FPP multicast: the same devices, heard another way.
+    let mut edited = show.clone();
+    edited.controllers[0].protocol = Protocol::Sacn(SacnConfig {
+        start_universe: Some(10),
+        ..SacnConfig::default()
+    });
+    edited.controllers[1].protocol = Protocol::Sacn(SacnConfig {
+        start_universe: Some(1),
+        multicast: true,
+        ..SacnConfig::default()
+    });
+    let (map, report) = pf_mapping::map_show(&edited);
+    assert!(!report.has_errors(), "{report:?}");
+    replace_lit(&handle, &edited);
+    wait_until(|| sent_to(&recorded, "127.0.0.1:5568").len() >= 3);
+    let multicast = recorded
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(_, to)| to.ip().is_multicast())
+        .count();
+    assert!(multicast > 0, "{map:?}");
+    // Look before stopping: stopping blacks out the new plan's streams, as it should.
+    let ddp_packets = sent_to(&recorded, DDP_DEST);
+    assert!(
+        ddp_packets.iter().all(|p| p[ddp::HEADER_LEN] == 200),
+        "no black DDP"
+    );
+    let unicast = sent_to(&recorded, SACN_DEST);
+    assert!(
+        unicast
+            .iter()
+            .all(|p| !terminated(p) && p[sacn::DATA_HEADER_LEN] == 200),
+        "no black or terminated unicast sACN"
+    );
+    handle.stop();
+}
+
+#[test]
 fn stopping_sends_spaced_black_frames_then_terminates_sacn_streams() {
     let (handle, recorded) = start_lit(&show());
     wait_until(|| sent_to(&recorded, SACN_DEST).len() >= 2);

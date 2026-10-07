@@ -378,14 +378,30 @@ impl Runtime {
         self.stats.last_error.clone_from(&old.stats.last_error);
     }
 
-    /// What of this controller's output a new plan no longer sends (`kept` are the new plan's
-    /// streams), to black out: its dropped sACN universes, or the whole DDP controller.
+    /// Whether this sends sACN universe `universe` (to any destination).
+    fn sends_universe(&self, universe: u16) -> bool {
+        matches!(self.packets, Packets::Sacn(_))
+            && matches!(&self.plan.wire, Wire::Sacn { universes, .. } if universes.iter().any(|u| u.universe == universe))
+    }
+
+    /// What of this controller's output a new plan no longer sends, to black out: its sACN
+    /// universes nothing sends any more, or the whole DDP controller when nothing sends to its
+    /// address. `kept` are the new plan's streams; `successor` is this controller in the new plan.
+    /// A controller that switched protocol, or sACN between unicast and multicast, keeps its
+    /// universes: the device most likely hears both ways, and black on the old way would fight
+    /// the new one.
     fn retire(
         self,
+        successor: Option<&Runtime>,
         kept: &HashSet<Stream>,
         settings: &OutputSettings,
         sequences: &SacnSequences,
     ) -> Option<Retiring> {
+        if successor.is_some_and(|next| {
+            std::mem::discriminant(&next.plan.wire) != std::mem::discriminant(&self.plan.wire)
+        }) {
+            return None;
+        }
         let streams = self.streams();
         let buffer = vec![0; self.plan.channel_count];
         match (self.packets, &self.plan.wire) {
@@ -393,7 +409,10 @@ impl Runtime {
                 let dropped: Vec<UniverseSpan> = universes
                     .iter()
                     .zip(&streams)
-                    .filter(|(_, stream)| !kept.contains(stream))
+                    .filter(|(u, stream)| {
+                        !kept.contains(stream)
+                            && !successor.is_some_and(|next| next.sends_universe(u.universe))
+                    })
                     .map(|(u, _)| *u)
                     .collect();
                 let first = streams.first()?.0;
@@ -527,7 +546,8 @@ impl Output {
         self.retiring
             .retain(|r| r.streams().iter().all(|s| !kept.contains(s)));
         for old in std::mem::take(&mut self.runtimes) {
-            if let Some(retiring) = old.retire(&kept, &self.settings, &sequences) {
+            let successor = runtimes.iter().find(|r| r.plan.id == old.plan.id);
+            if let Some(retiring) = old.retire(successor, &kept, &self.settings, &sequences) {
                 self.retiring.push(retiring);
             }
         }

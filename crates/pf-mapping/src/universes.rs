@@ -131,7 +131,11 @@ pub(crate) fn assign(show: &Show, runs: &[&[PixelRun]], report: &mut ValidationR
                                     c.name
                                 ),
                             )
-                            .with_fix("Choose a lower start universe, or clear it to assign automatically."),
+                            .with_fix(if start == 0 {
+                                "Choose a start universe of 1 or more, or clear it to assign automatically."
+                            } else {
+                                "Choose a lower start universe, or clear it to assign automatically."
+                            }),
                         );
                     }
                     ranges.push((i, start, start + count, cfg.multicast));

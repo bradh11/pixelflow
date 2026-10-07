@@ -336,3 +336,78 @@ fn over_capacity_is_a_warning_that_counts_rgbw_pixels_by_their_channels() {
         "Port 2 on 'Falcon' is over capacity by 7 pixels (107 of 100, counting each RGBW pixel as 1⅓ because it carries 4 channels)."
     );
 }
+
+#[test]
+fn a_segment_reads_its_own_pixels_from_the_frame() {
+    // B sits after A in the frame (30 bytes); its second half (pixels 4–9) goes out first.
+    let mut show = Show::new("t");
+    let a = line("A", 10);
+    let b = line("B", 10);
+    let half = |start, end| {
+        let mut slot = PortSlot::new(b.id);
+        slot.segment = Some(NodeRange::new(start, end));
+        slot
+    };
+    show.controllers = vec![controller(
+        "C",
+        Protocol::Ddp,
+        vec![
+            port(1, vec![PortSlot::new(a.id), half(4, 10)]),
+            port(2, vec![half(0, 4)]),
+        ],
+    )];
+    show.props = vec![a, b.clone()];
+    let (map, report) = map_show(&show);
+    assert!(report.issues.is_empty(), "{:?}", report.issues);
+    let spans = &map.controllers[0].spans;
+    assert_eq!((spans[1].frame_offset, spans[1].pixels), (30 + 4 * 3, 6));
+    assert_eq!(spans[1].controller_channel, 30);
+    assert_eq!((spans[2].frame_offset, spans[2].pixels), (30, 4));
+    assert_eq!(spans[2].controller_channel, 48);
+    assert_eq!(map.locate(b.id, 4)[0].address, ChannelAddress::Ddp { offset: 30 });
+}
+
+#[test]
+fn null_pixels_count_toward_a_ports_capacity() {
+    let mut show = Show::new("t");
+    let a = line("A", 9);
+    let mut slot = PortSlot::new(a.id);
+    slot.null_pixels = 2;
+    let mut p = port(1, vec![slot]);
+    p.max_pixels = Some(10);
+    show.props = vec![a];
+    show.controllers = vec![controller("C", Protocol::Ddp, vec![p])];
+    let (_, report) = map_show(&show);
+    assert_eq!(
+        report
+            .issues
+            .iter()
+            .map(|i| i.message.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Port 1 on 'C' is over capacity by 1 pixels (11 of 10)."]
+    );
+}
+
+#[test]
+fn start_universe_0_is_out_of_range() {
+    let mut show = Show::new("t");
+    let a = line("A", 10);
+    let protocol = Protocol::Sacn(SacnConfig {
+        start_universe: Some(0),
+        ..SacnConfig::default()
+    });
+    show.controllers = vec![controller(
+        "C",
+        protocol,
+        vec![port(1, vec![PortSlot::new(a.id)])],
+    )];
+    show.props = vec![a];
+    let (_, report) = map_show(&show);
+    assert_eq!(report.issues.len(), 1, "{:?}", report.issues);
+    let issue = &report.issues[0];
+    assert_eq!(issue.code, IssueCode::UniverseOutOfRange);
+    assert!(issue.message.contains("universes 0–0"), "{}", issue.message);
+    // Universe 0 is too low, not too high.
+    let fix = issue.fix.as_deref().unwrap();
+    assert!(fix.contains("1 or more"), "{fix}");
+}

@@ -310,7 +310,11 @@ pub fn plan_fpp_setup(device: &Device, config: &DeviceConfig, show: &Show) -> Fp
             skipped.push(skip(format!("Already in your show as {}.", existing.name)));
             continue;
         }
-        if working.controllers.iter().any(|c| c.address == destination.address) {
+        if working
+            .controllers
+            .iter()
+            .any(|c| c.address == destination.address)
+        {
             skipped.push(skip(format!(
                 "The FPP lists {} more than once; it's added once.",
                 destination.address
@@ -662,7 +666,13 @@ mod tests {
         let added: Vec<_> = plan
             .controllers
             .iter()
-            .map(|c| (c.name.as_str(), c.address.as_str(), c.sequence_channels.map(|s| (s.start, s.count))))
+            .map(|c| {
+                (
+                    c.name.as_str(),
+                    c.address.as_str(),
+                    c.sequence_channels.map(|s| (s.start, s.count)),
+                )
+            })
             .collect();
         assert_eq!(
             added,
@@ -673,11 +683,18 @@ mod tests {
             ]
         );
         assert_eq!(plan.addresses(), vec!["192.0.2.20", "192.0.2.21"]);
-        let skipped: Vec<_> = plan.skipped.iter().map(|s| (s.address.as_str(), s.reason.as_str())).collect();
+        let skipped: Vec<_> = plan
+            .skipped
+            .iter()
+            .map(|s| (s.address.as_str(), s.reason.as_str()))
+            .collect();
         assert_eq!(
             skipped,
             vec![
-                ("192.0.2.20", "The FPP lists 192.0.2.20 more than once; it's added once."),
+                (
+                    "192.0.2.20",
+                    "The FPP lists 192.0.2.20 more than once; it's added once."
+                ),
                 ("192.0.2.30", "PixelFlow can't send Art-Net yet."),
             ]
         );
@@ -687,7 +704,10 @@ mod tests {
         show.controllers.push(plan.controllers[0].clone());
         let again = plan_fpp_setup(&fpp, &config, &show);
         assert_eq!(again.addresses(), vec!["192.0.2.21"]);
-        assert_eq!(again.skipped[0].reason, "Already in your show as Falcon_F16V5_B9F5 2.");
+        assert_eq!(
+            again.skipped[0].reason,
+            "Already in your show as Falcon_F16V5_B9F5 2."
+        );
     }
 
     #[test]

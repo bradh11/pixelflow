@@ -46,7 +46,11 @@ pub enum FppFolder {
 /// FPP's `'m/d/y  h:i A'` file date ("10/06/26  06:05 PM") as `2026-10-06 18:05`.
 fn file_date(text: &str) -> Option<String> {
     let mut parts = text.split_whitespace();
-    let date: Vec<u32> = parts.next()?.split('/').map(|p| p.parse().ok()).collect::<Option<_>>()?;
+    let date: Vec<u32> = parts
+        .next()?
+        .split('/')
+        .map(|p| p.parse().ok())
+        .collect::<Option<_>>()?;
     let (hour, minute) = parts.next()?.split_once(':')?;
     let (hour, minute): (u32, u32) = (hour.parse().ok()?, minute.parse().ok()?);
     let pm = parts.next()?.eq_ignore_ascii_case("PM");
@@ -55,7 +59,10 @@ fn file_date(text: &str) -> Option<String> {
         return None;
     }
     let hour = hour % 12 + if pm { 12 } else { 0 };
-    Some(format!("{:04}-{month:02}-{day:02} {hour:02}:{minute:02}", 2000 + year))
+    Some(format!(
+        "{:04}-{month:02}-{day:02} {hour:02}:{minute:02}",
+        2000 + year
+    ))
 }
 
 /// FPP's `human_playtime()` ("03m:45s", "01h:02m:03s"; "Unknown" when it can't tell) in ms.
@@ -118,7 +125,11 @@ pub fn sequences(http: &dyn Http, host: &str) -> Result<Vec<FppFile>, DeviceErro
         .map(|f| {
             let mut file = base(f);
             let stem = &file.name[..file.name.len() - ".fseq".len()];
-            if let Ok(meta) = get_json(http, host, &format!("/api/sequence/{}/meta", encode_segment(stem))) {
+            if let Ok(meta) = get_json(
+                http,
+                host,
+                &format!("/api/sequence/{}/meta", encode_segment(stem)),
+            ) {
                 let number = |key| u64::try_from(int_field(&meta, key)).unwrap_or(0);
                 let (frames, step) = (number("NumFrames"), number("StepTime"));
                 file.duration_ms = (frames > 0 && step > 0).then_some(frames * step);
@@ -160,21 +171,25 @@ pub fn playlists(http: &dyn Http, host: &str) -> Result<Vec<FppFile>, DeviceErro
     Ok(names
         .into_iter()
         .map(|name| {
-            let listed = files.iter().find(|f| str_field(f, "name") == format!("{name}.json"));
+            let listed = files
+                .iter()
+                .find(|f| str_field(f, "name") == format!("{name}.json"));
             let mut file = listed.map(base).unwrap_or_default();
             file.name = name.clone();
             if let Ok(doc) = get_json(http, host, &format!("/api/playlist/{}", encode_segment(&name))) {
                 let info = doc.get("playlistInfo").unwrap_or(&Value::Null);
-                let seconds = info.get("total_duration").and_then(|v| {
-                    v.as_f64().or_else(|| v.as_str()?.trim().parse().ok())
-                });
+                let seconds = info
+                    .get("total_duration")
+                    .and_then(|v| v.as_f64().or_else(|| v.as_str()?.trim().parse().ok()));
                 file.duration_ms = seconds.filter(|s| *s > 0.0).map(|s| (s * 1000.0).round() as u64);
                 let counted: usize = ["leadIn", "mainPlaylist", "leadOut"]
                     .iter()
                     .filter_map(|section| doc.get(section).and_then(Value::as_array))
                     .map(Vec::len)
                     .sum();
-                let listed_items = u32::try_from(int_field(info, "total_items")).ok().filter(|&n| n > 0);
+                let listed_items = u32::try_from(int_field(info, "total_items"))
+                    .ok()
+                    .filter(|&n| n > 0);
                 file.items = listed_items.or(u32::try_from(counted).ok());
             }
             file
@@ -252,9 +267,15 @@ pub fn schedule(http: &dyn Http, host: &str) -> Result<Vec<ScheduleEntry>, Devic
             let (kind, name) = if !command.is_empty() {
                 (ScheduleKind::Command, command.to_string())
             } else if bool_field(e, "sequence") {
-                (ScheduleKind::Sequence, str_field(e, "playlist").trim().to_string())
+                (
+                    ScheduleKind::Sequence,
+                    str_field(e, "playlist").trim().to_string(),
+                )
             } else {
-                (ScheduleKind::Playlist, str_field(e, "playlist").trim().to_string())
+                (
+                    ScheduleKind::Playlist,
+                    str_field(e, "playlist").trim().to_string(),
+                )
             };
             let number = |key| u32::try_from(int_field(e, key)).unwrap_or(0);
             ScheduleEntry {
@@ -281,9 +302,18 @@ mod tests {
 
     #[test]
     fn file_dates_read_as_24_hour_times() {
-        assert_eq!(file_date("10/06/26  06:05 PM").as_deref(), Some("2026-10-06 18:05"));
-        assert_eq!(file_date("01/02/25  12:00 AM").as_deref(), Some("2025-01-02 00:00"));
-        assert_eq!(file_date("01/02/25  12:30 PM").as_deref(), Some("2025-01-02 12:30"));
+        assert_eq!(
+            file_date("10/06/26  06:05 PM").as_deref(),
+            Some("2026-10-06 18:05")
+        );
+        assert_eq!(
+            file_date("01/02/25  12:00 AM").as_deref(),
+            Some("2025-01-02 00:00")
+        );
+        assert_eq!(
+            file_date("01/02/25  12:30 PM").as_deref(),
+            Some("2025-01-02 12:30")
+        );
         assert_eq!(file_date("yesterday"), None);
         assert_eq!(file_date(""), None);
     }

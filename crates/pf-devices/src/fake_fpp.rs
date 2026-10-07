@@ -315,7 +315,11 @@ fn file_entry(name: &str, size: u64) -> Value {
 /// FPP's `human_playtime()`: "03m:45s", or "01h:02m:03s" from an hour.
 fn human_playtime(ms: u64) -> String {
     let s = ms / 1000;
-    let hours = if s >= 3600 { format!("{:02}h:", s / 3600) } else { String::new() };
+    let hours = if s >= 3600 {
+        format!("{:02}h:", s / 3600)
+    } else {
+        String::new()
+    };
     format!("{hours}{:02}m:{:02}s", s / 60 % 60, s % 60)
 }
 
@@ -489,7 +493,9 @@ fn route(s: &mut FakeFppState, method: &str, segments: &[&str], body: &[u8]) -> 
         ("GET", ["api", "sequence", name, "meta"]) => match s.sequences.get(&format!("{name}.fseq")) {
             Some(_) => {
                 let ms = s.durations.get(&format!("{name}.fseq")).copied().unwrap_or(0);
-                ok(json!({"Name": format!("{name}.fseq"), "NumFrames": ms / 50, "StepTime": 50, "ChannelCount": 6147}))
+                ok(
+                    json!({"Name": format!("{name}.fseq"), "NumFrames": ms / 50, "StepTime": 50, "ChannelCount": 6147}),
+                )
             }
             None => (404, json!({"status": "not found"}).to_string()),
         },

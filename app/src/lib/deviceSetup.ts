@@ -105,7 +105,7 @@ export function deviceSetup(config: DeviceConfig): Setup {
           if (s.smartReceiver !== null) pushOnce(notes, RECEIVER_NOTE);
           return s.smartReceiver === null;
         })
-        .map((s, i) => ({ name: s.name ?? `String ${i + 1}`, pixels: s.pixels, colorOrder: s.colorOrder, start: null, channelsPerPixel: cpp(s.colorOrder), slots: [] })),
+        .map((s) => ({ name: s.name ?? "", pixels: s.pixels, colorOrder: s.colorOrder, start: null, channelsPerPixel: cpp(s.colorOrder), slots: [] })),
     }))
     .sort((a, b) => a.number - b.number);
   const i = config.input;

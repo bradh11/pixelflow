@@ -1,9 +1,10 @@
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "../api/backend";
-import type { DeviceDetails, DeviceInput } from "../api/types";
-import { thousands } from "../lib/format";
+import type { DeviceDetails, DeviceInput, UseProps } from "../api/types";
+import { plural, thousands } from "../lib/format";
 import { useApp } from "../state/store";
+import { PropPicker } from "./devices/DeviceDialog";
 import { Button } from "./ui";
 
 function describeInput(input: DeviceInput): string {
@@ -30,7 +31,10 @@ export function ImportDialog({
 }) {
   const backend = useApp((s) => s.backend);
   const run = useApp((s) => s.run);
+  const show = useApp((s) => s.snapshot?.show);
   const [details, setDetails] = useState<DeviceDetails | null>(null);
+  /** Strings wired to props already in the show instead of new starter props, by string key. */
+  const [useProps, setUseProps] = useState<UseProps>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const cancelRef = useRef<HTMLButtonElement>(null);
@@ -56,16 +60,21 @@ export function ImportDialog({
   const add = async () => {
     if (!details || busy) return;
     setBusy(true);
-    const ok = await run((b) => b.importDevice(address));
+    const chosen = Object.fromEntries(Object.entries(useProps).filter(([, prop]) => prop));
+    const ok = await run((b) => b.importDevice(address, chosen));
     setBusy(false);
     if (ok) {
       const { plan } = details;
+      const reused = Object.keys(chosen).length;
       onImported(
-        `Added ${plan.controller.name}: ${plan.props.length} props on ${plan.controller.ports.length} ports. Undo with ⌘Z.`,
+        `Added ${plan.controller.name}: ${plan.props.length - reused} props${reused ? ` and ${reused} of yours` : ""} on ${plan.controller.ports.length} ports. Undo with ⌘Z.`,
       );
       onClose();
     }
   };
+
+  const mapping = (show?.props.length ?? 0) > 0 && details?.plan.canImport === true;
+  const reused = Object.values(useProps).filter(Boolean).length;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -73,7 +82,7 @@ export function ImportDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="import-title"
-        className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border border-neutral-200 bg-white shadow-2xl dark:border-neutral-800 dark:bg-neutral-900"
+        className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-xl border border-neutral-200 bg-white shadow-2xl dark:border-neutral-800 dark:bg-neutral-900"
       >
         <div className="border-b border-neutral-200 p-5 dark:border-neutral-800">
           <h2 id="import-title" className="text-lg font-semibold">
@@ -113,6 +122,7 @@ export function ImportDialog({
                       <th className="pb-1 pl-3 font-medium">Direction</th>
                       <th className="pb-1 text-right font-medium">Brightness</th>
                       <th className="pb-1 text-right font-medium">Gamma</th>
+                      {mapping && <th className="pb-1 pl-3 font-medium">In your show</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -127,6 +137,17 @@ export function ImportDialog({
                           <td className="pl-3">{s.reverse ? "Reversed" : "Forward"}</td>
                           <td className="text-right tabular-nums">{s.brightness}%</td>
                           <td className="text-right tabular-nums">{s.gamma}</td>
+                          {mapping && show && (
+                            <td className="pl-3">
+                              <PropPicker
+                                show={show}
+                                label={`Prop for port ${port.number} ${s.name ?? `string ${i + 1}`}`}
+                                pixels={s.pixels}
+                                value={useProps[`port${port.number}/string${i + 1}`] ?? ""}
+                                onChange={(id) => setUseProps((now) => ({ ...now, [`port${port.number}/string${i + 1}`]: id }))}
+                              />
+                            </td>
+                          )}
                         </tr>
                       )),
                     )}
@@ -148,8 +169,10 @@ export function ImportDialog({
               )}
               {details.plan.canImport && (
                 <p className="text-neutral-500">
-                  PixelFlow will add the controller with {details.plan.controller.ports.length} ports and one prop per
-                  string. Shape and place the props on the Layout screen afterwards.
+                  {reused === 0
+                    ? `PixelFlow will add the controller with ${plural(details.plan.controller.ports.length, "port")} and one new prop per string. Shape and place the props on the Layout screen afterwards.`
+                    : `PixelFlow will add the controller with ${plural(details.plan.controller.ports.length, "port")}, wire ${plural(reused, "prop")} you already have, and add ${plural(details.plan.props.length - reused, "new prop")}.`}
+                  {mapping && reused === 0 && " To use props you already have (from an xLights import, say), pick them under In your show."}
                 </p>
               )}
             </div>

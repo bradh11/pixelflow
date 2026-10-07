@@ -209,6 +209,24 @@ describe("every control has a name, and icon-only buttons have tooltips", () => 
     await user.click(screen.getByRole("button", { name: "Scan network" }));
     await screen.findAllByRole("row");
     found.push(...problems("devices, after a scan"));
+    await user.click(screen.getByRole("button", { name: "Open Porch WLED" }));
+    await within(await screen.findByRole("dialog")).findByText(/Receives/);
+    found.push(...problems("devices, reviewing an import"));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Add to show" }));
+    const wled = backend.deviceNetwork.details.find((d) => d.device.kind === "wled")!.config;
+    wled.ports[0].strings[0].pixels = 60;
+    wled.ports.push({ number: 2, strings: [{ ...wled.ports[0].strings[0], pixels: 20 }], maxPixels: null });
+    await user.click(screen.getByRole("button", { name: "Compare with this device: Porch WLED" }));
+    await screen.findByRole("region", { name: "Port 2" });
+    found.push(...problems("devices, comparing with a controller"));
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Send setup to this device: Porch WLED…" }));
+    await screen.findByRole("region", { name: "Port 1" });
+    found.push(...problems("devices, sending a setup"));
+    await user.click(screen.getByRole("button", { name: "Send to Porch WLED" }));
+    await screen.findByText(/Sent\. Reading it back/);
+    found.push(...problems("devices, a setup sent"));
+    await user.keyboard("{Escape}");
 
     go("play");
     backend.nextSequencePath = "/Shows/Medley.fseq";

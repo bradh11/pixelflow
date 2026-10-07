@@ -565,7 +565,7 @@ export class MemoryBackend implements Backend {
   /** How the next send of a setup goes wrong, if it does (for tests and screenshots). */
   setupSendFailure: "fail" | "mismatch" | null = null;
   private compared = new Map<string, DeviceConfig>();
-  private sends = new Map<string, { target: Setup; ids: string[]; before: DeviceConfig; restore: DeviceConfig | null }>();
+  private sends = new Map<string, { shown: string; target: Setup; ids: string[]; before: DeviceConfig; restore: DeviceConfig | null }>();
 
   private controllerAt(address: string) {
     const here = this.show.controllers.filter((c) => c.address === address);
@@ -622,8 +622,21 @@ export class MemoryBackend implements Backend {
       };
     }
     const target = showSetup(this.show, controller, oneStringPerPort(device.kind));
-    const changes = diffPorts(deviceSetup(config), target, "toDevice");
-    this.sends.set(address, { target, ids: changes.map((c) => c.id), before: config, restore: null });
+    const shown = JSON.stringify(target);
+    const current = deviceSetup(config);
+    if (device.kind === "wled") {
+      // Like the engine: a WLED output the show doesn't wire is left as it is.
+      for (const port of current.ports) {
+        const wanted = target.ports.find((p) => p.number === port.number);
+        if (port.strings.length === 0 || (wanted && wanted.strings.length > 0)) continue;
+        target.notes.push(`Output ${port.number} isn't wired in your show; PixelFlow leaves it as it is.`);
+        if (wanted) wanted.strings = port.strings;
+        else target.ports.push(port);
+      }
+      target.ports.sort((a, b) => a.number - b.number);
+    }
+    const changes = diffPorts(current, target, "toDevice");
+    this.sends.set(address, { shown, target, ids: changes.map((c) => c.id), before: config, restore: null });
     const player = this.fppPlayers[address]?.status;
     const busy =
       player && (player.state === "playing" || player.state === "paused")
@@ -649,7 +662,7 @@ export class MemoryBackend implements Backend {
     if (session.ids.join("\n") !== expected.join("\n")) throw new Error("What will change isn't what was shown. Review the changes again.");
     const found = this.deviceAt(address);
     const now = showSetup(this.show, this.controllerAt(address), oneStringPerPort(found.device.kind));
-    if (JSON.stringify(now) !== JSON.stringify(session.target)) throw new Error("Your show changed since you looked. Review the changes again.");
+    if (JSON.stringify(now) !== session.shown) throw new Error("Your show changed since you looked. Review the changes again.");
     session.ids = ["(sent)"];
     const failure = this.setupSendFailure;
     this.setupSendFailure = null;

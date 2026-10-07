@@ -2,6 +2,9 @@ import { AlertTriangle, ChevronRight, Loader2, Radar, Search, X } from "lucide-r
 import { useState } from "react";
 import type { Device, DeviceKind, FoundBy } from "../api/types";
 import { ImportDialog } from "../components/ImportDialog";
+import { CompareDialog } from "../components/devices/CompareDialog";
+import { SendSetupDialog } from "../components/devices/SendSetupDialog";
+import { SetupButtons } from "../components/devices/SetupButtons";
 import { FppDevicePage } from "../components/devices/FppDevicePage";
 import { GoToScreen } from "../components/GoToScreen";
 import { Button, EmptyState, Input, PageHeader } from "../components/ui";
@@ -27,11 +30,15 @@ function DeviceRow({
   inShow,
   onReview,
   onForget,
+  onCompare,
+  onSend,
 }: {
   device: KnownDevice;
   inShow: boolean;
   onReview: () => void;
   onForget: () => void;
+  onCompare: () => void;
+  onSend: () => void;
 }) {
   return (
     <tr
@@ -58,7 +65,12 @@ function DeviceRow({
       <td className="pr-3 text-sm tabular-nums">{device.address}</td>
       <td className="pr-3 text-xs text-neutral-500">{device.foundBy.map((f) => FOUND_BY[f]).join(", ")}</td>
       <td className="pr-3">
-        {inShow && <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs dark:bg-neutral-800">In show</span>}
+        {inShow && (
+          <span className="flex flex-wrap items-center gap-1">
+            <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs dark:bg-neutral-800">In show</span>
+            {device.responding && <SetupButtons compact name={device.name} onCompare={onCompare} onSend={onSend} />}
+          </span>
+        )}
       </td>
       <td className="w-px pr-6 whitespace-nowrap">
         {/* Apart from Open, and in words: forgetting is easy to do by mistake next to it. */}
@@ -102,6 +114,9 @@ export function DevicesScreen() {
   /** The FPP whose page is open, by address. */
   const [openFpp, setOpenFpp] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** The controller being compared, or sent its setup, by address. */
+  const [comparing, setComparing] = useState<string | null>(null);
+  const [sending, setSending] = useState<string | null>(null);
 
   const checkAddress = async () => {
     const host = address.trim();
@@ -116,14 +131,33 @@ export function DevicesScreen() {
 
   const inShow = (device: Device) => snapshot?.show.controllers.some((c) => c.address === device.address) ?? false;
 
+  const dialogs = (
+    <>
+      {comparing && <CompareDialog address={comparing} onClose={() => setComparing(null)} />}
+      {sending && <SendSetupDialog address={sending} onClose={() => setSending(null)} />}
+    </>
+  );
   const fpp = openFpp ? discovery?.devices.find((d) => d.address === openFpp) : undefined;
-  if (fpp) return <FppDevicePage key={fpp.address} device={fpp} onBack={() => setOpenFpp(null)} />;
+  if (fpp) {
+    return (
+      <>
+        <FppDevicePage
+          key={fpp.address}
+          device={fpp}
+          onBack={() => setOpenFpp(null)}
+          onCompare={inShow(fpp) ? () => setComparing(fpp.address) : undefined}
+          onSend={inShow(fpp) ? () => setSending(fpp.address) : undefined}
+        />
+        {dialogs}
+      </>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-7xl">
       <PageHeader
         title="Controllers"
-        description="Find FPP, Falcon, and WLED controllers on your network and add them to your show. Nothing on your controllers is changed."
+        description="Find FPP, Falcon, and WLED controllers on your network and add them to your show. Nothing on a controller changes unless you send it a setup."
         actions={
           <Button variant="primary" onClick={() => scan()} disabled={scanning}>
             {scanning ? <Loader2 size={16} className="animate-spin" /> : <Radar size={16} />}
@@ -205,6 +239,8 @@ export function DevicesScreen() {
                 inShow={inShow(device)}
                 onReview={() => (device.kind === "fpp" ? setOpenFpp(device.address) : setReviewing(device.address))}
                 onForget={() => forgetDevice(device.address)}
+                onCompare={() => setComparing(device.address)}
+                onSend={() => setSending(device.address)}
               />
             ))}
           </tbody>
@@ -226,6 +262,7 @@ export function DevicesScreen() {
       {reviewing && (
         <ImportDialog address={reviewing} onClose={() => setReviewing(null)} onImported={(message) => setNotice(message)} />
       )}
+      {dialogs}
     </div>
   );
 }

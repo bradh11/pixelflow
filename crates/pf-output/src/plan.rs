@@ -366,7 +366,7 @@ mod tests {
                 address: "127.0.0.2".into(),
                 protocol: Protocol::Sacn(SacnConfig {
                     start_universe: Some(10),
-                    universe_size: UniverseSize::Channels512,
+                    universe_size: UniverseSize::CHANNELS_512,
                     ..SacnConfig::default()
                 }),
                 start: 6147,
@@ -398,6 +398,67 @@ mod tests {
         let frame: Vec<u8> = (0..7247).map(|i| (i % 251) as u8).collect();
         crate::render_controller(&frame, arches, &plan.luts, &mut out);
         assert_eq!(&out[..], &frame[6147..]);
+    }
+
+    #[test]
+    fn odd_universe_sizes_send_packets_of_exactly_that_many_slots() {
+        // 20 RGB pixels on 15-channel universes: four full universes of 15 slots each.
+        let mut show = Show::new("t");
+        let strip = prop(20, ColorOrder::Rgb);
+        let mut c = Controller::new(
+            "Tiny",
+            "10.0.0.7",
+            Protocol::Sacn(SacnConfig {
+                start_universe: Some(3),
+                universe_size: pf_model::UniverseSize::new(15).unwrap(),
+                ..SacnConfig::default()
+            }),
+        );
+        let mut port = Port::new(1);
+        port.slots = vec![PortSlot::new(strip.id)];
+        c.ports = vec![port];
+        show.props = vec![strip];
+        show.controllers = vec![c];
+        let (map, report) = pf_mapping::map_show(&show);
+        assert!(!report.has_errors(), "{report:?}");
+        let plan = build_offline_plan(&show, &map);
+        let Wire::Sacn { universes, .. } = &plan.controllers[0].wire else {
+            panic!("sACN")
+        };
+        let spans: Vec<_> = universes
+            .iter()
+            .map(|u| (u.universe, u.controller_channel, u.len))
+            .collect();
+        assert_eq!(spans, vec![(3, 0, 15), (4, 15, 15), (5, 30, 15), (6, 45, 15)]);
+        let dest = "127.0.0.1:5568".parse().unwrap();
+        let packets = crate::sacn::SacnPackets::new(universes, false, dest, &Default::default());
+        for i in 0..packets.len() {
+            assert_eq!(packets.packet(i).0.len(), crate::sacn::DATA_HEADER_LEN + 15);
+        }
+
+        // Played straight from a sequence, 600 channels on 270-channel universes.
+        let route = PassthroughRoute {
+            id: ControllerId::new(),
+            name: "Mid".into(),
+            address: "127.0.0.3".into(),
+            protocol: Protocol::Sacn(SacnConfig {
+                start_universe: Some(10),
+                universe_size: pf_model::UniverseSize::new(270).unwrap(),
+                ..SacnConfig::default()
+            }),
+            start: 0,
+            count: 600,
+            ddp_offset_base: 0,
+        };
+        let plan = build_passthrough_plan(&[route], 600, 20);
+        let Wire::Sacn { universes, .. } = &plan.controllers[0].wire else {
+            panic!("sACN")
+        };
+        let spans: Vec<_> = universes
+            .iter()
+            .map(|u| (u.universe, u.controller_channel, u.len))
+            .collect();
+        assert_eq!(spans, vec![(10, 0, 270), (11, 270, 270), (12, 540, 60)]);
     }
 
     #[test]

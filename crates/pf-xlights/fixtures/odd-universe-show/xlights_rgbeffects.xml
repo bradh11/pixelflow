@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xrgb>
+  <models>
+    <model name="Window" DisplayAs="Single Line" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="1" parm2="2" parm3="1"
+           WorldPosX="100.0" WorldPosY="500.0" WorldPosZ="0.0" X2="100.0" Y2="0.0" Z2="0.0" StartChannel="#2:13" versionNumber="5"/>
+    <model name="Gutter" DisplayAs="Single Line" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="1" parm2="4" parm3="1"
+           WorldPosX="100.0" WorldPosY="400.0" WorldPosZ="0.0" X2="100.0" Y2="0.0" Z2="0.0" StartChannel="!Mid:265" versionNumber="5"/>
+    <model name="Fence" DisplayAs="Single Line" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="1" parm2="3" parm3="1"
+           WorldPosX="100.0" WorldPosY="300.0" WorldPosZ="0.0" X2="100.0" Y2="0.0" Z2="0.0" StartChannel="#192.0.2.63:20:424" versionNumber="5"/>
+    <model name="Post" DisplayAs="Single Line" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="1" parm2="2" parm3="1"
+           WorldPosX="100.0" WorldPosY="200.0" WorldPosZ="0.0" X2="100.0" Y2="0.0" Z2="0.0" StartChannel=">Fence:1" versionNumber="5"/>
+  </models>
+  <modelGroups/>
+</xrgb>

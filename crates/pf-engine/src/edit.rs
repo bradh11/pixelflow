@@ -245,6 +245,34 @@ mod tests {
     }
 
     #[test]
+    fn a_controller_edit_with_a_universe_size_outside_1_to_512_is_refused_in_plain_words() {
+        let controller = Controller::new(
+            "Porch",
+            "10.0.0.2",
+            Protocol::Sacn(pf_model::SacnConfig::default()),
+        );
+        let mut edit = serde_json::to_value(Edit::UpdateController { controller }).unwrap();
+        for (size, ok) in [(1, true), (15, true), (512, true), (0, false), (513, false)] {
+            edit["controller"]["protocol"]["universeSize"] = size.into();
+            match serde_json::from_value::<Edit>(edit.clone()) {
+                Ok(Edit::UpdateController { controller }) if ok => {
+                    let Protocol::Sacn(cfg) = controller.protocol else {
+                        panic!("sACN")
+                    };
+                    assert_eq!(cfg.universe_size.channels(), size);
+                }
+                Err(err) if !ok => assert!(
+                    err.to_string().starts_with(&format!(
+                        "A universe carries 1 to 512 channels, so {size} channels per universe won't work."
+                    )),
+                    "{err}"
+                ),
+                other => panic!("{size}: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
     fn missing_and_duplicate_ids_are_rejected() {
         let mut show = Show::new("t");
         let a = line("A");

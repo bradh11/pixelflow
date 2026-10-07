@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Networks>
+  <Controller Id="1" Name="Tiny" Type="Ethernet" IP="192.0.2.61" Protocol="E131" ActiveState="Active">
+    <network NetworkType="E131" ComPort="192.0.2.61" BaudRate="1" MaxChannels="15"/>
+    <network NetworkType="E131" ComPort="192.0.2.61" BaudRate="2" MaxChannels="15"/>
+    <network NetworkType="E131" ComPort="192.0.2.61" BaudRate="3" MaxChannels="15"/>
+    <network NetworkType="E131" ComPort="192.0.2.61" BaudRate="4" MaxChannels="15"/>
+  </Controller>
+  <Controller Id="2" Name="Mid" Type="Ethernet" IP="192.0.2.62" Protocol="E131" ActiveState="Active">
+    <network NetworkType="E131" ComPort="192.0.2.62" BaudRate="10" MaxChannels="270"/>
+    <network NetworkType="E131" ComPort="192.0.2.62" BaudRate="11" MaxChannels="270"/>
+  </Controller>
+  <Controller Id="3" Name="Wide" Type="Ethernet" IP="192.0.2.63" Protocol="E131" ActiveState="Active">
+    <network NetworkType="E131" ComPort="192.0.2.63" BaudRate="20" MaxChannels="426"/>
+    <network NetworkType="E131" ComPort="192.0.2.63" BaudRate="21" MaxChannels="426"/>
+  </Controller>
+</Networks>

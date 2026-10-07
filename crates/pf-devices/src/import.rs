@@ -54,16 +54,12 @@ pub fn plan_import(device: &Device, config: &DeviceConfig, show: &Show) -> Impor
             channels_per_universe,
             ..
         } => {
-            let universe_size = if *channels_per_universe == 512 {
-                UniverseSize::Channels512
-            } else {
-                if *channels_per_universe != 510 {
-                    notes.push(format!(
-                        "The controller uses {channels_per_universe} channels per universe; PixelFlow uses 510 or 512."
-                    ));
-                }
-                UniverseSize::Channels510
-            };
+            let universe_size = UniverseSize::new(u32::from(*channels_per_universe)).unwrap_or_else(|| {
+                notes.push(format!(
+                    "The controller uses {channels_per_universe} channels per universe, but a universe carries 1 to 512, so PixelFlow uses 510."
+                ));
+                UniverseSize::CHANNELS_510
+            });
             Protocol::Sacn(SacnConfig {
                 start_universe: Some(*start_universe),
                 universe_size,
@@ -186,14 +182,13 @@ pub fn plan_destination_import(destination: &Destination, show: &Show) -> Import
     let name = unique(base, &mut controller_names);
     let mut notes = Vec::new();
     let universe_size = match destination.universe_size {
-        Some(512) => UniverseSize::Channels512,
-        Some(510) | None => UniverseSize::Channels510,
-        Some(other) => {
+        None => UniverseSize::CHANNELS_510,
+        Some(size) => UniverseSize::new(u32::from(size)).unwrap_or_else(|| {
             notes.push(format!(
-                "The FPP sends {other} channels per universe; PixelFlow uses 510 or 512 channels per universe."
+                "The FPP sends {size} channels per universe, but a universe carries 1 to 512, so PixelFlow uses 510."
             ));
-            UniverseSize::Channels510
-        }
+            UniverseSize::CHANNELS_510
+        }),
     };
     let sacn = |multicast| {
         Protocol::Sacn(SacnConfig {
@@ -556,12 +551,53 @@ mod tests {
             };
             (sacn.universe_size, plan.notes)
         };
-        assert_eq!(universe_size(Some(512)).0, UniverseSize::Channels512);
-        assert_eq!(universe_size(Some(510)).0, UniverseSize::Channels510);
-        assert_eq!(universe_size(None).0, UniverseSize::Channels510);
-        let (size, notes) = universe_size(Some(170));
-        assert_eq!(size, UniverseSize::Channels510);
-        assert!(notes[0].contains("510 or 512 channels per universe"), "{notes:?}");
+        assert_eq!(universe_size(Some(512)).0, UniverseSize::CHANNELS_512);
+        assert_eq!(universe_size(Some(510)).0, UniverseSize::CHANNELS_510);
+        assert_eq!(universe_size(None).0, UniverseSize::CHANNELS_510);
+        for size in [1, 15, 170, 384] {
+            let (got, notes) = universe_size(Some(size));
+            assert_eq!(got.channels(), size);
+            assert!(!notes.iter().any(|n| n.contains("per universe")), "{notes:?}");
+        }
+        for size in [0, 600] {
+            let (got, notes) = universe_size(Some(size));
+            assert_eq!(got, UniverseSize::CHANNELS_510);
+            assert!(
+                notes[0].contains(&format!(
+                    "The FPP sends {size} channels per universe, but a universe carries 1 to 512"
+                )),
+                "{notes:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn controller_universe_sizes_come_from_the_device() {
+        let sized = |channels_per_universe: u16| {
+            let config = DeviceConfig {
+                input: DeviceInput::Sacn {
+                    start_universe: 7,
+                    channels_per_universe,
+                    universe_count: 4,
+                },
+                ..config()
+            };
+            let plan = plan_import(&device(), &config, &Show::new("t"));
+            let Protocol::Sacn(sacn) = plan.controller.protocol else {
+                panic!("expected sACN");
+            };
+            (sacn.universe_size.channels(), plan.notes)
+        };
+        let (size, notes) = sized(384);
+        assert_eq!(size, 384);
+        assert!(!notes.iter().any(|n| n.contains("per universe")), "{notes:?}");
+        let (size, notes) = sized(1000);
+        assert_eq!(size, 510);
+        assert!(
+            notes.iter().any(|n| n
+                .contains("The controller uses 1000 channels per universe, but a universe carries 1 to 512")),
+            "{notes:?}"
+        );
     }
 
     #[test]

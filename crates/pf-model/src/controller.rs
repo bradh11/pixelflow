@@ -15,33 +15,44 @@ pub enum AdapterKind {
     Generic,
 }
 
-/// Channels carried by each sACN universe. Serialized as the number `510` or `512`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(try_from = "u16", into = "u16")]
-pub enum UniverseSize {
-    /// 510 channels: exactly 170 RGB pixels, so RGB pixels never straddle universes.
-    #[default]
-    Channels510,
-    Channels512,
-}
+/// Channels carried by each sACN universe: any number from 1 to 512 (510, exactly 170 RGB
+/// pixels, unless the controller says otherwise). Serialized as a number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "u32", into = "u16")]
+pub struct UniverseSize(u16);
 
 impl UniverseSize {
+    /// The most channels an sACN universe carries.
+    pub const MAX: u16 = 512;
+    /// 510 channels: exactly 170 RGB pixels, so RGB pixels never straddle universes.
+    pub const CHANNELS_510: UniverseSize = UniverseSize(510);
+    pub const CHANNELS_512: UniverseSize = UniverseSize(Self::MAX);
+
+    /// `None` unless `channels` is 1–512.
+    pub fn new(channels: u32) -> Option<UniverseSize> {
+        u16::try_from(channels)
+            .ok()
+            .filter(|c| (1..=Self::MAX).contains(c))
+            .map(UniverseSize)
+    }
+
     pub fn channels(self) -> u16 {
-        match self {
-            UniverseSize::Channels510 => 510,
-            UniverseSize::Channels512 => 512,
-        }
+        self.0
     }
 }
 
-impl TryFrom<u16> for UniverseSize {
+impl Default for UniverseSize {
+    fn default() -> Self {
+        Self::CHANNELS_510
+    }
+}
+
+impl TryFrom<u32> for UniverseSize {
     type Error = String;
-    fn try_from(value: u16) -> Result<Self, Self::Error> {
-        match value {
-            510 => Ok(UniverseSize::Channels510),
-            512 => Ok(UniverseSize::Channels512),
-            other => Err(format!("universe size must be 510 or 512, got {other}")),
-        }
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        UniverseSize::new(value).ok_or_else(|| {
+            format!("A universe carries 1 to 512 channels, so {value} channels per universe won't work.")
+        })
     }
 }
 
@@ -59,9 +70,10 @@ impl schemars::JsonSchema for UniverseSize {
 
     fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
         schemars::json_schema!({
-            "description": "Channels carried by each sACN universe: 510 (exactly 170 RGB pixels) or 512.",
+            "description": "Channels carried by each sACN universe, 1–512 (510 is exactly 170 RGB pixels).",
             "type": "integer",
-            "enum": [510, 512]
+            "minimum": 1,
+            "maximum": 512
         })
     }
 }
@@ -231,12 +243,28 @@ mod tests {
 
     #[test]
     fn universe_size_serializes_as_number_and_rejects_other_values() {
-        assert_eq!(serde_json::to_string(&UniverseSize::Channels512).unwrap(), "512");
+        assert_eq!(serde_json::to_string(&UniverseSize::CHANNELS_512).unwrap(), "512");
         assert_eq!(
             serde_json::from_str::<UniverseSize>("510").unwrap(),
-            UniverseSize::Channels510
+            UniverseSize::CHANNELS_510
         );
-        assert!(serde_json::from_str::<UniverseSize>("500").is_err());
+        for size in [1, 15, 270, 426, 512] {
+            let parsed = serde_json::from_str::<UniverseSize>(&size.to_string()).unwrap();
+            assert_eq!(parsed.channels(), size);
+            assert_eq!(serde_json::to_string(&parsed).unwrap(), size.to_string());
+        }
+        for size in ["0", "513", "70000"] {
+            let err = serde_json::from_str::<UniverseSize>(size)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err.contains(&format!(
+                    "A universe carries 1 to 512 channels, so {size} channels"
+                )),
+                "{err}"
+            );
+        }
+        assert!(serde_json::from_str::<UniverseSize>("-1").is_err());
     }
 
     #[test]

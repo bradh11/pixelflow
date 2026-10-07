@@ -575,9 +575,17 @@ describe("wiring screen", () => {
     expect(within(form).queryByLabelText("Start universe")).not.toBeInTheDocument();
     await user.selectOptions(within(form).getByLabelText("Protocol"), "sacn");
     await user.click(within(form).getByRole("button", { name: /^More: universe size/ }));
-    await user.selectOptions(within(form).getByLabelText("Channels per universe"), "512");
+    const size = within(form).getByLabelText("Channels per universe");
+    await user.clear(size);
+    await user.type(size, "600");
+    expect(within(form).getByText("Channels per universe must be a whole number from 1 to 512. Match what the controller is set to.")).toBeInTheDocument();
+    expect(within(form).getByRole("status")).toHaveTextContent("To save, fix the channels per universe above.");
+    expect(within(form).getByRole("button", { name: "Save" })).toBeDisabled();
+    await user.clear(size);
+    await user.type(size, "15");
     await user.click(within(form).getByRole("button", { name: "Save" }));
-    expect(backend.show.controllers[1].protocol).toEqual({ type: "sacn", startUniverse: null, universeSize: 512, allowPixelStraddle: false, multicast: false });
+    expect(backend.show.controllers[1].protocol).toEqual({ type: "sacn", startUniverse: null, universeSize: 15, allowPixelStraddle: false, multicast: false });
+    expect(within(screen.getByRole("region", { name: "Porch WLED" })).getByText("sACN · 15-channel universes")).toBeInTheDocument();
 
     await user.dblClick(screen.getByRole("button", { name: "Porch WLED" }));
     const rename = screen.getByRole("textbox", { name: "Name of Porch WLED" });

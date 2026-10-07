@@ -15,7 +15,9 @@ pub(crate) const MAX_UNIVERSE: u32 = 63_999;
 
 /// Splits a controller's channels into universe-sized chunks `(first_channel, len)`.
 ///
-/// Without straddling, a chunk ends early rather than split a pixel's channels.
+/// Without straddling, a chunk ends early rather than split a pixel's channels. A universe too
+/// small for one of the pixels can't avoid splitting it, so then channels run straight through
+/// every universe, as xLights numbers them.
 pub(crate) fn chunk_channels(
     runs: &[PixelRun],
     universe_size: u16,
@@ -26,7 +28,10 @@ pub(crate) fn chunk_channels(
         .iter()
         .map(|r| r.pixels as usize * r.channels_per_pixel as usize)
         .sum();
-    if allow_straddle {
+    let too_small = runs
+        .iter()
+        .any(|r| r.pixels > 0 && r.channels_per_pixel as usize > size);
+    if allow_straddle || too_small {
         return (0..total)
             .step_by(size)
             .map(|start| (start, (total - start).min(size) as u16))
@@ -212,6 +217,62 @@ mod tests {
             chunk_channels(&[run(169, 3), run(2, 4)], 510, false),
             vec![(0, 507), (507, 8)]
         );
+    }
+
+    #[test]
+    fn odd_universe_sizes_pack_whole_pixels() {
+        // 15 channels = 5 RGB pixels; 16 leaves one channel over each time.
+        assert_eq!(
+            chunk_channels(&[run(12, 3)], 15, false),
+            vec![(0, 15), (15, 15), (30, 6)]
+        );
+        assert_eq!(chunk_channels(&[run(6, 3)], 16, false), vec![(0, 15), (15, 3)]);
+        assert_eq!(chunk_channels(&[run(6, 3)], 16, true), vec![(0, 16), (16, 2)]);
+    }
+
+    #[test]
+    fn a_universe_smaller_than_a_pixel_straddles_as_xlights_does() {
+        // A pixel can't fit in a 2-channel universe, so channels run straight through.
+        let straight = vec![(0, 2), (2, 2), (4, 2), (6, 1)];
+        assert_eq!(chunk_channels(&[run(1, 1), run(2, 3)], 2, false), straight);
+        assert_eq!(chunk_channels(&[run(1, 1), run(2, 3)], 2, true), straight);
+        assert_eq!(chunk_channels(&[run(2, 3)], 1, false).len(), 6);
+    }
+
+    #[test]
+    fn universe_cases_match_the_in_memory_backend() {
+        // app/src/api/universeCases.json is also run against the in-memory backend's mapping, so
+        // the browser demo and the UI tests pack universes exactly as the engine does.
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/src/api/universeCases.json");
+        let cases: Vec<serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert!(cases.len() > 5);
+        for case in cases {
+            let number = |v: &serde_json::Value| v.as_u64().unwrap();
+            let runs: Vec<PixelRun> = case["runs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| run(number(&r["pixels"]) as u32, number(&r["cpp"]) as u8))
+                .collect();
+            let expect: Vec<(usize, u16)> = case["expect"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| (number(&c[0]) as usize, number(&c[1]) as u16))
+                .collect();
+            assert_eq!(
+                chunk_channels(
+                    &runs,
+                    number(&case["size"]) as u16,
+                    case["straddle"].as_bool().unwrap()
+                ),
+                expect,
+                "{}",
+                case["name"]
+            );
+        }
     }
 
     #[test]

@@ -109,11 +109,34 @@ describe("checkDraft", () => {
   });
 });
 
+describe("channels per universe", () => {
+  it("takes any whole number from 1 to 512, and says so plainly otherwise", () => {
+    const a = wired();
+    const show = showWith(a);
+    const size = (text: string) => checkDraft(draft(a, { protocol: "sacn", universeSize: text }), a, show).problems.universeSize;
+    for (const good of ["1", "15", "270", "426", "512", " 384 "]) expect(size(good)).toBeUndefined();
+    for (const bad of ["", "0", "513", "1.5", "1e2", "abc"]) {
+      expect(size(bad)).toBe("Channels per universe must be a whole number from 1 to 512. Match what the controller is set to.");
+    }
+    // DDP has no universes, so the size isn't checked.
+    expect(checkDraft(draft(a, { protocol: "ddp", universeSize: "0" }), a, show).problems).toEqual({});
+  });
+
+  it("saves the size, and starts from the controller's own", () => {
+    const a = wired();
+    const edit = controllerEdits(a.id, draft(a, { protocol: "sacn", universeSize: " 15 " }))(showWith(a))[0];
+    expect(edit.type === "updateController" && edit.controller.protocol).toMatchObject({ type: "sacn", universeSize: 15 });
+    const odd = { ...a, protocol: { type: "sacn" as const, startUniverse: 4, universeSize: 426, allowPixelStraddle: true, multicast: false } };
+    expect(controllerDraft(odd).universeSize).toBe("426");
+    expect(controllerEdits(a.id, draft(odd))(showWith(odd))).toEqual([]);
+  });
+});
+
 describe("controllerEdits", () => {
   it("changes name, address, and protocol in one edit and keeps the wiring and the device link", () => {
     const a = wired();
     const show = showWith(a);
-    const edits = controllerEdits(a.id, draft(a, { name: " Garage Falcon ", address: " 10.0.0.30 ", protocol: "sacn", startUniverse: "20", universeSize: 512, multicast: true }))(show);
+    const edits = controllerEdits(a.id, draft(a, { name: " Garage Falcon ", address: " 10.0.0.30 ", protocol: "sacn", startUniverse: "20", universeSize: "512", multicast: true }))(show);
     expect(edits).toHaveLength(1);
     const edit = edits[0];
     if (edit.type !== "updateController") throw new Error(edit.type);

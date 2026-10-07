@@ -19,7 +19,11 @@ fn case() -> impl Strategy<Value = Case> {
     (
         proptest::collection::vec((1u32..400, any::<bool>(), 0u32..5), 1..12),
         1usize..5,
-        prop_oneof![Just(UniverseSize::Channels510), Just(UniverseSize::Channels512)],
+        prop_oneof![
+            Just(UniverseSize::CHANNELS_510),
+            Just(UniverseSize::CHANNELS_512),
+            (1u32..=512).prop_map(|n| UniverseSize::new(n).unwrap()),
+        ],
         any::<bool>(),
     )
         .prop_map(|(props, ports, size, straddle)| Case {
@@ -88,12 +92,14 @@ proptest! {
         prop_assert_eq!(next, out.channel_count);
 
         // Every node maps to exactly one location, and without straddling, each pixel's
-        // channels fit inside its universe.
+        // channels fit inside its universe (unless a pixel is larger than a universe).
+        let widest = if case.props.iter().any(|p| p.1) { 4 } else { 3 };
+        let whole_pixels = !case.straddle && widest <= case.size.channels();
         for (prop, layout) in show.props.iter().zip(&map.props) {
             for node in 0..prop.node_count() {
                 let locations = map.locate(prop.id, node);
                 prop_assert_eq!(locations.len(), 1);
-                if !case.straddle {
+                if whole_pixels {
                     let pf_mapping::ChannelAddress::Sacn { channel, .. } = locations[0].address else {
                         return Err(TestCaseError::fail("expected sACN address"));
                     };

@@ -1721,6 +1721,7 @@ dependencies = [
  "pf-model",
  "proptest",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

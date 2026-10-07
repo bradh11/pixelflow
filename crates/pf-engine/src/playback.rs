@@ -1398,7 +1398,7 @@ mod tests {
             "127.0.0.2",
             Protocol::Sacn(SacnConfig {
                 start_universe: Some(63_999),
-                universe_size: UniverseSize::Channels512,
+                universe_size: UniverseSize::CHANNELS_512,
                 ..SacnConfig::default()
             }),
         );

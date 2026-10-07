@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { PortSlot, Prop, Show } from "./types";
 import { emptyShow } from "./memory";
-import { mapControllers } from "./memoryMapping";
+import { mapControllers, universeChunks } from "./memoryMapping";
+import universeCases from "./universeCases.json";
 import { newController, newProp } from "../lib/shows";
 
 const slot = (prop: Prop, overrides: Partial<PortSlot> = {}): PortSlot => ({
@@ -91,5 +92,27 @@ describe("memory channel mapping (like the engine's)", () => {
     s.controllers = [a];
     const out = mapControllers(s)[0].addressing;
     expect(out.type === "sacn" && out.universes.map((u) => u.universe)).toEqual([65535, 65535, 65535, 65535]);
+  });
+});
+
+describe("universeChunks", () => {
+  // The same cases run against the engine (crates/pf-mapping/src/universes.rs), so the browser
+  // demo and the UI tests pack universes of any size exactly as the engine does.
+  it.each(universeCases)("$name", ({ runs, size, straddle, expect: chunks }) => {
+    expect(universeChunks(runs, size, straddle)).toEqual(chunks);
+  });
+
+  it("lays out a controller with 15-channel universes", () => {
+    const { show: s, arch } = show();
+    const a = newController("A", "10.0.0.1", "sacn", 1);
+    a.protocol = { type: "sacn", startUniverse: 3, universeSize: 15, allowPixelStraddle: false, multicast: false };
+    a.ports[0].slots = [slot(arch)];
+    s.controllers = [a];
+    const out = mapControllers(s)[0].addressing;
+    expect(out.type === "sacn" && out.universes.slice(0, 2)).toEqual([
+      { universe: 3, controllerChannel: 0, len: 15 },
+      { universe: 4, controllerChannel: 15, len: 15 },
+    ]);
+    expect(out.type === "sacn" && out.universes).toHaveLength(10);
   });
 });

@@ -73,6 +73,22 @@ describe("MemoryBackend", () => {
     expect((await backend.getSnapshot()).summary.props).toBe(1);
   });
 
+  it("takes any universe size from 1 to 512, and refuses others in plain words like the engine", async () => {
+    const backend = new MemoryBackend();
+    const controller = newController("Porch", "10.0.0.2", "sacn", 1);
+    const sized = (universeSize: number) => ({ ...controller, protocol: { type: "sacn" as const, startUniverse: null, universeSize, allowPixelStraddle: false, multicast: false } });
+    await backend.applyEdits([{ type: "addController", controller: sized(15) }]);
+    for (const size of [0, 513, 1.5]) {
+      await expect(backend.applyEdits([{ type: "updateController", controller: sized(size) }])).rejects.toThrow(
+        `A universe carries 1 to 512 channels, so ${size} channels per universe won't work.`,
+      );
+      await expect(backend.applyEdits([{ type: "addController", controller: { ...sized(size), id: "other" } }])).rejects.toThrow("A universe carries 1 to 512 channels");
+    }
+    await backend.applyEdits([{ type: "updateController", controller: sized(426) }]);
+    const protocol = backend.show.controllers[0].protocol;
+    expect(protocol.type === "sacn" && protocol.universeSize).toBe(426);
+  });
+
   it("saves and opens files, and needs a path before plain save", async () => {
     const backend = new MemoryBackend(emptyShow("House"));
     await expect(backend.saveShow()).rejects.toThrow("not been saved yet");

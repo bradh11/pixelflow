@@ -30,7 +30,7 @@ type Migration = fn(Value) -> Result<Value, ModelError>;
 
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
 const MIGRATIONS: &[Migration] = &[
-    v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10,
+    v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11,
 ];
 
 /// Version 2 only adds the `falcon` adapter value, so version 1 documents are already valid.
@@ -108,6 +108,12 @@ fn v8_to_v9(doc: Value) -> Result<Value, ModelError> {
 /// Version 10 only adds settings to the arch, circle, star and tree shapes (each left out reads
 /// as before), so version 9 documents are already valid.
 fn v9_to_v10(doc: Value) -> Result<Value, ModelError> {
+    Ok(doc)
+}
+
+/// Version 11 lets an sACN universe carry any number of channels from 1 to 512. Version 10 files
+/// hold 510 or 512, which version 11 reads the same way, so they're already valid.
+fn v10_to_v11(doc: Value) -> Result<Value, ModelError> {
     Ok(doc)
 }
 
@@ -247,23 +253,63 @@ mod tests {
     }
 
     #[test]
-    fn version_7_to_9_files_open_unchanged_and_save_as_version_10() {
+    fn version_7_to_10_files_open_unchanged_and_save_as_version_11() {
         // A show with no new prop shapes, saved now, then labelled as written by older versions:
         // 7 (full paths), 8 (relative paths and `savedIn`) and 9 (new prop shapes, none used here).
         let mut show = sample_show();
         show.sequences
             .push(crate::SequenceEntry::new("Medley", "Medley.fseq"));
         let text = show_file_to_json(&show, Some("/Shows/Haas")).unwrap();
-        assert!(text.contains("\"schemaVersion\": 10"), "written as version 10");
-        for version in [7, 8, 9, 10] {
-            let old = text.replace("\"schemaVersion\": 10", &format!("\"schemaVersion\": {version}"));
+        assert!(text.contains("\"schemaVersion\": 11"), "written as version 11");
+        for version in [7, 8, 9, 10, 11] {
+            let old = text.replace("\"schemaVersion\": 11", &format!("\"schemaVersion\": {version}"));
             let (read, saved_in) = show_file_from_json(&old).unwrap();
             assert_eq!(read, show, "version {version} reads as it was");
-            assert_eq!(read.schema_version, 10);
+            assert_eq!(read.schema_version, 11);
             assert_eq!(saved_in.as_deref(), Some("/Shows/Haas"), "version {version}");
             let saved: Value = serde_json::from_str(&show_to_json(&read).unwrap()).unwrap();
-            assert_eq!(saved["schemaVersion"], 10);
+            assert_eq!(saved["schemaVersion"], 11);
         }
+    }
+
+    #[test]
+    fn version_10_universe_sizes_read_as_they_were_and_any_size_from_1_to_512_saves() {
+        let sacn = |size: u16| {
+            let mut show = sample_show();
+            show.controllers[0].protocol = Protocol::Sacn(crate::SacnConfig {
+                start_universe: Some(7),
+                universe_size: crate::UniverseSize::new(u32::from(size)).unwrap(),
+                ..crate::SacnConfig::default()
+            });
+            show
+        };
+        // Version 10 only knew 510 and 512.
+        for size in [510, 512] {
+            let show = sacn(size);
+            let text = show_to_json(&show)
+                .unwrap()
+                .replace("\"schemaVersion\": 11", "\"schemaVersion\": 10");
+            let read = show_from_json(&text).unwrap();
+            assert_eq!(read, show, "{size}");
+            let saved: Value = serde_json::from_str(&show_to_json(&read).unwrap()).unwrap();
+            assert_eq!(saved["controllers"][0]["protocol"]["universeSize"], size);
+        }
+        for size in [1, 15, 270, 426] {
+            let show = sacn(size);
+            assert_eq!(
+                show_from_json(&show_to_json(&show).unwrap()).unwrap(),
+                show,
+                "{size}"
+            );
+        }
+        let bad = show_to_json(&sacn(510))
+            .unwrap()
+            .replace("\"universeSize\": 510", "\"universeSize\": 513");
+        let err = show_from_json(&bad).unwrap_err().to_string();
+        assert!(
+            err.contains("A universe carries 1 to 512 channels, so 513"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -311,7 +357,7 @@ mod tests {
         }
         let text = show_to_json(&show).unwrap();
         let saved: Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(saved["schemaVersion"], 10);
+        assert_eq!(saved["schemaVersion"], 11);
         assert_eq!(saved["props"][0]["shape"]["type"], "polyLine");
         let back = show_from_json(&text).unwrap();
         assert_eq!(back.props, show.props);
@@ -441,7 +487,7 @@ mod tests {
         assert_eq!(show.background.unwrap().path, "/Shows/house.jpg");
         let saved: Value =
             serde_json::from_str(&show_to_json(&show_from_json(v7).unwrap()).unwrap()).unwrap();
-        assert_eq!(saved["schemaVersion"], 10);
+        assert_eq!(saved["schemaVersion"], 11);
     }
 
     #[test]

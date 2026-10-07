@@ -1,6 +1,7 @@
 //! Quirks of real xLights show folders, each reproduced by a small fixture of our own.
 
-use pf_model::{Generator, ShapeSource};
+use pf_mapping::ChannelAddress;
+use pf_model::{Generator, Protocol, ShapeSource};
 use pf_xlights::import_folder;
 use std::path::Path;
 
@@ -109,4 +110,69 @@ fn files_xlights_wrote_with_an_html_doctype_import() {
     assert_eq!(imported.summary.props, 1);
     assert_eq!(imported.summary.controllers, 1);
     assert_eq!(imported.summary.wired, 1);
+}
+
+#[test]
+fn controllers_with_odd_universe_sizes_import_with_their_wiring() {
+    // Universes of 15, 270 and 426 channels, with start channels given as a universe ("#2:13",
+    // "#192.0.2.63:20:424"), a controller ("!Mid:265") and the end of another prop (">Fence:1").
+    // Each of the first three props crosses from one universe into the next.
+    let imported = fixture("odd-universe-show");
+    assert!(
+        imported
+            .notes
+            .iter()
+            .all(|n| !n.contains("per universe") && !n.contains("wired") && !n.contains("aren't on any")),
+        "{:#?}",
+        imported.notes
+    );
+    assert_eq!((imported.summary.controllers, imported.summary.wired), (3, 4));
+    let show = &imported.show;
+    let sizes: Vec<_> = show
+        .controllers
+        .iter()
+        .map(|c| match c.protocol {
+            Protocol::Sacn(cfg) => (c.name.as_str(), cfg.start_universe, cfg.universe_size.channels()),
+            Protocol::Ddp => panic!("{} is sACN", c.name),
+        })
+        .collect();
+    assert_eq!(
+        sizes,
+        [
+            ("Tiny", Some(1), 15),
+            ("Mid", Some(10), 270),
+            ("Wide", Some(20), 426)
+        ]
+    );
+
+    let (map, report) = pf_mapping::map_show(show);
+    assert!(!report.has_errors(), "{report:?}");
+    let addresses = |name: &str| -> Vec<(String, u16, u16)> {
+        let prop = show.props.iter().find(|p| p.name == name).unwrap();
+        (0..prop.node_count())
+            .map(|node| {
+                let found = map.locate(prop.id, node);
+                assert_eq!(found.len(), 1, "{name} node {node}");
+                let controller = show
+                    .controllers
+                    .iter()
+                    .find(|c| c.id == found[0].controller)
+                    .unwrap();
+                let ChannelAddress::Sacn { universe, channel } = found[0].address else {
+                    panic!("sACN")
+                };
+                (controller.name.clone(), universe, channel)
+            })
+            .collect()
+    };
+    let at = |c: &str, list: &[(u16, u16)]| -> Vec<(String, u16, u16)> {
+        list.iter().map(|&(u, ch)| (c.to_string(), u, ch)).collect()
+    };
+    assert_eq!(addresses("Window"), at("Tiny", &[(2, 13), (3, 1)]));
+    assert_eq!(
+        addresses("Gutter"),
+        at("Mid", &[(10, 265), (10, 268), (11, 1), (11, 4)])
+    );
+    assert_eq!(addresses("Fence"), at("Wide", &[(20, 424), (21, 1), (21, 4)]));
+    assert_eq!(addresses("Post"), at("Wide", &[(21, 7), (21, 10)]));
 }

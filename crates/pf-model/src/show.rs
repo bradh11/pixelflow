@@ -20,8 +20,9 @@ use std::path::Path;
 /// (`savedIn`), so a show file moved on its own still finds its files; 9 = more prop shapes
 /// (`polyLine` and the other xLights prop types); 10 = more settings for arches, circles, stars
 /// and trees (several arches in a row, layers, start positions, spirals and more ways to wire a
-/// tree), so they can match xLights'.
-pub const CURRENT_SCHEMA_VERSION: u32 = 10;
+/// tree), so they can match xLights'; 11 = an sACN universe can carry any number of channels from
+/// 1 to 512, not just 510 or 512.
+pub const CURRENT_SCHEMA_VERSION: u32 = 11;
 
 /// Show-wide settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

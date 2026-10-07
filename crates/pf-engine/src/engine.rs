@@ -675,6 +675,13 @@ impl Engine {
         Ok(status)
     }
 
+    /// The pixels a camera-mapping capture of `target` covers, in the order the camera-mapping
+    /// pattern numbers them, with each prop as the layout has it now.
+    pub fn camera_map_target(&self, target: &TargetSpec) -> crate::CameraMapTarget {
+        let (map, _) = analyze(&self.show);
+        crate::camera_map::camera_map_target(&self.show, &map, target)
+    }
+
     /// Stops live output (controllers are blacked out).
     pub fn stop_output(&mut self) -> OutputStatus {
         self.stop_session();

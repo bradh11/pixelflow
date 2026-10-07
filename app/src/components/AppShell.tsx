@@ -24,6 +24,7 @@ import { PlayScreen } from "../screens/PlayScreen";
 import { SequenceScreen } from "../screens/SequenceScreen";
 import { useSequencer } from "../state/sequencer";
 import { TestScreen } from "../screens/TestScreen";
+import { CameraMapScreen } from "../screens/CameraMapScreen";
 import { WiringScreen } from "../screens/WiringScreen";
 import { MissingFileNotice, MissingFilesBanner } from "./MissingFiles";
 import { ShowMenu } from "./ShowMenu";
@@ -312,6 +313,8 @@ function CurrentScreen() {
       return <PlayScreen />;
     case "test":
       return <TestScreen />;
+    case "cameraMap":
+      return <CameraMapScreen />;
     case "history":
       return <HistoryScreen />;
     case "settings":

@@ -44,8 +44,18 @@ import type {
   Show,
   ShowSnapshot,
   TargetSpec,
+  BrightnessSample,
+  CameraMapFrames,
+  CameraMapPlan,
+  CameraMapSync,
+  CameraMapTargetInfo,
+  CodeBase,
+  DecodedCapture,
 } from "./types";
 import { deepView, frontView } from "../lib/geometry";
+import { type SampleCapture, cameraOwners, ownerProps, planInMemory, sampleCapture } from "./memoryCameraMap";
+import { sequenceSeconds, slotCount, SLOT_SECONDS } from "../lib/cameraMap";
+import type { FrameSource } from "../lib/captureFrames";
 import { mapControllers } from "./memoryMapping";
 import { channelsPerPixel, memberProp, newController, nodeCount } from "../lib/shows";
 import { fileName, thousands } from "../lib/format";
@@ -72,6 +82,10 @@ export class MemoryBackend implements Backend {
   history: { entry: HistoryEntry; show: Show }[] = [];
   output: OutputStatus = stoppedOutput(0);
   lastTarget: TargetSpec | null = null;
+  /** Whether a made-up camera-mapping capture is offered in place of a video (the demo). */
+  cameraMapSamples = false;
+  /** The capture being read: what syncing and decoding it gives. */
+  cameraMapCapture: SampleCapture | null = null;
   /** What the next file dialogs return. */
   nextOpenPath: string | null = null;
   nextSavePath: string | null = null;
@@ -344,6 +358,43 @@ export class MemoryBackend implements Backend {
       })),
     };
     return this.output;
+  }
+
+  async cameraMapTarget(target: TargetSpec, base: CodeBase): Promise<CameraMapTargetInfo> {
+    const owners = cameraOwners(this.show, target);
+    if (owners.length === 0) throw new Error("Nothing on this target is set up to light. Pick a prop, port, or controller with pixels.");
+    return {
+      pixels: owners.length,
+      seconds: sequenceSeconds(owners.length, base),
+      props: ownerProps(owners).map((p) => ({ prop: p.id, name: p.name, nodes: nodeCount(p.shape), covered: owners.filter((o) => o.prop === p).length })),
+    };
+  }
+
+  /** A made-up video of `target` flashing the sequence (see `cameraMapSamples`). */
+  sampleCapture(target: TargetSpec, base: CodeBase): FrameSource {
+    this.cameraMapCapture = sampleCapture(cameraOwners(this.show, target), base);
+    return this.cameraMapCapture.source;
+  }
+
+  async cameraMapSync(_samples: BrightnessSample[], pixels: number, base: CodeBase): Promise<CameraMapSync> {
+    const start = this.cameraMapCapture?.start;
+    if (start === undefined) throw new Error("Couldn't find the flashing sequence in this video.");
+    const windows = Array.from({ length: slotCount(pixels, base) }, (_, k): [number, number] => [
+      start + (k + 0.2) * SLOT_SECONDS,
+      start + (k + 0.8) * SLOT_SECONDS,
+    ]);
+    return { start, score: 0.99, windows };
+  }
+
+  async cameraMapDecode(_frames: Uint8Array, info: CameraMapFrames): Promise<DecodedCapture> {
+    this.calls.push("cameraMapDecode");
+    return this.cameraMapCapture?.decoded ?? { width: info.width, height: info.height, pixels: [], duplicates: [], unreadable: [] };
+  }
+
+  async cameraMapPlan(target: TargetSpec, pixels: number, decoded: DecodedCapture): Promise<CameraMapPlan> {
+    const owners = cameraOwners(this.show, target);
+    if (owners.length !== pixels) throw new Error("The show changed since this video was recorded. Record it again.");
+    return planInMemory(owners, decoded, this.cameraMapCapture?.toLayout ?? null);
   }
 
   async stopOutput() {

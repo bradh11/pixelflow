@@ -35,6 +35,13 @@ import type {
   ShowSnapshot,
   TargetSpec,
   ControllerCheck,
+  BrightnessSample,
+  CameraMapFrames,
+  CameraMapPlan,
+  CameraMapSync,
+  CameraMapTargetInfo,
+  CodeBase,
+  DecodedCapture,
 } from "./types";
 
 /** Everything the UI asks of the engine. Errors reject with a plain-language message. */
@@ -72,6 +79,15 @@ export interface Backend {
   startOutput(pattern: PatternSpec, target: TargetSpec): Promise<OutputStatus>;
   stopOutput(): Promise<OutputStatus>;
   outputStatus(): Promise<OutputStatus>;
+  /** The pixels a camera-mapping capture of `target` covers, and how long its sequence runs. */
+  cameraMapTarget(target: TargetSpec, base: CodeBase): Promise<CameraMapTargetInfo>;
+  /** Finds where the camera-mapping sequence starts in a video, from each frame's brightness. */
+  cameraMapSync(samples: BrightnessSample[], pixels: number, base: CodeBase): Promise<CameraMapSync>;
+  /** Finds and reads the pixels in the averaged slot frames (raw RGB, one frame per slot). */
+  cameraMapDecode(frames: Uint8Array, info: CameraMapFrames): Promise<DecodedCapture>;
+  /** Lines a decoded capture up with the layout (by `anchors`, sequence indexes, or every
+   * pixel) and works out each prop's points. Changes nothing. */
+  cameraMapPlan(target: TargetSpec, pixels: number, decoded: DecodedCapture, anchors: number[]): Promise<CameraMapPlan>;
   /** Finds controllers on the network (plus any typed addresses). Takes a few seconds. */
   /** `network` false checks only the typed hosts (and what FPPs list); true also scans the network. */
   discoverDevices(hosts: string[], network: boolean): Promise<Discovery>;

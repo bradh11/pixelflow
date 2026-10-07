@@ -1631,6 +1631,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pf-camera-map"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pf-cli"
 version = "0.1.0"
 dependencies = [
@@ -1670,6 +1678,7 @@ name = "pf-engine"
 version = "0.1.0"
 dependencies = [
  "pf-audio",
+ "pf-camera-map",
  "pf-devices",
  "pf-frame",
  "pf-fseq",
@@ -1749,6 +1758,7 @@ dependencies = [
 name = "pf-patterns"
 version = "0.1.0"
 dependencies = [
+ "pf-camera-map",
  "pf-mapping",
  "pf-model",
 ]

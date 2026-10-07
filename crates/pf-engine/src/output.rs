@@ -35,6 +35,10 @@ pub enum PatternKind {
     Alternate,
     Identify,
     Walk,
+    /// The camera-mapping sequence, colour coded (see `pf_camera_map`).
+    CameraMap,
+    /// The camera-mapping sequence in white only (single-colour pixels, colour-blind cameras).
+    CameraMapBinary,
 }
 
 impl PatternSpec {
@@ -48,6 +52,16 @@ impl PatternSpec {
             PatternKind::Alternate => Preset::Alternate,
             PatternKind::Identify => Preset::Identify,
             PatternKind::Walk => Preset::Walk,
+            PatternKind::CameraMap | PatternKind::CameraMapBinary => {
+                return Ok(Pattern::CameraMap {
+                    base: if self.kind == PatternKind::CameraMap {
+                        pf_camera_map::Base::Four
+                    } else {
+                        pf_camera_map::Base::Two
+                    },
+                    slot_seconds: pf_camera_map::DEFAULT_SLOT_SECONDS,
+                });
+            }
         };
         Ok(Pattern::preset(preset, color))
     }
@@ -303,6 +317,26 @@ mod tests {
         assert_eq!(json["type"], "port");
         assert_eq!(json["port"], 2);
         assert_eq!(serde_json::from_value::<TargetSpec>(json).unwrap(), target);
+    }
+
+    #[test]
+    fn camera_map_kinds_play_the_coded_sequence() {
+        let spec: PatternSpec = serde_json::from_str(r#"{ "kind": "cameraMap" }"#).unwrap();
+        assert!(matches!(
+            spec.to_pattern().unwrap(),
+            Pattern::CameraMap {
+                base: pf_camera_map::Base::Four,
+                ..
+            }
+        ));
+        let spec: PatternSpec = serde_json::from_str(r#"{ "kind": "cameraMapBinary" }"#).unwrap();
+        assert!(matches!(
+            spec.to_pattern().unwrap(),
+            Pattern::CameraMap {
+                base: pf_camera_map::Base::Two,
+                ..
+            }
+        ));
     }
 
     #[test]

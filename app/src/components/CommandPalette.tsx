@@ -61,6 +61,7 @@ export function CommandPalette() {
     { id: "rename-show", label: "Rename show…", run: () => state.setRenaming(true) },
     { id: "clear-recent", label: "Clear recent shows", run: state.clearRecent },
     { id: "demo", label: "Try the demo show", run: state.openSample },
+    { id: "camera-map", label: "Map pixels with a camera…", run: () => state.setScreen("cameraMap") },
     { id: "import-xlights", label: "Import from xLights…", run: state.importXlights },
     { id: "import-xlights-sequence", label: "Import xLights sequence…", run: state.importXlightsSequence },
     { id: "save", label: "Save", shortcut: hintFor("save"), run: () => saveFocused(false) },

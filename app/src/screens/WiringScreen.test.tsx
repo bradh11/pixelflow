@@ -678,7 +678,7 @@ describe("wiring screen", () => {
       expect(edits).toHaveLength(1);
     });
 
-    it("Escape closes the question, then leaves without changing anything", async () => {
+    it("Escape closes the question, then asks before throwing changes away", async () => {
       const user = await setup(plain());
       await act(async () => {});
       await user.click(wire(1, "Porch WLED"));
@@ -687,11 +687,36 @@ describe("wiring screen", () => {
       await user.keyboard("{Escape}");
       expect(screen.queryByRole("group", { name: "What to do with this prop" })).not.toBeInTheDocument();
       expect(chain()).toEqual(["1Porch Star"]);
+
+      // With a change made, Escape asks, starting on Keep.
       await user.keyboard("{Escape}");
+      const ask = screen.getByRole("alertdialog", { name: "Keep the 1 change to Port 1?" });
+      expect(within(ask).getByRole("button", { name: "Keep" })).toHaveFocus();
+      await user.click(within(ask).getByRole("button", { name: "Back to wiring" }));
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+      expect(chain()).toEqual(["1Porch Star"]);
+
+      await user.keyboard("{Escape}");
+      await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Discard" }));
       expect(screen.queryByRole("heading", { name: /^Wiring Porch WLED/ })).not.toBeInTheDocument();
       expect(edits).toHaveLength(0);
       expect(names(1, 0)).toEqual([]);
       await waitFor(() => expect(wire(1, "Porch WLED")).toHaveFocus());
+
+      // Keep is Done: one undo step.
+      await user.click(wire(1, "Porch WLED"));
+      await clickOn("Porch Star");
+      await user.keyboard("{Escape}");
+      await user.keyboard("{Enter}");
+      expect(names(1, 0)).toEqual(["Porch Star"]);
+      expect(edits).toHaveLength(1);
+
+      // With no changes, Escape just leaves.
+      await user.click(wire(1, "Main FPP"));
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: /^Wiring Main FPP/ })).not.toBeInTheDocument();
+      expect(edits).toHaveLength(1);
     });
 
     it("works from the keyboard: pick props from a list in order", async () => {

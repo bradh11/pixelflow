@@ -30,8 +30,9 @@ function leave(session: WireSession) {
 /**
  * Wiring one port by clicking props on the layout, in the order the wire runs: each click adds
  * the prop to the end of the chain, numbered on the picture, with the wire drawn through it.
- * Nothing changes in the show until Done, which makes the whole session one undo step; Escape
- * (or Cancel) leaves it as it was. The list beside it does the same from the keyboard.
+ * Nothing changes in the show until Done, which makes the whole session one undo step; Cancel
+ * leaves it as it was, and Escape asks first when there are changes to lose. The list beside it
+ * does the same from the keyboard.
  */
 export function WireMode({ session, data, preview }: { session: WireSession; data: WiringData; preview: PreviewProp[] }) {
   const apply = useApp((s) => s.apply);
@@ -64,13 +65,20 @@ export function WireMode({ session, data, preview }: { session: WireSession; dat
   };
   const pick = (prop: string) => update((s) => clickProp(data.show, s, data.nodes, prop));
 
-  // Escape closes the open question, else leaves without changing anything.
+  // Escape closes the open question; then, with changes made, asks whether to keep them (Escape
+  // again goes back to wiring); with none, it leaves.
+  const [asking, setAsking] = useState(false);
+  const askingRef = useRef(asking);
+  askingRef.current = asking;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       e.preventDefault();
       e.stopPropagation();
-      if (current()?.prompt) update((s) => answer(s, "cancel"));
+      const s = current();
+      if (s?.prompt) update((x) => answer(x, "cancel"));
+      else if (askingRef.current) setAsking(false);
+      else if (s && s.ops.length > 0) setAsking(true);
       else cancel();
     };
     window.addEventListener("keydown", onKey, true);
@@ -106,7 +114,8 @@ export function WireMode({ session, data, preview }: { session: WireSession; dat
     if (w.status === "partial") return `${name(id)}: ${thousands(w.wiredPixels)} of ${thousands(w.nodes)} px wired. Click to add the rest here.`;
     return `${name(id)} is on ${where(id)}. Click to move it here.`;
   };
-  const prompt = session.prompt;
+  const prompt = asking ? null : session.prompt;
+  const changes = session.ops.length === 1 ? "1 change" : `${session.ops.length} changes`;
 
   return (
     <section aria-labelledby="wire-mode-title" className="@container">
@@ -151,7 +160,29 @@ export function WireMode({ session, data, preview }: { session: WireSession; dat
               </Button>
             </div>
           )}
-          <p className="pointer-events-none absolute bottom-2 left-3 text-xs text-white/70">Click props in the order the wire runs. Esc cancels.</p>
+          {asking && (
+            <div
+              role="alertdialog"
+              aria-label={`Keep the ${changes} to Port ${port.number}?`}
+              className="absolute inset-x-0 top-3 mx-auto flex w-fit max-w-[95%] flex-wrap items-center gap-2 rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm shadow-lg dark:border-neutral-700 dark:bg-neutral-900"
+            >
+              <span>
+                Keep the {changes} to Port {port.number}?
+              </span>
+              <Button variant="primary" autoFocus onClick={() => void finish()}>
+                Keep
+              </Button>
+              <Button variant="danger" onClick={cancel}>
+                Discard
+              </Button>
+              <Button variant="ghost" onClick={() => setAsking(false)}>
+                Back to wiring
+              </Button>
+            </div>
+          )}
+          <p className="pointer-events-none absolute bottom-2 left-3 text-xs text-white/70">
+            Click props in the order the wire runs. Done keeps them; Esc asks before throwing changes away.
+          </p>
         </div>
 
         <aside aria-label="Wiring this port" className="flex w-full shrink-0 flex-col gap-3 @min-[860px]:w-80">

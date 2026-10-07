@@ -30,7 +30,12 @@ export interface Setup {
   input: SetupInput;
   ports: SetupPort[];
   notes: string[];
+  /** Ports neither compared nor sent: the show wires them only through smart receivers. */
+  leftAlone: number[];
 }
+
+/** The warning on a change that moves where strings start. */
+export const MOVES_PIXELS = "Every pixel after this moves; sequences made for the old layout will look wrong.";
 
 export type Direction = "toDevice" | "intoShow";
 
@@ -46,13 +51,29 @@ const pushOnce = (notes: string[], note: string) => {
   if (!notes.includes(note)) notes.push(note);
 };
 
+/** Why `prop` can't be wired to a device string the controller drives in `order` (like the
+ * engine's `mapping_problem`): their channels per pixel differ. */
+export function mappingProblem(prop: Prop, order: ColorOrder): string | null {
+  const [ours, theirs] = [cpp(prop.colorOrder), cpp(order)];
+  return ours === theirs ? null : `it sends ${ours} channels a pixel and the string takes ${theirs}, so every later pixel would be shifted.`;
+}
+
+/** When both `prop` and the controller reorder colors (like the engine's `double_reorder`). */
+export function doubleReorder(prop: Prop, order: ColorOrder): string | null {
+  const plain = (o: ColorOrder) => o === "RGB" || o === "RGBW";
+  if (plain(prop.colorOrder) || plain(order)) return null;
+  return `${prop.name} reorders its colors (${prop.colorOrder}) and the controller reorders this string too (${order}), so colors are swapped twice. Set ${prop.name} to RGB on the Layout screen, or the controller's string to RGB.`;
+}
+
 /** The setup the show wants `controller` to have: strings back to back from channel 1. */
 export function showSetup(show: Show, controller: Controller, onePerPort: boolean): Setup {
   const notes: string[] = [];
   let channel = 1;
   const ports: SetupPort[] = [];
+  const leftAlone: number[] = [];
   for (const port of controller.ports) {
     let strings: SetupString[] = [];
+    let onReceivers = false;
     port.slots.forEach((slot, i) => {
       const prop = show.props.find((p) => p.id === slot.prop);
       if (!prop) return;
@@ -66,10 +87,12 @@ export function showSetup(show: Show, controller: Controller, onePerPort: boolea
       channel += pixels * perPixel;
       if (slot.smartReceiver !== null) {
         pushOnce(notes, RECEIVER_NOTE);
+        onReceivers = true;
         return;
       }
       strings.push({ name: prop.name, pixels, colorOrder: slot.controllerColorOrder ?? null, start, channelsPerPixel: perPixel, slots: [i] });
     });
+    if (strings.length === 0 && onReceivers) leftAlone.push(port.number);
     if (onePerPort && strings.length > 1) {
       const orders = new Set(strings.map((s) => s.colorOrder));
       if (orders.size > 1) notes.push(`Port ${port.number}: its props ask for different color orders, so the controller's own is left as it is.`);
@@ -91,7 +114,7 @@ export function showSetup(show: Show, controller: Controller, onePerPort: boolea
   ports.sort((a, b) => a.number - b.number);
   const p = controller.protocol;
   const input: SetupInput = p.type === "ddp" ? { type: "ddp" } : { type: "sacn", startUniverse: p.startUniverse, universeSize: p.universeSize };
-  return { input, ports, notes };
+  return { input, ports, notes, leftAlone };
 }
 
 /** The setup a device reports. */
@@ -111,7 +134,7 @@ export function deviceSetup(config: DeviceConfig): Setup {
   const i = config.input;
   const input: SetupInput =
     i.type === "ddp" ? { type: "ddp" } : i.type === "sacn" ? { type: "sacn", startUniverse: i.startUniverse, universeSize: i.channelsPerUniverse } : { type: "other", description: i.description };
-  return { input, ports, notes };
+  return { input, ports, notes, leftAlone: [] };
 }
 
 const pixelsText = (n: number) => `${thousands(n)} ${n === 1 ? "pixel" : "pixels"}`;
@@ -119,7 +142,9 @@ const inputText = (i: SetupInput) => (i.type === "ddp" ? "DDP" : i.type === "sac
 
 /** The differences between two setups' ports and strings, port by port. */
 export function diffPorts(before: Setup, after: Setup, direction: Direction): Change[] {
-  const numbers = [...new Set([...before.ports, ...after.ports].map((p) => p.number))].sort((a, b) => a - b);
+  const numbers = [...new Set([...before.ports, ...after.ports].map((p) => p.number))]
+    .filter((n) => !before.leftAlone.includes(n) && !after.leftAlone.includes(n))
+    .sort((a, b) => a - b);
   const changes: Change[] = [];
   for (const number of numbers) {
     const b = before.ports.find((p) => p.number === number)?.strings ?? [];
@@ -160,7 +185,9 @@ export function diffPorts(before: Setup, after: Setup, direction: Direction): Ch
           changes.push(row("colorOrder", `${key}/colorOrder`, "Color order", old.colorOrder ?? "Not set", now.colorOrder));
         }
         if (old.start !== null && now.start !== null && old.start !== now.start) {
-          changes.push(row("start", `${key}/start`, "Starts at channel", thousands(old.start), thousands(now.start)));
+          const change = row("start", `${key}/start`, "Starts at channel", thousands(old.start), thousands(now.start));
+          if (direction === "toDevice") change.warning = MOVES_PIXELS;
+          changes.push(change);
         }
       } else if (now) {
         const order = now.colorOrder ? `, ${now.colorOrder}` : "";
@@ -317,7 +344,10 @@ export function takeFromDevice(
         if (!device || change.port === null) break;
         let propId = useProps[change.id];
         if (propId !== undefined) {
-          if (!show.props.some((p) => p.id === propId)) throw new Error("A prop you picked is no longer in your show. Compare again.");
+          const existing = show.props.find((p) => p.id === propId);
+          if (!existing) throw new Error("A prop you picked is no longer in your show. Compare again.");
+          const problem = device.colorOrder ? mappingProblem(existing, device.colorOrder) : null;
+          if (problem) throw new Error(`${existing.name} can't be wired to that string: ${problem}`);
         } else {
           const fallback = `${out.name} Port ${change.port} ${change.id.split("/")[1].replace("string", "String ")}`;
           const base = device.name && !device.name.startsWith("String ") ? device.name : fallback;

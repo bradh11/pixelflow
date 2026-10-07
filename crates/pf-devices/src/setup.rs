@@ -1303,4 +1303,103 @@ mod tests {
         assert_eq!(sacn.universe_size, UniverseSize::CHANNELS_510, "not picked");
         assert!(sacn.multicast, "kept");
     }
+
+    /// `app/src/api/setupCases.json` is also run against the in-memory backend's comparison
+    /// (`app/src/lib/deviceSetup.test.ts`), so the two can't drift apart.
+    #[test]
+    fn shared_cases_match_the_in_memory_backend() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/src/api/setupCases.json");
+        let cases: Vec<serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let order =
+                |v: &serde_json::Value| -> Option<ColorOrder> { serde_json::from_value(v.clone()).ok() };
+            let mut show = Show::new("t");
+            let mut controller = Controller::new(
+                "C",
+                "192.0.2.1",
+                serde_json::from_value(case["protocol"].clone()).unwrap(),
+            );
+            for entry in case["show"].as_array().unwrap() {
+                let mut port = Port::new(entry["port"].as_u64().unwrap() as u16);
+                for s in entry["slots"].as_array().unwrap() {
+                    let nodes = s["nodes"].as_u64().unwrap() as u32;
+                    let shape = match s["shape"].as_str() {
+                        Some("arch") => Generator::arch(nodes, 2.0, 1.0),
+                        _ => Generator::Line {
+                            nodes,
+                            length: nodes as f32 * 0.1,
+                        },
+                    };
+                    let mut prop = Prop::new(s["name"].as_str().unwrap(), ShapeSource::Generator(shape));
+                    prop.color_order = order(&s["colorOrder"]).unwrap_or(ColorOrder::Rgb);
+                    let mut slot = PortSlot::new(prop.id);
+                    slot.null_pixels = s["nullPixels"].as_u64().unwrap_or(0) as u32;
+                    slot.smart_receiver = s["smartReceiver"].as_u64().map(|r| r as u8);
+                    slot.controller_color_order = order(&s["controllerColorOrder"]);
+                    port.slots.push(slot);
+                    show.props.push(prop);
+                }
+                controller.ports.push(port);
+            }
+            let input = &case["device"]["input"];
+            let config = DeviceConfig {
+                input: match input["type"].as_str().unwrap() {
+                    "sacn" => DeviceInput::Sacn {
+                        start_universe: input["startUniverse"].as_u64().unwrap() as u16,
+                        channels_per_universe: input["channelsPerUniverse"].as_u64().unwrap() as u16,
+                        universe_count: input["universeCount"].as_u64().unwrap() as u16,
+                    },
+                    "unsupported" => DeviceInput::Unsupported {
+                        description: input["description"].as_str().unwrap().to_string(),
+                    },
+                    _ => DeviceInput::Ddp,
+                },
+                ports: case["device"]["ports"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|p| PortConfig {
+                        number: p["number"].as_u64().unwrap() as u16,
+                        max_pixels: None,
+                        strings: p["strings"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|s| StringConfig {
+                                name: s["name"].as_str().map(String::from),
+                                pixels: s["pixels"].as_u64().unwrap() as u32,
+                                color_order: order(&s["colorOrder"]).unwrap_or(ColorOrder::Rgb),
+                                null_pixels: 0,
+                                reverse: false,
+                                brightness: 100,
+                                gamma: 1.0,
+                                smart_receiver: s["smartReceiver"].as_u64().map(|r| r as u8),
+                            })
+                            .collect(),
+                    })
+                    .collect(),
+                destinations: vec![],
+                notes: vec![],
+            };
+            show.controllers.push(controller.clone());
+            let kind: DeviceKind = serde_json::from_value(case["kind"].clone()).unwrap();
+            let comparison = compare(&show, &controller, kind, &config);
+            let rows: Vec<serde_json::Value> = comparison
+                .changes
+                .iter()
+                .map(|c| {
+                    serde_json::json!([c.id, c.subject, c.what, c.before, c.after, c.can_take, c.warning])
+                })
+                .collect();
+            assert_eq!(serde_json::Value::Array(rows), case["expect"]["rows"], "{name}");
+            assert_eq!(
+                serde_json::json!(comparison.notes),
+                case["expect"]["notes"],
+                "{name}"
+            );
+        }
+    }
 }

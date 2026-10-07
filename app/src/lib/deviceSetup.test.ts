@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ColorOrder, Controller, DeviceConfig, Prop, Show, StringConfig } from "../api/types";
 import { demoShow, demoShowDevices } from "../api/demo";
+import setupCases from "../api/setupCases.json";
 import { emptyShow } from "../api/memory";
 import { applySetup, compareSetup, deviceSetup, diffPorts, showSetup, takeFromDevice } from "./deviceSetup";
 import { newController, nodeCount } from "./shows";
@@ -138,4 +139,41 @@ describe("device setup", () => {
     const sent = diffPorts(deviceSetup(main.config), showSetup(show, controller, false), "toDevice").map((c) => c.id);
     expect(sent).toEqual(["port1/string2/pixels", "port2/string1/pixels", "port3/string1"]);
   });
+
+  // The same cases run against the engine's comparison (crates/pf-devices/src/setup.rs).
+  type CaseSlot = { name: string; nodes: number; shape?: string; colorOrder?: ColorOrder; controllerColorOrder?: ColorOrder; nullPixels?: number; smartReceiver?: number };
+  type CaseString = { name: string | null; pixels: number; colorOrder?: ColorOrder; smartReceiver?: number };
+  it.each(setupCases as unknown as { name: string; kind: "fpp" | "falcon" | "wled"; protocol: Controller["protocol"] | { type: "sacn"; startUniverse: number | null; universeSize: number }; show: { port: number; slots: CaseSlot[] }[]; device: { input: DeviceConfig["input"]; ports: { number: number; strings: CaseString[] }[] }; expect: { rows: unknown[][]; notes: string[] } }[])(
+    "shared case: $name",
+    ({ kind, protocol, show: ports, device, expect: wanted }) => {
+      const show = emptyShow("t");
+      const controller = newController("C", "192.0.2.1", "ddp", 0);
+      controller.protocol = protocol.type === "sacn" ? { allowPixelStraddle: false, multicast: false, ...protocol } : { type: "ddp" };
+      for (const entry of ports) {
+        const port = { number: entry.port, maxPixels: null, brightness: 100, gamma: 1, slots: [] as Controller["ports"][number]["slots"] };
+        for (const s of entry.slots) {
+          const prop = line(s.name, s.nodes);
+          if (s.shape === "arch") prop.shape = { source: "generator", type: "arch", nodes: s.nodes, width: 2, height: 1, arches: 1 } as Prop["shape"];
+          prop.colorOrder = s.colorOrder ?? "RGB";
+          port.slots.push({ ...slot(prop, s.controllerColorOrder ?? null), nullPixels: s.nullPixels ?? 0, smartReceiver: s.smartReceiver ?? null });
+          show.props.push(prop);
+        }
+        controller.ports.push(port);
+      }
+      show.controllers = [controller];
+      const config: DeviceConfig = {
+        input: device.input,
+        ports: device.ports.map((p) => ({
+          number: p.number,
+          maxPixels: null,
+          strings: p.strings.map((s) => ({ ...string(s.name ?? "", s.pixels, s.colorOrder ?? "RGB"), name: s.name, smartReceiver: s.smartReceiver ?? null })),
+        })),
+        destinations: [],
+        notes: [],
+      };
+      const { changes, notes } = compareSetup(show, controller, kind, config);
+      expect(changes.map((c) => [c.id, c.subject, c.what, c.before, c.after, c.canTake, c.warning])).toEqual(wanted.rows);
+      expect(notes).toEqual(wanted.notes);
+    },
+  );
 });

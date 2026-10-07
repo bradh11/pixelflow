@@ -224,7 +224,13 @@ fn status_error(status: u16, kind: &str, message: &str, key: &ApiKey, model: Opt
     let p = ProviderId::Anthropic;
     let lower = message.to_ascii_lowercase();
     let model = model.unwrap_or("").to_string();
-    match (status, kind) {
+    let invalid_request = kind == "invalid_request_error" || (status == 400 && kind.is_empty());
+    let unsupported = if invalid_request {
+        unsupported_param(message)
+    } else {
+        None
+    };
+    let base = match (status, kind) {
         (401, _) | (_, "authentication_error") => AiError::InvalidKey(p),
         (402, _) | (_, "billing_error") => AiError::Billing(p),
         (403, _) | (_, "permission_error") => AiError::PermissionDenied(p),
@@ -236,17 +242,67 @@ fn status_error(status: u16, kind: &str, message: &str, key: &ApiKey, model: Opt
         (529, _) | (_, "overloaded_error") => AiError::Overloaded(p),
         _ if lower.contains("credit balance") => AiError::Billing(p),
         _ if lower.contains("prompt is too long") || lower.contains("context window") => AiError::TooLong,
-        _ if lower.contains("tool")
-            && (lower.contains("not supported") || lower.contains("does not support")) =>
-        {
-            AiError::ModelNoTools { provider: p, model }
-        }
+        _ if invalid_request && says_no_tools(&lower) => AiError::ModelNoTools { provider: p, model },
+        _ if unsupported.is_some() => AiError::UnsupportedParameter {
+            provider: p,
+            model,
+            param: unsupported.unwrap_or_default(),
+        },
         (500..=599, _) => AiError::Overloaded(p),
         _ => AiError::Provider {
             provider: p,
             message: sanitize(message, Some(key.expose())),
         },
+    };
+    let head = if kind.is_empty() {
+        format!("HTTP {status}")
+    } else {
+        format!("HTTP {status} {kind}")
+    };
+    base.with_details(sanitize(&format!("{head}: {message}"), Some(key.expose())))
+}
+
+/// Anthropic saying the model itself can't use tools (not that one option or tool is refused).
+fn says_no_tools(lower: &str) -> bool {
+    [
+        "does not support tool use",
+        "doesn't support tool use",
+        "does not support tools",
+        "doesn't support tools",
+        "tool use is not supported",
+        "tools are not supported",
+    ]
+    .iter()
+    .any(|phrase| lower.contains(phrase))
+}
+
+/// The request option a 400 refuses: "`top_k` is not supported ..." or
+/// "tools.0.custom.eager_input_streaming: Extra inputs are not permitted". Only a top-level
+/// field or one of the tools' options counts: a refused part of a message (`messages.3...`)
+/// means PixelFlow built the request wrong, which another model wouldn't fix.
+fn unsupported_param(message: &str) -> Option<String> {
+    let lower = message.to_ascii_lowercase();
+    let refused = lower.contains("not supported")
+        || lower.contains("unsupported")
+        || lower.contains("extra inputs are not permitted");
+    if !refused {
+        return None;
     }
+    let is_path = |text: &str| {
+        !text.is_empty()
+            && text.len() <= 80
+            && text
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '[' | ']'))
+            && (!text.contains('.') || text.starts_with("tools."))
+    };
+    if let Some((head, _)) = message.split_once(": ")
+        && is_path(head)
+    {
+        return Some(head.to_string());
+    }
+    let quoted = message.split('`').nth(1)?;
+    is_path(quoted).then(|| quoted.to_string())
 }
 
 /// A 400 that names the fallback opt-in: this account (or proxy) doesn't take it, so the

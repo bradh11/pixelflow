@@ -346,7 +346,7 @@ export function AppShell() {
   // it takes a narrower column (and the sidebar folds to icons).
   const band = useWindowBand();
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col overflow-hidden">
       <TopBar />
       <MissingFilesBanner />
       <div className="relative flex min-h-0 flex-1">

@@ -45,6 +45,7 @@ if (inTauri()) {
   }
   void useAssistant.getState().connect(assistant);
   const sequencer = new MemorySequencer(backend);
+  assistant.sequencer = sequencer;
   if (demo) {
     // A sample sequence, open on the Sequence screen.
     backend.nextAudioPath = DEMO_MUSIC;

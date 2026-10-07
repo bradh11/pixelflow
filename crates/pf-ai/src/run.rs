@@ -5,6 +5,7 @@
 use crate::diff::{effect_name, target_name};
 use crate::draft::Draft;
 use crate::provider::ToolCall;
+use crate::song::Song;
 use crate::tools::{Query, ToolKind, Toolbox, sequence_edit, show_edit};
 use pf_model::{GroupMember, Show};
 use pf_sequence::{Sequence, format_ms};
@@ -21,6 +22,8 @@ pub enum Outcome {
     Answer { content: String, is_error: bool },
     /// The model asked to show its draft to the user.
     Propose { summary: String },
+    /// The model asked the user to choose a song for a new sequence.
+    AskForSong,
 }
 
 fn ok(content: impl Into<String>) -> Outcome {
@@ -55,7 +58,7 @@ fn to_json<T: Serialize>(value: &T) -> String {
 
 /// Runs one call. Unknown tools (anything outside the toolbox, like saving, output, or devices)
 /// are refused with an explanation, and nothing happens.
-pub fn run_tool(toolbox: &Toolbox, call: &ToolCall, draft: &mut Draft) -> Outcome {
+pub fn run_tool(toolbox: &Toolbox, call: &ToolCall, draft: &mut Draft, song: &mut Song<'_>) -> Outcome {
     let Some(tool) = toolbox.find(&call.name) else {
         return err(format!(
             "There is no tool called \"{}\". You can only read the show and draft changes for the user to review: you can't save or export files, send to controllers, start output or playback, or contact devices. If the user wants one of those, tell them where to do it in PixelFlow.",
@@ -81,6 +84,29 @@ pub fn run_tool(toolbox: &Toolbox, call: &ToolCall, draft: &mut Draft) -> Outcom
             },
             Err(e) => err(e),
         },
+        ToolKind::AnalyzeSong => match song.analysis(draft) {
+            Ok(analysis) => ok(crate::song::describe(&analysis).to_string()),
+            Err(e) => err(e),
+        },
+        ToolKind::AddSongTiming => {
+            let wanted: Vec<String> = match input["tracks"].as_array() {
+                Some(names) => names
+                    .iter()
+                    .filter_map(|n| n.as_str().map(str::to_string))
+                    .collect(),
+                None => ["beats", "bars", "sections"].map(String::from).to_vec(),
+            };
+            match song
+                .analysis(draft)
+                .and_then(|analysis| crate::song::add_timing(&analysis, draft, &wanted))
+            {
+                Ok(tracks) => ok(tracks.to_string()),
+                Err(e) => err(e),
+            }
+        }
+        ToolKind::PlaceEffects => crate::arrange::place(draft, input).map_or_else(err, ok),
+        ToolKind::RepeatEffects => crate::arrange::repeat(draft, input).map_or_else(err, ok),
+        ToolKind::AskForSong => Outcome::AskForSong,
         ToolKind::ReviewDraft => ok(draft.diff().describe()),
         ToolKind::ResetDraft => {
             draft.reset();
@@ -163,7 +189,28 @@ fn run_query(query: Query, input: &Value, draft: &Draft) -> Outcome {
         }),
         Query::ListPlaylist => ok(to_json(&show.sequences)),
         Query::Selection => ok(selection(draft)),
-        Query::EffectKinds => ok(to_json(&pf_sequence::effect_catalog())),
+        Query::EffectKinds => {
+            let mut catalog = pf_sequence::effect_catalog();
+            if let Some(kind) = input["kind"].as_str() {
+                catalog.retain(|info| serde_json::to_value(info.kind).is_ok_and(|k| k == kind));
+                if catalog.is_empty() {
+                    return err(
+                        "There's no effect kind by that name. list_effect_kinds without a kind lists them all.",
+                    );
+                }
+            }
+            ok(to_json(&catalog))
+        }
+        Query::ShapeSettings => {
+            let shape = input["type"].as_str().unwrap_or_default();
+            match crate::tools::shape_settings(shape) {
+                Some(schema) => ok(schema.to_string()),
+                None => err(format!(
+                    "There's no prop shape by that name. Shapes: {}.",
+                    crate::tools::shape_types().join(", ")
+                )),
+            }
+        }
         Query::OpenSequence => match draft.sequence() {
             Some(doc) => ok(sequence_summary(show, doc)),
             None => ok("No sequence is open in the editor."),

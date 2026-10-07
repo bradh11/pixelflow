@@ -16,6 +16,8 @@ pub struct OnsetEnvelope {
     pub sample_rate: u32,
     /// Samples analyzed.
     pub samples: u64,
+    /// How loud each frame is (root mean square of its samples, 0–1).
+    pub loudness: Vec<f32>,
 }
 
 impl OnsetEnvelope {
@@ -56,6 +58,7 @@ pub fn onset_envelope(samples: impl Iterator<Item = f32>, sample_rate: u32) -> O
     let mut filled = 0usize;
     let mut samples_seen = 0u64;
     let mut values = Vec::new();
+    let mut loudness = Vec::new();
     let mut samples = samples.map(|s| if s.is_finite() { s.clamp(-1.0, 1.0) } else { 0.0 });
     let mut done = false;
     while !done {
@@ -81,6 +84,8 @@ pub fn onset_envelope(samples: impl Iterator<Item = f32>, sample_rate: u32) -> O
             }
             buffer[filled..].fill(0.0);
         }
+        let power = buffer.iter().map(|&s| s * s).sum::<f32>() / FRAME as f32;
+        loudness.push(power.sqrt());
         for ((x, &s), &w) in input.iter_mut().zip(&buffer).zip(&window) {
             *x = s * w;
         }
@@ -106,6 +111,7 @@ pub fn onset_envelope(samples: impl Iterator<Item = f32>, sample_rate: u32) -> O
         values,
         sample_rate: sample_rate.max(1),
         samples: samples_seen,
+        loudness,
     }
 }
 

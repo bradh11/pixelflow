@@ -16,6 +16,7 @@
     { "id": "gpt-5-codex", "object": "model", "created": 1758000000, "owned_by": "system" },
     { "id": "o3-deep-research", "object": "model", "created": 1750000000, "owned_by": "system" },
     { "id": "computer-use-preview", "object": "model", "created": 1741000001, "owned_by": "system" },
+    { "id": "gpt-4o-mini-search-preview", "object": "model", "created": 1741000002, "owned_by": "system" },
     { "id": "o1-mini", "object": "model", "created": 1725000000, "owned_by": "system" },
     { "id": "text-embedding-3-large", "object": "model", "created": 1705953180, "owned_by": "system" },
     { "id": "omni-moderation-latest", "object": "model", "created": 1731689265, "owned_by": "system" },

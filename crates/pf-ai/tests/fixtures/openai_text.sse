@@ -1,8 +1,0 @@
-data: {"id":"chatcmpl-fixture2","object":"chat.completion.chunk","created":1790000001,"model":"gpt-5.1","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
-
-data: {"id":"chatcmpl-fixture2","object":"chat.completion.chunk","created":1790000001,"model":"gpt-5.1","choices":[{"index":0,"delta":{"content":"All set."},"finish_reason":null}]}
-
-data: {"id":"chatcmpl-fixture2","object":"chat.completion.chunk","created":1790000001,"model":"gpt-5.1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
-
-data: [DONE]
-

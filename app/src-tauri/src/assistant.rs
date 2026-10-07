@@ -16,6 +16,13 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tauri::ipc::Response;
 use tauri::{AppHandle, Emitter, Runtime, State};
 
+/// A proposal's draft sequence ready to play: its renderer and the sequence.
+struct DraftPlayer {
+    proposal: String,
+    renderer: pf_engine::DraftRenderer,
+    doc: pf_sequence::Sequence,
+}
+
 /// The event a chat turn streams on.
 pub(crate) const ASSISTANT_EVENT: &str = "assistant-event";
 
@@ -31,6 +38,8 @@ pub(crate) struct AiState {
     running: Mutex<Option<Cancel>>,
     /// Numbers turns, so the window can tell their events apart.
     turns: Mutex<u64>,
+    /// The proposal whose draft sequence is being previewed.
+    player: Mutex<Option<DraftPlayer>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -45,6 +54,7 @@ impl AiState {
             session: Arc::default(),
             running: Mutex::default(),
             turns: Mutex::default(),
+            player: Mutex::default(),
         }
     }
 
@@ -54,6 +64,11 @@ impl AiState {
             KeyVault::os(),
             pf_ai::providers(Arc::new(pf_ai::http::UreqTransport::new())),
         )
+    }
+
+    /// Lets go of the draft being previewed (its proposal was applied, discarded, or dropped).
+    fn forget_player(&self) {
+        *lock(&self.player) = None;
     }
 
     fn idle(&self) -> Reply<()> {
@@ -75,6 +90,41 @@ impl Drop for Running<'_> {
 
 fn text(error: AiError) -> String {
     error.to_string()
+}
+
+/// What a chat turn or the model list fails with: the plain message, and the provider's own
+/// (sanitized) words for it when there are any, for the chat's "Details".
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Failure {
+    message: String,
+    details: Option<String>,
+}
+
+impl From<AiError> for Failure {
+    fn from(error: AiError) -> Self {
+        Self {
+            message: error.to_string(),
+            details: error.details().map(str::to_string),
+        }
+    }
+}
+
+impl From<String> for Failure {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            details: None,
+        }
+    }
+}
+
+async fn off_thread_failing<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, Failure> + Send + 'static,
+) -> Result<T, Failure> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|_| Failure::from("Something went wrong in the assistant.".to_string()))?
 }
 
 async fn off_thread<T: Send + 'static>(work: impl FnOnce() -> Reply<T> + Send + 'static) -> Reply<T> {
@@ -150,12 +200,15 @@ pub(crate) async fn delete_api_key(ai: State<'_, AiState>, provider: ProviderId)
 
 /// The provider's chat models that can use tools, live from the provider, best first.
 #[tauri::command]
-pub(crate) async fn list_ai_models(ai: State<'_, AiState>, provider: ProviderId) -> Reply<Vec<ModelInfo>> {
+pub(crate) async fn list_ai_models(
+    ai: State<'_, AiState>,
+    provider: ProviderId,
+) -> Result<Vec<ModelInfo>, Failure> {
     let vault = Arc::clone(&ai.vault);
     let llm = ai.providers.get(provider);
-    off_thread(move || {
-        let key = vault.key(provider).map_err(text)?;
-        llm.list_models(&key, &Cancel::new()).map_err(text)
+    off_thread_failing(move || {
+        let key = vault.key(provider)?;
+        Ok(llm.list_models(&key, &Cancel::new())?)
     })
     .await
 }
@@ -181,15 +234,17 @@ pub(crate) async fn ai_send<R: Runtime>(
     model: String,
     message: String,
     context: Option<UiContext>,
-) -> Reply<TurnReply> {
+) -> Result<TurnReply, Failure> {
     let model = model.trim().to_string();
     if model.is_empty() || model.len() > MAX_MODEL_ID {
-        return Err("Pick a model in Settings → AI first.".to_string());
+        return Err("Pick a model in Settings → AI first.".to_string().into());
     }
     let cancel = {
         let mut running = lock(&ai.running);
         if running.is_some() {
-            return Err("The assistant is still answering. Wait for it, or press Stop.".to_string());
+            return Err("The assistant is still answering. Wait for it, or press Stop."
+                .to_string()
+                .into());
         }
         let cancel = Cancel::new();
         *running = Some(cancel.clone());
@@ -209,23 +264,21 @@ pub(crate) async fn ai_send<R: Runtime>(
     let vault = Arc::clone(&ai.vault);
     let llm = ai.providers.get(provider);
     let session = Arc::clone(&ai.session);
-    off_thread(move || {
-        let key = vault.key(provider).map_err(text)?;
+    off_thread_failing(move || {
+        let key = vault.key(provider)?;
         let mut session = lock(&session);
-        session
-            .run_turn(
-                llm.as_ref(),
-                &key,
-                &model,
-                &message,
-                workspace,
-                &cancel,
-                &mut |event| {
-                    // A closed window can't show the reply; the turn finishes anyway.
-                    let _ = app.emit(ASSISTANT_EVENT, AssistantEvent { turn, event });
-                },
-            )
-            .map_err(text)
+        Ok(session.run_turn(
+            llm.as_ref(),
+            &key,
+            &model,
+            &message,
+            workspace,
+            &cancel,
+            &mut |event| {
+                // A closed window can't show the reply; the turn finishes anyway.
+                let _ = app.emit(ASSISTANT_EVENT, AssistantEvent { turn, event });
+            },
+        )?)
     })
     .await
 }
@@ -244,6 +297,7 @@ pub(crate) async fn ai_stop(ai: State<'_, AiState>) -> Reply<()> {
 pub(crate) async fn ai_new_chat(ai: State<'_, AiState>) -> Reply<()> {
     ai.idle()?;
     *lock(&ai.session) = ChatSession::new();
+    ai.forget_player();
     Ok(())
 }
 
@@ -267,6 +321,7 @@ pub(crate) async fn ai_apply(
     let proposal = current_proposal(&ai, &id)?;
     let applied = apply_proposal(&mut state.engine(), &proposal)?;
     lock(&ai.session).applied();
+    ai.forget_player();
     Ok(applied)
 }
 
@@ -283,7 +338,11 @@ pub(crate) async fn ai_sync(state: State<'_, AppState>, ai: State<'_, AiState>) 
         let engine = state.engine();
         (engine.show_generation(), engine.sequence_doc_id())
     };
-    Ok(lock(&ai.session).sync_to(generation, document))
+    let dropped = lock(&ai.session).sync_to(generation, document);
+    if dropped {
+        ai.forget_player();
+    }
+    Ok(dropped)
 }
 
 /// Throws the proposal and its draft away.
@@ -292,6 +351,7 @@ pub(crate) async fn ai_discard(ai: State<'_, AiState>, id: String) -> Reply<()> 
     ai.idle()?;
     current_proposal(&ai, &id)?;
     lock(&ai.session).discarded();
+    ai.forget_player();
     Ok(())
 }
 
@@ -307,6 +367,54 @@ pub(crate) async fn ai_preview(ai: State<'_, AiState>, id: String) -> Reply<Resp
         &pf_engine::preview_props_of(&proposal.draft_show),
         Dims::Flat,
     )))
+}
+
+/// The proposal's draft sequence at `position_ms`, drawn on its draft show (show frame bytes,
+/// raw, laid out like [`ai_preview`]'s pixels): the preview plays the draft without applying it.
+/// Nothing is sent to the controllers.
+#[tauri::command]
+pub(crate) async fn ai_preview_frame(
+    ai: State<'_, AiState>,
+    id: String,
+    position_ms: u64,
+) -> Reply<Response> {
+    ai.idle()?;
+    let current = lock(&ai.session).proposal().is_some_and(|p| p.id == id);
+    if !current {
+        ai.forget_player();
+        return Err("That proposal isn't the latest one anymore.".to_string());
+    }
+    let cached = lock(&ai.player).take().filter(|p| p.proposal == id);
+    let mut player = match cached {
+        Some(player) => player,
+        None => {
+            let proposal = current_proposal(&ai, &id)?;
+            let doc = proposal
+                .draft_sequence
+                .filter(|_| !proposal.sequence_edits.is_empty())
+                .ok_or_else(|| "This suggestion doesn't change the sequence.".to_string())?;
+            DraftPlayer {
+                proposal: id,
+                renderer: pf_engine::DraftRenderer::new(&proposal.draft_show),
+                doc,
+            }
+        }
+    };
+    // Rendering is real work: off the async workers.
+    let (player, frame) = tauri::async_runtime::spawn_blocking(move || {
+        let frame = player.renderer.frame(&player.doc, position_ms);
+        (player, frame)
+    })
+    .await
+    .map_err(|_| "Something went wrong drawing the preview.".to_string())?;
+    // Kept for the next frame, unless the proposal was applied, discarded, or replaced meanwhile.
+    if lock(&ai.session)
+        .proposal()
+        .is_some_and(|p| p.id == player.proposal)
+    {
+        *lock(&ai.player) = Some(player);
+    }
+    Ok(Response::new(frame))
 }
 
 #[cfg(test)]
@@ -513,7 +621,7 @@ mod tests {
         let send = json!({ "provider": "anthropic", "model": "claude-opus-5-5", "message": "Call the show Christmas" });
         assert_eq!(
             call(&t, "ai_send", send.clone()).unwrap_err(),
-            "Add your Anthropic API key in Settings → AI first."
+            json!({ "message": "Add your Anthropic API key in Settings → AI first.", "details": null })
         );
         call(
             &t,
@@ -586,6 +694,90 @@ mod tests {
     }
 
     #[test]
+    fn a_sequence_proposal_plays_in_the_preview_without_applying() {
+        let t = app_with(MemoryStore::new());
+        call(
+            &t,
+            "set_api_key",
+            json!({ "provider": "anthropic", "key": FAKE_KEY }),
+        )
+        .unwrap();
+        // No sequence open: the assistant offers the song picker.
+        t.anthropic.push(Reply::ok(sse(
+            "You don't have a sequence open yet.",
+            &[("ask_for_song", json!({}))],
+        )));
+        t.anthropic
+            .push(Reply::ok(sse("Pick a song and I'll build it.", &[])));
+        let send =
+            json!({ "provider": "anthropic", "model": "claude-opus-5-5", "message": "Make me a sequence" });
+        let reply = call(&t, "ai_send", send).unwrap();
+        assert_eq!(reply["chooseSong"], true);
+
+        // The user picked a song; the app made the sequence. Now the draft fills it.
+        call(
+            &t,
+            "new_sequence_doc",
+            json!({ "name": "Jingle", "durationMs": 10_000, "audio": null }),
+        )
+        .unwrap();
+        let track = pf_sequence::TimingTrack::new("Beats", pf_sequence::TimingKind::Beats, vec![]);
+        t.anthropic.push(Reply::ok(sse(
+            "",
+            &[(
+                "sequence_add_timing_track",
+                json!({ "track": serde_json::to_value(&track).unwrap() }),
+            )],
+        )));
+        t.anthropic.push(Reply::ok(sse("Here it is.", &[])));
+        let reply = call(
+            &t,
+            "ai_send",
+            json!({ "provider": "anthropic", "model": "claude-opus-5-5", "message": "I chose a song." }),
+        )
+        .unwrap();
+        let proposal = &reply["proposal"];
+        assert_eq!(proposal["changesSequence"], true);
+        assert_eq!(proposal["timeline"]["durationMs"], 10_000);
+        assert_eq!(proposal["sections"][0]["label"], "Whole sequence");
+        let id = proposal["id"].as_str().unwrap();
+        let frame = request(
+            &t.webview,
+            "ai_preview_frame",
+            json!({ "id": id, "positionMs": 500 }),
+        )
+        .unwrap();
+        assert!(matches!(frame, InvokeResponseBody::Raw(_)));
+        assert!(
+            request(
+                &t.webview,
+                "ai_preview_frame",
+                json!({ "id": "another", "positionMs": 0 })
+            )
+            .is_err()
+        );
+        let doc = call(&t, "get_sequence_doc", json!({})).unwrap();
+        assert_eq!(
+            doc["sequence"]["timingTracks"],
+            json!([]),
+            "previewing applies nothing"
+        );
+
+        // Once discarded, the draft no longer plays (nothing is kept for it).
+        call(&t, "ai_discard", json!({ "id": id })).unwrap();
+        assert!(
+            request(
+                &t.webview,
+                "ai_preview_frame",
+                json!({ "id": id, "positionMs": 500 })
+            )
+            .is_err()
+        );
+        let ai = t.app.state::<AiState>();
+        assert!(lock(&ai.player).is_none());
+    }
+
+    #[test]
     fn opening_another_show_drops_the_proposal() {
         let t = app_with(MemoryStore::new());
         call(
@@ -643,18 +835,21 @@ mod tests {
         )
         .unwrap_err();
         assert!(
-            err.as_str()
+            err["message"]
+                .as_str()
                 .unwrap()
                 .starts_with("Anthropic didn't accept your API key."),
             "{err}"
         );
+        // The provider's own words, for the chat's Details.
+        assert_eq!(err["details"], "HTTP 401 authentication_error: invalid x-api-key");
         assert_eq!(
             call(
                 &t,
                 "ai_send",
                 json!({ "provider": "anthropic", "model": " ", "message": "hi" })
             )
-            .unwrap_err(),
+            .unwrap_err()["message"],
             "Pick a model in Settings → AI first."
         );
         call(&t, "ai_stop", json!({})).unwrap();

@@ -712,10 +712,15 @@ pub fn take_from_device(
                 };
                 let prop_id = match use_props.get(&change.id) {
                     Some(id) => {
-                        if show.prop(*id).is_none() {
+                        let Some(prop) = show.prop(*id) else {
                             return Err(
                                 "A prop you picked is no longer in your show. Compare again.".to_string()
                             );
+                        };
+                        if let Some(order) = device.color_order
+                            && let Some(problem) = crate::import::mapping_problem(prop, order)
+                        {
+                            return Err(format!("{} can't be wired to that string: {problem}", prop.name));
                         }
                         *id
                     }
@@ -1212,6 +1217,30 @@ mod tests {
         .unwrap();
         assert!(taken.new_props.is_empty());
         assert_eq!(taken.controller.ports[2].slots[0].prop, star_id);
+    }
+
+    #[test]
+    fn a_new_string_cant_wire_a_prop_of_another_width() {
+        let (mut show, controller) = show();
+        let mut star = line("Star", 30);
+        star.color_order = ColorOrder::Rgbw;
+        let star_id = star.id;
+        show.props.push(star);
+        let mut config = matching();
+        config
+            .ports
+            .push(port(3, vec![string("Porch", 30, ColorOrder::Rgb)]));
+        let use_props = BTreeMap::from([("port3/string1".to_string(), star_id)]);
+        let err = take_from_device(
+            &show,
+            &controller,
+            DeviceKind::Falcon,
+            &config,
+            &["port3/string1".to_string()],
+            &use_props,
+        )
+        .unwrap_err();
+        assert!(err.contains("shifted"), "{err}");
     }
 
     #[test]

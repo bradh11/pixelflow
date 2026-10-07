@@ -1,5 +1,5 @@
-//! A real Falcon setup, imported and played: smart receivers sharing a port number must not be
-//! summed against one port's limit, and nothing about a port's pixel count may stop output.
+//! A real Falcon setup, imported and played: smart receivers on one port share its pixel limit
+//! (as xLights counts it), and nothing about a port's pixel count may stop output.
 
 use pf_devices::testing::{FALCON, falcon_query, network};
 use pf_devices::{identify, plan_import, read_config};
@@ -8,7 +8,7 @@ use pf_model::IssueCode;
 use pf_output::{RecordingTransport, Transport};
 use std::time::{Duration, Instant};
 
-/// Port 17 (`p` 16) feeds smart receivers A, B and C with 600 pixels each: legal on an F16V5.
+/// Port 17 (`p` 16) feeds smart receivers A, B and C with `pixels` each.
 fn receivers_on_one_port(pixels: u32) -> String {
     let string = |r: u32, s: u32| {
         format!(
@@ -71,7 +71,8 @@ fn start_and_send(engine: &mut Engine, recorded: &pf_output::Recorded) {
 
 #[test]
 fn several_smart_receivers_on_one_port_import_cleanly_and_play() {
-    let (mut engine, recorded, _dir) = import(600);
+    // 3 × 300 = 900 of the port's 1,024.
+    let (mut engine, recorded, _dir) = import(300);
     let snapshot = engine.snapshot();
     assert!(
         !snapshot
@@ -85,15 +86,16 @@ fn several_smart_receivers_on_one_port_import_cleanly_and_play() {
 }
 
 #[test]
-fn a_receiver_over_the_limit_is_reported_but_still_plays() {
-    let (mut engine, recorded, _dir) = import(1100);
+fn receivers_over_the_port_limit_together_are_reported_but_still_play() {
+    // 3 × 600 = 1,800 of 1,024: each receiver alone fits, but together they don't.
+    let (mut engine, recorded, _dir) = import(600);
     let snapshot = engine.snapshot();
     let over: Vec<_> = snapshot
         .issues
         .iter()
         .filter(|i| i.code == IssueCode::PortOverCapacity)
         .collect();
-    assert_eq!(over.len(), 3, "one per receiver: {:?}", snapshot.issues);
+    assert_eq!(over.len(), 1, "one for the port: {:?}", snapshot.issues);
     assert!(over.iter().all(|i| i.severity == pf_model::Severity::Warning));
     start_and_send(&mut engine, &recorded);
 }

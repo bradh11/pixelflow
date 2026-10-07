@@ -275,23 +275,20 @@ fn duplicate_prop_ids_resolve_to_the_first_prop() {
 }
 
 #[test]
-fn each_smart_receiver_on_a_port_has_its_own_pixel_budget() {
-    // Port 17 feeds receivers A, B and C, 600 pixels each: legal on a Falcon, so no problem.
+fn smart_receivers_on_a_port_share_its_pixel_limit() {
+    // Port 17 feeds receivers A and B, 500 pixels each: 1,000 of 1,024 together, so no problem.
     let mut show = Show::new("t");
-    let props: Vec<Prop> = ["A", "B", "C"].iter().map(|n| line(n, 600)).collect();
-    let slots = props
-        .iter()
-        .zip(1u8..)
-        .map(|(p, r)| {
-            let mut slot = PortSlot::new(p.id);
-            slot.smart_receiver = Some(r);
-            slot
-        })
-        .collect();
-    let mut p = port(17, slots);
+    let props: Vec<Prop> = ["A", "B", "C"].iter().map(|n| line(n, 500)).collect();
+    let on = |p: &Prop, r: u8| {
+        let mut slot = PortSlot::new(p.id);
+        slot.smart_receiver = Some(r);
+        slot
+    };
+    let mut p = port(17, vec![on(&props[0], 1), on(&props[1], 2)]);
     p.max_pixels = Some(1024);
-    show.props = props;
     show.controllers = vec![controller("Falcon", Protocol::Ddp, vec![p])];
+    let receiver_c = on(&props[2], 3);
+    show.props = props;
     let (_, report) = map_show(&show);
     assert!(
         !report.has_code(IssueCode::PortOverCapacity),
@@ -299,12 +296,9 @@ fn each_smart_receiver_on_a_port_has_its_own_pixel_budget() {
         report.issues
     );
 
-    // One receiver over its own budget is named.
-    let big = line("Big", 1100);
-    let mut slot = PortSlot::new(big.id);
-    slot.smart_receiver = Some(2);
-    show.controllers[0].ports[0].slots[1] = slot;
-    show.props.push(big);
+    // A third receiver takes the port to 1,500: one warning for the port (as xLights counts it),
+    // even though each receiver alone is under the limit.
+    show.controllers[0].ports[0].slots.push(receiver_c);
     let (_, report) = map_show(&show);
     let over: Vec<_> = report
         .issues
@@ -312,9 +306,10 @@ fn each_smart_receiver_on_a_port_has_its_own_pixel_budget() {
         .filter(|i| i.code == IssueCode::PortOverCapacity)
         .collect();
     assert_eq!(over.len(), 1, "{:?}", report.issues);
+    assert_eq!(over[0].severity, pf_model::Severity::Warning);
     assert_eq!(
         over[0].message,
-        "Port 17 (smart receiver B) on 'Falcon' is over capacity by 76 pixels (1100 of 1024)."
+        "Port 17 on 'Falcon' is over capacity by 476 pixels (1500 of 1024, shared by smart receivers A, B, C)."
     );
 }
 

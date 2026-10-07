@@ -362,18 +362,27 @@ describe("wiring screen", () => {
     expect(useWiring.getState().drag).toBeNull();
   });
 
-  it("gives each smart receiver on a port its own bar", async () => {
+  it("counts the smart receivers on a port against its one limit, showing each one's share", async () => {
     const show = demoShow();
     const port = show.controllers[0].ports[0];
-    port.maxPixels = 520;
+    port.maxPixels = 600;
     port.slots[0].smartReceiver = 1; // Garage Arch, 50
     port.slots[1].smartReceiver = 2; // Window Matrix, 512
+    port.slots.length = 2;
     await setup(show);
-    // Together they'd be 562 of 520; each receiver drives its own output.
-    expect(screen.getByRole("meter", { name: "Port 1 receiver A pixels used" })).toHaveAttribute("aria-valuetext", "50 of 520 pixels");
-    expect(screen.getByRole("meter", { name: "Port 1 receiver B pixels used" })).toHaveAttribute("aria-valuetext", "512 of 520 pixels");
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.getByText("Receiver B: nearly full: 512 of 520 pixels.")).toBeInTheDocument();
+    // One bar for the port: 562 of 600 together (as xLights counts it), split A 50 · B 512.
+    expect(screen.getAllByRole("meter", { name: "Port 1 pixels used" })).toHaveLength(1);
+    expect(screen.getByRole("meter", { name: "Port 1 pixels used" })).toHaveAttribute("aria-valuetext", "562 of 600 pixels (A 50 · B 512)");
+    expect(screen.getByTestId("receivers-1")).toHaveTextContent("A 50 · B 512");
+    expect(screen.getByText("Nearly full: 562 of 600 pixels, shared by receivers A, B.")).toBeInTheDocument();
+
+    // Each receiver alone fits a 520 limit, but together they don't: a warning for the port.
+    await act(async () => {
+      await useApp.getState().apply((s) => [
+        { type: "updateController", controller: { ...s.controllers[0], ports: s.controllers[0].ports.map((p, i) => (i === 0 ? { ...p, maxPixels: 520 } : p)) } },
+      ]);
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent("42 pixels more than this port can drive (562 of 520, shared by receivers A, B).");
   });
 
   it("warns when a Falcon port holds more than it refreshes at the show's frame rate", async () => {

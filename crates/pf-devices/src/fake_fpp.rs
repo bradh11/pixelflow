@@ -127,6 +127,11 @@ pub struct FakeFppState {
     pub status: Value,
     /// What `/api/channel/output/universeOutputs` answers.
     pub outputs: Value,
+    /// What `/api/schedule` answers (`schedule.json` as FPP's scheduler page saves it).
+    pub schedule: Value,
+    /// How long sequences and music files play, in ms, by file name (for `/api/files/music` and
+    /// `/api/sequence/<name>/meta`).
+    pub durations: BTreeMap<String, u64>,
 }
 
 impl Default for FakeFppState {
@@ -159,6 +164,8 @@ impl Default for FakeFppState {
                 "../fixtures/fpp/api_channel_output_universeOutputs.json"
             ))
             .expect("fixture parses"),
+            schedule: json!([]),
+            durations: BTreeMap::new(),
         }
     }
 }
@@ -271,6 +278,45 @@ impl FakeFpp {
         self.state().free_bytes = free;
         self
     }
+
+    /// Says how long a sequence or music file plays.
+    pub fn with_duration(self, name: &str, ms: u64) -> Self {
+        self.state().durations.insert(name.to_string(), ms);
+        self
+    }
+
+    /// Sets the schedule (a list of `schedule.json` entries).
+    pub fn with_schedule(self, entries: Value) -> Self {
+        self.state().schedule = entries;
+        self
+    }
+
+    /// FPP can't ping one of its output targets, and says so in its status, as fppd does
+    /// (`UDPOutput.cpp`: "Cannot Ping <type> Channel Data Target <host> <description>").
+    pub fn with_unreachable_target(self, kind: &str, host: &str, description: &str) -> Self {
+        {
+            let mut s = self.state();
+            let warning = format!("Cannot Ping {kind} Channel Data Target {host} {description}");
+            match s.status.get_mut("warnings").and_then(Value::as_array_mut) {
+                Some(list) => list.push(json!(warning)),
+                None => s.status["warnings"] = json!([warning]),
+            }
+        }
+        self
+    }
+}
+
+/// A `GetFiles()` entry, as FPP 9.5's `files.php` writes one (64-bit: the size is a string).
+fn file_entry(name: &str, size: u64) -> Value {
+    json!({"name": name, "mtime": "10/06/26  06:05 PM", "sizeBytes": size.to_string(),
+           "sizeHuman": format!("{size} B")})
+}
+
+/// FPP's `human_playtime()`: "03m:45s", or "01h:02m:03s" from an hour.
+fn human_playtime(ms: u64) -> String {
+    let s = ms / 1000;
+    let hours = if s >= 3600 { format!("{:02}h:", s / 3600) } else { String::new() };
+    format!("{hours}{:02}m:{:02}s", s / 60 % 60, s % 60)
 }
 
 impl Drop for FakeFpp {
@@ -422,6 +468,31 @@ fn route(s: &mut FakeFppState, method: &str, segments: &[&str], body: &[u8]) -> 
                 .collect::<Vec<_>>()
         )),
         ("GET", ["api", "media"]) => ok(json!(s.music.keys().collect::<Vec<_>>())),
+        ("GET", ["api", "schedule"]) => ok(s.schedule.clone()),
+        ("GET", ["api", "files", "sequences"]) => ok(json!({
+            "status": "ok",
+            "files": s.sequences.iter().map(|(name, f)| file_entry(name, f.size)).collect::<Vec<_>>()
+        })),
+        ("GET", ["api", "files", "music"]) => ok(json!({
+            "status": "ok",
+            "files": s.music.iter().map(|(name, f)| {
+                let mut entry = file_entry(name, f.size);
+                entry["playtimeSeconds"] = json!(s.durations.get(name).map_or("Unknown".to_string(), |&ms| human_playtime(ms)));
+                entry
+            }).collect::<Vec<_>>()
+        })),
+        ("GET", ["api", "files", "playlists"]) => ok(json!({
+            "status": "ok",
+            "files": s.playlists.iter().map(|(name, p)| file_entry(&format!("{name}.json"), p.to_string().len() as u64)).collect::<Vec<_>>()
+        })),
+        // FPP reads the sequence's header; 50 ms frames here.
+        ("GET", ["api", "sequence", name, "meta"]) => match s.sequences.get(&format!("{name}.fseq")) {
+            Some(_) => {
+                let ms = s.durations.get(&format!("{name}.fseq")).copied().unwrap_or(0);
+                ok(json!({"Name": format!("{name}.fseq"), "NumFrames": ms / 50, "StepTime": 50, "ChannelCount": 6147}))
+            }
+            None => (404, json!({"status": "not found"}).to_string()),
+        },
         ("GET", ["api", "playlists"]) => {
             let mut names: Vec<&String> = s.playlists.keys().chain(s.broken_playlists.iter()).collect();
             names.sort();

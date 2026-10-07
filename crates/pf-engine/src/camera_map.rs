@@ -14,6 +14,9 @@ pub struct CameraMapProp {
     pub prop: PropId,
     pub name: String,
     pub nodes: u32,
+    /// How many of its nodes the capture lights (fewer than `nodes` when only part of it is on
+    /// the target).
+    pub covered: u32,
 }
 
 /// The pixels a camera-mapping sequence lights, in sequence order.
@@ -63,10 +66,12 @@ pub(crate) fn camera_map_target(show: &Show, map: &ChannelMap, target: &TargetSp
                         prop: layout.prop,
                         name,
                         nodes: layout.nodes,
+                        covered: 0,
                     });
                     props.len() - 1
                 }
             };
+            props[index].covered += 1;
             owners.push(Owner {
                 prop: index,
                 node: prop_node,
@@ -149,6 +154,7 @@ mod tests {
         assert_eq!(order, [(0, 0), (0, 1), (0, 2), (1, 1), (1, 0)]);
         assert_eq!(target.inputs[1].color_order, "GRB");
         assert_eq!(target.inputs[0].expected.len(), 3);
+        assert_eq!(target.props[1].covered, 2);
 
         let one = camera_map_target(&show, &map, &TargetSpec::Prop { id: b_id });
         let order: Vec<(usize, u32)> = one.owners.iter().map(|o| (o.prop, o.node)).collect();

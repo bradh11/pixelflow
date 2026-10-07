@@ -527,6 +527,8 @@ export interface CameraMapProp {
   prop: Uuid;
   name: string;
   nodes: number;
+  /** How many of its nodes the capture lights (fewer when only part of it is on the target). */
+  covered: number;
 }
 
 /** What a capture of a target covers. */

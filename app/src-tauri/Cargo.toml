@@ -41,6 +41,10 @@ pf-output = { path = "../../crates/pf-output" }
 tauri = { version = "2", features = ["test"] }
 tempfile = "3"
 
+# Camera-map decoding is slow unoptimized; keep it quick in development builds too.
+[profile.dev.package.pf-camera-map]
+opt-level = 2
+
 # The desktop shell is its own workspace so the core crates build and test without
 # Tauri's system dependencies.
 [workspace]

@@ -4,7 +4,7 @@ import { errorMessage } from "../api/backend";
 import { MemoryBackend } from "../api/memory";
 import type { CameraMapPlan, CameraMapTargetInfo, CodeBase, DecodedCapture, OutputStatus, TargetSpec } from "../api/types";
 import { Button, Card, EmptyState, Field, PageHeader, Select } from "../components/ui";
-import { type ApplyChoice, canFit, defaultChoice, describeAnomaly, placementEdits } from "../lib/cameraMap";
+import { type ApplyChoice, canFit, canMeasure, defaultChoice, describeAnomaly, placementEdits } from "../lib/cameraMap";
 import { type CaptureRead, type FrameSource, type ReadProgress, openVideo, readCapture } from "../lib/captureFrames";
 import { thousands } from "../lib/format";
 import { toastWithUndo } from "../state/undoToast";
@@ -104,7 +104,7 @@ export function CameraMapScreen() {
           const out: Record<string, ApplyChoice> = {};
           next.props.forEach((p, i) => {
             const prop = show?.props.find((q) => q.id === p.prop);
-            out[p.prop] = old[p.prop] ?? (prop ? defaultChoice(prop, next.plan.props[i]) : "skip");
+            out[p.prop] = old[p.prop] ?? (prop ? defaultChoice(prop, p, next.plan.props[i]) : "skip");
           });
           return out;
         });
@@ -349,7 +349,10 @@ export function CameraMapScreen() {
                       if (!prop || !result) return null;
                       return (
                         <tr key={p.prop} className="border-t border-neutral-200 dark:border-neutral-800">
-                          <td className="py-1.5">{p.name}</td>
+                          <td className="py-1.5">
+                            {p.name}
+                            {p.covered < p.nodes && <span className="ml-2 text-xs text-neutral-500">(only part of it was in this capture)</span>}
+                          </td>
                           <td className="text-right tabular-nums">
                             {thousands(result.found)} / {thousands(result.nodes)}
                           </td>
@@ -359,7 +362,7 @@ export function CameraMapScreen() {
                               value={choices[p.prop] ?? "skip"}
                               onChange={(e) => setChoices((c) => ({ ...c, [p.prop]: e.target.value as ApplyChoice }))}
                             >
-                              <option value="measured" disabled={result.found === 0}>
+                              <option value="measured" disabled={!canMeasure(p, result)}>
                                 Measured shape (exactly as filmed)
                               </option>
                               <option value="fit" disabled={!canFit(prop, result)}>

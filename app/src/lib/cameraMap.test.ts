@@ -40,8 +40,8 @@ describe("placing props from a capture", () => {
     id: "p1",
     transform: { position: { x: 1, y: 2, z: 0.5 }, rotationDeg: { x: 0, y: 0, z: 10 }, scale: { x: 1, y: 1, z: 1 } },
   });
-  const result = (prop: Prop, plan: PropPlan): CameraMapPlan => ({
-    props: [{ prop: prop.id, name: prop.name, nodes: plan.nodes }],
+  const result = (prop: Prop, plan: PropPlan, covered = plan.nodes): CameraMapPlan => ({
+    props: [{ prop: prop.id, name: prop.name, nodes: plan.nodes, covered }],
     plan: { alignment: null, alignmentError: 0, props: [plan], anomalies: [] },
   });
 
@@ -51,7 +51,7 @@ describe("placing props from a capture", () => {
     const points: [number, number][] = Array.from({ length: nodes }, (_, i) => [i, i % 2 === 0 ? 0 : 0.5]);
     const plan: PropPlan = { nodes, found: nodes, points, measured: points.map(() => true), fit: { scale: 1, rotationDeg: 0, tx: 0, ty: 0, error: 0.2, fits: false } };
     const show = { ...emptyShow("t"), props: [prop] };
-    expect(defaultChoice(prop, plan)).toBe("measured");
+    expect(defaultChoice(prop, result(prop, plan).props[0], plan)).toBe("measured");
     const [edit] = placementEdits(show, result(prop, plan), { p1: "measured" });
     if (edit.type !== "updateProp") throw new Error(edit.type);
     expect(edit.prop.shape.source).toBe("measured");
@@ -62,6 +62,10 @@ describe("placing props from a capture", () => {
     });
     expect(edit.prop.transform.position.z).toBe(0.5);
     expect(placementEdits(show, result(prop, plan), { p1: "skip" })).toEqual([]);
+    // Only part of the prop was in the capture: its measured shape would be incomplete.
+    const part = result(prop, plan, nodes - 1);
+    expect(defaultChoice(prop, part.props[0], plan)).toBe("skip");
+    expect(placementEdits(show, part, { p1: "measured" })).toEqual([]);
   });
 
   it("keeps a fitting shape and moves it onto the pixels", () => {
@@ -71,7 +75,7 @@ describe("placing props from a capture", () => {
     const fit = { scale: 1.5, rotationDeg: 20, tx: -3, ty: 4, error: 0.01, fits: true };
     const plan: PropPlan = { nodes, found: nodes, points: Array.from({ length: nodes }, () => [0, 0]), measured: [], fit };
     expect(canFit(prop, plan)).toBe(true);
-    expect(defaultChoice(prop, plan)).toBe("fit");
+    expect(defaultChoice(prop, result(prop, plan).props[0], plan)).toBe("fit");
     const [edit] = placementEdits({ ...emptyShow("t"), props: [prop] }, result(prop, plan), { p1: "fit" });
     if (edit.type !== "updateProp") throw new Error(edit.type);
     expect(edit.prop.shape).toEqual(prop.shape);

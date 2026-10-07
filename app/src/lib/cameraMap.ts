@@ -1,7 +1,7 @@
 // Camera mapping in the window: the sequence's shape (mirroring crates/pf-camera-map, for the
 // demo capture and progress), plain-language anomalies, and turning a plan into show edits.
 
-import type { CameraMapAnomaly, CameraMapPlan, CodeBase, Edit, PropPlan, Prop, Show } from "../api/types";
+import type { CameraMapAnomaly, CameraMapPlan, CameraMapProp, CodeBase, Edit, PropPlan, Prop, Show } from "../api/types";
 
 /** Slot length in seconds (pf_camera_map::DEFAULT_SLOT_SECONDS). */
 export const SLOT_SECONDS = 0.5;
@@ -93,10 +93,15 @@ export function canFit(prop: Prop, plan: PropPlan): boolean {
   );
 }
 
+/** Whether the capture lit every node of the prop, so its measured shape is complete. */
+export function canMeasure(entry: CameraMapProp, plan: PropPlan): boolean {
+  return plan.found > 0 && entry.covered >= entry.nodes;
+}
+
 /** The choice offered first: keep the shape when it fits, else the measured points. */
-export function defaultChoice(prop: Prop, plan: PropPlan): ApplyChoice {
-  if (plan.found === 0) return "skip";
-  return canFit(prop, plan) ? "fit" : "measured";
+export function defaultChoice(prop: Prop, entry: CameraMapProp, plan: PropPlan): ApplyChoice {
+  if (canFit(prop, plan)) return "fit";
+  return canMeasure(entry, plan) ? "measured" : "skip";
 }
 
 /**
@@ -111,6 +116,7 @@ export function placementEdits(show: Show, result: CameraMapPlan, choices: Recor
     const plan = result.plan.props[i];
     const choice = choices[entry.prop] ?? "skip";
     if (!prop || !plan || plan.points.length !== plan.nodes || choice === "skip") return;
+    if (choice === "measured" && !canMeasure(entry, plan)) return;
     if (choice === "fit" && plan.fit && canFit(prop, plan)) {
       const { scale, rotationDeg, tx, ty } = plan.fit;
       const a = (rotationDeg * Math.PI) / 180;

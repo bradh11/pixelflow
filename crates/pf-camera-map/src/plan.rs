@@ -108,6 +108,13 @@ pub fn plan(decoded: &Decoded, owners: &[Owner], props: &[PropInput], anchors: &
             *slot = Some(flip(f.x, f.y));
         }
     }
+    // Nodes the sequence lit (a capture of one port may light only part of a prop).
+    let mut covered: Vec<Vec<bool>> = props.iter().map(|p| vec![false; p.nodes as usize]).collect();
+    for o in owners.iter().filter(|o| o.prop < props.len()) {
+        if let Some(c) = covered[o.prop].get_mut(o.node as usize) {
+            *c = true;
+        }
+    }
     let expected_at = |o: &Owner| props[o.prop].expected.get(o.node as usize).copied();
 
     let mut anomalies = Vec::new();
@@ -157,7 +164,13 @@ pub fn plan(decoded: &Decoded, owners: &[Owner], props: &[PropInput], anchors: &
     for (k, (prop, found)) in props.iter().zip(&seen).enumerate() {
         let placed: Vec<Option<[f64; 2]>> = found.iter().map(|p| p.map(|p| to_layout.apply(p))).collect();
         let count = placed.iter().flatten().count() as u32;
-        let missing = runs(&placed.iter().map(Option::is_none).collect::<Vec<_>>());
+        let missing = runs(
+            &placed
+                .iter()
+                .zip(&covered[k])
+                .map(|(p, lit)| p.is_none() && *lit)
+                .collect::<Vec<_>>(),
+        );
         if !missing.is_empty() {
             anomalies.push(Anomaly::Missing {
                 prop: k,
@@ -453,6 +466,22 @@ mod tests {
         assert!(result.anomalies.contains(&Anomaly::Missing {
             prop: 0,
             ranges: vec![[4, 4]]
+        }));
+    }
+
+    #[test]
+    fn nodes_the_capture_never_lit_are_not_missing() {
+        let (prop, _) = line();
+        // Only nodes 0–4 were in the capture (one port of a prop on two).
+        let owners: Vec<Owner> = (0..5).map(|node| Owner { prop: 0, node }).collect();
+        let pixels = (0..5u32)
+            .filter(|&i| i != 2)
+            .map(|i| found(i, 100.0 + 50.0 * f64::from(i), 300.0))
+            .collect();
+        let result = plan(&decoded(pixels), &owners, &[prop], &[]);
+        assert!(result.anomalies.contains(&Anomaly::Missing {
+            prop: 0,
+            ranges: vec![[2, 2]]
         }));
     }
 

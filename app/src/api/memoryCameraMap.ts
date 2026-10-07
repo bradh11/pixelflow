@@ -238,7 +238,7 @@ export function planInMemory(
   });
   if (decoded.unreadable.length) anomalies.push({ kind: "unreadable", count: decoded.unreadable.length });
   return {
-    props: props.map((p) => ({ prop: p.id, name: p.name, nodes: nodeCount(p.shape) })),
+    props: props.map((p) => ({ prop: p.id, name: p.name, nodes: nodeCount(p.shape), covered: owners.filter((o) => o.prop === p).length })),
     plan: { alignment: null, alignmentError: 0, props: plans, anomalies },
   };
 }

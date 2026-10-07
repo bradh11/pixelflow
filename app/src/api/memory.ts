@@ -366,7 +366,7 @@ export class MemoryBackend implements Backend {
     return {
       pixels: owners.length,
       seconds: sequenceSeconds(owners.length, base),
-      props: ownerProps(owners).map((p) => ({ prop: p.id, name: p.name, nodes: nodeCount(p.shape) })),
+      props: ownerProps(owners).map((p) => ({ prop: p.id, name: p.name, nodes: nodeCount(p.shape), covered: owners.filter((o) => o.prop === p).length })),
     };
   }
 

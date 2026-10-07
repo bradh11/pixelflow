@@ -64,54 +64,27 @@ describe("devices", () => {
     expect(screen.queryByText("In show")).not.toBeInTheDocument();
   });
 
-  it("explains when a device has nothing to import", async () => {
+  it("opens an FPP's own page, and goes back to the list", async () => {
     const { user } = await openDevices();
     await user.click(screen.getByRole("button", { name: "Scan network" }));
-    await user.click(await screen.findByRole("button", { name: "Open FPP" }));
-    const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText(/Sends 6,147 channels by DDP to Falcon_F16V5_B9F5/)).toBeInTheDocument();
-    expect(within(dialog).getByText(/sends to the controllers listed above. Add each one with its Add to show button/)).toBeInTheDocument();
-    expect(within(dialog).queryByRole("button", { name: /import|add to show/i })).not.toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Close" })).toBeInTheDocument();
-    await user.keyboard("{Escape}");
+    await user.click(await screen.findByText("Pi 3 Model B+ · FPP 9.3 · player"));
+    expect(await screen.findByRole("heading", { name: "FPP" })).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Now playing" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Back to devices" }));
+    expect(screen.getByRole("heading", { name: "Devices" })).toBeInTheDocument();
+    expect(screen.getByText("Porch WLED")).toBeInTheDocument();
   });
 
-  it("shows what an FPP is playing and lets you stop and start it", async () => {
-    const { user, backend } = await openDevices();
-    await user.click(screen.getByRole("button", { name: "Scan network" }));
-    await user.click(await screen.findByRole("button", { name: "Open FPP" }));
-    const dialog = await screen.findByRole("dialog");
-    const player = await within(dialog).findByRole("region", { name: "Player" });
-    expect(within(player).getByText("Playing Christmas Medley 2017.fseq")).toBeInTheDocument();
-    expect(within(player).getByText("7:36 left")).toBeInTheDocument();
-    expect(within(player).getByText(/Cannot Ping DDP Channel Data Target 192.0.2.21/)).toBeInTheDocument();
-    expect(within(player).getByText(/Next: Christmas Medley 2017.fseq, Mon Oct 5 @ 06:48 PM/)).toBeInTheDocument();
-
-    await user.click(within(player).getByRole("button", { name: "Stop now" }));
-    expect(backend.calls).toContain("fppStop:192.0.2.10:now");
-    expect(await within(player).findByText("Idle")).toBeInTheDocument();
-    expect(within(player).queryByRole("button", { name: "Stop now" })).not.toBeInTheDocument();
-
-    const row = within(player).getByRole("row", { name: /Christmas Medley 2017/ });
-    expect(within(row).getByText("9:27")).toBeInTheDocument();
-    expect(within(row).getByText("6,148")).toBeInTheDocument();
-    await user.click(within(row).getByRole("button", { name: "Play Christmas Medley 2017" }));
-    expect(backend.calls).toContain("fppStart:192.0.2.10:Christmas Medley 2017.fseq");
-    expect(await within(player).findByText("Playing Christmas Medley 2017.fseq")).toBeInTheDocument();
-  });
-
-  it("adds a controller an FPP sends to, then fills it in when that controller is imported", async () => {
+  it("sets up the show from an FPP, then fills its controller in when that controller is imported", async () => {
     const { user } = await openDevices();
     await user.click(screen.getByRole("button", { name: "Scan network" }));
     await user.click(await screen.findByRole("button", { name: "Open FPP" }));
-    const dialog = await screen.findByRole("dialog");
-    await user.click(await within(dialog).findByRole("button", { name: "Add Falcon_F16V5_B9F5 to show" }));
-    expect(await within(dialog).findByText("In your show")).toBeInTheDocument();
-    expect(useApp.getState().snapshot!.show.controllers.map((c) => [c.name, c.ports.length])).toEqual([
-      ["Falcon_F16V5_B9F5", 0],
-    ]);
-    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    await user.click(await screen.findByRole("button", { name: "Set up my show from this FPP" }));
+    await user.click(await screen.findByRole("button", { name: "Add 1 controller" }));
+    expect(await screen.findByText("Your show has every controller this FPP sends to.")).toBeInTheDocument();
+    expect(useApp.getState().snapshot!.show.controllers.map((c) => [c.name, c.ports.length])).toEqual([["Falcon_F16V5_B9F5", 0]]);
+    await user.click(screen.getByRole("button", { name: "Back to devices" }));
 
     await user.click(screen.getByRole("button", { name: "Open Falcon_F16V5_B9F5" }));
     const review = await screen.findByRole("dialog");
@@ -121,16 +94,6 @@ describe("devices", () => {
     const controllers = useApp.getState().snapshot!.show.controllers;
     expect(controllers).toHaveLength(1);
     expect(controllers[0].ports.length).toBeGreaterThan(0);
-  });
-
-  it("doesn't offer to add a destination PixelFlow can't send to", async () => {
-    const { user, backend } = await openDevices();
-    backend.deviceNetwork.details[0].config.destinations[0].protocol = "Art-Net";
-    await user.click(screen.getByRole("button", { name: "Scan network" }));
-    await user.click(await screen.findByRole("button", { name: "Open FPP" }));
-    const dialog = await screen.findByRole("dialog");
-    expect(await within(dialog).findByText("Not supported yet")).toBeInTheDocument();
-    expect(within(dialog).queryByRole("button", { name: /to show/ })).not.toBeInTheDocument();
   });
 
   it("clicking a device's row opens it", async () => {

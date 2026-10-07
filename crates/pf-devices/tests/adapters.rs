@@ -52,7 +52,7 @@ fn fpp_player_reports_its_destinations_and_nothing_to_import() {
     );
     let plan = plan_import(&device, &config, &Show::new("t"));
     assert!(!plan.can_import);
-    assert!(plan.notes[0].contains("listed above. Add each one with its Add to show button"));
+    assert!(plan.notes[0].contains("passes its sequence on to the controllers it sends to"));
     assert_no_secret_endpoints(&http);
 }
 

@@ -16,6 +16,7 @@ mod fake_fpp;
 pub mod falcon;
 mod fingerprint;
 pub mod fpp;
+pub mod fpp_info;
 pub mod fpp_ping;
 pub mod fpp_player;
 pub mod fpp_upload;
@@ -34,5 +35,7 @@ pub use error::DeviceError;
 pub use fingerprint::classify_home_page;
 pub use http::{FakeHttp, Http, HttpClient};
 pub use identify::{identify, read_config};
-pub use import::{ImportPlan, is_placeholder, plan_destination_import, plan_import};
+pub use import::{
+    FppSetupPlan, ImportPlan, SetupSkip, is_placeholder, plan_destination_import, plan_fpp_setup, plan_import,
+};
 pub use reach::{FakeReach, Reach, ReachCheck, TcpReach, check_reach, local_networks, on_local_network};

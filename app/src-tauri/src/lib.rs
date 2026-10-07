@@ -282,6 +282,11 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         devices::fpp_sequences,
         devices::fpp_start,
         devices::fpp_stop,
+        devices::fpp_files,
+        devices::fpp_schedule,
+        devices::fpp_setup_plan,
+        devices::fpp_set_up_show,
+        devices::open_device_page,
         fpp_send::fpp_send_plan,
         fpp_send::fpp_send,
         fpp_send::cancel_fpp_send,
@@ -1681,6 +1686,111 @@ mod tests {
         )
         .unwrap();
         assert_eq!(names, json!(["Christmas Medley 2017.fseq"]));
+    }
+
+    #[test]
+    fn an_fpps_files_and_schedule_are_read_without_changing_anything() {
+        let fpp = pf_devices::testing::FakeFpp::start()
+            .with_sequence("Show.fseq", 1000)
+            .with_duration("Show.fseq", 60_000)
+            .with_music("Show.mp3", 500)
+            .with_playlist("Main")
+            .with_schedule(json!([{ "enabled": 1, "day": 7, "playlist": "Main",
+                "startTime": "17:00:00", "endTime": "22:00:00", "repeat": 1, "stopType": 0 }]));
+        let (_app, webview, _dir) = app();
+        let address = fpp.address();
+        let sequences = call(
+            &webview,
+            "fpp_files",
+            json!({ "address": address, "folder": "sequences" }),
+        )
+        .unwrap();
+        assert_eq!(sequences[0]["name"], "Show.fseq");
+        assert_eq!(sequences[0]["durationMs"], 60_000);
+        assert_eq!(sequences[0]["sizeBytes"], 1000);
+        let music = call(
+            &webview,
+            "fpp_files",
+            json!({ "address": address, "folder": "music" }),
+        )
+        .unwrap();
+        assert_eq!(music[0]["name"], "Show.mp3");
+        let playlists = call(
+            &webview,
+            "fpp_files",
+            json!({ "address": address, "folder": "playlists" }),
+        )
+        .unwrap();
+        assert_eq!(playlists[0]["name"], "Main");
+        let schedule = call(&webview, "fpp_schedule", json!({ "address": address })).unwrap();
+        assert_eq!(schedule[0]["name"], "Main");
+        assert_eq!(schedule[0]["kind"], "playlist");
+        assert_eq!(schedule[0]["startTime"], "17:00:00");
+        assert!(fpp.state().writes().is_empty());
+    }
+
+    #[test]
+    fn setting_up_the_show_from_an_fpp_adds_its_targets_as_one_undo_step() {
+        let (_app, webview, _dir) = app();
+        let fpp = pf_devices::testing::FPP;
+        let plan = call(&webview, "fpp_setup_plan", json!({ "address": fpp })).unwrap();
+        assert_eq!(plan["own"], json!(null));
+        let controllers = plan["controllers"].as_array().unwrap();
+        assert_eq!(controllers.len(), 1);
+        assert_eq!(controllers[0]["name"], "Falcon_F16V5_B9F5");
+        assert_eq!(controllers[0]["address"], pf_devices::testing::FALCON);
+        assert_eq!(
+            controllers[0]["sequenceChannels"],
+            json!({ "start": 1, "count": 6147, "rawDdpOffsets": true })
+        );
+        // Planning changed nothing.
+        let snapshot = call(&webview, "get_snapshot", json!({})).unwrap();
+        assert_eq!(snapshot["summary"]["controllers"], 0);
+
+        // A stale plan adds nothing.
+        let error = call(
+            &webview,
+            "fpp_set_up_show",
+            json!({ "address": fpp, "expected": ["192.0.2.77"] }),
+        )
+        .unwrap_err();
+        assert!(
+            error.as_str().unwrap().contains("changed since you looked"),
+            "{error}"
+        );
+
+        let expected = json!([pf_devices::testing::FALCON]);
+        let snapshot = call(
+            &webview,
+            "fpp_set_up_show",
+            json!({ "address": fpp, "expected": expected }),
+        )
+        .unwrap();
+        assert_eq!(snapshot["summary"]["controllers"], 1);
+        assert_eq!(snapshot["show"]["controllers"][0]["name"], "Falcon_F16V5_B9F5");
+        let again = call(&webview, "fpp_setup_plan", json!({ "address": fpp })).unwrap();
+        assert_eq!(again["controllers"], json!([]));
+        assert!(
+            again["skipped"][0]["reason"]
+                .as_str()
+                .unwrap()
+                .starts_with("Already in your show")
+        );
+
+        let snapshot = call(&webview, "undo", json!({})).unwrap();
+        assert_eq!(snapshot["summary"]["controllers"], 0, "one undo step");
+    }
+
+    #[test]
+    fn a_device_page_link_must_be_a_plain_address() {
+        let (_app, webview, _dir) = app();
+        let error = call(
+            &webview,
+            "open_device_page",
+            json!({ "address": "192.0.2.10/x?y" }),
+        )
+        .unwrap_err();
+        assert_eq!(error, json!("192.0.2.10/x?y isn't a controller address."));
     }
 
     #[test]

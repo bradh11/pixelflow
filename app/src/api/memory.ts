@@ -3,6 +3,11 @@ import type {
   ChannelMap,
   DeviceDetails,
   FppSequence,
+  FppFile,
+  FppFolder,
+  FppSetupPlan,
+  ScheduleEntry,
+  Controller,
   FppSendPlan,
   FppSendProgress,
   FppSendRequest,
@@ -439,6 +444,104 @@ export class MemoryBackend implements Backend {
       secondsElapsed: 0,
       secondsRemaining: sequence ? Math.round((sequence.frames * sequence.stepMs) / 1000) : 0,
     };
+  }
+
+  /** Sizes, dates, and lengths of the fake FPPs' files, by address and then file name (a
+   * playlist's without ".json"). */
+  fppFileDetails: Record<string, Record<string, Partial<Pick<FppFile, "sizeBytes" | "modified" | "durationMs">>>> = {};
+  /** The fake FPPs' schedules, by address (none by default). */
+  fppSchedules: Record<string, ScheduleEntry[]> = {};
+  /** Opens a web page (the demo opens a browser tab); nothing by default. */
+  openUrl: ((url: string) => void) | null = null;
+
+  async fppFolder(address: string, folder: FppFolder): Promise<FppFile[]> {
+    const player = this.player(address);
+    const files = this.fppFilesOf(address);
+    const details = this.fppFileDetails[address] ?? {};
+    const file = (name: string, extra: Partial<FppFile> = {}): FppFile => ({
+      name,
+      sizeBytes: null,
+      modified: null,
+      durationMs: null,
+      channels: null,
+      items: null,
+      ...extra,
+      ...details[name],
+    });
+    const byName = (a: FppFile, b: FppFile) => a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+    if (folder === "sequences") {
+      return player.sequences
+        .map((s) => file(`${s.name}.fseq`, { durationMs: s.frames * s.stepMs || null, channels: s.channels || null }))
+        .sort(byName);
+    }
+    if (folder === "music") return files.media.map((name) => file(name)).sort(byName);
+    return Object.entries(files.playlists)
+      .map(([name, items]) => {
+        const lengths = items.map((item) => player.sequences.find((s) => `${s.name}.fseq` === item));
+        const known = lengths.every((s) => s && s.frames > 0);
+        return file(name, { items: items.length, durationMs: known && items.length > 0 ? lengths.reduce((t, s) => t + s!.frames * s!.stepMs, 0) : null });
+      })
+      .sort(byName);
+  }
+
+  async fppSchedule(address: string) {
+    this.player(address);
+    return structuredClone(this.fppSchedules[address] ?? []);
+  }
+
+  /** Like the engine's plan_fpp_setup. */
+  async fppSetupPlan(address: string): Promise<FppSetupPlan> {
+    const { device, config, plan } = await this.inspectDevice(address);
+    const show = this.show;
+    const taken = new Set(show.controllers.map((c) => c.name));
+    const unique = (base: string) => {
+      let name = base;
+      for (let n = 2; taken.has(name); n++) name = `${base} ${n}`;
+      taken.add(name);
+      return name;
+    };
+    const own = config.ports.length > 0 && plan.canImport && !show.controllers.some((c) => c.address === device.address) ? plan : null;
+    if (own) taken.add(own.controller.name);
+    const controllers: Controller[] = [];
+    const result: FppSetupPlan = { own, controllers, skipped: [], notes: [] };
+    for (const d of config.destinations) {
+      const name = d.description.trim() || d.address;
+      const skip = (reason: string) => result.skipped.push({ name, address: d.address, reason });
+      const existing = show.controllers.find((c) => c.address === d.address);
+      if (existing) {
+        skip(`Already in your show as ${existing.name}.`);
+      } else if (controllers.some((c) => c.address === d.address) || own?.controller.address === d.address) {
+        skip(`The FPP lists ${d.address} more than once; it's added once.`);
+      } else if (d.protocol !== "DDP" && d.protocol !== "sACN unicast" && d.protocol !== "sACN multicast") {
+        skip(`PixelFlow can't send ${d.protocol} yet.`);
+      } else {
+        controllers.push({
+          ...newController(unique(name), d.address, d.protocol === "DDP" ? "ddp" : "sacn", 0),
+          sequenceChannels:
+            d.channels > 0 ? { start: Math.max(1, d.startChannel), count: d.channels, ...(d.ddpRaw && d.protocol === "DDP" ? { rawDdpOffsets: true } : {}) } : null,
+        });
+      }
+    }
+    return result;
+  }
+
+  async fppSetUpShow(address: string, expected: string[]) {
+    this.calls.push(`fppSetUpShow:${address}:${expected.join(",")}`);
+    const plan = await this.fppSetupPlan(address);
+    const addresses = [...(plan.own ? [plan.own.controller.address] : []), ...plan.controllers.map((c) => c.address)];
+    if (addresses.join("\n") !== expected.join("\n")) {
+      throw new Error("What this FPP sends to, or your show, changed since you looked. Check the list again before adding.");
+    }
+    if (addresses.length === 0) throw new Error("Your show already has everything this FPP sends to.");
+    return this.applyEdits([
+      ...(plan.own ? [...plan.own.props.map((prop) => ({ type: "addProp" as const, prop })), { type: "addController" as const, controller: plan.own.controller }] : []),
+      ...plan.controllers.map((controller) => ({ type: "addController" as const, controller })),
+    ]);
+  }
+
+  async openDevicePage(address: string) {
+    this.calls.push(`openDevicePage:${address}`);
+    this.openUrl?.(`http://${address}/`);
   }
 
   /** The fake FPP's music, playlists (sequence files on each), free space (null when it doesn't

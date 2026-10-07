@@ -14,17 +14,19 @@ interface Run {
 }
 
 /** Universe-sized chunks `[firstChannel, len]` of a controller's pixels (never splitting a pixel
- * unless `straddle`). */
-function chunks(runs: Run[], size: number, straddle: boolean): [number, number][] {
+ * unless `straddle`, or a universe is too small for one of the pixels: then channels run straight
+ * through, as xLights numbers them). */
+export function universeChunks(runs: Run[], size: number, straddle: boolean): [number, number][] {
   const total = runs.reduce((sum, r) => sum + r.pixels * r.cpp, 0);
   const out: [number, number][] = [];
-  if (straddle) {
+  if (size < 1) return out;
+  if (straddle || runs.some((r) => r.pixels > 0 && r.cpp > size)) {
     for (let start = 0; start < total; start += size) out.push([start, Math.min(size, total - start)]);
     return out;
   }
   let [start, len] = [0, 0];
   for (const run of runs) {
-    let remaining = run.pixels;
+    let remaining = run.cpp > 0 ? run.pixels : 0;
     while (remaining > 0) {
       const fit = Math.floor((size - len) / run.cpp);
       if (fit === 0) {
@@ -91,12 +93,12 @@ export function mapControllers(show: Show): ControllerOutput[] {
   });
 
   // Pinned start universes stay; the rest are numbered from 1 up, skipping pinned ranges.
-  const universeChunks = show.controllers.map((c, i) =>
-    c.protocol.type === "sacn" ? chunks(wired[i].runs, c.protocol.universeSize, c.protocol.allowPixelStraddle) : [],
+  const chunked = show.controllers.map((c, i) =>
+    c.protocol.type === "sacn" ? universeChunks(wired[i].runs, c.protocol.universeSize, c.protocol.allowPixelStraddle) : [],
   );
   const pinned = show.controllers.flatMap((c, i) =>
     c.protocol.type === "sacn" && c.protocol.startUniverse !== null
-      ? [[c.protocol.startUniverse, c.protocol.startUniverse + universeChunks[i].length] as const]
+      ? [[c.protocol.startUniverse, c.protocol.startUniverse + chunked[i].length] as const]
       : [],
   );
   let next = 1;
@@ -104,7 +106,7 @@ export function mapControllers(show: Show): ControllerOutput[] {
     const { spans, channelCount } = wired[i];
     const protocol = controller.protocol;
     if (protocol.type === "ddp") return { controller: controller.id, channelCount, addressing: { type: "ddp" as const }, spans };
-    const count = universeChunks[i].length;
+    const count = chunked[i].length;
     let start = protocol.startUniverse;
     if (start === null) {
       for (let clash = pinned.find(([s, e]) => count > 0 && next < e && s < next + count); clash; ) {
@@ -116,7 +118,7 @@ export function mapControllers(show: Show): ControllerOutput[] {
     }
     const first = start;
     // Universe numbers stop at 65,535 (the engine clamps them the same way; it reports the problem).
-    const universes: UniverseSpan[] = universeChunks[i].map(([controllerChannel, len], n) => ({ universe: Math.min(first + n, MAX_UNIVERSE), controllerChannel, len }));
+    const universes: UniverseSpan[] = chunked[i].map(([controllerChannel, len], n) => ({ universe: Math.min(first + n, MAX_UNIVERSE), controllerChannel, len }));
     return { controller: controller.id, channelCount, addressing: { type: "sacn" as const, universes, multicast: protocol.multicast }, spans };
   });
 }

@@ -243,6 +243,42 @@ mod tests {
     }
 
     #[test]
+    fn universe_cases_match_the_in_memory_backend() {
+        // app/src/api/universeCases.json is also run against the in-memory backend's mapping, so
+        // the browser demo and the UI tests pack universes exactly as the engine does.
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/src/api/universeCases.json");
+        let cases: Vec<serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert!(cases.len() > 5);
+        for case in cases {
+            let number = |v: &serde_json::Value| v.as_u64().unwrap();
+            let runs: Vec<PixelRun> = case["runs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| run(number(&r["pixels"]) as u32, number(&r["cpp"]) as u8))
+                .collect();
+            let expect: Vec<(usize, u16)> = case["expect"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| (number(&c[0]) as usize, number(&c[1]) as u16))
+                .collect();
+            assert_eq!(
+                chunk_channels(
+                    &runs,
+                    number(&case["size"]) as u16,
+                    case["straddle"].as_bool().unwrap()
+                ),
+                expect,
+                "{}",
+                case["name"]
+            );
+        }
+    }
+
+    #[test]
     fn no_channels_means_no_universes() {
         assert!(chunk_channels(&[], 510, false).is_empty());
         assert!(chunk_channels(&[], 510, true).is_empty());

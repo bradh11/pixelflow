@@ -2885,6 +2885,7 @@ name = "pf-ai"
 version = "0.1.0"
 dependencies = [
  "keyring",
+ "pf-analysis",
  "pf-engine",
  "pf-model",
  "pf-sequence",

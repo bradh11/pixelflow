@@ -32,10 +32,45 @@ export interface PolySegment {
   curve?: [Vec3, Vec3] | null;
 }
 
+/** Where a star's pixels start: its top tip, the inner corner at its bottom, or a bottom leg's tip. */
+export type StarStart = "top" | "bottom" | "leftLeg" | "rightLeg";
+
 export type Generator =
   | { type: "line"; nodes: number; length: number }
-  | { type: "arch"; nodes: number; width: number; height: number }
-  | { type: "circle"; nodes: number; radius: number }
+  /** Arches in a row (`nodes` pixels each), or with `layers` one arch of nested layers, laid out as xLights does. Settings left out read as one half-ellipse arch. */
+  | {
+      type: "arch";
+      nodes: number;
+      /** Between each arch's feet. */
+      width: number;
+      /** From the feet to the top. */
+      height: number;
+      arches?: number;
+      /** Degrees of the ellipse each arch goes round, 1–180 (default 180). */
+      arc?: number;
+      /** Between one arch's right foot and the next one's left foot. */
+      gap?: number;
+      /** Lean in degrees, positive to the left. */
+      skewDeg?: number;
+      startRight?: boolean;
+      /** Pixels on each layer, innermost first; empty or absent for plain arches. */
+      layers?: number[];
+      /** The innermost layer's size, percent of the outermost (default 70). */
+      hollow?: number;
+      zigZag?: boolean;
+      startInside?: boolean;
+    }
+  /** Rings of pixels from the top, clockwise; with `layers` (pixels per ring, innermost first) several rings evenly spaced in to `innerPercent` of the radius. */
+  | {
+      type: "circle";
+      nodes: number;
+      radius: number;
+      layers?: number[];
+      innerPercent?: number;
+      startInside?: boolean;
+      startAtBottom?: boolean;
+      counterClockwise?: boolean;
+    }
   | { type: "matrix"; columns: number; rows: number; width: number; height: number; wiring?: MatrixWiring }
   | {
       type: "tree";
@@ -51,8 +86,28 @@ export type Generator =
       degrees?: number;
       /** Where the first string of a round tree stands, degrees round from the front (default 0). */
       startAngle?: number;
+      /** The corner the first string starts at: a top corner runs it down, a right one goes round the other way. */
+      start?: MatrixWiring["start"];
+      /** Zig-zag starts afresh every this many strings (each string folded into that many); 0 never. */
+      strandsPerString?: number;
+      /** Each string goes up every other spot and comes back down the ones between. */
+      alternateNodes?: boolean;
+      /** Turns a round tree's strings wind round from base to top, as xLights winds them. */
+      spiralRotations?: number;
     }
-  | { type: "star"; points: number; nodes: number; outerRadius: number; innerRadius: number }
+  /** Star outlines, pixels evenly along each from the `start` corner, clockwise; with `layers` (pixels per outline, innermost first) nested outlines in to `innerPercent` of the size. */
+  | {
+      type: "star";
+      points: number;
+      nodes: number;
+      outerRadius: number;
+      innerRadius: number;
+      start?: StarStart;
+      counterClockwise?: boolean;
+      layers?: number[];
+      innerPercent?: number;
+      startInside?: boolean;
+    }
   | { type: "customGrid"; columns: number; rows: number; cells: number[] }
   /** Points the line runs through, first to last; `segments` has one fewer. `spreadNodes` spreads that many pixels evenly instead. */
   | { type: "polyLine"; vertices: Vec3[]; segments: PolySegment[]; spreadNodes?: number | null }

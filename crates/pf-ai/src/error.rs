@@ -30,6 +30,14 @@ pub enum AiError {
         "The model \"{model}\" can't use tools, and the assistant needs them to read and change your show. Pick another model in Settings → AI."
     )]
     ModelNoTools { provider: ProviderId, model: String },
+    #[error(
+        "The model \"{model}\" doesn't accept the \"{param}\" setting PixelFlow sends. Pick another model in Settings → AI."
+    )]
+    UnsupportedParameter {
+        provider: ProviderId,
+        model: String,
+        param: String,
+    },
     #[error("This chat is too long for the model. Start a new chat.")]
     TooLong,
     #[error("Couldn't reach {0}. Check your internet connection, then try again.")]
@@ -48,6 +56,42 @@ pub enum AiError {
     Provider { provider: ProviderId, message: String },
     #[error("{0}")]
     KeyStore(String),
+    /// Any of the above, with the provider's own (sanitized) words for it, so a failure can be
+    /// diagnosed from the chat ("Details").
+    #[error("{error}")]
+    Detailed { error: Box<AiError>, details: String },
+}
+
+impl AiError {
+    /// This error with the provider's own words for it (already sanitized), shown under
+    /// "Details". Empty details change nothing.
+    pub fn with_details(self, details: impl Into<String>) -> AiError {
+        let details = details.into();
+        match self {
+            _ if details.trim().is_empty() => self,
+            AiError::Detailed { error, .. } => AiError::Detailed { error, details },
+            error => AiError::Detailed {
+                error: Box::new(error),
+                details,
+            },
+        }
+    }
+
+    /// The error itself, without its details.
+    pub fn root(&self) -> &AiError {
+        match self {
+            AiError::Detailed { error, .. } => error.root(),
+            error => error,
+        }
+    }
+
+    /// The provider's own (sanitized) words for the error, when there are any.
+    pub fn details(&self) -> Option<&str> {
+        match self {
+            AiError::Detailed { details, .. } => Some(details),
+            _ => None,
+        }
+    }
 }
 
 /// A provider's own error message made safe to show: anything that looks like a key is hidden
@@ -57,19 +101,7 @@ pub fn sanitize(message: &str, key: Option<&str>) -> String {
     if let Some(key) = key.filter(|k| !k.is_empty()) {
         text = text.replace(key, "[your key]");
     }
-    let words: Vec<String> = text
-        .split(' ')
-        .map(|word| {
-            let bare =
-                word.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_' && c != '*');
-            if bare.starts_with("sk-") || bare.starts_with("sk_") {
-                word.replace(bare, "[a key]")
-            } else {
-                word.to_string()
-            }
-        })
-        .collect();
-    let mut text = words.join(" ").trim().to_string();
+    let mut text = hide_keys(&text).trim().to_string();
     const LIMIT: usize = 300;
     if text.chars().count() > LIMIT {
         text = text.chars().take(LIMIT).collect::<String>() + "…";
@@ -79,6 +111,40 @@ pub fn sanitize(message: &str, key: Option<&str>) -> String {
     } else {
         text
     }
+}
+
+/// Replaces anything shaped like an API key (`sk-` or `sk_` at the start of a word, then key
+/// characters), wherever it sits: alone, after `key=`, or inside quotes.
+fn hide_keys(text: &str) -> String {
+    let is_key_char = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '*');
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find("sk") {
+        let (before, from) = rest.split_at(at);
+        out.push_str(before);
+        let starts_word = before
+            .chars()
+            .next_back()
+            .is_none_or(|c| !c.is_ascii_alphanumeric());
+        let prefixed = from.starts_with("sk-") || from.starts_with("sk_");
+        // (After an ASCII "sk-", byte 3 is a character boundary.)
+        let tail = if prefixed {
+            from[3..]
+                .find(|c: char| !is_key_char(c))
+                .unwrap_or(from.len() - 3)
+        } else {
+            0
+        };
+        if starts_word && tail >= 4 {
+            out.push_str("[a key]");
+            rest = &from[3 + tail..];
+        } else {
+            out.push_str("sk");
+            rest = &from[2..];
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 #[cfg(test)]
@@ -95,9 +161,46 @@ mod tests {
             None,
         );
         assert!(!masked.contains("sk-proj"), "{masked}");
+        // A key glued to other text is hidden too.
+        for glued in [
+            "bad key=sk-test-not-a-key here",
+            "{\"api_key\":\"sk-test-not-a-key\"}",
+            "(sk_test_not_a_key)",
+        ] {
+            let shown = sanitize(glued, None);
+            assert!(
+                !shown.contains("not-a-key") && !shown.contains("not_a_key"),
+                "{shown}"
+            );
+            assert!(shown.contains("[a key]"), "{shown}");
+        }
+        // Words that merely contain "sk" are left alone.
+        assert_eq!(sanitize("ask-me risk_level", None), "ask-me risk_level");
+        assert_eq!(sanitize("skön sk€ sk", None), "skön sk€ sk");
         assert_eq!(sanitize("line one\nline two", None), "line one line two");
         assert_eq!(sanitize("", None), "no details");
         assert!(sanitize(&"x".repeat(1000), None).chars().count() <= 301);
+    }
+
+    #[test]
+    fn details_ride_along_without_changing_the_message() {
+        let error = AiError::UnsupportedParameter {
+            provider: ProviderId::Openai,
+            model: "gpt-x".into(),
+            param: "reasoning.effort".into(),
+        }
+        .with_details("HTTP 400 unsupported_parameter (reasoning.effort): no");
+        assert_eq!(
+            error.to_string(),
+            "The model \"gpt-x\" doesn't accept the \"reasoning.effort\" setting PixelFlow sends. Pick another model in Settings → AI."
+        );
+        assert_eq!(
+            error.details(),
+            Some("HTTP 400 unsupported_parameter (reasoning.effort): no")
+        );
+        assert!(matches!(error.root(), AiError::UnsupportedParameter { .. }));
+        assert_eq!(AiError::Cancelled.with_details(" "), AiError::Cancelled);
+        assert_eq!(AiError::Cancelled.details(), None);
     }
 
     #[test]

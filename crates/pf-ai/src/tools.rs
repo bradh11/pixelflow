@@ -24,6 +24,16 @@ pub enum ToolKind {
         tag: String,
     },
     Query(Query),
+    /// Reads the open sequence's song (tempo, beats, bars, sections).
+    AnalyzeSong,
+    /// Adds the song's timing tracks to the draft.
+    AddSongTiming,
+    /// One effect on many rows, along timing marks.
+    PlaceEffects,
+    /// Copies a stretch of effects to other times.
+    RepeatEffects,
+    /// Offers the user a button to start a new sequence from a song.
+    AskForSong,
     ReviewDraft,
     ResetDraft,
     Propose,
@@ -42,6 +52,7 @@ pub enum Query {
     ListPlaylist,
     Selection,
     EffectKinds,
+    ShapeSettings,
     OpenSequence,
     SequenceEffects,
     TimingMarks,
@@ -70,7 +81,9 @@ impl Toolbox {
         let mut tools = query_tools();
         tools.extend(show_edit_tools());
         tools.extend(sequence_edit_tools());
+        tools.extend(song_tools());
         tools.extend(draft_tools());
+        compact_large_unions(&mut tools);
         share_large_definitions(&mut tools);
         Self { tools }
     }
@@ -144,6 +157,142 @@ pub fn sequence_tool_name(tag: &str) -> String {
     format!("sequence_{}", snake(tag))
 }
 
+/// The most the whole tool block may weigh, as JSON sent to a provider (bytes). Providers cache
+/// it with the system prompt; past this it crowds the conversation out.
+pub const TOOL_BUDGET_BYTES: usize = 64_000;
+/// How much of [`TOOL_BUDGET_BYTES`] stays free for new tools, edits, and options.
+pub const TOOL_HEADROOM_BYTES: usize = 12_000;
+/// The most one tool may weigh: a large union belongs behind a lookup tool instead (see
+/// [`compact_large_unions`]).
+pub const ONE_TOOL_BUDGET_BYTES: usize = 8_000;
+
+/// The prop shapes' full schema (every generator with its settings).
+fn generator_schema() -> Value {
+    serde_json::to_value(schemars::schema_for!(pf_model::Generator)).unwrap_or(Value::Null)
+}
+
+/// Every prop shape's `type`, in order.
+pub fn shape_types() -> Vec<String> {
+    generator_schema()["oneOf"]
+        .as_array()
+        .map(|variants| {
+            variants
+                .iter()
+                .filter_map(|v| v["properties"]["type"]["const"].as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// One prop shape's full settings (a JSON Schema with the definitions it uses), or `None` for a
+/// shape that doesn't exist. What `shape_settings` answers.
+pub fn shape_settings(shape: &str) -> Option<Value> {
+    let root = generator_schema();
+    let defs = root["$defs"].as_object().cloned().unwrap_or_default();
+    let mut variant = root["oneOf"]
+        .as_array()?
+        .iter()
+        .find(|v| v["properties"]["type"]["const"] == shape)?
+        .clone();
+    let used = referenced_defs(&variant, &defs);
+    if !used.is_empty() {
+        variant["$defs"] = Value::Object(
+            used.into_iter()
+                .filter_map(|name| defs.get(&name).map(|d| (name, d.clone())))
+                .collect(),
+        );
+    }
+    tidy(&mut variant);
+    Some(variant)
+}
+
+/// Every effect kind's `kind`, in order.
+fn effect_kinds() -> Vec<Value> {
+    pf_sequence::EffectKind::ALL
+        .iter()
+        .filter_map(|kind| serde_json::to_value(kind).ok())
+        .collect()
+}
+
+/// Replaces the two largest unions, every prop shape (`Generator`) and every effect kind's
+/// settings (`EffectParams`), with their tag and a pointer to the tool that spells one out
+/// (`shape_settings`, `list_effect_kinds`). Together they were over 17 KB of every request. The
+/// engine still checks every shape and setting on use, and says what doesn't fit.
+fn compact_large_unions(tools: &mut [Tool]) {
+    let shapes = shape_types();
+    let kinds = effect_kinds();
+    for tool in tools.iter_mut() {
+        let Some(defs) = tool
+            .spec
+            .input_schema
+            .get_mut("$defs")
+            .and_then(Value::as_object_mut)
+        else {
+            continue;
+        };
+        if defs.contains_key("Generator") {
+            defs.insert(
+                "Generator".into(),
+                json!({
+                    "type": "object",
+                    "description": "A generated shape: `type` plus that shape's settings. Call shape_settings for one shape's settings and defaults.",
+                    "properties": { "type": { "enum": shapes } },
+                    "required": ["type"],
+                }),
+            );
+        }
+        if defs.contains_key("EffectParams") {
+            defs.insert(
+                "EffectParams".into(),
+                json!({
+                    "type": "object",
+                    "description": "`kind` plus any of its settings (missing ones take their defaults). list_effect_kinds lists each kind's settings.",
+                    "properties": { "kind": { "enum": kinds } },
+                    "required": ["kind"],
+                }),
+            );
+        }
+    }
+}
+
+/// Drops `format` annotations, defaults that are their type's empty value, and empty
+/// descriptions, and writes a choice of plain names as an `enum` (as
+/// [`share_large_definitions`] does for the tools themselves).
+fn tidy(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            if map.get("format").is_some_and(Value::is_string) {
+                map.remove("format");
+            }
+            if map.get("default").is_some_and(is_empty_value) {
+                map.remove("default");
+            }
+            if map.get("description").is_some_and(|d| d.as_str() == Some("")) {
+                map.remove("description");
+            }
+            map.values_mut().for_each(tidy);
+            let names: Option<Vec<Value>> = map.get("oneOf").and_then(Value::as_array).and_then(|items| {
+                items
+                    .iter()
+                    .map(|item| {
+                        let item = item.as_object()?;
+                        (item.len() == 2 && item.get("type") == Some(&json!("string")))
+                            .then(|| item.get("const").cloned())
+                            .flatten()
+                    })
+                    .collect()
+            });
+            if let Some(names) = names {
+                map.remove("oneOf");
+                map.insert("type".into(), json!("string"));
+                map.insert("enum".into(), Value::Array(names));
+            }
+        }
+        Value::Array(items) => items.iter_mut().for_each(tidy),
+        _ => {}
+    }
+}
+
 /// Every `#/$defs/...` a schema refers to, followed through the definitions.
 fn referenced_defs(schema: &Value, defs: &Map<String, Value>) -> BTreeSet<String> {
     fn walk(value: &Value, found: &mut Vec<String>) {
@@ -197,8 +346,9 @@ fn is_empty_value(value: &Value) -> bool {
 
 /// Rewrites `$ref`s to shared definitions outside their owning tool, then drops the definitions
 /// those tools no longer use. Also drops `format` annotations (number widths), which don't
-/// constrain anything here, and defaults that are the type's empty value (`false`, `0`, `null`,
-/// nothing), which say no more than leaving the field out does.
+/// constrain anything here, defaults that are the type's empty value (`false`, `0`, `null`,
+/// nothing), which say no more than leaving the field out does, and empty descriptions; and
+/// writes a choice of plain names as an `enum`.
 fn share_large_definitions(tools: &mut [Tool]) {
     fn rewrite(
         value: &mut Value,
@@ -213,6 +363,10 @@ fn share_large_definitions(tools: &mut [Tool]) {
                 if map.get("default").is_some_and(is_empty_value) {
                     map.remove("default");
                 }
+                // An empty description (set to keep a Rust doc comment out of the schema) says nothing.
+                if map.get("description").is_some_and(|d| d.as_str() == Some("")) {
+                    map.remove("description");
+                }
                 if let Some(Value::String(r)) = map.get("$ref")
                     && let Some(name) = r.strip_prefix("#/$defs/")
                     && let Some((owner, field)) = owner_of(name)
@@ -225,6 +379,24 @@ fn share_large_definitions(tools: &mut [Tool]) {
                     return;
                 }
                 map.values_mut().for_each(|v| rewrite(v, owner_of, tool));
+                // A choice of plain names (variants documented in Rust only) as the short `enum`.
+                let names: Option<Vec<Value>> =
+                    map.get("oneOf").and_then(Value::as_array).and_then(|items| {
+                        items
+                            .iter()
+                            .map(|item| {
+                                let item = item.as_object()?;
+                                (item.len() == 2 && item.get("type") == Some(&json!("string")))
+                                    .then(|| item.get("const").cloned())
+                                    .flatten()
+                            })
+                            .collect()
+                    });
+                if let Some(names) = names {
+                    map.remove("oneOf");
+                    map.insert("type".into(), json!("string"));
+                    map.insert("enum".into(), Value::Array(names));
+                }
             }
             Value::Array(items) => items.iter_mut().for_each(|v| rewrite(v, owner_of, tool)),
             _ => {}
@@ -348,12 +520,90 @@ pub fn sequence_edit_tools() -> Vec<Tool> {
 }
 
 /// Turns a show edit tool call back into the engine's edit (its input plus the implied tag).
+/// Refuses an edit that read back without some of the input's settings, naming them.
 pub fn show_edit(tag: &str, input: &Value) -> Result<Edit, String> {
-    serde_json::from_value(tagged(tag, input)?).map_err(|e| format!("That input doesn't fit this edit: {e}"))
+    parse_whole(tag, input)
 }
 
 pub fn sequence_edit(tag: &str, input: &Value) -> Result<SequenceEdit, String> {
-    serde_json::from_value(tagged(tag, input)?).map_err(|e| format!("That input doesn't fit this edit: {e}"))
+    parse_whole(tag, input)
+}
+
+fn parse_whole<T: serde::de::DeserializeOwned + serde::Serialize>(
+    tag: &str,
+    input: &Value,
+) -> Result<T, String> {
+    let tagged = tagged(tag, input)?;
+    let edit: T = serde_json::from_value(tagged.clone())
+        .map_err(|e| format!("That input doesn't fit this edit: {e}"))?;
+    let ignored = ignored_keys(&tagged, &serde_json::to_value(&edit).unwrap_or(Value::Null));
+    if ignored.is_empty() {
+        Ok(edit)
+    } else {
+        Err(ignored_message(&ignored))
+    }
+}
+
+/// Where in `input` there are settings that `parsed` (the same value read into its type and
+/// written back) doesn't have: names the type doesn't know, which serde would silently drop.
+/// A null, or a `false` flag that isn't written back, isn't counted.
+pub fn ignored_keys(input: &Value, parsed: &Value) -> Vec<String> {
+    fn walk(input: &Value, parsed: &Value, path: &str, out: &mut Vec<String>) {
+        match (input, parsed) {
+            (Value::Object(given), Value::Object(kept)) => {
+                for (key, value) in given {
+                    let here = if path.is_empty() {
+                        key.clone()
+                    } else {
+                        format!("{path}.{key}")
+                    };
+                    match kept.get(key) {
+                        Some(back) => walk(value, back, &here, out),
+                        None if matches!(value, Value::Null | Value::Bool(false)) => {}
+                        None => out.push(here),
+                    }
+                }
+            }
+            (Value::Array(given), Value::Array(kept)) => {
+                for (i, (value, back)) in given.iter().zip(kept).enumerate() {
+                    walk(value, back, &format!("{path}[{i}]"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    walk(input, parsed, "", &mut out);
+    out
+}
+
+/// "PixelFlow doesn't know these settings…", with where to look them up.
+pub fn ignored_message(keys: &[String]) -> String {
+    let mut hints = Vec::new();
+    if keys.iter().any(|k| k.contains("shape")) {
+        hints.push("shape_settings(type) for a prop shape's");
+    }
+    if keys
+        .iter()
+        .any(|k| k.contains("params") || k.contains("settings"))
+    {
+        hints.push("list_effect_kinds(kind) for an effect's");
+    }
+    let hint = if hints.is_empty() {
+        "Check the tool's input schema".to_string()
+    } else {
+        format!("Look the real names up: {}", hints.join("; "))
+    };
+    format!(
+        "Nothing was drafted: PixelFlow doesn't know {} ({}), and would have ignored {}. {hint}.",
+        if keys.len() == 1 {
+            "this setting"
+        } else {
+            "these settings"
+        },
+        keys.iter().take(12).cloned().collect::<Vec<_>>().join(", "),
+        if keys.len() == 1 { "it" } else { "them" },
+    )
 }
 
 fn tagged(tag: &str, input: &Value) -> Result<Value, String> {
@@ -454,9 +704,18 @@ fn query_tools() -> Vec<Tool> {
         ),
         query(
             "list_effect_kinds",
-            "Every effect kind for sequences, with its settings: keys, ranges, defaults, and choices.",
-            object(json!({}), &[]),
+            "Effect kinds for sequences, with their settings: keys, ranges, defaults, and choices. All of them, or one `kind`.",
+            object(json!({ "kind": { "type": "string" } }), &[]),
             Query::EffectKinds,
+        ),
+        query(
+            "shape_settings",
+            "One prop shape's settings in full (a JSON Schema with defaults), for a prop's `shape`.",
+            object(
+                json!({ "type": { "type": "string", "description": "The shape's `type`, e.g. \"tree\"." } }),
+                &["type"],
+            ),
+            Query::ShapeSettings,
         ),
         query(
             "get_open_sequence",
@@ -479,7 +738,7 @@ fn query_tools() -> Vec<Tool> {
         ),
         query(
             "get_timing_marks",
-            "A timing track's marks (start, end, label), optionally only in a time range.",
+            "A timing track's marks (start, end, label: a beat number, a lyric line or word), optionally only in a time range.",
             object(
                 {
                     let mut p = time_range();
@@ -489,6 +748,92 @@ fn query_tools() -> Vec<Tool> {
                 &["trackId"],
             ),
             Query::TimingMarks,
+        ),
+    ]
+}
+
+fn tool(name: &str, description: &str, input_schema: Value, kind: ToolKind) -> Tool {
+    Tool {
+        spec: ToolSpec {
+            name: name.into(),
+            description: description.into(),
+            input_schema,
+        },
+        kind,
+    }
+}
+
+/// Starting a sequence from a song, reading the song, and placing many effects in one call.
+fn song_tools() -> Vec<Tool> {
+    let ms = || json!({ "type": "integer", "minimum": 0 });
+    let ids = || json!({ "type": "array", "items": { "type": "string" } });
+    vec![
+        tool(
+            "ask_for_song",
+            "Shows the user a Choose a song button that starts a new, unsaved sequence from a song of theirs, with a row per prop and group. Use it when no sequence is open (or they want a new one), then end your turn: their next message says when it's open.",
+            object(json!({}), &[]),
+            ToolKind::AskForSong,
+        ),
+        tool(
+            "analyze_song",
+            "The open sequence's song: tempo, beat count, bar start times, and sections with their energy (0–1) and level.",
+            object(json!({}), &[]),
+            ToolKind::AnalyzeSong,
+        ),
+        tool(
+            "add_song_timing",
+            "Adds the song's timing tracks to the draft (Beats labeled 1–4, numbered Bars, labeled Sections, Onsets), reusing ones already there; answers their ids.",
+            object(
+                json!({ "tracks": { "type": "array", "items": { "enum": crate::song::TRACK_CHOICES }, "description": "Default: beats, bars, sections." } }),
+                &[],
+            ),
+            ToolKind::AddSongTiming,
+        ),
+        tool(
+            "place_effects",
+            "Puts one effect on many rows from fromMs to toMs: one each, or cut at a timing track's marks (`track`: id or name; `marksEach` marks per effect) and shared out by `spread`: together, alternate (neighbours take turns), sweep (one row after another), build (rows join one by one). Refused where it overlaps effects on that layer, unless replace.",
+            object(
+                json!({
+                    "rowIds": ids(),
+                    "fromMs": ms(),
+                    "toMs": ms(),
+                    "effect": {
+                        "type": "object",
+                        "description": "kind and settings as list_effect_kinds gives them; colors as \"#rrggbb\".",
+                        "properties": {
+                            "kind": { "type": "string" },
+                            "settings": { "type": "object" },
+                            "colors": { "type": "array", "items": { "type": "string" } },
+                            "blend": { "enum": ["normal", "add", "max", "multiply"] },
+                            "fadeInMs": ms(),
+                            "fadeOutMs": ms(),
+                        },
+                        "required": ["kind"],
+                    },
+                    "track": { "type": "string" },
+                    "marksEach": { "type": "integer", "minimum": 1 },
+                    "spread": { "enum": crate::arrange::SPREADS },
+                    "layer": { "type": "integer", "minimum": 0, "description": "Default 0, the bottom; one past the top adds a layer." },
+                    "replace": { "type": "boolean" },
+                }),
+                &["rowIds", "fromMs", "toMs", "effect"],
+            ),
+            ToolKind::PlaceEffects,
+        ),
+        tool(
+            "repeat_effects",
+            "Copies every effect starting from fromMs to toMs (on all rows, or rowIds) to each time in startsMs, keeping rows, layers, and lengths. Refused where a copy overlaps effects, unless replace.",
+            object(
+                json!({
+                    "fromMs": ms(),
+                    "toMs": ms(),
+                    "startsMs": { "type": "array", "items": ms() },
+                    "rowIds": ids(),
+                    "replace": { "type": "boolean" },
+                }),
+                &["fromMs", "toMs", "startsMs"],
+            ),
+            ToolKind::RepeatEffects,
         ),
     ]
 }

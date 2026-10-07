@@ -1,14 +1,16 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { App } from "../../App";
 import { demoShow } from "../../api/demo";
 import { MemoryBackend } from "../../api/memory";
 import { FakeAssistant } from "../../api/memoryAssistant";
+import { MemorySequencer } from "../../api/memorySequencer";
 import { useAssistant } from "../../state/assistant";
 import { useLayoutEditor } from "../../state/layoutEditor";
+import { useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
-import type { Change, ProposalView } from "../../api/assistant";
+import { AssistantError, assistantFailure, type Change, type ProposalView, modelLabel } from "../../api/assistant";
 import { highlightFrame } from "./DraftPreview";
 import { ProposalCard } from "./ProposalCard";
 
@@ -34,11 +36,85 @@ async function openPanel(user: ReturnType<typeof userEvent.setup>) {
   return screen.getByRole("complementary", { name: "Assistant" });
 }
 
+describe("model names", () => {
+  it("are short and readable", () => {
+    expect(modelLabel("claude-opus-5-5")).toBe("Claude Opus 5.5");
+    expect(modelLabel("claude-sonnet-4-5-20250929")).toBe("Claude Sonnet 4.5");
+    expect(modelLabel("claude-haiku-4")).toBe("Claude Haiku 4");
+    expect(modelLabel("gpt-5")).toBe("GPT-5");
+    expect(modelLabel("gpt-4.1-mini")).toBe("GPT-4.1 mini");
+    expect(modelLabel("my-local-model")).toBe("my-local-model");
+  });
+});
+
+describe("the assistant in a narrow window", () => {
+  const resize = (width: number) =>
+    act(() => {
+      window.innerWidth = width;
+      window.dispatchEvent(new Event("resize"));
+    });
+  const panel = () => screen.getByRole("complementary", { name: "Assistant" });
+  const sidebarRail = () => screen.getByRole("navigation", { name: "Screens" }).dataset.collapsed === "true";
+
+  it("on a laptop (1200–1439 px) takes a narrower column, and the sidebar folds to icons while it's open", async () => {
+    window.innerWidth = 1360;
+    const { user } = await start();
+    expect(sidebarRail()).toBe(false);
+    await openPanel(user);
+    expect(panel()).toHaveAttribute("data-overlay", "false");
+    expect(panel()).toHaveAttribute("data-width", "compact");
+    expect(sidebarRail()).toBe(true);
+    await user.click(within(panel()).getByRole("button", { name: "Close assistant" }));
+    expect(sidebarRail()).toBe(false);
+  });
+
+  it("floats over the screen only below 1200 px, and takes a full column from 1440", async () => {
+    window.innerWidth = 1100;
+    const { user } = await start();
+    await openPanel(user);
+    expect(panel()).toHaveAttribute("data-overlay", "true");
+    resize(1600);
+    expect(panel()).toHaveAttribute("data-overlay", "false");
+    expect(panel()).toHaveAttribute("data-width", "full");
+  });
+
+  it("floating, Escape puts it away and gives the focus back to the Assistant button", async () => {
+    window.innerWidth = 1024;
+    const { user } = await start();
+    await openPanel(user);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("complementary", { name: "Assistant" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Assistant/ })).toHaveFocus();
+  });
+
+  it("floating, Escape keeps a typed message: the first only leaves the box, and the text survives closing", async () => {
+    window.innerWidth = 1024;
+    const { user } = await start();
+    await openPanel(user);
+    const box = () => screen.getByRole("textbox", { name: "Message the assistant" });
+    await user.type(box(), "Add arches");
+    await user.keyboard("{Escape}");
+    expect(panel()).toBeInTheDocument();
+    expect(box()).not.toHaveFocus();
+    expect(box()).toHaveValue("Add arches");
+    // Mid-composition (an input method), Escape is the input method's.
+    box().focus();
+    fireEvent.keyDown(box(), { key: "Escape", isComposing: true });
+    expect(panel()).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("complementary", { name: "Assistant" })).not.toBeInTheDocument();
+    await openPanel(user);
+    expect(box()).toHaveValue("Add arches");
+  });
+});
+
 describe("opening the assistant", () => {
   it("opens from the top bar, with ⌘L, and from the command palette", async () => {
     const { user } = await start();
     const panel = await openPanel(user);
-    expect(within(panel).getByText("Anthropic · claude-opus-5-5")).toBeInTheDocument();
+    // The model by a short name; the provider and its full id on hover.
+    expect(within(panel).getByText("Claude Opus 5.5")).toHaveAttribute("title", "Anthropic · claude-opus-5-5: change the provider or model");
     await user.click(within(panel).getByRole("button", { name: "Close assistant" }));
     expect(screen.queryByRole("complementary", { name: "Assistant" })).not.toBeInTheDocument();
 
@@ -183,6 +259,30 @@ describe("chatting", () => {
     expect(await within(panel).findByRole("alert")).toHaveTextContent("Wait a minute, then try again.");
   });
 
+  it("keeps the provider's own words under Details", async () => {
+    const { user, assistant } = await start();
+    assistant.nextError = new AssistantError(
+      'The model "gpt-x" doesn\'t accept the "reasoning.effort" setting PixelFlow sends. Pick another model in Settings → AI.',
+      "HTTP 400 unsupported_parameter (reasoning.effort): Unsupported parameter: 'reasoning.effort' is not supported with this model.",
+    );
+    const panel = await openPanel(user);
+    await user.type(within(panel).getByRole("textbox", { name: "Message the assistant" }), "hello{Enter}");
+    const alert = await within(panel).findByRole("alert");
+    expect(alert).toHaveTextContent('doesn\'t accept the "reasoning.effort" setting');
+    const details = within(alert).getByText("Details");
+    expect(within(alert).getByText(/HTTP 400 unsupported_parameter/)).not.toBeVisible();
+    await user.click(details);
+    expect(within(alert).getByText(/HTTP 400 unsupported_parameter/)).toBeVisible();
+  });
+
+  it("turns an app error with details into a message and details", () => {
+    const error = assistantFailure({ message: "OpenAI is busy right now. Try again in a moment.", details: "HTTP 503 server_is_overloaded: busy" });
+    expect(error).toBeInstanceOf(AssistantError);
+    expect((error as AssistantError).message).toBe("OpenAI is busy right now. Try again in a moment.");
+    expect((error as AssistantError).details).toBe("HTTP 503 server_is_overloaded: busy");
+    expect(assistantFailure("plain")).toBe("plain");
+  });
+
   it("Stop ends a reply in progress", async () => {
     const { user, assistant } = await start();
     assistant.delayMs = 30;
@@ -204,6 +304,88 @@ describe("chatting", () => {
   });
 });
 
+describe("creating a sequence", () => {
+  async function startWithSequencer() {
+    const backend = new MemoryBackend(demoShow());
+    backend.nextAudioPath = "/Music/Jingle Bell Rock.mp3";
+    const sequencer = new MemorySequencer(backend);
+    const assistant = new FakeAssistant(backend);
+    assistant.sequencer = sequencer;
+    assistant.keys.set("anthropic", "keychain");
+    useAssistant.getState().setModel("claude-opus-5-5");
+    await useApp.getState().connect(backend);
+    useApp.setState({ started: true, screen: "sequence" });
+    await useSequencer.getState().connect(sequencer);
+    await useAssistant.getState().connect(assistant);
+    const user = userEvent.setup();
+    render(<App />);
+    return { user, backend, sequencer, assistant };
+  }
+
+  it("says the open sequence closes, and keeps the chat (not the window) scrolling", async () => {
+    const { user, sequencer } = await startWithSequencer();
+    await act(() => useSequencer.getState().newSequence("Carol of the Bells", 30_000, null, []));
+    expect(sequencer.doc?.name).toBe("Carol of the Bells");
+    const panel = await openPanel(user);
+    await user.type(within(panel).getByRole("textbox", { name: "Message the assistant" }), "Make me a new sequence{Enter}");
+    const offer = await within(panel).findByRole("region", { name: "Choose a song" });
+    expect(offer).toHaveTextContent('This closes "Carol of the Bells"');
+    // Positioned scroll containers keep hidden labels inside them, so a tall card scrolls the
+    // chat, never the window.
+    expect(panel.querySelector("[aria-live]")).toHaveClass("relative");
+  });
+
+  it("asks for a song, makes the sequence, and proposes a whole show that plays before Apply", async () => {
+    const { user, sequencer, assistant } = await startWithSequencer();
+    const panel = await openPanel(user);
+    await user.click(within(panel).getByRole("button", { name: "Create a compelling sequence" }));
+    expect(await within(panel).findByText(/You don't have a sequence open yet/)).toBeInTheDocument();
+    const offer = await within(panel).findByRole("region", { name: "Choose a song" });
+    expect(sequencer.doc).toBeNull();
+
+    // The user picks the song; a new, unsaved sequence with a row per prop and group is made, and
+    // the assistant carries on by itself.
+    await user.click(within(offer).getByRole("button", { name: /choose a song/i }));
+    expect(await within(panel).findByText("New sequence: Jingle Bell Rock")).toBeInTheDocument();
+    expect(sequencer.doc?.name).toBe("Jingle Bell Rock");
+    expect(sequencer.doc?.rows.length).toBeGreaterThan(0);
+    expect(useSequencer.getState().dirty).toBe(false);
+    // The assistant finds the beats itself: the screen doesn't offer to while it works.
+    expect(useSequencer.getState().suggestBeats).toBe(false);
+    const card = await within(panel).findByRole("region", { name: "Proposed changes" });
+    // The file name reaches the assistant only as data (the context block), never as the user's own words.
+    expect(within(panel).getByText("I chose a song, and the new sequence is open. Go ahead.")).toBeInTheDocument();
+    expect(assistant.sent.at(-1)).toBe("I chose a song, and the new sequence is open. Go ahead.");
+    expect(within(card).getByText("By section")).toBeInTheDocument();
+    expect(within(card).getByText("Intro", { selector: "span" })).toBeInTheDocument();
+    expect(within(card).getByRole("img", { name: /Timeline of the draft/ })).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: /Show all \d+/ })).toBeInTheDocument();
+    // Nothing is in the sequence until Apply.
+    expect(sequencer.doc!.rows.every((r) => r.layers.every((l) => l.effects.length === 0))).toBe(true);
+
+    const frames = vi.spyOn(assistant, "previewFrame");
+    await user.click(within(card).getByRole("button", { name: "Play preview" }));
+    const preview = await screen.findByRole("dialog", { name: "Preview: not applied yet" });
+    await waitFor(() => expect(frames).toHaveBeenCalled());
+    expect(within(preview).getByRole("slider", { name: "Position" })).toBeInTheDocument();
+    await user.click(within(preview).getByRole("button", { name: "Pause" }));
+    expect(within(preview).getByRole("button", { name: "Play" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(sequencer.doc!.timingTracks).toEqual([]);
+
+    await user.click(within(card).getByRole("button", { name: "Apply" }));
+    expect(await within(card).findByText(/Applied as one step/)).toBeInTheDocument();
+    const effects = sequencer.doc!.rows.flatMap((r) => r.layers.flatMap((l) => l.effects));
+    expect(effects.length).toBeGreaterThan(20);
+    expect(sequencer.doc!.timingTracks.map((t) => t.name)).toEqual(["Beats", "Bars", "Sections"]);
+    expect(useSequencer.getState().suggestBeats).toBe(false);
+    await waitFor(() => expect(useSequencer.getState().doc?.timingTracks.length).toBe(3));
+    await act(() => useSequencer.getState().undo());
+    expect(sequencer.doc!.timingTracks).toEqual([]);
+    expect(sequencer.doc!.rows.every((r) => r.layers.every((l) => l.effects.length === 0))).toBe(true);
+  });
+});
+
 describe("the review card", () => {
   const proposal = (changes: Change[]): ProposalView => ({
     id: "p1",
@@ -212,6 +394,8 @@ describe("the review card", () => {
     changedProps: [],
     changesShow: true,
     changesSequence: false,
+    sections: [],
+    timeline: null,
   });
   const falcon: Change = {
     section: "controller",
@@ -221,6 +405,35 @@ describe("the review card", () => {
     details: ["address: 203.0.113.9", "protocol: DDP", "port 1: Roofline", "port 2: Arch 1", "port 3: Arch 2", "port 4: Tree", "port 5: Star"],
     warnings: ["Sends light data to a new address: 203.0.113.9"],
   };
+
+  it("never folds away a change that carries a warning", async () => {
+    await start();
+    const renames: Change[] = Array.from({ length: 12 }, (_, i) => ({
+      section: "controller",
+      action: "changed",
+      name: `Controller ${i + 1}`,
+      id: `c${i}`,
+      details: [`name: "Old ${i}" → "Controller ${i + 1}"`],
+      warnings: [],
+    }));
+    const effects: Change[] = Array.from({ length: 20 }, (_, i) => ({
+      section: "effect",
+      action: "added",
+      name: `Twinkle ${i + 1}`,
+      id: `e${i}`,
+      details: [],
+      warnings: [],
+    }));
+    render(<ProposalCard proposal={proposal([...renames, { ...falcon, action: "changed" }, ...effects])} current />);
+    const card = screen.getByRole("region", { name: "Proposed changes" });
+    // All 13 controller changes show, warning included, without expanding anything.
+    expect(within(card).getByText("Sends light data to a new address: 203.0.113.9")).toBeVisible();
+    expect(within(card).getByText("Controller 12")).toBeInTheDocument();
+    // Only effects (and rows, timing tracks) fold.
+    expect(within(card).queryByText("Twinkle 13")).not.toBeInTheDocument();
+    expect(within(card).getAllByRole("button", { name: /Show all/ })).toHaveLength(1);
+    expect(within(card).getByRole("button", { name: "Show all 20" })).toBeInTheDocument();
+  });
 
   it("shows a few details, then all of them on request, and always the warnings", async () => {
     const { user } = await start();

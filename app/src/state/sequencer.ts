@@ -23,6 +23,8 @@ import { clock, fileName, plural, shownPath } from "../lib/format";
 import { folderOf } from "../lib/showFiles";
 import { tapEdits } from "../lib/timelineMath";
 import { type SaveOptions, saidSaved, useApp } from "./store";
+import { describeSequenceEdits } from "../lib/describeChange";
+import { edited, stepped, useUndoLabels } from "./undoLabels";
 
 const RECENT_KEY = "pixelflow.recentSequences";
 /** Whether playback loops, remembered on this computer. */
@@ -350,6 +352,21 @@ export const useSequencer = create<SequencerState>((set, get) => {
     if (snapshot) adopt(snapshot);
   }
 
+  /** Undo (or redo) in the sequence, keeping the Undo and Redo names in step. */
+  async function step(redo: boolean): Promise<boolean> {
+    const { api } = get();
+    if (!api || !get().doc) return false;
+    const ok = await serial(() =>
+      guarded(async () => {
+        const from = get().revision;
+        await absorbPaired(await (redo ? api.redoSequence() : api.undoSequence()), api);
+        if (get().revision !== from) useUndoLabels.setState({ sequence: stepped(useUndoLabels.getState().sequence, from, get().revision, redo) });
+        return true;
+      }),
+    );
+    return ok === true;
+  }
+
   async function guarded<T>(call: () => Promise<T>): Promise<T | null> {
     try {
       return await call();
@@ -534,7 +551,14 @@ export const useSequencer = create<SequencerState>((set, get) => {
         guarded(async () => {
           const doc = get().doc;
           const batch = typeof edits === "function" ? (doc ? edits(doc) : []) : edits;
-          if (batch.length > 0) await absorb(await api.editSequence(batch, gesture), api);
+          if (batch.length === 0) return true;
+          const from = get().revision;
+          await absorb(await api.editSequence(batch, gesture), api);
+          if (doc && get().revision !== from) {
+            const catalog = get().catalog;
+            const label = describeSequenceEdits(batch, doc, (kind) => catalog.find((c) => c.kind === kind)?.label ?? kind);
+            useUndoLabels.setState({ sequence: edited(useUndoLabels.getState().sequence, from, get().revision, label, gesture ?? null) });
+          }
           return true;
         }),
       );
@@ -542,17 +566,11 @@ export const useSequencer = create<SequencerState>((set, get) => {
     },
 
     async undo() {
-      const { api } = get();
-      if (!api || !get().doc) return false;
-      const ok = await serial(() => guarded(async () => (await absorbPaired(await api.undoSequence(), api), true)));
-      return ok === true;
+      return step(false);
     },
 
     async redo() {
-      const { api } = get();
-      if (!api || !get().doc) return false;
-      const ok = await serial(() => guarded(async () => (await absorbPaired(await api.redoSequence(), api), true)));
-      return ok === true;
+      return step(true);
     },
 
     async detectBeats() {

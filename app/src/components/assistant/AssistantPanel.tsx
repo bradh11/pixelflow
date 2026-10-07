@@ -1,14 +1,46 @@
-import { Loader2, MessageSquarePlus, Send, Settings, Sparkles, Square, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { providerName } from "../../api/assistant";
-import { useAssistant } from "../../state/assistant";
+import { CheckCircle2, Loader2, MessageSquarePlus, Music, Send, Settings, Sparkles, Square, X } from "lucide-react";
+import { useEffect, useRef } from "react";
+import { modelLabel, providerName } from "../../api/assistant";
+import { type ChatItem, useAssistant } from "../../state/assistant";
+import { useSequencer } from "../../state/sequencer";
 import { Button } from "../ui";
 import { ProposalCard } from "./ProposalCard";
 
-const SUGGESTIONS = ["Add two arches beside the garage", "What's in my show?", "Rename the show to Christmas 2026"];
+const SUGGESTIONS = ["Create a compelling sequence", "Add two arches beside the garage", "What's in my show?", "Rename the show to Christmas 2026"];
 
-/** The chat with the assistant, beside the current screen. Replies stream in; changes come as a proposal card. */
-export function AssistantPanel() {
+/** The assistant's Choose a song button: starts a new sequence from a song the user picks. */
+function ChooseSong({ item }: { item: ChatItem }) {
+  const streaming = useAssistant((s) => s.streaming);
+  const open = useSequencer((s) => s.doc?.name ?? null);
+  const song = item.song ?? { status: "open" };
+  if (song.status === "done") {
+    return (
+      <p className="flex items-center gap-1.5 rounded-md border border-neutral-200 px-3 py-2 text-xs text-neutral-600 dark:border-neutral-800 dark:text-neutral-300">
+        <CheckCircle2 size={14} className="text-green-600 dark:text-green-400" aria-hidden /> New sequence: {song.name}
+      </p>
+    );
+  }
+  return (
+    <section aria-label="Choose a song" className="rounded-lg border border-accent-500/40 bg-accent-50/60 p-3 dark:border-accent-400/30 dark:bg-accent-600/10">
+      <p>Pick a song from your computer. PixelFlow starts a new sequence for it with a row for every prop and group; nothing is saved until you save.</p>
+      {open !== null && (
+        <p className="mt-1 text-xs text-neutral-600 dark:text-neutral-300">
+          This closes &quot;{open}&quot;; you&apos;re asked first if it has unsaved changes.
+        </p>
+      )}
+      <Button className="mt-2" variant="primary" disabled={streaming || song.status === "picking"} onClick={() => void useAssistant.getState().chooseSong(item.id)}>
+        {song.status === "picking" ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Music size={14} aria-hidden />}
+        {song.status === "picking" ? "Opening the song…" : "Choose a song…"}
+      </Button>
+    </section>
+  );
+}
+
+/**
+ * The chat with the assistant, beside the current screen, or floating over its right side when
+ * the window is too narrow to share (`overlay`). Replies stream in; changes come as a proposal card.
+ */
+export function AssistantPanel({ overlay = false, compact = false }: { overlay?: boolean; compact?: boolean }) {
   const items = useAssistant((s) => s.items);
   const streaming = useAssistant((s) => s.streaming);
   const activity = useAssistant((s) => s.activity);
@@ -17,14 +49,34 @@ export function AssistantPanel() {
   const model = useAssistant((s) => s.models[s.provider] ?? null);
   const hasKey = useAssistant((s) => s.hasKey);
   const { send, stop, newChat, setOpen, setSettingsOpen } = useAssistant.getState();
-  const [draft, setDraft] = useState("");
+  const draft = useAssistant((s) => s.message);
+  const setDraft = useAssistant((s) => s.setMessage);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const ready = hasKey === true && model !== null;
 
   useEffect(() => {
     inputRef.current?.focus();
+    // Closed with the keyboard, focus goes back to the button that opens it.
+    return () => {
+      if (document.activeElement === document.body || !document.activeElement) {
+        document.querySelector<HTMLElement>("[data-assistant-button]")?.focus();
+      }
+    };
   }, []);
+
+  // Floating, Escape also puts it away when nothing has the focus (after leaving the box).
+  useEffect(() => {
+    if (!overlay) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
+      if (document.activeElement && document.activeElement !== document.body) return;
+      e.preventDefault();
+      setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [overlay, setOpen]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
@@ -39,7 +91,22 @@ export function AssistantPanel() {
   return (
     <aside
       aria-label="Assistant"
-      className="flex w-96 shrink-0 flex-col border-l border-neutral-200 bg-neutral-50/60 dark:border-neutral-800 dark:bg-neutral-950/40"
+      data-overlay={overlay}
+      data-width={compact ? "compact" : "full"}
+      onKeyDown={(e) => {
+        // Floating over the screen, Escape puts it away (as a drawer does). Not mid-composition
+        // (an input method's Escape), and not with a message typed: the first Escape only leaves
+        // the box.
+        if (!overlay || e.key !== "Escape" || e.defaultPrevented || e.nativeEvent.isComposing) return;
+        e.preventDefault();
+        if (e.target === inputRef.current && draft.trim() !== "") inputRef.current.blur();
+        else setOpen(false);
+      }}
+      className={`flex ${compact ? "w-80" : "w-96"} max-w-[calc(100%-3rem)] shrink-0 flex-col border-l border-neutral-200 dark:border-neutral-800 ${
+        overlay
+          ? "absolute inset-y-0 right-0 z-30 bg-neutral-50 shadow-2xl dark:bg-neutral-950"
+          : "bg-neutral-50/60 dark:bg-neutral-950/40"
+      }`}
     >
       <header className="flex h-11 shrink-0 items-center gap-1 border-b border-neutral-200 px-3 dark:border-neutral-800">
         <Sparkles size={16} className="text-accent-600 dark:text-accent-400" aria-hidden />
@@ -48,9 +115,9 @@ export function AssistantPanel() {
           type="button"
           onClick={() => setSettingsOpen(true)}
           className="ml-1 truncate rounded px-1.5 py-0.5 text-xs text-neutral-500 hover:bg-neutral-200/70 dark:hover:bg-neutral-800"
-          title="Change the provider or model"
+          title={ready ? `${providerName(provider)} · ${model}: change the provider or model` : "Change the provider or model"}
         >
-          {ready ? `${providerName(provider)} · ${model}` : "Not set up"}
+          {ready ? modelLabel(model) : "Not set up"}
         </button>
         <div className="ml-auto flex items-center">
           <Button variant="ghost" aria-label="New chat" title="New chat" disabled={streaming || items.length === 0} onClick={() => void newChat()}>
@@ -65,7 +132,7 @@ export function AssistantPanel() {
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-auto px-3 py-3" aria-live="polite" aria-busy={streaming}>
+      <div className="relative min-h-0 flex-1 overflow-auto px-3 py-3" aria-live="polite" aria-busy={streaming}>
         {!ready && hasKey !== null ? (
           <div className="flex flex-col items-start gap-3 rounded-lg border border-dashed border-neutral-300 p-4 text-sm dark:border-neutral-700">
             <p className="font-medium">Connect an AI model</p>
@@ -110,7 +177,15 @@ export function AssistantPanel() {
                 ) : item.role === "error" ? (
                   <div role="alert" className="rounded-md bg-red-50 px-3 py-2 text-red-700 dark:bg-red-950/50 dark:text-red-300">
                     {item.text}
+                    {item.details && (
+                      <details className="mt-1 text-xs">
+                        <summary className="cursor-pointer select-none">Details</summary>
+                        <p className="mt-1 font-mono break-words whitespace-pre-wrap opacity-90">{item.details}</p>
+                      </details>
+                    )}
                   </div>
+                ) : item.role === "chooseSong" ? (
+                  <ChooseSong item={item} />
                 ) : proposal && item.proposalId === proposal.id ? (
                   <ProposalCard proposal={proposal} current />
                 ) : (

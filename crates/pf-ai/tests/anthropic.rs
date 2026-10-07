@@ -245,7 +245,12 @@ fn errors_become_plain_messages_without_the_key() {
         let (provider, fake) = setup(vec![reply]);
         let (result, _) = turn(&provider, "claude-opus-5-5", &[Message::User("Hi".into())]);
         let error = result.unwrap_err();
-        assert_eq!(error, expected);
+        assert_eq!(error.root(), &expected);
+        assert!(
+            error
+                .details()
+                .is_some_and(|d| d.starts_with("HTTP ") && !d.contains(FAKE_KEY))
+        );
         assert!(!error.to_string().contains(FAKE_KEY));
         assert!(!format!("{error:?}").contains(FAKE_KEY));
         assert_eq!(fake.requests().len(), 1, "{expected:?} isn't retried");
@@ -267,12 +272,18 @@ fn rate_limits_and_overload_are_retried_then_explained() {
     let busy = || Reply::status(529, error_body("overloaded_error", "Overloaded")).with_retry_after(1);
     let (provider, _) = setup(vec![busy(), busy(), busy()]);
     let (result, _) = turn(&provider, "claude-opus-5-5", &[Message::User("Hi".into())]);
-    assert_eq!(result.unwrap_err(), AiError::Overloaded(ProviderId::Anthropic));
+    assert_eq!(
+        result.unwrap_err().root(),
+        &AiError::Overloaded(ProviderId::Anthropic)
+    );
 
     let limited = || Reply::status(429, error_body("rate_limit_error", "slow down"));
     let (provider, _) = setup(vec![limited(), limited(), limited()]);
     let (result, _) = turn(&provider, "claude-opus-5-5", &[Message::User("Hi".into())]);
-    assert_eq!(result.unwrap_err(), AiError::RateLimited(ProviderId::Anthropic));
+    assert_eq!(
+        result.unwrap_err().root(),
+        &AiError::RateLimited(ProviderId::Anthropic)
+    );
 }
 
 #[test]
@@ -309,9 +320,65 @@ fn network_failures_and_dropped_streams() {
     assert_eq!(
         turn(&provider, "claude-opus-5-5", &[Message::User("Hi".into())])
             .0
-            .unwrap_err(),
-        AiError::Overloaded(ProviderId::Anthropic)
+            .unwrap_err()
+            .root(),
+        &AiError::Overloaded(ProviderId::Anthropic)
     );
+}
+
+#[test]
+fn only_a_model_without_tools_reads_as_one() {
+    let p = ProviderId::Anthropic;
+    let model = || "claude-opus-5-5".to_string();
+    let cases = [
+        (
+            "This model does not support tool use.",
+            AiError::ModelNoTools {
+                provider: p,
+                model: model(),
+            },
+        ),
+        // Mentions tools and "not supported", but refuses one parameter: once misread as "this
+        // model can't use tools".
+        (
+            "`top_k` is not supported for this model when tools are used.",
+            AiError::UnsupportedParameter {
+                provider: p,
+                model: model(),
+                param: "top_k".into(),
+            },
+        ),
+        (
+            "tools.0.custom.eager_input_streaming: Extra inputs are not permitted",
+            AiError::UnsupportedParameter {
+                provider: p,
+                model: model(),
+                param: "tools.0.custom.eager_input_streaming".into(),
+            },
+        ),
+        // A malformed message is PixelFlow's mistake, not the model's: no "pick another model".
+        (
+            "messages.3.content.0.foo: Extra inputs are not permitted",
+            AiError::Provider {
+                provider: p,
+                message: "messages.3.content.0.foo: Extra inputs are not permitted".into(),
+            },
+        ),
+    ];
+    for (message, expected) in cases {
+        let (provider, _) = setup(vec![Reply::status(
+            400,
+            error_body("invalid_request_error", message),
+        )]);
+        let error = turn(&provider, "claude-opus-5-5", &[Message::User("Hi".into())])
+            .0
+            .unwrap_err();
+        assert_eq!(error.root(), &expected, "{message}");
+        assert_eq!(
+            error.details().unwrap(),
+            format!("HTTP 400 invalid_request_error: {message}")
+        );
+    }
 }
 
 #[test]
@@ -430,7 +497,10 @@ fn the_model_list_is_paged_claude_only_and_suggests_the_default() {
         error_body("authentication_error", "invalid x-api-key"),
     )]);
     assert_eq!(
-        provider.list_models(&fake_key(), &Cancel::new()).unwrap_err(),
+        *provider
+            .list_models(&fake_key(), &Cancel::new())
+            .unwrap_err()
+            .root(),
         AiError::InvalidKey(ProviderId::Anthropic)
     );
 }

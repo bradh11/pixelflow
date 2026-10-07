@@ -3,7 +3,10 @@
 //! names are unique and provider-safe, and no tool reaches outside the draft.
 
 use pf_ai::Toolbox;
-use pf_ai::tools::{FILE_OPERATIONS, ToolKind, sequence_edit, sequence_tool_name, show_edit, show_tool_name};
+use pf_ai::tools::{
+    FILE_OPERATIONS, ONE_TOOL_BUDGET_BYTES, TOOL_BUDGET_BYTES, TOOL_HEADROOM_BYTES, ToolKind, sequence_edit,
+    sequence_tool_name, shape_settings, show_edit, show_tool_name,
+};
 use pf_engine::{Edit, SequenceEdit};
 use pf_model::{
     Background, Controller, Corner, CubeStart, CubeStyle, Generator, Group, GroupMember, HouseModel, NodeRun,
@@ -27,6 +30,10 @@ fn rich_prop() -> Prop {
             style: TreeStyle::Round,
             degrees: 360.0,
             start_angle: 0.0,
+            start: Corner::BottomLeft,
+            strands_per_string: 0,
+            alternate_nodes: false,
+            spiral_rotations: 0.0,
         }),
     );
     prop.transform.position = Vec3::new(1.5, 0.0, -2.0);
@@ -71,15 +78,8 @@ fn shape_samples() -> Vec<Generator> {
             nodes: 50,
             length: 3.0,
         },
-        Generator::Arch {
-            nodes: 25,
-            width: 2.0,
-            height: 1.0,
-        },
-        Generator::Circle {
-            nodes: 30,
-            radius: 0.5,
-        },
+        Generator::arch(25, 2.0, 1.0),
+        Generator::circle(30, 0.5),
         Generator::Matrix {
             columns: 16,
             rows: 8,
@@ -97,13 +97,12 @@ fn shape_samples() -> Vec<Generator> {
             style: TreeStyle::Ribbon,
             degrees: 180.0,
             start_angle: 45.0,
+            start: Corner::BottomLeft,
+            strands_per_string: 0,
+            alternate_nodes: false,
+            spiral_rotations: 0.0,
         },
-        Generator::Star {
-            points: 5,
-            nodes: 50,
-            outer_radius: 1.0,
-            inner_radius: 0.4,
-        },
+        Generator::star(5, 50, 1.0, 0.4),
         Generator::PolyLine {
             vertices: vec![Vec3::ZERO, Vec3::new(1.0, 0.5, 0.0), Vec3::new(2.0, 0.0, 0.0)],
             segments: vec![
@@ -520,6 +519,16 @@ fn every_show_edit_yields_a_valid_tool_that_round_trips() {
     }
 }
 
+fn shape_of(edit: &Edit) -> Generator {
+    match edit {
+        Edit::AddProp { prop } => match &prop.shape {
+            ShapeSource::Generator(g) => g.clone(),
+            other => panic!("{other:?}"),
+        },
+        other => panic!("{other:?}"),
+    }
+}
+
 #[test]
 fn every_prop_shape_fits_the_add_prop_tool_and_round_trips() {
     let toolbox = Toolbox::new();
@@ -537,6 +546,12 @@ fn every_prop_shape_fits_the_add_prop_tool_and_round_trips() {
             prop: Prop::new(kind, ShapeSource::Generator(shape)),
         };
         assert_valid_against(&tool.spec.input_schema, &input(&edit), kind);
+        // The full settings the lookup gives fit the shape too.
+        assert_valid_against(
+            &shape_settings(kind).expect("a lookup for every shape"),
+            &serde_json::to_value(shape_of(&edit)).unwrap(),
+            kind,
+        );
         assert_eq!(
             show_edit("addProp", &input(&edit)).unwrap(),
             edit,
@@ -684,33 +699,94 @@ fn no_tool_checks_finds_or_relinks_the_shows_files() {
     }
 }
 
-/// The tool definitions as sent to Anthropic (bytes of JSON), largest first.
-fn tool_sizes() -> (usize, Vec<(usize, String)>) {
-    let mut sizes: Vec<(usize, String)> = Toolbox::new()
+/// A provider, its tools' total size, and each tool's size and name.
+type ToolSizes = (&'static str, usize, Vec<(usize, String)>);
+
+/// The tool definitions exactly as each provider's request carries them (bytes of JSON),
+/// largest first, per provider.
+fn tool_sizes() -> Vec<ToolSizes> {
+    let specs = Toolbox::new().specs();
+    let request = pf_ai::provider::TurnRequest {
+        model: "any",
+        system: "",
+        tools: &specs,
+        messages: &[],
+        max_tokens: 1,
+    };
+    [
+        ("Anthropic", pf_ai::anthropic::request_body(&request)),
+        ("OpenAI", pf_ai::openai::request_body(&request, true)),
+    ]
+    .into_iter()
+    .map(|(provider, body)| {
+        let mut sizes: Vec<(usize, String)> = body["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| (t.to_string().len(), t["name"].as_str().unwrap().to_string()))
+            .collect();
+        sizes.sort_by(|a, b| b.cmp(a));
+        let total = body["tools"].to_string().len();
+        (provider, total, sizes)
+    })
+    .collect()
+}
+
+#[test]
+fn choices_documented_only_in_rust_are_plain_name_lists() {
+    let toolbox = Toolbox::new();
+    let add = toolbox
         .tools()
         .iter()
-        .map(|t| {
-            let sent = json!({ "name": t.spec.name, "description": t.spec.description, "input_schema": t.spec.input_schema });
-            (sent.to_string().len(), t.spec.name.clone())
-        })
-        .collect();
-    sizes.sort_by(|a, b| b.cmp(a));
-    (sizes.iter().map(|(s, _)| s).sum(), sizes)
+        .find(|t| t.spec.name == "show_add_prop")
+        .unwrap();
+    // Shape settings now come from `shape_settings`; gather its definitions with the tool's own.
+    let mut all = add.spec.input_schema["$defs"]
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    for shape in ["star", "matrix", "arch", "circle", "tree"] {
+        if let Some(found) = pf_ai::tools::shape_settings(shape).and_then(|s| s["$defs"].as_object().cloned())
+        {
+            all.extend(found);
+        }
+    }
+    let defs = &serde_json::Value::Object(all);
+    assert_eq!(
+        defs["StarStart"]["enum"],
+        json!(["top", "bottom", "leftLeg", "rightLeg"])
+    );
+    assert_eq!(defs["StarStart"]["type"], "string");
+    assert!(defs["StarStart"].get("oneOf").is_none());
+    assert_eq!(defs["Orientation"]["enum"], json!(["horizontal", "vertical"]));
+    // Choices whose names are explained to the model keep their explanations.
+    assert!(defs["BufferStyle"]["oneOf"][0].get("description").is_some());
 }
 
 #[test]
 fn tool_definitions_stay_small() {
-    let (total, sizes) = tool_sizes();
-    println!(
-        "tools: {} definitions, {total} bytes (~{} tokens)",
-        sizes.len(),
-        total / 4
-    );
-    for (size, name) in sizes.iter().take(6) {
-        println!("  {size:>6} {name}");
+    for (provider, total, sizes) in tool_sizes() {
+        println!(
+            "{provider} tools: {} definitions, {total} bytes (~{} tokens)",
+            sizes.len(),
+            total / 4
+        );
+        for (size, name) in sizes.iter().take(6) {
+            println!("  {size:>6} {name}");
+        }
+        // Was 114 KB with every large definition repeated in each tool that takes it, then 63.5
+        // KB with every prop shape and effect kind spelled out.
+        assert!(
+            total + TOOL_HEADROOM_BYTES <= TOOL_BUDGET_BYTES,
+            "{provider}: tool definitions grew to {total} bytes: less than {TOOL_HEADROOM_BYTES} bytes of headroom is left"
+        );
+        for (size, name) in &sizes {
+            assert!(
+                *size <= ONE_TOOL_BUDGET_BYTES,
+                "{provider}: {name} is {size} bytes, over the {ONE_TOOL_BUDGET_BYTES}-byte budget for one tool"
+            );
+        }
     }
-    // Was 114 KB with every large definition repeated in each tool that takes it.
-    assert!(total < 64_000, "tool definitions grew to {total} bytes");
     // Each large definition is spelled out in one tool only.
     for (def, owner) in [
         ("Prop", "show_add_prop"),
@@ -743,4 +819,92 @@ fn tool_inputs_that_dont_fit_are_explained() {
     let err = show_edit("setFrameRate", &json!({ "fps": "fast" })).unwrap_err();
     assert!(err.starts_with("That input doesn't fit this edit"), "{err}");
     assert!(show_edit("renameShow", &json!(["x"])).is_err());
+}
+
+#[test]
+fn shapes_and_effect_settings_are_compact_and_looked_up_on_demand() {
+    let toolbox = Toolbox::new();
+    let add_prop = &toolbox.find("show_add_prop").unwrap().spec.input_schema;
+    let generator = &add_prop["$defs"]["Generator"];
+    assert!(generator.get("oneOf").is_none(), "{generator}");
+    let types: Vec<&str> = generator["properties"]["type"]["enum"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t.as_str().unwrap())
+        .collect();
+    for shape in ["line", "arch", "circle", "matrix", "tree", "star", "cube"] {
+        assert!(types.contains(&shape), "{shape} in {types:?}");
+    }
+    assert!(
+        generator["description"]
+            .as_str()
+            .unwrap()
+            .contains("shape_settings")
+    );
+    // Definitions only the full shapes used are gone.
+    assert!(add_prop["$defs"].get("TreeStyle").is_none());
+
+    let tool = toolbox.find("shape_settings").expect("a lookup tool");
+    assert_eq!(tool.spec.input_schema["required"], json!(["type"]));
+    let tree = shape_settings("tree").unwrap();
+    assert_eq!(tree["properties"]["type"]["const"], "tree");
+    assert!(tree["properties"].get("strings").is_some(), "{tree}");
+    // It carries the definitions it refers to.
+    assert!(tree["$defs"].get("TreeStyle").is_some(), "{tree}");
+    assert!(shape_settings("blimp").is_none());
+    for shape in types {
+        let schema = shape_settings(shape).unwrap();
+        jsonschema::draft202012::meta::validate(&schema).unwrap_or_else(|e| panic!("{shape}: {e}"));
+    }
+
+    let add_effect = &toolbox.find("sequence_add_effect").unwrap().spec.input_schema;
+    let params = &add_effect["$defs"]["EffectParams"];
+    assert!(params.get("oneOf").is_none(), "{params}");
+    assert_eq!(params["required"], json!(["kind"]));
+    assert!(
+        params["properties"]["kind"]["enum"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("twinkle"))
+    );
+    assert!(
+        params["description"]
+            .as_str()
+            .unwrap()
+            .contains("list_effect_kinds")
+    );
+    assert!(add_effect["$defs"].get("ChaseParams").is_none());
+    let kinds = toolbox.find("list_effect_kinds").unwrap();
+    assert!(kinds.spec.input_schema["properties"].get("kind").is_some());
+}
+
+#[test]
+fn settings_a_shape_or_effect_doesnt_have_are_refused_by_name() {
+    let mut prop = serde_json::to_value(rich_prop()).unwrap();
+    prop["shape"]["strands"] = json!(12);
+    let err = show_edit("addProp", &json!({ "prop": prop })).unwrap_err();
+    assert!(
+        err.contains("prop.shape.strands") && err.contains("shape_settings"),
+        "{err}"
+    );
+
+    let effect = serde_json::to_value(Effect::new(EffectKind::Chase, 0, 1000)).unwrap();
+    let mut misspelled = effect.clone();
+    misspelled["params"]["sped"] = json!(4);
+    let input = json!({ "row": pf_sequence::RowId::new(), "layer": 0, "effect": misspelled });
+    let err = sequence_edit("addEffect", &input).unwrap_err();
+    assert!(
+        err.contains("effect.params.sped") && err.contains("list_effect_kinds"),
+        "{err}"
+    );
+
+    // Leaving out what defaults is fine, and so is a false flag that isn't written back.
+    let mut sparse = effect.clone();
+    sparse["params"] = json!({ "kind": "chase", "speed": 2.0 });
+    let input = json!({ "row": pf_sequence::RowId::new(), "layer": 0, "effect": sparse });
+    assert!(sequence_edit("addEffect", &input).is_ok());
+    let mut plain = serde_json::to_value(controller(&rich_prop())).unwrap();
+    plain.as_object_mut().unwrap().retain(|_, v| !v.is_null());
+    assert!(show_edit("addController", &json!({ "controller": plain })).is_ok());
 }

@@ -5,7 +5,8 @@ import type { Device, Discovery, Show, ShowSnapshot } from "../api/types";
 import { gestureEdits } from "../lib/layoutEdits";
 import { newProp } from "../lib/shows";
 import { useLayoutEditor } from "./layoutEditor";
-import { useApp } from "./store";
+import { initialThemeChoice, useApp } from "./store";
+import { nextLabels, useUndoLabels } from "./undoLabels";
 
 async function connected() {
   const backend = new MemoryBackend();
@@ -135,6 +136,48 @@ describe("app store", () => {
     expect(useApp.getState().error).toBe("Boom happened.");
     useApp.getState().dismissError();
     expect(useApp.getState().error).toBeNull();
+  });
+
+  it("keeps an upgraded install dark, and lets a new one follow the computer", () => {
+    expect(initialThemeChoice()).toBe("system");
+    // Saved, so the next start (with other settings saved by then) still follows the computer.
+    expect(localStorage.getItem("pixelflow.theme")).toBe("system");
+    localStorage.setItem("pixelflow.devices", "[]");
+    expect(initialThemeChoice()).toBe("system");
+    // Someone who has used PixelFlow before and never chose: the dark they've always had, kept.
+    localStorage.removeItem("pixelflow.theme");
+    expect(initialThemeChoice()).toBe("dark");
+    expect(localStorage.getItem("pixelflow.theme")).toBe("dark");
+    localStorage.setItem("pixelflow.theme", "light");
+    expect(initialThemeChoice()).toBe("light");
+  });
+
+  it("follows the computer's theme until one is chosen, and again when asked", () => {
+    const light = { matches: true, addEventListener() {}, removeEventListener() {} };
+    window.matchMedia = (() => light) as unknown as typeof window.matchMedia;
+    try {
+      useApp.getState().setTheme("system");
+      expect(useApp.getState()).toMatchObject({ theme: "light", themeChoice: "system" });
+      expect(localStorage.getItem("pixelflow.theme")).toBe("system");
+      useApp.getState().setTheme("dark");
+      expect(useApp.getState()).toMatchObject({ theme: "dark", themeChoice: "dark" });
+      expect(localStorage.getItem("pixelflow.theme")).toBe("dark");
+    } finally {
+      delete (window as { matchMedia?: unknown }).matchMedia;
+    }
+  });
+
+  it("doesn't name Undo after a change made elsewhere landed between an edit's sending and its reply", async () => {
+    const backend = new MemoryBackend(emptyShow("House"));
+    await useApp.getState().connect(backend);
+    const show = backend.show;
+    await useApp.getState().apply([{ type: "addProp", prop: { ...newProp("arch", show), name: "Arch 1" } }]);
+    const label = () => nextLabels(useUndoLabels.getState().show, useApp.getState().snapshot?.revision).undo;
+    expect(label()).toBe("Add Arch 1");
+    // The assistant applies a change straight to the engine; the app hasn't heard of it yet.
+    await backend.applyEdits([{ type: "renameShow", name: "Home" }]);
+    await useApp.getState().apply([{ type: "addProp", prop: { ...newProp("tree", show), name: "Tree 1" } }]);
+    expect(label()).toBeNull();
   });
 
   it("remembers the theme", async () => {

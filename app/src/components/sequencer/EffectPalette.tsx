@@ -59,7 +59,7 @@ interface PaletteDrag {
 export const usePaletteDrag = create<PaletteDrag>(() => ({ kind: null, x: 0, y: 0, alt: false, drop: null, addAtPlayhead: null }));
 
 /** The effect kinds, to drag onto a row of the timeline (or press Enter to add at the playhead). */
-export function EffectPalette() {
+export function EffectPalette({ compact = false }: { compact?: boolean }) {
   const catalog = useSequencer((s) => s.catalog);
   const dragging = usePaletteDrag((s) => s.kind);
   const press = useRef<{ kind: EffectKind; x: number; y: number; moved: boolean } | null>(null);
@@ -103,9 +103,19 @@ export function EffectPalette() {
   };
 
   return (
-    <aside aria-label="Effects" className="flex w-40 shrink-0 flex-col border-r border-neutral-200 dark:border-neutral-800">
-      <h2 className="px-3 pt-3 pb-1 text-xs font-semibold tracking-wide text-neutral-500 uppercase">Effects</h2>
-      <p className="px-3 pb-2 text-xs text-neutral-500">Drag onto a row (Escape cancels), or press Enter to add at the playhead.</p>
+    <aside
+      aria-label="Effects"
+      data-compact={compact || undefined}
+      className={`flex shrink-0 flex-col border-r border-neutral-200 dark:border-neutral-800 ${compact ? "w-12" : "w-40"}`}
+    >
+      {compact ? (
+        <h2 className="sr-only">Effects</h2>
+      ) : (
+        <>
+          <h2 className="px-3 pt-3 pb-1 text-xs font-semibold tracking-wide text-neutral-500 uppercase">Effects</h2>
+          <p className="px-3 pb-2 text-xs text-neutral-500">Drag onto a row (Escape cancels), or press Enter to add at the playhead.</p>
+        </>
+      )}
       <ul className="flex-1 overflow-auto px-1.5 pb-2">
         {catalog.map((info) => {
           const Icon = EFFECT_ICONS[info.kind] ?? Activity;
@@ -113,9 +123,11 @@ export function EffectPalette() {
             <li key={info.kind}>
               <button
                 type="button"
-                title={info.description}
+                data-tip={compact ? `${info.label}: ${info.description} Drag onto a row, or press Enter to add at the playhead.` : info.description}
                 aria-label={`${info.label} effect`}
-                className={`flex w-full cursor-grab touch-none items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm select-none hover:bg-neutral-200/70 dark:hover:bg-neutral-800 ${
+                className={`flex w-full cursor-grab touch-none items-center gap-2 rounded-md py-1.5 text-left text-sm select-none hover:bg-neutral-200/70 dark:hover:bg-neutral-800 ${
+                  compact ? "justify-center px-0" : "px-2"
+                } ${
                   dragging === info.kind ? "bg-accent-50 dark:bg-accent-600/15" : ""
                 }`}
                 onPointerDown={(e) => onPointerDown(info.kind, e)}
@@ -129,7 +141,7 @@ export function EffectPalette() {
                 }}
               >
                 <Icon size={15} className="shrink-0 text-accent-600 dark:text-accent-400" />
-                {info.label}
+                {!compact && info.label}
               </button>
             </li>
           );

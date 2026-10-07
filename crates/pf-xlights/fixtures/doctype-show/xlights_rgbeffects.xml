@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<xrgb>
+  <models>
+    <model name="Gutter" DisplayAs="Single Line" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="1" parm2="20" parm3="1"
+           WorldPosX="100.0" WorldPosY="500.0" WorldPosZ="0.0" X2="400.0" Y2="0.0" Z2="0.0" StartChannel="1" versionNumber="5"/>
+  </models>
+  <modelGroups/>
+</xrgb>

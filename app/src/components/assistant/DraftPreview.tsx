@@ -1,9 +1,61 @@
-import { Check, X } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { Check, Pause, Play, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { PreviewProp } from "../../api/types";
+import { formatTime } from "../../lib/timelineMath";
 import { useAssistant } from "../../state/assistant";
 import { PreviewCanvas } from "../PreviewCanvas";
 import { Button } from "../ui";
+
+/** Time between frames while the draft sequence plays. */
+const FRAME_MS = 50;
+
+/**
+ * Plays a sequence proposal's draft (frames drawn from the draft, nothing applied or sent to the
+ * controllers): the frame now, where it is, and play / pause / seek.
+ */
+function useDraftPlayback(id: string | null, durationMs: number) {
+  const api = useAssistant((s) => s.api);
+  const [frame, setFrame] = useState<Uint8Array | null>(null);
+  const [positionMs, setPositionMs] = useState(0);
+  const [playing, setPlaying] = useState(true);
+  const position = useRef(0);
+  const playingRef = useRef(true);
+  useEffect(() => {
+    playingRef.current = playing;
+  }, [playing]);
+
+  useEffect(() => {
+    if (!api || !id || durationMs <= 0) return;
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let last = performance.now();
+    const tick = async () => {
+      const now = performance.now();
+      if (playingRef.current) position.current = (position.current + (now - last)) % durationMs;
+      last = now;
+      try {
+        const next = await api.previewFrame(id, Math.floor(position.current));
+        if (!alive) return;
+        setFrame(next);
+        setPositionMs(position.current);
+      } catch {
+        return;
+      }
+      timer = setTimeout(() => void tick(), FRAME_MS);
+    };
+    void tick();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [api, id, durationMs]);
+
+  const seek = (ms: number) => {
+    position.current = Math.max(0, Math.min(durationMs - 1, ms));
+    setPositionMs(position.current);
+  };
+  return { frame, positionMs, playing, setPlaying, seek };
+}
 
 /** Highlight for props the draft adds or changes, and a dim color for the rest. */
 const CHANGED: [number, number, number] = [255, 176, 32];
@@ -36,10 +88,14 @@ export function DraftPreview() {
   const busy = useAssistant((s) => s.busy);
   const { hidePreview, apply, discard } = useAssistant.getState();
   const closeRef = useRef<HTMLButtonElement>(null);
-  const frame = useMemo(
+  const plays = proposal?.changesSequence === true && proposal.timeline !== null;
+  const durationMs = proposal?.timeline?.durationMs ?? 0;
+  const playback = useDraftPlayback(preview && plays ? (proposal?.id ?? null) : null, durationMs);
+  const highlighted = useMemo(
     () => (preview && proposal ? highlightFrame(preview.props, proposal.changedProps) : null),
     [preview, proposal],
   );
+  const frame = plays ? playback.frame : highlighted;
 
   useEffect(() => {
     if (!preview) return;
@@ -74,18 +130,48 @@ export function DraftPreview() {
         <div className="min-h-0 flex-1 p-3">
           <div className="h-full overflow-hidden rounded-lg">
             <p className="sr-only">
-              The layout with the draft applied. {proposal.changedProps.length} added or changed props are highlighted.
+              {plays
+                ? "The draft sequence playing on your layout, without its music."
+                : `The layout with the draft applied. ${proposal.changedProps.length} added or changed props are highlighted.`}
             </p>
             <PreviewCanvas props={preview.props} frame={frame} />
           </div>
         </div>
         <div className="flex items-center gap-4 border-t border-neutral-200 px-4 py-3 text-sm dark:border-neutral-800">
-          <span className="flex items-center gap-1.5">
-            <span className="h-3 w-3 rounded-full" style={{ background: `rgb(${CHANGED.join(",")})` }} aria-hidden /> Added or changed
-          </span>
-          <span className="flex items-center gap-1.5 text-neutral-500">
-            <span className="h-3 w-3 rounded-full" style={{ background: `rgb(${UNCHANGED.join(",")})` }} aria-hidden /> Unchanged
-          </span>
+          {plays ? (
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <Button
+                variant="ghost"
+                aria-label={playback.playing ? "Pause" : "Play"}
+                title={playback.playing ? "Pause" : "Play"}
+                onClick={() => playback.setPlaying(!playback.playing)}
+              >
+                {playback.playing ? <Pause size={16} aria-hidden /> : <Play size={16} aria-hidden />}
+              </Button>
+              <input
+                type="range"
+                aria-label="Position"
+                min={0}
+                max={durationMs}
+                step={100}
+                value={Math.round(playback.positionMs)}
+                onChange={(e) => playback.seek(Number(e.target.value))}
+                className="min-w-0 flex-1 accent-accent-500"
+              />
+              <span className="shrink-0 text-xs text-neutral-500 tabular-nums">
+                {formatTime(playback.positionMs, 1000)} / {formatTime(durationMs, 1000)} · no music
+              </span>
+            </div>
+          ) : (
+            <>
+              <span className="flex items-center gap-1.5">
+                <span className="h-3 w-3 rounded-full" style={{ background: `rgb(${CHANGED.join(",")})` }} aria-hidden /> Added or changed
+              </span>
+              <span className="flex items-center gap-1.5 text-neutral-500">
+                <span className="h-3 w-3 rounded-full" style={{ background: `rgb(${UNCHANGED.join(",")})` }} aria-hidden /> Unchanged
+              </span>
+            </>
+          )}
           <div className="ml-auto flex gap-2">
             <Button variant="danger" disabled={busy} onClick={() => void discard()}>
               Discard

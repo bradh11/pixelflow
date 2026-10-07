@@ -299,7 +299,8 @@ impl Reader<'_> {
 /// palettes and effect settings first). `<CompressedData>` blocks are decompressed and read as
 /// if their contents were written in their place at the end of the file, as xLights does.
 pub fn parse_xsq(input: &str) -> Result<XsqFile, XlightsError> {
-    let doc = xml::parse(input).map_err(bad)?;
+    let readable = xml::without_bare_doctype(input);
+    let doc = xml::parse(&readable).map_err(bad)?;
     let root = doc.root_element();
     if root.tag_name().name() != "xsequence" {
         return Err(bad(format!(

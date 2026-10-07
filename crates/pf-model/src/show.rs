@@ -18,8 +18,10 @@ use std::path::Path;
 /// the house model) are relative to the show file when the file is inside its folder, and keep
 /// bytes that aren't UTF-8 (see `paths.rs`); the file also records the folder it was saved in
 /// (`savedIn`), so a show file moved on its own still finds its files; 9 = more prop shapes
-/// (`polyLine` and the other xLights prop types).
-pub const CURRENT_SCHEMA_VERSION: u32 = 9;
+/// (`polyLine` and the other xLights prop types); 10 = more settings for arches, circles, stars
+/// and trees (several arches in a row, layers, start positions, spirals and more ways to wire a
+/// tree), so they can match xLights'.
+pub const CURRENT_SCHEMA_VERSION: u32 = 10;
 
 /// Show-wide settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -12,6 +12,7 @@ import type { Effect, Sequence } from "../api/sequence";
 import { useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
 import { runMenuAction } from "../state/menuActions";
+import { useToasts } from "../state/toast";
 
 // The timeline is 1000 × 600 px at the window's corner: the demo's minute fits at 60 ms per pixel.
 // Above the rows: ruler 24 + music 44 + two timing tracks of 18 = 104 px. Rows are 30 px a lane:
@@ -128,11 +129,63 @@ describe("sequence screen", () => {
     expect(added.params).toMatchObject({ kind: "fire", height: expect.any(Number) });
     expect(seq.undoStack.length).toBe(before + 1);
     expect(useSequencer.getState().selection).toEqual([added.id]);
+    expect(screen.getByRole("button", { name: "Undo (sequence)" })).toHaveAttribute("data-tip", "Undo (sequence): Add Fire");
     // Dropped off the rows, nothing is added.
     fireEvent.pointerDown(fire, { clientX: 20, clientY: 20, button: 0, pointerId: 1 });
     fireEvent.pointerMove(fire, { clientX: 300, clientY: 50, pointerId: 1 });
     fireEvent.pointerUp(fire, { clientX: 300, clientY: 50, pointerId: 1 });
     expect(seq.undoStack.length).toBe(before + 1);
+  });
+
+  describe("undo on the Sequence screen", () => {
+    const names = (backend: MemoryBackend) => backend.show.props.map((p) => p.name);
+    const press = (shift = false, repeat = false) => act(() => void fireEvent.keyDown(document.body, { key: "z", metaKey: true, shiftKey: shift, repeat }));
+    async function renameStar(backend: MemoryBackend, name: string) {
+      const star = backend.show.props.find((p) => p.name.endsWith("Star"))!;
+      await act(() => useApp.getState().apply([{ type: "updateProp", prop: { ...star, name } }]));
+    }
+
+    it("acts only on the sequence; with nothing to undo there, ⌘Z offers the layout change instead", async () => {
+      const { user, backend } = await openScreen();
+      await renameStar(backend, "Roof Star");
+      await renameStar(backend, "Gable Star");
+      // The button says which document it acts on, and the sequence has nothing to undo.
+      expect(screen.getByRole("button", { name: "Undo (sequence)" })).toBeDisabled();
+      await press();
+      expect(names(backend)).toContain("Gable Star");
+      const hint = useToasts.getState().toasts.at(-1)!;
+      expect(hint.text).toBe("Nothing to undo in the sequence. Undo the layout change “Rename Roof Star to Gable Star”?");
+      expect(hint.action?.label).toBe("Undo layout change");
+      // Held down, the key repeats: nothing more happens, to either document.
+      await press(false, true);
+      await press(false, true);
+      expect(useToasts.getState().toasts.filter((t) => t.text.startsWith("Nothing to undo"))).toHaveLength(1);
+      expect(names(backend)).toContain("Gable Star");
+      // The hint's button takes back one layout step.
+      await act(async () => void (await hint.action!.run()));
+      expect(names(backend)).toContain("Roof Star");
+      void user;
+    });
+
+    it("redoes what was last undone, in order", async () => {
+      const { backend, seq } = await openScreen();
+      await renameStar(backend, "Roof Star");
+      const first = seq.doc!.rows[0].layers[0].effects[0];
+      await act(() => useSequencer.getState().edit([{ type: "removeEffect", id: first.id }]));
+      // Undo the sequence edit, then (offered by the hint) the layout change.
+      await press();
+      expect(seq.doc!.rows[0].layers[0].effects[0].id).toBe(first.id);
+      await press();
+      await act(async () => void (await useToasts.getState().toasts.at(-1)!.action!.run()));
+      expect(names(backend)).toContain("Porch Star");
+      expect(screen.getByRole("button", { name: "Redo (show)" })).toBeEnabled();
+      // Redo brings back the layout change first (the last thing undone), then the sequence edit.
+      await press(true);
+      await waitFor(() => expect(names(backend)).toContain("Roof Star"));
+      expect(seq.doc!.rows[0].layers[0].effects[0].id).toBe(first.id);
+      await press(true);
+      await waitFor(() => expect(seq.doc!.rows[0].layers[0].effects[0].id).not.toBe(first.id));
+    });
   });
 
   it("adds an effect at the playhead from the keyboard", async () => {
@@ -561,6 +614,85 @@ function recordTimelineText() {
   });
   return texts;
 }
+
+describe("in a narrow window", () => {
+  /** Lays the workspace (palette, timeline, settings) out `width` px wide. */
+  function workspaceWidth(width: number) {
+    const rect = (w: number, h: number) => ({ x: 0, y: 0, left: 0, top: 0, width: w, height: h, right: w, bottom: h, toJSON: () => ({}) });
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      return (this instanceof HTMLElement && this.dataset.sequenceWorkspace !== undefined ? rect(width, 600) : rect(1000, 600)) as DOMRect;
+    });
+  }
+
+  it("keeps the effect settings to a slim strip until an effect is selected", async () => {
+    await openScreen();
+    const strip = screen.getByRole("complementary", { name: "Effect settings" });
+    expect(strip).toHaveAttribute("data-collapsed", "true");
+    expect(strip).toHaveTextContent("Select an effect on the timeline to change how it looks.");
+    fireEvent.pointerDown(timeline(), { clientX: x(1000), clientY: LANE.archTop, button: 0, pointerId: 1 });
+    fireEvent.pointerUp(timeline(), { clientX: x(1000), clientY: LANE.archTop, pointerId: 1 });
+    expect(screen.getByRole("complementary", { name: "Effect settings" })).not.toHaveAttribute("data-collapsed");
+  });
+
+  it("shows the effects as icons, and floats a selected effect's settings over the timeline", async () => {
+    workspaceWidth(700);
+    await openScreen();
+    const palette = screen.getByRole("complementary", { name: "Effects" });
+    expect(palette).toHaveAttribute("data-compact", "true");
+    const fade = within(palette).getByRole("button", { name: "Fade effect" });
+    expect(fade).toHaveAttribute("data-tip", expect.stringMatching(/^Fade: /));
+    fireEvent.pointerDown(timeline(), { clientX: x(1000), clientY: LANE.archTop, button: 0, pointerId: 1 });
+    fireEvent.pointerUp(timeline(), { clientX: x(1000), clientY: LANE.archTop, pointerId: 1 });
+    expect(screen.getByRole("complementary", { name: "Effect settings" })).toHaveAttribute("data-floating", "true");
+  });
+
+  describe("the preview on a wide screen", () => {
+    const column = () => screen.getByRole("region", { name: "Preview and effect settings" });
+
+    it("sits beside the timeline, above the effect settings, so the timeline gets the full height", async () => {
+      workspaceWidth(1400);
+      await openScreen();
+      expect(document.querySelector("[data-sequence-workspace]")).toHaveAttribute("data-preview", "side");
+      expect(within(column()).getByRole("region", { name: "Preview" })).toBeInTheDocument();
+      expect(within(column()).getByRole("complementary", { name: "Effect settings" })).toBeInTheDocument();
+      expect(screen.queryByRole("separator", { name: "Preview size" })).not.toBeInTheDocument();
+    });
+
+    it("can go back above the timeline, and remembers that", async () => {
+      workspaceWidth(1400);
+      const { user } = await openScreen();
+      await user.click(screen.getByRole("button", { name: "Preview above the timeline" }));
+      expect(document.querySelector("[data-sequence-workspace]")).toHaveAttribute("data-preview", "top");
+      expect(JSON.parse(localStorage.getItem("pixelflow.sequencePreview")!)).toMatchObject({ place: "top" });
+      await user.click(screen.getByRole("button", { name: "Preview beside the timeline" }));
+      expect(document.querySelector("[data-sequence-workspace]")).toHaveAttribute("data-preview", "side");
+    });
+
+    it("is resized from its edge, and Bigger preview widens it", async () => {
+      workspaceWidth(1400);
+      const { user } = await openScreen();
+      const edge = screen.getByRole("separator", { name: "Preview width" });
+      expect(column().style.width).toBe("360px");
+      edge.focus();
+      await user.keyboard("{ArrowLeft}");
+      expect(column().style.width).toBe("380px");
+      expect(JSON.parse(localStorage.getItem("pixelflow.sequencePreview")!)).toMatchObject({ side: 380 });
+      await user.click(within(column()).getByRole("button", { name: "Bigger preview" }));
+      expect(column().style.width).toBe("55%");
+    });
+
+    it("stays above the timeline where there's no room beside it", async () => {
+      await openScreen();
+      expect(document.querySelector("[data-sequence-workspace]")).toHaveAttribute("data-preview", "top");
+      expect(screen.queryByRole("button", { name: "Preview beside the timeline" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("keeps the palette's names where there's room", async () => {
+    await openScreen();
+    expect(screen.getByRole("complementary", { name: "Effects" })).not.toHaveAttribute("data-compact");
+  });
+});
 
 describe("unsaved work", () => {
   it("offers back a sequence kept from last time, asking before it replaces unsaved changes", async () => {

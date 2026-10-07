@@ -79,7 +79,8 @@ fn model_from(node: Node<'_, '_>) -> Option<XmlModel> {
 
 /// Reads the models and groups.
 pub fn parse_layout(xml: &str) -> Result<XLayout, XlightsError> {
-    let doc = crate::xml::parse(xml).map_err(|e| XlightsError::BadFile("xlights_rgbeffects.xml", e))?;
+    let xml = crate::xml::without_bare_doctype(xml);
+    let doc = crate::xml::parse(&xml).map_err(|e| XlightsError::BadFile("xlights_rgbeffects.xml", e))?;
     let root = doc.root_element();
     if root.tag_name().name() != "xrgb" {
         return Err(XlightsError::BadFile(

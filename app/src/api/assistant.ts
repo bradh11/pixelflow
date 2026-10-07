@@ -16,6 +16,18 @@ export function providerName(id: ProviderId): string {
   return id === "anthropic" ? "Anthropic" : "OpenAI";
 }
 
+/** A model's short, readable name: "claude-opus-5-5" is "Claude Opus 5.5", "gpt-5-mini" "GPT-5 mini". */
+export function modelLabel(id: string): string {
+  const claude = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(id);
+  if (claude) {
+    const [, family, major, minor] = claude;
+    return `Claude ${family[0].toUpperCase()}${family.slice(1)} ${minor ? `${major}.${minor}` : major}`;
+  }
+  const gpt = /^gpt-([\d.o]+)(?:-(.+))?$/.exec(id);
+  if (gpt) return `GPT-${gpt[1]}${gpt[2] ? ` ${gpt[2].replace(/-/g, " ")}` : ""}`;
+  return id;
+}
+
 /** A chat model that can use tools. */
 export interface ModelInfo {
   id: string;
@@ -55,6 +67,29 @@ export interface Change {
   warnings: string[];
 }
 
+/** What a sequence proposal does in one section of the song. */
+export interface SectionSummary {
+  label: string;
+  startMs: number;
+  endMs: number;
+  /** Rows with an effect added, changed, or removed here. */
+  rows: number;
+  added: number;
+  changed: number;
+  removed: number;
+  /** Effect kinds added or changed here ("Twinkle"). */
+  kinds: string[];
+}
+
+/** A sequence proposal's draft drawn small: rows of effects, each in its first color. */
+export interface TimelineView {
+  durationMs: number;
+  sections: { label: string; startMs: number; endMs: number }[];
+  rows: { name: string; effects: { startMs: number; endMs: number; color: string }[] }[];
+  /** Rows with effects left out to keep it small. */
+  moreRows: number;
+}
+
 /** The assistant's finished draft, for the user to review. */
 export interface ProposalView {
   id: string;
@@ -64,6 +99,10 @@ export interface ProposalView {
   changedProps: string[];
   changesShow: boolean;
   changesSequence: boolean;
+  /** For a sequence proposal: what it does in each section of the song. */
+  sections: SectionSummary[];
+  /** For a sequence proposal: the draft sequence drawn small. */
+  timeline: TimelineView | null;
 }
 
 /** What arrives while a reply streams in. */
@@ -71,11 +110,15 @@ export type ChatEvent =
   | { kind: "text"; text: string }
   | { kind: "activity"; label: string }
   | { kind: "retrying"; seconds: number }
-  | { kind: "proposal"; proposal: ProposalView };
+  | { kind: "proposal"; proposal: ProposalView }
+  /** The assistant asks the user to choose a song for a new sequence. */
+  | { kind: "chooseSong" };
 
 export interface TurnReply {
   text: string;
   proposal: ProposalView | null;
+  /** The assistant asked the user to choose a song for a new sequence. */
+  chooseSong: boolean;
 }
 
 /** What applying did: the show (one undo step) and/or the open sequence (one sequence undo step). */
@@ -87,7 +130,7 @@ export interface Applied {
 /**
  * Everything the assistant asks of the app. Keys only ever go in: nothing returns one, and every
  * call to a provider is made by the app (in Rust), never from this window. Errors reject with a
- * plain-language message.
+ * plain-language message (an {@link AssistantError} with the provider's own words, when there are any).
  */
 export interface AssistantApi {
   keyStorage(): Promise<KeyStorage>;
@@ -110,9 +153,40 @@ export interface AssistantApi {
   discard(id: string): Promise<void>;
   /** The draft show's pixels (front view), to preview without applying. */
   preview(id: string): Promise<PreviewSet>;
+  /** The draft sequence at `positionMs` on the draft show (frame bytes for `preview`'s pixels), to
+   * play the draft without applying it. */
+  previewFrame(id: string, positionMs: number): Promise<Uint8Array>;
   /** Drops the proposal when the show or sequence it was made for isn't open anymore (call after
    * either is replaced). True when it was dropped. */
   sync(): Promise<boolean>;
+}
+
+/** A failed chat turn or model list: the plain message, and the provider's own words under "Details". */
+export class AssistantError extends Error {
+  constructor(
+    message: string,
+    readonly details: string | null = null,
+  ) {
+    super(message);
+    this.name = "AssistantError";
+  }
+}
+
+/** The app's `{ message, details }` failure as an {@link AssistantError}; anything else as it came. */
+export function assistantFailure(error: unknown): unknown {
+  if (error !== null && typeof error === "object" && !(error instanceof Error) && "message" in error && typeof error.message === "string") {
+    const details = "details" in error && typeof error.details === "string" ? error.details : null;
+    return new AssistantError(error.message, details);
+  }
+  return error;
+}
+
+async function failing<T>(call: Promise<T>): Promise<T> {
+  try {
+    return await call;
+  } catch (e) {
+    throw assistantFailure(e);
+  }
 }
 
 /** The event the app streams replies on. */
@@ -126,12 +200,12 @@ export const tauriAssistant: AssistantApi = {
   hasApiKey: (provider) => invoke("has_api_key", { provider }),
   keyLocation: (provider) => invoke("api_key_location", { provider }),
   deleteApiKey: (provider) => invoke("delete_api_key", { provider }),
-  listModels: (provider) => invoke("list_ai_models", { provider }),
+  listModels: (provider) => failing(invoke("list_ai_models", { provider })),
   async send(provider, model, message, context, onEvent) {
     // One reply at a time: every event heard while this call is out belongs to it.
     const unlisten = await listen<{ turn: number; event: ChatEvent }>(ASSISTANT_EVENT, (e) => onEvent(e.payload.event));
     try {
-      return await invoke<TurnReply>("ai_send", { provider, model, message, context });
+      return await failing(invoke<TurnReply>("ai_send", { provider, model, message, context }));
     } finally {
       unlisten();
     }
@@ -141,5 +215,6 @@ export const tauriAssistant: AssistantApi = {
   apply: (id) => invoke("ai_apply", { id }),
   discard: (id) => invoke("ai_discard", { id }),
   preview: async (id) => decodePreview(await invoke<ArrayBuffer | number[]>("ai_preview", { id })),
+  previewFrame: async (id, positionMs) => new Uint8Array(await invoke<ArrayBuffer>("ai_preview_frame", { id, positionMs })),
   sync: () => invoke("ai_sync"),
 };

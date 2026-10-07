@@ -18,6 +18,8 @@ import { fileName } from "../lib/format";
 import { sameFile } from "../lib/showFiles";
 import { useLayoutEditor } from "./layoutEditor";
 import { toast } from "./toast";
+import { edited, stepped, useUndoLabels } from "./undoLabels";
+import { describeShowEdits } from "../lib/describeChange";
 import { showViewKey, useView3d } from "./view3d";
 
 /**
@@ -26,6 +28,9 @@ import { showViewKey, useView3d } from "./view3d";
  * was still on its way.
  */
 export type EditsFrom = Edit[] | ((show: Show) => Edit[]);
+
+/** What a call to the engine does to the show's undo history. */
+type TurnKind = "edit" | "undo" | "redo" | "other";
 
 /** `quiet`: no "Saved …" toast (the caller says what it saved itself). */
 export interface SaveOptions {
@@ -49,16 +54,35 @@ export type ReplaceKind = "new" | "open" | "xlights" | "sample" | "close" | { re
 /** A new show's name until the user gives it one. */
 export const UNTITLED = "Untitled Show";
 export type Theme = "dark" | "light";
+/** The theme chosen: light, dark, or whatever the computer is set to. */
+export type ThemeChoice = Theme | "system";
 
 const THEME_KEY = "pixelflow.theme";
 
-function storedTheme(): Theme {
+/**
+ * The theme chosen on this computer. A new install follows the computer; one that has been used
+ * before without choosing keeps the dark it always had (saved once, so it stays chosen).
+ */
+export function initialThemeChoice(): ThemeChoice {
   try {
-    return localStorage.getItem(THEME_KEY) === "light" ? "light" : "dark";
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === "light" || saved === "dark" || saved === "system") return saved;
+    const usedBefore = Object.keys(localStorage).some((k) => k.startsWith("pixelflow."));
+    const choice = usedBefore ? "dark" : "system";
+    localStorage.setItem(THEME_KEY, choice);
+    return choice;
   } catch {
-    return "dark";
+    return "system";
   }
 }
+
+/** The computer's light or dark setting (dark where it can't be told). */
+export function systemTheme(): Theme {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return "dark";
+  return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+
+const resolveTheme = (choice: ThemeChoice): Theme => (choice === "system" ? systemTheme() : choice);
 
 interface AppState {
   backend: Backend | null;
@@ -66,7 +90,11 @@ interface AppState {
   /** False until the user leaves the welcome screen. */
   started: boolean;
   screen: Screen;
+  /** Names the open show for this run of the app: a new one each time another show takes its place. */
+  showId: string;
+  /** The theme in use, light or dark. */
   theme: Theme;
+  themeChoice: ThemeChoice;
   paletteOpen: boolean;
   error: string | null;
   busy: boolean;
@@ -103,7 +131,8 @@ interface AppState {
 
   connect(backend: Backend): Promise<void>;
   setScreen(screen: Screen): void;
-  setTheme(theme: Theme): void;
+  /** Chooses light, dark, or the computer's setting ("system"), remembered on this computer. */
+  setTheme(theme: ThemeChoice): void;
   setPaletteOpen(open: boolean): void;
   setTestTarget(value: string): void;
   setMusicVolume(volume: number): void;
@@ -314,6 +343,7 @@ export const useApp = create<AppState>((set, get) => {
       return false;
     }
     if (!ok) return false;
+    set({ showId: crypto.randomUUID() });
     // The open sequence belongs to the show being left.
     await useSequencer.getState().closeDocument();
     if (kind === "close") {
@@ -405,14 +435,37 @@ export const useApp = create<AppState>((set, get) => {
   /** Set while a check of the show's files runs (one at a time). */
   let checkingFiles = false;
 
+  /**
+   * Keeps the Undo and Redo names in step with a call that took the show from `before` to
+   * `after`: an edit (named by `label`), an undo, a redo, or anything else (which puts the names
+   * aside until the next edit).
+   */
+  function trackUndoNames(before: ShowSnapshot | null, after: ShowSnapshot, kind: TurnKind, label: (() => string) | undefined) {
+    if (!before || before.revision === after.revision) return;
+    const names = useUndoLabels.getState().show;
+    const next =
+      kind === "edit" && label
+        ? edited(names, before.revision, after.revision, label())
+        : kind === "undo" || kind === "redo"
+          ? stepped(names, before.revision, after.revision, kind === "redo")
+          : { undo: [], redo: [], at: null };
+    useUndoLabels.setState({ show: next });
+  }
+
   /** Runs `call` once every earlier call has finished; resolves with its snapshot, or null on failure. */
-  function runInTurn(call: (backend: Backend) => Promise<ShowSnapshot>): Promise<ShowSnapshot | null> {
+  function runInTurn(
+    call: (backend: Backend) => Promise<ShowSnapshot>,
+    kind: TurnKind = "other",
+    label?: (before: ShowSnapshot) => string,
+  ): Promise<ShowSnapshot | null> {
     const turn = queue.then(async () => {
       const backend = get().backend;
       if (!backend) return null;
       set({ busy: true });
       try {
+        const before = get().snapshot;
         const snapshot = await call(backend);
+        trackUndoNames(before, snapshot, kind, before && label ? () => label(before) : undefined);
         const current = get().snapshot;
         // Engine revisions only increase, so never go backwards.
         if (!current || snapshot.revision >= current.revision) {
@@ -439,12 +492,18 @@ export const useApp = create<AppState>((set, get) => {
 
   /** Sends the edits (built from the latest show, if they're a function) when their turn comes. */
   function sendEdits(edits: EditsFrom): Promise<ShowSnapshot | null> {
-    return runInTurn(async (backend) => {
-      const current = get().snapshot;
-      const batch = typeof edits === "function" ? (current ? edits(current.show) : []) : edits;
-      if (batch.length === 0 && current) return current;
-      return backend.applyEdits(batch);
-    });
+    let sent: Edit[] = [];
+    return runInTurn(
+      async (backend) => {
+        const current = get().snapshot;
+        const batch = typeof edits === "function" ? (current ? edits(current.show) : []) : edits;
+        sent = batch;
+        if (batch.length === 0 && current) return current;
+        return backend.applyEdits(batch);
+      },
+      "edit",
+      (before) => describeShowEdits(sent, before.show),
+    );
   }
 
   /** Commits an in-progress text edit (e.g. a prop rename) before saving. */
@@ -459,7 +518,11 @@ export const useApp = create<AppState>((set, get) => {
   snapshot: null,
   started: false,
   screen: "layout",
-  theme: storedTheme(),
+  showId: crypto.randomUUID(),
+  ...(() => {
+    const themeChoice = initialThemeChoice();
+    return { themeChoice, theme: resolveTheme(themeChoice) };
+  })(),
   paletteOpen: false,
   error: null,
   busy: false,
@@ -495,13 +558,13 @@ export const useApp = create<AppState>((set, get) => {
 
   setScreen: (screen) => set({ screen }),
 
-  setTheme(theme) {
+  setTheme(choice) {
     try {
-      localStorage.setItem(THEME_KEY, theme);
+      localStorage.setItem(THEME_KEY, choice);
     } catch {
       // Storage unavailable; the theme still applies for this session.
     }
-    set({ theme });
+    set({ themeChoice: choice, theme: resolveTheme(choice) });
   },
 
   setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
@@ -512,8 +575,8 @@ export const useApp = create<AppState>((set, get) => {
   run: async (call) => (await runInTurn(call)) !== null,
   apply: async (edits) => (await sendEdits(edits)) !== null,
   edit: async (edits) => (await sendEdits(edits))?.revision ?? null,
-  undo: () => withPairedSequence(get().run((b) => b.undo())),
-  redo: () => withPairedSequence(get().run((b) => b.redo())),
+  undo: () => withPairedSequence(runInTurn((b) => b.undo(), "undo").then((s) => s !== null)),
+  redo: () => withPairedSequence(runInTurn((b) => b.redo(), "redo").then((s) => s !== null)),
 
   newShow: () => leaveShow("new"),
   openShow: () => leaveShow("open"),

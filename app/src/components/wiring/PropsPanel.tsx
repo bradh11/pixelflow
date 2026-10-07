@@ -119,7 +119,9 @@ export function PropsPanel({ props, wiring }: { props: Prop[]; wiring: Map<strin
         {needle && shown.length === 0 && <li className="px-2 py-3 text-sm text-neutral-500">No prop matches “{query.trim()}”.</li>}
       </ul>
       <p className="border-t border-neutral-200 px-3 py-2 text-xs text-neutral-500 dark:border-neutral-800">
-        {over ? "Let go to unwire it." : "Drag a prop onto a port. Drop a wired prop back here to unwire it."}
+        {over
+          ? "Let go to unwire it."
+          : "Drag each prop onto the port it's plugged into, in the order the wire reaches them. Drop a wired prop back here to unwire it."}
       </p>
     </aside>
   );

@@ -186,13 +186,15 @@ pub(super) fn arches(cx: &mut Ctx) -> Raw {
         } else {
             let g = (max_len - 1) as f32 / (it - 1) as f32;
             for x in 0..it {
-                if idx < node_count {
-                    let mut xx = (x as f32 * g).round() as i64;
-                    if !dir {
-                        xx = max_len - 1 - xx;
-                    }
-                    bufs[idx as usize] = Some((xx, yy));
+                // Past the last pixel, the rest of the layer changes nothing.
+                if idx >= node_count {
+                    break;
                 }
+                let mut xx = (x as f32 * g).round() as i64;
+                if !dir {
+                    xx = max_len - 1 - xx;
+                }
+                bufs[idx as usize] = Some((xx, yy));
                 idx += 1;
             }
         }

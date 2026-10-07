@@ -4,6 +4,7 @@
 //! the open show, the controllers, or any file.
 
 use crate::diff::{Diff, diff};
+use crate::summary::{SectionSummary, Timeline, section_summaries, timeline};
 use pf_engine::{
     Edit, Engine, EngineError, SequenceEdit, SequenceEditResult, ShowSnapshot, edited_sequence, edited_show,
 };
@@ -11,6 +12,7 @@ use pf_model::{PropId, Show};
 use pf_sequence::{EffectId, Sequence};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 /// What the user is looking at, sent with each message so "these props" means something.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -57,6 +59,9 @@ pub struct Workspace {
     /// Which show this is (see [`Engine::show_generation`]).
     pub show_generation: u64,
     pub sequence: Option<OpenDoc>,
+    /// The open sequence's song (resolved next to the sequence file), for analysis. Only ever
+    /// read, never written.
+    pub music: Option<PathBuf>,
     pub context: UiContext,
 }
 
@@ -70,6 +75,7 @@ impl Workspace {
                 .sequence_doc_id()
                 .zip(engine.sequence_document())
                 .map(|(id, doc)| OpenDoc { id, doc: doc.clone() }),
+            music: engine.sequence_music(),
             context: context.bounded(),
         }
     }
@@ -126,6 +132,14 @@ impl Draft {
         let doc = self.sequence.as_ref().ok_or(EngineError::NoSequence)?;
         self.sequence = Some(edited_sequence(doc, std::slice::from_ref(&edit))?);
         self.sequence_edits.push(edit);
+        Ok(())
+    }
+
+    /// Tries several sequence edits at once (all or nothing), as one step of the draft.
+    pub fn edit_sequence_batch(&mut self, edits: Vec<SequenceEdit>) -> Result<(), EngineError> {
+        let doc = self.sequence.as_ref().ok_or(EngineError::NoSequence)?;
+        self.sequence = Some(edited_sequence(doc, &edits)?);
+        self.sequence_edits.extend(edits);
         Ok(())
     }
 
@@ -227,17 +241,31 @@ pub struct ProposalView {
     pub changed_props: Vec<String>,
     pub changes_show: bool,
     pub changes_sequence: bool,
+    /// For a sequence proposal: what it does in each section of the song.
+    pub sections: Vec<SectionSummary>,
+    /// For a sequence proposal: the draft sequence drawn small.
+    pub timeline: Option<Timeline>,
 }
 
 impl Proposal {
     pub fn view(&self) -> ProposalView {
+        let changes_sequence = !self.sequence_edits.is_empty();
+        let sequences = self
+            .base_sequence
+            .as_ref()
+            .zip(self.draft_sequence.as_ref())
+            .filter(|_| changes_sequence);
         ProposalView {
             id: self.id.clone(),
             summary: self.summary.clone(),
             changed_props: self.diff.touched_props(),
             diff: self.diff.clone(),
             changes_show: !self.show_edits.is_empty(),
-            changes_sequence: !self.sequence_edits.is_empty(),
+            changes_sequence,
+            sections: sequences
+                .map(|(before, after)| section_summaries(before, after))
+                .unwrap_or_default(),
+            timeline: sequences.map(|(_, after)| timeline(after, &self.draft_show)),
         }
     }
 }

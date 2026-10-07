@@ -1,4 +1,4 @@
-import { Maximize2 } from "lucide-react";
+import { Maximize2, PanelRight, PanelTop } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Sequence } from "../../api/sequence";
 import type { PreviewProp, PreviewSet3d, Show } from "../../api/types";
@@ -11,6 +11,22 @@ import { showViewKey, useView3d } from "../../state/view3d";
 import { type PhotoImage, useBackgroundImage, usePreviewProps, usePreviewProps3d } from "../layout/useLayoutData";
 import { Layout3dView } from "../layout3d/Layout3dView";
 import { ModeSwitch } from "../layout3d/ModeSwitch";
+import { IconButton } from "../ui";
+
+/** The display's width over its height (props and photo), for sizing the preview to it. */
+export function useDisplayAspect(): number {
+  const show = useApp((s) => s.snapshot?.show);
+  const preview = usePreviewProps();
+  const photo = useBackgroundImage(show?.background?.path);
+  return useMemo(() => {
+    const bg = show?.background ?? null;
+    const box = unionBox([...preview.props.map((p) => boxOfPoints(p.points)), bg ? backgroundBox(bg, photo.aspect) : null]);
+    if (!box) return 16 / 9;
+    const w = box.maxX - box.minX;
+    const h = box.maxY - box.minY;
+    return w > 0 && h > 0 ? Math.min(4, Math.max(0.5, w / h)) : 16 / 9;
+  }, [show?.background, preview.props, photo.aspect]);
+}
 
 const BACKDROP = "#0a0a0c";
 const COLORS = { unlit: "rgba(200, 200, 200, 0.35)", selected: "#a78bfa", dark: "rgba(70, 70, 70, 0.55)" };
@@ -23,7 +39,20 @@ const PLAY_MS = 40;
  * while editing, and live while playing. "Selected row only" shows just the pixels of the row
  * being worked on (only a submodel's own pixels, for a row on a submodel).
  */
-export function SequencePreview({ doc, expanded, onExpand }: { doc: Sequence; expanded?: boolean; onExpand?: (expanded: boolean) => void }) {
+export function SequencePreview({
+  doc,
+  expanded,
+  onExpand,
+  place,
+  onPlace,
+}: {
+  doc: Sequence;
+  expanded?: boolean;
+  onExpand?: (expanded: boolean) => void;
+  /** Where the preview sits, and how to move it (only where it can go beside the timeline). */
+  place?: "side" | "top";
+  onPlace?: (place: "side" | "top") => void;
+}) {
   const backend = useApp((s) => s.backend);
   const snapshot = useApp((s) => s.snapshot);
   const show = snapshot?.show;
@@ -39,6 +68,7 @@ export function SequencePreview({ doc, expanded, onExpand }: { doc: Sequence; ex
   const in3d = mode === "3d";
   const preview3d = usePreviewProps3d(in3d);
   const [onlyRow, setOnlyRow] = useState(false);
+  const aspect = useDisplayAspect();
   const [frame, setFrame] = useState<Uint8Array | null>(null);
   /** The moment to draw next, while a frame is on its way: scrubbing asks for one frame at a time
    * and skips the moments it passed meanwhile. */
@@ -121,27 +151,42 @@ export function SequencePreview({ doc, expanded, onExpand }: { doc: Sequence; ex
 
   return (
     <section aria-label="Preview" className="flex h-full w-full flex-col gap-1.5">
-      <div className="flex shrink-0 items-center gap-3">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1">
         <ModeSwitch mode={mode} onChange={setMode} />
-        <label className="flex items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-300">
+        <label className="flex items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-300" title="Show only the pixels of the row being worked on">
           <input type="checkbox" checked={onlyRow} onChange={(e) => setOnlyRow(e.target.checked)} />
-          Selected row only
+          {place === "side" ? "Row only" : "Selected row only"}
         </label>
         {onExpand && (
           <button
             type="button"
             aria-pressed={expanded}
+            aria-label="Bigger preview"
             title={expanded ? "Give the timeline its room back" : "Give the preview most of the screen"}
             onClick={() => onExpand(!expanded)}
             className={`ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-neutral-600 hover:bg-neutral-200/70 dark:text-neutral-300 dark:hover:bg-neutral-800 ${
               expanded ? "bg-accent-50 text-accent-600 dark:bg-accent-600/15 dark:text-accent-400" : ""
             }`}
           >
-            <Maximize2 size={13} aria-hidden /> Bigger preview
+            {/* Beside the timeline the column is narrow: the icon alone, named on hover. */}
+            <Maximize2 size={13} aria-hidden /> <span className={place === "side" ? "sr-only" : undefined}>Bigger preview</span>
           </button>
         )}
+        {onPlace && (
+          <IconButton
+            label={place === "side" ? "Preview above the timeline" : "Preview beside the timeline"}
+            className={`${onExpand ? "" : "ml-auto"} rounded-md p-1 text-neutral-600 hover:bg-neutral-200/70 dark:text-neutral-300 dark:hover:bg-neutral-800`}
+            onClick={() => onPlace(place === "side" ? "top" : "side")}
+          >
+            {place === "side" ? <PanelTop size={14} aria-hidden /> : <PanelRight size={14} aria-hidden />}
+          </IconButton>
+        )}
       </div>
-      <div className="relative min-h-0 flex-1">
+      <div
+        className={`relative min-h-0 ${place === "side" ? "w-full" : "flex-1"}`}
+        // Beside the timeline: as tall as the display needs at the column's width, within reason.
+        style={place === "side" ? { aspectRatio: `${aspect} / 1`, maxHeight: expanded ? "75vh" : "50vh", minHeight: 120 } : undefined}
+      >
         {in3d && snapshot ? (
           <Layout3dView preview={shown3d} show={snapshot.show} photo={photo3d} storageKey={showViewKey(snapshot.path, snapshot.show.name)} frame={frame} />
         ) : (
@@ -178,11 +223,22 @@ function FlatPreview({ props, frame, show, photo, onlyRow }: { props: PreviewPro
     canvas.width = Math.round(size.width * ratio);
     canvas.height = Math.round(size.height * ratio);
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    ctx.fillStyle = BACKDROP;
-    ctx.fillRect(0, 0, size.width, size.height);
+    ctx.clearRect(0, 0, size.width, size.height);
     const bg = show?.background ?? null;
     const box = unionBox([...props.map((p) => boxOfPoints(p.points)), bg && !onlyRow ? backgroundBox(bg, photo.aspect) : null]);
     const view = fitView(box, size, 16);
+    // The night sky only behind the display itself (around it, the panel shows through).
+    ctx.fillStyle = BACKDROP;
+    if (box) {
+      const a = toScreen(view, size, { x: box.minX, y: box.maxY });
+      const b = toScreen(view, size, { x: box.maxX, y: box.minY });
+      const pad = 8;
+      ctx.beginPath();
+      ctx.roundRect(a.x - pad, a.y - pad, b.x - a.x + 2 * pad, b.y - a.y + 2 * pad, 6);
+      ctx.fill();
+    } else {
+      ctx.fillRect(0, 0, size.width, size.height);
+    }
     if (bg && photo.image && !onlyRow) {
       const b = backgroundBox(bg, photo.aspect);
       const tl = toScreen(view, size, { x: b.minX, y: b.maxY });

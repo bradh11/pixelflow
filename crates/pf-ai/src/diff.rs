@@ -73,8 +73,16 @@ impl Diff {
         if self.changes.is_empty() {
             return "The draft has no changes yet.".to_string();
         }
+        const LISTED_EFFECTS: usize = 40;
         let mut out = String::new();
+        let mut effects = 0;
         for change in &self.changes {
+            if change.section == Section::Effect {
+                effects += 1;
+                if effects > LISTED_EFFECTS {
+                    continue;
+                }
+            }
             let action = match change.action {
                 Action::Added => "Add",
                 Action::Removed => "Remove",
@@ -85,6 +93,12 @@ impl Diff {
                 out.push_str(&format!(" ({})", change.details.join("; ")));
             }
             out.push('\n');
+        }
+        if effects > LISTED_EFFECTS {
+            out.push_str(&format!(
+                "- …and {} more effect changes ({effects} in all); list_sequence_effects shows them by row or time.\n",
+                effects - LISTED_EFFECTS
+            ));
         }
         out
     }
@@ -984,14 +998,7 @@ mod tests {
     fn added_props_groups_and_files_show_their_details() {
         let before = Show::new("Show");
         let mut after = before.clone();
-        let mut arch = Prop::new(
-            "Arch 1",
-            ShapeSource::Generator(Generator::Arch {
-                nodes: 50,
-                width: 2.0,
-                height: 1.0,
-            }),
-        );
+        let mut arch = Prop::new("Arch 1", ShapeSource::Generator(Generator::arch(50, 2.0, 1.0)));
         arch.transform.position = pf_model::Vec3::new(1.5, 0.0, -2.0);
         after.props.push(arch.clone());
         let mut group = Group::new("Arches");
@@ -1065,6 +1072,26 @@ mod tests {
     }
 
     #[test]
+    fn a_long_list_of_effects_is_summed_up_for_the_model() {
+        let effect = |i: usize| Change {
+            section: Section::Effect,
+            action: Action::Added,
+            name: format!("Twinkle {i}"),
+            id: None,
+            details: Vec::new(),
+            warnings: Vec::new(),
+        };
+        let diff = Diff {
+            changes: (0..100).map(effect).collect(),
+        };
+        let text = diff.describe();
+        assert!(text.contains("Twinkle 39") && !text.contains("Twinkle 40"));
+        assert!(text.ends_with(
+            "- …and 60 more effect changes (100 in all); list_sequence_effects shows them by row or time.\n"
+        ));
+    }
+
+    #[test]
     fn nothing_changed_means_an_empty_diff() {
         let mut show = Show::new("Show");
         show.props.push(line("A"));
@@ -1101,11 +1128,7 @@ mod tests {
         let mut before = Show::new("Show");
         before.props.push(line("A"));
         let mut after = before.clone();
-        after.props[0].shape = ShapeSource::Generator(Generator::Arch {
-            nodes: 50,
-            width: 2.0,
-            height: 1.0,
-        });
+        after.props[0].shape = ShapeSource::Generator(Generator::arch(50, 2.0, 1.0));
         let d = diff(&before, &after, None);
         assert_eq!(d.changes[0].details, ["shape: line → arch"]);
     }

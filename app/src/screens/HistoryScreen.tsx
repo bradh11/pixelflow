@@ -5,17 +5,34 @@ import { Button, EmptyState, PageHeader } from "../components/ui";
 import { useApp } from "../state/store";
 import { toast } from "../state/toast";
 
+/** How often the list is read again: backups are made in the background, every 30 seconds. */
+export const HISTORY_REFRESH_MS = 5_000;
+
 /** Backups of the show (not its saved file); restoring one can be undone. */
 export function HistoryScreen() {
   const backend = useApp((s) => s.backend);
   const run = useApp((s) => s.run);
   const revision = useApp((s) => s.snapshot?.revision);
+  // A save can move the backups (to the saved file's own list) without changing the revision.
+  const path = useApp((s) => s.snapshot?.path);
+  const dirty = useApp((s) => s.snapshot?.dirty);
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
 
   useEffect(() => {
     if (!backend) return;
-    void backend.listHistory().then(setEntries, () => setEntries([]));
-  }, [backend, revision]);
+    let cancelled = false;
+    const read = () =>
+      void backend.listHistory().then(
+        (list) => !cancelled && setEntries(list),
+        () => !cancelled && setEntries([]),
+      );
+    read();
+    const timer = setInterval(read, HISTORY_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [backend, revision, path, dirty]);
 
   return (
     <div className="mx-auto max-w-4xl">

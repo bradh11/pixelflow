@@ -16,6 +16,14 @@ describe("MemoryBackend", () => {
     expect(snap.show.props[0].id).toBe(prop.id);
   });
 
+  it("like the engine, an edit that changes nothing is no change: no revision, nothing to undo or save", async () => {
+    const backend = new MemoryBackend();
+    const before = await backend.getSnapshot();
+    const snap = await backend.applyEdits([{ type: "renameShow", name: before.show.name }]);
+    expect(snap.revision).toBe(before.revision);
+    expect(snap.dirty || snap.canUndo).toBe(false);
+  });
+
   it("removing a prop unwires it and drops it from groups", async () => {
     const backend = new MemoryBackend();
     const prop = newProp("arch", backend.show);

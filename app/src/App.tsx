@@ -15,6 +15,7 @@ import { Toasts } from "./components/Toasts";
 import { TooltipLayer } from "./components/Tooltip";
 import { NameShowDialog, OpeningStatus } from "./components/ShowDialogs";
 import { Welcome } from "./components/Welcome";
+import { useModalFocus } from "./components/useModalFocus";
 import { useShortcuts } from "./components/useShortcuts";
 import { requestWindowClose } from "./state/busy";
 import { runMenuAction } from "./state/menuActions";
@@ -25,6 +26,7 @@ export function App() {
   const theme = useApp((s) => s.theme);
   const backend = useApp((s) => s.backend);
   useShortcuts();
+  useModalFocus();
   // Closing the window with unsaved work asks first.
   useEffect(() => {
     if (!backend) return;

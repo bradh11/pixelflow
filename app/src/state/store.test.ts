@@ -217,3 +217,48 @@ describe("app store", () => {
     localStorage.removeItem("pixelflow.devices");
   });
 });
+
+describe("snapshots that land late", () => {
+  it("a file check from before a save doesn't bring “Unsaved” back", async () => {
+    const backend = await connected();
+    await useApp.getState().newShow();
+    await useApp.getState().apply([{ type: "renameShow", name: "Porch" }]);
+    // The check started before the save, so it answers with the show as it was then: unsaved.
+    const before = await backend.getSnapshot();
+    expect(before.dirty).toBe(true);
+    backend.checkFiles = async () => ({ ...before, filesChecked: true });
+    await useApp.getState().run((b) => b.saveShowAs("/Shows/porch.pixelflow.json"));
+    expect(useApp.getState().snapshot?.dirty).toBe(false);
+    await useApp.getState().checkFiles(true);
+    expect(useApp.getState().snapshot?.revision).toBe(before.revision);
+    expect(useApp.getState().snapshot?.dirty).toBe(false);
+    // What the check found still comes in.
+    expect(useApp.getState().snapshot?.filesChecked).toBe(true);
+  });
+});
+
+describe("a different show", () => {
+  it("starts the Test screen on the whole show again", async () => {
+    await connected();
+    await useApp.getState().newShow();
+    useApp.getState().setTestTarget("prop:gone");
+    await useApp.getState().newShow();
+    expect(useApp.getState().testTarget).toBe("show");
+  });
+});
+
+describe("selections", () => {
+  it("lose props that are gone, however they went", async () => {
+    const backend = await connected();
+    await useApp.getState().newShow();
+    const kept = newProp("line", backend.show);
+    await useApp.getState().apply([{ type: "addProp", prop: kept }]);
+    const added = { ...newProp("arch", backend.show), name: "Arch 1" };
+    await useApp.getState().apply([{ type: "addProp", prop: added }]);
+    useLayoutEditor.getState().select([kept.id, added.id]);
+    useLayoutEditor.getState().setHighlight({ prop: added.id, region: "r", phoneme: null });
+    await useApp.getState().undo();
+    expect(useLayoutEditor.getState().selected).toEqual([kept.id]);
+    expect(useLayoutEditor.getState().highlight).toBeNull();
+  });
+});

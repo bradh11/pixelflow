@@ -6,7 +6,7 @@ use crate::files::{
     self, FileCheck, FileRole, FileSearch, FileStatus, FoundFile, MissingFile, MusicCheck, SearchOutcome,
 };
 use crate::history::History;
-use crate::output::{OutputSession, OutputStatus, PatternSpec, TargetSpec, output_key};
+use crate::output::{ControllerStatus, OutputSession, OutputStatus, PatternSpec, TargetSpec, output_key};
 use crate::persist::{self, HistoryEntry, HistoryFile, LoadedShow};
 use crate::playback::{
     self, ClockFactory, DocumentRequest, PlayRequest, PlaybackReady, PlaybackSession, PlaybackStatus,
@@ -18,7 +18,7 @@ use crate::snapshot::{PreviewProp, ShowSnapshot, Summary};
 use pf_mapping::ChannelMap;
 use pf_model::{SequenceId, Severity, Show, ValidationReport, path_from_text, path_to_text};
 use pf_output::{OutputSettings, Transport, UdpTransport};
-use pf_patterns::{Target, resolve_target};
+use pf_patterns::{Target, TargetRange, resolve_target};
 use pf_render::Renderer;
 use pf_render::export::{ExportLayout, ExportSummary};
 use pf_sequence::Sequence;
@@ -465,11 +465,15 @@ impl Engine {
 
     /// Saves to `path` and makes it the current file.
     pub fn save_as(&mut self, path: &Path) -> Result<ShowSnapshot, EngineError> {
+        let history_before = self.history_dir();
         persist::save_show_atomic(path, &self.show)?;
         self.path = Some(path.to_path_buf());
         self.saved_revision = self.revision;
-        // The history folder follows the file, so the next autosave writes a copy there.
-        self.autosaved_revision = u64::MAX;
+        // The history folder follows the file: a different file gets a first copy at the next
+        // autosave. Saving to the same file again changes nothing there.
+        if self.history_dir() != history_before {
+            self.autosaved_revision = u64::MAX;
+        }
         Ok(self.snapshot())
     }
 
@@ -643,7 +647,9 @@ impl Engine {
         if let Some(error) = first_error(&report) {
             return Err(EngineError::ShowHasErrors(error.message.clone()));
         }
-        if resolve_target(&self.show, &map, &Target::from(&target)).is_empty() {
+        // Pixels that no controller port carries would run and send nothing.
+        let targets = resolve_target(&self.show, &map, &Target::from(&target));
+        if !targets.iter().any(|t| wired(&map, t)) {
             return Err(EngineError::NothingToLight);
         }
         self.launch(map, pattern, target)
@@ -690,10 +696,22 @@ impl Engine {
     }
 
     pub fn output_status(&self) -> OutputStatus {
-        self.output.as_ref().map_or_else(
+        let mut status = self.output.as_ref().map_or_else(
             || OutputStatus::stopped(self.output_generation, self.stop_reason.clone()),
             OutputSession::status,
-        )
+        );
+        self.name_as_now(&mut status.controllers);
+        status
+    }
+
+    /// Gives each controller the name the show has for it now: renaming one doesn't change
+    /// what's sent, so the running plan keeps the name it started with.
+    fn name_as_now(&self, controllers: &mut [ControllerStatus]) {
+        for status in controllers {
+            if let Some(controller) = self.show.controllers.iter().find(|c| c.id == status.id) {
+                status.name.clone_from(&controller.name);
+            }
+        }
     }
 
     /// The latest painted frame while output runs (prop order, RGB/RGBW per pixel).
@@ -835,7 +853,9 @@ impl Engine {
 
     /// The playing sequence's state, or `None` when nothing is playing.
     pub fn playback_status(&self) -> Option<PlaybackStatus> {
-        self.playback.as_ref().map(PlaybackSession::status)
+        let mut status = self.playback.as_ref().map(PlaybackSession::status)?;
+        self.name_as_now(&mut status.controllers);
+        Some(status)
     }
 
     /// The props as they look right now: the playing sequence's frame, else the test pattern's
@@ -1706,7 +1726,7 @@ impl Engine {
     }
 
     /// Keeps running output in step with the show: switches it to a new output plan, without a
-    /// black frame or a pattern restart, only when the wiring, addresses, frame rate, or the
+    /// black frame or a pattern restart, only when the wiring, addresses, frame rate, frame size, or the
     /// pattern's target pixels changed (moving props in the layout changes none of these, so no
     /// DNS lookup happens), and stops it, saying why, if the show now has errors or the target
     /// has no pixels.
@@ -1753,6 +1773,17 @@ impl Engine {
             session.stop();
         }
     }
+}
+
+/// Whether any of `target`'s pixels go out on a controller port.
+fn wired(map: &ChannelMap, target: &TargetRange) -> bool {
+    let start = target.frame_offset;
+    let end = start + target.pixels as usize * target.channels_per_pixel as usize;
+    map.controllers.iter().flat_map(|c| &c.spans).any(|s| {
+        let from = s.frame_offset;
+        let to = from + s.pixels as usize * s.channels_per_pixel as usize;
+        from < end && start < to
+    })
 }
 
 /// The channel map plus every structural and wiring issue.

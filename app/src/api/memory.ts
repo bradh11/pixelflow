@@ -158,6 +158,8 @@ export class MemoryBackend implements Backend {
     this.calls.push("applyEdits");
     const next = structuredClone(this.show);
     for (const edit of edits) applyEdit(next, edit);
+    // Like the engine: an edit that changes nothing isn't a change (nothing to undo or save).
+    if (JSON.stringify(next) === JSON.stringify(this.show)) return this.snapshot();
     this.undoStack.push(this.show);
     this.redoStack = [];
     this.show = next;

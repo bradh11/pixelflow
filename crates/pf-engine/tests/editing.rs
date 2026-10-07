@@ -271,6 +271,26 @@ fn save_as_makes_the_next_autosave_write_into_the_new_history() {
 }
 
 #[test]
+fn saving_to_the_same_file_doesnt_force_another_history_copy() {
+    let (mut engine, dir) = engine();
+    let path = dir.path().join("house.pixelflow.json");
+    engine.apply(vec![Edit::AddProp { prop: line("A", 3) }]).unwrap();
+    engine.save_as(&path).unwrap();
+    assert!(
+        engine.autosave().unwrap().is_some(),
+        "first copy in the file's history"
+    );
+    engine.save().unwrap();
+    assert!(
+        engine.autosave().unwrap().is_none(),
+        "nothing changed since that copy"
+    );
+    engine.save_as(&path).unwrap();
+    assert!(engine.autosave().unwrap().is_none(), "same file, same history");
+    assert_eq!(engine.history().len(), 1);
+}
+
+#[test]
 fn an_adopted_show_is_new_and_unsaved() {
     let dir = tempfile::tempdir().unwrap();
     let mut engine = Engine::new(dir.path());

@@ -931,14 +931,52 @@ mod tests {
     }
 
     #[test]
+    fn the_window_gets_no_dialog_permissions() {
+        // File dialogs are the shell's (pickers.rs): the window asks for a path by command, so
+        // it can't show a dialog of its own or pick a file to read.
+        let capability: Value = serde_json::from_str(include_str!("../capabilities/default.json")).unwrap();
+        let permissions: Vec<&str> = capability["permissions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        assert!(!permissions.is_empty());
+        assert!(
+            permissions.iter().all(|p| !p.starts_with("dialog:")),
+            "{permissions:?}"
+        );
+    }
+
+    #[test]
     fn quitting_autosaves_and_stops_output() {
         let (app, webview, _dir) = app();
+        let prop = json!({
+            "id": "11111111-0000-4000-8000-0000000000ab", "name": "Strip",
+            "shape": { "source": "generator", "type": "line", "nodes": 4, "length": 1.0 }
+        });
+        let controller = json!({
+            "id": "33333333-0000-4000-8000-0000000000ab", "name": "Bench", "address": "127.0.0.1:9",
+            "protocol": { "type": "ddp" },
+            "ports": [{ "number": 1, "slots": [{ "prop": "11111111-0000-4000-8000-0000000000ab" }] }]
+        });
         call(
             &webview,
             "apply_edits",
-            json!({ "edits": [{ "type": "renameShow", "name": "Unsaved" }] }),
+            json!({ "edits": [
+                { "type": "renameShow", "name": "Unsaved" },
+                { "type": "addProp", "prop": prop },
+                { "type": "addController", "controller": controller }
+            ] }),
         )
         .unwrap();
+        let started = call(
+            &webview,
+            "start_output",
+            json!({ "pattern": { "kind": "solid", "color": "ff0000" }, "target": { "type": "show" } }),
+        )
+        .unwrap();
+        assert_eq!(started["running"], true);
         assert!(
             call(&webview, "list_history", json!({}))
                 .unwrap()

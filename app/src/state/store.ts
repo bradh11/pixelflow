@@ -343,7 +343,8 @@ export const useApp = create<AppState>((set, get) => {
       return false;
     }
     if (!ok) return false;
-    set({ showId: crypto.randomUUID() });
+    // The Test screen starts on the whole show: the target picked was the old show's.
+    set({ showId: crypto.randomUUID(), testTarget: "show" });
     // The open sequence belongs to the show being left.
     await useSequencer.getState().closeDocument();
     if (kind === "close") {
@@ -754,7 +755,13 @@ export const useApp = create<AppState>((set, get) => {
     try {
       const snapshot = await backend.checkFiles(all);
       const current = get().snapshot;
-      if (get().backend === backend && (!current || snapshot.revision >= current.revision)) set({ snapshot });
+      if (get().backend === backend) {
+        if (!current || snapshot.revision > current.revision) set({ snapshot });
+        // The same show, so only what the check found is news: a save that landed meanwhile
+        // changed whether the show is saved, and where, after the check read them.
+        else if (snapshot.revision === current.revision)
+          set({ snapshot: { ...current, missingFiles: snapshot.missingFiles, filesChecked: snapshot.filesChecked } });
+      }
       // An edit landed meanwhile with files of its own to look at.
       newer = get().backend === backend && get().snapshot?.filesChecked === false && snapshot.revision < (get().snapshot?.revision ?? 0);
     } catch {
@@ -793,4 +800,15 @@ export const useApp = create<AppState>((set, get) => {
     return saidSaved(ok, get().snapshot?.show.name, options);
   },
 };
+});
+
+// Props that are gone (deleted, undone, restored away) leave the layout selection.
+useApp.subscribe((state, before) => {
+  const show = state.snapshot?.show;
+  if (!show || show === before.snapshot?.show) return;
+  const editor = useLayoutEditor.getState();
+  if (editor.selected.length === 0) return;
+  const ids = new Set(show.props.map((p) => p.id));
+  const selected = editor.selected.filter((id) => ids.has(id));
+  if (selected.length !== editor.selected.length) editor.select(selected);
 });

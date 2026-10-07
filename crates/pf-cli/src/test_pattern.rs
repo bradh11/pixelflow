@@ -113,8 +113,8 @@ pub fn run(show: &Show, args: &Args) -> Result<ExitCode> {
     let (map, wiring) = pf_mapping::map_show(show);
     issues.extend(wiring);
     if issues.has_errors() {
-        print!("{}", report::issues(&issues));
-        println!("\nFix these problems before sending output.");
+        out!("{}", report::issues(&issues))?;
+        outln!("\nFix these problems before sending output.")?;
         return Ok(ExitCode::FAILURE);
     }
     let run_for = Duration::try_from_secs_f32(args.seconds)
@@ -153,7 +153,7 @@ pub fn run(show: &Show, args: &Args) -> Result<ExitCode> {
         std::thread::sleep(frame_period);
     }
     let stats = handle.stop();
-    print!("{}", summary(&stats, started.elapsed()));
+    out!("{}", summary(&stats, started.elapsed()))?;
     Ok(ExitCode::SUCCESS)
 }
 

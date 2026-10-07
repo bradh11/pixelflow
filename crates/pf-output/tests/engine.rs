@@ -312,7 +312,10 @@ fn replacing_the_plan_switches_without_a_black_frame_and_keeps_the_sacn_stream()
         .collect();
     let switched = values.iter().position(|&v| v == 100).unwrap();
     assert!(values[..switched].iter().all(|&v| v == 200), "{values:?}");
-    assert!(values[switched..].iter().all(|&v| v == 100), "no black frame: {values:?}");
+    assert!(
+        values[switched..].iter().all(|&v| v == 100),
+        "no black frame: {values:?}"
+    );
     assert_sequences_continue(&sacn_packets);
     assert!(sacn_packets.iter().all(|p| p[22..38] == [1; 16]), "same CID");
     let ddp_packets = sent_to(&recorded, DDP_DEST);
@@ -349,7 +352,11 @@ fn output_a_new_plan_drops_is_blacked_out_and_its_sacn_streams_ended() {
             .iter()
             .all(|p| !terminated(p) && black(p, sacn::DATA_HEADER_LEN))
     );
-    assert!(sacn_packets[..n - 6].iter().all(|p| p[sacn::DATA_HEADER_LEN] == 200));
+    assert!(
+        sacn_packets[..n - 6]
+            .iter()
+            .all(|p| p[sacn::DATA_HEADER_LEN] == 200)
+    );
     assert_sequences_continue(&sacn_packets);
 
     let old_ddp = sent_to(&recorded, DDP_DEST);

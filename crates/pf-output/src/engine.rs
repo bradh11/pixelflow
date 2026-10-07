@@ -122,7 +122,9 @@ impl OutputHandle {
         {
             // The thread catches its own panics, so this is a last resort.
             let mut stats = self.stats.lock().unwrap_or_else(PoisonError::into_inner);
-            stats.failure.get_or_insert_with(|| panic_message(payload.as_ref()));
+            stats
+                .failure
+                .get_or_insert_with(|| panic_message(payload.as_ref()));
         }
     }
 }
@@ -373,7 +375,12 @@ impl Runtime {
 
     /// What of this controller's output a new plan no longer sends (`kept` are the new plan's
     /// streams), to black out: its dropped sACN universes, or the whole DDP controller.
-    fn retire(self, kept: &HashSet<Stream>, settings: &OutputSettings, sequences: &SacnSequences) -> Option<Retiring> {
+    fn retire(
+        self,
+        kept: &HashSet<Stream>,
+        settings: &OutputSettings,
+        sequences: &SacnSequences,
+    ) -> Option<Retiring> {
         let streams = self.streams();
         let buffer = vec![0; self.plan.channel_count];
         match (self.packets, &self.plan.wire) {
@@ -681,9 +688,15 @@ mod tests {
     #[test]
     fn panic_messages_name_what_went_wrong() {
         let payload: Box<dyn std::any::Any + Send> = Box::new("boom");
-        assert_eq!(panic_message(payload.as_ref()), "output stopped unexpectedly: boom");
+        assert_eq!(
+            panic_message(payload.as_ref()),
+            "output stopped unexpectedly: boom"
+        );
         let payload: Box<dyn std::any::Any + Send> = Box::new(String::from("bang"));
-        assert_eq!(panic_message(payload.as_ref()), "output stopped unexpectedly: bang");
+        assert_eq!(
+            panic_message(payload.as_ref()),
+            "output stopped unexpectedly: bang"
+        );
         let payload: Box<dyn std::any::Any + Send> = Box::new(7);
         assert_eq!(
             panic_message(payload.as_ref()),

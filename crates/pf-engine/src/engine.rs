@@ -1705,10 +1705,11 @@ impl Engine {
         self.playback_stop_reason = Some(reason.to_string());
     }
 
-    /// Keeps running output in step with the show: restarts it only when the wiring, addresses,
-    /// frame rate, or the pattern's target pixels changed (moving props in the layout changes
-    /// none of these, so no DNS lookup or restart happens), and stops it, saying why, if the show
-    /// now has errors or the target has no pixels.
+    /// Keeps running output in step with the show: switches it to a new output plan, without a
+    /// black frame or a pattern restart, only when the wiring, addresses, frame rate, or the
+    /// pattern's target pixels changed (moving props in the layout changes none of these, so no
+    /// DNS lookup happens), and stops it, saying why, if the show now has errors or the target
+    /// has no pixels.
     fn sync_output(&mut self) {
         let Some(session) = &self.output else {
             return;
@@ -1730,8 +1731,13 @@ impl Engine {
         if output_key(&self.show, &map) == session.key && targets == session.targets {
             return;
         }
-        let (pattern, target) = (session.pattern.clone(), session.target.clone());
-        if let Err(error) = self.launch(map, pattern, target) {
+        self.output_generation += 1;
+        let generation = self.output_generation;
+        let replaced = match self.output.as_mut() {
+            Some(session) => session.replace(&self.show, &map, targets, generation),
+            None => Ok(()),
+        };
+        if let Err(error) = replaced {
             self.halt(error.to_string());
         }
     }

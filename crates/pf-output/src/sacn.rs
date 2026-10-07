@@ -168,7 +168,12 @@ impl SacnPackets {
     /// so receivers don't see a stream jump back (and drop its packets as out of order) when
     /// output switches to a new plan.
     pub fn continue_sequences(&mut self, last: &SacnSequences) {
-        for ((packet, u), to) in self.packets.iter_mut().zip(&self.universes).zip(&self.destinations) {
+        for ((packet, u), to) in self
+            .packets
+            .iter_mut()
+            .zip(&self.universes)
+            .zip(&self.destinations)
+        {
             if let Some(&sequence) = last.get(&(*to, u.universe)) {
                 packet[111] = sequence;
             }

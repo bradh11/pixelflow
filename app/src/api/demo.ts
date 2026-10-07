@@ -248,6 +248,17 @@ export function demoDevices(): { details: DeviceDetails[]; silent: SilentPeer[] 
   };
 }
 
+/** The demo FPP's music, playlists, and free space (for Send to FPP). */
+export function demoFppFiles(): Record<string, { media: string[]; playlists: Record<string, string[]>; freeBytes: number }> {
+  return {
+    "192.0.2.10": {
+      media: ["Christmas Medley 2017.mp3"],
+      playlists: { "Christmas Show": ["Christmas Medley 2017.fseq"] },
+      freeBytes: 24_600_000_000,
+    },
+  };
+}
+
 /** The demo FPP is playing its one sequence, and can't reach one of its controllers. */
 export function demoPlayers(): Record<string, { status: PlayerStatus; sequences: FppSequence[] }> {
   return {

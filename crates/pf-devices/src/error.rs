@@ -9,6 +9,8 @@ pub enum DeviceError {
         address: String,
         path: String,
         status: u16,
+        /// What the device said with it (its own explanation, if any).
+        body: String,
     },
     #[error("{address} sent a response PixelFlow doesn't understand ({path}): {reason}")]
     BadResponse {

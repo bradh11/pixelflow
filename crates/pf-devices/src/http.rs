@@ -2,14 +2,45 @@
 
 use crate::error::DeviceError;
 use std::collections::HashMap;
+use std::io::Read;
 use std::sync::Mutex;
 use std::time::Duration;
 
-/// Read-only HTTP access to a device. `host` is an IP address or hostname (no scheme).
+/// HTTP access to a device. `host` is an IP address or hostname, optionally with a port (no
+/// scheme). Reading is [`Http::get`]; everything else changes the device and is only ever done
+/// because the user asked.
 pub trait Http: Send + Sync {
     fn get(&self, host: &str, path: &str) -> Result<String, DeviceError>;
-    /// POSTs a JSON body. Only used for Falcon's JSON *query* API, which reads, never writes.
+    /// POSTs a JSON body: Falcon's JSON *query* API (which only reads), and FPP commands and
+    /// playlist changes the user asked for.
     fn post_json(&self, host: &str, path: &str, body: &str) -> Result<String, DeviceError>;
+
+    /// Sends exactly `length` bytes read from `body` with `method` (an upload the user asked
+    /// for), streaming them: the body is never held in memory whole.
+    fn send_body(
+        &self,
+        method: &str,
+        host: &str,
+        path: &str,
+        headers: &[(&str, &str)],
+        body: &mut dyn Read,
+        length: u64,
+    ) -> Result<String, DeviceError> {
+        let _ = (method, path, headers, body, length);
+        Err(DeviceError::Unreachable {
+            address: host.to_string(),
+            reason: "uploads aren't possible here".to_string(),
+        })
+    }
+
+    /// Sends a DELETE (tidying up after an upload the user cancelled).
+    fn delete(&self, host: &str, path: &str) -> Result<String, DeviceError> {
+        let _ = path;
+        Err(DeviceError::Unreachable {
+            address: host.to_string(),
+            reason: "deleting isn't possible here".to_string(),
+        })
+    }
 }
 
 /// A short, plain reason for a failed request (no library error text).
@@ -52,6 +83,28 @@ impl HttpClient {
         Self { agent: config.into() }
     }
 
+    /// A client for uploads: it gives up connecting after 5 seconds, and on any one step of a
+    /// request (sending its body, or waiting for the answer) after 2 minutes, however long the
+    /// whole upload takes.
+    pub fn for_uploads() -> Self {
+        Self::for_uploads_with(Duration::from_secs(5), Duration::from_secs(120))
+    }
+
+    /// [`Self::for_uploads`] with other limits (tests use short ones).
+    pub fn for_uploads_with(connect: Duration, step: Duration) -> Self {
+        let config = ureq::Agent::config_builder()
+            .timeout_connect(Some(connect))
+            .timeout_send_request(Some(step))
+            .timeout_send_body(Some(step))
+            .timeout_recv_response(Some(step))
+            .timeout_recv_body(Some(step))
+            .http_status_as_error(false)
+            .proxy(None)
+            .max_redirects(0)
+            .build();
+        Self { agent: config.into() }
+    }
+
     fn finish(
         host: &str,
         path: &str,
@@ -63,10 +116,18 @@ impl HttpClient {
         })?;
         let status = response.status().as_u16();
         if status != 200 {
+            // The device's own explanation, when it gives one (kept short).
+            let body = response
+                .body_mut()
+                .with_config()
+                .limit(64 * 1024)
+                .read_to_string()
+                .unwrap_or_default();
             return Err(DeviceError::Http {
                 address: host.to_string(),
                 path: path.to_string(),
                 status,
+                body,
             });
         }
         response
@@ -90,6 +151,36 @@ impl Http for HttpClient {
             .header("Content-Type", "application/json")
             .send(body);
         Self::finish(host, path, response)
+    }
+
+    fn send_body(
+        &self,
+        method: &str,
+        host: &str,
+        path: &str,
+        headers: &[(&str, &str)],
+        body: &mut dyn Read,
+        length: u64,
+    ) -> Result<String, DeviceError> {
+        let url = format!("http://{host}{path}");
+        let mut request = match method {
+            "PATCH" => self.agent.patch(&url),
+            "PUT" => self.agent.put(&url),
+            _ => self.agent.post(&url),
+        };
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
+        // A known length: the body streams as it's read, never chunked or buffered whole.
+        let response = request
+            .header("Content-Length", length.to_string())
+            .send(ureq::SendBody::from_reader(body));
+        Self::finish(host, path, response)
+    }
+
+    fn delete(&self, host: &str, path: &str) -> Result<String, DeviceError> {
+        let url = format!("http://{host}{path}");
+        Self::finish(host, path, self.agent.delete(&url).call())
     }
 }
 
@@ -139,6 +230,7 @@ impl FakeHttp {
                 address: host.to_string(),
                 path: path.to_string(),
                 status: *status,
+                body: String::new(),
             }),
             None => Err(DeviceError::Unreachable {
                 address: host.to_string(),
@@ -198,6 +290,35 @@ mod tests {
             "{message}"
         );
         assert!(message.contains("it refused the connection"), "{message}");
+    }
+
+    #[test]
+    fn an_error_answer_keeps_what_the_device_said() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let host = listener.local_addr().unwrap().to_string();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 1024];
+            let _ = stream.read(&mut buf);
+            let body = r#"{"status":"failed","error":"Could not lock file for writing"}"#;
+            write!(
+                stream,
+                "HTTP/1.1 500 Error\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .unwrap();
+        });
+        let client = HttpClient::new(Duration::from_secs(2));
+        let err = client.get(&host, "/x").unwrap_err();
+        server.join().unwrap();
+        match err {
+            DeviceError::Http { status, body, .. } => {
+                assert_eq!(status, 500);
+                assert!(body.contains("Could not lock file"), "{body}");
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]

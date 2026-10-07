@@ -477,6 +477,42 @@ fn exports_the_open_sequence() {
 }
 
 #[test]
+fn an_export_can_name_the_music_as_it_will_be_on_the_fpp() {
+    let (mut engine, _recorded, dir) = engine();
+    new_doc(&mut engine, 1000);
+    let mut info = engine.sequence_doc().unwrap().sequence;
+    info.audio = Some("/music/Rock'n Song.mp3".into());
+    engine
+        .edit_sequence(vec![SequenceEdit::UpdateInfo {
+            name: info.name,
+            audio: info.audio.clone(),
+            duration_ms: info.duration_ms,
+            frame_ms: info.frame_ms,
+        }])
+        .unwrap();
+    let path = dir.path().join("send.fseq");
+    let summary = engine
+        .sequence_export()
+        .unwrap()
+        .with_music_named(Some("Rockn Song (2).mp3"))
+        .run(&path, |_, _| true)
+        .unwrap();
+    assert_eq!(summary.media.as_deref(), Some("Rockn Song (2).mp3"));
+    let file = pf_fseq::Sequence::open(&path).unwrap();
+    assert_eq!(file.header().media.as_deref(), Some("Rockn Song (2).mp3"));
+
+    let none = engine
+        .sequence_export()
+        .unwrap()
+        .with_music_named(None)
+        .run(&path, |_, _| true)
+        .unwrap();
+    assert_eq!(none.media, None);
+    // The open sequence keeps its own music.
+    assert_eq!(engine.sequence_doc().unwrap().sequence.audio, info.audio);
+}
+
+#[test]
 fn an_exported_file_plays_back_looking_like_the_document() {
     let (mut engine, _recorded, dir) = engine();
     let mut controller = engine.show().controllers[0].clone();

@@ -17,8 +17,12 @@ use tauri::State;
 
 /// How the app reaches devices (recorded responses in tests).
 pub(crate) struct DeviceAccess {
-    http: Arc<dyn Http>,
+    pub(crate) http: Arc<dyn Http>,
     sweep_http: Arc<dyn Http>,
+    /// Sending to an FPP (long transfers, with their own time limits).
+    pub(crate) upload_http: Arc<dyn Http>,
+    /// Quick reads before a send (what's on the FPP), with short time limits.
+    pub(crate) read_http: Arc<dyn Http>,
     /// FPP ping, mDNS, and the subnet sweep. Off in tests so nothing touches the network.
     network_discovery: bool,
     /// Whether a controller answers (the Test screen's quick look).
@@ -35,18 +39,30 @@ impl DeviceAccess {
                 Duration::from_millis(400),
                 Duration::from_millis(1500),
             )),
+            upload_http: Arc::new(HttpClient::for_uploads()),
+            read_http: Arc::new(HttpClient::with_connect_timeout(
+                Duration::from_millis(1500),
+                Duration::from_secs(4),
+            )),
             network_discovery: true,
             reach: Arc::new(TcpReach::new(Duration::from_millis(800))),
             networks: pf_devices::local_networks,
         }
     }
 
+    /// Recorded responses; sending goes over real HTTP, which tests point at a fake FPP on
+    /// 127.0.0.1 (see `pf_devices::testing::FakeFpp`).
     #[cfg(test)]
     pub(crate) fn fake(http: pf_devices::FakeHttp) -> Self {
         let http: Arc<dyn Http> = Arc::new(http);
         Self {
             sweep_http: Arc::clone(&http),
             http,
+            upload_http: Arc::new(HttpClient::for_uploads_with(
+                Duration::from_secs(1),
+                Duration::from_secs(10),
+            )),
+            read_http: Arc::new(HttpClient::new(Duration::from_secs(2))),
             network_discovery: false,
             // In tests, only 192.0.2.10 answers, and this computer is on 192.0.2.0/24.
             reach: Arc::new(pf_devices::FakeReach::new(["192.0.2.10"])),

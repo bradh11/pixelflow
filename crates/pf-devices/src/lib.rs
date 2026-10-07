@@ -1,7 +1,9 @@
 //! Device discovery and configuration import for FPP, Falcon, and WLED controllers.
 //!
-//! Everything here is **read-only**: it sends discovery packets and HTTP GETs (and Falcon's
-//! JSON *query* requests), and never changes anything on a device. Endpoints known to return
+//! Discovery, identification, and import are **read-only**: they send discovery packets and HTTP
+//! GETs (and Falcon's JSON *query* requests), and never change anything on a device. Only
+//! [`fpp_player`]'s playback control and [`fpp_upload`]'s uploads and playlist changes write to
+//! an FPP, and the app calls them only when the user asks. Endpoints known to return
 //! credentials (FPP's per-interface network config, `/api/system/status`, config-file
 //! downloads; Falcon Wi-Fi fields) are never read or kept.
 
@@ -9,11 +11,14 @@ mod config;
 mod device;
 mod discover;
 mod error;
+#[cfg(feature = "test-fixtures")]
+mod fake_fpp;
 pub mod falcon;
 mod fingerprint;
 pub mod fpp;
 pub mod fpp_ping;
 pub mod fpp_player;
+pub mod fpp_upload;
 mod http;
 mod identify;
 mod import;

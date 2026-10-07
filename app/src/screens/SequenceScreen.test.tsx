@@ -4,7 +4,7 @@ import { Profiler } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { EffectSettings } from "../components/sequencer/EffectSettings";
-import { demoShow } from "../api/demo";
+import { demoPlayers, demoShow } from "../api/demo";
 import { DEMO_MUSIC, DEMO_SEQUENCE_PATH, demoSequence } from "../api/demoSequence";
 import { MemoryBackend } from "../api/memory";
 import { MemorySequencer } from "../api/memorySequencer";
@@ -338,19 +338,72 @@ describe("sequence screen", () => {
     await user.keyboard(" ");
     await waitFor(() => expect(backend.calls).toContain("playAuthored@0"));
     expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Send to controllers while playing" }));
+    await user.click(screen.getByRole("button", { name: "Show it on my lights while editing" }));
     expect(seq.calls).toContain("setSequenceDocOutput:true");
     await user.click(screen.getByRole("button", { name: "Stop" }));
     await waitFor(() => expect(useSequencer.getState().status).toBeNull());
   });
 
+  it("says what the live toggle does: it lights the real lights", async () => {
+    await openScreen();
+    const toggle = screen.getByRole("button", { name: "Show it on my lights while editing" });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(toggle).toHaveTextContent("Show on my lights");
+    expect(toggle.getAttribute("title")).toMatch(/sends each frame to your controllers live/);
+    expect(screen.queryByRole("button", { name: /Send to controllers/ })).not.toBeInTheDocument();
+  });
+
+  it("sends the sequence to an FPP from the toolbar", async () => {
+    const { backend } = await openScreen();
+    backend.fppPlayers = demoPlayers();
+    const fpp = useApp.getState().snapshot!.show.controllers[0];
+    await useApp.getState().apply([{ type: "updateController", controller: { ...fpp, adapter: "fpp", address: "192.0.2.10" } }]);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Send to FPP…" }));
+    const dialog = screen.getByRole("dialog", { name: "Send to FPP" });
+    expect(within(dialog).getByText("Christmas Medley 2017.mp3")).toBeInTheDocument();
+    await within(dialog).findByText(/free/);
+    // The demo FPP already has this sequence: nothing is chosen for the user.
+    const send = within(dialog).getByRole("button", { name: /^Send$/ });
+    expect(send).toBeDisabled();
+    await user.click(within(dialog).getByRole("radio", { name: /Keep both/ }));
+    // Nothing is sent until Send.
+    expect(backend.calls.some((c) => c.startsWith("fppSend:"))).toBe(false);
+    await user.click(send);
+    expect(await within(dialog).findByRole("button", { name: "Play it now on the FPP" })).toBeInTheDocument();
+    expect(backend.calls).toContain("fppSend:192.0.2.10:Christmas Medley 2017 (2).fseq:none");
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog", { name: "Send to FPP" })).not.toBeInTheDocument();
+  });
+
+  it("moves through the export menu with the arrow keys", async () => {
+    const { user } = await openScreen();
+    await user.click(screen.getByRole("button", { name: "More ways to export" }));
+    const items = screen.getAllByRole("menuitem");
+    await waitFor(() => expect(items[0]).toHaveFocus());
+    await user.keyboard("{ArrowDown}");
+    expect(items[1]).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    expect(items[0]).toHaveFocus();
+    await user.keyboard("{ArrowUp}");
+    expect(items[1]).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "More ways to export" })).toHaveFocus();
+  });
+
   it("exports an .fseq and adds it to the show's playlist, saying what happened", async () => {
     const { backend, seq, user } = await openScreen();
-    await user.click(screen.getByRole("button", { name: "Export .fseq for FPP" }));
+    const more = async (item: string) => {
+      await user.click(screen.getByRole("button", { name: "More ways to export" }));
+      await user.click(screen.getByRole("menuitem", { name: item }));
+    };
+    await more("Export .fseq…");
     expect(await screen.findByText("Exported 2,400 frames (1:00) to Medley.fseq.")).toBeInTheDocument();
     expect(useApp.getState().snapshot?.show.sequences).toHaveLength(0);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Export and add to the show's playlist" }));
+    await more("Export and add to this show's playlist…");
     await waitFor(() => expect(useApp.getState().snapshot?.show.sequences).toHaveLength(1));
     expect(seq.calls).toContain("exportSequenceDoc");
     expect(useApp.getState().snapshot?.show.sequences[0]).toMatchObject({ name: "Christmas Medley 2017", path: "/Shows/Medley.fseq", audio: DEMO_MUSIC });
@@ -359,7 +412,7 @@ describe("sequence screen", () => {
     expect(screen.getByText("Show not saved")).toBeInTheDocument();
     expect(useApp.getState().snapshot?.canUndo).toBe(true);
     // Adding the same file again doesn't list it twice.
-    await user.click(screen.getByRole("button", { name: "Export and add to the show's playlist" }));
+    await more("Export and add to this show's playlist…");
     await waitFor(() => expect(seq.calls.filter((c) => c.startsWith("addSequenceDocToShow"))).toHaveLength(2));
     expect(useApp.getState().snapshot?.show.sequences).toHaveLength(1);
     backend.nextSavePath = "/Shows/House.pixelflow.json";

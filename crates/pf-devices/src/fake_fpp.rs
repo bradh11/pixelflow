@@ -552,7 +552,8 @@ fn route(s: &mut FakeFppState, method: &str, segments: &[&str], body: &[u8]) -> 
     match (method, segments) {
         ("GET", ["api", "system", "info"]) => ok(json!({
             "HostName": s.host_name, "Platform": "Raspberry Pi", "Variant": "Pi 4", "Mode": "player",
-            "Version": "9.3", "majorVersion": 9, "minorVersion": 3, "uuid": s.uuid,
+            "Version": "9.3", "majorVersion": 9, "minorVersion": 3, "uuid": s.uuid, "OSVersion": "v2025-11",
+            "OSRelease": "Raspbian GNU/Linux 12 (bookworm)", "Kernel": "6.12.57-v7+",
             "Utilization": {"Disk": {"Media": {"Free": s.free_bytes, "Total": 31_000_000_000u64}}}
         })),
         ("GET", ["api", "fppd", "status"]) => ok(s.status.clone()),

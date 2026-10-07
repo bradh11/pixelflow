@@ -8,6 +8,7 @@ import { FppHealth } from "./FppHealth";
 import { FppLibrary } from "./FppLibrary";
 import { FppOutputs } from "./FppOutputs";
 import { FppScheduleList } from "./FppScheduleList";
+import { FppSoftware } from "./FppSoftware";
 import { NowPlaying } from "./NowPlaying";
 import { Dot } from "./Section";
 import { SetupButtons } from "./SetupButtons";
@@ -17,7 +18,7 @@ const NO_DEVICES: Device[] = [];
 
 /**
  * An FPP's own page on the Controllers screen: what it's playing, its health, what's stored on it,
- * where it sends its sequence (and setting up the show from that), and its schedule. Only Play,
+ * where it sends its sequence (and setting up the show from that), its schedule, and its software (with a link to FPP's own update page). Only Play,
  * Stop, and Send change anything on the FPP, and only when clicked.
  */
 export function FppDevicePage({
@@ -134,6 +135,7 @@ export function FppDevicePage({
           <FppHealth address={address} status={status} error={error} destinations={details?.config.destinations ?? []} reach={reach} devices={devices} />
           <FppOutputs address={address} details={details} error={detailsError} />
           <FppScheduleList address={address} turn={turn} />
+          <FppSoftware address={address} turn={turn} />
         </div>
       </div>
     </div>

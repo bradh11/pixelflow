@@ -776,6 +776,33 @@ export interface FppFile {
   items: number | null;
 }
 
+/** A newer FPP release that fits the box (see crates/pf-devices fpp_software). */
+export interface FppUpdateNotice {
+  /** e.g. "10.2". */
+  version: string;
+  /** The exact file to choose in FPP's Upgrade OS list. */
+  file: string;
+  /** "Pi-", "Pi64-", "BBB-", or "BB64-". */
+  prefix: string;
+  /** A new major version: back up first. */
+  major: boolean;
+}
+
+/** What an FPP runs, and whether a newer release fits it. */
+export interface FppSoftware {
+  version: string;
+  /** The OS image it was installed from, e.g. "v2025-11". */
+  osBuild: string;
+  osRelease: string;
+  platform: string;
+  /** 32 or 64, when the kernel says. */
+  bits: number | null;
+  imagePrefix: string | null;
+  update: FppUpdateNotice | null;
+  /** False when FPP's release list couldn't be read. */
+  checked: boolean;
+}
+
 export type ScheduleKind = "playlist" | "sequence" | "command";
 
 /** One entry of an FPP's schedule, as FPP saved it (see crates/pf-devices fpp_info). */

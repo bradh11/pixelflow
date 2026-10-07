@@ -134,6 +134,9 @@ pub fn network() -> FakeHttp {
         .with_get(WLED, "/json/cfg", include_str!("../fixtures/wled/cfg.json"))
 }
 
+/// FPP's public release list as recorded (stable and pre-release, trimmed to their OS files).
+pub const FPP_RELEASES: &str = include_str!("../fixtures/fpp/github_releases.json");
+
 /// Endpoints that return passwords; adapters must never request them.
 pub const SECRET_ENDPOINTS: [&str; 6] = [
     "/api/system/status",

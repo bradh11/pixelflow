@@ -1,4 +1,4 @@
-import type { DeviceDetails, FppSequence, NodeRange, Phoneme, PlayerStatus, PortSlot, Prop, Region, ScheduleEntry, Show, SilentPeer, StringConfig } from "./types";
+import type { DeviceDetails, FppSequence, NodeRange, Phoneme, PlayerStatus, PortSlot, Prop, Region, ScheduleEntry, FppSoftware, Show, SilentPeer, StringConfig } from "./types";
 import { type MemoryBackend, emptyShow, layoutThumbnail } from "./memory";
 import { newController, newProp, nodeCount } from "../lib/shows";
 
@@ -350,6 +350,22 @@ export function demoPlayers(): Record<string, { status: PlayerStatus; sequences:
         warnings: ["Cannot Ping DDP Channel Data Target 192.0.2.20 Falcon_F16V5_B9F5"],
       },
       sequences: [{ name: "Christmas Medley 2017", frames: 11332, stepMs: 50, channels: 6148 }],
+    },
+  };
+}
+
+/** The demo FPP is a 32-bit Pi a major version behind. */
+export function demoFppSoftware(): Record<string, FppSoftware> {
+  return {
+    "192.0.2.10": {
+      version: "9.3",
+      osBuild: "v2025-11",
+      osRelease: "Raspbian GNU/Linux 12 (bookworm)",
+      platform: "Pi 3 Model B+",
+      bits: 32,
+      imagePrefix: "Pi-",
+      update: { version: "10.2", file: "Pi-10.2_2026-10.fppos", prefix: "Pi-", major: true },
+      checked: true,
     },
   };
 }

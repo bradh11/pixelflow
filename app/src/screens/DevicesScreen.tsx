@@ -1,5 +1,5 @@
 import { AlertTriangle, ChevronRight, Loader2, Radar, Search, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Device, DeviceKind, FoundBy } from "../api/types";
 import { ImportDialog } from "../components/ImportDialog";
 import { CompareDialog } from "../components/devices/CompareDialog";
@@ -40,6 +40,20 @@ function DeviceRow({
   onCompare: () => void;
   onSend: () => void;
 }) {
+  const backend = useApp((s) => s.backend);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  // An FPP with a newer release for it gets a small badge (read-only; a failed check says nothing).
+  useEffect(() => {
+    if (!backend || device.kind !== "fpp" || !device.responding) return;
+    let current = true;
+    backend.fppSoftware(device.address).then(
+      (s) => current && setUpdateAvailable(s.update !== null),
+      () => current && setUpdateAvailable(false),
+    );
+    return () => {
+      current = false;
+    };
+  }, [backend, device.address, device.kind, device.responding]);
   return (
     <tr
       onClick={onReview}
@@ -65,12 +79,15 @@ function DeviceRow({
       <td className="pr-3 text-sm tabular-nums">{device.address}</td>
       <td className="pr-3 text-xs text-neutral-500">{device.foundBy.map((f) => FOUND_BY[f]).join(", ")}</td>
       <td className="pr-3">
-        {inShow && (
-          <span className="flex flex-wrap items-center gap-1">
-            <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs dark:bg-neutral-800">In show</span>
-            {device.responding && <SetupButtons compact name={device.name} onCompare={onCompare} onSend={onSend} />}
-          </span>
-        )}
+        <span className="flex flex-wrap items-center gap-1">
+          {inShow && <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs dark:bg-neutral-800">In show</span>}
+          {updateAvailable && (
+            <span title="A newer FPP is available. Open this FPP to see which." className="rounded bg-sky-100 px-1.5 py-0.5 text-xs text-sky-800 dark:bg-sky-950 dark:text-sky-300">
+              Update available
+            </span>
+          )}
+          {inShow && device.responding && <SetupButtons compact name={device.name} onCompare={onCompare} onSend={onSend} />}
+        </span>
       </td>
       <td className="w-px pr-6 whitespace-nowrap">
         {/* Apart from Open, and in words: forgetting is easy to do by mistake next to it. */}

@@ -1,12 +1,17 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
 import type { Controller } from "../../api/types";
-import { type ControllerDraft, type DraftProblems, MAX_UNIVERSE, checkDraft, controllerDraft, controllerEdits } from "../../lib/controllerEdit";
+import { type ControllerDraft, type DraftProblems, MAX_UNIVERSE, MAX_UNIVERSE_SIZE, checkDraft, controllerDraft, controllerEdits } from "../../lib/controllerEdit";
 import { useApp } from "../../state/store";
 import { Button, Input, More, Select } from "../ui";
 
 const LEGEND = "col-span-full mb-1 text-xs font-semibold tracking-wide text-neutral-500 uppercase";
 
-const FIELD_NAMES: Record<keyof DraftProblems, string> = { name: "name", address: "address", startUniverse: "start universe" };
+const FIELD_NAMES: Record<keyof DraftProblems, string> = {
+  name: "name",
+  address: "address",
+  startUniverse: "start universe",
+  universeSize: "channels per universe",
+};
 
 /** A field with its label, and under it (outside the label, so it's read once) a problem or a warning. */
 function Field({
@@ -144,13 +149,22 @@ export function ControllerEditForm({ controller, onDone }: { controller: Control
         </fieldset>
       </div>
       {draft.protocol === "sacn" && (
-        <More id="controller-edit" label="More: universe size and multicast" forceOpen={multicast}>
+        <More id="controller-edit" label="More: universe size and multicast" forceOpen={multicast || !!problems.universeSize}>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="Channels per universe" id={id("universeSize")} hint="510 fits exactly 170 RGB pixels in each universe. Match what the controller is set to.">
-              <Select id={id("universeSize")} value={draft.universeSize} onChange={(e) => set({ universeSize: Number(e.target.value) === 512 ? 512 : 510 })}>
-                <option value={510}>510</option>
-                <option value={512}>512</option>
-              </Select>
+            <Field
+              label="Channels per universe"
+              id={id("universeSize")}
+              problem={problems.universeSize}
+              hint={`Any number from 1 to ${MAX_UNIVERSE_SIZE}. 510 fits exactly 170 RGB pixels in each universe. Match what the controller is set to.`}
+            >
+              <Input
+                id={id("universeSize")}
+                inputMode="numeric"
+                value={draft.universeSize}
+                aria-invalid={!!problems.universeSize}
+                aria-describedby={described("universeSize")}
+                onChange={(e) => set({ universeSize: e.target.value })}
+              />
             </Field>
             <label className="flex items-center gap-2 self-end pb-2 text-sm">
               <input type="checkbox" checked={draft.multicast} onChange={(e) => set({ multicast: e.target.checked })} className="accent-accent-500" />

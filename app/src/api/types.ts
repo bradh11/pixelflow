@@ -292,7 +292,8 @@ export type Protocol =
   | {
       type: "sacn";
       startUniverse: number | null;
-      universeSize: 510 | 512;
+      /** Channels in each universe, 1–512 (510 is exactly 170 RGB pixels). */
+      universeSize: number;
       allowPixelStraddle: boolean;
       multicast: boolean;
     }

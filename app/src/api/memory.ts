@@ -43,6 +43,7 @@ import { fileName } from "../lib/format";
 import { fppFileName } from "../lib/fppNames";
 import { filesOf, missingFile, repointEdits, sameFile } from "../lib/showFiles";
 import { sampleShow } from "./sampleShow";
+import { MAX_UNIVERSE_SIZE, isUniverseSize } from "../lib/controllerEdit";
 
 /**
  * An in-memory stand-in for the engine, used by tests and when the UI runs in a plain
@@ -1005,7 +1006,7 @@ export function layoutThumbnail(show: Show): string | null {
 
 export function emptyShow(name: string): Show {
   return {
-    schemaVersion: 10,
+    schemaVersion: 11,
     name,
     settings: { frameRate: 40 },
     props: [],
@@ -1039,6 +1040,12 @@ function layoutOnly(show: Show): ChannelMap {
     return layout;
   });
   return { frameLen: offset, props, controllers: [] };
+}
+
+/** Refuses a universe size the engine can't read, in its words. */
+function checkUniverseSize(controller: Controller): void {
+  const size = controller.protocol.type === "sacn" ? controller.protocol.universeSize : 510;
+  if (!isUniverseSize(size)) throw new Error(`A universe carries 1 to ${MAX_UNIVERSE_SIZE} channels, so ${size} channels per universe won't work.`);
 }
 
 function applyEdit(show: Show, edit: Edit): void {
@@ -1088,9 +1095,11 @@ function applyEdit(show: Show, edit: Edit): void {
       removeById(show.groups, edit.id, "group");
       break;
     case "addController":
+      checkUniverseSize(edit.controller);
       addUnique(show.controllers, edit.controller, "controller");
       break;
     case "updateController":
+      checkUniverseSize(edit.controller);
       replaceById(show.controllers, edit.controller, "controller");
       break;
     case "removeController":

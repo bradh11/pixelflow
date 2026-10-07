@@ -7,6 +7,14 @@ import type { Controller, Edit, Protocol, Show } from "../api/types";
 /** The highest sACN universe (the engine's limit). */
 export const MAX_UNIVERSE = 63_999;
 
+/** The most channels an sACN universe carries. */
+export const MAX_UNIVERSE_SIZE = 512;
+
+/** A universe size the engine accepts: a whole number of channels from 1 to 512. */
+export function isUniverseSize(size: number): boolean {
+  return Number.isInteger(size) && size >= 1 && size <= MAX_UNIVERSE_SIZE;
+}
+
 /** The edit form, as typed. */
 export interface ControllerDraft {
   name: string;
@@ -14,11 +22,12 @@ export interface ControllerDraft {
   protocol: "ddp" | "sacn";
   /** Empty lets PixelFlow choose the universes. */
   startUniverse: string;
-  universeSize: 510 | 512;
+  /** Channels per universe, as typed. */
+  universeSize: string;
   multicast: boolean;
 }
 
-export type DraftProblems = Partial<Record<"name" | "address" | "startUniverse", string>>;
+export type DraftProblems = Partial<Record<"name" | "address" | "startUniverse" | "universeSize", string>>;
 
 export function controllerDraft(c: Controller): ControllerDraft {
   const sacn = c.protocol.type === "sacn" ? c.protocol : null;
@@ -27,7 +36,7 @@ export function controllerDraft(c: Controller): ControllerDraft {
     address: c.address,
     protocol: c.protocol.type,
     startUniverse: sacn?.startUniverse != null ? String(sacn.startUniverse) : "",
-    universeSize: sacn?.universeSize ?? 510,
+    universeSize: String(sacn?.universeSize ?? 510),
     multicast: sacn?.multicast ?? false,
   };
 }
@@ -73,6 +82,13 @@ function startUniverse(draft: ControllerDraft): number | null | undefined {
   return n >= 1 && n <= MAX_UNIVERSE ? n : undefined;
 }
 
+/** The channels per universe typed, or undefined when it isn't a whole number from 1 to 512. */
+function universeSize(draft: ControllerDraft): number | undefined {
+  const text = draft.universeSize.trim();
+  const n = Number(text);
+  return /^\d+$/.test(text) && isUniverseSize(n) ? n : undefined;
+}
+
 /** What stops the form saving (`problems`), and what's worth knowing but allowed (`warnings`). */
 export interface DraftCheck {
   problems: DraftProblems;
@@ -111,6 +127,9 @@ export function checkDraft(draft: ControllerDraft, before: Controller, show: Sho
   if (draft.protocol === "sacn" && draft.startUniverse.trim() !== was.startUniverse.trim() && startUniverse(draft) === undefined) {
     problems.startUniverse = `The start universe must be a whole number from 1 to ${MAX_UNIVERSE}, or empty to let PixelFlow choose.`;
   }
+  if (draft.protocol === "sacn" && universeSize(draft) === undefined) {
+    problems.universeSize = `Channels per universe must be a whole number from 1 to ${MAX_UNIVERSE_SIZE}. Match what the controller is set to.`;
+  }
   return { problems, warnings };
 }
 
@@ -122,7 +141,7 @@ function protocolOf(draft: ControllerDraft, before: Protocol): Protocol {
     type: "sacn",
     // An untouched start universe the form can't read (out of range in an old file) stays as it was.
     startUniverse: universe === undefined ? kept.startUniverse : universe,
-    universeSize: draft.universeSize,
+    universeSize: universeSize(draft) ?? (before.type === "sacn" ? before.universeSize : 510),
     allowPixelStraddle: kept.allowPixelStraddle,
     multicast: draft.multicast,
   };

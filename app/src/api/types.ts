@@ -504,7 +504,7 @@ export type Edit =
   | { type: "setBackground"; background: Background | null }
   | { type: "setHouseModel"; houseModel: HouseModel | null };
 
-export type PatternKind = "solid" | "cycle" | "chase" | "ramp" | "alternate" | "identify" | "walk";
+export type PatternKind = "solid" | "cycle" | "chase" | "ramp" | "alternate" | "identify" | "walk" | "cameraMap" | "cameraMapBinary";
 
 export interface PatternSpec {
   kind: PatternKind;
@@ -517,6 +517,108 @@ export type TargetSpec =
   | { type: "group"; id: Uuid }
   | { type: "controller"; id: Uuid }
   | { type: "port"; controller: Uuid; port: number };
+
+// Camera mapping (see crates/pf-camera-map).
+
+/** How the camera-mapping sequence shows each digit: off/red/green/blue, or off/white. */
+export type CodeBase = "four" | "two";
+
+export interface CameraMapProp {
+  prop: Uuid;
+  name: string;
+  nodes: number;
+}
+
+/** What a capture of a target covers. */
+export interface CameraMapTargetInfo {
+  pixels: number;
+  /** One pass of the sequence, in seconds (it loops). */
+  seconds: number;
+  props: CameraMapProp[];
+}
+
+/** One video frame's overall brightness at `t` seconds. */
+export interface BrightnessSample {
+  t: number;
+  v: number;
+}
+
+/** Where the sequence starts in the video, and the span of video to average for each slot. */
+export interface CameraMapSync {
+  start: number;
+  score: number;
+  windows: [number, number][];
+}
+
+/** The slot frames sent for decoding: their size and the sequence they're from. */
+export interface CameraMapFrames {
+  width: number;
+  height: number;
+  pixels: number;
+  base: CodeBase;
+}
+
+export interface FoundPixel {
+  /** Its place in the sequence (wiring order across the target). */
+  index: number;
+  x: number;
+  y: number;
+  confidence: number;
+  brightness: number;
+  /** Camera colour seen for red, green, blue (0 red, 1 green, 2 blue); null when unclear. */
+  seen: [number, number, number] | null;
+}
+
+export interface DecodedCapture {
+  width: number;
+  height: number;
+  pixels: FoundPixel[];
+  duplicates: FoundPixel[];
+  unreadable: { x: number; y: number; brightness: number }[];
+}
+
+export interface Similarity {
+  scale: number;
+  angle: number;
+  tx: number;
+  ty: number;
+}
+
+export interface GeneratorFit {
+  scale: number;
+  rotationDeg: number;
+  tx: number;
+  ty: number;
+  error: number;
+  fits: boolean;
+}
+
+export interface PropPlan {
+  nodes: number;
+  found: number;
+  /** Every node's measured layout position (x, y); empty when none was found. */
+  points: [number, number][];
+  measured: boolean[];
+  fit: GeneratorFit | null;
+}
+
+export type CameraMapAnomaly =
+  | { kind: "missing"; prop: number; ranges: [number, number][] }
+  | { kind: "duplicate"; prop: number; node: number; x: number; y: number }
+  | { kind: "reversed"; prop: number }
+  | { kind: "jump"; prop: number; node: number }
+  | { kind: "colorOrder"; prop: number; configured: string; suggested: string }
+  | { kind: "unreadable"; count: number };
+
+export interface CameraMapPlan {
+  props: CameraMapProp[];
+  plan: {
+    alignment: Similarity | null;
+    alignmentError: number;
+    props: PropPlan[];
+    anomalies: CameraMapAnomaly[];
+  };
+}
 
 export interface ControllerStatus {
   id: Uuid;

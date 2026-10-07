@@ -39,6 +39,11 @@ export const tauriBackend: Backend = {
   startOutput: (pattern, target) => invoke("start_output", { pattern, target }),
   stopOutput: () => invoke("stop_output"),
   outputStatus: () => invoke("output_status"),
+  cameraMapTarget: (target, base) => invoke("camera_map_target", { target, base }),
+  cameraMapSync: (samples, pixels, base) => invoke("camera_map_sync", { samples, pixels, base }),
+  // Raw bytes (tens of megabytes), described by a header.
+  cameraMapDecode: (frames, info) => invoke("camera_map_decode", frames, { headers: { "x-camera-map": JSON.stringify(info) } }),
+  cameraMapPlan: (target, pixels, decoded, anchors) => invoke("camera_map_plan", { target, pixels, decoded, anchors }),
   discoverDevices: (hosts, network) => invoke("discover_devices", { hosts, network }),
   inspectDevice: (address) => invoke("inspect_device", { address }),
   importDevice: (address, useProps) => invoke("import_device", { address, useProps: useProps ?? null }),

@@ -9,7 +9,8 @@ pub use crate::fake_wled::{FakeWled, FakeWledState};
 
 /// The FPP player (real responses, IPs scrubbed). It sends DDP to [`FALCON`].
 pub const FPP: &str = "192.0.2.10";
-/// A Falcon F16V5 in DDP mode with strings on ports 1 and 3.
+/// A Falcon F16V5 (real responses, scrubbed) in DDP mode with five strings on ports 1–4 and 6.
+/// [`falcon_synthetic`] swaps in a synthetic setup for edge cases.
 pub const FALCON: &str = "192.0.2.20";
 /// An FPP with a pixel hat (two strings on port 1).
 pub const FPP_HAT: &str = "192.0.2.30";
@@ -78,7 +79,8 @@ pub const START_MEDLEY: &str =
 /// Every fixture device, each answering on its own address.
 pub fn network() -> FakeHttp {
     fpp_only()
-        .with_get(FALCON, "/", include_str!("../fixtures/falcon/home.html"))
+        // The real F16V5 answers its home page with a 404.
+        .with_get_status(FALCON, "/", 404)
         .with_get(
             FALCON,
             "/status.xml",
@@ -99,20 +101,8 @@ pub fn network() -> FakeHttp {
         .with_post(
             FALCON,
             "/api",
-            &falcon_query("IN", 0),
-            include_str!("../fixtures/falcon/in.json"),
-        )
-        .with_post(
-            FALCON,
-            "/api",
             &falcon_query("SP", 0),
             include_str!("../fixtures/falcon/sp0.json"),
-        )
-        .with_post(
-            FALCON,
-            "/api",
-            &falcon_query("SP", 1),
-            include_str!("../fixtures/falcon/sp1.json"),
         )
         .with_get(
             FPP_HAT,
@@ -132,6 +122,25 @@ pub fn network() -> FakeHttp {
         .with_get(WLED, "/", include_str!("../fixtures/wled/home.html"))
         .with_get(WLED, "/json/info", include_str!("../fixtures/wled/info.json"))
         .with_get(WLED, "/json/cfg", include_str!("../fixtures/wled/cfg.json"))
+}
+
+/// [`network`] with a synthetic setup on [`FALCON`] for edge cases: settings split over two `ST`
+/// pages (older V4 firmware), E1.31 input universes, and two `SP` pages with strings on ports 1 and
+/// 3 — a reversed string with null pixels, a smart receiver, grouping, and a white-first color
+/// order.
+pub fn falcon_synthetic() -> FakeHttp {
+    let page = |method: &str, batch: u32, body: &str| (falcon_query(method, batch), body.to_string());
+    [
+        page("ST", 0, include_str!("../fixtures/falcon/synthetic/st0.json")),
+        page("ST", 1, include_str!("../fixtures/falcon/synthetic/st1.json")),
+        page("IN", 0, include_str!("../fixtures/falcon/synthetic/in.json")),
+        page("SP", 0, include_str!("../fixtures/falcon/synthetic/sp0.json")),
+        page("SP", 1, include_str!("../fixtures/falcon/synthetic/sp1.json")),
+    ]
+    .into_iter()
+    .fold(network(), |http, (request, body)| {
+        http.with_post(FALCON, "/api", &request, &body)
+    })
 }
 
 /// FPP's public release list as recorded (stable and pre-release, trimmed to their OS files).

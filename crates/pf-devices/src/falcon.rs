@@ -116,18 +116,41 @@ fn query(http: &dyn Http, host: &str, method: &str, batch: u32) -> Result<(Value
     Ok((reply["P"].clone(), reply["F"].as_i64() == Some(1)))
 }
 
+/// Most `ST` pages to read. An F16V5 on firmware Bld 32 sends everything in page 0 (marked final);
+/// older V4 firmware splits it over pages 0 and 1, as xLights' `Falcon.cpp` records.
+const MAX_SETTINGS_PAGES: u32 = 8;
+
+/// The controller's settings (`ST`), merged from page 0 up to the page marked final, as xLights
+/// reads them. Callers pick out only the fields they use; Wi-Fi fields are never read.
+fn read_settings(http: &dyn Http, host: &str) -> Result<Value, DeviceError> {
+    let mut settings = serde_json::Map::new();
+    for page in 0..MAX_SETTINGS_PAGES {
+        let (payload, last) = query(http, host, "ST", page)?;
+        if let Value::Object(fields) = payload {
+            settings.extend(fields);
+        }
+        if last {
+            break;
+        }
+    }
+    Ok(Value::Object(settings))
+}
+
 fn int(v: &Value, key: &str) -> i64 {
     v.get(key).and_then(Value::as_i64).unwrap_or(0)
 }
 
 /// Identifies a Falcon from `/status.xml`, adding the name and firmware string from the JSON
 /// status on V4/V5 boards.
+///
+/// The model comes from the product code alone. xLights also reads `BR` as the port count, but an
+/// F16V5 on firmware Bld 32 reports `BR` 165, so it isn't used.
 pub fn probe(http: &dyn Http, host: &str) -> Result<Device, DeviceError> {
     let status = read_status_xml(http, host)?;
-    let mut model = model_for_product(status.product).unwrap_or("Falcon").to_string();
+    let model = model_for_product(status.product).unwrap_or("Falcon").to_string();
     let (mut name, mut firmware) = (status.name, status.firmware);
     if status.product >= 128
-        && let Ok((p, _)) = query(http, host, "ST", 0)
+        && let Ok(p) = read_settings(http, host)
     {
         // Read only the identity fields; Wi-Fi fields in the same payload are ignored.
         if let Some(n) = p["N"].as_str().filter(|s| !s.is_empty()) {
@@ -135,10 +158,6 @@ pub fn probe(http: &dyn Http, host: &str) -> Result<Device, DeviceError> {
         }
         if let Some(v) = p["V"].as_str().filter(|s| !s.is_empty()) {
             firmware = v.to_string();
-        }
-        if let Some(ports) = p["BR"].as_i64().filter(|b| *b > 0) {
-            let generation = if status.product >= 130 { 5 } else { 4 };
-            model = format!("F{ports}v{generation}");
         }
     }
     Ok(Device {
@@ -156,6 +175,8 @@ pub fn probe(http: &dyn Http, host: &str) -> Result<Device, DeviceError> {
     })
 }
 
+/// The controller mode (`O`), as xLights' `Falcon.cpp` numbers them. A real F16V5 receiving DDP
+/// from an FPP reports 2.
 fn mode_name(code: i64) -> &'static str {
     match code {
         0 => "E1.31/Art-Net",
@@ -196,11 +217,15 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
             "{name} is an older Falcon controller that PixelFlow can't read yet."
         )));
     }
-    let (settings, _) = query(http, host, "ST", 1)?;
+    let settings = read_settings(http, host)?;
     let mode = int(&settings, "O");
     let board_mode = settings.get("B").and_then(Value::as_i64);
-    // TODO(falcon-recording): `sc` may be 0- or 1-based; once a real F16V5 response confirms the base,
-    // note when the first string doesn't start at PixelFlow's channel 1 (as the FPP adapter does).
+    // String start channels (`sc`) are 0-based. With absolute addressing (`A` 0) they count from the
+    // controller's first channel `ps` (also 0-based), so a string at `sc` == `ps` takes the first
+    // channel PixelFlow sends. With universe addressing (`A` 1) each `sc` is within its string's
+    // universe (`u`), so the layout can't be checked from start channels alone.
+    let absolute = int(&settings, "A") == 0;
+    let first_channel = int(&settings, "ps");
     let input = match mode {
         0 => {
             let (inputs, _) = query(http, host, "IN", 0)?;
@@ -263,8 +288,9 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
                 continue;
             };
             let label = format!("Port {number}");
-            // `n` counts pixels that take data; the controller skips its null pixels (`ns`) itself, so
-            // each `sc` is the previous string's `sc` plus `n` times the channels per pixel.
+            // `n` counts pixels that take data, not the null pixels (`ns`), which the controller adds
+            // itself (xLights counts a port's length as `n` + `ns`), so each `sc` is the previous
+            // string's `sc` plus `n` times the channels per pixel.
             let Some(pixels) = bounded_pixels(&label, int(s, "n"), &mut notes) else {
                 continue;
             };
@@ -285,6 +311,7 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
                     "Port {number}: zig-zag isn't supported yet; imported straight."
                 ));
             }
+            // `r` 0 is the port itself; 1, 2, 3… are smart receivers A, B, C… (as in xLights).
             let smart = u8::try_from(int(s, "r")).ok().filter(|r| *r > 0);
             let name = s["nm"]
                 .as_str()
@@ -312,7 +339,7 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
                 .entry(number)
                 .or_default()
                 .entry((int(s, "r"), int(s, "s")))
-                .or_insert((s.get("sc").and_then(Value::as_i64), config));
+                .or_insert((s.get("sc").and_then(Value::as_i64).filter(|_| absolute), config));
         }
         page += 1;
         if last {
@@ -351,6 +378,25 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
         .collect();
     if !layout_is_contiguous(&placed) {
         notes.push(LAYOUT_NOTE.to_string());
+    }
+    if !absolute && !placed.is_empty() {
+        notes.push(
+            "This Falcon places its strings by universe, so PixelFlow can't check their channel layout. \
+             Check it on the controller before running a show."
+                .to_string(),
+        );
+    }
+    // PixelFlow sends the first string's data on the controller's first channel.
+    if let Some(start) = placed
+        .first()
+        .and_then(|p| p.start)
+        .map(|sc| sc.saturating_sub(first_channel))
+        .filter(|offset| *offset != 0)
+    {
+        notes.push(format!(
+            "This Falcon's strings start at its channel {}, but PixelFlow sends from channel 1. Set the first string to start at channel 1 on the Falcon, or the strings will show the wrong data.",
+            start.saturating_add(1)
+        ));
     }
     notes.sort();
     notes.dedup();

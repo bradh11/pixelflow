@@ -8,6 +8,9 @@ import type { WiringStatus } from "../../lib/wiringMath";
 import { shapeLabel } from "../../lib/shows";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { useApp } from "../../state/store";
+import { isMenuKey, useContextMenu } from "../../state/contextMenu";
+import { pickForMenu, propMenuItems } from "../../state/layoutActions";
+import { useView3d } from "../../state/view3d";
 import { confirmAction } from "../../state/confirm";
 import { useSequencer } from "../../state/sequencer";
 import { toastWithUndo } from "../../state/undoToast";
@@ -85,6 +88,7 @@ interface RowProps {
   renaming: boolean;
   onPick: (id: string, e: MouseEvent) => void;
   onRename: (id: string | null) => void;
+  onMenu: (id: string, e: MouseEvent) => void;
 }
 
 /** How each wiring state looks and reads in the list. */
@@ -95,7 +99,7 @@ const WIRING: Record<WiringStatus, { dot: string; label: string }> = {
   twice: { dot: "bg-red-500", label: "Wired twice" },
 };
 
-const Row = memo(function Row({ prop, top, pixels, wiring, selected, active, renaming, onPick, onRename }: RowProps) {
+const Row = memo(function Row({ prop, top, pixels, wiring, selected, active, renaming, onPick, onRename, onMenu }: RowProps) {
   const look = WIRING[wiring];
   return (
     <div
@@ -105,6 +109,7 @@ const Row = memo(function Row({ prop, top, pixels, wiring, selected, active, ren
       title={`${prop.name}: ${shapeLabel(prop.shape)}, ${thousands(pixels)} pixels${wiring === "wired" ? "" : `, ${look.label.toLowerCase()}`}. Double-click to rename.`}
       onClick={(e) => onPick(prop.id, e)}
       onDoubleClick={() => onRename(prop.id)}
+      onContextMenu={(e) => onMenu(prop.id, e)}
       style={{ top, height: ROW_PX }}
       className={`group absolute right-0 left-0 flex cursor-default items-center gap-2 px-2 text-sm select-none ${
         selected ? "bg-accent-100 text-accent-900 dark:bg-accent-600/25 dark:text-accent-100" : "hover:bg-neutral-100 dark:hover:bg-neutral-800/70"
@@ -149,7 +154,8 @@ export function PropsList() {
   const [sort, setSortState] = useState<PropSort>(storedSort);
   const [unwiredOnly, setUnwiredOnly] = useState(false);
   const [active, setActive] = useState<string | null>(null);
-  const [renaming, setRenaming] = useState<string | null>(null);
+  const renaming = useLayoutEditor((s) => s.renaming);
+  const setRenaming = useLayoutEditor((s) => s.setRenaming);
   const anchor = useRef<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -194,13 +200,43 @@ export function PropsList() {
   pickNow.current = pick;
   const onPick = useCallback((id: string, e: MouseEvent) => pickNow.current(id, e), []);
   // Done renaming: the keyboard goes back to the list (not the page, where arrows nudge props).
-  const onRename = useCallback((id: string | null) => {
-    setRenaming(id);
-    if (id === null) scroller.current?.focus({ preventScroll: true });
+  const onRename = useCallback(
+    (id: string | null) => {
+      setRenaming(id);
+      if (id === null) scroller.current?.focus({ preventScroll: true });
+    },
+    [setRenaming],
+  );
+  // Renaming asked for from elsewhere (a right-click menu): its row comes into view.
+  useEffect(() => {
+    if (renaming) reveal(order.indexOf(renaming));
+  }, [renaming]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const in3d = useView3d((s) => s.mode === "3d");
+  const openMenu = (ids: string[], x: number, y: number) => {
+    const name = ids.length === 1 ? (show.props.find((p) => p.id === ids[0])?.name ?? "Prop") : `${ids.length} props`;
+    useContextMenu.getState().open({ x, y, label: name, items: propMenuItems(ids, { canReveal: !in3d }), opener: scroller.current });
+  };
+  const menuNow = useRef(openMenu);
+  menuNow.current = openMenu;
+  const onMenu = useCallback((id: string, e: MouseEvent) => {
+    e.preventDefault();
+    setActive(id);
+    menuNow.current(pickForMenu(id), e.clientX, e.clientY);
   }, []);
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (order.length === 0) return;
+    if (isMenuKey(e)) {
+      // The keyboard's right-click: the menu for the row with the focus ring, by that row.
+      e.preventDefault();
+      e.stopPropagation();
+      const id = active ?? order[0];
+      setActive(id);
+      const row = document.getElementById(rowId(id))?.getBoundingClientRect() ?? e.currentTarget.getBoundingClientRect();
+      openMenu(pickForMenu(id), row.left + 16, row.bottom);
+      return;
+    }
     const at = active ? order.indexOf(active) : -1;
     const move = (to: number) => {
       const index = Math.max(0, Math.min(order.length - 1, to));
@@ -303,6 +339,7 @@ export function PropsList() {
                 renaming={renaming === prop.id}
                 onPick={onPick}
                 onRename={onRename}
+                onMenu={onMenu}
               />
             ))}
           </div>

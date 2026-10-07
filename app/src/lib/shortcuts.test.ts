@@ -39,7 +39,7 @@ describe("the shortcut registry", () => {
     expect(hintFor("redo")).toBe("⇧⌘Z");
     expect(hintFor("seq-loop")).toBe("L");
     expect(ariaKeysFor("seq-play")).toBe("Space");
-    expect(keysLabel(shortcutOf("layout-delete"))).toBe("Delete / ⌫");
+    expect(keysLabel(shortcutOf("layout-delete"))).toBe("⌫ / Delete");
     expect(keysLabel(shortcutOf("layout3d-views"))).toBe("1–5");
   });
 

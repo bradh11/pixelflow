@@ -72,6 +72,11 @@ interface LayoutEditorState {
   /** The props and groups list beside the canvas: shown or folded away, which tab, and the group open in it. */
   sidePanel: { open: boolean; tab: "props" | "groups"; group: string | null };
   setSidePanel(change: Partial<LayoutEditorState["sidePanel"]>): void;
+  /** The prop whose name is being typed over in the props list. */
+  renaming: string | null;
+  setRenaming(id: string | null): void;
+  /** Props the 2D canvas is asked to bring into view; it clears this once it has. */
+  reveal: string[] | null;
 }
 
 const SMART_GUIDES_KEY = "pixelflow.smartGuides";
@@ -143,6 +148,9 @@ export const useLayoutEditor = create<LayoutEditorState>((set, get) => ({
   setView: (view) => set({ view }),
   setHighlight: (highlight) => set({ highlight }),
   setPolyPoint: (polyPoint) => set({ polyPoint }),
+  renaming: null,
+  setRenaming: (renaming) => set({ renaming }),
+  reveal: null,
   sidePanel: { open: storedSidePanelOpen(), tab: "props", group: null },
   setSidePanel: (change) => {
     const sidePanel = { ...get().sidePanel, ...change };

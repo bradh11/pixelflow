@@ -38,7 +38,7 @@ export const SHORTCUTS = [
   { id: "context-menu", group: "Everywhere", keys: "Shift+F10 ContextMenu", label: "Open the right-click menu for what has focus" },
   // Layout
   { id: "layout-escape", group: "Layout", keys: "Escape", label: "Stop drawing, put the tool down, or clear the selection" },
-  { id: "layout-delete", group: "Layout", keys: "Delete Backspace", label: "Delete the selected props (or the picked point)" },
+  { id: "layout-delete", group: "Layout", keys: "Backspace Delete", label: "Delete the selected props (or the picked point)" },
   { id: "layout-nudge", group: "Layout", keys: "ArrowLeft ArrowRight ArrowUp ArrowDown", label: "Move the selection a little", display: "← → ↑ ↓" },
   { id: "layout-nudge-far", group: "Layout", keys: "Shift+ArrowLeft Shift+ArrowRight Shift+ArrowUp Shift+ArrowDown", label: "Move the selection ten times as far", display: "⇧ + arrow" }, // gitleaks:allow (key names)
   { id: "layout-select-all", group: "Layout", keys: "Meta+A", label: "Select every prop" },
@@ -60,7 +60,7 @@ export const SHORTCUTS = [
   { id: "seq-step-beat", group: "Sequence", keys: "Shift+ArrowLeft Shift+ArrowRight", label: "Move them to the next beat instead", display: "⇧← ⇧→" }, // gitleaks:allow (key names)
   { id: "seq-row", group: "Sequence", keys: "ArrowUp ArrowDown", label: "Pick the row above or below", display: "↑ ↓" },
   { id: "seq-ends", group: "Sequence", keys: "Home End", label: "Jump to the start or the end" },
-  { id: "seq-delete", group: "Sequence", keys: "Delete Backspace", label: "Delete the selected effects (or timing marks)" },
+  { id: "seq-delete", group: "Sequence", keys: "Backspace Delete", label: "Delete the selected effects (or timing marks)" },
   { id: "seq-select-all", group: "Sequence", keys: "Meta+A", label: "Select every effect" },
   { id: "seq-copy", group: "Sequence", keys: "Meta+C", label: "Copy the selected effects" },
   { id: "seq-paste", group: "Sequence", keys: "Meta+V", label: "Paste at the playhead" },

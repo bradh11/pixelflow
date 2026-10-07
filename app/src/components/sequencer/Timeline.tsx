@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, GripVertical, Layers, Maximize2, Plus, Trash2, ZoomIn, ZoomOut } from "lucide-react";
-import { Fragment, type PointerEvent as ReactPointerEvent, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { submodelsOf, targetKey, targetName } from "../../lib/submodels";
 import { defaultParams, newEffect, newRow, type EffectKind, type Sequence, type SequenceEdit, type SequenceTarget, type TimingTrack } from "../../api/sequence";
 import type { Show, Waveform } from "../../api/types";
@@ -51,6 +51,8 @@ import { TimingTrackHeaders } from "./TimingTrackHeaders";
 import { LANE_H, RULER_H, TRACK_H, WAVE_H, drawTimeline, topHeight } from "./drawTimeline";
 import { timelineMinHeight } from "../../lib/sequenceLayout";
 import { resolveAudio } from "../../lib/showFiles";
+import { isMenuKey, useContextMenu } from "../../state/contextMenu";
+import { effectMenuItems } from "../../state/sequenceActions";
 
 /** Colors a new effect starts with. */
 export const DEFAULT_COLORS = ["#ff0000", "#00c000", "#ffffff"];
@@ -444,6 +446,33 @@ export function Timeline({ doc }: { doc: Sequence }) {
     drag.current = { kind: "markMove", track: track.id, primary: span(hit.index), from: moving.map(span), spans, x, y, ms: xToTime(x, v), started: false, targets: targets(moving) };
   };
 
+  /** The right-click menu for the effect under the pointer (picking it unless it's selected), or Paste on empty rows. */
+  const onContextMenu = (e: ReactMouseEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    const { x, y } = point(e);
+    const { view: v, top: tp, scrollY: sy, lanes: ls, index: idx, selection: sel } = latest.current;
+    if (y < tp) return;
+    const lane = laneAt(ls, y - tp + sy);
+    if (!lane) return;
+    const hit = hitEffect(idx, lane, x, v);
+    const store = useSequencer.getState();
+    store.setActiveRow(lane.rowId);
+    const ids = !hit ? [] : sel.includes(hit.id) ? sel : [hit.id];
+    if (hit && !sel.includes(hit.id)) store.select(ids);
+    openEffectMenu(ids, e.clientX, e.clientY);
+  };
+  const openEffectMenu = (ids: string[], x: number, y: number) => {
+    const label = ids.length === 0 ? "Timeline" : ids.length === 1 ? "Effect" : `${ids.length} effects`;
+    useContextMenu.getState().open({ x, y, label, items: effectMenuItems(ids), opener: canvasRef.current });
+  };
+  const onCanvasKeyDown = (e: ReactKeyboardEvent<HTMLCanvasElement>) => {
+    if (!isMenuKey(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const box = e.currentTarget.getBoundingClientRect();
+    openEffectMenu(useSequencer.getState().selection, box.left + box.width / 2, box.top + box.height / 2);
+  };
+
   const onPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     if (e.button !== 0) return;
     canvasRef.current?.focus();
@@ -795,6 +824,8 @@ export function Timeline({ doc }: { doc: Sequence }) {
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
             onPointerCancel={onPointerCancel}
+            onContextMenu={onContextMenu}
+            onKeyDown={onCanvasKeyDown}
             onPointerLeave={(e) => !drag.current && (e.currentTarget.style.cursor = "default")}
           />
           {labelEdit && labelBox && (

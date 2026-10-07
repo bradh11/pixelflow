@@ -1,14 +1,12 @@
 import { type RefObject, useEffect } from "react";
-import type { Edit, Show } from "../../api/types";
-import { duplicateEdits, pasteEdits, removeEdits, updateEdits } from "../../lib/layoutEdits";
+import { updateEdits } from "../../lib/layoutEdits";
 import { nudgeStep } from "../../lib/layoutMath";
 import { isPoly, removeVertex } from "../../lib/polylineMath";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { addNudge, flushNudge } from "../../state/layoutGestures";
 import { isBusyOrAsking } from "../../state/busy";
-import { groupSelected } from "../../state/groups";
+import { copyProps, deletePropsById, duplicateProps, groupProps, pasteProps } from "../../state/layoutActions";
 import { useApp } from "../../state/store";
-import { deleteProps } from "./PropsList";
 import type { LayoutCanvasHandle } from "./LayoutCanvas";
 
 const ARROWS: Record<string, [number, number]> = {
@@ -36,9 +34,6 @@ function textSelected(): boolean {
   const selection = typeof window.getSelection === "function" ? window.getSelection() : null;
   return !!selection && !selection.isCollapsed && selection.toString().trim() !== "";
 }
-
-/** How far (layout units, right and down) each paste lands from the last. */
-const PASTE_OFFSET = 0.5;
 
 /**
  * Layout editor keys while the Layout screen is open: Escape, Delete/Backspace, arrow keys
@@ -80,38 +75,24 @@ export function useLayoutKeys(canvas: RefObject<LayoutCanvasHandle | null>) {
 
       if (e.metaKey || e.ctrlKey) {
         if (e.altKey) return;
-        /** Adds props built from the latest show, then selects them (one undo step). */
-        const addAndSelect = (build: (latest: Show) => { edits: Edit[]; ids: string[] }) => {
-          let made: string[] = [];
-          const edits = (latest: Show) => {
-            const built = build(latest);
-            made = built.ids;
-            return built.edits;
-          };
-          void app.apply(edits).then((ok) => ok && made.length > 0 && useLayoutEditor.getState().select(made));
-        };
         if (key === "a") {
           e.preventDefault();
           editor.select(show.props.map((p) => p.id));
         } else if (key === "g") {
           e.preventDefault();
-          if (ids.length > 0) void groupSelected();
+          if (ids.length > 0) groupProps(ids);
         } else if (key === "d") {
           e.preventDefault();
-          if (ids.length > 0) addAndSelect((latest) => duplicateEdits(latest, ids));
+          duplicateProps(ids);
         } else if (key === "c" || key === "x") {
           // Text picked out on the page is copied as text, as usual.
           if (ids.length === 0 || textSelected()) return;
           e.preventDefault();
-          const props = structuredClone(show.props.filter((p) => ids.includes(p.id)));
-          useLayoutEditor.setState({ clipboard: { props, nextOffset: key === "x" ? 0 : PASTE_OFFSET } });
-          if (key === "x") void app.apply(removeEdits(ids)).then((ok) => ok && useLayoutEditor.getState().clear());
+          copyProps(ids, key === "x");
         } else if (key === "v") {
-          const clipboard = editor.clipboard;
-          if (!clipboard) return;
+          if (!editor.clipboard) return;
           e.preventDefault();
-          useLayoutEditor.setState({ clipboard: { ...clipboard, nextOffset: clipboard.nextOffset + PASTE_OFFSET } });
-          addAndSelect((latest) => pasteEdits(latest, clipboard.props, clipboard.nextOffset));
+          pasteProps();
         }
         return;
       }
@@ -138,10 +119,7 @@ export function useLayoutKeys(canvas: RefObject<LayoutCanvasHandle | null>) {
           void app.apply(updateEdits(point.prop, (p) => (isPoly(p.shape) ? { ...p, shape: removeVertex(p.shape, point.index) ?? p.shape } : p)));
           return;
         }
-        void deleteProps(
-          ids,
-          ids.map((id) => show.props.find((p) => p.id === id)?.name ?? ""),
-        );
+        deletePropsById(ids);
         return;
       }
       const arrow = ARROWS[e.key];

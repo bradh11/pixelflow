@@ -57,6 +57,11 @@ export function SidePanel({ floating = false }: { floating?: boolean }) {
   const floatBox = useRef<HTMLDivElement>(null);
   // Going floating puts the list away; something opening a group (Cmd-G) brings it out.
   useEffect(() => setFloatShown(false), [floating]);
+  // Renaming a prop from a right-click menu brings the list out too.
+  const renaming = useLayoutEditor((s) => s.renaming);
+  useEffect(() => {
+    if (floating && renaming) setFloatShown(true);
+  }, [floating, renaming]);
   const opened = useRef({ tab, group });
   useEffect(() => {
     const before = opened.current;

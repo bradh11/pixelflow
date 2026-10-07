@@ -1,6 +1,7 @@
 import { Check, ChevronDown } from "lucide-react";
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { fileName, shownPath } from "../lib/format";
+import { hintFor } from "../lib/shortcuts";
 import { useApp } from "../state/store";
 import { thumbnailUrl } from "./RecentShows";
 
@@ -236,23 +237,23 @@ export function ShowMenu() {
               })}
             </div>
             <Separator />
-            <Item shortcut="⌘O" onSelect={run(app.openShow)}>
+            <Item shortcut={hintFor("open")} onSelect={run(app.openShow)}>
               Open…
             </Item>
-            <Item shortcut="⌘N" onSelect={run(app.newShow)}>
+            <Item shortcut={hintFor("new")} onSelect={run(app.newShow)}>
               New show
             </Item>
             <Item onSelect={run(app.importXlights)}>Import from xLights…</Item>
             <Separator />
             <Item onSelect={() => app.setRenaming(true)}>Rename…</Item>
-            <Item shortcut="⌘S" onSelect={run(app.save)}>
+            <Item shortcut={hintFor("save")} onSelect={run(app.save)}>
               Save
             </Item>
-            <Item shortcut="⇧⌘S" onSelect={run(app.saveAs)}>
+            <Item shortcut={hintFor("save-as")} onSelect={run(app.saveAs)}>
               Save As…
             </Item>
             <Separator />
-            <Item shortcut="⌘W" onSelect={run(app.closeShow)}>
+            <Item shortcut={hintFor("close-show")} onSelect={run(app.closeShow)}>
               Close show
             </Item>
           </div>

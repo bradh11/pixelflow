@@ -17,6 +17,7 @@ import { sequenceArrangement, sidePreview } from "../lib/sequenceLayout";
 import { useElementWidth } from "../lib/useWidth";
 import { type RecentSequence, recentFor, useSequencer } from "../state/sequencer";
 import { saveSequenceAndShow } from "../state/saveAll";
+import { ariaKeysFor, comboLabel, hintFor } from "../lib/shortcuts";
 import { useApp } from "../state/store";
 
 /** How often playback is checked while a sequence plays. */
@@ -319,7 +320,7 @@ function ToolButton({
     <button
       type="button"
       aria-label={label}
-      title={hint ?? (shortcut ? `${label} (${shortcut})` : label)}
+      title={hint ?? (shortcut ? `${label} (${comboLabel(shortcut.split(" ")[0])})` : label)}
       aria-keyshortcuts={shortcut}
       aria-pressed={pressed}
       onClick={onClick}
@@ -375,7 +376,7 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
       >
         <FileInput size={16} /> <span className="hidden @min-[1200px]:inline">Import from xLights</span>
       </ToolButton>
-      <ToolButton label="Save" hint="Save the sequence, and the show if it changed (⌘S)" onClick={() => void saveSequenceAndShow()} disabled={s.name === null}>
+      <ToolButton label="Save" hint={`Save the sequence, and the show if it changed (${hintFor("save")})`} onClick={() => void saveSequenceAndShow()} disabled={s.name === null}>
         <Save size={16} />
       </ToolButton>
       {s.name !== null && (
@@ -385,14 +386,14 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
           </span>
           {s.dirty && <UnsavedBadge doc="sequence" />}
           <span className="mx-1 h-5 w-px bg-neutral-200 dark:bg-neutral-800" />
-          <ToolButton label={s.playing ? "Pause" : "Play"} onClick={() => void (s.playing ? act().pause() : act().play())}>
+          <ToolButton label={s.playing ? "Pause" : "Play"} shortcut={ariaKeysFor("seq-play")} onClick={() => void (s.playing ? act().pause() : act().play())}>
             {s.playing ? <Pause size={16} /> : <Play size={16} />}
           </ToolButton>
           {/* Stop leaves the playhead where it is; pressed again, it goes back to the start. */}
           <ToolButton label={s.active || s.atStart ? "Stop" : "Back to the start"} onClick={() => void act().stop()} disabled={!s.active && s.atStart}>
             <Square size={15} />
           </ToolButton>
-          <ToolButton label="Loop playback" shortcut="L" pressed={s.looping} onClick={() => act().setLooping(!s.looping)}>
+          <ToolButton label="Loop playback" shortcut={ariaKeysFor("seq-loop")} pressed={s.looping} onClick={() => act().setLooping(!s.looping)}>
             <Repeat size={16} />
           </ToolButton>
           <PlayheadTime durationMs={s.durationMs} />

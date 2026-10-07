@@ -27,6 +27,7 @@ import { WiringScreen } from "../screens/WiringScreen";
 import { MissingFileNotice, MissingFilesBanner } from "./MissingFiles";
 import { ShowMenu } from "./ShowMenu";
 import { Sidebar } from "./Sidebar";
+import { hintFor } from "../lib/shortcuts";
 import { useWindowBand } from "../lib/useWidth";
 import { Button, UnsavedBadge } from "./ui";
 import { redoTarget, saveFocused, undoFocused } from "../state/menuActions";
@@ -125,10 +126,10 @@ function TopBar() {
         </>
       )}
       <div className="ml-auto flex items-center gap-1">
-        <IconButton label={undo.label} hint={undo.hint} shortcut="⌘Z" onClick={() => void undoFocused(false)} disabled={!undo.can}>
+        <IconButton label={undo.label} hint={undo.hint} shortcut={hintFor("undo")} onClick={() => void undoFocused(false)} disabled={!undo.can}>
           <Undo2 size={18} />
         </IconButton>
-        <IconButton label={redo.label} hint={redo.hint} shortcut="⇧⌘Z" onClick={() => void undoFocused(true)} disabled={!redo.can}>
+        <IconButton label={redo.label} hint={redo.hint} shortcut={hintFor("redo")} onClick={() => void undoFocused(true)} disabled={!redo.can}>
           <Redo2 size={18} />
         </IconButton>
         {/* The same save as ⌘S and File → Save; quiet when there's nothing to save. */}
@@ -148,7 +149,7 @@ function TopBar() {
           onClick={() => setPaletteOpen(true)}
           className="ml-1 flex items-center gap-2 rounded-md border border-neutral-300 px-2.5 py-1 text-sm text-neutral-500 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
         >
-          <Command size={14} /> Commands <kbd className="text-xs">⌘K</kbd>
+          <Command size={14} /> Commands <kbd className="text-xs">{hintFor("palette")}</kbd>
         </button>
       </div>
     </header>
@@ -325,14 +326,14 @@ function AssistantButton() {
       data-assistant-button
       aria-pressed={open}
       onClick={toggle}
-      title="Assistant (⌘L)"
+      title={`Assistant (${hintFor("assistant")})`}
       className={`ml-1 flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-sm ${
         open
           ? "border-accent-500 bg-accent-50 text-accent-600 dark:bg-accent-600/15 dark:text-accent-400"
           : "border-neutral-300 text-neutral-500 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
       }`}
     >
-      <Sparkles size={14} aria-hidden /> Assistant <kbd className="text-xs">⌘L</kbd>
+      <Sparkles size={14} aria-hidden /> Assistant <kbd className="text-xs">{hintFor("assistant")}</kbd>
     </button>
   );
 }

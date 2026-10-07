@@ -24,7 +24,12 @@ export function HistoryScreen() {
         description="Backups of your show, kept every 30 seconds while you work. They aren't your saved file: save (⌘S) to keep your changes. Restoring a backup can be undone. Unsaved sequences are offered back on the Sequence screen."
       />
       {entries.length === 0 ? (
-        <EmptyState title="No backups yet">They appear here after you make changes.</EmptyState>
+        <EmptyState title="No backups yet">
+          <p>They appear here after you make changes.</p>
+          <div className="mt-3">
+            <Button onClick={() => useApp.getState().setScreen("layout")}>Go to Layout</Button>
+          </div>
+        </EmptyState>
       ) : (
         <ul className="flex flex-col">
           {entries.map((entry) => (

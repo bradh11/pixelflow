@@ -61,9 +61,13 @@ export function SequenceList({
         </Button>
       </div>
       {sequences.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-neutral-300 p-4 text-sm text-neutral-500 dark:border-neutral-700">
-          Add a rendered sequence (.fseq). PixelFlow finds its music next to it.
-        </p>
+        <div className="flex flex-col items-start gap-2 rounded-lg border border-dashed border-neutral-300 p-4 text-sm text-neutral-500 dark:border-neutral-700">
+          <p>No sequences on the playlist yet. Make one on the Sequence screen and add it to the playlist from there.</p>
+          <Button variant="primary" onClick={() => useApp.getState().setScreen("sequence")}>
+            Make a sequence
+          </Button>
+          <p className="text-xs">Or Add a rendered sequence (.fseq); PixelFlow finds its music next to it.</p>
+        </div>
       ) : (
         <ol className="flex flex-col gap-1">
           {sequences.map((s: SequenceEntry, i) => (

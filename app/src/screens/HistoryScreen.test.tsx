@@ -21,4 +21,12 @@ describe("history", () => {
     expect(useToasts.getState().toasts.at(-1)?.text).toMatch(/^Restored the show from /);
     expect(useApp.getState().snapshot?.canUndo).toBe(true);
   });
+
+  it("with no backups yet, a button goes back to work", async () => {
+    await useApp.getState().connect(new MemoryBackend(demoShow()));
+    const user = userEvent.setup();
+    render(<HistoryScreen />);
+    await user.click(await screen.findByRole("button", { name: "Go to Layout" }));
+    expect(useApp.getState().screen).toBe("layout");
+  });
 });

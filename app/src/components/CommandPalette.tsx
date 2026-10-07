@@ -4,7 +4,11 @@ import { fileName } from "../lib/format";
 import { PROP_KINDS } from "../lib/shows";
 import { addPropInView } from "../state/addProp";
 import { useAssistant } from "../state/assistant";
-import { saveFocused } from "../state/menuActions";
+import { saveFocused, undoFocused } from "../state/menuActions";
+import { useSequencer } from "../state/sequencer";
+import { useView3d } from "../state/view3d";
+import { setLayoutMode } from "./layout3d/useLayout3dKeys";
+import { currentSetupKey, useSetup } from "../state/setup";
 import { type Screen, useApp } from "../state/store";
 
 interface Action {
@@ -19,6 +23,8 @@ export function CommandPalette() {
   const open = useApp((s) => s.paletteOpen);
   const setOpen = useApp((s) => s.setPaletteOpen);
   const state = useApp();
+  const sequenceHasMusic = useSequencer((s) => Boolean(s.doc?.audio));
+  const in3d = useView3d((s) => s.mode === "3d");
 
   useEffect(() => {
     if (!open) return;
@@ -57,8 +63,8 @@ export function CommandPalette() {
     { id: "import-xlights-sequence", label: "Import xLights sequence…", run: state.importXlightsSequence },
     { id: "save", label: "Save", shortcut: "⌘S", run: () => saveFocused(false) },
     { id: "save-as", label: "Save as…", shortcut: "⇧⌘S", run: state.saveAs },
-    { id: "undo", label: "Undo", shortcut: "⌘Z", run: state.undo },
-    { id: "redo", label: "Redo", shortcut: "⇧⌘Z", run: state.redo },
+    { id: "undo", label: "Undo", shortcut: "⌘Z", run: () => undoFocused(false) },
+    { id: "redo", label: "Redo", shortcut: "⇧⌘Z", run: () => undoFocused(true) },
     {
       id: "assistant",
       label: useAssistant.getState().open ? "Close the assistant" : "Open the assistant",
@@ -66,21 +72,55 @@ export function CommandPalette() {
       run: useAssistant.getState().toggle,
     },
     { id: "ai-settings", label: "AI settings…", run: () => useAssistant.getState().setSettingsOpen(true) },
+    { id: "setup", label: "Show the setup checklist", run: () => useSetup.getState().setDismissed(currentSetupKey(), false) },
     go("layout", "Layout"),
-    go("wiring", "Wiring"),
     go("devices", "Devices"),
+    go("wiring", "Wiring"),
     go("test", "Test"),
+    go("sequence", "Sequence"),
+    go("play", "Play"),
     go("history", "History"),
+    {
+      id: "open-sequence",
+      label: "Open sequence…",
+      run: () => {
+        state.setScreen("sequence");
+        const sequencer = useSequencer.getState();
+        return sequencer.replaceAfterAsking(async () => {
+          const path = await useSequencer.getState().api?.pickSequenceDocPath();
+          if (path) await useSequencer.getState().open(path);
+        });
+      },
+    },
+    ...(sequenceHasMusic ? [{ id: "detect-beats", label: "Detect beats (find the beats and bars)", run: () => useSequencer.getState().detectBeats() }] : []),
+    {
+      id: "scan",
+      label: "Scan the network for controllers",
+      run: () => {
+        state.setScreen("devices");
+        return state.scan();
+      },
+    },
+    { id: "stop-output", label: "Stop live output (test pattern or playback to the lights)", run: () => state.backend?.stopOutput() },
+    {
+      id: "layout-mode",
+      label: in3d ? "Layout: switch to the 2D view" : "Layout: switch to the 3D view",
+      shortcut: "V",
+      run: () => {
+        state.setScreen("layout");
+        setLayoutMode(in3d ? "2d" : "3d");
+      },
+    },
     ...PROP_KINDS.map(({ kind, label }) => ({
       id: `add-${kind}`,
       label: `Add prop: ${label}`,
       run: () => void addPropInView(kind),
     })),
-    {
-      id: "theme",
-      label: state.theme === "dark" ? "Switch to light theme" : "Switch to dark theme",
-      run: () => state.setTheme(state.theme === "dark" ? "light" : "dark"),
-    },
+    ...(["light", "dark", "system"] as const).map((choice) => ({
+      id: `theme-${choice}`,
+      label: `Theme: ${choice === "system" ? "match this computer" : choice}${state.themeChoice === choice ? " (now)" : ""}`,
+      run: () => state.setTheme(choice),
+    })),
   ];
 
   return (

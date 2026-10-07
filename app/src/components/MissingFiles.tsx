@@ -79,6 +79,16 @@ export function MissingFileNotice({
  * Shown under the top bar while the open show has files that aren't where they were (a moved
  * or synced show folder, usually): offers to find them all at once.
  */
+/**
+ * Whether the "files aren't where they were" banner is up and names `name`: a screen then holds
+ * its own note about that file back, so the same alarm doesn't show twice.
+ */
+export function useMissingBannerNames(name: string | null): boolean {
+  const missing = useMissingFiles();
+  const dismissed = useApp((s) => s.missingNoticeDismissed === missingNoticeKey(s.snapshot));
+  return name !== null && !dismissed && missing.some((m) => m.name === name);
+}
+
 export function MissingFilesBanner() {
   const missing = useMissingFiles();
   const snapshot = useApp((s) => s.snapshot);
@@ -163,7 +173,7 @@ export function FilesReport() {
               </>
             )}
           </h2>
-          <button type="button" aria-label="Close" onClick={dismiss} className="rounded p-1 hover:bg-neutral-100 dark:hover:bg-neutral-800">
+          <button type="button" aria-label="Close" data-tip="Close" onClick={dismiss} className="rounded p-1 hover:bg-neutral-100 dark:hover:bg-neutral-800">
             <X size={16} />
           </button>
         </div>

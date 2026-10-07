@@ -12,7 +12,7 @@ mod grid;
 mod lines;
 mod poly;
 pub(crate) use custom::custom_cells;
-pub(crate) use poly::parse_points;
+pub(crate) use poly::{curve_joints, parse_curves, parse_points};
 mod radial;
 #[cfg(test)]
 mod tests;
@@ -632,7 +632,7 @@ fn trunc_i(v: f64) -> i64 {
 }
 
 /// Positive integers from a comma list (`Model::DeserializeLayerSizes`).
-fn layer_sizes(s: &str) -> Vec<i64> {
+pub(crate) fn layer_sizes(s: &str) -> Vec<i64> {
     s.split(',').map(strtol0).filter(|&v| v > 0).collect()
 }
 

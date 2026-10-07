@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xrgb>
+  <models>
+    <model name="Big Layer Arch" DisplayAs="Arches" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="1" parm2="2" parm3="1"
+           LayerSizes="400000000,1" WorldPosX="100" WorldPosY="100" WorldPosZ="0" X2="100" Y2="0" Z2="0" Height="1" StartChannel="1"/>
+    <model name="Endless Layer Arch" DisplayAs="Arches" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="1" parm2="2" parm3="1"
+           LayerSizes="9000000000000000000,1" WorldPosX="300" WorldPosY="100" WorldPosZ="0" X2="100" Y2="0" Z2="0" Height="1" StartChannel="7"/>
+    <model name="Big Layer Star" DisplayAs="Star" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="1" parm2="20" parm3="5"
+           LayerSizes="10,5000000" WorldPosX="100" WorldPosY="300" WorldPosZ="0" ScaleX="1" ScaleY="1" ScaleZ="1" StartChannel="13"/>
+    <model name="Big Ring Circle" DisplayAs="Circle" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="1" parm2="20" parm3="50"
+           circleSizes="20,5000000,4000000" WorldPosX="300" WorldPosY="300" WorldPosZ="0" ScaleX="1" ScaleY="1" ScaleZ="1" StartChannel="73"/>
+  </models>
+  <modelGroups/>
+</xrgb>

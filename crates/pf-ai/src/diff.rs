@@ -998,14 +998,7 @@ mod tests {
     fn added_props_groups_and_files_show_their_details() {
         let before = Show::new("Show");
         let mut after = before.clone();
-        let mut arch = Prop::new(
-            "Arch 1",
-            ShapeSource::Generator(Generator::Arch {
-                nodes: 50,
-                width: 2.0,
-                height: 1.0,
-            }),
-        );
+        let mut arch = Prop::new("Arch 1", ShapeSource::Generator(Generator::arch(50, 2.0, 1.0)));
         arch.transform.position = pf_model::Vec3::new(1.5, 0.0, -2.0);
         after.props.push(arch.clone());
         let mut group = Group::new("Arches");
@@ -1135,11 +1128,7 @@ mod tests {
         let mut before = Show::new("Show");
         before.props.push(line("A"));
         let mut after = before.clone();
-        after.props[0].shape = ShapeSource::Generator(Generator::Arch {
-            nodes: 50,
-            width: 2.0,
-            height: 1.0,
-        });
+        after.props[0].shape = ShapeSource::Generator(Generator::arch(50, 2.0, 1.0));
         let d = diff(&before, &after, None);
         assert_eq!(d.changes[0].details, ["shape: line → arch"]);
     }

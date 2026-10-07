@@ -20,5 +20,9 @@ describe("shape fields", () => {
     // Zeros leave gaps, but a list of only gaps has nothing in it.
     expect(parseNumbers("0,3,0", 0)).toEqual([0, 3, 0]);
     expect(parseNumbers("0, 0", 0)).toBeNull();
+    // A list that may be empty (an arch's layers) can be cleared, but not left half typed.
+    expect(parseNumbers(" ", 1, 100, true)).toEqual([]);
+    expect(parseNumbers("", 1)).toBeNull();
+    expect(parseNumbers("5,", 1, 100, true)).toBeNull();
   });
 });

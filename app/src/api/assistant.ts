@@ -16,6 +16,18 @@ export function providerName(id: ProviderId): string {
   return id === "anthropic" ? "Anthropic" : "OpenAI";
 }
 
+/** A model's short, readable name: "claude-opus-5-5" is "Claude Opus 5.5", "gpt-5-mini" "GPT-5 mini". */
+export function modelLabel(id: string): string {
+  const claude = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(id);
+  if (claude) {
+    const [, family, major, minor] = claude;
+    return `Claude ${family[0].toUpperCase()}${family.slice(1)} ${minor ? `${major}.${minor}` : major}`;
+  }
+  const gpt = /^gpt-([\d.o]+)(?:-(.+))?$/.exec(id);
+  if (gpt) return `GPT-${gpt[1]}${gpt[2] ? ` ${gpt[2].replace(/-/g, " ")}` : ""}`;
+  return id;
+}
+
 /** A chat model that can use tools. */
 export interface ModelInfo {
   id: string;

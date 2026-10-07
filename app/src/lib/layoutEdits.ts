@@ -154,6 +154,20 @@ export function placedInView(prop: Prop, show: Show, preview: PreviewProp[], vis
 }
 
 /** "Port 2 on Falcon_F16V5_B9F5", one entry per place the prop is wired; empty when it isn't. */
+/** The ports where other props come after `propId` (so their channels move when its pixel count
+ * changes), as "Port 3", or "Port 3 on Garage" when the show has more than one controller. */
+export function portsWithPropsAfter(show: Show, propId: string): string[] {
+  const named = show.controllers.length > 1;
+  const places: string[] = [];
+  for (const controller of show.controllers) {
+    for (const port of controller.ports) {
+      const at = port.slots.findIndex((s) => s.prop === propId);
+      if (at >= 0 && at < port.slots.length - 1) places.push(named ? `Port ${port.number} on ${controller.name}` : `Port ${port.number}`);
+    }
+  }
+  return places;
+}
+
 export function wiringOf(show: Show, propId: string): string[] {
   const places: string[] = [];
   for (const controller of show.controllers) {

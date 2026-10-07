@@ -2,7 +2,7 @@ import { AlertTriangle, AudioLines, CheckCircle2, Download, FileInput, FilePlus,
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { errorMessage } from "../api/backend";
-import { MissingFileNotice } from "../components/MissingFiles";
+import { MissingFileNotice, useMissingBannerNames } from "../components/MissingFiles";
 import { EffectPalette } from "../components/sequencer/EffectPalette";
 import { EffectSettings } from "../components/sequencer/EffectSettings";
 import { SequencePreview } from "../components/sequencer/SequencePreview";
@@ -12,7 +12,9 @@ import { useSequenceKeys } from "../components/sequencer/useSequenceKeys";
 import { Button, EmptyState, Input, UnsavedBadge } from "../components/ui";
 import { ago, fileName, shownPath } from "../lib/format";
 import { formatTime } from "../lib/timelineMath";
-import { MAX_ROWS, rowsForShow } from "../api/sequence";
+import { MAX_ROWS, type Sequence, rowsForShow } from "../api/sequence";
+import { sequenceArrangement, sidePreview } from "../lib/sequenceLayout";
+import { useElementWidth } from "../lib/useWidth";
 import { type RecentSequence, recentFor, useSequencer } from "../state/sequencer";
 import { saveSequenceAndShow } from "../state/saveAll";
 import { useApp } from "../state/store";
@@ -31,18 +33,28 @@ const MIN_TIMELINE_PX = 240;
 /** How far an arrow key moves the divider. */
 const STEP_PX = 20;
 
+/** Beside the timeline, the preview's column starts this wide, and keeps between these. */
+const SIDE_PX = 360;
+const MIN_SIDE_PX = 280;
+const BIG_SIDE = "55%";
+
 interface PaneSize {
-  /** The preview's height (px), or null for its share of the column. */
+  /** The preview's height (px) above the timeline, or null for its share of the column. */
   height: number | null;
-  /** Made bigger: the preview takes most of the column. */
+  /** Made bigger: the preview takes most of the room. */
   big: boolean;
+  /** Where the preview goes when there's room beside the timeline (null: beside it). */
+  place?: "side" | "top" | null;
+  /** The preview column's width beside the timeline (px), or null for the default. */
+  side?: number | null;
 }
 
 function loadPane(): PaneSize {
   try {
     const saved = JSON.parse(localStorage.getItem(PANE_KEY) ?? "{}") as Record<string, unknown>;
-    const height = typeof saved.height === "number" && Number.isFinite(saved.height) ? saved.height : null;
-    return { height, big: saved.big === true };
+    const number = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+    const place = saved.place === "side" || saved.place === "top" ? saved.place : null;
+    return { height: number(saved.height), big: saved.big === true, place, side: number(saved.side) };
   } catch {
     return { height: null, big: false };
   }
@@ -107,6 +119,8 @@ function Workspace() {
   const show = useApp((s) => s.snapshot?.show);
   const [adding, setAdding] = useState(false);
   const column = useRef<HTMLDivElement>(null);
+  const workspace = useRef<HTMLDivElement>(null);
+  const arrangement = useElementWidth(workspace, (w) => ({ ...sequenceArrangement(w), side: sidePreview(w) }));
   const [pane, setPane] = useState(loadPane);
   const paneRef = useRef<HTMLDivElement>(null);
   /** The column's height, for the divider's range (kept up to date as the window changes). */
@@ -133,57 +147,64 @@ function Workspace() {
     const r = resizing.current;
     return r ? fitPreview(r.from + e.clientY - r.startY, total()) : null;
   };
+  const side = arrangement.side !== null && pane.place !== "top";
+  const onPlace = arrangement.side ? (place: "side" | "top") => update({ ...pane, place }) : undefined;
+  const palette = side ? arrangement.side!.palette : arrangement.palette;
   return (
-    <div className="flex min-h-0 flex-1">
-      <EffectPalette />
+    <div ref={workspace} data-sequence-workspace data-preview={side ? "side" : "top"} className="relative flex min-h-0 flex-1">
+      <EffectPalette compact={palette === "icons"} />
       <div ref={column} className="flex min-w-0 flex-1 flex-col">
         <BeatsBanner />
-        <div ref={paneRef} className="min-h-30 shrink px-2 pt-2 pb-1" style={{ height: pane.big ? `${BIG_SHARE * 100}%` : pane.height !== null ? `${pane.height}px` : `${DEFAULT_SHARE * 100}%` }}>
-          <SequencePreview doc={doc} expanded={pane.big} onExpand={(big) => update({ ...pane, big })} />
-        </div>
-        {/* Drag (or use the arrow keys) to share the room between the preview and the timeline;
-            a double-click puts it back. */}
-        <div
-          role="separator"
-          aria-orientation="horizontal"
-          aria-label="Preview size"
-          aria-valuemin={MIN_PREVIEW_PX}
-          aria-valuemax={Math.max(MIN_PREVIEW_PX, columnHeight - MIN_TIMELINE_PX)}
-          aria-valuenow={shown()}
-          tabIndex={0}
-          title="Drag to resize the preview (double-click to reset)"
-          className="h-1.5 shrink-0 cursor-row-resize touch-none border-b border-neutral-200 outline-none hover:bg-accent-400/40 focus-visible:bg-accent-400/40 dark:border-neutral-800"
-          onPointerDown={(e) => {
-            if (e.button !== 0) return;
-            e.currentTarget.setPointerCapture?.(e.pointerId);
-            // Bigger, the pane may be smaller than its share (the timeline keeps its room): start
-            // from the height it really has.
-            const from = pane.big ? Math.round(paneRef.current?.getBoundingClientRect().height ?? shown()) : shown();
-            resizing.current = { startY: e.clientY, from, before: pane };
-          }}
-          onPointerMove={(e) => {
-            const height = resizedTo(e);
-            if (height !== null) setPane({ height, big: false });
-          }}
-          onPointerUp={(e) => {
-            const height = resizedTo(e);
-            resizing.current = null;
-            if (height !== null) update({ height, big: false });
-          }}
-          onPointerCancel={() => {
-            const r = resizing.current;
-            resizing.current = null;
-            if (r) setPane(r.before);
-          }}
-          onDoubleClick={() => update({ height: null, big: false })}
-          onKeyDown={(e) => {
-            if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
-            // The arrows move the divider here, not the selected row.
-            e.preventDefault();
-            e.stopPropagation();
-            update({ height: fitPreview(shown() + (e.key === "ArrowDown" ? STEP_PX : -STEP_PX), total()), big: false });
-          }}
-        />
+        {!side && (
+          <>
+            <div ref={paneRef} className="min-h-30 shrink px-2 pt-2 pb-1" style={{ height: pane.big ? `${BIG_SHARE * 100}%` : pane.height !== null ? `${pane.height}px` : `${DEFAULT_SHARE * 100}%` }}>
+              <SequencePreview doc={doc} expanded={pane.big} onExpand={(big) => update({ ...pane, big })} place="top" onPlace={onPlace} />
+            </div>
+            {/* Drag (or use the arrow keys) to share the room between the preview and the timeline;
+                a double-click puts it back. */}
+            <div
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Preview size"
+              aria-valuemin={MIN_PREVIEW_PX}
+              aria-valuemax={Math.max(MIN_PREVIEW_PX, columnHeight - MIN_TIMELINE_PX)}
+              aria-valuenow={shown()}
+              tabIndex={0}
+              title="Drag to resize the preview (double-click to reset)"
+              className="h-1.5 shrink-0 cursor-row-resize touch-none border-b border-neutral-200 outline-none hover:bg-accent-400/40 focus-visible:bg-accent-400/40 dark:border-neutral-800"
+              onPointerDown={(e) => {
+                if (e.button !== 0) return;
+                e.currentTarget.setPointerCapture?.(e.pointerId);
+                // Bigger, the pane may be smaller than its share (the timeline keeps its room): start
+                // from the height it really has.
+                const from = pane.big ? Math.round(paneRef.current?.getBoundingClientRect().height ?? shown()) : shown();
+                resizing.current = { startY: e.clientY, from, before: pane };
+              }}
+              onPointerMove={(e) => {
+                const height = resizedTo(e);
+                if (height !== null) setPane({ ...pane, height, big: false });
+              }}
+              onPointerUp={(e) => {
+                const height = resizedTo(e);
+                resizing.current = null;
+                if (height !== null) update({ ...pane, height, big: false });
+              }}
+              onPointerCancel={() => {
+                const r = resizing.current;
+                resizing.current = null;
+                if (r) setPane(r.before);
+              }}
+              onDoubleClick={() => update({ ...pane, height: null, big: false })}
+              onKeyDown={(e) => {
+                if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+                // The arrows move the divider here, not the selected row.
+                e.preventDefault();
+                e.stopPropagation();
+                update({ ...pane, height: fitPreview(shown() + (e.key === "ArrowDown" ? STEP_PX : -STEP_PX), total()), big: false });
+              }}
+            />
+          </>
+        )}
         {doc.rows.length === 0 && doc.timingTracks.length === 0 ? (
           <div className="relative flex-1 p-6">
             <EmptyState title="Add rows for your props">
@@ -200,8 +221,78 @@ function Workspace() {
           <Timeline doc={doc} />
         )}
       </div>
-      <EffectSettings doc={doc} />
+      {side ? (
+        <PreviewColumn doc={doc} pane={pane} update={update} onPlace={onPlace!} />
+      ) : (
+        <EffectSettings doc={doc} placement={arrangement.settings === "floating" ? "floating" : "docked"} />
+      )}
     </div>
+  );
+}
+
+/**
+ * The preview beside the timeline, sized to the display, with the effect settings under it: the
+ * timeline gets the screen's full height. Its width is set from its edge (and remembered).
+ */
+function PreviewColumn({ doc, pane, update, onPlace }: { doc: Sequence; pane: PaneSize; update: (p: PaneSize) => void; onPlace: (p: "side" | "top") => void }) {
+  const [width, setWidth] = useState(pane.side ?? SIDE_PX);
+  const resizing = useRef<{ startX: number; from: number } | null>(null);
+  const widthNow = (next: number) => Math.round(Math.max(MIN_SIDE_PX, next));
+  const keep = (w: number) => update({ ...pane, side: w, big: false });
+  return (
+    <>
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Preview width"
+        aria-valuemin={MIN_SIDE_PX}
+        aria-valuenow={width}
+        tabIndex={0}
+        title="Drag to resize the preview (double-click to reset)"
+        className="w-1.5 shrink-0 cursor-col-resize touch-none border-l border-neutral-200 outline-none hover:bg-accent-400/40 focus-visible:bg-accent-400/40 dark:border-neutral-800"
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          e.currentTarget.setPointerCapture?.(e.pointerId);
+          resizing.current = { startX: e.clientX, from: width };
+        }}
+        onPointerMove={(e) => {
+          const r = resizing.current;
+          if (r) setWidth(widthNow(r.from - (e.clientX - r.startX)));
+        }}
+        onPointerUp={(e) => {
+          const r = resizing.current;
+          resizing.current = null;
+          if (r) keep(widthNow(r.from - (e.clientX - r.startX)));
+        }}
+        onPointerCancel={() => {
+          resizing.current = null;
+          setWidth(pane.side ?? SIDE_PX);
+        }}
+        onDoubleClick={() => {
+          setWidth(SIDE_PX);
+          keep(SIDE_PX);
+        }}
+        onKeyDown={(e) => {
+          if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+          // The arrows move the edge here, not the playhead. Left widens the preview.
+          e.preventDefault();
+          e.stopPropagation();
+          const next = widthNow(width + (e.key === "ArrowLeft" ? STEP_PX : -STEP_PX));
+          setWidth(next);
+          keep(next);
+        }}
+      />
+      <section
+        aria-label="Preview and effect settings"
+        style={{ width: pane.big ? BIG_SIDE : `${width}px`, minWidth: MIN_SIDE_PX, maxWidth: "calc(100% - 40rem)" }}
+        className="flex shrink-0 flex-col"
+      >
+        <div className="shrink-0 px-2 pt-2 pb-2">
+          <SequencePreview doc={doc} expanded={pane.big} onExpand={(big) => update({ ...pane, big })} place="side" onPlace={onPlace} />
+        </div>
+        <EffectSettings doc={doc} placement="stacked" />
+      </section>
+    </>
   );
 }
 
@@ -267,12 +358,14 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
   const act = useSequencer.getState;
   const [addingTrack, setAddingTrack] = useState(false);
   return (
-    <div role="toolbar" aria-label="Sequence" className="flex shrink-0 flex-wrap items-center gap-1 border-b border-neutral-200 px-2 py-1.5 dark:border-neutral-800">
+    // Labels give way by the bar's own width, least needed first: New, Open and Import (named on
+    // hover), then the editing tools.
+    <div role="toolbar" aria-label="Sequence" className="@container flex shrink-0 flex-wrap items-center gap-1 border-b border-neutral-200 px-2 py-1.5 dark:border-neutral-800">
       <ToolButton label="New sequence" onClick={onNew}>
-        <FilePlus size={16} /> <span className="hidden xl:inline">New sequence</span>
+        <FilePlus size={16} /> <span className="hidden @min-[1200px]:inline">New sequence</span>
       </ToolButton>
       <ToolButton label="Open sequence" onClick={onOpen}>
-        <FolderOpen size={16} /> <span className="hidden xl:inline">Open sequence</span>
+        <FolderOpen size={16} /> <span className="hidden @min-[1200px]:inline">Open sequence</span>
       </ToolButton>
       {/* Asks about unsaved changes like New and Open do (the import goes through the same question). */}
       <ToolButton
@@ -280,7 +373,7 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
         hint="Import an xLights sequence (.xsq) onto this show's props and groups"
         onClick={() => void useApp.getState().importXlightsSequence()}
       >
-        <FileInput size={16} /> <span className="hidden xl:inline">Import from xLights</span>
+        <FileInput size={16} /> <span className="hidden @min-[1200px]:inline">Import from xLights</span>
       </ToolButton>
       <ToolButton label="Save" hint="Save the sequence, and the show if it changed (⌘S)" onClick={() => void saveSequenceAndShow()} disabled={s.name === null}>
         <Save size={16} />
@@ -305,14 +398,14 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
           <PlayheadTime durationMs={s.durationMs} />
           <span className="mx-1 h-5 w-px bg-neutral-200 dark:bg-neutral-800" />
           <ToolButton label={s.detecting ? "Finding the beats…" : "Detect beats"} onClick={() => void act().detectBeats()} disabled={!s.hasMusic || s.detecting}>
-            <AudioLines size={16} /> <span className="hidden lg:inline">{s.detecting ? "Finding beats…" : "Detect beats"}</span>
+            <AudioLines size={16} /> <span className="hidden @min-[760px]:inline">{s.detecting ? "Finding beats…" : "Detect beats"}</span>
           </ToolButton>
           <ToolButton label="Add timing track" onClick={() => setAddingTrack(true)}>
-            <ListPlus size={16} /> <span className="hidden lg:inline">Add timing track</span>
+            <ListPlus size={16} /> <span className="hidden @min-[760px]:inline">Add timing track</span>
           </ToolButton>
           {addingTrack && <AddTrack onClose={() => setAddingTrack(false)} />}
           <ToolButton label={`Snap to beats and effect edges (hold ${ALT_KEY} while dragging to turn off)`} pressed={s.snapping} onClick={() => act().setSnapping(!s.snapping)}>
-            <Magnet size={16} /> <span className="hidden lg:inline">Snap</span>
+            <Magnet size={16} /> <span className="hidden @min-[760px]:inline">Snap</span>
           </ToolButton>
           <ToolButton label="Send to controllers while playing" pressed={s.sendToControllers} onClick={() => void act().setSendToControllers(!s.sendToControllers)}>
             <Send size={16} /> <span className="hidden lg:inline">Send to controllers</span>
@@ -470,7 +563,7 @@ function NoticeLine() {
           Save show
         </Button>
       )}
-      <button type="button" aria-label="Dismiss" className="rounded p-1 hover:bg-neutral-200/70 dark:hover:bg-neutral-800" onClick={dismiss}>
+      <button type="button" aria-label="Dismiss" data-tip="Dismiss" className="rounded p-1 hover:bg-neutral-200/70 dark:hover:bg-neutral-800" onClick={dismiss}>
         <X size={14} />
       </button>
     </div>
@@ -484,10 +577,12 @@ function MissingMusicLine() {
   const docKey = useSequencer((s) => s.docKey);
   const missing = useSequencer((s) => s.musicMissing);
   const { checkMusic, findMusic, locateMusic } = useSequencer.getState();
+  // One alarm at a time: while the show's banner names this file, it speaks for it.
+  const bannerShown = useMissingBannerNames(missing?.name ?? null);
   useEffect(() => {
     void checkMusic();
   }, [audio, path, docKey, checkMusic]);
-  if (!missing) return null;
+  if (!missing || bannerShown) return null;
   return (
     <div className="border-b border-amber-200 px-3 py-2 dark:border-amber-900/70">
       <MissingFileNotice missing={missing} onFind={() => void findMusic()} onLocate={() => void locateMusic()} />
@@ -537,7 +632,7 @@ function BeatsBanner() {
       <Button variant="primary" disabled={detecting} onClick={() => void detectBeats()}>
         Detect beats
       </Button>
-      <button type="button" aria-label="Not now" className="rounded p-1 hover:bg-violet-100 dark:hover:bg-violet-900" onClick={dismissBeats}>
+      <button type="button" aria-label="Not now" data-tip="Not now" className="rounded p-1 hover:bg-violet-100 dark:hover:bg-violet-900" onClick={dismissBeats}>
         <X size={14} />
       </button>
     </div>

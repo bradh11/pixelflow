@@ -232,6 +232,10 @@ fn the_3d_preview_keeps_each_pixel_s_depth() {
             style: pf_model::TreeStyle::Round,
             degrees: 360.0,
             start_angle: 0.0,
+            start: pf_model::Corner::BottomLeft,
+            strands_per_string: 0,
+            alternate_nodes: false,
+            spiral_rotations: 0.0,
         }),
     );
     tree.transform.position = pf_model::Vec3::new(5.0, 0.0, -2.0);

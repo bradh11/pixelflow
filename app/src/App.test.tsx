@@ -84,8 +84,12 @@ describe("editing with undo and redo", () => {
     await user.type(name, "Big Tree{Enter}");
     expect(screen.getAllByDisplayValue("Big Tree")[0]).toBeInTheDocument();
 
+    // Undo and Redo say what they'd take back or bring back.
+    expect(screen.getByRole("button", { name: "Undo" })).toHaveAttribute("data-tip", "Undo: Rename Mega Tree 1 to Big Tree");
     await user.click(screen.getByRole("button", { name: "Undo" }));
     expect(screen.getAllByDisplayValue("Mega Tree 1")[0]).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Undo" })).toHaveAttribute("data-tip", "Undo: Add Mega Tree 1");
+    expect(screen.getByRole("button", { name: "Redo" })).toHaveAttribute("data-tip", "Redo: Rename Mega Tree 1 to Big Tree");
     await user.click(screen.getByRole("button", { name: "Redo" }));
     expect(screen.getAllByDisplayValue("Big Tree")[0]).toBeInTheDocument();
 
@@ -163,6 +167,28 @@ describe("command palette", () => {
     }
   });
 
+  it("reaches every screen, and the main action of each", async () => {
+    const user = await startFresh();
+    for (const [command, heading] of [
+      ["go to sequence", "Sequence"],
+      ["go to play", "Play"],
+      ["go to devices", "Devices"],
+    ]) {
+      await user.keyboard("{Meta>}k{/Meta}");
+      await user.type(screen.getByPlaceholderText("Type a command…"), command);
+      await user.keyboard("{Enter}");
+      expect(screen.getByRole("heading", { name: heading })).toBeInTheDocument();
+    }
+    await user.keyboard("{Meta>}k{/Meta}");
+    await user.type(screen.getByPlaceholderText("Type a command…"), "sequence");
+    expect(screen.getByRole("option", { name: "Open sequence…" })).toBeInTheDocument();
+    await user.clear(screen.getByPlaceholderText("Type a command…"));
+    await user.type(screen.getByPlaceholderText("Type a command…"), "scan the network");
+    await user.keyboard("{Enter}");
+    expect(useApp.getState().screen).toBe("devices");
+    expect(backend.calls).toContain("discoverDevices::network");
+  });
+
   it("opens with ⌘K and runs commands", async () => {
     const user = await startFresh();
     await user.keyboard("{Meta>}k{/Meta}");
@@ -215,7 +241,7 @@ describe("wiring and test output", () => {
     await user.type(hex, "00ff00");
     await waitFor(() => expect(backend.output.pattern).toEqual({ kind: "chase", color: "00ff00" }));
 
-    await user.click(screen.getByRole("button", { name: /stop/i }));
+    await user.click(screen.getByRole("button", { name: /^stop$/i }));
     expect(await screen.findByText("Output stopped")).toBeInTheDocument();
   });
 

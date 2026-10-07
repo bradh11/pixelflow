@@ -49,7 +49,7 @@ export function useShortcuts() {
       if (key === "w" && e.shiftKey) return;
       if (key === "z" && !inField) {
         e.preventDefault();
-        void undoFocused(e.shiftKey);
+        void undoFocused(e.shiftKey, { repeat: e.repeat });
         return;
       }
       const handler = handlers[key];

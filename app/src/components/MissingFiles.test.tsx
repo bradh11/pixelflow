@@ -76,7 +76,7 @@ describe("missing files", () => {
     await user.click(within(banner).getByRole("button", { name: "Not now" }));
     expect(screen.queryByRole("region", { name: "Missing files" })).not.toBeInTheDocument();
     // Still listed with the show's problems.
-    await user.click(screen.getByRole("button", { name: /0 errors, 2 warnings/ }));
+    await user.click(screen.getByRole("button", { name: /^2 warnings$/ }));
     const problems = screen.getByRole("dialog", { name: "Problems" });
     expect(within(problems).getByText("2 files aren't where they were")).toBeInTheDocument();
     expect(within(problems).getByRole("group", { name: "house.jpg isn't where it was." })).toHaveTextContent("Background photo");
@@ -130,7 +130,8 @@ describe("missing files", () => {
   });
 
   it("shows a missing photo in the layout's photo panel", async () => {
-    await openMoved();
+    const { user } = await openMoved();
+    await user.click(await screen.findByRole("button", { name: /^Photo/ }));
     const panel = await screen.findByRole("group", { name: "house.jpg isn't where it was." });
     expect(panel).toHaveTextContent("It was in /Shows/Haas 2024/photos.");
     expect(within(panel).getByRole("button", { name: "Locate house.jpg" })).toBeInTheDocument();
@@ -155,6 +156,19 @@ describe("missing files", () => {
     await waitFor(() => expect(screen.queryByRole("group", { name: /Carol.mp3 isn't/ })).not.toBeInTheDocument());
     expect(useSequencer.getState().doc?.audio).toBe("/Seq/Audio/Carol.mp3");
     expect(useSequencer.getState().canUndo).toBe(true);
+  });
+
+  it("says a file is missing once: the screen's note waits while the show's banner names the same file", async () => {
+    const { backend, user } = await openMoved();
+    const seq = new MemorySequencer(backend);
+    seq.files.set("/Shows/Haas 2024/Medley.pfseq.json", { schemaVersion: 2, name: "Medley", audio: SONG, durationMs: 60_000, frameMs: 25, timingTracks: [], rows: [] });
+    await seq.openSequenceDoc("/Shows/Haas 2024/Medley.pfseq.json");
+    await useSequencer.getState().connect(seq);
+    await user.click(screen.getByRole("button", { name: "Sequence" }));
+    await waitFor(() => expect(useSequencer.getState().musicMissing).not.toBeNull());
+    expect(screen.queryByRole("group", { name: "Christmas Medley 2017.mp3 isn't where it was." })).not.toBeInTheDocument();
+    await user.click(within(screen.getByRole("region", { name: "Missing files" })).getByRole("button", { name: "Not now" }));
+    expect(await screen.findByRole("group", { name: "Christmas Medley 2017.mp3 isn't where it was." })).toBeInTheDocument();
   });
 
   it("asks for the files to be checked when the show hasn't looked at them yet, and on focus", async () => {

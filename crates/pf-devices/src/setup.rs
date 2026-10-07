@@ -507,7 +507,19 @@ pub fn compare(show: &Show, controller: &Controller, kind: DeviceKind, config: &
     let one = one_string_per_port(kind);
     let ours = show_setup(show, controller, one);
     let theirs = device_setup(config);
-    let mut changes = diff_input(&ours.input, &theirs.input);
+    let mut notes = Vec::new();
+    // PixelFlow doesn't read an FPP's inputs (it takes DDP and, on the universes set on its
+    // own page, sACN), so what it receives isn't compared.
+    let mut changes = if kind == DeviceKind::Fpp {
+        if matches!(ours.input, SetupInput::Sacn { .. }) {
+            notes.push(
+                "PixelFlow doesn't read an FPP's sACN inputs, so its universes aren't compared.".to_string(),
+            );
+        }
+        Vec::new()
+    } else {
+        diff_input(&ours.input, &theirs.input)
+    };
     changes.extend(diff_ports(&ours, &theirs, Direction::IntoShow));
     for change in &mut changes {
         if let Some(reason) = cannot_take(show, controller, &ours, change) {
@@ -515,7 +527,7 @@ pub fn compare(show: &Show, controller: &Controller, kind: DeviceKind, config: &
             change.why_not = Some(reason);
         }
     }
-    let mut notes = ours.notes;
+    notes.extend(ours.notes);
     for note in theirs.notes {
         push_once(&mut notes, &note);
     }
@@ -927,7 +939,7 @@ mod tests {
     #[test]
     fn a_matching_device_has_no_differences() {
         let (show, controller) = show();
-        let comparison = compare(&show, &controller, DeviceKind::Fpp, &matching());
+        let comparison = compare(&show, &controller, DeviceKind::Falcon, &matching());
         assert_eq!(comparison.changes, vec![]);
     }
 
@@ -946,7 +958,7 @@ mod tests {
             channels_per_universe: 510,
             universe_count: 2,
         };
-        let changes = compare(&show, &controller, DeviceKind::Fpp, &config).changes;
+        let changes = compare(&show, &controller, DeviceKind::Falcon, &config).changes;
         let rows: Vec<_> = changes
             .iter()
             .map(|c| {
@@ -1051,7 +1063,7 @@ mod tests {
         config.input = DeviceInput::Unsupported {
             description: "Art-Net".into(),
         };
-        let changes = compare(&show, &controller, DeviceKind::Fpp, &config).changes;
+        let changes = compare(&show, &controller, DeviceKind::Falcon, &config).changes;
         assert!(!changes[0].can_take);
         assert_eq!(
             changes[0].why_not.as_deref(),
@@ -1065,7 +1077,7 @@ mod tests {
         let err = take_from_device(
             &show,
             &controller,
-            DeviceKind::Fpp,
+            DeviceKind::Falcon,
             &config,
             &[changes[1].id.clone()],
             &BTreeMap::new(),
@@ -1090,7 +1102,7 @@ mod tests {
         let taken = take_from_device(
             &show,
             &controller,
-            DeviceKind::Fpp,
+            DeviceKind::Falcon,
             &config,
             &picks,
             &BTreeMap::new(),
@@ -1122,7 +1134,7 @@ mod tests {
         for p in &taken.changed_props {
             *after.props.iter_mut().find(|q| q.id == p.id).unwrap() = p.clone();
         }
-        let left = compare(&after, &taken.controller, DeviceKind::Fpp, &config).changes;
+        let left = compare(&after, &taken.controller, DeviceKind::Falcon, &config).changes;
         assert_eq!(
             left.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(),
             vec!["port1/string1/colorOrder"]
@@ -1143,7 +1155,7 @@ mod tests {
         let taken = take_from_device(
             &show,
             &controller,
-            DeviceKind::Fpp,
+            DeviceKind::Falcon,
             &config,
             &["port3/string1".to_string()],
             &use_props,
@@ -1159,13 +1171,25 @@ mod tests {
         let err = take_from_device(
             &show,
             &controller,
-            DeviceKind::Fpp,
+            DeviceKind::Falcon,
             &matching(),
             &["port1/string2/pixels".to_string()],
             &BTreeMap::new(),
         )
         .unwrap_err();
         assert!(err.contains("changed since you compared"), "{err}");
+    }
+
+    #[test]
+    fn what_an_fpp_receives_is_not_compared() {
+        let (show, mut controller) = show();
+        controller.protocol = Protocol::Sacn(SacnConfig::default());
+        let comparison = compare(&show, &controller, DeviceKind::Fpp, &matching());
+        assert_eq!(comparison.changes, vec![]);
+        assert_eq!(
+            comparison.notes,
+            vec!["PixelFlow doesn't read an FPP's sACN inputs, so its universes aren't compared."]
+        );
     }
 
     #[test]
@@ -1182,13 +1206,13 @@ mod tests {
             channels_per_universe: 512,
             universe_count: 2,
         };
-        let changes = compare(&show, &controller, DeviceKind::Fpp, &config).changes;
+        let changes = compare(&show, &controller, DeviceKind::Falcon, &config).changes;
         let ids: Vec<_> = changes.iter().map(|c| c.id.as_str()).collect();
         assert_eq!(ids, vec!["input/startUniverse", "input/universeSize"]);
         let taken = take_from_device(
             &show,
             &controller,
-            DeviceKind::Fpp,
+            DeviceKind::Falcon,
             &config,
             &["input/startUniverse".to_string()],
             &BTreeMap::new(),

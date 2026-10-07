@@ -239,7 +239,9 @@ function cannotTake(show: Show, controller: Controller, ours: Setup, change: Cha
 export function compareSetup(show: Show, controller: Controller, kind: DeviceKind, config: DeviceConfig): { changes: Change[]; notes: string[] } {
   const ours = showSetup(show, controller, oneStringPerPort(kind));
   const theirs = deviceSetup(config);
-  const changes = [...diffInput(ours.input, theirs.input), ...diffPorts(ours, theirs, "intoShow")];
+  // Like the engine: an FPP's inputs aren't read, so what it receives isn't compared.
+  const notes = kind === "fpp" && ours.input.type === "sacn" ? ["PixelFlow doesn't read an FPP's sACN inputs, so its universes aren't compared."] : [];
+  const changes = [...(kind === "fpp" ? [] : diffInput(ours.input, theirs.input)), ...diffPorts(ours, theirs, "intoShow")];
   for (const change of changes) {
     const reason = cannotTake(show, controller, ours, change);
     if (reason) {
@@ -247,7 +249,7 @@ export function compareSetup(show: Show, controller: Controller, kind: DeviceKin
       change.whyNot = reason;
     }
   }
-  const notes = [...ours.notes];
+  notes.push(...ours.notes);
   for (const note of theirs.notes) pushOnce(notes, note);
   return { changes, notes };
 }

@@ -116,7 +116,7 @@ describe("send setup to this device", () => {
     expect(within(port).getByText("50")).toBeInTheDocument();
     expect(within(port).getByText("40")).toBeInTheDocument();
     expect(within(port).getByText("10 pixels fewer: the last 10 on this string go dark.")).toBeInTheDocument();
-    expect(within(dialog).getByText(/1 change turn pixels off or remove strings/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/1 of them turns pixels off or removes a string/)).toBeInTheDocument();
     expect(backend.calls.filter((c) => c.startsWith("sendDeviceSetup"))).toEqual([]);
 
     await user.click(within(dialog).getByRole("button", { name: "Send to Porch WLED" }));

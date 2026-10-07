@@ -140,7 +140,7 @@ export function SendSetupDialog({ address, onClose }: { address: string; onClose
             <>
               <p className="text-neutral-600 dark:text-neutral-300">
                 Sending makes {plural(plan.changes.length, "change")} on {name}
-                {warnings > 0 ? `; ${plural(warnings, "change")} turn pixels off or remove strings` : ""}. A copy of its current setup is kept so you can put it back.
+                {warnings === 1 ? "; 1 of them turns pixels off or removes a string" : warnings > 1 ? `; ${warnings} of them turn pixels off or remove strings` : ""}. A copy of its current setup is kept so you can put it back.
               </p>
               <SetupChanges label="Changes to send" changes={plan.changes} />
             </>

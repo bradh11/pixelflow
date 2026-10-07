@@ -85,7 +85,7 @@ describe("device setup", () => {
     config.ports[1].strings = [];
     config.ports.push({ number: 3, strings: [string("Porch", 30, "BGR")], maxPixels: null });
     config.input = { type: "sacn", startUniverse: 7, channelsPerUniverse: 510, universeCount: 2 };
-    const rows = compareSetup(show, controller, "fpp", config).changes.map((c) => [c.id, c.subject, c.what, c.before, c.after, c.canTake]);
+    const rows = compareSetup(show, controller, "falcon", config).changes.map((c) => [c.id, c.subject, c.what, c.before, c.after, c.canTake]);
     expect(rows).toEqual([
       ["input/receives", "", "Receives", "DDP", "sACN (E1.31)", true],
       ["port1/string1/colorOrder", "String 1 · Arch", "Color order", "Not set", "GRB", true],
@@ -134,7 +134,7 @@ describe("device setup", () => {
     const [main] = demoShowDevices(show).details;
     const controller = show.controllers.find((c) => c.address === main.device.address)!;
     const ids = compareSetup(show, controller, "fpp", main.config).changes.map((c) => c.id);
-    expect(ids).toEqual(["input/receives", "port1/string1/colorOrder", "port1/string2/pixels", "port2/string1/pixels", "port3/string1"]);
+    expect(ids).toEqual(["port1/string1/colorOrder", "port1/string2/pixels", "port2/string1/pixels", "port3/string1"]);
     const sent = diffPorts(deviceSetup(main.config), showSetup(show, controller, false), "toDevice").map((c) => c.id);
     expect(sent).toEqual(["port1/string2/pixels", "port2/string1/pixels", "port3/string1"]);
   });

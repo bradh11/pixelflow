@@ -43,7 +43,7 @@ export function saidSaved(ok: boolean, name: string | undefined, options?: SaveO
   return ok;
 }
 
-export type Screen = "layout" | "wiring" | "devices" | "sequence" | "play" | "test" | "history";
+export type Screen = "layout" | "wiring" | "devices" | "sequence" | "play" | "test" | "history" | "settings";
 
 /**
  * Something that leaves the open show: a new show, the Open dialog, the xLights import, the demo

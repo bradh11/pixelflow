@@ -1,9 +1,10 @@
-import { AudioLines, Cable, Film, FlaskConical, History, LayoutGrid, Network, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { AudioLines, Cable, Film, FlaskConical, History, LayoutGrid, Network, PanelLeftClose, PanelLeftOpen, Settings } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useWindowBand } from "../lib/useWidth";
 import { useAssistant } from "../state/assistant";
 import { useSequencer } from "../state/sequencer";
 import { type Screen, useApp } from "../state/store";
+import { hintFor } from "../lib/shortcuts";
 import { SetupChecklist } from "./SetupChecklist";
 import { IconButton } from "./ui";
 
@@ -97,14 +98,27 @@ export function Sidebar() {
       ))}
       <div className="mt-auto flex flex-col gap-2 pt-2">
         <SetupChecklist rail={rail} />
-        <IconButton
-          label={rail ? "Show names" : "Show only icons"}
-          hint={rail ? "Show the screen names" : "Make the sidebar narrow: icons only"}
-          onClick={toggle}
-          className={`rounded-md p-2 text-neutral-500 hover:bg-neutral-200/70 dark:hover:bg-neutral-800 ${rail ? "self-center" : "self-start"}`}
-        >
-          {rail ? <PanelLeftOpen size={16} aria-hidden /> : <PanelLeftClose size={16} aria-hidden />}
-        </IconButton>
+        <div className={`flex ${rail ? "flex-col items-center gap-1" : "items-center justify-between"}`}>
+          <IconButton
+            label="Settings"
+            shortcut={hintFor("settings")}
+            aria-current={screen === "settings" ? "page" : undefined}
+            onClick={() => setScreen("settings")}
+            className={`rounded-md p-2 hover:bg-neutral-200/70 dark:hover:bg-neutral-800 ${
+              screen === "settings" ? "bg-accent-50 text-accent-600 dark:bg-accent-600/15 dark:text-accent-400" : "text-neutral-500"
+            }`}
+          >
+            <Settings size={16} aria-hidden />
+          </IconButton>
+          <IconButton
+            label={rail ? "Show names" : "Show only icons"}
+            hint={rail ? "Show the screen names" : "Make the sidebar narrow: icons only"}
+            onClick={toggle}
+            className="rounded-md p-2 text-neutral-500 hover:bg-neutral-200/70 dark:hover:bg-neutral-800"
+          >
+            {rail ? <PanelLeftOpen size={16} aria-hidden /> : <PanelLeftClose size={16} aria-hidden />}
+          </IconButton>
+        </div>
       </div>
     </nav>
   );

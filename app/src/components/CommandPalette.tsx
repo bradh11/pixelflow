@@ -74,6 +74,7 @@ export function CommandPalette() {
       run: useAssistant.getState().toggle,
     },
     { id: "shortcuts", label: "Keyboard shortcuts", shortcut: hintFor("shortcuts"), run: () => useShortcutSheet.getState().setOpen(true) },
+    { id: "settings", label: "Settings", shortcut: hintFor("settings"), run: () => state.setScreen("settings") },
     { id: "ai-settings", label: "AI settings…", run: () => useAssistant.getState().setSettingsOpen(true) },
     { id: "setup", label: "Show the setup checklist", run: () => useSetup.getState().setDismissed(currentSetupKey(), false) },
     go("layout", "Layout"),

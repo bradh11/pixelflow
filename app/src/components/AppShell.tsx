@@ -18,6 +18,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useApp } from "../state/store";
 import { DevicesScreen } from "../screens/DevicesScreen";
 import { HistoryScreen } from "../screens/HistoryScreen";
+import { SettingsScreen } from "../screens/SettingsScreen";
 import { LayoutScreen } from "../screens/LayoutScreen";
 import { PlayScreen } from "../screens/PlayScreen";
 import { SequenceScreen } from "../screens/SequenceScreen";
@@ -313,6 +314,8 @@ function CurrentScreen() {
       return <TestScreen />;
     case "history":
       return <HistoryScreen />;
+    case "settings":
+      return <SettingsScreen />;
   }
 }
 

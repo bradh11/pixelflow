@@ -26,6 +26,7 @@ export const SHORTCUTS = [
   // Everywhere
   { id: "palette", group: "Everywhere", keys: "Meta+K", label: "Open the command palette" },
   { id: "shortcuts", group: "Everywhere", keys: "?", label: "Show keyboard shortcuts" },
+  { id: "settings", group: "Everywhere", keys: "Meta+,", label: "Open Settings" },
   { id: "assistant", group: "Everywhere", keys: "Meta+L", label: "Open or close the assistant" },
   { id: "new", group: "Everywhere", keys: "Meta+N", label: "New show" },
   { id: "open", group: "Everywhere", keys: "Meta+O", label: "Open a show" },

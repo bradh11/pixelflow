@@ -11,11 +11,11 @@ import { typing } from "./layout/useLayoutKeys";
  *
  * ⌘N new show · ⌘O open · ⇧⌘O open recent (the show menu, at its recent shows) · ⌘W close the
  * show (with no show open, the window closes as usual) · ⌘S save · ⇧⌘S save as · ⌘Z / ⇧⌘Z undo
- * and redo · ⌘K command palette · ⌘L assistant · ? the shortcut sheet (when not typing).
+ * and redo · ⌘K command palette · ⌘L assistant · ⌘, settings · ? the shortcut sheet (when not typing).
  * The full list is in lib/shortcuts.ts.
  */
 /** The keys the app (and its File menu) acts on; others (⌘C, ⌘V, ⌘Q, ⌘H…) are left alone. */
-const APP_KEYS = new Set(["k", "l", "s", "o", "n", "w", "z"]);
+const APP_KEYS = new Set(["k", "l", "s", "o", "n", "w", "z", ","]);
 
 export function useShortcuts() {
   useEffect(() => {
@@ -44,6 +44,7 @@ export function useShortcuts() {
         o: () => (e.shiftKey ? state.setShowMenu("recent") : state.openShow()),
         n: () => state.newShow(),
         w: () => state.closeShow(),
+        ",": () => state.setScreen("settings"),
       };
       if (!state.started) {
         // The start page: New and Open; ⇧⌘O goes to the recent shows. ⌘W is left to the window.

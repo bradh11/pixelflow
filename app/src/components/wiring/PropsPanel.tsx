@@ -71,7 +71,7 @@ function PropItem({ prop, wiring }: { prop: Prop; wiring: PropWiring }) {
 
 /** Every prop with where it's wired; unwired props first. Drag one onto a port to wire it, or
  * drop a chip here to unwire it. */
-export function PropsPanel({ props, wiring }: { props: Prop[]; wiring: Map<string, PropWiring> }) {
+export function PropsPanel({ props, wiring, compact = false }: { props: Prop[]; wiring: Map<string, PropWiring>; compact?: boolean }) {
   const query = useWiring((s) => s.query);
   const setQuery = useWiring((s) => s.setQuery);
   const over = useWiring((s) => s.drag?.item.kind === "slot" && s.drag.over?.kind === "props");
@@ -86,7 +86,7 @@ export function PropsPanel({ props, wiring }: { props: Prop[]; wiring: Map<strin
     <aside
       aria-label="Props"
       data-wiring-drop="props"
-      className={`flex max-h-[28rem] flex-col rounded-lg border bg-white lg:sticky lg:top-0 lg:max-h-[calc(100vh-11rem)] dark:bg-neutral-900 ${
+      className={`flex flex-col rounded-lg border bg-white dark:bg-neutral-900 ${compact ? "max-h-[45vh] shrink-0" : "max-h-[28rem] lg:sticky lg:top-0 lg:max-h-[calc(100vh-11rem)]"} ${
         over ? "border-accent-500 ring-2 ring-accent-500/40" : "border-neutral-200 dark:border-neutral-800"
       }`}
     >

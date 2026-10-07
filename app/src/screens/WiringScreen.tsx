@@ -1,5 +1,5 @@
 import { AlertTriangle, Plus } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePreviewProps } from "../components/layout/useLayoutData";
 import { ControllerCard, type WiringData } from "../components/wiring/ControllerCard";
 import { GoToScreen } from "../components/GoToScreen";
@@ -7,6 +7,8 @@ import { PropsPanel } from "../components/wiring/PropsPanel";
 import { SlotSettings } from "../components/wiring/SlotSettings";
 import { WiringPreview } from "../components/wiring/WiringPreview";
 import { useDragEscape } from "../components/wiring/useWiringDrag";
+import { WireMode } from "../components/wiring/WireMode";
+import { useElementWidth } from "../lib/useWidth";
 import { Button, Card, EmptyState, Field, Input, ScreenHeader, Select } from "../components/ui";
 import { CONTROLLER_KINDS, FALCON_PIXELS_AT_40FPS, controllerOfKind, kindById, kindPixelLimit } from "../lib/controllerKinds";
 import { addressProblem } from "../lib/controllerEdit";
@@ -92,7 +94,12 @@ function AddControllerForm({ onDone }: { onDone: () => void }) {
   );
 }
 
-/** The chip being dragged, following the pointer. */
+/** From this screen width (CSS pixels) the settings and preview get a column of their own. */
+const WIDE = 1180;
+/** From this width the props list sits beside the controllers. */
+const TWO_COLUMNS = 700;
+
+/** The prop being dragged, following the pointer. */
 function DragGhost({ data }: { data: WiringData }) {
   const drag = useWiring((s) => s.drag);
   if (!drag) return null;
@@ -122,6 +129,10 @@ export function WiringScreen() {
   const layoutKey = useMemo(() => (props ? JSON.stringify(props) : ""), [props]);
   const preview = usePreviewProps(layoutKey);
   const [adding, setAdding] = useState(false);
+  const session = useWiring((s) => s.session);
+  const boxRef = useRef<HTMLDivElement>(null);
+  // Columns by the room the screen has (not the window's): the assistant or sidebar may take some.
+  const columns = useElementWidth(boxRef, (w) => (w === null || w >= WIDE ? 3 : w >= TWO_COLUMNS ? 2 : 1));
   useDragEscape();
 
   const data = useMemo<WiringData | null>(() => {
@@ -158,27 +169,37 @@ export function WiringScreen() {
   if (!snapshot || !data) return null;
   const problems = wiringProblems(data.show, data.nodes, data.cpp);
   const controllers = data.show.controllers;
+  // Settings and the preview: a column of their own when there's room, else under the props list.
+  const side = (
+    <>
+      {shown && <SlotSettings selected={shown} data={data} />}
+      <WiringPreview show={data.show} props={preview.props} maxHeight={columns === 3 ? "55vh" : "30vh"} />
+    </>
+  );
 
   return (
-    <div className="mx-auto max-w-[110rem]">
+    <div ref={boxRef} className="mx-auto max-w-[120rem]">
       <ScreenHeader title="Wiring">
-        {!adding && (
+        {!adding && !session && (
           <Button variant="primary" onClick={() => setAdding(true)}>
             <Plus size={16} /> Add controller
           </Button>
         )}
       </ScreenHeader>
-      {adding && <AddControllerForm onDone={() => setAdding(false)} />}
+      {adding && !session && <AddControllerForm onDone={() => setAdding(false)} />}
       <p id="wiring-chip-help" className="sr-only">
-        Drag to another place or port, or onto the props list to unwire. Arrow keys move between props; Option or Alt with the up
-        and down arrows moves this prop earlier or later on its port; Delete unwires it; Enter opens its settings.
+        Drag the handle to another place or port, or onto the props list to unwire. Up and down arrows move between props; Option or
+        Alt with the up and down arrows moves this prop earlier or later on its port; Delete unwires it; Enter opens its settings.
       </p>
-      {/* Columns by the room the screen has (not the window's width): the assistant or sidebar
-          may take some of the window. */}
-      <div className="@container">
-        <div className="grid items-start gap-4 @min-[660px]:grid-cols-[16rem_minmax(0,1fr)] @min-[1072px]:grid-cols-[16rem_minmax(0,1fr)_21rem]">
-          <PropsPanel props={data.show.props} wiring={data.wiring} />
-          <div className="flex min-w-0 flex-col gap-4">
+      {session ? (
+        <WireMode session={session} data={data} preview={preview.props} />
+      ) : (
+        <div className={`grid items-start gap-3 ${columns === 3 ? "grid-cols-[15rem_minmax(0,1fr)_minmax(20rem,32%)]" : columns === 2 ? "grid-cols-[15rem_minmax(0,1fr)]" : ""}`}>
+          <div className={`flex min-w-0 flex-col gap-3 ${columns === 2 ? "sticky top-0 max-h-[calc(100vh-7rem)] overflow-auto" : ""}`}>
+            <PropsPanel props={data.show.props} wiring={data.wiring} compact={columns === 2} />
+            {columns === 2 && side}
+          </div>
+          <div className="flex min-w-0 flex-col gap-3">
             {problems.length > 0 && (
               <div role="region" aria-label="Wiring problems" className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm dark:border-red-900 dark:bg-red-950/40">
                 <h2 className="mb-1 flex items-center gap-1.5 font-medium text-red-700 dark:text-red-300">
@@ -207,12 +228,9 @@ export function WiringScreen() {
               controllers.map((c) => <ControllerCard key={c.id} controller={c} data={data} />)
             )}
           </div>
-          <div className="flex min-w-0 flex-col gap-4 @min-[660px]:col-span-2 @min-[1072px]:sticky @min-[1072px]:top-0 @min-[1072px]:col-span-1">
-            {shown && <SlotSettings selected={shown} data={data} />}
-            <WiringPreview show={data.show} props={preview.props} />
-          </div>
+          {columns !== 2 && <div className="sticky top-0 flex min-w-0 flex-col gap-3">{side}</div>}
         </div>
-      </div>
+      )}
       <DragGhost data={data} />
     </div>
   );

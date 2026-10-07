@@ -11,11 +11,13 @@ import { useWiring } from "../state/wiring";
 import { WiringScreen } from "./WiringScreen";
 
 // Where things sit on screen (jsdom doesn't lay anything out): the props list on the left; each
-// port row 50 px tall from y = 100, in page order; chips 100 px apart from x = 400.
-const ROW_TOP = 100;
-const ROW_H = 50;
-const CHIP_X = 400;
-const CHIP_STEP = 100;
+// port 200 px tall from y = 100, in page order, its table rows 20 px tall from 30 px down; the
+// click-to-wire canvas 1000 × 600 at the top left.
+const PORT_TOP = 100;
+const PORT_H = 200;
+const ROWS_FROM = 30;
+const ROW_H = 20;
+const CANVAS = { width: 1000, height: 600 };
 
 function rect(left: number, top: number, width: number, height: number): DOMRect {
   return { left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) } as DOMRect;
@@ -25,11 +27,13 @@ beforeEach(() => {
   vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
     const el = this as HTMLElement;
     if (el.dataset.wiringDrop === "props") return rect(0, 0, 250, 2000);
-    const rows = [...document.querySelectorAll("[data-wiring-drop='port']")];
-    if (el.dataset.wiringDrop === "port") return rect(300, ROW_TOP + rows.indexOf(el) * ROW_H, 800, ROW_H - 10);
-    if (el.dataset.wiringChip !== undefined) {
-      const row = rows.indexOf(el.closest("[data-wiring-drop='port']")!);
-      return rect(CHIP_X + Number(el.dataset.index) * CHIP_STEP, ROW_TOP + row * ROW_H + 10, 80, 20);
+    if (el.dataset.wireCanvas !== undefined) return rect(0, 0, CANVAS.width, CANVAS.height);
+    const ports = [...document.querySelectorAll("[data-wiring-drop='port']")];
+    if (el.dataset.wiringDrop === "port") return rect(300, PORT_TOP + ports.indexOf(el) * PORT_H, 800, PORT_H - 10);
+    if (el.dataset.wiringRow !== undefined) {
+      const zone = el.closest("[data-wiring-drop='port']")!;
+      const index = [...zone.querySelectorAll("[data-wiring-row]")].indexOf(el);
+      return rect(300, PORT_TOP + ports.indexOf(zone) * PORT_H + ROWS_FROM + index * ROW_H, 800, ROW_H);
     }
     return rect(0, 0, 0, 0);
   });
@@ -57,8 +61,8 @@ async function setup(show: Show = demoShow()) {
   return user;
 }
 
-/** The point to drop at on row `row` (page order), before chip `index` (or past the last one). */
-const at = (row: number, index: number): [number, number] => [CHIP_X + index * CHIP_STEP + 10, ROW_TOP + row * ROW_H + 20];
+/** The point to drop at on port `port` (page order), before row `index` (or past the last one). */
+const at = (port: number, index: number): [number, number] => [500, PORT_TOP + port * PORT_H + ROWS_FROM + index * ROW_H + 5];
 
 function drag(el: Element, to: [number, number], end = true) {
   fireEvent.pointerDown(el, { clientX: 5, clientY: 5, button: 0, pointerId: 1 });
@@ -72,7 +76,10 @@ const names = (controller: number, port: number) => {
   return show.controllers[controller].ports[port].slots.map((s) => show.props.find((p) => p.id === s.prop)?.name);
 };
 
+/** A prop's row on a port, by the name of the button that opens its settings. */
 const chip = (name: string) => screen.getByRole("button", { name });
+/** The drag handle of a prop's row. */
+const handle = (label: string, n = 0) => screen.getAllByRole("button", { name: `Drag ${label} to reorder` })[n];
 const propItem = (name: string) => within(screen.getByRole("complementary", { name: "Props" })).getByRole("button", { name: new RegExp(`^${name},`) });
 
 describe("wiring screen", () => {
@@ -109,18 +116,20 @@ describe("wiring screen", () => {
     expect(edits).toHaveLength(0);
   });
 
-  it("reorders a chip within its port, moves it to another controller, and unwires it on the list", async () => {
+  it("reorders a row by its handle, moves it to another controller, and unwires it on the list", async () => {
     await setup();
-    await act(async () => drag(chip("Garage Arch on Main FPP port 1"), at(0, 2)));
+    await act(async () => drag(handle("Garage Arch"), at(0, 2)));
     expect(names(0, 0)).toEqual(["Window Matrix", "Garage Arch"]);
+    // The table follows: Garage Arch is now the 2nd row.
+    expect(handle("Garage Arch").closest("tr")).toHaveTextContent(/^2Garage Arch/);
 
-    await act(async () => drag(chip("Garage Arch on Main FPP port 1"), at(4, 0)));
+    await act(async () => drag(handle("Garage Arch"), at(4, 0)));
     expect(names(0, 0)).toEqual(["Window Matrix"]);
     expect(names(1, 0)).toEqual(["Garage Arch"]);
     // One step, though two controllers changed.
     expect(edits.at(-1)).toHaveLength(2);
 
-    await act(async () => drag(chip("Garage Arch on Porch WLED port 1"), [100, 500]));
+    await act(async () => drag(handle("Garage Arch"), [100, 500]));
     expect(names(1, 0)).toEqual([]);
     expect(screen.getByTestId("unwired-count")).toHaveTextContent("2 props aren't wired yet");
     expect(edits).toHaveLength(3);
@@ -134,14 +143,15 @@ describe("wiring screen", () => {
     expect(edits).toHaveLength(0);
   });
 
-  it("moves and unwires chips from the keyboard", async () => {
+  it("moves and unwires rows from the keyboard", async () => {
     const user = await setup();
     chip("Garage Arch on Main FPP port 1").focus();
-    await user.keyboard("{ArrowRight}");
+    await user.keyboard("{ArrowDown}");
     expect(chip("Window Matrix on Main FPP port 1")).toHaveFocus();
+    // On to the next port's rows, and back.
     await user.keyboard("{ArrowDown}");
     expect(chip("Mega Tree on Main FPP port 2")).toHaveFocus();
-    await user.keyboard("{ArrowUp}");
+    await user.keyboard("{ArrowUp}{ArrowUp}");
     expect(chip("Garage Arch on Main FPP port 1")).toHaveFocus();
 
     await user.keyboard("{Alt>}{ArrowDown}{/Alt}");
@@ -229,10 +239,45 @@ describe("wiring screen", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("shows each port's universes and channels", async () => {
+  it("shows each port's universes and channels, and each row's", async () => {
     await setup();
     // Arch (50) and Matrix (512) on universe 1 up: 562 pixels × 3 channels.
-    expect(screen.getByTestId("channels-1")).toHaveTextContent("Universe 1–4 · Ch 1–1,686");
+    expect(screen.getByTestId("channels-1")).toHaveTextContent("Ch 1–1,686");
+    expect(screen.getAllByTestId("summary-1")[0]).toHaveTextContent("2 props · 562 px · U1–4");
+    const matrix = chip("Window Matrix on Main FPP port 1").closest("tr")!;
+    // 2nd on the port: from channel 151 (after the arch's 150), in universes 1 to 4.
+    expect([...matrix.querySelectorAll("td")].map((td) => td.textContent)).toEqual(["2", "Window Matrix", "512", "151", "U1–4", "", "—", ""]);
+  });
+
+  it("folds a port to a one-line summary, and a drop on it goes to its end", async () => {
+    const user = await setup();
+    await user.click(screen.getAllByRole("button", { name: "Hide the props on port 1" })[0]);
+    expect(screen.getAllByTestId("summary-1")[0]).toHaveTextContent("Garage Arch → Window Matrix · 562 px · U1–4");
+    expect(screen.queryByRole("button", { name: "Garage Arch on Main FPP port 1" })).not.toBeInTheDocument();
+    await act(async () => drag(propItem("Porch Star"), at(0, 0)));
+    expect(names(0, 0)).toEqual(["Garage Arch", "Window Matrix", "Porch Star"]);
+    await user.click(screen.getAllByRole("button", { name: "Show the props on port 1" })[0]);
+    expect(chip("Porch Star on Main FPP port 1")).toBeInTheDocument();
+  });
+
+  it("toggles a row's direction and unwires it from its row", async () => {
+    const user = await setup();
+    await user.click(screen.getByRole("checkbox", { name: "Window Matrix starts at the other end" }));
+    expect(backend.show.controllers[0].ports[0].slots[1].reverse).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Settings for Window Matrix" }));
+    expect(screen.getByRole("region", { name: "Window Matrix settings" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Unwire Garage Arch" }));
+    expect(names(0, 0)).toEqual(["Window Matrix"]);
+    expect(edits).toHaveLength(2);
+  });
+
+  it("lights the pointed-at row's prop and its port in the preview", async () => {
+    await setup();
+    fireEvent.pointerEnter(chip("Mega Tree on Main FPP port 2").closest("tr")!);
+    expect(useWiring.getState().hoveredProp).toBe(backend.show.props.find((p) => p.name === "Mega Tree")!.id);
+    expect(screen.getByTestId("wiring-preview-caption")).toHaveTextContent("Port 2 on Main FPP: Mega Tree.");
+    fireEvent.pointerLeave(chip("Mega Tree on Main FPP port 2").closest("tr")!);
+    expect(useWiring.getState().hoveredProp).toBeNull();
   });
 
   it("flags a prop wired twice", async () => {
@@ -298,7 +343,7 @@ describe("wiring screen", () => {
     await act(() => useApp.getState().undo());
     await act(() => useApp.getState().undo());
     expect(screen.getByRole("region", { name: "Window Matrix settings" })).toHaveTextContent("2nd on the port");
-    await act(async () => drag(chip("Window Matrix on Main FPP port 1"), [100, 500]));
+    await act(async () => drag(handle("Window Matrix"), [100, 500]));
     expect(screen.queryByRole("region", { name: "Window Matrix settings" })).not.toBeInTheDocument();
     await act(() => useApp.getState().undo());
     expect(screen.queryByRole("region", { name: /settings$/ })).not.toBeInTheDocument();
@@ -343,9 +388,10 @@ describe("wiring screen", () => {
     await waitFor(() => expect(chip("Window Matrix on Main FPP port 1")).toHaveFocus());
   });
 
-  it("a press let go with Escape doesn't also open settings, and a chip removed mid-drag lets go", async () => {
+  it("a press let go with Escape doesn't also open settings, and a row removed mid-drag lets go", async () => {
     await setup();
-    const arch = chip("Garage Arch on Main FPP port 1");
+    // A wired prop in the list: a click opens its settings, a drag moves it.
+    const arch = propItem("Garage Arch");
     await act(async () => drag(arch, at(4, 0), false));
     await act(async () => fireEvent.keyDown(window, { key: "Escape" }));
     fireEvent.pointerUp(arch, { clientX: at(4, 0)[0], clientY: at(4, 0)[1], pointerId: 1 });
@@ -353,7 +399,7 @@ describe("wiring screen", () => {
     expect(screen.queryByRole("region", { name: /settings$/ })).not.toBeInTheDocument();
     expect(edits).toHaveLength(0);
 
-    await act(async () => drag(chip("Window Matrix on Main FPP port 1"), at(4, 0), false));
+    await act(async () => drag(handle("Window Matrix"), at(4, 0), false));
     expect(useWiring.getState().drag).not.toBeNull();
     // Undo-like: the port loses its chips while the drag is on.
     await act(async () => {

@@ -459,4 +459,56 @@ describe("problems popover", () => {
     withIssues([{ severity: "error", message: "Again.", fix: null } as (typeof base.issues)[number]]);
     expect(screen.getByRole("button", { name: /1 error/i })).toHaveAttribute("aria-expanded", "false");
   });
+
+  it("the problems list closes on a click outside it, but not on one inside", async () => {
+    const user = await startFresh();
+    const base = useApp.getState().snapshot!;
+    act(() => useApp.setState({ snapshot: { ...base, issues: [{ severity: "warning", code: "x", message: "Port 1 is nearly full.", fix: null }] } }));
+    const btn = screen.getByRole("button", { name: /1 warning/i });
+    await user.click(btn);
+    await user.click(screen.getByText("Port 1 is nearly full."));
+    expect(btn).toHaveAttribute("aria-expanded", "true");
+    await user.click(screen.getByRole("heading", { level: 1 }));
+    expect(btn).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("dialog", { name: "Problems" })).not.toBeInTheDocument();
+  });
+
+  it("says why live output couldn't be stopped, and still offers Stop", async () => {
+    const user = await startFresh();
+    await backend.startOutput({ kind: "solid", color: "ff0000" }, { type: "show" });
+    const stop = await screen.findByRole("button", { name: "Stop live output" }, { timeout: 3000 });
+    backend.stopOutput = async () => {
+      throw new Error("The output thread didn't answer.");
+    };
+    await user.click(stop);
+    expect(await screen.findByText(/The output thread didn't answer/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop live output" })).toBeInTheDocument();
+  });
+});
+
+describe("dialogs", () => {
+  it("keep Tab and Shift-Tab inside, however far you go", async () => {
+    const user = await startFresh();
+    await addProp(user);
+    await user.keyboard("{Meta>}n{/Meta}");
+    const dialog = screen.getByRole("dialog", { name: /save changes/i });
+    for (let i = 0; i < 6; i++) {
+      await user.tab();
+      expect(dialog).toContainElement(document.activeElement as HTMLElement);
+    }
+    for (let i = 0; i < 6; i++) {
+      await user.tab({ shift: true });
+      expect(dialog).toContainElement(document.activeElement as HTMLElement);
+    }
+  });
+});
+
+describe("the start page's keys", () => {
+  it("⌘N starts a new show", async () => {
+    const user = await startApp();
+    expect(screen.getByRole("heading", { name: "Welcome to PixelFlow" })).toBeInTheDocument();
+    await user.keyboard("{Meta>}n{/Meta}");
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Welcome to PixelFlow" })).not.toBeInTheDocument());
+    expect(backend.calls).toContain("newShow");
+  });
 });

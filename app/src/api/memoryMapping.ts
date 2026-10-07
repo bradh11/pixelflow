@@ -26,7 +26,7 @@ export function universeChunks(runs: Run[], size: number, straddle: boolean): [n
   }
   let [start, len] = [0, 0];
   for (const run of runs) {
-    let remaining = run.cpp > 0 ? run.pixels : 0;
+    let remaining = run.pixels;
     while (remaining > 0) {
       const fit = Math.floor((size - len) / run.cpp);
       if (fit === 0) {

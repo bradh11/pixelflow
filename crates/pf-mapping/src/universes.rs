@@ -24,9 +24,6 @@ pub(crate) fn chunk_channels(
     allow_straddle: bool,
 ) -> Vec<(usize, u16)> {
     let size = universe_size as usize;
-    if size == 0 {
-        return Vec::new();
-    }
     let total: usize = runs
         .iter()
         .map(|r| r.pixels as usize * r.channels_per_pixel as usize)
@@ -44,7 +41,7 @@ pub(crate) fn chunk_channels(
     let (mut start, mut len) = (0usize, 0usize);
     for run in runs {
         let cpp = run.channels_per_pixel as usize;
-        let mut remaining = if cpp == 0 { 0 } else { run.pixels as usize };
+        let mut remaining = run.pixels as usize;
         while remaining > 0 {
             let fit = (size - len) / cpp;
             if fit == 0 {

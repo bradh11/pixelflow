@@ -45,3 +45,19 @@ export function ago(time: number, now = Date.now()): string {
 export function sequenceTitle(path: string): string {
   return fileName(path).replace(/\.(pfseq\.json|fseq)$/i, "");
 }
+
+/** A file size: "24.6 GB", "8.9 MB", "12 KB". */
+export function sizeText(bytes: number): string {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  return `${Math.ceil(bytes / 1024)} KB`;
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** A device's "YYYY-MM-DD HH:MM" as a short date: "Oct 6, 2026" (the text as is if it isn't one). */
+export function shortDate(text: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(text);
+  if (!match) return text;
+  return `${MONTHS[Number(match[2]) - 1] ?? "?"} ${Number(match[3])}, ${match[1]}`;
+}

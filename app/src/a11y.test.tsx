@@ -7,7 +7,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { DEMO_MUSIC, DEMO_SEQUENCE_PATH, demoSequence } from "./api/demoSequence";
-import { demoDevices, demoPlayers, demoShow } from "./api/demo";
+import { demoDevices, demoFppFiles, demoFppSchedules, demoPlayers, demoShow } from "./api/demo";
 import { MemoryBackend } from "./api/memory";
 import { FakeAssistant } from "./api/memoryAssistant";
 import { MemorySequencer } from "./api/memorySequencer";
@@ -89,6 +89,8 @@ async function openApp() {
   backend.nextAudioPath = DEMO_MUSIC;
   backend.deviceNetwork = demoDevices();
   backend.fppPlayers = demoPlayers();
+  backend.fppFiles = demoFppFiles();
+  backend.fppSchedules = demoFppSchedules();
   const seq = new MemorySequencer(backend);
   seq.files.set(DEMO_SEQUENCE_PATH, demoSequence(show, 60_000));
   await seq.openSequenceDoc(DEMO_SEQUENCE_PATH);
@@ -330,7 +332,7 @@ describe("every control has a name, and icon-only buttons have tooltips", () => 
     expect(found).toEqual([]);
   });
 
-  it("in the assistant's proposal, its draft preview, and the FPP dialog", async () => {
+  it("in the assistant's proposal, its draft preview, and an FPP's page", async () => {
     const { user } = await openApp();
     await user.click(screen.getByRole("button", { name: /^Assistant/ }));
     const panel = screen.getByRole("complementary", { name: "Assistant" });
@@ -346,7 +348,17 @@ describe("every control has a name, and icon-only buttons have tooltips", () => 
     await user.click(screen.getByRole("button", { name: "Scan network" }));
     await screen.findAllByRole("row");
     await user.click(screen.getAllByRole("button", { name: /^Open FPP/ })[0]);
-    found.push(...problems("FPP dialog"));
+    await screen.findByRole("button", { name: "Play Christmas Medley 2017" });
+    found.push(...problems("FPP page"));
+    await user.click(screen.getByRole("button", { name: /^Send a sequence/ }));
+    found.push(...problems("FPP page, send menu"));
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("tab", { name: /^Playlists/ }));
+    await screen.findByRole("button", { name: "Play Christmas Show" });
+    found.push(...problems("FPP page, playlists"));
+    await user.click(screen.getByRole("button", { name: "Set up my show from this FPP" }));
+    await screen.findByRole("group", { name: "What will be added" });
+    found.push(...problems("FPP page, setting up the show"));
     expect(found).toEqual([]);
   });
 

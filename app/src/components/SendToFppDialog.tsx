@@ -2,7 +2,7 @@ import { CheckCircle2, Music, Play, Send } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "../api/backend";
 import type { Controller, FppSendPlan, FppSendProgress, FppSendResult, NameCheck, PlaylistChoice, SendSource } from "../api/types";
-import { fileName, shownPath } from "../lib/format";
+import { fileName, shownPath, sizeText } from "../lib/format";
 import { type KnownDevice, useApp } from "../state/store";
 import { Button, Input, Select } from "./ui";
 
@@ -40,12 +40,6 @@ function rememberFpp(address: string) {
   } catch {
     // Storage unavailable: the next send asks again.
   }
-}
-
-function sizeText(bytes: number): string {
-  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
-  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
-  return `${Math.ceil(bytes / 1024)} KB`;
 }
 
 /** Between an error and the FPP's own words for it (as the shell writes errors). */

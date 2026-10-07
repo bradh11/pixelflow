@@ -154,6 +154,9 @@ pub struct FakeFppState {
     pub pixel_strings_unreadable: bool,
     /// Saves leave a file that isn't JSON (as a 9.x save of a stray quote does).
     pub damage_saves: bool,
+    /// The FPP's hardware id (`uuid` in `/api/system/info`), and its host name.
+    pub uuid: String,
+    pub host_name: String,
 }
 
 /// PHP's `stripslashes()`: each backslash is dropped and the character after it kept.
@@ -247,6 +250,8 @@ impl Default for FakeFppState {
             fpp10_saves: false,
             pixel_strings_unreadable: false,
             damage_saves: false,
+            uuid: "M1-FAKE-0001".to_string(),
+            host_name: "FakeFPP".to_string(),
         }
     }
 }
@@ -546,8 +551,8 @@ fn route(s: &mut FakeFppState, method: &str, segments: &[&str], body: &[u8]) -> 
     let ok = |v: Value| (200, v.to_string());
     match (method, segments) {
         ("GET", ["api", "system", "info"]) => ok(json!({
-            "HostName": "FakeFPP", "Platform": "Raspberry Pi", "Variant": "Pi 4", "Mode": "player",
-            "Version": "9.3", "majorVersion": 9, "minorVersion": 3,
+            "HostName": s.host_name, "Platform": "Raspberry Pi", "Variant": "Pi 4", "Mode": "player",
+            "Version": "9.3", "majorVersion": 9, "minorVersion": 3, "uuid": s.uuid,
             "Utilization": {"Disk": {"Media": {"Free": s.free_bytes, "Total": 31_000_000_000u64}}}
         })),
         ("GET", ["api", "fppd", "status"]) => ok(s.status.clone()),

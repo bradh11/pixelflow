@@ -3,6 +3,7 @@
 
 use pf_devices::adapter::{
     DeviceAdapter, FalconAdapter, FppAdapter, SendStatus, WledAdapter, restore_setup, send_setup,
+    send_setup_with,
 };
 use pf_devices::setup::{ChangeKind, Setup, compare, show_setup, take_from_device};
 use pf_devices::testing::{FakeFpp, FakeWled, SECRET_ENDPOINTS};
@@ -172,7 +173,10 @@ fn fpp_read_import_plan_send_verify_and_restore() {
 
     // Read back, the FPP now matches.
     assert_eq!(
-        adapter.verify_config(&http(), &host, &wanted, &plan).unwrap(),
+        adapter
+            .verify_config(&http(), &host, &wanted, &plan)
+            .unwrap()
+            .left,
         vec![]
     );
 
@@ -416,7 +420,10 @@ fn wled_read_import_plan_send_verify_and_restore() {
     assert_eq!(state.cfg["hw"]["com"], json!([]), "overrides aren't added again");
     drop(state);
     assert_eq!(
-        adapter.verify_config(&http(), &host, &wanted, &plan).unwrap(),
+        adapter
+            .verify_config(&http(), &host, &wanted, &plan)
+            .unwrap()
+            .left,
         vec![]
     );
 
@@ -705,7 +712,10 @@ fn fpp_read_back_that_fppd_would_not_load_is_a_mismatch() {
     // Something else on the FPP sets a zig-zag of 99 on Gutter afterwards.
     fpp.state().pixel_strings.as_mut().unwrap()["channelOutputs"][0]["outputs"][0]["virtualStrings"][1]["zigZag"] =
         json!(99);
-    let left = adapter.verify_config(&http(), &host, &wanted, &plan).unwrap();
+    let left = adapter
+        .verify_config(&http(), &host, &wanted, &plan)
+        .unwrap()
+        .left;
     assert!(left.iter().any(|c| c.after.contains("won't load")), "{left:#?}");
 }
 
@@ -956,4 +966,184 @@ fn wled_with_i2c_pins_is_noted() {
         .plan_config(&snapshot, &target(&show, &controller, DeviceKind::Wled))
         .unwrap();
     assert!(plan.notes.iter().any(|n| n.contains("I2C")), "{:?}", plan.notes);
+}
+
+// ---------------------------------------------------------------------------------------------
+// From the re-review (N1–N4).
+
+/// N1: a kept copy belongs to a device, known by its FPP hardware id or WLED MAC, not its address.
+#[test]
+fn devices_are_known_by_their_fpp_uuid_or_wled_mac() {
+    let fpp = fake_hat();
+    let id = FppAdapter.identity(&http(), fpp.address()).unwrap();
+    assert_eq!(
+        (id.kind, id.id.as_str(), id.name.as_str()),
+        (DeviceKind::Fpp, "M1-FAKE-0001", "FakeFPP")
+    );
+    // An FPP that doesn't say its uuid is known by its host name.
+    fpp.state().uuid = String::new();
+    assert_eq!(FppAdapter.identity(&http(), fpp.address()).unwrap().id, "FakeFPP");
+
+    let wled = FakeWled::start();
+    let id = wled_adapter().identity(&http(), wled.address()).unwrap();
+    assert_eq!((id.kind, id.id.as_str()), (DeviceKind::Wled, "aabbccddeeff"));
+
+    // Keys are file-safe and different ids never share one.
+    let a = pf_devices::adapter::DeviceIdentity {
+        kind: DeviceKind::Fpp,
+        id: "a:b".into(),
+        name: String::new(),
+    };
+    let b = pf_devices::adapter::DeviceIdentity {
+        kind: DeviceKind::Fpp,
+        id: "a_b".into(),
+        name: String::new(),
+    };
+    assert_ne!(a.key(), b.key());
+    assert!(
+        a.key().chars().all(|c| c.is_ascii_alphanumeric() || c == '-'),
+        "{}",
+        a.key()
+    );
+}
+
+/// N1: what Put back will change is shown before anything is written: current → copy.
+#[test]
+fn put_back_changes_are_shown_first() {
+    let fpp = fake_hat();
+    let host = fpp.address().to_string();
+    let adapter = FppAdapter;
+    let (mut show, controller) = import(&adapter, &host);
+    set_line_nodes(&mut show, "Gutter", 30);
+    let wanted = target(&show, &controller, DeviceKind::Fpp);
+    let snapshot = adapter.snapshot(&http(), &host).unwrap();
+    let plan = adapter.plan_config(&snapshot, &wanted).unwrap();
+    let outcome = send_setup(&adapter, &http(), &host, &snapshot, &wanted, &ids(&plan.changes));
+    let copy = outcome.snapshot.unwrap();
+    let now = adapter.snapshot(&http(), &host).unwrap();
+    let rows: Vec<_> = adapter
+        .restore_changes(&now, &copy)
+        .into_iter()
+        .map(|c| (c.id, c.before, c.after))
+        .collect();
+    assert_eq!(
+        rows,
+        vec![(
+            "port1/string2/pixels".to_string(),
+            "30".to_string(),
+            "50".to_string()
+        )]
+    );
+    assert!(adapter.restore_changes(&copy, &copy).is_empty());
+
+    let wled = FakeWled::start();
+    let w = wled_adapter();
+    let copy = w.snapshot(&http(), wled.address()).unwrap();
+    wled.state().cfg["hw"]["led"]["ins"][0]["len"] = json!(40);
+    let now = w.snapshot(&http(), wled.address()).unwrap();
+    let rows: Vec<_> = w
+        .restore_changes(&now, &copy)
+        .into_iter()
+        .map(|c| (c.subject, c.before, c.after))
+        .collect();
+    assert_eq!(
+        rows,
+        vec![(
+            "Output 1".to_string(),
+            "40 LEDs from 0".to_string(),
+            "60 LEDs from 0".to_string()
+        )]
+    );
+}
+
+/// N2: the copy is handed over before anything is written; if it can't be kept, nothing is.
+#[test]
+fn the_copy_is_kept_before_anything_is_written() {
+    let fpp = fake_hat();
+    let host = fpp.address().to_string();
+    let adapter = FppAdapter;
+    let (mut show, controller) = import(&adapter, &host);
+    set_line_nodes(&mut show, "Gutter", 30);
+    let wanted = target(&show, &controller, DeviceKind::Fpp);
+    let snapshot = adapter.snapshot(&http(), &host).unwrap();
+    let plan = adapter.plan_config(&snapshot, &wanted).unwrap();
+
+    let mut kept = Vec::new();
+    let outcome = send_setup_with(
+        &adapter,
+        &http(),
+        &host,
+        &snapshot,
+        &wanted,
+        &ids(&plan.changes),
+        &mut |copy| {
+            kept.push((copy.clone(), fpp.state().config_writes.len()));
+            Err("the disk is full".to_string())
+        },
+    );
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].1, 0, "kept before any write");
+    assert_eq!(outcome.report.status, SendStatus::Refused);
+    assert!(
+        outcome.report.message.contains("the disk is full"),
+        "{}",
+        outcome.report.message
+    );
+    assert!(fpp.state().config_writes.is_empty());
+}
+
+/// N3: WLED outputs take the show's data in the order the show sends it, however its ports are
+/// listed.
+#[test]
+fn wled_outputs_follow_the_shows_data_order() {
+    let wled = FakeWled::start();
+    let host = wled.address().to_string();
+    let adapter = wled_adapter();
+    let (mut show, controller) = import(&adapter, &host);
+    // The show lists output 2 before output 1, so its data goes out first.
+    show.controllers[0].ports.reverse();
+    let snapshot = adapter.snapshot(&http(), &host).unwrap();
+    let plan = adapter
+        .plan_config(&snapshot, &target(&show, &controller, DeviceKind::Wled))
+        .unwrap();
+    let ins = &plan.writes[0].body["hw"]["led"]["ins"];
+    assert_eq!(
+        (ins[1]["start"].clone(), ins[0]["start"].clone()),
+        (json!(0), json!(60))
+    );
+}
+
+/// N4: read-back only reports strings fppd won't load on ports PixelFlow changed; on other
+/// ports they're notes.
+#[test]
+fn fpp_problems_on_ports_pixelflow_didnt_change_are_notes() {
+    let mut strings = hat_strings();
+    strings["channelOutputs"][0]["outputs"][1]["virtualStrings"] = json!([
+        {"description": "Bad", "startChannel": 600, "pixelCount": 10, "groupCount": 0, "reverse": 0,
+         "colorOrder": "RGB", "nullNodes": 0, "zigZag": 20, "brightness": 100, "gamma": "1.0"}
+    ]);
+    let fpp = FakeFpp::start().with_pixel_strings(strings);
+    let host = fpp.address().to_string();
+    let adapter = FppAdapter;
+    let (mut show, controller) = import(&adapter, &host);
+    // Only port 1 changes: Roof Line's color order (nothing moves on port 2).
+    show.controllers[0].ports[0].slots[0].controller_color_order = Some(ColorOrder::Bgr);
+    let wanted = target(&show, &controller, DeviceKind::Fpp);
+    let snapshot = adapter.snapshot(&http(), &host).unwrap();
+    let plan = adapter.plan_config(&snapshot, &wanted).unwrap();
+    assert!(plan.problems.is_empty(), "{:?}", plan.problems);
+    assert!(
+        plan.notes
+            .iter()
+            .any(|n| n.contains("Bad") && n.contains("zig-zag")),
+        "{:?}",
+        plan.notes
+    );
+    let outcome = send_setup(&adapter, &http(), &host, &snapshot, &wanted, &ids(&plan.changes));
+    assert_eq!(outcome.report.status, SendStatus::Sent, "{:#?}", outcome.report);
+    assert!(
+        outcome.report.notes.iter().any(|n| n.contains("Bad")),
+        "{:?}",
+        outcome.report.notes
+    );
 }

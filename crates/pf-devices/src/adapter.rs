@@ -89,6 +89,45 @@ impl ConfigPlan {
     }
 }
 
+/// What a controller is, whatever its address: its kind and a stable hardware id (an FPP's
+/// `uuid`, or its host name when it has none; a WLED's MAC). A kept copy of a setup belongs to
+/// the device, and is only ever put back on that same device.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceIdentity {
+    pub kind: DeviceKind,
+    pub id: String,
+    /// Its name, for messages.
+    pub name: String,
+}
+
+impl DeviceIdentity {
+    /// A file-safe key that no other identity shares: the kind, then the id's bytes in hex.
+    pub fn key(&self) -> String {
+        let kind = match self.kind {
+            DeviceKind::Fpp => "fpp",
+            DeviceKind::Falcon => "falcon",
+            DeviceKind::Wled => "wled",
+        };
+        let hex: String = self.id.bytes().map(|b| format!("{b:02x}")).collect();
+        format!("{kind}-{hex}")
+    }
+
+    /// Whether `other` is the same device.
+    pub fn same_device(&self, other: &DeviceIdentity) -> bool {
+        self.kind == other.kind && self.id == other.id
+    }
+}
+
+/// What reading back after a send found.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Verification {
+    /// What still differs from what was sent (empty when it all took).
+    pub left: Vec<Change>,
+    /// Things worth knowing that PixelFlow didn't cause (problems on ports it didn't change).
+    pub notes: Vec<String>,
+}
+
 /// A save that didn't go through: how many before it did.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ApplyError {
@@ -102,6 +141,17 @@ pub trait DeviceAdapter: Send + Sync {
     fn kind(&self) -> DeviceKind;
     /// Identifies the controller (changes nothing).
     fn probe(&self, http: &dyn Http, host: &str) -> Result<Device, DeviceError>;
+    /// Which device this is, whatever its address (changes nothing).
+    fn identity(&self, http: &dyn Http, host: &str) -> Result<DeviceIdentity, DeviceError> {
+        let _ = (http, host);
+        Err(not_sendable("these"))
+    }
+    /// What putting `copy` back would change on a controller now holding `now`: now (before) →
+    /// copy (after).
+    fn restore_changes(&self, now: &Snapshot, copy: &Snapshot) -> Vec<Change> {
+        let _ = (now, copy);
+        Vec::new()
+    }
     /// What it's busy with (changes nothing).
     fn status(&self, http: &dyn Http, host: &str) -> Result<DeviceStatus, DeviceError>;
     /// Its configuration as PixelFlow understands it (changes nothing).
@@ -129,18 +179,21 @@ pub trait DeviceAdapter: Send + Sync {
         }
         Ok(())
     }
-    /// What still differs once `plan` was saved and the controller is read back (empty when it
-    /// all took). An error means it couldn't be read back.
+    /// What still differs once `plan` was saved and the controller is read back (nothing left
+    /// when it all took). An error means it couldn't be read back.
     fn verify_config(
         &self,
         http: &dyn Http,
         host: &str,
         target: &Setup,
         plan: &ConfigPlan,
-    ) -> Result<Vec<Change>, DeviceError> {
+    ) -> Result<Verification, DeviceError> {
         let _ = plan;
         let now = self.snapshot(http, host)?;
-        Ok(self.plan_config(&now, target)?.changes)
+        Ok(Verification {
+            left: self.plan_config(&now, target)?.changes,
+            notes: Vec::new(),
+        })
     }
     /// Sends `snapshot` back. Changes the controller.
     fn restore_config(&self, http: &dyn Http, host: &str, snapshot: &Snapshot) -> Result<(), DeviceError>;
@@ -508,6 +561,42 @@ impl DeviceAdapter for FppAdapter {
         fpp::probe(http, host)
     }
 
+    /// FPP's `uuid` (from the board's serial number), or its host name when it has none.
+    fn identity(&self, http: &dyn Http, host: &str) -> Result<DeviceIdentity, DeviceError> {
+        let info = get_json(http, host, "/api/system/info")?;
+        let name = str_field(&info, "HostName").trim().to_string();
+        let id = Some(str_field(&info, "uuid").trim().to_string())
+            .filter(|u| !u.is_empty())
+            .unwrap_or_else(|| name.clone());
+        if id.is_empty() {
+            return Err(DeviceError::bad(
+                host,
+                "/api/system/info",
+                "it gives no uuid or host name",
+            ));
+        }
+        Ok(DeviceIdentity {
+            kind: DeviceKind::Fpp,
+            id,
+            name,
+        })
+    }
+
+    fn restore_changes(&self, now: &Snapshot, copy: &Snapshot) -> Vec<Change> {
+        let mut rows = diff_ports(&fpp_setup(&now.doc), &fpp_setup(&copy.doc), Direction::ToDevice);
+        if rows.is_empty() && !self.restored(now, copy) {
+            rows.push(mismatch(
+                "restore/other".to_string(),
+                None,
+                String::new(),
+                "Other pixel string settings",
+                "as they are now".to_string(),
+                "as in the copy".to_string(),
+            ));
+        }
+        rows
+    }
+
     fn status(&self, http: &dyn Http, host: &str) -> Result<DeviceStatus, DeviceError> {
         let status = fpp_player::status(http, host)?;
         let what = status
@@ -582,7 +671,9 @@ impl DeviceAdapter for FppAdapter {
             );
         }
         let mut changes = diff_ports(&current, &wanted, Direction::ToDevice);
-        let mut problems = Vec::new();
+        // What fppd won't load, by port: a problem where PixelFlow changes the port, a note
+        // where it doesn't.
+        let mut port_problems: Vec<(u16, String)> = Vec::new();
         let mut doc = fpp_body(&snapshot.doc);
         let cleaned = fpp_clean(&mut doc);
         let driver = fpp_driver(&doc).expect("a snapshot has a driver");
@@ -627,17 +718,17 @@ impl DeviceAdapter for FppAdapter {
                 }
                 if let Some(order) = string.color_order {
                     if order.channels_per_pixel() != string.channels_per_pixel {
-                        problems.push(format!(
+                        port_problems.push((number, format!(
                             "{label}: color order {} takes {} channels a pixel, but its prop sends {}. Change the color order on the Wiring screen.",
                             order_text(order),
                             order.channels_per_pixel(),
                             string.channels_per_pixel
-                        ));
+                        )));
                     }
                     vs["colorOrder"] = json!(order_text(order));
                 }
                 if let Some(problem) = fpp_load_problem(&vs) {
-                    problems.push(format!("{label}: {problem}."));
+                    port_problems.push((number, format!("{label}: {problem}.")));
                 }
                 if let Some(old) = existing.get(i) {
                     changes.extend(fpp_string_rows(number, i, old, &vs));
@@ -645,6 +736,17 @@ impl DeviceAdapter for FppAdapter {
                 list.push(vs);
             }
             output["virtualStrings"] = Value::Array(list);
+        }
+        let changed: Vec<u16> = changes.iter().filter_map(|c| c.port).collect();
+        let mut problems = Vec::new();
+        for (port, problem) in port_problems {
+            if changed.contains(&port) {
+                problems.push(problem);
+            } else {
+                notes.push(format!(
+                    "{problem} PixelFlow doesn't change port {port}, but fppd won't load the FPP's strings until it's fixed on the FPP's page."
+                ));
+            }
         }
         if changes.is_empty() {
             return Ok(ConfigPlan::nothing(notes));
@@ -693,9 +795,11 @@ impl DeviceAdapter for FppAdapter {
         host: &str,
         target: &Setup,
         plan: &ConfigPlan,
-    ) -> Result<Vec<Change>, DeviceError> {
+    ) -> Result<Verification, DeviceError> {
         let now = self.snapshot(http, host)?;
         let mut left = self.plan_config(&now, target)?.changes;
+        let mut notes = Vec::new();
+        let changed: Vec<u16> = plan.changes.iter().filter_map(|c| c.port).collect();
         let read = fpp_body(&now.doc);
         if !plan.expect.is_null() && read != plan.expect {
             left.push(mismatch(
@@ -723,6 +827,14 @@ impl DeviceAdapter for FppAdapter {
                     .filter(|vs| fpp_real(vs));
                 for (i, vs) in real.enumerate() {
                     if let Some(problem) = fpp_load_problem(vs) {
+                        if !changed.contains(&number) {
+                            notes.push(format!(
+                                "Port {number} string {} ({}): fppd won't load it ({problem}). PixelFlow didn't change that port; fix it on the FPP's page.",
+                                i + 1,
+                                str_field(vs, "description")
+                            ));
+                            continue;
+                        }
                         let name = current
                             .port(number)
                             .and_then(|p| p.strings.get(i))
@@ -744,7 +856,7 @@ impl DeviceAdapter for FppAdapter {
                 }
             }
         }
-        Ok(left)
+        Ok(Verification { left, notes })
     }
 
     fn restore_config(&self, http: &dyn Http, host: &str, snapshot: &Snapshot) -> Result<(), DeviceError> {
@@ -944,6 +1056,71 @@ impl DeviceAdapter for WledAdapter {
         wled::probe(http, host)
     }
 
+    /// WLED's MAC address (`mac` in `/json/info`).
+    fn identity(&self, http: &dyn Http, host: &str) -> Result<DeviceIdentity, DeviceError> {
+        let info = get_json(http, host, "/json/info")?;
+        let id = str_field(&info, "mac").trim().to_ascii_lowercase();
+        if id.is_empty() {
+            return Err(DeviceError::bad(host, "/json/info", "it gives no MAC address"));
+        }
+        Ok(DeviceIdentity {
+            kind: DeviceKind::Wled,
+            id,
+            name: str_field(&info, "name").to_string(),
+        })
+    }
+
+    fn restore_changes(&self, now: &Snapshot, copy: &Snapshot) -> Vec<Change> {
+        let outputs = |s: &Snapshot| s.doc["hw"]["led"]["ins"].as_array().cloned().unwrap_or_default();
+        let (ours, theirs) = (outputs(now), outputs(copy));
+        let text = |bus: Option<&Value>, other: Option<&Value>| match bus {
+            None => "None".to_string(),
+            Some(bus) => {
+                let mut text = format!(
+                    "{} LEDs from {}",
+                    bus["len"].as_i64().unwrap_or(0),
+                    bus["start"].as_i64().unwrap_or(0)
+                );
+                if other.is_some_and(|o| {
+                    o["order"] != bus["order"] || o["type"] != bus["type"] || o["pin"] != bus["pin"]
+                }) {
+                    text.push_str(&format!(
+                        ", order {}, type {}, pin {}",
+                        bus["order"], bus["type"], bus["pin"]
+                    ));
+                }
+                text
+            }
+        };
+        let mut rows = Vec::new();
+        for i in 0..ours.len().max(theirs.len()) {
+            let (a, b) = (ours.get(i), theirs.get(i));
+            if a.map(wled_bus_fields) == b.map(wled_bus_fields) {
+                continue;
+            }
+            let number = u16::try_from(i + 1).unwrap_or(u16::MAX);
+            rows.push(mismatch(
+                format!("port{number}/restore"),
+                Some(number),
+                format!("Output {number}"),
+                "Output",
+                text(a, b),
+                text(b, a),
+            ));
+        }
+        if now.doc["if"]["live"] != copy.doc["if"]["live"] {
+            rows.push(mismatch(
+                "input/restore".to_string(),
+                None,
+                String::new(),
+                "Receive settings",
+                "as they are now".to_string(),
+                "as in the copy".to_string(),
+            ));
+        }
+        rows
+    }
+
     fn status(&self, http: &dyn Http, host: &str) -> Result<DeviceStatus, DeviceError> {
         let info = get_json(http, host, "/json/info")?;
         let busy = (info["live"].as_bool() == Some(true)).then(|| {
@@ -979,6 +1156,8 @@ impl DeviceAdapter for WledAdapter {
         // What the show asks of each output WLED has, and which outputs PixelFlow sets up.
         let mut wanted = current.clone();
         let mut owned = vec![false; buses.len()];
+        // Owned outputs in the order the show sends their data (its first channel for each).
+        let mut data_order: Vec<(u32, usize)> = Vec::new();
         for port in &target.ports {
             let Some(index) = usize::from(port.number)
                 .checked_sub(1)
@@ -1015,6 +1194,7 @@ impl DeviceAdapter for WledAdapter {
                 ));
                 string.color_order = None;
             }
+            data_order.push((string.start.unwrap_or(u32::MAX), index));
             string.start = None;
             wanted.ports[index].strings = vec![string];
             owned[index] = true;
@@ -1034,10 +1214,9 @@ impl DeviceAdapter for WledAdapter {
         let mut ins = buses.clone();
         let mut start = 0i64;
         let mut moved = false;
-        for (i, bus) in ins.iter_mut().enumerate() {
-            if !owned[i] {
-                continue;
-            }
+        data_order.sort_unstable();
+        for &(_, i) in &data_order {
+            let bus = &mut ins[i];
             let number = u16::try_from(i + 1).unwrap_or(u16::MAX);
             let string = &wanted.ports[i].strings[0];
             bus["len"] = json!(string.pixels);
@@ -1253,7 +1432,7 @@ impl DeviceAdapter for WledAdapter {
         host: &str,
         target: &Setup,
         plan: &ConfigPlan,
-    ) -> Result<Vec<Change>, DeviceError> {
+    ) -> Result<Verification, DeviceError> {
         // WLED sets new outputs up on its next loop; read again once if they haven't shown yet.
         let mut left = Vec::new();
         for attempt in 0..2 {
@@ -1321,7 +1500,10 @@ impl DeviceAdapter for WledAdapter {
                 break;
             }
         }
-        Ok(left)
+        Ok(Verification {
+            left,
+            notes: Vec::new(),
+        })
     }
 
     fn restore_config(&self, http: &dyn Http, host: &str, snapshot: &Snapshot) -> Result<(), DeviceError> {
@@ -1428,6 +1610,8 @@ pub struct SendReport {
     pub mismatches: Vec<Change>,
     /// The setup from just before sending can be put back.
     pub can_restore: bool,
+    /// Worth knowing, but not caused by this send.
+    pub notes: Vec<String>,
 }
 
 /// A send's report, and the snapshot taken just before it (to put back). The snapshot is only
@@ -1445,6 +1629,7 @@ fn refused(message: String) -> SendOutcome {
             message,
             mismatches: Vec::new(),
             can_restore: false,
+            notes: Vec::new(),
         },
         snapshot: None,
     }
@@ -1473,6 +1658,20 @@ pub fn send_setup(
     shown: &Snapshot,
     target: &Setup,
     shown_changes: &[String],
+) -> SendOutcome {
+    send_setup_with(adapter, http, host, shown, target, shown_changes, &mut |_| Ok(()))
+}
+
+/// [`send_setup`], handing the snapshot to `keep` just before anything is written (to keep it
+/// somewhere safe). If `keep` fails, nothing is sent.
+pub fn send_setup_with(
+    adapter: &dyn DeviceAdapter,
+    http: &dyn Http,
+    host: &str,
+    shown: &Snapshot,
+    target: &Setup,
+    shown_changes: &[String],
+    keep: &mut dyn FnMut(&Snapshot) -> Result<(), String>,
 ) -> SendOutcome {
     if let Err(reason) = adapter.can_send() {
         return refused(reason);
@@ -1507,6 +1706,11 @@ pub fn send_setup(
     if plan.writes.is_empty() {
         return refused("The controller already matches your show; nothing was sent.".to_string());
     }
+    if let Err(e) = keep(&snapshot) {
+        return refused(format!(
+            "Nothing was sent: PixelFlow couldn't keep a copy of the controller's setup first ({e})."
+        ));
+    }
     if let Err(failure) = adapter.apply_config(http, host, &plan) {
         if let Some(status) = refused_outright(&failure) {
             let pin = if status == 401 || status == 403 {
@@ -1535,22 +1739,25 @@ pub fn send_setup(
                 message,
                 mismatches: Vec::new(),
                 can_restore: true,
+                notes: Vec::new(),
             },
             snapshot: Some(snapshot),
         };
     }
     let report = match adapter.verify_config(http, host, target, &plan) {
-        Ok(left) if left.is_empty() => SendReport {
+        Ok(found) if found.left.is_empty() => SendReport {
             status: SendStatus::Sent,
             message: adapter.sent_message(),
             mismatches: Vec::new(),
             can_restore: true,
+            notes: found.notes,
         },
-        Ok(left) => SendReport {
+        Ok(found) => SendReport {
             status: SendStatus::Mismatch,
             message: "Sent, but reading it back, the controller's setup doesn't match your show.".to_string(),
-            mismatches: left,
+            mismatches: found.left,
             can_restore: true,
+            notes: found.notes,
         },
         Err(e) => SendReport {
             status: SendStatus::Failed,
@@ -1559,6 +1766,7 @@ pub fn send_setup(
             ),
             mismatches: Vec::new(),
             can_restore: true,
+            notes: Vec::new(),
         },
     };
     SendOutcome {

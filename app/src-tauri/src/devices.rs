@@ -3,10 +3,13 @@
 
 use crate::{AppState, Reply};
 use pf_devices::fpp_player::{self, FppSequence, PlayerStatus};
-use pf_devices::{Device, DeviceConfig, DiscoverOptions, Discovery, Http, HttpClient, ImportPlan};
+use pf_devices::{
+    Device, DeviceConfig, DiscoverOptions, Discovery, Http, HttpClient, ImportPlan, Reach, ReachCheck, TcpReach,
+};
 use pf_engine::{Edit, ShowSnapshot};
 use pf_model::Show;
 use serde::Serialize;
+use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::State;
@@ -17,6 +20,10 @@ pub(crate) struct DeviceAccess {
     sweep_http: Arc<dyn Http>,
     /// FPP ping, mDNS, and the subnet sweep. Off in tests so nothing touches the network.
     network_discovery: bool,
+    /// Whether a controller answers (the Test screen's quick look).
+    reach: Arc<dyn Reach>,
+    /// This computer's networks (address and netmask).
+    networks: fn() -> Vec<(Ipv4Addr, Ipv4Addr)>,
 }
 
 impl DeviceAccess {
@@ -28,6 +35,8 @@ impl DeviceAccess {
                 Duration::from_millis(1500),
             )),
             network_discovery: true,
+            reach: Arc::new(TcpReach::new(Duration::from_millis(800))),
+            networks: pf_devices::local_networks,
         }
     }
 
@@ -38,6 +47,9 @@ impl DeviceAccess {
             sweep_http: Arc::clone(&http),
             http,
             network_discovery: false,
+            // In tests, only 192.0.2.10 answers, and this computer is on 192.0.2.0/24.
+            reach: Arc::new(pf_devices::FakeReach::new(["192.0.2.10"])),
+            networks: || vec![(Ipv4Addr::new(192, 0, 2, 1), Ipv4Addr::new(255, 255, 255, 0))],
         }
     }
 }
@@ -185,6 +197,15 @@ fn fpp_name_or_address(address: &str, description: &str) -> String {
     } else {
         description.trim().to_string()
     }
+}
+
+/// Whether each controller answers, and whether it's on this computer's network (changes
+/// nothing: a connection to its web port is opened and closed, and nothing is read).
+#[tauri::command]
+pub(crate) async fn check_controllers(state: State<'_, AppState>, addresses: Vec<String>) -> Reply<Vec<ReachCheck>> {
+    let reach = Arc::clone(&state.devices.reach);
+    let networks = state.devices.networks;
+    off_thread(move || Ok(pf_devices::check_reach(reach.as_ref(), &addresses, &networks()))).await
 }
 
 /// What an FPP is playing (changes nothing).

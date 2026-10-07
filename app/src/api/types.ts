@@ -608,6 +608,14 @@ export interface Destination {
   unevenUniverses: boolean;
 }
 
+/** Whether a controller answered a quick, read-only look. */
+export interface ControllerCheck {
+  address: string;
+  answering: boolean;
+  /** Whether it's on one of this computer's networks; null when that isn't known. */
+  onLocalNetwork: boolean | null;
+}
+
 export interface DeviceConfig {
   input: DeviceInput;
   ports: PortConfig[];

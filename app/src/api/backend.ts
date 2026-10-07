@@ -18,6 +18,7 @@ import type {
   PatternSpec,
   ShowSnapshot,
   TargetSpec,
+  ControllerCheck,
 } from "./types";
 
 /** Everything the UI asks of the engine. Errors reject with a plain-language message. */
@@ -64,6 +65,11 @@ export interface Backend {
   importDevice(address: string): Promise<ShowSnapshot>;
   /** Adds a controller an FPP sends to, from the FPP's output list (works while it's offline). */
   importFppDestination(address: string, destination: string, protocol: string): Promise<ShowSnapshot>;
+  /**
+   * Whether each controller answers, and whether it's on this computer's network. Changes
+   * nothing (a connection to its web port is opened and closed); takes up to a second.
+   */
+  checkControllers(addresses: string[]): Promise<ControllerCheck[]>;
   /** What an FPP is playing (changes nothing). */
   fppStatus(address: string): Promise<PlayerStatus>;
   /** The sequences stored on an FPP (changes nothing). */

@@ -289,7 +289,7 @@ fn identify_all(
 }
 
 /// Local IPv4 interfaces (not loopback) with their netmasks.
-fn local_ipv4_interfaces() -> Vec<(Ipv4Addr, Ipv4Addr)> {
+pub(crate) fn local_ipv4_interfaces() -> Vec<(Ipv4Addr, Ipv4Addr)> {
     if_addrs::get_if_addrs()
         .unwrap_or_default()
         .into_iter()

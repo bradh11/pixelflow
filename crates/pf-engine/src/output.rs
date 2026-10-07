@@ -450,6 +450,12 @@ mod tests {
             spec.to_pattern().unwrap_err().to_string(),
             "'red' is not a color. Use six or eight hex digits, like ff8000."
         );
+        // Signs aren't hex digits, though integer parsing would take "+f" as 15.
+        let signed = PatternSpec {
+            kind: PatternKind::Solid,
+            color: "+f+f+f".into(),
+        };
+        assert!(matches!(signed.to_pattern(), Err(EngineError::BadColor(_))));
     }
 
     fn two_controller_show() -> Show {

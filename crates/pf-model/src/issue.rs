@@ -46,6 +46,9 @@ pub enum IssueCode {
     NodeAssignedTwice,
     UniverseOutOfRange,
     UniverseCollision,
+    /// A DDP controller wired to both RGB and RGBW props: DDP tells the controller one pixel type
+    /// for the whole stream, so some controllers (WLED) misread the other kind.
+    MixedPixelTypes,
 }
 
 /// One problem found in a show, written for end users.

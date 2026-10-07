@@ -2,7 +2,7 @@
 
 use crate::layout::{OutputSpan, PropLayout};
 use crate::universes::PixelRun;
-use pf_model::{Controller, Issue, IssueCode, PropId, Show, ValidationReport};
+use pf_model::{Controller, Issue, IssueCode, PropId, Protocol, Show, ValidationReport};
 use std::collections::HashMap;
 
 /// Wiring result for one controller.
@@ -156,6 +156,32 @@ fn check_capacity(
         )
         .with_fix("Move a prop to another port, or raise the port's pixel limit."),
     );
+}
+
+/// DDP tells the controller one pixel type (RGB or RGBW) for the whole stream, and some
+/// controllers, like WLED, decode every pixel that way: a DDP controller wired to both kinds
+/// shows one of them garbled. sACN carries plain channels, so it doesn't matter there.
+pub(crate) fn check_ddp_pixel_types(show: &Show, wired: &[WiredController], report: &mut ValidationReport) {
+    for (controller, wired) in show.controllers.iter().zip(wired) {
+        if !matches!(controller.protocol, Protocol::Ddp) {
+            continue;
+        }
+        let rgbw = wired.spans.iter().any(|s| s.channels_per_pixel == 4);
+        let rgb = wired.spans.iter().any(|s| s.channels_per_pixel == 3);
+        if rgb && rgbw {
+            report.push(
+                Issue::warning(
+                    IssueCode::MixedPixelTypes,
+                    format!(
+                        "'{}' gets both RGB and RGBW props over DDP, which sends one pixel type for \
+                         everything, so controllers like WLED will show some of them in the wrong colors.",
+                        controller.name
+                    ),
+                )
+                .with_fix("Wire the RGBW props to a controller of their own, or send this controller sACN."),
+            );
+        }
+    }
 }
 
 /// Smart receivers are lettered on the boards: 1 is A, 2 is B, …

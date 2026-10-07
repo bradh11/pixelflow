@@ -29,7 +29,8 @@ impl Rgbw {
     /// Parses `rrggbb` or `rrggbbww` hex, with or without a leading `#`.
     pub fn from_hex(text: &str) -> Option<Self> {
         let hex = text.strip_prefix('#').unwrap_or(text);
-        if !(hex.len() == 6 || hex.len() == 8) || !hex.is_ascii() {
+        // Hex digits only: integer parsing alone would accept a sign ("+f" reads as 15).
+        if !(hex.len() == 6 || hex.len() == 8) || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
             return None;
         }
         let byte = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).ok();
@@ -82,6 +83,17 @@ mod tests {
         );
         assert_eq!(Rgbw::from_hex("fff"), None);
         assert_eq!(Rgbw::from_hex("gg0000"), None);
+    }
+
+    #[test]
+    fn only_hex_digits_are_accepted() {
+        // Integer parsing alone would read "+f" as 15.
+        assert_eq!(Rgbw::from_hex("+f+f+f"), None);
+        assert_eq!(Rgbw::from_hex("ff+f00"), None);
+        assert_eq!(Rgbw::from_hex("-10000"), None);
+        assert_eq!(Rgbw::from_hex(" ff000"), None);
+        assert_eq!(Rgbw::from_hex("##ff0000"), None);
+        assert_eq!(Rgbw::from_hex("FF8000"), Some(Rgbw::rgb(255, 128, 0)));
     }
 
     #[test]

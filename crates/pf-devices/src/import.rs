@@ -135,6 +135,7 @@ pub fn plan_import(device: &Device, config: &DeviceConfig, show: &Show) -> Impor
                 ));
             }
             slot.smart_receiver = string.smart_receiver;
+            slot.controller_color_order = Some(string.color_order);
             port.slots.push(slot);
             props.push(prop);
         }
@@ -425,6 +426,8 @@ mod tests {
             (0, false, None, None)
         );
         assert_eq!(slot.smart_receiver, Some(1));
+        // The controller's own color order is remembered on the slot, for "Send setup" later.
+        assert_eq!(slot.controller_color_order, Some(ColorOrder::Grb));
         assert_eq!(plan.notes.len(), 3);
         assert_eq!(plan.notes[0], "note");
         assert_eq!(

@@ -38,6 +38,13 @@ pub(crate) struct DeviceAccess {
 }
 
 impl DeviceAccess {
+    /// Keeps the copies of controllers' setups taken before each send in `dir` (one file per
+    /// controller), so Put back survives a restart.
+    pub(crate) fn with_setup_dir(mut self, dir: std::path::PathBuf) -> Self {
+        self.setup = crate::device_setup::SetupSessions::in_dir(dir);
+        self
+    }
+
     pub(crate) fn network() -> Self {
         Self {
             http: Arc::new(HttpClient::new(Duration::from_millis(1500))),

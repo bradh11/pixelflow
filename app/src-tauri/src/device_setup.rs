@@ -1,8 +1,10 @@
 //! "Compare with this device" and "Send setup to this device…": a controller in the show side by
 //! side with the device itself. Comparing only reads; taking differences into the show is one undo
 //! step. Sending changes the device, so it happens only from the user's Send click after the
-//! changes were shown, and only if the device still reads as it did then; a copy of its setup is
-//! kept first, and one click puts it back.
+//! changes were shown, and only if the device still reads as it did then. A copy of its setup is
+//! taken first and kept on disk (one per controller) until the user dismisses it or a later send
+//! replaces it, so one click puts it back, even after a send that read back fine, a failed Put
+//! back, or a restart.
 
 use crate::devices::off_thread;
 use crate::{AppState, Reply};
@@ -11,8 +13,9 @@ use pf_devices::setup::{Change, Setup, compare, one_string_per_port, show_setup,
 use pf_devices::{Device, DeviceConfig, DeviceKind, Http};
 use pf_engine::{Edit, ShowSnapshot};
 use pf_model::{AdapterKind, Controller, PropId, Show};
-use serde::Serialize;
-use std::collections::{BTreeMap, HashMap};
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tauri::State;
 
@@ -21,16 +24,138 @@ use tauri::State;
 pub(crate) struct SetupSessions {
     compared: Mutex<HashMap<String, (Device, DeviceConfig)>>,
     sends: Mutex<HashMap<String, SendSession>>,
+    /// Controllers a send or a Put back is running for: one at a time each.
+    busy: Mutex<HashSet<String>>,
+    copies: RestorePoints,
 }
 
-/// A send shown to the user: the snapshot and target it was planned from, the rows they saw,
-/// and, once sent, the setup from just before (to put back).
+impl SetupSessions {
+    pub(crate) fn in_dir(dir: PathBuf) -> Self {
+        Self {
+            copies: RestorePoints {
+                dir: Some(dir),
+                ..RestorePoints::default()
+            },
+            ..Self::default()
+        }
+    }
+}
+
+/// A send shown to the user: the snapshot and target it was planned from, and the rows they saw.
 struct SendSession {
     kind: DeviceKind,
+    device_name: String,
     shown: Snapshot,
     target: Setup,
     change_ids: Vec<String>,
-    restore: Option<Snapshot>,
+}
+
+/// A controller's setup from just before a send.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RestorePoint {
+    device_name: String,
+    taken_at_ms: u64,
+    snapshot: Snapshot,
+}
+
+/// What a plan says about the kept copy.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RestorePointInfo {
+    device_name: String,
+    taken_at_ms: u64,
+}
+
+/// The kept copies, by address: in memory, and as files in `dir` when there is one.
+#[derive(Default)]
+struct RestorePoints {
+    dir: Option<PathBuf>,
+    cache: Mutex<HashMap<String, Option<RestorePoint>>>,
+}
+
+impl RestorePoints {
+    fn file(&self, address: &str) -> Option<PathBuf> {
+        let name: String = address
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        Some(self.dir.as_ref()?.join(format!("{name}.json")))
+    }
+
+    fn get(&self, address: &str) -> Option<RestorePoint> {
+        let mut cache = lock(&self.cache);
+        cache
+            .entry(address.to_string())
+            .or_insert_with(|| {
+                let text = std::fs::read_to_string(self.file(address)?).ok()?;
+                serde_json::from_str::<RestorePoint>(&text)
+                    .ok()
+                    .filter(|p| p.snapshot.address == address)
+            })
+            .clone()
+    }
+
+    fn save(&self, address: &str, point: RestorePoint) -> Result<(), String> {
+        if let Some(file) = self.file(address) {
+            let write = || -> std::io::Result<()> {
+                std::fs::create_dir_all(file.parent().expect("a folder"))?;
+                let partial = file.with_extension("json.partial");
+                std::fs::write(&partial, serde_json::to_vec_pretty(&point)?)?;
+                std::fs::rename(&partial, &file)
+            };
+            write().map_err(|e| {
+                format!("PixelFlow couldn't keep the copy of the controller's setup on disk: {e}")
+            })?;
+        }
+        lock(&self.cache).insert(address.to_string(), Some(point));
+        Ok(())
+    }
+
+    fn forget(&self, address: &str) {
+        if let Some(file) = self.file(address) {
+            let _ = std::fs::remove_file(file);
+        }
+        lock(&self.cache).insert(address.to_string(), None);
+    }
+}
+
+/// Marks a send or Put back to `address` as running until dropped.
+struct Running<'a> {
+    busy: &'a Mutex<HashSet<String>>,
+    address: String,
+}
+
+impl<'a> Running<'a> {
+    fn start(busy: &'a Mutex<HashSet<String>>, address: &str) -> Reply<Self> {
+        if !lock(busy).insert(address.to_string()) {
+            return Err(
+                "PixelFlow is already sending to this controller. Wait for it to finish.".to_string(),
+            );
+        }
+        Ok(Self {
+            busy,
+            address: address.to_string(),
+        })
+    }
+}
+
+impl Drop for Running<'_> {
+    fn drop(&mut self) {
+        lock(self.busy).remove(&self.address);
+    }
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -158,11 +283,15 @@ pub(crate) struct SendPlan {
     /// Device (before) → show (after).
     changes: Vec<Change>,
     notes: Vec<String>,
+    /// Why this can't be sent as it is (the controller wouldn't load it, for instance).
+    problems: Vec<String>,
     /// What the device is busy with that sending would interrupt.
     busy: Option<String>,
     can_send: bool,
     /// Why it can't be sent, when it can't.
     reason: Option<String>,
+    /// The copy of its setup kept from before an earlier send, which Put back sends.
+    restore_point: Option<RestorePointInfo>,
 }
 
 /// Reads the device's setup and plans sending the show's (changes nothing). The reading is kept:
@@ -185,12 +314,16 @@ pub(crate) async fn plan_device_setup(state: State<'_, AppState>, address: Strin
         if let Err(reason) = adapter.can_send() {
             return Ok((device, Err(reason)));
         }
-        let snapshot = adapter.snapshot(http.as_ref(), &host).map_err(|e| {
-            format!(
-                "PixelFlow couldn't read {}'s current setup, so it won't send anything to it. {e}",
-                device.name
-            )
-        })?;
+        let snapshot = match adapter.snapshot(http.as_ref(), &host) {
+            Ok(snapshot) => snapshot,
+            Err(e) => {
+                let reason = format!(
+                    "PixelFlow couldn't read {}'s current setup, so it won't send anything to it. {e}",
+                    device.name
+                );
+                return Ok((device, Err(reason)));
+            }
+        };
         let plan = adapter
             .plan_config(&snapshot, &wanted)
             .map_err(|e| e.to_string())?;
@@ -198,6 +331,15 @@ pub(crate) async fn plan_device_setup(state: State<'_, AppState>, address: Strin
         Ok((device, Ok((snapshot, plan, busy, wanted))))
     })
     .await?;
+    let restore_point = state
+        .devices
+        .setup
+        .copies
+        .get(&address)
+        .map(|p| RestorePointInfo {
+            device_name: p.device_name,
+            taken_at_ms: p.taken_at_ms,
+        });
     let mut sends = lock(&state.devices.setup.sends);
     match read {
         Err(reason) => {
@@ -207,32 +349,41 @@ pub(crate) async fn plan_device_setup(state: State<'_, AppState>, address: Strin
                 controller_name: controller.name,
                 changes: Vec::new(),
                 notes: Vec::new(),
+                problems: Vec::new(),
                 busy: None,
                 can_send: false,
                 reason: Some(reason),
+                restore_point,
             })
         }
         Ok((snapshot, plan, busy, target)) => {
             let change_ids: Vec<String> = plan.changes.iter().map(|c| c.id.clone()).collect();
             let can_send = !plan.writes.is_empty();
+            let reason = if !plan.problems.is_empty() {
+                Some("PixelFlow won't send this until the problems below are fixed.".to_string())
+            } else {
+                (!can_send).then(|| "The controller already matches your show.".to_string())
+            };
             sends.insert(
                 address,
                 SendSession {
                     kind: device.kind,
+                    device_name: device.name.clone(),
                     shown: snapshot,
                     target,
                     change_ids,
-                    restore: None,
                 },
             );
             Ok(SendPlan {
                 device,
                 controller_name: controller.name,
-                reason: (!can_send).then(|| "The controller already matches your show.".to_string()),
+                reason,
                 changes: plan.changes,
                 notes: plan.notes,
+                problems: plan.problems,
                 busy,
                 can_send,
+                restore_point,
             })
         }
     }
@@ -247,15 +398,23 @@ pub(crate) async fn send_device_setup(
     address: String,
     expected: Vec<String>,
 ) -> Reply<SendReport> {
-    let (kind, shown, target) = {
-        let sends = lock(&state.devices.setup.sends);
+    let running = Running::start(&state.devices.setup.busy, &address)?;
+    let (kind, device_name, shown, target) = {
+        let mut sends = lock(&state.devices.setup.sends);
         let session = sends
-            .get(&address)
+            .get_mut(&address)
             .ok_or_else(|| "Review what will change before sending.".to_string())?;
         if session.change_ids != expected {
             return Err("What will change isn't what was shown. Review the changes again.".to_string());
         }
-        (session.kind, session.shown.clone(), session.target.clone())
+        // Used up now, under the same lock: a second Send can't go out with it.
+        session.change_ids = vec!["(sending)".to_string()];
+        (
+            session.kind,
+            session.device_name.clone(),
+            session.shown.clone(),
+            session.target.clone(),
+        )
     };
     {
         let engine = state.engine();
@@ -278,14 +437,19 @@ pub(crate) async fn send_device_setup(
         ))
     })
     .await?;
-    if let Some(session) = lock(&state.devices.setup.sends).get_mut(&address) {
-        // The plan is used up: sending again needs a fresh look.
-        session.change_ids = vec!["(sent)".to_string()];
-        if outcome.report.can_restore {
-            session.restore = outcome.snapshot;
+    let mut report = outcome.report;
+    if let Some(snapshot) = outcome.snapshot {
+        let point = RestorePoint {
+            device_name,
+            taken_at_ms: now_ms(),
+            snapshot,
+        };
+        if let Err(e) = state.devices.setup.copies.save(&address, point) {
+            report.message = format!("{} {e}", report.message);
         }
     }
-    Ok(outcome.report)
+    drop(running);
+    Ok(report)
 }
 
 /// Puts back the setup the device had just before the last send. Changes the device, only from
@@ -295,25 +459,31 @@ pub(crate) async fn restore_device_setup(
     state: State<'_, AppState>,
     address: String,
 ) -> Reply<RestoreReport> {
-    let (kind, snapshot) = {
-        let sends = lock(&state.devices.setup.sends);
-        let session = sends.get(&address);
-        let snapshot = session
-            .and_then(|s| s.restore.clone())
-            .ok_or_else(|| "There's no earlier setup to put back.".to_string())?;
-        (session.map(|s| s.kind).unwrap_or(DeviceKind::Fpp), snapshot)
-    };
+    let point = state
+        .devices
+        .setup
+        .copies
+        .get(&address)
+        .ok_or_else(|| "There's no earlier setup to put back.".to_string())?;
+    let running = Running::start(&state.devices.setup.busy, &address)?;
     let http = Arc::clone(&state.devices.config_http);
     let host = address.clone();
     let report = off_thread(move || {
-        let adapter = adapter_for(kind);
-        Ok(restore_setup(adapter.as_ref(), http.as_ref(), &host, &snapshot))
+        let adapter = adapter_for(point.snapshot.kind);
+        Ok(restore_setup(
+            adapter.as_ref(),
+            http.as_ref(),
+            &host,
+            &point.snapshot,
+        ))
     })
-    .await?;
-    if report.restored
-        && let Some(session) = lock(&state.devices.setup.sends).get_mut(&address)
-    {
-        session.restore = None;
-    }
-    Ok(report)
+    .await;
+    drop(running);
+    report
+}
+
+/// Dismisses the kept copy of a controller's setup: Put back is no longer offered for it.
+#[tauri::command]
+pub(crate) fn forget_device_setup_copy(state: State<'_, AppState>, address: String) {
+    state.devices.setup.copies.forget(&address);
 }

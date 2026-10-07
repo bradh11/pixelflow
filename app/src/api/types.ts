@@ -675,6 +675,8 @@ export interface Discovery {
   devices: Device[];
   /** Controllers an FPP listed that didn't answer. */
   silent: SilentPeer[];
+  /** Addresses that answered but asked for a password (an FPP with its UI or API password on). */
+  locked: string[];
 }
 
 export type DeviceInput =

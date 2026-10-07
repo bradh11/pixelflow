@@ -256,6 +256,37 @@ fn discovery_never_probes_peers_that_are_not_plain_addresses() {
 }
 
 #[test]
+fn password_protected_controllers_are_reported_not_dropped() {
+    // An FPP whose API asks for a password, and a typed address whose whole UI does.
+    let http = fpp_only()
+        .with_get_status(FPP, "/api/system/info", 401)
+        .with_get_status("192.0.2.50", "/", 401);
+    let options = DiscoverOptions {
+        ping: false,
+        mdns: false,
+        sweep: false,
+        extra_hosts: vec![FPP.to_string(), "192.0.2.50".to_string()],
+        ..DiscoverOptions::default()
+    };
+    let found = discover(&http, &http, &options);
+    assert!(found.devices.is_empty());
+    assert_eq!(found.locked, vec![FPP.to_string(), "192.0.2.50".to_string()]);
+    assert!(found.silent.is_empty());
+
+    // A controller the FPP lists, behind a password.
+    let http = network().with_get_status(FALCON, "/", 401);
+    let options = DiscoverOptions {
+        extra_hosts: vec![FPP.to_string()],
+        ..options
+    };
+    let found = discover(&http, &http, &options);
+    assert_eq!(found.devices.len(), 1);
+    assert_eq!(found.locked, vec![FALCON.to_string()]);
+    assert!(found.silent.is_empty(), "it answered, so it isn't silent");
+    assert_no_secret_endpoints(&http);
+}
+
+#[test]
 fn a_peer_that_answers_but_is_not_a_controller_is_not_silent() {
     let http = fpp_only().with_get(FALCON, "/", "<html>some other web page</html>");
     let options = DiscoverOptions {

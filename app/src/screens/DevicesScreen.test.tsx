@@ -44,6 +44,16 @@ describe("devices", () => {
     expect(screen.getByRole("button", { name: "Scan again" })).toBeInTheDocument();
   });
 
+  it("says which controllers asked for a password instead of leaving them out", async () => {
+    const { user, backend } = await openDevices();
+    backend.deviceNetwork = { details: [], silent: [], locked: ["192.0.2.50"] };
+    await user.click(screen.getByRole("button", { name: "Scan network" }));
+    expect(await screen.findByText(/asks for a password/)).toHaveTextContent(
+      "192.0.2.50 asks for a password, so PixelFlow can't read it.",
+    );
+    expect(screen.queryByText("No controllers found")).not.toBeInTheDocument();
+  });
+
   it("reviews and imports a controller as one undo step", async () => {
     const { user } = await openDevices();
     await user.click(screen.getByRole("button", { name: "Scan network" }));

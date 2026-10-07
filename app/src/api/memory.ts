@@ -94,7 +94,7 @@ export class MemoryBackend implements Backend {
   /** Changes whenever another show replaces the open one (like the engine's show generation). */
   generation = 0;
   /** Devices "on the network" (see `demoDevices()`); empty by default. */
-  deviceNetwork: { details: DeviceDetails[]; silent: SilentPeer[] } = { details: [], silent: [] };
+  deviceNetwork: { details: DeviceDetails[]; silent: SilentPeer[]; locked?: string[] } = { details: [], silent: [] };
   /** What the folder picker returns, and what importing any xLights folder produces. */
   nextShowFolder: string | null = null;
   xlightsImport: { show: Show; summary: ImportSummary; notes: string[] } | null = null;
@@ -412,6 +412,7 @@ export class MemoryBackend implements Backend {
     return structuredClone({
       devices: this.deviceNetwork.details.map((d) => d.device),
       silent: this.deviceNetwork.silent,
+      locked: this.deviceNetwork.locked ?? [],
     });
   }
 

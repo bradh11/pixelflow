@@ -1027,6 +1027,7 @@ mod tests {
         assert_eq!(kinds, vec!["fpp", "falcon"]);
         assert_eq!(found["devices"][1]["foundBy"], json!(["fppPeer"]));
         assert_eq!(found["silent"], json!([]));
+        assert_eq!(found["locked"], json!([]), "sent to the window as a list");
     }
 
     #[test]

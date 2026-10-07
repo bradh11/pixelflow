@@ -1,6 +1,7 @@
 import type {
   DeviceComparison,
   DeviceDetails,
+  RestorePlan,
   RestoreReport,
   SendPlan,
   SendReport,
@@ -89,11 +90,14 @@ export interface Backend {
   /** Sends what planDeviceSetup showed (`expected`: the ids of the rows shown). Changes the
    * device: only from the user's Send click. Keeps a copy of its setup first. */
   sendDeviceSetup(address: string, expected: string[]): Promise<SendReport>;
-  /** Puts back the copy of the device's setup kept from before a send (kept until dismissed).
-   * Changes the device. */
-  restoreDeviceSetup(address: string): Promise<RestoreReport>;
-  /** Dismisses that copy: Put back is no longer offered for the device. */
-  forgetDeviceSetupCopy(address: string): Promise<void>;
+  /** Identifies the device at `address` and says what putting the kept copy of *its* setup back
+   * would change. Changes nothing. */
+  planDeviceRestore(address: string): Promise<RestorePlan>;
+  /** Puts the kept copy back, as planDeviceRestore showed it (`expected`: the ids of the rows
+   * shown), only on the device it came from. Changes the device. */
+  restoreDeviceSetup(address: string, expected: string[]): Promise<RestoreReport>;
+  /** Dismisses a kept copy (by its key): Put back is no longer offered for that device. */
+  forgetDeviceSetupCopy(key: string): Promise<void>;
   /** Adds a controller an FPP sends to, from the FPP's output list (works while it's offline). */
   importFppDestination(address: string, destination: string, protocol: string): Promise<ShowSnapshot>;
   /**

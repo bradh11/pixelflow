@@ -695,8 +695,27 @@ export interface SendPlan {
   canSend: boolean;
   /** Why it can't be sent, when it can't. */
   reason: string | null;
-  /** The copy of its setup kept from before an earlier send, which Put back sends. */
-  restorePoint: { deviceName: string; takenAtMs: number } | null;
+  /** The kept copy of this device's setup, which Put back sends. */
+  restorePoint: RestorePointInfo | null;
+}
+
+/** A kept copy of a device's setup, from before PixelFlow first changed it. */
+export interface RestorePointInfo {
+  /** What forgetting it takes. */
+  key: string;
+  deviceName: string;
+  /** The address it was read from. */
+  address: string;
+  takenAtMs: number;
+}
+
+/** What putting the kept copy back would change: the device now (before) → the copy (after). */
+export interface RestorePlan {
+  device: Device;
+  copy: RestorePointInfo;
+  changes: Change[];
+  canRestore: boolean;
+  reason: string | null;
 }
 
 export type SendStatus = "sent" | "mismatch" | "failed" | "refused";
@@ -708,6 +727,8 @@ export interface SendReport {
   mismatches: Change[];
   /** The setup from just before sending can be put back. */
   canRestore: boolean;
+  /** Worth knowing, but not caused by this send. */
+  notes: string[];
 }
 
 export interface RestoreReport {

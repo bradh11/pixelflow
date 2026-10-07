@@ -5,6 +5,7 @@ import type {
   DeviceConfig,
   DeviceDetails,
   DeviceKind,
+  RestorePlan,
   RestoreReport,
   SendPlan,
   SendReport,
@@ -571,7 +572,15 @@ export class MemoryBackend implements Backend {
   private sends = new Map<string, { shown: string; target: Setup; ids: string[]; kind: DeviceKind; deviceName: string }>();
   /** The copy of each controller's setup from before its last send, kept until dismissed (like
    * the engine's files in the app's data folder). */
-  setupCopies = new Map<string, { config: DeviceConfig; deviceName: string; takenAtMs: number }>();
+  setupCopies = new Map<string, { config: DeviceConfig; deviceName: string; address: string; takenAtMs: number }>();
+  private restores = new Map<string, { key: string; shown: string; ids: string[] }>();
+
+  /** Which device this is, whatever its address (the engine uses an FPP's uuid or a WLED's MAC;
+   * the pretend devices have their kind and name). */
+  private identityKey(address: string) {
+    const { device } = this.deviceAt(address);
+    return `${device.kind}-${device.name}`;
+  }
 
   private controllerAt(address: string) {
     const here = this.show.controllers.filter((c) => c.address === address);
@@ -674,8 +683,9 @@ export class MemoryBackend implements Backend {
   }
 
   private restorePoint(address: string) {
-    const copy = this.setupCopies.get(address);
-    return copy ? { deviceName: copy.deviceName, takenAtMs: copy.takenAtMs } : null;
+    const key = this.identityKey(address);
+    const copy = this.setupCopies.get(key);
+    return copy ? { key, deviceName: copy.deviceName, address: copy.address, takenAtMs: copy.takenAtMs } : null;
   }
 
   /** Like the engine's send_device_setup: keeps a copy of the device's setup first (until it's
@@ -689,7 +699,11 @@ export class MemoryBackend implements Backend {
     const found = this.deviceAt(address);
     const now = showSetup(this.show, this.controllerAt(address), oneStringPerPort(found.device.kind));
     if (JSON.stringify(now) !== session.shown) throw new Error("Your show changed since you looked. Review the changes again.");
-    this.setupCopies.set(address, { config: structuredClone(found.config), deviceName: session.deviceName, takenAtMs: Date.now() });
+    // Like the engine: the oldest copy not yet put back is kept (the last setup known to work).
+    const key = this.identityKey(address);
+    if (!this.setupCopies.has(key)) {
+      this.setupCopies.set(key, { config: structuredClone(found.config), deviceName: session.deviceName, address, takenAtMs: Date.now() });
+    }
     const failure = this.setupSendFailure;
     this.setupSendFailure = null;
     if (failure === "fail") {
@@ -700,6 +714,7 @@ export class MemoryBackend implements Backend {
         message: "Saving the new setup failed: Could not reach the controller: it didn't answer in time. It may have been only partly saved.",
         mismatches: [],
         canRestore: true,
+        notes: [],
       };
     }
     if (failure === "mismatch") {
@@ -708,6 +723,7 @@ export class MemoryBackend implements Backend {
         message: "Sent, but reading it back, the controller's setup doesn't match your show.",
         mismatches: diffPorts(deviceSetup(found.config), session.target, "toDevice"),
         canRestore: true,
+        notes: [],
       };
     }
     found.config = applySetup(found.config, session.target);
@@ -715,22 +731,51 @@ export class MemoryBackend implements Backend {
       session.kind === "fpp"
         ? "Saved, and reading it back, the FPP's pixel outputs match your show. The lights use them once FPP's player (fppd) restarts: restart it from the FPP's own page, then check its warnings."
         : "Sent. Reading it back, the controller matches your show.";
-    return { status: "sent", message, mismatches: [], canRestore: true };
+    return { status: "sent", message, mismatches: [], canRestore: true, notes: [] };
   }
 
-  /** Like the engine's restore_device_setup: the copy stays until it's dismissed. */
-  async restoreDeviceSetup(address: string): Promise<RestoreReport> {
-    this.calls.push(`restoreDeviceSetup:${address}`);
-    const copy = this.setupCopies.get(address);
-    if (!copy) throw new Error("There's no earlier setup to put back.");
+  /** Like the engine's plan_device_restore: what putting the kept copy back would change. */
+  async planDeviceRestore(address: string): Promise<RestorePlan> {
+    this.calls.push(`planDeviceRestore:${address}`);
+    const key = this.identityKey(address);
+    const copy = this.setupCopies.get(key);
+    if (!copy) throw new Error("There's no earlier setup of this controller to put back.");
+    const { device, config } = structuredClone(this.deviceAt(address));
+    const changes = diffPorts(deviceSetup(config), deviceSetup(copy.config), "toDevice");
+    this.restores.set(address, { key, shown: JSON.stringify(config), ids: changes.map((c) => c.id) });
+    return {
+      device,
+      copy: this.restorePoint(address)!,
+      changes,
+      canRestore: changes.length > 0,
+      reason: changes.length > 0 ? null : "The controller already holds the kept setup.",
+    };
+  }
+
+  /** Like the engine's restore_device_setup: only on the device the copy came from, only as shown;
+   * once it's back, the copy is let go. */
+  async restoreDeviceSetup(address: string, expected: string[]): Promise<RestoreReport> {
+    this.calls.push(`restoreDeviceSetup:${address}:${expected.join(",")}`);
+    const session = this.restores.get(address);
+    if (!session) throw new Error("Look at what Put back will change first.");
+    if (session.ids.join("\n") !== expected.join("\n")) throw new Error("What Put back will change isn't what was shown. Look again.");
+    const found = this.deviceAt(address);
+    if (this.identityKey(address) !== session.key) {
+      throw new Error(`The controller at ${address} is now ${found.device.name}, not the one this was planned for. Nothing was changed.`);
+    }
+    if (JSON.stringify(found.config) !== session.shown) throw new Error("The controller's setup changed since you looked, so nothing was put back. Look again.");
+    const copy = this.setupCopies.get(session.key);
+    if (!copy) throw new Error("There's no earlier setup of this controller to put back.");
+    this.restores.delete(address);
     if (this.restoreFailure) return { restored: false, message: `Putting the previous setup back failed: Could not reach ${address}: it didn't answer in time` };
-    this.deviceAt(address).config = structuredClone(copy.config);
+    found.config = structuredClone(copy.config);
+    this.setupCopies.delete(session.key);
     return { restored: true, message: "The previous setup is back on the controller." };
   }
 
-  async forgetDeviceSetupCopy(address: string) {
-    this.calls.push(`forgetDeviceSetupCopy:${address}`);
-    this.setupCopies.delete(address);
+  async forgetDeviceSetupCopy(key: string) {
+    this.calls.push(`forgetDeviceSetupCopy:${key}`);
+    this.setupCopies.delete(key);
   }
 
   async openDevicePage(address: string) {

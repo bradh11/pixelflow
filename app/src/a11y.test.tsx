@@ -226,6 +226,9 @@ describe("every control has a name, and icon-only buttons have tooltips", () => 
     await user.click(screen.getByRole("button", { name: "Send to Porch WLED" }));
     await screen.findByText(/Sent\. Reading it back/);
     found.push(...problems("devices, a setup sent"));
+    await user.click(screen.getByRole("button", { name: "Put back the previous setup…" }));
+    await screen.findByRole("group", { name: "What Put back changes" });
+    found.push(...problems("devices, reviewing Put back"));
     await user.keyboard("{Escape}");
 
     go("play");

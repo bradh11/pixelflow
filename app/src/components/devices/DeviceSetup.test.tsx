@@ -135,12 +135,12 @@ describe("send setup to this device", () => {
     expect(backend.calls).toContain("sendDeviceSetup:192.0.2.40:port1/string1/pixels");
     expect(wledConfig(backend).ports[0].strings[0].pixels).toBe(40);
     // The copy from before sending stays, in case the lights look wrong.
-    expect(within(dialog).getByRole("button", { name: "Put back the previous setup" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Put back the previous setup…" })).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("keeps the copy for Put back when reopened, lets a failed Put back be tried again, and forgets it on request", async () => {
+  it("keeps the copy for Put back when reopened, shows what Put back changes before it writes, and lets a failed one be tried again", async () => {
     const { user, backend } = await withWled();
     await resize("Porch Strip", 40);
     await user.click(screen.getByRole("button", { name: "Send setup to this device: Porch WLED…" }));
@@ -152,23 +152,63 @@ describe("send setup to this device", () => {
     // Reopened: the copy from before the send is still offered.
     await user.click(screen.getByRole("button", { name: "Send setup to this device: Porch WLED…" }));
     dialog = await screen.findByRole("dialog", { name: "Send setup to Porch WLED" });
-    expect(await within(dialog).findByText(/A copy of Porch WLED's setup from .*, before an earlier send, is kept\./)).toBeInTheDocument();
+    expect(await within(dialog).findByText(/A copy of Porch WLED's setup from .*, before PixelFlow changed it, is kept\./)).toBeInTheDocument();
+
+    // Put back shows its rows first; nothing is written until it's confirmed.
+    await user.click(within(dialog).getByRole("button", { name: "Put back the previous setup…" }));
+    const rows = await within(dialog).findByRole("group", { name: "What Put back changes" });
+    expect(within(rows).getByText("40")).toBeInTheDocument();
+    expect(within(rows).getByText("50")).toBeInTheDocument();
+    expect(backend.calls.some((c) => c.startsWith("restoreDeviceSetup"))).toBe(false);
+    await user.click(within(dialog).getByRole("button", { name: "Don't put it back" }));
+    expect(wledConfig(backend).ports[0].strings[0].pixels).toBe(40);
 
     backend.restoreFailure = true;
-    await user.click(within(dialog).getByRole("button", { name: "Put back the previous setup" }));
+    await user.click(within(dialog).getByRole("button", { name: "Put back the previous setup…" }));
+    await user.click(await within(dialog).findByRole("button", { name: "Put back on Porch WLED" }));
     expect(await within(dialog).findByText(/Putting the previous setup back failed/)).toHaveTextContent("You can try again.");
     expect(wledConfig(backend).ports[0].strings[0].pixels).toBe(40);
     backend.restoreFailure = false;
-    await user.click(within(dialog).getByRole("button", { name: "Put back the previous setup" }));
+    await user.click(within(dialog).getByRole("button", { name: "Put back the previous setup…" }));
+    await user.click(await within(dialog).findByRole("button", { name: "Put back on Porch WLED" }));
     expect(await within(dialog).findByText("The previous setup is back on the controller.")).toBeInTheDocument();
     expect(wledConfig(backend).ports[0].strings[0].pixels).toBe(50);
-    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    // Once it's back, the copy is let go.
+    expect(within(dialog).queryByRole("button", { name: /Put back/ })).not.toBeInTheDocument();
+  });
 
+  it("keeps the oldest copy across later sends, and forgets it on request", async () => {
+    const { user, backend } = await withWled();
+    for (const pixels of [40, 30]) {
+      await resize("Porch Strip", pixels);
+      await user.click(screen.getByRole("button", { name: "Send setup to this device: Porch WLED…" }));
+      const dialog = await screen.findByRole("dialog", { name: "Send setup to Porch WLED" });
+      await user.click(await within(dialog).findByRole("button", { name: "Send to Porch WLED" }));
+      await within(dialog).findByRole("status");
+      await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    }
+    expect(backend.setupCopies.get("wled-Porch WLED")!.config.ports[0].strings[0].pixels).toBe(50);
     await user.click(screen.getByRole("button", { name: "Send setup to this device: Porch WLED…" }));
-    dialog = await screen.findByRole("dialog", { name: "Send setup to Porch WLED" });
+    const dialog = await screen.findByRole("dialog", { name: "Send setup to Porch WLED" });
     await user.click(await within(dialog).findByRole("button", { name: "Forget this copy" }));
     expect(within(dialog).queryByRole("button", { name: /Put back/ })).not.toBeInTheDocument();
-    expect(backend.calls).toContain("forgetDeviceSetupCopy:192.0.2.40");
+    expect(backend.calls).toContain("forgetDeviceSetupCopy:wled-Porch WLED");
+  });
+
+  it("won't put a copy back on another controller that now answers at the address", async () => {
+    const { user, backend } = await withWled();
+    await resize("Porch Strip", 40);
+    await user.click(screen.getByRole("button", { name: "Send setup to this device: Porch WLED…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Send setup to Porch WLED" });
+    await user.click(await within(dialog).findByRole("button", { name: "Send to Porch WLED" }));
+    await within(dialog).findByRole("status");
+    await user.click(within(dialog).getByRole("button", { name: "Put back the previous setup…" }));
+    await within(dialog).findByRole("group", { name: "What Put back changes" });
+    // Another WLED takes the address before Put back is confirmed.
+    backend.deviceNetwork.details.find((d) => d.device.address === WLED)!.device.name = "Garage WLED";
+    await user.click(within(dialog).getByRole("button", { name: "Put back on Porch WLED" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("is now Garage WLED");
+    expect(wledConfig(backend).ports[0].strings[0].pixels).toBe(40);
   });
 
   it("won't send a setup the controller wouldn't load, and says why", async () => {
@@ -192,7 +232,8 @@ describe("send setup to this device", () => {
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("It may have been only partly saved.");
     expect(wledConfig(backend).ports[0].strings[0].pixels).toBe(30);
 
-    await user.click(within(dialog).getByRole("button", { name: "Put back the previous setup" }));
+    await user.click(within(dialog).getByRole("button", { name: "Put back the previous setup…" }));
+    await user.click(await within(dialog).findByRole("button", { name: "Put back on Porch WLED" }));
     expect(await within(dialog).findByText("The previous setup is back on the controller.")).toBeInTheDocument();
     expect(wledConfig(backend).ports[0].strings[0].pixels).toBe(50);
     expect(within(dialog).queryByRole("button", { name: /Put back/ })).not.toBeInTheDocument();
@@ -207,7 +248,7 @@ describe("send setup to this device", () => {
     await user.click(await within(dialog).findByRole("button", { name: "Send to Porch WLED" }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("doesn't match your show");
     expect(within(dialog).getByRole("group", { name: "Still different after sending" })).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Put back the previous setup" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Put back the previous setup…" })).toBeInTheDocument();
   });
 
   it("can't send to a Falcon yet, and says so", async () => {

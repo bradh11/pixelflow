@@ -46,8 +46,9 @@ export const tauriBackend: Backend = {
   takeFromDevice: (address, picks, useProps) => invoke("take_from_device_setup", { address, picks, useProps: useProps ?? null }),
   planDeviceSetup: (address) => invoke("plan_device_setup", { address }),
   sendDeviceSetup: (address, expected) => invoke("send_device_setup", { address, expected }),
-  restoreDeviceSetup: (address) => invoke("restore_device_setup", { address }),
-  forgetDeviceSetupCopy: (address) => invoke("forget_device_setup_copy", { address }),
+  planDeviceRestore: (address) => invoke("plan_device_restore", { address }),
+  restoreDeviceSetup: (address, expected) => invoke("restore_device_setup", { address, expected }),
+  forgetDeviceSetupCopy: (key) => invoke("forget_device_setup_copy", { key }),
   importFppDestination: (address, destination, protocol) =>
     invoke("import_fpp_destination", { address, destination, protocol }),
   fppStatus: (address) => invoke("fpp_status", { address }),

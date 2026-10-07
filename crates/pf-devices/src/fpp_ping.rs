@@ -49,7 +49,8 @@ pub fn parse_ping(data: &[u8]) -> Option<Ping> {
         return None;
     }
     let extra = u16::from_le_bytes([data[5], data[6]]) as usize;
-    if data.len() < 7 + extra || extra < 118 {
+    // Version 2 is the oldest layout with the fields below (version 1 was shorter).
+    if data.len() < 7 + extra || extra < 118 || data[7] < 2 {
         return None;
     }
     let text = |start: usize, end: usize| -> String {
@@ -131,6 +132,45 @@ mod tests {
         sync[4] = 1;
         assert!(parse_ping(&sync).is_none());
         assert!(parse_ping(&fpp_ping()[..100]).is_none());
+    }
+
+    /// A v2 ping with exactly `extra` bytes after the header.
+    fn ping_with_extra(extra: u16) -> Vec<u8> {
+        let mut p = vec![0u8; 7 + usize::from(extra)];
+        p[0..4].copy_from_slice(b"FPPD");
+        p[4] = 4;
+        p[5..7].copy_from_slice(&extra.to_le_bytes());
+        p[7] = 2;
+        p[9] = 0x0D;
+        p[19..22].copy_from_slice(b"FPP");
+        p
+    }
+
+    #[test]
+    fn the_shortest_ping_is_118_bytes_after_the_header() {
+        assert!(parse_ping(&ping_with_extra(117)).is_none());
+        let ping = parse_ping(&ping_with_extra(118)).unwrap();
+        assert_eq!(ping.hostname, "FPP");
+        assert_eq!(
+            ping.hardware, "",
+            "the hardware field lies past the end of a v2 ping"
+        );
+        // The length field claims more than arrived.
+        let mut short = ping_with_extra(118);
+        short[5..7].copy_from_slice(&119u16.to_le_bytes());
+        assert!(parse_ping(&short).is_none());
+    }
+
+    #[test]
+    fn pings_before_version_2_are_rejected() {
+        for version in [0, 1] {
+            let mut old = fpp_ping();
+            old[7] = version;
+            assert!(parse_ping(&old).is_none(), "version {version}");
+        }
+        let mut v2 = fpp_ping();
+        v2[7] = 2;
+        assert!(parse_ping(&v2).is_some());
     }
 
     #[test]

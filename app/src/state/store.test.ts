@@ -204,13 +204,14 @@ describe("app store", () => {
       discovery: {
         devices: [device("10.0.0.20"), device("10.0.0.21")].map((d) => ({ ...d, responding: true, lastSeen: 1 })),
         silent: [],
+        locked: [],
       },
     });
     let answer!: (d: Discovery) => void;
     backend.discoverDevices = () => new Promise((resolve) => (answer = resolve));
     const scanning = useApp.getState().scan();
     useApp.getState().forgetDevice("10.0.0.20");
-    answer({ devices: [device("10.0.0.20"), device("10.0.0.21"), device("10.0.0.22")], silent: [] });
+    answer({ devices: [device("10.0.0.20"), device("10.0.0.21"), device("10.0.0.22")], silent: [], locked: [] });
     expect(await scanning).toBe(true);
     expect(useApp.getState().discovery?.devices.map((d) => d.address)).toEqual(["10.0.0.21", "10.0.0.22"]);
     localStorage.removeItem("pixelflow.devices");

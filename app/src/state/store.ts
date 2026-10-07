@@ -126,7 +126,7 @@ interface AppState {
   musicVolume: number;
   /** The last device scan's results (kept while moving between screens). */
   /** Every controller found so far (remembered on this computer), plus the last scan's silent peers. */
-  discovery: { devices: KnownDevice[]; silent: SilentPeer[] } | null;
+  discovery: { devices: KnownDevice[]; silent: SilentPeer[]; locked: string[] } | null;
   scanning: boolean;
 
   connect(backend: Backend): Promise<void>;
@@ -546,7 +546,7 @@ export const useApp = create<AppState>((set, get) => {
     // Calls still waiting on a previous backend have nothing to do with this one.
     queue = Promise.resolve();
     const known = loadKnownDevices();
-    set({ backend, discovery: known.length ? { devices: known.sort(byKindThenAddress), silent: [] } : get().discovery });
+    set({ backend, discovery: known.length ? { devices: known.sort(byKindThenAddress), silent: [], locked: [] } : get().discovery });
     try {
       const snapshot = await backend.getSnapshot();
       set({ snapshot });
@@ -700,7 +700,7 @@ export const useApp = create<AppState>((set, get) => {
       devices.sort(byKindThenAddress);
       const silent = found.silent.filter((s) => !devices.some((d) => d.address === s.address));
       saveKnownDevices(devices);
-      set({ discovery: { devices, silent }, error: null });
+      set({ discovery: { devices, silent, locked: found.locked }, error: null });
       return true;
     } catch (e) {
       set({ error: errorMessage(e) });

@@ -229,6 +229,12 @@ pub fn plan_import_using(
             "Fills in {}, added from your FPP's output list.",
             placeholder.name
         ));
+        // Both send to the same controller; the FPP's data wins while it plays.
+        notes.push(format!(
+            "An FPP sends its sequence to {}: while a playlist or sequence is running on that FPP, it \
+             overrides PixelFlow's live output, so stop it while using PixelFlow.",
+            placeholder.name
+        ));
     }
     ImportPlan {
         already_in_show,
@@ -791,16 +797,16 @@ mod tests {
         show.controllers.push(placeholder);
         let plan = plan_import(&device(), &config(), &show);
         assert!(!plan.already_in_show);
-        assert_eq!(
-            plan.notes.last().unwrap(),
-            "Fills in Falcon_F16V5_B9F5, added from your FPP's output list."
-        );
+        let fills_in = "Fills in Falcon_F16V5_B9F5, added from your FPP's output list.";
+        let idle = "An FPP sends its sequence to Falcon_F16V5_B9F5: while a playlist or sequence is running \
+                    on that FPP, it overrides PixelFlow's live output, so stop it while using PixelFlow.";
+        assert_eq!(plan.notes[plan.notes.len() - 2..], [fills_in, idle]);
 
         // A port-less controller that didn't come from an FPP is a real duplicate.
         show.controllers[0].sequence_channels = None;
         let plan = plan_import(&device(), &config(), &show);
         assert!(plan.already_in_show);
-        assert!(plan.notes.iter().all(|n| !n.starts_with("Fills in")));
+        assert!(plan.notes.iter().all(|n| !n.starts_with("Fills in") && n != idle));
     }
 
     fn player() -> (Device, DeviceConfig) {

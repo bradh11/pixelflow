@@ -273,7 +273,7 @@ describe("import review", () => {
     expect(within(dialog).getByText(/wire 1 prop you already have, and add 1 new prop/)).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Add to show" }));
 
-    expect(screen.getByRole("status")).toHaveTextContent("Added Falcon_F16V5_B9F5: 1 props and 1 of yours on 2 ports.");
+    expect(screen.getByRole("status")).toHaveTextContent("Added Falcon_F16V5_B9F5: 1 prop and 1 of yours on 2 ports.");
     const falcon = show().controllers[0];
     expect(falcon.ports[1].slots[0].prop).toBe(arch.id);
     expect(show().props.map((p) => p.name).sort()).toEqual(["Falcon Mega Tree", "Garage Arch"]);

@@ -75,19 +75,15 @@ fn add_manual_hosts(candidates: &mut Candidates, hosts: &[String]) {
     }
 }
 
-/// Addresses heard on the network, de-duplicated and bounded.
-struct Found<K>(BTreeMap<Ipv4Addr, K>);
+/// Addresses heard on the network, de-duplicated and bounded, with the first kind any reply gave.
+#[derive(Default)]
+struct Found(BTreeMap<Ipv4Addr, Option<DeviceKind>>);
 
-impl<K> Default for Found<K> {
-    fn default() -> Self {
-        Self(BTreeMap::new())
-    }
-}
-
-impl<K> Found<K> {
-    fn add(&mut self, address: Ipv4Addr, kind: K) {
+impl Found {
+    fn add(&mut self, address: Ipv4Addr, kind: Option<DeviceKind>) {
         if self.0.len() < MAX_CANDIDATES || self.0.contains_key(&address) {
-            self.0.entry(address).or_insert(kind);
+            let known = self.0.entry(address).or_default();
+            *known = known.or(kind);
         }
     }
 }
@@ -177,12 +173,17 @@ pub struct Discovery {
     pub devices: Vec<Device>,
     /// Controllers listed by an FPP that didn't respond (powered off, unplugged, or moved).
     pub silent: Vec<SilentPeer>,
+    /// Addresses that answered but asked for a password (HTTP 401), such as an FPP with its UI or
+    /// API password turned on. PixelFlow can't read them. Sorted.
+    pub locked: Vec<String>,
 }
 
 /// Finds controllers. `sweep_http` is used for the subnet sweep (give it a short connect
 /// timeout); `http` for everything else. Never fails: unreachable or unrecognized hosts are
 /// left out, except FPP-listed controllers that didn't answer at all, which are reported as
-/// silent. Devices are sorted by kind, then address.
+/// silent, and candidates that asked for a password, which are reported as locked. A typed
+/// hostname that resolves to a device also found by address is listed once, by address.
+/// Devices are sorted by kind, then address.
 pub fn discover(http: &dyn Http, sweep_http: &dyn Http, options: &DiscoverOptions) -> Discovery {
     let interfaces = local_ipv4_interfaces();
     let mut candidates = Candidates::default();
@@ -205,13 +206,14 @@ pub fn discover(http: &dyn Http, sweep_http: &dyn Http, options: &DiscoverOption
             candidates.add(address.to_string(), kind, FoundBy::Ping);
         }
         for (address, kind) in mdns.map(|h| h.join().unwrap_or_default()).unwrap_or_default() {
-            candidates.add(address.to_string(), Some(kind), FoundBy::Mdns);
+            candidates.add(address.to_string(), kind, FoundBy::Mdns);
         }
     });
     add_manual_hosts(&mut candidates, &options.extra_hosts);
 
     let mut devices: BTreeMap<String, Device> = BTreeMap::new();
-    identify_all(http, &candidates, &mut devices);
+    let mut locked = BTreeSet::new();
+    identify_all(http, &candidates, &mut devices, &mut locked);
     // Controllers an FPP knows about (MultiSync peers and output destinations).
     let mut peers = Candidates::default();
     let mut listed: BTreeMap<String, (String, String)> = BTreeMap::new();
@@ -227,7 +229,7 @@ pub fn discover(http: &dyn Http, sweep_http: &dyn Http, options: &DiscoverOption
             }
         }
     }
-    let answered = identify_all(http, &peers, &mut devices);
+    let answered = identify_all(http, &peers, &mut devices, &mut locked);
     let silent = listed
         .into_iter()
         .filter(|(address, _)| !devices.contains_key(address) && !answered.contains(address))
@@ -238,49 +240,103 @@ pub fn discover(http: &dyn Http, sweep_http: &dyn Http, options: &DiscoverOption
         })
         .collect();
 
+    merge_hostnames(&mut devices, resolve_ipv4);
     let mut found: Vec<Device> = devices.into_values().collect();
     sort_devices(&mut found);
     Discovery {
         devices: found,
         silent,
+        locked: locked.into_iter().collect(),
     }
 }
 
-/// Identifies every candidate with a bounded pool of `SWEEP_THREADS` workers. Returns the
-/// addresses that answered HTTP but aren't a recognized controller (not "silent").
-fn identify_all(
-    http: &dyn Http,
-    candidates: &Candidates,
-    devices: &mut BTreeMap<String, Device>,
-) -> BTreeSet<String> {
-    let work: Vec<_> = candidates.0.iter().collect();
+/// The IPv4 addresses a hostname resolves to (none for a bad or unknown name).
+fn resolve_ipv4(host: &str) -> Vec<Ipv4Addr> {
+    use std::net::ToSocketAddrs;
+    (host, 80)
+        .to_socket_addrs()
+        .map(|addresses| {
+            addresses
+                .filter_map(|a| match a {
+                    SocketAddr::V4(v4) => Some(*v4.ip()),
+                    SocketAddr::V6(_) => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Folds a device found by hostname (one the user typed) into the same kind of device found at
+/// an address the name resolves to, so it is listed once, by address.
+fn merge_hostnames(devices: &mut BTreeMap<String, Device>, resolve: impl Fn(&str) -> Vec<Ipv4Addr>) {
+    let hostnames: Vec<String> = devices
+        .keys()
+        .filter(|address| address.parse::<std::net::IpAddr>().is_err())
+        .cloned()
+        .collect();
+    for hostname in hostnames {
+        let kind = devices[&hostname].kind;
+        let same = resolve(&hostname)
+            .into_iter()
+            .map(|ip| ip.to_string())
+            .find(|ip| devices.get(ip).is_some_and(|d| d.kind == kind));
+        if let Some(ip) = same
+            && let Some(named) = devices.remove(&hostname)
+            && let Some(device) = devices.get_mut(&ip)
+        {
+            device.found_by.extend(named.found_by);
+            device.found_by.sort();
+            device.found_by.dedup();
+        }
+    }
+}
+
+/// Runs `work` on every item with up to `SWEEP_THREADS` threads, each taking the next item as it
+/// finishes one (a slow host never holds up others queued behind it). Results are in no
+/// particular order.
+fn in_parallel<T: Sync, R: Send>(items: &[T], work: impl Fn(&T) -> R + Sync) -> Vec<R> {
     let next = AtomicUsize::new(0);
-    let results = Mutex::new(Vec::new());
+    let results = Mutex::new(Vec::with_capacity(items.len()));
     std::thread::scope(|scope| {
-        for _ in 0..SWEEP_THREADS.min(work.len()) {
+        for _ in 0..SWEEP_THREADS.min(items.len()) {
             scope.spawn(|| {
-                loop {
-                    let index = next.fetch_add(1, Ordering::Relaxed);
-                    let Some((address, (kind, by))) = work.get(index) else {
-                        break;
-                    };
-                    let outcome = identify(http, address, *kind);
+                while let Some(item) = items.get(next.fetch_add(1, Ordering::Relaxed)) {
+                    let result = work(item);
                     if let Ok(mut results) = results.lock() {
-                        results.push(((*address).clone(), (*by).clone(), outcome));
+                        results.push(result);
                     }
                 }
             });
         }
     });
+    results.into_inner().unwrap_or_default()
+}
+
+/// Identifies every candidate with a bounded pool of `SWEEP_THREADS` workers. Returns the
+/// addresses that answered HTTP but aren't a recognized controller (not "silent"); those that
+/// asked for a password are also added to `locked`.
+fn identify_all(
+    http: &dyn Http,
+    candidates: &Candidates,
+    devices: &mut BTreeMap<String, Device>,
+    locked: &mut BTreeSet<String>,
+) -> BTreeSet<String> {
+    let work: Vec<_> = candidates.0.iter().collect();
+    let results = in_parallel(&work, |(address, (kind, by))| {
+        ((*address).clone(), (*by).clone(), identify(http, address, *kind))
+    });
     let mut answered = BTreeSet::new();
-    for (address, by, outcome) in results.into_inner().unwrap_or_default() {
+    for (address, by, outcome) in results {
         match outcome {
             Ok(mut device) => {
                 device.found_by = by.into_iter().collect();
                 devices.insert(address, device);
             }
             Err(DeviceError::Unreachable { .. }) => {}
-            Err(_) => {
+            Err(error) => {
+                if matches!(error, DeviceError::Http { status: 401, .. }) {
+                    locked.insert(address.clone());
+                }
                 answered.insert(address);
             }
         }
@@ -312,29 +368,14 @@ fn web_sweep(http: &dyn Http, interfaces: &[(Ipv4Addr, Ipv4Addr)]) -> Vec<(Strin
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
-    let chunk = hosts.len().div_ceil(SWEEP_THREADS).max(1);
-    std::thread::scope(|scope| {
-        let handles: Vec<_> = hosts
-            .chunks(chunk)
-            .map(|batch| {
-                scope.spawn(move || {
-                    batch
-                        .iter()
-                        .filter_map(|host| {
-                            let host = host.to_string();
-                            let page = http.get(&host, "/").ok()?;
-                            classify_home_page(&page).map(|kind| (host, kind))
-                        })
-                        .collect::<Vec<_>>()
-                })
-            })
-            .collect();
-        handles
-            .into_iter()
-            .filter_map(|h| h.join().ok())
-            .flatten()
-            .collect()
+    in_parallel(&hosts, |host| {
+        let host = host.to_string();
+        let page = http.get(&host, "/").ok()?;
+        classify_home_page(&page).map(|kind| (host, kind))
     })
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 fn ping_discovery(
@@ -351,7 +392,7 @@ fn ping_discovery(
         }
     }
     let _ = socket.send_to(&packet, SocketAddrV4::new(MULTISYNC_GROUP, MULTISYNC_PORT));
-    let mut found: Found<Option<DeviceKind>> = Found::default();
+    let mut found = Found::default();
     let deadline = Instant::now() + listen_for;
     let mut buf = [0u8; 1500];
     while Instant::now() < deadline {
@@ -398,7 +439,7 @@ fn multisync_socket(interfaces: &[(Ipv4Addr, Ipv4Addr)]) -> std::io::Result<UdpS
     Ok(socket.into())
 }
 
-fn mdns_discovery(listen_for: Duration) -> Vec<(Ipv4Addr, DeviceKind)> {
+fn mdns_discovery(listen_for: Duration) -> Vec<(Ipv4Addr, Option<DeviceKind>)> {
     let Ok(daemon) = mdns_sd::ServiceDaemon::new() else {
         return Vec::new();
     };
@@ -410,7 +451,7 @@ fn mdns_discovery(listen_for: Duration) -> Vec<(Ipv4Addr, DeviceKind)> {
         .iter()
         .filter_map(|(service, kind)| daemon.browse(service).ok().map(|rx| (rx, *kind)))
         .collect();
-    let mut found: Found<DeviceKind> = Found::default();
+    let mut found = Found::default();
     let deadline = Instant::now() + listen_for;
     while Instant::now() < deadline {
         for (rx, kind) in &receivers {
@@ -418,7 +459,7 @@ fn mdns_discovery(listen_for: Duration) -> Vec<(Ipv4Addr, DeviceKind)> {
                 if let mdns_sd::ServiceEvent::ServiceResolved(info) = event {
                     for address in info.get_addresses_v4() {
                         if probeable(address) {
-                            found.add(address, *kind);
+                            found.add(address, Some(*kind));
                         }
                     }
                 }
@@ -594,7 +635,7 @@ mod tests {
 
     #[test]
     fn found_addresses_are_capped_and_deduplicated() {
-        let mut found: Found<Option<DeviceKind>> = Found::default();
+        let mut found = Found::default();
         for n in 0..(MAX_CANDIDATES + 100) {
             let n = u32::try_from(n).unwrap();
             found.add(Ipv4Addr::from(0x0a00_0000 + 256 + n), None);
@@ -602,6 +643,95 @@ mod tests {
         found.add(ip(10, 0, 0, 1), None);
         found.add(ip(10, 0, 0, 1), None);
         assert_eq!(found.0.len(), MAX_CANDIDATES);
+    }
+
+    #[test]
+    fn found_kinds_merge_from_later_replies() {
+        let mut found = Found::default();
+        found.add(ip(10, 0, 0, 1), None);
+        found.add(ip(10, 0, 0, 1), Some(DeviceKind::Fpp));
+        assert_eq!(
+            found.0[&ip(10, 0, 0, 1)],
+            Some(DeviceKind::Fpp),
+            "a later reply fills in the kind"
+        );
+        found.add(ip(10, 0, 0, 1), None);
+        found.add(ip(10, 0, 0, 1), Some(DeviceKind::Falcon));
+        assert_eq!(
+            found.0[&ip(10, 0, 0, 1)],
+            Some(DeviceKind::Fpp),
+            "the first known kind stays"
+        );
+    }
+
+    #[test]
+    fn the_sweep_never_probes_this_computers_own_addresses() {
+        let http = crate::http::FakeHttp::new();
+        let mask = ip(255, 255, 255, 0);
+        // Two interfaces on the same subnet: neither is probed through the other.
+        web_sweep(&http, &[(ip(10, 0, 0, 5), mask), (ip(10, 0, 0, 6), mask)]);
+        let requests = http.requests();
+        assert_eq!(requests.len(), 252);
+        assert!(requests.contains(&"GET 10.0.0.7/".to_string()));
+        assert!(!requests.contains(&"GET 10.0.0.5/".to_string()));
+        assert!(!requests.contains(&"GET 10.0.0.6/".to_string()));
+    }
+
+    #[test]
+    fn parallel_work_is_handed_out_as_threads_free_up() {
+        // The first item can only finish once every other item is done. With the work split into
+        // fixed chunks, the items queued behind it in its chunk would never start.
+        let items: Vec<usize> = (0..SWEEP_THREADS * 3).collect();
+        let done = AtomicUsize::new(0);
+        let results = in_parallel(&items, |item| {
+            if *item == 0 {
+                let deadline = Instant::now() + Duration::from_secs(10);
+                while done.load(Ordering::SeqCst) < items.len() - 1 && Instant::now() < deadline {
+                    std::thread::yield_now();
+                }
+                done.load(Ordering::SeqCst) == items.len() - 1
+            } else {
+                done.fetch_add(1, Ordering::SeqCst);
+                true
+            }
+        });
+        assert_eq!(results.len(), items.len());
+        assert!(results.iter().all(|ok| *ok));
+    }
+
+    fn found_device(address: &str, kind: DeviceKind, by: FoundBy) -> Device {
+        Device {
+            address: address.to_string(),
+            kind,
+            name: String::new(),
+            model: String::new(),
+            firmware: String::new(),
+            mode: None,
+            found_by: vec![by],
+        }
+    }
+
+    #[test]
+    fn a_typed_hostname_is_merged_into_the_same_device_found_by_address() {
+        let mut devices: BTreeMap<String, Device> = [
+            ("fpp.local", DeviceKind::Fpp, FoundBy::Manual),
+            ("10.0.0.5", DeviceKind::Fpp, FoundBy::Ping),
+            ("wled.local", DeviceKind::Wled, FoundBy::Manual),
+            ("10.0.0.6", DeviceKind::Fpp, FoundBy::WebSweep),
+            ("nowhere.local", DeviceKind::Fpp, FoundBy::Manual),
+        ]
+        .into_iter()
+        .map(|(a, k, by)| (a.to_string(), found_device(a, k, by)))
+        .collect();
+        merge_hostnames(&mut devices, |host| match host {
+            "fpp.local" => vec![ip(10, 0, 0, 5)],
+            // Same address but another kind of controller: not the same device.
+            "wled.local" => vec![ip(10, 0, 0, 6)],
+            _ => Vec::new(),
+        });
+        let keys: Vec<_> = devices.keys().map(String::as_str).collect();
+        assert_eq!(keys, vec!["10.0.0.5", "10.0.0.6", "nowhere.local", "wled.local"]);
+        assert_eq!(devices["10.0.0.5"].found_by, vec![FoundBy::Ping, FoundBy::Manual]);
     }
 
     #[test]

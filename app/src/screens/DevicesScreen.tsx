@@ -221,7 +221,7 @@ export function DevicesScreen() {
           </div>
         </EmptyState>
       )}
-      {discovery && discovery.devices.length === 0 && discovery.silent.length === 0 && (
+      {discovery && discovery.devices.length === 0 && discovery.silent.length === 0 && discovery.locked.length === 0 && (
         <EmptyState title="No controllers found">
           Make sure this computer is on the same network as your controllers. If your computer asks whether PixelFlow
           may accept incoming connections, allow it so controllers can answer. You can also check a specific address.
@@ -271,6 +271,19 @@ export function DevicesScreen() {
               <span>
                 <strong>{peer.description || peer.address}</strong> ({peer.address}) isn't responding. {peer.listedBy} lists
                 it — check that it's powered on and connected, then scan again.
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {discovery && discovery.locked.length > 0 && (
+        <ul className="mt-6 flex flex-col gap-2">
+          {discovery.locked.map((address) => (
+            <li key={address} className="flex items-start gap-2 text-sm text-amber-700 dark:text-amber-400">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+              <span>
+                <strong>{address}</strong> asks for a password, so PixelFlow can't read it. If it's an FPP, turn off its UI
+                and API password in FPP's settings, then scan again.
               </span>
             </li>
           ))}

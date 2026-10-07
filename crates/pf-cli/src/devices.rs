@@ -72,7 +72,8 @@ pub fn device(args: &DeviceArgs) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// A table of discovered devices, plus controllers that were listed but silent.
+/// A table of discovered devices, plus controllers that were listed but silent, and addresses
+/// that asked for a password.
 pub fn discovery_table(found: &Discovery) -> String {
     let mut out = if found.devices.is_empty() {
         "No controllers found. Try --host <address> if you know where one is.\n".to_string()
@@ -95,6 +96,12 @@ pub fn discovery_table(found: &Discovery) -> String {
             out,
             "  {:<16} not responding — {} lists it as \"{}\". Is it powered on and connected?",
             s.address, s.listed_by, s.description
+        );
+    }
+    for address in &found.locked {
+        let _ = writeln!(
+            out,
+            "  {address:<16} asks for a password, so PixelFlow can't read it. Turn off its UI/API password and scan again."
         );
     }
     out
@@ -186,12 +193,17 @@ mod tests {
                 description: "Falcon_B".into(),
                 listed_by: "FPP".into(),
             }],
+            locked: vec!["192.0.2.30".into()],
         };
         let text = discovery_table(&found);
         assert!(text.starts_with("Found 1 controller(s):\n"), "{text}");
         assert!(text.contains("192.0.2.20       FALCON  Garage"), "{text}");
         assert!(
             text.contains("192.0.2.21       not responding — FPP lists it as \"Falcon_B\""),
+            "{text}"
+        );
+        assert!(
+            text.contains("192.0.2.30       asks for a password, so PixelFlow can't read it."),
             "{text}"
         );
         assert!(discovery_table(&Discovery::default()).starts_with("No controllers found."));

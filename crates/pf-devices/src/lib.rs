@@ -40,7 +40,7 @@ pub use device::{Device, DeviceKind, FoundBy};
 pub use discover::{DiscoverOptions, Discovery, SilentPeer, discover, sweep_hosts};
 pub use error::DeviceError;
 pub use fingerprint::classify_home_page;
-pub use http::{FakeHttp, Http, HttpClient};
+pub use http::{FakeHttp, Http, HttpClient, device_url};
 pub use identify::{identify, read_config};
 pub use import::{
     FppSetupPlan, ImportPlan, SetupSkip, is_placeholder, plan_destination_import, plan_fpp_setup,

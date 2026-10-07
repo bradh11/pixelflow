@@ -38,6 +38,8 @@ pub enum IssueCode {
     DuplicatePort,
     /// A controller with no IP address or hostname.
     MissingAddress,
+    /// A controller address PixelFlow can't send to: an IPv6 address, or one with a space in it.
+    InvalidAddress,
     // Wiring checks (pf-mapping).
     PortOverCapacity,
     UnassignedNodes,

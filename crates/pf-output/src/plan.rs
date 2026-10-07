@@ -154,7 +154,7 @@ fn plan_with(
             ControllerPlan {
                 id: controller.id,
                 name: controller.name.clone(),
-                destination: resolve(&controller.address, port),
+                destination: destination(&wire, &controller.address, port, &resolve),
                 channel_count: output.channel_count,
                 spans,
                 wire,
@@ -221,7 +221,7 @@ pub fn build_passthrough_plan(routes: &[PassthroughRoute], frame_len: usize, fra
             ControllerPlan {
                 id: route.id,
                 name: route.name.clone(),
-                destination: resolve(&route.address, port),
+                destination: destination(&wire, &route.address, port, resolve),
                 channel_count: route.count,
                 spans: vec![GatherSpan {
                     frame_offset: route.start,
@@ -244,10 +244,41 @@ pub fn build_passthrough_plan(routes: &[PassthroughRoute], frame_len: usize, fra
     }
 }
 
-/// Resolves `ip`, `ip:port`, `host`, or `host:port` to an IPv4 socket address.
+/// What a multicast sACN controller's [`ControllerPlan::destination`] says: its address is never
+/// looked up, because every universe goes to its multicast group.
+const MULTICAST_DESTINATION: &str = "not used: sent by multicast";
+
+/// The unicast destination for a controller sent over `wire`: looked up for DDP and unicast
+/// sACN, skipped for multicast sACN (it doesn't use it, and a lookup can block on DNS).
+fn destination(
+    wire: &Wire,
+    address: &str,
+    port: u16,
+    resolve: impl Fn(&str, u16) -> Result<SocketAddr, String>,
+) -> Result<SocketAddr, String> {
+    match wire {
+        Wire::Sacn { multicast: true, .. } => Err(MULTICAST_DESTINATION.to_string()),
+        _ => resolve(address, port),
+    }
+}
+
+/// Resolves `ip`, `ip:port`, `host`, or `host:port` (spaces around it are ignored) to an IPv4
+/// socket address. IPv6 addresses are refused: output goes over IPv4 only.
 fn resolve(address: &str, default_port: u16) -> Result<SocketAddr, String> {
+    let address = address.trim();
     if let Ok(addr) = address.parse::<SocketAddr>() {
-        return Ok(addr);
+        return if addr.is_ipv4() {
+            Ok(addr)
+        } else {
+            Err(format!(
+                "'{address}' is an IPv6 address; PixelFlow sends over IPv4 only"
+            ))
+        };
+    }
+    if address.parse::<std::net::Ipv6Addr>().is_ok() {
+        return Err(format!(
+            "'{address}' is an IPv6 address; PixelFlow sends over IPv4 only"
+        ));
     }
     let found = if address.contains(':') {
         address.to_socket_addrs()
@@ -292,6 +323,50 @@ mod tests {
         // An invalid port fails without a DNS lookup.
         let error = resolve("bad:port", 4048).unwrap_err();
         assert!(error.starts_with("could not resolve"), "{error}");
+    }
+
+    #[test]
+    fn addresses_are_trimmed_and_ipv6_is_refused() {
+        assert_eq!(resolve(" 10.0.0.5\t", 4048), Ok("10.0.0.5:4048".parse().unwrap()));
+        assert_eq!(
+            resolve(" 10.0.0.5:9000 ", 4048),
+            Ok("10.0.0.5:9000".parse().unwrap())
+        );
+        for v6 in ["::1", "fe80::1", "[::1]:4048"] {
+            let error = resolve(v6, 4048).unwrap_err();
+            assert!(error.contains("IPv6"), "{v6}: {error}");
+        }
+    }
+
+    #[test]
+    fn multicast_sacn_never_looks_up_the_controller_address() {
+        let mut show = Show::new("t");
+        let strip = prop(2, ColorOrder::Rgb);
+        let mut c = Controller::new(
+            "Arches",
+            "no-such-host.invalid",
+            Protocol::Sacn(SacnConfig {
+                multicast: true,
+                ..SacnConfig::default()
+            }),
+        );
+        let mut port = Port::new(1);
+        port.slots = vec![PortSlot::new(strip.id)];
+        c.ports = vec![port];
+        show.props = vec![strip];
+        show.controllers = vec![c];
+        let (map, _) = pf_mapping::map_show(&show);
+        let lookups = std::cell::Cell::new(0);
+        let plan = plan_with(&show, &map, |a, p| {
+            lookups.set(lookups.get() + 1);
+            resolve(a, p)
+        });
+        assert_eq!(lookups.get(), 0);
+        assert!(matches!(
+            &plan.controllers[0].wire,
+            Wire::Sacn { multicast: true, .. }
+        ));
+        assert!(plan.controllers[0].destination.is_err());
     }
 
     #[test]

@@ -108,7 +108,8 @@ async function openApp() {
 
 const go = (screenName: Screen) => act(() => useApp.getState().setScreen(screenName));
 
-describe("every control has a name, and icon-only buttons have tooltips", () => {
+// Each test walks several screens, dialogs, and menus; slow CI machines need more than the 5 s default.
+describe("every control has a name, and icon-only buttons have tooltips", { timeout: 30_000 }, () => {
   beforeEach(() => {
     vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({
       x: 0,

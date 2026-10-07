@@ -4,7 +4,7 @@ import { errorMessage } from "../api/backend";
 import { MemoryBackend } from "../api/memory";
 import type { CameraMapPlan, CameraMapTargetInfo, CodeBase, DecodedCapture, OutputStatus, TargetSpec } from "../api/types";
 import { Button, Card, EmptyState, Field, PageHeader, Select } from "../components/ui";
-import { type ApplyChoice, canFit, canMeasure, defaultChoice, describeAnomaly, placementEdits } from "../lib/cameraMap";
+import { type ApplyChoice, canFit, canMeasure, defaultChoice, describeAnomaly, groupAnomalies, placementEdits } from "../lib/cameraMap";
 import { type CaptureRead, type FrameSource, type ReadProgress, openVideo, readCapture } from "../lib/captureFrames";
 import { thousands } from "../lib/format";
 import { toastWithUndo } from "../state/undoToast";
@@ -311,7 +311,7 @@ export function CameraMapScreen() {
                 <section aria-label="Worth checking" className="mt-4">
                   <h3 className="mb-1 text-xs font-medium tracking-wide text-neutral-500 uppercase">Worth checking</h3>
                   <ul className="flex flex-col gap-1.5 text-sm">
-                    {plan.plan.anomalies.map((a, i) => (
+                    {groupAnomalies(plan.plan.anomalies).map((a, i) => (
                       <li key={i} className="flex flex-wrap items-center gap-2">
                         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden />
                         <span className="min-w-0 flex-1">{describeAnomaly(a, names)}</span>

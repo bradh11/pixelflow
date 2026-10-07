@@ -36,7 +36,7 @@ describe("camera mapping screen", () => {
     await screen.findByText(/4 · Check and place/, undefined, { timeout: 20_000 });
     const checking = await screen.findByRole("region", { name: "Worth checking" });
     expect(within(checking).getByText(/Garage Arch: pixel 11 never lit up/)).toBeInTheDocument();
-    expect(within(checking).getByText(/Garage Arch: pixel 1 was seen twice/)).toBeInTheDocument();
+    expect(within(checking).getByText(/Garage Arch: pixels 1–3 seen twice/)).toBeInTheDocument();
     // The sample capture swaps the second prop's red and green.
     expect(within(checking).getByText(/Mega Tree: colours came out wrong.*looks like GRB, not RGB/)).toBeInTheDocument();
 

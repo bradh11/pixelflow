@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CameraMapPlan, Prop, PropPlan } from "../api/types";
 import { emptyShow } from "../api/memory";
 import { frontView } from "./geometry";
-import { canFit, correctedColorOrder, defaultChoice, describeAnomaly, placementEdits, sequenceSeconds, slotCount, symbolAt } from "./cameraMap";
+import { canFit, correctedColorOrder, defaultChoice, describeAnomaly, groupAnomalies, placementEdits, sequenceSeconds, slotCount, symbolAt } from "./cameraMap";
 import { newProp } from "./shows";
 
 describe("the camera-mapping sequence", () => {
@@ -29,7 +29,16 @@ describe("the camera-mapping sequence", () => {
     const names = ["Arch", "Tree"];
     expect(describeAnomaly({ kind: "missing", prop: 0, ranges: [[3, 3], [9, 11]] }, names)).toMatch(/^Arch: 4 pixels 4, 10–12 never lit up/);
     expect(describeAnomaly({ kind: "colorOrder", prop: 1, configured: "RGB", suggested: "GRB" }, names)).toMatch(/looks like GRB, not RGB/);
-    expect(describeAnomaly({ kind: "duplicate", prop: 1, node: 0, x: 1, y: 2 }, names)).toMatch(/pixel 1 was seen twice/);
+    const grouped = groupAnomalies([
+      { kind: "duplicate", prop: 1, node: 0, x: 1, y: 2 },
+      { kind: "unreadable", count: 2 },
+      { kind: "duplicate", prop: 1, node: 1, x: 1, y: 2 },
+      { kind: "duplicate", prop: 1, node: 5, x: 1, y: 2 },
+      { kind: "jump", prop: 0, node: 7 },
+    ]);
+    expect(grouped.map((n) => n.kind)).toEqual(["duplicate", "unreadable", "jump"]);
+    expect(describeAnomaly(grouped[0], names)).toMatch(/^Tree: pixels 1–2, 6 seen twice/);
+    expect(describeAnomaly(grouped[2], names)).toMatch(/^Arch: pixel 8 far from the pixel before/);
     expect(describeAnomaly({ kind: "unreadable", count: 1 }, names)).toMatch(/^1 lit spot didn't/);
   });
 });

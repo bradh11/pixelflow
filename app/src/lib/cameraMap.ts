@@ -59,20 +59,49 @@ function nodes(ranges: [number, number][]): string {
   return shown.join(", ") + (ranges.length > 4 ? `, and ${ranges.length - 4} more` : "");
 }
 
+/** An anomaly as listed: a prop's duplicates and jumps each gathered into one note. */
+export type AnomalyNote =
+  | Exclude<CameraMapAnomaly, { kind: "duplicate" } | { kind: "jump" }>
+  | { kind: "duplicate" | "jump"; prop: number; ranges: [number, number][] };
+
+/** Gathers each prop's duplicates, and its jumps, into one note (in the order first seen). */
+export function groupAnomalies(anomalies: CameraMapAnomaly[]): AnomalyNote[] {
+  const notes: AnomalyNote[] = [];
+  for (const a of anomalies) {
+    if (a.kind !== "duplicate" && a.kind !== "jump") {
+      notes.push(a);
+      continue;
+    }
+    type Gathered = Extract<AnomalyNote, { kind: "duplicate" | "jump" }>;
+    let note = notes.find((n): n is Gathered => n.kind === a.kind && n.prop === a.prop);
+    if (!note) {
+      note = { kind: a.kind, prop: a.prop, ranges: [] };
+      notes.push(note);
+    }
+    const last = note.ranges[note.ranges.length - 1];
+    if (last && last[1] + 1 === a.node) last[1] = a.node;
+    else if (!last || last[1] !== a.node) note.ranges.push([a.node, a.node]);
+  }
+  return notes;
+}
+
+const count = (ranges: [number, number][]) => ranges.reduce((n, [a, b]) => n + b - a + 1, 0);
+
+/** "pixel 4" or "pixels 4, 10–12". */
+const pixelsText = (ranges: [number, number][]) => `${count(ranges) === 1 ? "pixel" : "pixels"} ${nodes(ranges)}`;
+
 /** A sentence about something worth checking in a capture. */
-export function describeAnomaly(anomaly: CameraMapAnomaly, names: string[]): string {
+export function describeAnomaly(anomaly: AnomalyNote, names: string[]): string {
   const name = "prop" in anomaly ? (names[anomaly.prop] ?? "A prop") : "";
   switch (anomaly.kind) {
-    case "missing": {
-      const count = anomaly.ranges.reduce((n, [a, b]) => n + b - a + 1, 0);
-      return `${name}: ${count === 1 ? "pixel" : `${count} pixels`} ${nodes(anomaly.ranges)} never lit up in the video. They may be dead, hidden from the camera, or wired somewhere else. Their places are filled in between their neighbours.`;
-    }
+    case "missing":
+      return `${name}: ${count(anomaly.ranges) === 1 ? "pixel" : `${count(anomaly.ranges)} pixels`} ${nodes(anomaly.ranges)} never lit up in the video. They may be dead, hidden from the camera, or wired somewhere else. Their places are filled in between their neighbours.`;
     case "duplicate":
-      return `${name}: pixel ${anomaly.node + 1} was seen twice; the dimmer one (a reflection?) is ignored.`;
+      return `${name}: ${pixelsText(anomaly.ranges)} seen twice; the dimmer spot (a reflection?) is ignored.`;
     case "reversed":
       return `${name}: the pixels run the other way from the layout — the string may start at the other end. The measured shape follows the real wiring.`;
     case "jump":
-      return `${name}: pixel ${anomaly.node + 1} is far from the pixel before it. It may be wired out of order, or misread.`;
+      return `${name}: ${pixelsText(anomaly.ranges)} far from the pixel before. Wired out of order, or misread?`;
     case "colorOrder":
       return `${name}: colours came out wrong (red showed as another colour). Its colour order looks like ${anomaly.suggested}, not ${anomaly.configured}.`;
     case "unreadable":

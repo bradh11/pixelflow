@@ -1,7 +1,13 @@
 import type { Backend } from "./backend";
 import type {
   ChannelMap,
+  DeviceComparison,
+  DeviceConfig,
   DeviceDetails,
+  RestoreReport,
+  SendPlan,
+  SendReport,
+  UseProps,
   FppSequence,
   FppFile,
   FppFolder,
@@ -44,6 +50,7 @@ import { fppFileName } from "../lib/fppNames";
 import { filesOf, missingFile, repointEdits, sameFile } from "../lib/showFiles";
 import { sampleShow } from "./sampleShow";
 import { MAX_UNIVERSE_SIZE, isUniverseSize } from "../lib/controllerEdit";
+import { type Setup, applySetup, compareSetup, deviceSetup, diffPorts, oneStringPerPort, showSetup, stringKey, takeFromDevice } from "../lib/deviceSetup";
 
 /**
  * An in-memory stand-in for the engine, used by tests and when the UI runs in a plain
@@ -367,9 +374,24 @@ export class MemoryBackend implements Backend {
     return withFreshIds(details);
   }
 
-  async importDevice(address: string) {
-    const { device, plan } = await this.inspectDevice(address);
+  async importDevice(address: string, useProps: UseProps = {}) {
+    const { device, config, plan } = await this.inspectDevice(address);
     if (!plan.canImport) throw new Error(`${device.name} has no pixel outputs to import.`);
+    // Like the engine: slots remember the controller's own color order, and strings can wire
+    // props already in the show instead of starter props.
+    const replaced = new Set<string>();
+    for (const port of plan.controller.ports) {
+      const strings = config.ports.find((p) => p.number === port.number)?.strings ?? [];
+      port.slots.forEach((slot, i) => {
+        slot.controllerColorOrder = strings[i]?.colorOrder ?? null;
+        const existing = useProps[stringKey(port.number, i)];
+        if (existing && this.show.props.some((p) => p.id === existing)) {
+          replaced.add(slot.prop);
+          slot.prop = existing;
+        }
+      });
+    }
+    plan.props = plan.props.filter((p) => !replaced.has(p.id));
     // Like the engine: a port-less controller at this address (added from an FPP) is filled in.
     const placeholder = this.show.controllers.find((c) => c.address === address && isPlaceholder(c));
     const controller = placeholder
@@ -538,6 +560,131 @@ export class MemoryBackend implements Backend {
       ...(plan.own ? [...plan.own.props.map((prop) => ({ type: "addProp" as const, prop })), { type: "addController" as const, controller: plan.own.controller }] : []),
       ...plan.controllers.map((controller) => ({ type: "addController" as const, controller })),
     ]);
+  }
+
+  /** How the next send of a setup goes wrong, if it does (for tests and screenshots). */
+  setupSendFailure: "fail" | "mismatch" | null = null;
+  private compared = new Map<string, DeviceConfig>();
+  private sends = new Map<string, { target: Setup; ids: string[]; before: DeviceConfig; restore: DeviceConfig | null }>();
+
+  private controllerAt(address: string) {
+    const here = this.show.controllers.filter((c) => c.address === address);
+    const controller = here.find((c) => !isPlaceholder(c)) ?? here[0];
+    if (!controller) throw new Error(`No controller at ${address} is in your show. Add it from the Controllers screen first.`);
+    return controller;
+  }
+
+  private deviceAt(address: string) {
+    const found = this.deviceNetwork.details.find((d) => d.device.address === address);
+    if (!found) throw new Error(`Could not reach ${address}: no response`);
+    return found;
+  }
+
+  /** Like the engine's compare_device. */
+  async compareDevice(address: string): Promise<DeviceComparison> {
+    this.calls.push(`compareDevice:${address}`);
+    const controller = this.controllerAt(address);
+    const { device, config } = structuredClone(this.deviceAt(address));
+    this.compared.set(address, config);
+    return { device, controllerName: controller.name, ...compareSetup(this.show, controller, device.kind, config) };
+  }
+
+  /** Like the engine's take_from_device_setup: one undo step. */
+  async takeFromDevice(address: string, picks: string[], useProps: UseProps = {}) {
+    this.calls.push(`takeFromDevice:${address}:${picks.join(",")}`);
+    const config = this.compared.get(address);
+    if (!config) throw new Error("Compare with the controller first.");
+    if (picks.length === 0) throw new Error("Pick at least one difference to take into your show.");
+    const { device } = this.deviceAt(address);
+    const taken = takeFromDevice(this.show, this.controllerAt(address), device.kind, config, picks, useProps);
+    return this.applyEdits([
+      ...taken.newProps.map((prop) => ({ type: "addProp" as const, prop })),
+      ...taken.changedProps.map((prop) => ({ type: "updateProp" as const, prop })),
+      { type: "updateController" as const, controller: taken.controller },
+    ]);
+  }
+
+  /** Like the engine's plan_device_setup (outputs only: the pretend devices have no receive settings). */
+  async planDeviceSetup(address: string): Promise<SendPlan> {
+    this.calls.push(`planDeviceSetup:${address}`);
+    const controller = this.controllerAt(address);
+    const { device, config } = structuredClone(this.deviceAt(address));
+    if (device.kind === "falcon") {
+      this.sends.delete(address);
+      return {
+        device,
+        controllerName: controller.name,
+        changes: [],
+        notes: [],
+        busy: null,
+        canSend: false,
+        reason: "PixelFlow can't send a setup to Falcon controllers yet. Use Compare to bring the Falcon's setup into your show, or set it on the Falcon's own page.",
+      };
+    }
+    const target = showSetup(this.show, controller, oneStringPerPort(device.kind));
+    const changes = diffPorts(deviceSetup(config), target, "toDevice");
+    this.sends.set(address, { target, ids: changes.map((c) => c.id), before: config, restore: null });
+    const player = this.fppPlayers[address]?.status;
+    const busy =
+      player && (player.state === "playing" || player.state === "paused")
+        ? `This FPP is playing ${player.sequence ?? player.playlist ?? "a show"}. Its lights may flicker or go dark while the new setup is saved.`
+        : null;
+    const notes = device.kind === "fpp" && changes.length > 0 ? ["If the lights don't change after sending, restart FPP's player (fppd) from the FPP's own page."] : [];
+    return {
+      device,
+      controllerName: controller.name,
+      changes,
+      notes: [...target.notes, ...notes],
+      busy,
+      canSend: changes.length > 0,
+      reason: changes.length > 0 ? null : "The controller already matches your show.",
+    };
+  }
+
+  /** Like the engine's send_device_setup: keeps the device's setup first, then sends and checks. */
+  async sendDeviceSetup(address: string, expected: string[]): Promise<SendReport> {
+    this.calls.push(`sendDeviceSetup:${address}:${expected.join(",")}`);
+    const session = this.sends.get(address);
+    if (!session) throw new Error("Review what will change before sending.");
+    if (session.ids.join("\n") !== expected.join("\n")) throw new Error("What will change isn't what was shown. Review the changes again.");
+    const found = this.deviceAt(address);
+    const now = showSetup(this.show, this.controllerAt(address), oneStringPerPort(found.device.kind));
+    if (JSON.stringify(now) !== JSON.stringify(session.target)) throw new Error("Your show changed since you looked. Review the changes again.");
+    session.ids = ["(sent)"];
+    const failure = this.setupSendFailure;
+    this.setupSendFailure = null;
+    if (failure === "fail") {
+      // Part of it landed before the controller stopped answering.
+      found.config = applySetup(found.config, { ...session.target, ports: session.target.ports.slice(0, 1) });
+      session.restore = session.before;
+      return {
+        status: "failed",
+        message: "Saving the new setup failed: Could not reach the controller: it didn't answer in time. It may have been only partly saved.",
+        mismatches: [],
+        canRestore: true,
+      };
+    }
+    if (failure === "mismatch") {
+      session.restore = session.before;
+      return {
+        status: "mismatch",
+        message: "Sent, but reading it back, the controller's setup doesn't match your show.",
+        mismatches: diffPorts(deviceSetup(found.config), session.target, "toDevice"),
+        canRestore: true,
+      };
+    }
+    found.config = applySetup(found.config, session.target);
+    return { status: "sent", message: "Sent. Reading it back, the controller matches your show.", mismatches: [], canRestore: false };
+  }
+
+  /** Like the engine's restore_device_setup. */
+  async restoreDeviceSetup(address: string): Promise<RestoreReport> {
+    this.calls.push(`restoreDeviceSetup:${address}`);
+    const session = this.sends.get(address);
+    if (!session?.restore) throw new Error("There's no earlier setup to put back.");
+    this.deviceAt(address).config = structuredClone(session.restore);
+    session.restore = null;
+    return { restored: true, message: "The previous setup is back on the controller." };
   }
 
   async openDevicePage(address: string) {

@@ -41,7 +41,12 @@ export const tauriBackend: Backend = {
   outputStatus: () => invoke("output_status"),
   discoverDevices: (hosts, network) => invoke("discover_devices", { hosts, network }),
   inspectDevice: (address) => invoke("inspect_device", { address }),
-  importDevice: (address) => invoke("import_device", { address }),
+  importDevice: (address, useProps) => invoke("import_device", { address, useProps: useProps ?? null }),
+  compareDevice: (address) => invoke("compare_device", { address }),
+  takeFromDevice: (address, picks, useProps) => invoke("take_from_device_setup", { address, picks, useProps: useProps ?? null }),
+  planDeviceSetup: (address) => invoke("plan_device_setup", { address }),
+  sendDeviceSetup: (address, expected) => invoke("send_device_setup", { address, expected }),
+  restoreDeviceSetup: (address) => invoke("restore_device_setup", { address }),
   importFppDestination: (address, destination, protocol) =>
     invoke("import_fpp_destination", { address, destination, protocol }),
   fppStatus: (address) => invoke("fpp_status", { address }),

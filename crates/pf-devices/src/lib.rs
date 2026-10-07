@@ -22,6 +22,7 @@ pub mod fpp_upload;
 mod http;
 mod identify;
 mod import;
+mod reach;
 #[cfg(feature = "test-fixtures")]
 pub mod testing;
 pub mod wled;
@@ -34,3 +35,4 @@ pub use fingerprint::classify_home_page;
 pub use http::{FakeHttp, Http, HttpClient};
 pub use identify::{identify, read_config};
 pub use import::{ImportPlan, is_placeholder, plan_destination_import, plan_import};
+pub use reach::{FakeReach, Reach, ReachCheck, TcpReach, check_reach, local_networks, on_local_network};

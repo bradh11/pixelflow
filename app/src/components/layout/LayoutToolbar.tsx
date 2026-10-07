@@ -80,14 +80,14 @@ export const MORE_TOOLS: ToolInfo[] = [
  */
 export type LabelShown = "always" | "toggles" | "view" | "shapes" | "tools";
 /** The bar width (px) from which each group's labels show. */
-export const LABEL_FROM: Record<Exclude<LabelShown, "always">, number> = { toggles: 1160, view: 1000, shapes: 900, tools: 800 };
+export const LABEL_FROM: Record<Exclude<LabelShown, "always">, number> = { toggles: 1300, view: 1140, shapes: 1040, tools: 880 };
 // Spelled out in full so the class names are found when the styles are built.
 export const LABEL_CLASS: Record<LabelShown, string | undefined> = {
   always: undefined,
-  toggles: "sr-only @min-[1160px]:not-sr-only",
-  view: "sr-only @min-[1000px]:not-sr-only",
-  shapes: "sr-only @min-[900px]:not-sr-only",
-  tools: "sr-only @min-[800px]:not-sr-only",
+  toggles: "sr-only @min-[1300px]:not-sr-only",
+  view: "sr-only @min-[1140px]:not-sr-only",
+  shapes: "sr-only @min-[1040px]:not-sr-only",
+  tools: "sr-only @min-[880px]:not-sr-only",
 };
 
 function ToolButton({

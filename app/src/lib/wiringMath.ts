@@ -83,10 +83,16 @@ export function portPixels(port: Port, nodes: NodeCounts): number {
  * "over" the limit; "none": the limit isn't known. */
 export type CapacityLevel = "none" | "ok" | "near" | "slow" | "over";
 
-/** How full one output is: the port, or one smart receiver's output on it. */
-export interface Capacity {
-  /** The smart receiver (1 = A), or null for the port itself. */
+/** Pixels on one smart receiver of a port (or, with `receiver` null, wired to the port itself). */
+export interface ReceiverLoad {
+  /** The smart receiver (1 = A), or null for pixels wired straight to the port. */
   receiver: number | null;
+  /** Pixels, counted as the boards count them (three channels to a pixel). */
+  used: number;
+}
+
+/** How full a port is, counting every smart receiver on it together. */
+export interface Capacity {
   /** Pixels, counted as the boards count them: three channels to a pixel, so RGBW counts 1⅓. */
   used: number;
   limit: number | null;
@@ -95,6 +101,8 @@ export interface Capacity {
   refresh: number | null;
   level: CapacityLevel;
   message: string | null;
+  /** Each smart receiver's share of `used`, in wiring order; empty when the port feeds none. */
+  receivers: ReceiverLoad[];
 }
 
 export interface CapacityOptions {
@@ -105,66 +113,59 @@ export interface CapacityOptions {
   fps?: number;
 }
 
-const SEVERITY: Record<CapacityLevel, number> = { none: 0, ok: 1, near: 2, slow: 3, over: 4 };
-
 /** Smart receivers are lettered on the boards: 1 is A, 2 is B, … */
 export function receiverName(receiver: number): string {
   return receiver >= 1 && receiver <= 26 ? String.fromCharCode(64 + receiver) : String(receiver);
 }
 
 /**
- * How full each output on the port is: the port itself, or (when it feeds smart receivers) each
- * receiver's output, which has the port's whole limit to itself. Falcon ports also say when they
- * hold more than they refresh in time at the show's frame rate: xLights' figure for V4/V5 boards
- * is about 704 pixels at 40 fps, scaled here to the show's rate (never above the board's limit).
+ * How full the port is. Smart receivers on a port share its one limit, as in xLights: their
+ * pixels are added up and checked together (each receiver's share is in `receivers`). Falcon
+ * ports also say when they hold more than they refresh in time at the show's frame rate:
+ * xLights' figure for V4/V5 boards is about 704 pixels at 40 fps, scaled here to the show's rate
+ * (never above the board's limit). Over the limit is a warning: every channel is still sent.
  */
-export function portCapacities(port: Port, nodes: NodeCounts, options: CapacityOptions = {}): Capacity[] {
-  const outputs: { receiver: number | null; channels: number; wide: boolean }[] = [];
+export function portCapacity(port: Port, nodes: NodeCounts, options: CapacityOptions = {}): Capacity {
+  const loads: { receiver: number | null; channels: number }[] = [];
+  let channels = 0;
+  let wide = false;
   for (const slot of port.slots) {
     const range = slotRange(slot, nodes);
     if (!range) continue;
     const cpp = options.cpp?.get(slot.prop) ?? 3;
     const pixels = slot.nullPixels + range.end - range.start;
-    let output = outputs.find((o) => o.receiver === slot.smartReceiver);
-    if (!output) outputs.push((output = { receiver: slot.smartReceiver, channels: 0, wide: false }));
-    output.channels += pixels * cpp;
-    output.wide ||= pixels > 0 && cpp > 3;
+    let load = loads.find((o) => o.receiver === slot.smartReceiver);
+    if (!load) loads.push((load = { receiver: slot.smartReceiver, channels: 0 }));
+    load.channels += pixels * cpp;
+    channels += pixels * cpp;
+    wide ||= pixels > 0 && cpp > 3;
   }
-  if (outputs.length === 0) outputs.push({ receiver: null, channels: 0, wide: false });
+  const receivers = loads.some((l) => l.receiver !== null) ? loads.map((l) => ({ receiver: l.receiver, used: Math.ceil(l.channels / 3) })) : [];
   const limit = port.maxPixels;
   const fps = options.fps ?? 40;
   const fast = options.adapter === "falcon" && limit !== null && fps > 0 ? Math.floor((FALCON_PIXELS_AT_40FPS * 40) / fps) : null;
   const refresh = fast !== null && limit !== null && fast < limit ? fast : null;
-  return outputs.map(({ receiver, channels, wide }) => {
-    const used = Math.ceil(channels / 3);
-    const base = { receiver, used, limit, refresh };
-    const say = (text: string) => (receiver === null ? text : `Receiver ${receiverName(receiver)}: ${text.charAt(0).toLowerCase()}${text.slice(1)}`);
-    if (limit === null) return { ...base, level: "none", message: null };
-    if (used > limit) {
-      const rgbw = wide ? "; RGBW pixels count as 1⅓" : "";
-      return {
-        ...base,
-        level: "over",
-        message: say(`${plural(used - limit, "pixel")} more than this port can drive (${thousands(used)} of ${thousands(limit)}${rgbw}). Move a prop to another port.`),
-      };
-    }
-    if (refresh !== null && used > refresh) {
-      return {
-        ...base,
-        level: "slow",
-        message: say(
-          `At ${fps} fps this port refreshes about ${thousands(refresh)} pixels in time; with ${thousands(used)} it will slow down. Move a prop to another port, or lower the show's frame rate.`,
-        ),
-      };
-    }
-    if (used >= limit * NEARLY_FULL) return { ...base, level: "near", message: say(`Nearly full: ${thousands(used)} of ${thousands(limit)} pixels.`) };
-    return { ...base, level: "ok", message: null };
-  });
-}
-
-/** The port's fullest output. */
-export function portCapacity(port: Port, nodes: NodeCounts, options: CapacityOptions = {}): Capacity {
-  return portCapacities(port, nodes, options).reduce((worst, c) => (SEVERITY[c.level] > SEVERITY[worst.level] ? c : worst));
+  const used = Math.ceil(channels / 3);
+  const base = { used, limit, refresh, receivers };
+  const shared = receivers.length > 1 ? `, shared by receivers ${receivers.map((r) => (r.receiver === null ? "the port" : receiverName(r.receiver))).join(", ")}` : "";
+  if (limit === null) return { ...base, level: "none", message: null };
+  if (used > limit) {
+    const rgbw = wide ? "; RGBW pixels count as 1⅓" : "";
+    return {
+      ...base,
+      level: "over",
+      message: `${plural(used - limit, "pixel")} more than this port can drive (${thousands(used)} of ${thousands(limit)}${shared}${rgbw}). Move a prop to another port.`,
+    };
+  }
+  if (refresh !== null && used > refresh) {
+    return {
+      ...base,
+      level: "slow",
+      message: `At ${fps} fps this port refreshes about ${thousands(refresh)} pixels in time; with ${thousands(used)} it will slow down. Move a prop to another port, or lower the show's frame rate.`,
+    };
+  }
+  if (used >= limit * NEARLY_FULL) return { ...base, level: "near", message: `Nearly full: ${thousands(used)} of ${thousands(limit)} pixels${shared}.` };
+  return { ...base, level: "ok", message: null };
 }
 
 /** Capacity options for a port on this controller of the show. */
@@ -446,11 +447,11 @@ export function wiringProblems(show: Show, nodes: NodeCounts, cpp?: ReadonlyMap<
   const name = (id: string) => show.props.find((p) => p.id === id)?.name ?? "A prop";
   for (const c of show.controllers) {
     for (const port of c.ports) {
-      for (const capacity of portCapacities(port, nodes, capacityOptions(show, c, cpp))) {
-        if (capacity.level !== "over" || capacity.limit === null) continue;
-        const where = capacity.receiver === null ? `Port ${port.number}` : `Port ${port.number} (smart receiver ${receiverName(capacity.receiver)})`;
+      const capacity = portCapacity(port, nodes, capacityOptions(show, c, cpp));
+      if (capacity.level === "over" && capacity.limit !== null) {
+        const shared = capacity.receivers.length > 1 ? `, across its ${capacity.receivers.length} smart receivers` : "";
         problems.push({
-          message: `${where} on ${c.name} has ${plural(capacity.used - capacity.limit, "pixel")} more than it can drive (${thousands(capacity.used)} of ${thousands(capacity.limit)}).`,
+          message: `Port ${port.number} on ${c.name} has ${plural(capacity.used - capacity.limit, "pixel")} more than it can drive (${thousands(capacity.used)} of ${thousands(capacity.limit)}${shared}).`,
           fix: "Move a prop to another port, or raise the port's pixel limit if the controller can drive more.",
         });
       }
@@ -495,6 +496,42 @@ export interface PortChannels {
   universes: [number, number] | null;
 }
 
+/** Where one slot's lit pixels start on its controller (counted from 1), and the universes they
+ * span (sACN). */
+export interface SlotChannels {
+  first: number;
+  universes: [number, number] | null;
+}
+
+/** Each slot's channels, in slot order; null for a slot that carries nothing. The channel map's
+ * spans for a port come in slot order, skipping slots with nothing to carry. */
+export function slotChannels(map: ChannelMap, controller: string, port: Port, nodes: NodeCounts): (SlotChannels | null)[] {
+  const output = map.controllers.find((c) => c.controller === controller);
+  const spans = output?.spans.filter((s) => s.port === port.number) ?? [];
+  let next = 0;
+  return port.slots.map((slot) => {
+    const range = slotRange(slot, nodes);
+    if (!output || !range || range.end === range.start) return null;
+    const i = spans.findIndex((s, j) => j >= next && s.prop === slot.prop && s.pixels === range.end - range.start);
+    if (i < 0) return null;
+    next = i + 1;
+    const span = spans[i];
+    const end = span.controllerChannel + span.pixels * span.channelsPerPixel;
+    let universes: [number, number] | null = null;
+    if (output.addressing.type === "sacn") {
+      const touched = output.addressing.universes.filter((u) => u.controllerChannel < end && span.controllerChannel < u.controllerChannel + u.len).map((u) => u.universe);
+      if (touched.length > 0) universes = [Math.min(...touched), Math.max(...touched)];
+    }
+    return { first: span.controllerChannel + 1, universes };
+  });
+}
+
+/** "U1–4", "U3", or "" for none. */
+export function universeText(universes: [number, number] | null): string {
+  if (!universes) return "";
+  return universes[0] === universes[1] ? `U${universes[0]}` : `U${universes[0]}–${universes[1]}`;
+}
+
 export function portChannels(map: ChannelMap, controller: string, port: number): PortChannels | null {
   const output = map.controllers.find((c) => c.controller === controller);
   const spans = output?.spans.filter((s) => s.port === port) ?? [];
@@ -519,8 +556,8 @@ export interface WiringPath {
   start: Pt | null;
   /** The first pixel the port's data reaches. */
   firstPixel: Pt | null;
-  /** Each prop's pixels in the order the data reaches them. */
-  runs: { prop: string; points: Pt[] }[];
+  /** Each prop's pixels in the order the data reaches them, with its slot's place on the port. */
+  runs: { prop: string; slot: number; points: Pt[] }[];
   /** Wire between the controller and the first prop, and from each prop's last pixel to the next one's first. */
   jumps: { from: Pt; to: Pt }[];
 }
@@ -529,7 +566,7 @@ export interface WiringPath {
 export function wiringPath(port: Port, preview: PreviewProp[]): WiringPath {
   const byId = new Map(preview.map((p) => [p.prop, p.points]));
   const runs: WiringPath["runs"] = [];
-  for (const slot of port.slots) {
+  for (const [index, slot] of port.slots.entries()) {
     const points = byId.get(slot.prop);
     if (!points) continue;
     const count = Math.floor(points.length / 2);
@@ -544,7 +581,7 @@ export function wiringPath(port: Port, preview: PreviewProp[]): WiringPath {
       const n = slot.reverse ? end - 1 - i : start + i;
       return { x: points[n * 2], y: points[n * 2 + 1] };
     };
-    runs.push({ prop: slot.prop, points: order.map(at) });
+    runs.push({ prop: slot.prop, slot: index, points: order.map(at) });
   }
   if (runs.length === 0) return { start: null, firstPixel: null, runs: [], jumps: [] };
   const firstPixel = runs[0].points[0];
@@ -565,13 +602,9 @@ export interface Rect {
   bottom: number;
 }
 
-/** Where a drop at `p` goes among chips laid out in lines (left to right, then down): before the
- * first chip on a later line, or on the same line whose middle is past the pointer. */
-export function dropIndex(chips: Rect[], p: Pt): number {
-  for (let i = 0; i < chips.length; i++) {
-    const r = chips[i];
-    if (p.y < r.top) return i;
-    if (p.y <= r.bottom && p.x < (r.left + r.right) / 2) return i;
-  }
-  return chips.length;
+/** Where a drop at height `y` goes among table rows (top to bottom): before the first row whose
+ * middle is below it, else after the last. */
+export function rowDropIndex(rows: Rect[], y: number): number {
+  const i = rows.findIndex((r) => y < (r.top + r.bottom) / 2);
+  return i < 0 ? rows.length : i;
 }

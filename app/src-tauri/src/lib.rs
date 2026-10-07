@@ -278,6 +278,7 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         devices::import_device,
         devices::import_fpp_destination,
         devices::fpp_status,
+        devices::check_controllers,
         devices::fpp_sequences,
         devices::fpp_start,
         devices::fpp_stop,
@@ -892,6 +893,25 @@ mod tests {
         assert!(
             error.as_str().unwrap().starts_with("Could not reach 192.0.2.99"),
             "{error}"
+        );
+    }
+
+    #[test]
+    fn check_controllers_says_which_answer_and_which_are_on_this_network() {
+        let (_app, webview, _dir) = app();
+        let checks = call(
+            &webview,
+            "check_controllers",
+            json!({ "addresses": ["192.0.2.10", "192.0.2.11", "192.168.1.50"] }),
+        )
+        .unwrap();
+        assert_eq!(
+            checks,
+            json!([
+                { "address": "192.0.2.10", "answering": true, "onLocalNetwork": true },
+                { "address": "192.0.2.11", "answering": false, "onLocalNetwork": true },
+                { "address": "192.168.1.50", "answering": false, "onLocalNetwork": false },
+            ])
         );
     }
 

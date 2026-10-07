@@ -45,6 +45,7 @@ export const tauriBackend: Backend = {
   importFppDestination: (address, destination, protocol) =>
     invoke("import_fpp_destination", { address, destination, protocol }),
   fppStatus: (address) => invoke("fpp_status", { address }),
+  checkControllers: (addresses) => invoke("check_controllers", { addresses }),
   fppSequences: (address) => invoke("fpp_sequences", { address }),
   fppStart: (address, name) => invoke("fpp_start", { address, name }),
   fppStop: (address, gracefully) => invoke("fpp_stop", { address, gracefully }),

@@ -116,7 +116,7 @@ const Row = memo(function Row({ prop, top, pixels, wiring, selected, active, ren
         title={look.label}
       />
       {renaming ? <RenameField prop={prop} onDone={() => onRename(null)} /> : <span className="min-w-0 flex-1 truncate">{prop.name}</span>}
-      <span className="hidden shrink-0 text-xs text-neutral-500 @min-[15rem]:inline">{shapeLabel(prop.shape)}</span>
+      <span className="hidden max-w-[7rem] shrink truncate text-xs text-neutral-500 @min-[20rem]:inline">{shapeLabel(prop.shape)}</span>
       <span className="w-12 shrink-0 text-right text-xs text-neutral-500 tabular-nums">{thousands(pixels)}</span>
       <span className="sr-only">{wiring === "wired" ? "" : `, ${look.label.toLowerCase()}`}</span>
       <button

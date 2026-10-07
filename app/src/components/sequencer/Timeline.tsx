@@ -958,9 +958,20 @@ const RowHeaders = memo(function RowHeaders({
           const isCollapsed = collapsed.includes(row.id);
           const y = lane.y - scrollY;
           if (!lane.first) {
+            const count = row.layers[lane.layer]?.effects.length ?? 0;
+            const label = `Delete layer ${lane.layer + 1} of ${name}${count ? ` and its ${count} effect${count === 1 ? "" : "s"}` : ""}`;
             return (
-              <div key={`${row.id}:${lane.layer}`} className="absolute right-0 left-0 flex items-center pl-8 text-neutral-400" style={{ top: y, height: lane.h }}>
-                Layer {lane.layer + 1}
+              <div
+                key={`${row.id}:${lane.layer}`}
+                className="group absolute right-0 left-0 flex items-center pr-1 pl-8 text-neutral-400"
+                style={{ top: y, height: lane.h }}
+              >
+                <span className="flex-1">Layer {lane.layer + 1}</span>
+                <span className="hidden group-focus-within:flex group-hover:flex">
+                  <RowButton label={label} onClick={() => edit([{ type: "removeLayer", row: row.id, layer: lane.layer }])}>
+                    <Trash2 size={12} />
+                  </RowButton>
+                </span>
               </div>
             );
           }

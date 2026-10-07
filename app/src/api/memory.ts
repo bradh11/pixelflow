@@ -404,6 +404,21 @@ export class MemoryBackend implements Backend {
     return player;
   }
 
+  /** Controllers that answer a reachability check, and this computer's networks (as "a.b.c."
+   * prefixes); none by default, as in a browser with no controllers around. */
+  answering = new Set<string>();
+  localPrefixes: string[] = [];
+
+  async checkControllers(addresses: string[]) {
+    this.calls.push("checkControllers");
+    const unique = [...new Set(addresses.map((a) => a.trim()).filter(Boolean))];
+    return unique.map((address) => ({
+      address,
+      answering: this.answering.has(address),
+      onLocalNetwork: this.localPrefixes.length === 0 || !/^\d+\.\d+\.\d+\.\d+$/.test(address) ? null : this.localPrefixes.some((p) => address.startsWith(p)),
+    }));
+  }
+
   async fppStatus(address: string) {
     return structuredClone(this.player(address).status);
   }

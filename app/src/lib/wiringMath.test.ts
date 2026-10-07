@@ -6,11 +6,12 @@ import { newController, newProp } from "./shows";
 import {
   addPortEdits,
   blankSlot,
-  dropIndex,
+  rowDropIndex,
+  slotChannels,
+  universeText,
   firstGap,
   moveSlotByEdits,
   moveSlotEdits,
-  portCapacities,
   portCapacity,
   portChannels,
   portPixels,
@@ -234,27 +235,43 @@ describe("capacity", () => {
     const { arch, line, nodes } = fixture();
     const port = { number: 1, maxPixels: null, brightness: 100, gamma: 1, slots: [{ ...blankSlot(arch.id), nullPixels: 2 }, { ...blankSlot(line.id), segment: { start: 0, end: 10 } }] };
     expect(portPixels(port, nodes)).toBe(62);
-    expect(portCapacity(port, nodes)).toEqual({ receiver: null, used: 62, limit: null, refresh: null, level: "none", message: null });
+    expect(portCapacity(port, nodes)).toEqual({ used: 62, limit: null, refresh: null, level: "none", message: null, receivers: [] });
   });
 
-  it("gives each smart receiver on a port its own budget", () => {
+  it("counts the smart receivers on a port against its one limit, as xLights does", () => {
     const { arch, line, star, nodes } = fixture();
     const on = (prop: string, smartReceiver: number | null) => ({ ...blankSlot(prop), smartReceiver });
-    const port = { number: 17, maxPixels: 100, brightness: 100, gamma: 1, slots: [on(arch.id, 1), on(line.id, 2), on(star.id, 3)] };
-    // 50 + 50 + 100 pixels, but each receiver drives its own output.
-    const all = portCapacities(port, nodes);
-    expect(all.map((c) => [c.receiver, c.used, c.level])).toEqual([
-      [1, 50, "ok"],
-      [2, 50, "ok"],
-      [3, 100, "near"],
+    const port = { number: 17, maxPixels: 220, brightness: 100, gamma: 1, slots: [on(arch.id, 1), on(line.id, 2), on(star.id, 3)] };
+    // 50 + 50 + 100 = 200 of 220: nearly full, with each receiver's share.
+    expect(portCapacity(port, nodes)).toEqual({
+      used: 200,
+      limit: 220,
+      refresh: null,
+      level: "near",
+      message: "Nearly full: 200 of 220 pixels, shared by receivers A, B, C.",
+      receivers: [
+        { receiver: 1, used: 50 },
+        { receiver: 2, used: 50 },
+        { receiver: 3, used: 100 },
+      ],
+    });
+    // Each receiver alone fits 150, but together they're over: one warning for the port.
+    port.maxPixels = 150;
+    expect(portCapacity(port, nodes)).toMatchObject({
+      used: 200,
+      level: "over",
+      message: "50 pixels more than this port can drive (200 of 150, shared by receivers A, B, C). Move a prop to another port.",
+    });
+    // A receiver used twice adds up; pixels wired straight to the port count too.
+    port.slots = [on(arch.id, 1), on(line.id, null), on(star.id, 1)];
+    expect(portCapacity(port, nodes).receivers).toEqual([
+      { receiver: 1, used: 150 },
+      { receiver: null, used: 50 },
     ]);
-    port.slots = [on(arch.id, 1), on(line.id, 1), on(star.id, 2), on(arch.id, 2)];
-    expect(portCapacities(port, nodes).map((c) => [c.receiver, c.used, c.level, c.message])).toEqual([
-      [1, 100, "near", "Receiver A: nearly full: 100 of 100 pixels."],
-      [2, 150, "over", "Receiver B: 50 pixels more than this port can drive (150 of 100). Move a prop to another port."],
-    ]);
-    // The port's worst output stands for it.
-    expect(portCapacity(port, nodes)).toMatchObject({ receiver: 2, level: "over" });
+    // One receiver: no "shared by".
+    port.slots = [on(arch.id, 2)];
+    port.maxPixels = 50;
+    expect(portCapacity(port, nodes)).toMatchObject({ level: "near", message: "Nearly full: 50 of 50 pixels.", receivers: [{ receiver: 2, used: 50 }] });
   });
 
   it("counts RGBW pixels by their channels, as the boards do", () => {
@@ -399,6 +416,20 @@ describe("channels", () => {
     expect(portChannels(map, a.id, 3)).toBeNull();
     expect(portChannels(map, "nope", 1)).toBeNull();
   });
+
+  it("gives each slot's first channel and universes, skipping slots that carry nothing", () => {
+    const { show, arch, line, star, a, nodes } = fixture();
+    a.protocol = { type: "sacn", startUniverse: null, universeSize: 510, allowPixelStraddle: false, multicast: false };
+    a.ports[0].slots = [blankSlot(arch.id), blankSlot("gone"), { ...blankSlot(line.id), segment: { start: 0, end: 10 } }];
+    a.ports[1].slots = [{ ...blankSlot(star.id), nullPixels: 1 }];
+    const map: ChannelMap = { frameLen: 0, props: [], controllers: mapControllers(show) };
+    expect(slotChannels(map, a.id, a.ports[0], nodes)).toEqual([{ first: 1, universes: [1, 1] }, null, { first: 151, universes: [1, 1] }]);
+    // After the 180 channels on port 1 and one null pixel: 184 on.
+    expect(slotChannels(map, a.id, a.ports[1], nodes)).toEqual([{ first: 184, universes: [1, 1] }]);
+    expect(universeText([1, 4])).toBe("U1–4");
+    expect(universeText([3, 3])).toBe("U3");
+    expect(universeText(null)).toBe("");
+  });
 });
 
 describe("wiring path", () => {
@@ -448,20 +479,19 @@ describe("wiring path", () => {
 });
 
 describe("drop position", () => {
-  const rect = (left: number, top: number) => ({ left, top, right: left + 50, bottom: top + 20 });
-  // Two lines of chips: three on the first, one on the second.
-  const chips = [rect(0, 0), rect(60, 0), rect(120, 0), rect(0, 30)];
+  // Three table rows, 20 px tall, one under the other.
+  const rows = [0, 20, 40].map((top) => ({ left: 0, top, right: 300, bottom: top + 20 }));
 
-  it("goes before the first chip whose middle is past the pointer", () => {
-    expect(dropIndex(chips, { x: 10, y: 10 })).toBe(0);
-    expect(dropIndex(chips, { x: 40, y: 10 })).toBe(1);
-    expect(dropIndex(chips, { x: 200, y: 10 })).toBe(3);
-    expect(dropIndex(chips, { x: 10, y: 40 })).toBe(3);
-    expect(dropIndex(chips, { x: 200, y: 40 })).toBe(4);
-    expect(dropIndex([], { x: 0, y: 0 })).toBe(0);
+  it("goes before the first row whose middle is below the pointer", () => {
+    expect(rowDropIndex(rows, -5)).toBe(0);
+    expect(rowDropIndex(rows, 5)).toBe(0);
+    expect(rowDropIndex(rows, 15)).toBe(1);
+    expect(rowDropIndex(rows, 45)).toBe(2);
+    expect(rowDropIndex([], 0)).toBe(0);
   });
 
-  it("past the last line means the end", () => {
-    expect(dropIndex(chips, { x: 0, y: 200 })).toBe(4);
+  it("past the middle of the last row means the end", () => {
+    expect(rowDropIndex(rows, 55)).toBe(3);
+    expect(rowDropIndex(rows, 500)).toBe(3);
   });
 });

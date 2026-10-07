@@ -7,7 +7,8 @@ import { useApp } from "../../state/store";
 import { useWiring } from "../../state/wiring";
 import { NumberField } from "../layout/PropertiesPanel";
 import { Button, Select } from "../ui";
-import { type WiringData, focusAfterUnwire } from "./ControllerCard";
+import type { WiringData } from "./ControllerCard";
+import { focusAfterUnwire } from "./PortRow";
 import { OptionalNumberField } from "./fields";
 
 /** Most null pixels one slot may have (the engine's limit). */
@@ -138,7 +139,7 @@ export function SlotSettings({ selected, data }: { selected: SlotRef; data: Wiri
           />
           <OptionalNumberField
             label="Smart receiver"
-            hint="Only for ports that feed smart receivers: which receiver this prop hangs off (1 is A, 2 is B, …). Each receiver gets the port's whole pixel limit."
+            hint="Only for ports that feed smart receivers: which receiver this prop hangs off (1 is A, 2 is B, …). All receivers on a port share its pixel limit."
             value={slot.smartReceiver}
             min={0}
             max={255}

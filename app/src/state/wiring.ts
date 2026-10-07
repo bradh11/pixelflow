@@ -1,48 +1,62 @@
 import { create } from "zustand";
+import type { WireSession } from "../lib/wireSession";
 import type { PlaceRef, PortRef, SlotRef } from "../lib/wiringMath";
 
-/** What's being dragged: a prop from the props list, or a chip (slot) from a port. */
+/** What's being dragged: a prop from the props list, or a slot (a table row) from a port. */
 export type DragItem = { kind: "prop"; prop: string } | { kind: "slot"; from: SlotRef; prop: string };
 
 /** Where a drag would land: a place on a port, or the props list (unwire). */
 export type DropTarget = ({ kind: "port" } & PlaceRef) | { kind: "props" };
 
+/** A port by controller and place in its list, for remembering which ports are folded. */
+export const portKey = (controller: string, at: number) => `${controller}:${at}`;
+
 interface WiringState {
-  /** The chip whose settings are open, by identity (its prop and pixels); the Wiring screen keeps
+  /** The slot whose settings are open, by identity (its prop and pixels); the Wiring screen keeps
    * `index` up to date and closes the settings when the slot is gone. */
   selected: SlotRef | null;
   /** The port the pointer is over, shown in the preview. */
   hovered: PortRef | null;
+  /** The prop whose table row the pointer is over: lit, with its stretch of wire, in the preview. */
+  hoveredProp: string | null;
   /** Controllers folded shut (by id). */
   collapsed: string[];
+  /** Ports folded to their one-line summary (by `portKey`). */
+  folded: string[];
   query: string;
   /** `owner` is the drag source that started it, so it can let go if it disappears mid-drag. */
   drag: { item: DragItem; x: number; y: number; over: DropTarget | null; owner: object } | null;
-  /** A chip to focus once it's drawn (after a keyboard move, or closing its settings); found by
+  /** A row to focus once it's drawn (after a keyboard move, or closing its settings); found by
    * identity. With `index` past the port's end and no such slot, the port's Add button. */
   focus: SlotRef | null;
   /** The port whose "+ Add" picker is open. */
   adding: PortRef | null;
+  /** Wiring a port by clicking props on the layout. */
+  session: WireSession | null;
   select(ref: SlotRef | null): void;
   hover(ref: PortRef | null): void;
   toggleCollapsed(id: string): void;
+  toggleFolded(key: string): void;
   setQuery(query: string): void;
 }
+
+const toggled = (list: string[], id: string) => (list.includes(id) ? list.filter((c) => c !== id) : [...list, id]);
 
 export const useWiring = create<WiringState>((set, get) => ({
   selected: null,
   hovered: null,
+  hoveredProp: null,
   collapsed: [],
+  folded: [],
   query: "",
   drag: null,
   focus: null,
   adding: null,
+  session: null,
   select: (selected) => set({ selected }),
   hover: (hovered) => set({ hovered }),
-  toggleCollapsed: (id) => {
-    const collapsed = get().collapsed;
-    set({ collapsed: collapsed.includes(id) ? collapsed.filter((c) => c !== id) : [...collapsed, id] });
-  },
+  toggleCollapsed: (id) => set({ collapsed: toggled(get().collapsed, id) }),
+  toggleFolded: (key) => set({ folded: toggled(get().folded, key) }),
   setQuery: (query) => set({ query }),
 }));
 

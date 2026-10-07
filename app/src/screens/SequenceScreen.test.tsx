@@ -73,6 +73,17 @@ function drag(el: Element, from: [number, number], to: [number, number], init: P
 }
 
 describe("sequence screen", () => {
+  it("adds a layer to a row and deletes it again, as one undoable edit each", async () => {
+    const { user, seq } = await openScreen();
+    const row = seq.doc!.rows[0];
+    const name = within(screen.getByRole("list", { name: "Rows" })).getAllByRole("listitem")[0].getAttribute("aria-label")!;
+    const before = row.layers.length;
+    await user.click(screen.getByRole("button", { name: `Add a layer to ${name}` }));
+    await waitFor(() => expect(seq.doc!.rows[0].layers).toHaveLength(before + 1));
+    await user.click(screen.getByRole("button", { name: `Delete layer ${before + 1} of ${name}` }));
+    await waitFor(() => expect(seq.doc!.rows[0].layers).toHaveLength(before));
+  });
+
   it("starts a sequence from a song, then finds its beats", async () => {
     const { user, seq } = await openScreen(false);
     expect(screen.getByRole("heading", { name: "Sequence" })).toBeInTheDocument();

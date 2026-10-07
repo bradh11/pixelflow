@@ -43,6 +43,11 @@ pf-audio = { path = "crates/pf-audio" }
 pf-sequence = { path = "crates/pf-sequence" }
 pf-render = { path = "crates/pf-render" }
 pf-analysis = { path = "crates/pf-analysis" }
+pf-camera-map = { path = "crates/pf-camera-map" }
+
+# The camera-map tests decode synthetic video frames, which is slow unoptimized.
+[profile.dev.package.pf-camera-map]
+opt-level = 2
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

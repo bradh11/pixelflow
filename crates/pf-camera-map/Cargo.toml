@@ -1,0 +1,16 @@
+[package]
+name = "pf-camera-map"
+description = "Camera pixel mapping: coded flash sequences, and decoding a video of them into pixel positions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

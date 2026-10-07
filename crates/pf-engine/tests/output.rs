@@ -316,3 +316,64 @@ fn opening_another_show_stops_output() {
     engine.open(&path).unwrap();
     assert!(!engine.output_status().running);
 }
+
+#[test]
+fn output_status_names_controllers_as_the_show_does_now() {
+    let (mut engine, _recorded, _prop, mut controller, _dir) = engine_with_show();
+    engine.start_output(solid_red(), TargetSpec::Show).unwrap();
+    wait_until(|| !engine.output_status().controllers.is_empty());
+    controller.name = "Garage".into();
+    engine.apply(vec![Edit::UpdateController { controller }]).unwrap();
+    let status = engine.output_status();
+    assert!(status.running);
+    assert_eq!(status.controllers[0].name, "Garage");
+}
+
+#[test]
+fn the_whole_show_with_nothing_wired_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let (transport, _recorded) = RecordingTransport::new();
+    let mut engine =
+        Engine::new(dir.path()).with_transport(move || Ok(Box::new(transport.clone()) as Box<dyn Transport>));
+    engine
+        .apply(vec![
+            Edit::AddProp {
+                prop: line("Loose", 3),
+            },
+            Edit::AddController {
+                controller: Controller::new("Bench", "127.0.0.1:4048", Protocol::Ddp),
+            },
+        ])
+        .unwrap();
+    let err = engine.start_output(solid_red(), TargetSpec::Show).unwrap_err();
+    assert!(matches!(err, EngineError::NothingToLight));
+    assert!(!engine.output_status().running);
+}
+
+#[test]
+fn an_unwired_prop_is_refused_as_a_target() {
+    let (mut engine, _recorded, _prop, _controller, _dir) = engine_with_show();
+    let loose = line("Loose", 2);
+    engine.apply(vec![Edit::AddProp { prop: loose.clone() }]).unwrap();
+    let err = engine
+        .start_output(solid_red(), TargetSpec::Prop { id: loose.id })
+        .unwrap_err();
+    assert!(matches!(err, EngineError::NothingToLight));
+}
+
+#[test]
+fn the_preview_follows_a_frame_that_grew_while_running() {
+    let (mut engine, _recorded, prop, _controller, _dir) = engine_with_show();
+    engine
+        .start_output(solid_red(), TargetSpec::Prop { id: prop.id })
+        .unwrap();
+    assert_eq!(engine.preview_frame().unwrap().len(), 9);
+    // Another prop, not wired: the target and the wiring are as they were, but the frame grew.
+    engine
+        .apply(vec![Edit::AddProp {
+            prop: line("Loose", 2),
+        }])
+        .unwrap();
+    assert!(engine.output_status().running);
+    assert_eq!(engine.preview_frame().unwrap().len(), 15);
+}

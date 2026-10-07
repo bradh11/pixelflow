@@ -148,7 +148,7 @@ fn write_show(path: &Path, show: &Show, saved_in: Option<&Path>) -> Result<(), E
 }
 
 /// Writes `bytes` to `path` atomically: a temporary file in the same folder, flushed to disk,
-/// then renamed over the target.
+/// then renamed over the target, and the folder flushed too.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), EngineError> {
     let write_err = |source| EngineError::Write {
         path: path.to_path_buf(),
@@ -170,8 +170,21 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), EngineError> {
     })();
     if result.is_err() {
         let _ = fs::remove_file(&tmp);
+    } else {
+        sync_folder(dir);
     }
     result.map_err(write_err)
+}
+
+/// Flushes a folder, so a rename into it survives a power cut. Best effort: the file itself is
+/// already flushed, and not every system can flush a folder.
+fn sync_folder(dir: &Path) {
+    #[cfg(unix)]
+    if let Ok(folder) = fs::File::open(dir) {
+        let _ = folder.sync_all();
+    }
+    #[cfg(not(unix))]
+    let _ = dir;
 }
 
 /// One autosaved version of a show.
@@ -197,7 +210,10 @@ pub(crate) fn write_history(
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
-    let mut stamp = now;
+    // Stamps order the copies, and the oldest are the ones removed: a new copy always sorts
+    // newest, even when the clock was set back since the last one.
+    let after_newest = list_history(dir).first().map_or(0, |e| e.saved_at_ms + 1);
+    let mut stamp = now.max(after_newest);
     while dir.join(format!("{stamp}{HISTORY_SUFFIX}")).exists() {
         stamp += 1;
     }
@@ -299,6 +315,44 @@ mod tests {
                 .unwrap_err()
                 .to_string()
                 .contains("is not a valid show file")
+        );
+    }
+
+    #[test]
+    fn a_failed_atomic_write_leaves_no_temp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        // A folder where the file should go: the rename over it fails.
+        let path = dir.path().join("show.pixelflow.json");
+        fs::create_dir(&path).unwrap();
+        fs::write(path.join("inside"), "x").unwrap();
+        assert!(write_atomic(&path, b"{}").is_err());
+        let names: Vec<_> = fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, vec![std::ffi::OsString::from("show.pixelflow.json")]);
+    }
+
+    #[test]
+    fn a_clock_set_back_doesnt_make_the_newest_copy_the_one_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        // Copies stamped a day ahead, as if the clock was later set back.
+        let ahead = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64 + 86_400_000;
+        for (i, stamp) in [ahead, ahead + 1].into_iter().enumerate() {
+            write_show(
+                &dir.path().join(format!("{stamp}{HISTORY_SUFFIX}")),
+                &Show::new(format!("old{i}")),
+                None,
+            )
+            .unwrap();
+        }
+        let entry = write_history(dir.path(), &Show::new("latest"), None, 2).unwrap();
+        let entries = list_history(dir.path());
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].id, entry.id, "the copy just written is the newest");
+        assert_eq!(
+            load_show(&dir.path().join(&entries[0].id)).unwrap().name,
+            "latest"
         );
     }
 

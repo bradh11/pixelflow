@@ -147,6 +147,8 @@ pub(crate) struct OutputKey {
     controllers: Vec<ControllerOutput>,
     addresses: Vec<(String, Protocol)>,
     frame_rate: u16,
+    /// A frame that grows or shrinks (a prop added or removed, wired or not) needs new buffers.
+    frame_len: usize,
 }
 
 pub(crate) fn output_key(show: &Show, map: &ChannelMap) -> OutputKey {
@@ -158,6 +160,7 @@ pub(crate) fn output_key(show: &Show, map: &ChannelMap) -> OutputKey {
             .map(|c| (c.address.clone(), c.protocol))
             .collect(),
         frame_rate: show.settings.frame_rate,
+        frame_len: map.frame_len,
     }
 }
 

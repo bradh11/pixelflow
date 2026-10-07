@@ -371,7 +371,7 @@ describe("the 3D layout", () => {
     await openPhoto(user);
     fireEvent.change(screen.getByLabelText("Photo depth"), { target: { value: "3.5" } });
     await user.keyboard("4");
-    await waitFor(() => expect(JSON.parse(localStorage.getItem("pixelflow.view3d:unsaved:Test House") ?? "{}").orbit?.yaw).toBeCloseTo(Math.PI / 2), {
+    await waitFor(() => expect(JSON.parse(localStorage.getItem("pixelflow.view3d:unsaved:Test House") ?? "{}").orbit?.yaw).toBeCloseTo(Math.PI / 2, 1), {
       timeout: 3000,
     });
     const path = "/shows/house.pixelflow.json";
@@ -380,11 +380,12 @@ describe("the 3D layout", () => {
     expect(useApp.getState().snapshot!.path).toBe(path);
     const kept = JSON.parse(localStorage.getItem(`pixelflow.view3d:${path}`)!);
     expect(kept.photoDepth).toBe(3.5);
-    expect(kept.orbit.yaw).toBeCloseTo(Math.PI / 2);
+    // The camera eases toward the preset, so allow a little settling; a jump back would be far off.
+    expect(kept.orbit.yaw).toBeCloseTo(Math.PI / 2, 1);
     expect(screen.getByText(/Photo depth in 3D: 3.5 behind/)).toBeInTheDocument();
     // The view stays where it was: no jump back to the starting angle.
     await new Promise((r) => setTimeout(r, 100));
-    expect(orbit().yaw).toBeCloseTo(Math.PI / 2);
+    expect(orbit().yaw).toBeCloseTo(Math.PI / 2, 1);
   });
 
   it("fits a tilted house model by its standing size, without reading its file again", async () => {

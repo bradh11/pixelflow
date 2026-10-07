@@ -1,7 +1,10 @@
 //! A fake WLED that answers real HTTP on `127.0.0.1` (feature `test-fixtures`), for testing
 //! "Send setup" end to end without a device. It answers `GET /json/info`, `GET /json/cfg`, and
 //! `POST /json/cfg`, which, like WLED's `deserializeConfig()` (`wled00/cfg.cpp`), takes what the
-//! body has and keeps the rest. It can fail or ignore config writes.
+//! body has and keeps the rest. Like WLED it adds a body's color order overrides (`hw.com`) to
+//! the ones it has rather than replacing them (`cfg.cpp` calls `add()` without `reset()`), and
+//! drops an LED output that runs past its LED limit (`start + len > MAX_LEDS`). It can fail,
+//! refuse, or ignore config writes.
 
 use crate::fake_fpp::{read_body, read_head, respond};
 use serde_json::{Value, json};
@@ -26,6 +29,10 @@ pub struct FakeWledState {
     pub fail_writes_from: Option<usize>,
     /// Config writes answer `{"success":true}` but change nothing.
     pub ignore_writes: bool,
+    /// Config writes answer this HTTP status and change nothing (401: settings locked by PIN).
+    pub refuse_writes: Option<u16>,
+    /// The most LEDs it drives (WLED's `MAX_LEDS`): an output ending past it is dropped.
+    pub max_leds: i64,
 }
 
 /// A fake WLED listening on `127.0.0.1` until dropped.
@@ -37,15 +44,25 @@ pub struct FakeWled {
 }
 
 /// Merges `from` into `into` the way WLED reads a config body: objects key by key, anything else
-/// (including arrays such as the LED outputs) replaced whole.
-fn merge(into: &mut Value, from: &Value) {
+/// (including arrays such as the LED outputs) replaced whole, except color order overrides
+/// (`hw.com`), which are added to the ones there.
+fn merge(into: &mut Value, from: &Value, path: &str) {
     match (into, from) {
         (Value::Object(into), Value::Object(from)) => {
             for (key, value) in from {
-                merge(into.entry(key.clone()).or_insert(Value::Null), value);
+                let here = format!("{path}/{key}");
+                merge(into.entry(key.clone()).or_insert(Value::Null), value, &here);
             }
         }
+        (Value::Array(into), Value::Array(from)) if path == "/hw/com" => into.extend(from.iter().cloned()),
         (into, from) => *into = from.clone(),
+    }
+}
+
+/// Drops the LED outputs that end past `max_leds`, as WLED does when it sets its outputs up.
+fn drop_outputs(cfg: &mut Value, max_leds: i64) {
+    if let Some(ins) = cfg["hw"]["led"]["ins"].as_array_mut() {
+        ins.retain(|bus| bus["start"].as_i64().unwrap_or(0) + bus["len"].as_i64().unwrap_or(1) <= max_leds);
     }
 }
 
@@ -59,6 +76,8 @@ impl FakeWled {
             config_writes: Vec::new(),
             fail_writes_from: None,
             ignore_writes: false,
+            refuse_writes: None,
+            max_leds: 1500,
         };
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind a loopback port");
         let address = listener.local_addr().expect("local address").to_string();
@@ -130,11 +149,15 @@ fn serve(stream: TcpStream, state: &Mutex<FakeWledState>) -> std::io::Result<()>
                 Ok(doc @ Value::Object(_)) => {
                     s.config_writes.push(doc.clone());
                     let count = s.config_writes.len();
-                    if s.fail_writes_from.is_some_and(|from| count >= from) {
+                    if let Some(status) = s.refuse_writes {
+                        (status, json!({"error": 1}).to_string())
+                    } else if s.fail_writes_from.is_some_and(|from| count >= from) {
                         (500, "Internal Server Error".to_string())
                     } else {
                         if !s.ignore_writes {
-                            merge(&mut s.cfg, &doc);
+                            merge(&mut s.cfg, &doc, "");
+                            let max = s.max_leds;
+                            drop_outputs(&mut s.cfg, max);
                         }
                         (200, json!({"success": true}).to_string())
                     }

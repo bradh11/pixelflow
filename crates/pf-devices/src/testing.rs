@@ -2,7 +2,9 @@
 
 use crate::http::FakeHttp;
 
-pub use crate::fake_fpp::{Checksum, FakeFpp, FakeFppState, StoredFile, UploadFile};
+pub use crate::fake_fpp::{
+    Checksum, FakeFpp, FakeFppState, StoredFile, UploadFile, fppd_rejects, stripslashes,
+};
 pub use crate::fake_wled::{FakeWled, FakeWledState};
 
 /// The FPP player (real responses, IPs scrubbed). It sends DDP to [`FALCON`].

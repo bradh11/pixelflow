@@ -299,7 +299,12 @@ mod tests {
     fn slot_controller_color_order_is_optional_and_left_out_when_unset() {
         let slot: PortSlot = serde_json::from_value(serde_json::json!({ "prop": PropId::new() })).unwrap();
         assert_eq!(slot.controller_color_order, None);
-        assert!(serde_json::to_value(&slot).unwrap().get("controllerColorOrder").is_none());
+        assert!(
+            serde_json::to_value(&slot)
+                .unwrap()
+                .get("controllerColorOrder")
+                .is_none()
+        );
 
         let mut slot = slot;
         slot.controller_color_order = Some(ColorOrder::Grb);

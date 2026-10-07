@@ -4,6 +4,7 @@
 use crate::{AppState, Reply};
 use pf_devices::fpp_info::{self, FppFile, FppFolder, ScheduleEntry};
 use pf_devices::fpp_player::{self, FppSequence, PlayerStatus};
+use pf_devices::fpp_software::{self, ReleaseCache, SoftwareReport};
 use pf_devices::{
     Device, DeviceConfig, DiscoverOptions, Discovery, FppSetupPlan, Http, HttpClient, ImportPlan, Reach,
     ReachCheck, TcpReach,
@@ -30,6 +31,8 @@ pub(crate) struct DeviceAccess {
     reach: Arc<dyn Reach>,
     /// This computer's networks (address and netmask).
     networks: fn() -> Vec<(Ipv4Addr, Ipv4Addr)>,
+    /// FPP's public release list, read at most every few hours.
+    releases: Arc<ReleaseCache>,
 }
 
 impl DeviceAccess {
@@ -48,6 +51,7 @@ impl DeviceAccess {
             network_discovery: true,
             reach: Arc::new(TcpReach::new(Duration::from_millis(800))),
             networks: pf_devices::local_networks,
+            releases: Arc::new(ReleaseCache::online()),
         }
     }
 
@@ -68,6 +72,13 @@ impl DeviceAccess {
             // In tests, only 192.0.2.10 answers, and this computer is on 192.0.2.0/24.
             reach: Arc::new(pf_devices::FakeReach::new(["192.0.2.10"])),
             networks: || vec![(Ipv4Addr::new(192, 0, 2, 1), Ipv4Addr::new(255, 255, 255, 0))],
+            releases: Arc::new(ReleaseCache::new(
+                Arc::new(pf_devices::fpp_software::RecordedReleases(Some(
+                    pf_devices::testing::FPP_RELEASES,
+                ))),
+                Duration::from_secs(3600),
+                Duration::from_secs(60),
+            )),
         }
     }
 }
@@ -276,6 +287,16 @@ pub(crate) async fn fpp_schedule(state: State<'_, AppState>, address: String) ->
     off_thread(move || fpp_info::schedule(http.as_ref(), &address).map_err(|e| e.to_string())).await
 }
 
+/// What an FPP runs and whether a newer release fits it (changes nothing; reads only the FPP's
+/// `/api/system/info` and FPP's public release list, which is kept for hours).
+#[tauri::command]
+pub(crate) async fn fpp_software(state: State<'_, AppState>, address: String) -> Reply<SoftwareReport> {
+    let http = Arc::clone(&state.devices.read_http);
+    let releases = Arc::clone(&state.devices.releases);
+    off_thread(move || fpp_software::report(http.as_ref(), &address, &releases).map_err(|e| e.to_string()))
+        .await
+}
+
 fn read_fpp(http: &dyn Http, address: &str) -> Reply<(Device, DeviceConfig)> {
     let device = pf_devices::identify(http, address, None).map_err(|e| e.to_string())?;
     let config = pf_devices::read_config(http, &device).map_err(|e| e.to_string())?;
@@ -343,11 +364,20 @@ fn web_address(address: &str) -> Option<&str> {
     ok.then_some(address)
 }
 
-/// Opens a controller's own web page in the system browser.
+/// The controller pages the app may open besides its home page.
+const DEVICE_PAGES: [&str; 1] = ["about.php"];
+
+/// Opens a controller's own web page in the system browser: its home page, or one of
+/// [`DEVICE_PAGES`] (FPP's About page, where the user upgrades it).
 #[tauri::command]
-pub(crate) fn open_device_page(address: String) -> Reply<()> {
+pub(crate) fn open_device_page(address: String, page: Option<String>) -> Reply<()> {
     let address = web_address(&address).ok_or_else(|| format!("{address} isn't a controller address."))?;
-    let url = format!("http://{address}/");
+    let page = match page.as_deref() {
+        None => "",
+        Some(p) if DEVICE_PAGES.contains(&p) => p,
+        Some(p) => return Err(format!("{p} isn't a page PixelFlow opens.")),
+    };
+    let url = format!("http://{address}/{page}");
     #[cfg(target_os = "macos")]
     let mut command = std::process::Command::new("open");
     #[cfg(target_os = "windows")]

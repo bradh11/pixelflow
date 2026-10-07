@@ -10,6 +10,7 @@ import type {
   FppFolder,
   FppSetupPlan,
   ScheduleEntry,
+  FppSoftware,
   FppSendPlan,
   FppSendProgress,
   FppSendRequest,
@@ -97,8 +98,12 @@ export interface Backend {
   /** Adds what fppSetupPlan showed as one undo step; `expected` is the addresses it showed, and
    * nothing is added if the plan has changed since. */
   fppSetUpShow(address: string, expected: string[]): Promise<ShowSnapshot>;
-  /** Opens a controller's own web page in the system browser. */
-  openDevicePage(address: string): Promise<void>;
+  /** What an FPP runs and whether a newer release fits it (changes nothing; reads FPP's public
+   * release list, kept for hours). */
+  fppSoftware(address: string): Promise<FppSoftware>;
+  /** Opens a controller's own web page in the system browser (or its About page, where the user
+   * upgrades FPP). */
+  openDevicePage(address: string, page?: "about.php"): Promise<void>;
   /** The sequence files on an FPP, with ".fseq" (one quick request; changes nothing). */
   fppSequenceNames(address: string): Promise<string[]>;
   /** What sending `source` (and `music`) to an FPP would do: names taken, playlists, free space.

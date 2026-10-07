@@ -284,6 +284,7 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         devices::fpp_stop,
         devices::fpp_files,
         devices::fpp_schedule,
+        devices::fpp_software,
         devices::fpp_setup_plan,
         devices::fpp_set_up_show,
         devices::open_device_page,
@@ -1779,6 +1780,32 @@ mod tests {
 
         let snapshot = call(&webview, "undo", json!({})).unwrap();
         assert_eq!(snapshot["summary"]["controllers"], 0, "one undo step");
+    }
+
+    #[test]
+    fn an_fpps_software_and_newer_release_are_read_without_changing_anything() {
+        let fpp = pf_devices::testing::FakeFpp::start();
+        let (_app, webview, _dir) = app();
+        let software = call(&webview, "fpp_software", json!({ "address": fpp.address() })).unwrap();
+        assert_eq!(software["version"], "9.3");
+        assert_eq!(software["osBuild"], "v2025-11");
+        assert_eq!(software["bits"], 32);
+        assert_eq!(software["checked"], true);
+        assert_eq!(software["update"]["file"], "Pi-10.2_2026-10.fppos");
+        assert_eq!(software["update"]["major"], true);
+        assert!(fpp.state().writes().is_empty());
+    }
+
+    #[test]
+    fn only_a_listed_device_page_can_be_opened() {
+        let (_app, webview, _dir) = app();
+        let error = call(
+            &webview,
+            "open_device_page",
+            json!({ "address": "192.0.2.10", "page": "api/system/status" }),
+        )
+        .unwrap_err();
+        assert_eq!(error, json!("api/system/status isn't a page PixelFlow opens."));
     }
 
     #[test]

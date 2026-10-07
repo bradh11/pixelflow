@@ -19,6 +19,7 @@ pub mod fpp;
 pub mod fpp_info;
 pub mod fpp_ping;
 pub mod fpp_player;
+pub mod fpp_software;
 pub mod fpp_upload;
 mod http;
 mod identify;

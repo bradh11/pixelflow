@@ -2,7 +2,7 @@ import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../App";
-import { demoDevices, demoFppFileDetails, demoFppFiles, demoFppSchedules, demoPlayers } from "../../api/demo";
+import { demoDevices, demoFppFileDetails, demoFppFiles, demoFppSchedules, demoFppSoftware, demoPlayers } from "../../api/demo";
 import { MemoryBackend, emptyShow } from "../../api/memory";
 import { useApp } from "../../state/store";
 import { STATUS_POLL_MS } from "./useFppStatus";
@@ -21,6 +21,7 @@ function stocked(setup?: (backend: MemoryBackend) => void) {
   backend.fppFiles = demoFppFiles();
   backend.fppFileDetails = demoFppFileDetails();
   backend.fppSchedules = demoFppSchedules();
+  backend.fppSoftwares = demoFppSoftware();
   setup?.(backend);
   return backend;
 }
@@ -234,5 +235,57 @@ describe("an FPP's page", () => {
     backend.fppSchedules[FPP] = [];
     await user.click(screen.getByRole("button", { name: "Refresh" }));
     expect(await within(region("Schedule")).findByText("Nothing is scheduled on this FPP.")).toBeInTheDocument();
+  });
+  describe("software", () => {
+    it("shows the version, OS build, platform, and 32-bit, and recommends the matching file for a major upgrade", async () => {
+      const { backend } = await openPage();
+      const software = region("Software");
+      expect(await within(software).findByText("9.3")).toBeInTheDocument();
+      expect(software).toHaveTextContent("v2025-11 · Raspbian GNU/Linux 12 (bookworm)");
+      expect(software).toHaveTextContent("Pi 3 Model B+");
+      expect(software).toHaveTextContent("32-bit");
+      expect(software).toHaveTextContent("FPP 10.2 is available — a major upgrade; save a backup on FPP's Backups page first");
+      expect(software).toHaveTextContent("Choose Pi-10.2_2026-10.fppos in FPP's Upgrade OS list.");
+      expect(software).toHaveTextContent("Pi- = 32-bit Raspberry Pi, which matches this box. Avoid nightly builds for a show.");
+      expect(writes(backend)).toEqual([]);
+    });
+
+    it("calls a newer point release plainly, with no backup warning", async () => {
+      await openPage((backend) => {
+        backend.fppSoftwares[FPP].update = { version: "9.5.3", file: "Pi-9.5.3_2025-11.fppos", prefix: "Pi-", major: false };
+      });
+      const software = region("Software");
+      expect(await within(software).findByText("FPP 9.5.3 is available")).toBeInTheDocument();
+      expect(software).not.toHaveTextContent("backup");
+    });
+
+    it("opens FPP's About page in the browser when asked, and only then", async () => {
+      const { backend, user } = await openPage();
+      await within(region("Software")).findByText("9.3");
+      expect(backend.calls.filter((c) => c.startsWith("openDevicePage"))).toEqual([]);
+      await user.click(within(region("Software")).getByRole("button", { name: "Open FPP's update page" }));
+      expect(backend.calls).toContain(`openDevicePage:${FPP}:about.php`);
+    });
+
+    it("says nothing about updates when the release list can't be read, except in a tooltip", async () => {
+      await openPage((backend) => {
+        backend.fppSoftwares[FPP].update = null;
+        backend.fppSoftwares[FPP].checked = false;
+      });
+      const software = region("Software");
+      await within(software).findByText("9.3");
+      expect(software).not.toHaveTextContent(/available|up to date/i);
+      expect(within(software).getByRole("img", { name: "Couldn't check for updates" })).toHaveAttribute("title", "Couldn't check for updates");
+    });
+
+    it("badges an FPP with an update on the Controllers list", async () => {
+      await useApp.getState().connect(stocked());
+      useApp.setState({ started: true });
+      const user = userEvent.setup();
+      render(<App />);
+      act(() => useApp.getState().setScreen("devices"));
+      await user.click(screen.getByRole("button", { name: "Scan network" }));
+      expect(await screen.findByText("Update available")).toBeInTheDocument();
+    });
   });
 });

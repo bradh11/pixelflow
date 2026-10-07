@@ -4,7 +4,7 @@ import { App } from "./App";
 import { tauriAssistant } from "./api/assistant";
 import { FakeAssistant } from "./api/memoryAssistant";
 import { useAssistant } from "./state/assistant";
-import { DEMO_PHOTO, DEMO_SHOW_PATH, demoDevices, demoFppFileDetails, demoFppFiles, demoFppSchedules, demoHousePhoto, demoMissingFiles, demoPlayers, demoRecentShows, demoShow } from "./api/demo";
+import { DEMO_PHOTO, DEMO_SHOW_PATH, demoDevices, demoFppFileDetails, demoFppFiles, demoFppSchedules, demoFppSoftware, demoHousePhoto, demoMissingFiles, demoPlayers, demoRecentShows, demoShow } from "./api/demo";
 import { DEMO_MUSIC, DEMO_SEQUENCE_PATH, demoSequence } from "./api/demoSequence";
 import { MemoryBackend } from "./api/memory";
 import { MemorySequencer } from "./api/memorySequencer";
@@ -29,6 +29,7 @@ if (inTauri()) {
     backend.fppFiles = demoFppFiles();
     backend.fppFileDetails = demoFppFileDetails();
     backend.fppSchedules = demoFppSchedules();
+    backend.fppSoftwares = demoFppSoftware();
     backend.openUrl = (url) => void window.open(url, "_blank", "noopener");
     backend.fppSendStepMs = 150;
     backend.nextSequencePath = "/Shows/Christmas Medley 2017.fseq";

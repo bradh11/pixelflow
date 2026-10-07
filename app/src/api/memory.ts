@@ -1,5 +1,6 @@
 import type { Backend } from "./backend";
 import type {
+  FppSoftware,
   ChannelMap,
   DeviceDetails,
   FppSequence,
@@ -540,9 +541,19 @@ export class MemoryBackend implements Backend {
     ]);
   }
 
-  async openDevicePage(address: string) {
-    this.calls.push(`openDevicePage:${address}`);
-    this.openUrl?.(`http://${address}/`);
+  /** What the fake FPPs run, by address (an unlisted one has nothing newer and an unread list). */
+  fppSoftwares: Record<string, FppSoftware> = {};
+
+  async fppSoftware(address: string): Promise<FppSoftware> {
+    this.player(address);
+    return structuredClone(
+      this.fppSoftwares[address] ?? { version: "", osBuild: "", osRelease: "", platform: "", bits: null, imagePrefix: null, update: null, checked: false },
+    );
+  }
+
+  async openDevicePage(address: string, page?: "about.php") {
+    this.calls.push(page ? `openDevicePage:${address}:${page}` : `openDevicePage:${address}`);
+    this.openUrl?.(`http://${address}/${page ?? ""}`);
   }
 
   /** The fake FPP's music, playlists (sequence files on each), free space (null when it doesn't

@@ -248,3 +248,173 @@ fn stats_are_available_immediately() {
     assert_eq!(stats.controllers[0].state, ControllerState::Unresolved);
     handle.stop();
 }
+
+/// Whether an sACN data packet carries Stream_Terminated.
+fn terminated(packet: &[u8]) -> bool {
+    packet[112] & 0x40 != 0
+}
+
+fn black(packet: &[u8], header: usize) -> bool {
+    packet[header..].iter().all(|&b| b == 0)
+}
+
+/// Each packet's sequence number is one more than the one before.
+fn assert_sequences_continue(packets: &[Vec<u8>]) {
+    for pair in packets.windows(2) {
+        assert_eq!(pair[1][111], pair[0][111].wrapping_add(1), "sequence jumped");
+    }
+}
+
+/// Starts output of `show` with every channel at 200.
+fn start_lit(show: &Show) -> (pf_output::OutputHandle, Recorded) {
+    let (map, _) = pf_mapping::map_show(show);
+    let (mut writer, reader) = frame_buffers(map.frame_len);
+    writer.frame_mut().fill(200);
+    writer.publish();
+    let (transport, recorded) = RecordingTransport::new();
+    let handle = start_output(build_plan(show, &map), settings(), reader, Box::new(transport));
+    (handle, recorded)
+}
+
+/// Hands the running output `show`'s plan, with every channel at 200.
+fn replace_lit(handle: &pf_output::OutputHandle, show: &Show) {
+    let (map, _) = pf_mapping::map_show(show);
+    let (mut writer, reader) = frame_buffers(map.frame_len);
+    writer.frame_mut().fill(200);
+    writer.publish();
+    handle.replace_plan(build_plan(show, &map), reader);
+}
+
+#[test]
+fn replacing_the_plan_switches_without_a_black_frame_and_keeps_the_sacn_stream() {
+    let show = show();
+    let (handle, recorded) = start_lit(&show);
+    wait_until(|| sent_to(&recorded, SACN_DEST).len() >= 3);
+
+    // The edit: the sACN controller's port dimmed to half.
+    let mut edited = show.clone();
+    edited.controllers[1].ports[0].brightness = 50;
+    replace_lit(&handle, &edited);
+    wait_until(|| {
+        sent_to(&recorded, SACN_DEST)
+            .iter()
+            .filter(|p| p[sacn::DATA_HEADER_LEN] == 100)
+            .count()
+            >= 3
+    });
+    let stats = handle.stop();
+
+    let sacn_packets = sent_to(&recorded, SACN_DEST);
+    let live = sacn_packets.len() - 6; // then three black, then three terminated
+    let values: Vec<u8> = sacn_packets[..live]
+        .iter()
+        .map(|p| p[sacn::DATA_HEADER_LEN])
+        .collect();
+    let switched = values.iter().position(|&v| v == 100).unwrap();
+    assert!(values[..switched].iter().all(|&v| v == 200), "{values:?}");
+    assert!(values[switched..].iter().all(|&v| v == 100), "no black frame: {values:?}");
+    assert_sequences_continue(&sacn_packets);
+    assert!(sacn_packets.iter().all(|p| p[22..38] == [1; 16]), "same CID");
+    let ddp_packets = sent_to(&recorded, DDP_DEST);
+    let ddp_live = &ddp_packets[..ddp_packets.len() - 3];
+    assert!(
+        ddp_live.iter().all(|p| p[ddp::HEADER_LEN] == 200),
+        "the DDP controller never went dark"
+    );
+    // Counters carry on for a controller that stays.
+    assert_eq!(stats.controllers[1].packets_sent, sacn_packets.len() as u64);
+    assert_eq!(stats.failure, None);
+}
+
+#[test]
+fn output_a_new_plan_drops_is_blacked_out_and_its_sacn_streams_ended() {
+    let show = show();
+    let (handle, recorded) = start_lit(&show);
+    wait_until(|| sent_to(&recorded, SACN_DEST).len() >= 3);
+
+    // The edit: the sACN controller removed, and the DDP one moved to another address.
+    let mut edited = show.clone();
+    edited.controllers.remove(1);
+    edited.controllers[0].address = "127.0.0.3".into();
+    replace_lit(&handle, &edited);
+    wait_until(|| sent_to(&recorded, SACN_DEST).iter().any(|p| terminated(p)));
+    wait_until(|| sent_to(&recorded, "127.0.0.3:4048").len() >= 3);
+    let stats = handle.stop();
+
+    let sacn_packets = sent_to(&recorded, SACN_DEST);
+    let n = sacn_packets.len();
+    assert!(sacn_packets[n - 3..].iter().all(|p| terminated(p)));
+    assert!(
+        sacn_packets[n - 6..n - 3]
+            .iter()
+            .all(|p| !terminated(p) && black(p, sacn::DATA_HEADER_LEN))
+    );
+    assert!(sacn_packets[..n - 6].iter().all(|p| p[sacn::DATA_HEADER_LEN] == 200));
+    assert_sequences_continue(&sacn_packets);
+
+    let old_ddp = sent_to(&recorded, DDP_DEST);
+    let m = old_ddp.len();
+    assert!(
+        old_ddp[m - 3..].iter().all(|p| black(p, ddp::HEADER_LEN)),
+        "the old address goes dark"
+    );
+    assert!(old_ddp[..m - 3].iter().all(|p| p[ddp::HEADER_LEN] == 200));
+    let new_ddp = sent_to(&recorded, "127.0.0.3:4048");
+    assert_eq!(new_ddp[0][ddp::HEADER_LEN], 200, "the new address starts lit");
+    assert_eq!(stats.controllers.len(), 1);
+}
+
+#[test]
+fn stopping_sends_spaced_black_frames_then_terminates_sacn_streams() {
+    let (handle, recorded) = start_lit(&show());
+    wait_until(|| sent_to(&recorded, SACN_DEST).len() >= 2);
+    let stopping = Instant::now();
+    handle.stop();
+    assert!(
+        stopping.elapsed() >= Duration::from_millis(40),
+        "blackout passes are spaced out"
+    );
+
+    let sacn_packets = sent_to(&recorded, SACN_DEST);
+    let n = sacn_packets.len();
+    assert!(
+        sacn_packets[n - 3..]
+            .iter()
+            .all(|p| terminated(p) && black(p, sacn::DATA_HEADER_LEN))
+    );
+    assert!(
+        sacn_packets[n - 6..n - 3]
+            .iter()
+            .all(|p| !terminated(p) && black(p, sacn::DATA_HEADER_LEN))
+    );
+    assert!(!terminated(&sacn_packets[n - 7]));
+    let ddp_packets = sent_to(&recorded, DDP_DEST);
+    let m = ddp_packets.len();
+    assert!(ddp_packets[m - 3..].iter().all(|p| black(p, ddp::HEADER_LEN)));
+    assert_eq!(
+        ddp_packets[m - 4][ddp::HEADER_LEN],
+        200,
+        "DDP gets exactly three black frames"
+    );
+}
+
+/// A transport that crashes the output thread.
+struct Exploding;
+
+impl pf_output::Transport for Exploding {
+    fn send_to(&mut self, _packet: &[u8], _destination: SocketAddr) -> std::io::Result<()> {
+        panic!("socket exploded")
+    }
+}
+
+#[test]
+fn a_crashed_output_thread_is_reported_not_swallowed() {
+    let show = show();
+    let (map, _) = pf_mapping::map_show(&show);
+    let (_writer, reader) = frame_buffers(map.frame_len);
+    let handle = start_output(build_plan(&show, &map), settings(), reader, Box::new(Exploding));
+    wait_until(|| handle.failure().is_some());
+    let expected = Some("output stopped unexpectedly: socket exploded");
+    assert_eq!(handle.failure().as_deref(), expected);
+    assert_eq!(handle.stop().failure.as_deref(), expected);
+}

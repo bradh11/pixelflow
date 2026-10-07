@@ -243,6 +243,7 @@ mod tests {
                 send_errors: 3,
                 last_error: Some("host unreachable".into()),
             }],
+            failure: None,
         };
         let text = summary(&stats, Duration::from_secs(10));
         assert_eq!(

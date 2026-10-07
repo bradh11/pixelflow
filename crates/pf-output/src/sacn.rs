@@ -2,6 +2,7 @@
 
 use crate::settings::OutputSettings;
 use pf_mapping::UniverseSpan;
+use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
 
 use crate::plan::SACN_PORT;
@@ -17,6 +18,13 @@ const VECTOR_ROOT_E131_EXTENDED: u32 = 0x0000_0008;
 const VECTOR_E131_DATA_PACKET: u32 = 0x0000_0002;
 const VECTOR_E131_EXTENDED_SYNCHRONIZATION: u32 = 0x0000_0001;
 const VECTOR_DMP_SET_PROPERTY: u8 = 0x02;
+/// Options bit telling receivers this source has stopped (E1.31 section 6.2.6).
+const OPTION_STREAM_TERMINATED: u8 = 0x40;
+/// Longest source name sent, in bytes (the field is 64 bytes, null-terminated).
+const MAX_SOURCE_NAME: usize = 63;
+
+/// The last sequence number sent on each sACN stream, by destination and universe.
+pub type SacnSequences = HashMap<(SocketAddr, u16), u8>;
 
 /// The multicast group for a universe: 239.255.<high byte>.<low byte>, port 5568.
 pub fn multicast_addr(universe: u16) -> SocketAddr {
@@ -41,9 +49,8 @@ pub fn write_data_header(packet: &mut [u8], universe: u16, channels: usize, sett
     packet[38..40].copy_from_slice(&flags_and_length(len - 38));
     packet[40..44].copy_from_slice(&VECTOR_E131_DATA_PACKET.to_be_bytes());
     packet[44..108].fill(0);
-    let name = settings.source_name.as_bytes();
-    let name_len = name.len().min(63);
-    packet[44..44 + name_len].copy_from_slice(&name[..name_len]);
+    let name = source_name(&settings.source_name).as_bytes();
+    packet[44..44 + name.len()].copy_from_slice(name);
     packet[108] = settings.priority.min(200);
     packet[109..111].copy_from_slice(&settings.sync_universe.unwrap_or(0).to_be_bytes());
     packet[111] = 0;
@@ -56,6 +63,16 @@ pub fn write_data_header(packet: &mut [u8], universe: u16, channels: usize, sett
     packet[121..123].copy_from_slice(&1u16.to_be_bytes());
     packet[123..125].copy_from_slice(&((channels + 1) as u16).to_be_bytes());
     packet[125] = 0;
+}
+
+/// `name` cut to at most [`MAX_SOURCE_NAME`] bytes on a character boundary: receivers read
+/// the field as UTF-8, so half a character would show as garbage.
+fn source_name(name: &str) -> &str {
+    let mut end = name.len().min(MAX_SOURCE_NAME);
+    while !name.is_char_boundary(end) {
+        end -= 1;
+    }
+    &name[..end]
 }
 
 /// An E1.31 synchronization packet for `sync_universe`.
@@ -128,6 +145,36 @@ impl SacnPackets {
         }
     }
 
+    /// Marks every packet Stream_Terminated, or clears the mark. Receivers ignore the data in a
+    /// terminated packet and stop expecting this source, rather than waiting for it to time out.
+    pub fn set_terminated(&mut self, terminated: bool) {
+        for packet in &mut self.packets {
+            if terminated {
+                packet[112] |= OPTION_STREAM_TERMINATED;
+            } else {
+                packet[112] &= !OPTION_STREAM_TERMINATED;
+            }
+        }
+    }
+
+    /// Records the last sequence number sent on each of these streams into `into`.
+    pub fn save_sequences(&self, into: &mut SacnSequences) {
+        for ((packet, u), to) in self.packets.iter().zip(&self.universes).zip(&self.destinations) {
+            into.insert((*to, u.universe), packet[111]);
+        }
+    }
+
+    /// Carries on from the sequence numbers another set of packets reached on the same streams,
+    /// so receivers don't see a stream jump back (and drop its packets as out of order) when
+    /// output switches to a new plan.
+    pub fn continue_sequences(&mut self, last: &SacnSequences) {
+        for ((packet, u), to) in self.packets.iter_mut().zip(&self.universes).zip(&self.destinations) {
+            if let Some(&sequence) = last.get(&(*to, u.universe)) {
+                packet[111] = sequence;
+            }
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.packets.len()
     }
@@ -190,6 +237,52 @@ mod tests {
         assert_eq!(packet[44 + 62], b'x');
         assert_eq!(packet[44 + 63], 0);
         assert_eq!(packet[108], 200);
+    }
+
+    #[test]
+    fn long_names_are_cut_on_a_character_boundary() {
+        let mut s = settings();
+        // 62 ASCII bytes, then a 3-byte character that byte 63 would split.
+        s.source_name = format!("{}€x", "a".repeat(62));
+        let mut packet = vec![0u8; DATA_HEADER_LEN];
+        write_data_header(&mut packet, 1, 0, &s);
+        assert_eq!(&packet[44..106], "a".repeat(62).as_bytes());
+        assert!(packet[106..108].iter().all(|&b| b == 0), "no half character");
+        assert_eq!(source_name("Hallo Welt ✨"), "Hallo Welt ✨");
+    }
+
+    #[test]
+    fn terminated_packets_carry_the_option_bit_and_sequences_carry_over() {
+        let universes = [UniverseSpan {
+            universe: 7,
+            controller_channel: 0,
+            len: 3,
+        }];
+        let dest: SocketAddr = "10.0.0.1:5568".parse().unwrap();
+        let mut packets = SacnPackets::new(&universes, false, dest, &settings());
+        assert_eq!(packets.packet(0).0[112], 0);
+        packets.set_terminated(true);
+        assert_eq!(packets.packet(0).0[112], 0x40);
+        packets.set_terminated(false);
+        assert_eq!(packets.packet(0).0[112], 0);
+
+        for _ in 0..300 {
+            packets.update(&[0, 0, 0]);
+        }
+        assert_eq!(packets.packet(0).0[111], 44, "300 wraps past 255");
+        let mut last = SacnSequences::new();
+        packets.save_sequences(&mut last);
+        assert_eq!(last.get(&(dest, 7)), Some(&44));
+        let mut next = SacnPackets::new(&universes, false, dest, &settings());
+        next.continue_sequences(&last);
+        next.update(&[0, 0, 0]);
+        assert_eq!(next.packet(0).0[111], 45);
+        // Universe 7 at another destination is a different stream.
+        let other: SocketAddr = "10.0.0.2:5568".parse().unwrap();
+        let mut elsewhere = SacnPackets::new(&universes, false, other, &settings());
+        elsewhere.continue_sequences(&last);
+        elsewhere.update(&[0, 0, 0]);
+        assert_eq!(elsewhere.packet(0).0[111], 1);
     }
 
     #[test]

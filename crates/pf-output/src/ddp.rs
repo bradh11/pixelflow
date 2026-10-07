@@ -71,6 +71,11 @@ impl DdpPackets {
     pub fn packet(&self, i: usize) -> (&[u8], SocketAddr) {
         (&self.packets[i], self.destination)
     }
+
+    /// Where every packet goes.
+    pub fn destination(&self) -> SocketAddr {
+        self.destination
+    }
 }
 
 #[cfg(test)]

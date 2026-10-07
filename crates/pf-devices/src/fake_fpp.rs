@@ -152,6 +152,8 @@ pub struct FakeFppState {
     /// The string output file holds something that isn't JSON (a 9.x save broke it): reading it
     /// answers just `{"status":"OK"}`, as 9.5.3's `channel_get_output()` does.
     pub pixel_strings_unreadable: bool,
+    /// Saves leave a file that isn't JSON (as a 9.x save of a stray quote does).
+    pub damage_saves: bool,
 }
 
 /// PHP's `stripslashes()`: each backslash is dropped and the character after it kept.
@@ -244,6 +246,7 @@ impl Default for FakeFppState {
             config_write_bodies: Vec::new(),
             fpp10_saves: false,
             pixel_strings_unreadable: false,
+            damage_saves: false,
         }
     }
 }
@@ -715,6 +718,9 @@ fn route(s: &mut FakeFppState, method: &str, segments: &[&str], body: &[u8]) -> 
                     }
                     Err(_) => s.pixel_strings_unreadable = true,
                 }
+            }
+            if s.damage_saves {
+                s.pixel_strings_unreadable = true;
             }
             if s.pixel_strings_unreadable {
                 return ok(json!({"status": "OK"}));

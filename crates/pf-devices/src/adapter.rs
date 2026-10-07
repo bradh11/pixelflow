@@ -8,20 +8,28 @@
 //! controller receives are ever written: never network or Wi-Fi settings.
 //!
 //! - FPP: `GET`/`POST /api/channel/output/co-pixelStrings` (or `co-bbbStrings` on a
-//!   BeagleBone), as xLights' `FPP::SetOutputs` does, keeping every field PixelFlow doesn't set.
-//! - WLED: `GET`/`POST /json/cfg`, as xLights' `WLED::SetOutputs` does, but without the network,
-//!   access point, security, and usermod sections, and without asking WLED to reboot.
+//!   BeagleBone), as xLights' `FPP::UploadPixelOutputs` does, keeping every field PixelFlow
+//!   doesn't set. FPP 9 runs `stripslashes()` over the body and doesn't check it
+//!   (`channel.php` at 9.5.3), so no `"` or `\` is ever sent; and fppd refuses to load strings
+//!   past its limits (`PixelString.cpp`), so such plans are refused here.
+//! - WLED: one `POST /json/cfg` holding only `hw.led` (as read, outputs edited), `light` (as
+//!   read), `if.live` (when the receive settings change), and `nw.linked_remote` (as read): the
+//!   settings WLED resets or clears when a save leaves them out. Never Wi-Fi, never the color
+//!   order overrides (`hw.com`, which WLED adds to rather than replaces), never a reboot.
 //! - Falcon: read only for now (its V4/V5 string upload is paged and can reboot the board).
 
-use crate::config::{DeviceConfig, color_order_from_name};
+use crate::config::{DeviceConfig, color_order_from_name, with_commas};
 use crate::device::{Device, DeviceKind};
 use crate::error::DeviceError;
 use crate::fpp::{get_json, int_field, opt_int_field, str_field};
 use crate::http::Http;
-use crate::setup::{Change, ChangeKind, Direction, Setup, SetupInput, SetupPort, SetupString, diff_ports};
+use crate::setup::{
+    Change, ChangeKind, Direction, MOVES_PIXELS, Setup, SetupInput, SetupPort, SetupString, diff_ports,
+    string_key,
+};
 use crate::{falcon, fpp, fpp_player, wled};
 use pf_model::ColorOrder;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::time::Duration;
 
@@ -34,7 +42,8 @@ pub struct DeviceStatus {
 }
 
 /// A controller's own settings document, exactly as read: what "Put back" sends.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Snapshot {
     pub kind: DeviceKind,
     pub address: String,
@@ -57,10 +66,27 @@ pub struct Write {
 pub struct ConfigPlan {
     /// Device (before) → show (after), port by port.
     pub changes: Vec<Change>,
-    /// What isn't sent, and why.
+    /// What isn't sent, and why, and what to check afterwards.
     pub notes: Vec<String>,
-    /// The saves that make the changes, in order. Empty when nothing differs.
+    /// Why this can't be sent as it is (the controller wouldn't load it, or it would run over
+    /// outputs PixelFlow doesn't set up). When there are any, there are no writes.
+    pub problems: Vec<String>,
+    /// The saves that make the changes, in order. Empty when nothing differs or can't be sent.
     pub writes: Vec<Write>,
+    /// What reading back should find once the writes are saved (adapter-specific).
+    pub expect: Value,
+}
+
+impl ConfigPlan {
+    fn nothing(notes: Vec<String>) -> Self {
+        Self {
+            changes: Vec::new(),
+            notes,
+            problems: Vec::new(),
+            writes: Vec::new(),
+            expect: Value::Null,
+        }
+    }
 }
 
 /// A save that didn't go through: how many before it did.
@@ -88,16 +114,31 @@ pub trait DeviceAdapter: Send + Sync {
     fn snapshot(&self, http: &dyn Http, host: &str) -> Result<Snapshot, DeviceError>;
     /// What sending `target` over `snapshot` would change (changes nothing).
     fn plan_config(&self, snapshot: &Snapshot, target: &Setup) -> Result<ConfigPlan, DeviceError>;
+    /// Whether a save's reply says it was saved properly.
+    fn check_reply(&self, host: &str, reply: &str) -> Result<(), DeviceError> {
+        let _ = (host, reply);
+        Ok(())
+    }
     /// Makes the plan's saves, in order. Changes the controller.
     fn apply_config(&self, http: &dyn Http, host: &str, plan: &ConfigPlan) -> Result<(), ApplyError> {
         let total = plan.writes.len();
         for (done, write) in plan.writes.iter().enumerate() {
-            post(http, host, write).map_err(|error| ApplyError { done, total, error })?;
+            post(http, host, write)
+                .and_then(|reply| self.check_reply(host, &reply))
+                .map_err(|error| ApplyError { done, total, error })?;
         }
         Ok(())
     }
-    /// What still differs from `target` when the controller is read back (empty when it all took).
-    fn verify_config(&self, http: &dyn Http, host: &str, target: &Setup) -> Result<Vec<Change>, DeviceError> {
+    /// What still differs once `plan` was saved and the controller is read back (empty when it
+    /// all took). An error means it couldn't be read back.
+    fn verify_config(
+        &self,
+        http: &dyn Http,
+        host: &str,
+        target: &Setup,
+        plan: &ConfigPlan,
+    ) -> Result<Vec<Change>, DeviceError> {
+        let _ = plan;
         let now = self.snapshot(http, host)?;
         Ok(self.plan_config(&now, target)?.changes)
     }
@@ -105,6 +146,14 @@ pub trait DeviceAdapter: Send + Sync {
     fn restore_config(&self, http: &dyn Http, host: &str, snapshot: &Snapshot) -> Result<(), DeviceError>;
     /// Whether two snapshots hold the same settings (the parts a send changes).
     fn same_setup(&self, a: &Snapshot, b: &Snapshot) -> bool;
+    /// Whether `now`, read after putting `snapshot` back, holds it.
+    fn restored(&self, now: &Snapshot, snapshot: &Snapshot) -> bool {
+        self.same_setup(now, snapshot)
+    }
+    /// What a send that read back as sent says.
+    fn sent_message(&self) -> String {
+        "Sent. Reading it back, the controller matches your show.".to_string()
+    }
 }
 
 fn not_sendable(kind: &str) -> DeviceError {
@@ -143,12 +192,46 @@ pub fn adapter_for(kind: DeviceKind) -> Box<dyn DeviceAdapter> {
     }
 }
 
+fn order_text(order: ColorOrder) -> String {
+    serde_json::to_value(order)
+        .ok()
+        .and_then(|v| v.as_str().map(String::from))
+        .unwrap_or_default()
+}
+
+fn mismatch(
+    id: String,
+    port: Option<u16>,
+    subject: String,
+    what: &str,
+    before: String,
+    after: String,
+) -> Change {
+    Change {
+        id,
+        port,
+        kind: ChangeKind::Setting,
+        subject,
+        what: what.to_string(),
+        before,
+        after,
+        warning: None,
+        can_take: false,
+        why_not: None,
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // FPP
 
 /// FPP over its REST API. Sends only its pixel string outputs (the cape or hat's strings).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FppAdapter;
+
+/// fppd's longest pixel string, nulls included (`MAX_PIXEL_STRING_LENGTH`, `PixelString.cpp`).
+const FPP_MAX_STRING: i64 = 1600;
+/// fppd's channel count (`FPPD_MAX_CHANNELS`, `Sequence.h` at 9.5.3).
+const FPP_MAX_CHANNELS: i64 = 8192 * 1024;
 
 /// `co-bbbStrings` on a BeagleBone, `co-pixelStrings` otherwise (xLights' `FPP.cpp` and
 /// PixelFlow's own [`fpp::read_config`] choose the same way).
@@ -175,6 +258,38 @@ fn fpp_real(vs: &Value) -> bool {
     int_field(vs, "pixelCount") > 0
 }
 
+/// Text FPP 9 can save: its `channel_save_output()` runs PHP's `stripslashes()` over the whole
+/// body, which turns `"12\" Star"` into broken JSON. Quotes become two apostrophes, backslashes
+/// slashes, and control characters (sent as `\n`, `\u0001`…) are dropped.
+pub fn fpp_text(text: &str) -> String {
+    text.chars()
+        .filter(|c| !c.is_control())
+        .map(|c| match c {
+            '"' => "''".to_string(),
+            '\\' => "/".to_string(),
+            other => other.to_string(),
+        })
+        .collect()
+}
+
+/// Makes every string in `value` safe for FPP 9 ([`fpp_text`]); how many changed.
+fn fpp_clean(value: &mut Value) -> usize {
+    match value {
+        Value::String(text) => {
+            let clean = fpp_text(text);
+            if clean == *text {
+                0
+            } else {
+                *text = clean;
+                1
+            }
+        }
+        Value::Array(items) => items.iter_mut().map(fpp_clean).sum(),
+        Value::Object(map) => map.values_mut().map(fpp_clean).sum(),
+        _ => 0,
+    }
+}
+
 /// The strings an FPP's string output file sets up, with where each starts (from channel 1).
 fn fpp_setup(doc: &Value) -> Setup {
     let mut ports = Vec::new();
@@ -192,13 +307,10 @@ fn fpp_setup(doc: &Value) -> Setup {
                 .into_iter()
                 .flatten()
                 .filter(|vs| fpp_real(vs))
-                .enumerate()
-                .map(|(i, vs)| {
+                .map(|vs| {
                     let color_order = color_order_from_name(str_field(vs, "colorOrder"));
                     SetupString {
-                        name: Some(str_field(vs, "description").to_string())
-                            .filter(|n| !n.is_empty())
-                            .unwrap_or_else(|| format!("String {}", i + 1)),
+                        name: str_field(vs, "description").to_string(),
                         pixels: u32::try_from(int_field(vs, "pixelCount")).unwrap_or(u32::MAX),
                         color_order,
                         start: opt_int_field(vs, "startChannel")
@@ -216,14 +328,8 @@ fn fpp_setup(doc: &Value) -> Setup {
         input: SetupInput::Ddp,
         ports,
         notes: Vec::new(),
+        left_alone: Vec::new(),
     }
-}
-
-fn order_text(order: ColorOrder) -> String {
-    serde_json::to_value(order)
-        .ok()
-        .and_then(|v| v.as_str().map(String::from))
-        .unwrap_or_default()
 }
 
 /// A new virtual string with FPP's defaults (as xLights writes one).
@@ -240,7 +346,7 @@ fn fpp_new_string(string: &SetupString) -> Value {
         order_text,
     );
     json!({
-        "description": string.name, "startChannel": 0, "pixelCount": 0, "groupCount": 0,
+        "description": fpp_text(&string.name), "startChannel": 0, "pixelCount": 0, "groupCount": 0,
         "reverse": 0, "colorOrder": order, "nullNodes": 0, "endNulls": 0, "zigZag": 0,
         "brightness": 100, "gamma": "1.0"
     })
@@ -262,6 +368,135 @@ fn fpp_body(doc: &Value) -> Value {
         map.remove("status");
     }
     body
+}
+
+/// A number field FPP keeps as a number or a string ("gamma": "2.2").
+fn fpp_number(vs: &Value, key: &str) -> f64 {
+    vs.get(key)
+        .and_then(|v| v.as_f64().or_else(|| v.as_str()?.trim().parse().ok()))
+        .unwrap_or(0.0)
+}
+
+/// Why fppd wouldn't load this virtual string (`PixelString.cpp` at 9.5.3, lines 601-617), in
+/// plain words, or `None`.
+fn fpp_load_problem(vs: &Value) -> Option<String> {
+    let n = |key: &str| int_field(vs, key);
+    let pixels = n("pixelCount");
+    if pixels > FPP_MAX_STRING {
+        return Some(format!(
+            "an FPP string drives at most 1,600 pixels, and this one would have {}. Split it across strings or ports",
+            with_commas(pixels)
+        ));
+    }
+    if pixels <= 0 {
+        return None;
+    }
+    let (nulls, end) = (n("nullNodes"), n("endNulls"));
+    if nulls < 0 || end < 0 || n("groupCount") < 0 || n("zigZag") < 0 || n("startChannel") < 0 {
+        return Some("one of its settings on the FPP is below zero".to_string());
+    }
+    if nulls + pixels + end > FPP_MAX_STRING {
+        return Some(format!(
+            "with the FPP's own {nulls} null pixels and {end} end nulls, {} pixels go past FPP's 1,600-pixel string",
+            with_commas(pixels)
+        ));
+    }
+    if n("groupCount") > pixels {
+        return Some(format!(
+            "the FPP groups it by {}, more than its {} pixels. Turn grouping off on the FPP's page first",
+            n("groupCount"),
+            with_commas(pixels)
+        ));
+    }
+    if n("zigZag") > pixels {
+        return Some(format!(
+            "the FPP zig-zags it every {} pixels, more than its {}. Turn zig-zag off on the FPP's page first",
+            n("zigZag"),
+            with_commas(pixels)
+        ));
+    }
+    if n("startChannel") > FPP_MAX_CHANNELS {
+        return Some("it would start past FPP's last channel".to_string());
+    }
+    None
+}
+
+/// The settings a virtual string carries that PixelFlow doesn't set, when not FPP's defaults.
+fn fpp_kept(vs: &Value) -> Vec<String> {
+    let mut kept = Vec::new();
+    if int_field(vs, "reverse") != 0 {
+        kept.push("reversed".to_string());
+    }
+    let nulls = int_field(vs, "nullNodes");
+    if nulls > 0 {
+        kept.push(if nulls == 1 {
+            "1 null pixel".to_string()
+        } else {
+            format!("{nulls} null pixels")
+        });
+    }
+    let end = int_field(vs, "endNulls");
+    if end > 0 {
+        kept.push(format!("{end} end nulls"));
+    }
+    let brightness = vs.get("brightness").map_or(100, |_| int_field(vs, "brightness"));
+    if brightness != 100 {
+        kept.push(format!("{brightness}% brightness"));
+    }
+    let gamma = fpp_number(vs, "gamma");
+    if gamma > 0.0 && (gamma - 1.0).abs() > 1e-6 {
+        kept.push(format!("gamma {gamma}"));
+    }
+    if int_field(vs, "groupCount") > 1 {
+        kept.push(format!("grouped by {}", int_field(vs, "groupCount")));
+    }
+    if int_field(vs, "zigZag") > 1 {
+        kept.push(format!("zig-zag {}", int_field(vs, "zigZag")));
+    }
+    kept
+}
+
+fn fpp_string_rows(port: u16, index: usize, old: &Value, new: &Value) -> Vec<Change> {
+    let (from, to) = (str_field(old, "description"), str_field(new, "description"));
+    if from == to {
+        return Vec::new();
+    }
+    let key = string_key(port, index);
+    let subject = format!("String {}", index + 1);
+    let shown = |name: &str| {
+        if name.is_empty() {
+            "None".to_string()
+        } else {
+            name.to_string()
+        }
+    };
+    let mut rows = vec![mismatch(
+        format!("{key}/name"),
+        Some(port),
+        subject.clone(),
+        "Name",
+        shown(from),
+        shown(to),
+    )];
+    let kept = fpp_kept(old);
+    if !kept.is_empty() {
+        let list = kept.join(", ");
+        let mut row = mismatch(
+            format!("{key}/kept"),
+            Some(port),
+            subject,
+            "Keeps",
+            list.clone(),
+            list,
+        );
+        row.warning = Some(format!(
+            "These were set on the FPP for {}; they stay on this string for {}. Change them on the FPP's page if they don't suit it.",
+            shown(from),
+            shown(to)
+        ));
+        rows.push(row);
+    }
+    rows
 }
 
 impl DeviceAdapter for FppAdapter {
@@ -305,6 +540,12 @@ impl DeviceAdapter for FppAdapter {
             }
             Err(e) => return Err(e),
         };
+        if doc.get("channelOutputs").is_none() {
+            return Err(DeviceError::Message(
+                "FPP can't read its own pixel string outputs: the file holding them is damaged. Fix it on the FPP's page (Channel Outputs → Pixel Strings) before sending."
+                    .to_string(),
+            ));
+        }
         if fpp_driver(&doc).is_none() {
             return Err(DeviceError::Message(
                 "This FPP's pixel outputs are turned off, so PixelFlow won't set them up. Turn them on from the FPP's own page first."
@@ -340,15 +581,10 @@ impl DeviceAdapter for FppAdapter {
                     .to_string(),
             );
         }
-        let changes = diff_ports(&current, &wanted, Direction::ToDevice);
-        if changes.is_empty() {
-            return Ok(ConfigPlan {
-                changes,
-                notes,
-                writes: Vec::new(),
-            });
-        }
+        let mut changes = diff_ports(&current, &wanted, Direction::ToDevice);
+        let mut problems = Vec::new();
         let mut doc = fpp_body(&snapshot.doc);
+        let cleaned = fpp_clean(&mut doc);
         let driver = fpp_driver(&doc).expect("a snapshot has a driver");
         for output in doc["channelOutputs"][driver]["outputs"]
             .as_array_mut()
@@ -358,6 +594,9 @@ impl DeviceAdapter for FppAdapter {
             let Ok(number) = u16::try_from(int_field(output, "portNumber").saturating_add(1)) else {
                 continue;
             };
+            if target.left_alone.contains(&number) {
+                continue;
+            }
             let none = Vec::new();
             let strings = wanted.port(number).map_or(&none, |p| &p.strings);
             let existing: Vec<Value> = output["virtualStrings"]
@@ -373,53 +612,169 @@ impl DeviceAdapter for FppAdapter {
                 }
                 continue;
             }
-            let list: Vec<Value> = strings
-                .iter()
-                .enumerate()
-                .map(|(i, string)| {
-                    let mut vs = existing.get(i).cloned().unwrap_or_else(|| fpp_new_string(string));
-                    vs["pixelCount"] = json!(string.pixels);
-                    if let Some(start) = string.start {
-                        vs["startChannel"] = json!(start.saturating_sub(1));
+            let mut list = Vec::new();
+            for (i, string) in strings.iter().enumerate() {
+                let label = if string.name.is_empty() {
+                    format!("Port {number} string {}", i + 1)
+                } else {
+                    format!("Port {number} string {} ({})", i + 1, string.name)
+                };
+                let mut vs = existing.get(i).cloned().unwrap_or_else(|| fpp_new_string(string));
+                vs["pixelCount"] = json!(string.pixels);
+                vs["description"] = json!(fpp_text(&string.name));
+                if let Some(start) = string.start {
+                    vs["startChannel"] = json!(start.saturating_sub(1));
+                }
+                if let Some(order) = string.color_order {
+                    if order.channels_per_pixel() != string.channels_per_pixel {
+                        problems.push(format!(
+                            "{label}: color order {} takes {} channels a pixel, but its prop sends {}. Change the color order on the Wiring screen.",
+                            order_text(order),
+                            order.channels_per_pixel(),
+                            string.channels_per_pixel
+                        ));
                     }
-                    if let Some(order) = string.color_order {
-                        vs["colorOrder"] = json!(order_text(order));
-                    }
-                    vs
-                })
-                .collect();
+                    vs["colorOrder"] = json!(order_text(order));
+                }
+                if let Some(problem) = fpp_load_problem(&vs) {
+                    problems.push(format!("{label}: {problem}."));
+                }
+                if let Some(old) = existing.get(i) {
+                    changes.extend(fpp_string_rows(number, i, old, &vs));
+                }
+                list.push(vs);
+            }
             output["virtualStrings"] = Value::Array(list);
         }
-        notes.push(
-            "If the lights don't change after sending, restart FPP's player (fppd) from the FPP's own page."
-                .to_string(),
-        );
+        if changes.is_empty() {
+            return Ok(ConfigPlan::nothing(notes));
+        }
+        if cleaned > 0 {
+            notes.push(format!(
+                "{} on this FPP {} quotes or backslashes, which FPP 9 can't save; they're saved with '' and / instead.",
+                if cleaned == 1 { "1 name".to_string() } else { format!("{cleaned} names") },
+                if cleaned == 1 { "has" } else { "have" }
+            ));
+        }
+        let writes = if problems.is_empty() {
+            vec![Write {
+                path: snapshot.path.clone(),
+                body: doc.clone(),
+                what: "the pixel string outputs".to_string(),
+            }]
+        } else {
+            Vec::new()
+        };
         Ok(ConfigPlan {
             changes,
             notes,
-            writes: vec![Write {
-                path: snapshot.path.clone(),
-                body: doc,
-                what: "the pixel string outputs".to_string(),
-            }],
+            problems,
+            writes,
+            expect: doc,
         })
     }
 
+    /// FPP's save echoes the saved file back; without its `channelOutputs`, the file FPP wrote
+    /// can't be read (on FPP 9, the reply is a bare `{"status":"OK"}`).
+    fn check_reply(&self, host: &str, reply: &str) -> Result<(), DeviceError> {
+        let ok = serde_json::from_str::<Value>(reply).is_ok_and(|doc| doc["channelOutputs"].is_array());
+        if ok {
+            Ok(())
+        } else {
+            Err(DeviceError::Message(format!(
+                "{host} saved the pixel outputs, but it can't read them back: the file it wrote is damaged, and its strings would stay dark after its player restarts."
+            )))
+        }
+    }
+
+    fn verify_config(
+        &self,
+        http: &dyn Http,
+        host: &str,
+        target: &Setup,
+        plan: &ConfigPlan,
+    ) -> Result<Vec<Change>, DeviceError> {
+        let now = self.snapshot(http, host)?;
+        let mut left = self.plan_config(&now, target)?.changes;
+        let read = fpp_body(&now.doc);
+        if !plan.expect.is_null() && read != plan.expect {
+            left.push(mismatch(
+                "readBack".to_string(),
+                None,
+                String::new(),
+                "Pixel string outputs",
+                "as sent".to_string(),
+                "read back differently".to_string(),
+            ));
+        }
+        let current = fpp_setup(&read);
+        if let Some(driver) = fpp_driver(&read) {
+            for output in read["channelOutputs"][driver]["outputs"]
+                .as_array()
+                .into_iter()
+                .flatten()
+            {
+                let number =
+                    u16::try_from(int_field(output, "portNumber").saturating_add(1)).unwrap_or(u16::MAX);
+                let real = output["virtualStrings"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|vs| fpp_real(vs));
+                for (i, vs) in real.enumerate() {
+                    if let Some(problem) = fpp_load_problem(vs) {
+                        let name = current
+                            .port(number)
+                            .and_then(|p| p.strings.get(i))
+                            .map_or("", |s| s.name.as_str());
+                        let subject = if name.is_empty() {
+                            format!("String {}", i + 1)
+                        } else {
+                            format!("String {} · {name}", i + 1)
+                        };
+                        left.push(mismatch(
+                            format!("{}/load", string_key(number, i)),
+                            Some(number),
+                            subject,
+                            "fppd",
+                            "loads".to_string(),
+                            format!("won't load: {problem}"),
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(left)
+    }
+
     fn restore_config(&self, http: &dyn Http, host: &str, snapshot: &Snapshot) -> Result<(), DeviceError> {
-        post(
+        let mut body = fpp_body(&snapshot.doc);
+        fpp_clean(&mut body);
+        let reply = post(
             http,
             host,
             &Write {
                 path: snapshot.path.clone(),
-                body: fpp_body(&snapshot.doc),
+                body,
                 what: "the previous pixel string outputs".to_string(),
             },
-        )
-        .map(|_| ())
+        )?;
+        self.check_reply(host, &reply)
     }
 
     fn same_setup(&self, a: &Snapshot, b: &Snapshot) -> bool {
         a.path == b.path && fpp_body(&a.doc) == fpp_body(&b.doc)
+    }
+
+    /// Put back saves the snapshot with FPP-9-safe names, so that's what it reads back as.
+    fn restored(&self, now: &Snapshot, snapshot: &Snapshot) -> bool {
+        let mut was = fpp_body(&snapshot.doc);
+        fpp_clean(&mut was);
+        now.path == snapshot.path && fpp_body(&now.doc) == was
+    }
+
+    fn sent_message(&self) -> String {
+        "Saved, and reading it back, the FPP's pixel outputs match your show. The lights use them once FPP's player (fppd) restarts: restart it from the FPP's own page, then check its warnings.".to_string()
     }
 }
 
@@ -448,10 +803,6 @@ impl WledAdapter {
     }
 }
 
-/// Top-level `cfg.json` sections never sent: Wi-Fi and network, the access point, Ethernet,
-/// the device's names, update and security settings, and usermods (which may hold passwords).
-const WLED_NEVER_SENT: [&str; 7] = ["nw", "ap", "eth", "wifi", "id", "ota", "um"];
-
 /// WLED's DMX modes that give every LED its own channels (`wled00/const.h`).
 const WLED_MULTI_RGB: i64 = 4;
 const WLED_MULTI_RGBW: i64 = 6;
@@ -471,28 +822,39 @@ fn wled_order_code(order: ColorOrder) -> Option<(i64, bool)> {
     })
 }
 
-/// The body of a save: the whole configuration as read, less the sections never sent. WLED
-/// resets some settings that a save leaves out (its frame rate, gamma, and ESP-NOW remotes,
-/// `wled00/cfg.cpp`), so everything else goes back as it was.
-fn wled_body(cfg: &Value) -> Value {
-    let mut body = cfg.clone();
-    if let Some(map) = body.as_object_mut() {
-        for key in WLED_NEVER_SENT {
-            map.remove(key);
-        }
-        if let Some(remotes) = cfg["nw"].get("linked_remote") {
-            map.insert("nw".to_string(), json!({ "linked_remote": remotes }));
-        }
+/// A save's body: only `hw.led` (whole: WLED resets its frame rate and white mode when they're
+/// missing), `light` (whole: older WLEDs turn color gamma off when it's missing), `if.live` when
+/// given, and `nw.linked_remote` (WLED 16 clears ESP-NOW remotes a save leaves out). Without
+/// `ins`, WLED doesn't set its outputs up again.
+fn wled_body(cfg: &Value, led: Value, live: Option<Value>) -> Value {
+    let mut body = json!({ "hw": { "led": led } });
+    if let Some(light) = cfg.get("light") {
+        body["light"] = light.clone();
+    }
+    if let Some(live) = live {
+        body["if"] = json!({ "live": live });
+    }
+    if let Some(remotes) = cfg["nw"].get("linked_remote") {
+        body["nw"] = json!({ "linked_remote": remotes });
     }
     body
 }
 
-/// One LED output: its port number (from 1), whether it drives pixels, and whether they're RGBW.
+/// Whether an LED output drives pixels, and whether they're RGBW.
 fn wled_bus_is_pixels(bus: &Value) -> (bool, bool) {
     let kind = bus["type"].as_i64().unwrap_or(22);
     let extra_white = [18, 19, 21, 28, 32, 34].contains(&kind);
     let pixels = ((16..=39).contains(&kind) || (48..=63).contains(&kind)) && !extra_white;
     (pixels, [29, 30, 31].contains(&kind))
+}
+
+/// What kind of output a non-pixel one is, for messages.
+fn wled_bus_kind(bus: &Value) -> &'static str {
+    match bus["type"].as_i64().unwrap_or(22) {
+        40..=47 => " (an on/off or PWM output)",
+        80..=95 => " (a network output)",
+        _ => "",
+    }
 }
 
 fn wled_setup(cfg: &Value) -> Setup {
@@ -537,6 +899,7 @@ fn wled_setup(cfg: &Value) -> Setup {
         input: SetupInput::Ddp,
         ports,
         notes: Vec::new(),
+        left_alone: Vec::new(),
     }
 }
 
@@ -548,18 +911,28 @@ fn setting(
     before: String,
     after: String,
 ) -> Change {
-    Change {
-        id: id.to_string(),
-        port,
-        kind: ChangeKind::Setting,
-        subject,
-        what: what.to_string(),
-        before,
-        after,
-        warning: None,
-        can_take: false,
-        why_not: None,
-    }
+    mismatch(id.to_string(), port, subject, what, before, after)
+}
+
+/// An LED range `[start, start + len)`.
+fn wled_range(bus: &Value) -> (i64, i64) {
+    let start = bus["start"].as_i64().unwrap_or(0);
+    (start, start + bus["len"].as_i64().unwrap_or(1).max(0))
+}
+
+fn overlaps(a: (i64, i64), b: (i64, i64)) -> bool {
+    a.0 < b.1 && b.0 < a.1
+}
+
+/// What reading an output back compares: everything WLED might change or drop.
+fn wled_bus_fields(bus: &Value) -> [Value; 5] {
+    [
+        bus["type"].clone(),
+        bus["pin"].clone(),
+        bus["start"].clone(),
+        bus["len"].clone(),
+        bus["order"].clone(),
+    ]
 }
 
 impl DeviceAdapter for WledAdapter {
@@ -600,10 +973,12 @@ impl DeviceAdapter for WledAdapter {
     fn plan_config(&self, snapshot: &Snapshot, target: &Setup) -> Result<ConfigPlan, DeviceError> {
         let cfg = &snapshot.doc;
         let mut notes = target.notes.clone();
+        let mut problems = Vec::new();
         let current = wled_setup(cfg);
         let buses = cfg["hw"]["led"]["ins"].as_array().cloned().unwrap_or_default();
-        // What the show asks of each output WLED has.
+        // What the show asks of each output WLED has, and which outputs PixelFlow sets up.
         let mut wanted = current.clone();
+        let mut owned = vec![false; buses.len()];
         for port in &target.ports {
             let Some(index) = usize::from(port.number)
                 .checked_sub(1)
@@ -620,12 +995,6 @@ impl DeviceAdapter for WledAdapter {
             };
             let (pixels, rgbw) = wled_bus_is_pixels(&buses[index]);
             let Some(mut string) = port.strings.first().cloned() else {
-                if !current.ports[index].strings.is_empty() {
-                    notes.push(format!(
-                        "Output {} isn't wired in your show; PixelFlow leaves it as it is.",
-                        port.number
-                    ));
-                }
                 continue;
             };
             if !pixels {
@@ -648,45 +1017,93 @@ impl DeviceAdapter for WledAdapter {
             }
             string.start = None;
             wanted.ports[index].strings = vec![string];
+            owned[index] = true;
         }
-        for port in &current.ports {
-            if !port.strings.is_empty() && target.port(port.number).is_none_or(|p| p.strings.is_empty()) {
-                let note = format!(
+        for (i, port) in current.ports.iter().enumerate() {
+            if !port.strings.is_empty() && !owned[i] {
+                notes.push(format!(
                     "Output {} isn't wired in your show; PixelFlow leaves it as it is.",
                     port.number
-                );
-                if !notes.contains(&note) {
-                    notes.push(note);
-                }
+                ));
             }
         }
         let mut changes = diff_ports(&current, &wanted, Direction::ToDevice);
 
-        // The outputs as they'll be saved: lengths and orders from the show, starts back to back.
+        // The outputs PixelFlow sets up get the show's lengths and orders, back to back from LED
+        // 0 in the show's order; every other output keeps its place.
         let mut ins = buses.clone();
         let mut start = 0i64;
+        let mut moved = false;
         for (i, bus) in ins.iter_mut().enumerate() {
-            if let Some(string) = wanted.ports.get(i).and_then(|p| p.strings.first()) {
-                bus["len"] = json!(string.pixels);
-                if let Some((code, _)) = string.color_order.and_then(wled_order_code) {
-                    let upper = bus["order"].as_i64().unwrap_or(0) & 0xF0;
-                    bus["order"] = json!(upper | code);
-                }
+            if !owned[i] {
+                continue;
+            }
+            let number = u16::try_from(i + 1).unwrap_or(u16::MAX);
+            let string = &wanted.ports[i].strings[0];
+            bus["len"] = json!(string.pixels);
+            if let Some((code, _)) = string.color_order.and_then(wled_order_code) {
+                let upper = bus["order"].as_i64().unwrap_or(0) & 0xF0;
+                bus["order"] = json!(upper | code);
             }
             let was = bus["start"].as_i64().unwrap_or(0);
             if was != start {
-                let number = u16::try_from(i + 1).unwrap_or(u16::MAX);
-                changes.push(setting(
+                moved = true;
+                let mut change = setting(
                     &format!("port{number}/firstLed"),
                     Some(number),
                     format!("Output {number}"),
                     "First LED",
                     was.to_string(),
                     start.to_string(),
-                ));
+                );
+                change.warning = Some(MOVES_PIXELS.to_string());
+                changes.push(change);
             }
             bus["start"] = json!(start);
-            start += bus["len"].as_i64().unwrap_or(0);
+            start += i64::from(string.pixels);
+        }
+        // Outputs PixelFlow doesn't set up must not end up under ones it does.
+        for (j, other) in ins.iter().enumerate() {
+            if owned[j] || other["len"].as_i64().unwrap_or(0) <= 0 {
+                continue;
+            }
+            let theirs = wled_range(other);
+            if let Some(k) = (0..ins.len()).find(|&k| owned[k] && overlaps(wled_range(&ins[k]), theirs)) {
+                problems.push(format!(
+                    "Output {}{} isn't set up by PixelFlow but uses LEDs {}–{}, which output {} would need. Wire it in your show, or move it in WLED's LED settings first.",
+                    j + 1,
+                    wled_bus_kind(other),
+                    theirs.0,
+                    theirs.1 - 1,
+                    k + 1
+                ));
+            }
+        }
+        // WLED's color order overrides (by LED number) win over an output's own order.
+        let overrides: Vec<(i64, i64)> = cfg["hw"]["com"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(wled_range)
+            .collect();
+        for change in changes.iter_mut().filter(|c| c.kind == ChangeKind::ColorOrder) {
+            let Some(index) = change.port.and_then(|p| usize::from(p).checked_sub(1)) else {
+                continue;
+            };
+            let range = wled_range(&ins[index]);
+            if let Some(o) = overrides.iter().find(|o| overlaps(**o, range)) {
+                change.warning = Some(format!(
+                    "WLED has a color order override for LEDs {}–{}, and that override wins over this. Remove it in WLED's LED settings (Color Order Override) for this to take effect.",
+                    o.0,
+                    o.1 - 1
+                ));
+            }
+        }
+        if moved && !overrides.is_empty() {
+            notes.push(
+                "WLED's color order overrides are set by LED number, so check them after the outputs move."
+                    .to_string(),
+            );
         }
         let outputs_change = !changes.is_empty();
 
@@ -727,6 +1144,10 @@ impl DeviceAdapter for WledAdapter {
                 change.kind = ChangeKind::Receives;
                 input.push(change);
                 new_live["port"] = json!(WLED_E131_PORT);
+                notes.push(
+                    "WLED starts listening on a new port only after it restarts: reboot it from its own page after sending."
+                        .to_string(),
+                );
             }
             if let Some(universe) = start_universe {
                 let was = live["dmx"]["uni"].as_i64().unwrap_or(1);
@@ -744,11 +1165,17 @@ impl DeviceAdapter for WledAdapter {
                     new_live["dmx"]["uni"] = json!(universe);
                 }
             }
-            let rgbw = wanted
-                .ports
-                .iter()
-                .flat_map(|p| &p.strings)
-                .any(|s| s.channels_per_pixel == 4);
+            let widths: Vec<u8> = (0..ins.len())
+                .filter(|&i| owned[i])
+                .map(|i| wanted.ports[i].strings[0].channels_per_pixel)
+                .collect();
+            let rgbw = widths.contains(&4);
+            if rgbw && widths.contains(&3) {
+                notes.push(
+                    "WLED uses one sACN mode for all its outputs, so RGB and RGBW outputs together won't line up: PixelFlow sets Multi RGBW, and the RGB outputs' colors will be off."
+                        .to_string(),
+                );
+            }
             let mode = live["dmx"]["mode"].as_i64().unwrap_or(WLED_MULTI_RGB);
             let want_mode = if rgbw { WLED_MULTI_RGBW } else { WLED_MULTI_RGB };
             if mode != want_mode {
@@ -782,35 +1209,52 @@ impl DeviceAdapter for WledAdapter {
         }
         let input_change = !input.is_empty();
         changes.extend(input);
-
-        let mut writes = Vec::new();
-        let mut body = wled_body(cfg);
-        if outputs_change {
-            body["hw"]["led"]["ins"] = Value::Array(ins);
-            body["hw"]["led"]["total"] = json!(start);
-            writes.push(Write {
-                path: snapshot.path.clone(),
-                body: body.clone(),
-                what: "the LED outputs".to_string(),
-            });
+        if changes.is_empty() {
+            return Ok(ConfigPlan::nothing(notes));
         }
-        if input_change {
-            body["if"]["live"] = new_live;
-            writes.push(Write {
+        let i2c = cfg["hw"]["if"]["i2c-pin"]
+            .as_array()
+            .is_some_and(|pins| pins.iter().any(|p| p.as_i64().is_some_and(|p| p >= 0)));
+        if i2c {
+            notes.push(
+                "This WLED has I2C pins set. On an ESP32, WLED can turn I2C off when its settings are saved: check its I2C pins (and any I2C usermods) after sending."
+                    .to_string(),
+            );
+        }
+        let mut led = cfg["hw"]["led"].clone();
+        if outputs_change {
+            led["ins"] = Value::Array(ins.clone());
+            led["total"] = json!(ins.iter().map(|b| b["len"].as_i64().unwrap_or(0)).sum::<i64>());
+        } else if let Some(map) = led.as_object_mut() {
+            map.remove("ins");
+        }
+        let body = wled_body(cfg, led, input_change.then(|| new_live.clone()));
+        let writes = if problems.is_empty() {
+            vec![Write {
                 path: snapshot.path.clone(),
                 body,
-                what: "the realtime receive settings".to_string(),
-            });
-        }
+                what: "the LED outputs and receive settings".to_string(),
+            }]
+        } else {
+            Vec::new()
+        };
         Ok(ConfigPlan {
             changes,
             notes,
+            problems,
             writes,
+            expect: json!({ "ins": ins, "live": new_live }),
         })
     }
 
-    fn verify_config(&self, http: &dyn Http, host: &str, target: &Setup) -> Result<Vec<Change>, DeviceError> {
-        // WLED applies new outputs on its next loop; read again once if they haven't shown yet.
+    fn verify_config(
+        &self,
+        http: &dyn Http,
+        host: &str,
+        target: &Setup,
+        plan: &ConfigPlan,
+    ) -> Result<Vec<Change>, DeviceError> {
+        // WLED sets new outputs up on its next loop; read again once if they haven't shown yet.
         let mut left = Vec::new();
         for attempt in 0..2 {
             if !self.settle.is_zero() {
@@ -822,6 +1266,57 @@ impl DeviceAdapter for WledAdapter {
             }
             let now = self.snapshot(http, host)?;
             left = self.plan_config(&now, target)?.changes;
+            // Every output as written, field by field: WLED drops one it can't drive.
+            let written = plan.expect["ins"].as_array().cloned().unwrap_or_default();
+            let read = now.doc["hw"]["led"]["ins"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            for (i, bus) in written.iter().enumerate() {
+                let number = u16::try_from(i + 1).unwrap_or(u16::MAX);
+                let sent = format!(
+                    "{} LEDs from {}",
+                    bus["len"].as_i64().unwrap_or(0),
+                    bus["start"].as_i64().unwrap_or(0)
+                );
+                let after = match read.get(i) {
+                    None => "missing: WLED dropped it".to_string(),
+                    Some(got) if wled_bus_fields(got) != wled_bus_fields(bus) => format!(
+                        "{} LEDs from {}",
+                        got["len"].as_i64().unwrap_or(0),
+                        got["start"].as_i64().unwrap_or(0)
+                    ),
+                    Some(_) => continue,
+                };
+                left.push(mismatch(
+                    format!("port{number}/readBack"),
+                    Some(number),
+                    format!("Output {number}"),
+                    "Read back",
+                    sent,
+                    after,
+                ));
+            }
+            if read.len() > written.len() && !written.is_empty() {
+                left.push(mismatch(
+                    "readBack/extra".to_string(),
+                    None,
+                    String::new(),
+                    "LED outputs",
+                    written.len().to_string(),
+                    read.len().to_string(),
+                ));
+            }
+            if !plan.expect["live"].is_null() && now.doc["if"]["live"] != plan.expect["live"] {
+                left.push(mismatch(
+                    "input/readBack".to_string(),
+                    None,
+                    String::new(),
+                    "Receive settings",
+                    "as sent".to_string(),
+                    "read back differently".to_string(),
+                ));
+            }
             if left.is_empty() {
                 break;
             }
@@ -830,12 +1325,14 @@ impl DeviceAdapter for WledAdapter {
     }
 
     fn restore_config(&self, http: &dyn Http, host: &str, snapshot: &Snapshot) -> Result<(), DeviceError> {
+        let cfg = &snapshot.doc;
+        let body = wled_body(cfg, cfg["hw"]["led"].clone(), Some(cfg["if"]["live"].clone()));
         post(
             http,
             host,
             &Write {
                 path: snapshot.path.clone(),
-                body: wled_body(&snapshot.doc),
+                body,
                 what: "the previous setup".to_string(),
             },
         )?;
@@ -845,19 +1342,12 @@ impl DeviceAdapter for WledAdapter {
     }
 
     fn same_setup(&self, a: &Snapshot, b: &Snapshot) -> bool {
-        let outputs = |s: &Snapshot| -> Vec<(Value, Value, Value, Value)> {
+        let outputs = |s: &Snapshot| -> Vec<[Value; 5]> {
             s.doc["hw"]["led"]["ins"]
                 .as_array()
                 .into_iter()
                 .flatten()
-                .map(|bus| {
-                    (
-                        bus["start"].clone(),
-                        bus["len"].clone(),
-                        bus["order"].clone(),
-                        bus["type"].clone(),
-                    )
-                })
+                .map(wled_bus_fields)
                 .collect()
         };
         outputs(a) == outputs(b) && a.doc["if"]["live"] == b.doc["if"]["live"]
@@ -924,7 +1414,7 @@ pub enum SendStatus {
     Mismatch,
     /// A save failed partway: the controller may hold some of the new setup.
     Failed,
-    /// Nothing was sent.
+    /// Nothing was sent, or the controller refused before changing anything.
     Refused,
 }
 
@@ -940,7 +1430,8 @@ pub struct SendReport {
     pub can_restore: bool,
 }
 
-/// A send's report, and the snapshot taken just before it (to put back).
+/// A send's report, and the snapshot taken just before it (to put back). The snapshot is only
+/// given when something may have changed on the controller.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SendOutcome {
     pub report: SendReport,
@@ -959,10 +1450,22 @@ fn refused(message: String) -> SendOutcome {
     }
 }
 
+/// A first save refused outright (a 4xx, or 503 busy) changed nothing.
+fn refused_outright(failure: &ApplyError) -> Option<u16> {
+    match failure.error {
+        DeviceError::Http { status, .. }
+            if failure.done == 0 && ((400..500).contains(&status) || status == 503) =>
+        {
+            Some(status)
+        }
+        _ => None,
+    }
+}
+
 /// Sends the show's setup `target` to the controller, as shown to the user: `shown` is the
 /// snapshot the plan was made from and `shown_changes` the ids of the rows they saw. Takes a new
-/// snapshot first; sends nothing if it can't be read or differs from `shown`. Then saves, reads
-/// back, and reports.
+/// snapshot first; sends nothing if it can't be read or differs from `shown`, or if the plan has
+/// problems. Then saves, reads back, and reports.
 pub fn send_setup(
     adapter: &dyn DeviceAdapter,
     http: &dyn Http,
@@ -998,10 +1501,23 @@ pub fn send_setup(
             "Your show changed since you looked, so nothing was sent. Review the changes again.".to_string(),
         );
     }
+    if !plan.problems.is_empty() {
+        return refused(format!("Nothing was sent. {}", plan.problems.join(" ")));
+    }
     if plan.writes.is_empty() {
         return refused("The controller already matches your show; nothing was sent.".to_string());
     }
     if let Err(failure) = adapter.apply_config(http, host, &plan) {
+        if let Some(status) = refused_outright(&failure) {
+            let pin = if status == 401 || status == 403 {
+                " If its settings are locked with a PIN, unlock them first."
+            } else {
+                ""
+            };
+            return refused(format!(
+                "{host} refused the new setup (HTTP {status}), so nothing was changed.{pin}"
+            ));
+        }
         let message = if failure.total > 1 {
             format!(
                 "Saving the new setup stopped after {} of {} steps: {} The controller may hold part of the new setup.",
@@ -1023,12 +1539,12 @@ pub fn send_setup(
             snapshot: Some(snapshot),
         };
     }
-    let report = match adapter.verify_config(http, host, target) {
+    let report = match adapter.verify_config(http, host, target, &plan) {
         Ok(left) if left.is_empty() => SendReport {
             status: SendStatus::Sent,
-            message: "Sent. Reading it back, the controller matches your show.".to_string(),
+            message: adapter.sent_message(),
             mismatches: Vec::new(),
-            can_restore: false,
+            can_restore: true,
         },
         Ok(left) => SendReport {
             status: SendStatus::Mismatch,
@@ -1037,8 +1553,10 @@ pub fn send_setup(
             can_restore: true,
         },
         Err(e) => SendReport {
-            status: SendStatus::Mismatch,
-            message: format!("Sent, but PixelFlow couldn't read the setup back to check it. {e}"),
+            status: SendStatus::Failed,
+            message: format!(
+                "Sent, but PixelFlow can't read the setup back, so it may not have been saved properly. {e}"
+            ),
             mismatches: Vec::new(),
             can_restore: true,
         },
@@ -1072,7 +1590,7 @@ pub fn restore_setup(
         };
     }
     match adapter.snapshot(http, host) {
-        Ok(now) if adapter.same_setup(&now, snapshot) => RestoreReport {
+        Ok(now) if adapter.restored(&now, snapshot) => RestoreReport {
             restored: true,
             message: "The previous setup is back on the controller.".to_string(),
         },
@@ -1087,5 +1605,19 @@ pub fn restore_setup(
                 "The previous setup was sent, but PixelFlow couldn't read it back to check. {e}"
             ),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fpp_text_has_nothing_stripslashes_would_break() {
+        assert_eq!(fpp_text("12\" Star \\ big\n"), "12'' Star / big");
+        let mut doc = json!({"a": ["x\"y", {"b": "ok"}], "c": 1});
+        assert_eq!(fpp_clean(&mut doc), 1);
+        assert_eq!(doc["a"][0], "x''y");
+        assert!(!doc.to_string().contains('\\'));
     }
 }

@@ -33,7 +33,7 @@ import { useView3d } from "../../state/view3d";
 import { ModeSwitch } from "../layout3d/ModeSwitch";
 import { drawsProps, setLayoutMode } from "../layout3d/useLayout3dKeys";
 
-interface ToolInfo {
+export interface ToolInfo {
   tool: Tool;
   label: string;
   hint: string;
@@ -41,7 +41,7 @@ interface ToolInfo {
 }
 
 /** The tools always on the bar. */
-const TOOLS: ToolInfo[] = [
+export const TOOLS: ToolInfo[] = [
   { tool: "select", label: "Select", hint: "Select, move, resize, and turn props", icon: MousePointer2 },
   { tool: "line", label: "Line", hint: "Drag from one end of a light string to the other", icon: Slash },
   {

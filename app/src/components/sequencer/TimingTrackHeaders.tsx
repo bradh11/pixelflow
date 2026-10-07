@@ -69,14 +69,15 @@ export function TimingTrackHeaders({ doc }: { doc: Sequence }) {
             )}
             {/* What it marks, unless its name already says so. */}
             {!track.name.toLowerCase().includes(kindLabel(track.kind).toLowerCase()) && (
-              <span className="shrink-0 text-[10px] text-neutral-400 group-hover:hidden">{kindLabel(track.kind)}</span>
+              <span className="shrink-0 text-[10px] text-neutral-400">{kindLabel(track.kind)}</span>
             )}
             <button
               type="button"
               aria-label={`${track.name} menu`}
               aria-haspopup="menu"
               aria-expanded={menu === track.id}
-              className="hidden shrink-0 rounded px-0.5 hover:bg-neutral-200/70 group-focus-within:block group-hover:block aria-expanded:block dark:hover:bg-neutral-800"
+              title="Track options: paste lyrics, make marks, import or export timing"
+              className="relative shrink-0 rounded px-0.5 text-neutral-500 before:absolute before:-inset-x-1 before:-inset-y-1.5 hover:bg-neutral-200/70 hover:text-neutral-800 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
               onClick={(e) => {
                 e.stopPropagation();
                 setMenu(menu === track.id ? null : track.id);

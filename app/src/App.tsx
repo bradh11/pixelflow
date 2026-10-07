@@ -8,6 +8,8 @@ import { ErrorBanner } from "./components/ErrorBanner";
 import { ImportReport } from "./components/ImportReport";
 import { FilesReport } from "./components/MissingFiles";
 import { SequenceImportReport } from "./components/SequenceImportReport";
+import { ConfirmDialog } from "./components/ConfirmDialog";
+import { Toasts } from "./components/Toasts";
 import { NameShowDialog, OpeningStatus } from "./components/ShowDialogs";
 import { Welcome } from "./components/Welcome";
 import { useShortcuts } from "./components/useShortcuts";
@@ -70,6 +72,8 @@ export function App() {
       <SequenceImportReport />
       <AiSettings />
       <DraftPreview />
+      <Toasts />
+      <ConfirmDialog />
       <NameShowDialog />
       <OpeningStatus />
     </>

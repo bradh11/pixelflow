@@ -11,6 +11,8 @@ import {
   newEffect,
   newRow,
   noChanges,
+  MAX_ROWS,
+  rowsForShow,
   type ExportProgress,
   type Sequence,
   type SequenceEdit,
@@ -74,6 +76,25 @@ describe("tauriSequencer", () => {
   beforeEach(() => {
     invoke.mockReset();
     listen.mockReset();
+  });
+
+  it("starts a new sequence with its rows when given", async () => {
+    invoke.mockResolvedValue(null);
+    const rows = rowsForShow({ groups: [{ id: "g", name: "G", members: ["p"] }], props: [] });
+    await tauriSequencer.newSequenceDoc("Song", 1000, null, rows);
+    expect(invoke.mock.calls).toEqual([["new_sequence_doc", { name: "Song", durationMs: 1000, audio: null, rows }]]);
+    expect(rows).toEqual([{ id: expect.any(String), target: { group: "g" }, layers: [{ effects: [] }] }]);
+  });
+
+  it("rows for a show skip empty groups and stop at the most a sequence can have", () => {
+    const props = Array.from({ length: 12 }, (_, i) => ({ id: `p${i}` }) as never);
+    const groups = [
+      { id: "empty", name: "Nothing", members: [] },
+      { id: "g", name: "G", members: ["p0"] },
+    ];
+    expect(rowsForShow({ groups, props }).map((r) => r.target)).toEqual([{ group: "g" }, ...Array.from({ length: 12 }, (_, i) => ({ prop: `p${i}` }))]);
+    expect(rowsForShow({ groups, props }, 5)).toHaveLength(5);
+    expect(MAX_ROWS).toBe(10_000);
   });
 
   it("calls the shell's commands with camelCase arguments", async () => {

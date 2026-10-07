@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { Background, Phoneme, Prop } from "../api/types";
-import type { Gesture, View } from "../lib/layoutMath";
+import type { Gesture, Size, View } from "../lib/layoutMath";
 import type { PropKind } from "../lib/shows";
 
 /**
@@ -69,9 +69,22 @@ interface LayoutEditorState {
   setView(view: View | null): void;
   setHighlight(highlight: Highlight | null): void;
   setPolyPoint(point: { prop: string; index: number } | null): void;
+  /** The props and groups list beside the canvas: shown or folded away, which tab, and the group open in it. */
+  sidePanel: { open: boolean; tab: "props" | "groups"; group: string | null };
+  setSidePanel(change: Partial<LayoutEditorState["sidePanel"]>): void;
 }
 
 const SMART_GUIDES_KEY = "pixelflow.smartGuides";
+const SIDE_PANEL_KEY = "pixelflow.layoutSidePanel";
+
+/** The props list as last left on this computer: shown unless folded away. */
+function storedSidePanelOpen(): boolean {
+  try {
+    return localStorage.getItem(SIDE_PANEL_KEY) !== "closed";
+  } catch {
+    return true;
+  }
+}
 
 /** Smart guides as last set on this computer: on unless turned off. */
 function storedSmartGuides(): boolean {
@@ -130,4 +143,33 @@ export const useLayoutEditor = create<LayoutEditorState>((set, get) => ({
   setView: (view) => set({ view }),
   setHighlight: (highlight) => set({ highlight }),
   setPolyPoint: (polyPoint) => set({ polyPoint }),
+  sidePanel: { open: storedSidePanelOpen(), tab: "props", group: null },
+  setSidePanel: (change) => {
+    const sidePanel = { ...get().sidePanel, ...change };
+    if (change.open !== undefined) {
+      try {
+        localStorage.setItem(SIDE_PANEL_KEY, sidePanel.open ? "open" : "closed");
+      } catch {
+        // Storage unavailable: it still applies for this session.
+      }
+    }
+    set({ sidePanel });
+  },
 }));
+
+/** Measures the 2D layout canvas on screen; set by the canvas while it's there. */
+let measureCanvas: (() => Size) | null = null;
+
+/** Lets the canvas on screen be measured; the returned function stops it. */
+export function registerCanvas(measure: () => Size): () => void {
+  measureCanvas = measure;
+  return () => {
+    if (measureCanvas === measure) measureCanvas = null;
+  };
+}
+
+/** The 2D layout canvas's size now, or null when there isn't one on screen. */
+export function canvasSize(): Size | null {
+  const size = measureCanvas?.();
+  return size && size.width > 0 && size.height > 0 ? size : null;
+}

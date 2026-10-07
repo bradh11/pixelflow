@@ -9,6 +9,7 @@ import {
   type Effect,
   type EffectInfo,
   type ExportSummary,
+  type Row,
   type Sequence,
   type SequenceEdit,
   type SequenceEditResult,
@@ -21,7 +22,7 @@ import type { MissingFile, PlaybackStatus, XlightsSequenceImported } from "../ap
 import { clock, fileName, plural, shownPath } from "../lib/format";
 import { folderOf } from "../lib/showFiles";
 import { tapEdits } from "../lib/timelineMath";
-import { useApp } from "./store";
+import { type SaveOptions, saidSaved, useApp } from "./store";
 
 const RECENT_KEY = "pixelflow.recentSequences";
 /** Whether playback loops, remembered on this computer. */
@@ -170,7 +171,8 @@ interface SequencerState {
   /** Closes the open sequence (the show it belongs to is being left); unsaved changes are
    * dropped, so ask first. */
   closeDocument(): Promise<void>;
-  newSequence(name: string, durationMs: number, audio: string | null): Promise<boolean>;
+  /** Starts a new sequence (with `rows`, when given: see `rowsForShow`). */
+  newSequence(name: string, durationMs: number, audio: string | null, rows?: Row[]): Promise<boolean>;
   open(path: string): Promise<boolean>;
   /** Imports the xLights sequence at `path` and opens it (unsaved), replacing the open one
    * without asking; the import report, or null when it failed (the error is shown). */
@@ -185,8 +187,9 @@ interface SequencerState {
   /** Answers the question: Save (then replace; it keeps asking if the save fails or is
    * cancelled), Don't save, or Cancel. True when the waiting action ran. */
   resolveReplacing(choice: "save" | "discard" | "cancel"): Promise<boolean>;
-  save(): Promise<boolean>;
-  saveAs(): Promise<boolean>;
+  /** Saves the sequence (asking where the first time); a toast says so unless `quiet`. */
+  save(options?: SaveOptions): Promise<boolean>;
+  saveAs(options?: SaveOptions): Promise<boolean>;
   /**
    * Applies edits as one undo step (or merged into `gesture`'s step), in order after every earlier
    * call. Edits given as a function are built from the latest document when their turn comes; an
@@ -427,14 +430,14 @@ export const useSequencer = create<SequencerState>((set, get) => {
       });
     },
 
-    async newSequence(name, durationMs, audio) {
+    async newSequence(name, durationMs, audio, rows) {
       const { api } = get();
       if (!api) return false;
       const ok = await serial(() =>
         guarded(async () => {
           await halt();
           // With its music from the start: nothing to undo, nothing unsaved.
-          adopt(await api.newSequenceDoc(name, durationMs, audio));
+          adopt(await api.newSequenceDoc(name, durationMs, audio, rows));
           set({ selection: [], markSelection: null, activeTrack: null, playheadMs: 0, collapsed: [], suggestBeats: audio !== null, docKey: newDocKey(), notice: null });
           return true;
         }),
@@ -505,21 +508,21 @@ export const useSequencer = create<SequencerState>((set, get) => {
       return true;
     },
 
-    async save() {
+    async save(options) {
       const { api, path } = get();
       if (!api || !get().doc) return false;
-      if (!path) return get().saveAs();
+      if (!path) return get().saveAs(options);
       const ok = await serial(() => guarded(async () => (adopt(await api.saveSequenceDoc()), true)));
-      return ok === true;
+      return saidSaved(ok === true, get().doc?.name, options);
     },
 
-    async saveAs() {
+    async saveAs(options) {
       const { api, doc, path } = get();
       if (!api || !doc) return false;
       const target = await guarded(() => api.pickSequenceDocSavePath(path ? fileName(path) : `${doc.name}.pfseq.json`));
       if (!target) return false;
       const ok = await serial(() => guarded(async () => (adopt(await api.saveSequenceDocAs(target)), true)));
-      return ok === true;
+      return saidSaved(ok === true, get().doc?.name, options);
     },
 
     async edit(edits, gesture) {

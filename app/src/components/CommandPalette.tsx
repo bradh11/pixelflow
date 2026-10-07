@@ -1,9 +1,10 @@
 import { Command } from "cmdk";
 import { useEffect } from "react";
 import { fileName } from "../lib/format";
-import { besideOthers } from "../lib/layoutEdits";
-import { PROP_KINDS, newProp } from "../lib/shows";
+import { PROP_KINDS } from "../lib/shows";
+import { addPropInView } from "../state/addProp";
 import { useAssistant } from "../state/assistant";
+import { saveFocused } from "../state/menuActions";
 import { type Screen, useApp } from "../state/store";
 
 interface Action {
@@ -54,7 +55,7 @@ export function CommandPalette() {
     { id: "demo", label: "Try the demo show", run: state.openSample },
     { id: "import-xlights", label: "Import from xLights…", run: state.importXlights },
     { id: "import-xlights-sequence", label: "Import xLights sequence…", run: state.importXlightsSequence },
-    { id: "save", label: "Save", shortcut: "⌘S", run: state.save },
+    { id: "save", label: "Save", shortcut: "⌘S", run: () => saveFocused(false) },
     { id: "save-as", label: "Save as…", shortcut: "⇧⌘S", run: state.saveAs },
     { id: "undo", label: "Undo", shortcut: "⌘Z", run: state.undo },
     { id: "redo", label: "Redo", shortcut: "⇧⌘Z", run: state.redo },
@@ -73,10 +74,7 @@ export function CommandPalette() {
     ...PROP_KINDS.map(({ kind, label }) => ({
       id: `add-${kind}`,
       label: `Add prop: ${label}`,
-      run: () => {
-        const show = useApp.getState().snapshot?.show;
-        if (show) void state.apply([{ type: "addProp", prop: besideOthers(newProp(kind, show), show) }]);
-      },
+      run: () => void addPropInView(kind),
     })),
     {
       id: "theme",

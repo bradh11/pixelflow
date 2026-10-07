@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { demoShow } from "../api/demo";
 import { MemoryBackend, emptyShow } from "../api/memory";
 import type { Edit, Prop } from "../api/types";
-import { alignEdits, besideOthers, distributeEdits, duplicateEdits, gestureEdits, pasteEdits, removeEdits, updateEdits, wiringOf } from "./layoutEdits";
+import { frontView } from "./geometry";
+import { alignEdits, besideOthers, distributeEdits, duplicateEdits, gestureEdits, pasteEdits, placedInView, removeEdits, updateEdits, visibleBox, wiringOf } from "./layoutEdits";
+import { boxOfPoints } from "./layoutMath";
 import { newProp } from "./shows";
 
 const props = (edits: Edit[]) => edits.map((e) => (e.type === "updateProp" || e.type === "addProp" ? e.prop : null)) as Prop[];
@@ -79,6 +81,42 @@ describe("layout edits", () => {
     // The mega tree's right edge is at x = 9.5; a 5-unit line centered on its origin starts 1 unit later.
     expect(placed.transform.position.x).toBeCloseTo(13, 1);
     expect(besideOthers(newProp("line", emptyShow("x")), emptyShow("x")).transform.position).toMatchObject({ x: 0, y: 0 });
+  });
+
+  it("puts a new prop in the middle of what the canvas shows", () => {
+    const show = demoShow();
+    const visible = { minX: 100, minY: 40, maxX: 140, maxY: 60 };
+    const placed = placedInView(newProp("line", show), show, [], visible);
+    const box = boxOfPoints(frontView(placed))!;
+    expect((box.minX + box.maxX) / 2).toBeCloseTo(120, 2);
+    expect((box.minY + box.maxY) / 2).toBeCloseTo(50, 2);
+  });
+
+  it("steps each new prop down and right so it doesn't land on the last one", () => {
+    const show = demoShow();
+    const visible = { minX: 100, minY: 40, maxX: 140, maxY: 60 };
+    const first = placedInView(newProp("arch", show), show, [], visible);
+    const withFirst = { ...show, props: [...show.props, first] };
+    const second = placedInView(newProp("arch", withFirst), withFirst, [], visible);
+    const withBoth = { ...withFirst, props: [...withFirst.props, second] };
+    const third = placedInView(newProp("arch", withBoth), withBoth, [], visible);
+    const step = second.transform.position.x - first.transform.position.x;
+    expect(step).toBeGreaterThan(0);
+    expect(second.transform.position.y).toBeCloseTo(first.transform.position.y - step, 2);
+    expect(third.transform.position.x).toBeCloseTo(first.transform.position.x + 2 * step, 2);
+    // Still inside what's shown.
+    expect(third.transform.position.x).toBeLessThan(visible.maxX);
+  });
+
+  it("falls back to beside the others when the canvas hasn't been measured", () => {
+    const show = demoShow();
+    const prop = newProp("line", show);
+    expect(placedInView(prop, show, [], null)).toEqual(besideOthers(prop, show));
+  });
+
+  it("works out the part of the layout a view shows", () => {
+    expect(visibleBox({ cx: 10, cy: 5, zoom: 20 }, { width: 400, height: 200 })).toEqual({ minX: 0, minY: 0, maxX: 20, maxY: 10 });
+    expect(visibleBox({ cx: 10, cy: 5, zoom: 20 }, { width: 0, height: 0 })).toBeNull();
   });
 
   it("goes by the engine's positions for the others where it has them", () => {

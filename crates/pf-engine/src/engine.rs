@@ -879,11 +879,28 @@ impl Engine {
         duration_ms: u64,
         audio: Option<&str>,
     ) -> Result<SequenceSnapshot, EngineError> {
+        self.new_sequence_doc_with_rows(name, duration_ms, audio, Vec::new())
+    }
+
+    /// Starts a new sequence that already has `rows` (a row for every prop and group, as xLights
+    /// starts one), replacing the open one without asking. Like [`Engine::new_sequence_doc`],
+    /// there's nothing to undo and nothing unsaved. Rows are checked as opening a file would check
+    /// them; on failure the open sequence is left untouched.
+    pub fn new_sequence_doc_with_rows(
+        &mut self,
+        name: &str,
+        duration_ms: u64,
+        audio: Option<&str>,
+        rows: Vec<pf_sequence::Row>,
+    ) -> Result<SequenceSnapshot, EngineError> {
         let mut doc = Sequence::new(name, duration_ms);
         doc.audio = audio.filter(|a| !a.trim().is_empty()).map(str::to_owned);
+        doc.rows = rows;
         if let Some(problem) = pf_sequence::limit_problems(&doc).into_iter().next() {
             return Err(EngineError::TooLarge(problem));
         }
+        crate::sequence_doc::check_unique_ids(&doc)?;
+        let doc = pf_sequence::check_sequence(&doc).map_err(|e| EngineError::TooLarge(e.to_string()))?;
         self.replace_sequence(OpenSequence::new(doc, None, self.sequence_revision + 1));
         Ok(self.sequence_snapshot_unchecked())
     }

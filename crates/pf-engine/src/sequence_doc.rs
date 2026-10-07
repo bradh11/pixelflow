@@ -553,7 +553,7 @@ impl SequenceEdit {
 }
 
 /// Ids that must be unique across the document (a batch could add the same id twice).
-fn check_unique_ids(doc: &Sequence) -> Result<(), EngineError> {
+pub(crate) fn check_unique_ids(doc: &Sequence) -> Result<(), EngineError> {
     let mut rows = HashSet::with_capacity(doc.rows.len());
     if !doc.rows.iter().all(|r| rows.insert(r.id)) {
         return Err(EngineError::DuplicateId { kind: "row" });

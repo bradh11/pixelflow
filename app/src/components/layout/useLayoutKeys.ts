@@ -5,7 +5,10 @@ import { nudgeStep } from "../../lib/layoutMath";
 import { isPoly, removeVertex } from "../../lib/polylineMath";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { addNudge, flushNudge } from "../../state/layoutGestures";
+import { isBusyOrAsking } from "../../state/busy";
+import { groupSelected } from "../../state/groups";
 import { useApp } from "../../state/store";
+import { deleteProps } from "./PropsList";
 import type { LayoutCanvasHandle } from "./LayoutCanvas";
 
 const ARROWS: Record<string, [number, number]> = {
@@ -39,7 +42,7 @@ const PASTE_OFFSET = 0.5;
 
 /**
  * Layout editor keys while the Layout screen is open: Escape, Delete/Backspace, arrow keys
- * (Shift: ten times as far), ⌘A select all, ⌘D duplicate, ⌘C copy, ⌘X cut, ⌘V paste (Ctrl
+ * (Shift: ten times as far), ⌘A select all, ⌘G group the selection, ⌘D duplicate, ⌘C copy, ⌘X cut, ⌘V paste (Ctrl
  * works for ⌘ too). Typing in a field is left alone.
  * Holding an arrow key moves the selection as it repeats and sends one move (one undo step)
  * when the key is let go.
@@ -60,6 +63,9 @@ export function useLayoutKeys(canvas: RefObject<LayoutCanvasHandle | null>) {
     const onKey = (e: KeyboardEvent) => {
       const app = useApp.getState();
       if (app.paletteOpen || app.pendingReplace || e.defaultPrevented) return;
+      // A dialog or question is up (a delete warning, "Name your show"), or a show is opening:
+      // Delete, ⌘D, ⌘G, ⌘X/⌘V, and the arrows wait instead of changing the show behind it.
+      if (isBusyOrAsking()) return;
       if (typing(e.target)) return;
       // A poly line being drawn takes Enter, Backspace and Delete before anything else does.
       if (!e.metaKey && !e.ctrlKey && !e.altKey && canvas.current?.polyKey(e.key)) {
@@ -87,6 +93,9 @@ export function useLayoutKeys(canvas: RefObject<LayoutCanvasHandle | null>) {
         if (key === "a") {
           e.preventDefault();
           editor.select(show.props.map((p) => p.id));
+        } else if (key === "g") {
+          e.preventDefault();
+          if (ids.length > 0) void groupSelected();
         } else if (key === "d") {
           e.preventDefault();
           if (ids.length > 0) addAndSelect((latest) => duplicateEdits(latest, ids));
@@ -129,7 +138,10 @@ export function useLayoutKeys(canvas: RefObject<LayoutCanvasHandle | null>) {
           void app.apply(updateEdits(point.prop, (p) => (isPoly(p.shape) ? { ...p, shape: removeVertex(p.shape, point.index) ?? p.shape } : p)));
           return;
         }
-        void app.apply(removeEdits(ids)).then((ok) => ok && useLayoutEditor.getState().clear());
+        void deleteProps(
+          ids,
+          ids.map((id) => show.props.find((p) => p.id === id)?.name ?? ""),
+        );
         return;
       }
       const arrow = ARROWS[e.key];

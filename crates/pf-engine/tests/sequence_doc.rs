@@ -758,6 +758,30 @@ fn a_new_sequence_can_start_with_its_music_and_nothing_to_undo() {
 }
 
 #[test]
+fn a_new_sequence_can_start_with_rows_and_still_nothing_to_undo() {
+    let (mut engine, _recorded, _dir) = engine();
+    let strip = engine.show().props[0].id;
+    let rows = vec![
+        Row::new(Target::Group(pf_model::GroupId::new())),
+        Row::new(Target::Prop(strip)),
+    ];
+    let snapshot = engine
+        .new_sequence_doc_with_rows("Song", 60_000, None, rows.clone())
+        .unwrap();
+    assert_eq!(snapshot.sequence.rows, rows);
+    assert!(!snapshot.dirty);
+    assert!(!snapshot.can_undo);
+
+    // Rows that couldn't be opened from a file aren't taken; the open sequence stays.
+    let row = Row::new(Target::Prop(strip));
+    let err = engine
+        .new_sequence_doc_with_rows("Twice", 1000, None, vec![row.clone(), row])
+        .unwrap_err();
+    assert_eq!(err.to_string(), "A row with that id already exists.");
+    assert_eq!(engine.sequence_doc().unwrap().sequence.name, "Song");
+}
+
+#[test]
 fn unsaved_sequences_are_kept_and_offered_back_after_a_restart() {
     let (mut engine, _recorded, dir) = engine();
     let row = new_doc(&mut engine, 2000);

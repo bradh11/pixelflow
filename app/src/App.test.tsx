@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { App } from "./App";
 import { MemoryBackend, emptyShow } from "./api/memory";
 import { useApp } from "./state/store";
+import { useLayoutEditor } from "./state/layoutEditor";
 
 let backend: MemoryBackend;
 
@@ -13,6 +14,12 @@ async function startApp() {
   const user = userEvent.setup();
   render(<App />);
   return user;
+}
+
+/** Adds a prop of the kind (an arch unless said) from the Add prop menu. */
+async function addProp(user: ReturnType<typeof userEvent.setup>, kind = "Arch") {
+  await user.click(screen.getByRole("button", { name: "Add prop" }));
+  await user.click(screen.getByRole("menuitem", { name: kind }));
 }
 
 /** Answers "Name your show" (asked before a new show's first save). */
@@ -64,27 +71,34 @@ describe("first run", () => {
 describe("editing with undo and redo", () => {
   it("adds, renames, and deletes props, with undo and redo", async () => {
     const user = await startFresh();
-    await user.selectOptions(screen.getByLabelText("Prop type"), "tree");
-    await user.click(screen.getByRole("button", { name: /add prop/i }));
-    expect(screen.getByDisplayValue("Mega Tree 1")).toBeInTheDocument();
+    await addProp(user, "Mega tree");
+    expect((await screen.findAllByDisplayValue("Mega Tree 1")).length).toBeGreaterThan(0);
+    expect(screen.getByTestId("toast")).toHaveTextContent("Added Mega Tree 1 — drag it into place");
     expect(screen.getByText("800")).toBeInTheDocument();
     expect(screen.getByText(/1 prop · 800 pixels/)).toBeInTheDocument();
-    expect(screen.getByLabelText("Unsaved changes")).toBeInTheDocument();
+    expect(screen.getByText("Show not saved")).toBeInTheDocument();
 
+    await user.dblClick(screen.getByRole("option", { name: /^Mega Tree 1/ }));
     const name = screen.getByLabelText("Name of Mega Tree 1");
     await user.clear(name);
     await user.type(name, "Big Tree{Enter}");
-    expect(screen.getByDisplayValue("Big Tree")).toBeInTheDocument();
+    expect(screen.getAllByDisplayValue("Big Tree")[0]).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Undo" }));
-    expect(screen.getByDisplayValue("Mega Tree 1")).toBeInTheDocument();
+    expect(screen.getAllByDisplayValue("Mega Tree 1")[0]).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Redo" }));
-    expect(screen.getByDisplayValue("Big Tree")).toBeInTheDocument();
+    expect(screen.getAllByDisplayValue("Big Tree")[0]).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Delete Big Tree" }));
     expect(screen.getByText("No props yet")).toBeInTheDocument();
+    expect(screen.getAllByTestId("toast").at(-1)).toHaveTextContent("Deleted Big Tree");
     await user.keyboard("{Meta>}z{/Meta}");
-    expect(screen.getByDisplayValue("Big Tree")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^Big Tree/ })).toBeInTheDocument();
+
+    // The toast's Undo takes a delete back while it's still the latest change.
+    await user.click(screen.getByRole("button", { name: "Delete Big Tree" }));
+    await user.click(within(screen.getAllByTestId("toast").at(-1)!).getByRole("button", { name: "Undo" }));
+    expect(screen.getByRole("option", { name: /^Big Tree/ })).toBeInTheDocument();
   });
 
   it("shows engine errors in plain language", async () => {
@@ -92,7 +106,7 @@ describe("editing with undo and redo", () => {
     backend.applyEdits = async () => {
       throw new Error("The prop 'Huge' has 2000000 pixels, but PixelFlow supports at most 1000000 per prop.");
     };
-    await user.click(screen.getByRole("button", { name: /add prop/i }));
+    await addProp(user);
     expect(screen.getByRole("alert")).toHaveTextContent("supports at most 1000000 per prop");
     await user.click(screen.getByRole("button", { name: "Dismiss" }));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -102,30 +116,60 @@ describe("editing with undo and redo", () => {
 describe("saving", () => {
   it("asks where to save the first time, then saves in place", async () => {
     const user = await startFresh();
-    await user.click(screen.getByRole("button", { name: /add prop/i }));
+    await addProp(user);
     backend.nextSavePath = "/shows/new.pixelflow.json";
     await user.click(screen.getByRole("button", { name: "Save" }));
     await nameShow(user, "Backyard");
     await waitFor(() => expect(backend.calls).toContain("saveShowAs:/shows/new.pixelflow.json"));
     expect(backend.show.name).toBe("Backyard");
-    expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
+    expect(screen.queryByText("Show not saved")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("toast").at(-1)).toHaveTextContent("Saved Backyard");
 
     backend.nextSavePath = null;
-    await user.click(screen.getByRole("button", { name: /add prop/i }));
+    await addProp(user);
     await user.keyboard("{Meta>}s{/Meta}");
     expect(backend.calls.filter((c) => c.startsWith("saveShowAs")).length).toBe(2);
-    expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
+    expect(screen.queryByText("Show not saved")).not.toBeInTheDocument();
   });
 });
 
 describe("command palette", () => {
+  it("adds a prop from another screen in the middle of the Layout canvas, not off to the side", async () => {
+    const size = { clientWidth: 800, clientHeight: 600 } as const;
+    const saved = Object.fromEntries(Object.keys(size).map((k) => [k, Object.getOwnPropertyDescriptor(HTMLElement.prototype, k)]));
+    for (const [k, v] of Object.entries(size)) {
+      Object.defineProperty(HTMLElement.prototype, k, {
+        configurable: true,
+        get() {
+          return this.tagName === "CANVAS" ? v : 0;
+        },
+      });
+    }
+    try {
+      const user = await startFresh();
+      await addProp(user, "Line / string");
+      await waitFor(() => expect(useLayoutEditor.getState().view).not.toBeNull());
+      await user.click(screen.getByRole("button", { name: "Wiring" }));
+      await user.keyboard("{Meta>}k{/Meta}");
+      await user.type(screen.getByPlaceholderText("Type a command…"), "add prop: line");
+      await user.keyboard("{Enter}");
+      await waitFor(() => expect(backend.show.props).toHaveLength(2));
+      expect(useApp.getState().screen).toBe("layout");
+      const [first, second] = backend.show.props.map((p) => p.transform.position.x);
+      // Beside the first line would be 6 units over; in the view it's one small step aside.
+      expect(Math.abs(second - first)).toBeLessThan(2);
+    } finally {
+      for (const [k, d] of Object.entries(saved)) if (d) Object.defineProperty(HTMLElement.prototype, k, d);
+    }
+  });
+
   it("opens with ⌘K and runs commands", async () => {
     const user = await startFresh();
     await user.keyboard("{Meta>}k{/Meta}");
     const input = screen.getByPlaceholderText("Type a command…");
     await user.type(input, "add prop: star");
     await user.keyboard("{Enter}");
-    expect(screen.getByDisplayValue("Star 1")).toBeInTheDocument();
+    expect(screen.getAllByDisplayValue("Star 1")[0]).toBeInTheDocument();
     expect(screen.queryByPlaceholderText("Type a command…")).not.toBeInTheDocument();
 
     await user.keyboard("{Meta>}k{/Meta}");
@@ -138,10 +182,10 @@ describe("command palette", () => {
 describe("wiring and test output", () => {
   it("adds a controller, wires a prop, and starts and stops a test pattern", async () => {
     const user = await startFresh();
-    await user.click(screen.getByRole("button", { name: /add prop/i }));
+    await addProp(user);
     await user.click(screen.getByRole("button", { name: "Wiring" }));
     await user.click(screen.getByRole("button", { name: /add controller/i }));
-    await user.type(screen.getByPlaceholderText("192.168.1.50"), "10.0.0.20");
+    await user.type(screen.getByPlaceholderText("e.g. 192.168.1.50"), "10.0.0.20");
     await user.click(screen.getByRole("button", { name: "Add" }));
     expect(screen.getByRole("heading", { name: "Controller 1" })).toBeInTheDocument();
 
@@ -160,16 +204,27 @@ describe("wiring and test output", () => {
     expect(backend.output.target).toEqual({ type: "port", controller: backend.show.controllers[0].id, port: 1 });
     expect(backend.output.pattern).toEqual({ kind: "solid", color: "ffffff" });
 
-    await user.click(screen.getByRole("button", { name: /stop/i }));
+    // While it runs, changes reach the lights without pressing Restart.
+    await user.click(screen.getByRole("button", { name: "Red" }));
+    await waitFor(() => expect(backend.output.pattern).toEqual({ kind: "solid", color: "ff0000" }));
+    expect(screen.getByLabelText("Color as hex")).toHaveValue("#ff0000");
+    await user.selectOptions(screen.getByLabelText("Pattern"), "chase");
+    await waitFor(() => expect(backend.output.pattern).toEqual({ kind: "chase", color: "ff0000" }));
+    const hex = screen.getByLabelText("Color as hex");
+    await user.clear(hex);
+    await user.type(hex, "00ff00");
+    await waitFor(() => expect(backend.output.pattern).toEqual({ kind: "chase", color: "00ff00" }));
+
+    await user.click(screen.getByRole("button", { name: /^stop$/i }));
     expect(await screen.findByText("Output stopped")).toBeInTheDocument();
   });
 
   it("shows why output stopped on its own", async () => {
     const user = await startFresh();
-    await user.click(screen.getByRole("button", { name: /add prop/i }));
+    await addProp(user);
     await user.click(screen.getByRole("button", { name: "Wiring" }));
     await user.click(screen.getByRole("button", { name: /add controller/i }));
-    await user.type(screen.getByPlaceholderText("192.168.1.50"), "10.0.0.20");
+    await user.type(screen.getByPlaceholderText("e.g. 192.168.1.50"), "10.0.0.20");
     await user.click(screen.getByRole("button", { name: "Add" }));
     const reason = "Output stopped because the show now has errors: Port 1 is over capacity.";
     backend.outputStatus = async () => ({ ...(await backend.stopOutput()), stopReason: reason });
@@ -190,27 +245,27 @@ describe("theme", () => {
 
 async function addController(user: ReturnType<typeof userEvent.setup>, ip: string) {
   await user.click(screen.getByRole("button", { name: /add controller/i }));
-  await user.type(screen.getByPlaceholderText("192.168.1.50"), ip);
+  await user.type(screen.getByPlaceholderText("e.g. 192.168.1.50"), ip);
   await user.click(screen.getByRole("button", { name: "Add" }));
 }
 
 describe("unsaved changes on new and open", () => {
   it("asks first; Cancel keeps the show and its undo history", async () => {
     const user = await startFresh();
-    await user.click(screen.getByRole("button", { name: /add prop/i }));
+    await addProp(user);
     await user.keyboard("{Meta>}n{/Meta}");
     const dialog = screen.getByRole("dialog", { name: "Save changes to Untitled Show?" });
     expect(dialog).toHaveTextContent("Your changes will be lost if you don't save them.");
     expect(backend.calls.filter((c) => c === "newShow").length).toBe(1);
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog", { name: /save changes/i })).not.toBeInTheDocument();
-    expect(screen.getByText(/1 prop/)).toBeInTheDocument();
+    expect(screen.getByText(/^1 prop · .*pixels/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
   });
 
   it("Don't save creates the new show", async () => {
     const user = await startFresh();
-    await user.click(screen.getByRole("button", { name: /add prop/i }));
+    await addProp(user);
     await user.keyboard("{Meta>}n{/Meta}");
     await user.click(screen.getByRole("button", { name: "Don't save" }));
     expect(backend.calls.filter((c) => c === "newShow").length).toBe(2);
@@ -219,7 +274,7 @@ describe("unsaved changes on new and open", () => {
 
   it("Save asks for a path on a never-saved show, saves, then creates the new show", async () => {
     const user = await startFresh();
-    await user.click(screen.getByRole("button", { name: /add prop/i }));
+    await addProp(user);
     backend.nextSavePath = "/shows/keep.pixelflow.json";
     await user.keyboard("{Meta>}n{/Meta}");
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Save" }));
@@ -232,7 +287,7 @@ describe("unsaved changes on new and open", () => {
 
   it("Save that is cancelled keeps the dialog open", async () => {
     const user = await startFresh();
-    await user.click(screen.getByRole("button", { name: /add prop/i }));
+    await addProp(user);
     backend.nextSavePath = null;
     await user.keyboard("{Meta>}n{/Meta}");
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Save" }));
@@ -242,7 +297,7 @@ describe("unsaved changes on new and open", () => {
 
   it("Escape cancels", async () => {
     const user = await startFresh();
-    await user.click(screen.getByRole("button", { name: /add prop/i }));
+    await addProp(user);
     await user.keyboard("{Meta>}n{/Meta}");
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: /save changes/i })).not.toBeInTheDocument();
@@ -254,7 +309,7 @@ describe("unsaved changes on new and open", () => {
     expect(screen.queryByRole("dialog", { name: /save changes/i })).not.toBeInTheDocument();
     expect(backend.calls.filter((c) => c === "newShow").length).toBe(2);
 
-    await user.click(screen.getByRole("button", { name: /add prop/i }));
+    await addProp(user);
     backend.files.set("/shows/house.pixelflow.json", emptyShow("My House"));
     backend.nextOpenPath = "/shows/house.pixelflow.json";
     await user.keyboard("{Meta>}o{/Meta}");
@@ -266,7 +321,7 @@ describe("unsaved changes on new and open", () => {
 describe("test output safety", () => {
   async function wired() {
     const user = await startFresh();
-    await user.click(screen.getByRole("button", { name: /add prop/i }));
+    await addProp(user);
     await user.click(screen.getByRole("button", { name: "Wiring" }));
     await addController(user, "10.0.0.20");
     return user;
@@ -317,7 +372,7 @@ describe("test output safety", () => {
 describe("confirm dialog safety", () => {
   it("ignores shortcuts while the dialog is open", async () => {
     const user = await startFresh();
-    await user.click(screen.getByRole("button", { name: /add prop/i }));
+    await addProp(user);
     await user.keyboard("{Meta>}n{/Meta}");
     expect(screen.getByRole("dialog", { name: /save changes/i })).toBeInTheDocument();
     await user.keyboard("{Meta>}z{/Meta}");
@@ -326,7 +381,7 @@ describe("confirm dialog safety", () => {
 
   it("a double-click on Save creates the new show once", async () => {
     const user = await startFresh();
-    await user.click(screen.getByRole("button", { name: /add prop/i }));
+    await addProp(user);
     await user.keyboard("{Meta>}n{/Meta}");
     const dialog = screen.getByRole("dialog");
     backend.nextSavePath = "/shows/x.pixelflow.json";

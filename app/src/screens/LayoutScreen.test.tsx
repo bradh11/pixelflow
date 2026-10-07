@@ -11,7 +11,11 @@ import { formatGap } from "../lib/smartGuides";
 import { GUIDE_COLORS } from "../components/layout/guideMarks";
 import { useLayoutEditor } from "../state/layoutEditor";
 import { useApp } from "../state/store";
+import { useSequencer } from "../state/sequencer";
+import { newEffect, newRow, type Sequence, type SequenceTarget } from "../api/sequence";
+import { useToasts } from "../state/toast";
 import { DesktopLikeBackend } from "../test/desktopBackend";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { LayoutScreen } from "./LayoutScreen";
 
 vi.mock("../components/layout/useLayoutData", async (original) => ({
@@ -58,7 +62,12 @@ async function setup(show: Show, delayMs = 0, Engine: typeof MemoryBackend = Mem
   await useApp.getState().connect(backend);
   useApp.setState({ started: true });
   const user = userEvent.setup();
-  render(<LayoutScreen />);
+  render(
+    <>
+      <LayoutScreen />
+      <ConfirmDialog />
+    </>,
+  );
   // The canvas fits the props in once their positions arrive.
   await waitFor(() => expect(useLayoutEditor.getState().view).not.toBeNull());
   return user;
@@ -94,6 +103,25 @@ async function click(world: Pt, init: Record<string, unknown> = {}) {
   });
 }
 
+/** An open sequence named Medley with a row per (target, effect count). */
+function sequenceWith(...rows: [SequenceTarget, number][]): Sequence {
+  return {
+    schemaVersion: 1,
+    name: "Medley",
+    audio: null,
+    durationMs: 60_000,
+    frameMs: 25,
+    timingTracks: [],
+    rows: rows.map(([target, effects]) => {
+      const row = newRow(target);
+      row.layers[0].effects = Array.from({ length: effects }, (_, i) => newEffect("on", i * 100, i * 100 + 50));
+      return row;
+    }),
+  };
+}
+
+const lastToast = () => useToasts.getState().toasts.at(-1)?.text;
+
 const position = (name: string) => backend.show.props.find((p) => p.name === name)!.transform.position;
 
 describe("LayoutScreen", () => {
@@ -127,9 +155,11 @@ describe("LayoutScreen", () => {
     expect(canvas()).toHaveAccessibleDescription(/pick Line, Arch, Matrix, Tree, or a shape under More shapes/);
     const tools = screen.getByRole("toolbar", { name: "Layout tools" });
     expect(within(tools).getByRole("button", { name: "Select" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByLabelText("Name of Gutter")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /Props list/ }));
-    expect(screen.queryByLabelText("Name of Gutter")).not.toBeInTheDocument();
+    expect(within(screen.getByRole("listbox", { name: "Props" })).getByRole("option", { name: /^Gutter/ })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Fold the list away" }));
+    expect(screen.queryByRole("listbox", { name: "Props" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Show the props and groups list" }));
+    expect(screen.getByRole("option", { name: /^Gutter/ })).toBeInTheDocument();
   });
 
   it("selects a prop by clicking near its pixels, adds with shift-click, and clears with Escape", async () => {
@@ -251,21 +281,13 @@ describe("LayoutScreen", () => {
     await user.clear(x);
     await user.type(x, "7.5{Enter}");
     expect(position("Gutter").x).toBe(7.5);
-    const rotation = screen.getByLabelText("Rotation (degrees)");
+    const rotation = screen.getByLabelText("Rotation°");
     await user.clear(rotation);
     await user.type(rotation, "45{Enter}");
     expect(backend.show.props[0].transform.rotationDeg.z).toBe(45);
-    for (const [label, value] of [
-      ["Position Z", "1.5"],
-      ["Tilt (X°)", "-10"],
-      ["Turn (Y°)", "30"],
-    ]) {
-      const field = screen.getByLabelText(label);
-      await user.clear(field);
-      await user.type(field, `${value}{Enter}`);
-    }
-    expect(backend.show.props[0].transform.position).toEqual({ x: 7.5, y: 0, z: 1.5 });
-    expect(backend.show.props[0].transform.rotationDeg).toEqual({ x: -10, y: 30, z: 45 });
+    // Depth, tilt, and turn belong to the 3D view.
+    for (const label of ["Position Z", "Tilt (X°)", "Turn (Y°)"]) expect(screen.queryByLabelText(label)).not.toBeInTheDocument();
+    expect(backend.show.props[0].transform.position).toEqual({ x: 7.5, y: 0, z: 0 });
     const before = edits.length;
     await user.clear(pixels);
     await user.type(pixels, "lots{Enter}");
@@ -273,6 +295,16 @@ describe("LayoutScreen", () => {
     expect(edits).toHaveLength(before);
     await user.selectOptions(screen.getByLabelText("Color order"), "GRB");
     expect(backend.show.props[0].colorOrder).toBe("GRB");
+  });
+
+  it("shows depth, tilt, or turn in 2D when a prop has one, so a squashed-looking prop explains itself", async () => {
+    const tilted = line("Gutter", 0, 0);
+    tilted.transform.rotationDeg.x = 20;
+    await setup(showWith(tilted));
+    act(() => useLayoutEditor.getState().select([tilted.id]));
+    expect(screen.getByLabelText("Tilt (X°)")).toHaveValue("20");
+    expect(screen.queryByLabelText("Position Z")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Turn (Y°)")).not.toBeInTheDocument();
   });
 
   it("sets how a matrix is wired from the properties panel", async () => {
@@ -330,7 +362,7 @@ describe("LayoutScreen", () => {
     act(() => useLayoutEditor.getState().select([wired.id]));
     expect(screen.getByText("Port 2 on Falcon_F16V5_B9F5")).toBeInTheDocument();
     act(() => useLayoutEditor.getState().select([show.props[1].id]));
-    expect(screen.getByText(/Not wired/)).toBeInTheDocument();
+    expect(within(screen.getByRole("complementary", { name: "Properties" })).getByText(/Not wired/)).toBeInTheDocument();
   });
 
   it("selects all, duplicates, nudges, and deletes from the keyboard, each as one undo step", async () => {
@@ -441,12 +473,256 @@ describe("LayoutScreen", () => {
     expect(backend.show.background).toBeNull();
   });
 
-  it("adds a prop from the menu beside the others", async () => {
+  it("adds a prop from the menu in the middle of the canvas, selected, and steps the next one aside", async () => {
+    const user = await setup(showWith(line("Gutter", 0, 0), line("Fence", 40, 0)));
+    // Looking at an empty part of the layout.
+    act(() => useLayoutEditor.getState().setView({ cx: 100, cy: 50, zoom: 20 }));
+    await user.click(screen.getByRole("button", { name: "Add prop" }));
+    await user.click(within(screen.getByRole("menu", { name: "Add prop" })).getByRole("menuitem", { name: "Line / string" }));
+    expect(edits).toHaveLength(1);
+    const added = backend.show.props[2];
+    // A 5-unit line centred on its origin, in the middle of the view.
+    expect(added.transform.position).toMatchObject({ x: expect.closeTo(100, 1), y: expect.closeTo(50, 1) });
+    expect(useLayoutEditor.getState().selected).toEqual([added.id]);
+    expect(useLayoutEditor.getState().view).toEqual({ cx: 100, cy: 50, zoom: 20 });
+
+    await user.click(screen.getByRole("button", { name: "Add prop" }));
+    await user.click(screen.getByRole("menuitem", { name: "Line / string" }));
+    const next = backend.show.props[3];
+    expect(next.transform.position.x).toBeGreaterThan(added.transform.position.x);
+    expect(next.transform.position.y).toBeLessThan(added.transform.position.y);
+    expect(useLayoutEditor.getState().selected).toEqual([next.id]);
+  });
+
+  it("closes the Add prop menu when focus leaves it", async () => {
     const user = await setup(showWith(line("Gutter", 0, 0)));
-    await user.selectOptions(screen.getByLabelText("Prop type"), "line");
-    await user.click(screen.getByRole("button", { name: /add prop/i }));
-    const added = backend.show.props[1];
-    expect(added.transform.position.x).toBeCloseTo(6);
+    await user.click(screen.getByRole("button", { name: "Add prop" }));
+    expect(screen.getByRole("menu", { name: "Add prop" })).toBeInTheDocument();
+    act(() => canvas().focus());
+    expect(screen.queryByRole("menu", { name: "Add prop" })).not.toBeInTheDocument();
+  });
+
+  it("zooms out to show a new prop bigger than the view", async () => {
+    const user = await setup(showWith(line("Gutter", 0, 0)));
+    act(() => useLayoutEditor.getState().setView({ cx: 0, cy: 0, zoom: 400 }));
+    await user.click(screen.getByRole("button", { name: "Add prop" }));
+    await user.click(screen.getByRole("menuitem", { name: "Mega tree" }));
+    expect(useLayoutEditor.getState().view!.zoom).toBeLessThan(400);
+  });
+
+  describe("the props list", () => {
+    const list = () => screen.getByRole("listbox", { name: "Props" });
+    const option = (name: string) => within(list()).getByRole("option", { name: new RegExp(`^${name}`) });
+    const shown = () => within(list()).queryAllByRole("option").map((o) => o.getAttribute("title")?.split(":")[0]);
+
+    it("picks props in step with the canvas: click, ⌘-click to add, Shift-click for a run", async () => {
+      const user = await setup(showWith(line("A1", 0, 0), line("A2", 0, 4), line("A3", 0, 8), line("A4", 0, 12)));
+      const ids = backend.show.props.map((p) => p.id);
+      await click({ x: 1, y: 4 });
+      expect(option("A2")).toHaveAttribute("aria-selected", "true");
+      await user.click(option("A1"));
+      expect(useLayoutEditor.getState().selected).toEqual([ids[0]]);
+      await user.keyboard("{Meta>}");
+      await user.click(option("A3"));
+      await user.keyboard("{/Meta}");
+      expect(useLayoutEditor.getState().selected).toEqual([ids[0], ids[2]]);
+      await user.keyboard("{Shift>}");
+      await user.click(option("A4"));
+      await user.keyboard("{/Shift}");
+      expect(useLayoutEditor.getState().selected).toEqual([ids[2], ids[3]]);
+      expect(within(list()).getAllByRole("option", { selected: true })).toHaveLength(2);
+      // Up and down move through the list.
+      await user.keyboard("{ArrowUp}");
+      expect(useLayoutEditor.getState().selected).toEqual([ids[2]]);
+      expect(edits).toEqual([]);
+    });
+
+    it("finds, sorts, and filters props, with their pixels and wiring", async () => {
+      const wired = line("Gutter 10", 0, 0);
+      const show = showWith(wired, placed("matrix", "Gutter 2", 0, 4), line("Fence", 0, 8));
+      const controller = newController("C", "192.0.2.20", "ddp", 1);
+      controller.ports[0].slots = [{ prop: wired.id, segment: null, nullPixels: 0, reverse: false, brightness: null, gamma: null, smartReceiver: null }];
+      show.controllers = [controller];
+      const user = await setup(show);
+      expect(option("Gutter 10")).toHaveTextContent("50");
+      await user.type(screen.getByPlaceholderText("Find props"), "gutter");
+      expect(shown()).toEqual(["Gutter 10", "Gutter 2"]);
+      expect(screen.getByText("2 of 3 props")).toBeInTheDocument();
+      await user.selectOptions(screen.getByLabelText("Sort props"), "name");
+      expect(shown()).toEqual(["Gutter 2", "Gutter 10"]);
+      await user.click(screen.getByRole("checkbox", { name: "Not wired (or partly)" }));
+      expect(shown()).toEqual(["Gutter 2"]);
+      await user.clear(screen.getByPlaceholderText("Find props"));
+      expect(shown()).toEqual(["Fence", "Gutter 2"]);
+    });
+
+    it("renames a prop with a double-click, as one undo step", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0)));
+      await user.dblClick(option("Gutter"));
+      const name = screen.getByRole("textbox", { name: "Name of Gutter" });
+      await user.clear(name);
+      await user.type(name, "Roof line{Enter}");
+      expect(backend.show.props[0].name).toBe("Roof line");
+      expect(edits).toHaveLength(1);
+      // The keyboard stays in the list.
+      expect(list()).toHaveFocus();
+    });
+
+    it("draws only the rows in view, so thousands of props stay quick, and shows what the canvas picks", async () => {
+      const props = Array.from({ length: 2000 }, (_, i) => line(`Pixel ${i + 1}`, (i % 50) * 6, Math.floor(i / 50) * 2));
+      await setup(showWith(...props));
+      const rendered = within(list()).getAllByRole("option");
+      expect(rendered.length).toBeLessThan(60);
+      expect(screen.getByText("2,000 props")).toBeInTheDocument();
+      act(() => useLayoutEditor.getState().select([backend.show.props[1999].id]));
+      expect(option("Pixel 2000")).toHaveAttribute("aria-selected", "true");
+    });
+
+    it("asks before deleting props the open sequence uses, from the keyboard or the list", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0), line("Fence", 0, 4)));
+      const [gutter] = backend.show.props;
+      useSequencer.setState({ doc: sequenceWith([{ prop: gutter.id }, 4]) });
+      await click({ x: 1, y: 0 });
+      await user.keyboard("{Delete}");
+      const dialog = screen.getByRole("alertdialog", { name: "Delete Gutter?" });
+      expect(dialog).toHaveTextContent("Gutter lights 1 row with 4 effects in Medley. Delete it anyway?");
+      expect(edits).toHaveLength(0);
+      // While it asks, the layout's keys wait (nothing is deleted or nudged behind it).
+      fireEvent.keyDown(window, { key: "Delete" });
+      fireEvent.keyDown(window, { key: "ArrowRight" });
+      expect(edits).toHaveLength(0);
+      await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+      expect(backend.show.props).toHaveLength(2);
+      await user.click(screen.getByRole("button", { name: "Delete Gutter" }));
+      await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete anyway" }));
+      expect(backend.show.props.map((p) => p.name)).toEqual(["Fence"]);
+      // Props no row uses go without asking.
+      await user.click(screen.getByRole("button", { name: "Delete Fence" }));
+      expect(backend.show.props).toEqual([]);
+    });
+
+    it("deletes a prop from its row, with an Undo in the toast", async () => {
+      const user = await setup(showWith(line("Gutter", 0, 0), line("Fence", 0, 4)));
+      await user.click(screen.getByRole("button", { name: "Delete Gutter" }));
+      expect(backend.show.props.map((p) => p.name)).toEqual(["Fence"]);
+      expect(useApp.getState().snapshot!.canUndo).toBe(true);
+    });
+  });
+
+  describe("groups", () => {
+    const groupsTab = () => screen.getByRole("tab", { name: /Groups/ });
+    const members = (name: string) =>
+      within(screen.getByRole("list", { name: `Members of ${name}, in order` }))
+        .getAllByRole("listitem")
+        .map((li) => li.textContent?.replace(/^\d+/, ""));
+
+    it("groups the selection in the order picked (⌘G), and a click on the group selects its props", async () => {
+      const user = await setup(showWith(line("A1", 0, 0), line("A2", 0, 4), line("A3", 0, 8)));
+      const [a1, a2, a3] = backend.show.props.map((p) => p.id);
+      act(() => useLayoutEditor.getState().select([a3, a1]));
+      canvas().focus();
+      await user.keyboard("{Meta>}g{/Meta}");
+      expect(edits).toHaveLength(1);
+      expect(backend.show.groups).toEqual([{ id: expect.any(String), name: "Group 1", members: [a3, a1] }]);
+      expect(groupsTab()).toHaveAttribute("aria-selected", "true");
+      expect(members("Group 1")).toEqual(["A3", "A1"]);
+      expect(lastToast()).toBe("Made Group 1 from 2 props");
+
+      // The same props again make no second group: it says which group they are.
+      act(() => useLayoutEditor.getState().select([a3, a1]));
+      await user.keyboard("{Meta>}g{/Meta}");
+      expect(backend.show.groups).toHaveLength(1);
+      expect(lastToast()).toBe("These props are already Group 1");
+      expect(screen.getByRole("button", { name: "Already Group 1" })).toBeDisabled();
+
+      // Opening a group selects its props; folding it leaves the selection alone.
+      await user.click(screen.getByRole("button", { name: /^Group 1/ }));
+      act(() => useLayoutEditor.getState().select([a2]));
+      await user.click(screen.getByRole("button", { name: /^Group 1/ }));
+      expect(useLayoutEditor.getState().selected).toEqual([a3, a1]);
+      act(() => useLayoutEditor.getState().select([a2]));
+      await user.click(screen.getByRole("button", { name: /^Group 1/ }));
+      expect(screen.getByRole("button", { name: /^Group 1/ })).toHaveAttribute("aria-expanded", "false");
+      expect(useLayoutEditor.getState().selected).toEqual([a2]);
+    });
+
+    it("renames, adds and removes members (submodels too), reorders them, and deletes, each one undo step", async () => {
+      const arch = placed("arch", "Arch", 0, 0);
+      arch.regions = [{ id: "left", name: "Left half", kind: "nodes", lines: [[{ first: 0, last: 24 }]], layout: "horizontal", buffer: "default" }];
+      const show = showWith(arch, line("A2", 0, 4), line("A3", 0, 8));
+      show.groups = [{ id: "g", name: "Arches", members: [arch.id] }];
+      const user = await setup(show);
+      const [, a2, a3] = show.props.map((p) => p.id);
+      await user.click(groupsTab());
+      await user.click(screen.getByRole("button", { name: /^Arches/ }));
+
+      const name = screen.getByLabelText("Group name");
+      await user.clear(name);
+      await user.type(name, "Front{Enter}");
+      expect(backend.show.groups[0].name).toBe("Front");
+
+      act(() => useLayoutEditor.getState().select([a2, a3]));
+      await user.click(screen.getByRole("button", { name: "Add selected (2)" }));
+      await user.selectOptions(screen.getByLabelText("Add a prop or submodel to Front"), "Arch / Left half");
+      expect(members("Front")).toEqual(["Arch", "A2", "A3", "Arch / Left half"]);
+
+      // Alt + up moves a member earlier (the order chases follow).
+      screen.getByRole("button", { name: "Move A3" }).focus();
+      await user.keyboard("{Alt>}{ArrowUp}{/Alt}");
+      expect(members("Front")).toEqual(["Arch", "A3", "A2", "Arch / Left half"]);
+      expect(screen.getByRole("button", { name: "Move A3" })).toHaveFocus();
+
+      await user.click(screen.getByRole("button", { name: "Remove Arch from Front" }));
+      expect(members("Front")).toEqual(["A3", "A2", "Arch / Left half"]);
+      expect(edits).toHaveLength(5);
+      await act(() => useApp.getState().undo());
+      expect(members("Front")).toEqual(["Arch", "A3", "A2", "Arch / Left half"]);
+
+      await user.click(screen.getByRole("button", { name: "Delete group" }));
+      expect(backend.show.groups).toEqual([]);
+      expect(lastToast()).toBe("Deleted Front");
+    });
+
+    it("warns before deleting a group the open sequence uses, naming the sequence and what it would strand", async () => {
+      const show = showWith(line("A1", 0, 0));
+      show.groups = [{ id: "g", name: "All Arches", members: [show.props[0].id] }];
+      const user = await setup(show);
+      useSequencer.setState({ doc: sequenceWith([{ group: "g" }, 2], [{ group: "g" }, 1]) });
+      await user.click(groupsTab());
+      expect(screen.getByRole("button", { name: /^All Arches/ })).toHaveTextContent("2 rows in Medley");
+      await user.click(screen.getByRole("button", { name: /^All Arches/ }));
+      await user.click(screen.getByRole("button", { name: "Delete group" }));
+      expect(screen.getByRole("alert")).toHaveTextContent("Group “All Arches” lights 2 rows with 3 effects in Medley. Delete it anyway?");
+      expect(edits).toHaveLength(0);
+      await user.click(screen.getByRole("button", { name: "Keep it" }));
+      expect(backend.show.groups).toHaveLength(1);
+      await user.click(screen.getByRole("button", { name: "Delete group" }));
+      await user.click(screen.getByRole("button", { name: "Delete anyway" }));
+      expect(backend.show.groups).toEqual([]);
+    });
+
+    it("reorders members by dragging their handles", async () => {
+      const show = showWith(line("A1", 0, 0), line("A2", 0, 4), line("A3", 0, 8));
+      show.groups = [{ id: "g", name: "Run", members: show.props.map((p) => p.id) }];
+      const user = await setup(show);
+      await user.click(groupsTab());
+      await user.click(screen.getByRole("button", { name: /^Run/ }));
+      const items = within(screen.getByRole("list", { name: "Members of Run, in order" })).getAllByRole("listitem");
+      const spy = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+        const i = items.indexOf(this as HTMLLIElement);
+        return { top: i * 20, height: 20, left: 0, width: 200, bottom: i * 20 + 20, right: 200, x: 0, y: i * 20, toJSON: () => ({}) } as DOMRect;
+      });
+      try {
+        const handle = screen.getByRole("button", { name: "Move A1" });
+        fireEvent.pointerDown(handle, { button: 0, pointerId: 1, clientY: 10 });
+        fireEvent.pointerMove(handle, { pointerId: 1, clientY: 55 });
+        fireEvent.pointerUp(handle, { pointerId: 1, clientY: 55 });
+      } finally {
+        spy.mockRestore();
+      }
+      await waitFor(() => expect(members("Run")).toEqual(["A2", "A3", "A1"]));
+      expect(edits).toHaveLength(1);
+    });
   });
 
   describe("while edits are on their way", () => {
@@ -696,7 +972,7 @@ describe("LayoutScreen", () => {
       expect(edits).toHaveLength(1);
       expect(backend.show.props.map((p) => p.name)).toEqual(["Fence"]);
 
-      await user.click(screen.getByLabelText("Select Fence"));
+      await user.click(screen.getByRole("option", { name: /^Fence/ }));
       await user.keyboard("{Delete}");
       expect(edits).toHaveLength(2);
       expect(backend.show.props).toEqual([]);
@@ -727,11 +1003,10 @@ describe("LayoutScreen", () => {
     expect(scale.x).toBeCloseTo(scale.y, 5);
   });
 
-  it("moves the selection with arrow keys while its props-list checkbox has focus", async () => {
+  it("moves the selection with left and right arrow keys while the props list has focus", async () => {
     const user = await setup(showWith(line("Gutter", 0, 0)));
-    const box = screen.getByLabelText("Select Gutter");
-    await user.click(box);
-    expect(box).toHaveFocus();
+    await user.click(screen.getByRole("option", { name: /^Gutter/ }));
+    expect(screen.getByRole("listbox", { name: "Props" })).toHaveFocus();
     await user.keyboard("{ArrowRight}");
     await waitFor(() => expect(position("Gutter").x).toBeCloseTo(0.1));
   });

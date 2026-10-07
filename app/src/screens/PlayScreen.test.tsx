@@ -58,8 +58,8 @@ describe("play", () => {
 
     const alignment = within(transport).getByRole("group", { name: "Music alignment" });
     expect(within(alignment).getByText("Lights are in sync with the music")).toBeInTheDocument();
-    await user.click(within(alignment).getByRole("button", { name: "Lights earlier by 50 ms" }));
-    await user.click(within(alignment).getByRole("button", { name: "Lights later by 10 ms" }));
+    await user.click(within(alignment).getByRole("button", { name: "+50 ms: lights earlier" }));
+    await user.click(within(alignment).getByRole("button", { name: "−10 ms: lights later" }));
     expect(within(alignment).getByText("Lights are 40 ms ahead of the music")).toBeInTheDocument();
     await useApp.getState().undo();
     expect(await within(alignment).findByText("Lights are 50 ms ahead of the music")).toBeInTheDocument();
@@ -166,7 +166,7 @@ describe("play", () => {
     const { user, backend } = await openPlay(true);
     await addSequences(user, backend, ["Medley"]);
     const alignment = screen.getByRole("group", { name: "Music alignment" });
-    const earlier = within(alignment).getByRole("button", { name: "Lights earlier by 50 ms" });
+    const earlier = within(alignment).getByRole("button", { name: "+50 ms: lights earlier" });
     fireEvent.click(earlier);
     fireEvent.click(earlier);
     expect(await within(alignment).findByText("Lights are 100 ms ahead of the music")).toBeInTheDocument();

@@ -7,7 +7,7 @@ use pf_engine::{
     Engine, EngineError, ExportLayout, ExportSummary, PlaybackStatus, SequenceEdit, SequenceEditResult,
     SequenceExport, SequenceRecovery, SequenceSnapshot, ShowSnapshot,
 };
-use pf_sequence::{EffectInfo, TimingTrack};
+use pf_sequence::{EffectInfo, Row, TimingTrack};
 use serde::Serialize;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -30,18 +30,20 @@ pub(crate) struct ExportProgress {
     pub percent: u32,
 }
 
-/// Starts a new, unsaved sequence with its music, if any (replacing the open one; the UI asks
-/// first if it has changes). It starts with nothing to undo and no unsaved changes.
+/// Starts a new, unsaved sequence with its music, if any, and its first rows, if given (a row for
+/// every prop and group), replacing the open one (the UI asks first if it has changes). It starts
+/// with nothing to undo and no unsaved changes.
 #[tauri::command]
 pub(crate) async fn new_sequence_doc(
     state: State<'_, AppState>,
     name: String,
     duration_ms: u64,
     audio: Option<String>,
+    rows: Option<Vec<Row>>,
 ) -> Reply<SequenceSnapshot> {
     state
         .engine()
-        .new_sequence_doc(&name, duration_ms, audio.as_deref())
+        .new_sequence_doc_with_rows(&name, duration_ms, audio.as_deref(), rows.unwrap_or_default())
         .map_err(message)
 }
 

@@ -9,6 +9,7 @@ import type {
   ExportLayout,
   ExportProgress,
   ExportSummary,
+  Row,
   SequenceEdit,
   SequenceEditResult,
   SequenceRecovery,
@@ -30,10 +31,11 @@ export interface MusicFound {
 /** Everything the sequencer asks of the engine. Errors reject with a plain-language message. */
 export interface SequencerApi {
   /**
-   * Starts a new sequence with `audio` as its music (or none), replacing the open one (ask before
-   * discarding changes). It starts with no unsaved changes and nothing to undo.
+   * Starts a new sequence with `audio` as its music (or none) and `rows` (none when left out),
+   * replacing the open one (ask before discarding changes). It starts with no unsaved changes and
+   * nothing to undo.
    */
-  newSequenceDoc(name: string, durationMs: number, audio: string | null): Promise<SequenceSnapshot>;
+  newSequenceDoc(name: string, durationMs: number, audio: string | null, rows?: Row[]): Promise<SequenceSnapshot>;
   /** Unsaved sequences an earlier run of PixelFlow kept (newest first). */
   sequenceRecoveries(): Promise<SequenceRecovery[]>;
   /** Opens a kept sequence, with unsaved changes, replacing the open one (ask first). */
@@ -116,7 +118,7 @@ export interface SequencerApi {
 
 /** The real engine, in the Tauri desktop shell. */
 export const tauriSequencer: SequencerApi = {
-  newSequenceDoc: (name, durationMs, audio) => invoke("new_sequence_doc", { name, durationMs, audio }),
+  newSequenceDoc: (name, durationMs, audio, rows) => invoke("new_sequence_doc", rows?.length ? { name, durationMs, audio, rows } : { name, durationMs, audio }),
   sequenceRecoveries: () => invoke("sequence_recoveries"),
   recoverSequence: (id) => invoke("recover_sequence", { id }),
   discardSequenceRecovery: (id) => invoke("discard_sequence_recovery", { id }),

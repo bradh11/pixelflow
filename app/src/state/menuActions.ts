@@ -3,15 +3,17 @@
 
 import type { MenuAction } from "../api/types";
 import { isBusyOrAsking, requestWindowClose } from "./busy";
+import { saveSequenceAndShow } from "./saveAll";
 import { useSequencer } from "./sequencer";
 import { useApp } from "./store";
 
-/** Save (or Save As…) whatever is being worked on: the open sequence on the Sequence screen,
- * else the show. */
+/** Save (or Save As…) whatever is being worked on. On the Sequence screen, Save saves the show
+ * when it has changes and then the open sequence (one toast says what was saved), and Save As
+ * saves the sequence under a new name; elsewhere, the show. */
 export function saveFocused(as: boolean): Promise<boolean> {
   const app = useApp.getState();
   const sequencer = useSequencer.getState();
-  if (app.screen === "sequence" && sequencer.doc) return as ? sequencer.saveAs() : sequencer.save();
+  if (app.screen === "sequence" && sequencer.doc) return as ? sequencer.saveAs() : saveSequenceAndShow();
   return as ? app.saveAs() : app.save();
 }
 

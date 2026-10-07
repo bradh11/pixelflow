@@ -1,7 +1,7 @@
 // TypeScript mirrors of authored sequences (see crates/pf-sequence, crates/pf-render's export,
 // crates/pf-analysis, and crates/pf-engine's SequenceEdit), plus helpers that build valid values.
 
-import type { Uuid } from "./types";
+import type { Show, Uuid } from "./types";
 
 /** A color as `#rrggbb`. */
 export type Rgb = string;
@@ -428,4 +428,19 @@ export function newEffect(kind: EffectKind, startMs: number, endMs: number, colo
 /** A new row with one empty layer. */
 export function newRow(target: SequenceTarget): Row {
   return { id: crypto.randomUUID(), target, layers: [{ effects: [] }] };
+}
+
+/** The most rows a sequence can have (the engine's MAX_ROWS, crates/pf-sequence/src/limits.rs). */
+export const MAX_ROWS = 10_000;
+
+/**
+ * A row for every group (that has members) and then every prop, each in the show's (layout) order:
+ * what a new sequence starts with, as in xLights. At most `limit` rows (the first ones).
+ */
+export function rowsForShow(show: Pick<Show, "groups" | "props">, limit = MAX_ROWS): Row[] {
+  const targets: SequenceTarget[] = [
+    ...show.groups.filter((g) => g.members.length > 0).map((g) => ({ group: g.id })),
+    ...show.props.map((p) => ({ prop: p.id })),
+  ];
+  return targets.slice(0, limit).map(newRow);
 }

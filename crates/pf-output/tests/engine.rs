@@ -177,6 +177,27 @@ fn sync_universe_adds_a_sync_packet_per_frame() {
 }
 
 #[test]
+fn a_recovered_controller_drops_its_old_error() {
+    let show = show();
+    let (map, _) = pf_mapping::map_show(&show);
+    let plan = build_plan(&show, &map);
+    let (_writer, reader) = frame_buffers(plan.frame_len);
+    let (transport, _recorded) = RecordingTransport::new();
+    let transport = transport.fail(DDP_DEST.parse().unwrap());
+    let failures = transport.failures();
+    let failed_sends = transport.failed_sends();
+    let handle = start_output(plan, settings(), reader, Box::new(transport));
+    wait_until(|| failed_sends.load(Ordering::Relaxed) >= 1);
+    wait_until(|| handle.stats().controllers[0].last_error.is_some());
+    failures.lock().unwrap().clear();
+    // The retry after the backoff succeeds.
+    wait_until(|| handle.stats().controllers[0].state == ControllerState::Ok);
+    let wled = handle.stop().controllers[0].clone();
+    assert_eq!(wled.last_error, None, "the error is gone once sends work again");
+    assert!(wled.send_errors >= 1, "the count of errors stays");
+}
+
+#[test]
 fn blackout_reaches_a_controller_that_is_backing_off() {
     let show = show();
     let (map, _) = pf_mapping::map_show(&show);

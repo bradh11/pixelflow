@@ -313,6 +313,21 @@ mod tests {
     }
 
     #[test]
+    fn every_color_order_sends_channels_in_the_order_its_name_spells() {
+        use ColorOrder::*;
+        for order in [Rgb, Rbg, Grb, Gbr, Brg, Bgr, Rgbw, Grbw] {
+            let name = format!("{order:?}").to_ascii_lowercase();
+            let canonical = "rgbw".as_bytes();
+            let wire: String = wire_order(order)
+                .iter()
+                .take(usize::from(order.channels_per_pixel()))
+                .map(|&c| char::from(canonical[usize::from(c)]))
+                .collect();
+            assert_eq!(wire, name, "{order:?}");
+        }
+    }
+
+    #[test]
     fn resolves_ips_ports_and_reports_failures() {
         assert_eq!(resolve("10.0.0.5", 4048), Ok("10.0.0.5:4048".parse().unwrap()));
         assert_eq!(

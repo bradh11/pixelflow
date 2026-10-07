@@ -356,8 +356,13 @@ impl Runtime {
                 if sent.packets > 0 {
                     self.health.on_success();
                 }
-                if sent.transient && self.stats.last_error.as_deref() != Some(BUFFER_FULL_MESSAGE) {
-                    self.stats.last_error = Some(BUFFER_FULL_MESSAGE.to_string());
+                if sent.transient {
+                    if self.stats.last_error.as_deref() != Some(BUFFER_FULL_MESSAGE) {
+                        self.stats.last_error = Some(BUFFER_FULL_MESSAGE.to_string());
+                    }
+                } else if sent.packets > 0 {
+                    // Every packet went: an earlier error no longer describes the controller.
+                    self.stats.last_error = None;
                 }
             }
         }

@@ -191,7 +191,7 @@ fn explains_when_nothing_can_play() {
     let path = write_sequence(dir.path());
     let error = engine.start_playback(&path, 0).unwrap_err();
     assert!(matches!(error, EngineError::Playback(_)));
-    assert!(error.to_string().contains("Devices screen"), "{error}");
+    assert!(error.to_string().contains("Controllers screen"), "{error}");
 
     let (mut engine, _recorded, _dir2) = engine_with_show(true);
     let missing = engine

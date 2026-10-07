@@ -1036,7 +1036,7 @@ mod tests {
             json!({ "path": path, "positionMs": 0 }),
         )
         .unwrap_err();
-        assert!(error.as_str().unwrap().contains("Devices screen"), "{error}");
+        assert!(error.as_str().unwrap().contains("Controllers screen"), "{error}");
 
         // Loopback only: nothing leaves this machine.
         let controller = json!({

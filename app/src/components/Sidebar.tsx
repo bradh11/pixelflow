@@ -10,7 +10,7 @@ import { IconButton } from "./ui";
 /** The screens, in the order a show is made: draw it, find the controllers, wire, test, sequence, play. */
 export const NAV: { screen: Screen; label: string; icon: ReactNode }[] = [
   { screen: "layout", label: "Layout", icon: <LayoutGrid size={18} aria-hidden /> },
-  { screen: "devices", label: "Devices", icon: <Network size={18} aria-hidden /> },
+  { screen: "devices", label: "Controllers", icon: <Network size={18} aria-hidden /> },
   { screen: "wiring", label: "Wiring", icon: <Cable size={18} aria-hidden /> },
   { screen: "test", label: "Test", icon: <FlaskConical size={18} aria-hidden /> },
   { screen: "sequence", label: "Sequence", icon: <AudioLines size={18} aria-hidden /> },

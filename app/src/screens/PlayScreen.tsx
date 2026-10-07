@@ -449,11 +449,11 @@ export function PlayScreen() {
       {!known && !status && (
         <EmptyState title="Add your controllers first">
           <p>
-            PixelFlow doesn't know which channels go to which controller yet. On the Devices screen, open your FPP and add
+            PixelFlow doesn't know which channels go to which controller yet. On the Controllers screen, open your FPP and add
             the controllers it sends to.
           </p>
           <div className="mt-3">
-            <Button onClick={() => setScreen("devices")}>Go to Devices</Button>
+            <Button onClick={() => setScreen("devices")}>Go to Controllers</Button>
           </div>
         </EmptyState>
       )}

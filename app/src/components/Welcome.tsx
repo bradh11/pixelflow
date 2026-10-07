@@ -97,7 +97,7 @@ export function Welcome() {
             />
             <Choice
               icon={<Network size={20} />}
-              title="Discover my devices"
+              title="Find my controllers"
               description="Starts a new show and finds your FPP, Falcon, and WLED controllers."
               onClick={() => void discover()}
               disabled={busy}

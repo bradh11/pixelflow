@@ -31,7 +31,7 @@ describe("the sidebar", () => {
       .getAllByRole("button")
       .filter((b) => b.dataset.screen)
       .map((b) => b.textContent);
-    expect(names).toEqual(["Layout", "Devices", "Wiring", "Test", "Sequence", "Play", "History"]);
+    expect(names).toEqual(["Layout", "Controllers", "Wiring", "Test", "Sequence", "Play", "History"]);
   });
 
   it("shows only icons in a narrow window, each still named and with a tooltip", async () => {
@@ -69,8 +69,8 @@ describe("the sidebar", () => {
 
   it("goes to a screen", async () => {
     const { user } = await setup();
-    await user.click(within(nav()).getByRole("button", { name: "Devices" }));
+    await user.click(within(nav()).getByRole("button", { name: "Controllers" }));
     expect(useApp.getState().screen).toBe("devices");
-    expect(within(nav()).getByRole("button", { name: "Devices" })).toHaveAttribute("aria-current", "page");
+    expect(within(nav()).getByRole("button", { name: "Controllers" })).toHaveAttribute("aria-current", "page");
   });
 });

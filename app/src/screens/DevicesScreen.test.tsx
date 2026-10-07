@@ -19,16 +19,16 @@ async function startApp() {
 async function openDevices() {
   const app = await startApp();
   await app.user.click(screen.getByRole("button", { name: /^new show/i }));
-  await app.user.click(screen.getByRole("button", { name: "Devices" }));
+  await app.user.click(screen.getByRole("button", { name: "Controllers" }));
   return app;
 }
 
 describe("devices", () => {
-  it("discover my devices from the welcome screen scans right away", async () => {
+  it("find my controllers from the welcome screen scans right away", async () => {
     const { user, backend } = await startApp();
-    await user.click(screen.getByRole("button", { name: /discover my devices/i }));
+    await user.click(screen.getByRole("button", { name: /find my controllers/i }));
     expect(await screen.findByText("Falcon_F16V5_B9F5")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Devices" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Controllers" })).toBeInTheDocument();
     expect(backend.calls).toContain("discoverDevices::network");
   });
 

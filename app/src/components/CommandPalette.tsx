@@ -74,7 +74,7 @@ export function CommandPalette() {
     { id: "ai-settings", label: "AI settings…", run: () => useAssistant.getState().setSettingsOpen(true) },
     { id: "setup", label: "Show the setup checklist", run: () => useSetup.getState().setDismissed(currentSetupKey(), false) },
     go("layout", "Layout"),
-    go("devices", "Devices"),
+    go("devices", "Controllers"),
     go("wiring", "Wiring"),
     go("test", "Test"),
     go("sequence", "Sequence"),

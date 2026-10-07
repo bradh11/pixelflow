@@ -4,7 +4,6 @@ const invoke = vi.fn();
 const listen = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: (...args: unknown[]) => listen(...args) }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
 
 import {
   EFFECT_KINDS,
@@ -147,5 +146,14 @@ describe("tauriSequencer", () => {
     const frame = await tauriSequencer.sequenceDocFrame(100);
     expect(Array.from(frame)).toEqual([1, 2, 3]);
     expect(invoke).toHaveBeenCalledWith("sequence_doc_frame", { positionMs: 100 });
+  });
+
+  it("asks the shell for every file dialog, by kind", async () => {
+    invoke.mockResolvedValue("/shows/Caf\u0000e9.pfseq.json");
+    expect(await tauriSequencer.pickSequenceDocSavePath("Song.pfseq.json")).toBe("/shows/Caf\u0000e9.pfseq.json");
+    expect(invoke).toHaveBeenCalledWith("pick_path", { kind: "sequenceDocSave", name: "Song.pfseq.json" });
+    invoke.mockResolvedValue(null);
+    expect(await tauriSequencer.pickXlightsSequencePath()).toBeNull();
+    expect(invoke).toHaveBeenLastCalledWith("pick_path", { kind: "xlightsSequence" });
   });
 });

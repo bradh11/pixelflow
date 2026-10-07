@@ -9,7 +9,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 use tauri::State;
 use tauri::ipc::Response;
-use tauri_plugin_dialog::DialogExt;
 
 /// Image files the layout can show behind the props.
 pub(crate) const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "bmp"];
@@ -40,17 +39,8 @@ pub(crate) async fn pick_image<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Reply<Option<String>> {
-    let dialog = app.dialog().clone();
-    let picked = tauri::async_runtime::spawn_blocking(move || {
-        dialog
-            .file()
-            .add_filter("Photo", IMAGE_EXTENSIONS)
-            .set_title("Choose a photo of your house")
-            .blocking_pick_file()
-    })
-    .await
-    .map_err(|_| "Something went wrong opening the photo dialog.".to_string())?;
-    let Some(path) = picked.and_then(|p| p.into_path().ok()) else {
+    let request = crate::pickers::Pick::of(crate::pickers::PickKind::Photo);
+    let Some(path) = crate::pickers::pick(&app, &state, request).await? else {
         return Ok(None);
     };
     let text = pf_model::path_to_text(&path);

@@ -4,7 +4,7 @@ import { DEMO_SEQUENCE_PATH, demoSequence } from "../api/demoSequence";
 import { MemoryBackend } from "../api/memory";
 import { MemorySequencer } from "../api/memorySequencer";
 import type { PlaybackStatus } from "../api/types";
-import { useSequencer } from "./sequencer";
+import { loadRecent, recentFor, useSequencer } from "./sequencer";
 import { useApp } from "./store";
 
 async function connected() {
@@ -178,5 +178,34 @@ describe("tap to time", () => {
     // Taps in one run still end the mark before.
     await tapAt(59_900);
     await vi.waitFor(() => expect(tracks()[2].marks[2]).toEqual({ startMs: 59_800, endMs: 59_900, label: "" }));
+  });
+});
+
+describe("recent sequences", () => {
+  it("are kept with the show they were used with, and list that show's first", async () => {
+    const show = demoShow();
+    const backend = new MemoryBackend(show);
+    await backend.saveShowAs("/Shows/House.pixelflow.json");
+    await useApp.getState().connect(backend);
+    const seq = new MemorySequencer(backend);
+    seq.files.set(DEMO_SEQUENCE_PATH, demoSequence(show, 60_000));
+    await useSequencer.getState().connect(seq);
+    useSequencer.setState({ recent: [{ path: "/Elsewhere/Old.pfseq.json", show: "/Elsewhere/Shed.pixelflow.json" }] });
+    await useSequencer.getState().open(DEMO_SEQUENCE_PATH);
+    expect(useSequencer.getState().recent[0]).toEqual({ path: DEMO_SEQUENCE_PATH, show: "/Shows/House.pixelflow.json" });
+    const { mine, others } = recentFor(useSequencer.getState().recent, "/Shows/House.pixelflow.json");
+    expect(mine.map((r) => r.path)).toEqual([DEMO_SEQUENCE_PATH]);
+    expect(others.map((r) => r.path)).toEqual(["/Elsewhere/Old.pfseq.json"]);
+    // Kept on this computer, with the show.
+    expect(loadRecent()[0]).toEqual({ path: DEMO_SEQUENCE_PATH, show: "/Shows/House.pixelflow.json" });
+  });
+
+  it("reads the older list of plain paths", () => {
+    localStorage.setItem("pixelflow.recentSequences", JSON.stringify(["/a.pfseq.json", 3, { path: "/b.pfseq.json", show: "/s.json" }]));
+    expect(loadRecent()).toEqual([
+      { path: "/a.pfseq.json", show: null },
+      { path: "/b.pfseq.json", show: "/s.json" },
+    ]);
+    expect(recentFor(loadRecent(), null).mine).toEqual([]);
   });
 });

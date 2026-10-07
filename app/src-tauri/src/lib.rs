@@ -9,7 +9,12 @@ mod devices;
 mod files;
 mod house;
 mod layout;
+mod logging;
+mod menu;
+mod pickers;
 mod playback;
+mod probes;
+mod recent;
 mod sequencer;
 mod xlights;
 
@@ -18,10 +23,10 @@ use pf_engine::{
     Edit, Engine, EngineError, HistoryEntry, OutputStatus, PatternSpec, ShowSnapshot, TargetSpec,
 };
 use pf_model::Show;
-use std::path::PathBuf;
-use std::sync::{Mutex, MutexGuard, PoisonError};
-use std::time::Duration;
-use tauri::{Manager, State};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::{Duration, Instant};
+use tauri::{AppHandle, Manager, Runtime, State};
 
 /// How often unsaved work (the show and the open sequence) is kept on disk.
 const AUTOSAVE_EVERY: Duration = Duration::from_secs(30);
@@ -40,6 +45,15 @@ struct AppState {
     export_cancels: std::sync::atomic::AtomicU64,
     /// Set while a check of the show's files runs (see `files::check_files`).
     checking_files: std::sync::atomic::AtomicBool,
+    /// Shows opened lately (written only here, when a show is opened, saved, or restored).
+    recent: Arc<recent::RecentShows>,
+    /// The folder each kind of file dialog was last used in.
+    last_folders: pickers::LastFolders,
+    /// Set while a file dialog is showing (one at a time).
+    dialog: pickers::DialogSlot,
+    /// The xLights folder the open show was imported from, and that show's generation: its
+    /// first save starts there.
+    imported_from: Mutex<Option<(u64, PathBuf)>>,
 }
 
 impl AppState {
@@ -67,6 +81,25 @@ impl AppState {
 }
 
 type Reply<T> = Result<T, String>;
+
+/// A path from the window, as path text (see `pf_model::path_to_text`), read back without
+/// losing anything: the dialogs hand the window paths this way.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PathArg(PathBuf);
+
+impl<'de> serde::Deserialize<'de> for PathArg {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        Ok(Self(pf_model::path_from_text(&text)))
+    }
+}
+
+impl std::ops::Deref for PathArg {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
 
 fn message(error: EngineError) -> String {
     error.to_string()
@@ -97,27 +130,86 @@ async fn new_show(state: State<'_, AppState>, name: String) -> Reply<ShowSnapsho
     Ok(state.engine().new_show(&name))
 }
 
+/// The sample show ("Try the demo show"), built into the app: the same house as the browser's
+/// `?demo`.
+const SAMPLE_SHOW: &str = include_str!("../../src/api/sampleShow.json");
+
+/// Opens the sample show as a new, unsaved show: saving it asks where, so the copy built into
+/// the app is never written. Like a new show, it has nothing to save until it's changed.
 #[tauri::command]
-async fn open_show(state: State<'_, AppState>, path: String) -> Reply<ShowSnapshot> {
-    let path = pf_model::path_from_text(&path);
+async fn open_sample_show(state: State<'_, AppState>) -> Reply<ShowSnapshot> {
+    let show: Show =
+        serde_json::from_str(SAMPLE_SHOW).map_err(|e| format!("The sample show couldn't be read ({e})."))?;
+    let show = pf_engine::CheckedShow::new(show).map_err(message)?;
+    Ok(state.engine().start_from(show))
+}
+
+/// Opens the show file at `path`. The path comes from the window (normally one the Open dialog
+/// just gave it, but any path is accepted) and the show goes on the recent list.
+#[tauri::command]
+async fn open_show<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+    path: PathArg,
+) -> Reply<ShowSnapshot> {
+    open_show_at(&app, &state, path.0).await
+}
+
+/// Opens the show file at `path`, and puts it at the top of the recent shows. Every open (the
+/// Open dialog, a recent show, Locate…) comes through here.
+async fn open_show_at<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &AppState,
+    path: PathBuf,
+) -> Reply<ShowSnapshot> {
+    let started = Instant::now();
     // Read (and its files looked for) without holding the engine.
     let file = path.clone();
     let loaded = tauri::async_runtime::spawn_blocking(move || pf_engine::read_show(&file))
         .await
         .map_err(|_| "Something went wrong opening the show.".to_string())?
         .map_err(message)?;
+    let read = started.elapsed();
     let snapshot = state.engine().open_read(&path, loaded);
-    Ok(state.trusting(snapshot))
+    let snapshot = state.trusting(snapshot);
+    log::debug!(
+        "open show: read in {} ms, ready in {} ms",
+        read.as_millis(),
+        started.elapsed().as_millis()
+    );
+    remember(app, state, &snapshot).await;
+    Ok(snapshot)
+}
+
+/// Puts the saved show of `snapshot` at the top of the recent shows (and File → Open Recent).
+/// Runs off the engine and the window; a list that can't be written is only logged.
+async fn remember<R: Runtime>(app: &AppHandle<R>, state: &AppState, snapshot: &ShowSnapshot) {
+    let Some(visit) = recent::Visit::of(snapshot) else {
+        return;
+    };
+    let list = Arc::clone(&state.recent);
+    let _ = tauri::async_runtime::spawn_blocking(move || list.record(visit, recent::now_ms())).await;
+    menu::refresh_recent(app, &state.recent);
 }
 
 #[tauri::command]
-async fn save_show(state: State<'_, AppState>) -> Reply<ShowSnapshot> {
-    state.engine().save().map_err(message)
+async fn save_show<R: Runtime>(app: AppHandle<R>, state: State<'_, AppState>) -> Reply<ShowSnapshot> {
+    let snapshot = state.engine().save().map_err(message)?;
+    remember(&app, &state, &snapshot).await;
+    Ok(snapshot)
 }
 
+/// Saves the show at `path` and puts it on the recent list. The path comes from the window
+/// (normally one the Save dialog just gave it, but any path is accepted).
 #[tauri::command]
-async fn save_show_as(state: State<'_, AppState>, path: PathBuf) -> Reply<ShowSnapshot> {
-    state.engine().save_as(&path).map_err(message)
+async fn save_show_as<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+    path: PathArg,
+) -> Reply<ShowSnapshot> {
+    let snapshot = state.engine().save_as(&path).map_err(message)?;
+    remember(&app, &state, &snapshot).await;
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -126,14 +218,20 @@ async fn list_history(state: State<'_, AppState>) -> Reply<Vec<HistoryEntry>> {
 }
 
 #[tauri::command]
-async fn restore_history(state: State<'_, AppState>, id: String) -> Reply<ShowSnapshot> {
+async fn restore_history<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+    id: String,
+) -> Reply<ShowSnapshot> {
     let file = state.engine().history_file(&id).map_err(message)?;
     let restored = tauri::async_runtime::spawn_blocking(move || file.read())
         .await
         .map_err(|_| "Something went wrong reading that version.".to_string())?
         .map_err(message)?;
     let snapshot = state.engine().restore_read(restored);
-    Ok(state.trusting(snapshot))
+    let snapshot = state.trusting(snapshot);
+    remember(&app, &state, &snapshot).await;
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -163,6 +261,7 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         undo,
         redo,
         new_show,
+        open_sample_show,
         open_show,
         save_show,
         save_show_as,
@@ -244,6 +343,11 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         files::sequence_music_missing,
         files::find_sequence_music,
         files::locate_sequence_music,
+        pickers::pick_path,
+        recent::list_recent_shows,
+        recent::forget_recent_show,
+        recent::clear_recent_shows,
+        recent::locate_recent_show,
     ])
 }
 
@@ -254,10 +358,13 @@ fn context<R: tauri::Runtime>() -> tauri::Context<R> {
 
 /// Starts the desktop app.
 pub fn run() {
+    logging::init();
     with_commands(tauri::Builder::default())
         .plugin(tauri_plugin_dialog::init())
+        .on_menu_event(menu::on_event)
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
+            let config_dir = app.path().app_config_dir().ok();
             app.manage(AppState {
                 engine: Mutex::new(Engine::new(data_dir)),
                 devices: DeviceAccess::network(),
@@ -266,7 +373,14 @@ pub fn run() {
                 models: Default::default(),
                 export_cancels: Default::default(),
                 checking_files: Default::default(),
+                recent: Arc::new(recent::RecentShows::new(config_dir.clone())),
+                last_folders: pickers::LastFolders::new(config_dir),
+                dialog: Default::default(),
+                imported_from: Mutex::default(),
             });
+            // macOS has a menu bar either way: this one has the show's File menu.
+            #[cfg(target_os = "macos")]
+            app.set_menu(menu::build(app.handle(), &app.state::<AppState>().recent)?)?;
             app.manage(assistant::AiState::live());
             let handle = app.handle().clone();
             std::thread::Builder::new()
@@ -281,13 +395,39 @@ pub fn run() {
         })
         .build(context())
         .expect("error while building PixelFlow")
-        .run(|app, event| {
-            if let tauri::RunEvent::Exit = event
-                && let Some(state) = app.try_state::<AppState>()
-            {
+        .run(on_run_event);
+}
+
+/// The app's own events: an exit asked for while there's unsaved work waits for the window to
+/// ask about it, and quitting keeps unsaved work and blacks out the lights.
+fn on_run_event<R: Runtime>(app: &AppHandle<R>, event: tauri::RunEvent) {
+    match event {
+        tauri::RunEvent::ExitRequested { code, api, .. } if exit_must_wait(app, code) => {
+            api.prevent_exit();
+            // The window asks (Save / Don't save / Cancel), like its close button; the app
+            // exits when it has closed. Asked again meanwhile, it shows the same question.
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.close();
+            }
+        }
+        tauri::RunEvent::Exit => {
+            if let Some(state) = app.try_state::<AppState>() {
                 shut_down(&state);
             }
-        });
+        }
+        _ => {}
+    }
+}
+
+/// Whether an exit (`code`: `None` once the last window has closed, else asked for by the app)
+/// should wait for the window to ask about unsaved work. Once the window has closed it already
+/// asked, so the app exits.
+fn exit_must_wait<R: Runtime>(app: &AppHandle<R>, code: Option<i32>) -> bool {
+    code.is_some()
+        && app.get_webview_window("main").is_some()
+        && app
+            .try_state::<AppState>()
+            .is_some_and(|state| state.engine().has_unsaved_changes())
 }
 
 /// Keeps unsaved work: the show in its autosave history, and an open sequence with unsaved
@@ -325,16 +465,26 @@ mod tests {
 
     /// The app with its data (autosaves, kept sequences) in `dir`.
     fn app_in(dir: tempfile::TempDir) -> (App<MockRuntime>, WebviewWindow<MockRuntime>, tempfile::TempDir) {
+        let app = app_without_window(dir.path());
+        let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        (app, webview, dir)
+    }
+
+    /// The app, with its data in `dir`, before its window is made (running it makes the
+    /// window from the app's configuration).
+    fn app_without_window(dir: &std::path::Path) -> App<MockRuntime> {
         // Nothing reaches the network or a sound device: packets are recorded and music is timed
         // by a silent stopwatch.
         let (transport, _recorded) = pf_output::RecordingTransport::new();
         let silent: pf_engine::ClockFactory = std::sync::Arc::new(|_| {
             Ok(Box::new(pf_audio::SilentClock::new()) as Box<dyn pf_audio::AudioClock>)
         });
-        let engine = Engine::new(dir.path())
+        let engine = Engine::new(dir)
             .with_transport(move || Ok(Box::new(transport.clone()) as Box<dyn pf_output::Transport>))
             .with_clocks(silent);
-        let app = with_commands(mock_builder())
+        with_commands(mock_builder())
             .manage(AppState {
                 engine: Mutex::new(engine),
                 devices: DeviceAccess::fake(pf_devices::testing::network()),
@@ -343,13 +493,13 @@ mod tests {
                 models: Default::default(),
                 export_cancels: Default::default(),
                 checking_files: Default::default(),
+                recent: Arc::new(recent::RecentShows::new(Some(dir.join("config")))),
+                last_folders: pickers::LastFolders::new(Some(dir.join("config"))),
+                dialog: Default::default(),
+                imported_from: Mutex::default(),
             })
             .build(context())
-            .unwrap();
-        let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-            .build()
-            .unwrap();
-        (app, webview, dir)
+            .unwrap()
     }
 
     /// Calls a command the way the UI does and returns its JSON reply (or error message).
@@ -1803,6 +1953,237 @@ mod tests {
         let snapshot = call(&webview, "check_files", json!({ "all": false })).unwrap();
         assert_eq!(snapshot["filesChecked"], true);
         assert_eq!(snapshot["missingFiles"][0]["name"], "gone.png");
+    }
+
+    /// The recent shows, as the window gets them.
+    fn recent_shows(webview: &WebviewWindow<MockRuntime>) -> Vec<Value> {
+        call(webview, "list_recent_shows", json!({}))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .clone()
+    }
+
+    #[test]
+    fn shows_saved_opened_and_restored_go_to_the_top_of_the_recent_list() {
+        let (_app, webview, dir) = app();
+        assert!(recent_shows(&webview).is_empty());
+        let house = dir.path().join("house.pixelflow.json");
+        let prop = json!({
+            "id": "11111111-0000-4000-8000-000000000001", "name": "Line",
+            "shape": { "source": "generator", "type": "line", "nodes": 50, "length": 2 },
+            "transform": { "position": { "x": 0, "y": 0, "z": 0 }, "rotationDeg": { "x": 0, "y": 0, "z": 0 },
+                           "scale": { "x": 1, "y": 1, "z": 1 } },
+            "colorOrder": "RGB", "regions": [], "tags": []
+        });
+        call(
+            &webview,
+            "apply_edits",
+            json!({ "edits": [{ "type": "renameShow", "name": "House" }, { "type": "addProp", "prop": prop }] }),
+        )
+        .unwrap();
+        call(&webview, "save_show_as", json!({ "path": house })).unwrap();
+        let list = recent_shows(&webview);
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0]["name"], "House");
+        assert_eq!(list[0]["path"], json!(house.to_str().unwrap()));
+        assert_eq!(list[0]["props"], 1);
+        assert_eq!(list[0]["pixels"], 50);
+        assert_eq!(list[0]["status"], "here");
+        assert!(list[0]["thumbnail"].as_str().unwrap().starts_with("<svg"));
+
+        // A new show isn't on the list until it's saved.
+        call(&webview, "new_show", json!({ "name": "Shed" })).unwrap();
+        assert_eq!(recent_shows(&webview).len(), 1);
+        let shed = dir.path().join("shed.pixelflow.json");
+        call(&webview, "save_show_as", json!({ "path": shed })).unwrap();
+        let names: Vec<Value> = recent_shows(&webview).iter().map(|s| s["name"].clone()).collect();
+        assert_eq!(names, vec![json!("Shed"), json!("House")]);
+
+        // Opening brings a show back to the top; a failed open changes nothing.
+        call(&webview, "open_show", json!({ "path": house })).unwrap();
+        assert!(
+            call(
+                &webview,
+                "open_show",
+                json!({ "path": dir.path().join("nope.json") })
+            )
+            .is_err()
+        );
+        let names: Vec<Value> = recent_shows(&webview).iter().map(|s| s["name"].clone()).collect();
+        assert_eq!(names, vec![json!("House"), json!("Shed")]);
+
+        // Restoring an autosaved version keeps the show at the top, under its file.
+        call(
+            &webview,
+            "apply_edits",
+            json!({ "edits": [{ "type": "renameShow", "name": "House 2" }] }),
+        )
+        .unwrap();
+        autosave(&_app.state::<AppState>(), "test");
+        let id = call(&webview, "list_history", json!({})).unwrap()[0]["id"].clone();
+        call(&webview, "open_show", json!({ "path": shed })).unwrap();
+        call(&webview, "open_show", json!({ "path": house })).unwrap();
+        call(&webview, "restore_history", json!({ "id": id })).unwrap();
+        let list = recent_shows(&webview);
+        assert_eq!(list[0]["path"], json!(house.to_str().unwrap()));
+        assert_eq!(list[0]["name"], "House 2");
+    }
+
+    #[test]
+    fn recent_shows_that_are_gone_stay_listed_until_taken_off() {
+        let (_app, webview, dir) = app();
+        let a = dir.path().join("a.pixelflow.json");
+        let b = dir.path().join("b.pixelflow.json");
+        call(&webview, "save_show_as", json!({ "path": a })).unwrap();
+        call(&webview, "save_show_as", json!({ "path": b })).unwrap();
+        std::fs::remove_file(&a).unwrap();
+        let list = recent_shows(&webview);
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[1]["status"], "missing");
+        // Opening it fails, and it stays on the list.
+        assert!(call(&webview, "open_show", json!({ "path": a })).is_err());
+        assert_eq!(recent_shows(&webview).len(), 2);
+        call(&webview, "forget_recent_show", json!({ "path": a })).unwrap();
+        assert_eq!(recent_shows(&webview).len(), 1);
+        call(&webview, "clear_recent_shows", json!({})).unwrap();
+        assert!(recent_shows(&webview).is_empty());
+        // The window can't name a show for the list: locating one needs it on the list.
+        let error = call(&webview, "locate_recent_show", json!({ "path": a })).unwrap_err();
+        assert_eq!(error, json!("That show isn't on your recent list any more."));
+    }
+
+    #[test]
+    fn an_exit_asked_for_with_unsaved_work_waits_for_the_window_to_ask() {
+        let (app, webview, dir) = app();
+        let handle = app.handle();
+        // Nothing unsaved: exit at once.
+        assert!(!exit_must_wait(handle, Some(0)));
+        call(
+            &webview,
+            "apply_edits",
+            json!({ "edits": [{ "type": "renameShow", "name": "Changed" }] }),
+        )
+        .unwrap();
+        // Unsaved work, and the window is there to ask about it.
+        assert!(exit_must_wait(handle, Some(0)));
+        // The last window closed: it already asked (or there's nothing left to ask with).
+        assert!(!exit_must_wait(handle, None));
+        let path = pf_model::path_to_text(&dir.path().join("h.pixelflow.json"));
+        call(&webview, "save_show_as", json!({ "path": path })).unwrap();
+        assert!(!exit_must_wait(handle, Some(0)));
+    }
+
+    #[test]
+    fn quit_from_the_menu_goes_through_the_window_and_quits_when_nothing_is_unsaved() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = app_without_window(dir.path());
+        let handle = app.handle().clone();
+        let events = Arc::new(Mutex::new(Vec::<String>::new()));
+        let seen = Arc::clone(&events);
+        std::thread::spawn(move || {
+            // Once the running app has made its window.
+            while handle.get_webview_window("main").is_none() {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            menu::on_event(&handle, tauri::menu::MenuEvent { id: "quit".into() });
+        });
+        // Returns once the app has exited.
+        app.run(move |app, event| {
+            match &event {
+                tauri::RunEvent::WindowEvent {
+                    event: tauri::WindowEvent::CloseRequested { .. },
+                    ..
+                } => seen.lock().unwrap().push("close requested".into()),
+                tauri::RunEvent::ExitRequested { .. } => seen.lock().unwrap().push("exit requested".into()),
+                tauri::RunEvent::Exit => seen.lock().unwrap().push("exit".into()),
+                _ => {}
+            }
+            on_run_event(app, event);
+        });
+        assert_eq!(
+            *events.lock().unwrap(),
+            vec!["close requested", "exit requested", "exit"]
+        );
+    }
+
+    #[test]
+    fn close_show_from_the_menu_is_ignored_while_another_window_is_in_front() {
+        use tauri::Listener;
+        let (app, _webview, _dir) = app();
+        let sent = Arc::new(Mutex::new(Vec::<String>::new()));
+        let seen = Arc::clone(&sent);
+        app.listen_any(menu::MENU_EVENT, move |event| {
+            seen.lock().unwrap().push(event.payload().to_string());
+        });
+        // The mock window never has focus: as if the About panel were in front.
+        let choose = |id: &str| menu::on_event(app.handle(), tauri::menu::MenuEvent { id: id.into() });
+        choose("close-show");
+        choose("new-show");
+        assert_eq!(*sent.lock().unwrap(), vec![r#"{"action":"newShow"}"#]);
+    }
+
+    #[test]
+    fn a_dialog_asked_for_while_one_is_showing_is_refused_not_queued() {
+        let (app, webview, _dir) = app();
+        let state = app.state::<AppState>();
+        let showing = state.dialog.take().unwrap();
+        // Answered at once, as if cancelled: no second sheet is queued behind the first.
+        assert_eq!(
+            call(&webview, "pick_path", json!({ "kind": "show" })),
+            Ok(Value::Null)
+        );
+        assert_eq!(call(&webview, "pick_image", json!({})), Ok(Value::Null));
+        drop(showing);
+    }
+
+    #[test]
+    fn the_sample_show_opens_as_an_unsaved_copy() {
+        let (_app, webview, _dir) = app();
+        let snapshot = call(&webview, "open_sample_show", json!({})).unwrap();
+        assert_eq!(snapshot["show"]["name"], "Demo House");
+        assert_eq!(snapshot["path"], Value::Null);
+        // Nothing to ask about until the user changes it.
+        assert_eq!(snapshot["dirty"], false);
+        assert_eq!(snapshot["summary"]["props"], 4);
+        assert_eq!(snapshot["summary"]["controllers"], 2);
+        // Not a file of the user's: it isn't a recent show.
+        assert!(recent_shows(&webview).is_empty());
+    }
+
+    #[test]
+    fn dialogs_start_in_the_shows_folder_and_an_import_saves_first_into_its_xlights_folder() {
+        use pickers::PickKind;
+        let (app, webview, dir) = app();
+        let state = app.state::<AppState>();
+        let folders = |kind| pickers::starting_folders(app.handle(), &state, kind, None);
+        let xlights = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../crates/pf-xlights/fixtures/sample-show");
+        call(&webview, "import_xlights", json!({ "folder": xlights })).unwrap();
+        assert_eq!(folders(PickKind::ShowSave).first(), Some(&xlights));
+        // Only for saving the show.
+        assert_ne!(folders(PickKind::Music).first(), Some(&xlights));
+        let saved = dir.path().join("Shows/house.pixelflow.json");
+        std::fs::create_dir_all(saved.parent().unwrap()).unwrap();
+        call(&webview, "save_show_as", json!({ "path": saved })).unwrap();
+        assert!(!folders(PickKind::ShowSave).contains(&xlights));
+        assert!(folders(PickKind::Photo).contains(&saved.parent().unwrap().to_path_buf()));
+        // A new show isn't the imported one any more.
+        call(&webview, "import_xlights", json!({ "folder": xlights })).unwrap();
+        call(&webview, "new_show", json!({ "name": "New" })).unwrap();
+        assert!(!folders(PickKind::ShowSave).contains(&xlights));
+    }
+
+    #[test]
+    fn path_text_from_the_window_is_read_back_exactly() {
+        let arg: PathArg = serde_json::from_value(json!("/shows/Caf\u{0}e9.json")).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            assert_eq!(arg.as_os_str().as_bytes(), b"/shows/Caf\xe9.json");
+        }
+        let plain: PathArg = serde_json::from_value(json!("/shows/House.json")).unwrap();
+        assert_eq!(&*plain, Path::new("/shows/House.json"));
     }
 
     #[test]

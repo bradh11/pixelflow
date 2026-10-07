@@ -32,6 +32,7 @@ import { useSequencer } from "../state/sequencer";
 import { TestScreen } from "../screens/TestScreen";
 import { WiringScreen } from "../screens/WiringScreen";
 import { MissingFileNotice, MissingFilesBanner } from "./MissingFiles";
+import { ShowMenu } from "./ShowMenu";
 import { Button } from "./ui";
 
 const NAV: { screen: Screen; label: string; icon: ReactNode }[] = [
@@ -77,22 +78,27 @@ function useUndoTarget() {
 function TopBar() {
   const snapshot = useApp((s) => s.snapshot);
   const theme = useApp((s) => s.theme);
-  const { setPaletteOpen, setTheme } = useApp.getState();
+  const { setPaletteOpen, setTheme, closeShow } = useApp.getState();
   const target = useUndoTarget();
   const sequenceName = useSequencer((s) => s.doc?.name ?? null);
   const sequenceDirty = useSequencer((s) => s.dirty);
   const sequencePath = useSequencer((s) => s.path);
   if (!snapshot) return null;
-  const title = snapshot.show.name;
   // On the Sequence screen, the show and the sequence each say whether they're saved.
   const both = target.sequence && sequenceName !== null;
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-neutral-200 px-3 dark:border-neutral-800">
-      <span className="font-semibold text-accent-600 dark:text-accent-400">PixelFlow</span>
+      <button
+        type="button"
+        title="Close the show and go to the start page"
+        aria-label="PixelFlow home (closes the show)"
+        onClick={() => void closeShow()}
+        className="shrink-0 rounded-md px-1 font-semibold text-accent-600 hover:bg-neutral-200/70 dark:text-accent-400 dark:hover:bg-neutral-800"
+      >
+        PixelFlow
+      </button>
       <span className="text-neutral-300 dark:text-neutral-700">/</span>
-      <span className="truncate font-medium" title={snapshot.path ? shownPath(snapshot.path) : undefined}>
-        {title}
-      </span>
+      <ShowMenu />
       {snapshot.dirty && (
         <span role="note" className="shrink-0 text-xs text-neutral-500" aria-label={both ? "Unsaved changes to the show" : "Unsaved changes"}>
           {both ? "● Show not saved" : "● Unsaved"}

@@ -54,12 +54,20 @@ export function ImportReport() {
             </>
           )}
           <p className="mt-4 text-neutral-500">
-            The show isn't saved yet. Save it to keep it, and use Play to run a sequence on it.
+            The show isn't saved yet. Save it to keep it (it's then in your recent shows), and use Play to run a sequence on it.
           </p>
         </div>
-        <div className="flex justify-end border-t border-neutral-200 p-4 dark:border-neutral-800">
-          <Button ref={doneRef} variant="primary" onClick={dismiss}>
-            Done
+        <div className="flex justify-end gap-2 border-t border-neutral-200 p-4 dark:border-neutral-800">
+          <Button onClick={dismiss}>Later</Button>
+          <Button
+            ref={doneRef}
+            variant="primary"
+            onClick={() => {
+              dismiss();
+              void useApp.getState().saveAs();
+            }}
+          >
+            Save show…
           </Button>
         </div>
       </div>

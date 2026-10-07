@@ -28,7 +28,7 @@ describe("xLights import", () => {
     const report = await screen.findByRole("dialog", { name: "Imported Haas 2024" });
     expect(within(report).getByText(/4 props · 1,462 pixels · 2 controllers · 3 props wired · 1 group/)).toBeInTheDocument();
     expect(within(report).getByText(/Window Matrix: shown as a grid/)).toBeInTheDocument();
-    await user.click(within(report).getByRole("button", { name: "Done" }));
+    await user.click(within(report).getByRole("button", { name: "Later" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(useApp.getState().snapshot!.show.name).toBe("Haas 2024");
     expect(useApp.getState().snapshot!.dirty).toBe(true);
@@ -36,7 +36,7 @@ describe("xLights import", () => {
 
   it("asks before replacing unsaved work", async () => {
     const { user, backend } = await startApp();
-    await user.click(screen.getByRole("button", { name: /start fresh/i }));
+    await user.click(screen.getByRole("button", { name: /^new show/i }));
     await useApp.getState().apply([{ type: "renameShow", name: "Changed" }]);
     await useApp.getState().importXlights();
     expect(await screen.findByRole("dialog", { name: /save changes to/i })).toBeInTheDocument();

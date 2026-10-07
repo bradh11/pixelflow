@@ -570,7 +570,7 @@ describe("unsaved work", () => {
 
   it("takes a recent sequence that can't be opened off the list", async () => {
     const { user } = await openScreen(false);
-    act(() => useSequencer.setState({ recent: ["/Shows/Gone.pfseq.json"] }));
+    act(() => useSequencer.setState({ recent: [{ path: "/Shows/Gone.pfseq.json", show: null }] }));
     await user.click(screen.getByRole("button", { name: "Gone.pfseq.json" }));
     await waitFor(() => expect(useApp.getState().error).toMatch(/Gone.pfseq.json.*It's been taken off your recent sequences\./));
     expect(useSequencer.getState().recent).toEqual([]);

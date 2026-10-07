@@ -1,5 +1,11 @@
 import type {
+  DeviceComparison,
   DeviceDetails,
+  RestorePlan,
+  RestoreReport,
+  SendPlan,
+  SendReport,
+  UseProps,
   Waveform,
   XlightsImported,
   PlaybackStatus,
@@ -71,8 +77,28 @@ export interface Backend {
   discoverDevices(hosts: string[], network: boolean): Promise<Discovery>;
   /** Reads a device's configuration and previews importing it (changes nothing). */
   inspectDevice(address: string): Promise<DeviceDetails>;
-  /** Adds the device as a controller with starter props, as one undo step. */
-  importDevice(address: string): Promise<ShowSnapshot>;
+  /** Adds the device as a controller with starter props, as one undo step. `useProps` wires
+   * props already in the show to strings instead (by string key, "port1/string2"). */
+  importDevice(address: string, useProps?: UseProps): Promise<ShowSnapshot>;
+  /** Reads the device and compares it with the show's controller at its address. Changes
+   * nothing. */
+  compareDevice(address: string): Promise<DeviceComparison>;
+  /** Takes the picked differences (by Change id) from the device, as last compared, into the
+   * show as one undo step. `useProps` wires existing props to new strings. */
+  takeFromDevice(address: string, picks: string[], useProps?: UseProps): Promise<ShowSnapshot>;
+  /** Reads the device's setup and plans sending the show's. Changes nothing. */
+  planDeviceSetup(address: string): Promise<SendPlan>;
+  /** Sends what planDeviceSetup showed (`expected`: the ids of the rows shown). Changes the
+   * device: only from the user's Send click. Keeps a copy of its setup first. */
+  sendDeviceSetup(address: string, expected: string[]): Promise<SendReport>;
+  /** Identifies the device at `address` and says what putting the kept copy of *its* setup back
+   * would change. Changes nothing. */
+  planDeviceRestore(address: string): Promise<RestorePlan>;
+  /** Puts the kept copy back, as planDeviceRestore showed it (`expected`: the ids of the rows
+   * shown), only on the device it came from. Changes the device. */
+  restoreDeviceSetup(address: string, expected: string[]): Promise<RestoreReport>;
+  /** Dismisses a kept copy (by its key): Put back is no longer offered for that device. */
+  forgetDeviceSetupCopy(key: string): Promise<void>;
   /** Adds a controller an FPP sends to, from the FPP's output list (works while it's offline). */
   importFppDestination(address: string, destination: string, protocol: string): Promise<ShowSnapshot>;
   /**

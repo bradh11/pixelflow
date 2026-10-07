@@ -4,7 +4,7 @@ import { App } from "./App";
 import { tauriAssistant } from "./api/assistant";
 import { FakeAssistant } from "./api/memoryAssistant";
 import { useAssistant } from "./state/assistant";
-import { DEMO_PHOTO, DEMO_SHOW_PATH, demoDevices, demoFppFileDetails, demoFppFiles, demoFppSchedules, demoFppSoftware, demoHousePhoto, demoMissingFiles, demoPlayers, demoRecentShows, demoShow } from "./api/demo";
+import { DEMO_PHOTO, DEMO_SHOW_PATH, demoDevices, demoFppFileDetails, demoFppFiles, demoFppSchedules, demoFppSoftware, demoHousePhoto, demoMissingFiles, demoPlayers, demoRecentShows, demoShow, demoShowDevices } from "./api/demo";
 import { DEMO_MUSIC, DEMO_SEQUENCE_PATH, demoSequence } from "./api/demoSequence";
 import { MemoryBackend } from "./api/memory";
 import { MemorySequencer } from "./api/memorySequencer";
@@ -26,6 +26,10 @@ if (inTauri()) {
   if (demo) {
     backend.deviceNetwork = demoDevices();
     backend.fppPlayers = demoPlayers();
+    // The demo show's own FPP answers too, set up a little differently from the show.
+    const own = demoShowDevices(backend.show);
+    backend.deviceNetwork.details.push(...own.details);
+    Object.assign(backend.fppPlayers, own.players);
     backend.fppFiles = demoFppFiles();
     backend.fppFileDetails = demoFppFileDetails();
     backend.fppSchedules = demoFppSchedules();

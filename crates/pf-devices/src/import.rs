@@ -3,11 +3,11 @@
 use crate::config::{Destination, DeviceConfig, DeviceInput};
 use crate::device::{Device, DeviceKind};
 use pf_model::{
-    AdapterKind, ColorOrder, Controller, Generator, Port, PortSlot, Prop, Protocol, SacnConfig,
+    AdapterKind, ColorOrder, Controller, Generator, Port, PortSlot, Prop, PropId, Protocol, SacnConfig,
     SequenceChannels, ShapeSource, Show, UniverseSize, Vec3,
 };
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 /// What importing a device would add to the show.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -30,7 +30,7 @@ pub fn is_placeholder(controller: &Controller) -> bool {
     controller.ports.is_empty() && controller.sequence_channels.is_some()
 }
 
-fn unique(base: &str, taken: &mut HashSet<String>) -> String {
+pub(crate) fn unique(base: &str, taken: &mut HashSet<String>) -> String {
     let mut name = base.to_string();
     let mut n = 2;
     while taken.contains(&name) {
@@ -41,8 +41,45 @@ fn unique(base: &str, taken: &mut HashSet<String>) -> String {
     name
 }
 
+/// Why `prop` can't be wired to a device string the controller drives in `order`: their
+/// channels per pixel differ, so every later pixel would be shifted.
+pub fn mapping_problem(prop: &Prop, order: ColorOrder) -> Option<String> {
+    let (ours, theirs) = (prop.channels_per_pixel(), order.channels_per_pixel());
+    (ours != theirs).then(|| {
+        format!(
+            "it sends {ours} channels a pixel and the string takes {theirs}, so every later pixel would be shifted."
+        )
+    })
+}
+
+/// When both `prop` and the controller reorder colors, they're swapped twice.
+pub fn double_reorder(prop: &Prop, order: ColorOrder) -> Option<String> {
+    let plain = |o: ColorOrder| matches!(o, ColorOrder::Rgb | ColorOrder::Rgbw);
+    (!plain(prop.color_order) && !plain(order)).then(|| {
+        let name = |o: ColorOrder| serde_json::to_value(o).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
+        format!(
+            "{} reorders its colors ({}) and the controller reorders this string too ({}), so colors are swapped twice. Set {} to RGB on the Layout screen, or the controller's string to RGB.",
+            prop.name,
+            name(prop.color_order),
+            name(order),
+            prop.name
+        )
+    })
+}
+
 /// Plans an import of `device` with `config` into `show` (nothing is changed yet).
 pub fn plan_import(device: &Device, config: &DeviceConfig, show: &Show) -> ImportPlan {
+    plan_import_using(device, config, show, &BTreeMap::new())
+}
+
+/// [`plan_import`], wiring the props in `use_props` (by [`crate::setup::string_key`]) instead of
+/// making starter props for those strings. Props not in the show are ignored.
+pub fn plan_import_using(
+    device: &Device,
+    config: &DeviceConfig,
+    show: &Show,
+    use_props: &BTreeMap<String, PropId>,
+) -> ImportPlan {
     let mut notes = config.notes.clone();
     let mut controller_names: HashSet<String> = show.controllers.iter().map(|c| c.name.clone()).collect();
     let mut prop_names: HashSet<String> = show.props.iter().map(|p| p.name.clone()).collect();
@@ -85,6 +122,38 @@ pub fn plan_import(device: &Device, config: &DeviceConfig, show: &Show) -> Impor
         port.max_pixels = port_config.max_pixels;
         let several = port_config.strings.len() > 1;
         for (i, string) in port_config.strings.iter().enumerate() {
+            let existing = use_props
+                .get(&crate::setup::string_key(port_config.number, i))
+                .and_then(|id| show.prop(*id));
+            if let Some(problem) = existing.and_then(|prop| mapping_problem(prop, string.color_order)) {
+                notes.push(format!(
+                    "Port {} string {} can't wire {}: {problem} A new prop was made for it instead.",
+                    port_config.number,
+                    i + 1,
+                    existing.map_or("", |p| p.name.as_str()),
+                ));
+            }
+            let existing = existing.filter(|prop| mapping_problem(prop, string.color_order).is_none());
+            if let Some(prop) = existing {
+                if let Some(warning) = double_reorder(prop, string.color_order) {
+                    notes.push(format!("Port {} string {}: {warning}", port_config.number, i + 1));
+                }
+                if prop.node_count() != string.pixels {
+                    notes.push(format!(
+                        "Port {} string {} wires {}, which has {} pixels; the string has {}.",
+                        port_config.number,
+                        i + 1,
+                        prop.name,
+                        prop.node_count(),
+                        string.pixels
+                    ));
+                }
+                let mut slot = PortSlot::new(prop.id);
+                slot.smart_receiver = string.smart_receiver;
+                slot.controller_color_order = Some(string.color_order);
+                port.slots.push(slot);
+                continue;
+            }
             let fallback = if several {
                 format!("{controller_name} Port {} String {}", port_config.number, i + 1)
             } else {
@@ -135,6 +204,7 @@ pub fn plan_import(device: &Device, config: &DeviceConfig, show: &Show) -> Impor
                 ));
             }
             slot.smart_receiver = string.smart_receiver;
+            slot.controller_color_order = Some(string.color_order);
             port.slots.push(slot);
             props.push(prop);
         }
@@ -162,7 +232,7 @@ pub fn plan_import(device: &Device, config: &DeviceConfig, show: &Show) -> Impor
     }
     ImportPlan {
         already_in_show,
-        can_import: !props.is_empty(),
+        can_import: controller.ports.iter().any(|p| !p.slots.is_empty()),
         controller,
         props,
         notes,
@@ -338,7 +408,7 @@ pub fn plan_fpp_setup(device: &Device, config: &DeviceConfig, show: &Show) -> Fp
 mod tests {
     use super::*;
     use crate::config::{Destination, PortConfig, StringConfig};
-    use pf_model::ColorOrder;
+    use pf_model::{ColorOrder, PropId};
 
     fn device() -> Device {
         Device {
@@ -425,6 +495,8 @@ mod tests {
             (0, false, None, None)
         );
         assert_eq!(slot.smart_receiver, Some(1));
+        // The controller's own color order is remembered on the slot, for "Send setup" later.
+        assert_eq!(slot.controller_color_order, Some(ColorOrder::Grb));
         assert_eq!(plan.notes.len(), 3);
         assert_eq!(plan.notes[0], "note");
         assert_eq!(
@@ -434,6 +506,80 @@ mod tests {
         assert_eq!(
             plan.notes[2],
             "The controller applies its own settings (Port 1 \"Arch\": reversed, 50% brightness, gamma 2.2; Port 3 \"Garage Falcon Port 3 String 1\": reversed, 50% brightness, gamma 2.2; Port 3 \"Garage Falcon Port 3 String 2\": reversed, 50% brightness, gamma 2.2), so PixelFlow sends unadjusted data."
+        );
+    }
+
+    #[test]
+    fn strings_can_wire_props_already_in_the_show() {
+        let mut show = Show::new("t");
+        let arch = Prop::new(
+            "Garage Arch",
+            ShapeSource::Generator(Generator::Line {
+                nodes: 40,
+                length: 1.0,
+            }),
+        );
+        let arch_id = arch.id;
+        show.props.push(arch);
+        let use_props = std::collections::BTreeMap::from([("port1/string1".to_string(), arch_id)]);
+        let plan = plan_import_using(&device(), &config(), &show, &use_props);
+        // Port 1's string wires the existing prop; port 3's two strings get starter props.
+        assert_eq!(plan.controller.ports[0].slots[0].prop, arch_id);
+        assert_eq!(plan.props.len(), 2);
+        assert!(plan.props.iter().all(|p| p.id != arch_id));
+        assert!(
+            plan.notes
+                .iter()
+                .any(|n| n == "Port 1 string 1 wires Garage Arch, which has 40 pixels; the string has 50."),
+            "{:?}",
+            plan.notes
+        );
+        // A prop that isn't in the show is ignored: a starter prop is made instead.
+        let gone = std::collections::BTreeMap::from([("port1/string1".to_string(), PropId::new())]);
+        assert_eq!(
+            plan_import_using(&device(), &config(), &show, &gone).props.len(),
+            3
+        );
+    }
+
+    #[test]
+    fn wiring_an_existing_prop_checks_its_colors_against_the_string() {
+        let mut show = Show::new("t");
+        let mut rgbw = Prop::new(
+            "White Arch",
+            ShapeSource::Generator(Generator::Line {
+                nodes: 50,
+                length: 1.0,
+            }),
+        );
+        rgbw.color_order = ColorOrder::Rgbw;
+        let mut grb = rgbw.clone();
+        grb.id = PropId::new();
+        grb.name = "Old Arch".into();
+        grb.color_order = ColorOrder::Grb;
+        let (rgbw_id, grb_id) = (rgbw.id, grb.id);
+        show.props = vec![rgbw, grb];
+
+        // An RGBW prop can't take a 3-channel string: a starter prop is made instead.
+        let use_props = std::collections::BTreeMap::from([("port1/string1".to_string(), rgbw_id)]);
+        let plan = plan_import_using(&device(), &config(), &show, &use_props);
+        assert_ne!(plan.controller.ports[0].slots[0].prop, rgbw_id);
+        assert_eq!(plan.props.len(), 3);
+        assert!(
+            plan.notes.iter().any(|n| n.contains("can't wire White Arch")),
+            "{:?}",
+            plan.notes
+        );
+
+        // A prop that reorders its colors, on a string the controller reorders too, is wired
+        // with a warning.
+        let use_props = std::collections::BTreeMap::from([("port1/string1".to_string(), grb_id)]);
+        let plan = plan_import_using(&device(), &config(), &show, &use_props);
+        assert_eq!(plan.controller.ports[0].slots[0].prop, grb_id);
+        assert!(
+            plan.notes.iter().any(|n| n.contains("swapped twice")),
+            "{:?}",
+            plan.notes
         );
     }
 

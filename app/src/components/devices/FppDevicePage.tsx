@@ -11,6 +11,7 @@ import { FppScheduleList } from "./FppScheduleList";
 import { FppSoftware } from "./FppSoftware";
 import { NowPlaying } from "./NowPlaying";
 import { Dot } from "./Section";
+import { SetupButtons } from "./SetupButtons";
 import { useFppStatus } from "./useFppStatus";
 
 const NO_DEVICES: Device[] = [];
@@ -20,7 +21,18 @@ const NO_DEVICES: Device[] = [];
  * where it sends its sequence (and setting up the show from that), its schedule, and its software (with a link to FPP's own update page). Only Play,
  * Stop, and Send change anything on the FPP, and only when clicked.
  */
-export function FppDevicePage({ device, onBack }: { device: Device; onBack: () => void }) {
+export function FppDevicePage({
+  device,
+  onBack,
+  onCompare,
+  onSend,
+}: {
+  device: Device;
+  onBack: () => void;
+  /** When the FPP is in the show: compare it, or send it the show's setup. */
+  onCompare?: () => void;
+  onSend?: () => void;
+}) {
   const backend = useApp((s) => s.backend);
   const devices = useApp((s) => s.discovery?.devices ?? NO_DEVICES);
   const { address } = device;
@@ -94,7 +106,8 @@ export function FppDevicePage({ device, onBack }: { device: Device; onBack: () =
             <Dot tone={error ? "bad" : status ? "ok" : "idle"} /> {state}
           </span>
         </div>
-        <div className="ml-auto flex shrink-0 items-center gap-2">
+        <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
+          {onCompare && onSend && <SetupButtons name={shown.name} onCompare={onCompare} onSend={onSend} />}
           <a
             href={`http://${address}/`}
             target="_blank"

@@ -10,8 +10,9 @@ use pf_devices::{
     ReachCheck, TcpReach,
 };
 use pf_engine::{Edit, ShowSnapshot};
-use pf_model::Show;
+use pf_model::{PropId, Show};
 use serde::Serialize;
+use std::collections::BTreeMap;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -33,9 +34,20 @@ pub(crate) struct DeviceAccess {
     networks: fn() -> Vec<(Ipv4Addr, Ipv4Addr)>,
     /// FPP's public release list, read at most every few hours.
     releases: Arc<ReleaseCache>,
+    /// Reading and sending a controller's setup (Compare, Send setup).
+    pub(crate) config_http: Arc<dyn Http>,
+    /// What Compare and Send setup last read from each device.
+    pub(crate) setup: crate::device_setup::SetupSessions,
 }
 
 impl DeviceAccess {
+    /// Keeps the copies of controllers' setups taken before each send in `dir` (one file per
+    /// controller), so Put back survives a restart.
+    pub(crate) fn with_setup_dir(mut self, dir: std::path::PathBuf) -> Self {
+        self.setup = crate::device_setup::SetupSessions::in_dir(dir);
+        self
+    }
+
     pub(crate) fn network() -> Self {
         Self {
             http: Arc::new(HttpClient::new(Duration::from_millis(1500))),
@@ -52,6 +64,11 @@ impl DeviceAccess {
             reach: Arc::new(TcpReach::new(Duration::from_millis(800))),
             networks: pf_devices::local_networks,
             releases: Arc::new(ReleaseCache::online()),
+            config_http: Arc::new(HttpClient::with_connect_timeout(
+                Duration::from_millis(1500),
+                Duration::from_secs(10),
+            )),
+            setup: Default::default(),
         }
     }
 
@@ -79,6 +96,9 @@ impl DeviceAccess {
                 Duration::from_secs(3600),
                 Duration::from_secs(60),
             )),
+            // Real HTTP: tests point it at a fake FPP or WLED on 127.0.0.1.
+            config_http: Arc::new(HttpClient::new(Duration::from_secs(5))),
+            setup: Default::default(),
         }
     }
 }
@@ -92,16 +112,23 @@ pub(crate) struct DeviceDetails {
     plan: ImportPlan,
 }
 
-async fn off_thread<T: Send + 'static>(work: impl FnOnce() -> Reply<T> + Send + 'static) -> Reply<T> {
+pub(crate) async fn off_thread<T: Send + 'static>(
+    work: impl FnOnce() -> Reply<T> + Send + 'static,
+) -> Reply<T> {
     tauri::async_runtime::spawn_blocking(work)
         .await
         .map_err(|_| "Something went wrong talking to the device.".to_string())?
 }
 
-fn inspect(http: &dyn Http, address: &str, show: &Show) -> Reply<DeviceDetails> {
+fn inspect(
+    http: &dyn Http,
+    address: &str,
+    show: &Show,
+    use_props: &BTreeMap<String, PropId>,
+) -> Reply<DeviceDetails> {
     let device = pf_devices::identify(http, address, None).map_err(|e| e.to_string())?;
     let config = pf_devices::read_config(http, &device).map_err(|e| e.to_string())?;
-    let plan = pf_devices::plan_import(&device, &config, show);
+    let plan = pf_devices::plan_import_using(&device, &config, show, use_props);
     Ok(DeviceDetails { device, config, plan })
 }
 
@@ -134,15 +161,22 @@ pub(crate) async fn discover_devices(
 pub(crate) async fn inspect_device(state: State<'_, AppState>, address: String) -> Reply<DeviceDetails> {
     let show = state.engine().show().clone();
     let http = Arc::clone(&state.devices.http);
-    off_thread(move || inspect(http.as_ref(), &address, &show)).await
+    off_thread(move || inspect(http.as_ref(), &address, &show, &BTreeMap::new())).await
 }
 
 /// Adds the device as a controller with a starter prop per string, as one undo step.
+/// `use_props` wires props already in the show to strings instead (by string key, as
+/// "port1/string2").
 #[tauri::command]
-pub(crate) async fn import_device(state: State<'_, AppState>, address: String) -> Reply<ShowSnapshot> {
+pub(crate) async fn import_device(
+    state: State<'_, AppState>,
+    address: String,
+    use_props: Option<BTreeMap<String, PropId>>,
+) -> Reply<ShowSnapshot> {
     let show = state.engine().show().clone();
     let http = Arc::clone(&state.devices.http);
-    let details = off_thread(move || inspect(http.as_ref(), &address, &show)).await?;
+    let use_props = use_props.unwrap_or_default();
+    let details = off_thread(move || inspect(http.as_ref(), &address, &show, &use_props)).await?;
     if !details.plan.can_import {
         return Err(format!("{} has no pixel outputs to import.", details.device.name));
     }

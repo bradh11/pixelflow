@@ -254,8 +254,14 @@ export function PropsList() {
             ))}
           </Select>
           <label className="flex shrink-0 items-center gap-1 text-xs text-neutral-600 dark:text-neutral-400" title="Only the props not wired to a controller yet, or only partly wired">
-            <input type="checkbox" checked={unwiredOnly} onChange={(e) => setUnwiredOnly(e.target.checked)} className="accent-accent-500" />
-            Not wired (or partly)
+            <input
+              type="checkbox"
+              aria-label="Not wired (or partly)"
+              checked={unwiredOnly}
+              onChange={(e) => setUnwiredOnly(e.target.checked)}
+              className="accent-accent-500"
+            />
+            Not wired
           </label>
         </div>
         <p className="text-xs text-neutral-500" aria-live="polite">

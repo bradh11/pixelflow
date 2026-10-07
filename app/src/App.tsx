@@ -10,12 +10,13 @@ import { FilesReport } from "./components/MissingFiles";
 import { SequenceImportReport } from "./components/SequenceImportReport";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { Toasts } from "./components/Toasts";
+import { TooltipLayer } from "./components/Tooltip";
 import { NameShowDialog, OpeningStatus } from "./components/ShowDialogs";
 import { Welcome } from "./components/Welcome";
 import { useShortcuts } from "./components/useShortcuts";
 import { requestWindowClose } from "./state/busy";
 import { runMenuAction } from "./state/menuActions";
-import { useApp } from "./state/store";
+import { systemTheme, useApp } from "./state/store";
 
 export function App() {
   const started = useApp((s) => s.started);
@@ -53,6 +54,15 @@ export function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+  // Following the computer's setting: change along with it.
+  const themeChoice = useApp((s) => s.themeChoice);
+  useEffect(() => {
+    if (themeChoice !== "system" || typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia("(prefers-color-scheme: light)");
+    const follow = () => useApp.setState({ theme: systemTheme() });
+    query.addEventListener("change", follow);
+    return () => query.removeEventListener("change", follow);
+  }, [themeChoice]);
   // Coming back to PixelFlow: files may have come back or gone away meanwhile.
   useEffect(() => {
     const onFocus = () => void useApp.getState().checkFiles(true);
@@ -76,6 +86,7 @@ export function App() {
       <ConfirmDialog />
       <NameShowDialog />
       <OpeningStatus />
+      <TooltipLayer />
     </>
   );
 }

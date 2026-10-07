@@ -1,15 +1,8 @@
 import {
   AlertTriangle,
   Search,
-  AudioLines,
-  Cable,
   Command,
-  Film,
-  FlaskConical,
-  History,
-  LayoutGrid,
   Moon,
-  Network,
   Redo2,
   Save,
   Sparkles,
@@ -22,7 +15,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { errorMessage } from "../api/backend";
 import { fileName, plural, shownPath, thousands } from "../lib/format";
 import { useShallow } from "zustand/react/shallow";
-import { type Screen, useApp } from "../state/store";
+import { useApp } from "../state/store";
 import { DevicesScreen } from "../screens/DevicesScreen";
 import { HistoryScreen } from "../screens/HistoryScreen";
 import { LayoutScreen } from "../screens/LayoutScreen";
@@ -33,25 +26,35 @@ import { TestScreen } from "../screens/TestScreen";
 import { WiringScreen } from "../screens/WiringScreen";
 import { MissingFileNotice, MissingFilesBanner } from "./MissingFiles";
 import { ShowMenu } from "./ShowMenu";
+import { Sidebar } from "./Sidebar";
+import { useWindowBand } from "../lib/useWidth";
 import { Button, UnsavedBadge } from "./ui";
-import { saveFocused } from "../state/menuActions";
+import { redoTarget, saveFocused, undoFocused } from "../state/menuActions";
+import { nextLabels, useUndoLabels } from "../state/undoLabels";
 
-const NAV: { screen: Screen; label: string; icon: ReactNode }[] = [
-  { screen: "layout", label: "Layout", icon: <LayoutGrid size={18} /> },
-  { screen: "wiring", label: "Wiring", icon: <Cable size={18} /> },
-  { screen: "devices", label: "Devices", icon: <Network size={18} /> },
-  { screen: "sequence", label: "Sequence", icon: <AudioLines size={18} /> },
-  { screen: "play", label: "Play", icon: <Film size={18} /> },
-  { screen: "test", label: "Test", icon: <FlaskConical size={18} /> },
-  { screen: "history", label: "History", icon: <History size={18} /> },
-];
-
-function IconButton({ label, onClick, disabled, dim, children }: { label: string; onClick: () => void; disabled?: boolean; dim?: boolean; children: ReactNode }) {
+function IconButton({
+  label,
+  hint,
+  shortcut,
+  onClick,
+  disabled,
+  dim,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  shortcut?: string;
+  onClick: () => void;
+  disabled?: boolean;
+  dim?: boolean;
+  children: ReactNode;
+}) {
   return (
     <button
       type="button"
       aria-label={label}
-      title={label}
+      data-tip={hint ?? label}
+      data-tip-key={shortcut}
       onClick={onClick}
       disabled={disabled}
       className={`rounded-md p-2 text-neutral-600 hover:bg-neutral-200/70 disabled:opacity-30 disabled:hover:bg-transparent dark:text-neutral-300 dark:hover:bg-neutral-800 ${dim ? "opacity-40 hover:opacity-100" : ""}`}
@@ -61,26 +64,37 @@ function IconButton({ label, onClick, disabled, dim, children }: { label: string
   );
 }
 
-/** On the Sequence screen, undo and redo act on the open sequence; elsewhere on the show.
- * (Only what the buttons need is watched, so playback doesn't redraw the top bar.) */
-function useUndoTarget() {
+/**
+ * The Undo (or Redo) button: what it acts on (see `undoTarget`), whether it can, and what it would
+ * take back, for its tooltip ("Undo: Move Mega Tree"). Only what the button needs is watched, so
+ * playback doesn't redraw the top bar.
+ */
+function useUndoButton(redo: boolean) {
   const onSequence = useApp((s) => s.screen === "sequence");
   const hasSequence = useSequencer((s) => s.doc !== null);
-  const seq = useSequencer(useShallow((s) => ({ canUndo: s.canUndo, canRedo: s.canRedo })));
-  const show = useApp(useShallow((s) => ({ canUndo: s.snapshot?.canUndo ?? false, canRedo: s.snapshot?.canRedo ?? false })));
-  if (onSequence && hasSequence) {
-    const { undo, redo } = useSequencer.getState();
-    return { sequence: true, undo, redo, ...seq };
-  }
-  const { undo, redo } = useApp.getState();
-  return { sequence: false, undo, redo, ...show };
+  const seq = useSequencer(useShallow((s) => ({ can: redo ? s.canRedo : s.canUndo, revision: s.revision })));
+  const show = useApp(useShallow((s) => ({ can: (redo ? s.snapshot?.canRedo : s.snapshot?.canUndo) ?? false, revision: s.snapshot?.revision })));
+  const names = useUndoLabels();
+  const both = onSequence && hasSequence;
+  // On the Sequence screen Undo works on the sequence only; Redo follows what was undone there.
+  const target = !both ? "show" : redo ? redoTarget() : "sequence";
+  const verb = redo ? "Redo" : "Undo";
+  const label = both ? `${verb} (${target})` : verb;
+  const name = target === "sequence" ? nextLabels(names.sequence, seq.revision) : nextLabels(names.show, show.revision);
+  const what = redo ? name.redo : name.undo;
+  const can = target === "sequence" ? seq.can : show.can;
+  return { label, hint: what && can ? `${label}: ${what}` : label, can };
 }
 
 function TopBar() {
   const snapshot = useApp((s) => s.snapshot);
   const theme = useApp((s) => s.theme);
   const { setPaletteOpen, setTheme, closeShow } = useApp.getState();
-  const target = useUndoTarget();
+  const undo = useUndoButton(false);
+  const redo = useUndoButton(true);
+  const onSequence = useApp((s) => s.screen === "sequence");
+  const hasSequence = useSequencer((s) => s.doc !== null);
+  const target = { sequence: onSequence && hasSequence };
   const sequenceName = useSequencer((s) => s.doc?.name ?? null);
   const sequenceDirty = useSequencer((s) => s.dirty);
   const sequencePath = useSequencer((s) => s.path);
@@ -111,10 +125,10 @@ function TopBar() {
         </>
       )}
       <div className="ml-auto flex items-center gap-1">
-        <IconButton label={target.sequence ? "Undo (sequence)" : "Undo"} onClick={target.undo} disabled={!target.canUndo}>
+        <IconButton label={undo.label} hint={undo.hint} shortcut="⌘Z" onClick={() => void undoFocused(false)} disabled={!undo.can}>
           <Undo2 size={18} />
         </IconButton>
-        <IconButton label={target.sequence ? "Redo (sequence)" : "Redo"} onClick={target.redo} disabled={!target.canRedo}>
+        <IconButton label={redo.label} hint={redo.hint} shortcut="⇧⌘Z" onClick={() => void undoFocused(true)} disabled={!redo.can}>
           <Redo2 size={18} />
         </IconButton>
         {/* The same save as ⌘S and File → Save; quiet when there's nothing to save. */}
@@ -138,35 +152,6 @@ function TopBar() {
         </button>
       </div>
     </header>
-  );
-}
-
-function Sidebar() {
-  const screen = useApp((s) => s.screen);
-  const setScreen = useApp((s) => s.setScreen);
-  const toRecover = useSequencer((s) => s.recoveries.length > 0);
-  return (
-    <nav aria-label="Screens" className="flex w-44 shrink-0 flex-col gap-1 border-r border-neutral-200 p-2 dark:border-neutral-800">
-      {NAV.map((item) => (
-        <button
-          key={item.screen}
-          type="button"
-          aria-current={screen === item.screen ? "page" : undefined}
-          onClick={() => setScreen(item.screen)}
-          className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm ${
-            screen === item.screen
-              ? "bg-accent-50 font-medium text-accent-600 dark:bg-accent-600/15 dark:text-accent-400"
-              : "text-neutral-600 hover:bg-neutral-200/70 dark:text-neutral-300 dark:hover:bg-neutral-800"
-          }`}
-        >
-          {item.icon}
-          {item.label}
-          {item.screen === "sequence" && toRecover && (
-            <span className="ml-auto h-2 w-2 rounded-full bg-amber-500" title="Unsaved work to recover" aria-hidden />
-          )}
-        </button>
-      ))}
-    </nav>
   );
 }
 
@@ -219,6 +204,12 @@ function LiveOutput() {
   );
 }
 
+/** "No problems", "3 warnings", "1 error", or "1 error, 2 warnings": only what there is. */
+export function problemCount(errors: number, warnings: number): string {
+  if (errors === 0 && warnings === 0) return "No problems";
+  return [errors ? plural(errors, "error") : "", warnings ? plural(warnings, "warning") : ""].filter(Boolean).join(", ");
+}
+
 function StatusBar() {
   const snapshot = useApp((s) => s.snapshot);
   const findMissingFiles = useApp((s) => s.findMissingFiles);
@@ -256,12 +247,13 @@ function StatusBar() {
         type="button"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
-        className={`ml-auto flex items-center gap-1 rounded px-2 py-0.5 ${
+        data-tip={issueCount === 0 ? "Nothing in the show needs fixing" : "Show what needs fixing"}
+        className={`ml-auto flex h-7 items-center gap-1 rounded px-2 hover:bg-neutral-200/70 dark:hover:bg-neutral-800 ${
           errors ? "text-red-600 dark:text-red-400" : warnings ? "text-amber-600 dark:text-amber-400" : ""
         }`}
       >
-        <AlertTriangle size={12} />
-        {issueCount === 0 ? "No problems" : `${plural(errors, "error")}, ${plural(warnings, "warning")}`}
+        <AlertTriangle size={12} aria-hidden />
+        {problemCount(errors, warnings)}
       </button>
       {open && issueCount > 0 && (
         <div
@@ -330,6 +322,7 @@ function AssistantButton() {
   return (
     <button
       type="button"
+      data-assistant-button
       aria-pressed={open}
       onClick={toggle}
       title="Assistant (⌘L)"
@@ -344,19 +337,25 @@ function AssistantButton() {
   );
 }
 
+const WORK_SCREENS = new Set(["layout", "wiring", "play"]);
+
 export function AppShell() {
   const screen = useApp((s) => s.screen);
   const assistantOpen = useAssistant((s) => s.open);
+  // In a narrow window the assistant floats over the screen rather than squeezing it; on a laptop
+  // it takes a narrower column (and the sidebar folds to icons).
+  const band = useWindowBand();
   return (
     <div className="flex h-full flex-col">
       <TopBar />
       <MissingFilesBanner />
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1">
         <Sidebar />
-        <main className={`min-w-0 flex-1 ${screen === "sequence" ? "overflow-hidden" : "overflow-auto p-6"}`}>
+        {/* Work screens give the room to their canvas or list; overview screens get more air. */}
+        <main className={`min-w-0 flex-1 ${screen === "sequence" ? "overflow-hidden" : WORK_SCREENS.has(screen) ? "overflow-auto p-4" : "overflow-auto p-6"}`}>
           <CurrentScreen />
         </main>
-        {assistantOpen && <AssistantPanel />}
+        {assistantOpen && <AssistantPanel overlay={band === "narrow"} compact={band !== "wide"} />}
       </div>
       <StatusBar />
     </div>

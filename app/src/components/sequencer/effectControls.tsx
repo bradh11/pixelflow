@@ -1,5 +1,5 @@
 import { Plus, X } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useId, useRef, useState } from "react";
 import type { Blend, Effect, EffectSetting, Sequence, SequenceTarget, TimingTrack } from "../../api/sequence";
 import type { Show } from "../../api/types";
 import { memberProp } from "../../lib/shows";
@@ -43,9 +43,25 @@ export function faceNames(show: Show | undefined, target: SequenceTarget): strin
   return [...new Set(names)];
 }
 
+/**
+ * Where the settings sit: a column of their own beside the timeline ("docked"), over the
+ * timeline's right edge in a narrow window ("floating"), or under the preview in its column
+ * ("stacked").
+ */
+export type SettingsPlacement = "docked" | "floating" | "stacked";
+export const SettingsPlacementContext = createContext<SettingsPlacement>("docked");
+
 export function Panel({ children }: { children: React.ReactNode }) {
+  const placement = useContext(SettingsPlacementContext);
+  const floating = placement === "floating";
   return (
-    <aside aria-label="Effect settings" className="w-72 shrink-0 overflow-auto border-l border-neutral-200 p-3 dark:border-neutral-800">
+    <aside
+      aria-label="Effect settings"
+      data-floating={floating || undefined}
+      className={`overflow-auto border-neutral-200 p-3 dark:border-neutral-800 ${
+        placement === "stacked" ? "min-h-0 w-full flex-1 border-t" : "w-72 shrink-0 border-l"
+      } ${floating ? "absolute inset-y-0 right-0 z-20 bg-white shadow-2xl dark:bg-neutral-950" : ""}`}
+    >
       {children}
     </aside>
   );
@@ -415,6 +431,7 @@ export function ColorList({
               <button
                 type="button"
                 aria-label={`Remove color ${i + 1}`}
+                data-tip={`Remove color ${i + 1}`}
                 className="absolute -top-1.5 -right-1.5 hidden rounded-full bg-neutral-700 p-0.5 text-white group-focus-within:block group-hover:block"
                 onClick={() => void onChange((cs) => (cs.length > 1 ? cs.filter((_, k) => k !== i) : cs))}
               >

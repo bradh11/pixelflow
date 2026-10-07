@@ -474,7 +474,34 @@ function ManyPropsPanel({ ids, preview }: { ids: string[]; preview: PreviewProp[
 
 const PHOTO: FileRole = { kind: "photo" };
 
+/**
+ * The background photo's settings (and in 3D, its depth and the house model): in the tool bar's
+ * Photo menu, and in the properties panel when it's kept open with nothing selected.
+ */
+export function PhotoControls({
+  preview,
+  problem,
+  onRetry,
+  onChoosePhoto,
+}: {
+  preview: PreviewProp[];
+  problem: string | null;
+  onRetry: () => void;
+  onChoosePhoto: () => void;
+}) {
+  const in3d = useView3d((s) => s.mode === "3d");
+  const hasPhoto = useApp((s) => Boolean(s.snapshot?.show.background));
+  return (
+    <div>
+      <PhotoPanel problem={problem} onRetry={onRetry} onChoosePhoto={onChoosePhoto} />
+      {in3d && hasPhoto && <PhotoDepth />}
+      {in3d && <HouseModelPanel preview={preview} />}
+    </div>
+  );
+}
+
 function PhotoPanel({ problem, onRetry, onChoosePhoto }: { problem: string | null; onRetry: () => void; onChoosePhoto: () => void }) {
+  const in3d = useView3d((s) => s.mode === "3d");
   const apply = useApp((s) => s.apply);
   const background = useApp((s) => s.snapshot!.show.background ?? null);
   const missing = useMissingFile(PHOTO);
@@ -539,7 +566,12 @@ function PhotoPanel({ problem, onRetry, onChoosePhoto }: { problem: string | nul
         />
       </label>
       <div className="mt-3 flex flex-wrap gap-2">
-        <Button aria-pressed={editPhoto} onClick={() => setEditPhoto(!editPhoto)}>
+        <Button
+          aria-pressed={editPhoto}
+          aria-disabled={in3d || undefined}
+          title={in3d ? "Move the photo in the 2D view — switch with V" : "Drag the photo to move it, or its corners to resize it"}
+          onClick={in3d ? undefined : () => setEditPhoto(!editPhoto)}
+        >
           {editPhoto ? "Done moving photo" : "Move or resize photo"}
         </Button>
         <Button onClick={onChoosePhoto}>Replace…</Button>
@@ -572,7 +604,7 @@ function PhotoDepth() {
   );
 }
 
-const TIPS_2D = [
+export const TIPS_2D = [
   "Pick a tool above and drag on the canvas to draw a prop.",
   "Click a prop to select it; shift-click or Shift-drag a box to select more.",
   "Drag corners to resize, the round handle to turn. Hold Shift for free stretching or 15° steps.",
@@ -580,7 +612,7 @@ const TIPS_2D = [
   "Drag empty space or scroll to move around; pinch or hold ⌘ and scroll to zoom.",
 ];
 
-const TIPS_3D = [
+export const TIPS_3D = [
   "Drag to orbit, right-drag or Space-drag to pan, scroll or pinch to zoom. Double-click a prop to zoom to it.",
   "1–5 pick the Front, Top, Left, Right, and Street views; F fits everything in.",
   "Click a prop to select it; shift-click or Shift-drag a box to select more.",
@@ -603,7 +635,6 @@ export function PropertiesPanel({
 }) {
   const show = useApp((s) => s.snapshot?.show);
   const selected = useLayoutEditor((s) => s.selected);
-  const in3d = useView3d((s) => s.mode === "3d");
   if (!show) return null;
   const ids = selected.filter((id) => show.props.some((p) => p.id === id));
   return (
@@ -614,16 +645,8 @@ export function PropertiesPanel({
         <ManyPropsPanel ids={ids} preview={preview} />
       ) : (
         <div>
-          <PhotoPanel problem={photoProblem} onRetry={onRetryPhoto} onChoosePhoto={onChoosePhoto} />
-          {in3d && show.background && <PhotoDepth />}
-          {in3d && <HouseModelPanel preview={preview} />}
-          <Section title="Tips">
-            <ul className="list-disc space-y-1 pl-4 text-sm text-neutral-600 dark:text-neutral-400">
-              {(in3d ? TIPS_3D : TIPS_2D).map((tip) => (
-                <li key={tip}>{tip}</li>
-              ))}
-            </ul>
-          </Section>
+          <p className="mb-3 pr-6 text-sm text-neutral-500">Nothing selected. Click a prop to see its properties here.</p>
+          <PhotoControls preview={preview} problem={photoProblem} onRetry={onRetryPhoto} onChoosePhoto={onChoosePhoto} />
         </div>
       )}
     </aside>

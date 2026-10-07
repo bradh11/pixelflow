@@ -1,5 +1,6 @@
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { create } from "zustand";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { useApp } from "../../state/store";
 import { GroupsPanel } from "./GroupsPanel";
@@ -12,6 +13,12 @@ export const MAX_WIDTH = 520;
 const STEP = 16;
 
 const clampWidth = (w: number) => Math.round(Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, w)));
+
+/** The list's width (remembered), for the panel and for the screen arranging round it. */
+export const useListWidth = create<{ width: number; setWidth(width: number): void }>((set) => ({
+  width: storedWidth(),
+  setWidth: (width) => set({ width }),
+}));
 
 function storedWidth(): number {
   try {
@@ -30,30 +37,74 @@ function saveWidth(width: number) {
   }
 }
 
-/** The props list and groups beside the canvas: resizable from its edge, and folds away. */
-export function SidePanel() {
-  const { open, tab } = useLayoutEditor((s) => s.sidePanel);
+/**
+ * The props list and groups beside the canvas: resizable from its edge, and folds away.
+ *
+ * `floating` (a narrow window): it starts put away beside the canvas and, when asked for, shows
+ * over the canvas instead of taking room from it. Putting it away then isn't remembered, so it
+ * still opens docked in a wider window.
+ */
+export function SidePanel({ floating = false }: { floating?: boolean }) {
+  const { open, tab, group } = useLayoutEditor((s) => s.sidePanel);
   const setSidePanel = useLayoutEditor((s) => s.setSidePanel);
   const props = useApp((s) => s.snapshot?.show.props.length ?? 0);
   const groups = useApp((s) => s.snapshot?.show.groups.length ?? 0);
-  const [width, setWidth] = useState(storedWidth);
+  const width = useListWidth((s) => s.width);
+  const setWidth = useListWidth((s) => s.setWidth);
   const resizing = useRef<{ startX: number; from: number } | null>(null);
+  const [floatShown, setFloatShown] = useState(false);
+  const railButton = useRef<HTMLButtonElement>(null);
+  const floatBox = useRef<HTMLDivElement>(null);
+  // Going floating puts the list away; something opening a group (Cmd-G) brings it out.
+  useEffect(() => setFloatShown(false), [floating]);
+  const opened = useRef({ tab, group });
+  useEffect(() => {
+    const before = opened.current;
+    opened.current = { tab, group };
+    if (open && group !== null && (before.tab !== tab || before.group !== group)) setFloatShown(true);
+  }, [open, tab, group]);
+  // Floating, Escape or a click outside puts it away (Escape gives the focus back to its button).
+  useEffect(() => {
+    if (!floating || !floatShown) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      setFloatShown(false);
+      railButton.current?.focus();
+    };
+    const onDown = (e: PointerEvent) => {
+      if (!floatBox.current?.contains(e.target as Node)) setFloatShown(false);
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onDown);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerdown", onDown);
+    };
+  }, [floating, floatShown]);
 
-  if (!open) {
-    return (
-      <div className="flex w-9 shrink-0 flex-col items-center rounded-lg border border-neutral-200 bg-white py-1 dark:border-neutral-800 dark:bg-neutral-900">
-        <button
-          type="button"
-          aria-label="Show the props and groups list"
-          title="Show the props and groups list"
-          className="rounded p-1.5 text-neutral-600 hover:bg-neutral-200/70 dark:text-neutral-300 dark:hover:bg-neutral-800"
-          onClick={() => setSidePanel({ open: true })}
-        >
-          <PanelLeftOpen size={16} aria-hidden />
-        </button>
-      </div>
-    );
-  }
+  const shown = floating ? floatShown : open;
+  const rail = (
+    <div className="flex w-9 shrink-0 flex-col items-center rounded-lg border border-neutral-200 bg-white py-1 dark:border-neutral-800 dark:bg-neutral-900">
+      <button
+        ref={railButton}
+        type="button"
+        aria-label="Show the props and groups list"
+        title="Show the props and groups list"
+        aria-expanded={floating ? floatShown : undefined}
+        className="rounded p-1.5 text-neutral-600 hover:bg-neutral-200/70 dark:text-neutral-300 dark:hover:bg-neutral-800"
+        onClick={() => {
+          if (floating) {
+            setFloatShown(!floatShown);
+            if (!open) setSidePanel({ open: true });
+          } else setSidePanel({ open: true });
+        }}
+      >
+        <PanelLeftOpen size={16} aria-hidden />
+      </button>
+    </div>
+  );
+  // Floating, the rail keeps its place in the tree (so its button keeps the focus) as the list comes and goes.
+  if (!shown) return floating ? <div ref={floatBox} className="relative flex shrink-0">{rail}</div> : rail;
 
   const tabClass = (on: boolean) =>
     `flex-1 rounded-md px-2 py-1 text-sm ${on ? "bg-accent-50 font-medium text-accent-700 dark:bg-accent-600/15 dark:text-accent-300" : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"}`;
@@ -62,30 +113,55 @@ export function SidePanel() {
     setWidth(w);
     return w;
   };
-  return (
+  const panel = (
     <aside
       aria-label="Props and groups"
+      data-floating={floating}
       style={{ width }}
-      className="relative flex shrink-0 flex-col overflow-hidden rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900"
+      className={`flex shrink-0 flex-col overflow-hidden rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900 ${
+        floating ? "absolute inset-y-0 left-0 z-20 shadow-2xl" : "relative"
+      }`}
     >
-      <div role="tablist" aria-label="Props or groups" className="flex items-center gap-1 border-b border-neutral-200 p-1 dark:border-neutral-800">
-        <button type="button" role="tab" aria-selected={tab === "props"} className={tabClass(tab === "props")} onClick={() => setSidePanel({ tab: "props" })}>
-          Props <span className="text-xs text-neutral-500 tabular-nums">{props}</span>
-        </button>
-        <button type="button" role="tab" aria-selected={tab === "groups"} className={tabClass(tab === "groups")} onClick={() => setSidePanel({ tab: "groups" })}>
-          Groups <span className="text-xs text-neutral-500 tabular-nums">{groups}</span>
-        </button>
+      <div
+        role="tablist"
+        aria-label="Props or groups"
+        className="flex items-center gap-1 border-b border-neutral-200 p-1 dark:border-neutral-800"
+        onKeyDown={(e) => {
+          // Arrows (and Home, End) move between the tabs, as tabs do.
+          const next = { ArrowLeft: "props", ArrowRight: "groups", Home: "props", End: "groups" }[e.key] as "props" | "groups" | undefined;
+          if (!next) return;
+          e.preventDefault();
+          e.stopPropagation();
+          setSidePanel({ tab: next });
+          document.getElementById(`side-tab-${next}`)?.focus();
+        }}
+      >
+        {(["props", "groups"] as const).map((t) => (
+          <button
+            key={t}
+            id={`side-tab-${t}`}
+            type="button"
+            role="tab"
+            aria-selected={tab === t}
+            aria-controls="side-tabpanel"
+            tabIndex={tab === t ? 0 : -1}
+            className={tabClass(tab === t)}
+            onClick={() => setSidePanel({ tab: t })}
+          >
+            {t === "props" ? "Props" : "Groups"} <span className="text-xs text-neutral-500 tabular-nums">{t === "props" ? props : groups}</span>
+          </button>
+        ))}
         <button
           type="button"
           aria-label="Fold the list away"
           title="Fold the list away"
           className="rounded p-1.5 text-neutral-500 hover:bg-neutral-200/70 dark:hover:bg-neutral-800"
-          onClick={() => setSidePanel({ open: false })}
+          onClick={() => (floating ? setFloatShown(false) : setSidePanel({ open: false }))}
         >
           <PanelLeftClose size={15} aria-hidden />
         </button>
       </div>
-      <div role="tabpanel" aria-label={tab === "props" ? "Props" : "Groups"} className="flex min-h-0 flex-1 flex-col">
+      <div id="side-tabpanel" role="tabpanel" aria-labelledby={`side-tab-${tab}`} className="flex min-h-0 flex-1 flex-col">
         {tab === "props" ? <PropsList /> : <GroupsPanel />}
       </div>
       <div
@@ -127,5 +203,12 @@ export function SidePanel() {
         }}
       />
     </aside>
+  );
+  if (!floating) return panel;
+  return (
+    <div ref={floatBox} className="relative flex shrink-0">
+      {rail}
+      {panel}
+    </div>
   );
 }

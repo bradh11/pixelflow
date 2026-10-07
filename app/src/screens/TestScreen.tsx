@@ -4,6 +4,7 @@ import { errorMessage } from "../api/backend";
 import type { OutputStatus, PatternKind, TargetSpec } from "../api/types";
 import { Button, Card, EmptyState, Field, Input, PageHeader, Select } from "../components/ui";
 import { thousands } from "../lib/format";
+import { currentSetupKey, useSetup } from "../state/setup";
 import { useApp } from "../state/store";
 
 const PATTERNS: { kind: PatternKind; label: string; usesColor: boolean }[] = [
@@ -105,6 +106,7 @@ export function TestScreen() {
     try {
       setStatus(await backend.startOutput({ kind: next.kind ?? kind, color: (next.color ?? color).replace("#", "") }, target));
       setError(null);
+      useSetup.getState().markTested(currentSetupKey());
       setRemoved(false);
     } catch (e) {
       setError(errorMessage(e));
@@ -148,9 +150,12 @@ export function TestScreen() {
       {show.controllers.length === 0 ? (
         <EmptyState title="No controllers to test">
           <p>Add a controller and wire props to it first.</p>
-          <Button variant="primary" className="mt-3" onClick={() => useApp.getState().setScreen("wiring")}>
-            Go to Wiring
-          </Button>
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+            <Button variant="primary" onClick={() => useApp.getState().setScreen("devices")}>
+              Find controllers
+            </Button>
+            <Button onClick={() => useApp.getState().setScreen("wiring")}>Go to Wiring</Button>
+          </div>
         </EmptyState>
       ) : (
         <>

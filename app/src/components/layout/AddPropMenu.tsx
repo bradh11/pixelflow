@@ -26,10 +26,12 @@ export function AddPropMenu({ preview }: { preview: PreviewProp[] }) {
         setOpen(false);
         trigger.current?.focus();
       }
-      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      // The kinds are a grid two wide: left and right move along a row, up and down a column.
+      const step = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 2, ArrowUp: -2 }[e.key];
+      if (step !== undefined) {
         const items = [...(box.current?.querySelectorAll<HTMLButtonElement>("[role=menuitem]") ?? [])];
         const at = items.indexOf(document.activeElement as HTMLButtonElement);
-        items[(at + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
+        items[(at + step + items.length) % items.length]?.focus();
         e.preventDefault();
         e.stopPropagation();
       }

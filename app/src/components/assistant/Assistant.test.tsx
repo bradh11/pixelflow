@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { App } from "../../App";
@@ -8,7 +8,7 @@ import { FakeAssistant } from "../../api/memoryAssistant";
 import { useAssistant } from "../../state/assistant";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { useApp } from "../../state/store";
-import type { Change, ProposalView } from "../../api/assistant";
+import { type Change, type ProposalView, modelLabel } from "../../api/assistant";
 import { highlightFrame } from "./DraftPreview";
 import { ProposalCard } from "./ProposalCard";
 
@@ -34,11 +34,85 @@ async function openPanel(user: ReturnType<typeof userEvent.setup>) {
   return screen.getByRole("complementary", { name: "Assistant" });
 }
 
+describe("model names", () => {
+  it("are short and readable", () => {
+    expect(modelLabel("claude-opus-5-5")).toBe("Claude Opus 5.5");
+    expect(modelLabel("claude-sonnet-4-5-20250929")).toBe("Claude Sonnet 4.5");
+    expect(modelLabel("claude-haiku-4")).toBe("Claude Haiku 4");
+    expect(modelLabel("gpt-5")).toBe("GPT-5");
+    expect(modelLabel("gpt-4.1-mini")).toBe("GPT-4.1 mini");
+    expect(modelLabel("my-local-model")).toBe("my-local-model");
+  });
+});
+
+describe("the assistant in a narrow window", () => {
+  const resize = (width: number) =>
+    act(() => {
+      window.innerWidth = width;
+      window.dispatchEvent(new Event("resize"));
+    });
+  const panel = () => screen.getByRole("complementary", { name: "Assistant" });
+  const sidebarRail = () => screen.getByRole("navigation", { name: "Screens" }).dataset.collapsed === "true";
+
+  it("on a laptop (1200–1439 px) takes a narrower column, and the sidebar folds to icons while it's open", async () => {
+    window.innerWidth = 1360;
+    const { user } = await start();
+    expect(sidebarRail()).toBe(false);
+    await openPanel(user);
+    expect(panel()).toHaveAttribute("data-overlay", "false");
+    expect(panel()).toHaveAttribute("data-width", "compact");
+    expect(sidebarRail()).toBe(true);
+    await user.click(within(panel()).getByRole("button", { name: "Close assistant" }));
+    expect(sidebarRail()).toBe(false);
+  });
+
+  it("floats over the screen only below 1200 px, and takes a full column from 1440", async () => {
+    window.innerWidth = 1100;
+    const { user } = await start();
+    await openPanel(user);
+    expect(panel()).toHaveAttribute("data-overlay", "true");
+    resize(1600);
+    expect(panel()).toHaveAttribute("data-overlay", "false");
+    expect(panel()).toHaveAttribute("data-width", "full");
+  });
+
+  it("floating, Escape puts it away and gives the focus back to the Assistant button", async () => {
+    window.innerWidth = 1024;
+    const { user } = await start();
+    await openPanel(user);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("complementary", { name: "Assistant" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Assistant/ })).toHaveFocus();
+  });
+
+  it("floating, Escape keeps a typed message: the first only leaves the box, and the text survives closing", async () => {
+    window.innerWidth = 1024;
+    const { user } = await start();
+    await openPanel(user);
+    const box = () => screen.getByRole("textbox", { name: "Message the assistant" });
+    await user.type(box(), "Add arches");
+    await user.keyboard("{Escape}");
+    expect(panel()).toBeInTheDocument();
+    expect(box()).not.toHaveFocus();
+    expect(box()).toHaveValue("Add arches");
+    // Mid-composition (an input method), Escape is the input method's.
+    box().focus();
+    fireEvent.keyDown(box(), { key: "Escape", isComposing: true });
+    expect(panel()).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("complementary", { name: "Assistant" })).not.toBeInTheDocument();
+    await openPanel(user);
+    expect(box()).toHaveValue("Add arches");
+  });
+});
+
 describe("opening the assistant", () => {
   it("opens from the top bar, with ⌘L, and from the command palette", async () => {
     const { user } = await start();
     const panel = await openPanel(user);
-    expect(within(panel).getByText("Anthropic · claude-opus-5-5")).toBeInTheDocument();
+    // The model by a short name; the provider and its full id on hover.
+    expect(within(panel).getByText("Claude Opus 5.5")).toHaveAttribute("title", "Anthropic · claude-opus-5-5: change the provider or model");
     await user.click(within(panel).getByRole("button", { name: "Close assistant" }));
     expect(screen.queryByRole("complementary", { name: "Assistant" })).not.toBeInTheDocument();
 

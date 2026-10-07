@@ -59,7 +59,7 @@ export function SlotSettings({ selected, data }: { selected: SlotRef; data: Wiri
             {controller.name} · Port {port.number} · {ordinal(selected.index + 1)} on the port
           </p>
         </div>
-        <button type="button" aria-label="Close settings" onClick={close} className="rounded p-1 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800">
+        <button type="button" aria-label="Close settings" data-tip="Close settings" onClick={close} className="rounded p-1 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800">
           <X size={14} />
         </button>
       </div>

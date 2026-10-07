@@ -688,11 +688,15 @@ export interface SendPlan {
   controllerName: string;
   changes: Change[];
   notes: string[];
+  /** Why this can't be sent as it is (the controller wouldn't load it, for instance). */
+  problems: string[];
   /** What the device is busy with that sending would interrupt. */
   busy: string | null;
   canSend: boolean;
   /** Why it can't be sent, when it can't. */
   reason: string | null;
+  /** The copy of its setup kept from before an earlier send, which Put back sends. */
+  restorePoint: { deviceName: string; takenAtMs: number } | null;
 }
 
 export type SendStatus = "sent" | "mismatch" | "failed" | "refused";

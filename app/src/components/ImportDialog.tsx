@@ -143,6 +143,7 @@ export function ImportDialog({
                                 show={show}
                                 label={`Prop for port ${port.number} ${s.name ?? `string ${i + 1}`}`}
                                 pixels={s.pixels}
+                                order={s.colorOrder}
                                 value={useProps[`port${port.number}/string${i + 1}`] ?? ""}
                                 onChange={(id) => setUseProps((now) => ({ ...now, [`port${port.number}/string${i + 1}`]: id }))}
                               />

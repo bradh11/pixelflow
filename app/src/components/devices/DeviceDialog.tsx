@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useRef } from "react";
-import type { Prop, Show } from "../../api/types";
+import type { ColorOrder, Prop, Show } from "../../api/types";
+import { doubleReorder, mappingProblem } from "../../lib/deviceSetup";
 import { thousands } from "../../lib/format";
 import { nodeCount } from "../../lib/shows";
 import { Select } from "../ui";
@@ -76,10 +77,27 @@ function wiredAt(show: Show, prop: Prop): string | null {
  * Picks what a device string becomes in the show: a new starter prop (the default), or a prop
  * already in the show (one imported from xLights, say).
  */
-export function PropPicker({ show, label, pixels, value, onChange }: { show: Show; label: string; pixels: number; value: string; onChange: (id: string) => void }) {
+export function PropPicker({
+  show,
+  label,
+  pixels,
+  order,
+  value,
+  onChange,
+}: {
+  show: Show;
+  label: string;
+  pixels: number;
+  /** The color order the controller applies to the string, when known. */
+  order: ColorOrder | null;
+  value: string;
+  onChange: (id: string) => void;
+}) {
   const props = [...show.props].sort((a, b) => a.name.localeCompare(b.name));
   const chosen = props.find((p) => p.id === value);
   const size = chosen ? nodeCount(chosen.shape) : null;
+  const problem = chosen && order ? mappingProblem(chosen, order) : null;
+  const twice = chosen && order && !problem ? doubleReorder(chosen, order) : null;
   return (
     <span className="mt-1 flex flex-wrap items-center gap-2 text-xs">
       <Select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} className="max-w-72 py-0.5 text-xs">
@@ -93,11 +111,17 @@ export function PropPicker({ show, label, pixels, value, onChange }: { show: Sho
           );
         })}
       </Select>
-      {chosen && size !== pixels && (
+      {chosen && size !== pixels && !problem && (
         <span className="text-amber-700 dark:text-amber-400">
           {chosen.name} has {thousands(size ?? 0)} pixels; this string has {thousands(pixels)}.
         </span>
       )}
+      {problem && (
+        <span role="alert" className="text-red-700 dark:text-red-400">
+          {chosen!.name} can't be wired here: {problem}
+        </span>
+      )}
+      {twice && <span className="text-amber-700 dark:text-amber-400">{twice}</span>}
     </span>
   );
 }

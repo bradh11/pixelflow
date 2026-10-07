@@ -1,7 +1,7 @@
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { errorMessage } from "../../api/backend";
-import type { DeviceComparison, UseProps } from "../../api/types";
+import type { ColorOrder, DeviceComparison, UseProps } from "../../api/types";
 import { plural } from "../../lib/format";
 import { useApp } from "../../state/store";
 import { toast } from "../../state/toast";
@@ -11,6 +11,9 @@ import { SetupChanges } from "./SetupChanges";
 
 /** The pixel count at the start of a row's value ("30 pixels, BGR" → 30). */
 const pixelsOf = (text: string) => Number.parseInt(text.replace(/,/g, ""), 10) || 0;
+
+/** The color order at the end of a new string's value ("30 pixels, BGR" → "BGR"). */
+const orderOf = (text: string) => (text.match(/, (RGBW|GRBW|RGB|RBG|GRB|GBR|BRG|BGR)$/)?.[1] as ColorOrder | undefined) ?? null;
 
 /**
  * "Compare with this device": reads the controller and lists where it differs from the show.
@@ -114,6 +117,7 @@ export function CompareDialog({ address, onClose }: { address: string; onClose: 
                   show={show}
                   label={`Prop for ${change.subject} on port ${change.port}`}
                   pixels={pixelsOf(change.after)}
+                  order={orderOf(change.after)}
                   value={useProps[change.id] ?? ""}
                   onChange={(id) => setUseProps((now) => ({ ...now, [change.id]: id }))}
                 />

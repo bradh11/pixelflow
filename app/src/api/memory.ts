@@ -4,6 +4,7 @@ import type {
   DeviceComparison,
   DeviceConfig,
   DeviceDetails,
+  DeviceKind,
   RestoreReport,
   SendPlan,
   SendReport,
@@ -45,7 +46,7 @@ import type {
 import { deepView, frontView } from "../lib/geometry";
 import { mapControllers } from "./memoryMapping";
 import { channelsPerPixel, memberProp, newController, nodeCount } from "../lib/shows";
-import { fileName } from "../lib/format";
+import { fileName, thousands } from "../lib/format";
 import { fppFileName } from "../lib/fppNames";
 import { filesOf, missingFile, repointEdits, sameFile } from "../lib/showFiles";
 import { sampleShow } from "./sampleShow";
@@ -564,8 +565,13 @@ export class MemoryBackend implements Backend {
 
   /** How the next send of a setup goes wrong, if it does (for tests and screenshots). */
   setupSendFailure: "fail" | "mismatch" | null = null;
+  /** Put back fails (the controller doesn't answer) while set. */
+  restoreFailure = false;
   private compared = new Map<string, DeviceConfig>();
-  private sends = new Map<string, { shown: string; target: Setup; ids: string[]; before: DeviceConfig; restore: DeviceConfig | null }>();
+  private sends = new Map<string, { shown: string; target: Setup; ids: string[]; kind: DeviceKind; deviceName: string }>();
+  /** The copy of each controller's setup from before its last send, kept until dismissed (like
+   * the engine's files in the app's data folder). */
+  setupCopies = new Map<string, { config: DeviceConfig; deviceName: string; takenAtMs: number }>();
 
   private controllerAt(address: string) {
     const here = this.show.controllers.filter((c) => c.address === address);
@@ -616,9 +622,11 @@ export class MemoryBackend implements Backend {
         controllerName: controller.name,
         changes: [],
         notes: [],
+        problems: [],
         busy: null,
         canSend: false,
         reason: "PixelFlow can't send a setup to Falcon controllers yet. Use Compare to bring the Falcon's setup into your show, or set it on the Falcon's own page.",
+        restorePoint: this.restorePoint(address),
       };
     }
     const target = showSetup(this.show, controller, oneStringPerPort(device.kind));
@@ -636,7 +644,16 @@ export class MemoryBackend implements Backend {
       target.ports.sort((a, b) => a.number - b.number);
     }
     const changes = diffPorts(current, target, "toDevice");
-    this.sends.set(address, { shown, target, ids: changes.map((c) => c.id), before: config, restore: null });
+    this.sends.set(address, { shown, target, ids: changes.map((c) => c.id), kind: device.kind, deviceName: device.name });
+    // Like the engine: fppd won't load a string over 1,600 pixels.
+    const problems =
+      device.kind === "fpp"
+        ? target.ports.flatMap((port) =>
+            port.strings
+              .filter((s) => s.pixels > 1600)
+              .map((s) => `Port ${port.number} string ${port.strings.indexOf(s) + 1} (${s.name}): an FPP string drives at most 1,600 pixels, and this one would have ${thousands(s.pixels)}. Split it across strings or ports.`),
+          )
+        : [];
     const player = this.fppPlayers[address]?.status;
     const busy =
       player && (player.state === "playing" || player.state === "paused")
@@ -648,28 +665,36 @@ export class MemoryBackend implements Backend {
       controllerName: controller.name,
       changes,
       notes: [...target.notes, ...notes],
+      problems,
       busy,
-      canSend: changes.length > 0,
-      reason: changes.length > 0 ? null : "The controller already matches your show.",
+      canSend: changes.length > 0 && problems.length === 0,
+      reason: problems.length > 0 ? "PixelFlow won't send this until the problems below are fixed." : changes.length > 0 ? null : "The controller already matches your show.",
+      restorePoint: this.restorePoint(address),
     };
   }
 
-  /** Like the engine's send_device_setup: keeps the device's setup first, then sends and checks. */
+  private restorePoint(address: string) {
+    const copy = this.setupCopies.get(address);
+    return copy ? { deviceName: copy.deviceName, takenAtMs: copy.takenAtMs } : null;
+  }
+
+  /** Like the engine's send_device_setup: keeps a copy of the device's setup first (until it's
+   * dismissed), then sends and checks. */
   async sendDeviceSetup(address: string, expected: string[]): Promise<SendReport> {
     this.calls.push(`sendDeviceSetup:${address}:${expected.join(",")}`);
     const session = this.sends.get(address);
     if (!session) throw new Error("Review what will change before sending.");
     if (session.ids.join("\n") !== expected.join("\n")) throw new Error("What will change isn't what was shown. Review the changes again.");
+    session.ids = ["(sending)"];
     const found = this.deviceAt(address);
     const now = showSetup(this.show, this.controllerAt(address), oneStringPerPort(found.device.kind));
     if (JSON.stringify(now) !== session.shown) throw new Error("Your show changed since you looked. Review the changes again.");
-    session.ids = ["(sent)"];
+    this.setupCopies.set(address, { config: structuredClone(found.config), deviceName: session.deviceName, takenAtMs: Date.now() });
     const failure = this.setupSendFailure;
     this.setupSendFailure = null;
     if (failure === "fail") {
       // Part of it landed before the controller stopped answering.
       found.config = applySetup(found.config, { ...session.target, ports: session.target.ports.slice(0, 1) });
-      session.restore = session.before;
       return {
         status: "failed",
         message: "Saving the new setup failed: Could not reach the controller: it didn't answer in time. It may have been only partly saved.",
@@ -678,7 +703,6 @@ export class MemoryBackend implements Backend {
       };
     }
     if (failure === "mismatch") {
-      session.restore = session.before;
       return {
         status: "mismatch",
         message: "Sent, but reading it back, the controller's setup doesn't match your show.",
@@ -687,17 +711,26 @@ export class MemoryBackend implements Backend {
       };
     }
     found.config = applySetup(found.config, session.target);
-    return { status: "sent", message: "Sent. Reading it back, the controller matches your show.", mismatches: [], canRestore: false };
+    const message =
+      session.kind === "fpp"
+        ? "Saved, and reading it back, the FPP's pixel outputs match your show. The lights use them once FPP's player (fppd) restarts: restart it from the FPP's own page, then check its warnings."
+        : "Sent. Reading it back, the controller matches your show.";
+    return { status: "sent", message, mismatches: [], canRestore: true };
   }
 
-  /** Like the engine's restore_device_setup. */
+  /** Like the engine's restore_device_setup: the copy stays until it's dismissed. */
   async restoreDeviceSetup(address: string): Promise<RestoreReport> {
     this.calls.push(`restoreDeviceSetup:${address}`);
-    const session = this.sends.get(address);
-    if (!session?.restore) throw new Error("There's no earlier setup to put back.");
-    this.deviceAt(address).config = structuredClone(session.restore);
-    session.restore = null;
+    const copy = this.setupCopies.get(address);
+    if (!copy) throw new Error("There's no earlier setup to put back.");
+    if (this.restoreFailure) return { restored: false, message: `Putting the previous setup back failed: Could not reach ${address}: it didn't answer in time` };
+    this.deviceAt(address).config = structuredClone(copy.config);
     return { restored: true, message: "The previous setup is back on the controller." };
+  }
+
+  async forgetDeviceSetupCopy(address: string) {
+    this.calls.push(`forgetDeviceSetupCopy:${address}`);
+    this.setupCopies.delete(address);
   }
 
   async openDevicePage(address: string) {

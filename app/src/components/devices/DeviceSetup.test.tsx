@@ -87,12 +87,23 @@ describe("compare with this device", () => {
     expect(within(port).getByText("40 pixels, GRB")).toBeInTheDocument();
     await user.selectOptions(within(port).getByRole("combobox", { name: "Prop for String 1 on port 2" }), arch.id);
     expect(within(port).getByText("Garage Arch has 50 pixels; this string has 40.")).toBeInTheDocument();
+    // A prop that reorders its colors on a string the controller reorders too is warned about.
+    const old = await addProp("Old Arch", 40);
+    await useApp.getState().run((b) => b.applyEdits([{ type: "updateProp", prop: { ...prop("Old Arch"), colorOrder: "BGR" } }]));
+    await user.selectOptions(within(port).getByRole("combobox", { name: "Prop for String 1 on port 2" }), old.id);
+    expect(within(port).getByText(/colors are swapped twice/)).toBeInTheDocument();
+    // One with another channel width can't be wired at all.
+    const white = await addProp("White Arch", 40);
+    await useApp.getState().run((b) => b.applyEdits([{ type: "updateProp", prop: { ...prop("White Arch"), colorOrder: "RGBW" } }]));
+    await user.selectOptions(within(port).getByRole("combobox", { name: "Prop for String 1 on port 2" }), white.id);
+    expect(within(port).getByRole("alert")).toHaveTextContent("White Arch can't be wired here");
+    await user.selectOptions(within(port).getByRole("combobox", { name: "Prop for String 1 on port 2" }), arch.id);
     await user.click(within(dialog).getByRole("button", { name: "Take 1 change into my show" }));
 
     const wled = show().controllers[0];
     expect(wled.ports.map((p) => p.number)).toEqual([1, 2]);
     expect(wled.ports[1].slots[0].prop).toBe(arch.id);
-    expect(show().props.map((p) => p.name)).toEqual(["Porch Strip", "Garage Arch"]);
+    expect(show().props.map((p) => p.name)).toEqual(["Porch Strip", "Garage Arch", "Old Arch", "White Arch"]);
   });
 
   it("says when the show and the controller match", async () => {
@@ -116,16 +127,59 @@ describe("send setup to this device", () => {
     expect(within(port).getByText("50")).toBeInTheDocument();
     expect(within(port).getByText("40")).toBeInTheDocument();
     expect(within(port).getByText("10 pixels fewer: the last 10 on this string go dark.")).toBeInTheDocument();
-    expect(within(dialog).getByText(/1 of them turns pixels off or removes a string/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/1 of them turns pixels off or moves them/)).toBeInTheDocument();
     expect(backend.calls.filter((c) => c.startsWith("sendDeviceSetup"))).toEqual([]);
 
     await user.click(within(dialog).getByRole("button", { name: "Send to Porch WLED" }));
     expect(await within(dialog).findByText("Sent. Reading it back, the controller matches your show.")).toBeInTheDocument();
     expect(backend.calls).toContain("sendDeviceSetup:192.0.2.40:port1/string1/pixels");
     expect(wledConfig(backend).ports[0].strings[0].pixels).toBe(40);
-    expect(within(dialog).queryByRole("button", { name: /Put back/ })).not.toBeInTheDocument();
+    // The copy from before sending stays, in case the lights look wrong.
+    expect(within(dialog).getByRole("button", { name: "Put back the previous setup" })).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("keeps the copy for Put back when reopened, lets a failed Put back be tried again, and forgets it on request", async () => {
+    const { user, backend } = await withWled();
+    await resize("Porch Strip", 40);
+    await user.click(screen.getByRole("button", { name: "Send setup to this device: Porch WLED…" }));
+    let dialog = await screen.findByRole("dialog", { name: "Send setup to Porch WLED" });
+    await user.click(await within(dialog).findByRole("button", { name: "Send to Porch WLED" }));
+    await within(dialog).findByText("Sent. Reading it back, the controller matches your show.");
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+
+    // Reopened: the copy from before the send is still offered.
+    await user.click(screen.getByRole("button", { name: "Send setup to this device: Porch WLED…" }));
+    dialog = await screen.findByRole("dialog", { name: "Send setup to Porch WLED" });
+    expect(await within(dialog).findByText(/A copy of Porch WLED's setup from .*, before an earlier send, is kept\./)).toBeInTheDocument();
+
+    backend.restoreFailure = true;
+    await user.click(within(dialog).getByRole("button", { name: "Put back the previous setup" }));
+    expect(await within(dialog).findByText(/Putting the previous setup back failed/)).toHaveTextContent("You can try again.");
+    expect(wledConfig(backend).ports[0].strings[0].pixels).toBe(40);
+    backend.restoreFailure = false;
+    await user.click(within(dialog).getByRole("button", { name: "Put back the previous setup" }));
+    expect(await within(dialog).findByText("The previous setup is back on the controller.")).toBeInTheDocument();
+    expect(wledConfig(backend).ports[0].strings[0].pixels).toBe(50);
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    await user.click(screen.getByRole("button", { name: "Send setup to this device: Porch WLED…" }));
+    dialog = await screen.findByRole("dialog", { name: "Send setup to Porch WLED" });
+    await user.click(await within(dialog).findByRole("button", { name: "Forget this copy" }));
+    expect(within(dialog).queryByRole("button", { name: /Put back/ })).not.toBeInTheDocument();
+    expect(backend.calls).toContain("forgetDeviceSetupCopy:192.0.2.40");
+  });
+
+  it("won't send a setup the controller wouldn't load, and says why", async () => {
+    const { user, backend } = await withWled();
+    // Pretend the WLED is an FPP, whose strings stop at 1,600 pixels.
+    backend.deviceNetwork.details.find((d) => d.device.address === WLED)!.device.kind = "fpp";
+    await resize("Porch Strip", 2000);
+    await user.click(screen.getByRole("button", { name: "Send setup to this device: Porch WLED…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Send setup to Porch WLED" });
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("an FPP string drives at most 1,600 pixels, and this one would have 2,000");
+    expect(within(dialog).queryByRole("button", { name: /^Send to/ })).not.toBeInTheDocument();
   });
 
   it("offers to put the previous setup back when sending fails partway", async () => {

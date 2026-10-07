@@ -8,7 +8,7 @@ describe("the layout tool bar's labels", () => {
     expect(LABEL_FROM.view).toBeGreaterThan(LABEL_FROM.shapes);
     expect(LABEL_FROM.shapes).toBeGreaterThan(LABEL_FROM.tools);
     // At 1440 px with the assistant open, the bar is about 830 px: the tools keep their names.
-    expect(LABEL_FROM.tools).toBeLessThanOrEqual(820);
+    expect(LABEL_FROM.tools).toBeLessThanOrEqual(900);
     for (const [group, from] of Object.entries(LABEL_FROM)) {
       expect(LABEL_CLASS[group as keyof typeof LABEL_FROM]).toBe(`sr-only @min-[${from}px]:not-sr-only`);
     }

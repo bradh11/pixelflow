@@ -108,18 +108,20 @@ export function AssistantPanel({ overlay = false, compact = false }: { overlay?:
           : "bg-neutral-50/60 dark:bg-neutral-950/40"
       }`}
     >
-      <header className="flex h-11 shrink-0 items-center gap-1 border-b border-neutral-200 px-3 dark:border-neutral-800">
+      <header className="flex h-12 shrink-0 items-center gap-1.5 border-b border-neutral-200 px-3 dark:border-neutral-800">
         <Sparkles size={16} className="text-accent-600 dark:text-accent-400" aria-hidden />
-        <h2 className="font-semibold">Assistant</h2>
-        <button
-          type="button"
-          onClick={() => setSettingsOpen(true)}
-          className="ml-1 truncate rounded px-1.5 py-0.5 text-xs text-neutral-500 hover:bg-neutral-200/70 dark:hover:bg-neutral-800"
+        <div className="flex min-w-0 flex-col leading-tight">
+          <h2 className="font-semibold">Assistant</h2>
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            className="-ml-1 max-w-full truncate rounded px-1 text-left text-[11px] text-neutral-500 hover:bg-neutral-200/70 dark:hover:bg-neutral-800"
           title={ready ? `${providerName(provider)} · ${model}: change the provider or model` : "Change the provider or model"}
         >
-          {ready ? modelLabel(model) : "Not set up"}
-        </button>
-        <div className="ml-auto flex items-center">
+            {ready ? modelLabel(model) : "Not set up"}
+          </button>
+        </div>
+        <div className="ml-auto flex shrink-0 items-center">
           <Button variant="ghost" aria-label="New chat" title="New chat" disabled={streaming || items.length === 0} onClick={() => void newChat()}>
             <MessageSquarePlus size={16} aria-hidden />
           </Button>

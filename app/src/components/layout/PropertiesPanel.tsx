@@ -32,6 +32,7 @@ import { isPoly } from "../../lib/polylineMath";
 import { SHAPE_FIELDS, type ShapeField, fieldValue, parseNumbers, withField } from "./shapeFields";
 import { MissingFileNotice, useMissingFile } from "../MissingFiles";
 import { Button, Input, More, Select } from "../ui";
+import { hintFor } from "../../lib/shortcuts";
 
 const COLOR_ORDERS: ColorOrder[] = ["RGB", "RBG", "GRB", "GBR", "BRG", "BGR", "RGBW", "GRBW"];
 
@@ -393,7 +394,7 @@ function DuplicateButton({ ids }: { ids: string[] }) {
   const select = useLayoutEditor((s) => s.select);
   return (
     <Button
-      title="Duplicate (⌘D)"
+      title={`Duplicate (${hintFor("layout-duplicate")})`}
       onClick={async () => {
         let copies: string[] = [];
         const duplicate = (show: Show) => {

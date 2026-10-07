@@ -20,6 +20,7 @@ import { useSequencer } from "../../state/sequencer";
 import { toastWithUndo } from "../../state/undoToast";
 import { deleteUseWarning } from "../../lib/sequenceUse";
 import { Button, Input, Select } from "../ui";
+import { hintFor } from "../../lib/shortcuts";
 
 /** The group's name, saved on Enter or leaving the field (an empty name goes back). */
 function NameField({ group }: { group: Group }) {
@@ -269,7 +270,7 @@ export function GroupsPanel() {
           className="w-full"
           disabled={selected === 0 || already !== undefined}
           onClick={() => void groupSelected()}
-          title={already ? `The selected props are ${already.name}` : "Make a group of the selected props, in the order you picked them (⌘G)"}
+          title={already ? `The selected props are ${already.name}` : `Make a group of the selected props, in the order you picked them (${hintFor("layout-group")})`}
         >
           <GroupIcon size={15} aria-hidden /> {already ? `Already ${already.name}` : `Group selected${selected > 0 ? ` (${selected})` : ""}`}
         </Button>

@@ -2,6 +2,7 @@ import { Maximize, Sparkles, Square } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { PRESETS } from "../../lib/layout3d";
 import { useView3d } from "../../state/view3d";
+import { hintFor } from "../../lib/shortcuts";
 
 const button = "rounded px-2 py-1 text-xs text-neutral-200 hover:bg-white/10 aria-pressed:bg-white/15 aria-pressed:text-white";
 
@@ -21,7 +22,7 @@ export function View3dControls({ keys = false }: { keys?: boolean }) {
         </button>
       ))}
       <span aria-hidden className="mx-0.5 h-4 w-px bg-white/20" />
-      <button type="button" className={`${button} inline-flex items-center gap-1`} title={keys ? "Show the whole display (F)" : "Show the whole display"} onClick={() => camera({ kind: "fit" })}>
+      <button type="button" className={`${button} inline-flex items-center gap-1`} title={keys ? `Show the whole display (${hintFor("layout3d-fit")})` : "Show the whole display"} onClick={() => camera({ kind: "fit" })}>
         <Maximize size={12} aria-hidden /> Fit
       </button>
       <span aria-hidden className="mx-0.5 h-4 w-px bg-white/20" />

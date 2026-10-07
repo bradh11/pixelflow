@@ -28,6 +28,7 @@ pub fn map_show(show: &Show) -> (ChannelMap, ValidationReport) {
     let frame_len = props.last().map_or(0, |p| p.frame_offset + p.byte_len());
 
     let wired = wiring::wire_controllers(show, &props, &mut report);
+    wiring::check_ddp_pixel_types(show, &wired, &mut report);
     let runs: Vec<&[universes::PixelRun]> = wired.iter().map(|w| w.runs.as_slice()).collect();
     let addressing = universes::assign(show, &runs, &mut report);
 

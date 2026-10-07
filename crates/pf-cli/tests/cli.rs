@@ -173,6 +173,117 @@ fn test_pattern_sends_ddp_frames_to_a_controller() {
     assert!(text.contains("Bench WLED"), "{text}");
 }
 
+#[cfg(unix)]
+#[test]
+fn ctrl_c_ends_a_test_pattern_early_and_still_blacks_out() {
+    let receiver = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    receiver
+        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+        .unwrap();
+    let address = receiver.local_addr().unwrap().to_string();
+    let path = std::env::temp_dir().join(format!("pixelflow-ctrlc-{}.json", std::process::id()));
+    std::fs::write(&path, loopback_show(&address).to_string()).unwrap();
+    let child = Command::new(env!("CARGO_BIN_EXE_pixelflow"))
+        .args([
+            "test-pattern",
+            path.to_str().unwrap(),
+            "--pattern",
+            "solid",
+            "--seconds",
+            "60",
+            "--bind",
+            "127.0.0.1",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut buf = [0u8; 64];
+    loop {
+        let (n, _) = receiver.recv_from(&mut buf).unwrap();
+        if buf[10..n].iter().any(|&b| b != 0) {
+            break;
+        }
+    }
+    let started = std::time::Instant::now();
+    let killed = Command::new("kill")
+        .args(["-INT", &child.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(killed.success());
+    // Read until the blackout: three all-zero frames in a row.
+    let mut black = 0;
+    while black < 3 {
+        let (n, _) = receiver.recv_from(&mut buf).unwrap();
+        black = if buf[10..n].iter().all(|&b| b == 0) {
+            black + 1
+        } else {
+            0
+        };
+    }
+    let output = child.wait_with_output().unwrap();
+    std::fs::remove_file(&path).ok();
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(10),
+        "stopped early"
+    );
+    let text = stdout(&output);
+    assert!(output.status.success(), "{text}");
+    assert!(text.contains("Sent "), "{text}");
+}
+
+#[test]
+fn test_pattern_rejects_a_sync_universe_outside_1_to_63999() {
+    let path = std::env::temp_dir().join(format!("pixelflow-sync-{}.json", std::process::id()));
+    std::fs::write(&path, loopback_show("127.0.0.1:4048").to_string()).unwrap();
+    let output = pixelflow(&[
+        "test-pattern",
+        path.to_str().unwrap(),
+        "--sync-universe",
+        "64000",
+        "--bind",
+        "127.0.0.1",
+    ]);
+    std::fs::remove_file(&path).ok();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert!(
+        stderr.contains("--sync-universe must be between 1 and 63999, not 64000"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn test_pattern_refuses_a_target_with_no_pixels() {
+    let mut show = loopback_show("127.0.0.1:4048");
+    show["controllers"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "id": "33333333-0000-4000-8000-000000000002",
+            "name": "Spare",
+            "address": "127.0.0.1:4049",
+            "protocol": { "type": "ddp" },
+            "ports": []
+        }));
+    let path = std::env::temp_dir().join(format!("pixelflow-empty-{}.json", std::process::id()));
+    std::fs::write(&path, show.to_string()).unwrap();
+    let output = pixelflow(&[
+        "test-pattern",
+        path.to_str().unwrap(),
+        "--target",
+        "controller:Spare",
+        "--bind",
+        "127.0.0.1",
+    ]);
+    std::fs::remove_file(&path).ok();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert!(
+        stderr.contains("'controller:Spare' has no pixels to light"),
+        "{stderr}"
+    );
+}
+
 #[test]
 fn test_pattern_refuses_shows_with_errors() {
     let mut doc: serde_json::Value =

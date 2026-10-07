@@ -38,12 +38,17 @@ pub enum IssueCode {
     DuplicatePort,
     /// A controller with no IP address or hostname.
     MissingAddress,
+    /// A controller address PixelFlow can't send to: an IPv6 address, or one with a space in it.
+    InvalidAddress,
     // Wiring checks (pf-mapping).
     PortOverCapacity,
     UnassignedNodes,
     NodeAssignedTwice,
     UniverseOutOfRange,
     UniverseCollision,
+    /// A DDP controller wired to both RGB and RGBW props: DDP tells the controller one pixel type
+    /// for the whole stream, so some controllers (WLED) misread the other kind.
+    MixedPixelTypes,
 }
 
 /// One problem found in a show, written for end users.

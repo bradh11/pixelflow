@@ -1,6 +1,7 @@
 //! Live test-pattern output driven by the engine.
 
 use crate::error::EngineError;
+use pf_frame::FrameWriter;
 use pf_mapping::{ChannelMap, ControllerOutput};
 use pf_model::{ControllerId, GroupId, PropId, Protocol, Show};
 use pf_output::{ControllerState, OutputHandle, OutputSettings, OutputStats, Transport};
@@ -186,10 +187,74 @@ pub(crate) struct OutputSession {
     pub key: OutputKey,
     pub targets: Vec<TargetRange>,
     pub generation: u64,
+    /// The pattern being painted, and when it started (it carries on across a replaced plan).
+    painting: Pattern,
+    started: Instant,
     handle: Option<OutputHandle>,
     stop: Arc<AtomicBool>,
     content: Option<JoinHandle<()>>,
     preview: Arc<Mutex<Vec<u8>>>,
+}
+
+fn frame_period(frame_rate: u16) -> Duration {
+    Duration::from_secs_f64(1.0 / f64::from(frame_rate.max(1)))
+}
+
+/// `text` as a sentence: a capital first letter and a full stop.
+pub(crate) fn sentence(text: &str) -> String {
+    let mut chars = text.chars();
+    let mut out: String = chars
+        .next()
+        .map(|c| c.to_uppercase().collect())
+        .unwrap_or_default();
+    out.push_str(chars.as_str());
+    if !out.ends_with('.') {
+        out.push('.');
+    }
+    out
+}
+
+/// The content thread: paints the pattern into the frame buffer once per frame period.
+struct Painter {
+    pattern: Pattern,
+    targets: Vec<TargetRange>,
+    writer: FrameWriter,
+    preview: Arc<Mutex<Vec<u8>>>,
+    stop: Arc<AtomicBool>,
+    period: Duration,
+    /// Pattern time zero.
+    started: Instant,
+}
+
+impl Painter {
+    fn spawn(mut self) -> std::io::Result<JoinHandle<()>> {
+        std::thread::Builder::new()
+            .name("pixelflow-content".into())
+            .spawn(move || {
+                let mut next = Instant::now();
+                while !self.stop.load(Ordering::Relaxed) {
+                    let frame = self.writer.frame_mut();
+                    render(
+                        &self.pattern,
+                        self.started.elapsed().as_secs_f32(),
+                        &self.targets,
+                        frame,
+                    );
+                    self.preview
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .copy_from_slice(frame);
+                    self.writer.publish();
+                    // Pace by deadline so render time doesn't stretch the frame period.
+                    next += self.period;
+                    let now = Instant::now();
+                    if now.saturating_duration_since(next) > self.period {
+                        next = now + self.period;
+                    }
+                    std::thread::sleep(next.saturating_duration_since(now));
+                }
+            })
+    }
 }
 
 impl OutputSession {
@@ -205,50 +270,36 @@ impl OutputSession {
         let pattern = pattern_spec.to_pattern()?;
         let targets = resolve_target(show, map, &Target::from(&target));
         let plan = pf_output::build_plan(show, map);
+        let period = frame_period(plan.frame_rate);
         let (mut writer, reader) = pf_frame::frame_buffers(plan.frame_len);
         // Publish the first frame before output starts so controllers never see a black frame first.
         render(&pattern, 0.0, &targets, writer.frame_mut());
         let preview = Arc::new(Mutex::new(writer.frame_mut().to_vec()));
         writer.publish();
-        let handle = pf_output::start_output(plan.clone(), settings, reader, transport);
+        let handle = pf_output::start_output(plan, settings, reader, transport);
 
+        let started = Instant::now();
         let stop = Arc::new(AtomicBool::new(false));
-        let period = Duration::from_secs_f64(1.0 / f64::from(plan.frame_rate.max(1)));
-        let content = {
-            let stop = Arc::clone(&stop);
-            let preview = Arc::clone(&preview);
-            let targets = targets.clone();
-            let spawned = std::thread::Builder::new()
-                .name("pixelflow-content".into())
-                .spawn(move || {
-                    let started = Instant::now();
-                    let mut next = started;
-                    while !stop.load(Ordering::Relaxed) {
-                        let frame = writer.frame_mut();
-                        render(&pattern, started.elapsed().as_secs_f32(), &targets, frame);
-                        preview
-                            .lock()
-                            .unwrap_or_else(PoisonError::into_inner)
-                            .copy_from_slice(frame);
-                        writer.publish();
-                        // Pace by deadline so render time doesn't stretch the frame period.
-                        next += period;
-                        let now = Instant::now();
-                        if now.saturating_duration_since(next) > period {
-                            next = now + period;
-                        }
-                        std::thread::sleep(next.saturating_duration_since(now));
-                    }
-                });
-            // On failure the output handle is dropped, which blacks out the controllers.
-            spawned.map_err(EngineError::Network)?
-        };
+        let content = Painter {
+            pattern,
+            targets: targets.clone(),
+            writer,
+            preview: Arc::clone(&preview),
+            stop: Arc::clone(&stop),
+            period,
+            started,
+        }
+        .spawn()
+        // On failure the output handle is dropped, which blacks out the controllers.
+        .map_err(EngineError::Network)?;
         Ok(Self {
             pattern: pattern_spec,
             target,
             key: output_key(show, map),
             targets,
             generation,
+            painting: pattern,
+            started,
             handle: Some(handle),
             stop,
             content: Some(content),
@@ -256,10 +307,60 @@ impl OutputSession {
         })
     }
 
+    /// Carries on with the edited show's wiring, addresses, frame rate, or target pixels without
+    /// stopping: the controllers never see a black frame, the pattern carries on from where it
+    /// was, and output the show no longer sends to is blacked out (see
+    /// [`OutputHandle::replace_plan`]).
+    pub fn replace(
+        &mut self,
+        show: &Show,
+        map: &ChannelMap,
+        targets: Vec<TargetRange>,
+        generation: u64,
+    ) -> Result<(), EngineError> {
+        // Stop painting the old frames; output keeps sending the last one until it switches.
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(content) = self.content.take() {
+            let _ = content.join();
+        }
+        let plan = pf_output::build_plan(show, map);
+        let period = frame_period(plan.frame_rate);
+        let (mut writer, reader) = pf_frame::frame_buffers(plan.frame_len);
+        render(
+            &self.painting,
+            self.started.elapsed().as_secs_f32(),
+            &targets,
+            writer.frame_mut(),
+        );
+        *self.preview.lock().unwrap_or_else(PoisonError::into_inner) = writer.frame_mut().to_vec();
+        writer.publish();
+        if let Some(handle) = &self.handle {
+            handle.replace_plan(plan, reader);
+        }
+        self.stop = Arc::new(AtomicBool::new(false));
+        let content = Painter {
+            pattern: self.painting,
+            targets: targets.clone(),
+            writer,
+            preview: Arc::clone(&self.preview),
+            stop: Arc::clone(&self.stop),
+            period,
+            started: self.started,
+        }
+        .spawn()
+        .map_err(EngineError::Network)?;
+        self.content = Some(content);
+        self.key = output_key(show, map);
+        self.targets = targets;
+        self.generation = generation;
+        Ok(())
+    }
+
     pub fn status(&self) -> OutputStatus {
         let stats = self.handle.as_ref().map(OutputHandle::stats).unwrap_or_default();
+        let failure = stats.failure.as_deref().map(sentence);
         OutputStatus {
-            running: true,
+            running: failure.is_none(),
             generation: self.generation,
             pattern: Some(self.pattern.clone()),
             target: Some(self.target.clone()),
@@ -267,7 +368,7 @@ impl OutputSession {
             late_frames: stats.late_frames,
             achieved_fps: stats.achieved_fps,
             controllers: controller_status(&stats),
-            stop_reason: None,
+            stop_reason: failure,
         }
     }
 
@@ -349,6 +450,12 @@ mod tests {
             spec.to_pattern().unwrap_err().to_string(),
             "'red' is not a color. Use six or eight hex digits, like ff8000."
         );
+        // Signs aren't hex digits, though integer parsing would take "+f" as 15.
+        let signed = PatternSpec {
+            kind: PatternKind::Solid,
+            color: "+f+f+f".into(),
+        };
+        assert!(matches!(signed.to_pattern(), Err(EngineError::BadColor(_))));
     }
 
     fn two_controller_show() -> Show {

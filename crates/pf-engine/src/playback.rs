@@ -11,9 +11,9 @@
 //! sequence's offset (the music, or a silent stopwatch when there is none).
 
 use crate::error::EngineError;
-use crate::output::{ControllerStatus, OutputKey, controller_status, output_key};
+use crate::output::{ControllerStatus, OutputKey, controller_status, output_key, sentence};
 use pf_audio::{AudioClock, AudioError, MusicPlayer, SilentClock};
-use pf_frame::FrameWriter;
+use pf_frame::{FrameReader, FrameWriter};
 use pf_fseq::Sequence;
 use pf_mapping::ChannelMap;
 use pf_model::{Protocol, SequenceId, Show};
@@ -774,6 +774,22 @@ fn document_plan(
     (plan, notes)
 }
 
+/// Sends through `plan` from now on: the running output switches to it between frames, with no
+/// black frame and the same sACN streams (see [`OutputHandle::replace_plan`]); without one, a new
+/// output starts on `transport`.
+fn switch_output(
+    handle: &mut Option<OutputHandle>,
+    plan: OutputPlan,
+    reader: FrameReader,
+    transport: Box<dyn Transport>,
+    settings: OutputSettings,
+) {
+    match handle {
+        Some(running) => running.replace_plan(plan, reader),
+        None => *handle = Some(pf_output::start_output(plan, settings, reader, transport)),
+    }
+}
+
 /// What a session plays, and what it was built from (when an edit changes that, its output is
 /// rebuilt or it restarts).
 pub(crate) enum SessionKind {
@@ -1088,16 +1104,13 @@ impl PlaybackSession {
             .frame_mut()
             .copy_from_slice(&self.raw.lock().unwrap_or_else(PoisonError::into_inner));
         writer.publish();
-        let handle = pf_output::start_output(plan, settings, reader, transport);
+        switch_output(&mut self.handle, plan, reader, transport, settings);
         lock(&self.control).rebuild = Some(Rebuild {
             show: show.clone(),
             map: map.clone(),
             writer,
             renderer: None,
         });
-        if let Some(old) = self.handle.replace(handle) {
-            old.stop();
-        }
         *built_routes = routes;
         *built_map = map.clone();
     }
@@ -1146,16 +1159,13 @@ impl PlaybackSession {
         };
         renderer.render(doc, position_ms, writer.frame_mut());
         writer.publish();
-        let handle = pf_output::start_output(plan, settings, reader, transport);
+        switch_output(&mut self.handle, plan, reader, transport, settings);
         lock(&self.control).rebuild = Some(Rebuild {
             show: show.clone(),
             map: map.clone(),
             writer,
             renderer: Some(renderer),
         });
-        if let Some(old) = self.handle.replace(handle) {
-            old.stop();
-        }
         *key = output_key(show, map);
         *built_map = map.clone();
         *preview_only = show_error.is_some();
@@ -1237,7 +1247,12 @@ impl PlaybackSession {
         let stats = self.handle.as_ref().map(OutputHandle::stats).unwrap_or_default();
         // The player thread stopped without saying why: it crashed.
         let crashed = !c.ended && self.player.as_ref().is_some_and(JoinHandle::is_finished);
-        let error = c.error.clone().or_else(|| crashed.then(|| CRASHED.to_string()));
+        let error = c
+            .error
+            .clone()
+            .or_else(|| crashed.then(|| CRASHED.to_string()))
+            // The output thread crashed: the music may play on, but nothing reaches the controllers.
+            .or_else(|| stats.failure.as_deref().map(sentence));
         let duration_ms = u64::from(c.frames) * u64::from(c.frame_ms);
         let (sequence, music, authored) = match &self.kind {
             SessionKind::File { request, .. } => (request.sequence, request.music.clone(), false),

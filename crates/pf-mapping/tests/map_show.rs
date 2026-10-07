@@ -30,6 +30,36 @@ fn sacn() -> Protocol {
 }
 
 #[test]
+fn a_ddp_controller_mixing_rgb_and_rgbw_props_gets_a_warning() {
+    let rgb = line("Arch", 4);
+    let mut rgbw = line("Tree", 4);
+    rgbw.color_order = ColorOrder::Grbw;
+    let mut show = Show::new("t");
+    show.props = vec![rgb.clone(), rgbw.clone()];
+    let mixed = port(1, vec![PortSlot::new(rgb.id), PortSlot::new(rgbw.id)]);
+    show.controllers = vec![controller("Porch WLED", Protocol::Ddp, vec![mixed.clone()])];
+    let (_, report) = map_show(&show);
+    let issue = report
+        .issues
+        .iter()
+        .find(|i| i.code == IssueCode::MixedPixelTypes)
+        .expect("a warning");
+    assert_eq!(issue.severity, pf_model::Severity::Warning);
+    assert!(issue.message.contains("'Porch WLED'"), "{issue:?}");
+    assert!(issue.fix.is_some());
+
+    // sACN carries plain channels, so mixing there is fine; so is DDP with one pixel type.
+    show.controllers = vec![controller("Falcon", sacn(), vec![mixed])];
+    assert!(!map_show(&show).1.has_code(IssueCode::MixedPixelTypes));
+    show.controllers = vec![controller(
+        "Porch WLED",
+        Protocol::Ddp,
+        vec![port(1, vec![PortSlot::new(rgbw.id)])],
+    )];
+    assert!(!map_show(&show).1.has_code(IssueCode::MixedPixelTypes));
+}
+
+#[test]
 fn props_are_laid_out_back_to_back_in_the_frame() {
     let mut show = Show::new("t");
     let a = line("A", 10);

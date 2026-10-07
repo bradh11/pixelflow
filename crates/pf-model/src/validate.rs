@@ -242,6 +242,21 @@ fn check_groups(show: &Show, props: &HashMap<PropId, &Prop>, report: &mut Valida
     }
 }
 
+/// Why PixelFlow can't send to a (trimmed, non-empty) controller address, if it can't: output
+/// goes over IPv4 only, and no address or hostname has a space in it.
+fn address_problem(address: &str) -> Option<&'static str> {
+    if address.parse::<std::net::Ipv6Addr>().is_ok()
+        || address.parse::<std::net::SocketAddrV6>().is_ok()
+        || address.starts_with('[')
+    {
+        Some("which is IPv6, but PixelFlow sends to controllers over IPv4 only")
+    } else if address.contains(char::is_whitespace) {
+        Some("which has a space in it")
+    } else {
+        None
+    }
+}
+
 fn check_controllers(show: &Show, props: &HashMap<PropId, &Prop>, report: &mut ValidationReport) {
     for controller in &show.controllers {
         if controller.address.trim().is_empty() {
@@ -254,6 +269,20 @@ fn check_controllers(show: &Show, props: &HashMap<PropId, &Prop>, report: &mut V
                     ),
                 )
                 .with_fix("Enter the controller's IP address on the Wiring screen."),
+            );
+        } else if let Some(problem) = address_problem(controller.address.trim()) {
+            report.push(
+                Issue::warning(
+                    IssueCode::InvalidAddress,
+                    format!(
+                        "The controller '{}' has the address '{}', {problem}, so nothing is sent to it.",
+                        controller.name,
+                        controller.address.trim()
+                    ),
+                )
+                .with_fix(
+                    "Enter the controller's IPv4 address (like 192.168.1.50) or its hostname on the Wiring screen.",
+                ),
             );
         }
         let mut numbers = HashSet::new();
@@ -618,7 +647,7 @@ mod tests {
     #[test]
     fn each_structural_problem_is_reported() {
         type Mutate = fn(&mut Show);
-        let cases: [(IssueCode, Mutate); 68] = [
+        let cases: [(IssueCode, Mutate); 71] = [
             (IssueCode::InvalidFrameRate, |s| s.settings.frame_rate = 5),
             (IssueCode::DuplicateId, |s| {
                 let dup = s.props[0].clone();
@@ -918,6 +947,15 @@ mod tests {
             (IssueCode::MissingAddress, |s| {
                 s.controllers[0].address = "  ".into()
             }),
+            (IssueCode::InvalidAddress, |s| {
+                s.controllers[0].address = "fe80::1".into()
+            }),
+            (IssueCode::InvalidAddress, |s| {
+                s.controllers[0].address = "[::1]:4048".into()
+            }),
+            (IssueCode::InvalidAddress, |s| {
+                s.controllers[0].address = "10.0.0 .5".into()
+            }),
         ];
         let mut wrong = Vec::new();
         for (i, (code, mutate)) in cases.into_iter().enumerate() {
@@ -937,6 +975,22 @@ mod tests {
             }
         }
         assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+    }
+
+    #[test]
+    fn addresses_with_spaces_around_them_are_fine_but_ipv6_is_explained() {
+        let prop = line("A", 10);
+        let mut show = show_with_slot(PortSlot::new(prop.id), prop);
+        for fine in [" 10.0.0.5 ", "10.0.0.5:4048\t", "wled-porch.local"] {
+            show.controllers[0].address = fine.into();
+            assert!(validate_show(&show).issues.is_empty(), "{fine:?}");
+        }
+        show.controllers[0].address = "fe80::1".into();
+        let report = validate_show(&show);
+        let issue = &report.issues[0];
+        assert_eq!(issue.severity, crate::Severity::Warning);
+        assert!(issue.message.contains("IPv6"), "{issue:?}");
+        assert!(issue.fix.as_deref().unwrap().contains("IPv4"), "{issue:?}");
     }
 
     #[test]

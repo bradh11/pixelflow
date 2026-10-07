@@ -4,12 +4,17 @@ use crate::report;
 use anyhow::{Context, Result, bail};
 use clap::ValueEnum;
 use pf_model::Show;
-use pf_output::{ControllerState, OutputSettings, OutputStats, UdpTransport, build_plan, start_output};
-use pf_patterns::{Pattern, Preset, Rgbw, Target, render, resolve_target};
+use pf_output::{
+    ControllerState, OutputPlan, OutputSettings, OutputStats, Transport, UdpTransport, build_plan,
+    start_output,
+};
+use pf_patterns::{Pattern, Preset, Rgbw, Target, TargetRange, render, resolve_target};
 use std::fmt::Write;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 #[derive(clap::Args)]
@@ -124,11 +129,15 @@ pub fn run(show: &Show, args: &Args) -> Result<ExitCode> {
     let color = Rgbw::from_hex(&args.color)
         .with_context(|| format!("'{}' is not a color; use rrggbb or rrggbbww hex", args.color))?;
     let pattern = pattern(args.pattern, color);
+    check_sync_universe(args.sync_universe)?;
     let targets = resolve_target(show, &map, &parse_target(show, &args.target)?);
+    if targets.is_empty() {
+        bail!(
+            "'{}' has no pixels to light; wire its props to a controller first",
+            args.target
+        );
+    }
 
-    let plan = build_plan(show, &map);
-    let frame_period = Duration::from_secs_f64(1.0 / f64::from(plan.frame_rate.max(1)));
-    let (mut writer, reader) = pf_frame::frame_buffers(plan.frame_len);
     let local = SocketAddr::new(args.bind.unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED)), 0);
     let transport =
         UdpTransport::bind(local).with_context(|| format!("could not open a UDP socket on {local}"))?;
@@ -136,25 +145,66 @@ pub fn run(show: &Show, args: &Args) -> Result<ExitCode> {
         sync_universe: args.sync_universe,
         ..OutputSettings::default()
     };
+    // Ctrl-C (or a termination signal) ends the run early, still blacking out the controllers.
+    let interrupted = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&interrupted);
+    if let Err(e) = ctrlc::set_handler(move || flag.store(true, Ordering::Relaxed)) {
+        outln!("warning: Ctrl-C will not black out the controllers ({e})")?;
+    }
+    let (stats, elapsed) = drive(
+        build_plan(show, &map),
+        settings,
+        Box::new(transport),
+        &pattern,
+        &targets,
+        run_for,
+        &interrupted,
+    );
+    out!("{}", summary(&stats, elapsed))?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The sACN sync universe must be a real universe, 1–63999.
+fn check_sync_universe(universe: Option<u16>) -> Result<()> {
+    match universe {
+        Some(u) if !(1..=63_999).contains(&u) => {
+            bail!("--sync-universe must be between 1 and 63999, not {u}")
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Paints `pattern` and sends it until `run_for` has passed or `interrupted` is set, then stops
+/// output, which blacks out the controllers. Returns the final stats and how long it ran.
+fn drive(
+    plan: OutputPlan,
+    settings: OutputSettings,
+    transport: Box<dyn Transport>,
+    pattern: &Pattern,
+    targets: &[TargetRange],
+    run_for: Duration,
+    interrupted: &AtomicBool,
+) -> (OutputStats, Duration) {
+    let frame_period = Duration::from_secs_f64(1.0 / f64::from(plan.frame_rate.max(1)));
+    let (mut writer, reader) = pf_frame::frame_buffers(plan.frame_len);
     // Publish frame 0 before output starts, so the first packets are never the empty buffer.
     let started = Instant::now();
-    render(&pattern, 0.0, &targets, writer.frame_mut());
+    render(pattern, 0.0, targets, writer.frame_mut());
     writer.publish();
-    let handle = start_output(plan, settings, reader, Box::new(transport));
+    let handle = start_output(plan, settings, reader, transport);
 
-    while started.elapsed() < run_for {
+    while started.elapsed() < run_for && !interrupted.load(Ordering::Relaxed) {
         render(
-            &pattern,
+            pattern,
             started.elapsed().as_secs_f32(),
-            &targets,
+            targets,
             writer.frame_mut(),
         );
         writer.publish();
         std::thread::sleep(frame_period);
     }
     let stats = handle.stop();
-    out!("{}", summary(&stats, started.elapsed()))?;
-    Ok(ExitCode::SUCCESS)
+    (stats, started.elapsed())
 }
 
 /// End-of-run report: frame rate and per-controller packet counts.
@@ -243,6 +293,7 @@ mod tests {
                 send_errors: 3,
                 last_error: Some("host unreachable".into()),
             }],
+            failure: None,
         };
         let text = summary(&stats, Duration::from_secs(10));
         assert_eq!(

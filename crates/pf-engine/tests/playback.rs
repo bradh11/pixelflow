@@ -358,6 +358,25 @@ fn changing_a_controller_address_restarts_playback_to_the_new_address() {
 }
 
 #[test]
+fn rewiring_during_playback_never_flashes_the_controller_dark() {
+    let (mut engine, recorded, dir) = engine_with_show(true);
+    let path = write_long_sequence(dir.path());
+    engine.start_playback(&path, 0).unwrap();
+    wait_until(|| packets(&recorded).len() >= 3);
+    // The controller now takes only the first 15 sequence channels.
+    let mut controller = engine.show().controllers[0].clone();
+    controller.sequence_channels.as_mut().unwrap().count = 15;
+    engine.apply(vec![Edit::UpdateController { controller }]).unwrap();
+    wait_until(|| packets(&recorded).iter().filter(|p| p.len() == 10 + 15).count() >= 3);
+    let sent = packets(&recorded);
+    assert!(
+        sent.iter().all(|p| p[10..].iter().all(|&b| b != 0)),
+        "no black frame while switching"
+    );
+    engine.stop_playback();
+}
+
+#[test]
 fn a_restart_keeps_the_position_and_the_pause() {
     let (mut engine, _recorded, dir) = engine_with_show(true);
     let path = write_long_sequence(dir.path());

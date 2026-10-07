@@ -147,6 +147,75 @@ fn moving_a_prop_keeps_output_running_but_rewiring_restarts_it() {
 }
 
 #[test]
+fn rewiring_while_output_runs_never_flashes_the_controllers_dark() {
+    let (mut engine, recorded, _prop, mut controller, _dir) = engine_with_show();
+    engine.start_output(solid_red(), TargetSpec::Show).unwrap();
+    wait_until(|| packets_to(&recorded, "127.0.0.1:4048").len() >= 3);
+
+    // Wire a second strip onto the same port: the controller now gets 6 pixels.
+    let second = line("Second", 3);
+    controller.ports[0].slots.push(PortSlot::new(second.id));
+    engine
+        .apply(vec![
+            Edit::AddProp { prop: second },
+            Edit::UpdateController { controller },
+        ])
+        .unwrap();
+    assert!(engine.output_status().running);
+    wait_until(|| {
+        packets_to(&recorded, "127.0.0.1:4048")
+            .iter()
+            .any(|p| p.len() == 10 + 18)
+    });
+    engine.stop_output();
+
+    let packets = packets_to(&recorded, "127.0.0.1:4048");
+    let live = &packets[..packets.len() - 3]; // then the blackout on stop
+    for packet in live {
+        assert!(
+            packet[10..].chunks(3).all(|pixel| pixel == [255, 0, 0]),
+            "every frame before the stop is red: {packet:?}"
+        );
+    }
+    assert!(
+        packets[packets.len() - 3..]
+            .iter()
+            .all(|p| p[10..].iter().all(|&b| b == 0))
+    );
+}
+
+/// A transport that crashes the output thread.
+struct Exploding;
+
+impl Transport for Exploding {
+    fn send_to(&mut self, _packet: &[u8], _destination: SocketAddr) -> std::io::Result<()> {
+        panic!("socket exploded")
+    }
+}
+
+#[test]
+fn a_crashed_output_thread_shows_as_stopped_with_the_reason() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = Engine::new(dir.path()).with_transport(|| Ok(Box::new(Exploding) as Box<dyn Transport>));
+    let prop = line("Strip", 3);
+    let mut controller = Controller::new("Bench", "127.0.0.1:4048", Protocol::Ddp);
+    let mut port = Port::new(1);
+    port.slots.push(PortSlot::new(prop.id));
+    controller.ports.push(port);
+    engine
+        .apply(vec![Edit::AddProp { prop }, Edit::AddController { controller }])
+        .unwrap();
+    engine.start_output(solid_red(), TargetSpec::Show).unwrap();
+    wait_until(|| !engine.output_status().running);
+    assert_eq!(
+        engine.output_status().stop_reason.as_deref(),
+        Some("Output stopped unexpectedly: socket exploded.")
+    );
+    // Stopping clears it, as after any other stop.
+    assert_eq!(engine.stop_output().stop_reason, None);
+}
+
+#[test]
 fn rotating_scaling_and_the_background_photo_keep_output_running() {
     let (mut engine, _recorded, mut prop, _controller, _dir) = engine_with_show();
     let generation = engine

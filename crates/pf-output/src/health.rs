@@ -16,7 +16,7 @@ pub enum ControllerState {
     Unresolved,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct Health {
     pub state: ControllerState,
     backoff: Duration,

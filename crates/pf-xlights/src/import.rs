@@ -184,15 +184,11 @@ fn sacn_targets(x: &XController, notes: &mut Vec<String>) -> Vec<Target> {
             format!("{} (universes {first}–{last})", x.name)
         };
         let size = run[0].channels;
-        let universe_size = match size {
-            510 => UniverseSize::CHANNELS_510,
-            512 => UniverseSize::CHANNELS_512,
-            _ => {
-                notes.push(format!(
-                    "{name} uses {size} channels per universe; PixelFlow sends 510 or 512, so it wasn't imported."
-                ));
-                continue;
-            }
+        let Some(universe_size) = UniverseSize::new(size) else {
+            notes.push(format!(
+                "{name} uses {size} channels per universe, but a universe carries 1 to 512, so it wasn't imported."
+            ));
+            continue;
         };
         if first == 0 || last > MAX_UNIVERSE {
             notes.push(format!(
@@ -1130,10 +1126,44 @@ mod tests {
     }
 
     #[test]
-    fn sacn_universe_sizes_pixelflow_cant_send_are_not_imported() {
-        let x = sacn("Odd", &[(1, 500)]);
+    fn any_universe_size_from_1_to_512_imports_with_its_wiring() {
+        // Four 15-channel universes (5 RGB pixels each). Edge (channels 10–21) crosses from
+        // universe 1 into 2; Mid at "#2:13" is absolute channel 28 and crosses into universe 3.
+        let x = sacn("Odd", &[(1, 15), (2, 15), (3, 15), (4, 15)]);
+        let layout = layout(vec![model("Edge", "10", 4, None), model("Mid", "#2:13", 2, None)]);
+        let result = build_show("t", &[x], &layout, fake_geometry);
+        assert!(
+            result
+                .notes
+                .iter()
+                .all(|n| !n.contains("per universe") && !n.contains("wired")),
+            "{:#?}",
+            result.notes
+        );
+        let show = &result.show;
+        let Protocol::Sacn(cfg) = show.controllers[0].protocol else {
+            panic!("sACN")
+        };
+        assert_eq!((cfg.universe_size.channels(), cfg.start_universe), (15, Some(1)));
+        assert_eq!(on(show, "Edge", 0), row(9, 4, 3));
+        assert_eq!(on(show, "Mid", 0), row(27, 2, 3));
+        let (map, report) = pf_mapping::map_show(show);
+        assert!(!report.has_errors(), "{report:?}");
+        let address = |channel| match map.controllers[0].addressing.address_of(channel) {
+            Some(pf_mapping::ChannelAddress::Sacn { universe, channel }) => (universe, channel),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!([12, 15, 27, 30].map(address), [(1, 13), (2, 1), (2, 13), (3, 1)]);
+    }
+
+    #[test]
+    fn sacn_universe_sizes_outside_1_to_512_are_not_imported() {
+        let x = sacn("Odd", &[(1, 600)]);
         let result = build_show("t", &[x], &layout(vec![model("A", "1", 2, None)]), fake_geometry);
-        has_note(&result, "Odd uses 500 channels per universe");
+        has_note(
+            &result,
+            "Odd uses 600 channels per universe, but a universe carries 1 to 512, so it wasn't imported.",
+        );
         has_note(&result, "aren't on any imported controller: A");
         assert!(result.show.controllers.is_empty());
         let far = sacn("Far", &[(u32::MAX, 510)]);

@@ -248,6 +248,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn adapter_kinds_keep_their_saved_names() {
+        // Saved shows store these names: renaming a variant would break every show on disk.
+        for (kind, name) in [
+            (AdapterKind::Fpp, "\"fpp\""),
+            (AdapterKind::Falcon, "\"falcon\""),
+            (AdapterKind::Wled, "\"wled\""),
+            (AdapterKind::Generic, "\"generic\""),
+        ] {
+            assert_eq!(serde_json::to_string(&kind).unwrap(), name);
+            assert_eq!(serde_json::from_str::<AdapterKind>(name).unwrap(), kind);
+        }
+    }
+
+    #[test]
     fn universe_size_serializes_as_number_and_rejects_other_values() {
         assert_eq!(serde_json::to_string(&UniverseSize::CHANNELS_512).unwrap(), "512");
         assert_eq!(

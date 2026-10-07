@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useAssistant } from "../state/assistant";
 import { AssistantPanel } from "./assistant/AssistantPanel";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { errorMessage } from "../api/backend";
 import { fileName, plural, shownPath, thousands } from "../lib/format";
 import { useShallow } from "zustand/react/shallow";
@@ -218,6 +218,8 @@ function StatusBar() {
   const findMissingFiles = useApp((s) => s.findMissingFiles);
   const busy = useApp((s) => s.busy);
   const [open, setOpen] = useState(false);
+  const toggle = useRef<HTMLButtonElement>(null);
+  const popover = useRef<HTMLDivElement>(null);
   const missing = snapshot?.missingFiles ?? [];
   const issueCount = (snapshot?.issues.length ?? 0) + missing.length;
 
@@ -230,8 +232,20 @@ function StatusBar() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     };
+    // A click anywhere else closes it (the button toggles it itself), except in a dialog one of
+    // its fixes opened over it.
+    const onPointer = (e: PointerEvent) => {
+      const target = e.target as Element;
+      if (popover.current?.contains(target) || toggle.current?.contains(target)) return;
+      if (target.closest?.('[aria-modal="true"]')) return;
+      setOpen(false);
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onPointer);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onPointer);
+    };
   }, [open, issueCount]);
 
   if (!snapshot) return null;
@@ -247,6 +261,7 @@ function StatusBar() {
       </span>
       <LiveOutput />
       <button
+        ref={toggle}
         type="button"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
@@ -260,6 +275,7 @@ function StatusBar() {
       </button>
       {open && issueCount > 0 && (
         <div
+          ref={popover}
           role="dialog"
           aria-label="Problems"
           className="absolute right-2 bottom-9 z-20 max-h-80 w-[28rem] overflow-auto rounded-lg border border-neutral-200 bg-white p-3 text-sm shadow-xl dark:border-neutral-800 dark:bg-neutral-900"

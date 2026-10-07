@@ -510,6 +510,19 @@ describe("Edit → Undo and Redo in the menu bar", () => {
     await waitFor(() => expect(useApp.getState().snapshot?.show.name).toBe("Changed"));
   });
 
+  it("⌘Z in a text field is the field's, not the show's", async () => {
+    const { backend, user } = await start();
+    await openHouse(user);
+    await act(() => useApp.getState().apply([{ type: "renameShow", name: "Changed" }]));
+    await user.dblClick(showMenuButton());
+    expect(screen.getByRole("textbox", { name: "Show name" })).toHaveFocus();
+    await user.keyboard("{Meta>}z{/Meta}");
+    await user.keyboard("{Shift>}{Meta>}z{/Meta}{/Shift}");
+    expect(backend.calls).not.toContain("undo");
+    expect(backend.calls).not.toContain("redo");
+    expect(useApp.getState().snapshot?.show.name).toBe("Changed");
+  });
+
   it("leave a text field's undo to the field", async () => {
     const { backend, user } = await start();
     await openHouse(user);

@@ -34,14 +34,13 @@ impl TcpReach {
 
 impl Reach for TcpReach {
     fn answers(&self, address: &str) -> bool {
-        socket_addrs(address)
-            .iter()
-            .take(MAX_TRIES)
-            .any(|to| match TcpStream::connect_timeout(to, self.timeout) {
+        socket_addrs(address).iter().take(MAX_TRIES).any(|to| {
+            match TcpStream::connect_timeout(to, self.timeout) {
                 Ok(_) => true,
                 // Turned away: the host is there, with nothing listening on that port.
                 Err(e) => e.kind() == ErrorKind::ConnectionRefused,
-            })
+            }
+        })
     }
 }
 
@@ -56,7 +55,10 @@ fn socket_addrs(address: &str) -> Vec<SocketAddr> {
     } else if let Ok(ip) = address.parse::<IpAddr>() {
         vec![SocketAddr::new(ip, 80)]
     } else {
-        (address, 80).to_socket_addrs().map(Iterator::collect).unwrap_or_default()
+        (address, 80)
+            .to_socket_addrs()
+            .map(Iterator::collect)
+            .unwrap_or_default()
     };
     all.into_iter()
         .filter(|to| match to.ip() {

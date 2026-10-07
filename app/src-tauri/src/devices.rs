@@ -4,7 +4,8 @@
 use crate::{AppState, Reply};
 use pf_devices::fpp_player::{self, FppSequence, PlayerStatus};
 use pf_devices::{
-    Device, DeviceConfig, DiscoverOptions, Discovery, Http, HttpClient, ImportPlan, Reach, ReachCheck, TcpReach,
+    Device, DeviceConfig, DiscoverOptions, Discovery, Http, HttpClient, ImportPlan, Reach, ReachCheck,
+    TcpReach,
 };
 use pf_engine::{Edit, ShowSnapshot};
 use pf_model::Show;
@@ -202,7 +203,10 @@ fn fpp_name_or_address(address: &str, description: &str) -> String {
 /// Whether each controller answers, and whether it's on this computer's network (changes
 /// nothing: a connection to its web port is opened and closed, and nothing is read).
 #[tauri::command]
-pub(crate) async fn check_controllers(state: State<'_, AppState>, addresses: Vec<String>) -> Reply<Vec<ReachCheck>> {
+pub(crate) async fn check_controllers(
+    state: State<'_, AppState>,
+    addresses: Vec<String>,
+) -> Reply<Vec<ReachCheck>> {
     let reach = Arc::clone(&state.devices.reach);
     let networks = state.devices.networks;
     off_thread(move || Ok(pf_devices::check_reach(reach.as_ref(), &addresses, &networks()))).await

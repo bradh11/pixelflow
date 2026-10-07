@@ -60,7 +60,13 @@ pub struct Setup {
     pub ports: Vec<SetupPort>,
     /// What was left out of the comparison, in plain language.
     pub notes: Vec<String>,
+    /// Ports neither compared nor sent: the show wires them only through smart receivers.
+    pub left_alone: Vec<u16>,
 }
+
+/// The warning on a change that moves where strings start.
+pub const MOVES_PIXELS: &str =
+    "Every pixel after this moves; sequences made for the old layout will look wrong.";
 
 impl Setup {
     pub fn port(&self, number: u16) -> Option<&SetupPort> {
@@ -135,8 +141,10 @@ pub fn show_setup(show: &Show, controller: &Controller, one_per_port: bool) -> S
     let mut notes = Vec::new();
     let mut channel: u32 = 1;
     let mut ports: Vec<SetupPort> = Vec::new();
+    let mut left_alone = Vec::new();
     for port in &controller.ports {
         let mut strings = Vec::new();
+        let mut on_receivers = false;
         for (i, slot) in port.slots.iter().enumerate() {
             let Some(prop) = show.prop(slot.prop) else {
                 continue;
@@ -155,6 +163,7 @@ pub fn show_setup(show: &Show, controller: &Controller, one_per_port: bool) -> S
             channel = channel.saturating_add(pixels.saturating_mul(u32::from(cpp)));
             if slot.smart_receiver.is_some() {
                 push_once(&mut notes, RECEIVER_NOTE);
+                on_receivers = true;
                 continue;
             }
             strings.push(SetupString {
@@ -165,6 +174,9 @@ pub fn show_setup(show: &Show, controller: &Controller, one_per_port: bool) -> S
                 channels_per_pixel: cpp,
                 slots: vec![i],
             });
+        }
+        if strings.is_empty() && on_receivers {
+            left_alone.push(port.number);
         }
         if one_per_port && strings.len() > 1 {
             strings = vec![merge(port.number, strings, &mut notes)];
@@ -185,7 +197,12 @@ pub fn show_setup(show: &Show, controller: &Controller, one_per_port: bool) -> S
             universe_size: sacn.universe_size.channels(),
         },
     };
-    Setup { input, ports, notes }
+    Setup {
+        input,
+        ports,
+        notes,
+        left_alone,
+    }
 }
 
 /// Several props on one output that drives a single string: one string, their pixels added up.
@@ -256,7 +273,12 @@ pub fn device_setup(config: &DeviceConfig) -> Setup {
         },
         DeviceInput::Unsupported { description } => SetupInput::Other(description.clone()),
     };
-    Setup { input, ports, notes }
+    Setup {
+        input,
+        ports,
+        notes,
+        left_alone: Vec::new(),
+    }
 }
 
 fn push_once(notes: &mut Vec<String>, note: &str) {
@@ -292,6 +314,7 @@ pub fn diff_ports(before: &Setup, after: &Setup, direction: Direction) -> Vec<Ch
         .collect();
     numbers.sort_unstable();
     numbers.dedup();
+    numbers.retain(|n| !before.left_alone.contains(n) && !after.left_alone.contains(n));
     let none: Vec<SetupString> = Vec::new();
     let mut changes = Vec::new();
     for number in numbers {
@@ -369,13 +392,17 @@ pub fn diff_ports(before: &Setup, after: &Setup, direction: Direction) -> Vec<Ch
                     if let (Some(from), Some(to)) = (old.start, new.start)
                         && from != to
                     {
-                        changes.push(row(
+                        let mut change = row(
                             ChangeKind::Start,
                             format!("{key}/start"),
                             "Starts at channel",
                             with_commas(i64::from(from)),
                             with_commas(i64::from(to)),
-                        ));
+                        );
+                        if direction == Direction::ToDevice {
+                            change.warning = Some(MOVES_PIXELS.to_string());
+                        }
+                        changes.push(change);
                     }
                 }
                 (None, Some(new)) => {
@@ -934,6 +961,28 @@ mod tests {
         assert_eq!(setup.ports[0].strings[0].pixels, 52);
         assert!(setup.ports[1].strings.is_empty());
         assert_eq!(setup.notes, vec![RECEIVER_NOTE.to_string()]);
+        // A port wired only through receivers is left alone, not emptied.
+        assert_eq!(setup.left_alone, vec![2]);
+        let device = device_setup(&matching());
+        assert!(
+            diff_ports(&device, &setup, Direction::ToDevice)
+                .iter()
+                .all(|c| c.port != Some(2))
+        );
+    }
+
+    #[test]
+    fn moving_a_string_start_is_warned_about_when_sending() {
+        let (show, controller) = show();
+        let mut device = show_setup(&show, &controller, false);
+        device.ports[1].strings[0].start = Some(1);
+        let changes = diff_ports(
+            &device,
+            &show_setup(&show, &controller, false),
+            Direction::ToDevice,
+        );
+        assert_eq!(changes[0].kind, ChangeKind::Start);
+        assert_eq!(changes[0].warning.as_deref(), Some(MOVES_PIXELS));
     }
 
     #[test]

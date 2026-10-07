@@ -1,6 +1,6 @@
 import type { DeviceDetails, FppSequence, NodeRange, Phoneme, PlayerStatus, PortSlot, Prop, Region, ScheduleEntry, Show, SilentPeer, StringConfig } from "./types";
 import { type MemoryBackend, emptyShow, layoutThumbnail } from "./memory";
-import { newController, newProp } from "../lib/shows";
+import { newController, newProp, nodeCount } from "../lib/shows";
 
 /** A small sample show for browser-only UI development (`?demo`). */
 export function demoShow(): Show {
@@ -245,6 +245,45 @@ export function demoDevices(): { details: DeviceDetails[]; silent: SilentPeer[] 
       },
     ],
     silent: [{ address: "192.0.2.21", description: "Falcon_F16V5_Garage", listedBy: "FPP" }],
+  };
+}
+
+/**
+ * The demo show's own "Main FPP" as a device that answers (`?demo` only): its strings mostly
+ * match the show, but its matrix and tree are set up a little differently, its arch's colors are
+ * reordered, and it has a third string the show doesn't wire, so Compare and Send setup have
+ * something to show.
+ */
+export function demoShowDevices(show: Show): { details: DeviceDetails[]; players: Record<string, { status: PlayerStatus; sequences: FppSequence[] }> } {
+  const main = show.controllers.find((c) => c.name === "Main FPP");
+  if (!main) return { details: [], players: {} };
+  const prop = (id: string) => show.props.find((p) => p.id === id)!;
+  const ports = main.ports
+    .filter((port) => port.slots.length > 0)
+    .map((port) => ({
+      number: port.number,
+      maxPixels: null,
+      strings: port.slots.map((slot) => stringConfig(prop(slot.prop), nodeCount(prop(slot.prop).shape), { colorOrder: "RGB" })),
+    }));
+  ports[0].strings[0].colorOrder = "GRB";
+  ports[0].strings[1].pixels -= 12;
+  ports[1].strings[0].pixels += 50;
+  const star = show.props.find((p) => p.name === "Porch Star");
+  if (star) ports.push({ number: 3, maxPixels: null, strings: [stringConfig(star, 100, { name: "Star", colorOrder: "RGB" })] });
+  return {
+    details: [
+      {
+        device: { address: main.address, kind: "fpp", name: "Main FPP", model: "Pi 4 Model B", firmware: "FPP 9.5", mode: "player", foundBy: ["ping"] },
+        config: { input: { type: "ddp" }, ports, destinations: [], notes: [] },
+        plan: { controller: structuredClone(main), props: [], notes: [], alreadyInShow: true, canImport: true },
+      },
+    ],
+    players: {
+      [main.address]: {
+        status: { state: "idle", playlist: null, sequence: null, secondsElapsed: 0, secondsRemaining: 0, nextPlaylist: null, nextStart: null, warnings: [] },
+        sequences: [],
+      },
+    },
   };
 }
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ColorOrder, Controller, DeviceConfig, Prop, Show, StringConfig } from "../api/types";
+import { demoShow, demoShowDevices } from "../api/demo";
 import { emptyShow } from "../api/memory";
 import { applySetup, compareSetup, deviceSetup, diffPorts, showSetup, takeFromDevice } from "./deviceSetup";
 import { newController, nodeCount } from "./shows";
@@ -126,5 +127,15 @@ describe("device setup", () => {
     config.ports[0].strings[1].pixels = 80;
     const target = showSetup(show, controller, false);
     expect(diffPorts(deviceSetup(applySetup(config, target)), target, "toDevice")).toEqual([]);
+  });
+
+  it("the demo show's own FPP has differences to compare and send", () => {
+    const show = demoShow();
+    const [main] = demoShowDevices(show).details;
+    const controller = show.controllers.find((c) => c.address === main.device.address)!;
+    const ids = compareSetup(show, controller, "fpp", main.config).changes.map((c) => c.id);
+    expect(ids).toEqual(["input/receives", "port1/string1/colorOrder", "port1/string2/pixels", "port2/string1/pixels", "port3/string1"]);
+    const sent = diffPorts(deviceSetup(main.config), showSetup(show, controller, false), "toDevice").map((c) => c.id);
+    expect(sent).toEqual(["port1/string2/pixels", "port2/string1/pixels", "port3/string1"]);
   });
 });

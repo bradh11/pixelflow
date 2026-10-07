@@ -1,6 +1,7 @@
 //! Pattern definitions and rendering.
 
 use crate::{Rgbw, TargetRange};
+use pf_camera_map::{Base, CodeSpec, Symbol};
 
 /// A test pattern. Times are in seconds; speeds are in pixels per second.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -19,6 +20,9 @@ pub enum Pattern {
     Identify,
     /// One lit pixel stepping along the target, to check pixel order.
     PixelWalk { color: Rgbw, speed: f32 },
+    /// The camera-mapping sequence: every pixel flashes its own number (its place along the
+    /// target), looping. See `pf_camera_map::CodeSpec`.
+    CameraMap { base: Base, slot_seconds: f32 },
 }
 
 /// The built-in test patterns, each with standard timing.
@@ -118,6 +122,20 @@ fn color_at(pattern: &Pattern, t: f32, index: u64, total: u64) -> Rgbw {
                 color
             } else {
                 Rgbw::OFF
+            }
+        }
+        Pattern::CameraMap { base, slot_seconds } => {
+            let spec = CodeSpec {
+                pixels: u32::try_from(total).unwrap_or(u32::MAX),
+                base,
+                slot_seconds,
+            };
+            match spec.symbol_at(t, u32::try_from(index).unwrap_or(u32::MAX)) {
+                Symbol::Off => Rgbw::OFF,
+                Symbol::Red => Rgbw::RED,
+                Symbol::Green => Rgbw::GREEN,
+                Symbol::Blue => Rgbw::BLUE,
+                Symbol::White => Rgbw::WHITE,
             }
         }
     }
@@ -245,6 +263,32 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn camera_map_flashes_each_pixel_its_place_along_the_target() {
+        let pattern = Pattern::CameraMap {
+            base: Base::Four,
+            slot_seconds: 0.5,
+        };
+        // Two props, the second wired in reverse: pattern order is A0 A1 A2 B2 B1 B0.
+        let targets = [rgb_range(0, 3, false), rgb_range(9, 3, true)];
+        let mut frame = vec![0u8; 18];
+        let spec = CodeSpec::new(6, Base::Four);
+        let first_digit = spec
+            .slots()
+            .iter()
+            .position(|s| *s == pf_camera_map::Slot::Digit(0))
+            .unwrap();
+        render(&pattern, 0.5 * first_digit as f32 + 0.1, &targets, &mut frame);
+        // Numbers 1..6 → first digits 1 2 3 0 1 2 → red, green, blue, off, red, green.
+        let pixels: Vec<&[u8]> = frame.chunks(3).collect();
+        assert_eq!(pixels[0..3], [&[255, 0, 0][..], &[0, 255, 0], &[0, 0, 255]]);
+        // B's frame order is reversed: node 2 (pattern index 3) off, node 1 red, node 0 green.
+        assert_eq!(pixels[3..6], [&[0, 255, 0][..], &[255, 0, 0], &[0, 0, 0]]);
+        // The preamble's second slot lights everything white.
+        render(&pattern, 0.6, &targets, &mut frame);
+        assert!(frame.iter().all(|&b| b == 255));
     }
 
     #[test]

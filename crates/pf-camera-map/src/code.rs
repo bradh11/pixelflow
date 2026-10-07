@@ -106,36 +106,62 @@ impl CodeSpec {
 
     /// The slots in order.
     pub fn slots(&self) -> Vec<Slot> {
-        let mut slots: Vec<Slot> = PREAMBLE
-            .iter()
-            .map(|&lit| if lit { Slot::White } else { Slot::Dark })
-            .collect();
-        slots.extend((0..3).map(Slot::Reference));
-        slots.extend((0..self.digits()).map(Slot::Digit));
-        slots.extend((0..CHECK_DIGITS).map(Slot::Check));
-        slots.push(Slot::Dark);
-        slots
+        (0..self.slot_count()).map(|k| self.slot(k)).collect()
+    }
+
+    /// How many slots one pass has.
+    pub fn slot_count(&self) -> usize {
+        PREAMBLE.len() + 3 + usize::from(self.digits()) + usize::from(CHECK_DIGITS) + 1
+    }
+
+    /// Slot `k` of a pass (past the end: the dark tail).
+    pub fn slot(&self, k: usize) -> Slot {
+        let digits = usize::from(self.digits());
+        let refs = PREAMBLE.len();
+        match k {
+            k if k < refs => {
+                if PREAMBLE[k] {
+                    Slot::White
+                } else {
+                    Slot::Dark
+                }
+            }
+            k if k < refs + 3 => Slot::Reference((k - refs) as u8),
+            k if k < refs + 3 + digits => Slot::Digit((k - refs - 3) as u8),
+            k if k < refs + 3 + digits + usize::from(CHECK_DIGITS) => {
+                Slot::Check((k - refs - 3 - digits) as u8)
+            }
+            _ => Slot::Dark,
+        }
     }
 
     /// One pass of the sequence, in seconds.
     pub fn duration(&self) -> f32 {
-        self.slots().len() as f32 * self.slot_seconds
+        self.slot_count() as f32 * self.slot_seconds
     }
 
     /// The digits of pixel `index`'s code (number then check digits), least significant first.
     pub fn code(&self, index: u32) -> Vec<u8> {
-        let radix = self.base.radix();
-        let mut value = index + 1;
-        let mut digits: Vec<u8> = (0..self.digits())
-            .map(|_| {
-                let d = (value % radix) as u8;
-                value /= radix;
-                d
-            })
-            .collect();
-        let checks = check_digits(&digits, radix);
-        digits.extend(checks);
-        digits
+        (0..self.digits())
+            .map(|i| self.number_digit(index, i))
+            .chain((0..CHECK_DIGITS).map(|k| self.check_digit(index, k)))
+            .collect()
+    }
+
+    /// Digit `i` of pixel `index`'s number (`index + 1`), least significant first.
+    fn number_digit(&self, index: u32, i: u8) -> u8 {
+        let radix = u64::from(self.base.radix());
+        ((u64::from(index) + 1) / radix.pow(u32::from(i)) % radix) as u8
+    }
+
+    /// Check digit `k` of pixel `index`'s code.
+    fn check_digit(&self, index: u32, k: u8) -> u8 {
+        let mut number = [0u8; 64];
+        let n = usize::from(self.digits());
+        for (i, d) in number.iter_mut().take(n).enumerate() {
+            *d = self.number_digit(index, i as u8);
+        }
+        check_digits(&number[..n], self.base.radix())[usize::from(k % CHECK_DIGITS)]
     }
 
     /// The pixel index a code reads as (number then check digits), or `None` when the check
@@ -164,8 +190,8 @@ impl CodeSpec {
             Slot::Dark => Symbol::Off,
             Slot::White => Symbol::White,
             Slot::Reference(c) => [Symbol::Red, Symbol::Green, Symbol::Blue][usize::from(c % 3)],
-            Slot::Digit(i) => self.digit_symbol(self.code(index)[usize::from(i)]),
-            Slot::Check(i) => self.digit_symbol(self.code(index)[usize::from(self.digits() + i)]),
+            Slot::Digit(i) => self.digit_symbol(self.number_digit(index, i)),
+            Slot::Check(k) => self.digit_symbol(self.check_digit(index, k)),
         }
     }
 
@@ -181,9 +207,8 @@ impl CodeSpec {
 
     /// What pixel `index` shows `t` seconds after the sequence started (it loops).
     pub fn symbol_at(&self, t: f32, index: u32) -> Symbol {
-        let slots = self.slots();
-        let slot = (t.max(0.0) / self.slot_seconds.max(0.01)) as usize % slots.len();
-        self.symbol(slots[slot], index)
+        let k = (t.max(0.0) / self.slot_seconds.max(0.01)) as usize % self.slot_count();
+        self.symbol(self.slot(k), index)
     }
 }
 

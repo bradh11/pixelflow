@@ -1,6 +1,6 @@
 //! Size limits that keep tiny show files from forcing huge allocations.
 
-use crate::{Generator, ShapeSource, Show};
+use crate::{Generator, IssueCode, ShapeSource, Show};
 
 /// Most pixels a single prop may have.
 pub const MAX_PROP_NODES: u32 = 1_000_000;
@@ -32,41 +32,77 @@ pub const MAX_REGIONS_PER_PROP: usize = 1_000;
 /// its pixels, up to the prop's size).
 pub const MAX_REGION_ENTRIES: u64 = 10_000_000;
 
-/// Returns a plain-language sentence for every limit the show breaks (and for sequences listed
-/// twice under one id, which a show file must never have).
-pub(crate) fn check_limits(show: &Show) -> Vec<String> {
+/// A limit a show breaks: what kind, what's wrong, and how to put it right.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct LimitProblem {
+    pub code: IssueCode,
+    pub message: String,
+    pub fix: &'static str,
+}
+
+/// Returns every limit the show breaks, plus what a show file can't hold at all: sequences
+/// listed twice under one id, and numbers that aren't finite (they would save as `null`).
+pub(crate) fn check_limits(show: &Show) -> Vec<LimitProblem> {
     let mut problems = Vec::new();
+    let mut push = |code, message, fix| problems.push(LimitProblem { code, message, fix });
     let mut sequence_ids = std::collections::HashSet::new();
     for sequence in &show.sequences {
         if sequence.offset_ms.unsigned_abs() > MAX_SEQUENCE_OFFSET_MS.unsigned_abs() {
-            problems.push(format!(
-                "The sequence '{}' moves its lights {} ms against its music, but PixelFlow allows at most {MAX_SEQUENCE_OFFSET_MS} ms either way.",
-                sequence.name, sequence.offset_ms
-            ));
+            push(
+                IssueCode::LimitExceeded,
+                format!(
+                    "The sequence '{}' moves its lights {} ms against its music, but PixelFlow allows at most {MAX_SEQUENCE_OFFSET_MS} ms either way.",
+                    sequence.name, sequence.offset_ms
+                ),
+                "Move the sequence's lights at most 10 seconds against its music.",
+            );
         }
         if !sequence_ids.insert(sequence.id) {
-            problems.push(format!(
-                "The sequence '{}' has the same id as another sequence in the show.",
-                sequence.name
-            ));
+            push(
+                IssueCode::DuplicateId,
+                format!(
+                    "The sequence '{}' has the same id as another sequence in the show.",
+                    sequence.name
+                ),
+                "Remove one of the two from the show's sequences, then add it again.",
+            );
         }
     }
     let mut total: u64 = 0;
     for prop in &show.props {
+        let t = &prop.transform;
+        if !(t.position.is_finite() && t.rotation_deg.is_finite() && t.scale.is_finite()) {
+            push(
+                IssueCode::InvalidTransform,
+                format!(
+                    "The prop '{}' has a position, rotation or size that isn't a number.",
+                    prop.name
+                ),
+                "Place the prop again on the Layout screen.",
+            );
+        }
         let nodes = match shape_check(&prop.name, &prop.shape) {
             Ok(nodes) => nodes,
             Err(problem) => {
-                problems.push(problem);
+                push(
+                    IssueCode::InvalidShape,
+                    problem,
+                    "Change the prop's shape settings, or delete the prop.",
+                );
                 continue;
             }
         };
         total += nodes;
         if prop.regions.len() > MAX_REGIONS_PER_PROP {
-            problems.push(format!(
-                "The prop '{}' has {} submodels and faces, but PixelFlow supports at most {MAX_REGIONS_PER_PROP} per prop.",
-                prop.name,
-                prop.regions.len()
-            ));
+            push(
+                IssueCode::LimitExceeded,
+                format!(
+                    "The prop '{}' has {} submodels and faces, but PixelFlow supports at most {MAX_REGIONS_PER_PROP} per prop.",
+                    prop.name,
+                    prop.regions.len()
+                ),
+                "Remove some of the prop's submodels and faces.",
+            );
         } else {
             let entries: u64 = prop
                 .regions
@@ -74,32 +110,48 @@ pub(crate) fn check_limits(show: &Show) -> Vec<String> {
                 .map(|r| r.entry_count(prop.node_count()))
                 .sum();
             if entries > MAX_REGION_ENTRIES {
-                problems.push(format!(
-                    "The submodels and faces of '{}' list {entries} pixels in all, but PixelFlow supports at most {MAX_REGION_ENTRIES} per prop.",
-                    prop.name
-                ));
+                push(
+                    IssueCode::LimitExceeded,
+                    format!(
+                        "The submodels and faces of '{}' list {entries} pixels in all, but PixelFlow supports at most {MAX_REGION_ENTRIES} per prop.",
+                        prop.name
+                    ),
+                    "Remove some of the prop's submodels and faces, or make them smaller.",
+                );
             }
         }
         if nodes > u64::from(MAX_PROP_NODES) {
-            problems.push(format!(
-                "The prop '{}' has {nodes} pixels, but PixelFlow supports at most {MAX_PROP_NODES} per prop.",
-                prop.name
-            ));
+            push(
+                IssueCode::LimitExceeded,
+                format!(
+                    "The prop '{}' has {nodes} pixels, but PixelFlow supports at most {MAX_PROP_NODES} per prop.",
+                    prop.name
+                ),
+                "Reduce the size, or split it into smaller props.",
+            );
         }
     }
     if total > MAX_SHOW_PIXELS {
-        problems.push(format!(
-            "The show has {total} pixels in total, but PixelFlow supports at most {MAX_SHOW_PIXELS} per show."
-        ));
+        push(
+            IssueCode::LimitExceeded,
+            format!(
+                "The show has {total} pixels in total, but PixelFlow supports at most {MAX_SHOW_PIXELS} per show."
+            ),
+            "Remove some props, or make them smaller.",
+        );
     }
     for controller in &show.controllers {
         for port in &controller.ports {
             for slot in &port.slots {
                 if slot.null_pixels > MAX_NULL_PIXELS {
-                    problems.push(format!(
-                        "A slot on port {} on '{}' has {} null pixels, but PixelFlow supports at most {MAX_NULL_PIXELS} per slot.",
-                        port.number, controller.name, slot.null_pixels
-                    ));
+                    push(
+                        IssueCode::LimitExceeded,
+                        format!(
+                            "A slot on port {} on '{}' has {} null pixels, but PixelFlow supports at most {MAX_NULL_PIXELS} per slot.",
+                            port.number, controller.name, slot.null_pixels
+                        ),
+                        "Use fewer null pixels on the slot (at most 1,000).",
+                    );
                 }
             }
         }
@@ -110,6 +162,11 @@ pub(crate) fn check_limits(show: &Show) -> Vec<String> {
 /// What's wrong with a prop's shape (`name` names the prop), or its real pixel count: `node_count()`
 /// stops at `u32::MAX`.
 fn shape_check(name: &str, shape: &ShapeSource) -> Result<u64, String> {
+    if !numbers_finite(shape) {
+        return Err(format!(
+            "The prop '{name}' has a shape setting or point that isn't a number."
+        ));
+    }
     if let ShapeSource::Generator(Generator::CustomGrid { columns, rows, cells }) = shape {
         let expected = u64::from(*columns) * u64::from(*rows);
         if cells.len() as u64 != expected {
@@ -301,6 +358,78 @@ pub fn shape_problem(name: &str, shape: &Generator) -> Option<String> {
         )),
         Ok(_) => None,
     }
+}
+
+/// Whether every size, angle and measured point of a shape is a finite number. A poly line's
+/// points are checked with its other points ([`poly_line_problem`]). No catch-all arm, so a new
+/// shape must say which of its numbers to check.
+fn numbers_finite(shape: &ShapeSource) -> bool {
+    let generator = match shape {
+        ShapeSource::Measured { points, .. } => return points.iter().all(|p| p.is_finite()),
+        ShapeSource::Generator(generator) => generator,
+    };
+    let numbers: Vec<f32> = match generator {
+        Generator::Line { length, .. } => vec![*length],
+        Generator::Arch {
+            width,
+            height,
+            arc,
+            gap,
+            skew_deg,
+            ..
+        } => vec![*width, *height, *arc, *gap, *skew_deg],
+        Generator::Circle { radius, .. } | Generator::Wreath { radius, .. } => vec![*radius],
+        Generator::Matrix { width, height, .. } | Generator::WindowFrame { width, height, .. } => {
+            vec![*width, *height]
+        }
+        Generator::Tree {
+            height,
+            base_radius,
+            top_radius,
+            degrees,
+            start_angle,
+            spiral_rotations,
+            ..
+        } => vec![
+            *height,
+            *base_radius,
+            *top_radius,
+            *degrees,
+            *start_angle,
+            *spiral_rotations,
+        ],
+        Generator::Star {
+            outer_radius,
+            inner_radius,
+            ..
+        } => vec![*outer_radius, *inner_radius],
+        Generator::CandyCanes {
+            width,
+            height,
+            cane_height,
+            skew_deg,
+            ..
+        } => vec![*width, *height, *cane_height, *skew_deg],
+        Generator::Icicles {
+            width, drop_height, ..
+        } => vec![*width, *drop_height],
+        Generator::Spinner {
+            start_angle,
+            arc,
+            radius,
+            ..
+        } => vec![*start_angle, *arc, *radius],
+        Generator::Sphere {
+            radius,
+            start_latitude,
+            end_latitude,
+            degrees,
+            ..
+        } => vec![*radius, *start_latitude, *end_latitude, *degrees],
+        Generator::Cube { spacing, .. } => vec![*spacing],
+        Generator::PolyLine { .. } | Generator::CustomGrid { .. } => vec![],
+    };
+    numbers.iter().all(|n| n.is_finite())
 }
 
 /// What's wrong with a poly line's points, if anything.

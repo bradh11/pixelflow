@@ -83,6 +83,24 @@ fn edits_that_exceed_limits_are_rejected() {
 }
 
 #[test]
+fn edits_that_leave_numbers_a_show_file_cant_hold_are_rejected() {
+    // A NaN would save as `null`, and the file would never open again.
+    let (mut engine, _dir) = engine();
+    let mut placed = line("Arch", 5);
+    placed.transform.position.x = f32::NAN;
+    let mut shaped = line("Line", 5);
+    shaped.shape = ShapeSource::Generator(Generator::Line {
+        nodes: 5,
+        length: f32::INFINITY,
+    });
+    for prop in [placed, shaped] {
+        let err = engine.apply(vec![Edit::AddProp { prop }]).unwrap_err();
+        assert!(err.to_string().contains("isn't a number"), "{err}");
+    }
+    assert!(!engine.snapshot().can_undo);
+}
+
+#[test]
 fn snapshots_report_issues_errors_first() {
     let (mut engine, _dir) = engine();
     let snap = engine

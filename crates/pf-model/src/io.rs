@@ -189,7 +189,7 @@ fn show_from_value(mut doc: Value) -> Result<Show, ModelError> {
     doc["schemaVersion"] = Value::from(CURRENT_SCHEMA_VERSION);
     let show: Show = serde_json::from_value(doc)?;
     if let Some(problem) = limits::check_limits(&show).into_iter().next() {
-        return Err(ModelError::LimitExceeded(problem));
+        return Err(ModelError::LimitExceeded(problem.message));
     }
     Ok(show)
 }

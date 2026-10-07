@@ -68,8 +68,9 @@ function saveMore(id: string, open: boolean) {
  * Fields most people leave alone, folded under a "More" button. Whether it's open is remembered
  * on this computer by `id`, so a form opens the way it was last left.
  */
-export function More({ id, label = "More", children }: { id: string; label?: string; children: ReactNode }) {
-  const [open, setOpen] = useState(() => moreOpen(id));
+/** `forceOpen`: start open whatever was remembered, because something inside is set and should be seen. */
+export function More({ id, label = "More", forceOpen = false, children }: { id: string; label?: string; forceOpen?: boolean; children: ReactNode }) {
+  const [open, setOpen] = useState(() => forceOpen || moreOpen(id));
   const region = useId();
   return (
     <div className="mt-3">

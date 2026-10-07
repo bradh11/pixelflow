@@ -103,7 +103,7 @@ pub fn status(http: &dyn Http, host: &str) -> Result<PlayerStatus, DeviceError> 
 }
 
 /// Percent-encodes one URL path segment.
-fn encode_segment(text: &str) -> String {
+pub(crate) fn encode_segment(text: &str) -> String {
     let mut out = String::new();
     for byte in text.bytes() {
         if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {

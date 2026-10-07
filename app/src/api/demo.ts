@@ -1,4 +1,4 @@
-import type { DeviceDetails, FppSequence, NodeRange, Phoneme, PlayerStatus, PortSlot, Prop, Region, Show, SilentPeer, StringConfig } from "./types";
+import type { DeviceDetails, FppSequence, NodeRange, Phoneme, PlayerStatus, PortSlot, Prop, Region, ScheduleEntry, Show, SilentPeer, StringConfig } from "./types";
 import { type MemoryBackend, emptyShow, layoutThumbnail } from "./memory";
 import { newController, newProp } from "../lib/shows";
 
@@ -212,9 +212,9 @@ export function demoDevices(): { details: DeviceDetails[]; silent: SilentPeer[] 
           destinations: [
             { address: "192.0.2.20", description: "Falcon_F16V5_B9F5", protocol: "DDP", channels: 6147, startChannel: 1, startUniverse: null, universeSize: null, ddpRaw: false, unevenUniverses: false },
           ],
-          notes: ["This FPP has no pixel outputs of its own; it sends to the controllers listed above. Add each one with its Add to show button."],
+          notes: ["This FPP has no light outputs of its own: it passes its sequence on to the controllers it sends to."],
         },
-        plan: { controller: fppController, props: [], notes: ["This FPP has no pixel outputs of its own; it sends to the controllers listed above. Add each one with its Add to show button."], alreadyInShow: false, canImport: false },
+        plan: { controller: fppController, props: [], notes: ["This FPP has no light outputs of its own: it passes its sequence on to the controllers it sends to."], alreadyInShow: false, canImport: false },
       },
       {
         device: { address: "192.0.2.20", kind: "falcon", name: "Falcon_F16V5_B9F5", model: "F16v5", firmware: "F16V5 v2.00", mode: null, foundBy: ["fppPeer"] },
@@ -248,7 +248,55 @@ export function demoDevices(): { details: DeviceDetails[]; silent: SilentPeer[] 
   };
 }
 
-/** The demo FPP is playing its one sequence, and can't reach one of its controllers. */
+/** The demo FPP's music, playlists, and free space (for Send to FPP). */
+export function demoFppFiles(): Record<string, { media: string[]; playlists: Record<string, string[]>; freeBytes: number }> {
+  return {
+    "192.0.2.10": {
+      media: ["Christmas Medley 2017.mp3"],
+      playlists: { "Christmas Show": ["Christmas Medley 2017.fseq"] },
+      freeBytes: 24_600_000_000,
+    },
+  };
+}
+
+/** Sizes, dates, and lengths of the demo FPP's files (see MemoryBackend.fppFileDetails). */
+export function demoFppFileDetails(): Record<string, Record<string, { sizeBytes?: number; modified?: string; durationMs?: number }>> {
+  return {
+    "192.0.2.10": {
+      "Christmas Medley 2017.fseq": { sizeBytes: 69_700_000, modified: "2025-11-28 19:42" },
+      "Christmas Medley 2017.mp3": { sizeBytes: 8_910_000, modified: "2025-11-28 19:40", durationMs: 566_600 },
+      "Christmas Show": { sizeBytes: 1_204, modified: "2025-11-29 10:15" },
+    },
+  };
+}
+
+/** The demo FPP plays its show every evening of the season. */
+export function demoFppSchedules(): Record<string, ScheduleEntry[]> {
+  const entry = (over: Partial<ScheduleEntry>): ScheduleEntry => ({
+    enabled: true,
+    kind: "playlist",
+    name: "Christmas Show",
+    day: 7,
+    startTime: "17:30:00",
+    startOffset: 0,
+    endTime: "22:00:00",
+    endOffset: 0,
+    startDate: "2026-11-27",
+    endDate: "2027-01-06",
+    repeat: 1,
+    stopType: 0,
+    ...over,
+  });
+  return {
+    "192.0.2.10": [
+      entry({ name: "Christmas Medley 2017.fseq", kind: "sequence", startTime: "SunSet", startOffset: 15 }),
+      entry({ day: 0x10000 | 0x200 | 0x100, endTime: "23:00:00" }),
+      entry({ enabled: false, name: "Halloween", startDate: "2026-10-01", endDate: "2026-10-31", repeat: 0 }),
+    ],
+  };
+}
+
+/** The demo FPP is playing its one sequence, and can't reach the Falcon it sends to. */
 export function demoPlayers(): Record<string, { status: PlayerStatus; sequences: FppSequence[] }> {
   return {
     "192.0.2.10": {
@@ -260,7 +308,7 @@ export function demoPlayers(): Record<string, { status: PlayerStatus; sequences:
         secondsRemaining: 456,
         nextPlaylist: "Christmas Medley 2017.fseq",
         nextStart: "Mon Oct  5 @ 06:48 PM - (Everyday)",
-        warnings: ["Cannot Ping DDP Channel Data Target 192.0.2.21 Falcon_F16V5_Garage"],
+        warnings: ["Cannot Ping DDP Channel Data Target 192.0.2.20 Falcon_F16V5_B9F5"],
       },
       sequences: [{ name: "Christmas Medley 2017", frames: 11332, stepMs: 50, channels: 6148 }],
     },

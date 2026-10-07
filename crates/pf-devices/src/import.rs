@@ -245,6 +245,100 @@ pub fn plan_destination_import(destination: &Destination, show: &Show) -> Import
     }
 }
 
+/// An output target an FPP sends to that setting up the show leaves out, and why.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetupSkip {
+    pub name: String,
+    pub address: String,
+    pub reason: String,
+}
+
+/// What "Set up my show from this FPP" would add: the FPP's own outputs (when it has pixel ports
+/// and isn't in the show yet), and a controller for each output target it sends to, with the
+/// sequence channels the FPP sends there. Applied as one undo step.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FppSetupPlan {
+    pub own: Option<ImportPlan>,
+    /// One per output target not in the show yet, in the FPP's order.
+    pub controllers: Vec<Controller>,
+    pub skipped: Vec<SetupSkip>,
+    /// Plain-language notes about anything that wasn't planned exactly.
+    pub notes: Vec<String>,
+}
+
+impl FppSetupPlan {
+    /// The controller addresses it adds, in order (to check it's still the plan that was shown).
+    pub fn addresses(&self) -> Vec<String> {
+        self.own
+            .iter()
+            .map(|p| p.controller.address.clone())
+            .chain(self.controllers.iter().map(|c| c.address.clone()))
+            .collect()
+    }
+}
+
+/// Plans setting up `show` from an FPP (`device`, read as `config`); nothing is changed yet.
+pub fn plan_fpp_setup(device: &Device, config: &DeviceConfig, show: &Show) -> FppSetupPlan {
+    let mut working = show.clone();
+    let own = if config.ports.is_empty() || show.controllers.iter().any(|c| c.address == device.address) {
+        None
+    } else {
+        let plan = plan_import(device, config, &working);
+        plan.can_import.then(|| {
+            working.controllers.push(plan.controller.clone());
+            working.props.extend(plan.props.iter().cloned());
+            plan
+        })
+    };
+    let mut controllers = Vec::new();
+    let mut skipped = Vec::new();
+    let mut notes = Vec::new();
+    for destination in &config.destinations {
+        let name = if destination.description.trim().is_empty() {
+            destination.address.clone()
+        } else {
+            destination.description.trim().to_string()
+        };
+        let skip = |reason: String| SetupSkip {
+            name: name.clone(),
+            address: destination.address.clone(),
+            reason,
+        };
+        if let Some(existing) = show.controllers.iter().find(|c| c.address == destination.address) {
+            skipped.push(skip(format!("Already in your show as {}.", existing.name)));
+            continue;
+        }
+        if working
+            .controllers
+            .iter()
+            .any(|c| c.address == destination.address)
+        {
+            skipped.push(skip(format!(
+                "The FPP lists {} more than once; it's added once.",
+                destination.address
+            )));
+            continue;
+        }
+        let plan = plan_destination_import(destination, &working);
+        if !plan.can_import {
+            skipped.push(skip(plan.notes.join(" ")));
+            continue;
+        }
+        // The last note says the strings aren't known yet, which the page says once for all.
+        notes.extend(plan.notes.iter().take(plan.notes.len() - 1).cloned());
+        working.controllers.push(plan.controller.clone());
+        controllers.push(plan.controller);
+    }
+    FppSetupPlan {
+        own,
+        controllers,
+        skipped,
+        notes,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -525,5 +619,105 @@ mod tests {
         let plan = plan_import(&device(), &config(), &show);
         assert!(plan.already_in_show);
         assert!(plan.notes.iter().all(|n| !n.starts_with("Fills in")));
+    }
+
+    fn player() -> (Device, DeviceConfig) {
+        let fpp = Device {
+            address: "192.0.2.10".into(),
+            kind: DeviceKind::Fpp,
+            name: "FPP".into(),
+            model: "Pi 3 Model B+".into(),
+            firmware: "FPP 9.5.3".into(),
+            mode: Some("player".into()),
+            found_by: vec![],
+        };
+        let garage = Destination {
+            address: "192.0.2.21".into(),
+            description: "".into(),
+            start_channel: 6148,
+            channels: 900,
+            ..destination("sACN unicast")
+        };
+        let config = DeviceConfig {
+            input: DeviceInput::Ddp,
+            ports: vec![],
+            destinations: vec![
+                destination("DDP"),
+                garage,
+                destination("sACN unicast"),
+                Destination {
+                    address: "192.0.2.30".into(),
+                    ..destination("Art-Net")
+                },
+            ],
+            notes: vec![],
+        };
+        (fpp, config)
+    }
+
+    #[test]
+    fn setting_up_from_an_fpp_adds_each_output_target_with_its_channels() {
+        let (fpp, config) = player();
+        let mut show = Show::new("t");
+        show.controllers
+            .push(Controller::new("Falcon_F16V5_B9F5", "192.0.2.99", Protocol::Ddp));
+        let plan = plan_fpp_setup(&fpp, &config, &show);
+        assert!(plan.own.is_none());
+        let added: Vec<_> = plan
+            .controllers
+            .iter()
+            .map(|c| {
+                (
+                    c.name.as_str(),
+                    c.address.as_str(),
+                    c.sequence_channels.map(|s| (s.start, s.count)),
+                )
+            })
+            .collect();
+        assert_eq!(
+            added,
+            vec![
+                // Named apart from the show's controller of that name.
+                ("Falcon_F16V5_B9F5 2", "192.0.2.20", Some((1, 6147))),
+                ("192.0.2.21", "192.0.2.21", Some((6148, 900))),
+            ]
+        );
+        assert_eq!(plan.addresses(), vec!["192.0.2.20", "192.0.2.21"]);
+        let skipped: Vec<_> = plan
+            .skipped
+            .iter()
+            .map(|s| (s.address.as_str(), s.reason.as_str()))
+            .collect();
+        assert_eq!(
+            skipped,
+            vec![
+                (
+                    "192.0.2.20",
+                    "The FPP lists 192.0.2.20 more than once; it's added once."
+                ),
+                ("192.0.2.30", "PixelFlow can't send Art-Net yet."),
+            ]
+        );
+        assert!(plan.notes.is_empty(), "{:?}", plan.notes);
+
+        // What's in the show already is left alone.
+        show.controllers.push(plan.controllers[0].clone());
+        let again = plan_fpp_setup(&fpp, &config, &show);
+        assert_eq!(again.addresses(), vec!["192.0.2.21"]);
+        assert_eq!(
+            again.skipped[0].reason,
+            "Already in your show as Falcon_F16V5_B9F5 2."
+        );
+    }
+
+    #[test]
+    fn an_fpp_with_its_own_outputs_adds_them_too() {
+        let (fpp, mut config) = player();
+        config.ports = self::config().ports;
+        let plan = plan_fpp_setup(&fpp, &config, &Show::new("t"));
+        let own = plan.own.as_ref().expect("its own outputs");
+        assert_eq!(own.controller.address, "192.0.2.10");
+        assert_eq!(own.props.len(), 3);
+        assert_eq!(plan.addresses()[0], "192.0.2.10");
     }
 }

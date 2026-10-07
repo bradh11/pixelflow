@@ -3134,6 +3134,7 @@ dependencies = [
  "pf-audio",
  "pf-devices",
  "pf-engine",
+ "pf-fseq",
  "pf-geometry",
  "pf-model",
  "pf-output",

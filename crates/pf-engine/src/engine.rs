@@ -151,6 +151,19 @@ impl SequenceExport {
         pf_render::export::export_layout(&self.show, &self.map)
     }
 
+    /// Records `music` (a file name) as the file's music instead of the sequence's own, or no
+    /// music at all: for a copy sent to an FPP, where the song may be stored under another name.
+    /// The open sequence isn't changed.
+    pub fn with_music_named(mut self, music: Option<&str>) -> Self {
+        self.sequence.audio = music.map(str::to_string);
+        self
+    }
+
+    /// How long the sequence lasts.
+    pub fn duration_ms(&self) -> u64 {
+        self.sequence.duration_ms
+    }
+
     /// Renders every frame and writes the `.fseq` file atomically. `progress` gets (frames done,
     /// total frames) and returns `false` to cancel (the error says so, and no file is written).
     pub fn run(

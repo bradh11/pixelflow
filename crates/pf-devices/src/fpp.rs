@@ -300,7 +300,7 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
         notes.push(if destinations.is_empty() {
             "This FPP has no pixel outputs of its own.".to_string()
         } else {
-            "This FPP has no pixel outputs of its own; it sends to the controllers listed above. Add each one with its Add to show button."
+            "This FPP has no light outputs of its own: it passes its sequence on to the controllers it sends to."
                 .to_string()
         });
     }

@@ -144,7 +144,7 @@ export function ControllerEditForm({ controller, onDone }: { controller: Control
         </fieldset>
       </div>
       {draft.protocol === "sacn" && (
-        <More id="controller-edit" label="More: universe size and multicast">
+        <More id="controller-edit" label="More: universe size and multicast" forceOpen={multicast}>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Channels per universe" id={id("universeSize")} hint="510 fits exactly 170 RGB pixels in each universe. Match what the controller is set to.">
               <Select id={id("universeSize")} value={draft.universeSize} onChange={(e) => set({ universeSize: Number(e.target.value) === 512 ? 512 : 510 })}>

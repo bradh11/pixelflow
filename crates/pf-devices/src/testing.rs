@@ -2,6 +2,8 @@
 
 use crate::http::FakeHttp;
 
+pub use crate::fake_fpp::{Checksum, FakeFpp, FakeFppState, StoredFile, UploadFile};
+
 /// The FPP player (real responses, IPs scrubbed). It sends DDP to [`FALCON`].
 pub const FPP: &str = "192.0.2.10";
 /// A Falcon F16V5 in DDP mode with strings on ports 1 and 3.

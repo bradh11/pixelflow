@@ -23,6 +23,7 @@ test-fixtures = []
 
 [dev-dependencies]
 pf-devices = { path = ".", features = ["test-fixtures"] }
+tempfile.workspace = true
 
 [lints]
 workspace = true

@@ -6,6 +6,15 @@ import type {
   PreviewSet,
   PreviewSet3d,
   FppSequence,
+  FppFile,
+  FppFolder,
+  FppSetupPlan,
+  ScheduleEntry,
+  FppSendPlan,
+  FppSendProgress,
+  FppSendRequest,
+  FppSendResult,
+  SendSource,
   PlayerStatus,
   Discovery,
   Edit,
@@ -78,6 +87,31 @@ export interface Backend {
   fppStart(address: string, name: string): Promise<void>;
   /** Stops an FPP now, or after the current sequence. Only when the user asks. */
   fppStop(address: string, gracefully: boolean): Promise<void>;
+  /** One of an FPP's folders, with each file's length, size, and date (changes nothing). */
+  fppFolder(address: string, folder: FppFolder): Promise<FppFile[]>;
+  /** An FPP's schedule entries (changes nothing). */
+  fppSchedule(address: string): Promise<ScheduleEntry[]>;
+  /** What setting up the show from an FPP would add: a controller per output target it sends
+   * to, with its channels (and its own outputs, if any). Changes nothing. */
+  fppSetupPlan(address: string): Promise<FppSetupPlan>;
+  /** Adds what fppSetupPlan showed as one undo step; `expected` is the addresses it showed, and
+   * nothing is added if the plan has changed since. */
+  fppSetUpShow(address: string, expected: string[]): Promise<ShowSnapshot>;
+  /** Opens a controller's own web page in the system browser. */
+  openDevicePage(address: string): Promise<void>;
+  /** The sequence files on an FPP, with ".fseq" (one quick request; changes nothing). */
+  fppSequenceNames(address: string): Promise<string[]>;
+  /** What sending `source` (and `music`) to an FPP would do: names taken, playlists, free space.
+   * Changes nothing. */
+  fppSendPlan(address: string, source: SendSource, music: string | null): Promise<FppSendPlan>;
+  /**
+   * Puts a sequence and its music on an FPP, and on a playlist if chosen, calling `onProgress` as
+   * it goes. Rejects with "The upload was cancelled." after cancelFppSend. Changes the FPP: only
+   * from the user's Send click. It never starts playback.
+   */
+  fppSend(address: string, request: FppSendRequest, onProgress?: (progress: FppSendProgress) => void): Promise<FppSendResult>;
+  /** Stops the sends running now. */
+  cancelFppSend(): Promise<void>;
   /** Plays a rendered sequence (.fseq) to the controllers that know their sequence channels. */
   startPlayback(path: string, positionMs: number): Promise<PlaybackStatus>;
   pausePlayback(paused: boolean): Promise<PlaybackStatus | null>;

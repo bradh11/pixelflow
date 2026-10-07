@@ -660,6 +660,136 @@ export interface FppSequence {
   channels: number;
 }
 
+/** One of an FPP's folders. */
+export type FppFolder = "sequences" | "music" | "playlists";
+
+/** A sequence, music file, or playlist stored on an FPP. */
+export interface FppFile {
+  /** Its name on the FPP (a sequence's with ".fseq"; a playlist's without ".json"). */
+  name: string;
+  sizeBytes: number | null;
+  /** When it last changed, "YYYY-MM-DD HH:MM" by the FPP's clock. */
+  modified: string | null;
+  durationMs: number | null;
+  /** A sequence's channel count. */
+  channels: number | null;
+  /** A playlist's item count. */
+  items: number | null;
+}
+
+export type ScheduleKind = "playlist" | "sequence" | "command";
+
+/** One entry of an FPP's schedule, as FPP saved it (see crates/pf-devices fpp_info). */
+export interface ScheduleEntry {
+  enabled: boolean;
+  kind: ScheduleKind;
+  name: string;
+  /** FPP's day code: 0–6 Sunday–Saturday, 7 every day, 8 weekdays, 9 weekends, 10 Mon/Wed/Fri,
+   * 11 Tue/Thu, 12 Sun–Thu, 13 Fri/Sat, 14 odd days, 15 even days, or 0x10000 plus a bit per day
+   * (0x4000 Sunday down to 0x100 Saturday). */
+  day: number;
+  /** "HH:MM:SS", or SunRise, SunSet, Dawn, Dusk (with the offset in minutes). */
+  startTime: string;
+  startOffset: number;
+  endTime: string;
+  endOffset: number;
+  /** "YYYY-MM-DD" (year 0000: every year) or a holiday name; empty for no limit. */
+  startDate: string;
+  endDate: string;
+  /** 0 plays once, 1 repeats straight away, otherwise every repeat / 100 minutes. */
+  repeat: number;
+  /** 0 stops gracefully, 1 at once, 2 gracefully after the loop. */
+  stopType: number;
+}
+
+/** An output target that setting up the show from an FPP leaves out, and why. */
+export interface SetupSkip {
+  name: string;
+  address: string;
+  reason: string;
+}
+
+/** What "Set up my show from this FPP" adds, as one undo step. */
+export interface FppSetupPlan {
+  /** The FPP's own outputs, when it has pixel ports and isn't in the show yet. */
+  own: ImportPlan | null;
+  /** A controller per output target not in the show yet, with the channels the FPP sends it. */
+  controllers: Controller[];
+  skipped: SetupSkip[];
+  notes: string[];
+}
+
+/** What to send to an FPP: the open sequence (exported for it, named `name` there), or one of
+ * the show's `.fseq` files as it is. */
+export type SendSource = { kind: "openSequence"; name: string } | { kind: "file"; path: string };
+
+/** A file name on an FPP, whether it's taken, and the name that would keep both. */
+export interface NameCheck {
+  /** The name PixelFlow would give the file. */
+  name: string;
+  /** A file by that name is on the FPP, whatever its capitals. */
+  exists: boolean;
+  /** The clashing file's name on the FPP, exactly as the FPP spells it (replace or reuse that). */
+  fppName: string | null;
+  keepBothName: string;
+}
+
+/** What sending would do, read from the FPP before anything is sent. */
+export interface FppSendPlan {
+  sequence: NameCheck;
+  music: NameCheck | null;
+  playlists: string[];
+  /** A name for a new playlist (the sequence's). */
+  newPlaylistName: string;
+  /** Free space on the FPP, when it says. */
+  freeBytes: number | null;
+  /** Where the sequence's channels don't match the FPP's outputs (sending still works). */
+  layoutWarnings: string[];
+}
+
+export type PlaylistChoice = { kind: "none" } | { kind: "existing"; name: string } | { kind: "new"; name: string };
+
+/** What the user chose in the Send to FPP dialog. */
+export interface FppSendRequest {
+  source: SendSource;
+  /** The music on this computer, if any. */
+  music: string | null;
+  /** File names on the FPP: as planned, the keep-both names, or (to replace or reuse) the FPP's
+   * own spelling. */
+  sequenceName: string;
+  musicName: string | null;
+  /** False to use the copy of the music already on the FPP. */
+  uploadMusic: boolean;
+  /** The user chose to replace the FPP's file of that name; without it nothing is replaced. */
+  replaceSequence: boolean;
+  replaceMusic: boolean;
+  playlist: PlaylistChoice;
+  /** Tells this send's progress apart from any other's. */
+  sendId: number;
+}
+
+/** "commit" and "playlist" come after the commit point: files are moving into place, and Cancel
+ * no longer applies. */
+export type FppSendStep = "export" | "sequence" | "music" | "commit" | "playlist";
+
+export interface FppSendProgress {
+  sendId: number;
+  step: FppSendStep;
+  percent: number;
+  done: number;
+  total: number;
+}
+
+/** What a send put on the FPP. */
+export interface FppSendResult {
+  sequenceName: string;
+  musicName: string | null;
+  playlist: string | null;
+  /** What "Play it now" starts (a playlist or a sequence file). */
+  playName: string;
+  notes: string[];
+}
+
 /** A sequence playing on the controllers. */
 export interface PlaybackStatus {
   state: "playing" | "paused" | "ended";

@@ -7,6 +7,7 @@
 mod assistant;
 mod devices;
 mod files;
+mod fpp_send;
 mod house;
 mod layout;
 mod logging;
@@ -43,6 +44,8 @@ struct AppState {
     models: house::PickedModels,
     /// Bumped by `cancel_sequence_export`: an export started before the bump stops.
     export_cancels: std::sync::atomic::AtomicU64,
+    /// Bumped by `cancel_fpp_send`: a send to an FPP started before the bump stops.
+    send_cancels: std::sync::atomic::AtomicU64,
     /// Set while a check of the show's files runs (see `files::check_files`).
     checking_files: std::sync::atomic::AtomicBool,
     /// Shows opened lately (written only here, when a show is opened, saved, or restored).
@@ -279,6 +282,15 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         devices::fpp_sequences,
         devices::fpp_start,
         devices::fpp_stop,
+        devices::fpp_files,
+        devices::fpp_schedule,
+        devices::fpp_setup_plan,
+        devices::fpp_set_up_show,
+        devices::open_device_page,
+        fpp_send::fpp_send_plan,
+        fpp_send::fpp_send,
+        fpp_send::cancel_fpp_send,
+        fpp_send::fpp_sequence_names,
         playback::start_playback,
         playback::pause_playback,
         playback::seek_playback,
@@ -374,6 +386,7 @@ pub fn run() {
                 photos: Default::default(),
                 models: Default::default(),
                 export_cancels: Default::default(),
+                send_cancels: Default::default(),
                 checking_files: Default::default(),
                 recent: Arc::new(recent::RecentShows::new(config_dir.clone())),
                 last_folders: pickers::LastFolders::new(config_dir),
@@ -494,6 +507,7 @@ mod tests {
                 photos: Default::default(),
                 models: Default::default(),
                 export_cancels: Default::default(),
+                send_cancels: Default::default(),
                 checking_files: Default::default(),
                 recent: Arc::new(recent::RecentShows::new(Some(dir.join("config")))),
                 last_folders: pickers::LastFolders::new(Some(dir.join("config"))),
@@ -1488,6 +1502,295 @@ mod tests {
             ] }),
         )
         .unwrap();
+    }
+
+    #[test]
+    fn the_open_sequence_is_sent_to_an_fpp_with_its_music_and_a_playlist() {
+        use tauri::Listener;
+        let fpp = pf_devices::testing::FakeFpp::start().with_playlist("Main");
+        let (app, webview, dir) = app();
+        authored(&webview);
+        let music = dir.path().join("Song.mp3");
+        std::fs::write(&music, b"not really music").unwrap();
+        let source = json!({ "kind": "openSequence", "name": "Song" });
+
+        // Planning only reads.
+        let plan = call(
+            &webview,
+            "fpp_send_plan",
+            json!({ "address": fpp.address(), "source": source, "music": music }),
+        )
+        .unwrap();
+        assert_eq!(
+            plan["sequence"],
+            json!({ "name": "Song.fseq", "exists": false, "fppName": null, "keepBothName": "Song (2).fseq" })
+        );
+        // The show's bench controller isn't one the (fixture) FPP sends to: said plainly.
+        assert_eq!(
+            plan["layoutWarnings"],
+            json!([
+                "This sequence has 12 channels but the FPP sends 6,147. Lights past channel 12 will stay dark.",
+                "Bench (127.0.0.1:9): the FPP doesn't send to it, so it won't light up."
+            ])
+        );
+        assert_eq!(plan["music"]["name"], "Song.mp3");
+        assert_eq!(plan["playlists"], json!(["Main"]));
+        assert_eq!(plan["newPlaylistName"], "Song");
+        assert!(fpp.state().writes().is_empty(), "{:?}", fpp.state().writes());
+
+        let events: Arc<Mutex<Vec<Value>>> = Default::default();
+        let seen = events.clone();
+        app.listen_any(fpp_send::FPP_SEND_PROGRESS_EVENT, move |event| {
+            seen.lock()
+                .unwrap()
+                .push(serde_json::from_str(event.payload()).unwrap());
+        });
+        let result = call(
+            &webview,
+            "fpp_send",
+            json!({ "address": fpp.address(), "request": {
+                "source": source, "music": music, "sequenceName": "Song.fseq", "musicName": "Song.mp3",
+                "uploadMusic": true, "playlist": { "kind": "existing", "name": "Main" } } }),
+        )
+        .unwrap();
+        assert_eq!(
+            result,
+            json!({ "sequenceName": "Song.fseq", "musicName": "Song.mp3", "playlist": "Main",
+                    "playName": "Song.fseq", "notes": [] })
+        );
+        {
+            let state = fpp.state();
+            assert!(state.sequences["Song.fseq"].size > 0);
+            assert_eq!(state.music["Song.mp3"].size, 16);
+            let entry = &state.playlists["Main"]["mainPlaylist"][0];
+            assert_eq!(
+                (
+                    entry["sequenceName"].clone(),
+                    entry["mediaName"].clone(),
+                    entry["duration"].clone()
+                ),
+                (json!("Song.fseq"), json!("Song.mp3"), json!(2.0))
+            );
+        }
+        let steps: Vec<String> = events
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|e| e["step"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(steps.first().map(String::as_str), Some("export"));
+        assert!(steps.iter().any(|s| s == "sequence") && steps.iter().any(|s| s == "music"));
+        // The exported copy was only for sending.
+        let leftovers: Vec<_> = std::fs::read_dir(std::env::temp_dir())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with(&format!("pixelflow-send-{}-", std::process::id()))
+            })
+            .filter(|e| e.path().join("Song.fseq").exists())
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
+
+        // Sending never starts anything by itself: "Play it now" is a separate click (fpp_start).
+        assert!(fpp.state().commands.is_empty());
+
+        // Cancel bumps the counter that sends watch.
+        call(&webview, "cancel_fpp_send", json!({})).unwrap();
+        assert_eq!(
+            app.state::<AppState>()
+                .send_cancels
+                .load(std::sync::atomic::Ordering::Acquire),
+            1
+        );
+    }
+
+    #[test]
+    fn the_open_sequences_own_music_is_found_next_to_it() {
+        let fpp = pf_devices::testing::FakeFpp::start();
+        let (_app, webview, dir) = app();
+        authored(&webview);
+        std::fs::write(dir.path().join("Song.mp3"), b"music").unwrap();
+        call(
+            &webview,
+            "edit_sequence",
+            json!({ "edits": [{ "type": "updateInfo", "name": "Song", "audio": "Song.mp3",
+                                "durationMs": 2000, "frameMs": 25 }] }),
+        )
+        .unwrap();
+        call(
+            &webview,
+            "save_sequence_doc_as",
+            json!({ "path": dir.path().join("Song.pfseq.json") }),
+        )
+        .unwrap();
+        let source = json!({ "kind": "openSequence", "name": "Song" });
+        let plan = call(
+            &webview,
+            "fpp_send_plan",
+            json!({ "address": fpp.address(), "source": source, "music": "Song.mp3" }),
+        )
+        .unwrap();
+        assert_eq!(plan["music"]["name"], "Song.mp3");
+        call(
+            &webview,
+            "fpp_send",
+            json!({ "address": fpp.address(), "request": {
+                "source": source, "music": "Song.mp3", "sequenceName": "Relative music.fseq", "musicName": "Song.mp3",
+                "uploadMusic": true, "playlist": { "kind": "none" } } }),
+        )
+        .unwrap();
+        assert_eq!(fpp.state().music["Song.mp3"].size, 5);
+    }
+
+    #[test]
+    fn an_exported_sequence_names_the_fpps_own_copy_of_the_music_exactly() {
+        let fpp = pf_devices::testing::FakeFpp::start().with_music("song.mp3", 5);
+        let (_app, webview, dir) = app();
+        authored(&webview);
+        let music = dir.path().join("Song.mp3");
+        std::fs::write(&music, b"music").unwrap();
+        let source = json!({ "kind": "openSequence", "name": "Exact" });
+        let plan = call(
+            &webview,
+            "fpp_send_plan",
+            json!({ "address": fpp.address(), "source": source, "music": music }),
+        )
+        .unwrap();
+        assert_eq!(plan["music"]["fppName"], "song.mp3");
+        call(
+            &webview,
+            "fpp_send",
+            json!({ "address": fpp.address(), "request": {
+                "source": source, "music": music, "sequenceName": "Exact.fseq", "musicName": "song.mp3",
+                "uploadMusic": false, "playlist": { "kind": "none" } } }),
+        )
+        .unwrap();
+        let state = fpp.state();
+        let head = &state.heads["Exact.fseq"];
+        assert!(
+            head.windows(11).any(|w| w == b"mfsong.mp3\0"),
+            "the .fseq names the FPP's song.mp3 exactly"
+        );
+        assert_eq!(state.music["song.mp3"].size, 5, "the FPP's copy is untouched");
+    }
+
+    #[test]
+    fn the_sequences_on_an_fpp_are_listed_in_one_request() {
+        let (_app, webview, _dir) = app();
+        let names = call(
+            &webview,
+            "fpp_sequence_names",
+            json!({ "address": pf_devices::testing::FPP }),
+        )
+        .unwrap();
+        assert_eq!(names, json!(["Christmas Medley 2017.fseq"]));
+    }
+
+    #[test]
+    fn an_fpps_files_and_schedule_are_read_without_changing_anything() {
+        let fpp = pf_devices::testing::FakeFpp::start()
+            .with_sequence("Show.fseq", 1000)
+            .with_duration("Show.fseq", 60_000)
+            .with_music("Show.mp3", 500)
+            .with_playlist("Main")
+            .with_schedule(json!([{ "enabled": 1, "day": 7, "playlist": "Main",
+                "startTime": "17:00:00", "endTime": "22:00:00", "repeat": 1, "stopType": 0 }]));
+        let (_app, webview, _dir) = app();
+        let address = fpp.address();
+        let sequences = call(
+            &webview,
+            "fpp_files",
+            json!({ "address": address, "folder": "sequences" }),
+        )
+        .unwrap();
+        assert_eq!(sequences[0]["name"], "Show.fseq");
+        assert_eq!(sequences[0]["durationMs"], 60_000);
+        assert_eq!(sequences[0]["sizeBytes"], 1000);
+        let music = call(
+            &webview,
+            "fpp_files",
+            json!({ "address": address, "folder": "music" }),
+        )
+        .unwrap();
+        assert_eq!(music[0]["name"], "Show.mp3");
+        let playlists = call(
+            &webview,
+            "fpp_files",
+            json!({ "address": address, "folder": "playlists" }),
+        )
+        .unwrap();
+        assert_eq!(playlists[0]["name"], "Main");
+        let schedule = call(&webview, "fpp_schedule", json!({ "address": address })).unwrap();
+        assert_eq!(schedule[0]["name"], "Main");
+        assert_eq!(schedule[0]["kind"], "playlist");
+        assert_eq!(schedule[0]["startTime"], "17:00:00");
+        assert!(fpp.state().writes().is_empty());
+    }
+
+    #[test]
+    fn setting_up_the_show_from_an_fpp_adds_its_targets_as_one_undo_step() {
+        let (_app, webview, _dir) = app();
+        let fpp = pf_devices::testing::FPP;
+        let plan = call(&webview, "fpp_setup_plan", json!({ "address": fpp })).unwrap();
+        assert_eq!(plan["own"], json!(null));
+        let controllers = plan["controllers"].as_array().unwrap();
+        assert_eq!(controllers.len(), 1);
+        assert_eq!(controllers[0]["name"], "Falcon_F16V5_B9F5");
+        assert_eq!(controllers[0]["address"], pf_devices::testing::FALCON);
+        assert_eq!(
+            controllers[0]["sequenceChannels"],
+            json!({ "start": 1, "count": 6147, "rawDdpOffsets": true })
+        );
+        // Planning changed nothing.
+        let snapshot = call(&webview, "get_snapshot", json!({})).unwrap();
+        assert_eq!(snapshot["summary"]["controllers"], 0);
+
+        // A stale plan adds nothing.
+        let error = call(
+            &webview,
+            "fpp_set_up_show",
+            json!({ "address": fpp, "expected": ["192.0.2.77"] }),
+        )
+        .unwrap_err();
+        assert!(
+            error.as_str().unwrap().contains("changed since you looked"),
+            "{error}"
+        );
+
+        let expected = json!([pf_devices::testing::FALCON]);
+        let snapshot = call(
+            &webview,
+            "fpp_set_up_show",
+            json!({ "address": fpp, "expected": expected }),
+        )
+        .unwrap();
+        assert_eq!(snapshot["summary"]["controllers"], 1);
+        assert_eq!(snapshot["show"]["controllers"][0]["name"], "Falcon_F16V5_B9F5");
+        let again = call(&webview, "fpp_setup_plan", json!({ "address": fpp })).unwrap();
+        assert_eq!(again["controllers"], json!([]));
+        assert!(
+            again["skipped"][0]["reason"]
+                .as_str()
+                .unwrap()
+                .starts_with("Already in your show")
+        );
+
+        let snapshot = call(&webview, "undo", json!({})).unwrap();
+        assert_eq!(snapshot["summary"]["controllers"], 0, "one undo step");
+    }
+
+    #[test]
+    fn a_device_page_link_must_be_a_plain_address() {
+        let (_app, webview, _dir) = app();
+        let error = call(
+            &webview,
+            "open_device_page",
+            json!({ "address": "192.0.2.10/x?y" }),
+        )
+        .unwrap_err();
+        assert_eq!(error, json!("192.0.2.10/x?y isn't a controller address."));
     }
 
     #[test]

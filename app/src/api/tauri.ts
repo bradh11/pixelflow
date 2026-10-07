@@ -4,10 +4,12 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Backend } from "./backend";
 import { whileFileDialog } from "./fileDialogs";
 import { decodePreview, decodePreview3d } from "./previewBytes";
-import type { MenuAction, PickKind } from "./types";
+import type { FppSendProgress, FppSendResult, MenuAction, PickKind } from "./types";
 
 /** The event the shell sends when a File menu item is chosen in the menu bar. */
 const MENU_EVENT = "menu";
+/** The event a send to an FPP reports its progress with. */
+const FPP_SEND_PROGRESS_EVENT = "fpp-send-progress";
 
 /**
  * Shows a native file dialog of `kind` (a save dialog suggests `name`). The shell shows it as a
@@ -47,6 +49,26 @@ export const tauriBackend: Backend = {
   fppSequences: (address) => invoke("fpp_sequences", { address }),
   fppStart: (address, name) => invoke("fpp_start", { address, name }),
   fppStop: (address, gracefully) => invoke("fpp_stop", { address, gracefully }),
+  fppFolder: (address, folder) => invoke("fpp_files", { address, folder }),
+  fppSchedule: (address) => invoke("fpp_schedule", { address }),
+  fppSetupPlan: (address) => invoke("fpp_setup_plan", { address }),
+  fppSetUpShow: (address, expected) => invoke("fpp_set_up_show", { address, expected }),
+  openDevicePage: (address) => invoke("open_device_page", { address }),
+  fppSequenceNames: (address) => invoke("fpp_sequence_names", { address }),
+  fppSendPlan: (address, source, music) => invoke("fpp_send_plan", { address, source, music }),
+  fppSend: async (address, request, onProgress) => {
+    const unlisten = onProgress
+      ? await listen<FppSendProgress>(FPP_SEND_PROGRESS_EVENT, (event) => {
+          if (event.payload.sendId === request.sendId) onProgress(event.payload);
+        })
+      : null;
+    try {
+      return await invoke<FppSendResult>("fpp_send", { address, request });
+    } finally {
+      unlisten?.();
+    }
+  },
+  cancelFppSend: () => invoke("cancel_fpp_send"),
   startPlayback: (path, positionMs) => invoke("start_playback", { path, positionMs }),
   pausePlayback: (paused) => invoke("pause_playback", { paused }),
   seekPlayback: (positionMs) => invoke("seek_playback", { positionMs }),

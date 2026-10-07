@@ -2,6 +2,7 @@ import { AlertTriangle, ChevronRight, Loader2, Radar, Search, X } from "lucide-r
 import { useState } from "react";
 import type { Device, DeviceKind, FoundBy } from "../api/types";
 import { ImportDialog } from "../components/ImportDialog";
+import { FppDevicePage } from "../components/devices/FppDevicePage";
 import { GoToScreen } from "../components/GoToScreen";
 import { Button, EmptyState, Input, PageHeader } from "../components/ui";
 import { ago } from "../lib/format";
@@ -98,6 +99,8 @@ export function DevicesScreen() {
   const forgetDevice = useApp((s) => s.forgetDevice);
   const [address, setAddress] = useState("");
   const [reviewing, setReviewing] = useState<string | null>(null);
+  /** The FPP whose page is open, by address. */
+  const [openFpp, setOpenFpp] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const checkAddress = async () => {
@@ -112,6 +115,9 @@ export function DevicesScreen() {
   };
 
   const inShow = (device: Device) => snapshot?.show.controllers.some((c) => c.address === device.address) ?? false;
+
+  const fpp = openFpp ? discovery?.devices.find((d) => d.address === openFpp) : undefined;
+  if (fpp) return <FppDevicePage key={fpp.address} device={fpp} onBack={() => setOpenFpp(null)} />;
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -197,7 +203,7 @@ export function DevicesScreen() {
                 key={device.address}
                 device={device}
                 inShow={inShow(device)}
-                onReview={() => setReviewing(device.address)}
+                onReview={() => (device.kind === "fpp" ? setOpenFpp(device.address) : setReviewing(device.address))}
                 onForget={() => forgetDevice(device.address)}
               />
             ))}

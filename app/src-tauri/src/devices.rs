@@ -2,10 +2,11 @@
 //! holds the engine lock, so the UI stays responsive while devices are slow to answer.
 
 use crate::{AppState, Reply};
+use pf_devices::fpp_info::{self, FppFile, FppFolder, ScheduleEntry};
 use pf_devices::fpp_player::{self, FppSequence, PlayerStatus};
 use pf_devices::{
-    Device, DeviceConfig, DiscoverOptions, Discovery, Http, HttpClient, ImportPlan, Reach, ReachCheck,
-    TcpReach,
+    Device, DeviceConfig, DiscoverOptions, Discovery, FppSetupPlan, Http, HttpClient, ImportPlan, Reach,
+    ReachCheck, TcpReach,
 };
 use pf_engine::{Edit, ShowSnapshot};
 use pf_model::Show;
@@ -17,8 +18,12 @@ use tauri::State;
 
 /// How the app reaches devices (recorded responses in tests).
 pub(crate) struct DeviceAccess {
-    http: Arc<dyn Http>,
+    pub(crate) http: Arc<dyn Http>,
     sweep_http: Arc<dyn Http>,
+    /// Sending to an FPP (long transfers, with their own time limits).
+    pub(crate) upload_http: Arc<dyn Http>,
+    /// Quick reads before a send (what's on the FPP), with short time limits.
+    pub(crate) read_http: Arc<dyn Http>,
     /// FPP ping, mDNS, and the subnet sweep. Off in tests so nothing touches the network.
     network_discovery: bool,
     /// Whether a controller answers (the Test screen's quick look).
@@ -35,18 +40,30 @@ impl DeviceAccess {
                 Duration::from_millis(400),
                 Duration::from_millis(1500),
             )),
+            upload_http: Arc::new(HttpClient::for_uploads()),
+            read_http: Arc::new(HttpClient::with_connect_timeout(
+                Duration::from_millis(1500),
+                Duration::from_secs(4),
+            )),
             network_discovery: true,
             reach: Arc::new(TcpReach::new(Duration::from_millis(800))),
             networks: pf_devices::local_networks,
         }
     }
 
+    /// Recorded responses; sending goes over real HTTP, which tests point at a fake FPP on
+    /// 127.0.0.1 (see `pf_devices::testing::FakeFpp`).
     #[cfg(test)]
     pub(crate) fn fake(http: pf_devices::FakeHttp) -> Self {
         let http: Arc<dyn Http> = Arc::new(http);
         Self {
             sweep_http: Arc::clone(&http),
             http,
+            upload_http: Arc::new(HttpClient::for_uploads_with(
+                Duration::from_secs(1),
+                Duration::from_secs(10),
+            )),
+            read_http: Arc::new(HttpClient::new(Duration::from_secs(2))),
             network_discovery: false,
             // In tests, only 192.0.2.10 answers, and this computer is on 192.0.2.0/24.
             reach: Arc::new(pf_devices::FakeReach::new(["192.0.2.10"])),
@@ -238,4 +255,129 @@ pub(crate) async fn fpp_start(state: State<'_, AppState>, address: String, name:
 pub(crate) async fn fpp_stop(state: State<'_, AppState>, address: String, gracefully: bool) -> Reply<()> {
     let http = Arc::clone(&state.devices.http);
     off_thread(move || fpp_player::stop(http.as_ref(), &address, gracefully).map_err(|e| e.to_string())).await
+}
+
+/// One of an FPP's folders (sequences, music, or playlists), with each file's length, size, and
+/// date (changes nothing). Music lengths can take FPP a moment to measure the first time.
+#[tauri::command]
+pub(crate) async fn fpp_files(
+    state: State<'_, AppState>,
+    address: String,
+    folder: FppFolder,
+) -> Reply<Vec<FppFile>> {
+    let http = Arc::clone(&state.devices.read_http);
+    off_thread(move || fpp_info::list(http.as_ref(), &address, folder).map_err(|e| e.to_string())).await
+}
+
+/// An FPP's schedule entries (changes nothing; only `/api/schedule` is read).
+#[tauri::command]
+pub(crate) async fn fpp_schedule(state: State<'_, AppState>, address: String) -> Reply<Vec<ScheduleEntry>> {
+    let http = Arc::clone(&state.devices.read_http);
+    off_thread(move || fpp_info::schedule(http.as_ref(), &address).map_err(|e| e.to_string())).await
+}
+
+fn read_fpp(http: &dyn Http, address: &str) -> Reply<(Device, DeviceConfig)> {
+    let device = pf_devices::identify(http, address, None).map_err(|e| e.to_string())?;
+    let config = pf_devices::read_config(http, &device).map_err(|e| e.to_string())?;
+    Ok((device, config))
+}
+
+/// What setting up the show from an FPP would add: its output targets (and its own outputs, if
+/// it has any) as controllers with the channels it sends them. Changes nothing.
+#[tauri::command]
+pub(crate) async fn fpp_setup_plan(state: State<'_, AppState>, address: String) -> Reply<FppSetupPlan> {
+    let show = state.engine().show().clone();
+    let http = Arc::clone(&state.devices.http);
+    off_thread(move || {
+        let (device, config) = read_fpp(http.as_ref(), &address)?;
+        Ok(pf_devices::plan_fpp_setup(&device, &config, &show))
+    })
+    .await
+}
+
+/// Adds what [`fpp_setup_plan`] showed, as one undo step. `expected` is the plan's controller
+/// addresses as shown; if the FPP or the show has changed since, nothing is added.
+#[tauri::command]
+pub(crate) async fn fpp_set_up_show(
+    state: State<'_, AppState>,
+    address: String,
+    expected: Vec<String>,
+) -> Reply<ShowSnapshot> {
+    let http = Arc::clone(&state.devices.http);
+    let (device, config) = off_thread(move || read_fpp(http.as_ref(), &address)).await?;
+    // Plan against the show as it is now, under the lock that applies the change.
+    let mut engine = state.engine();
+    let plan = pf_devices::plan_fpp_setup(&device, &config, engine.show());
+    if plan.addresses() != expected {
+        return Err(
+            "What this FPP sends to, or your show, changed since you looked. Check the list again before adding."
+                .to_string(),
+        );
+    }
+    if expected.is_empty() {
+        return Err("Your show already has everything this FPP sends to.".to_string());
+    }
+    let mut edits = Vec::new();
+    if let Some(own) = plan.own {
+        edits.extend(own.props.into_iter().map(|prop| Edit::AddProp { prop }));
+        edits.push(Edit::AddController {
+            controller: own.controller,
+        });
+    }
+    edits.extend(
+        plan.controllers
+            .into_iter()
+            .map(|controller| Edit::AddController { controller }),
+    );
+    engine.apply(edits).map_err(|e| e.to_string())
+}
+
+/// An address fit to put in a web link: a host name or IPv4/IPv6 address, with an optional port.
+fn web_address(address: &str) -> Option<&str> {
+    let address = address.trim();
+    let ok = !address.is_empty()
+        && address.len() <= 255
+        && address
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '[' | ']'));
+    ok.then_some(address)
+}
+
+/// Opens a controller's own web page in the system browser.
+#[tauri::command]
+pub(crate) fn open_device_page(address: String) -> Reply<()> {
+    let address = web_address(&address).ok_or_else(|| format!("{address} isn't a controller address."))?;
+    let url = format!("http://{address}/");
+    #[cfg(target_os = "macos")]
+    let mut command = std::process::Command::new("open");
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut c = std::process::Command::new("rundll32");
+        c.arg("url.dll,FileProtocolHandler");
+        c
+    };
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let mut command = std::process::Command::new("xdg-open");
+    command
+        .arg(&url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Couldn't open {url} in your browser: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::web_address;
+
+    #[test]
+    fn only_plain_addresses_become_links() {
+        assert_eq!(web_address(" 192.0.2.10 "), Some("192.0.2.10"));
+        assert_eq!(web_address("fpp.local:8080"), Some("fpp.local:8080"));
+        assert_eq!(web_address("[fe80::1]"), Some("[fe80::1]"));
+        assert_eq!(web_address(""), None);
+        assert_eq!(web_address("192.0.2.10/admin"), None);
+        assert_eq!(web_address("a b"), None);
+        assert_eq!(web_address("x@evil"), None);
+        assert_eq!(web_address("x;rm -rf"), None);
+    }
 }

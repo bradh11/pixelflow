@@ -129,7 +129,7 @@ pub(crate) fn layout_is_contiguous(strings: &[Placed]) -> bool {
 }
 
 /// 5000000 -> "5,000,000".
-fn with_commas(n: i64) -> String {
+pub(crate) fn with_commas(n: i64) -> String {
     let digits = n.unsigned_abs().to_string();
     let mut out = String::new();
     for (i, c) in digits.chars().enumerate() {

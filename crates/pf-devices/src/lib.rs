@@ -24,6 +24,7 @@ mod http;
 mod identify;
 mod import;
 mod reach;
+pub mod setup;
 #[cfg(feature = "test-fixtures")]
 pub mod testing;
 pub mod wled;

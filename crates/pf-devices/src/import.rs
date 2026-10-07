@@ -30,7 +30,7 @@ pub fn is_placeholder(controller: &Controller) -> bool {
     controller.ports.is_empty() && controller.sequence_channels.is_some()
 }
 
-fn unique(base: &str, taken: &mut HashSet<String>) -> String {
+pub(crate) fn unique(base: &str, taken: &mut HashSet<String>) -> String {
     let mut name = base.to_string();
     let mut n = 2;
     while taken.contains(&name) {

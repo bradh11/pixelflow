@@ -227,6 +227,7 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
         for port in output["outputs"].as_array().into_iter().flatten() {
             let raw_number = int_field(port, "portNumber").saturating_add(1);
             let mut strings = Vec::new();
+            let mut port_number = None;
             for vs in port["virtualStrings"].as_array().into_iter().flatten() {
                 if int_field(vs, "pixelCount") <= 0 {
                     continue;
@@ -234,6 +235,7 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
                 let Some(number) = valid_port(raw_number, &mut notes) else {
                     continue;
                 };
+                port_number = Some(number);
                 let label = format!("Port {number}");
                 let Some(pixels) = bounded_pixels(&label, int_field(vs, "pixelCount"), &mut notes) else {
                     continue;
@@ -280,15 +282,14 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
                     smart_receiver: None,
                 });
             }
-            if !strings.is_empty() {
-                // `strings` is non-empty only when `valid_port` passed.
-                if let Ok(number) = u16::try_from(raw_number) {
-                    ports.push(PortConfig {
-                        number,
-                        strings,
-                        max_pixels: None,
-                    });
-                }
+            if let Some(number) = port_number
+                && !strings.is_empty()
+            {
+                ports.push(PortConfig {
+                    number,
+                    strings,
+                    max_pixels: None,
+                });
             }
         }
     }

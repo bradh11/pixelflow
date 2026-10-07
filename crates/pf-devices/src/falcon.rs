@@ -205,6 +205,18 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
         0 => {
             let (inputs, _) = query(http, host, "IN", 0)?;
             let entries = inputs["A"].as_array().cloned().unwrap_or_default();
+            // PixelFlow sends one run of same-sized universes from the first entry's universe.
+            let even = entries.windows(2).all(|pair| {
+                int(&pair[1], "u") == int(&pair[0], "u").saturating_add(int(&pair[0], "uc").max(1))
+                    && int(&pair[1], "c") == int(&pair[0], "c")
+            });
+            if !even {
+                notes.push(
+                    "The controller's input universes aren't one continuous run of the same size, so check \
+                     its universes before running a show."
+                        .to_string(),
+                );
+            }
             match entries.first() {
                 Some(first) if first["p"].as_str() == Some("e") => DeviceInput::Sacn {
                     start_universe: u16::try_from(int(first, "u")).unwrap_or(1),
@@ -238,17 +250,16 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
     // Strings per port, keyed by (smart receiver, index) so a repeated page can't add a string twice
     // and the order is the wiring order. Each also keeps the controller's start channel (`sc`).
     type Entry = (Option<i64>, StringConfig);
-    let mut ports: BTreeMap<i64, BTreeMap<(i64, i64), Entry>> = BTreeMap::new();
+    let mut ports: BTreeMap<u16, BTreeMap<(i64, i64), Entry>> = BTreeMap::new();
     let mut page = 0;
     loop {
         let (payload, last) = query(http, host, "SP", page)?;
         for s in payload["A"].as_array().into_iter().flatten() {
-            let port = int(s, "p");
             // Empty strings are skipped before anything else, so they never raise a note.
             if int(s, "n") <= 0 {
                 continue;
             }
-            let Some(number) = valid_port(port.saturating_add(1), &mut notes) else {
+            let Some(number) = valid_port(int(s, "p").saturating_add(1), &mut notes) else {
                 continue;
             };
             let label = format!("Port {number}");
@@ -298,7 +309,7 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
                 smart_receiver: smart,
             };
             ports
-                .entry(port)
+                .entry(number)
                 .or_default()
                 .entry((int(s, "r"), int(s, "s")))
                 .or_insert((s.get("sc").and_then(Value::as_i64), config));
@@ -318,19 +329,18 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
     let mut placed = Vec::new();
     let ports = ports
         .into_iter()
-        .filter_map(|(port, strings)| {
-            let number = u16::try_from(port.saturating_add(1)).ok()?;
+        .map(|(number, strings)| {
             let strings: Vec<_> = strings.into_values().collect();
             placed.extend(strings.iter().map(|(start, s)| Placed {
                 start: *start,
                 pixels: s.pixels,
                 color_order: s.color_order,
             }));
-            Some(PortConfig {
+            PortConfig {
                 number,
                 strings: strings.into_iter().map(|(_, s)| s).collect(),
                 max_pixels: None,
-            })
+            }
         })
         .collect::<Vec<_>>();
     let highest = ports.iter().map(|p| p.number).max().unwrap_or(0);

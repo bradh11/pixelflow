@@ -158,6 +158,31 @@ fn falcon_in_e131_mode_reads_its_universes() {
 }
 
 #[test]
+fn falcon_e131_inputs_that_are_not_one_even_run_are_flagged() {
+    const UNEVEN: &str = "input universes aren't one continuous run";
+    let st1 = include_str!("../fixtures/falcon/st1.json").replace(r#""O":2"#, r#""O":0"#);
+    let in0 = include_str!("../fixtures/falcon/in.json");
+    let second = r#"{"p":"e","u":11,"c":510,"uc":2}"#;
+    assert!(in0.contains(second), "fixture changed");
+    for (entry, uneven) in [
+        (second, false),
+        (r#"{"p":"e","u":12,"c":510,"uc":2}"#, true),
+        (r#"{"p":"e","u":11,"c":512,"uc":2}"#, true),
+    ] {
+        let http = network()
+            .with_post(FALCON, "/api", &falcon_query("ST", 1), &st1)
+            .with_post(FALCON, "/api", &falcon_query("IN", 0), &in0.replace(second, entry));
+        let config = falcon_config(&http).unwrap();
+        assert_eq!(
+            config.notes.iter().filter(|n| n.contains(UNEVEN)).count(),
+            usize::from(uneven),
+            "{entry}: {:?}",
+            config.notes
+        );
+    }
+}
+
+#[test]
 fn wled_outputs_including_rgbw() {
     let http = network();
     let device = identify(&http, WLED, None).unwrap();
@@ -363,6 +388,25 @@ fn falcon_empty_strings_on_invalid_ports_raise_no_note() {
 }
 
 #[test]
+fn strings_on_port_numbers_that_cannot_exist_are_skipped_with_a_note() {
+    let skipped = "A string on port number 65536 was skipped; PixelFlow can't use that port number.";
+    let http = hat_with(r#""portNumber": 0"#, r#""portNumber": 65535"#);
+    let config = hat_config(&http).unwrap();
+    assert!(config.ports.is_empty(), "{:?}", config.ports);
+    assert!(config.notes.contains(&skipped.to_string()), "{:?}", config.notes);
+
+    let http = falcon_with_sp0(
+        r#""p":0,"s":1,"r":0,"v":1,"u":0,"sc":300,"n":50"#,
+        r#""p":65535,"s":1,"r":0,"v":1,"u":0,"sc":300,"n":50"#,
+    );
+    let config = falcon_config(&http).unwrap();
+    let strings = |c: &pf_devices::DeviceConfig| c.ports.iter().map(|p| p.strings.len()).sum::<usize>();
+    assert_eq!(strings(&config) + 1, strings(&falcon_config(&network()).unwrap()));
+    assert!(config.notes.contains(&skipped.to_string()), "{:?}", config.notes);
+    assert_no_secret_endpoints(&http);
+}
+
+#[test]
 fn falcon_with_a_channel_gap_warns_once() {
     let http = falcon_with_sp0(r#""sc":300"#, r#""sc":330"#);
     let config = falcon_config(&http).unwrap();
@@ -499,6 +543,61 @@ fn wled_bus_types_are_classified() {
         )));
     }
     assert_no_secret_endpoints(&http);
+}
+
+#[test]
+fn wled_bus_type_range_edges() {
+    let bus = |start: i64, ty: i64| {
+        format!(r#"{{"start":{start},"len":10,"pin":[2],"order":1,"rev":false,"skip":0,"type":{ty}}}"#)
+    };
+    // The last one-wire type and the first two-wire type are pixels; the types just past them aren't.
+    let cfg = format!(
+        r#"{{"hw":{{"led":{{"ins":[{},{},{},{}]}}}},"if":{{"live":{{"en":true}}}}}}"#,
+        bus(0, 39),
+        bus(10, 48),
+        bus(20, 40),
+        bus(30, 47)
+    );
+    let http = network().with_get(WLED, "/json/cfg", &cfg);
+    let config = read_config(&http, &identify(&http, WLED, None).unwrap()).unwrap();
+    let kept: Vec<_> = config.ports.iter().map(|p| p.number).collect();
+    assert_eq!(kept, vec![1, 2]);
+    assert!(config.notes.contains(&"Output 3 isn't a pixel output (type 40); it was skipped.".to_string()));
+    assert!(config.notes.contains(&"Output 4 isn't a pixel output (type 47); it was skipped.".to_string()));
+}
+
+const WLED_GAP: &str = "outputs don't follow one another";
+
+fn wled_with_starts(first: i64, second: i64) -> pf_devices::DeviceConfig {
+    let cfg = include_str!("../fixtures/wled/cfg.json");
+    let (a, b) = (r#""start":0,"len":60"#, r#""start":60,"len":60"#);
+    assert!(cfg.contains(a) && cfg.contains(b), "fixture changed");
+    let cfg = cfg
+        .replace(a, &format!(r#""start":{first},"len":60"#))
+        .replace(b, &format!(r#""start":{second},"len":60"#));
+    let http = network().with_get(WLED, "/json/cfg", &cfg);
+    read_config(&http, &identify(&http, WLED, None).unwrap()).unwrap()
+}
+
+#[test]
+fn wled_outputs_must_run_on_from_led_zero() {
+    // WLED's `len` excludes the skipped LEDs (`skip` sacrificial LEDs come on top; wled00/
+    // bus_manager.cpp creates `count + skip` LEDs and offsets every pixel by `skip`), so output 2
+    // starts right after output 1's 60 LEDs even though output 1 also skips one.
+    let config = wled_with_starts(0, 60);
+    assert_eq!(
+        (config.ports[0].strings[0].pixels, config.ports[0].strings[0].null_pixels),
+        (60, 1)
+    );
+    assert!(config.notes.iter().all(|n| !n.contains(WLED_GAP)), "{:?}", config.notes);
+    for (first, second) in [(0, 70), (0, 61), (10, 70), (60, 0)] {
+        let config = wled_with_starts(first, second);
+        assert_eq!(
+            config.notes.iter().filter(|n| n.contains(WLED_GAP)).count(),
+            1,
+            "{first} {second}"
+        );
+    }
 }
 
 #[test]

@@ -64,6 +64,10 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
     let cfg = get_json(http, host, "/json/cfg")?;
     let mut notes = Vec::new();
     let mut ports = Vec::new();
+    // WLED maps realtime data to LEDs by each output's `start`, and PixelFlow sends the outputs it
+    // imports back to back from LED 0, so each must start where the previous one ends.
+    let mut next_start = 0i64;
+    let mut runs_on = true;
     for (i, bus) in cfg["hw"]["led"]["ins"]
         .as_array()
         .into_iter()
@@ -101,12 +105,17 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
             ));
             ColorOrder::Grb
         });
+        if let Some(start) = bus["start"].as_i64() {
+            runs_on &= start == next_start;
+        }
+        next_start = next_start.saturating_add(i64::from(pixels));
         ports.push(PortConfig {
             number,
             strings: vec![StringConfig {
                 name: None,
                 pixels,
                 color_order,
+                // `len` doesn't count skipped LEDs: WLED drives `skip` more LEDs ahead of them.
                 null_pixels: bounded_nulls(&label, bus["skip"].as_i64().unwrap_or(0), &mut notes),
                 reverse: bus["rev"].as_bool().unwrap_or(false),
                 brightness: 100,
@@ -115,6 +124,14 @@ pub fn read_config(http: &dyn Http, host: &str) -> Result<DeviceConfig, DeviceEr
             }],
             max_pixels: None,
         });
+    }
+    if !runs_on {
+        notes.push(
+            "This WLED's outputs don't follow one another from LED 0. PixelFlow sends each output's data right \
+             after the previous one, so set each output's start to where the previous one ends (Config → LED \
+             Preferences), or lights will show the wrong data."
+                .to_string(),
+        );
     }
     if cfg["if"]["live"]["en"].as_bool() == Some(false) {
         notes.push("Realtime receive is turned off in WLED (Config → Sync Interfaces); turn it on to see PixelFlow's output.".to_string());

@@ -357,7 +357,7 @@ export function PortRow({ controller, port, at, data }: { controller: Controller
       data-folded={folded ? "" : undefined}
       onPointerEnter={() => useWiring.getState().hover(ref)}
       onPointerLeave={() => useWiring.setState({ hovered: null, hoveredProp: null })}
-      className={`border-t border-neutral-200 px-2 py-1.5 dark:border-neutral-800 ${
+      className={`@container border-t border-neutral-200 px-2 py-1.5 dark:border-neutral-800 ${
         over !== null ? "bg-accent-50 dark:bg-accent-600/10" : highlighted ? "bg-neutral-50/70 dark:bg-neutral-800/30" : ""
       } ${capacity.level === "over" ? "border-l-2 border-l-red-500" : ""}`}
     >
@@ -387,7 +387,7 @@ export function PortRow({ controller, port, at, data }: { controller: Controller
           {summary}
         </span>
         {channels && (
-          <span className="hidden text-[11px] text-neutral-500 tabular-nums @min-[620px]:inline" data-testid={`channels-${port.number}`}>
+          <span className="hidden text-[11px] text-neutral-500 tabular-nums @min-[520px]:inline" data-testid={`channels-${port.number}`}>
             Ch {thousands(channels.first)}–{thousands(channels.last)}
           </span>
         )}
@@ -457,16 +457,19 @@ export function PortRow({ controller, port, at, data }: { controller: Controller
                 ))}
               </tbody>
             </table>
-          ) : (
-            <p
-              className={`rounded-md border border-dashed px-3 py-1.5 text-xs ${
-                over !== null ? "border-accent-500 text-accent-700 dark:text-accent-300" : "border-neutral-300 text-neutral-500 dark:border-neutral-700"
-              }`}
-            >
-              {over !== null ? "Let go to wire it here" : "Drop a prop here, or use Wire to click props on the layout."}
-            </p>
-          )}
-          <span className="relative mt-1 inline-block">
+          ) : null}
+          {/* The Add button on the left, so its picker opens over the table. */}
+          <div className="mt-1 flex flex-row-reverse items-center justify-end gap-2">
+            {port.slots.length === 0 && (
+              <p
+                className={`min-w-0 flex-1 rounded-md border border-dashed px-3 py-1 text-xs ${
+                  over !== null ? "border-accent-500 text-accent-700 dark:text-accent-300" : "border-neutral-300 text-neutral-500 dark:border-neutral-700"
+                }`}
+              >
+                {over !== null ? "Let go to wire it here" : "Drop a prop here, or use Wire to click props on the layout."}
+              </p>
+            )}
+            <span className="relative shrink-0">
             <button
               ref={addRef}
               type="button"
@@ -481,7 +484,8 @@ export function PortRow({ controller, port, at, data }: { controller: Controller
             </button>
             {/* One picker at a time, built only while it's open. */}
             {adding && <AddPicker controller={controller} port={port} portRef={ref} data={data} onDone={() => addRef.current?.focus()} />}
-          </span>
+            </span>
+          </div>
         </div>
       )}
     </li>

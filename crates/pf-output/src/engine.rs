@@ -389,7 +389,7 @@ impl Runtime {
                     .iter()
                     .zip(&streams)
                     .filter(|(_, stream)| !kept.contains(stream))
-                    .map(|(u, _)| u.clone())
+                    .map(|(u, _)| *u)
                     .collect();
                 let first = streams.first()?.0;
                 if dropped.is_empty() {

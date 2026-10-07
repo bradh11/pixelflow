@@ -23,6 +23,7 @@ pf-audio.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 serde_json.workspace = true
+ctrlc.workspace = true
 
 [lints]
 workspace = true

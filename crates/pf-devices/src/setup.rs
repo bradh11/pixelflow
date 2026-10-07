@@ -232,9 +232,8 @@ pub fn device_setup(config: &DeviceConfig) -> Setup {
                     }
                     !on_receiver
                 })
-                .enumerate()
-                .map(|(i, s)| SetupString {
-                    name: s.name.clone().unwrap_or_else(|| format!("String {}", i + 1)),
+                .map(|s| SetupString {
+                    name: s.name.clone().unwrap_or_default(),
                     pixels: s.pixels,
                     color_order: Some(s.color_order),
                     start: None,

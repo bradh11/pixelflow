@@ -1075,10 +1075,10 @@ mod tests {
         let details = call(&webview, "inspect_device", json!({ "address": falcon })).unwrap();
         assert_eq!(details["device"]["model"], "F16v5");
         assert_eq!(details["plan"]["canImport"], true);
-        assert_eq!(details["plan"]["props"].as_array().unwrap().len(), 3);
+        assert_eq!(details["plan"]["props"].as_array().unwrap().len(), 5);
 
         let snapshot = call(&webview, "import_device", json!({ "address": falcon })).unwrap();
-        assert_eq!(snapshot["summary"]["props"], 3);
+        assert_eq!(snapshot["summary"]["props"], 5);
         assert_eq!(snapshot["summary"]["controllers"], 1);
         assert_eq!(snapshot["show"]["controllers"][0]["adapter"], "falcon");
         assert_eq!(snapshot["show"]["controllers"][0]["address"], falcon);
@@ -1172,7 +1172,7 @@ mod tests {
 
         let snapshot = call(&webview, "import_device", json!({ "address": falcon })).unwrap();
         assert_eq!(snapshot["summary"]["controllers"], 1, "filled in, not duplicated");
-        assert_eq!(snapshot["summary"]["props"], 3);
+        assert_eq!(snapshot["summary"]["props"], 5);
         assert_eq!(snapshot["show"]["controllers"][0]["id"], id);
         assert_eq!(snapshot["show"]["controllers"][0]["adapter"], "falcon");
         assert_eq!(
@@ -2874,8 +2874,8 @@ mod tests {
             json!({ "address": falcon, "useProps": { key: id } }),
         )
         .unwrap();
-        // Three strings: one wires Garage Arch, two get starter props.
-        assert_eq!(snapshot["summary"]["props"], 3);
+        // Five strings: one wires Garage Arch, four get starter props.
+        assert_eq!(snapshot["summary"]["props"], 5);
         assert_eq!(
             snapshot["show"]["controllers"][0]["ports"][0]["slots"][0]["prop"],
             json!(id)

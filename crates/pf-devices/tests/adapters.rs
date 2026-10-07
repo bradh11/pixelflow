@@ -1,7 +1,7 @@
 //! Adapters, discovery, and import planning against recorded and documented device responses.
 
 use pf_devices::testing::{
-    FALCON, FPP, FPP_HAT, WLED, assert_no_secret_endpoints, falcon_query, fpp_only, network,
+    FALCON, FPP, FPP_HAT, WLED, assert_no_secret_endpoints, falcon_query, falcon_synthetic, fpp_only, network,
 };
 use pf_devices::{
     DeviceInput, DeviceKind, DiscoverOptions, FakeHttp, FoundBy, discover, identify, plan_import, read_config,
@@ -23,7 +23,7 @@ fn identifies_each_kind_from_its_home_page() {
         (falcon.kind, falcon.name.as_str(), falcon.model.as_str()),
         (DeviceKind::Falcon, "Falcon_F16V5_B9F5", "F16v5")
     );
-    assert_eq!(falcon.firmware, "F16V5 v2.00");
+    assert_eq!(falcon.firmware, "F16V5 Bld 32");
     let wled = identify(&http, WLED, None).unwrap();
     assert_eq!(
         (wled.kind, wled.name.as_str(), wled.firmware.as_str()),
@@ -100,8 +100,147 @@ fn fpp_with_a_pixel_hat_imports_its_strings() {
 }
 
 #[test]
-fn falcon_strings_ports_and_ddp_mode() {
+fn a_real_f16v5_is_recognized_and_imported_as_its_web_ui_shows_it() {
+    // Recorded read-only from an F16V5 on firmware Bld 32 (scrubbed). Its home page is a 404, so
+    // it's recognized from /status.xml; its settings come in one ST page marked final.
     let http = network();
+    let device = identify(&http, FALCON, None).unwrap();
+    assert_eq!(
+        (device.kind, device.model.as_str(), device.firmware.as_str()),
+        (DeviceKind::Falcon, "F16v5", "F16V5 Bld 32"),
+        "BR (165 on this firmware) is not a port count"
+    );
+    let config = read_config(&http, &device).unwrap();
+    assert_eq!(config.input, DeviceInput::Ddp, "O 2 is DDP");
+    let strings: Vec<_> = config
+        .ports
+        .iter()
+        .flat_map(|p| p.strings.iter().map(move |s| (p.number, s)))
+        .collect();
+    assert_eq!(
+        strings
+            .iter()
+            .map(|(port, s)| (*port, s.name.as_deref().unwrap_or(""), s.pixels))
+            .collect::<Vec<_>>(),
+        vec![
+            (1, "Pillar Right", 600),
+            (2, "Pillar Left", 600),
+            (3, "Door Frame Front", 340),
+            (4, "Roof Door", 238),
+            (6, "Door Arch", 271),
+        ],
+        "p is 0-based; empty ports 5 and 7–32 are skipped"
+    );
+    for (_, s) in &strings {
+        assert_eq!(
+            (
+                s.color_order,
+                s.brightness,
+                s.null_pixels,
+                s.reverse,
+                s.smart_receiver
+            ),
+            (ColorOrder::Rgb, 40, 0, false, None)
+        );
+        assert!((s.gamma - 1.0).abs() < 1e-6);
+    }
+    // Board mode 4 (16 local ports + smart receiver chains, 32 in all): 1,024 pixels a port, as the
+    // board's own status (k0, k1) says.
+    assert!(config.ports.iter().all(|p| p.max_pixels == Some(1024)));
+    // sc is 0-based and contiguous from 0 (the FPP feeding this board sends 6,147 DDP channels
+    // from channel 1), so there's nothing to warn about.
+    assert!(config.notes.is_empty(), "{:?}", config.notes);
+    let total: u32 = strings.iter().map(|(_, s)| s.pixels * 3).sum();
+    assert_eq!(total, 6147);
+    let plan = plan_import(&device, &config, &Show::new("t"));
+    assert_eq!(plan.controller.protocol, Protocol::Ddp);
+    assert_eq!(plan.props.len(), 5);
+    // Only reads: the home page, /status.xml, and JSON API queries.
+    for request in http.requests() {
+        assert!(
+            request.starts_with("GET ") || request.contains(r#"{"T":"Q","#),
+            "{request}"
+        );
+    }
+    assert!(
+        !http.requests().iter().any(|r| r.contains(r#""B":1"#)),
+        "ST page 0 was final"
+    );
+    assert_no_secret_endpoints(&http);
+}
+
+#[test]
+fn falcon_settings_split_over_two_pages_are_merged() {
+    // Older V4 firmware (xLights' recording): the mode is only in ST page 0, the board mode in page 1.
+    let st0 = include_str!("../fixtures/falcon/synthetic/st0.json").replace(r#""O":2"#, r#""O":0"#);
+    let http = falcon_synthetic().with_post(FALCON, "/api", &falcon_query("ST", 0), &st0);
+    let config = falcon_config(&http).unwrap();
+    assert!(
+        matches!(config.input, DeviceInput::Sacn { .. }),
+        "{:?}",
+        config.input
+    );
+    let st1 = include_str!("../fixtures/falcon/synthetic/st1.json");
+    assert!(
+        st1.contains(r#""A":0,"B":0"#) && !st1.contains(r#""O""#),
+        "fixture changed"
+    );
+    let http = falcon_synthetic().with_post(
+        FALCON,
+        "/api",
+        &falcon_query("ST", 1),
+        &st1.replace(r#""A":0,"B":0"#, r#""A":0,"B":10"#),
+    );
+    let config = falcon_config(&http).unwrap();
+    assert!(config.ports.iter().all(|p| p.max_pixels == Some(704)));
+}
+
+#[test]
+fn falcon_strings_that_do_not_start_on_the_first_channel_are_flagged() {
+    const LATE: &str = "strings start at its channel";
+    let sp0 = include_str!("../fixtures/falcon/sp0.json");
+    let st0 = include_str!("../fixtures/falcon/st0.json");
+    let shifted = sp0
+        .replace(r#""sc":0,"n":600"#, r#""sc":30,"n":600"#)
+        .replace(r#""sc":1800,"#, r#""sc":1830,"#)
+        .replace(r#""sc":3600,"#, r#""sc":3630,"#)
+        .replace(r#""sc":4620,"#, r#""sc":4650,"#)
+        .replace(r#""sc":5334,"#, r#""sc":5364,"#);
+    for (st, sp, note) in [
+        (st0.to_string(), shifted.clone(), Some(31)),
+        // The controller's own first channel (ps) is where PixelFlow's channel 1 lands.
+        (st0.replace(r#""ps":0"#, r#""ps":30"#), shifted.clone(), None),
+        (st0.to_string(), sp0.to_string(), None),
+    ] {
+        let http = network()
+            .with_post(FALCON, "/api", &falcon_query("ST", 0), &st)
+            .with_post(FALCON, "/api", &falcon_query("SP", 0), &sp);
+        let notes = falcon_config(&http).unwrap().notes;
+        let found: Vec<_> = notes.iter().filter(|n| n.contains(LATE)).collect();
+        match note {
+            Some(channel) => {
+                assert_eq!(found.len(), 1, "{notes:?}");
+                assert!(found[0].contains(&format!("channel {channel},")), "{notes:?}");
+            }
+            None => assert!(found.is_empty(), "{notes:?}"),
+        }
+        assert!(!notes.iter().any(|n| n.contains("continuous block")), "{notes:?}");
+    }
+    // Universe addressing: start channels are per universe, so they aren't compared.
+    let http = network().with_post(
+        FALCON,
+        "/api",
+        &falcon_query("ST", 0),
+        &st0.replace(r#""A":0,"B":4"#, r#""A":1,"B":4"#),
+    );
+    let notes = falcon_config(&http).unwrap().notes;
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert!(notes[0].contains("by universe"), "{notes:?}");
+}
+
+#[test]
+fn falcon_strings_ports_and_ddp_mode() {
+    let http = falcon_synthetic();
     let device = identify(&http, FALCON, None).unwrap();
     let config = read_config(&http, &device).unwrap();
     assert_eq!(config.input, DeviceInput::Ddp);
@@ -134,8 +273,8 @@ fn falcon_strings_ports_and_ddp_mode() {
 
 #[test]
 fn falcon_in_e131_mode_reads_its_universes() {
-    let st1 = include_str!("../fixtures/falcon/st1.json").replace(r#""O":2"#, r#""O":0"#);
-    let http = network().with_post(FALCON, "/api", &falcon_query("ST", 1), &st1);
+    let st0 = include_str!("../fixtures/falcon/synthetic/st0.json").replace(r#""O":2"#, r#""O":0"#);
+    let http = falcon_synthetic().with_post(FALCON, "/api", &falcon_query("ST", 0), &st0);
     let device = identify(&http, FALCON, None).unwrap();
     let config = read_config(&http, &device).unwrap();
     assert_eq!(
@@ -160,8 +299,8 @@ fn falcon_in_e131_mode_reads_its_universes() {
 #[test]
 fn falcon_e131_inputs_that_are_not_one_even_run_are_flagged() {
     const UNEVEN: &str = "input universes aren't one continuous run";
-    let st1 = include_str!("../fixtures/falcon/st1.json").replace(r#""O":2"#, r#""O":0"#);
-    let in0 = include_str!("../fixtures/falcon/in.json");
+    let st0 = include_str!("../fixtures/falcon/synthetic/st0.json").replace(r#""O":2"#, r#""O":0"#);
+    let in0 = include_str!("../fixtures/falcon/synthetic/in.json");
     let second = r#"{"p":"e","u":11,"c":510,"uc":2}"#;
     assert!(in0.contains(second), "fixture changed");
     for (entry, uneven) in [
@@ -169,8 +308,8 @@ fn falcon_e131_inputs_that_are_not_one_even_run_are_flagged() {
         (r#"{"p":"e","u":12,"c":510,"uc":2}"#, true),
         (r#"{"p":"e","u":11,"c":512,"uc":2}"#, true),
     ] {
-        let http = network()
-            .with_post(FALCON, "/api", &falcon_query("ST", 1), &st1)
+        let http = falcon_synthetic()
+            .with_post(FALCON, "/api", &falcon_query("ST", 0), &st0)
             .with_post(
                 FALCON,
                 "/api",
@@ -351,9 +490,9 @@ fn falcon_config(http: &FakeHttp) -> Result<pf_devices::DeviceConfig, pf_devices
 }
 
 fn falcon_with_sp0(from: &str, to: &str) -> FakeHttp {
-    let sp0 = include_str!("../fixtures/falcon/sp0.json");
+    let sp0 = include_str!("../fixtures/falcon/synthetic/sp0.json");
     assert!(sp0.contains(from), "fixture changed: {from}");
-    network().with_post(FALCON, "/api", &falcon_query("SP", 0), &sp0.replace(from, to))
+    falcon_synthetic().with_post(FALCON, "/api", &falcon_query("SP", 0), &sp0.replace(from, to))
 }
 
 #[test]
@@ -406,7 +545,10 @@ fn strings_on_port_numbers_that_cannot_exist_are_skipped_with_a_note() {
     );
     let config = falcon_config(&http).unwrap();
     let strings = |c: &pf_devices::DeviceConfig| c.ports.iter().map(|p| p.strings.len()).sum::<usize>();
-    assert_eq!(strings(&config) + 1, strings(&falcon_config(&network()).unwrap()));
+    assert_eq!(
+        strings(&config) + 1,
+        strings(&falcon_config(&falcon_synthetic()).unwrap())
+    );
     assert!(config.notes.contains(&skipped.to_string()), "{:?}", config.notes);
     assert_no_secret_endpoints(&http);
 }
@@ -637,8 +779,8 @@ fn missing_brightness_means_full_and_bad_gamma_means_one() {
 #[test]
 fn falcon_paging_dedupes_and_flags_a_runaway_list() {
     // A firmware that ignores the batch number and never sets the final flag.
-    let sp0 = include_str!("../fixtures/falcon/sp0.json");
-    let mut http = network();
+    let sp0 = include_str!("../fixtures/falcon/synthetic/sp0.json");
+    let mut http = falcon_synthetic();
     for batch in 0..70 {
         http = http.with_post(FALCON, "/api", &falcon_query("SP", batch), sp0);
     }
@@ -796,7 +938,9 @@ fn merged_sacn_ranges_are_flagged_unless_they_run_back_to_back() {
 fn falcon_without_a_product_code_is_treated_as_older_and_never_queried() {
     let status = include_str!("../fixtures/falcon/status.xml").replace("<p>130</p>", "");
     let http = network().with_get(FALCON, "/status.xml", &status);
-    let device = identify(&http, FALCON, None).unwrap();
+    // Recognized from an older Falcon's home page; status.xml alone isn't enough without the code.
+    assert!(identify(&http, FALCON, None).is_err());
+    let device = identify(&http, FALCON, Some(DeviceKind::Falcon)).unwrap();
     let before = http.requests().len();
     let err = read_config(&http, &device).unwrap_err().to_string();
     assert!(err.contains("older Falcon controller"), "{err}");
@@ -806,7 +950,7 @@ fn falcon_without_a_product_code_is_treated_as_older_and_never_queried() {
 #[test]
 fn falcon_ports_carry_the_boards_pixel_limit_for_its_board_mode() {
     // Board mode 0 (16 local ports): xLights' 3,072 channels a port, 1,024 RGB pixels.
-    let config = falcon_config(&network()).unwrap();
+    let config = falcon_config(&falcon_synthetic()).unwrap();
     assert!(
         config.ports.iter().all(|p| p.max_pixels == Some(1024)),
         "{:?}",
@@ -814,13 +958,13 @@ fn falcon_ports_carry_the_boards_pixel_limit_for_its_board_mode() {
     );
 
     // Board mode 10 (4 + 4 + 4 smart receiver chains, 48 ports): 2,112 channels, 704 pixels.
-    let st1 = include_str!("../fixtures/falcon/st1.json");
-    assert!(st1.contains(r#""A":0,"B":0"#), "fixture changed");
+    let st0 = include_str!("../fixtures/falcon/st0.json");
+    assert!(st0.contains(r#""A":0,"B":4"#), "fixture changed");
     let http = network().with_post(
         FALCON,
         "/api",
-        &falcon_query("ST", 1),
-        &st1.replace(r#""A":0,"B":0"#, r#""A":0,"B":10"#),
+        &falcon_query("ST", 0),
+        &st0.replace(r#""A":0,"B":4"#, r#""A":0,"B":10"#),
     );
     let config = falcon_config(&http).unwrap();
     assert!(

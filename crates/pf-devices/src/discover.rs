@@ -7,11 +7,10 @@
 
 use crate::device::{Device, DeviceKind, FoundBy};
 use crate::error::DeviceError;
-use crate::fingerprint::classify_home_page;
 use crate::fpp;
 use crate::fpp_ping::{MULTISYNC_GROUP, MULTISYNC_PORT, discover_packet, kind_for_type, parse_ping};
 use crate::http::Http;
-use crate::identify::identify;
+use crate::identify::{identify, recognize};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::ErrorKind;
@@ -370,8 +369,8 @@ fn web_sweep(http: &dyn Http, interfaces: &[(Ipv4Addr, Ipv4Addr)]) -> Vec<(Strin
         .collect();
     in_parallel(&hosts, |host| {
         let host = host.to_string();
-        let page = http.get(&host, "/").ok()?;
-        classify_home_page(&page).map(|kind| (host, kind))
+        let kind = recognize(http, &host).ok()?;
+        Some((host, kind))
     })
     .into_iter()
     .flatten()

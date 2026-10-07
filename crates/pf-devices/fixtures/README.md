@@ -10,4 +10,6 @@
   sample configs (synthetic).
 - `falcon/`: an F16V5, built from the request/response formats in xLights' `Falcon.cpp`
   (synthetic until recorded from a real controller; Wi-Fi fields are blank).
-- `wled/`: a WLED controller, built from WLED's `/json/info` and `/json/cfg` formats (synthetic).
+- `wled/`: a WLED controller, built from WLED's `/json/info` and `/json/cfg` formats (synthetic;
+  `cfg.json` follows `serializeConfig()` in `wled00/cfg.cpp`, with blank Wi-Fi and access point
+  fields, so "Send setup" tests can check those sections are never sent).

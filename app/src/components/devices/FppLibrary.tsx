@@ -199,11 +199,11 @@ export function FppLibrary({ address, fppName, turn, onPlayed }: { address: stri
                 const shown = f.name.replace(/\.fseq$/i, "");
                 return (
                   <tr key={f.name} className="border-t border-neutral-100 dark:border-neutral-800">
-                    <td className="max-w-0 truncate py-1 pr-2" title={f.name}>
+                    <td className="w-full max-w-0 truncate py-1 pr-2" title={f.name}>
                       {shown}
                     </td>
-                    {folder === "playlists" && <td className="pl-3 text-right text-neutral-600 tabular-nums dark:text-neutral-300">{f.items === null ? "—" : plural(f.items, "item")}</td>}
-                    <td className="pl-3 text-right tabular-nums">{f.durationMs ? clock(f.durationMs / 1000) : "—"}</td>
+                    {folder === "playlists" && <td className="pl-3 text-right whitespace-nowrap text-neutral-600 tabular-nums dark:text-neutral-300">{f.items === null ? "—" : plural(f.items, "item")}</td>}
+                    <td className="pl-3 text-right whitespace-nowrap tabular-nums">{f.durationMs ? clock(f.durationMs / 1000) : "—"}</td>
                     <td className="pl-3 text-right whitespace-nowrap text-neutral-600 tabular-nums dark:text-neutral-300">{f.sizeBytes === null ? "—" : sizeText(f.sizeBytes)}</td>
                     <td className="pl-3 whitespace-nowrap text-neutral-600 dark:text-neutral-300">{f.modified ? shortDate(f.modified) : "—"}</td>
                     {playable && (

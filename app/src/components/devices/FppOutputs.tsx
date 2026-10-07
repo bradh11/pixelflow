@@ -121,7 +121,7 @@ export function FppOutputs({ address, details, error }: { address: string; detai
                 </span>
                 <span className="block text-xs text-neutral-500 tabular-nums">
                   {d.description ? `${d.address} · ` : ""}
-                  {thousands(d.channels)} channels ({channelRange(d.startChannel, d.channels)})
+                  {d.channels > 0 ? `${thousands(d.channels)} channels, ${thousands(d.startChannel)}–${thousands(d.startChannel + d.channels - 1)}` : "No channels yet"}
                 </span>
               </span>
               <span className="shrink-0 text-xs text-neutral-500">{!supported(d.protocol) ? "Not supported yet" : inShow(d.address) ? "In your show" : ""}</span>

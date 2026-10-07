@@ -5,7 +5,6 @@ import { App } from "../../App";
 import { demoDevices, demoFppFileDetails, demoFppFiles, demoFppSchedules, demoPlayers } from "../../api/demo";
 import { MemoryBackend, emptyShow } from "../../api/memory";
 import { useApp } from "../../state/store";
-import { FppDevicePage } from "./FppDevicePage";
 import { STATUS_POLL_MS } from "./useFppStatus";
 
 const FPP = "192.0.2.10";
@@ -177,7 +176,7 @@ describe("an FPP's page", () => {
     const { backend, user } = await openPage();
     const outputs = region("Outputs → your show");
     expect(await within(outputs).findByText("Falcon_F16V5_B9F5")).toBeInTheDocument();
-    expect(within(outputs).getByText(/6,147 channels/)).toHaveTextContent("192.0.2.20 · 6,147 channels (channels 1–6,147)");
+    expect(within(outputs).getByText(/6,147 channels/)).toHaveTextContent("192.0.2.20 · 6,147 channels, 1–6,147");
     expect(within(outputs).getByText("This FPP has no light outputs of its own: it passes its sequence on to the controllers it sends to.")).toHaveClass("text-neutral-500");
 
     await user.click(within(outputs).getByRole("button", { name: "Set up my show from this FPP" }));

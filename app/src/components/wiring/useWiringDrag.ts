@@ -1,6 +1,6 @@
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef } from "react";
 import type { Edit, Show } from "../../api/types";
-import { dropIndex, moveSlotEdits, nodeCounts, unwireEdits, wirePropEdits } from "../../lib/wiringMath";
+import { moveSlotEdits, rowDropIndex, nodeCounts, unwireEdits, wirePropEdits } from "../../lib/wiringMath";
 import { useApp } from "../../state/store";
 import { type DragItem, type DropTarget, sameTarget, useWiring } from "../../state/wiring";
 
@@ -9,18 +9,22 @@ const DRAG_PX = 4;
 
 const inside = (r: DOMRect, x: number, y: number) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
 
+/** A drop on a folded port (its rows hidden) goes at the end. */
+const END = Number.MAX_SAFE_INTEGER;
+
 /**
- * The drop target under (x, y): a port row (and where among its chips), or the props list.
+ * The drop target under (x, y): a port (and where among its table rows), or the props list.
  * Drop zones are marked `data-wiring-drop` ("port", with `data-controller`, `data-port` and
- * `data-port-at`, or "props"); chips inside a port are marked `data-wiring-chip`.
+ * `data-port-at`, and `data-folded` while folded; or "props"); rows are marked `data-wiring-row`.
  */
 export function dropTargetAt(x: number, y: number): DropTarget | null {
   for (const zone of document.querySelectorAll<HTMLElement>("[data-wiring-drop]")) {
     if (!inside(zone.getBoundingClientRect(), x, y)) continue;
     if (zone.dataset.wiringDrop === "props") return { kind: "props" };
-    const chips = [...zone.querySelectorAll<HTMLElement>("[data-wiring-chip]")].map((c) => c.getBoundingClientRect());
+    const rows = [...zone.querySelectorAll<HTMLElement>("[data-wiring-row]")].map((c) => c.getBoundingClientRect());
     const at = zone.dataset.portAt === undefined ? undefined : Number(zone.dataset.portAt);
-    return { kind: "port", controller: zone.dataset.controller!, port: Number(zone.dataset.port), at, index: dropIndex(chips, { x, y }) };
+    const index = zone.dataset.folded !== undefined ? END : rowDropIndex(rows, y);
+    return { kind: "port", controller: zone.dataset.controller!, port: Number(zone.dataset.port), at, index };
   }
   return null;
 }

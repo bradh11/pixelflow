@@ -198,6 +198,10 @@ describe("every control has a name, and icon-only buttons have tooltips", () => 
     await user.keyboard("{Escape}");
     await user.click(screen.getByRole("button", { name: "Add controller" }));
     found.push(...problems("wiring, add a controller"));
+    await user.click(screen.getByRole("button", { name: "Wire port 2 of Main FPP on the layout" }));
+    await user.click(within(screen.getByRole("list", { name: "Props to add, in the order you pick them" })).getByRole("button", { name: /Garage Arch/ }));
+    found.push(...problems("wiring, on the layout, asking"));
+    await user.keyboard("{Escape}{Escape}");
 
     go("devices");
     await user.click(screen.getByRole("button", { name: "Scan network" }));

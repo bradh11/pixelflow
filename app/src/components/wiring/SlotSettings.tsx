@@ -7,7 +7,8 @@ import { useApp } from "../../state/store";
 import { useWiring } from "../../state/wiring";
 import { NumberField } from "../layout/PropertiesPanel";
 import { Button, Select } from "../ui";
-import { type WiringData, focusAfterUnwire } from "./ControllerCard";
+import type { WiringData } from "./ControllerCard";
+import { focusAfterUnwire } from "./PortRow";
 import { OptionalNumberField } from "./fields";
 
 /** Most null pixels one slot may have (the engine's limit). */

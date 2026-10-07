@@ -6,7 +6,9 @@ import { newController, newProp } from "./shows";
 import {
   addPortEdits,
   blankSlot,
-  dropIndex,
+  rowDropIndex,
+  slotChannels,
+  universeText,
   firstGap,
   moveSlotByEdits,
   moveSlotEdits,
@@ -414,6 +416,20 @@ describe("channels", () => {
     expect(portChannels(map, a.id, 3)).toBeNull();
     expect(portChannels(map, "nope", 1)).toBeNull();
   });
+
+  it("gives each slot's first channel and universes, skipping slots that carry nothing", () => {
+    const { show, arch, line, star, a, nodes } = fixture();
+    a.protocol = { type: "sacn", startUniverse: null, universeSize: 510, allowPixelStraddle: false, multicast: false };
+    a.ports[0].slots = [blankSlot(arch.id), blankSlot("gone"), { ...blankSlot(line.id), segment: { start: 0, end: 10 } }];
+    a.ports[1].slots = [{ ...blankSlot(star.id), nullPixels: 1 }];
+    const map: ChannelMap = { frameLen: 0, props: [], controllers: mapControllers(show) };
+    expect(slotChannels(map, a.id, a.ports[0], nodes)).toEqual([{ first: 1, universes: [1, 1] }, null, { first: 151, universes: [1, 1] }]);
+    // After the 180 channels on port 1 and one null pixel: 184 on.
+    expect(slotChannels(map, a.id, a.ports[1], nodes)).toEqual([{ first: 184, universes: [1, 1] }]);
+    expect(universeText([1, 4])).toBe("U1–4");
+    expect(universeText([3, 3])).toBe("U3");
+    expect(universeText(null)).toBe("");
+  });
 });
 
 describe("wiring path", () => {
@@ -463,20 +479,19 @@ describe("wiring path", () => {
 });
 
 describe("drop position", () => {
-  const rect = (left: number, top: number) => ({ left, top, right: left + 50, bottom: top + 20 });
-  // Two lines of chips: three on the first, one on the second.
-  const chips = [rect(0, 0), rect(60, 0), rect(120, 0), rect(0, 30)];
+  // Three table rows, 20 px tall, one under the other.
+  const rows = [0, 20, 40].map((top) => ({ left: 0, top, right: 300, bottom: top + 20 }));
 
-  it("goes before the first chip whose middle is past the pointer", () => {
-    expect(dropIndex(chips, { x: 10, y: 10 })).toBe(0);
-    expect(dropIndex(chips, { x: 40, y: 10 })).toBe(1);
-    expect(dropIndex(chips, { x: 200, y: 10 })).toBe(3);
-    expect(dropIndex(chips, { x: 10, y: 40 })).toBe(3);
-    expect(dropIndex(chips, { x: 200, y: 40 })).toBe(4);
-    expect(dropIndex([], { x: 0, y: 0 })).toBe(0);
+  it("goes before the first row whose middle is below the pointer", () => {
+    expect(rowDropIndex(rows, -5)).toBe(0);
+    expect(rowDropIndex(rows, 5)).toBe(0);
+    expect(rowDropIndex(rows, 15)).toBe(1);
+    expect(rowDropIndex(rows, 45)).toBe(2);
+    expect(rowDropIndex([], 0)).toBe(0);
   });
 
-  it("past the last line means the end", () => {
-    expect(dropIndex(chips, { x: 0, y: 200 })).toBe(4);
+  it("past the middle of the last row means the end", () => {
+    expect(rowDropIndex(rows, 55)).toBe(3);
+    expect(rowDropIndex(rows, 500)).toBe(3);
   });
 });

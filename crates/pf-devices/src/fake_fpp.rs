@@ -132,6 +132,81 @@ pub struct FakeFppState {
     /// How long sequences and music files play, in ms, by file name (for `/api/files/music` and
     /// `/api/sequence/<name>/meta`).
     pub durations: BTreeMap<String, u64>,
+    /// `co-pixelStrings.json` (the pixel cape's string outputs), as FPP stores it; `None` answers
+    /// 404, as an FPP with no cape set up does.
+    pub pixel_strings: Option<Value>,
+    /// Every body POSTed to `/api/channel/output/co-pixelStrings`, in order.
+    pub config_writes: Vec<Value>,
+    /// Answer config writes with this HTTP status and body (nothing is saved).
+    pub fail_config_writes: Option<(u16, String)>,
+    /// Answer config writes "OK" but save nothing, so reading back shows the old setup.
+    pub ignore_config_writes: bool,
+    /// Answer reads of the string outputs with this HTTP status.
+    pub fail_config_reads: Option<u16>,
+    /// Every config write's body exactly as sent.
+    pub config_write_bodies: Vec<String>,
+    /// Save string outputs as FPP 10.2+ does (only a JSON object, written as sent). Off, it
+    /// behaves like FPP 9.x (9.5.3's `channel_save_output()`): the body goes through PHP's
+    /// `stripslashes()` and is written whatever it has become.
+    pub fpp10_saves: bool,
+    /// The string output file holds something that isn't JSON (a 9.x save broke it): reading it
+    /// answers just `{"status":"OK"}`, as 9.5.3's `channel_get_output()` does.
+    pub pixel_strings_unreadable: bool,
+    /// Saves leave a file that isn't JSON (as a 9.x save of a stray quote does).
+    pub damage_saves: bool,
+    /// The FPP's hardware id (`uuid` in `/api/system/info`), and its host name.
+    pub uuid: String,
+    pub host_name: String,
+}
+
+/// PHP's `stripslashes()`: each backslash is dropped and the character after it kept.
+pub fn stripslashes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('0') => out.push('\0'),
+            Some(next) => out.push(next),
+            None => {}
+        }
+    }
+    out
+}
+
+/// fppd's checks when it loads a virtual string (`PixelString.cpp` at 9.5.3, lines 601-617):
+/// `None` when it would load, or the setting that stops it.
+pub fn fppd_rejects(vs: &Value) -> Option<String> {
+    let n = |key: &str| {
+        vs.get(key)
+            .and_then(|v| v.as_i64().or_else(|| v.as_str()?.trim().parse().ok()))
+            .unwrap_or(0)
+    };
+    let pixels = n("pixelCount");
+    if !(0..=1600).contains(&pixels) {
+        return Some("pixelCount".into());
+    }
+    if pixels == 0 {
+        return None;
+    }
+    let checks = [
+        (
+            "startChannel",
+            n("startChannel") < 0 || n("startChannel") > 8192 * 1024,
+        ),
+        ("nullNodes", n("nullNodes") < 0 || n("nullNodes") > 1600),
+        ("endNulls", n("endNulls") < 0 || n("endNulls") > 1600),
+        ("length", n("nullNodes") + pixels + n("endNulls") > 1600),
+        ("groupCount", n("groupCount") < 0 || n("groupCount") > pixels),
+        ("zigZag", n("zigZag") < 0 || n("zigZag") > pixels),
+    ];
+    checks
+        .into_iter()
+        .find(|(_, bad)| *bad)
+        .map(|(what, _)| what.to_string())
 }
 
 impl Default for FakeFppState {
@@ -166,6 +241,17 @@ impl Default for FakeFppState {
             .expect("fixture parses"),
             schedule: json!([]),
             durations: BTreeMap::new(),
+            pixel_strings: None,
+            config_writes: Vec::new(),
+            fail_config_writes: None,
+            ignore_config_writes: false,
+            fail_config_reads: None,
+            config_write_bodies: Vec::new(),
+            fpp10_saves: false,
+            pixel_strings_unreadable: false,
+            damage_saves: false,
+            uuid: "M1-FAKE-0001".to_string(),
+            host_name: "FakeFPP".to_string(),
         }
     }
 }
@@ -285,6 +371,12 @@ impl FakeFpp {
         self
     }
 
+    /// Gives the FPP a pixel cape with these string outputs (`co-pixelStrings.json`).
+    pub fn with_pixel_strings(self, strings: Value) -> Self {
+        self.state().pixel_strings = Some(strings);
+        self
+    }
+
     /// Sets the schedule (a list of `schedule.json` entries).
     pub fn with_schedule(self, entries: Value) -> Self {
         self.state().schedule = entries;
@@ -334,9 +426,9 @@ impl Drop for FakeFpp {
     }
 }
 
-struct Request {
-    method: String,
-    path: String,
+pub(crate) struct Request {
+    pub(crate) method: String,
+    pub(crate) path: String,
     headers: BTreeMap<String, String>,
 }
 
@@ -360,7 +452,7 @@ fn percent_decode(text: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-fn read_head(reader: &mut BufReader<TcpStream>) -> std::io::Result<Option<Request>> {
+pub(crate) fn read_head(reader: &mut BufReader<TcpStream>) -> std::io::Result<Option<Request>> {
     let mut line = String::new();
     if reader.read_line(&mut line)? == 0 {
         return Ok(None);
@@ -390,7 +482,7 @@ fn read_head(reader: &mut BufReader<TcpStream>) -> std::io::Result<Option<Reques
     }))
 }
 
-fn respond(stream: &mut TcpStream, status: u16, body: &str) -> std::io::Result<()> {
+pub(crate) fn respond(stream: &mut TcpStream, status: u16, body: &str) -> std::io::Result<()> {
     let reason = match status {
         200 => "OK",
         400 => "Bad Request",
@@ -410,7 +502,7 @@ fn content_length(request: &Request) -> Option<u64> {
     request.headers.get("content-length")?.parse().ok()
 }
 
-fn read_body(reader: &mut BufReader<TcpStream>, request: &Request) -> std::io::Result<Vec<u8>> {
+pub(crate) fn read_body(reader: &mut BufReader<TcpStream>, request: &Request) -> std::io::Result<Vec<u8>> {
     let mut body = vec![0; content_length(request).unwrap_or(0) as usize];
     reader.read_exact(&mut body)?;
     Ok(body)
@@ -459,8 +551,8 @@ fn route(s: &mut FakeFppState, method: &str, segments: &[&str], body: &[u8]) -> 
     let ok = |v: Value| (200, v.to_string());
     match (method, segments) {
         ("GET", ["api", "system", "info"]) => ok(json!({
-            "HostName": "FakeFPP", "Platform": "Raspberry Pi", "Variant": "Pi 4", "Mode": "player",
-            "Version": "9.3", "majorVersion": 9, "minorVersion": 3,
+            "HostName": s.host_name, "Platform": "Raspberry Pi", "Variant": "Pi 4", "Mode": "player",
+            "Version": "9.3", "majorVersion": 9, "minorVersion": 3, "uuid": s.uuid,
             "Utilization": {"Disk": {"Media": {"Free": s.free_bytes, "Total": 31_000_000_000u64}}}
         })),
         ("GET", ["api", "fppd", "status"]) => ok(s.status.clone()),
@@ -582,6 +674,65 @@ fn route(s: &mut FakeFppState, method: &str, segments: &[&str], body: &[u8]) -> 
             }
             let removed = s.uploads.remove(*name).is_some();
             ok(json!({"status": if removed { "OK" } else { MISSING_FILE }, "file": name, "dir": "uploads"}))
+        }
+        // FPP's channel_get_output(): the file plus a status key; 404 when there's no file.
+        ("GET", ["api", "channel", "output", "co-pixelStrings"]) => {
+            if let Some(status) = s.fail_config_reads {
+                return (status, json!({"status": "ERROR"}).to_string());
+            }
+            if s.pixel_strings_unreadable {
+                return ok(json!({"status": "OK"}));
+            }
+            match &s.pixel_strings {
+                Some(doc) => {
+                    let mut doc = doc.clone();
+                    doc["status"] = json!("OK");
+                    ok(doc)
+                }
+                None => (404, json!({"status": "ERROR: File not found"}).to_string()),
+            }
+        }
+        // FPP's channel_save_output(), then channel_get_output() echoes the saved file. 10.2+
+        // takes only a JSON object; 9.x writes `stripslashes(body)`, whatever it has become.
+        ("POST", ["api", "channel", "output", "co-pixelStrings"]) => {
+            if let Some((status, reply)) = s.fail_config_writes.clone() {
+                return (status, reply);
+            }
+            let text = String::from_utf8_lossy(body).into_owned();
+            s.config_write_bodies.push(text.clone());
+            let parsed = serde_json::from_str::<Value>(&text).ok();
+            if let Some(doc) = &parsed {
+                s.config_writes.push(doc.clone());
+            }
+            if s.fpp10_saves {
+                let Some(doc @ Value::Object(_)) = parsed else {
+                    return (
+                        400,
+                        json!({"status": "ERROR: body is not a JSON object"}).to_string(),
+                    );
+                };
+                if !s.ignore_config_writes {
+                    s.pixel_strings = Some(doc);
+                    s.pixel_strings_unreadable = false;
+                }
+            } else if !s.ignore_config_writes {
+                match serde_json::from_str::<Value>(&stripslashes(&text)) {
+                    Ok(doc) => {
+                        s.pixel_strings = Some(doc);
+                        s.pixel_strings_unreadable = false;
+                    }
+                    Err(_) => s.pixel_strings_unreadable = true,
+                }
+            }
+            if s.damage_saves {
+                s.pixel_strings_unreadable = true;
+            }
+            if s.pixel_strings_unreadable {
+                return ok(json!({"status": "OK"}));
+            }
+            let mut saved = s.pixel_strings.clone().unwrap_or_else(|| json!({}));
+            saved["status"] = json!("OK");
+            ok(saved)
         }
         ("POST", ["api", "command"]) => {
             s.commands.push(String::from_utf8_lossy(body).into_owned());
@@ -721,6 +872,29 @@ mod tests {
         assert_eq!(percent_decode("A%20B%2Ec"), "A B.c");
         assert_eq!(percent_decode("100%"), "100%");
         assert_eq!(percent_decode("%E2%9C%93"), "✓");
+    }
+
+    #[test]
+    fn stripslashes_drops_each_backslash() {
+        assert_eq!(stripslashes(r#"{"a":"12\" Star"}"#), r#"{"a":"12" Star"}"#);
+        assert_eq!(stripslashes(r"a\\b"), r"a\b");
+    }
+
+    #[test]
+    fn fppd_load_checks() {
+        assert_eq!(fppd_rejects(&json!({"pixelCount": 1600})), None);
+        assert_eq!(
+            fppd_rejects(&json!({"pixelCount": 1601})).as_deref(),
+            Some("pixelCount")
+        );
+        assert_eq!(
+            fppd_rejects(&json!({"pixelCount": 30, "groupCount": 50})).as_deref(),
+            Some("groupCount")
+        );
+        assert_eq!(
+            fppd_rejects(&json!({"pixelCount": 1600, "nullNodes": 1})).as_deref(),
+            Some("length")
+        );
     }
 
     #[test]

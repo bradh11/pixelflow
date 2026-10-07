@@ -1,9 +1,9 @@
 //! What discovery reports about a device.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// The kinds of controller PixelFlow understands.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum DeviceKind {
     Fpp,

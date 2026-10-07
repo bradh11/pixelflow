@@ -1,4 +1,17 @@
-{"hw":{"led":{"total":120,"maxpwr":850,"ins":[
-  {"start":0,"len":60,"pin":[2],"order":0,"rev":false,"skip":1,"type":22},
-  {"start":60,"len":60,"pin":[4],"order":1,"rev":true,"skip":0,"type":30}]}},
- "if":{"live":{"en":true,"mso":false,"port":5568,"mc":false,"dmx":{"uni":1,"addr":1}}}}
+{"rev":[1,0],"vid":2412100,
+ "id":{"mdns":"wled-porch","name":"Porch WLED"},
+ "nw":{"espnow":false,"linked_remote":["aabbccddeeff"],"ins":[{"ssid":"","pskl":0,"ip":[0,0,0,0],"gw":[0,0,0,0],"sn":[255,255,255,0]}]},
+ "ap":{"ssid":"","pskl":0,"chan":1,"hide":0,"behav":1},
+ "hw":{"led":{"total":120,"maxpwr":850,"fps":42,"rgbwm":255,"cb":0,"ins":[
+  {"start":0,"len":60,"pin":[2],"order":0,"rev":false,"skip":1,"type":22,"ref":false,"rgbwm":0,"freq":0,"maxpwr":850},
+  {"start":60,"len":60,"pin":[4],"order":1,"rev":true,"skip":0,"type":30,"ref":false,"rgbwm":0,"freq":0,"maxpwr":850}]},
+  "com":[],
+  "btn":{"pull":true,"ins":[{"type":2,"pin":[0],"macros":[0,0,0]}],"tt":32},
+  "ir":{"pin":-1,"type":0,"sel":true},
+  "relay":{"pin":-1,"rev":false},
+  "if":{"i2c-pin":[-1,-1],"spi-pin":[-1,-1,-1]}},
+ "light":{"scale-bri":100,"gc":{"bri":1,"col":2.8,"val":2.8}},
+ "def":{"ps":0,"on":true,"bri":128},
+ "if":{"sync":{"port0":21324},"live":{"en":true,"mso":false,"port":5568,"mc":false,"dmx":{"uni":1,"addr":1,"mode":4}}},
+ "timers":{"ins":[]},
+ "um":{}}

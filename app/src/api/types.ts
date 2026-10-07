@@ -278,6 +278,9 @@ export interface PortSlot {
   brightness: number | null;
   gamma: number | null;
   smartReceiver: number | null;
+  /** The color order the controller itself applies to this string ("Send setup" sets it on the
+   * controller); absent or null leaves the controller's setting alone. */
+  controllerColorOrder?: ColorOrder | null;
 }
 
 export interface Port {
@@ -636,6 +639,101 @@ export interface DeviceDetails {
   device: Device;
   config: DeviceConfig;
   plan: ImportPlan;
+}
+
+/** Props already in the show to wire to a device's strings, by string key ("port1/string2"). */
+export type UseProps = Record<string, Uuid>;
+
+export type ChangeKind =
+  | "pixels"
+  | "colorOrder"
+  | "start"
+  | "stringAdded"
+  | "stringRemoved"
+  | "receives"
+  | "startUniverse"
+  | "universeSize"
+  | "setting";
+
+/** One difference between a controller in the show and the device, before → after. */
+export interface Change {
+  /** Stable for the same difference; a new string's id is its string key. */
+  id: string;
+  /** Its port; null for the controller as a whole. */
+  port: number | null;
+  kind: ChangeKind;
+  /** The string it's about ("String 2 · Gutter"), or empty. */
+  subject: string;
+  what: string;
+  before: string;
+  after: string;
+  /** What this change undoes or turns off, in plain words. */
+  warning: string | null;
+  /** Compare only: the device's value can be taken into the show. */
+  canTake: boolean;
+  whyNot: string | null;
+}
+
+/** "Compare with this device": show (before) → device (after). Changes nothing. */
+export interface DeviceComparison {
+  device: Device;
+  controllerName: string;
+  changes: Change[];
+  notes: string[];
+}
+
+/** "Send setup to this device…": device (before) → show (after). Changes nothing yet. */
+export interface SendPlan {
+  device: Device;
+  controllerName: string;
+  changes: Change[];
+  notes: string[];
+  /** Why this can't be sent as it is (the controller wouldn't load it, for instance). */
+  problems: string[];
+  /** What the device is busy with that sending would interrupt. */
+  busy: string | null;
+  canSend: boolean;
+  /** Why it can't be sent, when it can't. */
+  reason: string | null;
+  /** The kept copy of this device's setup, which Put back sends. */
+  restorePoint: RestorePointInfo | null;
+}
+
+/** A kept copy of a device's setup, from before PixelFlow first changed it. */
+export interface RestorePointInfo {
+  /** What forgetting it takes. */
+  key: string;
+  deviceName: string;
+  /** The address it was read from. */
+  address: string;
+  takenAtMs: number;
+}
+
+/** What putting the kept copy back would change: the device now (before) → the copy (after). */
+export interface RestorePlan {
+  device: Device;
+  copy: RestorePointInfo;
+  changes: Change[];
+  canRestore: boolean;
+  reason: string | null;
+}
+
+export type SendStatus = "sent" | "mismatch" | "failed" | "refused";
+
+export interface SendReport {
+  status: SendStatus;
+  message: string;
+  /** What still differs after reading back (device → show). */
+  mismatches: Change[];
+  /** The setup from just before sending can be put back. */
+  canRestore: boolean;
+  /** Worth knowing, but not caused by this send. */
+  notes: string[];
+}
+
+export interface RestoreReport {
+  restored: boolean;
+  message: string;
 }
 
 export type PlayerState = "idle" | "playing" | "paused" | "stopping" | "other";

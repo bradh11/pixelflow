@@ -1,6 +1,6 @@
 //! Controllers, their ports, and the props wired to each port.
 
-use crate::{ControllerId, NodeRange, PropId};
+use crate::{ColorOrder, ControllerId, NodeRange, PropId};
 use serde::{Deserialize, Serialize};
 
 /// Which device adapter manages the controller.
@@ -127,6 +127,11 @@ pub struct PortSlot {
     /// Smart/differential receiver index, when the port feeds receivers.
     #[serde(default)]
     pub smart_receiver: Option<u8>,
+    /// The color order the controller itself applies to this string (as xLights' controller
+    /// connection "Color Order"): what "Send setup" sets on the controller. PixelFlow still
+    /// sends the prop's own color order. `None` leaves the controller's setting as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub controller_color_order: Option<ColorOrder>,
 }
 
 impl PortSlot {
@@ -140,6 +145,7 @@ impl PortSlot {
             brightness: None,
             gamma: None,
             smart_receiver: None,
+            controller_color_order: None,
         }
     }
 
@@ -287,6 +293,24 @@ mod tests {
         assert_eq!(slot.node_range(50), NodeRange::new(0, 50));
         slot.segment = Some(NodeRange::new(10, 20));
         assert_eq!(slot.node_range(50), NodeRange::new(10, 20));
+    }
+
+    #[test]
+    fn slot_controller_color_order_is_optional_and_left_out_when_unset() {
+        let slot: PortSlot = serde_json::from_value(serde_json::json!({ "prop": PropId::new() })).unwrap();
+        assert_eq!(slot.controller_color_order, None);
+        assert!(
+            serde_json::to_value(&slot)
+                .unwrap()
+                .get("controllerColorOrder")
+                .is_none()
+        );
+
+        let mut slot = slot;
+        slot.controller_color_order = Some(ColorOrder::Grb);
+        let json = serde_json::to_value(&slot).unwrap();
+        assert_eq!(json["controllerColorOrder"], "GRB");
+        assert_eq!(serde_json::from_value::<PortSlot>(json).unwrap(), slot);
     }
 
     #[test]

@@ -1,0 +1,95 @@
+[
+  {
+    "name": "a matching device has no differences",
+    "kind": "fpp",
+    "protocol": { "type": "ddp" },
+    "show": [
+      { "port": 1, "slots": [{ "name": "Arch", "nodes": 50 }, { "name": "Gutter", "nodes": 100 }] },
+      { "port": 2, "slots": [{ "name": "Roof", "nodes": 200, "controllerColorOrder": "GRB" }] }
+    ],
+    "device": {
+      "input": { "type": "ddp" },
+      "ports": [
+        { "number": 1, "strings": [{ "name": "Arch", "pixels": 50 }, { "name": "Gutter", "pixels": 100 }] },
+        { "number": 2, "strings": [{ "name": "Roof", "pixels": 200, "colorOrder": "GRB" }] }
+      ]
+    },
+    "expect": { "rows": [], "notes": [] }
+  },
+  {
+    "name": "differences read show to device, port by port",
+    "kind": "falcon",
+    "protocol": { "type": "ddp" },
+    "show": [
+      { "port": 1, "slots": [{ "name": "Arch", "nodes": 50 }, { "name": "Gutter", "nodes": 100 }] },
+      { "port": 2, "slots": [{ "name": "Roof", "nodes": 200 }] }
+    ],
+    "device": {
+      "input": { "type": "sacn", "startUniverse": 7, "channelsPerUniverse": 510, "universeCount": 2 },
+      "ports": [
+        { "number": 1, "strings": [{ "name": "Arch", "pixels": 50, "colorOrder": "GRB" }, { "name": "Gutter", "pixels": 80 }] },
+        { "number": 3, "strings": [{ "name": "Porch", "pixels": 30, "colorOrder": "BGR" }] }
+      ]
+    },
+    "expect": {
+      "rows": [
+        ["input/receives", "", "Receives", "DDP", "sACN (E1.31)", true, null],
+        ["port1/string1/colorOrder", "String 1 · Arch", "Color order", "Not set", "GRB", true, null],
+        ["port1/string2/pixels", "String 2 · Gutter", "Pixels", "100", "80", true, "Gutter gets 20 pixels shorter; effects on its last pixels are lost."],
+        ["port2/string1", "String 1 · Roof", "Removed string", "200 pixels", "None", true, "Roof stays in your show, no longer wired here."],
+        ["port3/string1", "String 1 · Porch", "New string", "None", "30 pixels, BGR", true, null]
+      ],
+      "notes": []
+    }
+  },
+  {
+    "name": "an FPP's inputs aren't compared",
+    "kind": "fpp",
+    "protocol": { "type": "sacn", "startUniverse": 1, "universeSize": 510 },
+    "show": [{ "port": 1, "slots": [{ "name": "Arch", "nodes": 50 }] }],
+    "device": { "input": { "type": "ddp" }, "ports": [{ "number": 1, "strings": [{ "name": "Arch", "pixels": 50 }] }] },
+    "expect": { "rows": [], "notes": ["PixelFlow doesn't read an FPP's sACN inputs, so its universes aren't compared."] }
+  },
+  {
+    "name": "a WLED output carries its port's props added up",
+    "kind": "wled",
+    "protocol": { "type": "ddp" },
+    "show": [{ "port": 1, "slots": [{ "name": "Arch", "nodes": 50 }, { "name": "Gutter", "nodes": 100 }] }],
+    "device": { "input": { "type": "ddp" }, "ports": [{ "number": 1, "strings": [{ "name": null, "pixels": 160 }] }] },
+    "expect": {
+      "rows": [["port1/string1/pixels", "String 1 · Arch + Gutter", "Pixels", "150", "160", false, null]],
+      "notes": []
+    }
+  },
+  {
+    "name": "a shape that sets its own size can't take a pixel count",
+    "kind": "falcon",
+    "protocol": { "type": "ddp" },
+    "show": [{ "port": 1, "slots": [{ "name": "Arch", "nodes": 50, "shape": "arch" }, { "name": "Gutter", "nodes": 100, "nullPixels": 2 }] }],
+    "device": {
+      "input": { "type": "ddp" },
+      "ports": [{ "number": 1, "strings": [{ "name": "Arch", "pixels": 60 }, { "name": "Gutter", "pixels": 102 }] }]
+    },
+    "expect": {
+      "rows": [["port1/string1/pixels", "String 1 · Arch", "Pixels", "50", "60", false, null]],
+      "notes": []
+    }
+  },
+  {
+    "name": "ports wired only through smart receivers are left alone",
+    "kind": "falcon",
+    "protocol": { "type": "ddp" },
+    "show": [
+      { "port": 1, "slots": [{ "name": "Arch", "nodes": 50 }] },
+      { "port": 2, "slots": [{ "name": "Roof", "nodes": 200, "smartReceiver": 1 }] }
+    ],
+    "device": {
+      "input": { "type": "ddp" },
+      "ports": [
+        { "number": 1, "strings": [{ "name": "Arch", "pixels": 50 }] },
+        { "number": 2, "strings": [{ "name": "Roof", "pixels": 300 }] }
+      ]
+    },
+    "expect": { "rows": [], "notes": ["Strings on smart receivers aren't compared yet; check them on the controller itself."] }
+  }
+]

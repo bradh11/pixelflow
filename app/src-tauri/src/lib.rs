@@ -5,6 +5,7 @@
 //! can take a moment).
 
 mod assistant;
+mod device_setup;
 mod devices;
 mod files;
 mod fpp_send;
@@ -287,6 +288,13 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         devices::fpp_setup_plan,
         devices::fpp_set_up_show,
         devices::open_device_page,
+        device_setup::compare_device,
+        device_setup::take_from_device_setup,
+        device_setup::plan_device_setup,
+        device_setup::send_device_setup,
+        device_setup::restore_device_setup,
+        device_setup::forget_device_setup_copy,
+        device_setup::plan_device_restore,
         fpp_send::fpp_send_plan,
         fpp_send::fpp_send,
         fpp_send::cancel_fpp_send,
@@ -378,10 +386,11 @@ pub fn run() {
         .on_menu_event(menu::on_event)
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
+            let setups_dir = data_dir.join("device-setups");
             let config_dir = app.path().app_config_dir().ok();
             app.manage(AppState {
                 engine: Mutex::new(Engine::new(data_dir)),
-                devices: DeviceAccess::network(),
+                devices: DeviceAccess::network().with_setup_dir(setups_dir),
                 waveforms: Mutex::default(),
                 photos: Default::default(),
                 models: Default::default(),
@@ -502,7 +511,8 @@ mod tests {
         with_commands(mock_builder())
             .manage(AppState {
                 engine: Mutex::new(engine),
-                devices: DeviceAccess::fake(pf_devices::testing::network()),
+                devices: DeviceAccess::fake(pf_devices::testing::network())
+                    .with_setup_dir(dir.join("device-setups")),
                 waveforms: Mutex::default(),
                 photos: Default::default(),
                 models: Default::default(),
@@ -2552,5 +2562,430 @@ mod tests {
             call_raw(&webview, "read_image", json!({ "path": moved })).unwrap(),
             PNG
         );
+    }
+
+    /// The pixel hat's strings: port 1 has "Roof Line" (150 pixels) and "Gutter" (50).
+    fn fake_hat() -> pf_devices::testing::FakeFpp {
+        let mut doc: Value = serde_json::from_str(include_str!(
+            "../../../crates/pf-devices/fixtures/fpp-hat/api_channel_output_co-pixelStrings.json"
+        ))
+        .unwrap();
+        doc.as_object_mut().unwrap().remove("status");
+        pf_devices::testing::FakeFpp::start().with_pixel_strings(doc)
+    }
+
+    /// Adds the device at `host` to the show as an import would (one undo step).
+    fn add_device(webview: &WebviewWindow<MockRuntime>, host: &str) -> Value {
+        let http = pf_devices::HttpClient::new(std::time::Duration::from_secs(5));
+        let device = pf_devices::identify(&http, host, Some(pf_devices::DeviceKind::Fpp)).unwrap();
+        let config = pf_devices::read_config(&http, &device).unwrap();
+        let plan = pf_devices::plan_import(&device, &config, &pf_model::Show::new("t"));
+        let mut edits: Vec<Edit> = plan
+            .props
+            .into_iter()
+            .map(|prop| Edit::AddProp { prop })
+            .collect();
+        edits.push(Edit::AddController {
+            controller: plan.controller,
+        });
+        call(webview, "apply_edits", json!({ "edits": edits })).unwrap()
+    }
+
+    /// Resizes the line prop `name` to `nodes` pixels.
+    fn resize(webview: &WebviewWindow<MockRuntime>, snapshot: &Value, name: &str, nodes: u32) -> Value {
+        let mut prop = snapshot["show"]["props"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["name"] == name)
+            .unwrap()
+            .clone();
+        prop["shape"]["nodes"] = json!(nodes);
+        call(
+            webview,
+            "apply_edits",
+            json!({ "edits": [{ "type": "updateProp", "prop": prop }] }),
+        )
+        .unwrap()
+    }
+
+    /// Puts back the kept copy as the dialog does: look at what it changes, then confirm those rows.
+    fn put_back(webview: &WebviewWindow<MockRuntime>, host: &str) -> Result<Value, Value> {
+        let plan = call(webview, "plan_device_restore", json!({ "address": host }))?;
+        call(
+            webview,
+            "restore_device_setup",
+            json!({ "address": host, "expected": ids(&plan["changes"]) }),
+        )
+    }
+
+    fn ids(changes: &Value) -> Vec<String> {
+        changes
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["id"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn an_import_can_wire_props_already_in_the_show() {
+        let (_app, webview, _dir) = app();
+        let falcon = pf_devices::testing::FALCON;
+        let details = call(&webview, "inspect_device", json!({ "address": falcon })).unwrap();
+        let first = details["config"]["ports"][0]["number"].as_u64().unwrap();
+        let prop = pf_model::Prop::new(
+            "Garage Arch",
+            pf_model::ShapeSource::Generator(pf_model::Generator::Line {
+                nodes: 50,
+                length: 2.0,
+            }),
+        );
+        let id = prop.id;
+        call(
+            &webview,
+            "apply_edits",
+            json!({ "edits": [Edit::AddProp { prop }] }),
+        )
+        .unwrap();
+        let key = format!("port{first}/string1");
+        let snapshot = call(
+            &webview,
+            "import_device",
+            json!({ "address": falcon, "useProps": { key: id } }),
+        )
+        .unwrap();
+        // Three strings: one wires Garage Arch, two get starter props.
+        assert_eq!(snapshot["summary"]["props"], 3);
+        assert_eq!(
+            snapshot["show"]["controllers"][0]["ports"][0]["slots"][0]["prop"],
+            json!(id)
+        );
+    }
+
+    #[test]
+    fn comparing_takes_picked_differences_into_the_show_as_one_undo_step() {
+        let (_app, webview, _dir) = app();
+        let fpp = fake_hat();
+        let host = fpp.address().to_string();
+        add_device(&webview, &host);
+        let error = call(
+            &webview,
+            "take_from_device_setup",
+            json!({ "address": host, "picks": ["x"] }),
+        )
+        .unwrap_err();
+        assert_eq!(error, json!("Compare with the controller first."));
+        // On the FPP's own page, Gutter grows to 60 pixels.
+        fpp.state().pixel_strings.as_mut().unwrap()["channelOutputs"][0]["outputs"][0]["virtualStrings"][1]
+            ["pixelCount"] = json!(60);
+        let comparison = call(&webview, "compare_device", json!({ "address": host })).unwrap();
+        assert_eq!(comparison["controllerName"], "FakeFPP");
+        assert_eq!(ids(&comparison["changes"]), vec!["port1/string2/pixels"]);
+        assert_eq!(comparison["changes"][0]["before"], "50");
+        assert_eq!(comparison["changes"][0]["after"], "60");
+
+        let snapshot = call(
+            &webview,
+            "take_from_device_setup",
+            json!({ "address": host, "picks": ["port1/string2/pixels"] }),
+        )
+        .unwrap();
+        assert_eq!(snapshot["summary"]["pixels"], 210);
+        let snapshot = call(&webview, "undo", json!({})).unwrap();
+        assert_eq!(snapshot["summary"]["pixels"], 200, "one undo step");
+        // Comparing never writes to the device.
+        assert!(fpp.state().config_writes.is_empty());
+    }
+
+    #[test]
+    fn sending_a_setup_shows_it_first_then_sends_checks_and_can_put_it_back() {
+        let (_app, webview, _dir) = app();
+        let fpp = fake_hat();
+        let host = fpp.address().to_string();
+        let original = fpp.state().pixel_strings.clone().unwrap();
+        let snapshot = add_device(&webview, &host);
+        let error = call(
+            &webview,
+            "send_device_setup",
+            json!({ "address": host, "expected": [] }),
+        )
+        .unwrap_err();
+        assert_eq!(error, json!("Review what will change before sending."));
+
+        let snapshot = resize(&webview, &snapshot, "Gutter", 30);
+        let plan = call(&webview, "plan_device_setup", json!({ "address": host })).unwrap();
+        assert_eq!(plan["canSend"], true);
+        assert_eq!(ids(&plan["changes"]), vec!["port1/string2/pixels"]);
+        assert!(
+            plan["changes"][0]["warning"]
+                .as_str()
+                .unwrap()
+                .contains("go dark")
+        );
+        assert!(fpp.state().config_writes.is_empty(), "planning sends nothing");
+
+        let error = call(
+            &webview,
+            "send_device_setup",
+            json!({ "address": host, "expected": ["other"] }),
+        )
+        .unwrap_err();
+        assert!(
+            error.as_str().unwrap().contains("isn't what was shown"),
+            "{error}"
+        );
+        let report = call(
+            &webview,
+            "send_device_setup",
+            json!({ "address": host, "expected": ["port1/string2/pixels"] }),
+        )
+        .unwrap();
+        assert_eq!(report["status"], "sent", "{report}");
+        let saved = fpp.state().pixel_strings.clone().unwrap();
+        assert_eq!(
+            saved["channelOutputs"][0]["outputs"][0]["virtualStrings"][1]["pixelCount"],
+            30
+        );
+        // The plan is used up.
+        let error = call(
+            &webview,
+            "send_device_setup",
+            json!({ "address": host, "expected": ["port1/string2/pixels"] }),
+        )
+        .unwrap_err();
+        assert!(
+            error.as_str().unwrap().contains("isn't what was shown"),
+            "{error}"
+        );
+
+        // A send that fails partway can be undone with one click.
+        resize(&webview, &snapshot, "Gutter", 20);
+        let plan = call(&webview, "plan_device_setup", json!({ "address": host })).unwrap();
+        fpp.state().fail_config_writes = Some((500, "{}".to_string()));
+        let report = call(
+            &webview,
+            "send_device_setup",
+            json!({ "address": host, "expected": ids(&plan["changes"]) }),
+        )
+        .unwrap();
+        assert_eq!(report["status"], "failed");
+        assert_eq!(report["canRestore"], true);
+        fpp.state().fail_config_writes = None;
+        // The copy kept is the one from before the first send: the last setup known to work.
+        assert_ne!(fpp.state().pixel_strings.clone().unwrap(), original);
+        let restored = put_back(&webview, &host).unwrap();
+        assert_eq!(restored["restored"], true, "{restored}");
+        assert_eq!(fpp.state().pixel_strings.clone().unwrap(), original);
+        assert_ne!(saved, original);
+        // Once it's back on the device, the copy is done with.
+        let plan = call(&webview, "plan_device_setup", json!({ "address": host })).unwrap();
+        assert_eq!(plan["restorePoint"], json!(null), "{plan}");
+        let error = call(&webview, "plan_device_restore", json!({ "address": host })).unwrap_err();
+        assert_eq!(
+            error,
+            json!("There's no earlier setup of this controller to put back.")
+        );
+    }
+
+    #[test]
+    fn put_back_shows_what_it_changes_and_needs_those_rows_confirmed() {
+        let (_app, webview, _dir) = app();
+        let fpp = fake_hat();
+        let host = fpp.address().to_string();
+        let snapshot = add_device(&webview, &host);
+        resize(&webview, &snapshot, "Gutter", 30);
+        let plan = call(&webview, "plan_device_setup", json!({ "address": host })).unwrap();
+        call(
+            &webview,
+            "send_device_setup",
+            json!({ "address": host, "expected": ids(&plan["changes"]) }),
+        )
+        .unwrap();
+        let restore = call(&webview, "plan_device_restore", json!({ "address": host })).unwrap();
+        assert_eq!(restore["canRestore"], true, "{restore}");
+        assert_eq!(ids(&restore["changes"]), vec!["port1/string2/pixels"]);
+        assert_eq!(restore["changes"][0]["before"], "30");
+        assert_eq!(restore["changes"][0]["after"], "50");
+        let writes = fpp.state().config_writes.len();
+        let error = call(
+            &webview,
+            "restore_device_setup",
+            json!({ "address": host, "expected": ["other"] }),
+        )
+        .unwrap_err();
+        assert!(
+            error.as_str().unwrap().contains("isn't what was shown"),
+            "{error}"
+        );
+        assert_eq!(fpp.state().config_writes.len(), writes, "nothing written");
+        let restored = call(
+            &webview,
+            "restore_device_setup",
+            json!({ "address": host, "expected": ["port1/string2/pixels"] }),
+        )
+        .unwrap();
+        assert_eq!(restored["restored"], true, "{restored}");
+    }
+
+    #[test]
+    fn put_back_refuses_a_different_device_at_the_same_address() {
+        let (_app, webview, _dir) = app();
+        let fpp = fake_hat();
+        let host = fpp.address().to_string();
+        let snapshot = add_device(&webview, &host);
+        resize(&webview, &snapshot, "Gutter", 30);
+        let plan = call(&webview, "plan_device_setup", json!({ "address": host })).unwrap();
+        call(
+            &webview,
+            "send_device_setup",
+            json!({ "address": host, "expected": ids(&plan["changes"]) }),
+        )
+        .unwrap();
+        let restore = call(&webview, "plan_device_restore", json!({ "address": host })).unwrap();
+        // Another FPP now answers at this address (between looking and confirming).
+        fpp.state().uuid = "M1-SOMEONE-ELSE".to_string();
+        fpp.state().host_name = "OtherFPP".to_string();
+        let writes = fpp.state().config_writes.len();
+        let error = call(
+            &webview,
+            "restore_device_setup",
+            json!({ "address": host, "expected": ids(&restore["changes"]) }),
+        )
+        .unwrap_err();
+        assert!(error.as_str().unwrap().contains("OtherFPP"), "{error}");
+        assert_eq!(fpp.state().config_writes.len(), writes, "nothing written");
+        // Looking again, the copy isn't this device's, so it isn't offered.
+        let plan = call(&webview, "plan_device_setup", json!({ "address": host })).unwrap();
+        assert_eq!(plan["restorePoint"], json!(null));
+        let error = call(&webview, "plan_device_restore", json!({ "address": host })).unwrap_err();
+        assert_eq!(
+            error,
+            json!("There's no earlier setup of this controller to put back.")
+        );
+    }
+
+    #[test]
+    fn copies_of_two_devices_are_kept_apart() {
+        let (_app, webview, _dir) = app();
+        let (a, b) = (fake_hat(), fake_hat());
+        b.state().uuid = "M1-FAKE-0002".to_string();
+        b.state().pixel_strings.as_mut().unwrap()["channelOutputs"][0]["outputs"][0]["virtualStrings"][1]["description"] =
+            json!("Gutter B");
+        for (fpp, gutter) in [(&a, "Gutter"), (&b, "Gutter B")] {
+            let host = fpp.address().to_string();
+            let snapshot = add_device(&webview, &host);
+            resize(&webview, &snapshot, gutter, 30);
+            let plan = call(&webview, "plan_device_setup", json!({ "address": host })).unwrap();
+            call(
+                &webview,
+                "send_device_setup",
+                json!({ "address": host, "expected": ids(&plan["changes"]) }),
+            )
+            .unwrap();
+        }
+        for fpp in [&a, &b] {
+            let restored = put_back(&webview, fpp.address()).unwrap();
+            assert_eq!(restored["restored"], true, "{restored}");
+        }
+    }
+
+    #[test]
+    fn put_back_stays_after_a_send_reported_as_sent_and_across_a_restart() {
+        let fpp = fake_hat();
+        let host = fpp.address().to_string();
+        let before = fpp.state().pixel_strings.clone().unwrap();
+        let (app, webview, dir) = app_in(tempfile::tempdir().unwrap());
+        let snapshot = add_device(&webview, &host);
+        resize(&webview, &snapshot, "Gutter", 30);
+        let plan = call(&webview, "plan_device_setup", json!({ "address": host })).unwrap();
+        assert_eq!(plan["restorePoint"], json!(null));
+        let report = call(
+            &webview,
+            "send_device_setup",
+            json!({ "address": host, "expected": ids(&plan["changes"]) }),
+        )
+        .unwrap();
+        assert_eq!(report["status"], "sent", "{report}");
+        assert_eq!(report["canRestore"], true);
+        // Looking again keeps the copy from before the send, not the device as it is now.
+        let plan = call(&webview, "plan_device_setup", json!({ "address": host })).unwrap();
+        assert!(plan["restorePoint"]["takenAtMs"].as_u64().unwrap() > 0, "{plan}");
+        drop((webview, app));
+
+        // After a restart (no show open), the copy is still there and puts the FPP back.
+        let (_app, webview, _dir) = app_in(dir);
+        let restored = put_back(&webview, &host).unwrap();
+        assert_eq!(restored["restored"], true, "{restored}");
+        assert_eq!(fpp.state().pixel_strings.clone().unwrap(), before);
+    }
+
+    #[test]
+    fn a_failed_put_back_can_be_tried_again() {
+        let (_app, webview, _dir) = app();
+        let fpp = fake_hat();
+        let host = fpp.address().to_string();
+        let snapshot = add_device(&webview, &host);
+        resize(&webview, &snapshot, "Gutter", 30);
+        let plan = call(&webview, "plan_device_setup", json!({ "address": host })).unwrap();
+        call(
+            &webview,
+            "send_device_setup",
+            json!({ "address": host, "expected": ids(&plan["changes"]) }),
+        )
+        .unwrap();
+        fpp.state().fail_config_writes = Some((500, "{}".to_string()));
+        let restored = put_back(&webview, &host).unwrap();
+        assert_eq!(restored["restored"], false);
+        fpp.state().fail_config_writes = None;
+        let restored = put_back(&webview, &host).unwrap();
+        assert_eq!(restored["restored"], true, "{restored}");
+    }
+
+    #[test]
+    fn a_plan_fppd_would_not_load_cant_be_sent() {
+        let (_app, webview, _dir) = app();
+        let fpp = fake_hat();
+        let host = fpp.address().to_string();
+        let snapshot = add_device(&webview, &host);
+        resize(&webview, &snapshot, "Gutter", 2000);
+        let plan = call(&webview, "plan_device_setup", json!({ "address": host })).unwrap();
+        assert_eq!(plan["canSend"], false);
+        assert!(plan["problems"][0].as_str().unwrap().contains("1,600"), "{plan}");
+        let report = call(
+            &webview,
+            "send_device_setup",
+            json!({ "address": host, "expected": ids(&plan["changes"]) }),
+        )
+        .unwrap();
+        assert_eq!(report["status"], "refused");
+        assert!(fpp.state().config_writes.is_empty());
+    }
+
+    #[test]
+    fn nothing_is_sent_when_the_show_changed_after_the_plan_was_shown() {
+        let (_app, webview, _dir) = app();
+        let fpp = fake_hat();
+        let host = fpp.address().to_string();
+        let snapshot = add_device(&webview, &host);
+        resize(&webview, &snapshot, "Gutter", 30);
+        let plan = call(&webview, "plan_device_setup", json!({ "address": host })).unwrap();
+        resize(&webview, &snapshot, "Gutter", 25);
+        let error = call(
+            &webview,
+            "send_device_setup",
+            json!({ "address": host, "expected": ids(&plan["changes"]) }),
+        )
+        .unwrap_err();
+        assert!(error.as_str().unwrap().contains("Your show changed"), "{error}");
+        assert!(fpp.state().config_writes.is_empty());
+    }
+
+    #[test]
+    fn a_controller_not_in_the_show_cant_be_compared() {
+        let (_app, webview, _dir) = app();
+        let falcon = pf_devices::testing::FALCON;
+        let error = call(&webview, "compare_device", json!({ "address": falcon })).unwrap_err();
+        assert!(error.as_str().unwrap().contains("No controller at"), "{error}");
     }
 }

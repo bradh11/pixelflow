@@ -1349,11 +1349,10 @@ mod tests {
         assert_eq!(imported["summary"]["rows"], 8);
         assert_eq!(imported["summary"]["placeholders"], 0);
         assert!(
-            imported["notes"]
-                .as_array()
+            imported["notes"].as_array().unwrap().iter().any(|n| n
+                .as_str()
                 .unwrap()
-                .iter()
-                .any(|n| n.as_str().unwrap().contains("font shown in PixelFlow's pixel font")),
+                .contains("font shown in PixelFlow's pixel font")),
             "{imported}"
         );
         let open = call(&webview, "get_sequence_doc", json!({})).unwrap();

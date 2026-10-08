@@ -244,7 +244,8 @@ export function TestScreen() {
       ) : (
         <>
           <Card className="mb-4">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_auto_auto]">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="min-w-48 flex-[2_1_12rem]">
               <Field label="Target">
                 <Select
                   value={targetValue}
@@ -261,6 +262,8 @@ export function TestScreen() {
                   ))}
                 </Select>
               </Field>
+              </div>
+              <div className="min-w-36 flex-[1_1_9rem]">
               <Field label="Pattern">
                 <Select
                   value={kind}
@@ -276,6 +279,7 @@ export function TestScreen() {
                   ))}
                 </Select>
               </Field>
+              </div>
               <div className="flex flex-col gap-1 text-sm">
                 <span className="text-neutral-600 dark:text-neutral-400">Color</span>
                 <div className="flex items-center gap-1.5">
@@ -285,7 +289,7 @@ export function TestScreen() {
                     value={color}
                     disabled={!pattern.usesColor}
                     onChange={(e) => pickColor(e.target.value)}
-                    className="h-8 w-9 shrink-0 cursor-pointer rounded-md border border-neutral-300 bg-transparent disabled:opacity-40 dark:border-neutral-700"
+                    className="h-[2.125rem] w-9 shrink-0 cursor-pointer rounded-md border border-neutral-300 bg-transparent disabled:opacity-40 dark:border-neutral-700"
                   />
                   <Input
                     aria-label="Color as hex"
@@ -316,7 +320,7 @@ export function TestScreen() {
                   ))}
                 </div>
               </div>
-              <div className="flex items-end gap-2">
+              <div className="ml-auto flex items-end gap-2">
                 <Button
                   variant="primary"
                   onClick={() => void start()}

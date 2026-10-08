@@ -8,12 +8,68 @@ import { newGesture } from "../../state/sequencer";
 
 // The controls the effect settings panel is made of: setting fields from the catalog, colors,
 // times, and the sections they sit in.
-export const BLENDS: { value: Blend; label: string; help: string }[] = [
+/** How an effect can mix with the layers below: the everyday ones first, then the rest of
+ * xLights' layer methods (each help names the xLights one: "1" is this effect, "2" the layers below). */
+export const BLENDS: { value: Blend; label: string; help: string; more?: true }[] = [
   { value: "normal", label: "Cover", help: "Covers the layers below where it's lit." },
-  { value: "add", label: "Add light", help: "Adds its light to the layers below." },
+  { value: "add", label: "Add light", help: "Adds its light to the layers below (xLights: Additive)." },
   { value: "max", label: "Brighter of the two", help: "Keeps the brighter color, channel by channel." },
   { value: "multiply", label: "Tint", help: "Tints the layers below with its colors." },
+  { value: "behind", label: "Behind", help: "Shows only where the layers below are dark (xLights: 2 reveals 1, Layered)." },
+  { value: "over", label: "Over where lit", help: "Shows where it's lit; the layers below show elsewhere (xLights: 1 reveals 2).", more: true },
+  { value: "subtract", label: "Take light away", help: "Takes its light away from the layers below (xLights: Subtractive).", more: true },
+  { value: "min", label: "Darker of the two", help: "Keeps the darker color, channel by channel; black where it's unlit.", more: true },
+  { value: "average", label: "Average", help: "Averages its color with the layers below where both are lit.", more: true },
+  { value: "mask", label: "Mask", help: "Blacks out the layers below where it's lit (xLights: 1 is Mask).", more: true },
+  { value: "reveal", label: "Window", help: "Shows the layers below only where it's lit, black elsewhere (xLights: 1 is True Unmask).", more: true },
+  { value: "revealBrightness", label: "Window, its brightness", help: "The layers below at its brightness where it's lit, black elsewhere (xLights: 1 is Unmask).", more: true },
+  { value: "cutOut", label: "Cut out by below", help: "Shows where the layers below are dark, black where they're lit (xLights: 2 is Mask).", more: true },
+  { value: "clip", label: "Inside below", help: "Shows only where the layers below are lit, black elsewhere (xLights: 2 is True Unmask).", more: true },
+  { value: "clipBrightness", label: "Inside below, its brightness", help: "Its colors at the brightness of the layers below, black where they're dark (xLights: 2 is Unmask).", more: true },
+  { value: "highlight", label: "Highlight", help: "Shows only where both it and the layers below are lit.", more: true },
+  { value: "highlightAdd", label: "Highlight, add light", help: "Adds its light only where the layers below are lit (xLights: Highlight Vibrant).", more: true },
+  { value: "shadow", label: "Shadow on below", help: "Shifts the hue of the layers below where it's lit (xLights: Shadow 1 on 2).", more: true },
+  { value: "shadowBelow", label: "Shadow from below", help: "Its colors, hue shifted by the layers below (xLights: Shadow 2 on 1).", more: true },
+  { value: "bottomHalf", label: "Bottom half only", help: "Shows on the bottom half; the layers below on the top half (xLights: Bottom-Top).", more: true },
+  { value: "leftHalf", label: "Left half only", help: "Shows on the left half; the layers below on the right half (xLights: Left-Right).", more: true },
 ];
+
+/** The blends as options for a list, the less common ones grouped apart. */
+export function BlendOptions() {
+  const option = (b: (typeof BLENDS)[number]) => (
+    <option key={b.value} value={b.value} title={b.help}>
+      {b.label}
+    </option>
+  );
+  return (
+    <>
+      {BLENDS.filter((b) => !b.more).map(option)}
+      <optgroup label="More, as in xLights">{BLENDS.filter((b) => b.more).map(option)}</optgroup>
+    </>
+  );
+}
+
+/** Sparkles and blur: settings every effect has, edited like the catalog's number settings. */
+export const SPARKLES: Extract<EffectSetting, { type: "int" }> = {
+  key: "sparkles",
+  label: "Sparkles",
+  description: "Lit pixels flash the sparkle color now and then: 0 is none, 200 the most.",
+  type: "int",
+  min: 0,
+  max: 200,
+  step: 1,
+  default: 0,
+};
+export const BLUR: Extract<EffectSetting, { type: "int" }> = {
+  key: "blur",
+  label: "Blur",
+  description: "Softens the effect before it mixes with the layers below: 0 is none, 14 the most.",
+  type: "int",
+  min: 0,
+  max: 14,
+  step: 1,
+  default: 0,
+};
 
 export const MAX_COLORS = 32;
 
@@ -459,12 +515,23 @@ export function ColorList({
 }
 
 /** One color: picking in the color picker is one undo step until the picker is left. */
-export function ColorPicker({ index, color, onPick }: { index: number; color: string; onPick: (value: string, gesture: string) => Promise<boolean> }) {
+export function ColorPicker({
+  index,
+  color,
+  onPick,
+  label = `Color ${index + 1}`,
+}: {
+  index: number;
+  color: string;
+  onPick: (value: string, gesture: string) => Promise<boolean>;
+  label?: string;
+}) {
   const picking = useLiveValue<string>(onPick);
   return (
     <input
       type="color"
-      aria-label={`Color ${index + 1}`}
+      aria-label={label}
+      title={label}
       className="h-8 w-8 cursor-pointer rounded border border-neutral-300 bg-transparent p-0.5 dark:border-neutral-700"
       value={picking.live ?? color}
       onChange={(e) => picking.push(e.target.value)}

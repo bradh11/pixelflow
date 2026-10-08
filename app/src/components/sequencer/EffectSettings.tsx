@@ -7,12 +7,16 @@ import { useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
 import { useContext } from "react";
 import {
-  BLENDS,
+  BLUR,
+  BlendOptions,
   type Change,
   ColorList,
+  ColorPicker,
   FIELD,
   MsField,
+  NumberSetting,
   Panel,
+  SPARKLES,
   Section,
   SettingControl,
   type SettingsPlacement,
@@ -146,7 +150,7 @@ function Settings({ doc }: { doc: Sequence }) {
         </div>
       </Section>
 
-      <More id="effect-settings" label="More: mixing and exact timing">
+      <More id="effect-settings" label="More: mixing, sparkles, blur, and timing">
         <div className="flex flex-col gap-2.5">
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-neutral-600 dark:text-neutral-400">With the layers below</span>
@@ -155,13 +159,27 @@ function Settings({ doc }: { doc: Sequence }) {
                 void change((x) => ({ ...x, blend }));
               }}
             >
-              {BLENDS.map((b) => (
-                <option key={b.value} value={b.value} title={b.help}>
-                  {b.label}
-                </option>
-              ))}
+              <BlendOptions />
             </select>
           </label>
+          <div className="flex items-end gap-2">
+            <div className="min-w-0 flex-1">
+              <NumberSetting
+                key={`${id}:sparkles`}
+                setting={SPARKLES}
+                value={effect.sparkles ?? 0}
+                onChange={(v, gesture) => change((x) => ({ ...x, sparkles: v as number }), gesture)}
+              />
+            </div>
+            <ColorPicker
+              key={`${id}:sparkleColor`}
+              index={0}
+              label="Sparkle color"
+              color={effect.sparkleColor ?? "#ffffff"}
+              onPick={(value, gesture) => change((x) => ({ ...x, sparkleColor: value }), gesture)}
+            />
+          </div>
+          <NumberSetting key={`${id}:blur`} setting={BLUR} value={effect.blur ?? 0} onChange={(v, gesture) => change((x) => ({ ...x, blur: v as number }), gesture)} />
           <h4 className="mt-1 text-xs font-semibold tracking-wide text-neutral-500 uppercase">Timing</h4>
           <div className="grid grid-cols-2 gap-2">
             <MsField

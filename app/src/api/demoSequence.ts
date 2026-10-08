@@ -82,7 +82,7 @@ export function demoSequence(show: Show, durationMs = 60_000, { singing = false 
       .map((b, i) => effect("on", b.startMs, b.startMs + BEAT_MS, [i % 2 ? gold : white], { startLevel: 1, endLevel: 0.1 })),
   ]);
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     name: "Christmas Medley 2017",
     audio: DEMO_MUSIC,
     durationMs,

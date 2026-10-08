@@ -18,6 +18,11 @@ import type {
   ScheduleEntry,
   Controller,
   FppSendPlan,
+  DownloadClash,
+  FppDownloadPlan,
+  FppDownloadProgress,
+  FppDownloadRequest,
+  FppDownloadResult,
   FppSendProgress,
   FppSendRequest,
   FppSendResult,
@@ -975,6 +980,110 @@ export class MemoryBackend implements Backend {
     this.sendCancels++;
   }
 
+  /** Files that "exist" on this computer (downloads land here), by full path. */
+  localFiles = new Set<string>();
+  /** The folder the next "choose where to save" dialog answers with (null: cancelled). */
+  nextDownloadFolder: string | null = null;
+  /** Each fake FPP sequence's mf header, by address and file name (default: an xLights-style
+   * path to "<name>.mp3"). */
+  fppSequenceMedia: Record<string, Record<string, string | null>> = {};
+  /** How long each step of a fake download takes (ms): 0 in tests. */
+  fppDownloadStepMs = 0;
+  /** Makes the next download fail with this message. */
+  fppDownloadError: string | null = null;
+  private downloadFolders = new Set<string>();
+  private downloadCancels = 0;
+
+  async pickDownloadFolder() {
+    this.calls.push("pickDownloadFolder");
+    if (this.nextDownloadFolder) this.downloadFolders.add(this.nextDownloadFolder);
+    return this.nextDownloadFolder;
+  }
+
+  /** Like the shell: the saved show's folder, else one picked in the dialog. */
+  private downloadFolder(folder: string | null): string {
+    if (this.path) return this.path.replace(/[\\/][^\\/]*$/, "");
+    if (folder && this.downloadFolders.has(folder)) return folder;
+    throw new Error("Choose a folder to save the sequence in first (your show isn't saved yet).");
+  }
+
+  private downloadName(folder: string, name: string, sizeBytes: number | null) {
+    const taken = (n: string) => this.localFiles.has(`${folder}/${n}`);
+    const dot = name.lastIndexOf(".");
+    const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
+    let n = 2;
+    while (taken(`${stem} (${n})${ext}`)) n++;
+    return { name, sizeBytes, folder, exists: taken(name), keepBothName: `${stem} (${n})${ext}` };
+  }
+
+  async fppDownloadPlan(address: string, sequence: string, folder: string | null): Promise<FppDownloadPlan> {
+    this.calls.push(`fppDownloadPlan:${address}:${sequence}`);
+    const root = this.downloadFolder(folder);
+    const player = this.player(address);
+    const stem = sequence.replace(/\.fseq$/i, "");
+    const found = player.sequences.find((s) => s.name === stem);
+    if (!found) throw new Error(`The FPP no longer has ${sequence}. Refresh the list and try again.`);
+    const details = this.fppFileDetails[address] ?? {};
+    const media = this.fppSequenceMedia[address]?.[sequence];
+    const mf = media === undefined ? `C:\\Users\\Show\\Audio\\${stem}.mp3` : media;
+    const wanted = mf?.split(/[\\/]/).pop() || null;
+    const files = this.fppFilesOf(address);
+    const music = wanted ? (files.media.find((m) => m === wanted) ?? files.media.find((m) => m.toLowerCase() === wanted.toLowerCase()) ?? null) : null;
+    const showChannels = Math.max(0, ...this.show.controllers.map((c) => (c.sequenceChannels ? c.sequenceChannels.start + c.sequenceChannels.count - 1 : 0)));
+    const channels = found.channels || null;
+    const channelWarning =
+      channels !== null && channels !== showChannels
+        ? `This sequence uses ${thousands(channels)} channels; your show has ${showChannels === 0 ? "no channels wired to controllers yet" : thousands(showChannels)}. Its preview won't light the right props until your layout matches.`
+        : null;
+    return {
+      folder: root,
+      sequence: this.downloadName(`${root}/sequences`, sequence, details[sequence]?.sizeBytes ?? null),
+      music: music ? this.downloadName(`${root}/music`, music, details[music]?.sizeBytes ?? null) : null,
+      missingMusic: wanted && !music ? wanted : null,
+      channels,
+      showChannels,
+      channelWarning,
+    };
+  }
+
+  async fppDownload(address: string, request: FppDownloadRequest, onProgress?: (progress: FppDownloadProgress) => void): Promise<FppDownloadResult> {
+    this.calls.push(`fppDownload:${address}:${request.sequence}:${request.music ?? "-"}`);
+    const root = this.downloadFolder(request.folder);
+    const started = this.downloadCancels;
+    const cancelled = "The download was cancelled. Nothing was saved.";
+    const target = (folder: string, name: string, clash: DownloadClash | null) => {
+      const check = this.downloadName(folder, name, null);
+      if (!check.exists || clash === "replace") return `${folder}/${name}`;
+      if (clash === "keepBoth") return `${folder}/${check.keepBothName}`;
+      throw new Error(`There's now a file called ${name} in that folder, so nothing was replaced. Check again and choose what to do.`);
+    };
+    const sequencePath = target(`${root}/sequences`, request.sequence, request.sequenceClash);
+    const musicPath = request.music ? target(`${root}/music`, request.music, request.musicClash) : null;
+    const step = async (name: FppDownloadProgress["step"], total: number) => {
+      for (const percent of [0, 25, 50, 75, 100]) {
+        if (this.downloadCancels !== started) throw new Error(cancelled);
+        onProgress?.({ downloadId: request.downloadId, step: name, percent, done: (total * percent) / 100, total });
+        if (this.fppDownloadStepMs) await new Promise((r) => setTimeout(r, this.fppDownloadStepMs));
+      }
+    };
+    await step("sequence", 24_000_000);
+    if (this.fppDownloadError) {
+      const error = this.fppDownloadError;
+      this.fppDownloadError = null;
+      throw new Error(error);
+    }
+    if (musicPath) await step("music", 4_000_000);
+    if (this.downloadCancels !== started) throw new Error(cancelled);
+    this.localFiles.add(sequencePath);
+    if (musicPath) this.localFiles.add(musicPath);
+    return { sequencePath, musicPath };
+  }
+
+  async cancelFppDownload() {
+    this.calls.push("cancelFppDownload");
+    this.downloadCancels++;
+  }
+
   async fppStop(address: string, gracefully: boolean) {
     this.calls.push(`fppStop:${address}:${gracefully ? "gracefully" : "now"}`);
     const player = this.player(address);
@@ -1023,14 +1132,14 @@ export class MemoryBackend implements Backend {
     return this.playbackNow()!;
   }
 
-  async addSequence(path: string) {
-    this.calls.push(`addSequence:${path}`);
+  async addSequence(path: string, music?: string | null) {
+    this.calls.push(music ? `addSequence:${path}:${music}` : `addSequence:${path}`);
     const base = path.split(/[\\/]/).pop()!.replace(/\.fseq$/i, "");
     // Like the engine: a second sequence with the same name gets a number.
     const taken = (n: string) => this.show.sequences.some((s) => s.name === n);
     let name = base;
     for (let n = 2; taken(name); n++) name = `${base} (${n})`;
-    const audio = path.replace(/\.fseq$/i, ".mp3");
+    const audio = music ?? path.replace(/\.fseq$/i, ".mp3");
     return this.applyEdits([
       { type: "addSequence", sequence: { id: crypto.randomUUID(), name, path, audio, offsetMs: 0 } },
     ]);

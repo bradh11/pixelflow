@@ -1,4 +1,4 @@
-import { ChevronDown, Loader2, Play, Send } from "lucide-react";
+import { ChevronDown, Download, Loader2, Play, Send } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "../../api/backend";
 import type { FppFile, FppFolder, SequenceEntry } from "../../api/types";
@@ -7,6 +7,7 @@ import { clock, plural, shortDate, sizeText } from "../../lib/format";
 import { useApp } from "../../state/store";
 import { SendToFppDialog } from "../SendToFppDialog";
 import { Button } from "../ui";
+import { FppDownloadDialog } from "./FppDownloadDialog";
 import { Section } from "./Section";
 
 const TABS: { folder: FppFolder; label: string; empty: string }[] = [
@@ -88,6 +89,7 @@ export function FppLibrary({ address, fppName, turn, onPlayed }: { address: stri
   const [lists, setLists] = useState<Partial<Record<FppFolder, FppFile[] | { error: string }>>>({});
   const [sent, setSent] = useState(0);
   const [sending, setSending] = useState<SequenceEntry | null>(null);
+  const [downloading, setDownloading] = useState<string | null>(null);
   const [playError, setPlayError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -207,7 +209,12 @@ export function FppLibrary({ address, fppName, turn, onPlayed }: { address: stri
                     <td className="pl-3 text-right whitespace-nowrap text-neutral-600 tabular-nums dark:text-neutral-300">{f.sizeBytes === null ? "—" : sizeText(f.sizeBytes)}</td>
                     <td className="pl-3 whitespace-nowrap text-neutral-600 dark:text-neutral-300">{f.modified ? shortDate(f.modified) : "—"}</td>
                     {playable && (
-                      <td className="py-1 pl-3 text-right">
+                      <td className="py-1 pl-3 text-right whitespace-nowrap">
+                        {folder === "sequences" && (
+                          <Button variant="ghost" aria-label={`Download ${shown}`} title="Save it and its music on this computer" onClick={() => setDownloading(f.name)}>
+                            <Download size={14} aria-hidden /> Download
+                          </Button>
+                        )}
                         <Button variant="ghost" aria-label={`Play ${shown}`} onClick={() => play(f.name, shown)} disabled={busy}>
                           <Play size={14} aria-hidden /> Play
                         </Button>
@@ -225,6 +232,7 @@ export function FppLibrary({ address, fppName, turn, onPlayed }: { address: stri
           {playError}
         </p>
       )}
+      {downloading && <FppDownloadDialog address={address} fppName={fppName} sequence={downloading} onClose={() => setDownloading(null)} />}
       {sending && (
         <SendToFppDialog
           source={{ kind: "file", path: sending.path }}

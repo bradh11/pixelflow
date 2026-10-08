@@ -4,12 +4,14 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Backend } from "./backend";
 import { whileFileDialog } from "./fileDialogs";
 import { decodePreview, decodePreview3d } from "./previewBytes";
-import type { FppSendProgress, FppSendResult, MenuAction, PickKind } from "./types";
+import type { FppDownloadProgress, FppDownloadResult, FppSendProgress, FppSendResult, MenuAction, PickKind } from "./types";
 
 /** The event the shell sends when a File menu item is chosen in the menu bar. */
 const MENU_EVENT = "menu";
 /** The event a send to an FPP reports its progress with. */
 const FPP_SEND_PROGRESS_EVENT = "fpp-send-progress";
+/** The event a download from an FPP reports its progress with. */
+const FPP_DOWNLOAD_PROGRESS_EVENT = "fpp-download-progress";
 
 /**
  * Shows a native file dialog of `kind` (a save dialog suggests `name`). The shell shows it as a
@@ -82,6 +84,22 @@ export const tauriBackend: Backend = {
     }
   },
   cancelFppSend: () => invoke("cancel_fpp_send"),
+  // Picked by the shell, which then lets downloads be saved in that folder (and no other).
+  pickDownloadFolder: () => pickPath("downloadFolder"),
+  fppDownloadPlan: (address, sequence, folder) => invoke("fpp_download_plan", { address, sequence, folder }),
+  fppDownload: async (address, request, onProgress) => {
+    const unlisten = onProgress
+      ? await listen<FppDownloadProgress>(FPP_DOWNLOAD_PROGRESS_EVENT, (event) => {
+          if (event.payload.downloadId === request.downloadId) onProgress(event.payload);
+        })
+      : null;
+    try {
+      return await invoke<FppDownloadResult>("fpp_download", { address, request });
+    } finally {
+      unlisten?.();
+    }
+  },
+  cancelFppDownload: () => invoke("cancel_fpp_download"),
   startPlayback: (path, positionMs) => invoke("start_playback", { path, positionMs }),
   pausePlayback: (paused) => invoke("pause_playback", { paused }),
   seekPlayback: (positionMs) => invoke("seek_playback", { positionMs }),
@@ -100,7 +118,7 @@ export const tauriBackend: Backend = {
   pickHouseModelPath: () => whileFileDialog(() => invoke("pick_house_model")),
   importXlights: (folder) => invoke("import_xlights", { folder }),
   pickShowFolder: () => pickPath("xlightsFolder"),
-  addSequence: (path) => invoke("add_sequence", { path }),
+  addSequence: (path, music) => invoke("add_sequence", music ? { path, music } : { path }),
   playSequence: (id, positionMs) => invoke("play_sequence", { id, positionMs }),
   setPlaybackVolume: (volume) => invoke("set_playback_volume", { volume }),
   audioWaveform: (path, slices) => invoke("audio_waveform", { path, slices }),

@@ -355,7 +355,7 @@ describe("every control has a name, and icon-only buttons have tooltips", { time
   });
 
   it("in the assistant's proposal, its draft preview, and an FPP's page", async () => {
-    const { user } = await openApp();
+    const { user, backend } = await openApp();
     await user.click(screen.getByRole("button", { name: /^Assistant/ }));
     const panel = screen.getByRole("complementary", { name: "Assistant" });
     await user.type(within(panel).getByRole("textbox", { name: "Message the assistant" }), "Add two arches beside the garage{Enter}");
@@ -374,6 +374,17 @@ describe("every control has a name, and icon-only buttons have tooltips", { time
     found.push(...problems("FPP page"));
     await user.click(screen.getByRole("button", { name: /^Send a sequence/ }));
     found.push(...problems("FPP page, send menu"));
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Download Christmas Medley 2017" }));
+    const download = await screen.findByRole("dialog", { name: "Download from FPP" });
+    found.push(...problems("FPP page, download (unsaved show)"));
+    backend.nextDownloadFolder = "/Shows/FPP copies";
+    await user.click(within(download).getByRole("button", { name: "Choose folder…" }));
+    await within(download).findByRole("list", { name: "What will be saved" });
+    found.push(...problems("FPP page, download"));
+    await user.click(within(download).getByRole("button", { name: "Download" }));
+    await within(download).findByRole("button", { name: "Add to Play" });
+    found.push(...problems("FPP page, downloaded"));
     await user.keyboard("{Escape}");
     await user.click(screen.getByRole("tab", { name: /^Playlists/ }));
     await screen.findByRole("button", { name: "Play Christmas Show" });

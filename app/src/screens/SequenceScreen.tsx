@@ -372,7 +372,7 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
       {/* Asks about unsaved changes like New and Open do (the import goes through the same question). */}
       <ToolButton
         label="Import from xLights…"
-        hint="Import an xLights sequence (.xsq) onto this show's props and groups"
+        hint="Import an xLights sequence (.xsq), or a vendor's package (.zip), onto this show's props and groups"
         onClick={() => void useApp.getState().importXlightsSequence()}
       >
         <FileInput size={16} /> <span className="hidden @min-[1200px]:inline">Import from xLights</span>
@@ -777,7 +777,7 @@ function Start({ onNew, onOpen }: { onNew: () => void; onOpen: (path?: string) =
           >
             <FileInput size={20} className="text-accent-600 dark:text-accent-400" />
             <span className="font-medium">Import an xLights sequence</span>
-            <span className="text-sm text-neutral-500">An .xsq file, onto this show&apos;s props and groups.</span>
+            <span className="text-sm text-neutral-500">An .xsq file, or a vendor&apos;s .zip package mapped onto this show&apos;s props and groups.</span>
           </button>
         </div>
         <RecentSequences label="With this show" list={mine} onOpen={onOpen} />

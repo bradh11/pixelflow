@@ -13,6 +13,8 @@ import type {
   Show,
   ShowSnapshot,
   SilentPeer,
+  VendorImportOptions,
+  VendorInspection,
 } from "../api/types";
 import { fileName } from "../lib/format";
 import { sameFile } from "../lib/showFiles";
@@ -116,6 +118,9 @@ interface AppState {
   importReport: { name: string; summary: ImportSummary; notes: string[] } | null;
   /** What the last xLights sequence import brought in, shown until dismissed. */
   sequenceImportReport: { name: string; summary: SequenceImportSummary; notes: string[] } | null;
+  /** A vendor's sequence being mapped onto the show's props before it's imported (the mapping
+   * dialog is showing). */
+  vendorImport: { path: string; inspection: VendorInspection } | null;
   /** What the last search for missing files found, shown until dismissed. */
   filesReport: { found: FoundFile[]; stillMissing: MissingFile[]; gaveUp: boolean } | null;
   /** The show (by path) whose "files aren't where they were" notice was put away. */
@@ -177,7 +182,14 @@ interface AppState {
   /** Imports an xLights sequence onto the open show and opens it in the sequence editor (asks
    * about the open sequence's unsaved changes first, like New and Open on the Sequence screen). */
   importXlightsSequence(): Promise<boolean>;
+  /** The same, from a folder a vendor's package was unzipped to. */
+  importXlightsSequenceFolder(): Promise<boolean>;
   dismissSequenceImportReport(): void;
+  /** Imports the vendor sequence being mapped with the mapping chosen; true when it came in. */
+  finishVendorImport(options: VendorImportOptions): Promise<boolean>;
+  /** Shows another of the package's sequences in the mapping dialog. */
+  switchVendorSequence(sequence: string): Promise<void>;
+  closeVendorImport(): void;
   /** Saves the show (asking where the first time); a toast says so unless `quiet`. */
   save(options?: SaveOptions): Promise<boolean>;
   saveAs(options?: SaveOptions): Promise<boolean>;
@@ -394,22 +406,12 @@ export const useApp = create<AppState>((set, get) => {
     });
   }
 
-  /** Picks an xLights sequence and opens its import on the Sequence screen, replacing the open
-   * sequence without checking for unsaved changes. */
-  async function replaceSequenceWithImport(): Promise<boolean> {
-    const sequencer = useSequencer.getState();
-    if (!sequencer.api) return false;
-    let path: string | null;
-    try {
-      path = await sequencer.api.pickXlightsSequencePath();
-    } catch (e) {
-      set({ error: errorMessage(e) });
-      return false;
-    }
-    if (!path) return false;
+  /** Imports the sequence at `path` (with a vendor mapping, `options`) and opens it on the Sequence
+   * screen with its report, replacing the open sequence without checking for unsaved changes. */
+  async function importSequence(path: string, options?: VendorImportOptions): Promise<boolean> {
     set({ busy: true, opening: `Importing ${fileName(path)}…` });
     try {
-      const imported = await sequencer.importXlights(path);
+      const imported = await useSequencer.getState().importXlights(path, options);
       if (!imported) return false;
       set({
         sequenceImportReport: {
@@ -417,6 +419,7 @@ export const useApp = create<AppState>((set, get) => {
           summary: imported.summary,
           notes: imported.notes,
         },
+        vendorImport: null,
         error: null,
         started: true,
         screen: "sequence",
@@ -425,6 +428,38 @@ export const useApp = create<AppState>((set, get) => {
     } finally {
       set({ busy: false, opening: null });
     }
+  }
+
+  /**
+   * Picks an xLights sequence, a vendor's package, or (`folder`) the folder one was unzipped to,
+   * and looks inside. The user's own sequence (every model in the show) imports straight away;
+   * a vendor's opens the mapping dialog first. The import replaces the open sequence without
+   * checking for unsaved changes.
+   */
+  async function replaceSequenceWithImport(folder = false): Promise<boolean> {
+    const sequencer = useSequencer.getState();
+    if (!sequencer.api) return false;
+    let path: string | null;
+    try {
+      path = folder ? await sequencer.api.pickXlightsPackageFolder() : await sequencer.api.pickXlightsSequencePath();
+    } catch (e) {
+      set({ error: errorMessage(e) });
+      return false;
+    }
+    if (!path) return false;
+    set({ busy: true, opening: `Reading ${fileName(path)}…` });
+    let inspection: VendorInspection;
+    try {
+      inspection = await sequencer.api.inspectXlightsSequence(path);
+    } catch (e) {
+      set({ error: errorMessage(e) });
+      return false;
+    } finally {
+      set({ busy: false, opening: null });
+    }
+    if (inspection.allExact && inspection.sequences.length === 1) return importSequence(path);
+    set({ vendorImport: { path, inspection }, error: null });
+    return true;
   }
 
   /** Controllers forgotten while a scan was running, so its results don't bring them back. */
@@ -535,6 +570,7 @@ export const useApp = create<AppState>((set, get) => {
   naming: null,
   importReport: null,
   sequenceImportReport: null,
+  vendorImport: null,
   filesReport: null,
   missingNoticeDismissed: null,
   testTarget: "show",
@@ -644,7 +680,31 @@ export const useApp = create<AppState>((set, get) => {
     return (await useSequencer.getState().replaceAfterAsking(replaceSequenceWithImport)) ?? false;
   },
 
+  async importXlightsSequenceFolder() {
+    return (await useSequencer.getState().replaceAfterAsking(() => replaceSequenceWithImport(true))) ?? false;
+  },
+
   dismissSequenceImportReport: () => set({ sequenceImportReport: null }),
+
+  async finishVendorImport(options) {
+    const pending = get().vendorImport;
+    if (!pending) return false;
+    return importSequence(pending.path, options);
+  },
+
+  async switchVendorSequence(sequence) {
+    const pending = get().vendorImport;
+    const api = useSequencer.getState().api;
+    if (!pending || !api) return;
+    try {
+      const inspection = await api.inspectXlightsSequence(pending.path, sequence);
+      if (get().vendorImport?.path === pending.path) set({ vendorImport: { path: pending.path, inspection } });
+    } catch (e) {
+      set({ error: errorMessage(e) });
+    }
+  },
+
+  closeVendorImport: () => set({ vendorImport: null }),
 
   async resolvePendingReplace(choice) {
     const kind = get().pendingReplace;

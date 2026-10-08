@@ -1,7 +1,8 @@
 //! Device discovery and configuration import for FPP, Falcon, and WLED controllers.
 //!
-//! Discovery, identification, and import are **read-only**: they send discovery packets and HTTP
-//! GETs (and Falcon's JSON *query* requests), and never change anything on a device. Only
+//! Discovery, identification, import, and [`fpp_download`] are **read-only**: they send discovery
+//! packets and HTTP GETs (and Falcon's JSON *query* requests), and never change anything on a
+//! device. Only
 //! [`fpp_player`]'s playback control, [`fpp_upload`]'s uploads and playlist changes, and
 //! [`adapter`]'s [`adapter::send_setup`] and [`adapter::restore_setup`] (pixel outputs and receive
 //! settings only, never network settings) write to a device, and the app calls them only when the
@@ -21,6 +22,7 @@ mod fake_wled;
 pub mod falcon;
 mod fingerprint;
 pub mod fpp;
+pub mod fpp_download;
 pub mod fpp_info;
 pub mod fpp_ping;
 pub mod fpp_player;

@@ -1033,6 +1033,64 @@ export interface FppSendResult {
   notes: string[];
 }
 
+/** A file to download from an FPP: where it goes, and whether a file there has its name. */
+export interface FppDownloadName {
+  /** Its name on the FPP. */
+  name: string;
+  sizeBytes: number | null;
+  /** The folder it goes in (the show folder's "sequences" or "music"). */
+  folder: string;
+  /** That folder already has a file by this name. */
+  exists: boolean;
+  /** The name Keep both saves it under. */
+  keepBothName: string;
+}
+
+/** What downloading a sequence from an FPP would save, read before anything is fetched. */
+export interface FppDownloadPlan {
+  /** The show's folder (or the one picked while the show isn't saved). */
+  folder: string;
+  sequence: FppDownloadName;
+  /** The music its mf header names, when the FPP has it. */
+  music: FppDownloadName | null;
+  /** The music file the sequence names that isn't on the FPP. */
+  missingMusic: string | null;
+  channels: number | null;
+  showChannels: number;
+  /** Plain words when the sequence's channel count doesn't match the show's. */
+  channelWarning: string | null;
+}
+
+/** What to do about a file of the same name already in the folder. */
+export type DownloadClash = "replace" | "keepBoth";
+
+export interface FppDownloadRequest {
+  /** The sequence's name on the FPP, with ".fseq". */
+  sequence: string;
+  /** The music's name on the FPP, to download with it. */
+  music: string | null;
+  /** The folder picked while the show isn't saved (else the show's folder is used). */
+  folder: string | null;
+  /** Null: nothing in the folder is replaced. */
+  sequenceClash: DownloadClash | null;
+  musicClash: DownloadClash | null;
+  downloadId: number;
+}
+
+export interface FppDownloadProgress {
+  downloadId: number;
+  step: "sequence" | "music";
+  percent: number;
+  done: number;
+  total: number;
+}
+
+/** Where a download saved its files. */
+export interface FppDownloadResult {
+  sequencePath: string;
+  musicPath: string | null;
+}
+
 /** A sequence playing on the controllers. */
 export interface PlaybackStatus {
   state: "playing" | "paused" | "ended";
@@ -1143,7 +1201,8 @@ export type PickKind =
   | "sequenceDoc"
   | "sequenceDocSave"
   | "timingFile"
-  | "timingExport";
+  | "timingExport"
+  | "downloadFolder";
 
 /** The show an xLights import produced, with a report of anything not imported exactly. */
 export interface XlightsImported {

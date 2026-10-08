@@ -760,6 +760,13 @@ impl Engine {
         self.play(&request, position_ms, false)
     }
 
+    /// How many channels the show's sequences use: the channel space an `.fseq` exported from
+    /// this show would have (0 when nothing is wired to a controller).
+    pub fn show_channels(&self) -> u32 {
+        let (map, _) = analyze(&self.show);
+        pf_render::export::export_layout(&self.show, &map).channels
+    }
+
     /// Adds a sequence to the show as one undo step. One with the same name as another gets a
     /// number, like "Medley (2)", so the two can be told apart.
     pub fn add_sequence(

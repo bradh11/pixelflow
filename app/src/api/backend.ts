@@ -18,6 +18,10 @@ import type {
   ScheduleEntry,
   FppSoftware,
   FppSendPlan,
+  FppDownloadPlan,
+  FppDownloadProgress,
+  FppDownloadRequest,
+  FppDownloadResult,
   FppSendProgress,
   FppSendRequest,
   FppSendResult,
@@ -159,6 +163,21 @@ export interface Backend {
   fppSend(address: string, request: FppSendRequest, onProgress?: (progress: FppSendProgress) => void): Promise<FppSendResult>;
   /** Stops the sends running now. */
   cancelFppSend(): Promise<void>;
+  /** Shows the shell's folder dialog for where to save a download (while the show isn't
+   * saved); null when cancelled. Only a folder picked here can be downloaded into. */
+  pickDownloadFolder(): Promise<string | null>;
+  /** What downloading `sequence` from an FPP would save, and where: the show's folder, else
+   * `folder` (picked with pickDownloadFolder). Changes nothing. */
+  fppDownloadPlan(address: string, sequence: string, folder: string | null): Promise<FppDownloadPlan>;
+  /**
+   * Downloads a sequence and its music from an FPP into the folder's "sequences" and "music"
+   * subfolders, calling `onProgress` as it goes. Only reads from the FPP. Rejects with "The
+   * download was cancelled. Nothing was saved." after cancelFppDownload; a cancelled or failed
+   * download leaves nothing behind.
+   */
+  fppDownload(address: string, request: FppDownloadRequest, onProgress?: (progress: FppDownloadProgress) => void): Promise<FppDownloadResult>;
+  /** Stops the downloads running now. */
+  cancelFppDownload(): Promise<void>;
   /** Plays a rendered sequence (.fseq) to the controllers that know their sequence channels. */
   startPlayback(path: string, positionMs: number): Promise<PlaybackStatus>;
   pausePlayback(paused: boolean): Promise<PlaybackStatus | null>;
@@ -188,8 +207,9 @@ export interface Backend {
   importXlights(folder: string): Promise<XlightsImported>;
   /** Shows a native folder picker for an xLights show folder; null when cancelled. */
   pickShowFolder(): Promise<string | null>;
-  /** Adds the sequence file at `path` to the show, finding its music next to it (one undo step). */
-  addSequence(path: string): Promise<ShowSnapshot>;
+  /** Adds the sequence file at `path` to the show with `music`, else the music found next to it
+   * (one undo step). */
+  addSequence(path: string, music?: string | null): Promise<ShowSnapshot>;
   /** Plays one of the show's sequences with its music. */
   playSequence(id: string, positionMs: number): Promise<PlaybackStatus>;
   /** Music volume (0–1) for playback. */

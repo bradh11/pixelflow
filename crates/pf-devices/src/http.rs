@@ -2,7 +2,7 @@
 
 use crate::error::DeviceError;
 use std::collections::HashMap;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -30,6 +30,24 @@ pub trait Http: Send + Sync {
         Err(DeviceError::Unreachable {
             address: host.to_string(),
             reason: "uploads aren't possible here".to_string(),
+        })
+    }
+
+    /// Streams the body of `GET path` into `sink` (a file download), returning how many bytes
+    /// were written; never holds the body in memory whole. `expected` is the file's size, when
+    /// known: a big file is given longer to arrive. A body that ends short of the size the
+    /// device announced is an error.
+    fn get_to(
+        &self,
+        host: &str,
+        path: &str,
+        sink: &mut dyn Write,
+        expected: Option<u64>,
+    ) -> Result<u64, DeviceError> {
+        let _ = (path, sink, expected);
+        Err(DeviceError::Unreachable {
+            address: host.to_string(),
+            reason: "downloads aren't possible here".to_string(),
         })
     }
 
@@ -187,11 +205,75 @@ impl Http for HttpClient {
         Self::finish(host, path, response)
     }
 
+    fn get_to(
+        &self,
+        host: &str,
+        path: &str,
+        sink: &mut dyn Write,
+        expected: Option<u64>,
+    ) -> Result<u64, DeviceError> {
+        let url = device_url(host, path);
+        // At least two minutes for the whole body, and enough for the file at 64 KiB/s.
+        let budget = Duration::from_secs(120).max(Duration::from_secs(
+            expected.unwrap_or(0) / DOWNLOAD_FLOOR_BYTES_PER_SEC,
+        ));
+        let response = self
+            .agent
+            .get(&url)
+            .config()
+            .timeout_recv_body(Some(budget))
+            .build()
+            .call();
+        let mut response = response.map_err(|e| DeviceError::Unreachable {
+            address: host.to_string(),
+            reason: plain_reason(&e),
+        })?;
+        let status = response.status().as_u16();
+        if status != 200 {
+            let body = response
+                .body_mut()
+                .with_config()
+                .limit(64 * 1024)
+                .read_to_string()
+                .unwrap_or_default();
+            return Err(DeviceError::Http {
+                address: host.to_string(),
+                path: path.to_string(),
+                status,
+                body,
+            });
+        }
+        let announced = response
+            .headers()
+            .get("content-length")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.trim().parse::<u64>().ok());
+        let stopped = |e: std::io::Error| DeviceError::Unreachable {
+            address: host.to_string(),
+            reason: if e.kind() == std::io::ErrorKind::TimedOut {
+                "it didn't answer in time".to_string()
+            } else {
+                "it stopped sending partway through".to_string()
+            },
+        };
+        let written = std::io::copy(&mut response.body_mut().as_reader(), sink).map_err(stopped)?;
+        if announced.is_some_and(|n| n != written) {
+            return Err(DeviceError::Unreachable {
+                address: host.to_string(),
+                reason: "it stopped sending partway through".to_string(),
+            });
+        }
+        Ok(written)
+    }
+
     fn delete(&self, host: &str, path: &str) -> Result<String, DeviceError> {
         let url = device_url(host, path);
         Self::finish(host, path, self.agent.delete(&url).call())
     }
 }
+
+/// The slowest a download is allowed to be before it's given up on (64 KiB/s).
+const DOWNLOAD_FLOOR_BYTES_PER_SEC: u64 = 64 * 1024;
 
 /// Recorded responses for tests. Unknown requests fail as unreachable; every request is logged
 /// so tests can assert which endpoints were (and were not) touched.

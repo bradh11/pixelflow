@@ -1,4 +1,4 @@
-import { ChevronDown, Loader2, Play, Send } from "lucide-react";
+import { ChevronDown, Download, Loader2, Play, Send } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "../../api/backend";
 import type { FppFile, FppFolder, SequenceEntry } from "../../api/types";
@@ -7,6 +7,7 @@ import { clock, plural, shortDate, sizeText } from "../../lib/format";
 import { useApp } from "../../state/store";
 import { SendToFppDialog } from "../SendToFppDialog";
 import { Button } from "../ui";
+import { FppDownloadDialog } from "./FppDownloadDialog";
 import { Section } from "./Section";
 
 const TABS: { folder: FppFolder; label: string; empty: string }[] = [
@@ -79,8 +80,9 @@ function SendMenu({ onPick }: { onPick: (entry: SequenceEntry) => void }) {
 
 /**
  * The sequences, music, and playlists stored on the FPP, with Play for sequences and playlists
- * (it asks first when a show is running) and Send a sequence. Each tab is read when first shown,
- * and again on Refresh or after a send; reading changes nothing.
+ * (it asks first when a show is running), Download for sequences (a copy on this computer; it
+ * only reads from the FPP), and Send a sequence. Each tab is read when first shown, and again on
+ * Refresh or after a send; reading changes nothing.
  */
 export function FppLibrary({ address, fppName, turn, onPlayed }: { address: string; fppName: string; turn: number; onPlayed: () => void }) {
   const backend = useApp((s) => s.backend);
@@ -88,6 +90,7 @@ export function FppLibrary({ address, fppName, turn, onPlayed }: { address: stri
   const [lists, setLists] = useState<Partial<Record<FppFolder, FppFile[] | { error: string }>>>({});
   const [sent, setSent] = useState(0);
   const [sending, setSending] = useState<SequenceEntry | null>(null);
+  const [downloading, setDownloading] = useState<string | null>(null);
   const [playError, setPlayError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -189,7 +192,7 @@ export function FppLibrary({ address, fppName, turn, onPlayed }: { address: stri
                 <th className="py-1.5 pl-3 font-medium">Date</th>
                 {playable && (
                   <th className="w-px py-1.5">
-                    <span className="sr-only">Play</span>
+                    <span className="sr-only">{folder === "sequences" ? "Download and play" : "Play"}</span>
                   </th>
                 )}
               </tr>
@@ -207,7 +210,12 @@ export function FppLibrary({ address, fppName, turn, onPlayed }: { address: stri
                     <td className="pl-3 text-right whitespace-nowrap text-neutral-600 tabular-nums dark:text-neutral-300">{f.sizeBytes === null ? "—" : sizeText(f.sizeBytes)}</td>
                     <td className="pl-3 whitespace-nowrap text-neutral-600 dark:text-neutral-300">{f.modified ? shortDate(f.modified) : "—"}</td>
                     {playable && (
-                      <td className="py-1 pl-3 text-right">
+                      <td className="py-1 pl-3 text-right whitespace-nowrap">
+                        {folder === "sequences" && (
+                          <Button variant="ghost" aria-label={`Download ${shown}`} title="Save it and its music on this computer" onClick={() => setDownloading(f.name)}>
+                            <Download size={14} aria-hidden /> Download
+                          </Button>
+                        )}
                         <Button variant="ghost" aria-label={`Play ${shown}`} onClick={() => play(f.name, shown)} disabled={busy}>
                           <Play size={14} aria-hidden /> Play
                         </Button>
@@ -225,6 +233,7 @@ export function FppLibrary({ address, fppName, turn, onPlayed }: { address: stri
           {playError}
         </p>
       )}
+      {downloading && <FppDownloadDialog address={address} fppName={fppName} sequence={downloading} onClose={() => setDownloading(null)} />}
       {sending && (
         <SendToFppDialog
           source={{ kind: "file", path: sending.path }}

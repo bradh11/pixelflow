@@ -9,6 +9,7 @@ mod camera_map;
 mod device_setup;
 mod devices;
 mod files;
+mod fpp_download;
 mod fpp_send;
 mod house;
 mod layout;
@@ -48,6 +49,10 @@ struct AppState {
     export_cancels: std::sync::atomic::AtomicU64,
     /// Bumped by `cancel_fpp_send`: a send to an FPP started before the bump stops.
     send_cancels: std::sync::atomic::AtomicU64,
+    /// Bumped by `cancel_fpp_download`: a download from an FPP started before the bump stops.
+    download_cancels: std::sync::atomic::AtomicU64,
+    /// Folders the user picked to download into (see `fpp_download`).
+    download_folders: fpp_download::ChosenFolders,
     /// Set while a check of the show's files runs (see `files::check_files`).
     checking_files: std::sync::atomic::AtomicBool,
     /// Shows opened lately (written only here, when a show is opened, saved, or restored).
@@ -305,6 +310,9 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         fpp_send::fpp_send,
         fpp_send::cancel_fpp_send,
         fpp_send::fpp_sequence_names,
+        fpp_download::fpp_download_plan,
+        fpp_download::fpp_download,
+        fpp_download::cancel_fpp_download,
         playback::start_playback,
         playback::pause_playback,
         playback::seek_playback,
@@ -402,6 +410,8 @@ pub fn run() {
                 models: Default::default(),
                 export_cancels: Default::default(),
                 send_cancels: Default::default(),
+                download_cancels: Default::default(),
+                download_folders: Default::default(),
                 checking_files: Default::default(),
                 recent: Arc::new(recent::RecentShows::new(config_dir.clone())),
                 last_folders: pickers::LastFolders::new(config_dir),
@@ -524,6 +534,8 @@ mod tests {
                 models: Default::default(),
                 export_cancels: Default::default(),
                 send_cancels: Default::default(),
+                download_cancels: Default::default(),
+                download_folders: Default::default(),
                 checking_files: Default::default(),
                 recent: Arc::new(recent::RecentShows::new(Some(dir.join("config")))),
                 last_folders: pickers::LastFolders::new(Some(dir.join("config"))),
@@ -1393,6 +1405,83 @@ mod tests {
         out.extend_from_slice(&(data.len() as u32).to_le_bytes());
         out.extend(data);
         std::fs::write(path, out).unwrap();
+    }
+
+    #[test]
+    fn downloads_go_only_to_the_show_folder_or_one_the_user_picked_then_add_to_play() {
+        let (app, webview, dir) = app();
+        let made = write_sequence(dir.path());
+        let fpp = pf_devices::testing::FakeFpp::start()
+            .with_sequence_file("Medley.fseq", &std::fs::read(&made).unwrap())
+            .with_sequence_media("Medley.fseq", r"C:\xLights\Audio\Medley.mp3")
+            .with_music_file("Medley.mp3", b"ID3 not really a song");
+        let ask = |folder: Option<&std::path::Path>| {
+            call(
+                &webview,
+                "fpp_download_plan",
+                json!({ "address": fpp.address(), "sequence": "Medley.fseq", "folder": folder }),
+            )
+        };
+        // An unsaved show: a folder the window names, but the user never picked, is refused.
+        let somewhere = dir.path().join("somewhere");
+        std::fs::create_dir_all(&somewhere).unwrap();
+        for folder in [None, Some(somewhere.as_path())] {
+            let refused = ask(folder).unwrap_err();
+            assert!(
+                refused.as_str().unwrap().starts_with("Choose a folder"),
+                "{refused}"
+            );
+        }
+        app.state::<AppState>().download_folders.add(somewhere.clone());
+        let plan = ask(Some(&somewhere)).unwrap();
+        assert_eq!(plan["folder"], json!(somewhere.display().to_string()));
+        assert_eq!(plan["music"]["name"], "Medley.mp3");
+        // The fake FPP's sequence says 6,147 channels; this show has none wired.
+        assert!(
+            plan["channelWarning"]
+                .as_str()
+                .unwrap()
+                .starts_with("This sequence uses 6,147 channels; your show has no channels"),
+            "{plan}"
+        );
+
+        // A saved show: its own folder, whatever the window names.
+        let show_folder = dir.path().join("My Show");
+        std::fs::create_dir_all(&show_folder).unwrap();
+        call(
+            &webview,
+            "save_show_as",
+            json!({ "path": show_folder.join("My Show.pixelflow.json") }),
+        )
+        .unwrap();
+        let plan = ask(Some(&somewhere)).unwrap();
+        assert_eq!(plan["folder"], json!(show_folder.display().to_string()));
+        let saved = call(
+            &webview,
+            "fpp_download",
+            json!({ "address": fpp.address(), "request": {
+                "sequence": "Medley.fseq", "music": "Medley.mp3", "folder": somewhere, "downloadId": 1
+            } }),
+        )
+        .unwrap();
+        let sequence = show_folder.join("sequences").join("Medley.fseq");
+        let music = show_folder.join("music").join("Medley.mp3");
+        assert_eq!(saved["sequencePath"], json!(sequence.display().to_string()));
+        assert_eq!(std::fs::read(&sequence).unwrap(), std::fs::read(&made).unwrap());
+        assert_eq!(std::fs::read(&music).unwrap(), b"ID3 not really a song");
+        assert_eq!(std::fs::read_dir(&somewhere).unwrap().count(), 0);
+        assert_eq!(fpp.state().writes(), Vec::<String>::new());
+
+        // Add to Play, with the music it saved.
+        let snapshot = call(
+            &webview,
+            "add_sequence",
+            json!({ "path": saved["sequencePath"], "music": saved["musicPath"] }),
+        )
+        .unwrap();
+        let entry = &snapshot["show"]["sequences"][0];
+        assert_eq!(entry["name"], "Medley");
+        assert_eq!(entry["audio"], json!(music.display().to_string()));
     }
 
     #[test]

@@ -2,7 +2,7 @@
 // crates/pf-devices/src/setup.rs gives the desktop app ("Compare with this device" and "Send
 // setup to this device…"), and taking a device's differences into the show.
 
-import type { Change, ChangeKind, ColorOrder, Controller, DeviceConfig, DeviceKind, PortSlot, Prop, Show, UseProps } from "../api/types";
+import type { Change, ChangeKind, ColorOrder, Controller, DeviceConfig, DeviceKind, PortSlot, Prop, PropMatch, Show, UseProps } from "../api/types";
 import { thousands } from "./format";
 import { nodeCount } from "./shows";
 
@@ -63,6 +63,52 @@ export function doubleReorder(prop: Prop, order: ColorOrder): string | null {
   const plain = (o: ColorOrder) => o === "RGB" || o === "RGBW";
   if (plain(prop.colorOrder) || plain(order)) return null;
   return `${prop.name} reorders its colors (${prop.colorOrder}) and the controller reorders this string too (${order}), so colors are swapped twice. Set ${prop.name} to RGB on the Layout screen, or the controller's string to RGB.`;
+}
+
+/** A controller added from an FPP's output list: no ports yet, but it knows its sequence channels. */
+export function isPlaceholder(c: Controller): boolean {
+  return c.ports.length === 0 && c.sequenceChannels !== null;
+}
+
+/**
+ * The props already in `show` that a device's strings most likely are, by string key (like the
+ * engine's `match_props`). In order: the prop the show's controller at the device's address
+ * already wires to the same port and position, then a prop with the string's name (ignoring case
+ * and spaces) and pixel count, then one with just its name. A prop that would shift pixels
+ * ({@link mappingProblem}) is never suggested, and no prop is suggested for two strings.
+ */
+export function matchProps(show: Show, device: { address: string; kind: DeviceKind }, config: DeviceConfig): Record<string, PropMatch> {
+  const nameKey = (name: string) => name.replace(/\s+/g, "").toLowerCase();
+  const strings = config.ports.flatMap((p) => p.strings.map((s, i) => ({ key: stringKey(p.number, i), port: p.number, index: i, string: s })));
+  const found: Record<string, PropMatch> = {};
+  const used = new Set<string>();
+  const controller = show.controllers.find((c) => c.address === device.address && !isPlaceholder(c));
+  if (controller) {
+    for (const { key, port: number, index, string } of strings) {
+      const port = controller.ports.find((p) => p.number === number);
+      // One output carrying several props isn't any one of them.
+      if (!port || (oneStringPerPort(device.kind) && port.slots.length > 1)) continue;
+      const slot = port.slots[index];
+      const prop = slot && !slot.segment ? show.props.find((p) => p.id === slot.prop) : undefined;
+      if (prop && !mappingProblem(prop, string.colorOrder) && !used.has(prop.id)) {
+        used.add(prop.id);
+        found[key] = { prop: prop.id, reason: "samePort" };
+      }
+    }
+  }
+  for (const sameSize of [true, false]) {
+    for (const { key, string } of strings) {
+      const name = nameKey(string.name ?? "");
+      if (found[key] || !name) continue;
+      const prop = show.props.find(
+        (p) => !used.has(p.id) && nameKey(p.name) === name && (!sameSize || nodeCount(p.shape) === string.pixels) && !mappingProblem(p, string.colorOrder),
+      );
+      if (!prop) continue;
+      used.add(prop.id);
+      found[key] = { prop: prop.id, reason: nodeCount(prop.shape) === string.pixels ? "sameName" : "sameNameOtherSize" };
+    }
+  }
+  return found;
 }
 
 /** The setup the show wants `controller` to have: strings back to back from channel 1. */

@@ -214,7 +214,11 @@ describe("every control has a name, and icon-only buttons have tooltips", { time
     await within(await screen.findByRole("dialog")).findByText(/Receives/);
     found.push(...problems("devices, reviewing an import"));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Add to show" }));
-    const wled = backend.deviceNetwork.details.find((d) => d.device.kind === "wled")!.config;
+    await user.click(screen.getByRole("button", { name: "Open Porch WLED" }));
+    await within(await screen.findByRole("dialog")).findByText("already on this port");
+    found.push(...problems("devices, reviewing a controller already in the show"));
+    await user.keyboard("{Escape}");
+    const wled =backend.deviceNetwork.details.find((d) => d.device.kind === "wled")!.config;
     wled.ports[0].strings[0].pixels = 60;
     wled.ports.push({ number: 2, strings: [{ ...wled.ports[0].strings[0], pixels: 20 }], maxPixels: null });
     await user.click(screen.getByRole("button", { name: "Compare with this device: Porch WLED" }));

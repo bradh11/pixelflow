@@ -68,7 +68,7 @@ import { fppFileName } from "../lib/fppNames";
 import { filesOf, missingFile, repointEdits, sameFile } from "../lib/showFiles";
 import { sampleShow } from "./sampleShow";
 import { MAX_UNIVERSE_SIZE, isUniverseSize } from "../lib/controllerEdit";
-import { type Setup, applySetup, compareSetup, deviceSetup, diffPorts, oneStringPerPort, showSetup, stringKey, takeFromDevice } from "../lib/deviceSetup";
+import { type Setup, applySetup, compareSetup, deviceSetup, diffPorts, isPlaceholder, matchProps, oneStringPerPort, showSetup, stringKey, takeFromDevice } from "../lib/deviceSetup";
 
 /**
  * An in-memory stand-in for the engine, used by tests and when the UI runs in a plain
@@ -441,6 +441,7 @@ export class MemoryBackend implements Backend {
     details.plan.controller.name = numbered(details.plan.controller.name, controllerNames);
     const propNames = new Set(this.show.props.map((p) => p.name));
     for (const prop of details.plan.props) prop.name = numbered(prop.name, propNames);
+    details.plan.suggested = matchProps(this.show, details.device, details.config);
     return withFreshIds(details);
   }
 
@@ -1368,11 +1369,6 @@ export class MemoryBackend implements Backend {
 }
 
 /** New ids for an import plan's controller and props, as the engine creates for each import. */
-/** A controller added from an FPP's output list: no ports yet, but it knows its sequence channels. */
-function isPlaceholder(c: Show["controllers"][number]): boolean {
-  return c.ports.length === 0 && c.sequenceChannels !== null;
-}
-
 /** `base`, or `base 2`, `base 3`, ... — the first not in `taken` (which it is then added to). */
 function numbered(base: string, taken: Set<string>): string {
   let name = base;

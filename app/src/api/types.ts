@@ -739,6 +739,17 @@ export interface ImportPlan {
   notes: string[];
   alreadyInShow: boolean;
   canImport: boolean;
+  /** Props already in the show the device's strings most likely are, by string key: what "In
+   * your show" starts on. */
+  suggested: Record<string, PropMatch>;
+}
+
+/** Why a prop already in the show is suggested for a device string. */
+export type MatchReason = "samePort" | "sameName" | "sameNameOtherSize";
+
+export interface PropMatch {
+  prop: Uuid;
+  reason: MatchReason;
 }
 
 export interface DeviceDetails {

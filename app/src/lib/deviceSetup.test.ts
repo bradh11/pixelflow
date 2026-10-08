@@ -3,7 +3,7 @@ import type { ColorOrder, Controller, DeviceConfig, Prop, Show, StringConfig } f
 import { demoShow, demoShowDevices } from "../api/demo";
 import setupCases from "../api/setupCases.json";
 import { emptyShow } from "../api/memory";
-import { applySetup, compareSetup, deviceSetup, diffPorts, showSetup, takeFromDevice } from "./deviceSetup";
+import { applySetup, compareSetup, deviceSetup, diffPorts, matchProps, showSetup, takeFromDevice } from "./deviceSetup";
 import { newController, nodeCount } from "./shows";
 
 const line = (name: string, nodes: number): Prop => ({
@@ -143,9 +143,9 @@ describe("device setup", () => {
   // The same cases run against the engine's comparison (crates/pf-devices/src/setup.rs).
   type CaseSlot = { name: string; nodes: number; shape?: string; colorOrder?: ColorOrder; controllerColorOrder?: ColorOrder; nullPixels?: number; smartReceiver?: number };
   type CaseString = { name: string | null; pixels: number; colorOrder?: ColorOrder; smartReceiver?: number };
-  it.each(setupCases as unknown as { name: string; kind: "fpp" | "falcon" | "wled"; protocol: Controller["protocol"] | { type: "sacn"; startUniverse: number | null; universeSize: number }; show: { port: number; slots: CaseSlot[] }[]; device: { input: DeviceConfig["input"]; ports: { number: number; strings: CaseString[] }[] }; expect: { rows: unknown[][]; notes: string[] } }[])(
+  it.each(setupCases as unknown as { name: string; kind: "fpp" | "falcon" | "wled"; protocol: Controller["protocol"] | { type: "sacn"; startUniverse: number | null; universeSize: number }; show: { port: number; slots: CaseSlot[] }[]; device: { input: DeviceConfig["input"]; ports: { number: number; strings: CaseString[] }[] }; address?: string; props?: CaseSlot[]; expect: { rows?: unknown[][]; notes?: string[]; suggested?: Record<string, [string, string]> } }[])(
     "shared case: $name",
-    ({ kind, protocol, show: ports, device, expect: wanted }) => {
+    ({ kind, protocol, show: ports, device, address, props, expect: wanted }) => {
       const show = emptyShow("t");
       const controller = newController("C", "192.0.2.1", "ddp", 0);
       controller.protocol = protocol.type === "sacn" ? { allowPixelStraddle: false, multicast: false, ...protocol } : { type: "ddp" };
@@ -161,6 +161,8 @@ describe("device setup", () => {
         controller.ports.push(port);
       }
       show.controllers = [controller];
+      // Props in the show that no controller wires.
+      for (const p of props ?? []) show.props.push({ ...line(p.name, p.nodes), colorOrder: p.colorOrder ?? "RGB" });
       const config: DeviceConfig = {
         input: device.input,
         ports: device.ports.map((p) => ({
@@ -171,6 +173,12 @@ describe("device setup", () => {
         destinations: [],
         notes: [],
       };
+      if (wanted.suggested) {
+        const found = matchProps(show, { address: address ?? "192.0.2.1", kind }, config);
+        const named = Object.fromEntries(Object.entries(found).map(([key, m]) => [key, [show.props.find((p) => p.id === m.prop)!.name, m.reason]]));
+        expect(named).toEqual(wanted.suggested);
+      }
+      if (!wanted.rows) return;
       const { changes, notes } = compareSetup(show, controller, kind, config);
       expect(changes.map((c) => [c.id, c.subject, c.what, c.before, c.after, c.canTake, c.warning])).toEqual(wanted.rows);
       expect(notes).toEqual(wanted.notes);

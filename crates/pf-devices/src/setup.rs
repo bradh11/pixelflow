@@ -1344,6 +1344,12 @@ mod tests {
                 }
                 controller.ports.push(port);
             }
+            // Props in the show that no controller wires.
+            for p in case["props"].as_array().into_iter().flatten() {
+                let mut prop = line(p["name"].as_str().unwrap(), p["nodes"].as_u64().unwrap() as u32);
+                prop.color_order = order(&p["colorOrder"]).unwrap_or(ColorOrder::Rgb);
+                show.props.push(prop);
+            }
             let input = &case["device"]["input"];
             let config = DeviceConfig {
                 input: match input["type"].as_str().unwrap() {
@@ -1386,6 +1392,29 @@ mod tests {
             };
             show.controllers.push(controller.clone());
             let kind: DeviceKind = serde_json::from_value(case["kind"].clone()).unwrap();
+            if let Some(wanted) = case["expect"].get("suggested") {
+                let device = crate::device::Device {
+                    address: case["address"].as_str().unwrap_or("192.0.2.1").to_string(),
+                    kind,
+                    name: "D".into(),
+                    model: String::new(),
+                    firmware: String::new(),
+                    mode: None,
+                    found_by: vec![],
+                };
+                let found: serde_json::Map<String, serde_json::Value> =
+                    crate::import::match_props(&device, &config, &show)
+                        .into_iter()
+                        .map(|(key, m)| {
+                            let name = &show.prop(m.prop).unwrap().name;
+                            (key, serde_json::json!([name, m.reason]))
+                        })
+                        .collect();
+                assert_eq!(&serde_json::Value::Object(found), wanted, "{name}");
+            }
+            if case["expect"].get("rows").is_none() {
+                continue;
+            }
             let comparison = compare(&show, &controller, kind, &config);
             let rows: Vec<serde_json::Value> = comparison
                 .changes

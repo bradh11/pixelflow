@@ -8,6 +8,7 @@ import { DEMO_PHOTO, DEMO_SHOW_PATH, demoDevices, demoFppFileDetails, demoFppFil
 import { DEMO_MUSIC, DEMO_SEQUENCE_PATH, demoSequence } from "./api/demoSequence";
 import { MemoryBackend } from "./api/memory";
 import { MemorySequencer } from "./api/memorySequencer";
+import { DEMO_VENDOR_PATH, demoVendorPackage } from "./api/memoryVendor";
 import { tauriSequencer } from "./api/sequencer";
 import { inTauri, tauriBackend } from "./api/tauri";
 import { useSequencer } from "./state/sequencer";
@@ -64,6 +65,9 @@ if (inTauri()) {
     sequencer.files.set(DEMO_SEQUENCE_PATH, demoSequence(backend.show, backend.sequenceDurationMs, { singing: true }));
     sequencer.nextOpenPath = DEMO_SEQUENCE_PATH;
     sequencer.nextSavePath = DEMO_SEQUENCE_PATH;
+    // A vendor's sequence to import and map onto the demo house.
+    sequencer.vendorPackages.set(DEMO_VENDOR_PATH, demoVendorPackage());
+    sequencer.nextXlightsSequencePath = DEMO_VENDOR_PATH;
     void sequencer.openSequenceDoc(DEMO_SEQUENCE_PATH).then(() => useSequencer.getState().connect(sequencer));
     // `?demo&start`: the start page, with the recent shows.
     if (!new URLSearchParams(location.search).has("start")) useApp.setState({ started: true });

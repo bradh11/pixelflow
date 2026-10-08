@@ -176,5 +176,28 @@ describe("tauriSequencer", () => {
     invoke.mockResolvedValue(null);
     expect(await tauriSequencer.pickXlightsSequencePath()).toBeNull();
     expect(invoke).toHaveBeenLastCalledWith("pick_path", { kind: "xlightsSequence" });
+    await tauriSequencer.pickXlightsPackageFolder();
+    expect(invoke).toHaveBeenLastCalledWith("pick_path", { kind: "xlightsPackageFolder" });
+    await tauriSequencer.pickXmapPath();
+    expect(invoke).toHaveBeenLastCalledWith("pick_path", { kind: "xmap" });
+    await tauriSequencer.pickXmapSavePath("Song.xmap");
+    expect(invoke).toHaveBeenLastCalledWith("pick_path", { kind: "xmapSave", name: "Song.xmap" });
+  });
+
+  it("inspects and imports vendor packages with a mapping", async () => {
+    invoke.mockResolvedValue({});
+    await tauriSequencer.inspectXlightsSequence("/Downloads/Song.zip");
+    expect(invoke).toHaveBeenLastCalledWith("inspect_xlights_sequence", { path: "/Downloads/Song.zip" });
+    await tauriSequencer.inspectXlightsSequence("/Downloads/Song.zip", "Song/Song.xsq");
+    expect(invoke).toHaveBeenLastCalledWith("inspect_xlights_sequence", { path: "/Downloads/Song.zip", sequence: "Song/Song.xsq" });
+    await tauriSequencer.importXlightsSequence("/Shows/Mine.xsq");
+    expect(invoke).toHaveBeenLastCalledWith("import_xlights_sequence", { path: "/Shows/Mine.xsq" });
+    const options = { sequence: "Song/Song.xsq", mapping: { items: { Tree: ["Mega Tree"] } }, key: "layout:1", musicFolder: null };
+    await tauriSequencer.importXlightsSequence("/Downloads/Song.zip", options);
+    expect(invoke).toHaveBeenLastCalledWith("import_xlights_sequence", { path: "/Downloads/Song.zip", ...options });
+    await tauriSequencer.writeXmap("/Maps/a.xmap", options.mapping);
+    expect(invoke).toHaveBeenLastCalledWith("write_xmap", { path: "/Maps/a.xmap", mapping: options.mapping });
+    await tauriSequencer.readXmap("/Maps/a.xmap");
+    expect(invoke).toHaveBeenLastCalledWith("read_xmap", { path: "/Maps/a.xmap" });
   });
 });

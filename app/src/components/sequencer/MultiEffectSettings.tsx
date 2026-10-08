@@ -1,5 +1,6 @@
 import { Trash2 } from "lucide-react";
-import type { Blend, Effect, EffectParams, Sequence } from "../../api/sequence";
+import type { Blend, Curve, Effect, EffectParams, Sequence } from "../../api/sequence";
+import { withCurve } from "../../lib/curves";
 import { effectsById, lengthEdits, shared, sharedKind, updateEach } from "../../lib/multiEdit";
 import { targetName } from "../../lib/submodels";
 import { formatTime, shiftEdits } from "../../lib/timelineMath";
@@ -32,6 +33,17 @@ export function MultiEffectSettings({ doc, ids }: { doc: Sequence; ids: string[]
   const all = (change: (e: Effect, latest: Sequence) => Effect | null, gesture?: string) => edit((latest) => updateEach(latest, ids, change), gesture);
   const setParam = (key: string, value: unknown, gesture?: string) =>
     all((e) => (e.params.kind === kind ? { ...e, params: { ...e.params, [key]: value } as EffectParams } : null), gesture);
+  /** The curve on setting `key` when every effect has the same one (or none); a change gives
+   * all of them the result, and null holds the setting's value on all of them. */
+  const animate = (key: string, sameKind = true) => {
+    const curve = shared(effects.map((e) => e.curves?.[key] ?? null));
+    return {
+      curve: curve.mixed ? null : curve.value,
+      mixed: curve.mixed,
+      onChange: (next: Curve | null, gesture?: string) =>
+        all((e) => (!sameKind || e.params.kind === kind ? { ...e, curves: withCurve(e.curves, key, next) } : null), gesture),
+    };
+  };
 
   const palette = shared(effects.map((e) => e.palette.colors));
   const blend = shared(effects.map((e) => e.blend));
@@ -79,6 +91,7 @@ export function MultiEffectSettings({ doc, ids }: { doc: Sequence; ids: string[]
                 onChange={(v, gesture) => setParam(setting.key, v, gesture)}
                 faces={faces}
                 tracks={doc.timingTracks}
+                animate={setting.type === "number" || setting.type === "int" ? animate(setting.key) : undefined}
               />
             );
           })}
@@ -124,8 +137,16 @@ export function MultiEffectSettings({ doc, ids }: { doc: Sequence; ids: string[]
           value={sparkles.value}
           mixed={sparkles.mixed}
           onChange={(v, gesture) => all((x) => ({ ...x, sparkles: v as number }), gesture)}
+          animate={animate("sparkles", false)}
         />
-        <NumberSetting key={`${fresh}:blur`} setting={BLUR} value={blur.value} mixed={blur.mixed} onChange={(v, gesture) => all((x) => ({ ...x, blur: v as number }), gesture)} />
+        <NumberSetting
+          key={`${fresh}:blur`}
+          setting={BLUR}
+          value={blur.value}
+          mixed={blur.mixed}
+          onChange={(v, gesture) => all((x) => ({ ...x, blur: v as number }), gesture)}
+          animate={animate("blur", false)}
+        />
         <div className="grid grid-cols-2 items-end gap-2">
           <MsField
             key={`${fresh}:fadeIn`}

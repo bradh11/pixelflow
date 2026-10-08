@@ -388,13 +388,16 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
     let expand = &matrix[8];
     assert_eq!(expand.blend, Blend::Average);
     assert_eq!(expand.fade_out_ms, 1000);
+    // Its cycles curve leaves P1 and P2 unset: flat at 0, so the bars stand still.
     assert!(matches!(
         expand.params,
         EffectParams::Bars(BarsParams {
             axis: Axis::Vertical,
+            speed: 0.0,
             ..
         })
     ));
+    assert!(expand.curves.is_empty());
     assert!(matches!(matrix[9].params, EffectParams::Chase(_)), "marquee");
 
     let tree = &row(&i, &show, "Mega Tree").layers[0].effects;
@@ -443,7 +446,7 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
         i.notes
     );
     assert_note(&i, "'Wipe' transition shown as a fade (1)");
-    assert_note(&i, "settings that change over the effect kept at one value (1)");
+    assert!(!has_note(&i, "kept at one value"), "{:#?}", i.notes);
     assert_note(&i, "Butterfly (1 effect) approximated: shown as a color wash.");
     assert_note(
         &i,

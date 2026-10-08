@@ -1,8 +1,10 @@
 //! Effects: what lights up, when, and how it mixes with what's underneath.
 
-use crate::settings::{SettingSpec, choices, effect_params};
-use crate::{EffectId, Rgb, TimingTrackId};
+use crate::settings::{SettingRange, SettingSpec, choices, effect_params};
+use crate::{Curve, EffectId, Rgb, TimingTrackId};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
+use std::collections::BTreeMap;
 
 /// The colors an effect draws with. An empty palette draws white.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -189,10 +191,22 @@ pub struct Effect {
     // [`crate::MAX_BLUR`].
     #[serde(default)]
     pub blur: u32,
+    /// Settings that change over the effect, by key (a `params` number setting, `sparkles`, or
+    /// `blur`); each takes the place of that setting's value while the effect plays.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub curves: BTreeMap<String, Curve>,
 }
 
 fn white() -> Rgb {
     Rgb::WHITE
+}
+
+/// A number setting a curve can change: its range, and whether it's a whole number.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CurveRange {
+    pub min: f32,
+    pub max: f32,
+    pub whole: bool,
 }
 
 impl Effect {
@@ -210,15 +224,96 @@ impl Effect {
             sparkles: 0,
             sparkle_color: Rgb::WHITE,
             blur: 0,
+            curves: BTreeMap::new(),
         }
     }
 
-    /// Pulls the settings every effect has into range: sparkles and blur (see
-    /// [`EffectParams::sanitize`] for the kind's own).
+    /// The range of the number setting `key` a curve can change on an effect of `kind`: one of
+    /// the kind's number settings, `sparkles`, or `blur`. `None` for any other key.
+    pub fn curve_range(kind: EffectKind, key: &str) -> Option<CurveRange> {
+        let whole = |max: u32| CurveRange {
+            min: 0.0,
+            max: max as f32,
+            whole: true,
+        };
+        match key {
+            "sparkles" => return Some(whole(crate::MAX_SPARKLES)),
+            "blur" => return Some(whole(crate::MAX_BLUR)),
+            _ => {}
+        }
+        match kind.settings().iter().find(|s| s.key == key)?.range {
+            SettingRange::Number { min, max, .. } => Some(CurveRange {
+                min,
+                max,
+                whole: false,
+            }),
+            SettingRange::Int { min, max, .. } => Some(CurveRange {
+                min: min as f32,
+                max: max as f32,
+                whole: true,
+            }),
+            _ => None,
+        }
+    }
+
+    /// Pulls the settings every effect has into range: sparkles, blur, and curves (see
+    /// [`EffectParams::sanitize`] for the kind's own). Curves on settings the kind doesn't have
+    /// are dropped.
     pub fn sanitize(&mut self) {
         self.params.sanitize();
         self.sparkles = self.sparkles.min(crate::MAX_SPARKLES);
         self.blur = self.blur.min(crate::MAX_BLUR);
+        let kind = self.kind();
+        self.curves
+            .retain(|key, curve| match Self::curve_range(kind, key) {
+                Some(range) => {
+                    curve.sanitize(range.min, range.max);
+                    true
+                }
+                None => false,
+            });
+    }
+
+    /// Where the effect is in its own time at `t_ms`: 0 at its start, approaching 1 at its end.
+    pub fn progress(&self, t_ms: u64) -> f32 {
+        let length = self.duration_ms().max(1);
+        let elapsed = t_ms.saturating_sub(self.start_ms);
+        (elapsed as f64 / length as f64).clamp(0.0, 1.0) as f32
+    }
+
+    /// The effect as it plays at `t_ms`: each curve's value at that moment in place of its
+    /// setting (the effect itself when it has no curves).
+    pub fn at(&self, t_ms: u64) -> Cow<'_, Effect> {
+        if self.curves.is_empty() {
+            return Cow::Borrowed(self);
+        }
+        let t = self.progress(t_ms);
+        let mut now = Effect {
+            id: self.id,
+            start_ms: self.start_ms,
+            end_ms: self.end_ms,
+            params: self.params.clone(),
+            palette: self.palette.clone(),
+            blend: self.blend,
+            fade_in_ms: self.fade_in_ms,
+            fade_out_ms: self.fade_out_ms,
+            sparkles: self.sparkles,
+            sparkle_color: self.sparkle_color,
+            blur: self.blur,
+            curves: BTreeMap::new(),
+        };
+        for (key, curve) in &self.curves {
+            let value = curve.value_at(t);
+            // Saturating casts: NaN becomes 0, and the limits clamp the rest.
+            match key.as_str() {
+                "sparkles" => now.sparkles = (value.round() as u32).min(crate::MAX_SPARKLES),
+                "blur" => now.blur = (value.round() as u32).min(crate::MAX_BLUR),
+                _ => {
+                    now.params.set_number(key, value);
+                }
+            }
+        }
+        Cow::Owned(now)
     }
 
     /// The first setting outside its range, in plain words (see [`EffectParams::setting_problem`]).
@@ -235,6 +330,27 @@ impl Effect {
         }
         if self.blur > crate::MAX_BLUR {
             return Some(format!("Blur is {}; use 0 to {}", self.blur, crate::MAX_BLUR));
+        }
+        let kind = self.kind();
+        for (key, curve) in &self.curves {
+            let Some(range) = Self::curve_range(kind, key) else {
+                return Some(format!(
+                    "'{key}' can't change over the effect: the {} effect has no number setting by that name",
+                    kind.label()
+                ));
+            };
+            if let Some(why) = curve.problem(range.min, range.max) {
+                let label = match key.as_str() {
+                    "sparkles" => "Sparkles",
+                    "blur" => "Blur",
+                    _ => kind
+                        .settings()
+                        .iter()
+                        .find(|s| s.key == key)
+                        .map_or("A", |s| s.label),
+                };
+                return Some(format!("{label}'s curve {why}"));
+            }
         }
         None
     }
@@ -469,6 +585,49 @@ impl EffectParams {
         let mut copy = self.clone();
         copy.sanitize();
         copy
+    }
+
+    /// The number setting `key`; `None` when the kind has no number setting by that name.
+    pub fn number(&self, key: &str) -> Option<f32> {
+        match self {
+            EffectParams::On(p) => p.number(key),
+            EffectParams::Off(p) => p.number(key),
+            EffectParams::ColorWash(p) => p.number(key),
+            EffectParams::Fade(p) => p.number(key),
+            EffectParams::Chase(p) => p.number(key),
+            EffectParams::Bars(p) => p.number(key),
+            EffectParams::Wave(p) => p.number(key),
+            EffectParams::Twinkle(p) => p.number(key),
+            EffectParams::Shimmer(p) => p.number(key),
+            EffectParams::Strobe(p) => p.number(key),
+            EffectParams::Spiral(p) => p.number(key),
+            EffectParams::Fire(p) => p.number(key),
+            EffectParams::Meteors(p) => p.number(key),
+            EffectParams::Ripple(p) => p.number(key),
+            EffectParams::Faces(p) => p.number(key),
+        }
+    }
+
+    /// Sets the number setting `key` to `value` (a whole number rounded; not clamped); false when
+    /// the kind has no number setting by that name.
+    pub fn set_number(&mut self, key: &str, value: f32) -> bool {
+        match self {
+            EffectParams::On(p) => p.set_number(key, value),
+            EffectParams::Off(p) => p.set_number(key, value),
+            EffectParams::ColorWash(p) => p.set_number(key, value),
+            EffectParams::Fade(p) => p.set_number(key, value),
+            EffectParams::Chase(p) => p.set_number(key, value),
+            EffectParams::Bars(p) => p.set_number(key, value),
+            EffectParams::Wave(p) => p.set_number(key, value),
+            EffectParams::Twinkle(p) => p.set_number(key, value),
+            EffectParams::Shimmer(p) => p.set_number(key, value),
+            EffectParams::Strobe(p) => p.set_number(key, value),
+            EffectParams::Spiral(p) => p.set_number(key, value),
+            EffectParams::Fire(p) => p.set_number(key, value),
+            EffectParams::Meteors(p) => p.set_number(key, value),
+            EffectParams::Ripple(p) => p.set_number(key, value),
+            EffectParams::Faces(p) => p.set_number(key, value),
+        }
     }
 
     /// The first setting outside its range, in plain words (e.g. "Speed is 70; use 0 to 50").
@@ -839,6 +998,37 @@ mod tests {
             );
             assert!(!kind.label().is_empty());
         }
+    }
+
+    #[test]
+    fn curves_take_the_place_of_their_settings_as_the_effect_plays() {
+        let mut e = Effect::new(EffectKind::Chase, 1000, 3000);
+        assert!(matches!(e.at(1500), Cow::Borrowed(_)), "no curves, no copy");
+        e.curves.insert("speed".into(), Curve::ramp(0.0, 10.0));
+        e.curves.insert("bands".into(), Curve::ramp(1.0, 4.0));
+        e.curves.insert("sparkles".into(), Curve::ramp(0.0, 300.0));
+        let now = e.at(1500);
+        let EffectParams::Chase(p) = &now.params else {
+            unreachable!()
+        };
+        assert_eq!((p.speed, p.bands), (2.5, 2), "a whole-number setting is rounded");
+        assert_eq!(now.sparkles, 75);
+        assert!(now.curves.is_empty());
+        assert_eq!(e.at(2999).sparkles, 200, "kept to the most sparkles");
+        assert_eq!(e.progress(0), 0.0);
+        assert_eq!(e.progress(5000), 1.0);
+        // Curves only fit number settings.
+        assert!(Effect::curve_range(EffectKind::Chase, "speed").is_some());
+        assert_eq!(Effect::curve_range(EffectKind::Chase, "direction"), None);
+        assert_eq!(Effect::curve_range(EffectKind::Faces, "face"), None);
+        assert!(Effect::curve_range(EffectKind::Off, "blur").is_some_and(|r| r.whole && r.max == 14.0));
+        let mut params = EffectParams::default_for(EffectKind::Spiral);
+        assert!(params.set_number("twist", -3.5));
+        assert_eq!(params.number("twist"), Some(-3.5));
+        assert_eq!(params.number("count"), Some(3.0));
+        assert_eq!(params.number("direction"), None);
+        assert!(!params.set_number("direction", 1.0));
+        assert!(!params.set_number("nothing", 1.0));
     }
 
     #[test]

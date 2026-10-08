@@ -79,6 +79,16 @@ export function settingProblem(doc: Sequence): string | null {
             return `The ${info.label} effect at ${formatMs(effect.startMs)} has a setting PixelFlow can't use: ${setting.label} ${why}.`;
           }
         }
+        for (const [key, curve] of Object.entries(effect.curves ?? {})) {
+          const setting = info.settings.find((s) => s.key === key);
+          const range = key === "sparkles" ? { min: 0, max: 200 } : key === "blur" ? { min: 0, max: 14 } : setting?.type === "number" || setting?.type === "int" ? setting : null;
+          if (!range) return `The ${info.label} effect at ${formatMs(effect.startMs)} has a setting PixelFlow can't use: '${key}' can't change over the effect.`;
+          for (const v of [curve.from, curve.to]) {
+            if (!Number.isFinite(v) || v < range.min || v > range.max) {
+              return `The ${info.label} effect at ${formatMs(effect.startMs)} has a setting PixelFlow can't use: ${setting?.label ?? key}'s curve goes to ${v}; use ${range.min} to ${range.max}.`;
+            }
+          }
+        }
       }
     }
   }
@@ -365,7 +375,7 @@ export function diffSequences(before: Sequence, after: Sequence): SequenceChange
 }
 
 function newSequence(name: string, durationMs: number): Sequence {
-  return { schemaVersion: 3, name, audio: null, durationMs, frameMs: 25, timingTracks: [], rows: [] };
+  return { schemaVersion: 4, name, audio: null, durationMs, frameMs: 25, timingTracks: [], rows: [] };
 }
 
 /** The sequencer in memory. Each instance holds one open sequence, like the engine. */

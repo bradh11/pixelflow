@@ -1,10 +1,12 @@
-import { Plus, X } from "lucide-react";
+import { Plus, Spline, X } from "lucide-react";
 import { createContext, useContext, useEffect, useId, useRef, useState } from "react";
-import type { Blend, Effect, EffectSetting, Sequence, SequenceTarget, TimingTrack } from "../../api/sequence";
+import type { Blend, Curve, Effect, EffectSetting, Sequence, SequenceTarget, TimingTrack } from "../../api/sequence";
 import type { Show } from "../../api/types";
+import { startCurve } from "../../lib/curves";
 import { memberProp } from "../../lib/shows";
 import { facesOf, targetProp } from "../../lib/submodels";
 import { newGesture } from "../../state/sequencer";
+import { CurveEditor } from "./CurveEditor";
 
 // The controls the effect settings panel is made of: setting fields from the catalog, colors,
 // times, and the sections they sit in.
@@ -276,10 +278,20 @@ export function MixedOption({ mixed }: { mixed: boolean }) {
   ) : null;
 }
 
+/** A number setting's change over its effect, for the controls that offer one. */
+export interface CurveControl {
+  /** The setting's curve; null when it holds one value. */
+  curve: Curve | null;
+  /** The selected effects change this setting differently. */
+  mixed?: boolean;
+  /** A new curve, or null to hold one value again. */
+  onChange: (curve: Curve | null, gesture?: string) => Promise<boolean>;
+}
+
 /**
  * One setting from the catalog: a slider with a number box, a checkbox, or a list. With `mixed`,
  * the selected effects have different values in it: the field says so, and only a change to it
- * is sent.
+ * is sent. A number setting given `animate` can also change over the effect.
  */
 export function SettingControl({
   setting,
@@ -288,6 +300,7 @@ export function SettingControl({
   faces,
   tracks,
   mixed = false,
+  animate,
 }: {
   setting: EffectSetting;
   value: unknown;
@@ -297,6 +310,7 @@ export function SettingControl({
   /** The sequence's timing tracks, for a timing track setting. */
   tracks: TimingTrack[];
   mixed?: boolean;
+  animate?: CurveControl;
 }) {
   if (setting.type === "face") {
     const current = typeof value === "string" ? value : setting.default;
@@ -367,20 +381,26 @@ export function SettingControl({
       </label>
     );
   }
-  return <NumberSetting setting={setting} value={typeof value === "number" ? value : setting.default} onChange={onChange} mixed={mixed} />;
+  return <NumberSetting setting={setting} value={typeof value === "number" ? value : setting.default} onChange={onChange} mixed={mixed} animate={animate} />;
 }
 
-/** A number setting: a slider (one undo step per pull) and a box to type an exact value. */
+/**
+ * A number setting: a slider (one undo step per pull) and a box to type an exact value. Given
+ * `animate`, a toggle beside its name makes it change over the effect instead, with a compact
+ * curve editor in place of the slider.
+ */
 export function NumberSetting({
   setting,
   value,
   onChange,
   mixed = false,
+  animate,
 }: {
   setting: Extract<EffectSetting, { type: "number" | "int" }>;
   value: number;
   onChange: (value: unknown, gesture?: string) => Promise<boolean>;
   mixed?: boolean;
+  animate?: CurveControl;
 }) {
   const slider = useLiveValue<number>((v, gesture) => onChange(v, gesture));
   const current = slider.live ?? value;
@@ -389,39 +409,66 @@ export function NumberSetting({
   const places = setting.type === "int" ? 0 : decimals(setting.step);
   const fit = (v: number) => Math.min(setting.max, Math.max(setting.min, setting.type === "int" ? Math.round(v) : v));
   const id = `setting-${setting.key}`;
+  const curve = animate?.curve ?? null;
+  const on = curve !== null || animate?.mixed === true;
   return (
     <div className="flex flex-col gap-1 text-sm" title={setting.description}>
-      <label htmlFor={id} className="flex justify-between text-neutral-600 dark:text-neutral-400">
-        <span>{setting.label}</span>
-        {setting.unit && <span className="text-xs text-neutral-500">{setting.unit}</span>}
-      </label>
-      <div className="flex items-center gap-2">
-        <input
-          id={id}
-          type="range"
-          className="min-w-0 flex-1 accent-violet-600"
-          min={setting.min}
-          max={setting.max}
-          step={setting.step}
-          value={current}
-          aria-valuetext={differs ? MIXED : `${current.toFixed(places)}${setting.unit ? ` ${setting.unit}` : ""}`}
-          onChange={(e) => slider.push(fit(Number(e.target.value)))}
-          onPointerUp={slider.end}
-          onKeyUp={slider.end}
-          onBlur={slider.end}
-        />
-        <NumberDraft
-          aria-label={`${setting.label} value`}
-          className={`${FIELD} w-20 tabular-nums`}
-          min={setting.min}
-          max={setting.max}
-          step={setting.step}
-          value={Number(current.toFixed(places))}
-          blank={differs}
-          placeholder={differs ? MIXED : undefined}
-          onCommit={(v) => onChange(fit(v))}
-        />
+      <div className="flex items-center justify-between gap-2 text-neutral-600 dark:text-neutral-400">
+        <label htmlFor={id}>{setting.label}</label>
+        <span className="flex items-center gap-1.5">
+          {setting.unit && <span className="text-xs text-neutral-500">{setting.unit}</span>}
+          {animate && (
+            <button
+              type="button"
+              aria-pressed={on}
+              aria-label={`Change ${setting.label} over the effect`}
+              title={on ? "Changes over the effect. Click to hold one value." : "Change over the effect"}
+              className={`rounded p-0.5 ${on ? "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300" : "text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"}`}
+              onClick={() => void animate.onChange(on ? null : startCurve(differs ? setting.default : current, setting.min, setting.max))}
+            >
+              <Spline size={13} aria-hidden />
+            </button>
+          )}
+        </span>
       </div>
+      {animate?.mixed ? (
+        <p className="text-xs text-neutral-500">
+          Changes differently in each effect.{" "}
+          <button type="button" className="text-violet-700 underline dark:text-violet-300" onClick={() => void animate.onChange(null)}>
+            Hold one value
+          </button>
+        </p>
+      ) : curve && animate ? (
+        <CurveEditor id={id} setting={setting} curve={curve} onChange={animate.onChange} />
+      ) : (
+        <div className="flex items-center gap-2">
+          <input
+            id={id}
+            type="range"
+            className="min-w-0 flex-1 accent-violet-600"
+            min={setting.min}
+            max={setting.max}
+            step={setting.step}
+            value={current}
+            aria-valuetext={differs ? MIXED : `${current.toFixed(places)}${setting.unit ? ` ${setting.unit}` : ""}`}
+            onChange={(e) => slider.push(fit(Number(e.target.value)))}
+            onPointerUp={slider.end}
+            onKeyUp={slider.end}
+            onBlur={slider.end}
+          />
+          <NumberDraft
+            aria-label={`${setting.label} value`}
+            className={`${FIELD} w-20 tabular-nums`}
+            min={setting.min}
+            max={setting.max}
+            step={setting.step}
+            value={Number(current.toFixed(places))}
+            blank={differs}
+            placeholder={differs ? MIXED : undefined}
+            onCommit={(v) => onChange(fit(v))}
+          />
+        </div>
+      )}
     </div>
   );
 }

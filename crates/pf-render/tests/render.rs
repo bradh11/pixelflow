@@ -487,6 +487,42 @@ fn blur_spreads_an_effect_over_the_targets_grid_like_xlights() {
 }
 
 #[test]
+fn curves_change_settings_over_the_effect() {
+    // One band, standing still, growing from one pixel of nine to all of them over the effect.
+    let mut show = Show::new("t");
+    show.props.push(line("Line", 9, 0.0));
+    let mut chase = Effect::new(EffectKind::Chase, 1000, 2000)
+        .with_palette([Rgb::BLUE])
+        .with_params(EffectParams::Chase(ChaseParams {
+            width: 0.5,
+            speed: 0.0,
+            ..ChaseParams::default()
+        }));
+    chase.curves.insert("width".into(), Curve::ramp(0.1, 1.0));
+    let mut seq = Sequence::new("s", 3000);
+    seq.rows
+        .push(row(Target::Prop(show.props[0].id), vec![vec![chase.clone()]]));
+    let lit = |seq: &Sequence, t: u64| render(&show, seq, t).chunks(3).filter(|p| p[2] > 0).count();
+    assert_eq!(lit(&seq, 1000), 1, "the curve's start, not the setting's 0.5");
+    assert_eq!(lit(&seq, 1500), 5);
+    assert_eq!(lit(&seq, 1999), 9);
+
+    // Blur that steps on halfway: sharp, then soft.
+    chase.curves.clear();
+    chase.blur = 0;
+    chase.curves.insert(
+        "blur".into(),
+        Curve::custom(0.0, 4.0, vec![[0.5, 0.0], [0.5, 1.0]]),
+    );
+    if let EffectParams::Chase(p) = &mut chase.params {
+        p.width = 0.1;
+    }
+    seq.rows[0].layers[0].effects[0] = chase;
+    assert_eq!(lit(&seq, 1400), 1);
+    assert_eq!(lit(&seq, 1500), 3, "blurred over its neighbours");
+}
+
+#[test]
 fn sparkles_are_the_same_every_render_and_cover_about_5_in_208_minus_the_setting() {
     let mut show = Show::new("t");
     show.props.push(line("Line", 2000, 0.0));

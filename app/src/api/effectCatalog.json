@@ -1295,6 +1295,1025 @@
     ]
   },
   {
+    "description": "Arms of color turning around a center point, like a pinwheel.",
+    "kind": "pinwheel",
+    "label": "Pinwheel",
+    "settings": [
+      {
+        "default": 3,
+        "description": "Number of arms.",
+        "key": "arms",
+        "label": "Arms",
+        "max": 20,
+        "min": 1,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 100.0,
+        "description": "How far the arms reach: 100 reaches the prop's corners.",
+        "key": "armSize",
+        "label": "Arm length",
+        "max": 400.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 0.0,
+        "description": "How far the arms bend from center to tip.",
+        "key": "twist",
+        "label": "Twist",
+        "max": 360.0,
+        "min": -360.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "degrees"
+      },
+      {
+        "default": 0.0,
+        "description": "How much of each arm's slice of the circle it fills (0 is a thin line).",
+        "key": "thickness",
+        "label": "Thickness",
+        "max": 100.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 10.0,
+        "description": "How fast the arms turn (10 turns them 200 degrees a second).",
+        "key": "speed",
+        "label": "Speed",
+        "max": 50.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": true,
+        "description": "Turn counterclockwise (xLights' Rotation box) instead of clockwise.",
+        "key": "counterclockwise",
+        "label": "Counterclockwise",
+        "type": "bool"
+      },
+      {
+        "default": "flat",
+        "description": "Flat arms, or shaded across their width.",
+        "key": "shading",
+        "label": "Shading",
+        "options": [
+          {
+            "label": "Flat",
+            "value": "flat"
+          },
+          {
+            "label": "Bright middle",
+            "value": "raised"
+          },
+          {
+            "label": "Bright edges",
+            "value": "sunken"
+          },
+          {
+            "label": "Fading sweep",
+            "value": "sweep"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": 0.0,
+        "description": "Where the first arm points at the start.",
+        "key": "offset",
+        "label": "Start angle",
+        "max": 360.0,
+        "min": 0.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number",
+        "unit": "degrees"
+      },
+      {
+        "default": 0.0,
+        "description": "The center, left (-100) to right (100) of the middle.",
+        "key": "centerX",
+        "label": "Center across",
+        "max": 100.0,
+        "min": -100.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": 0.0,
+        "description": "The center, below (-100) to above (100) the middle.",
+        "key": "centerY",
+        "label": "Center up",
+        "max": 100.0,
+        "min": -100.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": "smooth",
+        "description": "Smooth arms, or arms drawn as spokes as older xLights did.",
+        "key": "style",
+        "label": "Drawing",
+        "more": true,
+        "options": [
+          {
+            "label": "Smooth arms",
+            "value": "smooth"
+          },
+          {
+            "label": "Spokes (older xLights)",
+            "value": "spokes"
+          }
+        ],
+        "type": "choice"
+      }
+    ]
+  },
+  {
+    "description": "Snowflakes drifting across the prop, or falling and piling up.",
+    "kind": "snowflakes",
+    "label": "Snowflakes",
+    "settings": [
+      {
+        "default": 5,
+        "description": "Snowflakes on the prop at once.",
+        "key": "count",
+        "label": "Flakes",
+        "max": 100,
+        "min": 1,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": "dot",
+        "description": "What each flake looks like.",
+        "key": "flake",
+        "label": "Flake",
+        "options": [
+          {
+            "label": "A random look each",
+            "value": "random"
+          },
+          {
+            "label": "Dot",
+            "value": "dot"
+          },
+          {
+            "label": "Small cross (two colors)",
+            "value": "cross"
+          },
+          {
+            "label": "Three dots (two colors)",
+            "value": "bar"
+          },
+          {
+            "label": "Large cross (two colors)",
+            "value": "bigCross"
+          },
+          {
+            "label": "Star (two colors)",
+            "value": "star"
+          },
+          {
+            "label": "Square",
+            "value": "square"
+          },
+          {
+            "label": "Plus",
+            "value": "plus"
+          },
+          {
+            "label": "Diamond",
+            "value": "diamond"
+          },
+          {
+            "label": "X",
+            "value": "x"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": 10.0,
+        "description": "How fast they move.",
+        "key": "speed",
+        "label": "Speed",
+        "max": 50.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": "blowing",
+        "description": "Blowing across, falling, or falling and piling up.",
+        "key": "motion",
+        "label": "Motion",
+        "options": [
+          {
+            "label": "Blowing",
+            "value": "blowing"
+          },
+          {
+            "label": "Falling",
+            "value": "falling"
+          },
+          {
+            "label": "Falling and piling up",
+            "value": "pilingUp"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": 0,
+        "description": "Frames of falling done before the effect starts, so the flakes are already spread out.",
+        "key": "warmup",
+        "label": "Head start",
+        "max": 100,
+        "min": 0,
+        "more": true,
+        "step": 1,
+        "type": "int",
+        "unit": "frames"
+      }
+    ]
+  },
+  {
+    "description": "Swirling waves of color flowing over the prop.",
+    "kind": "plasma",
+    "label": "Plasma",
+    "settings": [
+      {
+        "default": "palette",
+        "description": "The palette blended across the waves, or a fixed color scheme.",
+        "key": "colors",
+        "label": "Colors",
+        "options": [
+          {
+            "label": "The palette",
+            "value": "palette"
+          },
+          {
+            "label": "Red and green",
+            "value": "redGreen"
+          },
+          {
+            "label": "Blue and green",
+            "value": "blueGreen"
+          },
+          {
+            "label": "Rainbow",
+            "value": "rainbow"
+          },
+          {
+            "label": "Shades of white",
+            "value": "white"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": 1,
+        "description": "Tightens the circular waves.",
+        "key": "twist",
+        "label": "Twist",
+        "max": 10,
+        "min": 1,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 1,
+        "description": "How many bands of color the waves are split into.",
+        "key": "density",
+        "label": "Line density",
+        "max": 10,
+        "min": 1,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 10.0,
+        "description": "How fast the waves flow.",
+        "key": "speed",
+        "label": "Speed",
+        "max": 100.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number"
+      }
+    ]
+  },
+  {
+    "description": "Shifting patterns of color, like a butterfly's wings.",
+    "kind": "butterfly",
+    "label": "Butterfly",
+    "settings": [
+      {
+        "default": 1,
+        "description": "Patterns 1 to 5 are wings; 6 to 9 plasmas in fixed colors, and 10 a plasma in the palette.",
+        "key": "pattern",
+        "label": "Pattern",
+        "max": 10,
+        "min": 1,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": "rainbow",
+        "description": "A rainbow, or the palette blended across the pattern.",
+        "key": "colors",
+        "label": "Colors",
+        "options": [
+          {
+            "label": "Rainbow",
+            "value": "rainbow"
+          },
+          {
+            "label": "The palette",
+            "value": "palette"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": 10.0,
+        "description": "How fast the pattern shifts.",
+        "key": "speed",
+        "label": "Speed",
+        "max": 100.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": "forward",
+        "description": "Which way the pattern shifts.",
+        "key": "direction",
+        "label": "Direction",
+        "options": [
+          {
+            "label": "Forward",
+            "value": "forward"
+          },
+          {
+            "label": "Reverse",
+            "value": "reverse"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": 1,
+        "description": "Splits the pattern into bands (for plasmas, more bands of color).",
+        "key": "chunks",
+        "label": "Chunks",
+        "max": 10,
+        "min": 1,
+        "more": true,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 2,
+        "description": "With more than one chunk, every band this many apart is left dark.",
+        "key": "skip",
+        "label": "Dark every",
+        "max": 10,
+        "min": 2,
+        "more": true,
+        "step": 1,
+        "type": "int"
+      }
+    ]
+  },
+  {
+    "description": "Rows of swags stacking up the prop, one after another.",
+    "kind": "garlands",
+    "label": "Garlands",
+    "settings": [
+      {
+        "default": "straight",
+        "description": "Straight rows, or swags of different depths.",
+        "key": "shape",
+        "label": "Garland",
+        "options": [
+          {
+            "label": "Straight",
+            "value": "straight"
+          },
+          {
+            "label": "Small swags",
+            "value": "smallSwags"
+          },
+          {
+            "label": "Swags",
+            "value": "swags"
+          },
+          {
+            "label": "Deep swags",
+            "value": "deepSwags"
+          },
+          {
+            "label": "Double dips",
+            "value": "doubleDips"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": 10.0,
+        "description": "How far apart the garlands start, as a share of the prop.",
+        "key": "spacing",
+        "label": "Spacing",
+        "max": 100.0,
+        "min": 1.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 1.0,
+        "description": "Times the garlands stack up over the effect.",
+        "key": "cycles",
+        "label": "Cycles",
+        "max": 20.0,
+        "min": 0.0,
+        "step": 0.1,
+        "type": "number"
+      },
+      {
+        "default": "up",
+        "description": "Which way they stack.",
+        "key": "direction",
+        "label": "Stack direction",
+        "options": [
+          {
+            "label": "Up",
+            "value": "up"
+          },
+          {
+            "label": "Down",
+            "value": "down"
+          },
+          {
+            "label": "Left",
+            "value": "left"
+          },
+          {
+            "label": "Right",
+            "value": "right"
+          },
+          {
+            "label": "Up, then down",
+            "value": "upThenDown"
+          },
+          {
+            "label": "Down, then up",
+            "value": "downThenUp"
+          },
+          {
+            "label": "Left, then right",
+            "value": "leftThenRight"
+          },
+          {
+            "label": "Right, then left",
+            "value": "rightThenLeft"
+          }
+        ],
+        "type": "choice"
+      }
+    ]
+  },
+  {
+    "description": "Lines bouncing around the prop, with fading trails.",
+    "kind": "lines",
+    "label": "Lines",
+    "settings": [
+      {
+        "default": 2,
+        "description": "Number of lines.",
+        "key": "count",
+        "label": "Lines",
+        "max": 20,
+        "min": 1,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 3,
+        "description": "Points in each line (more than two make a closed shape).",
+        "key": "points",
+        "label": "Points",
+        "max": 6,
+        "min": 2,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 1,
+        "description": "Line thickness.",
+        "key": "thickness",
+        "label": "Thickness",
+        "max": 10,
+        "min": 1,
+        "step": 1,
+        "type": "int",
+        "unit": "pixels"
+      },
+      {
+        "default": 1.0,
+        "description": "How far the points move each frame.",
+        "key": "speed",
+        "label": "Speed",
+        "max": 10.0,
+        "min": 0.0,
+        "step": 0.1,
+        "type": "number",
+        "unit": "pixels a frame"
+      },
+      {
+        "default": 0,
+        "description": "Copies of each line left behind it.",
+        "key": "trails",
+        "label": "Trails",
+        "max": 10,
+        "min": 0,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": true,
+        "description": "Dim the trails, oldest the dimmest.",
+        "key": "fadeTrails",
+        "label": "Fade trails",
+        "more": true,
+        "type": "bool"
+      }
+    ]
+  },
+  {
+    "description": "Cells living and dying by the rules of the Game of Life.",
+    "kind": "life",
+    "label": "Life",
+    "settings": [
+      {
+        "default": 50,
+        "description": "How many cells are alive at the start (100 fills about half the grid).",
+        "key": "density",
+        "label": "Starting cells",
+        "max": 100,
+        "min": 0,
+        "step": 1,
+        "type": "int",
+        "unit": "%"
+      },
+      {
+        "default": "classic",
+        "description": "Which neighbors bring cells to life and keep them alive.",
+        "key": "rules",
+        "label": "Rules",
+        "options": [
+          {
+            "label": "Classic (B3/S23)",
+            "value": "classic"
+          },
+          {
+            "label": "B35/S236",
+            "value": "b35S236"
+          },
+          {
+            "label": "Amoeba (B357/S1358)",
+            "value": "amoeba"
+          },
+          {
+            "label": "Coagulations (B378/S235678)",
+            "value": "coagulations"
+          },
+          {
+            "label": "B25678/S5678",
+            "value": "b25678S5678"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": 10,
+        "description": "How often a new generation comes (10 is two a second; 20 or more, one every frame).",
+        "key": "speed",
+        "label": "Speed",
+        "max": 30,
+        "min": 1,
+        "step": 1,
+        "type": "int"
+      }
+    ]
+  },
+  {
+    "description": "Tendrils trailing after a point that moves around the prop.",
+    "kind": "tendril",
+    "label": "Tendril",
+    "settings": [
+      {
+        "default": "circle",
+        "description": "How the point the tendrils follow moves.",
+        "key": "movement",
+        "label": "Movement",
+        "options": [
+          {
+            "label": "Random",
+            "value": "random"
+          },
+          {
+            "label": "Around a square",
+            "value": "square"
+          },
+          {
+            "label": "Around a circle",
+            "value": "circle"
+          },
+          {
+            "label": "Zig zag across",
+            "value": "horizontalZigZag"
+          },
+          {
+            "label": "Zig zag across and back",
+            "value": "horizontalZigZagReturn"
+          },
+          {
+            "label": "Zig zag up",
+            "value": "verticalZigZag"
+          },
+          {
+            "label": "Zig zag up and back",
+            "value": "verticalZigZagReturn"
+          },
+          {
+            "label": "Held at a point",
+            "value": "manual"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": 10.0,
+        "description": "How far the point moves each step.",
+        "key": "movementSize",
+        "label": "Movement size",
+        "max": 20.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": 3.0,
+        "description": "How thick the tendrils are.",
+        "key": "thickness",
+        "label": "Thickness",
+        "max": 20.0,
+        "min": 1.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "pixels"
+      },
+      {
+        "default": 1,
+        "description": "Tendrils following the point, each a little springier.",
+        "key": "tendrils",
+        "label": "Tendrils",
+        "max": 20,
+        "min": 1,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 60,
+        "description": "Joints in each tendril: longer tendrils trail further.",
+        "key": "length",
+        "label": "Length",
+        "max": 100,
+        "min": 5,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 10,
+        "description": "How often the point moves (10 every frame, 9 every other, and so on).",
+        "key": "speed",
+        "label": "Speed",
+        "max": 10,
+        "min": 1,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 10,
+        "description": "How quickly the tendrils slow down.",
+        "key": "friction",
+        "label": "Friction",
+        "max": 20,
+        "min": 0,
+        "more": true,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 10,
+        "description": "How much of the movement of the joint before it each joint carries on.",
+        "key": "dampening",
+        "label": "Dampening",
+        "max": 20,
+        "min": 0,
+        "more": true,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 20,
+        "description": "How stiff the tendrils are toward their ends.",
+        "key": "tension",
+        "label": "Tension",
+        "max": 39,
+        "min": 0,
+        "more": true,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 0.0,
+        "description": "Moves the path left (negative) or right, as a share of the prop.",
+        "key": "offsetX",
+        "label": "Offset across",
+        "max": 100.0,
+        "min": -100.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 0.0,
+        "description": "Moves the path down (negative) or up, as a share of the prop.",
+        "key": "offsetY",
+        "label": "Offset up",
+        "max": 100.0,
+        "min": -100.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 0.0,
+        "description": "Where a held point is, from the left.",
+        "key": "manualX",
+        "label": "Point across",
+        "max": 100.0,
+        "min": 0.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 0.0,
+        "description": "Where a held point is, from the bottom.",
+        "key": "manualY",
+        "label": "Point up",
+        "max": 100.0,
+        "min": 0.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      }
+    ]
+  },
+  {
+    "description": "Words scrolling across the prop, or standing still.",
+    "kind": "text",
+    "label": "Text",
+    "settings": [
+      {
+        "default": "Hello",
+        "description": "What it says (a new line starts with \\n).",
+        "key": "text",
+        "label": "Text",
+        "type": "text"
+      },
+      {
+        "default": "none",
+        "description": "Still, or moving.",
+        "key": "movement",
+        "label": "Movement",
+        "options": [
+          {
+            "label": "Still",
+            "value": "none"
+          },
+          {
+            "label": "Left",
+            "value": "left"
+          },
+          {
+            "label": "Right",
+            "value": "right"
+          },
+          {
+            "label": "Up",
+            "value": "up"
+          },
+          {
+            "label": "Down",
+            "value": "down"
+          },
+          {
+            "label": "Up and left",
+            "value": "upLeft"
+          },
+          {
+            "label": "Down and left",
+            "value": "downLeft"
+          },
+          {
+            "label": "Up and right",
+            "value": "upRight"
+          },
+          {
+            "label": "Down and right",
+            "value": "downRight"
+          },
+          {
+            "label": "From start to end",
+            "value": "vector"
+          },
+          {
+            "label": "Left, bobbing",
+            "value": "wavy"
+          },
+          {
+            "label": "Back and forth",
+            "value": "leftRight"
+          },
+          {
+            "label": "Up and back down",
+            "value": "upDown"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": 10,
+        "description": "How fast it moves.",
+        "key": "speed",
+        "label": "Speed",
+        "max": 100,
+        "min": 0,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 8,
+        "description": "How tall the letters are (8 is the font's own size; others scale it).",
+        "key": "size",
+        "label": "Letter height",
+        "max": 100,
+        "min": 4,
+        "step": 1,
+        "type": "int",
+        "unit": "pixels"
+      },
+      {
+        "default": "across",
+        "description": "Letters across, or stacked one above another.",
+        "key": "orientation",
+        "label": "Letters",
+        "options": [
+          {
+            "label": "Across",
+            "value": "across"
+          },
+          {
+            "label": "Stacked, reading down",
+            "value": "stackedDown"
+          },
+          {
+            "label": "Stacked, reading up",
+            "value": "stackedUp"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": false,
+        "description": "Stop when the text reaches the middle.",
+        "key": "toCenter",
+        "label": "Stop in the middle",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": false,
+        "description": "Cross the prop once instead of again and again.",
+        "key": "noRepeat",
+        "label": "Cross once",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": 0.0,
+        "description": "Where the text sits (or starts, moving from start to end), left (-) or right (+) of the middle.",
+        "key": "startX",
+        "label": "Start across",
+        "max": 200.0,
+        "min": -200.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": 0.0,
+        "description": "Where the text sits (or starts), below (-) or above (+) the middle.",
+        "key": "startY",
+        "label": "Start up",
+        "max": 200.0,
+        "min": -200.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": 0.0,
+        "description": "Where text moving from start to end ends, left (-) or right (+) of the middle.",
+        "key": "endX",
+        "label": "End across",
+        "max": 200.0,
+        "min": -200.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": 0.0,
+        "description": "Where text moving from start to end ends, below (-) or above (+) the middle.",
+        "key": "endY",
+        "label": "End up",
+        "max": 200.0,
+        "min": -200.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": false,
+        "description": "Positions in pixels instead of a share of the prop.",
+        "key": "pixelOffsets",
+        "label": "Positions in pixels",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": false,
+        "description": "A palette color per word instead of per letter.",
+        "key": "colorPerWord",
+        "label": "A color per word",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": "none",
+        "description": "Show a countdown from the number in the text instead.",
+        "key": "countdown",
+        "label": "Countdown",
+        "more": true,
+        "options": [
+          {
+            "label": "None",
+            "value": "none"
+          },
+          {
+            "label": "Seconds",
+            "value": "seconds"
+          },
+          {
+            "label": "Minutes and seconds",
+            "value": "minutesSeconds"
+          }
+        ],
+        "type": "choice"
+      }
+    ]
+  },
+  {
     "description": "A singing face: the prop's face mouths the words on a timing track, with eyes that blink.",
     "kind": "faces",
     "label": "Faces",

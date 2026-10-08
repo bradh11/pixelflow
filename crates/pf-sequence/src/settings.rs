@@ -41,6 +41,8 @@ pub enum SettingRange {
     Choice(&'static [ChoiceOption]),
     /// One of the target prop's faces, by name (blank: its first face).
     Face,
+    /// Free text (at most [`MAX_TEXT_LEN`] characters).
+    Text,
     /// One of the sequence's timing tracks (or none).
     TimingTrack,
 }
@@ -152,7 +154,7 @@ impl SettingField for bool {
     }
 }
 
-/// A name (a face's): at most [`MAX_TEXT_LEN`] characters.
+/// A name (a face's) or text: at most [`MAX_TEXT_LEN`] characters.
 impl SettingField for String {
     fn sanitize(&mut self, _range: &SettingRange, _default: Self) {
         if self.chars().count() > MAX_TEXT_LEN {
@@ -238,6 +240,9 @@ macro_rules! range {
     };
     ($ty:ty, face) => {
         $crate::settings::SettingRange::Face
+    };
+    ($ty:ty, text) => {
+        $crate::settings::SettingRange::Text
     };
     ($ty:ty, timing_track) => {
         $crate::settings::SettingRange::TimingTrack
@@ -407,6 +412,10 @@ pub enum SettingValue {
     Face {
         default: String,
     },
+    /// Free text.
+    Text {
+        default: String,
+    },
     /// A timing track of the sequence, by id (`null` = none).
     TimingTrack {
         default: Option<TimingTrackId>,
@@ -449,6 +458,9 @@ fn effect_info(kind: EffectKind) -> EffectInfo {
                 },
                 SettingRange::Face => SettingValue::Face {
                     default: default.as_str().expect("a face name default").to_string(),
+                },
+                SettingRange::Text => SettingValue::Text {
+                    default: default.as_str().expect("a text default").to_string(),
                 },
                 SettingRange::TimingTrack => SettingValue::TimingTrack {
                     default: serde_json::from_value(default.clone()).expect("a timing track default"),
@@ -508,7 +520,9 @@ mod tests {
                         assert!(min < max && (min..=max).contains(&v), "{kind:?}.{}", spec.key);
                     }
                     SettingRange::Bool => assert!(value.is_boolean(), "{kind:?}.{}", spec.key),
-                    SettingRange::Face => assert!(value.is_string(), "{kind:?}.{}", spec.key),
+                    SettingRange::Face | SettingRange::Text => {
+                        assert!(value.is_string(), "{kind:?}.{}", spec.key)
+                    }
                     SettingRange::TimingTrack => assert!(value.is_null(), "{kind:?}.{}", spec.key),
                     SettingRange::Choice(options) => {
                         assert!(

@@ -2,6 +2,7 @@
 
 use crate::settings::{SettingRange, SettingSpec, choices, effect_params};
 use crate::{Curve, EffectId, Rgb, TimingTrackId};
+use pf_model::{BufferTransform, RenderStyle};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -191,6 +192,14 @@ pub struct Effect {
     // [`crate::MAX_BLUR`].
     #[serde(default)]
     pub blur: u32,
+    /// How the target's pixels are laid out for the effect (the target's own layout by default).
+    #[serde(default, skip_serializing_if = "is_default")]
+    #[cfg_attr(feature = "schema", schemars(description = ""))]
+    pub render_style: RenderStyle,
+    /// Turns or flips the layout the effect draws on.
+    #[serde(default, skip_serializing_if = "is_default")]
+    #[cfg_attr(feature = "schema", schemars(description = ""))]
+    pub buffer_transform: BufferTransform,
     /// Settings that change over the effect, by key (a `params` number setting, `sparkles`, or
     /// `blur`); each takes the place of that setting's value while the effect plays.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -199,6 +208,10 @@ pub struct Effect {
 
 fn white() -> Rgb {
     Rgb::WHITE
+}
+
+fn is_default<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
 }
 
 /// A number setting a curve can change: its range, and whether it's a whole number.
@@ -224,6 +237,8 @@ impl Effect {
             sparkles: 0,
             sparkle_color: Rgb::WHITE,
             blur: 0,
+            render_style: RenderStyle::Default,
+            buffer_transform: BufferTransform::None,
             curves: BTreeMap::new(),
         }
     }
@@ -300,6 +315,8 @@ impl Effect {
             sparkles: self.sparkles,
             sparkle_color: self.sparkle_color,
             blur: self.blur,
+            render_style: self.render_style,
+            buffer_transform: self.buffer_transform,
             curves: BTreeMap::new(),
         };
         for (key, curve) in &self.curves {

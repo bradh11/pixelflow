@@ -6,9 +6,15 @@ use crate::effects::{Canvas, EffectTime, Shade, Shader, ShaderVisitor};
 use crate::geometry::{Pixel, PixelBuffer, SceneGeometry};
 use crate::sparkles::Sparkles;
 use pf_mapping::ChannelMap;
-use pf_model::Show;
+use pf_model::{BufferTransform, RenderStyle, Show};
 use pf_sequence::{Blend, Effect, EffectParams, Sequence, Target};
 use std::collections::HashMap;
+
+/// A target laid out in a render style, turned or flipped.
+type BufferKey = (Target, RenderStyle, BufferTransform);
+
+/// The grid of a whole buffer (rather than one of its parts), in [`Renderer`]'s grids.
+const WHOLE: usize = usize::MAX;
 
 /// Renders sequences for one show and channel map. Pixel positions are worked out once, when the
 /// renderer is made (make a new one when the show changes); pixel buffers for targets are built
@@ -16,15 +22,17 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub struct Renderer {
     geometry: SceneGeometry,
-    buffers: HashMap<Target, PixelBuffer>,
+    /// Each target's buffer in each render style its effects use. All of a target's buffers list
+    /// the same pixels in the same order.
+    buffers: HashMap<BufferKey, PixelBuffer>,
     /// Where each target's faces sit in its buffer (built the first time a Faces effect draws on
     /// the target, like `buffers`).
     faces: HashMap<Target, Vec<crate::faces::FaceProp>>,
     /// The Faces effect's lit pixels for one frame, reused from frame to frame.
     face_lit: Vec<Option<Rgba>>,
-    /// Each target's buffer laid on a grid, for blurred effects (built the first time a blurred
-    /// effect draws on the target, like `buffers`).
-    grids: HashMap<Target, Grid>,
+    /// Each buffer (or part of a per-model buffer) laid on a grid, for blurred effects (built the
+    /// first time a blurred effect draws on it, like `buffers`).
+    grids: HashMap<(BufferKey, usize), Grid>,
     /// A blurred effect's grid cells, and the blur's working space, reused from effect to effect.
     cells: Vec<Rgba>,
     blur_scratch: Vec<[f32; 4]>,
@@ -32,6 +40,8 @@ pub struct Renderer {
     show_acc: Vec<Acc>,
     /// One row being built.
     row_acc: Vec<Acc>,
+    /// One member of a per-model buffer being drawn.
+    part_acc: Vec<Acc>,
 }
 
 impl Renderer {
@@ -50,6 +60,7 @@ impl Renderer {
             cells: Vec::new(),
             blur_scratch: Vec::new(),
             row_acc: Vec::new(),
+            part_acc: Vec::new(),
         }
     }
 
@@ -84,92 +95,127 @@ impl Renderer {
                 if active.peek().is_none() {
                     continue;
                 }
-                let buffer = self
+                let base: BufferKey = (row.target, RenderStyle::Default, BufferTransform::None);
+                let len = self
                     .buffers
-                    .entry(row.target)
-                    .or_insert_with(|| self.geometry.buffer(row.target));
-                if buffer.is_empty() {
+                    .entry(base)
+                    .or_insert_with(|| self.geometry.buffer(row.target))
+                    .len();
+                if len == 0 {
                     continue;
                 }
                 self.row_acc.clear();
-                self.row_acc.resize(buffer.len(), Acc::ZERO);
-                let canvas = Canvas {
-                    columns: buffer.columns,
-                    rows: buffer.rows,
-                };
+                self.row_acc.resize(len, Acc::ZERO);
                 // Layers draw bottom (first) to top (last). The lowest effect drawn covers,
                 // whatever its blend: there is nothing below it to mix with (as in xLights).
                 for (n, effect) in active.enumerate() {
                     // Settings that change over the effect, at this moment.
                     let effect = &*effect.at(t_ms);
-                    let grid = (effect.blur > 0)
-                        .then(|| &*self.grids.entry(row.target).or_insert_with(|| Grid::new(buffer)));
-                    let draw = Draw {
-                        effect,
-                        blend: if n == 0 { Blend::Normal } else { effect.blend },
-                        t_ms,
-                        frame_ms: seq.frame_ms,
-                        canvas,
-                        buffer,
-                        grid,
-                        cells: &mut self.cells,
-                        blur_scratch: &mut self.blur_scratch,
-                        acc: &mut self.row_acc,
-                    };
-                    if let EffectParams::Shape(p) = &effect.params
-                        && let Some(track) = p.timing_track
-                    {
-                        // Shapes on a timing track appear at its marks within the effect.
-                        let mut p = p.clone();
-                        p.sanitize();
-                        let marks: Vec<u64> = seq
-                            .timing_track(track)
-                            .map(|t| {
-                                t.marks
-                                    .iter()
-                                    .filter(|m| effect.is_active_at(m.start_ms))
-                                    .map(|m| m.start_ms - effect.start_ms)
-                                    .collect()
-                            })
-                            .unwrap_or_default();
-                        let time = EffectTime::within(effect.start_ms, effect.end_ms, t_ms);
-                        let colors = Colors::new(&effect.palette.colors);
-                        let shader = Shader::Shape(crate::effects::Shape::new(
-                            &p,
-                            &time,
-                            colors,
-                            effect.id.seed(),
-                            canvas,
-                            Some(&marks),
-                        ));
+                    let blend = if n == 0 { Blend::Normal } else { effect.blend };
+                    let key: BufferKey = (row.target, effect.render_style, effect.buffer_transform);
+                    let buffer = &*self
+                        .buffers
+                        .entry(key)
+                        .or_insert_with(|| self.geometry.styled_buffer(key.0, key.1, key.2));
+                    if let EffectParams::Faces(p) = &effect.params {
+                        let grid = (effect.blur > 0).then(|| {
+                            let grid = self
+                                .grids
+                                .entry((key, WHOLE))
+                                .or_insert_with(|| Grid::new(buffer));
+                            grid.near_pixels(blur_amount(effect));
+                            &*grid
+                        });
+                        let faces = self
+                            .faces
+                            .entry(row.target)
+                            .or_insert_with(|| crate::faces::face_props(&self.geometry, row.target, buffer));
+                        let mut lit = std::mem::take(&mut self.face_lit);
+                        crate::faces::lit_pixels(
+                            p,
+                            effect,
+                            t_ms,
+                            seq,
+                            &self.geometry,
+                            faces,
+                            buffer.len(),
+                            &mut lit,
+                        );
+                        let shader = Shader::Faces(crate::effects::Faces::new(lit));
+                        let draw = Draw {
+                            effect,
+                            blend,
+                            t_ms,
+                            frame_ms: seq.frame_ms,
+                            canvas: canvas_of(buffer),
+                            buffer,
+                            grid,
+                            cells: &mut self.cells,
+                            blur_scratch: &mut self.blur_scratch,
+                            acc: &mut self.row_acc,
+                        };
                         draw.run(Some(&shader));
+                        if let Shader::Faces(faces) = shader {
+                            self.face_lit = faces.into_lit();
+                        }
                         continue;
                     }
-                    let EffectParams::Faces(p) = &effect.params else {
-                        draw.run(None);
+                    if buffer.parts.is_empty() {
+                        let grid = (effect.blur > 0).then(|| {
+                            let grid = self
+                                .grids
+                                .entry((key, WHOLE))
+                                .or_insert_with(|| Grid::new(buffer));
+                            grid.near_pixels(blur_amount(effect));
+                            &*grid
+                        });
+                        let draw = Draw {
+                            effect,
+                            blend,
+                            t_ms,
+                            frame_ms: seq.frame_ms,
+                            canvas: canvas_of(buffer),
+                            buffer,
+                            grid,
+                            cells: &mut self.cells,
+                            blur_scratch: &mut self.blur_scratch,
+                            acc: &mut self.row_acc,
+                        };
+                        draw.shaped(seq);
                         continue;
-                    };
-                    let faces = self
-                        .faces
-                        .entry(row.target)
-                        .or_insert_with(|| crate::faces::face_props(&self.geometry, row.target, buffer));
-                    let mut lit = std::mem::take(&mut self.face_lit);
-                    crate::faces::lit_pixels(
-                        p,
-                        effect,
-                        t_ms,
-                        seq,
-                        &self.geometry,
-                        faces,
-                        buffer.len(),
-                        &mut lit,
-                    );
-                    let shader = Shader::Faces(crate::effects::Faces::new(lit));
-                    draw.run(Some(&shader));
-                    if let Shader::Faces(faces) = shader {
-                        self.face_lit = faces.into_lit();
+                    }
+                    // A per-model style: the effect draws on each member's own buffer.
+                    for (i, part) in buffer.parts.iter().enumerate() {
+                        self.part_acc.clear();
+                        self.part_acc
+                            .extend(part.slots.iter().map(|&s| self.row_acc[s as usize]));
+                        let grid = (effect.blur > 0).then(|| {
+                            let grid = self
+                                .grids
+                                .entry((key, i))
+                                .or_insert_with(|| Grid::new(&part.buffer));
+                            grid.near_pixels(blur_amount(effect));
+                            &*grid
+                        });
+                        let draw = Draw {
+                            effect,
+                            blend,
+                            t_ms,
+                            frame_ms: seq.frame_ms,
+                            canvas: canvas_of(&part.buffer),
+                            buffer: &part.buffer,
+                            grid,
+                            cells: &mut self.cells,
+                            blur_scratch: &mut self.blur_scratch,
+                            acc: &mut self.part_acc,
+                        };
+                        draw.shaped(seq);
+                        for (&s, &acc) in part.slots.iter().zip(&self.part_acc) {
+                            self.row_acc[s as usize] = acc;
+                        }
                     }
                 }
+                let buffer = &self.buffers[&base];
                 for (&global, &top) in buffer.global.iter().zip(&self.row_acc) {
                     if top.a > 0.0
                         && let Some(pixel) = self.show_acc.get_mut(global as usize)
@@ -196,6 +242,19 @@ impl Renderer {
                 }
             }
         }
+    }
+}
+
+/// xLights' Blur setting for an effect (PixelFlow's blur plus one).
+fn blur_amount(effect: &Effect) -> u32 {
+    effect.blur.min(pf_sequence::MAX_BLUR) + 1
+}
+
+/// The grid an effect draws on for a buffer.
+fn canvas_of(buffer: &PixelBuffer) -> Canvas {
+    Canvas {
+        columns: buffer.columns,
+        rows: buffer.rows,
     }
 }
 
@@ -230,6 +289,42 @@ struct Draw<'a> {
 }
 
 impl Draw<'_> {
+    /// Draws the effect, working out its shapes first when they appear at a timing track's marks
+    /// (Shape).
+    fn shaped(self, seq: &Sequence) {
+        let effect = self.effect;
+        if let EffectParams::Shape(p) = &effect.params
+            && let Some(track) = p.timing_track
+        {
+            // Shapes on a timing track appear at its marks within the effect.
+            let mut p = p.clone();
+            p.sanitize();
+            let marks: Vec<u64> = seq
+                .timing_track(track)
+                .map(|t| {
+                    t.marks
+                        .iter()
+                        .filter(|m| effect.is_active_at(m.start_ms))
+                        .map(|m| m.start_ms - effect.start_ms)
+                        .collect()
+                })
+                .unwrap_or_default();
+            let time = EffectTime::within(effect.start_ms, effect.end_ms, self.t_ms);
+            let colors = Colors::new(&effect.palette.colors);
+            let shader = Shader::Shape(crate::effects::Shape::new(
+                &p,
+                &time,
+                colors,
+                effect.id.seed(),
+                self.canvas,
+                Some(&marks),
+            ));
+            self.run(Some(&shader));
+        } else {
+            self.run(None);
+        }
+    }
+
     /// Draws the effect: shaded (on the grid and blurred, when it has blur), sparkled, faded, and
     /// mixed with the layers below. `shader` is given when the renderer had to work it out
     /// (Faces).
@@ -280,18 +375,21 @@ impl Draw<'_> {
             });
             return;
         };
-        // Blurred: drawn on the grid, blurred there, and each pixel takes its cell's color.
+        // Blurred: drawn on the grid, blurred there, and each pixel takes its cell's color. Only
+        // the cells the blur carries to a pixel are drawn; the rest stay clear.
         shader.with(Cells {
             grid,
+            near: grid.near(blur_amount(effect)),
             cells: &mut *self.cells,
         });
-        crate::blur::blur(
+        crate::blur::blur_near(
             self.cells,
             grid.columns,
             grid.rows,
-            effect.blur.min(pf_sequence::MAX_BLUR) + 1,
+            blur_amount(effect),
             self.blend != Blend::Normal,
             self.blur_scratch,
+            grid.near(blur_amount(effect)),
         );
         let pixels = self.buffer.pixels.iter().zip(&grid.cell_of);
         for ((px, &cell), acc) in pixels.zip(self.acc.iter_mut()) {
@@ -304,18 +402,31 @@ impl Draw<'_> {
     }
 }
 
-/// Shades every cell of a grid.
+/// Shades the cells of a grid near its pixels (every cell when `near` is `None`).
 struct Cells<'a> {
     grid: &'a Grid,
+    near: Option<&'a crate::blur::Near>,
     cells: &'a mut Vec<Rgba>,
 }
 
 impl ShaderVisitor<()> for Cells<'_> {
     #[inline]
     fn visit<S: Shade>(self, shader: &S) {
-        self.cells.clear();
-        self.cells
-            .extend(self.grid.cells.iter().map(|px| shader.shade(px)));
+        match self.near {
+            None => {
+                self.cells.clear();
+                self.cells
+                    .extend(self.grid.cells.iter().map(|px| shader.shade(px)));
+            }
+            Some(near) => {
+                // The other cells needn't be clear: the blur never carries them to a pixel.
+                self.cells.resize(self.grid.cells.len(), Rgba::CLEAR);
+                for &cell in &near.cells {
+                    let cell = cell as usize;
+                    self.cells[cell] = shader.shade(&self.grid.cells[cell]);
+                }
+            }
+        }
     }
 }
 

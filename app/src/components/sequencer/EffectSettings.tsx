@@ -28,6 +28,8 @@ import {
 } from "./effectControls";
 import { MultiEffectSettings } from "./MultiEffectSettings";
 import { More } from "../ui";
+import { BUFFER_TRANSFORMS, renderStyleOptions } from "../../lib/renderStyles";
+import type { BufferTransform, RenderStyle } from "../../api/sequence";
 
 /**
  * The selected effect's settings, built from the engine's effect catalog: its kind's settings,
@@ -162,7 +164,7 @@ function Settings({ doc }: { doc: Sequence }) {
         </div>
       </Section>
 
-      <More id="effect-settings" label="More: mixing, sparkles, blur, and timing">
+      <More id="effect-settings" label="More: mixing, render style, sparkles, blur, and timing">
         <div className="flex flex-col gap-2.5">
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-neutral-600 dark:text-neutral-400">With the layers below</span>
@@ -174,6 +176,43 @@ function Settings({ doc }: { doc: Sequence }) {
               <BlendOptions />
             </select>
           </label>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="flex min-w-0 flex-col gap-1 text-sm">
+              <span className="text-neutral-600 dark:text-neutral-400">Render style</span>
+              <select
+                className={FIELD}
+                value={effect.renderStyle ?? "default"}
+                title="How the lights are laid out for this effect"
+                onChange={(e) => {
+                  const renderStyle = e.target.value as RenderStyle;
+                  void change((x) => ({ ...x, renderStyle }));
+                }}
+              >
+                {renderStyleOptions("group" in target).map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex min-w-0 flex-col gap-1 text-sm">
+              <span className="text-neutral-600 dark:text-neutral-400">Turn or flip</span>
+              <select
+                className={FIELD}
+                value={effect.bufferTransform ?? "none"}
+                onChange={(e) => {
+                  const bufferTransform = e.target.value as BufferTransform;
+                  void change((x) => ({ ...x, bufferTransform }));
+                }}
+              >
+                {BUFFER_TRANSFORMS.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <div className="flex items-end gap-2">
             <div className="min-w-0 flex-1">
               <NumberSetting

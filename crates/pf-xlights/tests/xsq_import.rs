@@ -745,9 +745,6 @@ fn shapes_fire_on_their_timing_track_and_old_fans_measure_in_pixels() {
     };
     assert_eq!((fan.scale, fan.end_radius), (false, 12.0));
     assert!(!has_note(&i, "Fan"), "{:#?}", i.notes);
-    // Sizes in pixels on a group are drawn on PixelFlow's coarser grid; rings are sized to it.
-    assert_note(
-        &i,
-        "Circles (1 effect) approximated: sizes in pixels look larger on a group than in xLights",
-    );
+    // Groups draw on xLights' grid, so sizes in pixels on a group match.
+    assert!(!has_note(&i, "Circles"), "{:#?}", i.notes);
 }

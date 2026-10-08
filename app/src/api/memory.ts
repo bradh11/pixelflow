@@ -1430,7 +1430,7 @@ export function layoutThumbnail(show: Show): string | null {
 
 export function emptyShow(name: string): Show {
   return {
-    schemaVersion: 11,
+    schemaVersion: 12,
     name,
     settings: { frameRate: 40 },
     props: [],

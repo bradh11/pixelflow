@@ -21,9 +21,9 @@ use crate::XlightsError;
 use effects::{Fidelity, Tally};
 use pf_model::Show;
 use pf_sequence::{
-    CirclesLook, Effect, EffectId, EffectParams, Layer, MAX_DURATION_MS, MAX_EFFECTS, MAX_FRAME_MS,
-    MAX_LAYERS_PER_ROW, MAX_MARKS, MAX_ROWS, MAX_TEXT_LEN, MAX_TIMING_TRACKS, MIN_FRAME_MS, Mark, Row, RowId,
-    Sequence, Target, TimingKind, TimingTrack, TimingTrackId,
+    Effect, EffectId, EffectParams, Layer, MAX_DURATION_MS, MAX_EFFECTS, MAX_FRAME_MS, MAX_LAYERS_PER_ROW,
+    MAX_MARKS, MAX_ROWS, MAX_TEXT_LEN, MAX_TIMING_TRACKS, MIN_FRAME_MS, Mark, Row, RowId, Sequence, Target,
+    TimingKind, TimingTrack, TimingTrackId,
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -305,9 +305,8 @@ impl<'a> Builder<'a> {
         Some((start, end.min(self.duration_ms)))
     }
 
-    /// One effect, on a row whose props have the faces `faces` (by name, in show order); `group`
-    /// when the row is a group.
-    fn effect(&mut self, x: &XsqEffect, faces: &[&str], group: bool) -> Option<Effect> {
+    /// One effect, on a row whose props have the faces `faces` (by name, in show order).
+    fn effect(&mut self, x: &XsqEffect, faces: &[&str]) -> Option<Effect> {
         let name = x.name.trim();
         if name == "Random" {
             self.random += 1;
@@ -357,21 +356,6 @@ impl<'a> Builder<'a> {
                 translated.fidelity = with_note(translated.fidelity, missing);
             }
         }
-        // xLights draws a group on a grid up to 400 cells across; PixelFlow draws it on a grid
-        // with about as many cells as the group has pixels. Sizes in cells look larger there.
-        let in_cells = match &translated.params {
-            EffectParams::Shape(_) => true,
-            EffectParams::Circles(p) => !matches!(p.look, CirclesLook::Radial | CirclesLook::RainbowRadial),
-            EffectParams::Fan(p) => !p.scale,
-            _ => false,
-        };
-        if group && in_cells {
-            translated.fidelity = with_note(
-                translated.fidelity,
-                "sizes in pixels look larger on a group than in xLights, which draws groups on a finer grid"
-                    .into(),
-            );
-        }
         self.tally.record(name, &translated.fidelity);
         self.summary.effects += 1;
         match translated.fidelity {
@@ -392,6 +376,8 @@ impl<'a> Builder<'a> {
             sparkles: translated.sparkles,
             sparkle_color: translated.sparkle_color,
             blur: translated.blur,
+            render_style: translated.render_style,
+            buffer_transform: translated.buffer_transform,
             curves: translated.curves,
         })
     }
@@ -823,11 +809,7 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
                     b.summary.skipped += x_layer.len();
                     continue;
                 }
-                let group = matches!(target, Target::Group(_));
-                let effects = x_layer
-                    .iter()
-                    .filter_map(|x| b.effect(x, &faces, group))
-                    .collect();
+                let effects = x_layer.iter().filter_map(|x| b.effect(x, &faces)).collect();
                 layers.push(Layer { effects });
             }
             if layers.is_empty() {

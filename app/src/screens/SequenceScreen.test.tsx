@@ -335,6 +335,13 @@ describe("sequence screen", () => {
     fireEvent.change(blur, { target: { value: "7" } });
     fireEvent.pointerUp(blur);
     await waitFor(() => expect(find().blur).toBe(7));
+    // How the prop's lights are laid out: a prop has only its own styles, not a group's.
+    const style = within(panel).getByRole("combobox", { name: "Render style" });
+    expect(within(style).getAllByRole("option").map((o) => o.textContent)).toEqual(["Its own layout", "Where the lights are", "One line", "All as one light"]);
+    await user.selectOptions(style, "singleLine");
+    await waitFor(() => expect(find().renderStyle).toBe("singleLine"));
+    await user.selectOptions(within(panel).getByRole("combobox", { name: "Turn or flip" }), "flipHorizontal");
+    await waitFor(() => expect(find().bufferTransform).toBe("flipHorizontal"));
   });
 
   it("makes a number setting change over the effect, and back", async () => {

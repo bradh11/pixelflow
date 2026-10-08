@@ -38,6 +38,22 @@ pub(crate) struct Grid {
     /// none, its own position with the wiring place of the nearest pixel (so effects that run
     /// along the wiring carry on between pixels).
     pub cells: Vec<Pixel>,
+    /// For each blur reach worked out so far: the cells near enough to a pixel for a blur that
+    /// far to carry their color to it.
+    near: Vec<(usize, Near)>,
+}
+
+/// The cells within some reach of a pixel: the only cells a blur that far needs to draw and blur
+/// (any other cell's color never reaches a pixel). A group's grid is mostly empty, so this is
+/// usually a small part of it.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub(crate) struct Near {
+    /// The cells, row by row.
+    pub cells: Vec<u32>,
+    /// The same cells as runs along rows (`row`, first column, last column) and up columns
+    /// (`column`, first row, last row).
+    across: Vec<(u32, u32, u32)>,
+    up: Vec<(u32, u32, u32)>,
 }
 
 impl Grid {
@@ -117,7 +133,103 @@ impl Grid {
             rows,
             cell_of,
             cells,
+            near: Vec::new(),
         }
+    }
+
+    /// The cells a blur of `amount` can carry to a pixel, if [`near_pixels`] has worked them out.
+    ///
+    /// [`near_pixels`]: Grid::near_pixels
+    pub fn near(&self, amount: u32) -> Option<&Near> {
+        let reach = reach(self.columns, self.rows, amount);
+        self.near.iter().find(|(r, _)| *r == reach).map(|(_, near)| near)
+    }
+
+    /// The cells a blur of `amount` can carry to a pixel (within its reach of one), worked out
+    /// once per reach.
+    pub fn near_pixels(&mut self, amount: u32) -> &Near {
+        let reach = reach(self.columns, self.rows, amount);
+        let found = match self.near.iter().position(|(r, _)| *r == reach) {
+            Some(i) => i,
+            None => {
+                let near = self.within(reach);
+                self.near.push((reach, near));
+                self.near.len() - 1
+            }
+        };
+        &self.near[found].1
+    }
+
+    /// The cells at most `reach` cells across and up or down from a pixel's cell.
+    fn within(&self, reach: usize) -> Near {
+        let (columns, rows) = (self.columns, self.rows);
+        let mut lit = vec![false; columns * rows];
+        for &cell in &self.cell_of {
+            lit[cell as usize] = true;
+        }
+        // Spread along each row, then along each column, `reach` cells each way.
+        let spread = |from: &[bool], to: &mut [bool], len: usize, step: usize, lines: usize, next: usize| {
+            for line in 0..lines {
+                let at = |i: usize| line * next + i * step;
+                let mut last: Option<usize> = None;
+                for i in 0..len {
+                    if from[at(i)] {
+                        last = Some(i);
+                    }
+                    to[at(i)] = last.is_some_and(|l| i - l <= reach);
+                }
+                let mut last: Option<usize> = None;
+                for i in (0..len).rev() {
+                    if from[at(i)] {
+                        last = Some(i);
+                    }
+                    to[at(i)] |= last.is_some_and(|l| l - i <= reach);
+                }
+            }
+        };
+        let mut across = vec![false; columns * rows];
+        spread(&lit, &mut across, columns, 1, rows, columns);
+        spread(&across, &mut lit, rows, columns, columns, 1);
+        // Runs of near cells along each line.
+        let runs = |len: usize, lines: usize, at: &dyn Fn(usize, usize) -> usize| {
+            let mut out = Vec::new();
+            for line in 0..lines {
+                let mut start = None;
+                for i in 0..=len {
+                    match (i < len && lit[at(line, i)], start) {
+                        (true, None) => start = Some(i),
+                        (false, Some(first)) => {
+                            out.push((line as u32, first as u32, i as u32 - 1));
+                            start = None;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            out
+        };
+        Near {
+            cells: (0..columns * rows)
+                .filter(|&c| lit[c])
+                .map(|c| c as u32)
+                .collect(),
+            across: runs(columns, rows, &|row, x| row * columns + x),
+            up: runs(rows, columns, &|column, y| y * columns + column),
+        }
+    }
+}
+
+/// How many cells away a blur of `amount` takes color from (see [`blur`]).
+fn reach(columns: usize, rows: usize, amount: u32) -> usize {
+    if amount < 2 || (columns <= 1 && rows <= 1) {
+        0
+    } else if amount > 2 && columns > 6 && rows > 6 {
+        boxes_for_gauss(amount - 1)
+            .iter()
+            .map(|size| (size - 1) / 2)
+            .sum()
+    } else {
+        (amount as usize) / 2
     }
 }
 
@@ -159,6 +271,7 @@ fn from_px(px: Px, premultiplied: bool) -> Rgba {
 /// Blurs `cells` (a `columns` × `rows` grid, row by row from the bottom) by xLights' Blur
 /// setting `amount` (1 or less: no blur), the colors as drawn or, `premultiplied`, as they show.
 /// `scratch` is reused between calls.
+#[cfg(test)]
 pub(crate) fn blur(
     cells: &mut [Rgba],
     columns: usize,
@@ -167,18 +280,55 @@ pub(crate) fn blur(
     premultiplied: bool,
     scratch: &mut Vec<Px>,
 ) {
+    blur_near(cells, columns, rows, amount, premultiplied, scratch, None);
+}
+
+/// [`blur`], worked out only at the `near` cells (the grid's [`Grid::near_pixels`] for the same
+/// amount) when given: the pixels come out the same, and the other cells are left as they were.
+pub(crate) fn blur_near(
+    cells: &mut [Rgba],
+    columns: usize,
+    rows: usize,
+    amount: u32,
+    premultiplied: bool,
+    scratch: &mut Vec<Px>,
+    near: Option<&Near>,
+) {
     if amount < 2 || (columns <= 1 && rows <= 1) || cells.len() != columns * rows {
         return;
     }
-    let mut grid: Vec<Px> = cells.iter().map(|&c| to_px(c, premultiplied)).collect();
-    scratch.clear();
-    scratch.resize(grid.len(), [0.0; 4]);
-    if amount > 2 && columns > 6 && rows > 6 {
+    let whole;
+    let near = match near {
+        Some(near) => near,
+        None => {
+            let grid = Grid {
+                columns,
+                rows,
+                cell_of: (0..(columns * rows) as u32).collect(),
+                cells: Vec::new(),
+                near: Vec::new(),
+            };
+            whole = grid.within(0);
+            &whole
+        }
+    };
+    // Two grids' worth of working space: the grid, and a pass's output. Cells away from the
+    // pixels keep whatever they held; their colors never reach a pixel.
+    let total = cells.len();
+    if scratch.len() < 2 * total {
+        scratch.resize(2 * total, [0.0; 4]);
+    }
+    let (grid, pass) = scratch[..2 * total].split_at_mut(total);
+    for &c in &near.cells {
+        grid[c as usize] = to_px(cells[c as usize], premultiplied);
+    }
+    let blurred = if amount > 2 && columns > 6 && rows > 6 {
         for size in boxes_for_gauss(amount - 1) {
             let radius = (size - 1) / 2;
-            box_across(&grid, scratch, columns, rows, radius);
-            box_up(scratch, &mut grid, columns, rows, radius);
+            box_across(grid, pass, columns, &near.across, radius);
+            box_up(pass, grid, columns, rows, &near.up, radius);
         }
+        grid
     } else {
         // An even width reaches one further left (and down) than right (and up).
         let b = amount as usize;
@@ -187,11 +337,11 @@ pub(crate) fn blur(
         } else {
             ((b - 1) / 2, (b - 1) / 2)
         };
-        small_box(&grid, scratch, columns, rows, before, after);
-        std::mem::swap(&mut grid, scratch);
-    }
-    for (cell, px) in cells.iter_mut().zip(&grid) {
-        *cell = from_px(*px, premultiplied);
+        small_box(grid, pass, columns, rows, &near.cells, before, after);
+        pass
+    };
+    for &c in &near.cells {
+        cells[c as usize] = from_px(blurred[c as usize], premultiplied);
     }
 }
 
@@ -201,61 +351,69 @@ fn add(sum: &mut Px, px: Px, k: f32) {
     }
 }
 
-/// One box blur across each row, `2 * radius + 1` cells wide, edge cells repeated past the edges.
-fn box_across(src: &[Px], dst: &mut [Px], columns: usize, rows: usize, radius: usize) {
+/// One box blur along each run of cells across a row, `2 * radius + 1` cells wide, edge cells
+/// repeated past the edges.
+fn box_across(src: &[Px], dst: &mut [Px], columns: usize, runs: &[(u32, u32, u32)], radius: usize) {
     let scale = 1.0 / (2 * radius + 1) as f32;
-    for row in 0..rows {
+    for &(row, first, last) in runs {
+        let row = row as usize;
         let line = &src[row * columns..(row + 1) * columns];
         let at = |i: isize| line[i.clamp(0, columns as isize - 1) as usize];
-        let r = radius as isize;
+        let (r, first) = (radius as isize, first as isize);
         let mut sum = [0.0f32; 4];
-        for i in -r..=r {
+        for i in first - r..=first + r {
             add(&mut sum, at(i), 1.0);
         }
-        for x in 0..columns {
-            dst[row * columns + x] = sum.map(|s| s * scale);
-            let x = x as isize;
+        for x in first..=last as isize {
+            dst[row * columns + x as usize] = sum.map(|s| s * scale);
             add(&mut sum, at(x + r + 1), 1.0);
             add(&mut sum, at(x - r), -1.0);
         }
     }
 }
 
-/// One box blur up each column (see [`box_across`]).
-fn box_up(src: &[Px], dst: &mut [Px], columns: usize, rows: usize, radius: usize) {
+/// One box blur along each run of cells up a column (see [`box_across`]).
+fn box_up(src: &[Px], dst: &mut [Px], columns: usize, rows: usize, runs: &[(u32, u32, u32)], radius: usize) {
     let scale = 1.0 / (2 * radius + 1) as f32;
-    for column in 0..columns {
+    for &(column, first, last) in runs {
+        let column = column as usize;
         let at = |i: isize| src[i.clamp(0, rows as isize - 1) as usize * columns + column];
-        let r = radius as isize;
+        let (r, first) = (radius as isize, first as isize);
         let mut sum = [0.0f32; 4];
-        for i in -r..=r {
+        for i in first - r..=first + r {
             add(&mut sum, at(i), 1.0);
         }
-        for y in 0..rows {
-            dst[y * columns + column] = sum.map(|s| s * scale);
-            let y = y as isize;
+        for y in first..=last as isize {
+            dst[y as usize * columns + column] = sum.map(|s| s * scale);
             add(&mut sum, at(y + r + 1), 1.0);
             add(&mut sum, at(y - r), -1.0);
         }
     }
 }
 
-/// The average of the cells from `before` cells left (down) to `after` cells right (up), counting
-/// only cells inside the grid.
-fn small_box(src: &[Px], dst: &mut [Px], columns: usize, rows: usize, before: usize, after: usize) {
-    for y in 0..rows {
+/// At each of `cells`: the average of the cells from `before` cells left (down) to `after` cells
+/// right (up), counting only cells inside the grid.
+fn small_box(
+    src: &[Px],
+    dst: &mut [Px],
+    columns: usize,
+    rows: usize,
+    cells: &[u32],
+    before: usize,
+    after: usize,
+) {
+    for &cell in cells {
+        let (y, x) = (cell as usize / columns, cell as usize % columns);
         let (y0, y1) = (y.saturating_sub(before), (y + after).min(rows - 1));
-        for x in 0..columns {
-            let (x0, x1) = (x.saturating_sub(before), (x + after).min(columns - 1));
-            let mut sum = [0.0f32; 4];
-            for j in y0..=y1 {
-                for i in x0..=x1 {
-                    add(&mut sum, src[j * columns + i], 1.0);
-                }
+        let (x0, x1) = (x.saturating_sub(before), (x + after).min(columns - 1));
+        let mut sum = [0.0f32; 4];
+        for j in y0..=y1 {
+            for i in x0..=x1 {
+                add(&mut sum, src[j * columns + i], 1.0);
             }
-            let n = ((y1 - y0 + 1) * (x1 - x0 + 1)) as f32;
-            dst[y * columns + x] = sum.map(|s| s / n);
         }
+        let n = ((y1 - y0 + 1) * (x1 - x0 + 1)) as f32;
+        dst[cell as usize] = sum.map(|s| s / n);
     }
 }
 
@@ -363,5 +521,57 @@ mod tests {
         assert!(close(cells[5 * 10].a, 2.0 / 3.0), "{:?}", cells[5 * 10]);
         assert!(close(cells[5 * 10 + 1].a, 1.0 / 3.0));
         assert!(close(cells[5 * 10 + 2].a, 0.0));
+    }
+
+    #[test]
+    fn blurring_only_near_the_pixels_gives_the_pixels_the_same_colors() {
+        // A 40 x 25 grid with three pixels, near its edges and in the middle, and color drawn
+        // in every cell.
+        let (columns, rows) = (40, 25);
+        let mut grid = Grid {
+            columns,
+            rows,
+            cell_of: vec![0, (12 * columns + 20) as u32, (24 * columns + 37) as u32],
+            cells: Vec::new(),
+            near: Vec::new(),
+        };
+        let drawn: Vec<Rgba> = (0..columns * rows)
+            .map(|c| {
+                Rgba::new(
+                    (c % 7) as f32 / 7.0,
+                    (c % 11) as f32 / 11.0,
+                    (c % 3) as f32 / 3.0,
+                    1.0,
+                )
+            })
+            .collect();
+        for amount in [2, 3, 4, 8, 15] {
+            let mut whole = drawn.clone();
+            blur(&mut whole, columns, rows, amount, false, &mut Vec::new());
+            let near = grid.near_pixels(amount).clone();
+            assert!(
+                near.cells.len() < columns * rows,
+                "blur {amount} reaches only part of the grid"
+            );
+            // Cells away from the pixels hold anything: they never reach a pixel.
+            let mut part: Vec<Rgba> = (0..columns * rows)
+                .map(|c| {
+                    if near.cells.contains(&(c as u32)) {
+                        drawn[c]
+                    } else {
+                        Rgba::opaque([9.0, 9.0, 9.0])
+                    }
+                })
+                .collect();
+            let mut scratch = vec![[5.0; 4]; 7];
+            blur_near(&mut part, columns, rows, amount, false, &mut scratch, Some(&near));
+            for &cell in &grid.cell_of {
+                let (a, b) = (whole[cell as usize], part[cell as usize]);
+                assert!(
+                    close(a.r, b.r) && close(a.g, b.g) && close(a.b, b.b) && close(a.a, b.a),
+                    "blur {amount}, cell {cell}: {a:?} vs {b:?}"
+                );
+            }
+        }
     }
 }

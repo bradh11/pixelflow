@@ -817,7 +817,7 @@ describe("LayoutScreen", () => {
       canvas().focus();
       await user.keyboard("{Meta>}g{/Meta}");
       expect(edits).toHaveLength(1);
-      expect(backend.show.groups).toEqual([{ id: expect.any(String), name: "Group 1", members: [a3, a1] }]);
+      expect(backend.show.groups).toEqual([{ id: expect.any(String), name: "Group 1", members: [a3, a1], layout: "minimalGrid", gridSize: 400 }]);
       expect(groupsTab()).toHaveAttribute("aria-selected", "true");
       expect(members("Group 1")).toEqual(["A3", "A1"]);
       expect(lastToast()).toBe("Made Group 1 from 2 props");
@@ -875,6 +875,29 @@ describe("LayoutScreen", () => {
       await user.click(screen.getByRole("button", { name: "Delete group" }));
       expect(backend.show.groups).toEqual([]);
       expect(lastToast()).toBe("Deleted Front");
+    });
+
+    it("sets what effects draw on the group and its grid size, each one undo step", async () => {
+      const show = showWith(line("A1", 0, 0), line("A2", 0, 4));
+      show.groups = [{ id: "g", name: "Run", members: show.props.map((p) => p.id) }];
+      const user = await setup(show);
+      await user.click(groupsTab());
+      await user.click(screen.getByRole("button", { name: /^Run/ }));
+      const layout = screen.getByRole("combobox", { name: "Effects draw on" });
+      expect(layout).toHaveValue("minimalGrid");
+      await user.selectOptions(layout, "A column per member");
+      expect(backend.show.groups[0].layout).toBe("horizontalPerModel");
+
+      await user.click(screen.getByRole("button", { name: "More: grid size" }));
+      const size = screen.getByRole("spinbutton", { name: /Grid size/ });
+      expect(size).toHaveValue(400);
+      await user.clear(size);
+      await user.type(size, "9000{Enter}");
+      expect(backend.show.groups[0].gridSize).toBe(4000);
+      expect(edits).toHaveLength(2);
+      await act(() => useApp.getState().undo());
+      expect(backend.show.groups[0].gridSize).toBeUndefined();
+      expect(backend.show.groups[0].layout).toBe("horizontalPerModel");
     });
 
     it("warns before deleting a group the open sequence uses, naming the sequence and what it would strand", async () => {

@@ -2,8 +2,9 @@
 //!
 //! Each target (a prop, a group of props, or a submodel) becomes a **pixel buffer**: its pixels
 //! with (u, v) positions scaled to the target's bounding box (0–1, left to right and bottom to
-//! top, front view), plus their order along the target. A group uses the combined bounding box
-//! of its members, so a wave sweeps across the whole group.
+//! top, front view), plus their order along the target. A group lays its members out as its
+//! layout says, usually on xLights' minimal grid over the whole group, so a wave sweeps across
+//! the whole group (see `styles.rs`, which also lays targets out in the other render styles).
 //!
 //! A submodel lays its pixels out the way xLights does (`SubModel.cpp`): with the default buffer
 //! style each line is a row (or a column, for a vertical submodel), gaps included; "stacked
@@ -12,7 +13,10 @@
 //! fill 0–1 again.
 
 use pf_mapping::ChannelMap;
-use pf_model::{BufferStyle, GroupId, GroupMember, LineLayout, PropId, Region, RegionId, RegionKind, Show};
+use pf_model::{
+    BufferStyle, BufferTransform, GroupId, GroupLayout, GroupMember, LineLayout, PropId, Region, RegionId,
+    RegionKind, RenderStyle, Show,
+};
 use pf_sequence::Target;
 use std::collections::{HashMap, HashSet};
 
@@ -39,6 +43,17 @@ pub struct PixelBuffer {
     /// to size things like meteor lanes to the pixels.
     pub columns: u32,
     pub rows: u32,
+    /// For a per-model render style: the members, each drawn on its own buffer. Empty when the
+    /// effect draws on this buffer.
+    pub(crate) parts: Vec<Part>,
+}
+
+/// One member of a group drawn on its own (a per-model render style).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Part {
+    pub buffer: PixelBuffer,
+    /// Each of the part's pixels' place in the group's buffer.
+    pub slots: Vec<u32>,
 }
 
 impl PixelBuffer {
@@ -55,12 +70,18 @@ impl PixelBuffer {
         &self.global
     }
 
+    /// The members drawn one by one, for a per-model render style (empty otherwise).
+    pub fn parts(&self) -> impl Iterator<Item = &PixelBuffer> {
+        self.parts.iter().map(|p| &p.buffer)
+    }
+
     fn empty() -> Self {
         Self {
             pixels: Vec::new(),
             global: Vec::new(),
             columns: 1,
             rows: 1,
+            parts: Vec::new(),
         }
     }
 }
@@ -102,9 +123,45 @@ impl PropGeometry {
 /// A pixel for [`build_buffer`]: its show-wide index and position (`None`: padding, drawn in the
 /// middle of the box).
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct Point {
-    global: u32,
-    xy: Option<[f32; 2]>,
+pub(crate) struct Point {
+    pub global: u32,
+    pub xy: Option<[f32; 2]>,
+}
+
+/// A prop or submodel: a target of its own, or a member of a group.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Member<'a> {
+    Prop(&'a PropGeometry),
+    Region(&'a PropGeometry, &'a Region),
+}
+
+impl Member<'_> {
+    /// Its pixels, in its own order.
+    pub fn points(&self) -> Vec<Point> {
+        match *self {
+            Member::Prop(prop) => (0..prop.node_count()).map(|n| prop.point(n)).collect(),
+            Member::Region(prop, region) => region_nodes(prop, region)
+                .into_iter()
+                .map(|n| prop.point(n))
+                .collect(),
+        }
+    }
+
+    /// Its own buffer (the default render style).
+    pub fn own_buffer(&self) -> PixelBuffer {
+        match *self {
+            Member::Prop(_) => build_buffer(&self.points()),
+            Member::Region(prop, region) => region_buffer(prop, region),
+        }
+    }
+}
+
+/// A group's members and how it lays them out.
+#[derive(Debug, Clone, PartialEq)]
+struct GroupGeometry {
+    members: Vec<GroupMember>,
+    layout: GroupLayout,
+    grid_size: u32,
 }
 
 /// Every prop's pixel positions and frame location, computed once per show and channel map.
@@ -112,7 +169,9 @@ struct Point {
 pub struct SceneGeometry {
     pub(crate) props: Vec<PropGeometry>,
     index: HashMap<PropId, usize>,
-    groups: HashMap<GroupId, Vec<GroupMember>>,
+    groups: HashMap<GroupId, GroupGeometry>,
+    /// The layout's area from its origin (layout units), for groups on the whole layout's grid.
+    pub(crate) area: [f32; 2],
     pub(crate) pixel_count: usize,
     pub(crate) frame_len: usize,
 }
@@ -148,11 +207,33 @@ impl SceneGeometry {
             });
             first_pixel += nodes;
         }
-        let groups = show.groups.iter().map(|g| (g.id, g.members.clone())).collect();
+        let groups = show
+            .groups
+            .iter()
+            .map(|g| {
+                let geometry = GroupGeometry {
+                    members: g.members.clone(),
+                    layout: g.layout,
+                    grid_size: g.grid_size,
+                };
+                (g.id, geometry)
+            })
+            .collect();
+        // Without the layout's size, the area out to the farthest prop.
+        let area = show.layout_area.map_or_else(
+            || {
+                props
+                    .iter()
+                    .flat_map(|p| &p.points[..p.real])
+                    .fold([0.0f32, 0.0f32], |[w, h], &[x, y]| [w.max(x), h.max(y)])
+            },
+            |a| [a.width, a.height],
+        );
         Self {
             props,
             index,
             groups,
+            area,
             pixel_count: first_pixel,
             frame_len: map.frame_len,
         }
@@ -181,7 +262,7 @@ impl SceneGeometry {
             Target::Group(id) => self
                 .groups
                 .get(&id)
-                .map(|members| members.iter().map(GroupMember::prop).collect())
+                .map(|g| g.members.iter().map(GroupMember::prop).collect())
                 .unwrap_or_default(),
         };
         ids.into_iter()
@@ -190,54 +271,55 @@ impl SceneGeometry {
             .collect()
     }
 
-    /// The pixel buffer for a target; empty when the target is unknown or has no pixels.
+    /// The pixel buffer for a target, laid out its own way; empty when the target is unknown or
+    /// has no pixels.
     pub fn buffer(&self, target: Target) -> PixelBuffer {
-        match target {
+        self.styled_buffer(target, RenderStyle::Default, BufferTransform::None)
+    }
+
+    /// The pixel buffer for a target in a render style, turned or flipped. Every style of a
+    /// target lists the same pixels in the same order.
+    pub fn styled_buffer(
+        &self,
+        target: Target,
+        style: RenderStyle,
+        transform: BufferTransform,
+    ) -> PixelBuffer {
+        let mut buffer = match target {
             Target::Prop(id) => match self.prop(id) {
-                Some(prop) => {
-                    build_buffer(&(0..prop.node_count()).map(|n| prop.point(n)).collect::<Vec<_>>())
-                }
+                Some(prop) => self.member_buffer(Member::Prop(prop), style),
                 None => PixelBuffer::empty(),
             },
             Target::Group(id) => {
-                let Some(members) = self.groups.get(&id) else {
+                let Some(group) = self.groups.get(&id) else {
                     return PixelBuffer::empty();
                 };
-                // Members in order, whole props and submodels mixed, as xLights lists them; a
-                // pixel already in the group keeps its first place.
-                let mut seen = HashSet::new();
-                let mut points = Vec::new();
-                let mut add = |p: Point| {
-                    if seen.insert(p.global) {
-                        points.push(p);
-                    }
-                };
-                for member in members {
-                    let Some(prop) = self.prop(member.prop()) else {
-                        continue;
-                    };
-                    match member {
-                        GroupMember::Prop(_) => {
-                            (0..prop.node_count()).for_each(|n| add(prop.point(n)));
-                        }
-                        GroupMember::Region(r) => {
-                            if let Some(region) = prop.region(r.region) {
-                                region_nodes(prop, region)
-                                    .into_iter()
-                                    .for_each(|n| add(prop.point(n)));
-                            }
-                        }
-                    }
-                }
-                build_buffer(&points)
+                // Members in order, whole props and submodels mixed, as xLights lists them.
+                let members: Vec<Member> = group
+                    .members
+                    .iter()
+                    .filter_map(|member| {
+                        let prop = self.prop(member.prop())?;
+                        Some(match member {
+                            GroupMember::Prop(_) => Member::Prop(prop),
+                            GroupMember::Region(r) => Member::Region(prop, prop.region(r.region)?),
+                        })
+                    })
+                    .collect();
+                self.group_buffer(&members, group.layout, group.grid_size, style)
             }
             Target::Region { prop, region } => {
                 match self.prop(prop).and_then(|p| Some((p, p.region(region)?))) {
-                    Some((prop, region)) => region_buffer(prop, region),
+                    Some((prop, region)) => self.member_buffer(Member::Region(prop, region), style),
                     None => PixelBuffer::empty(),
                 }
             }
+        };
+        if buffer.is_empty() {
+            return PixelBuffer::empty();
         }
+        buffer.transform(transform);
+        buffer
     }
 }
 
@@ -359,6 +441,7 @@ fn region_buffer(prop: &PropGeometry, region: &Region) -> PixelBuffer {
                 global: cells.iter().map(|c| c.global).collect(),
                 columns: u32::try_from(max_c - min_c + 1).unwrap_or(1),
                 rows: u32::try_from(max_r - min_r + 1).unwrap_or(1),
+                parts: Vec::new(),
             }
         }
         // Keep XY and faces: the pixels where they are on the prop, in node order (xLights keeps
@@ -451,6 +534,7 @@ fn grid_buffer(
         global,
         columns: u32::try_from(width).unwrap_or(1).max(1),
         rows: u32::try_from(height).unwrap_or(1).max(1),
+        parts: Vec::new(),
     }
 }
 
@@ -498,6 +582,7 @@ fn build_buffer(points: &[Point]) -> PixelBuffer {
         global,
         columns,
         rows,
+        parts: Vec::new(),
     }
 }
 
@@ -571,7 +656,7 @@ mod tests {
     }
 
     #[test]
-    fn a_group_shares_one_box_and_counts_across_members() {
+    fn a_group_shares_one_grid_and_counts_across_members() {
         let mut show = Show::new("t");
         show.props.push(line("A", 3, 0.0));
         show.props.push(line("B", 3, 3.0));
@@ -586,9 +671,15 @@ mod tests {
         let geo = geometry(&show);
         let buffer = geo.buffer(Target::Group(gid));
         assert_eq!(buffer.len(), 6, "a repeated member is drawn once");
-        // B (x from 2.5 to 3.5) comes first; the box spans x from -0.5 to 3.5.
-        let us: Vec<f32> = buffer.pixels.iter().map(|p| p.u).collect();
-        assert_eq!(us, vec![0.75, 0.875, 1.0, 0.0, 0.125, 0.25]);
+        // B (x from 2.5 to 3.5) comes first. In xLights units the group spans x from -50 to 350,
+        // 401 units: more than the 400-cell grid, so x scales by 400 / 401 (and truncates).
+        assert_eq!((buffer.columns, buffer.rows), (400, 1));
+        let cells: Vec<u32> = buffer
+            .pixels
+            .iter()
+            .map(|p| (p.u * 399.0).round() as u32)
+            .collect();
+        assert_eq!(cells, vec![299, 349, 399, 0, 49, 99]);
         assert_eq!(buffer.global, vec![3, 4, 5, 0, 1, 2]);
         assert_eq!(buffer.pixels[5].index, 5);
         assert!(buffer.pixels.iter().all(|p| p.count == 6));

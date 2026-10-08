@@ -2,7 +2,7 @@
 // built from the show as it is when its turn comes (see `EditsFrom`), using the engine's
 // addGroup, updateGroup, and removeGroup edits.
 
-import type { Edit, Group, GroupMember, Show } from "../api/types";
+import type { Edit, Group, GroupLayout, GroupMember, Show } from "../api/types";
 import { memberProp, uniqueName } from "./shows";
 
 /** One key per member: a prop's id, or "prop/submodel". */
@@ -38,7 +38,7 @@ function unique(members: GroupMember[]): GroupMember[] {
 export function newGroupEdits(show: Show, members: GroupMember[]): { edits: Edit[]; id: string } {
   const id = crypto.randomUUID();
   const name = uniqueName("Group", show.groups.map((g) => g.name));
-  return { edits: [{ type: "addGroup", group: { id, name, members: unique(members) } }], id };
+  return { edits: [{ type: "addGroup", group: { id, name, members: unique(members), layout: "minimalGrid", gridSize: 400 } }], id };
 }
 
 /** The group `id` changed by `change`; nothing when it's gone or nothing changed. */
@@ -49,6 +49,18 @@ function updateGroupEdits(id: string, change: (group: Group) => Group | null): (
     if (!group || !next || JSON.stringify(next) === JSON.stringify(group)) return [];
     return [{ type: "updateGroup", group: next }];
   };
+}
+
+/** How effects lay the group out. */
+export function groupLayoutEdits(id: string, layout: GroupLayout): (show: Show) => Edit[] {
+  return updateGroupEdits(id, (g) => ({ ...g, layout }));
+}
+
+/** The group's grid size, kept within 10 to 4000 cells. */
+export function groupGridSizeEdits(id: string, size: number): (show: Show) => Edit[] {
+  if (!Number.isFinite(size)) return () => [];
+  const gridSize = Math.min(4000, Math.max(10, Math.round(size)));
+  return updateGroupEdits(id, (g) => ({ ...g, gridSize }));
 }
 
 export function renameGroupEdits(id: string, name: string): (show: Show) => Edit[] {

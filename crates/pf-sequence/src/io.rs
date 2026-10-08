@@ -29,7 +29,7 @@ impl From<serde_json::Error> for SequenceError {
 type Migration = fn(Value) -> Result<Value, SequenceError>;
 
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
-const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4];
+const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5];
 
 /// Version 2 only adds submodel targets, so version 1 documents are already valid.
 fn v1_to_v2(doc: Value) -> Result<Value, SequenceError> {
@@ -45,6 +45,12 @@ fn v2_to_v3(doc: Value) -> Result<Value, SequenceError> {
 /// Version 4 only adds settings that change over an effect (`curves`, none when missing), so
 /// version 3 documents are already valid.
 fn v3_to_v4(doc: Value) -> Result<Value, SequenceError> {
+    Ok(doc)
+}
+
+/// Version 5 only adds an effect's render style and buffer transform (the target's own layout,
+/// unturned, when missing), so version 4 documents are already valid.
+fn v4_to_v5(doc: Value) -> Result<Value, SequenceError> {
     Ok(doc)
 }
 
@@ -224,7 +230,7 @@ mod tests {
     }
 
     #[test]
-    fn version_3_files_open_unchanged_as_version_4() {
+    fn version_3_files_open_unchanged_as_version_5() {
         let text = r#"{ "schemaVersion": 3, "name": "x", "durationMs": 1000, "rows": [
             { "id": "11111111-0000-4000-8000-000000000001",
               "target": { "prop": "22222222-0000-4000-8000-000000000001" },
@@ -232,10 +238,30 @@ mod tests {
                   "startMs": 0, "endMs": 500, "params": { "kind": "chase", "speed": 2 },
                   "sparkles": 10, "blur": 3 } ] } ] } ] }"#;
         let seq = sequence_from_json(text).unwrap();
-        assert_eq!(seq.schema_version, 4);
+        assert_eq!(seq.schema_version, 5);
         let effect = &seq.rows[0].layers[0].effects[0];
         assert!(effect.curves.is_empty());
         assert_eq!((effect.sparkles, effect.blur), (10, 3));
+        assert_eq!(effect.render_style, pf_model::RenderStyle::Default);
+        assert_eq!(effect.buffer_transform, pf_model::BufferTransform::None);
+        let again = sequence_from_json(&sequence_to_json(&seq).unwrap()).unwrap();
+        assert_eq!(again, seq);
+    }
+
+    #[test]
+    fn render_styles_and_transforms_round_trip_and_are_left_out_when_default() {
+        let mut seq = Sequence::new("x", 1000);
+        let mut effect = crate::Effect::new(crate::EffectKind::On, 0, 500);
+        let plain = serde_json::to_value(&effect).unwrap();
+        assert!(plain.get("renderStyle").is_none() && plain.get("bufferTransform").is_none());
+        effect.render_style = pf_model::RenderStyle::PerModelDefault;
+        effect.buffer_transform = pf_model::BufferTransform::RotateCw90;
+        let json = serde_json::to_value(&effect).unwrap();
+        assert_eq!(json["renderStyle"], "perModelDefault");
+        assert_eq!(json["bufferTransform"], "rotateCw90");
+        let mut row = crate::Row::new(crate::Target::Prop(pf_model::PropId::new()));
+        row.layers[0].effects.push(effect);
+        seq.rows.push(row);
         let again = sequence_from_json(&sequence_to_json(&seq).unwrap()).unwrap();
         assert_eq!(again, seq);
     }

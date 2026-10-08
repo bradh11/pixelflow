@@ -12,9 +12,9 @@ use crate::layout::XLayout;
 use crate::model::XmlModel;
 use crate::networks::{OutputDefaults, XController, XOutput};
 use pf_model::{
-    ColorOrder, Controller, Group, GroupMember, MAX_NULL_PIXELS, MAX_SHOW_PIXELS, NodeRange, Port, PortSlot,
-    Prop, PropId, Protocol, Provenance, RegionRef, SacnConfig, SequenceChannels, ShapeSource, Show,
-    UniverseSize, Vec3,
+    ColorOrder, Controller, Group, GroupLayout, GroupMember, LayoutArea, MAX_GRID_SIZE, MAX_NULL_PIXELS,
+    MAX_SHOW_PIXELS, MIN_GRID_SIZE, NodeRange, Port, PortSlot, Prop, PropId, Protocol, Provenance, RegionRef,
+    SacnConfig, SequenceChannels, ShapeSource, Show, UniverseSize, Vec3,
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -646,6 +646,7 @@ fn build_show_within(
         })
     };
     let mut lost_submodels = Vec::new();
+    let (mut odd_layouts, mut moved_centers, mut nested_layouts) = (Vec::new(), Vec::new(), Vec::new());
     let mut groups = Vec::new();
     for xgroup in &layout.groups {
         // One ordered list, whole props and submodels mixed, as xLights lists them.
@@ -653,6 +654,10 @@ fn build_show_within(
         let mut stack: Vec<&str> = xgroup.members.iter().rev().map(String::as_str).collect();
         let mut visited = HashSet::new();
         let mut lost = false;
+        let nested = xgroup
+            .members
+            .iter()
+            .any(|m| group_members.contains_key(m.as_str()));
         while let Some(name) = stack.pop() {
             if let Some(&id) = prop_ids.get(name) {
                 if !members.contains(&GroupMember::Prop(id)) {
@@ -678,13 +683,51 @@ fn build_show_within(
         }
         let mut group = Group::new(xgroup.name.clone());
         group.members = members;
+        group.layout = GroupLayout::from_xlights(&xgroup.layout).unwrap_or_else(|| {
+            odd_layouts.push(format!("{} ('{}')", xgroup.name, xgroup.layout));
+            GroupLayout::MinimalGrid
+        });
+        group.grid_size = xgroup
+            .grid_size
+            .round()
+            .clamp(f64::from(MIN_GRID_SIZE), f64::from(MAX_GRID_SIZE)) as u32;
+        if xgroup.moved_center && matches!(group.layout, GroupLayout::MinimalGrid) {
+            moved_centers.push(xgroup.name.clone());
+        }
+        // Grids place every pixel where it is, whichever group it came from; the other layouts
+        // treat each member of the group as one.
+        if nested && !matches!(group.layout, GroupLayout::MinimalGrid | GroupLayout::Grid) {
+            nested_layouts.push(xgroup.name.clone());
+        }
         groups.push(group);
     }
     show.groups = groups;
+    show.layout_area = layout.area.map(|(width, height)| LayoutArea {
+        width: (width * f64::from(LAYOUT_SCALE)) as f32,
+        height: (height * f64::from(LAYOUT_SCALE)) as f32,
+    });
     if !lost_submodels.is_empty() {
         notes.push(format!(
             "These groups list submodels that aren't in the show, so those members were left out: {}.",
             list(&lost_submodels)
+        ));
+    }
+    if !odd_layouts.is_empty() {
+        notes.push(format!(
+            "PixelFlow doesn't have these groups' layouts yet, so effects draw on them as on a minimal grid: {}.",
+            list(&odd_layouts)
+        ));
+    }
+    if !moved_centers.is_empty() {
+        notes.push(format!(
+            "These groups move the center of their grid, which PixelFlow doesn't yet, so effects centered on them sit a little differently: {}.",
+            list(&moved_centers)
+        ));
+    }
+    if !nested_layouts.is_empty() {
+        notes.push(format!(
+            "These groups hold other groups, which PixelFlow lists prop by prop, so their layout treats each prop as a member where xLights treats each inner group as one: {}.",
+            list(&nested_layouts)
         ));
     }
 
@@ -923,7 +966,7 @@ mod tests {
     fn layout(models: Vec<XmlModel>) -> XLayout {
         XLayout {
             models,
-            groups: vec![],
+            ..XLayout::default()
         }
     }
 
@@ -991,7 +1034,9 @@ mod tests {
             groups: vec![XGroup {
                 name: "All".into(),
                 members: vec!["Tree".into(), "Arch".into(), "Nope".into()],
+                ..XGroup::default()
             }],
+            ..XLayout::default()
         };
         let result = build_show("Haas", &[falcon()], &layout, fake_geometry);
         assert!(result.notes.is_empty(), "{:?}", result.notes);
@@ -1419,16 +1464,20 @@ mod tests {
                 XGroup {
                     name: "Faces".into(),
                     members: vec!["Bulbs/Left".into(), "Bulbs/Eyes".into(), "Bulbs/Left".into()],
+                    ..XGroup::default()
                 },
                 XGroup {
                     name: "Outer".into(),
                     members: vec!["Faces".into()],
+                    ..XGroup::default()
                 },
                 XGroup {
                     name: "Ghosts".into(),
                     members: vec!["Nope/Left".into()],
+                    ..XGroup::default()
                 },
             ],
+            ..XLayout::default()
         };
         let result = build_show("t", &[falcon()], &layout, geometry);
         has_note(
@@ -1453,6 +1502,69 @@ mod tests {
     }
 
     #[test]
+    fn groups_keep_their_layout_and_grid_size() {
+        let group = |name: &str, layout: &str, grid_size: f64, moved_center: bool| XGroup {
+            name: name.into(),
+            members: vec!["Arch".into()],
+            layout: layout.into(),
+            grid_size,
+            moved_center,
+        };
+        let layout = XLayout {
+            models: vec![model("Arch", "!Falcon:1", 50, Some(1))],
+            groups: vec![
+                group("Outline", "minimalGrid", 400.0, false),
+                group("Whole", "grid", 250.0, false),
+                group("Columns", "horizontal", 400.0, false),
+                group("Each", "perModelDefault", 400.0, false),
+                group("Stacked", "Horizontal Stack", 400.0, false),
+                group("Strands", "Vertical Per Model/Strand", 400.0, false),
+                group("Shifted", "minimalGrid", 99_999.0, true),
+                group("Outer", "Overlay - Scaled", 400.0, false),
+            ],
+            area: Some((1900.0, 1600.0)),
+        };
+        let mut layout = layout;
+        layout.groups[7].members = vec!["Outline".into()];
+        let result = build_show("t", &[falcon()], &layout, fake_geometry);
+        let got: Vec<(&str, GroupLayout, u32)> = result
+            .show
+            .groups
+            .iter()
+            .map(|g| (g.name.as_str(), g.layout, g.grid_size))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("Outline", GroupLayout::MinimalGrid, 400),
+                ("Whole", GroupLayout::Grid, 250),
+                ("Columns", GroupLayout::HorizontalPerModel, 400),
+                ("Each", GroupLayout::PerModelDefault, 400),
+                ("Stacked", GroupLayout::HorizontalStack, 400),
+                ("Strands", GroupLayout::MinimalGrid, 400),
+                ("Shifted", GroupLayout::MinimalGrid, MAX_GRID_SIZE),
+                ("Outer", GroupLayout::OverlayScaled, 400),
+            ]
+        );
+        assert_eq!(
+            result.show.layout_area,
+            Some(LayoutArea {
+                width: 19.0,
+                height: 16.0
+            })
+        );
+        has_note(
+            &result,
+            "PixelFlow doesn't have these groups' layouts yet, so effects draw on them as on a minimal grid: Strands ('Vertical Per Model/Strand').",
+        );
+        has_note(
+            &result,
+            "move the center of their grid, which PixelFlow doesn't yet, so effects centered on them sit a little differently: Shifted.",
+        );
+        has_note(&result, "where xLights treats each inner group as one: Outer.");
+    }
+
+    #[test]
     fn groups_keep_xlights_member_order_with_submodels_mixed_in() {
         let sub = |name: &str, line: &str| -> crate::submodels::Attrs {
             [("name", name), ("line0", line)]
@@ -1468,7 +1580,9 @@ mod tests {
             groups: vec![XGroup {
                 name: "Across".into(),
                 members: vec!["Arch/Left".into(), "Tree".into(), "Arch/Right".into()],
+                ..XGroup::default()
             }],
+            ..XLayout::default()
         };
         let result = build_show("t", &[falcon()], &layout, geometry);
         let show = &result.show;

@@ -47,6 +47,7 @@ import {
   wheelZoomFactor,
   zoomAt,
   resizeView,
+  type Rect,
 } from "../../lib/layoutMath";
 import { batchPixels, drawBatches } from "../../lib/pixelBatches";
 import { updateEdits } from "../../lib/layoutEdits";
@@ -666,11 +667,16 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    // When the window (and so the canvas) changes size, scale the drawing with it: the same part
-    // of the layout stays in view instead of being cropped or left in a corner.
-    let last = size();
+    // When a panel opens or closes beside the canvas, or the window resizes, keep the drawing
+    // where it is on screen at the same zoom. Rescaling it made the view shrink a little every
+    // time selecting a prop opened the properties panel.
+    const rect = (): Rect => {
+      const r = canvas.getBoundingClientRect();
+      return { left: r.left, top: r.top, width: canvas.clientWidth, height: canvas.clientHeight };
+    };
+    let last = rect();
     const observer = new ResizeObserver(() => {
-      const now = size();
+      const now = rect();
       const st = useLayoutEditor.getState();
       if (st.view) {
         const next = resizeView(st.view, last, now);

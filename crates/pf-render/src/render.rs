@@ -116,6 +116,35 @@ impl Renderer {
                         blur_scratch: &mut self.blur_scratch,
                         acc: &mut self.row_acc,
                     };
+                    if let EffectParams::Shape(p) = &effect.params
+                        && let Some(track) = p.timing_track
+                    {
+                        // Shapes on a timing track appear at its marks within the effect.
+                        let mut p = p.clone();
+                        p.sanitize();
+                        let marks: Vec<u64> = seq
+                            .timing_track(track)
+                            .map(|t| {
+                                t.marks
+                                    .iter()
+                                    .filter(|m| effect.is_active_at(m.start_ms))
+                                    .map(|m| m.start_ms - effect.start_ms)
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        let time = EffectTime::within(effect.start_ms, effect.end_ms, t_ms);
+                        let colors = Colors::new(&effect.palette.colors);
+                        let shader = Shader::Shape(crate::effects::Shape::new(
+                            &p,
+                            &time,
+                            colors,
+                            effect.id.seed(),
+                            canvas,
+                            Some(&marks),
+                        ));
+                        draw.run(Some(&shader));
+                        continue;
+                    }
                     let EffectParams::Faces(p) = &effect.params else {
                         draw.run(None);
                         continue;

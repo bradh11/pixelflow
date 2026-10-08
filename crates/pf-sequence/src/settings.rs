@@ -55,6 +55,8 @@ pub struct SettingSpec {
     /// The setting's doc comment, line by line (joined into the catalog's description).
     pub doc: &'static [&'static str],
     pub range: SettingRange,
+    /// A setting most people leave alone: the settings panel keeps it under "More".
+    pub more: bool,
 }
 
 impl SettingSpec {
@@ -243,16 +245,28 @@ macro_rules! range {
 }
 pub(crate) use range;
 
+/// Whether an `effect_params!` field is marked `more`.
+macro_rules! more {
+    () => {
+        false
+    };
+    (more) => {
+        true
+    };
+}
+pub(crate) use more;
+
 /// Declares an effect's settings struct from one table: each field's type, default, JSON key,
-/// label, and range. Generates the struct (serde, missing settings take defaults), `Default`,
-/// `SETTINGS`, `sanitize`, and `setting_problem`. Add `#[derive(Copy)]` when every field is.
+/// label, and range, then `, more` for a setting the panel keeps under "More". Generates the
+/// struct (serde, missing settings take defaults), `Default`, `SETTINGS`, `sanitize`, and
+/// `setting_problem`. Add `#[derive(Copy)]` when every field is.
 macro_rules! effect_params {
     (
         $(#[$meta:meta])*
         pub struct $name:ident {
             $(
                 $(#[doc = $doc:literal])*
-                $field:ident : $ty:ty = $default:expr => $key:literal, $label:literal, $kind:ident $(( $($arg:expr),* ))?;
+                $field:ident : $ty:ty = $default:expr => $key:literal, $label:literal, $kind:ident $(( $($arg:expr),* ))? $(, $more:ident)?;
             )*
         }
     ) => {
@@ -280,6 +294,7 @@ macro_rules! effect_params {
                         label: $label,
                         doc: &[$($doc),*],
                         range: $crate::settings::range!($ty, $kind $(( $($arg),* ))?),
+                        more: $crate::settings::more!($($more)?),
                     },
                 )*
             ];
@@ -354,6 +369,9 @@ pub struct SettingInfo {
     pub key: &'static str,
     pub label: &'static str,
     pub description: String,
+    /// Kept under "More" in the settings panel.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub more: bool,
     #[serde(flatten)]
     pub value: SettingValue,
 }
@@ -440,6 +458,7 @@ fn effect_info(kind: EffectKind) -> EffectInfo {
                 key: spec.key,
                 label: spec.label,
                 description: spec.description(),
+                more: spec.more,
                 value,
             }
         })
@@ -559,6 +578,23 @@ mod tests {
         assert_eq!(faces["settings"][1]["type"], "timingTrack");
         assert_eq!(faces["settings"][1]["default"], Value::Null);
         assert_eq!(faces["settings"][2]["default"], "auto");
+        // Settings most people leave alone are marked for "More".
+        let fan = json
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["kind"] == "fan")
+            .unwrap();
+        let setting = |key: &str| {
+            fan["settings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|s| s["key"] == key)
+                .unwrap()
+        };
+        assert_eq!(setting("blendEdges")["more"], true);
+        assert!(setting("blades").get("more").is_none());
     }
 
     #[test]

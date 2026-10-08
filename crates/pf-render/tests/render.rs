@@ -729,3 +729,60 @@ fn one_effect(target: Target, kind: EffectKind) -> Sequence {
     ));
     seq
 }
+
+#[test]
+fn shapes_on_a_timing_track_appear_at_its_marks() {
+    let mut show = Show::new("t");
+    show.props.push(line("Strip", 12, 0.0));
+    let mut seq = Sequence::new("s", 10_000);
+    let track = TimingTrack::new(
+        "Beats",
+        TimingKind::Custom,
+        vec![
+            Mark::new(500, 600, ""),
+            Mark::new(2000, 2100, ""),
+            Mark::new(5000, 5100, ""),
+        ],
+    );
+    let id = track.id;
+    seq.timing_tracks.push(track);
+    // From 1 s to 10 s: the first mark is before it, so it doesn't count.
+    let effect = Effect::new(EffectKind::Shape, 1000, 10_000)
+        .with_palette([Rgb::RED, Rgb::BLUE])
+        .with_params(EffectParams::Shape(ShapeParams {
+            shape: ShapeObject::Circle,
+            start_size: 3.0,
+            growth: 0.0,
+            lifetime: 10.0,
+            fade: false,
+            random_location: false,
+            timing_track: Some(id),
+            ..ShapeParams::default()
+        }));
+    seq.rows
+        .push(row(Target::Prop(show.props[0].id), vec![vec![effect]]));
+    let on = |seq: &Sequence, t: u64| -> Vec<usize> {
+        lit(&render(&show, seq, t))
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| **p != [0, 0, 0])
+            .map(|(i, _)| i)
+            .collect()
+    };
+    assert!(
+        on(&seq, 1500).is_empty(),
+        "nothing before the first mark in the effect"
+    );
+    // A circle of radius 3 around the strip's middle (cell 6) crosses it at cells 3 and 9.
+    assert_eq!(on(&seq, 2100), vec![3, 9]);
+    assert_eq!(lit(&render(&show, &seq, 2100))[3], [255, 0, 0]);
+    assert!(on(&seq, 3500).is_empty(), "it lasts 0.9 s");
+    assert_eq!(
+        lit(&render(&show, &seq, 5100))[3],
+        [0, 0, 255],
+        "the next one takes the next color"
+    );
+    // A timing track that's gone: no shapes.
+    seq.timing_tracks.clear();
+    assert!(on(&seq, 2100).is_empty());
+}

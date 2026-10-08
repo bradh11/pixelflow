@@ -21,9 +21,9 @@ use crate::XlightsError;
 use effects::{Fidelity, Tally};
 use pf_model::Show;
 use pf_sequence::{
-    Effect, EffectId, EffectParams, Layer, MAX_DURATION_MS, MAX_EFFECTS, MAX_FRAME_MS, MAX_LAYERS_PER_ROW,
-    MAX_MARKS, MAX_ROWS, MAX_TEXT_LEN, MAX_TIMING_TRACKS, MIN_FRAME_MS, Mark, Row, RowId, Sequence, Target,
-    TimingKind, TimingTrack, TimingTrackId,
+    CirclesLook, Effect, EffectId, EffectParams, Layer, MAX_DURATION_MS, MAX_EFFECTS, MAX_FRAME_MS,
+    MAX_LAYERS_PER_ROW, MAX_MARKS, MAX_ROWS, MAX_TEXT_LEN, MAX_TIMING_TRACKS, MIN_FRAME_MS, Mark, Row, RowId,
+    Sequence, Target, TimingKind, TimingTrack, TimingTrackId,
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -160,6 +160,17 @@ impl Drops {
     }
 }
 
+/// `fidelity` with one more thing that differs.
+fn with_note(fidelity: Fidelity, note: String) -> Fidelity {
+    match fidelity {
+        Fidelity::Approximate(mut reasons) => {
+            reasons.push(note);
+            Fidelity::Approximate(reasons)
+        }
+        _ => Fidelity::Approximate(vec![note]),
+    }
+}
+
 /// The face a Faces effect names, among the row's faces (`faces`, as PixelFlow named them).
 /// "Default" (blank here) is the model's first face in name order, as xLights keeps its faces in
 /// a sorted map. A face that clashed with a submodel's name was imported as "<name> (face)"; an
@@ -206,6 +217,9 @@ struct Builder<'a> {
     face_tracks: HashMap<String, TimingTrackId>,
     /// Every timing track's xLights name.
     timing_tracks: HashSet<String>,
+    /// The track a Shape effect fires on, by xLights timing track name: tracks with one layer
+    /// (xLights fires shapes only on those).
+    mark_tracks: HashMap<String, TimingTrackId>,
 }
 
 impl<'a> Builder<'a> {
@@ -291,8 +305,9 @@ impl<'a> Builder<'a> {
         Some((start, end.min(self.duration_ms)))
     }
 
-    /// One effect, on a row whose props have the faces `faces` (by name, in show order).
-    fn effect(&mut self, x: &XsqEffect, faces: &[&str]) -> Option<Effect> {
+    /// One effect, on a row whose props have the faces `faces` (by name, in show order); `group`
+    /// when the row is a group.
+    fn effect(&mut self, x: &XsqEffect, faces: &[&str], group: bool) -> Option<Effect> {
         let name = x.name.trim();
         if name == "Random" {
             self.random += 1;
@@ -303,7 +318,8 @@ impl<'a> Builder<'a> {
             self.over_effect_limit += 1;
             return None;
         }
-        let settings = self.settings_for(x);
+        let mut settings = self.settings_for(x);
+        effects::adjust_for_version(name, &mut settings, &self.file.head.version);
         let palette = self.palette_for(x);
         let frame_ms = self.clock.frame_ms as u32;
         let Some(mut translated) = effects::translate(name, &settings, &palette, end_ms - start_ms, frame_ms)
@@ -323,14 +339,38 @@ impl<'a> Builder<'a> {
                     "its timing track isn't in the sequence, so the mouth stays at rest"
                 }
                 .to_string();
-                translated.fidelity = match translated.fidelity {
-                    Fidelity::Approximate(mut reasons) => {
-                        reasons.push(missing);
-                        Fidelity::Approximate(reasons)
-                    }
-                    _ => Fidelity::Approximate(vec![missing]),
-                };
+                translated.fidelity = with_note(translated.fidelity, missing);
             }
+        }
+        if let EffectParams::Shape(params) = &mut translated.params
+            && settings.flag("E_CHECKBOX_Shape_FireTiming", false)
+        {
+            let wanted = unxml_safe(settings.text("E_CHOICE_Shape_FireTimingTrack", "").trim());
+            params.timing_track = self.mark_tracks.get(wanted.as_str()).copied();
+            if params.timing_track.is_none() && !wanted.is_empty() {
+                let missing = if self.timing_tracks.contains(&wanted) {
+                    "its timing track has more than one layer, so shapes are shown as a steady stream"
+                } else {
+                    "its timing track isn't in the sequence, so shapes are shown as a steady stream"
+                }
+                .to_string();
+                translated.fidelity = with_note(translated.fidelity, missing);
+            }
+        }
+        // xLights draws a group on a grid up to 400 cells across; PixelFlow draws it on a grid
+        // with about as many cells as the group has pixels. Sizes in cells look larger there.
+        let in_cells = match &translated.params {
+            EffectParams::Shape(_) => true,
+            EffectParams::Circles(p) => !matches!(p.look, CirclesLook::Radial | CirclesLook::RainbowRadial),
+            EffectParams::Fan(p) => !p.scale,
+            _ => false,
+        };
+        if group && in_cells {
+            translated.fidelity = with_note(
+                translated.fidelity,
+                "sizes in pixels look larger on a group than in xLights, which draws groups on a finer grid"
+                    .into(),
+            );
         }
         self.tally.record(name, &translated.fidelity);
         self.summary.effects += 1;
@@ -556,6 +596,7 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
         bad_refs: 0,
         face_tracks: HashMap::new(),
         timing_tracks: HashSet::new(),
+        mark_tracks: HashMap::new(),
     };
 
     let mut sequence = Sequence::new(fallback_name, duration_ms);
@@ -621,6 +662,12 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
             && tracks.iter().take(room).any(|t| t.id == id)
         {
             b.face_tracks.insert(name.clone(), id);
+        }
+        if (interval.is_some() || element.layers.len() == 1)
+            && let Some(first) = tracks.first()
+            && room > 0
+        {
+            b.mark_tracks.insert(name.clone(), first.id);
         }
         for mut track in tracks {
             if sequence.timing_tracks.len() >= MAX_TIMING_TRACKS {
@@ -776,7 +823,11 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
                     b.summary.skipped += x_layer.len();
                     continue;
                 }
-                let effects = x_layer.iter().filter_map(|x| b.effect(x, &faces)).collect();
+                let group = matches!(target, Target::Group(_));
+                let effects = x_layer
+                    .iter()
+                    .filter_map(|x| b.effect(x, &faces, group))
+                    .collect();
                 layers.push(Layer { effects });
             }
             if layers.is_empty() {

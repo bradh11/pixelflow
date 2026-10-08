@@ -6,7 +6,7 @@ import { targetName } from "../../lib/submodels";
 import { formatTime, shiftEdits } from "../../lib/timelineMath";
 import { useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
-import { BLUR, BlendOptions, ColorList, FIELD, MIXED_OPTION, MixedOption, MsField, NumberSetting, Panel, SPARKLES, Section, SettingControl, clamp, faceNames } from "./effectControls";
+import { BLUR, BlendOptions, ColorList, FIELD, KindSettings, MIXED_OPTION, MixedOption, MsField, NumberSetting, Panel, SPARKLES, Section, SettingControl, clamp, faceNames } from "./effectControls";
 
 /**
  * Settings for several selected effects at once: what they share (colors, mixing, fades, and
@@ -80,21 +80,24 @@ export function MultiEffectSettings({ doc, ids }: { doc: Sequence; ids: string[]
 
       {info && info.settings.length > 0 && (
         <Section title="Settings">
-          {info.settings.map((setting) => {
-            const value = shared(effects.map((e) => (e.params as Record<string, unknown>)[setting.key] ?? setting.default));
-            return (
-              <SettingControl
-                key={`${fresh}:${setting.key}`}
-                setting={setting}
-                value={value.value}
-                mixed={value.mixed}
-                onChange={(v, gesture) => setParam(setting.key, v, gesture)}
-                faces={faces}
-                tracks={doc.timingTracks}
-                animate={setting.type === "number" || setting.type === "int" ? animate(setting.key) : undefined}
-              />
-            );
-          })}
+          <KindSettings
+            settings={info.settings}
+            control={(setting) => {
+              const value = shared(effects.map((e) => (e.params as Record<string, unknown>)[setting.key] ?? setting.default));
+              return (
+                <SettingControl
+                  key={`${fresh}:${setting.key}`}
+                  setting={setting}
+                  value={value.value}
+                  mixed={value.mixed}
+                  onChange={(v, gesture) => setParam(setting.key, v, gesture)}
+                  faces={faces}
+                  tracks={doc.timingTracks}
+                  animate={setting.type === "number" || setting.type === "int" ? animate(setting.key) : undefined}
+                />
+              );
+            }}
+          />
         </Section>
       )}
 

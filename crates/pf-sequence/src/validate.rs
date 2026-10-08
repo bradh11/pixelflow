@@ -163,6 +163,20 @@ pub fn validate_sequence(seq: &Sequence, show: &Show) -> Vec<SequenceIssue> {
                         Some(effect.id),
                     );
                 }
+                if let EffectParams::Shape(p) = &effect.params
+                    && let Some(track) = p.timing_track
+                    && seq.timing_track(track).is_none()
+                {
+                    push(
+                        Severity::Warning,
+                        format!(
+                            "{} uses a timing track that isn't in the sequence anymore, so no shapes appear.",
+                            describe(effect)
+                        ),
+                        Some(row.id),
+                        Some(effect.id),
+                    );
+                }
                 if effect.end_ms <= effect.start_ms {
                     push(
                         Severity::Error,
@@ -356,6 +370,19 @@ mod tests {
         assert!(
             messages(&seq, &show)[0].ends_with("isn't in the sequence anymore, so the mouth stays at rest.")
         );
+        // Shapes that appear on a timing track's marks need it too.
+        let shapes = |timing_track| {
+            Effect::new(EffectKind::Shape, 0, 1000).with_params(crate::EffectParams::Shape(
+                crate::ShapeParams {
+                    timing_track,
+                    ..Default::default()
+                },
+            ))
+        };
+        seq.rows[0].layers[0].effects = vec![shapes(Some(track_id))];
+        assert_eq!(messages(&seq, &show), Vec::<String>::new());
+        seq.rows[0].layers[0].effects = vec![shapes(Some(crate::TimingTrackId::new()))];
+        assert!(messages(&seq, &show)[0].ends_with("isn't in the sequence anymore, so no shapes appear."));
     }
 
     #[test]

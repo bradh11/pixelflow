@@ -21,9 +21,30 @@ export type EffectKind =
   | "fire"
   | "meteors"
   | "ripple"
+  | "shape"
+  | "fan"
+  | "morph"
+  | "circles"
   | "faces";
 
 export type Gradient = "none" | "horizontal" | "vertical";
+/** What the Shape effect draws. */
+export type ShapeObject =
+  | "circle"
+  | "ellipse"
+  | "triangle"
+  | "square"
+  | "pentagon"
+  | "hexagon"
+  | "octagon"
+  | "star"
+  | "heart"
+  | "tree"
+  | "snowflake"
+  | "candyCane"
+  | "crucifix"
+  | "present"
+  | "random";
 export type Direction = "forward" | "reverse";
 export type Axis = "horizontal" | "vertical";
 /** How an effect mixes with the layers below it (see `Blend` in crates/pf-sequence/src/effect.rs). */
@@ -66,6 +87,76 @@ export type EffectParams =
   | { kind: "fire"; height?: number; sparks?: number }
   | { kind: "meteors"; count?: number; speed?: number; length?: number; direction?: "down" | "up" | "left" | "right" }
   | { kind: "ripple"; speed?: number; spacing?: number; thickness?: number }
+  | {
+      kind: "shape";
+      shape?: ShapeObject;
+      count?: number;
+      lifetime?: number;
+      startSize?: number;
+      growth?: number;
+      thickness?: number;
+      fade?: boolean;
+      randomLocation?: boolean;
+      rotation?: number;
+      points?: number;
+      centerX?: number;
+      centerY?: number;
+      speed?: number;
+      direction?: number;
+      randomMovement?: boolean;
+      randomStart?: boolean;
+      /** Shapes appear at this track's marks instead of `count` at once. */
+      timingTrack?: Uuid | null;
+    }
+  | {
+      kind: "fan";
+      centerX?: number;
+      centerY?: number;
+      startRadius?: number;
+      endRadius?: number;
+      blades?: number;
+      bladeWidth?: number;
+      revolutions?: number;
+      bladeAngle?: number;
+      duration?: number;
+      startAngle?: number;
+      elements?: number;
+      elementWidth?: number;
+      acceleration?: number;
+      direction?: Direction;
+      blendEdges?: boolean;
+      scale?: boolean;
+    }
+  | {
+      kind: "morph";
+      startX1?: number;
+      startY1?: number;
+      startX2?: number;
+      startY2?: number;
+      endX1?: number;
+      endY1?: number;
+      endX2?: number;
+      endY2?: number;
+      headDuration?: number;
+      startLength?: number;
+      endLength?: number;
+      acceleration?: number;
+      repeats?: number;
+      repeatSpacing?: number;
+      stagger?: number;
+      headAtStart?: boolean;
+      autoRepeat?: boolean;
+    }
+  | {
+      kind: "circles";
+      count?: number;
+      size?: number;
+      speed?: number;
+      look?: "solid" | "fading" | "bubbles" | "plasma" | "radial" | "rainbowRadial";
+      bounce?: boolean;
+      centerX?: number;
+      centerY?: number;
+    }
   | {
       kind: "faces";
       /** One of the prop's faces by name; blank: its first face. */
@@ -313,6 +404,8 @@ interface SettingBase {
   key: string;
   label: string;
   description: string;
+  /** A setting most people leave alone: the panel keeps it under "More". */
+  more?: boolean;
 }
 
 /** One effect setting, with the control that edits it (`type`), its range, and its default. */
@@ -456,6 +549,10 @@ export const EFFECT_KINDS: { kind: EffectKind; label: string }[] = [
   { kind: "fire", label: "Fire" },
   { kind: "meteors", label: "Meteors" },
   { kind: "ripple", label: "Ripple" },
+  { kind: "shape", label: "Shape" },
+  { kind: "fan", label: "Fan" },
+  { kind: "morph", label: "Morph" },
+  { kind: "circles", label: "Circles" },
 ];
 
 /** A new effect of `kind` (engine-default settings, white) from `startMs` to `endMs`. */

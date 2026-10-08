@@ -1,12 +1,16 @@
 import {
   Activity,
+  ArrowUpFromLine,
   BarChart3,
   CircleDot,
+  Fan,
   Flame,
   Lightbulb,
   LightbulbOff,
   type LucideIcon,
+  Orbit,
   Rainbow,
+  Shapes,
   Sparkle,
   Sparkles,
   Sunrise,
@@ -37,6 +41,10 @@ export const EFFECT_ICONS: Record<EffectKind, LucideIcon> = {
   fire: Flame,
   meteors: Snowflake,
   ripple: CircleDot,
+  shape: Shapes,
+  fan: Fan,
+  morph: ArrowUpFromLine,
+  circles: Orbit,
   faces: Smile,
 };
 

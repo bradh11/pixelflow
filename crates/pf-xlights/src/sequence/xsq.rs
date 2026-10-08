@@ -23,6 +23,8 @@ pub struct XsqHead {
     pub duration: String,
     /// `sequenceTiming`, as written (e.g. "25 ms").
     pub timing: String,
+    /// The xLights version that saved the file (e.g. "2024.19").
+    pub version: String,
 }
 
 /// One timed item: a model effect (with its settings and palette references) or a timing mark.
@@ -214,6 +216,7 @@ impl Reader<'_> {
                 "sequenceType" => h.sequence_type = value,
                 "sequenceDuration" => h.duration = value,
                 "sequenceTiming" => h.timing = value,
+                "version" => h.version = value,
                 _ => {}
             }
         }

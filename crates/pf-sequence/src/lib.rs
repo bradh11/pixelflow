@@ -18,10 +18,11 @@ mod validate;
 pub use curve::{Curve, CurveShape, MAX_CURVE_CYCLES, MAX_CURVE_POINTS, MIN_CURVE_CYCLES};
 pub use document::{CURRENT_SCHEMA_VERSION, Layer, Mark, Row, Sequence, Target, TimingKind, TimingTrack};
 pub use effect::{
-    Axis, BarsParams, Blend, ChaseParams, ColorWashParams, CurveRange, Direction, Effect, EffectKind,
-    EffectParams, FaceColorSource, FaceEyes, FacesParams, FadeDirection, FadeParams, FireParams, Gradient,
-    MeteorDirection, MeteorsParams, OffParams, OnParams, Palette, RippleParams, ShimmerParams, SpiralParams,
-    StrobeParams, TwinkleParams, WaveParams,
+    Axis, BarsParams, Blend, ChaseParams, CirclesLook, CirclesParams, ColorWashParams, CurveRange, Direction,
+    Effect, EffectKind, EffectParams, FaceColorSource, FaceEyes, FacesParams, FadeDirection, FadeParams,
+    FanParams, FireParams, Gradient, MeteorDirection, MeteorsParams, MorphParams, OffParams, OnParams,
+    Palette, RippleParams, ShapeObject, ShapeParams, ShimmerParams, SpiralParams, StrobeParams,
+    TwinkleParams, WaveParams,
 };
 pub use ids::{EffectId, RowId, TimingTrackId};
 pub use io::{SequenceError, check_sequence, sequence_from_json, sequence_to_json};

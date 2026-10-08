@@ -278,6 +278,21 @@ describe("sequence screen", () => {
     await waitFor(() => expect(rowEffects(seq.doc!, "Garage Arch", show)).toHaveLength(arch.length));
   });
 
+  it("keeps an effect's rarely used settings under More", async () => {
+    const { seq, user } = await openScreen();
+    fireEvent.pointerDown(timeline(), { clientX: x(1000), clientY: LANE.archTop, button: 0, pointerId: 1 });
+    fireEvent.pointerUp(timeline(), { clientX: x(1000), clientY: LANE.archTop, pointerId: 1 });
+    const id = useSequencer.getState().selection[0];
+    const wave = seq.doc!.rows.flatMap((r) => r.layers.flatMap((l) => l.effects)).find((e) => e.id === id)!;
+    await act(() => useSequencer.getState().edit([{ type: "updateEffect", effect: { ...wave, params: { kind: "fan" } } }]));
+    const panel = screen.getByRole("complementary", { name: "Effect settings" });
+    expect(within(panel).getByRole("heading", { name: "Fan" })).toBeInTheDocument();
+    expect(within(panel).getByRole("slider", { name: "Blades" })).toBeInTheDocument();
+    expect(within(panel).queryByRole("checkbox", { name: "Soft edges" })).toBeNull();
+    await user.click(within(panel).getByRole("button", { name: "More settings" }));
+    expect(within(panel).getByRole("checkbox", { name: "Soft edges" })).toBeChecked();
+  });
+
   it("changes settings from the catalog, one undo step per slider drag", async () => {
     const { seq, user } = await openScreen();
     fireEvent.pointerDown(timeline(), { clientX: x(1000), clientY: LANE.archTop, button: 0, pointerId: 1 });

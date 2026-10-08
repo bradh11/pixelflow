@@ -9,8 +9,12 @@
 //! `EffectParams::sanitize`) before an effect is drawn, so the settings panel, file loading, and
 //! the renderer all agree on what a setting can be. The constructors below rely on that.
 
+pub use crate::circles::Circles;
 use crate::color::{Colors, Rgba, unit};
+pub use crate::fan::Fan;
 use crate::geometry::Pixel;
+pub use crate::morph::Morph;
+pub use crate::shape::Shape;
 use pf_sequence::{
     Axis, BarsParams, ChaseParams, ColorWashParams, Direction, EffectParams, FadeDirection, FadeParams,
     FireParams, Gradient, MeteorDirection, MeteorsParams, OnParams, RippleParams, ShimmerParams,
@@ -28,6 +32,8 @@ pub struct EffectTime {
     pub t_norm: f32,
     /// Milliseconds since the effect started.
     pub elapsed_ms: u64,
+    /// The effect's length in milliseconds (at least 1).
+    pub length_ms: u64,
 }
 
 impl EffectTime {
@@ -38,10 +44,11 @@ impl EffectTime {
         Self {
             t_norm: (elapsed_ms as f64 / length as f64).clamp(0.0, 1.0) as f32,
             elapsed_ms,
+            length_ms: length,
         }
     }
 
-    fn seconds(&self) -> f64 {
+    pub(crate) fn seconds(&self) -> f64 {
         self.elapsed_ms as f64 / 1000.0
     }
 
@@ -73,6 +80,23 @@ pub(crate) fn hash(seed: u64, a: u64, b: u64) -> u64 {
 #[inline]
 pub(crate) fn hash01(seed: u64, a: u64, b: u64) -> f32 {
     (hash(seed, a, b) >> 40) as f32 / (1u64 << 24) as f32
+}
+
+/// xLights' acceleration (`RenderBuffer::calcAccel`): bends progress through an effect (0–1) so
+/// it speeds up (positive, up to 10) or slows down (negative).
+pub(crate) fn accelerate(ratio: f64, accel: f64) -> f64 {
+    if accel == 0.0 || !accel.is_finite() {
+        return ratio;
+    }
+    let pct = (accel.abs() - 1.0) / 9.0;
+    let a1 = pct * 5.0 + (1.0 - pct) * 1.5;
+    let a2 = 1.5 + ratio * a1;
+    let exponent = pct * a2 + (1.0 - pct) * a1;
+    if accel > 0.0 {
+        ratio.powf(exponent)
+    } else {
+        1.0 - (1.0 - ratio).powf(a1)
+    }
 }
 
 /// Draws one effect, one pixel at a time.
@@ -727,6 +751,10 @@ pub enum Shader {
     Fire(Fire),
     Meteors(Meteors),
     Ripple(Ripple),
+    Shape(Shape),
+    Fan(Fan),
+    Morph(Morph),
+    Circles(Circles),
     Faces(Faces),
 }
 
@@ -748,6 +776,15 @@ impl Shader {
             EffectParams::Fire(p) => Shader::Fire(Fire::new(p, time, seed)),
             EffectParams::Meteors(p) => Shader::Meteors(Meteors::new(p, time, colors, seed, canvas)),
             EffectParams::Ripple(p) => Shader::Ripple(Ripple::new(p, time, colors)),
+            // Shapes on a timing track need its marks, which the renderer passes in (see
+            // `Renderer::render`); without them none appear.
+            EffectParams::Shape(p) => {
+                let marks = p.timing_track.map(|_| &[][..]);
+                Shader::Shape(Shape::new(p, time, colors, seed, canvas, marks))
+            }
+            EffectParams::Fan(p) => Shader::Fan(Fan::new(p, time, colors, canvas)),
+            EffectParams::Morph(p) => Shader::Morph(Morph::new(p, time, colors, canvas)),
+            EffectParams::Circles(p) => Shader::Circles(Circles::new(p, time, colors, seed, canvas)),
             EffectParams::Faces(_) => Shader::Faces(Faces::default()),
         }
     }
@@ -770,6 +807,10 @@ impl Shader {
             Shader::Fire(s) => each.visit(s),
             Shader::Meteors(s) => each.visit(s),
             Shader::Ripple(s) => each.visit(s),
+            Shader::Shape(s) => each.visit(s),
+            Shader::Fan(s) => each.visit(s),
+            Shader::Morph(s) => each.visit(s),
+            Shader::Circles(s) => each.visit(s),
             Shader::Faces(s) => each.visit(s),
         }
     }

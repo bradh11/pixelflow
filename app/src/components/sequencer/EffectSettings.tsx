@@ -14,6 +14,7 @@ import {
   ColorList,
   ColorPicker,
   FIELD,
+  KindSettings,
   MsField,
   NumberSetting,
   Panel,
@@ -114,17 +115,20 @@ function Settings({ doc }: { doc: Sequence }) {
 
       {info && info.settings.length > 0 && (
         <Section title="Settings">
-          {info.settings.map((setting) => (
-            <SettingControl
-              key={`${id}:${setting.key}`}
-              setting={setting}
-              value={(effect.params as Record<string, unknown>)[setting.key]}
-              onChange={(value, gesture) => setParam(setting.key, value, gesture)}
-              faces={faceNames(show, target)}
-              tracks={doc.timingTracks}
-              animate={setting.type === "number" || setting.type === "int" ? animate(setting.key) : undefined}
-            />
-          ))}
+          <KindSettings
+            settings={info.settings}
+            control={(setting) => (
+              <SettingControl
+                key={`${id}:${setting.key}`}
+                setting={setting}
+                value={(effect.params as Record<string, unknown>)[setting.key]}
+                onChange={(value, gesture) => setParam(setting.key, value, gesture)}
+                faces={faceNames(show, target)}
+                tracks={doc.timingTracks}
+                animate={setting.type === "number" || setting.type === "int" ? animate(setting.key) : undefined}
+              />
+            )}
+          />
         </Section>
       )}
 

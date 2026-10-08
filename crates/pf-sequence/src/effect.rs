@@ -403,11 +403,15 @@ pub enum EffectKind {
     Fire,
     Meteors,
     Ripple,
+    Shape,
+    Fan,
+    Morph,
+    Circles,
     Faces,
 }
 
 impl EffectKind {
-    pub const ALL: [EffectKind; 15] = [
+    pub const ALL: [EffectKind; 19] = [
         EffectKind::On,
         EffectKind::Off,
         EffectKind::ColorWash,
@@ -422,6 +426,10 @@ impl EffectKind {
         EffectKind::Fire,
         EffectKind::Meteors,
         EffectKind::Ripple,
+        EffectKind::Shape,
+        EffectKind::Fan,
+        EffectKind::Morph,
+        EffectKind::Circles,
         EffectKind::Faces,
     ];
 
@@ -442,6 +450,10 @@ impl EffectKind {
             EffectKind::Fire => "Fire",
             EffectKind::Meteors => "Meteors",
             EffectKind::Ripple => "Ripple",
+            EffectKind::Shape => "Shape",
+            EffectKind::Fan => "Fan",
+            EffectKind::Morph => "Morph",
+            EffectKind::Circles => "Circles",
             EffectKind::Faces => "Faces",
         }
     }
@@ -465,6 +477,12 @@ impl EffectKind {
             EffectKind::Fire => "Flames rising from the bottom of the prop.",
             EffectKind::Meteors => "Streaks of light with fading tails.",
             EffectKind::Ripple => "Rings spreading out from the center of the prop.",
+            EffectKind::Shape => {
+                "Shapes (stars, hearts, snowflakes, and more) appearing, growing, and fading."
+            }
+            EffectKind::Fan => "Blades of color spinning out from a center point.",
+            EffectKind::Morph => "A line sweeping from one place to another, with a head and a fading tail.",
+            EffectKind::Circles => "Balls of color moving around the prop, or rings spreading from a point.",
             EffectKind::Faces => {
                 "A singing face: the prop's face mouths the words on a timing track, with eyes that blink."
             }
@@ -488,6 +506,10 @@ impl EffectKind {
             EffectKind::Fire => FireParams::SETTINGS,
             EffectKind::Meteors => MeteorsParams::SETTINGS,
             EffectKind::Ripple => RippleParams::SETTINGS,
+            EffectKind::Shape => ShapeParams::SETTINGS,
+            EffectKind::Fan => FanParams::SETTINGS,
+            EffectKind::Morph => MorphParams::SETTINGS,
+            EffectKind::Circles => CirclesParams::SETTINGS,
             EffectKind::Faces => FacesParams::SETTINGS,
         }
     }
@@ -513,6 +535,10 @@ pub enum EffectParams {
     Fire(FireParams),
     Meteors(MeteorsParams),
     Ripple(RippleParams),
+    Shape(ShapeParams),
+    Fan(FanParams),
+    Morph(MorphParams),
+    Circles(CirclesParams),
     Faces(FacesParams),
 }
 
@@ -533,6 +559,10 @@ impl EffectParams {
             EffectParams::Fire(_) => EffectKind::Fire,
             EffectParams::Meteors(_) => EffectKind::Meteors,
             EffectParams::Ripple(_) => EffectKind::Ripple,
+            EffectParams::Shape(_) => EffectKind::Shape,
+            EffectParams::Fan(_) => EffectKind::Fan,
+            EffectParams::Morph(_) => EffectKind::Morph,
+            EffectParams::Circles(_) => EffectKind::Circles,
             EffectParams::Faces(_) => EffectKind::Faces,
         }
     }
@@ -554,6 +584,10 @@ impl EffectParams {
             EffectKind::Fire => EffectParams::Fire(FireParams::default()),
             EffectKind::Meteors => EffectParams::Meteors(MeteorsParams::default()),
             EffectKind::Ripple => EffectParams::Ripple(RippleParams::default()),
+            EffectKind::Shape => EffectParams::Shape(ShapeParams::default()),
+            EffectKind::Fan => EffectParams::Fan(FanParams::default()),
+            EffectKind::Morph => EffectParams::Morph(MorphParams::default()),
+            EffectKind::Circles => EffectParams::Circles(CirclesParams::default()),
             EffectKind::Faces => EffectParams::Faces(FacesParams::default()),
         }
     }
@@ -576,6 +610,10 @@ impl EffectParams {
             EffectParams::Fire(p) => p.sanitize(),
             EffectParams::Meteors(p) => p.sanitize(),
             EffectParams::Ripple(p) => p.sanitize(),
+            EffectParams::Shape(p) => p.sanitize(),
+            EffectParams::Fan(p) => p.sanitize(),
+            EffectParams::Morph(p) => p.sanitize(),
+            EffectParams::Circles(p) => p.sanitize(),
             EffectParams::Faces(p) => p.sanitize(),
         }
     }
@@ -604,6 +642,10 @@ impl EffectParams {
             EffectParams::Fire(p) => p.number(key),
             EffectParams::Meteors(p) => p.number(key),
             EffectParams::Ripple(p) => p.number(key),
+            EffectParams::Shape(p) => p.number(key),
+            EffectParams::Fan(p) => p.number(key),
+            EffectParams::Morph(p) => p.number(key),
+            EffectParams::Circles(p) => p.number(key),
             EffectParams::Faces(p) => p.number(key),
         }
     }
@@ -626,6 +668,10 @@ impl EffectParams {
             EffectParams::Fire(p) => p.set_number(key, value),
             EffectParams::Meteors(p) => p.set_number(key, value),
             EffectParams::Ripple(p) => p.set_number(key, value),
+            EffectParams::Shape(p) => p.set_number(key, value),
+            EffectParams::Fan(p) => p.set_number(key, value),
+            EffectParams::Morph(p) => p.set_number(key, value),
+            EffectParams::Circles(p) => p.set_number(key, value),
             EffectParams::Faces(p) => p.set_number(key, value),
         }
     }
@@ -647,6 +693,10 @@ impl EffectParams {
             EffectParams::Fire(p) => p.setting_problem(),
             EffectParams::Meteors(p) => p.setting_problem(),
             EffectParams::Ripple(p) => p.setting_problem(),
+            EffectParams::Shape(p) => p.setting_problem(),
+            EffectParams::Fan(p) => p.setting_problem(),
+            EffectParams::Morph(p) => p.setting_problem(),
+            EffectParams::Circles(p) => p.setting_problem(),
             EffectParams::Faces(p) => p.setting_problem(),
         };
         found.map(|(spec, why)| format!("{} {why}", spec.label))
@@ -943,6 +993,225 @@ effect_params! {
         colors: FaceColorSource = FaceColorSource::Face => "colors", "Colors", choice;
         /// Light the face's outline too.
         outline: bool = false => "outline", "Show outline", toggle;
+    }
+}
+
+/// What the Shape effect draws.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum ShapeObject {
+    #[default]
+    Circle,
+    Ellipse,
+    Triangle,
+    Square,
+    Pentagon,
+    Hexagon,
+    Octagon,
+    Star,
+    Heart,
+    Tree,
+    Snowflake,
+    CandyCane,
+    Crucifix,
+    Present,
+    /// A different shape (not an ellipse) each time one appears.
+    Random,
+}
+
+choices!(ShapeObject {
+    "circle" => "Circle",
+    "ellipse" => "Ellipse",
+    "triangle" => "Triangle",
+    "square" => "Square",
+    "pentagon" => "Pentagon",
+    "hexagon" => "Hexagon",
+    "octagon" => "Octagon",
+    "star" => "Star",
+    "heart" => "Heart",
+    "tree" => "Tree",
+    "snowflake" => "Snowflake",
+    "candyCane" => "Candy cane",
+    "crucifix" => "Cross",
+    "present" => "Present",
+    "random" => "A random shape each time",
+});
+
+/// How the Circles effect draws.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum CirclesLook {
+    /// Solid balls.
+    #[default]
+    Solid,
+    /// Balls bright in the middle, fading to their edge.
+    Fading,
+    /// Outlines drifting the same way.
+    Bubbles,
+    /// Glowing blobs that merge where they meet.
+    Plasma,
+    /// Rings of the palette colors spreading from a point.
+    Radial,
+    /// Rainbow rings spreading from a point.
+    RainbowRadial,
+}
+
+choices!(CirclesLook {
+    "solid" => "Solid balls",
+    "fading" => "Fading balls",
+    "bubbles" => "Bubbles",
+    "plasma" => "Plasma blobs",
+    "radial" => "Rings from a point",
+    "rainbowRadial" => "Rainbow rings from a point",
+});
+
+effect_params! {
+    /// Shapes appearing at random places (or one place), growing and fading over their lifetime;
+    /// a new one takes each one's place as it goes, so `count` show at once. With a timing track,
+    /// one appears at each of its marks instead.
+    pub struct ShapeParams {
+        /// The shape drawn.
+        shape: ShapeObject = ShapeObject::Circle => "shape", "Shape", choice;
+        /// Shapes on the prop at once.
+        count: u32 = 5 => "count", "Shapes", int(1, 100);
+        /// How long each shape lasts, as a share of the effect.
+        lifetime: f32 = 5.0 => "lifetime", "Lifetime", number(1.0, 100.0, 1.0, "% of the effect");
+        /// Each shape's size when it appears: its radius in pixels.
+        start_size: f32 = 1.0 => "startSize", "Start size", number(0.0, 100.0, 1.0, "pixels");
+        /// How much each shape's radius grows over its lifetime (negative shrinks it).
+        growth: f32 = 10.0 => "growth", "Growth", number(-100.0, 100.0, 1.0, "pixels");
+        /// Line thickness.
+        thickness: u32 = 1 => "thickness", "Thickness", int(1, 100, "pixels");
+        /// Dim each shape as it ages.
+        fade: bool = true => "fade", "Fade away", toggle;
+        /// Put each shape somewhere new at random, instead of at the center below.
+        random_location: bool = true => "randomLocation", "Random places", toggle;
+        /// Turns the shapes (circles and candy canes don't turn).
+        rotation: f32 = 0.0 => "rotation", "Rotation", number(0.0, 360.0, 1.0, "degrees"), more;
+        /// A star's points; for an ellipse, its height as tenths of its width.
+        points: u32 = 5 => "points", "Points", int(2, 9), more;
+        /// Where the shapes appear without random places, from the left (0) to the right (100).
+        center_x: f32 = 50.0 => "centerX", "Center across", number(0.0, 100.0, 1.0, "%"), more;
+        /// Where the shapes appear without random places, from the bottom (0) to the top (100).
+        center_y: f32 = 50.0 => "centerY", "Center up", number(0.0, 100.0, 1.0, "%"), more;
+        /// How fast each shape drifts.
+        speed: f32 = 0.0 => "speed", "Drift speed", number(0.0, 1000.0, 1.0, "pixels per second"), more;
+        /// Which way the shapes drift: 0 is right, 90 up.
+        direction: f32 = 90.0 => "direction", "Drift direction", number(0.0, 359.0, 1.0, "degrees"), more;
+        /// Each shape drifts at its own random speed and direction.
+        random_movement: bool = false => "randomMovement", "Random drift", toggle, more;
+        /// Start the first shapes part way through their lifetimes, so they don't all appear at once.
+        random_start: bool = true => "randomStart", "Staggered start", toggle, more;
+        /// Make a shape appear at each mark on this timing track, instead of keeping `count` shown.
+        timing_track: Option<TimingTrackId> = None => "timingTrack", "Appear on marks of", timing_track, more;
+    }
+}
+
+effect_params! {
+    /// Blades of color spinning around a center point, growing out at the start and shrinking
+    /// away at the end. Each blade takes the palette colors side by side.
+    #[derive(Copy)]
+    pub struct FanParams {
+        /// The center, from the left (0) to the right (100).
+        center_x: f32 = 50.0 => "centerX", "Center across", number(0.0, 100.0, 1.0, "%");
+        /// The center, from the bottom (0) to the top (100).
+        center_y: f32 = 50.0 => "centerY", "Center up", number(0.0, 100.0, 1.0, "%");
+        /// Where the blades start (100 reaches the edge of the prop's longer side).
+        start_radius: f32 = 1.0 => "startRadius", "Inner radius", number(0.0, 2500.0, 1.0);
+        /// Where the blades end (100 reaches the edge of the prop's longer side).
+        end_radius: f32 = 50.0 => "endRadius", "Outer radius", number(0.0, 2500.0, 1.0);
+        /// Number of blades.
+        blades: u32 = 3 => "blades", "Blades", int(1, 16);
+        /// How much of each blade's slice of the circle it fills.
+        blade_width: f32 = 50.0 => "bladeWidth", "Blade width", number(5.0, 100.0, 1.0, "%");
+        /// Turns over the effect.
+        revolutions: f32 = 2.0 => "revolutions", "Turns", number(0.0, 10.0, 0.05);
+        /// How far the blades curve from center to tip (0 is straight).
+        blade_angle: f32 = 90.0 => "bladeAngle", "Blade curve", number(-360.0, 360.0, 1.0, "degrees");
+        /// How much of the effect the blades are at full length (they grow before and shrink after).
+        duration: f32 = 80.0 => "duration", "Full length for", number(0.0, 100.0, 1.0, "%"), more;
+        /// Where the first blade points at the start.
+        start_angle: f32 = 0.0 => "startAngle", "Start angle", number(0.0, 360.0, 1.0, "degrees"), more;
+        /// Stripes each color is split into across a blade.
+        elements: u32 = 1 => "elements", "Stripes per color", int(1, 4), more;
+        /// How much of its space each stripe fills.
+        element_width: f32 = 100.0 => "elementWidth", "Stripe width", number(5.0, 100.0, 1.0, "%"), more;
+        /// Speeds up (positive) or slows down (negative) the spin over the effect.
+        acceleration: f32 = 0.0 => "acceleration", "Acceleration", number(-10.0, 10.0, 1.0), more;
+        /// Which way the blades turn.
+        direction: Direction = Direction::Forward => "direction", "Direction", choice, more;
+        /// Soften each stripe toward its edges.
+        blend_edges: bool = true => "blendEdges", "Soft edges", toggle, more;
+        /// Radii as a share of the prop (100 reaches the edge of its longer side) instead of pixels.
+        scale: bool = true => "scale", "Radius in % of the prop", toggle, more;
+    }
+}
+
+effect_params! {
+    /// A line from (startX1, startY1) to (startX2, startY2) sweeping to the line from (endX1,
+    /// endY1) to (endX2, endY2): a head in the first palette colors, then a fading tail in the
+    /// rest. Positions run 0–100 from the left and from the bottom.
+    #[derive(Copy)]
+    pub struct MorphParams {
+        /// Where the line starts: its first end, from the left.
+        start_x1: f32 = 0.0 => "startX1", "Start X1", number(0.0, 100.0, 1.0, "%");
+        /// Where the line starts: its first end, from the bottom.
+        start_y1: f32 = 0.0 => "startY1", "Start Y1", number(0.0, 100.0, 1.0, "%");
+        /// Where the line starts: its second end, from the left.
+        start_x2: f32 = 100.0 => "startX2", "Start X2", number(0.0, 100.0, 1.0, "%");
+        /// Where the line starts: its second end, from the bottom.
+        start_y2: f32 = 0.0 => "startY2", "Start Y2", number(0.0, 100.0, 1.0, "%");
+        /// Where the line ends up: its first end, from the left.
+        end_x1: f32 = 0.0 => "endX1", "End X1", number(0.0, 100.0, 1.0, "%");
+        /// Where the line ends up: its first end, from the bottom.
+        end_y1: f32 = 100.0 => "endY1", "End Y1", number(0.0, 100.0, 1.0, "%");
+        /// Where the line ends up: its second end, from the left.
+        end_x2: f32 = 100.0 => "endX2", "End X2", number(0.0, 100.0, 1.0, "%");
+        /// Where the line ends up: its second end, from the bottom.
+        end_y2: f32 = 100.0 => "endY2", "End Y2", number(0.0, 100.0, 1.0, "%");
+        /// How much of the effect the head takes to cross; the tail follows it out.
+        head_duration: f32 = 20.0 => "headDuration", "Head time", number(0.0, 100.0, 1.0, "% of the effect");
+        /// The head's length as it sets off.
+        start_length: f32 = 1.0 => "startLength", "Start head length",
+            number(0.0, 100.0, 1.0, "pixels"), more;
+        /// The head's length as it arrives.
+        end_length: f32 = 1.0 => "endLength", "End head length", number(0.0, 100.0, 1.0, "pixels"), more;
+        /// Speeds up (positive) or slows down (negative) the sweep over the effect.
+        acceleration: f32 = 0.0 => "acceleration", "Acceleration", number(-10.0, 10.0, 1.0), more;
+        /// Extra copies of the line, side by side.
+        repeats: u32 = 0 => "repeats", "Repeats", int(0, 250), more;
+        /// Space between the copies.
+        repeat_spacing: u32 = 1 => "repeatSpacing", "Repeat spacing", int(1, 100, "pixels"), more;
+        /// Starts the copies one after another instead of together (negative: last copy first).
+        stagger: f32 = 0.0 => "stagger", "Stagger", number(-100.0, 100.0, 1.0), more;
+        /// Show the whole head at its start before it sets off.
+        head_at_start: bool = false => "headAtStart", "Show head at start", toggle, more;
+        /// As many copies as fill the prop (instead of Repeats).
+        auto_repeat: bool = false => "autoRepeat", "Repeat to fill", toggle, more;
+    }
+}
+
+effect_params! {
+    /// Balls of the palette colors moving around the prop (wrapping around its edges, or
+    /// bouncing off them), or rings spreading from a point.
+    #[derive(Copy)]
+    pub struct CirclesParams {
+        /// Number of balls (rings repeat the palette this many times across the rings).
+        count: u32 = 3 => "count", "Circles", int(1, 10);
+        /// Each ball's radius (for rings: how thin each color band is).
+        size: u32 = 5 => "size", "Size", int(1, 20, "pixels");
+        /// How fast the balls move or the rings spread (10 moves a ball 50 to 150 pixels a second).
+        speed: f32 = 10.0 => "speed", "Speed", number(1.0, 30.0, 1.0);
+        /// Solid or fading balls, bubbles, plasma, or rings.
+        look: CirclesLook = CirclesLook::Solid => "look", "Look", choice;
+        /// Bounce off the prop's edges instead of wrapping around to the other side.
+        bounce: bool = false => "bounce", "Bounce", toggle;
+        /// Where the rings spread from, left (-50) to right (50) of the center.
+        center_x: f32 = 0.0 => "centerX", "Rings center across", number(-50.0, 50.0, 1.0), more;
+        /// Where the rings spread from, below (-50) to above (50) the center.
+        center_y: f32 = 0.0 => "centerY", "Rings center up", number(-50.0, 50.0, 1.0), more;
     }
 }
 

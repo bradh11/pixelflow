@@ -11,10 +11,11 @@ use super::curves::{Driven, STEPS, XlCurve};
 use super::settings::{ParsedPalette, Settings};
 use super::{list, plural};
 use pf_sequence::{
-    Axis, BarsParams, Blend, ChaseParams, ColorWashParams, Curve, CurveShape, Direction, EffectParams,
-    FaceColorSource, FaceEyes, FacesParams, FireParams, Gradient, MAX_CURVE_CYCLES, MIN_CURVE_CYCLES,
-    MeteorDirection, MeteorsParams, OffParams, OnParams, Palette, Rgb, RippleParams, SettingRange,
-    ShimmerParams, SpiralParams, StrobeParams, TwinkleParams, WaveParams,
+    Axis, BarsParams, Blend, ChaseParams, CirclesLook, CirclesParams, ColorWashParams, Curve, CurveShape,
+    Direction, EffectParams, FaceColorSource, FaceEyes, FacesParams, FanParams, FireParams, Gradient,
+    MAX_CURVE_CYCLES, MIN_CURVE_CYCLES, MeteorDirection, MeteorsParams, MorphParams, OffParams, OnParams,
+    Palette, Rgb, RippleParams, SettingRange, ShapeObject, ShapeParams, ShimmerParams, SpiralParams,
+    StrobeParams, TwinkleParams, WaveParams,
 };
 use std::collections::BTreeMap;
 
@@ -86,7 +87,7 @@ fn count(v: f64, min: u32, max: u32) -> u32 {
 /// xLights settings whose text box shows the slider's value divided (`Bars_Cycles` 0-300 on the
 /// slider is 0-30 cycles in the box), from xLights' effect metadata. Value curves run in slider
 /// units.
-const DIVISORS: [(&str, f64); 15] = [
+const DIVISORS: [(&str, f64); 16] = [
     ("Bars_Cycles", 10.0),
     ("ColorWash_Cycles", 10.0),
     ("Fire_GrowthCycles", 10.0),
@@ -102,6 +103,7 @@ const DIVISORS: [(&str, f64); 15] = [
     ("Spirals_Movement", 10.0),
     ("Number_Waves", 360.0),
     ("Wave_Speed", 100.0),
+    ("Fan_Revolutions", 360.0),
 ];
 /// Divided settings that xLights stores as the slider all the same.
 const STORED_AS_SLIDER: [&str; 1] = ["Spirals_Rotation"];
@@ -343,6 +345,11 @@ impl Reader<'_> {
 
     fn check(&self, id: &str) -> bool {
         self.s.flag(&format!("E_CHECKBOX_{id}"), false)
+    }
+
+    /// A checkbox that's on unless the file says otherwise.
+    fn check_or(&self, id: &str, default: bool) -> bool {
+        self.s.flag(&format!("E_CHECKBOX_{id}"), default)
     }
 }
 
@@ -694,6 +701,186 @@ fn ripple(r: &Reader, duration_ms: u64, diff: &mut Diff) -> EffectParams {
     })
 }
 
+/// True when the xLights version `version` ("2024.19") is older than `than` ("2025.04"), as
+/// xLights' `IsVersionOlder` compares them. An unreadable version counts as current.
+fn version_older(than: &str, version: &str) -> bool {
+    let parts = |v: &str| -> Option<Vec<u32>> { v.trim().split('.').map(|p| p.parse().ok()).collect() };
+    match (parts(than), parts(version)) {
+        (Some(than), Some(version)) if !version.is_empty() => version < than,
+        _ => false,
+    }
+}
+
+/// Settings xLights changes when it opens a file saved by an older version (each effect's
+/// `adjustSettings`), so the effect looks as it does in xLights today.
+pub fn adjust_for_version(name: &str, s: &mut Settings, version: &str) {
+    // Fan radii became a share of the prop in 2025.04; older fans keep them in pixels.
+    if effect_key(name) == "fan" && version_older("2025.04", version) {
+        s.set("E_CHECKBOX_Fan_Scale", "0".into());
+    }
+}
+
+/// What a Shape effect draws, from xLights' name for it.
+fn shape_object(name: &str, diff: &mut Diff) -> ShapeObject {
+    match name {
+        "Circle" => ShapeObject::Circle,
+        "Ellipse" => ShapeObject::Ellipse,
+        "Triangle" => ShapeObject::Triangle,
+        "Square" => ShapeObject::Square,
+        "Pentagon" => ShapeObject::Pentagon,
+        "Hexagon" => ShapeObject::Hexagon,
+        "Octagon" => ShapeObject::Octagon,
+        "Star" => ShapeObject::Star,
+        "Heart" => ShapeObject::Heart,
+        "Tree" => ShapeObject::Tree,
+        "Snowflake" => ShapeObject::Snowflake,
+        "Candy Cane" => ShapeObject::CandyCane,
+        "Crucifix" => ShapeObject::Crucifix,
+        "Present" => ShapeObject::Present,
+        "Random" => ShapeObject::Random,
+        other => {
+            diff.add(format!("'{other}' shapes shown as circles"));
+            ShapeObject::Circle
+        }
+    }
+}
+
+/// Shapes (xLights' `ShapeEffect`). xLights moves shapes so many pixels a frame; PixelFlow, a
+/// second. A timing track is looked up by name when the effect is placed (see `Builder::effect`).
+fn shape(r: &Reader, frame: f64, diff: &mut Diff) -> EffectParams {
+    let use_timing = r.check("Shape_FireTiming") && !r.choice("Shape_FireTimingTrack", "").trim().is_empty();
+    if !use_timing && r.check("Shape_UseMusic") {
+        diff.add("shapes fired by the music shown as a steady stream");
+    }
+    if use_timing && !r.s.text("E_TEXTCTRL_Shape_FilterLabel", "").is_empty() {
+        diff.add("shapes appear on every mark, not only the labels chosen");
+    }
+    let random_movement = r.check("Shapes_RandomMovement");
+    if random_movement && (frame - 50.0).abs() > 0.5 {
+        diff.add("random drift speeds approximated");
+    }
+    EffectParams::Shape(ShapeParams {
+        shape: shape_object(r.choice("Shape_ObjectToDraw", "Circle"), diff),
+        count: count(r.get("Shape_Count", 5.0, 1.0, 100.0), 1, 100),
+        lifetime: r.get("Shape_Lifetime", 5.0, 1.0, 100.0) as f32,
+        start_size: r.get("Shape_StartSize", 1.0, 0.0, 100.0) as f32,
+        growth: r.get("Shape_Growth", 10.0, -100.0, 100.0) as f32,
+        thickness: count(r.get("Shape_Thickness", 1.0, 1.0, 100.0), 1, 100),
+        fade: r.check_or("Shape_FadeAway", true),
+        random_location: r.check_or("Shape_RandomLocation", true),
+        rotation: r.get("Shape_Rotation", 0.0, 0.0, 360.0) as f32,
+        points: count(r.get("Shape_Points", 5.0, 2.0, 9.0), 2, 9),
+        center_x: r.get("Shape_CentreX", 50.0, 0.0, 100.0) as f32,
+        center_y: r.get("Shape_CentreY", 50.0, 0.0, 100.0) as f32,
+        speed: (r.get("Shapes_Velocity", 0.0, 0.0, 20.0) * 1000.0 / frame) as f32,
+        direction: r.get("Shapes_Direction", 90.0, 0.0, 359.0) as f32,
+        random_movement,
+        random_start: r.check_or("Shape_RandomInitial", true),
+        timing_track: None,
+    })
+}
+
+/// A Fan (xLights' `FanEffect`). Revolutions are stored in 360ths on the slider.
+fn fan(r: &Reader) -> EffectParams {
+    let revolutions = match r.s.num("E_SLIDER_Fan_Revolutions") {
+        Some(ticks) => ticks / 360.0,
+        None => r.s.num("E_TEXTCTRL_Fan_Revolutions").unwrap_or(2.0),
+    };
+    EffectParams::Fan(FanParams {
+        center_x: r.get("Fan_CenterX", 50.0, 0.0, 100.0) as f32,
+        center_y: r.get("Fan_CenterY", 50.0, 0.0, 100.0) as f32,
+        start_radius: r.get("Fan_Start_Radius", 1.0, 0.0, 2500.0) as f32,
+        end_radius: r.get("Fan_End_Radius", 50.0, 0.0, 2500.0) as f32,
+        blades: count(r.get("Fan_Num_Blades", 3.0, 1.0, 16.0), 1, 16),
+        blade_width: r.get("Fan_Blade_Width", 50.0, 5.0, 100.0) as f32,
+        revolutions: revolutions.clamp(0.0, 10.0) as f32,
+        blade_angle: r.get("Fan_Blade_Angle", 90.0, -360.0, 360.0) as f32,
+        duration: r.get("Fan_Duration", 80.0, 0.0, 100.0) as f32,
+        start_angle: r.get("Fan_Start_Angle", 0.0, 0.0, 360.0) as f32,
+        elements: count(r.get("Fan_Num_Elements", 1.0, 1.0, 4.0), 1, 4),
+        element_width: r.get("Fan_Element_Width", 100.0, 5.0, 100.0) as f32,
+        acceleration: r.get("Fan_Accel", 0.0, -10.0, 10.0) as f32,
+        direction: direction(r.check("Fan_Reverse")),
+        blend_edges: r.check_or("Fan_Blend_Edges", true),
+        scale: r.check_or("Fan_Scale", true),
+    })
+}
+
+/// A Morph (xLights' `MorphEffect`). Linked points put the line's second end on its first.
+fn morph(r: &Reader) -> EffectParams {
+    let at = |id: &str, default: f64| r.get(id, default, 0.0, 100.0) as f32;
+    let (start_x1, start_y1) = (at("Morph_Start_X1", 0.0), at("Morph_Start_Y1", 0.0));
+    let (end_x1, end_y1) = (at("Morph_End_X1", 0.0), at("Morph_End_Y1", 100.0));
+    let (start_x2, start_y2) = if r.check("Morph_Start_Link") {
+        (start_x1, start_y1)
+    } else {
+        (at("Morph_Start_X2", 100.0), at("Morph_Start_Y2", 0.0))
+    };
+    let (end_x2, end_y2) = if r.check("Morph_End_Link") {
+        (end_x1, end_y1)
+    } else {
+        (at("Morph_End_X2", 100.0), at("Morph_End_Y2", 100.0))
+    };
+    EffectParams::Morph(MorphParams {
+        start_x1,
+        start_y1,
+        start_x2,
+        start_y2,
+        end_x1,
+        end_y1,
+        end_x2,
+        end_y2,
+        head_duration: at("MorphDuration", 20.0),
+        start_length: at("MorphStartLength", 1.0),
+        end_length: at("MorphEndLength", 1.0),
+        acceleration: r.get("MorphAccel", 0.0, -10.0, 10.0) as f32,
+        repeats: count(r.get("Morph_Repeat_Count", 0.0, 0.0, 250.0), 0, 250),
+        repeat_spacing: count(r.get("Morph_Repeat_Skip", 1.0, 1.0, 100.0), 1, 100),
+        stagger: r.get("Morph_Stagger", 0.0, -100.0, 100.0) as f32,
+        head_at_start: r.check("ShowHeadAtStart"),
+        auto_repeat: r.check("Morph_AutoRepeat"),
+    })
+}
+
+/// Circles (xLights' `CirclesEffect`). Its checkboxes pick one look, in xLights' order: rings
+/// (rainbow first), then plasma, then fading, then bubbles. Collide is Bounce, as xLights treats
+/// it now.
+fn circles(r: &Reader, diff: &mut Diff) -> EffectParams {
+    let bubbles = r.check("Circles_Bubbles");
+    let look = if r.check("Circles_Radial_3D") {
+        CirclesLook::RainbowRadial
+    } else if r.check("Circles_Radial") {
+        CirclesLook::Radial
+    } else if r.check("Circles_Plasma") {
+        CirclesLook::Plasma
+    } else if r.check("Circles_Linear_Fade") {
+        CirclesLook::Fading
+    } else if bubbles {
+        CirclesLook::Bubbles
+    } else {
+        CirclesLook::Solid
+    };
+    let rings = matches!(look, CirclesLook::Radial | CirclesLook::RainbowRadial);
+    if bubbles && matches!(look, CirclesLook::Plasma | CirclesLook::Fading) {
+        diff.add("bubbles' drift not applied to plasma or fading circles");
+    }
+    if r.check("Circles_Random_m") && !rings {
+        diff.add("random motion not applied");
+    }
+    if !rings && r.s.curve_active("E_VALUECURVE_Circles_Speed") {
+        diff.add("circles moving at a changing speed approximated");
+    }
+    EffectParams::Circles(CirclesParams {
+        count: count(r.get("Circles_Count", 3.0, 1.0, 10.0), 1, 10),
+        size: count(r.get("Circles_Size", 5.0, 1.0, 20.0), 1, 20),
+        speed: r.get("Circles_Speed", 10.0, 1.0, 30.0) as f32,
+        look,
+        bounce: r.check("Circles_Bounce") || r.check("Circles_Collide"),
+        center_x: r.get("Circles_XC", 0.0, -50.0, 50.0) as f32,
+        center_y: r.get("Circles_YC", 0.0, -50.0, 50.0) as f32,
+    })
+}
+
 /// A singing face (xLights' `FacesEffect` on a node-range face). The timing track is looked up
 /// by name when the effect is placed (see `Builder::effect`).
 fn faces(r: &Reader, diff: &mut Diff) -> EffectParams {
@@ -766,6 +953,10 @@ fn effect_params(
         "meteors" => meteors(&r, diff),
         "ripple" => ripple(&r, duration_ms, diff),
         "faces" => faces(&r, diff),
+        "shape" => shape(&r, frame, diff),
+        "fan" => fan(&r),
+        "morph" => morph(&r),
+        "circles" => circles(&r, diff),
         // No direct equivalent: the closest PixelFlow effect, with its default settings.
         "plasma" | "butterfly" => closest(
             "a color wash",
@@ -1315,8 +1506,9 @@ mod tests {
             (0, Rgb::WHITE, 0)
         );
         // Placeholders keep them too.
-        let shape = translate("Shape", &s, &p, 1000, 25).unwrap();
-        assert_eq!((shape.sparkles, shape.blur), (54, 7));
+        let lines = translate("Lines", &s, &p, 1000, 25).unwrap();
+        assert_eq!(lines.fidelity, Fidelity::Placeholder);
+        assert_eq!((lines.sparkles, lines.blur), (54, 7));
     }
 
     #[test]
@@ -1452,6 +1644,280 @@ mod tests {
     }
 
     #[test]
+    fn fans_translate_exactly() {
+        // As xLights 2024 writes them: revolutions in 360ths on the slider.
+        let s = Settings::parse(
+            "E_CHECKBOX_Fan_Blend_Edges=1,E_CHECKBOX_Fan_Reverse=1,E_NOTEBOOK_Fan=Position,E_SLIDER_Fan_Accel=2,\
+             E_SLIDER_Fan_Blade_Angle=45,E_SLIDER_Fan_Blade_Width=60,E_SLIDER_Fan_CenterX=40,E_SLIDER_Fan_CenterY=55,\
+             E_SLIDER_Fan_Duration=70,E_SLIDER_Fan_Element_Width=80,E_SLIDER_Fan_End_Radius=120,\
+             E_SLIDER_Fan_Num_Blades=4,E_SLIDER_Fan_Num_Elements=2,E_SLIDER_Fan_Revolutions=540,\
+             E_SLIDER_Fan_Start_Angle=30,E_SLIDER_Fan_Start_Radius=5,E_CHECKBOX_Fan_Scale=0",
+        );
+        let t = translate("Fan", &s, &palette(&[Rgb::RED, Rgb::BLUE]), 4000, 25).unwrap();
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        assert_eq!(
+            t.params,
+            EffectParams::Fan(FanParams {
+                center_x: 40.0,
+                center_y: 55.0,
+                start_radius: 5.0,
+                end_radius: 120.0,
+                blades: 4,
+                blade_width: 60.0,
+                revolutions: 1.5,
+                blade_angle: 45.0,
+                duration: 70.0,
+                start_angle: 30.0,
+                elements: 2,
+                element_width: 80.0,
+                acceleration: 2.0,
+                direction: Direction::Reverse,
+                blend_edges: true,
+                scale: false,
+            })
+        );
+        // Nothing set: xLights' defaults, revolutions from the text box when that's all there is.
+        let plain = translate("Fan", &Settings::default(), &palette(&[Rgb::RED]), 4000, 25).unwrap();
+        assert_eq!(plain.params, EffectParams::Fan(FanParams::default()));
+        let text = Settings::parse("E_TEXTCTRL_Fan_Revolutions=3.5");
+        let EffectParams::Fan(p) = translate("Fan", &text, &palette(&[]), 4000, 25).unwrap().params else {
+            unreachable!()
+        };
+        assert_eq!(p.revolutions, 3.5);
+    }
+
+    #[test]
+    fn fans_from_before_2025_keep_their_radii_in_pixels() {
+        for (version, scale) in [
+            ("2024.19", false),
+            ("2025.04", true),
+            ("2026.1", true),
+            ("", true),
+        ] {
+            let mut s = Settings::default();
+            adjust_for_version("Fan", &mut s, version);
+            let EffectParams::Fan(p) = translate("Fan", &s, &palette(&[]), 1000, 25).unwrap().params else {
+                unreachable!()
+            };
+            assert_eq!(p.scale, scale, "{version}");
+        }
+        // Other effects are left alone.
+        let mut s = Settings::default();
+        adjust_for_version("Shape", &mut s, "2020.1");
+        assert!(s.is_empty());
+    }
+
+    #[test]
+    fn fan_settings_that_change_get_curves() {
+        // A sine on the start angle, and revolutions (in 360ths) ramping from 1 to 3.
+        let s = Settings::parse(
+            "E_SLIDER_Fan_Start_Angle=0,E_SLIDER_Fan_Revolutions=720,\
+             E_VALUECURVE_Fan_Start_Angle=Active=TRUE|Id=ID_VALUECURVE_Fan_Start_Angle|Type=Sine|Min=0.00|Max=360.00|P1=0.00|P2=360.00|P3=10.00|P4=180.00|RV=TRUE|,\
+             E_VALUECURVE_Fan_Revolutions=Active=TRUE|Type=Ramp|Min=0.00|Max=3600.00|P1=360.00|P2=1080.00|RV=TRUE|",
+        );
+        let t = translate("Fan", &s, &palette(&[Rgb::RED]), 4000, 25).unwrap();
+        assert_eq!(t.fidelity, Fidelity::Exact, "{:?}", t.fidelity);
+        assert_eq!(t.curves["revolutions"], Curve::ramp(1.0, 3.0));
+        let angle = &t.curves["startAngle"];
+        assert!(
+            (angle.value_at(0.25) - 360.0).abs() < 1.0,
+            "{}",
+            angle.value_at(0.25)
+        );
+        assert!(angle.value_at(0.75).abs() < 1.0);
+    }
+
+    #[test]
+    fn shapes_translate_with_speeds_per_second() {
+        let s = Settings::parse(
+            "E_CHECKBOX_Shape_FadeAway=1,E_CHECKBOX_Shape_FireTiming=0,E_CHECKBOX_Shape_HoldColour=1,\
+             E_CHECKBOX_Shape_RandomInitial=0,E_CHECKBOX_Shape_RandomLocation=0,E_CHECKBOX_Shape_UseMusic=0,\
+             E_CHECKBOX_Shapes_RandomMovement=0,E_CHOICE_Shape_ObjectToDraw=Star,E_SLIDER_Shape_CentreX=30,\
+             E_SLIDER_Shape_CentreY=70,E_SLIDER_Shape_Growth=25,E_SLIDER_Shape_Lifetime=40,E_SLIDER_Shape_Points=6,\
+             E_SLIDER_Shape_Rotation=15,E_SLIDER_Shape_StartSize=3,E_SLIDER_Shape_Thickness=2,\
+             E_SLIDER_Shapes_Direction=180,E_SLIDER_Shapes_Velocity=2,E_TEXTCTRL_Shape_Count=8,\
+             E_TEXTCTRL_Shapes_Direction=180,E_TEXTCTRL_Shapes_Velocity=2",
+        );
+        let t = translate("Shape", &s, &palette(&[Rgb::RED]), 4000, 25).unwrap();
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        assert_eq!(
+            t.params,
+            EffectParams::Shape(ShapeParams {
+                shape: ShapeObject::Star,
+                count: 8,
+                lifetime: 40.0,
+                start_size: 3.0,
+                growth: 25.0,
+                thickness: 2,
+                fade: true,
+                random_location: false,
+                rotation: 15.0,
+                points: 6,
+                center_x: 30.0,
+                center_y: 70.0,
+                // 2 pixels a frame at 25 ms frames.
+                speed: 80.0,
+                direction: 180.0,
+                random_movement: false,
+                random_start: false,
+                timing_track: None,
+            })
+        );
+        // Unset checkboxes take xLights' defaults: fading, random places, staggered start.
+        let plain = translate("Shape", &Settings::default(), &palette(&[]), 4000, 25).unwrap();
+        assert_eq!(plain.params, EffectParams::Shape(ShapeParams::default()));
+        for (object, want) in [
+            ("Candy Cane", ShapeObject::CandyCane),
+            ("Crucifix", ShapeObject::Crucifix),
+            ("Random", ShapeObject::Random),
+            ("Ellipse", ShapeObject::Ellipse),
+        ] {
+            let s = Settings::parse(&format!("E_CHOICE_Shape_ObjectToDraw={object}"));
+            let EffectParams::Shape(p) = translate("Shape", &s, &palette(&[]), 1000, 25).unwrap().params
+            else {
+                unreachable!()
+            };
+            assert_eq!(p.shape, want);
+        }
+    }
+
+    #[test]
+    fn shapes_pixelflow_cant_draw_say_so() {
+        let s = Settings::parse(
+            "E_CHOICE_Shape_ObjectToDraw=Emoji,E_CHECKBOX_Shape_UseMusic=1,E_CHECKBOX_Shapes_RandomMovement=1",
+        );
+        let t = translate("Shape", &s, &palette(&[Rgb::RED]), 4000, 50).unwrap();
+        assert_eq!(
+            t.fidelity,
+            Fidelity::Approximate(vec![
+                "shapes fired by the music shown as a steady stream".into(),
+                "'Emoji' shapes shown as circles".into(),
+            ])
+        );
+        let EffectParams::Shape(p) = t.params else {
+            unreachable!()
+        };
+        assert_eq!(p.shape, ShapeObject::Circle);
+        // Random drift is 20 pixels a frame at most in xLights: exact at 50 ms frames only.
+        let t = translate("Shape", &s, &palette(&[Rgb::RED]), 4000, 25).unwrap();
+        let Fidelity::Approximate(notes) = t.fidelity else {
+            unreachable!()
+        };
+        assert!(notes.contains(&"random drift speeds approximated".to_string()));
+        // On a timing track, a label filter isn't applied.
+        let s = Settings::parse(
+            "E_CHECKBOX_Shape_FireTiming=1,E_CHOICE_Shape_FireTimingTrack=Beats,E_TEXTCTRL_Shape_FilterLabel=1",
+        );
+        let t = translate("Shape", &s, &palette(&[Rgb::RED]), 4000, 25).unwrap();
+        assert_eq!(
+            t.fidelity,
+            Fidelity::Approximate(vec![
+                "shapes appear on every mark, not only the labels chosen".into()
+            ])
+        );
+    }
+
+    #[test]
+    fn morphs_translate_exactly_with_linked_points() {
+        let s = Settings::parse(
+            "E_CHECKBOX_Morph_End_Link=0,E_CHECKBOX_Morph_Start_Link=1,E_CHECKBOX_ShowHeadAtStart=1,\
+             E_NOTEBOOK_Morph=Start,E_SLIDER_MorphAccel=-3,E_SLIDER_MorphDuration=40,E_SLIDER_MorphEndLength=10,\
+             E_SLIDER_MorphStartLength=5,E_SLIDER_Morph_End_X1=10,E_SLIDER_Morph_End_X2=90,\
+             E_SLIDER_Morph_End_Y1=100,E_SLIDER_Morph_End_Y2=80,E_SLIDER_Morph_Repeat_Count=4,\
+             E_SLIDER_Morph_Repeat_Skip=3,E_SLIDER_Morph_Stagger=-20,E_SLIDER_Morph_Start_X1=50,\
+             E_SLIDER_Morph_Start_X2=75,E_SLIDER_Morph_Start_Y1=0,E_SLIDER_Morph_Start_Y2=25",
+        );
+        let t = translate("Morph", &s, &palette(&[Rgb::RED, Rgb::BLUE]), 4000, 25).unwrap();
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        assert_eq!(
+            t.params,
+            EffectParams::Morph(MorphParams {
+                start_x1: 50.0,
+                start_y1: 0.0,
+                // Linked: the second end sits on the first.
+                start_x2: 50.0,
+                start_y2: 0.0,
+                end_x1: 10.0,
+                end_y1: 100.0,
+                end_x2: 90.0,
+                end_y2: 80.0,
+                head_duration: 40.0,
+                start_length: 5.0,
+                end_length: 10.0,
+                acceleration: -3.0,
+                repeats: 4,
+                repeat_spacing: 3,
+                stagger: -20.0,
+                head_at_start: true,
+                auto_repeat: false,
+            })
+        );
+        let plain = translate("Morph", &Settings::default(), &palette(&[]), 4000, 25).unwrap();
+        assert_eq!(plain.params, EffectParams::Morph(MorphParams::default()));
+    }
+
+    #[test]
+    fn circles_pick_one_look_and_collide_bounces() {
+        let look = |checks: &str| {
+            let s = Settings::parse(checks);
+            let t = translate("Circles", &s, &palette(&[Rgb::RED]), 4000, 25).unwrap();
+            let EffectParams::Circles(p) = t.params else {
+                unreachable!()
+            };
+            (p.look, p.bounce, t.fidelity)
+        };
+        assert_eq!(
+            look(
+                "E_CHECKBOX_Circles_Bounce=1,E_CHECKBOX_Circles_Bubbles=0,E_CHECKBOX_Circles_Collide=0,\
+                 E_CHECKBOX_Circles_Linear_Fade=0,E_CHECKBOX_Circles_Plasma=0,E_CHECKBOX_Circles_Radial=0,\
+                 E_CHECKBOX_Circles_Radial_3D=0,E_CHECKBOX_Circles_Random_m=0,E_SLIDER_Circles_Count=5,\
+                 E_SLIDER_Circles_Size=8,E_SLIDER_Circles_Speed=12"
+            ),
+            (CirclesLook::Solid, true, Fidelity::Exact)
+        );
+        assert_eq!(
+            look("E_CHECKBOX_Circles_Collide=1"),
+            (CirclesLook::Solid, true, Fidelity::Exact)
+        );
+        assert_eq!(
+            look("E_CHECKBOX_Circles_Radial=1,E_CHECKBOX_Circles_Radial_3D=1,E_CHECKBOX_Circles_Plasma=1").0,
+            CirclesLook::RainbowRadial
+        );
+        assert_eq!(look("E_CHECKBOX_Circles_Radial=1").0, CirclesLook::Radial);
+        assert_eq!(
+            look("E_CHECKBOX_Circles_Plasma=1,E_CHECKBOX_Circles_Linear_Fade=1").0,
+            CirclesLook::Plasma
+        );
+        assert_eq!(look("E_CHECKBOX_Circles_Linear_Fade=1").0, CirclesLook::Fading);
+        assert_eq!(look("E_CHECKBOX_Circles_Bubbles=1").0, CirclesLook::Bubbles);
+        assert_eq!(
+            look("E_CHECKBOX_Circles_Bubbles=1,E_CHECKBOX_Circles_Plasma=1").2,
+            Fidelity::Approximate(vec![
+                "bubbles' drift not applied to plasma or fading circles".into()
+            ])
+        );
+        assert_eq!(
+            look("E_CHECKBOX_Circles_Random_m=1").2,
+            Fidelity::Approximate(vec!["random motion not applied".into()])
+        );
+        let s = Settings::parse(
+            "E_SLIDER_Circles_Count=5,E_SLIDER_Circles_Size=8,E_SLIDER_Circles_Speed=12,E_SLIDER_Circles_XC=-20,E_SLIDER_Circles_YC=10",
+        );
+        assert_eq!(
+            translate("Circles", &s, &palette(&[]), 4000, 25).unwrap().params,
+            EffectParams::Circles(CirclesParams {
+                count: 5,
+                size: 8,
+                speed: 12.0,
+                look: CirclesLook::Solid,
+                bounce: false,
+                center_x: -20.0,
+                center_y: 10.0,
+            })
+        );
+    }
+
+    #[test]
     fn curve_through_keeps_only_the_points_it_needs() {
         let line: Vec<(f32, f32)> = (0..=10).map(|i| (i as f32 / 10.0, i as f32 * 2.0)).collect();
         assert_eq!(curve_through(&line), Some(Curve::ramp(0.0, 20.0)));
@@ -1504,7 +1970,9 @@ mod tests {
         let wild = Settings::parse(
             "E_SLIDER_Bars_BarCount=1e300,E_TEXTCTRL_Bars_Cycles=-1e300,E_TEXTCTRL_Chase_Rotations=1e300,\
              E_SLIDER_Twinkle_Steps=0,E_SLIDER_Strobe_Duration=0,E_TEXTCTRL_Wave_Speed=1e300,\
-             E_SLIDER_Meteors_Speed=1e300,E_TEXTCTRL_Ripple_Cycles=1e300,E_SLIDER_Ripple_Thickness=0",
+             E_SLIDER_Meteors_Speed=1e300,E_TEXTCTRL_Ripple_Cycles=1e300,E_SLIDER_Ripple_Thickness=0,\
+             E_TEXTCTRL_Shape_Count=1e300,E_SLIDER_Shapes_Velocity=-1e300,E_SLIDER_Fan_Revolutions=1e300,\
+             E_SLIDER_Fan_Num_Blades=-5,E_SLIDER_Morph_Repeat_Count=1e300,E_SLIDER_Circles_Size=1e300",
         );
         for name in [
             "On",
@@ -1523,6 +1991,10 @@ mod tests {
             "Ripple",
             "Plasma",
             "Faces",
+            "Shape",
+            "Fan",
+            "Morph",
+            "Circles",
         ] {
             for duration in [1, 25, 3_600_000] {
                 let t = translate(name, &wild, &palette(&[Rgb::RED]), duration, 10).unwrap();

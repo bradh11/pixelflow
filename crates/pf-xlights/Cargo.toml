@@ -12,6 +12,8 @@ pf-geometry.workspace = true
 pf-sequence.workspace = true
 roxmltree.workspace = true
 zstd.workspace = true
+zip.workspace = true
+flate2.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 
@@ -21,3 +23,4 @@ workspace = true
 [dev-dependencies]
 pf-mapping.workspace = true
 pf-render.workspace = true
+tempfile.workspace = true

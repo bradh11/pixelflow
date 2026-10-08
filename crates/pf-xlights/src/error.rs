@@ -11,4 +11,7 @@ pub enum XlightsError {
     BadTimingFile(String, String),
     #[error("{0} doesn't look like an xLights show folder (no xlights_rgbeffects.xml).")]
     NotAShowFolder(String),
+    /// A vendor package (zip or folder) that can't be read, and why.
+    #[error("{0}")]
+    Package(String),
 }

@@ -21,6 +21,7 @@ pub mod sequence;
 mod shapes;
 mod submodels;
 mod timing;
+pub mod vendor;
 mod xml;
 
 pub use channels::{ChannelRequest, Resolved, resolve};
@@ -30,7 +31,9 @@ pub use import::{ImportSummary, XlightsImport, build_show};
 pub use layout::{XGroup, XLayout, parse_layout};
 pub use model::XmlModel;
 pub use networks::{OutputDefaults, XController, XOutput, parse_networks};
-pub use sequence::{SequenceImport, SequenceImportSummary, build_sequence, import_sequence_file};
+pub use sequence::{
+    SequenceImport, SequenceImportSummary, build_sequence, build_sequence_mapped, import_sequence_file,
+};
 pub use timing::{TimingFileImport, kind_for_name, parse_audacity, parse_xtiming, read_timing_file, xtiming};
 
 use std::path::Path;

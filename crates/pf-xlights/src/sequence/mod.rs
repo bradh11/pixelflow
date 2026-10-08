@@ -18,6 +18,7 @@ pub use xsq::{
 };
 
 use crate::XlightsError;
+use crate::vendor::Mapping;
 use effects::{Fidelity, Tally};
 use pf_model::Show;
 use pf_sequence::{
@@ -497,9 +498,78 @@ fn is_lyric_track(element: &XsqElement, clock: &Clock) -> bool {
             .is_none_or(|l| l.effects.is_empty() || nested(l, &layers[1], clock))
 }
 
+/// The show's prop, group, or submodel (`"Prop/Submodel"`) called `name`. A prop and a group of
+/// the same name: the prop.
+fn target_named(show: &Show, by_name: &HashMap<&str, Target>, name: &str) -> Option<Target> {
+    if let Some(target) = by_name.get(name) {
+        return Some(*target);
+    }
+    name.match_indices('/').find_map(|(at, _)| {
+        let (prop, region) = (&name[..at], &name[at + 1..]);
+        let Some(Target::Prop(id)) = by_name.get(prop) else {
+            return None;
+        };
+        let found = show
+            .prop(*id)?
+            .regions
+            .iter()
+            .find(|r| r.is_submodel() && r.name == region)?;
+        Some(Target::Region {
+            prop: *id,
+            region: found.id,
+        })
+    })
+}
+
+/// Effect layers by xLights' layer number (missing numbers are empty layers; the same number
+/// twice is one layer). Effects on layers past PixelFlow's limit are counted in `lost`.
+fn numbered_layers<'f>(layers: &[&'f XsqSubmodelLayer], lost: &mut usize) -> Vec<Vec<&'f XsqEffect>> {
+    let mut x_layers: Vec<Vec<&XsqEffect>> = Vec::new();
+    for sub in layers {
+        if sub.layer >= MAX_LAYERS_PER_ROW {
+            *lost += sub.effects.len();
+            continue;
+        }
+        if x_layers.len() <= sub.layer {
+            x_layers.resize(sub.layer + 1, Vec::new());
+        }
+        x_layers[sub.layer].extend(&sub.effects);
+    }
+    x_layers
+}
+
+/// `layers` grouped by name, in the order each name first appears.
+fn by_name(layers: &[XsqSubmodelLayer]) -> Vec<(&str, Vec<&XsqSubmodelLayer>)> {
+    let mut out: Vec<(&str, Vec<&XsqSubmodelLayer>)> = Vec::new();
+    for layer in layers {
+        match out.iter_mut().find(|(n, _)| *n == layer.name) {
+            Some((_, list)) => list.push(layer),
+            None => out.push((&layer.name, vec![layer])),
+        }
+    }
+    out
+}
+
 /// Builds a PixelFlow sequence from a parsed `.xsq` file for `show` (rows target its props and
 /// groups by name). `fallback_name` names the sequence when the file has no song title.
 pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> SequenceImport {
+    build(file, show, fallback_name, None)
+}
+
+/// [`build_sequence`] with each model, group, submodel, and strand's effects going where
+/// `mapping` says (see [`Mapping`]), as xLights' Import Effects does: an item mapped to several
+/// targets is copied to each, and items mapped to the same target are layered on it in the
+/// sequence's order, the first on top. Items the mapping leaves out are skipped (and reported).
+pub fn build_sequence_mapped(
+    file: &XsqFile,
+    show: &Show,
+    fallback_name: &str,
+    mapping: &Mapping,
+) -> SequenceImport {
+    build(file, show, fallback_name, Some(mapping))
+}
+
+fn build(file: &XsqFile, show: &Show, fallback_name: &str, mapping: Option<&Mapping>) -> SequenceImport {
     let mut notes = file.notes.clone();
 
     let frame_ms = match leading_number(&file.head.timing) {
@@ -694,6 +764,8 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
     let mut shadowed = Named::default();
     let mut strands: Vec<(String, usize)> = Vec::new();
     let mut missing_submodels = Named::default();
+    // Props a mapping names that aren't in the show.
+    let mut missing_targets = Named::default();
     let mut rows_lost = 0;
     let mut layers_lost = 0;
     let mut row_index: HashMap<Target, usize> = HashMap::new();
@@ -718,75 +790,109 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
             b.summary.skipped += count + below;
             continue;
         }
-        let Some(target) = b.target(&element.name) else {
-            let total = count + below;
-            let name = unxml_safe(&element.name);
-            if total == 0 && !unmatched.contains(&name) {
-                unmatched_empty += 1;
-            } else {
-                unmatched.add(name, total);
+        let model_layers: Vec<Vec<&XsqEffect>> = element
+            .layers
+            .iter()
+            .map(|l| l.effects.iter().collect())
+            .collect();
+        // The model's rows, then those of its submodels (drawn over the model, as in xLights),
+        // in the order they first appear.
+        let mut rows: Vec<(Target, Vec<Vec<&XsqEffect>>)> = Vec::new();
+        if let Some(mapping) = mapping {
+            let element_name = unxml_safe(&element.name);
+            // Where `item` goes in the show (each target once, in the mapping's order).
+            let mut targets_of = |item: &str| -> Vec<Target> {
+                let names = mapping
+                    .targets(item)
+                    .or_else(|| mapping.targets(&unxml_safe(item)))
+                    .unwrap_or_default();
+                let mut found: Vec<Target> = Vec::new();
+                for name in names {
+                    match target_named(show, &b.targets, name) {
+                        Some(t) if !found.contains(&t) => found.push(t),
+                        Some(_) => {}
+                        None => missing_targets.add(name.clone(), 0),
+                    }
+                }
+                found
+            };
+            let targets = targets_of(&element.name);
+            if targets.is_empty() && count > 0 {
+                unmatched.add(element_name.clone(), count);
+                b.summary.skipped += count;
             }
-            b.summary.skipped += total;
-            continue;
-        };
-        if element.sub_effects > 0 {
-            strands.push((unxml_safe(&element.name), element.sub_effects));
-            b.summary.skipped += element.sub_effects;
-        }
-        // The model's row, then one for each of its submodels (drawn over the model, as in
-        // xLights), in the order they first appear.
-        let mut rows: Vec<(Target, Vec<Vec<&XsqEffect>>)> = vec![(
-            target,
-            element
-                .layers
-                .iter()
-                .map(|l| l.effects.iter().collect())
-                .collect(),
-        )];
-        let mut names: Vec<&str> = Vec::new();
-        for sub in &element.submodels {
-            if !names.contains(&sub.name.as_str()) {
-                names.push(&sub.name);
+            for target in targets {
+                rows.push((target, model_layers.clone()));
             }
-        }
-        for name in names {
-            let subs: Vec<&XsqSubmodelLayer> = element.submodels.iter().filter(|s| s.name == name).collect();
-            let region = target.prop().and_then(|prop| {
-                let wanted = unxml_safe(name);
-                let found = show
-                    .prop(prop)?
-                    .regions
-                    .iter()
-                    .find(|r| r.is_submodel() && (r.name == name || r.name == wanted))?;
-                Some(Target::Region {
-                    prop,
-                    region: found.id,
-                })
-            });
-            let Some(region) = region else {
-                let lost: usize = subs.iter().map(|s| s.effects.len()).sum();
-                missing_submodels.add(
-                    format!("{}/{}", unxml_safe(&element.name), unxml_safe(name)),
-                    lost,
-                );
-                b.summary.skipped += lost;
+            for layers in [&element.submodels, &element.strands] {
+                for (name, subs) in by_name(layers) {
+                    let lost: usize = subs.iter().map(|s| s.effects.len()).sum();
+                    let targets = targets_of(&format!("{}/{name}", element.name));
+                    if targets.is_empty() {
+                        missing_submodels.add(format!("{element_name}/{}", unxml_safe(name)), lost);
+                        b.summary.skipped += lost;
+                        continue;
+                    }
+                    let mut lost_here = 0;
+                    let x_layers = numbered_layers(&subs, &mut lost_here);
+                    layers_lost += lost_here;
+                    b.summary.skipped += lost_here;
+                    for target in targets {
+                        rows.push((target, x_layers.clone()));
+                    }
+                }
+            }
+            let strand_effects: usize = element.strands.iter().map(|s| s.effects.len()).sum();
+            let nodes = element.sub_effects.saturating_sub(strand_effects);
+            if nodes > 0 {
+                strands.push((element_name, nodes));
+                b.summary.skipped += nodes;
+            }
+        } else {
+            let Some(target) = b.target(&element.name) else {
+                let total = count + below;
+                let name = unxml_safe(&element.name);
+                if total == 0 && !unmatched.contains(&name) {
+                    unmatched_empty += 1;
+                } else {
+                    unmatched.add(name, total);
+                }
+                b.summary.skipped += total;
                 continue;
             };
-            // Layer numbers as xLights numbers them (missing ones are empty layers; the same
-            // number twice is one layer).
-            let mut x_layers: Vec<Vec<&XsqEffect>> = Vec::new();
-            for sub in subs {
-                if sub.layer >= MAX_LAYERS_PER_ROW {
-                    layers_lost += sub.effects.len();
-                    b.summary.skipped += sub.effects.len();
-                    continue;
-                }
-                if x_layers.len() <= sub.layer {
-                    x_layers.resize(sub.layer + 1, Vec::new());
-                }
-                x_layers[sub.layer].extend(&sub.effects);
+            if element.sub_effects > 0 {
+                strands.push((unxml_safe(&element.name), element.sub_effects));
+                b.summary.skipped += element.sub_effects;
             }
-            rows.push((region, x_layers));
+            rows.push((target, model_layers));
+            for (name, subs) in by_name(&element.submodels) {
+                let region = target.prop().and_then(|prop| {
+                    let wanted = unxml_safe(name);
+                    let found = show
+                        .prop(prop)?
+                        .regions
+                        .iter()
+                        .find(|r| r.is_submodel() && (r.name == name || r.name == wanted))?;
+                    Some(Target::Region {
+                        prop,
+                        region: found.id,
+                    })
+                });
+                let Some(region) = region else {
+                    let lost: usize = subs.iter().map(|s| s.effects.len()).sum();
+                    missing_submodels.add(
+                        format!("{}/{}", unxml_safe(&element.name), unxml_safe(name)),
+                        lost,
+                    );
+                    b.summary.skipped += lost;
+                    continue;
+                };
+                let mut lost_here = 0;
+                let x_layers = numbered_layers(&subs, &mut lost_here);
+                layers_lost += lost_here;
+                b.summary.skipped += lost_here;
+                rows.push((region, x_layers));
+            }
         }
         for (target, x_layers) in rows {
             // The faces a Faces effect on this row can name (a model's, or its submodel's model's).
@@ -833,9 +939,26 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
     if !unmatched.is_empty() {
         b.notes.insert(
             0,
+            if mapping.is_some() {
+                format!(
+                    "These xLights models weren't mapped to anything, so their effects weren't imported: {}.",
+                    unmatched.list("effect")
+                )
+            } else {
+                format!(
+                    "These xLights models aren't in the show, so their effects weren't imported: {}.",
+                    unmatched.list("effect")
+                )
+            },
+        );
+    }
+    if !missing_targets.is_empty() {
+        let names: Vec<String> = missing_targets.entries.iter().map(|(n, _)| n.clone()).collect();
+        b.notes.insert(
+            0,
             format!(
-                "These xLights models aren't in the show, so their effects weren't imported: {}.",
-                unmatched.list("effect")
+                "The mapping names props that aren't in the show, so nothing went to them: {}.",
+                list(&names)
             ),
         );
     }
@@ -871,12 +994,28 @@ pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> Seque
         ));
     }
     if !missing_submodels.is_empty() {
-        b.notes.push(format!(
-            "These submodels aren't in the show, so their effects weren't imported: {}.",
-            missing_submodels.list("effect")
-        ));
+        b.notes.push(if mapping.is_some() {
+            format!(
+                "These submodels and strands weren't mapped to anything, so their effects weren't imported: {}.",
+                missing_submodels.list("effect")
+            )
+        } else {
+            format!(
+                "These submodels aren't in the show, so their effects weren't imported: {}.",
+                missing_submodels.list("effect")
+            )
+        });
     }
-    if !strands.is_empty() {
+    if !strands.is_empty() && mapping.is_some() {
+        let names: Vec<String> = strands
+            .iter()
+            .map(|(n, c)| format!("{n} ({})", plural(*c, "effect")))
+            .collect();
+        b.notes.push(format!(
+            "PixelFlow doesn't import effects on single nodes yet; these weren't imported: {}.",
+            list(&names)
+        ));
+    } else if !strands.is_empty() {
         let names: Vec<String> = strands
             .iter()
             .map(|(n, c)| format!("{n} ({})", plural(*c, "effect")))
@@ -963,27 +1102,51 @@ pub fn import_sequence_file(
     show: &Show,
     find_audio: impl Fn(&Path, Option<&str>) -> Option<PathBuf>,
 ) -> Result<SequenceImport, XlightsError> {
+    let file = read_sequence_file(path)?;
+    let mut import = build_sequence(&file, show, &name_from_path(path));
+    find_music(&mut import, &file, path, find_audio);
+    Ok(import)
+}
+
+/// The too-large message for a sequence of `size` bytes.
+pub(crate) fn too_large(size: u64) -> XlightsError {
+    XlightsError::BadFile(
+        "The xLights sequence",
+        format!(
+            "it is {} MB; PixelFlow reads xLights sequences up to {} MB",
+            size / (1024 * 1024),
+            MAX_XSQ_BYTES / (1024 * 1024)
+        ),
+    )
+}
+
+/// Reads and parses the `.xsq` file at `path`.
+pub(crate) fn read_sequence_file(path: &Path) -> Result<XsqFile, XlightsError> {
     let read_err = |e| XlightsError::Read(path.display().to_string(), e);
     let size = std::fs::metadata(path).map_err(read_err)?.len();
     if size > MAX_XSQ_BYTES as u64 {
-        return Err(XlightsError::BadFile(
-            "The xLights sequence",
-            format!(
-                "it is {} MB; PixelFlow reads xLights sequences up to {} MB",
-                size / (1024 * 1024),
-                MAX_XSQ_BYTES / (1024 * 1024)
-            ),
-        ));
+        return Err(too_large(size));
     }
     let bytes = std::fs::read(path).map_err(read_err)?;
-    let text = String::from_utf8_lossy(&bytes);
-    let file = parse_xsq(&text)?;
-    let stem = path
-        .file_stem()
+    parse_xsq(&String::from_utf8_lossy(&bytes))
+}
+
+/// A sequence's name from its file's: the name without its extension.
+pub(crate) fn name_from_path(path: &Path) -> String {
+    path.file_stem()
         .map(|s| s.to_string_lossy().into_owned())
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "xLights Sequence".to_string());
-    let mut import = build_sequence(&file, show, &stem);
+        .unwrap_or_else(|| "xLights Sequence".to_string())
+}
+
+/// Gives the import the music its sequence (read from `path`) names, found with `find_audio`
+/// (see [`import_sequence_file`]), or a note that it couldn't be found.
+pub(crate) fn find_music(
+    import: &mut SequenceImport,
+    file: &XsqFile,
+    path: &Path,
+    find_audio: impl Fn(&Path, Option<&str>) -> Option<PathBuf>,
+) {
     let animation = matches!(file.head.sequence_type.trim(), "Animation" | "Effect");
     match (&import.media_file, animation) {
         (Some(media), false) => match find_audio(path, Some(media)) {
@@ -1008,5 +1171,4 @@ pub fn import_sequence_file(
         }
         _ => {}
     }
-    Ok(import)
 }

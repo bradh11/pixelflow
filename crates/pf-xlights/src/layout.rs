@@ -23,10 +23,16 @@ const LEGACY_ELEMENTS: [(&str, &str); 13] = [
 ];
 
 /// A model group and its members (model, submodel, or other group names, as written).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct XGroup {
     pub name: String,
     pub members: Vec<String>,
+    /// How effects lay the group out (`layout`; xLights' default, `minimalGrid`, when missing).
+    pub layout: String,
+    /// Most cells along the grid's longer side (`GridSize`, 400 when missing).
+    pub grid_size: f64,
+    /// The group moves its grid's center (`centreDefined`, `XCentreOffset`, `YCentreOffset`).
+    pub moved_center: bool,
 }
 
 /// Everything the importer reads from the layout file.
@@ -34,6 +40,8 @@ pub struct XGroup {
 pub struct XLayout {
     pub models: Vec<XmlModel>,
     pub groups: Vec<XGroup>,
+    /// The layout area in xLights units (`previewWidth`, `previewHeight`), when the file says.
+    pub area: Option<(f64, f64)>,
 }
 
 fn model_from(node: Node<'_, '_>) -> Option<XmlModel> {
@@ -104,20 +112,41 @@ pub fn parse_layout(xml: &str) -> Result<XLayout, XlightsError> {
             s.children()
                 .filter(|c| c.is_element() && c.tag_name().name() == "modelGroup")
         })
-        .map(|g| XGroup {
-            name: g.attribute("name").unwrap_or("").trim().to_string(),
-            members: g
-                .attribute("models")
-                .unwrap_or("")
-                .split(',')
-                .map(str::trim)
-                .filter(|m| !m.is_empty())
-                .map(String::from)
-                .collect(),
+        .map(|g| {
+            let number = |key: &str| {
+                g.attribute(key)
+                    .and_then(|v| v.trim().parse::<f64>().ok())
+                    .filter(|v| v.is_finite())
+            };
+            XGroup {
+                name: g.attribute("name").unwrap_or("").trim().to_string(),
+                members: g
+                    .attribute("models")
+                    .unwrap_or("")
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|m| !m.is_empty())
+                    .map(String::from)
+                    .collect(),
+                layout: g.attribute("layout").unwrap_or("minimalGrid").trim().to_string(),
+                grid_size: number("GridSize").unwrap_or(400.0),
+                moved_center: g.attribute("centreDefined").is_some_and(|v| v.trim() == "1")
+                    || number("XCentreOffset").is_some_and(|v| v != 0.0)
+                    || number("YCentreOffset").is_some_and(|v| v != 0.0),
+            }
         })
         .filter(|g| !g.name.is_empty())
         .collect();
-    Ok(XLayout { models, groups })
+    let setting = |name: &str| {
+        section("settings")?
+            .children()
+            .filter(|c| c.is_element() && c.tag_name().name() == name)
+            .find_map(|c| c.attribute("value"))
+            .and_then(|v| v.trim().parse::<f64>().ok())
+            .filter(|v| v.is_finite() && *v > 0.0)
+    };
+    let area = setting("previewWidth").zip(setting("previewHeight"));
+    Ok(XLayout { models, groups, area })
 }
 
 #[cfg(test)]
@@ -143,7 +172,9 @@ mod tests {
   </models>
   <modelGroups type="rgb_effects">
     <modelGroup name="Outline" models="Roof, Old Tree,Tree/Star ,"/>
+    <modelGroup name="Columns" models="Roof" layout="horizontal" GridSize="250" XCentreOffset="10"/>
   </modelGroups>
+  <settings><previewWidth value="1900"/><previewHeight value="1600"/></settings>
 </xrgb>"#;
         let layout = parse_layout(xml).unwrap();
         let names: Vec<_> = layout
@@ -165,11 +196,24 @@ mod tests {
         assert!(layout.models[1].submodels.is_empty());
         assert_eq!(
             layout.groups,
-            vec![XGroup {
-                name: "Outline".into(),
-                members: vec!["Roof".into(), "Old Tree".into(), "Tree/Star".into()],
-            }]
+            vec![
+                XGroup {
+                    name: "Outline".into(),
+                    members: vec!["Roof".into(), "Old Tree".into(), "Tree/Star".into()],
+                    layout: "minimalGrid".into(),
+                    grid_size: 400.0,
+                    moved_center: false,
+                },
+                XGroup {
+                    name: "Columns".into(),
+                    members: vec!["Roof".into()],
+                    layout: "horizontal".into(),
+                    grid_size: 250.0,
+                    moved_center: true,
+                }
+            ]
         );
+        assert_eq!(layout.area, Some((1900.0, 1600.0)));
     }
 
     #[test]

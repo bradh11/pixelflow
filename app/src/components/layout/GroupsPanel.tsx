@@ -1,9 +1,11 @@
 import { ChevronDown, ChevronRight, GripVertical, Group as GroupIcon, Plus, Trash2, X } from "lucide-react";
 import { type KeyboardEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
-import type { Group, GroupMember, Show } from "../../api/types";
+import type { Group, GroupLayout, GroupMember, Show } from "../../api/types";
 import { plural } from "../../lib/format";
 import {
   addMembersEdits,
+  groupGridSizeEdits,
+  groupLayoutEdits,
   groupPropIds,
   memberKey,
   memberLabel,
@@ -19,8 +21,9 @@ import { useApp } from "../../state/store";
 import { useSequencer } from "../../state/sequencer";
 import { toastWithUndo } from "../../state/undoToast";
 import { deleteUseWarning } from "../../lib/sequenceUse";
-import { Button, Input, Select } from "../ui";
+import { Button, Input, More, Select } from "../ui";
 import { hintFor } from "../../lib/shortcuts";
+import { GRID_SIZE, GROUP_LAYOUTS } from "../../lib/renderStyles";
 
 /** The group's name, saved on Enter or leaving the field (an empty name goes back). */
 function NameField({ group }: { group: Group }) {
@@ -46,6 +49,56 @@ function NameField({ group }: { group: Group }) {
         }}
       />
     </label>
+  );
+}
+
+/** How effects lay the group out ("Effects draw on"), and its grid size under More. */
+function LayoutFields({ group }: { group: Group }) {
+  const apply = useApp((s) => s.apply);
+  const size = group.gridSize ?? GRID_SIZE.default;
+  const [text, setText] = useState(String(size));
+  useEffect(() => setText(String(size)), [size]);
+  return (
+    <>
+      <label className="flex flex-col gap-1 text-xs">
+        <span className="text-neutral-500">Effects draw on</span>
+        <Select
+          value={group.layout ?? "minimalGrid"}
+          onChange={(e) => void apply(groupLayoutEdits(group.id, e.target.value as GroupLayout))}
+          className="w-full text-xs"
+          title="How effects on this group lay out its lights, unless an effect picks its own render style"
+        >
+          {GROUP_LAYOUTS.map((l) => (
+            <option key={l.value} value={l.value}>
+              {l.label}
+            </option>
+          ))}
+        </Select>
+      </label>
+      <More id="layout-group" label="More: grid size">
+        <label className="flex items-center gap-2 text-xs">
+          <span className="shrink-0 text-neutral-500">Grid size</span>
+          <Input
+            type="number"
+            min={GRID_SIZE.min}
+            max={GRID_SIZE.max}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onBlur={() => {
+              const value = Number(text);
+              if (text.trim() && Number.isFinite(value)) void apply(groupGridSizeEdits(group.id, value));
+              else setText(String(size));
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+            }}
+            className="w-20 text-xs"
+            title={`The most cells across the group's grid, ${GRID_SIZE.min} to ${GRID_SIZE.max}: more cells draw finer detail`}
+          />
+          <span className="text-neutral-500">cells across</span>
+        </label>
+      </More>
+    </>
   );
 }
 
@@ -209,6 +262,7 @@ function GroupEditor({ show, group }: { show: Show; group: Group }) {
   return (
     <div className="flex flex-col gap-2 border-t border-neutral-200 bg-neutral-50 p-2 dark:border-neutral-800 dark:bg-neutral-950/50">
       <NameField group={group} />
+      <LayoutFields group={group} />
       <MemberList show={show} group={group} />
       <Button variant="secondary" className="w-full text-xs" disabled={toAdd.length === 0} onClick={() => void apply(addMembersEdits(group.id, toAdd))} title="Add the props selected on the canvas, at the end">
         <Plus size={14} /> Add selected {toAdd.length > 0 ? `(${toAdd.length})` : "props"}

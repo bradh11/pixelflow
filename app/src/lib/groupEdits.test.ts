@@ -34,7 +34,7 @@ describe("group edits", () => {
     show.groups = [{ id: "x", name: "Group 1", members: [] }];
     const [a, b] = [show.props[2].id, show.props[0].id];
     const { edits, id } = newGroupEdits(show, [a, b, a]);
-    expect(edits).toEqual([{ type: "addGroup", group: { id, name: "Group 2", members: [a, b] } }]);
+    expect(edits).toEqual([{ type: "addGroup", group: { id, name: "Group 2", members: [a, b], layout: "minimalGrid", gridSize: 400 } }]);
   });
 
   it("renames, refusing an empty name", () => {

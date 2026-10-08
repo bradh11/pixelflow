@@ -187,6 +187,37 @@ export interface Curve {
   points?: [number, number][];
 }
 
+/** How an effect lays out its target's pixels (xLights' render styles). */
+export type RenderStyle =
+  | "default"
+  | "perPreview"
+  | "singleLine"
+  | "asPixel"
+  | "horizontalPerModel"
+  | "verticalPerModel"
+  | "horizontalStack"
+  | "verticalStack"
+  | "horizontalStackScaled"
+  | "verticalStackScaled"
+  | "overlayCentered"
+  | "overlayScaled"
+  | "singleLineModelAsPixel"
+  | "defaultModelAsPixel"
+  | "perModelDefault"
+  | "perModelPerPreview"
+  | "perModelSingleLine";
+
+/** Turns or flips the layout an effect draws on (xLights' buffer transformations). */
+export type BufferTransform =
+  | "none"
+  | "rotateCw90"
+  | "rotateCcw90"
+  | "rotate180"
+  | "flipVertical"
+  | "flipHorizontal"
+  | "rotateCw90FlipHorizontal"
+  | "rotateCcw90FlipHorizontal";
+
 export interface Effect {
   id: Uuid;
   startMs: number;
@@ -203,6 +234,10 @@ export interface Effect {
   sparkleColor?: Rgb;
   /** Softening, 0 (none, when missing) to 14. */
   blur?: number;
+  /** How the target's pixels are laid out for the effect (its own layout when missing). */
+  renderStyle?: RenderStyle;
+  /** Turns or flips that layout (as it is when missing). */
+  bufferTransform?: BufferTransform;
   /** Settings that change over the effect, by key (a `params` number setting, `sparkles`, or
    * `blur`); none when missing. */
   curves?: Record<string, Curve>;

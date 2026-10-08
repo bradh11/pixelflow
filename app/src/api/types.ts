@@ -263,11 +263,32 @@ export interface Prop {
 /** A group member: a whole prop (its id) or one of a prop's submodels. */
 export type GroupMember = Uuid | RegionRef;
 
+/** How effects lay a group's pixels out (xLights' group layouts). */
+export type GroupLayout =
+  | "minimalGrid"
+  | "grid"
+  | "horizontalPerModel"
+  | "verticalPerModel"
+  | "horizontalStack"
+  | "verticalStack"
+  | "horizontalStackScaled"
+  | "verticalStackScaled"
+  | "singleLine"
+  | "overlayCentered"
+  | "overlayScaled"
+  | "singleLineModelAsPixel"
+  | "defaultModelAsPixel"
+  | "perModelDefault";
+
 /** A named, ordered set of props and submodels; effects that run along the group follow this order. */
 export interface Group {
   id: Uuid;
   name: string;
   members: GroupMember[];
+  /** How effects lay the group out, unless an effect picks its own render style (the minimal grid when missing). */
+  layout?: GroupLayout;
+  /** The most cells along the longer side of the group's grid, 10 to 4000 (400 when missing). */
+  gridSize?: number;
 }
 
 export interface PortSlot {
@@ -362,6 +383,8 @@ export interface Show {
   background?: Background | null;
   /** Missing unless a house model was chosen. */
   houseModel?: HouseModel | null;
+  /** The layout's area from its origin, for groups on the whole layout's grid (from xLights). */
+  layoutArea?: { width: number; height: number } | null;
 }
 
 export interface Issue {

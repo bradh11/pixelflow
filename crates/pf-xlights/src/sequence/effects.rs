@@ -34,6 +34,10 @@ pub struct Translated {
     pub blend: Blend,
     pub fade_in_ms: u32,
     pub fade_out_ms: u32,
+    pub sparkles: u32,
+    pub sparkle_color: Rgb,
+    /// PixelFlow's blur (xLights' Blur minus one).
+    pub blur: u32,
     pub fidelity: Fidelity,
 }
 
@@ -611,13 +615,41 @@ fn effect_params(
     })
 }
 
-/// Layer blending (`T_CHOICE_LayerMethod`) in PixelFlow terms.
+/// Layer blending (`T_CHOICE_LayerMethod`) in PixelFlow terms. xLights mixes each layer with the
+/// ones below it ("1" is the layer, "2" what's below), and PixelFlow's layers are imported in
+/// reverse (xLights' layer 1 on top), so each method maps onto the effect's own blend.
 fn blend(s: &Settings, diff: &mut Diff) -> Blend {
     let method = s.text("T_CHOICE_LayerMethod", "Normal");
     let blend = match method {
         "Normal" => Blend::Normal,
         "Additive" => Blend::Add,
-        "Max" => Blend::Max,
+        "Subtractive" => Blend::Subtract,
+        "Max" => {
+            diff.add("'Max' layer blending keeps the layers below where the effect is unlit");
+            Blend::Max
+        }
+        "Min" => Blend::Min,
+        "Average" => Blend::Average,
+        "1 reveals 2" => Blend::Over,
+        "2 reveals 1" | "Layered" => Blend::Behind,
+        "1 is Mask" => Blend::Mask,
+        "1 is True Unmask" => Blend::Reveal,
+        "1 is Unmask" => Blend::RevealBrightness,
+        "2 is Mask" => Blend::CutOut,
+        "2 is True Unmask" => Blend::Clip,
+        "2 is Unmask" => Blend::ClipBrightness,
+        "Shadow 1 on 2" => Blend::Shadow,
+        "Shadow 2 on 1" => Blend::ShadowBelow,
+        "Highlight" => Blend::Highlight,
+        "Highlight Vibrant" => Blend::HighlightAdd,
+        "Bottom-Top" => Blend::BottomHalf,
+        "Left-Right" => Blend::LeftHalf,
+        "Brightness" => {
+            diff.add("'Brightness' layer blending shown as Tint");
+            Blend::Multiply
+        }
+        // "Effect 1" and "Effect 2" cross-fade by the layer mix amount, which PixelFlow doesn't
+        // have (and xLights treats names it doesn't know as "Effect 1").
         other => {
             diff.add(format!("'{other}' layer blending shown as Normal"));
             Blend::Normal
@@ -648,8 +680,9 @@ fn fades(s: &Settings, duration_ms: u64, diff: &mut Diff) -> (u32, u32) {
     (fade_in, fade_out)
 }
 
-/// Render-buffer settings (`B_*`) that change how an effect is laid over the prop.
-fn buffer(s: &Settings, diff: &mut Diff) {
+/// Render-buffer settings (`B_*`) that change how an effect is laid over the prop. Answers the
+/// blur (`B_SLIDER_Blur`, 1 = none) in PixelFlow's terms (one less).
+fn buffer(s: &Settings, diff: &mut Diff) -> u32 {
     let style = s.text("B_CHOICE_BufferStyle", "Default");
     if !matches!(style, "Default" | "Per Preview" | "Single Line" | "") {
         diff.add(format!("'{style}' render style not applied"));
@@ -658,12 +691,43 @@ fn buffer(s: &Settings, diff: &mut Diff) {
         diff.add("buffer rotation or flip not applied");
     }
     let changed = |key: &str, neutral: f64| s.num(key).is_some_and(|v| (v - neutral).abs() > 1e-6);
-    if changed("B_SLIDER_Blur", 1.0) || changed("B_SLIDER_Rotation", 0.0) || changed("B_SLIDER_Zoom", 1.0) {
-        diff.add("blur, rotation, or zoom not applied");
+    if changed("B_SLIDER_Rotation", 0.0) || changed("B_SLIDER_Zoom", 1.0) {
+        diff.add("rotation or zoom not applied");
     }
     if !s.text("B_CUSTOM_SubBuffer", "").is_empty() {
         diff.add("sub-buffer (part of the prop) not applied");
     }
+    if s.curve_active("B_VALUECURVE_Blur") {
+        diff.add("blur that changes over the effect kept at one value");
+    }
+    // xLights reads the slider as a whole number (`GetInt`); past 15 it blurs as 15.
+    let blur = s.num_or("B_SLIDER_Blur", 1.0).trunc();
+    if blur > f64::from(pf_sequence::MAX_BLUR + 1) {
+        diff.add("blur above 15 shown at 15");
+    }
+    (blur.clamp(1.0, f64::from(pf_sequence::MAX_BLUR + 1)) as u32) - 1
+}
+
+/// The palette's sparkles and their color (dimmed by the palette's brightness, as xLights applies
+/// brightness after sparkles).
+fn sparkles(palette: &ParsedPalette, diff: &mut Diff) -> (u32, Rgb) {
+    if palette.sparkles > 0 && palette.music_sparkles {
+        diff.add("music-driven sparkles shown at a steady rate");
+    }
+    let c = palette.sparkle_color;
+    let scale = brightness_scale(palette);
+    let f = |v: u8| (f64::from(v) * scale).round() as u8;
+    (palette.sparkles, Rgb::new(f(c.r), f(c.g), f(c.b)))
+}
+
+/// The palette's brightness as a factor (0–1; above 100% counts as 100%).
+fn brightness_scale(palette: &ParsedPalette) -> f64 {
+    let brightness = if palette.brightness.is_finite() {
+        palette.brightness.max(0.0)
+    } else {
+        100.0
+    };
+    (brightness / 100.0).min(1.0)
 }
 
 /// Palette colors with the palette's brightness applied (xLights' `C_SLIDER_Brightness`).
@@ -677,15 +741,10 @@ fn palette_colors(palette: &ParsedPalette, diff: &mut Diff) -> Vec<Rgb> {
     for extra in &palette.extras {
         diff.add(format!("{extra} not applied"));
     }
-    let brightness = if palette.brightness.is_finite() {
-        palette.brightness.max(0.0)
-    } else {
-        100.0
-    };
-    if brightness > 100.0 {
+    if palette.brightness.is_finite() && palette.brightness > 100.0 {
         diff.add("brightness above 100% shown at 100%");
     }
-    let scale = (brightness / 100.0).min(1.0);
+    let scale = brightness_scale(palette);
     // With no colors enabled xLights draws white, so say so explicitly (PixelFlow's renderer
     // also draws an empty palette white, but the timeline shows what's in the palette).
     let colors: &[Rgb] = if palette.colors.is_empty() {
@@ -714,9 +773,10 @@ pub fn translate(
 ) -> Option<Translated> {
     let mut diff = Diff(Vec::new());
     let colors = palette_colors(palette, &mut diff);
+    let (sparkles, sparkle_color) = sparkles(palette, &mut diff);
     let blend = blend(s, &mut diff);
     let (fade_in_ms, fade_out_ms) = fades(s, duration_ms, &mut diff);
-    buffer(s, &mut diff);
+    let blur = buffer(s, &mut diff);
     Some(
         match effect_params(name, s, &colors, duration_ms, frame_ms, &mut diff) {
             Kind::Skip => return None,
@@ -734,6 +794,9 @@ pub fn translate(
                 blend,
                 fade_in_ms,
                 fade_out_ms,
+                sparkles,
+                sparkle_color,
+                blur,
                 fidelity: if diff.0.is_empty() {
                     Fidelity::Exact
                 } else {
@@ -750,6 +813,9 @@ pub fn translate(
                 blend,
                 fade_in_ms,
                 fade_out_ms,
+                sparkles,
+                sparkle_color,
+                blur,
                 fidelity: Fidelity::Placeholder,
             },
         },
@@ -945,9 +1011,112 @@ mod tests {
     }
 
     #[test]
+    fn every_xlights_layer_method_but_the_cross_fades_translates_exactly() {
+        let methods = [
+            ("Normal", Blend::Normal),
+            ("Additive", Blend::Add),
+            ("Subtractive", Blend::Subtract),
+            ("Min", Blend::Min),
+            ("Average", Blend::Average),
+            ("1 reveals 2", Blend::Over),
+            ("2 reveals 1", Blend::Behind),
+            ("Layered", Blend::Behind),
+            ("1 is Mask", Blend::Mask),
+            ("1 is True Unmask", Blend::Reveal),
+            ("1 is Unmask", Blend::RevealBrightness),
+            ("2 is Mask", Blend::CutOut),
+            ("2 is True Unmask", Blend::Clip),
+            ("2 is Unmask", Blend::ClipBrightness),
+            ("Shadow 1 on 2", Blend::Shadow),
+            ("Shadow 2 on 1", Blend::ShadowBelow),
+            ("Highlight", Blend::Highlight),
+            ("Highlight Vibrant", Blend::HighlightAdd),
+            ("Bottom-Top", Blend::BottomHalf),
+            ("Left-Right", Blend::LeftHalf),
+        ];
+        for (method, want) in methods {
+            let s = Settings::parse(&format!("T_CHOICE_LayerMethod={method}"));
+            let t = translate("Color Wash", &s, &palette(&[Rgb::RED]), 1000, 25).unwrap();
+            assert_eq!((t.blend, t.fidelity), (want, Fidelity::Exact), "{method}");
+        }
+        for (method, want, note) in [
+            (
+                "Effect 1",
+                Blend::Normal,
+                "'Effect 1' layer blending shown as Normal",
+            ),
+            (
+                "Brightness",
+                Blend::Multiply,
+                "'Brightness' layer blending shown as Tint",
+            ),
+            (
+                "Max",
+                Blend::Max,
+                "'Max' layer blending keeps the layers below where the effect is unlit",
+            ),
+        ] {
+            let s = Settings::parse(&format!("T_CHOICE_LayerMethod={method}"));
+            let t = translate("Color Wash", &s, &palette(&[Rgb::RED]), 1000, 25).unwrap();
+            assert_eq!(t.blend, want, "{method}");
+            assert_eq!(t.fidelity, Fidelity::Approximate(vec![note.into()]), "{method}");
+        }
+    }
+
+    #[test]
+    fn sparkles_and_blur_translate_exactly() {
+        let s = Settings::parse("B_SLIDER_Blur=8");
+        let mut p = palette(&[Rgb::RED]);
+        p.sparkles = 54;
+        p.sparkle_color = Rgb::new(200, 100, 0);
+        p.brightness = 50.0;
+        let t = translate("Color Wash", &s, &p, 1000, 25).unwrap();
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        assert_eq!((t.sparkles, t.blur), (54, 7));
+        assert_eq!(
+            t.sparkle_color,
+            Rgb::new(100, 50, 0),
+            "dimmed by the palette's brightness"
+        );
+        let plain = translate(
+            "Color Wash",
+            &Settings::default(),
+            &palette(&[Rgb::RED]),
+            1000,
+            25,
+        )
+        .unwrap();
+        assert_eq!(
+            (plain.sparkles, plain.sparkle_color, plain.blur),
+            (0, Rgb::WHITE, 0)
+        );
+        // Placeholders keep them too.
+        let shape = translate("Shape", &s, &p, 1000, 25).unwrap();
+        assert_eq!((shape.sparkles, shape.blur), (54, 7));
+    }
+
+    #[test]
+    fn sparkles_and_blur_xlights_varies_are_noted() {
+        let s = Settings::parse("B_SLIDER_Blur=40,B_VALUECURVE_Blur=Active=TRUE|Type=Ramp|");
+        let mut p = palette(&[Rgb::RED]);
+        p.sparkles = 10;
+        p.music_sparkles = true;
+        let t = translate("Color Wash", &s, &p, 1000, 25).unwrap();
+        assert_eq!(t.blur, 14);
+        assert_eq!(
+            t.fidelity,
+            Fidelity::Approximate(vec![
+                "music-driven sparkles shown at a steady rate".into(),
+                "blur that changes over the effect kept at one value".into(),
+                "blur above 15 shown at 15".into(),
+            ])
+        );
+    }
+
+    #[test]
     fn unsupported_blends_transitions_and_buffers_are_approximations() {
         let s = Settings::parse(
-            "T_CHOICE_LayerMethod=Average,T_TEXTCTRL_Fadein=1,T_CHOICE_In_Transition_Type=Wipe,B_CHOICE_BufferStyle=Per Model Default,B_SLIDER_Rotation=45",
+            "T_CHOICE_LayerMethod=Effect 2,T_TEXTCTRL_Fadein=1,T_CHOICE_In_Transition_Type=Wipe,B_CHOICE_BufferStyle=Per Model Default,B_SLIDER_Rotation=45",
         );
         let t = translate("Off", &s, &palette(&[]), 2000, 25).unwrap();
         assert_eq!(t.blend, Blend::Normal);
@@ -957,10 +1126,10 @@ mod tests {
         assert_eq!(
             reasons,
             vec![
-                "'Average' layer blending shown as Normal",
+                "'Effect 2' layer blending shown as Normal",
                 "'Wipe' transition shown as a fade",
                 "'Per Model Default' render style not applied",
-                "blur, rotation, or zoom not applied",
+                "rotation or zoom not applied",
             ]
         );
     }

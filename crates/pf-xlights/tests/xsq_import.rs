@@ -386,7 +386,7 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
     );
     // 'expand' bars with a value curve, Average blending, and a Wipe transition.
     let expand = &matrix[8];
-    assert_eq!(expand.blend, Blend::Normal);
+    assert_eq!(expand.blend, Blend::Average);
     assert_eq!(expand.fade_out_ms, 1000);
     assert!(matches!(
         expand.params,
@@ -437,7 +437,11 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
         "weren't imported (a stand-in would light the prop wrongly): Adjust (1).",
     );
     assert_note(&i, "Bars (2 effects) approximated: bars have gaps between them, ");
-    assert_note(&i, "'Average' layer blending shown as Normal (1)");
+    assert!(
+        !has_note(&i, "layer blending"),
+        "every layer method in the sample translates: {:#?}",
+        i.notes
+    );
     assert_note(&i, "'Wipe' transition shown as a fade (1)");
     assert_note(&i, "settings that change over the effect kept at one value (1)");
     assert_note(&i, "Butterfly (1 effect) approximated: shown as a color wash.");

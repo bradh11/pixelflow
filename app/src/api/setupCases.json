@@ -14,7 +14,11 @@
         { "number": 2, "strings": [{ "name": "Roof", "pixels": 200, "colorOrder": "GRB" }] }
       ]
     },
-    "expect": { "rows": [], "notes": [] }
+    "expect": {
+      "rows": [],
+      "notes": [],
+      "suggested": { "port1/string1": ["Arch", "samePort"], "port1/string2": ["Gutter", "samePort"], "port2/string1": ["Roof", "samePort"] }
+    }
   },
   {
     "name": "differences read show to device, port by port",
@@ -58,7 +62,8 @@
     "device": { "input": { "type": "ddp" }, "ports": [{ "number": 1, "strings": [{ "name": null, "pixels": 160 }] }] },
     "expect": {
       "rows": [["port1/string1/pixels", "String 1 · Arch + Gutter", "Pixels", "150", "160", false, null]],
-      "notes": []
+      "notes": [],
+      "suggested": {}
     }
   },
   {
@@ -91,5 +96,59 @@
       ]
     },
     "expect": { "rows": [], "notes": ["Strings on smart receivers aren't compared yet; check them on the controller itself."] }
+  },
+  {
+    "name": "suggestions: what a port already carries beats a name",
+    "kind": "falcon",
+    "protocol": { "type": "ddp" },
+    "show": [
+      { "port": 1, "slots": [{ "name": "Arch", "nodes": 50 }] },
+      { "port": 2, "slots": [{ "name": "Roof", "nodes": 200 }] }
+    ],
+    "props": [{ "name": "arch", "nodes": 50 }, { "name": "Gutter", "nodes": 100 }],
+    "device": {
+      "input": { "type": "ddp" },
+      "ports": [
+        { "number": 1, "strings": [{ "name": "Arch", "pixels": 50 }] },
+        { "number": 2, "strings": [{ "name": "Gutter", "pixels": 100 }] }
+      ]
+    },
+    "expect": { "suggested": { "port1/string1": ["Arch", "samePort"], "port2/string1": ["Roof", "samePort"] } }
+  },
+  {
+    "name": "suggestions: by name and pixel count, then by name, never another channel width",
+    "kind": "falcon",
+    "address": "192.0.2.9",
+    "protocol": { "type": "ddp" },
+    "show": [],
+    "props": [
+      { "name": "gutter ", "nodes": 80 },
+      { "name": "Gutter", "nodes": 100 },
+      { "name": "Roof Line", "nodes": 30 },
+      { "name": "Porch", "nodes": 30, "colorOrder": "RGBW" }
+    ],
+    "device": {
+      "input": { "type": "ddp" },
+      "ports": [
+        { "number": 1, "strings": [{ "name": "Gutter", "pixels": 100 }, { "name": "roofline", "pixels": 40 }] },
+        { "number": 2, "strings": [{ "name": "Porch", "pixels": 30 }] },
+        { "number": 3, "strings": [{ "name": "Star", "pixels": 10 }, { "name": null, "pixels": 10 }] }
+      ]
+    },
+    "expect": { "suggested": { "port1/string1": ["Gutter", "sameName"], "port1/string2": ["Roof Line", "sameNameOtherSize"] } }
+  },
+  {
+    "name": "suggestions: no prop for two strings",
+    "kind": "falcon",
+    "protocol": { "type": "ddp" },
+    "show": [{ "port": 1, "slots": [{ "name": "Gutter", "nodes": 100 }] }],
+    "device": {
+      "input": { "type": "ddp" },
+      "ports": [
+        { "number": 1, "strings": [{ "name": "Arch", "pixels": 100 }] },
+        { "number": 2, "strings": [{ "name": "Gutter", "pixels": 100 }] }
+      ]
+    },
+    "expect": { "suggested": { "port1/string1": ["Gutter", "samePort"] } }
   }
 ]

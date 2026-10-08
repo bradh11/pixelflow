@@ -2,6 +2,7 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "../api/backend";
 import type { DeviceDetails, DeviceInput, Show, UseProps } from "../api/types";
+import { stringKey } from "../lib/deviceSetup";
 import { plural, thousands } from "../lib/format";
 import { useApp } from "../state/store";
 import { PropPicker } from "./devices/DeviceDialog";
@@ -31,16 +32,23 @@ function importedSummary(before: Show, after: Show, address: string): string {
   return `Added ${controller.name}: ${plural(added, "prop")}${yours ? ` and ${yours} of yours` : ""} on ${plural(controller.ports.length, "port")}. Undo with ⌘Z.`;
 }
 
+/** A table cell's spacing; numbers are right-aligned. */
+const CELL = "px-2 py-1.5 first:pl-0 last:pr-0";
+const NUMBER = `${CELL} text-right tabular-nums`;
+
 /** Reads a device's configuration and shows exactly what importing it would add. (An FPP has a
- * page of its own: see FppDevicePage.) */
+ * page of its own: see FppDevicePage.) When the controller is already in the show, `onCompare`
+ * (Compare with this device) is the main way on, rather than adding another copy. */
 export function ImportDialog({
   address,
   onClose,
   onImported,
+  onCompare,
 }: {
   address: string;
   onClose: () => void;
   onImported: (message: string) => void;
+  onCompare?: () => void;
 }) {
   const backend = useApp((s) => s.backend);
   const run = useApp((s) => s.run);
@@ -55,7 +63,12 @@ export function ImportDialog({
   useEffect(() => {
     let cancelled = false;
     backend?.inspectDevice(address).then(
-      (d) => !cancelled && setDetails(d),
+      (d) => {
+        if (cancelled) return;
+        setDetails(d);
+        // "In your show" starts on the props the strings most likely are.
+        setUseProps(Object.fromEntries(Object.entries(d.plan.suggested).map(([key, match]) => [key, match.prop])));
+      },
       (e) => !cancelled && setError(errorMessage(e)),
     );
     return () => {
@@ -87,6 +100,7 @@ export function ImportDialog({
 
   const mapping = (show?.props.length ?? 0) > 0 && details?.plan.canImport === true;
   const reused = Object.values(useProps).filter(Boolean).length;
+  const compare = details?.plan.alreadyInShow && onCompare ? onCompare : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -94,7 +108,7 @@ export function ImportDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="import-title"
-        className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-xl border border-neutral-200 bg-white shadow-2xl dark:border-neutral-800 dark:bg-neutral-900"
+        className="flex max-h-[85vh] w-full max-w-4xl flex-col rounded-xl border border-neutral-200 bg-white shadow-2xl dark:border-neutral-800 dark:bg-neutral-900"
       >
         <div className="border-b border-neutral-200 p-5 dark:border-neutral-800">
           <h2 id="import-title" className="text-lg font-semibold">
@@ -123,54 +137,62 @@ export function ImportDialog({
                 <span className="text-neutral-500">Receives:</span> {describeInput(details.config.input)}
               </p>
               {details.config.ports.length > 0 && (
-                <table className="w-full">
-                  <thead>
-                    <tr className="text-left text-xs tracking-wide text-neutral-500 uppercase">
-                      <th className="pb-1 font-medium">Port</th>
-                      <th className="pb-1 font-medium">String</th>
-                      <th className="pb-1 text-right font-medium">Pixels</th>
-                      <th className="pb-1 pl-3 font-medium">Order</th>
-                      <th className="pb-1 text-right font-medium">Nulls</th>
-                      <th className="pb-1 pl-3 font-medium">Direction</th>
-                      <th className="pb-1 text-right font-medium">Brightness</th>
-                      <th className="pb-1 text-right font-medium">Gamma</th>
-                      {mapping && <th className="pb-1 pl-3 font-medium">In your show</th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {details.config.ports.flatMap((port) =>
-                      port.strings.map((s, i) => (
-                        <tr key={`${port.number}-${i}`} className="border-t border-neutral-200 dark:border-neutral-800">
-                          <td className="py-1">{i === 0 ? port.number : ""}</td>
-                          <td>{s.name ?? `String ${i + 1}`}</td>
-                          <td className="text-right tabular-nums">{thousands(s.pixels)}</td>
-                          <td className="pl-3">{s.colorOrder}</td>
-                          <td className="text-right tabular-nums">{s.nullPixels}</td>
-                          <td className="pl-3">{s.reverse ? "Reversed" : "Forward"}</td>
-                          <td className="text-right tabular-nums">{s.brightness}%</td>
-                          <td className="text-right tabular-nums">{s.gamma}</td>
-                          {mapping && show && (
-                            <td className="pl-3">
-                              <PropPicker
-                                show={show}
-                                label={`Prop for port ${port.number} ${s.name ?? `string ${i + 1}`}`}
-                                pixels={s.pixels}
-                                order={s.colorOrder}
-                                value={useProps[`port${port.number}/string${i + 1}`] ?? ""}
-                                onChange={(id) => setUseProps((now) => ({ ...now, [`port${port.number}/string${i + 1}`]: id }))}
-                              />
-                            </td>
-                          )}
-                        </tr>
-                      )),
-                    )}
-                  </tbody>
-                </table>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="text-left text-xs tracking-wide whitespace-nowrap text-neutral-500 uppercase">
+                        <th className={`${NUMBER} font-medium`}>Port</th>
+                        <th className={`${CELL} font-medium`}>String</th>
+                        <th className={`${NUMBER} font-medium`}>Pixels</th>
+                        <th className={`${CELL} font-medium`}>Order</th>
+                        <th className={`${NUMBER} font-medium`}>Nulls</th>
+                        <th className={`${CELL} font-medium`}>Direction</th>
+                        <th className={`${NUMBER} font-medium`}>Brightness</th>
+                        <th className={`${NUMBER} font-medium`}>Gamma</th>
+                        {mapping && <th className={`${CELL} font-medium`}>In your show</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {details.config.ports.flatMap((port) =>
+                        port.strings.map((s, i) => {
+                          const key = stringKey(port.number, i);
+                          return (
+                            <tr key={key} className="border-t border-neutral-200 dark:border-neutral-800">
+                              <td className={NUMBER}>{i === 0 ? port.number : ""}</td>
+                              <td className={CELL}>{s.name ?? `String ${i + 1}`}</td>
+                              <td className={NUMBER}>{thousands(s.pixels)}</td>
+                              <td className={CELL}>{s.colorOrder}</td>
+                              <td className={NUMBER}>{s.nullPixels}</td>
+                              <td className={CELL}>{s.reverse ? "Reversed" : "Forward"}</td>
+                              <td className={NUMBER}>{s.brightness}%</td>
+                              <td className={NUMBER}>{s.gamma}</td>
+                              {mapping && show && (
+                                <td className={`${CELL} min-w-56`}>
+                                  <PropPicker
+                                    show={show}
+                                    label={`Prop for port ${port.number} ${s.name ?? `string ${i + 1}`}`}
+                                    pixels={s.pixels}
+                                    order={s.colorOrder}
+                                    value={useProps[key] ?? ""}
+                                    suggestion={details.plan.suggested[key]}
+                                    onChange={(id) => setUseProps((now) => ({ ...now, [key]: id }))}
+                                  />
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        }),
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               )}
               {details.plan.alreadyInShow && (
                 <p className="flex items-start gap-2 text-amber-700 dark:text-amber-400">
                   <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-                  A controller at this address is already in your show. Importing adds another copy.
+                  {compare
+                    ? "A controller at this address is already in your show. Compare with this device to update it; Add another copy adds a second one."
+                    : "A controller at this address is already in your show. Importing adds another copy."}
                 </p>
               )}
               {details.plan.notes.length > 0 && (
@@ -195,9 +217,20 @@ export function ImportDialog({
           <Button ref={cancelRef} onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={add} disabled={!details?.plan.canImport || busy}>
-            {details && !details.plan.canImport ? "Nothing to import" : "Add to show"}
-          </Button>
+          {compare ? (
+            <>
+              <Button onClick={add} disabled={!details?.plan.canImport || busy}>
+                Add another copy
+              </Button>
+              <Button variant="primary" onClick={compare}>
+                Compare with this device
+              </Button>
+            </>
+          ) : (
+            <Button variant="primary" onClick={add} disabled={!details?.plan.canImport || busy}>
+              {details && !details.plan.canImport ? "Nothing to import" : "Add to show"}
+            </Button>
+          )}
         </div>
       </div>
     </div>

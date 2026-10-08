@@ -214,7 +214,7 @@ export function demoDevices(): { details: DeviceDetails[]; silent: SilentPeer[] 
           ],
           notes: ["This FPP has no light outputs of its own: it passes its sequence on to the controllers it sends to."],
         },
-        plan: { controller: fppController, props: [], notes: ["This FPP has no light outputs of its own: it passes its sequence on to the controllers it sends to."], alreadyInShow: false, canImport: false },
+        plan: { controller: fppController, props: [], notes: ["This FPP has no light outputs of its own: it passes its sequence on to the controllers it sends to."], alreadyInShow: false, canImport: false, suggested: {} },
       },
       {
         device: { address: "192.0.2.20", kind: "falcon", name: "Falcon_F16V5_B9F5", model: "F16v5", firmware: "F16V5 v2.00", mode: null, foundBy: ["fppPeer"] },
@@ -236,12 +236,13 @@ export function demoDevices(): { details: DeviceDetails[]; silent: SilentPeer[] 
           ],
           alreadyInShow: false,
           canImport: true,
+          suggested: {},
         },
       },
       {
         device: { address: "192.0.2.40", kind: "wled", name: "Porch WLED", model: "WLED (esp32)", firmware: "WLED 0.15.0", mode: null, foundBy: ["mdns"] },
         config: { input: { type: "ddp" }, ports: [{ number: 1, strings: [stringConfig(strip, 50, { colorOrder: "GRB" })], maxPixels: null }], destinations: [], notes: [] },
-        plan: { controller: wled, props: [strip], notes: [], alreadyInShow: false, canImport: true },
+        plan: { controller: wled, props: [strip], notes: [], alreadyInShow: false, canImport: true, suggested: {} },
       },
     ],
     silent: [{ address: "192.0.2.21", description: "Falcon_F16V5_Garage", listedBy: "FPP" }],
@@ -275,7 +276,7 @@ export function demoShowDevices(show: Show): { details: DeviceDetails[]; players
       {
         device: { address: main.address, kind: "fpp", name: "Main FPP", model: "Pi 4 Model B", firmware: "FPP 9.5", mode: "player", foundBy: ["ping"] },
         config: { input: { type: "ddp" }, ports, destinations: [], notes: [] },
-        plan: { controller: structuredClone(main), props: [], notes: [], alreadyInShow: true, canImport: true },
+        plan: { controller: structuredClone(main), props: [], notes: [], alreadyInShow: true, canImport: true, suggested: {} },
       },
     ],
     players: {

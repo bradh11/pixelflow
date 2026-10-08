@@ -4,10 +4,11 @@ use crate::blur::Grid;
 use crate::color::{Acc, Colors, Rgba, to_u8, write_pixel};
 use crate::effects::{Canvas, EffectTime, Shade, Shader, ShaderVisitor};
 use crate::geometry::{Pixel, PixelBuffer, SceneGeometry};
+use crate::sim::Sims;
 use crate::sparkles::Sparkles;
 use pf_mapping::ChannelMap;
 use pf_model::{BufferTransform, RenderStyle, Show};
-use pf_sequence::{Blend, Effect, EffectParams, Sequence, Target};
+use pf_sequence::{Blend, Effect, EffectId, EffectParams, Sequence, Target};
 use std::collections::HashMap;
 
 /// A target laid out in a render style, turned or flipped.
@@ -42,6 +43,9 @@ pub struct Renderer {
     row_acc: Vec<Acc>,
     /// One member of a per-model buffer being drawn.
     part_acc: Vec<Acc>,
+    /// The effects worked out frame by frame (falling snow, Lines, Life, Tendril), kept from
+    /// frame to frame by effect and the buffer (or part) they draw on.
+    sims: Sims<(EffectId, BufferKey, usize)>,
 }
 
 impl Renderer {
@@ -61,6 +65,7 @@ impl Renderer {
             blur_scratch: Vec::new(),
             row_acc: Vec::new(),
             part_acc: Vec::new(),
+            sims: Sims::default(),
         }
     }
 
@@ -108,9 +113,11 @@ impl Renderer {
                 self.row_acc.resize(len, Acc::ZERO);
                 // Layers draw bottom (first) to top (last). The lowest effect drawn covers,
                 // whatever its blend: there is nothing below it to mix with (as in xLights).
-                for (n, effect) in active.enumerate() {
+                for (n, source) in active.enumerate() {
                     // Settings that change over the effect, at this moment.
-                    let effect = &*effect.at(t_ms);
+                    let effect = &*source.at(t_ms);
+                    let time =
+                        EffectTime::within(effect.start_ms, effect.end_ms, t_ms).with_frame_ms(seq.frame_ms);
                     let blend = if n == 0 { Blend::Normal } else { effect.blend };
                     let key: BufferKey = (row.target, effect.render_style, effect.buffer_transform);
                     let buffer = &*self
@@ -169,6 +176,9 @@ impl Renderer {
                             grid.near_pixels(blur_amount(effect));
                             &*grid
                         });
+                        let simulated =
+                            self.sims
+                                .shader((source.id, key, WHOLE), source, &time, canvas_of(buffer));
                         let draw = Draw {
                             effect,
                             blend,
@@ -181,7 +191,10 @@ impl Renderer {
                             blur_scratch: &mut self.blur_scratch,
                             acc: &mut self.row_acc,
                         };
-                        draw.shaped(seq);
+                        match &simulated {
+                            Some(shader) => draw.run(Some(shader)),
+                            None => draw.shaped(seq),
+                        }
                         continue;
                     }
                     // A per-model style: the effect draws on each member's own buffer.
@@ -197,6 +210,9 @@ impl Renderer {
                             grid.near_pixels(blur_amount(effect));
                             &*grid
                         });
+                        let simulated =
+                            self.sims
+                                .shader((source.id, key, i), source, &time, canvas_of(&part.buffer));
                         let draw = Draw {
                             effect,
                             blend,
@@ -209,7 +225,10 @@ impl Renderer {
                             blur_scratch: &mut self.blur_scratch,
                             acc: &mut self.part_acc,
                         };
-                        draw.shaped(seq);
+                        match &simulated {
+                            Some(shader) => draw.run(Some(shader)),
+                            None => draw.shaped(seq),
+                        }
                         for (&s, &acc) in part.slots.iter().zip(&self.part_acc) {
                             self.row_acc[s as usize] = acc;
                         }
@@ -225,6 +244,7 @@ impl Renderer {
                 }
             }
         }
+        self.sims.sweep();
         self.write(frame);
     }
 
@@ -309,7 +329,8 @@ impl Draw<'_> {
                         .collect()
                 })
                 .unwrap_or_default();
-            let time = EffectTime::within(effect.start_ms, effect.end_ms, self.t_ms);
+            let time =
+                EffectTime::within(effect.start_ms, effect.end_ms, self.t_ms).with_frame_ms(self.frame_ms);
             let colors = Colors::new(&effect.palette.colors);
             let shader = Shader::Shape(crate::effects::Shape::new(
                 &p,
@@ -341,7 +362,7 @@ impl Draw<'_> {
         {
             return;
         }
-        let time = EffectTime::within(effect.start_ms, effect.end_ms, self.t_ms);
+        let time = EffectTime::within(effect.start_ms, effect.end_ms, self.t_ms).with_frame_ms(self.frame_ms);
         let made;
         let shader = match shader {
             Some(shader) => shader,

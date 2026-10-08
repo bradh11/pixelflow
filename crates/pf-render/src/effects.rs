@@ -9,18 +9,30 @@
 //! `EffectParams::sanitize`) before an effect is drawn, so the settings panel, file loading, and
 //! the renderer all agree on what a setting can be. The constructors below rely on that.
 
+pub use crate::butterfly::Butterfly;
 pub use crate::circles::Circles;
 use crate::color::{Colors, Rgba, unit};
 pub use crate::fan::Fan;
+pub use crate::garlands::Garlands;
 use crate::geometry::Pixel;
+pub use crate::life::Life;
+pub use crate::lines::Lines;
 pub use crate::morph::Morph;
+pub use crate::pinwheel::Pinwheel;
+pub use crate::plasma::Plasma;
 pub use crate::shape::Shape;
+pub use crate::snowflakes::Snowflakes;
+pub use crate::tendril::Tendril;
+pub use crate::text::Text;
 use pf_sequence::{
     Axis, BarsParams, ChaseParams, ColorWashParams, Direction, EffectParams, FadeDirection, FadeParams,
     FireParams, Gradient, MeteorDirection, MeteorsParams, OnParams, RippleParams, ShimmerParams,
     SpiralParams, StrobeParams, TwinkleParams, WaveParams,
 };
 use std::f32::consts::TAU;
+
+/// The frame time assumed when none is given (xLights' usual 50 ms, 20 frames a second).
+pub const DEFAULT_FRAME_MS: u32 = 50;
 
 /// Most meteors drawn at once on one target (the top of the Meteors "count" setting's range).
 pub const MAX_METEORS: u32 = 100;
@@ -34,6 +46,10 @@ pub struct EffectTime {
     pub elapsed_ms: u64,
     /// The effect's length in milliseconds (at least 1).
     pub length_ms: u64,
+    /// The sequence's frame time, for effects xLights moves a step a frame (Plasma, Life).
+    pub frame_ms: u32,
+    /// When the effect started, in milliseconds from the start of the sequence.
+    pub start_ms: u64,
 }
 
 impl EffectTime {
@@ -45,7 +61,43 @@ impl EffectTime {
             t_norm: (elapsed_ms as f64 / length as f64).clamp(0.0, 1.0) as f32,
             elapsed_ms,
             length_ms: length,
+            frame_ms: DEFAULT_FRAME_MS,
+            start_ms,
         }
+    }
+
+    /// The same time in a sequence with `frame_ms` frames.
+    pub fn with_frame_ms(self, frame_ms: u32) -> Self {
+        Self {
+            frame_ms: frame_ms.max(1),
+            ..self
+        }
+    }
+
+    /// Whole frames since the effect started (xLights' `curPeriod - curEffStartPer`).
+    pub(crate) fn frame(&self) -> u64 {
+        self.elapsed_ms / u64::from(self.frame_ms.max(1))
+    }
+
+    /// Frames the effect lasts, counting its first and last (xLights' `curEffEndPer -
+    /// curEffStartPer + 1`).
+    pub(crate) fn frames(&self) -> u64 {
+        (self.length_ms.max(1) - 1) / u64::from(self.frame_ms.max(1)) + 1
+    }
+
+    /// xLights' `GetEffectTimeIntervalPosition(cycles)`: where the effect is in its current cycle
+    /// (0–1), counting in frames, with `cycles` cycles over the effect.
+    pub(crate) fn cycle_position(&self, cycles: f64) -> f64 {
+        let periods = self.frames() as f64;
+        if periods <= 1.0 {
+            return 0.0;
+        }
+        let per_cycle = periods / cycles;
+        if per_cycle.is_nan() || per_cycle <= 1.0 || per_cycle.is_infinite() {
+            return 0.0;
+        }
+        let at = (self.frame() as f64).rem_euclid(per_cycle);
+        (at / (per_cycle - 1.0)).min(1.0)
     }
 
     pub(crate) fn seconds(&self) -> f64 {
@@ -74,6 +126,40 @@ pub(crate) fn hash(seed: u64, a: u64, b: u64) -> u64 {
     z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
     z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
     z ^ (z >> 31)
+}
+
+/// A deterministic stream of random numbers (splitmix64), for effects that draw many in turn
+/// (xLights' `randInt` and `rand01`). Seed it from [`hash`] of the effect's seed and what the
+/// numbers are for, so each frame's numbers depend only on the document.
+#[derive(Debug, Clone)]
+pub(crate) struct Rng(u64);
+
+impl Rng {
+    pub fn new(seed: u64) -> Self {
+        Self(seed)
+    }
+
+    pub fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+
+    /// A fraction in `0.0..1.0` (`rand01`).
+    pub fn unit(&mut self) -> f64 {
+        (self.next() >> 11) as f64 / (1u64 << 53) as f64
+    }
+
+    /// A whole number from `lo` to `hi`, both included (`randInt`).
+    pub fn int(&mut self, lo: i32, hi: i32) -> i32 {
+        if hi <= lo {
+            return lo;
+        }
+        let span = (i64::from(hi) - i64::from(lo) + 1) as u64;
+        (i64::from(lo) + (self.next() % span) as i64) as i32
+    }
 }
 
 /// [`hash`] as a fraction in `0.0..1.0`.
@@ -755,6 +841,15 @@ pub enum Shader {
     Fan(Fan),
     Morph(Morph),
     Circles(Circles),
+    Pinwheel(Pinwheel),
+    Snowflakes(Snowflakes),
+    Plasma(Plasma),
+    Butterfly(Butterfly),
+    Garlands(Garlands),
+    Lines(Lines),
+    Life(Life),
+    Tendril(Tendril),
+    Text(Text),
     Faces(Faces),
 }
 
@@ -785,6 +880,22 @@ impl Shader {
             EffectParams::Fan(p) => Shader::Fan(Fan::new(p, time, colors, canvas)),
             EffectParams::Morph(p) => Shader::Morph(Morph::new(p, time, colors, canvas)),
             EffectParams::Circles(p) => Shader::Circles(Circles::new(p, time, colors, seed, canvas)),
+            EffectParams::Pinwheel(p) => Shader::Pinwheel(Pinwheel::new(p, time, colors, canvas)),
+            EffectParams::Snowflakes(p) if p.motion == pf_sequence::SnowflakesMotion::Blowing => {
+                Shader::Snowflakes(Snowflakes::blowing(p, time, colors, seed, canvas))
+            }
+            EffectParams::Plasma(p) => Shader::Plasma(Plasma::new(p, time, colors, canvas)),
+            EffectParams::Butterfly(p) => Shader::Butterfly(Butterfly::new(p, time, colors, canvas)),
+            EffectParams::Garlands(p) => Shader::Garlands(Garlands::new(p, time, colors, canvas)),
+            EffectParams::Text(p) => Shader::Text(Text::new(p, time, colors, canvas)),
+            // Worked out frame by frame from the first; the renderer keeps their state between
+            // frames instead (see `sim.rs`).
+            p @ (EffectParams::Snowflakes(_)
+            | EffectParams::Lines(_)
+            | EffectParams::Life(_)
+            | EffectParams::Tendril(_)) => {
+                crate::sim::run(p, time, colors, seed, canvas).unwrap_or(Shader::Off(Off))
+            }
             EffectParams::Faces(_) => Shader::Faces(Faces::default()),
         }
     }
@@ -811,6 +922,15 @@ impl Shader {
             Shader::Fan(s) => each.visit(s),
             Shader::Morph(s) => each.visit(s),
             Shader::Circles(s) => each.visit(s),
+            Shader::Pinwheel(s) => each.visit(s),
+            Shader::Snowflakes(s) => each.visit(s),
+            Shader::Plasma(s) => each.visit(s),
+            Shader::Butterfly(s) => each.visit(s),
+            Shader::Garlands(s) => each.visit(s),
+            Shader::Lines(s) => each.visit(s),
+            Shader::Life(s) => each.visit(s),
+            Shader::Tendril(s) => each.visit(s),
+            Shader::Text(s) => each.visit(s),
             Shader::Faces(s) => each.visit(s),
         }
     }

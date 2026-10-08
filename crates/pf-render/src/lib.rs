@@ -9,23 +9,34 @@
 //! always give the same picture. [`export`] writes a sequence as an FPP `.fseq` file.
 
 mod blur;
+mod butterfly;
 mod circles;
 mod color;
 mod effects;
 pub mod export;
 pub mod faces;
 mod fan;
+mod garlands;
 mod geometry;
+mod life;
+mod lines;
 mod morph;
+mod pinwheel;
+mod plasma;
 mod raster;
 mod render;
 mod shape;
+mod sim;
+mod snowflakes;
 mod sparkles;
 mod styles;
+mod tendril;
+mod text;
 
 pub use color::{Colors, Rgba};
 pub use effects::{
-    Canvas, Circles, EffectTime, Faces, Fan, MAX_METEORS, Morph, Shade, Shader, Shape, shade_pixel,
+    Butterfly, Canvas, Circles, DEFAULT_FRAME_MS, EffectTime, Faces, Fan, Garlands, Life, Lines, MAX_METEORS,
+    Morph, Pinwheel, Plasma, Shade, Shader, Shape, Snowflakes, Tendril, Text, shade_pixel,
 };
 pub use geometry::{Pixel, PixelBuffer, SceneGeometry};
 pub use render::Renderer;

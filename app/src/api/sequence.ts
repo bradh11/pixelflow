@@ -25,6 +25,15 @@ export type EffectKind =
   | "fan"
   | "morph"
   | "circles"
+  | "pinwheel"
+  | "snowflakes"
+  | "plasma"
+  | "butterfly"
+  | "garlands"
+  | "lines"
+  | "life"
+  | "tendril"
+  | "text"
   | "faces";
 
 export type Gradient = "none" | "horizontal" | "vertical";
@@ -156,6 +165,107 @@ export type EffectParams =
       bounce?: boolean;
       centerX?: number;
       centerY?: number;
+    }
+  | {
+      kind: "pinwheel";
+      arms?: number;
+      armSize?: number;
+      twist?: number;
+      thickness?: number;
+      speed?: number;
+      counterclockwise?: boolean;
+      shading?: "flat" | "raised" | "sunken" | "sweep";
+      offset?: number;
+      centerX?: number;
+      centerY?: number;
+      style?: "smooth" | "spokes";
+    }
+  | {
+      kind: "snowflakes";
+      count?: number;
+      flake?: "random" | "dot" | "cross" | "bar" | "bigCross" | "star" | "square" | "plus" | "diamond" | "x";
+      speed?: number;
+      motion?: "blowing" | "falling" | "pilingUp";
+      warmup?: number;
+    }
+  | { kind: "plasma"; colors?: "palette" | "redGreen" | "blueGreen" | "rainbow" | "white"; twist?: number; density?: number; speed?: number }
+  | {
+      kind: "butterfly";
+      pattern?: number;
+      colors?: "rainbow" | "palette";
+      speed?: number;
+      direction?: Direction;
+      chunks?: number;
+      skip?: number;
+    }
+  | {
+      kind: "garlands";
+      shape?: "straight" | "smallSwags" | "swags" | "deepSwags" | "doubleDips";
+      spacing?: number;
+      cycles?: number;
+      direction?: "up" | "down" | "left" | "right" | "upThenDown" | "downThenUp" | "leftThenRight" | "rightThenLeft";
+    }
+  | { kind: "lines"; count?: number; points?: number; thickness?: number; speed?: number; trails?: number; fadeTrails?: boolean }
+  | {
+      kind: "life";
+      density?: number;
+      rules?: "classic" | "b35S236" | "amoeba" | "coagulations" | "b25678S5678";
+      speed?: number;
+    }
+  | {
+      kind: "tendril";
+      movement?:
+        | "random"
+        | "square"
+        | "circle"
+        | "horizontalZigZag"
+        | "horizontalZigZagReturn"
+        | "verticalZigZag"
+        | "verticalZigZagReturn"
+        | "manual";
+      movementSize?: number;
+      thickness?: number;
+      tendrils?: number;
+      length?: number;
+      speed?: number;
+      friction?: number;
+      dampening?: number;
+      tension?: number;
+      offsetX?: number;
+      offsetY?: number;
+      manualX?: number;
+      manualY?: number;
+    }
+  | {
+      kind: "text";
+      /** What it says; `\n` starts a new line. */
+      text?: string;
+      movement?:
+        | "none"
+        | "left"
+        | "right"
+        | "up"
+        | "down"
+        | "upLeft"
+        | "downLeft"
+        | "upRight"
+        | "downRight"
+        | "vector"
+        | "wavy"
+        | "leftRight"
+        | "upDown";
+      speed?: number;
+      size?: number;
+      orientation?: "across" | "stackedDown" | "stackedUp";
+      toCenter?: boolean;
+      noRepeat?: boolean;
+      startX?: number;
+      startY?: number;
+      endX?: number;
+      endY?: number;
+      pixelOffsets?: boolean;
+      colorPerWord?: boolean;
+      countdown?: "none" | "seconds" | "minutesSeconds";
     }
   | {
       kind: "faces";
@@ -452,6 +562,8 @@ export type EffectSetting = SettingBase &
     | { type: "choice"; default: string; options: ChoiceOption[] }
     /** One of the row's prop's faces, by name ("" = its first face). */
     | { type: "face"; default: string }
+    /** Free text. */
+    | { type: "text"; default: string }
     /** One of the sequence's timing tracks, by id. */
     | { type: "timingTrack"; default: Uuid | null }
   );
@@ -588,6 +700,15 @@ export const EFFECT_KINDS: { kind: EffectKind; label: string }[] = [
   { kind: "fan", label: "Fan" },
   { kind: "morph", label: "Morph" },
   { kind: "circles", label: "Circles" },
+  { kind: "pinwheel", label: "Pinwheel" },
+  { kind: "snowflakes", label: "Snowflakes" },
+  { kind: "plasma", label: "Plasma" },
+  { kind: "butterfly", label: "Butterfly" },
+  { kind: "garlands", label: "Garlands" },
+  { kind: "lines", label: "Lines" },
+  { kind: "life", label: "Life" },
+  { kind: "tendril", label: "Tendril" },
+  { kind: "text", label: "Text" },
 ];
 
 /** A new effect of `kind` (engine-default settings, white) from `startMs` to `endMs`. */

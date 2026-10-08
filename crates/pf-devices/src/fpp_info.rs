@@ -90,7 +90,7 @@ fn size_of(file: &Value) -> Option<u64> {
 }
 
 /// The files `GetFiles()` lists in `folder` (sub-folders left out), by name.
-fn listing(http: &dyn Http, host: &str, folder: &str) -> Result<Vec<Value>, DeviceError> {
+pub(crate) fn listing(http: &dyn Http, host: &str, folder: &str) -> Result<Vec<Value>, DeviceError> {
     let path = format!("/api/files/{folder}");
     let doc = lenient_json(&http.get(host, &path)?);
     let files = doc
@@ -106,7 +106,7 @@ fn listing(http: &dyn Http, host: &str, folder: &str) -> Result<Vec<Value>, Devi
     Ok(files)
 }
 
-fn base(file: &Value) -> FppFile {
+pub(crate) fn base(file: &Value) -> FppFile {
     FppFile {
         name: str_field(file, "name").trim().to_string(),
         size_bytes: size_of(file),

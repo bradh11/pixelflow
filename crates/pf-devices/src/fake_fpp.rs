@@ -2,7 +2,9 @@
 //! uploads end to end without a device. It implements only the endpoints PixelFlow uses to send
 //! a sequence, modelled on FPP 9.3's PHP (`www/api/controllers/files.php`, `playlist.php`):
 //! the file-manager upload into the upload folder, the listing of that folder, the move into
-//! place, deleting from it, playlists, status, outputs, and commands.
+//! place, deleting from it, playlists, status, outputs, and commands. It also serves file
+//! downloads (`GET /api/file/{sequences,music}/<name>`, FPP 9.5.3's `GetFile()`) for files given
+//! their bytes, slowly or cut off partway when asked.
 //!
 //! It can be made slow, failing, or out of space, can behave like FPP 10 (each chunk its own
 //! `.patch.<offset>` file), can print PHP warnings ahead of its JSON, and can put together a
@@ -157,6 +159,16 @@ pub struct FakeFppState {
     /// The FPP's hardware id (`uuid` in `/api/system/info`), and its host name.
     pub uuid: String,
     pub host_name: String,
+    /// Bytes served by `GET /api/file/<folder>/<name>`, by `sequences/<name>` or `music/<name>`
+    /// (other files answer 404 there, as a missing file does).
+    pub contents: BTreeMap<String, Vec<u8>>,
+    /// Each sequence's `mf` header (its music), by file name, for `/api/sequence/<name>/meta`.
+    pub sequence_media: BTreeMap<String, String>,
+    /// A pause after each 16 KiB of a download is sent (a slow network or SD card).
+    pub download_delay: Duration,
+    /// Downloads stop after this many bytes and the connection closes (the full length was
+    /// announced), as when the FPP drops off the network partway.
+    pub cut_downloads_at: Option<u64>,
 }
 
 /// PHP's `stripslashes()`: each backslash is dropped and the character after it kept.
@@ -252,6 +264,10 @@ impl Default for FakeFppState {
             damage_saves: false,
             uuid: "M1-FAKE-0001".to_string(),
             host_name: "FakeFPP".to_string(),
+            contents: BTreeMap::new(),
+            sequence_media: BTreeMap::new(),
+            download_delay: Duration::ZERO,
+            cut_downloads_at: None,
         }
     }
 }
@@ -338,6 +354,34 @@ impl FakeFpp {
         self.state()
             .sequences
             .insert(name.to_string(), StoredFile { size, checksum: 0 });
+        self
+    }
+
+    /// Puts a sequence with these bytes on the FPP, which it serves for download.
+    pub fn with_sequence_file(self, name: &str, data: &[u8]) -> Self {
+        {
+            let mut s = self.state();
+            s.sequences.insert(name.to_string(), StoredFile::of(data));
+            s.contents.insert(format!("sequences/{name}"), data.to_vec());
+        }
+        self
+    }
+
+    /// Puts a music file with these bytes on the FPP, which it serves for download.
+    pub fn with_music_file(self, name: &str, data: &[u8]) -> Self {
+        {
+            let mut s = self.state();
+            s.music.insert(name.to_string(), StoredFile::of(data));
+            s.contents.insert(format!("music/{name}"), data.to_vec());
+        }
+        self
+    }
+
+    /// Gives a sequence an `mf` header (the music it names), as xLights writes it.
+    pub fn with_sequence_media(self, name: &str, mf: &str) -> Self {
+        self.state()
+            .sequence_media
+            .insert(name.to_string(), mf.to_string());
         self
     }
 
@@ -520,6 +564,15 @@ fn serve(stream: TcpStream, state: &Mutex<FakeFppState>) -> std::io::Result<()> 
     if method == "PATCH" && (path == "/api/file/uploads" || path == "/api/file/upload") {
         return upload(&mut reader, &mut stream, &request, state);
     }
+    if method == "GET"
+        && let Some(rest) = path.strip_prefix("/api/file/")
+        && let Some((folder, name)) = rest.split_once('/')
+        && (folder == "sequences" || folder == "music")
+    {
+        lock().requests.push(format!("{method} {path}"));
+        let key = format!("{folder}/{}", percent_decode(name));
+        return send_file(&mut stream, &key, state);
+    }
     lock().requests.push(format!("{method} {path}"));
     let body = if method == "POST" {
         read_body(&mut reader, &request)?
@@ -586,9 +639,11 @@ fn route(s: &mut FakeFppState, method: &str, segments: &[&str], body: &[u8]) -> 
         ("GET", ["api", "sequence", name, "meta"]) => match s.sequences.get(&format!("{name}.fseq")) {
             Some(_) => {
                 let ms = s.durations.get(&format!("{name}.fseq")).copied().unwrap_or(0);
-                ok(
-                    json!({"Name": format!("{name}.fseq"), "NumFrames": ms / 50, "StepTime": 50, "ChannelCount": 6147}),
-                )
+                let mut meta = json!({"Name": format!("{name}.fseq"), "NumFrames": ms / 50, "StepTime": 50, "ChannelCount": 6147});
+                if let Some(mf) = s.sequence_media.get(&format!("{name}.fseq")) {
+                    meta["variableHeaders"] = json!({"mf": mf, "sp": "xLights Macintosh 2024.19"});
+                }
+                ok(meta)
             }
             None => (404, json!({"status": "not found"}).to_string()),
         },
@@ -741,6 +796,42 @@ fn route(s: &mut FakeFppState, method: &str, segments: &[&str], body: &[u8]) -> 
         }
         _ => (404, json!({"status": "not found"}).to_string()),
     }
+}
+
+/// `GET /api/file/<folder>/<name>`, as FPP 9.5.3's `GetFileImpl()` answers it: the file's
+/// bytes as `application/binary`, or 404 when it isn't there. Slowed by `download_delay`, and
+/// cut off at `cut_downloads_at`.
+fn send_file(stream: &mut TcpStream, key: &str, state: &Mutex<FakeFppState>) -> std::io::Result<()> {
+    let (data, delay, cut) = {
+        let s = state.lock().unwrap_or_else(PoisonError::into_inner);
+        (s.contents.get(key).cloned(), s.download_delay, s.cut_downloads_at)
+    };
+    let Some(data) = data else {
+        return respond(
+            stream,
+            404,
+            &format!("File /home/fpp/media/{key} does not exist."),
+        );
+    };
+    let name = key.rsplit('/').next().unwrap_or(key);
+    write!(
+        stream,
+        "HTTP/1.1 200 OK\r\nContent-Type: application/binary\r\nContent-Disposition: attachment;filename=\"{name}\"\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        data.len()
+    )?;
+    let end = cut.map_or(data.len(), |c| data.len().min(c as usize));
+    for piece in data[..end].chunks(16 * 1024) {
+        stream.write_all(piece)?;
+        stream.flush()?;
+        if !delay.is_zero() {
+            std::thread::sleep(delay);
+        }
+    }
+    if end < data.len() {
+        // Gone partway: the rest never arrives.
+        let _ = stream.shutdown(std::net::Shutdown::Both);
+    }
+    Ok(())
 }
 
 /// `PATCH /api/file/uploads`, as FPP 9.3's `PatchFile()` handles it (or FPP 10's, with

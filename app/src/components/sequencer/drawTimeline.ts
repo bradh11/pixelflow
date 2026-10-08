@@ -32,6 +32,10 @@ const HUES: Record<EffectKind, number> = {
   fire: 15,
   meteors: 190,
   ripple: 140,
+  shape: 100,
+  fan: 240,
+  morph: 80,
+  circles: 160,
   faces: 340,
 };
 

@@ -6,6 +6,7 @@ import { startCurve } from "../../lib/curves";
 import { memberProp } from "../../lib/shows";
 import { facesOf, targetProp } from "../../lib/submodels";
 import { newGesture } from "../../state/sequencer";
+import { More } from "../ui";
 import { CurveEditor } from "./CurveEditor";
 
 // The controls the effect settings panel is made of: setting fields from the catalog, colors,
@@ -122,6 +123,21 @@ export function Panel({ children }: { children: React.ReactNode }) {
     >
       {children}
     </aside>
+  );
+}
+
+/** An effect kind's settings: the everyday ones, then the ones most people leave alone under "More". */
+export function KindSettings({ settings, control }: { settings: EffectSetting[]; control: (setting: EffectSetting) => React.ReactNode }) {
+  const more = settings.filter((s) => s.more);
+  return (
+    <>
+      {settings.filter((s) => !s.more).map(control)}
+      {more.length > 0 && (
+        <More id="effect-kind-settings" label="More settings">
+          <div className="flex flex-col gap-2.5">{more.map(control)}</div>
+        </More>
+      )}
+    </>
   );
 }
 

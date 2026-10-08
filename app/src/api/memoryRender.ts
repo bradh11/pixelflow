@@ -132,6 +132,43 @@ function shade(effect: Effect, ms: number, px: Px, seed: number): [Rgb, number] 
       const s = (r - el * num(p, "speed", 0.5)) / spacing;
       return frac(s) * spacing < num(p, "thickness", 0.12) ? [get(-Math.floor(s)), 1] : [[0, 0, 0], 0];
     }
+    case "shape": {
+      // Rings growing from random places, each fading over its life.
+      const life = Math.max(0.01, num(p, "lifetime", 5) / 100);
+      for (let k = 0; k < Math.min(20, num(p, "count", 5)); k++) {
+        const age = t / life + hash(k, seed);
+        const gen = Math.floor(age);
+        const [cx, cy] = p.randomLocation === false ? [num(p, "centerX", 50) / 100, num(p, "centerY", 50) / 100] : [hash(k, gen + seed), hash(gen, k + seed)];
+        const r = (num(p, "startSize", 1) + num(p, "growth", 10) * frac(age)) / 40;
+        if (Math.abs(Math.hypot(px.u - cx, px.v - cy) - r) < 0.03) return [get(k), p.fade === false ? 1 : 1 - frac(age)];
+      }
+      return [[0, 0, 0], 0];
+    }
+    case "fan": {
+      const [dx, dy] = [px.u - num(p, "centerX", 50) / 100, px.v - num(p, "centerY", 50) / 100];
+      const r = Math.hypot(dx, dy) / 0.5;
+      if (r < num(p, "startRadius", 1) / 100 || r > num(p, "endRadius", 50) / 100) return [[0, 0, 0], 0];
+      const turn = (reverse ? -1 : 1) * t * num(p, "revolutions", 2);
+      const a = frac(Math.atan2(dx, dy) / (2 * Math.PI) + (r * num(p, "bladeAngle", 90)) / 360 + turn) * Math.max(1, num(p, "blades", 3));
+      const width = num(p, "bladeWidth", 50) / 100;
+      return frac(a) < width ? [get((frac(a) / width) * colors.length), 1] : [[0, 0, 0], 0];
+    }
+    case "morph": {
+      // A line sweeping up the prop: the head, then a tail fading behind it.
+      const head = t / Math.max(0.01, num(p, "headDuration", 20) / 100);
+      const behind = head - px.v;
+      if (Math.abs(behind) < 0.04) return [get(0), 1];
+      return behind > 0 && behind < head ? [get(1), Math.max(0, 1 - behind / 2)] : [[0, 0, 0], 0];
+    }
+    case "circles": {
+      const size = num(p, "size", 5) / 40;
+      for (let k = 0; k < Math.min(10, num(p, "count", 3)); k++) {
+        const step = (el * num(p, "speed", 10)) / 20;
+        const [x, y] = [frac(hash(k, seed) + step * (hash(seed, k) - 0.5)), frac(hash(k + 7, seed) + step * (hash(seed, k + 7) - 0.5))];
+        if (Math.hypot(px.u - x, px.v - y) < size) return [get(k), 1];
+      }
+      return [[0, 0, 0], 0];
+    }
     default:
       return [[0, 0, 0], 0];
   }

@@ -351,6 +351,7 @@ impl<'a> Builder<'a> {
             sparkles: translated.sparkles,
             sparkle_color: translated.sparkle_color,
             blur: translated.blur,
+            curves: Default::default(),
         })
     }
 

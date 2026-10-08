@@ -100,6 +100,8 @@ impl Renderer {
                 // Layers draw bottom (first) to top (last). The lowest effect drawn covers,
                 // whatever its blend: there is nothing below it to mix with (as in xLights).
                 for (n, effect) in active.enumerate() {
+                    // Settings that change over the effect, at this moment.
+                    let effect = &*effect.at(t_ms);
                     let grid = (effect.blur > 0)
                         .then(|| &*self.grids.entry(row.target).or_insert_with(|| Grid::new(buffer)));
                     let draw = Draw {

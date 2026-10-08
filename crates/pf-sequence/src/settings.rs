@@ -70,9 +70,27 @@ pub(crate) trait SettingField: Sized {
     fn sanitize(&mut self, range: &SettingRange, default: Self);
     /// Why the value is outside `range`, if it is (e.g. "is 70; use 0 to 50").
     fn problem(&self, range: &SettingRange) -> Option<String>;
+    /// Sets a number setting from a curve's value (a whole number rounded); false for a setting
+    /// that isn't a number.
+    fn set_number(&mut self, _value: f32) -> bool {
+        false
+    }
+    /// A number setting's value; `None` for a setting that isn't a number.
+    fn number(&self) -> Option<f32> {
+        None
+    }
 }
 
 impl SettingField for f32 {
+    fn set_number(&mut self, value: f32) -> bool {
+        *self = value;
+        true
+    }
+
+    fn number(&self) -> Option<f32> {
+        Some(*self)
+    }
+
     fn sanitize(&mut self, range: &SettingRange, default: Self) {
         if let SettingRange::Number { min, max, .. } = *range {
             *self = if self.is_nan() {
@@ -98,6 +116,16 @@ impl SettingField for f32 {
 }
 
 impl SettingField for u32 {
+    fn set_number(&mut self, value: f32) -> bool {
+        // Saturating: NaN becomes 0, and the settings table clamps the rest.
+        *self = value.round() as u32;
+        true
+    }
+
+    fn number(&self) -> Option<f32> {
+        Some(*self as f32)
+    }
+
     fn sanitize(&mut self, range: &SettingRange, _default: Self) {
         if let SettingRange::Int { min, max, .. } = *range {
             *self = (*self).clamp(min, max);
@@ -265,6 +293,30 @@ macro_rules! effect_params {
                     let spec = specs.next().expect("one spec per field");
                     $crate::settings::SettingField::sanitize(&mut self.$field, &spec.range, defaults.$field);
                 )*
+            }
+
+            /// Sets the number setting `key` (its JSON key) to `value`; false when the kind has no
+            /// number setting by that name.
+            #[allow(unused_variables)]
+            pub fn set_number(&mut self, key: &str, value: f32) -> bool {
+                $(
+                    if key == $key {
+                        return $crate::settings::SettingField::set_number(&mut self.$field, value);
+                    }
+                )*
+                false
+            }
+
+            /// The number setting `key` (its JSON key); `None` when the kind has no number
+            /// setting by that name.
+            #[allow(unused_variables)]
+            pub fn number(&self, key: &str) -> Option<f32> {
+                $(
+                    if key == $key {
+                        return $crate::settings::SettingField::number(&self.$field);
+                    }
+                )*
+                None
             }
 
             /// The first setting outside its range: its spec and why.

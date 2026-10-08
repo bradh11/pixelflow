@@ -29,7 +29,7 @@ impl From<serde_json::Error> for SequenceError {
 type Migration = fn(Value) -> Result<Value, SequenceError>;
 
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
-const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3];
+const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4];
 
 /// Version 2 only adds submodel targets, so version 1 documents are already valid.
 fn v1_to_v2(doc: Value) -> Result<Value, SequenceError> {
@@ -39,6 +39,12 @@ fn v1_to_v2(doc: Value) -> Result<Value, SequenceError> {
 /// Version 3 only adds effect settings that default to off (sparkles, blur) and more blends, so
 /// version 2 documents are already valid.
 fn v2_to_v3(doc: Value) -> Result<Value, SequenceError> {
+    Ok(doc)
+}
+
+/// Version 4 only adds settings that change over an effect (`curves`, none when missing), so
+/// version 3 documents are already valid.
+fn v3_to_v4(doc: Value) -> Result<Value, SequenceError> {
     Ok(doc)
 }
 
@@ -125,6 +131,11 @@ mod tests {
         chase.sparkles = 54;
         chase.sparkle_color = Rgb::new(255, 0, 0);
         chase.blur = 7;
+        chase.curves.insert("speed".into(), Curve::ramp(0.5, 4.0));
+        chase.curves.insert(
+            "sparkles".into(),
+            Curve::custom(0.0, 100.0, vec![[0.0, 0.0], [0.5, 1.0], [0.5, 0.0]]),
+        );
         chase.fade_out_ms = 500;
         row.layers[0].effects.push(chase);
         row.layers.push(Layer {
@@ -172,6 +183,18 @@ mod tests {
         assert_eq!(chase["sparkles"], 54);
         assert_eq!(chase["sparkleColor"], "#ff0000");
         assert_eq!(chase["blur"], 7);
+        assert_eq!(
+            chase["curves"]["speed"],
+            serde_json::json!({ "shape": "ramp", "from": 0.5, "to": 4.0 })
+        );
+        assert_eq!(
+            chase["curves"]["sparkles"]["points"][1],
+            serde_json::json!([0.5, 1.0])
+        );
+        assert!(
+            json["rows"][0]["layers"][1]["effects"][0].get("curves").is_none(),
+            "no curves, no field"
+        );
         assert!(json["rows"][1]["target"]["group"].is_string());
         assert!(json["rows"][2]["target"]["region"]["region"].is_string());
     }
@@ -194,6 +217,70 @@ mod tests {
             (0, Rgb::WHITE, 0),
             "files from before sparkles and blur open with them off"
         );
+        assert!(
+            effect.curves.is_empty(),
+            "files from before curves open without them"
+        );
+    }
+
+    #[test]
+    fn version_3_files_open_unchanged_as_version_4() {
+        let text = r#"{ "schemaVersion": 3, "name": "x", "durationMs": 1000, "rows": [
+            { "id": "11111111-0000-4000-8000-000000000001",
+              "target": { "prop": "22222222-0000-4000-8000-000000000001" },
+              "layers": [ { "effects": [ { "id": "33333333-0000-4000-8000-000000000001",
+                  "startMs": 0, "endMs": 500, "params": { "kind": "chase", "speed": 2 },
+                  "sparkles": 10, "blur": 3 } ] } ] } ] }"#;
+        let seq = sequence_from_json(text).unwrap();
+        assert_eq!(seq.schema_version, 4);
+        let effect = &seq.rows[0].layers[0].effects[0];
+        assert!(effect.curves.is_empty());
+        assert_eq!((effect.sparkles, effect.blur), (10, 3));
+        let again = sequence_from_json(&sequence_to_json(&seq).unwrap()).unwrap();
+        assert_eq!(again, seq);
+    }
+
+    #[test]
+    fn curves_are_fitted_to_their_settings_on_open_and_refused_in_memory() {
+        let text = r#"{ "schemaVersion": 4, "name": "x", "durationMs": 1000, "rows": [
+            { "id": "11111111-0000-4000-8000-000000000001",
+              "target": { "prop": "22222222-0000-4000-8000-000000000001" },
+              "layers": [ { "effects": [ { "id": "33333333-0000-4000-8000-000000000001",
+                  "startMs": 0, "endMs": 500, "params": { "kind": "chase" },
+                  "curves": {
+                    "speed": { "shape": "sine", "from": -5, "to": 500, "cycles": 3 },
+                    "bands": { "shape": "ramp", "from": 1, "to": 8 },
+                    "direction": { "shape": "ramp", "from": 0, "to": 1 },
+                    "lasers": { "shape": "ramp", "from": 0, "to": 1 }
+                  } } ] } ] } ] }"#;
+        let seq = sequence_from_json(text).unwrap();
+        let effect = &seq.rows[0].layers[0].effects[0];
+        assert_eq!(
+            effect.curves.keys().collect::<Vec<_>>(),
+            ["bands", "speed"],
+            "curves on settings that aren't numbers are dropped"
+        );
+        let speed = &effect.curves["speed"];
+        assert_eq!(
+            (speed.shape, speed.from, speed.to, speed.cycles),
+            (CurveShape::Sine, 0.0, 50.0, 3.0)
+        );
+
+        let mut bad = seq.clone();
+        bad.rows[0].layers[0].effects[0]
+            .curves
+            .insert("speed".into(), Curve::ramp(0.0, 70.0));
+        assert_eq!(
+            limit_problems(&bad),
+            vec![
+                "The Chase effect at 0:00.000 has a setting PixelFlow can't use: Speed's curve ends at 70; use 0 to 50."
+                    .to_string()
+            ]
+        );
+        bad.rows[0].layers[0].effects[0]
+            .curves
+            .insert("bounce".into(), Curve::ramp(0.0, 1.0));
+        assert!(limit_problems(&bad)[0].contains("'bounce' can't change over the effect"));
     }
 
     #[test]

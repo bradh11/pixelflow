@@ -11,8 +11,9 @@ use serde::{Deserialize, Serialize};
 /// what it doesn't know on save. Add the migration in `io.rs` in the same change.
 ///
 /// History: 1 = initial format; 2 = rows can target a submodel (`{ "region": { "prop", "region" } }`);
-/// 3 = effects have sparkles (`sparkles`, `sparkleColor`), `blur`, and more blends.
-pub const CURRENT_SCHEMA_VERSION: u32 = 3;
+/// 3 = effects have sparkles (`sparkles`, `sparkleColor`), `blur`, and more blends; 4 = effect
+/// settings can change over the effect (`curves`).
+pub const CURRENT_SCHEMA_VERSION: u32 = 4;
 
 fn default_frame_ms() -> u32 {
     25

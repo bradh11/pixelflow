@@ -159,8 +159,10 @@ fn template(spec: &Value) -> Result<Effect, String> {
         .collect::<Result<_, _>>()?;
     let blend = match &spec["blend"] {
         Value::Null => Blend::default(),
-        value => serde_json::from_value::<Blend>(value.clone())
-            .map_err(|_| "blend is one of normal, add, max, multiply.".to_string())?,
+        value => serde_json::from_value::<Blend>(value.clone()).map_err(|_| {
+            let keys: Vec<&str> = Blend::ALL.iter().map(|b| b.key()).collect();
+            format!("blend is one of {}.", keys.join(", "))
+        })?,
     };
     let fade = |field: &str| u32::try_from(spec[field].as_u64().unwrap_or(0)).unwrap_or(u32::MAX);
     let mut effect = Effect::new(params.kind(), 0, 1).with_params(params);

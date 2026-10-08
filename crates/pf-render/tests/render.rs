@@ -390,6 +390,140 @@ fn layers_blend_bottom_to_top() {
     assert_eq!(pixels, vec![[0, 0, 255], [255, 0, 0], [255, 0, 0], [255, 0, 0]]);
 }
 
+/// A chase lighting only prop A's first pixel.
+fn first_pixel(color: Rgb) -> Effect {
+    Effect::new(EffectKind::Chase, 0, 1000)
+        .with_palette([color])
+        .with_params(EffectParams::Chase(ChaseParams {
+            width: 0.25,
+            speed: 0.0,
+            ..ChaseParams::default()
+        }))
+}
+
+#[test]
+fn behind_is_xlights_2_reveals_1_with_layer_1_on_top() {
+    // xLights layer 1 (drawn on top, PixelFlow's last layer) set to "2 reveals 1" over layer 2
+    // (PixelFlow's first): layer 2 shows where it's lit, layer 1 only where layer 2 is dark.
+    let show = show();
+    let a = Target::Prop(show.props[0].id);
+    let mut top = on(Rgb::RED, 0, 1000);
+    top.blend = Blend::Behind;
+    let mut seq = Sequence::new("s", 1000);
+    seq.rows
+        .push(row(a, vec![vec![first_pixel(Rgb::BLUE)], vec![top.clone()]]));
+    let (lit, _) = pixels(&render(&show, &seq, 0));
+    assert_eq!(lit, vec![[0, 0, 255], [255, 0, 0], [255, 0, 0], [255, 0, 0]]);
+
+    // The other way up, the chase would be hidden where the red is lit.
+    let mut chase = first_pixel(Rgb::BLUE);
+    chase.blend = Blend::Behind;
+    let mut seq = Sequence::new("s", 1000);
+    seq.rows
+        .push(row(a, vec![vec![on(Rgb::RED, 0, 1000)], vec![chase]]));
+    assert_eq!(pixels(&render(&show, &seq, 0)).0, vec![[255, 0, 0]; 4]);
+}
+
+#[test]
+fn the_lowest_effect_drawn_covers_whatever_its_blend() {
+    // As in xLights: with nothing below it, a mask or a blend that needs a lit layer below still
+    // draws its effect. Here the bottom layer is empty at this moment.
+    let show = show();
+    let a = Target::Prop(show.props[0].id);
+    for blend in [
+        Blend::Mask,
+        Blend::Clip,
+        Blend::Multiply,
+        Blend::Subtract,
+        Blend::Behind,
+    ] {
+        let mut top = on(Rgb::GREEN, 0, 1000);
+        top.blend = blend;
+        let mut seq = Sequence::new("s", 2000);
+        seq.rows
+            .push(row(a, vec![vec![on(Rgb::RED, 1000, 2000)], vec![top]]));
+        assert_eq!(
+            pixels(&render(&show, &seq, 0)).0,
+            vec![[0, 255, 0]; 4],
+            "{blend:?}"
+        );
+    }
+    // Once the bottom layer has an effect, the blend applies: the mask blacks out the red.
+    let mut mask = on(Rgb::GREEN, 0, 2000);
+    mask.blend = Blend::Mask;
+    let mut seq = Sequence::new("s", 2000);
+    seq.rows
+        .push(row(a, vec![vec![on(Rgb::RED, 1000, 2000)], vec![mask]]));
+    assert_eq!(pixels(&render(&show, &seq, 1500)).0, vec![[0, 0, 0]; 4]);
+}
+
+#[test]
+fn blur_spreads_an_effect_over_the_targets_grid_like_xlights() {
+    // A 9-pixel line is a 9 × 1 grid: Blur 4 (xLights 5) averages each pixel with two either
+    // side, inside the line. The lit first pixel spreads over three, at 1/3, 1/4, 1/5 coverage,
+    // and as the bottom layer its blurred color is dimmed by that coverage again, as in xLights.
+    let mut show = Show::new("t");
+    show.props.push(line("Line", 9, 0.0));
+    let mut chase = Effect::new(EffectKind::Chase, 0, 1000)
+        .with_palette([Rgb::BLUE])
+        .with_params(EffectParams::Chase(ChaseParams {
+            width: 0.1,
+            speed: 0.0,
+            ..ChaseParams::default()
+        }));
+    let mut seq = Sequence::new("s", 1000);
+    seq.rows
+        .push(row(Target::Prop(show.props[0].id), vec![vec![chase.clone()]]));
+    let blue = |frame: &[u8]| frame.chunks(3).map(|p| p[2]).collect::<Vec<u8>>();
+    assert_eq!(blue(&render(&show, &seq, 0)), vec![255, 0, 0, 0, 0, 0, 0, 0, 0]);
+    chase.blur = 4;
+    seq.rows[0].layers[0].effects[0] = chase;
+    let blurred = blue(&render(&show, &seq, 0));
+    let want = |a: f32| (255.0 * a * a).round() as u8;
+    assert_eq!(
+        blurred,
+        vec![want(1.0 / 3.0), want(0.25), want(0.2), 0, 0, 0, 0, 0, 0]
+    );
+}
+
+#[test]
+fn sparkles_are_the_same_every_render_and_cover_about_5_in_208_minus_the_setting() {
+    let mut show = Show::new("t");
+    show.props.push(line("Line", 2000, 0.0));
+    let target = Target::Prop(show.props[0].id);
+    let mut effect = on(Rgb::RED, 0, 10_000);
+    effect.sparkles = 150;
+    effect.sparkle_color = Rgb::new(0, 0, 255);
+    let mut seq = Sequence::new("s", 10_000);
+    seq.rows.push(row(target, vec![vec![effect]]));
+    // Frame 40 at 25 ms: one renderer twice, and a fresh one (as an export would), agree.
+    let mut r = renderer(&show);
+    let mut first = vec![0; r.frame_len()];
+    r.render(&seq, 1000, &mut first);
+    let mut again = vec![0; r.frame_len()];
+    r.render(&seq, 1000, &mut again);
+    assert_eq!(first, again);
+    assert_eq!(render(&show, &seq, 1000), first);
+
+    let sparkling = |frame: &[u8]| frame.chunks(3).filter(|p| p[2] > 0).count();
+    let n = sparkling(&first);
+    let want = 2000.0 * 5.0 / 58.0;
+    assert!(
+        (n as f64 - want).abs() < want * 0.2,
+        "{n} sparkling, about {want} expected"
+    );
+    assert!(
+        first
+            .chunks(3)
+            .all(|p| p == [255, 0, 0] || (p[0] == 0 && p[2] >= 135))
+    );
+    // They move on from frame to frame.
+    assert_ne!(render(&show, &seq, 1025), first);
+    // None where the effect is unlit, and none at 0.
+    seq.rows[0].layers[0].effects[0].sparkles = 0;
+    assert_eq!(sparkling(&render(&show, &seq, 1000)), 0);
+}
+
 #[test]
 fn fades_scale_the_effect_and_later_rows_cover_earlier_ones() {
     let show = show();

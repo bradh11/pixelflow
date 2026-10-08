@@ -23,6 +23,10 @@ pub const MAX_TIMING_TRACKS: usize = 1_000;
 pub const MAX_MARKS: usize = 500_000;
 /// Colors in one effect's palette.
 pub const MAX_PALETTE_COLORS: usize = 32;
+/// The most an effect's sparkles go (xLights' Sparkles slider).
+pub const MAX_SPARKLES: u32 = 200;
+/// The most an effect's blur goes (xLights' Blur 15).
+pub const MAX_BLUR: u32 = 14;
 /// Characters in a name, label, or file path.
 pub const MAX_TEXT_LEN: usize = 4_096;
 
@@ -71,7 +75,7 @@ pub fn limit_problems(seq: &Sequence) -> Vec<String> {
     }
     if let Some((effect, why)) = seq
         .effects()
-        .find_map(|e| e.params.setting_problem().map(|why| (e, why)))
+        .find_map(|e| e.setting_problem().map(|why| (e, why)))
     {
         problems.push(format!(
             "The {} effect at {} has a setting PixelFlow can't use: {why}.",

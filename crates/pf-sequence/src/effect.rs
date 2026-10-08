@@ -32,19 +32,128 @@ impl Palette {
 /// How an effect's colors combine with the layers below it **on the same row**. Rows don't
 /// blend with each other: a later row covers an earlier one by coverage (where it's lit).
 /// Layer 0 is the bottom layer (the opposite of xLights, where layer 1 is drawn on top).
+// The lowest effect drawn on a row at any moment always covers, whatever its blend, as in xLights
+// (there is nothing below it to mix with). Apart from Normal, the blends work on the colors as
+// they show (dimmed by coverage and fades), as xLights' layer methods do, and "lit" means
+// brighter than black on an 8-bit pixel. Each variant notes xLights' name for it, where "1" is
+// this effect and "2" the layers below it. Not here: xLights' "Effect 1" and "Effect 2" (they
+// cross-fade by the layer mix amount, which PixelFlow doesn't have). The notes are plain comments
+// so the AI tools' schema stays small.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum Blend {
-    /// Covers what's below (where the effect is lit).
+    /// Covers what's below where lit.
     #[default]
     Normal,
-    /// Adds its light to what's below.
+    /// Adds its light.
+    // xLights: Additive.
     Add,
-    /// Keeps the brighter of the two, channel by channel.
+    /// Takes its light away.
+    // xLights: Subtractive.
+    Subtract,
+    /// The brighter of the two, per channel.
     Max,
-    /// Tints what's below by its colors (white leaves it unchanged, black hides it).
+    /// The darker of the two, per channel.
+    Min,
+    /// Tints what's below by its colors.
     Multiply,
+    /// Averages the two where both are lit.
+    Average,
+    /// Shows where lit; what's below elsewhere.
+    // xLights: 1 reveals 2.
+    Over,
+    /// Shows only where what's below is dark.
+    // xLights: 2 reveals 1, and Layered (the same).
+    Behind,
+    /// Blacks out what's below where lit.
+    // xLights: 1 is Mask.
+    Mask,
+    /// What's below only where lit; black elsewhere.
+    // xLights: 1 is True Unmask.
+    Reveal,
+    /// What's below at its brightness where lit; black elsewhere.
+    // xLights: 1 is Unmask.
+    RevealBrightness,
+    /// Shows only where what's below is dark; black elsewhere.
+    // xLights: 2 is Mask.
+    CutOut,
+    /// Shows only where what's below is lit; black elsewhere.
+    // xLights: 2 is True Unmask.
+    Clip,
+    /// Its colors at the brightness of what's below; black where that's dark.
+    // xLights: 2 is Unmask.
+    ClipBrightness,
+    /// Shifts the hue of what's below where lit.
+    // xLights: Shadow 1 on 2.
+    Shadow,
+    /// Its colors, hue shifted by what's below.
+    // xLights: Shadow 2 on 1.
+    ShadowBelow,
+    /// Shows only where both are lit.
+    Highlight,
+    /// Adds its light only where what's below is lit.
+    // xLights: Highlight Vibrant.
+    HighlightAdd,
+    /// Shows on the bottom half; what's below on the top half.
+    // xLights: Bottom-Top.
+    BottomHalf,
+    /// Shows on the left half; what's below on the right half.
+    // xLights: Left-Right.
+    LeftHalf,
+}
+
+impl Blend {
+    pub const ALL: [Blend; 21] = [
+        Blend::Normal,
+        Blend::Add,
+        Blend::Subtract,
+        Blend::Max,
+        Blend::Min,
+        Blend::Multiply,
+        Blend::Average,
+        Blend::Over,
+        Blend::Behind,
+        Blend::Mask,
+        Blend::Reveal,
+        Blend::RevealBrightness,
+        Blend::CutOut,
+        Blend::Clip,
+        Blend::ClipBrightness,
+        Blend::Shadow,
+        Blend::ShadowBelow,
+        Blend::Highlight,
+        Blend::HighlightAdd,
+        Blend::BottomHalf,
+        Blend::LeftHalf,
+    ];
+
+    /// The blend's name in files (`"cutOut"`).
+    pub fn key(self) -> &'static str {
+        match self {
+            Blend::Normal => "normal",
+            Blend::Add => "add",
+            Blend::Subtract => "subtract",
+            Blend::Max => "max",
+            Blend::Min => "min",
+            Blend::Multiply => "multiply",
+            Blend::Average => "average",
+            Blend::Over => "over",
+            Blend::Behind => "behind",
+            Blend::Mask => "mask",
+            Blend::Reveal => "reveal",
+            Blend::RevealBrightness => "revealBrightness",
+            Blend::CutOut => "cutOut",
+            Blend::Clip => "clip",
+            Blend::ClipBrightness => "clipBrightness",
+            Blend::Shadow => "shadow",
+            Blend::ShadowBelow => "shadowBelow",
+            Blend::Highlight => "highlight",
+            Blend::HighlightAdd => "highlightAdd",
+            Blend::BottomHalf => "bottomHalf",
+            Blend::LeftHalf => "leftHalf",
+        }
+    }
 }
 
 /// One timed effect on a layer.
@@ -67,6 +176,23 @@ pub struct Effect {
     pub fade_in_ms: u32,
     #[serde(default)]
     pub fade_out_ms: u32,
+    /// Sparkles on lit pixels: 0 (none) to 200.
+    // xLights' palette Sparkles slider: each lit pixel flashes `sparkle_color` once every
+    // `208 - sparkles` frames, at its own random moment (see pf-render's sparkles). Up to
+    // [`crate::MAX_SPARKLES`].
+    #[serde(default)]
+    pub sparkles: u32,
+    #[serde(default = "white")]
+    pub sparkle_color: Rgb,
+    /// Softens the effect: 0 (none) to 14.
+    // Before it mixes with the layers below; xLights' Blur setting minus one, up to
+    // [`crate::MAX_BLUR`].
+    #[serde(default)]
+    pub blur: u32,
+}
+
+fn white() -> Rgb {
+    Rgb::WHITE
 }
 
 impl Effect {
@@ -81,7 +207,36 @@ impl Effect {
             blend: Blend::default(),
             fade_in_ms: 0,
             fade_out_ms: 0,
+            sparkles: 0,
+            sparkle_color: Rgb::WHITE,
+            blur: 0,
         }
+    }
+
+    /// Pulls the settings every effect has into range: sparkles and blur (see
+    /// [`EffectParams::sanitize`] for the kind's own).
+    pub fn sanitize(&mut self) {
+        self.params.sanitize();
+        self.sparkles = self.sparkles.min(crate::MAX_SPARKLES);
+        self.blur = self.blur.min(crate::MAX_BLUR);
+    }
+
+    /// The first setting outside its range, in plain words (see [`EffectParams::setting_problem`]).
+    pub fn setting_problem(&self) -> Option<String> {
+        if let Some(problem) = self.params.setting_problem() {
+            return Some(problem);
+        }
+        if self.sparkles > crate::MAX_SPARKLES {
+            return Some(format!(
+                "Sparkles is {}; use 0 to {}",
+                self.sparkles,
+                crate::MAX_SPARKLES
+            ));
+        }
+        if self.blur > crate::MAX_BLUR {
+            return Some(format!("Blur is {}; use 0 to {}", self.blur, crate::MAX_BLUR));
+        }
+        None
     }
 
     pub fn kind(&self) -> EffectKind {

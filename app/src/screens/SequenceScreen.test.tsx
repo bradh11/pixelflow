@@ -307,6 +307,19 @@ describe("sequence screen", () => {
     await openMore(user, panel);
     await user.selectOptions(within(panel).getByRole("combobox", { name: "With the layers below" }), "add");
     await waitFor(() => expect(find().blend).toBe("add"));
+    // xLights' layer methods are there too, and sparkles and blur.
+    await user.selectOptions(within(panel).getByRole("combobox", { name: "With the layers below" }), "behind");
+    await waitFor(() => expect(find().blend).toBe("behind"));
+    const sparkles = within(panel).getByRole("slider", { name: "Sparkles" });
+    fireEvent.change(sparkles, { target: { value: "54" } });
+    fireEvent.pointerUp(sparkles);
+    await waitFor(() => expect(find().sparkles).toBe(54));
+    fireEvent.change(within(panel).getByLabelText("Sparkle color"), { target: { value: "#00ff00" } });
+    await waitFor(() => expect(find().sparkleColor).toBe("#00ff00"));
+    const blur = within(panel).getByRole("slider", { name: "Blur" });
+    fireEvent.change(blur, { target: { value: "7" } });
+    fireEvent.pointerUp(blur);
+    await waitFor(() => expect(find().blur).toBe(7));
   });
 
   it("moves the playhead and selected effects with the keyboard, and copies and pastes", async () => {

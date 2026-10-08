@@ -29,10 +29,16 @@ impl From<serde_json::Error> for SequenceError {
 type Migration = fn(Value) -> Result<Value, SequenceError>;
 
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
-const MIGRATIONS: &[Migration] = &[v1_to_v2];
+const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3];
 
 /// Version 2 only adds submodel targets, so version 1 documents are already valid.
 fn v1_to_v2(doc: Value) -> Result<Value, SequenceError> {
+    Ok(doc)
+}
+
+/// Version 3 only adds effect settings that default to off (sparkles, blur) and more blends, so
+/// version 2 documents are already valid.
+fn v2_to_v3(doc: Value) -> Result<Value, SequenceError> {
     Ok(doc)
 }
 
@@ -116,6 +122,9 @@ mod tests {
             }));
         chase.blend = Blend::Add;
         chase.fade_in_ms = 250;
+        chase.sparkles = 54;
+        chase.sparkle_color = Rgb::new(255, 0, 0);
+        chase.blur = 7;
         chase.fade_out_ms = 500;
         row.layers[0].effects.push(chase);
         row.layers.push(Layer {
@@ -160,6 +169,9 @@ mod tests {
         );
         assert_eq!(chase["blend"], "add");
         assert_eq!(chase["fadeInMs"], 250);
+        assert_eq!(chase["sparkles"], 54);
+        assert_eq!(chase["sparkleColor"], "#ff0000");
+        assert_eq!(chase["blur"], 7);
         assert!(json["rows"][1]["target"]["group"].is_string());
         assert!(json["rows"][2]["target"]["region"]["region"].is_string());
     }
@@ -177,6 +189,43 @@ mod tests {
         assert_eq!(effect.palette, Palette::default());
         assert_eq!(effect.blend, Blend::Normal);
         assert_eq!(effect.params, EffectParams::On(OnParams::default()));
+        assert_eq!(
+            (effect.sparkles, effect.sparkle_color, effect.blur),
+            (0, Rgb::WHITE, 0),
+            "files from before sparkles and blur open with them off"
+        );
+    }
+
+    #[test]
+    fn every_blend_reads_and_writes_by_its_key() {
+        for blend in Blend::ALL {
+            let json = serde_json::to_value(blend).unwrap();
+            assert_eq!(json, blend.key());
+            assert_eq!(serde_json::from_value::<Blend>(json).unwrap(), blend);
+        }
+    }
+
+    #[test]
+    fn sparkles_and_blur_beyond_their_range_are_clamped_on_open_and_refused_in_memory() {
+        let text = r#"{ "schemaVersion": 3, "name": "x", "durationMs": 1000, "rows": [
+            { "id": "11111111-0000-4000-8000-000000000001",
+              "target": { "prop": "22222222-0000-4000-8000-000000000001" },
+              "layers": [ { "effects": [ { "id": "33333333-0000-4000-8000-000000000001",
+                  "startMs": 0, "endMs": 500, "params": { "kind": "on" },
+                  "sparkles": 5000, "blur": 99 } ] } ] } ] }"#;
+        let seq = sequence_from_json(text).unwrap();
+        let effect = &seq.rows[0].layers[0].effects[0];
+        assert_eq!((effect.sparkles, effect.blur), (MAX_SPARKLES, MAX_BLUR));
+
+        let mut bad = seq.clone();
+        bad.rows[0].layers[0].effects[0].blur = 20;
+        assert_eq!(
+            limit_problems(&bad),
+            vec![
+                "The On effect at 0:00.000 has a setting PixelFlow can't use: Blur is 20; use 0 to 14."
+                    .to_string()
+            ]
+        );
     }
 
     #[test]

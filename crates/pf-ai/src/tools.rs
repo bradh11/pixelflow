@@ -804,7 +804,7 @@ fn song_tools() -> Vec<Tool> {
                             "kind": { "type": "string" },
                             "settings": { "type": "object" },
                             "colors": { "type": "array", "items": { "type": "string" } },
-                            "blend": { "enum": ["normal", "add", "max", "multiply"] },
+                            "blend": { "enum": pf_sequence::Blend::ALL.map(pf_sequence::Blend::key) },
                             "fadeInMs": ms(),
                             "fadeOutMs": ms(),
                         },

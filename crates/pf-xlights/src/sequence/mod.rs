@@ -348,6 +348,9 @@ impl<'a> Builder<'a> {
             blend: translated.blend,
             fade_in_ms: translated.fade_in_ms,
             fade_out_ms: translated.fade_out_ms,
+            sparkles: translated.sparkles,
+            sparkle_color: translated.sparkle_color,
+            blur: translated.blur,
         })
     }
 

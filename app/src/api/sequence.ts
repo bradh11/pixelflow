@@ -26,7 +26,29 @@ export type EffectKind =
 export type Gradient = "none" | "horizontal" | "vertical";
 export type Direction = "forward" | "reverse";
 export type Axis = "horizontal" | "vertical";
-export type Blend = "normal" | "add" | "max" | "multiply";
+/** How an effect mixes with the layers below it (see `Blend` in crates/pf-sequence/src/effect.rs). */
+export type Blend =
+  | "normal"
+  | "add"
+  | "subtract"
+  | "max"
+  | "min"
+  | "multiply"
+  | "average"
+  | "over"
+  | "behind"
+  | "mask"
+  | "reveal"
+  | "revealBrightness"
+  | "cutOut"
+  | "clip"
+  | "clipBrightness"
+  | "shadow"
+  | "shadowBelow"
+  | "highlight"
+  | "highlightAdd"
+  | "bottomHalf"
+  | "leftHalf";
 
 /** Settings for each kind of effect; missing settings take the engine's defaults. */
 export type EffectParams =
@@ -68,12 +90,18 @@ export interface Effect {
   blend: Blend;
   fadeInMs: number;
   fadeOutMs: number;
+  /** Sparkles on the lit pixels, 0 (none, when missing) to 200 (most). */
+  sparkles?: number;
+  /** The sparkles' color (white when missing). */
+  sparkleColor?: Rgb;
+  /** Softening, 0 (none, when missing) to 14. */
+  blur?: number;
 }
 
 /**
  * Layers draw bottom (first, index 0) to top (last): the opposite of xLights, where layer 1 is on
- * top. An effect's `blend` (add, max, multiply) mixes only with the layers below it on the same
- * row; rows don't blend with each other — a later row covers an earlier one where it's lit.
+ * top. An effect's `blend` mixes only with the layers below it on the same row (the lowest effect
+ * drawn covers, whatever its blend); rows don't blend with each other — a later row covers an earlier one where it's lit.
  */
 export interface Layer {
   effects: Effect[];

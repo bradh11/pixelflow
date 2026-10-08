@@ -1,8 +1,10 @@
 //! Drawing a whole sequence frame into the show frame.
 
+use crate::blur::Grid;
 use crate::color::{Acc, Colors, Rgba, to_u8, write_pixel};
 use crate::effects::{Canvas, EffectTime, Shade, Shader, ShaderVisitor};
-use crate::geometry::{PixelBuffer, SceneGeometry};
+use crate::geometry::{Pixel, PixelBuffer, SceneGeometry};
+use crate::sparkles::Sparkles;
 use pf_mapping::ChannelMap;
 use pf_model::Show;
 use pf_sequence::{Blend, Effect, EffectParams, Sequence, Target};
@@ -20,6 +22,12 @@ pub struct Renderer {
     faces: HashMap<Target, Vec<crate::faces::FaceProp>>,
     /// The Faces effect's lit pixels for one frame, reused from frame to frame.
     face_lit: Vec<Option<Rgba>>,
+    /// Each target's buffer laid on a grid, for blurred effects (built the first time a blurred
+    /// effect draws on the target, like `buffers`).
+    grids: HashMap<Target, Grid>,
+    /// A blurred effect's grid cells, and the blur's working space, reused from effect to effect.
+    cells: Vec<Rgba>,
+    blur_scratch: Vec<[f32; 4]>,
     /// The frame being built, one entry per show pixel.
     show_acc: Vec<Acc>,
     /// One row being built.
@@ -38,6 +46,9 @@ impl Renderer {
             buffers: HashMap::new(),
             faces: HashMap::new(),
             face_lit: Vec::new(),
+            grids: HashMap::new(),
+            cells: Vec::new(),
+            blur_scratch: Vec::new(),
             row_acc: Vec::new(),
         }
     }
@@ -86,10 +97,25 @@ impl Renderer {
                     columns: buffer.columns,
                     rows: buffer.rows,
                 };
-                // Layers draw bottom (first) to top (last).
-                for effect in active {
+                // Layers draw bottom (first) to top (last). The lowest effect drawn covers,
+                // whatever its blend: there is nothing below it to mix with (as in xLights).
+                for (n, effect) in active.enumerate() {
+                    let grid = (effect.blur > 0)
+                        .then(|| &*self.grids.entry(row.target).or_insert_with(|| Grid::new(buffer)));
+                    let draw = Draw {
+                        effect,
+                        blend: if n == 0 { Blend::Normal } else { effect.blend },
+                        t_ms,
+                        frame_ms: seq.frame_ms,
+                        canvas,
+                        buffer,
+                        grid,
+                        cells: &mut self.cells,
+                        blur_scratch: &mut self.blur_scratch,
+                        acc: &mut self.row_acc,
+                    };
                     let EffectParams::Faces(p) = &effect.params else {
-                        draw_effect(effect, t_ms, canvas, buffer, None, &mut self.row_acc);
+                        draw.run(None);
                         continue;
                     };
                     let faces = self
@@ -108,7 +134,7 @@ impl Renderer {
                         &mut lit,
                     );
                     let shader = Shader::Faces(crate::effects::Faces::new(lit));
-                    draw_effect(effect, t_ms, canvas, buffer, Some(&shader), &mut self.row_acc);
+                    draw.run(Some(&shader));
                     if let Shader::Faces(faces) = shader {
                         self.face_lit = faces.into_lit();
                     }
@@ -156,53 +182,161 @@ pub(crate) fn fade_level(effect: &Effect, t_ms: u64) -> f32 {
     level.clamp(0.0, 1.0)
 }
 
-/// Draws one effect onto a row; `shader` is given when the renderer had to work it out (Faces).
-fn draw_effect(
-    effect: &Effect,
+/// One effect being drawn onto a row.
+struct Draw<'a> {
+    effect: &'a Effect,
+    /// The effect's blend, or Normal for the lowest effect on the row.
+    blend: Blend,
     t_ms: u64,
+    frame_ms: u32,
     canvas: Canvas,
-    buffer: &PixelBuffer,
-    shader: Option<&Shader>,
-    acc: &mut [Acc],
-) {
-    let fade = fade_level(effect, t_ms);
-    if fade <= 0.0 {
-        return;
-    }
-    let time = EffectTime::within(effect.start_ms, effect.end_ms, t_ms);
-    let made;
-    let shader = match shader {
-        Some(shader) => shader,
-        None => {
-            made = Shader::new(
-                &effect.params,
-                &time,
-                Colors::new(&effect.palette.colors),
-                effect.id.seed(),
-                canvas,
-            );
-            &made
+    buffer: &'a PixelBuffer,
+    /// The target's grid, for a blurred effect.
+    grid: Option<&'a Grid>,
+    cells: &'a mut Vec<Rgba>,
+    blur_scratch: &'a mut Vec<[f32; 4]>,
+    acc: &'a mut [Acc],
+}
+
+impl Draw<'_> {
+    /// Draws the effect: shaded (on the grid and blurred, when it has blur), sparkled, faded, and
+    /// mixed with the layers below. `shader` is given when the renderer had to work it out
+    /// (Faces).
+    fn run(self, shader: Option<&Shader>) {
+        let effect = self.effect;
+        let fade = fade_level(effect, self.t_ms);
+        // A fully faded effect changes nothing, except under the blends that black out what's
+        // below where the effect is unlit.
+        if fade <= 0.0
+            && matches!(
+                self.blend,
+                Blend::Normal | Blend::Add | Blend::Max | Blend::Multiply
+            )
+        {
+            return;
         }
-    };
-    struct Fill<'a> {
-        buffer: &'a PixelBuffer,
-        acc: &'a mut [Acc],
-        blend: Blend,
-        fade: f32,
-    }
-    impl ShaderVisitor<()> for Fill<'_> {
-        #[inline]
-        fn visit<S: Shade>(self, shader: &S) {
-            for (px, acc) in self.buffer.pixels.iter().zip(self.acc.iter_mut()) {
-                let color: Rgba = shader.shade(px);
-                acc.blend(color, self.blend, self.fade);
+        let time = EffectTime::within(effect.start_ms, effect.end_ms, self.t_ms);
+        let made;
+        let shader = match shader {
+            Some(shader) => shader,
+            None => {
+                made = Shader::new(
+                    &effect.params,
+                    &time,
+                    Colors::new(&effect.palette.colors),
+                    effect.id.seed(),
+                    self.canvas,
+                );
+                &made
             }
+        };
+        let c = effect.sparkle_color;
+        let sparkles = Sparkles::new(
+            effect.sparkles,
+            [c.r, c.g, c.b].map(|v| f32::from(v) / 255.0),
+            effect.id.seed(),
+            time.elapsed_ms / u64::from(self.frame_ms.max(1)),
+        );
+        let halves = Halves::new(self.blend, self.canvas);
+        let Some(grid) = self.grid else {
+            shader.with(Fill {
+                buffer: self.buffer,
+                acc: self.acc,
+                blend: self.blend,
+                fade,
+                sparkles,
+                halves,
+            });
+            return;
+        };
+        // Blurred: drawn on the grid, blurred there, and each pixel takes its cell's color.
+        shader.with(Cells {
+            grid,
+            cells: &mut *self.cells,
+        });
+        crate::blur::blur(
+            self.cells,
+            grid.columns,
+            grid.rows,
+            effect.blur.min(pf_sequence::MAX_BLUR) + 1,
+            self.blend != Blend::Normal,
+            self.blur_scratch,
+        );
+        let pixels = self.buffer.pixels.iter().zip(&grid.cell_of);
+        for ((px, &cell), acc) in pixels.zip(self.acc.iter_mut()) {
+            let mut color = self.cells[cell as usize];
+            if let Some(s) = &sparkles {
+                color = s.apply(color, px.index);
+            }
+            acc.blend(color, self.blend, fade, halves.first(px));
         }
     }
-    shader.with(Fill {
-        buffer,
-        acc,
-        blend: effect.blend,
-        fade,
-    });
+}
+
+/// Shades every cell of a grid.
+struct Cells<'a> {
+    grid: &'a Grid,
+    cells: &'a mut Vec<Rgba>,
+}
+
+impl ShaderVisitor<()> for Cells<'_> {
+    #[inline]
+    fn visit<S: Shade>(self, shader: &S) {
+        self.cells.clear();
+        self.cells
+            .extend(self.grid.cells.iter().map(|px| shader.shade(px)));
+    }
+}
+
+/// Shades each pixel and mixes it in.
+struct Fill<'a> {
+    buffer: &'a PixelBuffer,
+    acc: &'a mut [Acc],
+    blend: Blend,
+    fade: f32,
+    sparkles: Option<Sparkles>,
+    halves: Halves,
+}
+
+impl ShaderVisitor<()> for Fill<'_> {
+    #[inline]
+    fn visit<S: Shade>(self, shader: &S) {
+        for (px, acc) in self.buffer.pixels.iter().zip(self.acc.iter_mut()) {
+            let mut color: Rgba = shader.shade(px);
+            if let Some(s) = &self.sparkles {
+                color = s.apply(color, px.index);
+            }
+            acc.blend(color, self.blend, self.fade, self.halves.first(px));
+        }
+    }
+}
+
+/// Which pixels are on the bottom (or left) half of the target, for the half blends. As in
+/// xLights, a pixel is in the first half when its row (column) on the target's grid is below
+/// half the rows (columns), rounded down, so a target one row high has no bottom half.
+#[derive(Debug, Clone, Copy)]
+enum Halves {
+    None,
+    Bottom(u32),
+    Left(u32),
+}
+
+impl Halves {
+    fn new(blend: Blend, canvas: Canvas) -> Self {
+        match blend {
+            Blend::BottomHalf => Halves::Bottom(canvas.rows.max(1)),
+            Blend::LeftHalf => Halves::Left(canvas.columns.max(1)),
+            _ => Halves::None,
+        }
+    }
+
+    #[inline]
+    fn first(self, px: &Pixel) -> bool {
+        let cell = |at: f32, cells: u32| (at.clamp(0.0, 1.0) * (cells - 1) as f32).round() as u32;
+        match self {
+            Halves::None => false,
+            Halves::Bottom(rows) => cell(px.v, rows) < rows / 2,
+            Halves::Left(columns) => cell(px.u, columns) < columns / 2,
+        }
+    }
 }

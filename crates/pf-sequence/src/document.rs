@@ -10,8 +10,9 @@ use serde::{Deserialize, Serialize};
 /// even an additive one, so an older PixelFlow refuses a newer file instead of silently dropping
 /// what it doesn't know on save. Add the migration in `io.rs` in the same change.
 ///
-/// History: 1 = initial format; 2 = rows can target a submodel (`{ "region": { "prop", "region" } }`).
-pub const CURRENT_SCHEMA_VERSION: u32 = 2;
+/// History: 1 = initial format; 2 = rows can target a submodel (`{ "region": { "prop", "region" } }`);
+/// 3 = effects have sparkles (`sparkles`, `sparkleColor`), `blur`, and more blends.
+pub const CURRENT_SCHEMA_VERSION: u32 = 3;
 
 fn default_frame_ms() -> u32 {
     25
@@ -63,7 +64,7 @@ impl Sequence {
     }
 
     /// Pulls every effect setting into the range its kind allows (see
-    /// [`crate::EffectParams::sanitize`]). Opening a file does this, so a value JSON can't hold
+    /// [`crate::Effect::sanitize`]). Opening a file does this, so a value JSON can't hold
     /// (an overflowing number reads as infinity) never makes a file impossible to save and reopen.
     pub fn sanitize_settings(&mut self) {
         for effect in self
@@ -72,7 +73,7 @@ impl Sequence {
             .flat_map(|r| &mut r.layers)
             .flat_map(|l| &mut l.effects)
         {
-            effect.params.sanitize();
+            effect.sanitize();
         }
     }
 

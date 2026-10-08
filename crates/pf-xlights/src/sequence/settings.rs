@@ -222,7 +222,7 @@ fn parse_color(text: &str) -> Option<Rgb> {
 }
 
 /// The colors of an xLights color palette, and what didn't come across exactly.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ParsedPalette {
     /// The enabled colors, in palette order.
     pub colors: Vec<Rgb>,
@@ -232,13 +232,34 @@ pub struct ParsedPalette {
     pub unreadable: usize,
     /// The palette's brightness (`C_SLIDER_Brightness`, percent, 100 when missing).
     pub brightness: f64,
+    /// Sparkles (`C_SLIDER_SparkleFrequency`, 0 = none, up to 200).
+    pub sparkles: u32,
+    /// The sparkles' color (`C_COLOURPICKERCTRL_SparklesColour`, white when missing).
+    pub sparkle_color: Rgb,
+    /// Sparkles that follow the music (`C_CHECKBOX_MusicSparkles`).
+    pub music_sparkles: bool,
     /// Other color settings PixelFlow can't apply (hue/saturation/value shifts, sparkles...).
     pub extras: Vec<&'static str>,
 }
 
+/// No colors, at full brightness, without sparkles (their color white, xLights' default).
+impl Default for ParsedPalette {
+    fn default() -> Self {
+        Self {
+            colors: Vec::new(),
+            color_curves: 0,
+            unreadable: 0,
+            brightness: 100.0,
+            sparkles: 0,
+            sparkle_color: Rgb::WHITE,
+            music_sparkles: false,
+            extras: Vec::new(),
+        }
+    }
+}
+
 /// Color settings that change how an effect looks, with the name people know them by.
-const COLOR_EXTRAS: [(&str, &str, f64); 7] = [
-    ("C_SLIDER_SparkleFrequency", "sparkles", 0.0),
+const COLOR_EXTRAS: [(&str, &str, f64); 6] = [
     ("C_SLIDER_Color_HueAdjust", "hue shift", 0.0),
     ("C_SLIDER_Color_SaturationAdjust", "saturation shift", 0.0),
     ("C_SLIDER_Color_ValueAdjust", "brightness shift", 0.0),
@@ -253,8 +274,18 @@ pub fn parse_palette(text: &str) -> ParsedPalette {
     let settings = Settings::parse(text);
     let mut palette = ParsedPalette {
         brightness: settings.num_or("C_SLIDER_Brightness", 100.0),
+        // xLights reads the slider as a whole number (`GetInt`).
+        sparkles: settings.num("C_SLIDER_SparkleFrequency").map_or(0, |v| {
+            v.trunc().clamp(0.0, f64::from(pf_sequence::MAX_SPARKLES)) as u32
+        }),
+        sparkle_color: parse_color(settings.text("C_COLOURPICKERCTRL_SparklesColour", "#FFFFFF"))
+            .unwrap_or(Rgb::WHITE),
+        music_sparkles: settings.flag("C_CHECKBOX_MusicSparkles", false),
         ..ParsedPalette::default()
     };
+    if settings.curve_active("C_VALUECURVE_SparkleFrequency") {
+        palette.extras.push("sparkles that change over the effect");
+    }
     if settings.curve_active("C_VALUECURVE_Brightness") {
         palette.extras.push("brightness curve");
     }
@@ -371,12 +402,34 @@ mod tests {
     fn color_curves_use_their_first_color_and_extras_are_named() {
         let p = parse_palette(
             "C_BUTTON_Palette1=Active=TRUE|Id=ID_BUTTON_Palette1|Values=x=0.000^c=#ff8000;x=1.000^c=#0000ff|,\
-             C_CHECKBOX_Palette1=1,C_SLIDER_SparkleFrequency=20,C_SLIDER_Color_HueAdjust=0",
+             C_CHECKBOX_Palette1=1,C_SLIDER_SparkleFrequency=20,C_SLIDER_Color_HueAdjust=0,C_SLIDER_Contrast=5",
         );
         assert_eq!(p.colors, vec![Rgb::new(255, 128, 0)]);
         assert_eq!(p.color_curves, 1);
-        assert_eq!(p.extras, vec!["sparkles"]);
+        assert_eq!(p.extras, vec!["contrast"]);
         assert_eq!(parse_palette("").colors, vec![]);
         assert_eq!(parse_palette("").brightness, 100.0);
+    }
+
+    #[test]
+    fn sparkles_are_read_with_their_color() {
+        let p = parse_palette(
+            "C_SLIDER_SparkleFrequency=54,C_COLOURPICKERCTRL_SparklesColour=#00FF00,C_CHECKBOX_MusicSparkles=1",
+        );
+        assert_eq!(
+            (p.sparkles, p.sparkle_color, p.music_sparkles),
+            (54, Rgb::GREEN, true)
+        );
+        assert!(p.extras.is_empty());
+        let none = parse_palette("C_BUTTON_Palette1=#FF0000,C_CHECKBOX_Palette1=1");
+        assert_eq!(
+            (none.sparkles, none.sparkle_color, none.music_sparkles),
+            (0, Rgb::WHITE, false)
+        );
+        assert_eq!(parse_palette("C_SLIDER_SparkleFrequency=999").sparkles, 200);
+        let curve = parse_palette(
+            "C_SLIDER_SparkleFrequency=10,C_VALUECURVE_SparkleFrequency=Active=TRUE|Type=Ramp|",
+        );
+        assert_eq!(curve.extras, vec!["sparkles that change over the effect"]);
     }
 }

@@ -8,12 +8,14 @@
 //! Rendering is deterministic: frame N depends only on the document, so seeking and export
 //! always give the same picture. [`export`] writes a sequence as an FPP `.fseq` file.
 
+mod blur;
 mod color;
 mod effects;
 pub mod export;
 pub mod faces;
 mod geometry;
 mod render;
+mod sparkles;
 
 pub use color::{Colors, Rgba};
 pub use effects::{Canvas, EffectTime, Faces, MAX_METEORS, Shade, Shader, shade_pixel};

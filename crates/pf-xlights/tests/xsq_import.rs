@@ -4,8 +4,8 @@ use pf_model::{Generator, Prop, ShapeSource, Show};
 use pf_sequence::{
     Axis, BarsParams, Blend, ChaseParams, ColorWashParams, Direction, Effect, EffectParams, FaceColorSource,
     FaceEyes, FacesParams, FireParams, Gradient, Mark, MeteorDirection, MeteorsParams, OnParams, Rgb,
-    RippleParams, Row, ShimmerParams, SpiralParams, StrobeParams, Target, TimingKind, TwinkleParams,
-    WaveParams,
+    RippleParams, Row, ShapeObject, ShimmerParams, SpiralParams, StrobeParams, Target, TimingKind,
+    TwinkleParams, WaveParams,
 };
 use pf_xlights::sequence::{SequenceImport, build_sequence, parse_xsq};
 use pf_xlights::{import_folder, import_sequence_file};
@@ -679,4 +679,75 @@ fn many_elements_import_quickly() {
     assert_eq!(i.summary.skipped, 40_000);
     assert_note(&i, "Missing 0 (1 effect), Missing 1 (1 effect)");
     assert_note(&i, "and 39980 more");
+}
+
+/// Shapes firing on a timing track get that track (one with a single layer, as xLights
+/// requires), fans from before xLights 2025.04 keep their radii in pixels, and sizes in pixels on
+/// a group are noted.
+#[test]
+fn shapes_fire_on_their_timing_track_and_old_fans_measure_in_pixels() {
+    let xml = r#"<xsequence FixedPointTiming="1">
+      <head><version>2024.19</version><sequenceTiming>25 ms</sequenceTiming><sequenceDuration>10</sequenceDuration></head>
+      <ElementEffects>
+        <Element type="timing" name="Beats">
+          <EffectLayer><Effect label="" startTime="0" endTime="500"/><Effect label="" startTime="500" endTime="1000"/></EffectLayer>
+        </Element>
+        <Element type="timing" name="Song">
+          <EffectLayer><Effect label="la la" startTime="0" endTime="1000"/></EffectLayer>
+          <EffectLayer><Effect label="la" startTime="0" endTime="500"/></EffectLayer>
+        </Element>
+        <Element type="model" name="Window Matrix"><EffectLayer>
+          <Effect name="Shape" startTime="0" endTime="2000">E_CHECKBOX_Shape_FireTiming=1,E_CHOICE_Shape_FireTimingTrack=Beats,E_CHOICE_Shape_ObjectToDraw=Heart</Effect>
+          <Effect name="Shape" startTime="2000" endTime="4000">E_CHECKBOX_Shape_FireTiming=1,E_CHOICE_Shape_FireTimingTrack=Song</Effect>
+          <Effect name="Shape" startTime="4000" endTime="6000">E_CHECKBOX_Shape_FireTiming=1,E_CHOICE_Shape_FireTimingTrack=Gone</Effect>
+          <Effect name="Fan" startTime="6000" endTime="8000">E_SLIDER_Fan_End_Radius=12</Effect>
+        </EffectLayer></Element>
+        <Element type="model" name="Outline"><EffectLayer>
+          <Effect name="Circles" startTime="0" endTime="2000">E_SLIDER_Circles_Size=4</Effect>
+          <Effect name="Circles" startTime="2000" endTime="4000">E_CHECKBOX_Circles_Radial=1</Effect>
+        </EffectLayer></Element>
+      </ElementEffects>
+    </xsequence>"#;
+    let show = show();
+    let i = build_sequence(&parse_xsq(xml).unwrap(), &show, "x");
+    assert_opens(&i);
+    let beats = i
+        .sequence
+        .timing_tracks
+        .iter()
+        .find(|t| t.name == "Beats")
+        .unwrap()
+        .id;
+    let effects = &row(&i, &show, "Window Matrix").layers[0].effects;
+    let EffectParams::Shape(heart) = &effects[0].params else {
+        panic!("{:?}", effects[0].params)
+    };
+    assert_eq!(
+        (heart.shape, heart.timing_track),
+        (ShapeObject::Heart, Some(beats))
+    );
+    for shape in &effects[1..3] {
+        let EffectParams::Shape(p) = &shape.params else {
+            panic!("{:?}", shape.params)
+        };
+        assert_eq!(p.timing_track, None);
+    }
+    assert_note(
+        &i,
+        "its timing track has more than one layer, so shapes are shown as a steady stream (1)",
+    );
+    assert_note(
+        &i,
+        "its timing track isn't in the sequence, so shapes are shown as a steady stream (1)",
+    );
+    let EffectParams::Fan(fan) = &effects[3].params else {
+        panic!("{:?}", effects[3].params)
+    };
+    assert_eq!((fan.scale, fan.end_radius), (false, 12.0));
+    assert!(!has_note(&i, "Fan"), "{:#?}", i.notes);
+    // Sizes in pixels on a group are drawn on PixelFlow's coarser grid; rings are sized to it.
+    assert_note(
+        &i,
+        "Circles (1 effect) approximated: sizes in pixels look larger on a group than in xLights",
+    );
 }

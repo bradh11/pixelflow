@@ -80,6 +80,22 @@ export interface Palette {
   colors: Rgb[];
 }
 
+export type CurveShape = "ramp" | "sine" | "square" | "saw" | "custom";
+
+/**
+ * A setting that changes over its effect (see `Curve` in crates/pf-sequence/src/curve.rs): its
+ * value goes from `from` to `to` in the shape; sine, square, and saw repeat `cycles` times (1 when
+ * missing), and a custom curve goes through `points` (`[time 0–1, level 0–1]`, level 0 being
+ * `from` and 1 `to`; two points at one time make a step).
+ */
+export interface Curve {
+  shape: CurveShape;
+  from: number;
+  to: number;
+  cycles?: number;
+  points?: [number, number][];
+}
+
 export interface Effect {
   id: Uuid;
   startMs: number;
@@ -96,6 +112,9 @@ export interface Effect {
   sparkleColor?: Rgb;
   /** Softening, 0 (none, when missing) to 14. */
   blur?: number;
+  /** Settings that change over the effect, by key (a `params` number setting, `sparkles`, or
+   * `blur`); none when missing. */
+  curves?: Record<string, Curve>;
 }
 
 /**

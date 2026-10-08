@@ -322,6 +322,56 @@ describe("sequence screen", () => {
     await waitFor(() => expect(find().blur).toBe(7));
   });
 
+  it("makes a number setting change over the effect, and back", async () => {
+    const { seq, user } = await openScreen();
+    fireEvent.pointerDown(timeline(), { clientX: x(1000), clientY: LANE.archTop, button: 0, pointerId: 1 });
+    fireEvent.pointerUp(timeline(), { clientX: x(1000), clientY: LANE.archTop, pointerId: 1 });
+    const panel = screen.getByRole("complementary", { name: "Effect settings" });
+    const id = useSequencer.getState().selection[0];
+    const find = () => seq.doc!.rows.flatMap((r) => r.layers.flatMap((l) => l.effects)).find((e) => e.id === id)!;
+    const toggle = within(panel).getByRole("button", { name: "Change Height over the effect" });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await user.click(toggle);
+    // From its value toward the far end of its range, in place of the slider.
+    await waitFor(() => expect(find().curves).toEqual({ height: { shape: "ramp", from: 0.8, to: 0 } }));
+    expect(within(panel).queryByRole("slider", { name: "Height" })).not.toBeInTheDocument();
+    const shape = within(panel).getByRole("combobox", { name: "Height" });
+    expect(shape).toHaveValue("rampDown");
+    await user.selectOptions(shape, "sine");
+    await waitFor(() => expect(find().curves?.height).toEqual({ shape: "sine", from: 0.8, to: 0 }));
+    const repeats = within(panel).getByRole("spinbutton", { name: "Height repeats" });
+    await user.clear(repeats);
+    await user.type(repeats, "3{Enter}");
+    await waitFor(() => expect(find().curves?.height.cycles).toBe(3));
+    const to = within(panel).getByRole("spinbutton", { name: "Height to" });
+    await user.clear(to);
+    await user.type(to, "0.5{Enter}");
+    await waitFor(() => expect(find().curves?.height.to).toBe(0.5));
+    // Custom: click the graph to add a point, drag it, double-click to remove it.
+    await user.selectOptions(shape, "custom");
+    await waitFor(() => expect(find().curves?.height.shape).toBe("custom"));
+    const count = find().curves!.height.points!.length;
+    const graph = within(panel).getByRole("group", { name: "Height curve points" });
+    fireEvent.pointerDown(graph, { clientX: 510, clientY: 150, pointerId: 1 });
+    await waitFor(() => expect(find().curves?.height.points).toHaveLength(count + 1));
+    const added = find().curves!.height.points!.findIndex(([t]) => t === 0.51);
+    expect(find().curves!.height.points![added]).toEqual([0.51, 0.25]);
+    const point = within(graph).getByRole("button", { name: /^Point \d+: 51% through/ });
+    const steps = seq.undoStack.length;
+    fireEvent.pointerDown(point, { clientX: 510, clientY: 150, pointerId: 1 });
+    fireEvent.pointerMove(point, { clientX: 512, clientY: 450, pointerId: 1 });
+    fireEvent.pointerMove(point, { clientX: 512, clientY: 600, pointerId: 1 });
+    fireEvent.pointerUp(point, { pointerId: 1 });
+    await waitFor(() => expect(find().curves!.height.points![added]).toEqual([0.512, 1]));
+    expect(seq.undoStack.length, "a drag is one undo step").toBe(steps + 1);
+    await user.dblClick(within(graph).getByRole("button", { name: /^Point \d+: 51% through/ }));
+    await waitFor(() => expect(find().curves?.height.points).toHaveLength(count));
+    // Off again: the setting holds its value.
+    await user.click(within(panel).getByRole("button", { name: "Change Height over the effect" }));
+    await waitFor(() => expect(find().curves).toBeUndefined());
+    expect(within(panel).getByRole("slider", { name: "Height" })).toHaveValue("0.8");
+  });
+
   it("moves the playhead and selected effects with the keyboard, and copies and pastes", async () => {
     const { seq, user, show } = await openScreen();
     timeline().focus();

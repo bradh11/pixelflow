@@ -6,6 +6,7 @@
 import { frontView } from "../lib/geometry";
 import { channelsPerPixel, nodeCount } from "../lib/shows";
 import { facePartColor, faceParts, facesOf, phonemeAt, targetNodes } from "../lib/submodels";
+import { effectAt } from "../lib/curves";
 import type { Effect, Sequence } from "./sequence";
 import type { FaceDefinition, Prop, Show } from "./types";
 
@@ -189,7 +190,11 @@ export function renderSequenceFrame(doc: Sequence, show: Show, ms: number): Uint
   const frame = new Uint8Array(length);
   if (ms < 0 || ms >= doc.durationMs) return frame;
   for (const row of doc.rows) {
-    const active = row.layers.map((layer) => layer.effects.find((e) => e.startMs <= ms && ms < e.endMs) ?? null);
+    const active = row.layers.map((layer) => {
+      const effect = layer.effects.find((e) => e.startMs <= ms && ms < e.endMs);
+      // Settings that change over the effect, at this moment.
+      return effect ? effectAt(effect, ms) : null;
+    });
     if (active.every((e) => e === null)) continue;
     // The pixels the row lights, prop by prop in order along the target (submodels light some of a prop's).
     const lights = targetNodes(show, row.target, (prop) => layout.get(prop.id)?.nodes ?? 0, (prop) => layout.get(prop.id)?.points ?? []);

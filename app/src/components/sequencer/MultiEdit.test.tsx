@@ -95,6 +95,26 @@ describe("editing several effects at once", () => {
     expect([byId(a.id).params, byId(b.id).params]).toMatchObject([{ bands: 5, direction: "reverse" }, { bands: 5, direction: "reverse" }]);
   });
 
+  it("changes a setting over all of them, and offers to hold one value where their curves differ", async () => {
+    const { seq, user, effects, byId } = await openScreen();
+    const [a, b] = effects("Garage Arch").filter((e) => e.params.kind === "chase");
+    act(() => useSequencer.getState().select([a.id, b.id]));
+    // Neither changes: turning it on gives both the same curve, and editing it changes both.
+    await user.click(within(panel()).getByRole("button", { name: "Change Speed over the effect" }));
+    await waitFor(() => expect([byId(a.id).curves?.speed, byId(b.id).curves?.speed]).toEqual([{ shape: "ramp", from: 1.5, to: 50 }, { shape: "ramp", from: 1.5, to: 50 }]));
+    await user.selectOptions(within(panel()).getByRole("combobox", { name: "Speed" }), "square");
+    await waitFor(() => expect([byId(a.id).curves?.speed.shape, byId(b.id).curves?.speed.shape]).toEqual(["square", "square"]));
+    // Different curves: say so, and hold one value on both.
+    const changed = { ...byId(a.id), curves: { speed: { shape: "saw" as const, from: 0, to: 2 } } };
+    await useSequencer.getState().edit([{ type: "updateEffect", effect: changed }]);
+    expect(await within(panel()).findByText(/Changes differently in each effect/)).toBeInTheDocument();
+    const steps = seq.undoStack.length;
+    await user.click(within(panel()).getByRole("button", { name: "Hold one value" }));
+    await waitFor(() => expect([byId(a.id).curves, byId(b.id).curves]).toEqual([undefined, undefined]));
+    expect(seq.undoStack.length).toBe(steps + 1);
+    expect(within(panel()).getByRole("slider", { name: /^Speed/ })).toBeInTheDocument();
+  });
+
   it("shows a mixed list or checkbox as mixed until it's changed", async () => {
     const { seq, user, effects, byId } = await openScreen();
     const [a, b] = effects("Garage Arch").filter((e) => e.params.kind === "chase");

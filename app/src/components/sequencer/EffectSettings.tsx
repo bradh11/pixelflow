@@ -1,6 +1,7 @@
 import { SlidersHorizontal, Trash2 } from "lucide-react";
-import type { Blend, Effect, EffectParams, Sequence, SequenceTarget } from "../../api/sequence";
+import type { Blend, Curve, Effect, EffectParams, Sequence, SequenceTarget } from "../../api/sequence";
 import type { Show } from "../../api/types";
+import { withCurve } from "../../lib/curves";
 import { effectBounds, formatTime } from "../../lib/timelineMath";
 import { targetName } from "../../lib/submodels";
 import { useSequencer } from "../../state/sequencer";
@@ -82,6 +83,12 @@ function Settings({ doc }: { doc: Sequence }) {
     }, gesture);
   const setParam = (key: string, value: unknown, gesture?: string) =>
     change((e) => (e.params.kind === effect.params.kind ? { ...e, params: { ...e.params, [key]: value } as EffectParams } : null), gesture);
+  /** The curve on setting `key`: changes it, or (null) holds the setting's value again. */
+  const animate = (key: string) => ({
+    curve: effect.curves?.[key] ?? null,
+    onChange: (curve: Curve | null, gesture?: string) =>
+      change((e) => (e.params.kind === effect.params.kind ? { ...e, curves: withCurve(e.curves, key, curve) } : null), gesture),
+  });
   const length = effect.endMs - effect.startMs;
 
   return (
@@ -115,6 +122,7 @@ function Settings({ doc }: { doc: Sequence }) {
               onChange={(value, gesture) => setParam(setting.key, value, gesture)}
               faces={faceNames(show, target)}
               tracks={doc.timingTracks}
+              animate={setting.type === "number" || setting.type === "int" ? animate(setting.key) : undefined}
             />
           ))}
         </Section>
@@ -169,6 +177,7 @@ function Settings({ doc }: { doc: Sequence }) {
                 setting={SPARKLES}
                 value={effect.sparkles ?? 0}
                 onChange={(v, gesture) => change((x) => ({ ...x, sparkles: v as number }), gesture)}
+                animate={animate("sparkles")}
               />
             </div>
             <ColorPicker
@@ -179,7 +188,13 @@ function Settings({ doc }: { doc: Sequence }) {
               onPick={(value, gesture) => change((x) => ({ ...x, sparkleColor: value }), gesture)}
             />
           </div>
-          <NumberSetting key={`${id}:blur`} setting={BLUR} value={effect.blur ?? 0} onChange={(v, gesture) => change((x) => ({ ...x, blur: v as number }), gesture)} />
+          <NumberSetting
+            key={`${id}:blur`}
+            setting={BLUR}
+            value={effect.blur ?? 0}
+            onChange={(v, gesture) => change((x) => ({ ...x, blur: v as number }), gesture)}
+            animate={animate("blur")}
+          />
           <h4 className="mt-1 text-xs font-semibold tracking-wide text-neutral-500 uppercase">Timing</h4>
           <div className="grid grid-cols-2 gap-2">
             <MsField

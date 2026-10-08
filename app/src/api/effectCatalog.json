@@ -582,6 +582,719 @@
     ]
   },
   {
+    "description": "Shapes (stars, hearts, snowflakes, and more) appearing, growing, and fading.",
+    "kind": "shape",
+    "label": "Shape",
+    "settings": [
+      {
+        "default": "circle",
+        "description": "The shape drawn.",
+        "key": "shape",
+        "label": "Shape",
+        "options": [
+          {
+            "label": "Circle",
+            "value": "circle"
+          },
+          {
+            "label": "Ellipse",
+            "value": "ellipse"
+          },
+          {
+            "label": "Triangle",
+            "value": "triangle"
+          },
+          {
+            "label": "Square",
+            "value": "square"
+          },
+          {
+            "label": "Pentagon",
+            "value": "pentagon"
+          },
+          {
+            "label": "Hexagon",
+            "value": "hexagon"
+          },
+          {
+            "label": "Octagon",
+            "value": "octagon"
+          },
+          {
+            "label": "Star",
+            "value": "star"
+          },
+          {
+            "label": "Heart",
+            "value": "heart"
+          },
+          {
+            "label": "Tree",
+            "value": "tree"
+          },
+          {
+            "label": "Snowflake",
+            "value": "snowflake"
+          },
+          {
+            "label": "Candy cane",
+            "value": "candyCane"
+          },
+          {
+            "label": "Cross",
+            "value": "crucifix"
+          },
+          {
+            "label": "Present",
+            "value": "present"
+          },
+          {
+            "label": "A random shape each time",
+            "value": "random"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": 5,
+        "description": "Shapes on the prop at once.",
+        "key": "count",
+        "label": "Shapes",
+        "max": 100,
+        "min": 1,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 5.0,
+        "description": "How long each shape lasts, as a share of the effect.",
+        "key": "lifetime",
+        "label": "Lifetime",
+        "max": 100.0,
+        "min": 1.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "% of the effect"
+      },
+      {
+        "default": 1.0,
+        "description": "Each shape's size when it appears: its radius in pixels.",
+        "key": "startSize",
+        "label": "Start size",
+        "max": 100.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "pixels"
+      },
+      {
+        "default": 10.0,
+        "description": "How much each shape's radius grows over its lifetime (negative shrinks it).",
+        "key": "growth",
+        "label": "Growth",
+        "max": 100.0,
+        "min": -100.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "pixels"
+      },
+      {
+        "default": 1,
+        "description": "Line thickness.",
+        "key": "thickness",
+        "label": "Thickness",
+        "max": 100,
+        "min": 1,
+        "step": 1,
+        "type": "int",
+        "unit": "pixels"
+      },
+      {
+        "default": true,
+        "description": "Dim each shape as it ages.",
+        "key": "fade",
+        "label": "Fade away",
+        "type": "bool"
+      },
+      {
+        "default": true,
+        "description": "Put each shape somewhere new at random, instead of at the center below.",
+        "key": "randomLocation",
+        "label": "Random places",
+        "type": "bool"
+      },
+      {
+        "default": 0.0,
+        "description": "Turns the shapes (circles and candy canes don't turn).",
+        "key": "rotation",
+        "label": "Rotation",
+        "max": 360.0,
+        "min": 0.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number",
+        "unit": "degrees"
+      },
+      {
+        "default": 5,
+        "description": "A star's points; for an ellipse, its height as tenths of its width.",
+        "key": "points",
+        "label": "Points",
+        "max": 9,
+        "min": 2,
+        "more": true,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 50.0,
+        "description": "Where the shapes appear without random places, from the left (0) to the right (100).",
+        "key": "centerX",
+        "label": "Center across",
+        "max": 100.0,
+        "min": 0.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 50.0,
+        "description": "Where the shapes appear without random places, from the bottom (0) to the top (100).",
+        "key": "centerY",
+        "label": "Center up",
+        "max": 100.0,
+        "min": 0.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 0.0,
+        "description": "How fast each shape drifts.",
+        "key": "speed",
+        "label": "Drift speed",
+        "max": 1000.0,
+        "min": 0.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number",
+        "unit": "pixels per second"
+      },
+      {
+        "default": 90.0,
+        "description": "Which way the shapes drift: 0 is right, 90 up.",
+        "key": "direction",
+        "label": "Drift direction",
+        "max": 359.0,
+        "min": 0.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number",
+        "unit": "degrees"
+      },
+      {
+        "default": false,
+        "description": "Each shape drifts at its own random speed and direction.",
+        "key": "randomMovement",
+        "label": "Random drift",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": true,
+        "description": "Start the first shapes part way through their lifetimes, so they don't all appear at once.",
+        "key": "randomStart",
+        "label": "Staggered start",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": null,
+        "description": "Make a shape appear at each mark on this timing track, instead of keeping `count` shown.",
+        "key": "timingTrack",
+        "label": "Appear on marks of",
+        "more": true,
+        "type": "timingTrack"
+      }
+    ]
+  },
+  {
+    "description": "Blades of color spinning out from a center point.",
+    "kind": "fan",
+    "label": "Fan",
+    "settings": [
+      {
+        "default": 50.0,
+        "description": "The center, from the left (0) to the right (100).",
+        "key": "centerX",
+        "label": "Center across",
+        "max": 100.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 50.0,
+        "description": "The center, from the bottom (0) to the top (100).",
+        "key": "centerY",
+        "label": "Center up",
+        "max": 100.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 1.0,
+        "description": "Where the blades start (100 reaches the edge of the prop's longer side).",
+        "key": "startRadius",
+        "label": "Inner radius",
+        "max": 2500.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": 50.0,
+        "description": "Where the blades end (100 reaches the edge of the prop's longer side).",
+        "key": "endRadius",
+        "label": "Outer radius",
+        "max": 2500.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": 3,
+        "description": "Number of blades.",
+        "key": "blades",
+        "label": "Blades",
+        "max": 16,
+        "min": 1,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 50.0,
+        "description": "How much of each blade's slice of the circle it fills.",
+        "key": "bladeWidth",
+        "label": "Blade width",
+        "max": 100.0,
+        "min": 5.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 2.0,
+        "description": "Turns over the effect.",
+        "key": "revolutions",
+        "label": "Turns",
+        "max": 10.0,
+        "min": 0.0,
+        "step": 0.05,
+        "type": "number"
+      },
+      {
+        "default": 90.0,
+        "description": "How far the blades curve from center to tip (0 is straight).",
+        "key": "bladeAngle",
+        "label": "Blade curve",
+        "max": 360.0,
+        "min": -360.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "degrees"
+      },
+      {
+        "default": 80.0,
+        "description": "How much of the effect the blades are at full length (they grow before and shrink after).",
+        "key": "duration",
+        "label": "Full length for",
+        "max": 100.0,
+        "min": 0.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 0.0,
+        "description": "Where the first blade points at the start.",
+        "key": "startAngle",
+        "label": "Start angle",
+        "max": 360.0,
+        "min": 0.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number",
+        "unit": "degrees"
+      },
+      {
+        "default": 1,
+        "description": "Stripes each color is split into across a blade.",
+        "key": "elements",
+        "label": "Stripes per color",
+        "max": 4,
+        "min": 1,
+        "more": true,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 100.0,
+        "description": "How much of its space each stripe fills.",
+        "key": "elementWidth",
+        "label": "Stripe width",
+        "max": 100.0,
+        "min": 5.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 0.0,
+        "description": "Speeds up (positive) or slows down (negative) the spin over the effect.",
+        "key": "acceleration",
+        "label": "Acceleration",
+        "max": 10.0,
+        "min": -10.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": "forward",
+        "description": "Which way the blades turn.",
+        "key": "direction",
+        "label": "Direction",
+        "more": true,
+        "options": [
+          {
+            "label": "Forward",
+            "value": "forward"
+          },
+          {
+            "label": "Reverse",
+            "value": "reverse"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": true,
+        "description": "Soften each stripe toward its edges.",
+        "key": "blendEdges",
+        "label": "Soft edges",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": true,
+        "description": "Radii as a share of the prop (100 reaches the edge of its longer side) instead of pixels.",
+        "key": "scale",
+        "label": "Radius in % of the prop",
+        "more": true,
+        "type": "bool"
+      }
+    ]
+  },
+  {
+    "description": "A line sweeping from one place to another, with a head and a fading tail.",
+    "kind": "morph",
+    "label": "Morph",
+    "settings": [
+      {
+        "default": 0.0,
+        "description": "Where the line starts: its first end, from the left.",
+        "key": "startX1",
+        "label": "Start X1",
+        "max": 100.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 0.0,
+        "description": "Where the line starts: its first end, from the bottom.",
+        "key": "startY1",
+        "label": "Start Y1",
+        "max": 100.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 100.0,
+        "description": "Where the line starts: its second end, from the left.",
+        "key": "startX2",
+        "label": "Start X2",
+        "max": 100.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 0.0,
+        "description": "Where the line starts: its second end, from the bottom.",
+        "key": "startY2",
+        "label": "Start Y2",
+        "max": 100.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 0.0,
+        "description": "Where the line ends up: its first end, from the left.",
+        "key": "endX1",
+        "label": "End X1",
+        "max": 100.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 100.0,
+        "description": "Where the line ends up: its first end, from the bottom.",
+        "key": "endY1",
+        "label": "End Y1",
+        "max": 100.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 100.0,
+        "description": "Where the line ends up: its second end, from the left.",
+        "key": "endX2",
+        "label": "End X2",
+        "max": 100.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 100.0,
+        "description": "Where the line ends up: its second end, from the bottom.",
+        "key": "endY2",
+        "label": "End Y2",
+        "max": 100.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 20.0,
+        "description": "How much of the effect the head takes to cross; the tail follows it out.",
+        "key": "headDuration",
+        "label": "Head time",
+        "max": 100.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "% of the effect"
+      },
+      {
+        "default": 1.0,
+        "description": "The head's length as it sets off.",
+        "key": "startLength",
+        "label": "Start head length",
+        "max": 100.0,
+        "min": 0.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number",
+        "unit": "pixels"
+      },
+      {
+        "default": 1.0,
+        "description": "The head's length as it arrives.",
+        "key": "endLength",
+        "label": "End head length",
+        "max": 100.0,
+        "min": 0.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number",
+        "unit": "pixels"
+      },
+      {
+        "default": 0.0,
+        "description": "Speeds up (positive) or slows down (negative) the sweep over the effect.",
+        "key": "acceleration",
+        "label": "Acceleration",
+        "max": 10.0,
+        "min": -10.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": 0,
+        "description": "Extra copies of the line, side by side.",
+        "key": "repeats",
+        "label": "Repeats",
+        "max": 250,
+        "min": 0,
+        "more": true,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 1,
+        "description": "Space between the copies.",
+        "key": "repeatSpacing",
+        "label": "Repeat spacing",
+        "max": 100,
+        "min": 1,
+        "more": true,
+        "step": 1,
+        "type": "int",
+        "unit": "pixels"
+      },
+      {
+        "default": 0.0,
+        "description": "Starts the copies one after another instead of together (negative: last copy first).",
+        "key": "stagger",
+        "label": "Stagger",
+        "max": 100.0,
+        "min": -100.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": false,
+        "description": "Show the whole head at its start before it sets off.",
+        "key": "headAtStart",
+        "label": "Show head at start",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": false,
+        "description": "As many copies as fill the prop (instead of Repeats).",
+        "key": "autoRepeat",
+        "label": "Repeat to fill",
+        "more": true,
+        "type": "bool"
+      }
+    ]
+  },
+  {
+    "description": "Balls of color moving around the prop, or rings spreading from a point.",
+    "kind": "circles",
+    "label": "Circles",
+    "settings": [
+      {
+        "default": 3,
+        "description": "Number of balls (rings repeat the palette this many times across the rings).",
+        "key": "count",
+        "label": "Circles",
+        "max": 10,
+        "min": 1,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 5,
+        "description": "Each ball's radius (for rings: how thin each color band is).",
+        "key": "size",
+        "label": "Size",
+        "max": 20,
+        "min": 1,
+        "step": 1,
+        "type": "int",
+        "unit": "pixels"
+      },
+      {
+        "default": 10.0,
+        "description": "How fast the balls move or the rings spread (10 moves a ball 50 to 150 pixels a second).",
+        "key": "speed",
+        "label": "Speed",
+        "max": 30.0,
+        "min": 1.0,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": "solid",
+        "description": "Solid or fading balls, bubbles, plasma, or rings.",
+        "key": "look",
+        "label": "Look",
+        "options": [
+          {
+            "label": "Solid balls",
+            "value": "solid"
+          },
+          {
+            "label": "Fading balls",
+            "value": "fading"
+          },
+          {
+            "label": "Bubbles",
+            "value": "bubbles"
+          },
+          {
+            "label": "Plasma blobs",
+            "value": "plasma"
+          },
+          {
+            "label": "Rings from a point",
+            "value": "radial"
+          },
+          {
+            "label": "Rainbow rings from a point",
+            "value": "rainbowRadial"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": false,
+        "description": "Bounce off the prop's edges instead of wrapping around to the other side.",
+        "key": "bounce",
+        "label": "Bounce",
+        "type": "bool"
+      },
+      {
+        "default": 0.0,
+        "description": "Where the rings spread from, left (-50) to right (50) of the center.",
+        "key": "centerX",
+        "label": "Rings center across",
+        "max": 50.0,
+        "min": -50.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": 0.0,
+        "description": "Where the rings spread from, below (-50) to above (50) the center.",
+        "key": "centerY",
+        "label": "Rings center up",
+        "max": 50.0,
+        "min": -50.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number"
+      }
+    ]
+  },
+  {
     "description": "A singing face: the prop's face mouths the words on a timing track, with eyes that blink.",
     "kind": "faces",
     "label": "Faces",

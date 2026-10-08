@@ -3,7 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { App } from "../App";
 import { demoDevices, demoPlayers } from "../api/demo";
-import { MemoryBackend } from "../api/memory";
+import { MemoryBackend, emptyShow } from "../api/memory";
+import type { Prop } from "../api/types";
+import { newProp } from "../lib/shows";
 import { useApp } from "../state/store";
 
 async function startApp() {
@@ -163,13 +165,71 @@ describe("devices", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("No controller answered at 10.9.9.9.");
   });
 
-  it("warns before importing a controller that's already in the show", async () => {
+  it("offers Compare first for a controller that's already in the show, and adding a copy second", async () => {
     const { user } = await openDevices();
     await user.click(screen.getByRole("button", { name: "Scan network" }));
     await user.click(await screen.findByRole("button", { name: "Open Porch WLED" }));
     await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Add to show" }));
     await user.click(screen.getByRole("button", { name: "Open Porch WLED" }));
-    expect(await within(await screen.findByRole("dialog")).findByText(/already in your show/)).toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByText(/already in your show/)).toBeInTheDocument();
+    // Its string starts on the prop the show already has on that port.
+    expect(within(dialog).getByRole("combobox", { name: "Prop for port 1 Porch Strip" })).toHaveDisplayValue(/^Porch Strip · /);
+    expect(within(dialog).getByText("already on this port")).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Add to show" })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Compare with this device" })).toHaveClass("bg-accent-600");
+    expect(within(dialog).getByRole("button", { name: "Add another copy" })).not.toHaveClass("bg-accent-600");
+
+    await user.click(within(dialog).getByRole("button", { name: "Compare with this device" }));
+    expect(await screen.findByRole("dialog", { name: "Compare with Porch WLED" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Import Porch WLED" })).not.toBeInTheDocument();
+  });
+
+  it("starts each string on the prop of the same name, says why, and can be changed", async () => {
+    const { user } = await openDevices();
+    const line = (name: string, nodes: number): Prop => ({
+      ...newProp("line", emptyShow("t")),
+      name,
+      shape: { source: "generator", type: "line", nodes, length: nodes * 0.05 },
+    });
+    await useApp.getState().run((b) =>
+      b.applyEdits([
+        { type: "addProp", prop: line("falcon  mega tree", 800) },
+        { type: "addProp", prop: line("Falcon Arch", 60) },
+      ]),
+    );
+    await user.click(screen.getByRole("button", { name: "Scan network" }));
+
+    await user.click(await screen.findByRole("button", { name: "Open Porch WLED" }));
+    let dialog = await screen.findByRole("dialog", { name: "Import Porch WLED" });
+    expect(await within(dialog).findByRole("combobox", { name: "Prop for port 1 Porch Strip" })).toHaveDisplayValue("A new prop");
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    await user.click(screen.getByRole("button", { name: "Open Falcon_F16V5_B9F5" }));
+    dialog = await screen.findByRole("dialog", { name: "Import Falcon_F16V5_B9F5" });
+    const tree = await within(dialog).findByRole("combobox", { name: "Prop for port 1 Falcon Mega Tree" });
+    const arch = within(dialog).getByRole("combobox", { name: "Prop for port 2 Falcon Arch" });
+    expect(tree).toHaveDisplayValue("falcon  mega tree · 800 px");
+    expect(arch).toHaveDisplayValue("Falcon Arch · 60 px");
+    expect(within(dialog).getAllByText("same name")).toHaveLength(2);
+    expect(within(dialog).getByText("pixel count differs (50 vs 60)")).toBeInTheDocument();
+
+    await user.selectOptions(arch, "A new prop");
+    expect(within(dialog).queryByText("pixel count differs (50 vs 60)")).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Add to show" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Added Falcon_F16V5_B9F5: 1 prop and 1 of yours on 2 ports.");
+  });
+
+  it("spaces the import table's columns, with numbers on the right", async () => {
+    const { user } = await openDevices();
+    await user.click(screen.getByRole("button", { name: "Scan network" }));
+    await user.click(await screen.findByRole("button", { name: "Open Falcon_F16V5_B9F5" }));
+    const dialog = await screen.findByRole("dialog", { name: "Import Falcon_F16V5_B9F5" });
+    const headers = within(within(dialog).getByRole("table")).getAllByRole("columnheader");
+    expect(headers.map((h) => h.textContent)).toEqual(["Port", "String", "Pixels", "Order", "Nulls", "Direction", "Brightness", "Gamma"]);
+    for (const header of headers) expect(header).toHaveClass("px-2");
+    const right = headers.filter((h) => h.classList.contains("text-right")).map((h) => h.textContent);
+    expect(right).toEqual(["Port", "Pixels", "Nulls", "Brightness", "Gamma"]);
   });
 
   it("empty, it scans from a button, or goes to add a controller by hand", async () => {

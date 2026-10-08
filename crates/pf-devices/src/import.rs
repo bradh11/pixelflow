@@ -1,7 +1,8 @@
 //! Turning a device's configuration into a controller and starter props.
 
-use crate::config::{Destination, DeviceConfig, DeviceInput};
+use crate::config::{Destination, DeviceConfig, DeviceInput, StringConfig};
 use crate::device::{Device, DeviceKind};
+use crate::setup::{one_string_per_port, string_key};
 use pf_model::{
     AdapterKind, ColorOrder, Controller, Generator, Port, PortSlot, Prop, PropId, Protocol, SacnConfig,
     SequenceChannels, ShapeSource, Show, UniverseSize, Vec3,
@@ -22,6 +23,29 @@ pub struct ImportPlan {
     pub already_in_show: bool,
     /// False when there is nothing to import (no pixel ports).
     pub can_import: bool,
+    /// Props already in the show that the device's strings most likely are, by string key: what
+    /// "In your show" starts on. The plan itself only wires the props it was asked to.
+    pub suggested: BTreeMap<String, PropMatch>,
+}
+
+/// Why a prop already in the show is suggested for a device string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MatchReason {
+    /// The show's controller at this address wires it to the same port and position.
+    SamePort,
+    /// Its name matches the string's (ignoring case and spaces), and so does its pixel count.
+    SameName,
+    /// Its name matches the string's, but its pixel count doesn't.
+    SameNameOtherSize,
+}
+
+/// A prop already in the show suggested for a device string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PropMatch {
+    pub prop: PropId,
+    pub reason: MatchReason,
 }
 
 /// A controller added from an FPP's output list: no ports yet, but it knows its sequence channels.
@@ -65,6 +89,98 @@ pub fn double_reorder(prop: &Prop, order: ColorOrder) -> Option<String> {
             prop.name
         )
     })
+}
+
+/// The props already in `show` that `device`'s strings most likely are, by string key. In order:
+/// the prop the show's controller at this address already wires to the same port and position,
+/// then a prop with the string's name (ignoring case and spaces) and pixel count, then one with
+/// just its name. A prop that would shift pixels ([`mapping_problem`]) is never suggested, and no
+/// prop is suggested for two strings.
+pub fn match_props(device: &Device, config: &DeviceConfig, show: &Show) -> BTreeMap<String, PropMatch> {
+    let name_key = |name: &str| -> String {
+        name.chars()
+            .filter(|c| !c.is_whitespace())
+            .flat_map(char::to_lowercase)
+            .collect()
+    };
+    let strings: Vec<(String, u16, usize, &StringConfig)> = config
+        .ports
+        .iter()
+        .flat_map(|p| {
+            p.strings
+                .iter()
+                .enumerate()
+                .map(move |(i, s)| (string_key(p.number, i), p.number, i, s))
+        })
+        .collect();
+    let fits = |prop: &Prop, string: &StringConfig| mapping_problem(prop, string.color_order).is_none();
+    let mut found = BTreeMap::new();
+    let mut used = HashSet::new();
+    let controller = show
+        .controllers
+        .iter()
+        .find(|c| c.address == device.address && !is_placeholder(c));
+    if let Some(controller) = controller {
+        for (key, number, i, string) in &strings {
+            let Some(port) = controller.ports.iter().find(|p| p.number == *number) else {
+                continue;
+            };
+            // One output carrying several props isn't any one of them.
+            if one_string_per_port(device.kind) && port.slots.len() > 1 {
+                continue;
+            }
+            let prop = port
+                .slots
+                .get(*i)
+                .filter(|slot| slot.segment.is_none())
+                .and_then(|slot| show.prop(slot.prop))
+                .filter(|prop| fits(prop, string));
+            if let Some(prop) = prop
+                && used.insert(prop.id)
+            {
+                let reason = MatchReason::SamePort;
+                found.insert(
+                    key.clone(),
+                    PropMatch {
+                        prop: prop.id,
+                        reason,
+                    },
+                );
+            }
+        }
+    }
+    for same_size in [true, false] {
+        for (key, _, _, string) in &strings {
+            if found.contains_key(key) {
+                continue;
+            }
+            let Some(name) = string.name.as_deref().map(name_key).filter(|n| !n.is_empty()) else {
+                continue;
+            };
+            let prop = show.props.iter().find(|p| {
+                !used.contains(&p.id)
+                    && name_key(&p.name) == name
+                    && (!same_size || p.node_count() == string.pixels)
+                    && fits(p, string)
+            });
+            if let Some(prop) = prop {
+                used.insert(prop.id);
+                let reason = if prop.node_count() == string.pixels {
+                    MatchReason::SameName
+                } else {
+                    MatchReason::SameNameOtherSize
+                };
+                found.insert(
+                    key.clone(),
+                    PropMatch {
+                        prop: prop.id,
+                        reason,
+                    },
+                );
+            }
+        }
+    }
+    found
 }
 
 /// Plans an import of `device` with `config` into `show` (nothing is changed yet).
@@ -123,7 +239,7 @@ pub fn plan_import_using(
         let several = port_config.strings.len() > 1;
         for (i, string) in port_config.strings.iter().enumerate() {
             let existing = use_props
-                .get(&crate::setup::string_key(port_config.number, i))
+                .get(&string_key(port_config.number, i))
                 .and_then(|id| show.prop(*id));
             if let Some(problem) = existing.and_then(|prop| mapping_problem(prop, string.color_order)) {
                 notes.push(format!(
@@ -242,6 +358,7 @@ pub fn plan_import_using(
         controller,
         props,
         notes,
+        suggested: match_props(device, config, show),
     }
 }
 
@@ -288,6 +405,7 @@ pub fn plan_destination_import(destination: &Destination, show: &Show) -> Import
             notes: vec![format!("PixelFlow can't send {} yet.", destination.protocol)],
             already_in_show,
             can_import: false,
+            suggested: BTreeMap::new(),
         };
     };
     if destination.uneven_universes && matches!(protocol, Protocol::Sacn(_)) {
@@ -313,6 +431,7 @@ pub fn plan_destination_import(destination: &Destination, show: &Show) -> Import
         notes,
         already_in_show,
         can_import: true,
+        suggested: BTreeMap::new(),
     }
 }
 

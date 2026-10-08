@@ -290,7 +290,15 @@ export function DevicesScreen() {
         </ul>
       )}
       {reviewing && (
-        <ImportDialog address={reviewing} onClose={() => setReviewing(null)} onImported={(message) => setNotice(message)} />
+        <ImportDialog
+          address={reviewing}
+          onClose={() => setReviewing(null)}
+          onImported={(message) => setNotice(message)}
+          onCompare={() => {
+            setReviewing(null);
+            setComparing(reviewing);
+          }}
+        />
       )}
       {dialogs}
     </div>

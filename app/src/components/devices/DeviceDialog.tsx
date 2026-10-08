@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useRef } from "react";
-import type { ColorOrder, Prop, Show } from "../../api/types";
+import type { ColorOrder, MatchReason, Prop, PropMatch, Show } from "../../api/types";
 import { doubleReorder, mappingProblem } from "../../lib/deviceSetup";
 import { thousands } from "../../lib/format";
 import { nodeCount } from "../../lib/shows";
@@ -73,9 +73,11 @@ function wiredAt(show: Show, prop: Prop): string | null {
   return null;
 }
 
+const WHY: Record<MatchReason, string> = { samePort: "already on this port", sameName: "same name", sameNameOtherSize: "same name" };
+
 /**
- * Picks what a device string becomes in the show: a new starter prop (the default), or a prop
- * already in the show (one imported from xLights, say).
+ * Picks what a device string becomes in the show: a new starter prop, or a prop already in the
+ * show (one imported from xLights, say). When `suggestion` is picked, it says why it was.
  */
 export function PropPicker({
   show,
@@ -83,6 +85,7 @@ export function PropPicker({
   pixels,
   order,
   value,
+  suggestion,
   onChange,
 }: {
   show: Show;
@@ -91,6 +94,7 @@ export function PropPicker({
   /** The color order the controller applies to the string, when known. */
   order: ColorOrder | null;
   value: string;
+  suggestion?: PropMatch;
   onChange: (id: string) => void;
 }) {
   const props = [...show.props].sort((a, b) => a.name.localeCompare(b.name));
@@ -98,8 +102,9 @@ export function PropPicker({
   const size = chosen ? nodeCount(chosen.shape) : null;
   const problem = chosen && order ? mappingProblem(chosen, order) : null;
   const twice = chosen && order && !problem ? doubleReorder(chosen, order) : null;
+  const why = chosen && suggestion?.prop === chosen.id ? WHY[suggestion.reason] : null;
   return (
-    <span className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+    <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
       <Select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} className="max-w-72 py-0.5 text-xs">
         <option value="">A new prop</option>
         {props.map((p) => {
@@ -111,9 +116,12 @@ export function PropPicker({
           );
         })}
       </Select>
+      {why && <span className="text-neutral-500">{why}</span>}
       {chosen && size !== pixels && !problem && (
         <span className="text-amber-700 dark:text-amber-400">
-          {chosen.name} has {thousands(size ?? 0)} pixels; this string has {thousands(pixels)}.
+          {why
+            ? `pixel count differs (${thousands(pixels)} vs ${thousands(size ?? 0)})`
+            : `${chosen.name} has ${thousands(size ?? 0)} pixels; this string has ${thousands(pixels)}.`}
         </span>
       )}
       {problem && (

@@ -392,6 +392,8 @@ impl<'a> Builder<'a> {
             sparkles: translated.sparkles,
             sparkle_color: translated.sparkle_color,
             blur: translated.blur,
+            render_style: translated.render_style,
+            buffer_transform: translated.buffer_transform,
             curves: translated.curves,
         })
     }

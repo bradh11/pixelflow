@@ -12,8 +12,9 @@ use serde::{Deserialize, Serialize};
 ///
 /// History: 1 = initial format; 2 = rows can target a submodel (`{ "region": { "prop", "region" } }`);
 /// 3 = effects have sparkles (`sparkles`, `sparkleColor`), `blur`, and more blends; 4 = effect
-/// settings can change over the effect (`curves`).
-pub const CURRENT_SCHEMA_VERSION: u32 = 4;
+/// settings can change over the effect (`curves`); 5 = effects can pick a render style
+/// (`renderStyle`) and turn or flip it (`bufferTransform`).
+pub const CURRENT_SCHEMA_VERSION: u32 = 5;
 
 fn default_frame_ms() -> u32 {
     25

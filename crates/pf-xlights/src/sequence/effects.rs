@@ -10,6 +10,7 @@
 use super::curves::{Driven, STEPS, XlCurve};
 use super::settings::{ParsedPalette, Settings};
 use super::{list, plural};
+use pf_model::{BufferTransform, RenderStyle};
 use pf_sequence::{
     Axis, BarsParams, Blend, ChaseParams, CirclesLook, CirclesParams, ColorWashParams, Curve, CurveShape,
     Direction, EffectParams, FaceColorSource, FaceEyes, FacesParams, FanParams, FireParams, Gradient,
@@ -45,6 +46,8 @@ pub struct Translated {
     pub sparkle_color: Rgb,
     /// PixelFlow's blur (xLights' Blur minus one).
     pub blur: u32,
+    pub render_style: RenderStyle,
+    pub buffer_transform: BufferTransform,
     /// Settings that change over the effect, by PixelFlow setting key.
     pub curves: BTreeMap<String, Curve>,
     pub fidelity: Fidelity,
@@ -1038,16 +1041,28 @@ fn fades(s: &Settings, duration_ms: u64, diff: &mut Diff) -> (u32, u32) {
     (fade_in, fade_out)
 }
 
-/// Render-buffer settings (`B_*`) that change how an effect is laid over the prop. Answers the
-/// blur (`B_SLIDER_Blur`, 1 = none) in PixelFlow's terms (one less).
-fn buffer(s: &Settings, diff: &mut Diff) -> u32 {
-    let style = s.text("B_CHOICE_BufferStyle", "Default");
-    if !matches!(style, "Default" | "Per Preview" | "Single Line" | "") {
-        diff.add(format!("'{style}' render style not applied"));
-    }
-    if !matches!(s.text("B_CHOICE_BufferTransform", "None"), "None" | "") {
-        diff.add("buffer rotation or flip not applied");
-    }
+/// The render-buffer settings (`B_*`) PixelFlow keeps.
+struct Buffer {
+    /// PixelFlow's blur (xLights' Blur minus one).
+    blur: u32,
+    style: RenderStyle,
+    transform: BufferTransform,
+}
+
+/// Render-buffer settings (`B_*`) that change how an effect is laid over the prop: the render
+/// style, its rotation or flip, and the blur (`B_SLIDER_Blur`, 1 = none, answered in PixelFlow's
+/// terms: one less).
+fn buffer(s: &Settings, diff: &mut Diff) -> Buffer {
+    let name = s.text("B_CHOICE_BufferStyle", "Default");
+    let style = RenderStyle::from_xlights(name).unwrap_or_else(|| {
+        diff.add(format!("'{name}' render style not applied"));
+        RenderStyle::Default
+    });
+    let name = s.text("B_CHOICE_BufferTransform", "None");
+    let transform = BufferTransform::from_xlights(name).unwrap_or_else(|| {
+        diff.add(format!("'{name}' buffer transformation not applied"));
+        BufferTransform::None
+    });
     let changed = |key: &str, neutral: f64| s.num(key).is_some_and(|v| (v - neutral).abs() > 1e-6);
     // Rotation, zoom, and pivot curves move the buffer too.
     let moving = s
@@ -1064,7 +1079,11 @@ fn buffer(s: &Settings, diff: &mut Diff) -> u32 {
     if blur > f64::from(pf_sequence::MAX_BLUR + 1) {
         diff.add("blur above 15 shown at 15");
     }
-    (blur.clamp(1.0, f64::from(pf_sequence::MAX_BLUR + 1)) as u32) - 1
+    Buffer {
+        blur: (blur.clamp(1.0, f64::from(pf_sequence::MAX_BLUR + 1)) as u32) - 1,
+        style,
+        transform,
+    }
 }
 
 /// The blur's value curve (`B_VALUECURVE_Blur`, xLights' 1-15), as PixelFlow's blur: its value at
@@ -1153,7 +1172,11 @@ pub fn translate(
     let (mut sparkles, sparkle_color) = sparkles(palette, &mut diff);
     let blend = blend(s, &mut diff);
     let (fade_in_ms, fade_out_ms) = fades(s, duration_ms, &mut diff);
-    let mut blur = buffer(s, &mut diff);
+    let Buffer {
+        mut blur,
+        style: render_style,
+        transform: buffer_transform,
+    } = buffer(s, &mut diff);
     let mut curves = BTreeMap::new();
     if let Some((start, curve)) = sparkles_curve(palette, &mut diff) {
         sparkles = start;
@@ -1209,6 +1232,8 @@ pub fn translate(
                     sparkles,
                     sparkle_color,
                     blur,
+                    render_style,
+                    buffer_transform,
                     curves,
                     fidelity: if diff.0.is_empty() {
                         Fidelity::Exact
@@ -1230,6 +1255,8 @@ pub fn translate(
                 sparkles,
                 sparkle_color,
                 blur,
+                render_style,
+                buffer_transform,
                 curves,
                 fidelity: Fidelity::Placeholder,
             },
@@ -1930,9 +1957,28 @@ mod tests {
     }
 
     #[test]
+    fn render_styles_and_transforms_carry_over() {
+        let s = Settings::parse(
+            "B_CHOICE_BufferStyle=Per Model Default,B_CHOICE_BufferTransform=Rotate CC 90 Flip Horizontal",
+        );
+        let t = translate("On", &s, &palette(&[Rgb::RED]), 2000, 25).unwrap();
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        assert_eq!(t.render_style, RenderStyle::PerModelDefault);
+        assert_eq!(t.buffer_transform, BufferTransform::RotateCcw90FlipHorizontal);
+        let s = Settings::parse("B_CHOICE_BufferStyle=Overlay - Centered,B_CHOICE_BufferTransform=Twist");
+        let t = translate("On", &s, &palette(&[Rgb::RED]), 2000, 25).unwrap();
+        assert_eq!(t.render_style, RenderStyle::OverlayCentered);
+        assert_eq!(t.buffer_transform, BufferTransform::None);
+        assert_eq!(
+            t.fidelity,
+            Fidelity::Approximate(vec!["'Twist' buffer transformation not applied".into()])
+        );
+    }
+
+    #[test]
     fn unsupported_blends_transitions_and_buffers_are_approximations() {
         let s = Settings::parse(
-            "T_CHOICE_LayerMethod=Effect 2,T_TEXTCTRL_Fadein=1,T_CHOICE_In_Transition_Type=Wipe,B_CHOICE_BufferStyle=Per Model Default,B_SLIDER_Rotation=45",
+            "T_CHOICE_LayerMethod=Effect 2,T_TEXTCTRL_Fadein=1,T_CHOICE_In_Transition_Type=Wipe,B_CHOICE_BufferStyle=Vertical Per Strand,B_SLIDER_Rotation=45",
         );
         let t = translate("Off", &s, &palette(&[]), 2000, 25).unwrap();
         assert_eq!(t.blend, Blend::Normal);
@@ -1944,7 +1990,7 @@ mod tests {
             vec![
                 "'Effect 2' layer blending shown as Normal",
                 "'Wipe' transition shown as a fade",
-                "'Per Model Default' render style not applied",
+                "'Vertical Per Strand' render style not applied",
                 "rotation or zoom not applied",
             ]
         );

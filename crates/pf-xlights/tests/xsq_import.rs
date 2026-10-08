@@ -402,21 +402,22 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
 
     let tree = &row(&i, &show, "Mega Tree").layers[0].effects;
     assert_eq!(tree.len(), 4, "Adjust and Random are left out");
-    assert_eq!(tree[0].kind(), pf_sequence::EffectKind::ColorWash, "Butterfly");
+    assert_eq!(
+        tree[0].params,
+        EffectParams::default_for(pf_sequence::EffectKind::Butterfly)
+    );
     for faces in &tree[1..3] {
         assert_eq!(faces.params, EffectParams::Faces(FacesParams::default()));
     }
-    for placeholder in &tree[3..] {
-        assert_eq!(
-            placeholder.params,
-            EffectParams::On(OnParams {
-                gradient: Gradient::None,
-                start_level: 0.25,
-                end_level: 0.25
-            })
-        );
-        assert_eq!(placeholder.palette.colors, vec![RED]);
-    }
+    // Text with no words: nothing to show, as in xLights.
+    assert_eq!(
+        tree[3].params,
+        EffectParams::Text(pf_sequence::TextParams {
+            text: String::new(),
+            size: 10,
+            ..Default::default()
+        })
+    );
 
     row(&i, &show, "Outline");
     row(&i, &show, "Santa's Sleigh & Reindeer");
@@ -424,7 +425,7 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
     let s = i.summary;
     assert_eq!(s.rows, 9);
     assert_eq!(s.effects, 23);
-    assert_eq!((s.exact, s.approximate, s.placeholders), (16, 6, 1));
+    assert_eq!((s.exact, s.approximate, s.placeholders), (17, 6, 0));
     assert_eq!(
         s.skipped,
         1 + 3 + 2,
@@ -433,7 +434,7 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
 
     assert_note(
         &i,
-        "PixelFlow has no matching effect yet for this xLights effect, so it is shown as a dim fill in its first color: Text (1).",
+        "Text (1 effect) approximated: 'default' font shown in PixelFlow's pixel font.",
     );
     assert_note(
         &i,
@@ -447,7 +448,7 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
     );
     assert_note(&i, "'Wipe' transition shown as a fade (1)");
     assert!(!has_note(&i, "kept at one value"), "{:#?}", i.notes);
-    assert_note(&i, "Butterfly (1 effect) approximated: shown as a color wash.");
+    assert!(!has_note(&i, "Butterfly"), "{:#?}", i.notes);
     assert_note(
         &i,
         "Meteors (1 effect) approximated: meteor count and speed approximated.",

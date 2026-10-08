@@ -12,11 +12,14 @@ use super::settings::{ParsedPalette, Settings};
 use super::{list, plural};
 use pf_model::{BufferTransform, RenderStyle};
 use pf_sequence::{
-    Axis, BarsParams, Blend, ChaseParams, CirclesLook, CirclesParams, ColorWashParams, Curve, CurveShape,
-    Direction, EffectParams, FaceColorSource, FaceEyes, FacesParams, FanParams, FireParams, Gradient,
-    MAX_CURVE_CYCLES, MIN_CURVE_CYCLES, MeteorDirection, MeteorsParams, MorphParams, OffParams, OnParams,
-    Palette, Rgb, RippleParams, SettingRange, ShapeObject, ShapeParams, ShimmerParams, SpiralParams,
-    StrobeParams, TwinkleParams, WaveParams,
+    Axis, BarsParams, Blend, ButterflyColors, ButterflyParams, ChaseParams, CirclesLook, CirclesParams,
+    ColorWashParams, Curve, CurveShape, Direction, EffectParams, FaceColorSource, FaceEyes, FacesParams,
+    FanParams, FireParams, GarlandShape, GarlandsDirection, GarlandsParams, Gradient, LifeParams, LifeRules,
+    LinesParams, MAX_CURVE_CYCLES, MIN_CURVE_CYCLES, MeteorDirection, MeteorsParams, MorphParams, OffParams,
+    OnParams, Palette, PinwheelParams, PinwheelShading, PinwheelStyle, PlasmaColors, PlasmaParams, Rgb,
+    RippleParams, SettingRange, ShapeObject, ShapeParams, ShimmerParams, SnowflakeShape, SnowflakesMotion,
+    SnowflakesParams, SpiralParams, StrobeParams, TendrilMovement, TendrilParams, TextCountdown,
+    TextMovement, TextOrientation, TextParams, TwinkleParams, WaveParams,
 };
 use std::collections::BTreeMap;
 
@@ -90,7 +93,7 @@ fn count(v: f64, min: u32, max: u32) -> u32 {
 /// xLights settings whose text box shows the slider's value divided (`Bars_Cycles` 0-300 on the
 /// slider is 0-30 cycles in the box), from xLights' effect metadata. Value curves run in slider
 /// units.
-const DIVISORS: [(&str, f64); 16] = [
+const DIVISORS: [(&str, f64); 18] = [
     ("Bars_Cycles", 10.0),
     ("ColorWash_Cycles", 10.0),
     ("Fire_GrowthCycles", 10.0),
@@ -107,6 +110,8 @@ const DIVISORS: [(&str, f64); 16] = [
     ("Number_Waves", 360.0),
     ("Wave_Speed", 100.0),
     ("Fan_Revolutions", 360.0),
+    ("Garlands_Cycles", 10.0),
+    ("Lines_Speed", 10.0),
 ];
 /// Divided settings that xLights stores as the slider all the same.
 const STORED_AS_SLIDER: [&str; 1] = ["Spirals_Rotation"];
@@ -717,9 +722,21 @@ fn version_older(than: &str, version: &str) -> bool {
 /// Settings xLights changes when it opens a file saved by an older version (each effect's
 /// `adjustSettings`), so the effect looks as it does in xLights today.
 pub fn adjust_for_version(name: &str, s: &mut Settings, version: &str) {
-    // Fan radii became a share of the prop in 2025.04; older fans keep them in pixels.
-    if effect_key(name) == "fan" && version_older("2025.04", version) {
-        s.set("E_CHECKBOX_Fan_Scale", "0".into());
+    match effect_key(name).as_str() {
+        // Fan radii became a share of the prop in 2025.04; older fans keep them in pixels.
+        "fan" if version_older("2025.04", version) => s.set("E_CHECKBOX_Fan_Scale", "0".into()),
+        // Pinwheels from before the new render method (2026.06) keep the old one.
+        "pinwheel" if version_older("2026.06", version) && !s.contains("E_CHOICE_Pinwheel_Style") => {
+            s.set("E_CHOICE_Pinwheel_Style", "Old Render Method".into());
+        }
+        // Lines' speed became a number with tenths in 2026.07; the old whole-number slider holds
+        // the same speed.
+        "lines" if version_older("2026.07", version) && !s.contains("E_TEXTCTRL_Lines_Speed") => {
+            if let Some(speed) = s.get("E_SLIDER_Lines_Speed").map(str::to_string) {
+                s.set("E_TEXTCTRL_Lines_Speed", speed);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -884,6 +901,309 @@ fn circles(r: &Reader, diff: &mut Diff) -> EffectParams {
     })
 }
 
+/// A setting the file stores as the text box (the slider holding it times `divisor`), from
+/// whichever it has.
+fn divided(r: &Reader, id: &str, divisor: f64, default: f64) -> f64 {
+    r.s.num(&format!("E_TEXTCTRL_{id}"))
+        .or_else(|| r.s.num(&format!("E_SLIDER_{id}")).map(|v| v / divisor))
+        .unwrap_or(default)
+}
+
+/// A Pinwheel (xLights' `PinwheelEffect`). Its Rotation box turns the arms counterclockwise.
+fn pinwheel(r: &Reader, diff: &mut Diff) -> EffectParams {
+    let shading = match r.choice("Pinwheel_3D", "None") {
+        "None" => PinwheelShading::Flat,
+        "3D" => PinwheelShading::Raised,
+        "3D Inverted" => PinwheelShading::Sunken,
+        "Sweep" => PinwheelShading::Sweep,
+        other => {
+            diff.add(format!("'{other}' shading shown flat"));
+            PinwheelShading::Flat
+        }
+    };
+    EffectParams::Pinwheel(PinwheelParams {
+        arms: count(r.get("Pinwheel_Arms", 3.0, 1.0, 20.0), 1, 20),
+        arm_size: r.get("Pinwheel_ArmSize", 100.0, 0.0, 400.0) as f32,
+        twist: r.get("Pinwheel_Twist", 0.0, -360.0, 360.0) as f32,
+        thickness: r.get("Pinwheel_Thickness", 0.0, 0.0, 100.0) as f32,
+        speed: r.get("Pinwheel_Speed", 10.0, 0.0, 50.0) as f32,
+        counterclockwise: r.check_or("Pinwheel_Rotation", true),
+        shading,
+        offset: r.get("Pinwheel_Offset", 0.0, 0.0, 360.0) as f32,
+        center_x: r.get("PinwheelXC", 0.0, -100.0, 100.0) as f32,
+        center_y: r.get("PinwheelYC", 0.0, -100.0, 100.0) as f32,
+        style: if r.choice("Pinwheel_Style", "New Render Method") == "New Render Method" {
+            PinwheelStyle::Smooth
+        } else {
+            PinwheelStyle::Spokes
+        },
+    })
+}
+
+/// Snowflakes (xLights' `SnowflakesEffect`). The Type slider picks the look, 0 a random one.
+fn snowflakes(r: &Reader, diff: &mut Diff) -> EffectParams {
+    let flake = match r.get("Snowflakes_Type", 1.0, 0.0, 9.0).round() as u32 {
+        0 => SnowflakeShape::Random,
+        1 => SnowflakeShape::Dot,
+        2 => SnowflakeShape::Cross,
+        3 => SnowflakeShape::Bar,
+        4 => SnowflakeShape::BigCross,
+        5 => SnowflakeShape::Star,
+        6 => SnowflakeShape::Square,
+        7 => SnowflakeShape::Plus,
+        8 => SnowflakeShape::Diamond,
+        _ => SnowflakeShape::X,
+    };
+    let motion = match r.s.text("E_CHOICE_Falling", "Driving") {
+        "Driving" => SnowflakesMotion::Blowing,
+        "Falling" => SnowflakesMotion::Falling,
+        "Falling & Accumulating" => SnowflakesMotion::PilingUp,
+        other => {
+            diff.add(format!("'{other}' snow shown blowing"));
+            SnowflakesMotion::Blowing
+        }
+    };
+    EffectParams::Snowflakes(SnowflakesParams {
+        count: count(r.get("Snowflakes_Count", 5.0, 1.0, 100.0), 1, 100),
+        flake,
+        speed: r.get("Snowflakes_Speed", 10.0, 0.0, 50.0) as f32,
+        motion,
+        warmup: count(r.get("Snowflakes_WarmupFrames", 0.0, 0.0, 100.0), 0, 100),
+    })
+}
+
+/// Plasma (xLights' `PlasmaEffect`). Its Style slider adds twist.
+fn plasma(r: &Reader, diff: &mut Diff) -> EffectParams {
+    let colors = match r.choice("Plasma_Color", "Normal") {
+        "Normal" => PlasmaColors::Palette,
+        "Preset Colors 1" => PlasmaColors::RedGreen,
+        "Preset Colors 2" => PlasmaColors::BlueGreen,
+        "Preset Colors 3" => PlasmaColors::Rainbow,
+        "Preset Colors 4" => PlasmaColors::White,
+        other => {
+            diff.add(format!("'{other}' colors shown in the palette"));
+            PlasmaColors::Palette
+        }
+    };
+    EffectParams::Plasma(PlasmaParams {
+        colors,
+        twist: count(r.get("Plasma_Style", 1.0, 1.0, 10.0), 1, 10),
+        density: count(r.get("Plasma_Line_Density", 1.0, 1.0, 10.0), 1, 10),
+        speed: r.get("Plasma_Speed", 10.0, 0.0, 100.0) as f32,
+    })
+}
+
+/// A Butterfly (xLights' `ButterflyEffect`). Its Style slider picks the pattern.
+fn butterfly(r: &Reader) -> EffectParams {
+    EffectParams::Butterfly(ButterflyParams {
+        pattern: count(r.get("Butterfly_Style", 1.0, 1.0, 10.0), 1, 10),
+        colors: if r.choice("Butterfly_Colors", "Rainbow") == "Palette" {
+            ButterflyColors::Palette
+        } else {
+            ButterflyColors::Rainbow
+        },
+        speed: r.get("Butterfly_Speed", 10.0, 0.0, 100.0) as f32,
+        direction: direction(r.choice("Butterfly_Direction", "Normal") == "Reverse"),
+        chunks: count(r.get("Butterfly_Chunks", 1.0, 1.0, 10.0), 1, 10),
+        skip: count(r.get("Butterfly_Skip", 2.0, 2.0, 10.0), 2, 10),
+    })
+}
+
+/// Garlands (xLights' `GarlandsEffect`). Cycles are stored in tenths on the slider.
+fn garlands(r: &Reader, diff: &mut Diff) -> EffectParams {
+    let shape = match r.get("Garlands_Type", 0.0, 0.0, 4.0).round() as u32 {
+        0 => GarlandShape::Straight,
+        1 => GarlandShape::SmallSwags,
+        2 => GarlandShape::Swags,
+        3 => GarlandShape::DeepSwags,
+        _ => GarlandShape::DoubleDips,
+    };
+    use GarlandsDirection as D;
+    let direction = match r.choice("Garlands_Direction", "Up") {
+        "Up" => D::Up,
+        "Down" => D::Down,
+        "Left" => D::Left,
+        "Right" => D::Right,
+        "Up then Down" => D::UpThenDown,
+        "Down then Up" => D::DownThenUp,
+        "Left then Right" => D::LeftThenRight,
+        "Right then Left" => D::RightThenLeft,
+        other => {
+            diff.add(format!("'{other}' garlands shown stacking up"));
+            D::Up
+        }
+    };
+    EffectParams::Garlands(GarlandsParams {
+        shape,
+        spacing: r.get("Garlands_Spacing", 10.0, 1.0, 100.0) as f32,
+        cycles: divided(r, "Garlands_Cycles", 10.0, 1.0).clamp(0.0, 20.0) as f32,
+        direction,
+    })
+}
+
+/// Lines (xLights' `LinesEffect`). Speed is stored in tenths on the slider.
+fn lines(r: &Reader) -> EffectParams {
+    EffectParams::Lines(LinesParams {
+        count: count(r.get("Lines_Objects", 2.0, 1.0, 20.0), 1, 20),
+        points: count(r.get("Lines_Segments", 3.0, 2.0, 6.0), 2, 6),
+        thickness: count(r.get("Lines_Thickness", 1.0, 1.0, 10.0), 1, 10),
+        speed: divided(r, "Lines_Speed", 10.0, 1.0).clamp(0.0, 10.0) as f32,
+        trails: count(r.get("Lines_Trails", 0.0, 0.0, 10.0), 0, 10),
+        fade_trails: r.check_or("Lines_FadeTrails", true),
+    })
+}
+
+/// Life (xLights' `LifeEffect`). Its Type slider picks the rules.
+fn life(r: &Reader) -> EffectParams {
+    let rules = match r.get("Life_Seed", 0.0, 0.0, 4.0).round() as u32 {
+        0 => LifeRules::Classic,
+        1 => LifeRules::B35S236,
+        2 => LifeRules::Amoeba,
+        3 => LifeRules::Coagulations,
+        _ => LifeRules::B25678S5678,
+    };
+    EffectParams::Life(LifeParams {
+        density: count(r.get("Life_Count", 50.0, 0.0, 100.0), 0, 100),
+        rules,
+        speed: count(r.get("Life_Speed", 10.0, 1.0, 30.0), 1, 30),
+    })
+}
+
+/// A Tendril (xLights' `TendrilEffect`). The two movements that follow the music move as the
+/// closest one that doesn't.
+fn tendril(r: &Reader, diff: &mut Diff) -> EffectParams {
+    use TendrilMovement as M;
+    let movement = match r.choice("Tendril_Movement", "Circle") {
+        "Random" => M::Random,
+        "Square" => M::Square,
+        "Circle" => M::Circle,
+        "Horizontal Zig Zag" => M::HorizontalZigZag,
+        "Horiz. Zig Zag Return" => M::HorizontalZigZagReturn,
+        "Vertical Zig Zag" => M::VerticalZigZag,
+        "Vert. Zig Zag Return" => M::VerticalZigZagReturn,
+        "Manual" => M::Manual,
+        "Music Line" => {
+            diff.add("movement that follows the music shown as a zig zag");
+            M::VerticalZigZag
+        }
+        "Music Circle" => {
+            diff.add("movement that follows the music shown as a circle");
+            M::Circle
+        }
+        other => {
+            diff.add(format!("'{other}' movement shown as random"));
+            M::Random
+        }
+    };
+    EffectParams::Tendril(TendrilParams {
+        movement,
+        movement_size: r.get("Tendril_TuneMovement", 10.0, 0.0, 20.0) as f32,
+        thickness: r.get("Tendril_Thickness", 3.0, 1.0, 20.0) as f32,
+        tendrils: count(r.get("Tendril_Trails", 1.0, 1.0, 20.0), 1, 20),
+        length: count(r.get("Tendril_Length", 60.0, 5.0, 100.0), 5, 100),
+        speed: count(r.get("Tendril_Speed", 10.0, 1.0, 10.0), 1, 10),
+        friction: count(r.get("Tendril_Friction", 10.0, 0.0, 20.0), 0, 20),
+        dampening: count(r.get("Tendril_Dampening", 10.0, 0.0, 20.0), 0, 20),
+        tension: count(r.get("Tendril_Tension", 20.0, 0.0, 39.0), 0, 39),
+        offset_x: r.get("Tendril_XOffset", 0.0, -100.0, 100.0) as f32,
+        offset_y: r.get("Tendril_YOffset", 0.0, -100.0, 100.0) as f32,
+        manual_x: r.get("Tendril_ManualX", 0.0, 0.0, 100.0) as f32,
+        manual_y: r.get("Tendril_ManualY", 0.0, 0.0, 100.0) as f32,
+    })
+}
+
+/// A font's letter height in pixels: from xLights' own font's name ("7-7x9 Thin" is 9 tall), or
+/// the point size in a system font's description; `None` when it doesn't say.
+fn font_height(xl_font: &str, os_font: &str) -> Option<f64> {
+    if xl_font != "Use OS Fonts" {
+        let size = xl_font.split_whitespace().next()?.split('-').nth(1)?;
+        return size.split('x').nth(1)?.parse().ok();
+    }
+    os_font
+        .split_whitespace()
+        .filter_map(|word| word.trim_matches('\'').parse::<f64>().ok())
+        .find(|&points| points > 0.0)
+}
+
+/// Text (xLights' `TextEffect`), in PixelFlow's pixel font at about the font's size (10 pixels
+/// when the font doesn't say).
+fn text(r: &Reader, diff: &mut Diff) -> EffectParams {
+    let words = r.s.text("E_TEXTCTRL_Text", "");
+    if words.is_empty()
+        && (!r.s.text("E_CHOICE_Text_LyricTrack", "").is_empty()
+            || !r.s.text("E_FILEPICKERCTRL_Text_File", "").is_empty())
+    {
+        diff.add("words from a lyrics track or a file not shown");
+    }
+    if words.contains("${") {
+        diff.add("song details in the text shown as written");
+    }
+    let xl_font = r.choice("Text_Font", "Use OS Fonts");
+    let os_font = r.s.text("E_FONTPICKER_Text_Font", "");
+    let font = if xl_font != "Use OS Fonts" {
+        xl_font
+    } else {
+        os_font.split('\'').nth(1).unwrap_or("default")
+    };
+    diff.add(format!("'{font}' font shown in PixelFlow's pixel font"));
+    let size = font_height(xl_font, os_font).unwrap_or(10.0);
+    use TextMovement as M;
+    let movement = match r.choice("Text_Dir", "none") {
+        "none" => M::None,
+        "left" => M::Left,
+        "right" => M::Right,
+        "up" => M::Up,
+        "down" => M::Down,
+        "up-left" => M::UpLeft,
+        "down-left" => M::DownLeft,
+        "up-right" => M::UpRight,
+        "down-right" => M::DownRight,
+        "vector" => M::Vector,
+        "wavey" => M::Wavy,
+        "left-right" => M::LeftRight,
+        "up-down" => M::UpDown,
+        other => {
+            diff.add(format!("'{other}' movement shown still"));
+            M::None
+        }
+    };
+    let orientation = match r.choice("Text_Effect", "normal") {
+        "normal" => TextOrientation::Across,
+        "vert text up" => TextOrientation::StackedUp,
+        "vert text down" => TextOrientation::StackedDown,
+        other => {
+            diff.add(format!("'{other}' text shown upright"));
+            TextOrientation::Across
+        }
+    };
+    let countdown = match r.choice("Text_Count", "none") {
+        "none" => TextCountdown::None,
+        "seconds" => TextCountdown::Seconds,
+        "minutes seconds" => TextCountdown::MinutesSeconds,
+        other => {
+            diff.add(format!("countdown '{other}' shown as the text itself"));
+            TextCountdown::None
+        }
+    };
+    let at = |id: &str| r.get(id, 0.0, -200.0, 200.0) as f32;
+    EffectParams::Text(TextParams {
+        text: words.to_string(),
+        movement,
+        speed: count(r.get("Text_Speed", 10.0, 0.0, 100.0), 0, 100),
+        size: count(size, 4, 100),
+        orientation,
+        to_center: r.check("TextToCenter"),
+        no_repeat: r.check("TextNoRepeat"),
+        start_x: at("Text_XStart"),
+        start_y: at("Text_YStart"),
+        end_x: at("Text_XEnd"),
+        end_y: at("Text_YEnd"),
+        pixel_offsets: r.check("Text_PixelOffsets"),
+        color_per_word: r.check("Text_Color_PerWord"),
+        countdown,
+    })
+}
+
 /// A singing face (xLights' `FacesEffect` on a node-range face). The timing track is looked up
 /// by name when the effect is placed (see `Builder::effect`).
 fn faces(r: &Reader, diff: &mut Diff) -> EffectParams {
@@ -960,15 +1280,20 @@ fn effect_params(
         "fan" => fan(&r),
         "morph" => morph(&r),
         "circles" => circles(&r, diff),
+        "pinwheel" => pinwheel(&r, diff),
+        "snowflakes" => snowflakes(&r, diff),
+        "plasma" => plasma(&r, diff),
+        "butterfly" => butterfly(&r),
+        "garlands" => garlands(&r, diff),
+        "lines" => lines(&r),
+        "life" => life(&r),
+        "tendril" => tendril(&r, diff),
+        "text" => text(&r, diff),
         // No direct equivalent: the closest PixelFlow effect, with its default settings.
-        "plasma" | "butterfly" => closest(
-            "a color wash",
-            EffectParams::ColorWash(ColorWashParams::default()),
-        ),
-        "fireworks" | "snowflakes" => closest("twinkles", EffectParams::Twinkle(TwinkleParams::default())),
+        "fireworks" => closest("twinkles", EffectParams::Twinkle(TwinkleParams::default())),
         "snowstorm" => closest("falling meteors", EffectParams::Meteors(MeteorsParams::default())),
         "shockwave" => closest("a ripple", EffectParams::Ripple(RippleParams::default())),
-        "pinwheel" | "galaxy" => closest("a spiral", EffectParams::Spiral(SpiralParams::default())),
+        "galaxy" => closest("a spiral", EffectParams::Spiral(SpiralParams::default())),
         "fill" | "curtain" => closest("moving bars", EffectParams::Bars(BarsParams::default())),
         "lightning" => closest("a strobe", EffectParams::Strobe(StrobeParams::default())),
         "adjust" | "warp" | "duplicate" | "dmx" | "servo" | "movinghead" => return Kind::Skip,
@@ -1406,7 +1731,7 @@ mod tests {
     #[test]
     fn unknown_effects_become_dim_placeholders_in_their_first_color() {
         let t = translate(
-            "Text",
+            "Candle",
             &Settings::default(),
             &palette(&[Rgb::RED, Rgb::BLUE]),
             1000,
@@ -1533,7 +1858,7 @@ mod tests {
             (0, Rgb::WHITE, 0)
         );
         // Placeholders keep them too.
-        let lines = translate("Lines", &s, &p, 1000, 25).unwrap();
+        let lines = translate("Candle", &s, &p, 1000, 25).unwrap();
         assert_eq!(lines.fidelity, Fidelity::Placeholder);
         assert_eq!((lines.sparkles, lines.blur), (54, 7));
     }
@@ -1945,6 +2270,302 @@ mod tests {
     }
 
     #[test]
+    fn pinwheels_translate_exactly_and_old_ones_keep_the_old_method() {
+        let s = Settings::parse(
+            "E_CHECKBOX_Pinwheel_Rotation=0,E_CHOICE_Pinwheel_3D=Sweep,E_CHOICE_Pinwheel_Style=New Render Method,\
+             E_SLIDER_PinwheelXC=25,E_SLIDER_PinwheelYC=-10,E_SLIDER_Pinwheel_ArmSize=400,E_SLIDER_Pinwheel_Arms=12,\
+             E_SLIDER_Pinwheel_Offset=45,E_SLIDER_Pinwheel_Speed=6,E_SLIDER_Pinwheel_Thickness=50,\
+             E_SLIDER_Pinwheel_Twist=-360",
+        );
+        let t = translate("Pinwheel", &s, &palette(&[Rgb::RED, Rgb::BLUE]), 4000, 25).unwrap();
+        assert_eq!(t.fidelity, Fidelity::Exact, "{:?}", t.fidelity);
+        assert_eq!(
+            t.params,
+            EffectParams::Pinwheel(PinwheelParams {
+                arms: 12,
+                arm_size: 400.0,
+                twist: -360.0,
+                thickness: 50.0,
+                speed: 6.0,
+                counterclockwise: false,
+                shading: PinwheelShading::Sweep,
+                offset: 45.0,
+                center_x: 25.0,
+                center_y: -10.0,
+                style: PinwheelStyle::Smooth,
+            })
+        );
+        // Files from before xLights 2026.06 without a style keep the old method; newer ones the
+        // new one.
+        for (version, style) in [
+            ("2024.19", PinwheelStyle::Spokes),
+            ("2026.06", PinwheelStyle::Smooth),
+        ] {
+            let mut s = Settings::default();
+            adjust_for_version("Pinwheel", &mut s, version);
+            let EffectParams::Pinwheel(p) =
+                translate("Pinwheel", &s, &palette(&[]), 1000, 25).unwrap().params
+            else {
+                unreachable!()
+            };
+            assert_eq!(p.style, style, "{version}");
+        }
+        // Curves on the center and twist.
+        let s = Settings::parse(
+            "E_SLIDER_PinwheelXC=25,\
+             E_VALUECURVE_PinwheelXC=Active=TRUE|Type=Ramp|Min=-100.00|Max=100.00|P1=-50.00|P2=50.00|RV=TRUE|",
+        );
+        let t = translate("Pinwheel", &s, &palette(&[Rgb::RED]), 4000, 25).unwrap();
+        assert_eq!(t.curves["centerX"], Curve::ramp(-50.0, 50.0));
+    }
+
+    #[test]
+    fn snowflakes_translate_their_look_and_motion() {
+        let s = Settings::parse(
+            "E_CHOICE_Falling=Falling & Accumulating,E_SLIDER_Snowflakes_Count=69,E_SLIDER_Snowflakes_Speed=34,\
+             E_SLIDER_Snowflakes_Type=8,E_SLIDER_Snowflakes_WarmupFrames=12",
+        );
+        let t = translate("Snowflakes", &s, &palette(&[Rgb::WHITE]), 4000, 50).unwrap();
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        assert_eq!(
+            t.params,
+            EffectParams::Snowflakes(SnowflakesParams {
+                count: 69,
+                flake: SnowflakeShape::Diamond,
+                speed: 34.0,
+                motion: SnowflakesMotion::PilingUp,
+                warmup: 12,
+            })
+        );
+        for (setting, flake, motion) in [
+            (
+                "E_SLIDER_Snowflakes_Type=0",
+                SnowflakeShape::Random,
+                SnowflakesMotion::Blowing,
+            ),
+            (
+                "E_SLIDER_Snowflakes_Type=2,E_CHOICE_Falling=Falling",
+                SnowflakeShape::Cross,
+                SnowflakesMotion::Falling,
+            ),
+            (
+                "E_SLIDER_Snowflakes_Type=9",
+                SnowflakeShape::X,
+                SnowflakesMotion::Blowing,
+            ),
+        ] {
+            let EffectParams::Snowflakes(p) =
+                translate("Snowflakes", &Settings::parse(setting), &palette(&[]), 1000, 50)
+                    .unwrap()
+                    .params
+            else {
+                unreachable!()
+            };
+            assert_eq!((p.flake, p.motion), (flake, motion), "{setting}");
+        }
+        let plain = translate("Snowflakes", &Settings::default(), &palette(&[]), 1000, 50).unwrap();
+        assert_eq!(
+            plain.params,
+            EffectParams::Snowflakes(SnowflakesParams::default())
+        );
+    }
+
+    #[test]
+    fn plasma_and_butterfly_translate_exactly() {
+        let s = Settings::parse(
+            "E_CHOICE_Plasma_Color=Preset Colors 3,E_SLIDER_Plasma_Line_Density=6,E_SLIDER_Plasma_Speed=16,\
+             E_SLIDER_Plasma_Style=2",
+        );
+        let t = translate("Plasma", &s, &palette(&[Rgb::RED]), 4000, 50).unwrap();
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        assert_eq!(
+            t.params,
+            EffectParams::Plasma(PlasmaParams {
+                colors: PlasmaColors::Rainbow,
+                twist: 2,
+                density: 6,
+                speed: 16.0,
+            })
+        );
+        let s = Settings::parse(
+            "E_CHOICE_Butterfly_Colors=Palette,E_CHOICE_Butterfly_Direction=Reverse,E_SLIDER_Butterfly_Chunks=3,\
+             E_SLIDER_Butterfly_Skip=4,E_SLIDER_Butterfly_Speed=90,E_SLIDER_Butterfly_Style=7,\
+             E_VALUECURVE_Butterfly_Speed=Active=TRUE|Type=Ramp|Min=0.00|Max=100.00|P1=10.00|P2=90.00|RV=TRUE|",
+        );
+        let t = translate("Butterfly", &s, &palette(&[Rgb::RED]), 4000, 50).unwrap();
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        assert_eq!(
+            t.params,
+            EffectParams::Butterfly(ButterflyParams {
+                pattern: 7,
+                colors: ButterflyColors::Palette,
+                speed: 10.0,
+                direction: Direction::Reverse,
+                chunks: 3,
+                skip: 4,
+            })
+        );
+        assert_eq!(t.curves["speed"], Curve::ramp(10.0, 90.0));
+    }
+
+    #[test]
+    fn garlands_and_lines_read_tenths_from_either_control() {
+        let s = Settings::parse(
+            "E_CHOICE_Garlands_Direction=Left then Right,E_SLIDER_Garlands_Spacing=75,E_SLIDER_Garlands_Type=1,\
+             E_TEXTCTRL_Garlands_Cycles=2.5",
+        );
+        let t = translate("Garlands", &s, &palette(&[Rgb::RED]), 4000, 50).unwrap();
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        assert_eq!(
+            t.params,
+            EffectParams::Garlands(GarlandsParams {
+                shape: GarlandShape::SmallSwags,
+                spacing: 75.0,
+                cycles: 2.5,
+                direction: GarlandsDirection::LeftThenRight,
+            })
+        );
+        let slider = Settings::parse("E_SLIDER_Garlands_Cycles=30");
+        let EffectParams::Garlands(p) = translate("Garlands", &slider, &palette(&[]), 4000, 50)
+            .unwrap()
+            .params
+        else {
+            unreachable!()
+        };
+        assert_eq!(p.cycles, 3.0);
+        // Lines from before xLights 2026.07 keep their whole-number speed on the slider.
+        let mut s = Settings::parse(
+            "E_CHECKBOX_Lines_FadeTrails=0,E_SLIDER_Lines_Objects=6,E_SLIDER_Lines_Segments=2,\
+             E_SLIDER_Lines_Speed=3,E_SLIDER_Lines_Thickness=4,E_SLIDER_Lines_Trails=5",
+        );
+        adjust_for_version("Lines", &mut s, "2024.19");
+        let t = translate("Lines", &s, &palette(&[Rgb::RED]), 4000, 50).unwrap();
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        assert_eq!(
+            t.params,
+            EffectParams::Lines(LinesParams {
+                count: 6,
+                points: 2,
+                thickness: 4,
+                speed: 3.0,
+                trails: 5,
+                fade_trails: false,
+            })
+        );
+        let newer = Settings::parse("E_TEXTCTRL_Lines_Speed=2.5");
+        let EffectParams::Lines(p) = translate("Lines", &newer, &palette(&[]), 4000, 50)
+            .unwrap()
+            .params
+        else {
+            unreachable!()
+        };
+        assert_eq!(p.speed, 2.5);
+    }
+
+    #[test]
+    fn life_and_tendril_translate_and_music_movements_say_so() {
+        let s = Settings::parse("E_SLIDER_Life_Count=100,E_SLIDER_Life_Seed=3,E_SLIDER_Life_Speed=3");
+        let t = translate("Life", &s, &palette(&[Rgb::RED]), 4000, 50).unwrap();
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        assert_eq!(
+            t.params,
+            EffectParams::Life(LifeParams {
+                density: 100,
+                rules: LifeRules::Coagulations,
+                speed: 3,
+            })
+        );
+        let s = Settings::parse(
+            "E_CHOICE_Tendril_Movement=Vertical Zig Zag,E_TEXTCTRL_Tendril_Dampening=15,\
+             E_TEXTCTRL_Tendril_Friction=11,E_TEXTCTRL_Tendril_Length=97,E_TEXTCTRL_Tendril_ManualX=5,\
+             E_TEXTCTRL_Tendril_ManualY=6,E_TEXTCTRL_Tendril_Speed=10,E_TEXTCTRL_Tendril_Tension=37,\
+             E_TEXTCTRL_Tendril_Thickness=9,E_TEXTCTRL_Tendril_Trails=2,E_TEXTCTRL_Tendril_TuneMovement=3,\
+             E_TEXTCTRL_Tendril_XOffset=-16,E_TEXTCTRL_Tendril_YOffset=-9",
+        );
+        let t = translate("Tendril", &s, &palette(&[Rgb::RED]), 4000, 50).unwrap();
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        assert_eq!(
+            t.params,
+            EffectParams::Tendril(TendrilParams {
+                movement: TendrilMovement::VerticalZigZag,
+                movement_size: 3.0,
+                thickness: 9.0,
+                tendrils: 2,
+                length: 97,
+                speed: 10,
+                friction: 11,
+                dampening: 15,
+                tension: 37,
+                offset_x: -16.0,
+                offset_y: -9.0,
+                manual_x: 5.0,
+                manual_y: 6.0,
+            })
+        );
+        let music = Settings::parse("E_CHOICE_Tendril_Movement=Music Circle");
+        let t = translate("Tendril", &music, &palette(&[]), 4000, 50).unwrap();
+        assert_eq!(
+            t.fidelity,
+            Fidelity::Approximate(vec!["movement that follows the music shown as a circle".into()])
+        );
+    }
+
+    #[test]
+    fn text_translates_with_its_font_noted() {
+        let s = Settings::parse(
+            "E_CHECKBOX_TextNoRepeat=1,E_CHECKBOX_TextToCenter=0,E_CHECKBOX_Text_Color_PerWord=1,\
+             E_CHOICE_Text_Count=none,E_CHOICE_Text_Dir=up,E_CHOICE_Text_Effect=vert text down,\
+             E_CHOICE_Text_Font=Use OS Fonts,E_FONTPICKER_Text_Font=bold 'arial narrow' 12 utf-8,\
+             E_SLIDER_Text_XStart=10,E_SLIDER_Text_YStart=-20,E_TEXTCTRL_Text=Happy&comma; days,\
+             E_TEXTCTRL_Text_Speed=12",
+        );
+        let t = translate("Text", &s, &palette(&[Rgb::RED]), 4000, 50).unwrap();
+        assert_eq!(
+            t.fidelity,
+            Fidelity::Approximate(vec!["'arial narrow' font shown in PixelFlow's pixel font".into()])
+        );
+        assert_eq!(
+            t.params,
+            EffectParams::Text(TextParams {
+                text: "Happy, days".into(),
+                movement: TextMovement::Up,
+                speed: 12,
+                size: 12,
+                orientation: TextOrientation::StackedDown,
+                to_center: false,
+                no_repeat: true,
+                start_x: 10.0,
+                start_y: -20.0,
+                end_x: 0.0,
+                end_y: 0.0,
+                pixel_offsets: false,
+                color_per_word: true,
+                countdown: TextCountdown::None,
+            })
+        );
+        // xLights' own fonts give their height; what PixelFlow can't show says so.
+        let s = Settings::parse(
+            "E_CHOICE_Text_Font=7-7x9 Bold,E_CHOICE_Text_Dir=word-flip,E_CHOICE_Text_Effect=rotate up 45,\
+             E_CHOICE_Text_Count=to date 's',E_TEXTCTRL_Text=${TITLE}",
+        );
+        let t = translate("Text", &s, &palette(&[Rgb::RED]), 4000, 50).unwrap();
+        let EffectParams::Text(p) = &t.params else {
+            unreachable!()
+        };
+        assert_eq!(p.size, 9);
+        assert_eq!(
+            t.fidelity,
+            Fidelity::Approximate(vec![
+                "song details in the text shown as written".into(),
+                "'7-7x9 Bold' font shown in PixelFlow's pixel font".into(),
+                "'word-flip' movement shown still".into(),
+                "'rotate up 45' text shown upright".into(),
+                "countdown 'to date 's'' shown as the text itself".into(),
+            ])
+        );
+    }
+
+    #[test]
     fn curve_through_keeps_only_the_points_it_needs() {
         let line: Vec<(f32, f32)> = (0..=10).map(|i| (i as f32 / 10.0, i as f32 * 2.0)).collect();
         assert_eq!(curve_through(&line), Some(Curve::ramp(0.0, 20.0)));
@@ -2018,7 +2639,10 @@ mod tests {
              E_SLIDER_Twinkle_Steps=0,E_SLIDER_Strobe_Duration=0,E_TEXTCTRL_Wave_Speed=1e300,\
              E_SLIDER_Meteors_Speed=1e300,E_TEXTCTRL_Ripple_Cycles=1e300,E_SLIDER_Ripple_Thickness=0,\
              E_TEXTCTRL_Shape_Count=1e300,E_SLIDER_Shapes_Velocity=-1e300,E_SLIDER_Fan_Revolutions=1e300,\
-             E_SLIDER_Fan_Num_Blades=-5,E_SLIDER_Morph_Repeat_Count=1e300,E_SLIDER_Circles_Size=1e300",
+             E_SLIDER_Fan_Num_Blades=-5,E_SLIDER_Morph_Repeat_Count=1e300,E_SLIDER_Circles_Size=1e300,\
+             E_SLIDER_Pinwheel_Arms=1e300,E_SLIDER_Snowflakes_Type=-3,E_TEXTCTRL_Garlands_Cycles=1e300,\
+             E_TEXTCTRL_Lines_Speed=-1e300,E_SLIDER_Life_Speed=0,E_TEXTCTRL_Tendril_Length=1e300,\
+             E_TEXTCTRL_Text_Speed=1e300,E_FONTPICKER_Text_Font='x' 1e300",
         );
         for name in [
             "On",
@@ -2041,6 +2665,14 @@ mod tests {
             "Fan",
             "Morph",
             "Circles",
+            "Pinwheel",
+            "Snowflakes",
+            "Butterfly",
+            "Garlands",
+            "Lines",
+            "Life",
+            "Tendril",
+            "Text",
         ] {
             for duration in [1, 25, 3_600_000] {
                 let t = translate(name, &wild, &palette(&[Rgb::RED]), duration, 10).unwrap();

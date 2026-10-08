@@ -520,15 +520,41 @@ describe("gestures on their way", () => {
 });
 
 describe("resizing the canvas", () => {
-  it("keeps the same part of the layout in view, scaled to the new size", () => {
-    const view = { cx: 3, cy: 2, zoom: 40 };
-    const bigger = resizeView(view, { width: 800, height: 400 }, { width: 1600, height: 800 });
-    expect(bigger).toEqual({ cx: 3, cy: 2, zoom: 80 });
-    // Narrower than it is tall: the tighter direction decides, so nothing that was visible is cut off.
-    const narrower = resizeView(view, { width: 800, height: 400 }, { width: 400, height: 400 });
-    expect(narrower.zoom).toBe(20);
-    // A zero-size moment (window minimized) leaves the view alone.
-    expect(resizeView(view, { width: 0, height: 0 }, { width: 800, height: 400 })).toBe(view);
-    expect(resizeView(view, { width: 800, height: 400 }, { width: 0, height: 300 })).toBe(view);
+  const view = { cx: 3, cy: 2, zoom: 40 };
+  const at = (left: number, top: number, width: number, height: number) => ({ left, top, width, height });
+  const onScreen = (v: typeof view, r: ReturnType<typeof at>, p: { x: number; y: number }) => {
+    const s = toScreen(v, r, p);
+    return { x: r.left + s.x, y: r.top + s.y };
+  };
+
+  it("keeps the zoom and every point where it was in the window", () => {
+    const from = at(300, 100, 900, 600);
+    // A properties panel opens on the right: the canvas gets narrower.
+    const to = at(300, 100, 650, 600);
+    const next = resizeView(view, from, to);
+    expect(next.zoom).toBe(40);
+    for (const p of [{ x: 0, y: 0 }, { x: 5, y: -2 }]) {
+      expect(onScreen(next, to, p).x).toBeCloseTo(onScreen(view, from, p).x);
+      expect(onScreen(next, to, p).y).toBeCloseTo(onScreen(view, from, p).y);
+    }
+    // A list collapsing on the left moves the canvas's left edge: the drawing still stays put.
+    const moved = resizeView(view, from, at(80, 100, 1120, 600));
+    expect(onScreen(moved, at(80, 100, 1120, 600), { x: 1, y: 1 }).x).toBeCloseTo(onScreen(view, from, { x: 1, y: 1 }).x);
+  });
+
+  it("comes back exactly when a panel opens and closes again", () => {
+    let v = view;
+    for (let i = 0; i < 20; i++) {
+      v = resizeView(v, at(300, 100, 900, 600), at(300, 100, 650, 600));
+      v = resizeView(v, at(300, 100, 650, 600), at(300, 100, 900, 600));
+    }
+    expect(v.zoom).toBe(view.zoom);
+    expect(v.cx).toBeCloseTo(view.cx);
+    expect(v.cy).toBeCloseTo(view.cy);
+  });
+
+  it("leaves the view alone for a zero-size moment (window minimized)", () => {
+    expect(resizeView(view, at(0, 0, 0, 0), at(0, 0, 800, 400))).toBe(view);
+    expect(resizeView(view, at(0, 0, 800, 400), at(0, 0, 0, 300))).toBe(view);
   });
 });

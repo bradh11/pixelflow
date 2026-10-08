@@ -50,13 +50,21 @@ export function toWorld(view: View, size: Size, s: Pt): Pt {
   return { x: view.cx + (s.x - size.width / 2) / view.zoom, y: view.cy - (s.y - size.height / 2) / view.zoom };
 }
 
-/** The view after the canvas changes size: the same center, zoomed so everything that was
- * visible still is (the tighter direction decides). A zero size leaves the view alone. */
-export function resizeView(view: View, from: Size, to: Size): View {
+/** Where the canvas sits in the window, and its size. */
+export interface Rect extends Size {
+  left: number;
+  top: number;
+}
+
+/** The view after the canvas changes size or moves (a panel opening beside it, the window
+ * resizing): the same zoom, and every point stays where it was in the window, so the drawing
+ * doesn't jump; the change just covers or uncovers an edge. A zero size leaves the view alone. */
+export function resizeView(view: View, from: Rect, to: Rect): View {
   if (from.width <= 0 || from.height <= 0 || to.width <= 0 || to.height <= 0) return view;
-  const factor = Math.min(to.width / from.width, to.height / from.height);
-  if (factor === 1) return view;
-  return { ...view, zoom: clamp(view.zoom * factor, MIN_ZOOM, MAX_ZOOM) };
+  const dx = to.left + to.width / 2 - (from.left + from.width / 2);
+  const dy = to.top + to.height / 2 - (from.top + from.height / 2);
+  if (dx === 0 && dy === 0) return view;
+  return { ...view, cx: view.cx + dx / view.zoom, cy: view.cy - dy / view.zoom };
 }
 
 /** Zooms by `factor`, keeping the world point under screen point `s` where it is. */

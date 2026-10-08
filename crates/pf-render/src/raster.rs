@@ -41,7 +41,19 @@ pub(crate) fn cell_of(px: &Pixel, columns: i32, rows: i32) -> (i32, i32) {
 pub(crate) struct Raster {
     pub width: i32,
     pub height: i32,
-    cells: Vec<Rgba>,
+    /// Each cell's color and coverage, as plain numbers so a new grid comes from zeroed memory
+    /// (most effects light few of its cells).
+    cells: Vec<[f32; 4]>,
+}
+
+#[inline]
+fn color([r, g, b, a]: [f32; 4]) -> Rgba {
+    Rgba::new(r, g, b, a)
+}
+
+#[inline]
+fn stored(c: Rgba) -> [f32; 4] {
+    [c.r, c.g, c.b, c.a]
 }
 
 impl Raster {
@@ -50,7 +62,7 @@ impl Raster {
         Self {
             width,
             height,
-            cells: vec![Rgba::CLEAR; (width * height) as usize],
+            cells: vec![[0.0; 4]; (width * height) as usize],
         }
     }
 
@@ -58,14 +70,13 @@ impl Raster {
     #[inline]
     pub fn at(&self, px: &Pixel) -> Rgba {
         let (x, y) = cell_of(px, self.width, self.height);
-        self.cells[(y * self.width + x) as usize]
+        color(self.cells[(y * self.width + x) as usize])
     }
 
-    /// The color drawn at a cell (clear outside the grid); for tests.
-    #[cfg(test)]
+    /// The color drawn at a cell (clear outside the grid).
     pub fn get(&self, x: i32, y: i32) -> Rgba {
         if self.inside(x, y) {
-            self.cells[(y * self.width + x) as usize]
+            color(self.cells[(y * self.width + x) as usize])
         } else {
             Rgba::CLEAR
         }
@@ -79,8 +90,26 @@ impl Raster {
     #[inline]
     pub fn set(&mut self, x: i32, y: i32, color: Rgba) {
         if self.inside(x, y) {
-            self.cells[(y * self.width + x) as usize] = color;
+            self.cells[(y * self.width + x) as usize] = stored(color);
         }
+    }
+
+    /// Draws a color partly covering a cell over what's there (the topmost coverage wins where
+    /// it's whole, as `SetPixel` with alpha does).
+    pub fn cover(&mut self, x: i32, y: i32, top: Rgba) {
+        if !self.inside(x, y) {
+            return;
+        }
+        let cell = &mut self.cells[(y * self.width + x) as usize];
+        let a = top.a.clamp(0.0, 1.0);
+        if a >= 1.0 || cell[3] <= 0.0 {
+            *cell = stored(top);
+            return;
+        }
+        let below = cell[3] * (1.0 - a);
+        let out = a + below;
+        let mix = |over: f32, under: f32| (over * a + under * below) / out;
+        *cell = [mix(top.r, cell[0]), mix(top.g, cell[1]), mix(top.b, cell[2]), out];
     }
 
     /// `SetPixel` with wrapping: a cell off one side comes back on the other. As in xLights, one

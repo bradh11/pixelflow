@@ -169,6 +169,73 @@ function shade(effect: Effect, ms: number, px: Px, seed: number): [Rgb, number] 
       }
       return [[0, 0, 0], 0];
     }
+    case "pinwheel": {
+      // Arms turning around the middle, bending with twist.
+      const arms = Math.max(1, num(p, "arms", 3));
+      const [dx, dy] = [px.u - 0.5 - num(p, "centerX", 0) / 200, px.v - 0.5 - num(p, "centerY", 0) / 200];
+      const r = Math.hypot(dx, dy) / Math.SQRT1_2;
+      if (r > num(p, "armSize", 100) / 100) return [[0, 0, 0], 0];
+      const turn = ((p.counterclockwise === false ? -1 : 1) * el * num(p, "speed", 10) * 20) / 360;
+      const a = frac(Math.atan2(dy, dx) / (2 * Math.PI) - turn - (r * num(p, "twist", 0)) / 360) * arms;
+      return frac(a) < Math.max(0.04, num(p, "thickness", 0) / 100) ? [get(a + 1), 1] : [[0, 0, 0], 0];
+    }
+    case "snowflakes": {
+      // Flakes drifting down and across, wrapping around.
+      const count = Math.min(100, num(p, "count", 5));
+      const drift = (el * num(p, "speed", 10)) / 20;
+      for (let k = 0; k < count; k++) {
+        const [fx, fy] = [frac(hash(k, seed) + (p.motion === "blowing" ? drift / 2 : 0)), frac(hash(seed, k) - drift)];
+        if (Math.abs(px.u - fx) < 0.025 && Math.abs(px.v - fy) < 0.04) return [get(0), 1];
+      }
+      return [[0, 0, 0], 0];
+    }
+    case "plasma":
+    case "butterfly": {
+      const time = (el * num(p, "speed", 10)) / 10;
+      const v = Math.sin(px.u * 10 + time) + Math.sin(10 * (px.u * Math.sin(time / 2) + px.v * Math.cos(time / 3)) + time) + Math.sin(Math.hypot(px.u - 0.5, px.v - 0.5) * 8 + time);
+      return [ramp((Math.sin(v) + 1) / 2), 1];
+    }
+    case "garlands": {
+      // Swags stacking up from the bottom over the effect.
+      const rows = 12;
+      const filled = Math.floor(frac(t * Math.max(0.1, num(p, "cycles", 1))) * (rows + 1));
+      const row = Math.floor(px.v * rows - Math.abs(Math.sin(px.u * Math.PI * 4)) * (p.shape === "straight" || p.shape === undefined ? 0 : 0.6));
+      return row < filled && frac(px.v * rows) < 0.5 ? [ramp(1 - row / rows), 1] : [[0, 0, 0], 0];
+    }
+    case "lines": {
+      // Lines between points bouncing around.
+      const bounce = (x: number) => 1 - Math.abs(1 - frac(x / 2) * 2);
+      for (let k = 0; k < Math.min(20, num(p, "count", 2)); k++) {
+        const step = el * num(p, "speed", 1) * 0.3;
+        const [ax, ay] = [bounce(hash(k, seed) * 2 + step * 0.7), bounce(hash(seed, k) * 2 + step * 0.9)];
+        const [bx, by] = [bounce(hash(k + 9, seed) * 2 + step * 0.8), bounce(hash(seed, k + 9) * 2 + step * 0.6)];
+        const [vx, vy] = [bx - ax, by - ay];
+        const along = Math.max(0, Math.min(1, ((px.u - ax) * vx + (px.v - ay) * vy) / Math.max(1e-6, vx * vx + vy * vy)));
+        if (Math.hypot(px.u - ax - vx * along, px.v - ay - vy * along) < 0.02) return [get(k), 1];
+      }
+      return [[0, 0, 0], 0];
+    }
+    case "life": {
+      const generation = Math.floor(el * num(p, "speed", 10));
+      return hash(px.i + generation * 7919, seed) < num(p, "density", 50) / 200 ? [ramp(hash(px.i, seed)), 1] : [[0, 0, 0], 0];
+    }
+    case "tendril": {
+      // A trail following a point around a circle.
+      for (let k = 0; k < 12; k++) {
+        const a = el * 2 - k * 0.12;
+        if (Math.hypot(px.u - 0.5 - 0.3 * Math.sin(a), px.v - 0.5 - 0.3 * Math.cos(a)) < 0.04) return [ramp(t), 1];
+      }
+      return [[0, 0, 0], 0];
+    }
+    case "text": {
+      // A band where the text sits, scrolling if it moves.
+      const text = typeof p.text === "string" ? p.text : "";
+      const width = Math.min(1, text.length * 0.08);
+      const move = p.movement === "left" ? -frac(el * num(p, "speed", 10) * 0.02) * 2 + 1 : 0;
+      const left = 0.5 - width / 2 + move;
+      const inside = px.u >= left && px.u < left + width && Math.abs(px.v - 0.5) < 0.15;
+      return inside && hash(Math.floor((px.u - left) * 40), Math.floor(px.v * 10)) < 0.55 ? [get(0), 1] : [[0, 0, 0], 0];
+    }
     default:
       return [[0, 0, 0], 0];
   }

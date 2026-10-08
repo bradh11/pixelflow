@@ -293,6 +293,25 @@ describe("sequence screen", () => {
     expect(within(panel).getByRole("checkbox", { name: "Soft edges" })).toBeChecked();
   });
 
+  it("types a Text effect's words, sent when Enter is pressed", async () => {
+    const { seq, user } = await openScreen();
+    fireEvent.pointerDown(timeline(), { clientX: x(1000), clientY: LANE.archTop, button: 0, pointerId: 1 });
+    fireEvent.pointerUp(timeline(), { clientX: x(1000), clientY: LANE.archTop, pointerId: 1 });
+    const id = useSequencer.getState().selection[0];
+    const wave = seq.doc!.rows.flatMap((r) => r.layers.flatMap((l) => l.effects)).find((e) => e.id === id)!;
+    await act(() => useSequencer.getState().edit([{ type: "updateEffect", effect: { ...wave, params: { kind: "text" } } }]));
+    const panel = screen.getByRole("complementary", { name: "Effect settings" });
+    const box = within(panel).getByRole("textbox", { name: "Text" });
+    expect(box).toHaveValue("Hello");
+    await user.clear(box);
+    await user.type(box, "Merry Christmas{Enter}");
+    const text = () => seq.doc!.rows.flatMap((r) => r.layers.flatMap((l) => l.effects)).find((e) => e.id === id)!.params;
+    await waitFor(() => expect(text()).toMatchObject({ kind: "text", text: "Merry Christmas" }));
+    // Escape leaves it as it was.
+    await user.type(box, " to all{Escape}");
+    expect(box).toHaveValue("Merry Christmas");
+  });
+
   it("changes settings from the catalog, one undo step per slider drag", async () => {
     const { seq, user } = await openScreen();
     fireEvent.pointerDown(timeline(), { clientX: x(1000), clientY: LANE.archTop, button: 0, pointerId: 1 });

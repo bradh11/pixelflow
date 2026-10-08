@@ -36,6 +36,15 @@ const HUES: Record<EffectKind, number> = {
   fan: 240,
   morph: 80,
   circles: 160,
+  pinwheel: 280,
+  snowflakes: 200,
+  plasma: 300,
+  butterfly: 320,
+  garlands: 120,
+  lines: 60,
+  life: 90,
+  tendril: 170,
+  text: 30,
   faces: 340,
 };
 

@@ -374,6 +374,9 @@ export function SettingControl({
       </label>
     );
   }
+  if (setting.type === "text") {
+    return <TextSetting setting={setting} value={typeof value === "string" ? value : setting.default} onChange={onChange} mixed={mixed} />;
+  }
   if (setting.type === "bool") {
     return (
       <label className="flex items-center gap-2 text-sm" title={setting.description}>
@@ -398,6 +401,42 @@ export function SettingControl({
     );
   }
   return <NumberSetting setting={setting} value={typeof value === "number" ? value : setting.default} onChange={onChange} mixed={mixed} animate={animate} />;
+}
+
+/** A free-text setting: typed into a box and sent when Enter is pressed or the box is left (Escape puts it back). */
+function TextSetting({
+  setting,
+  value,
+  onChange,
+  mixed,
+}: {
+  setting: Extract<EffectSetting, { type: "text" }>;
+  value: string;
+  onChange: (value: unknown, gesture?: string) => Promise<boolean>;
+  mixed: boolean;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const send = () => {
+    if (draft !== null && (mixed || draft !== value)) void onChange(draft);
+    setDraft(null);
+  };
+  return (
+    <label className="flex flex-col gap-1 text-sm" title={setting.description}>
+      <span className="text-neutral-600 dark:text-neutral-400">{setting.label}</span>
+      <input
+        type="text"
+        className={FIELD}
+        value={draft ?? (mixed ? "" : value)}
+        placeholder={mixed ? "Different in each effect" : undefined}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={send}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") send();
+          if (e.key === "Escape") setDraft(null);
+        }}
+      />
+    </label>
+  );
 }
 
 /**

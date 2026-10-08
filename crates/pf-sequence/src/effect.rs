@@ -424,11 +424,20 @@ pub enum EffectKind {
     Fan,
     Morph,
     Circles,
+    Pinwheel,
+    Snowflakes,
+    Plasma,
+    Butterfly,
+    Garlands,
+    Lines,
+    Life,
+    Tendril,
+    Text,
     Faces,
 }
 
 impl EffectKind {
-    pub const ALL: [EffectKind; 19] = [
+    pub const ALL: [EffectKind; 28] = [
         EffectKind::On,
         EffectKind::Off,
         EffectKind::ColorWash,
@@ -447,6 +456,15 @@ impl EffectKind {
         EffectKind::Fan,
         EffectKind::Morph,
         EffectKind::Circles,
+        EffectKind::Pinwheel,
+        EffectKind::Snowflakes,
+        EffectKind::Plasma,
+        EffectKind::Butterfly,
+        EffectKind::Garlands,
+        EffectKind::Lines,
+        EffectKind::Life,
+        EffectKind::Tendril,
+        EffectKind::Text,
         EffectKind::Faces,
     ];
 
@@ -471,6 +489,15 @@ impl EffectKind {
             EffectKind::Fan => "Fan",
             EffectKind::Morph => "Morph",
             EffectKind::Circles => "Circles",
+            EffectKind::Pinwheel => "Pinwheel",
+            EffectKind::Snowflakes => "Snowflakes",
+            EffectKind::Plasma => "Plasma",
+            EffectKind::Butterfly => "Butterfly",
+            EffectKind::Garlands => "Garlands",
+            EffectKind::Lines => "Lines",
+            EffectKind::Life => "Life",
+            EffectKind::Tendril => "Tendril",
+            EffectKind::Text => "Text",
             EffectKind::Faces => "Faces",
         }
     }
@@ -500,6 +527,15 @@ impl EffectKind {
             EffectKind::Fan => "Blades of color spinning out from a center point.",
             EffectKind::Morph => "A line sweeping from one place to another, with a head and a fading tail.",
             EffectKind::Circles => "Balls of color moving around the prop, or rings spreading from a point.",
+            EffectKind::Pinwheel => "Arms of color turning around a center point, like a pinwheel.",
+            EffectKind::Snowflakes => "Snowflakes drifting across the prop, or falling and piling up.",
+            EffectKind::Plasma => "Swirling waves of color flowing over the prop.",
+            EffectKind::Butterfly => "Shifting patterns of color, like a butterfly's wings.",
+            EffectKind::Garlands => "Rows of swags stacking up the prop, one after another.",
+            EffectKind::Lines => "Lines bouncing around the prop, with fading trails.",
+            EffectKind::Life => "Cells living and dying by the rules of the Game of Life.",
+            EffectKind::Tendril => "Tendrils trailing after a point that moves around the prop.",
+            EffectKind::Text => "Words scrolling across the prop, or standing still.",
             EffectKind::Faces => {
                 "A singing face: the prop's face mouths the words on a timing track, with eyes that blink."
             }
@@ -527,6 +563,15 @@ impl EffectKind {
             EffectKind::Fan => FanParams::SETTINGS,
             EffectKind::Morph => MorphParams::SETTINGS,
             EffectKind::Circles => CirclesParams::SETTINGS,
+            EffectKind::Pinwheel => PinwheelParams::SETTINGS,
+            EffectKind::Snowflakes => SnowflakesParams::SETTINGS,
+            EffectKind::Plasma => PlasmaParams::SETTINGS,
+            EffectKind::Butterfly => ButterflyParams::SETTINGS,
+            EffectKind::Garlands => GarlandsParams::SETTINGS,
+            EffectKind::Lines => LinesParams::SETTINGS,
+            EffectKind::Life => LifeParams::SETTINGS,
+            EffectKind::Tendril => TendrilParams::SETTINGS,
+            EffectKind::Text => TextParams::SETTINGS,
             EffectKind::Faces => FacesParams::SETTINGS,
         }
     }
@@ -556,6 +601,15 @@ pub enum EffectParams {
     Fan(FanParams),
     Morph(MorphParams),
     Circles(CirclesParams),
+    Pinwheel(PinwheelParams),
+    Snowflakes(SnowflakesParams),
+    Plasma(PlasmaParams),
+    Butterfly(ButterflyParams),
+    Garlands(GarlandsParams),
+    Lines(LinesParams),
+    Life(LifeParams),
+    Tendril(TendrilParams),
+    Text(TextParams),
     Faces(FacesParams),
 }
 
@@ -580,6 +634,15 @@ impl EffectParams {
             EffectParams::Fan(_) => EffectKind::Fan,
             EffectParams::Morph(_) => EffectKind::Morph,
             EffectParams::Circles(_) => EffectKind::Circles,
+            EffectParams::Pinwheel(_) => EffectKind::Pinwheel,
+            EffectParams::Snowflakes(_) => EffectKind::Snowflakes,
+            EffectParams::Plasma(_) => EffectKind::Plasma,
+            EffectParams::Butterfly(_) => EffectKind::Butterfly,
+            EffectParams::Garlands(_) => EffectKind::Garlands,
+            EffectParams::Lines(_) => EffectKind::Lines,
+            EffectParams::Life(_) => EffectKind::Life,
+            EffectParams::Tendril(_) => EffectKind::Tendril,
+            EffectParams::Text(_) => EffectKind::Text,
             EffectParams::Faces(_) => EffectKind::Faces,
         }
     }
@@ -605,6 +668,15 @@ impl EffectParams {
             EffectKind::Fan => EffectParams::Fan(FanParams::default()),
             EffectKind::Morph => EffectParams::Morph(MorphParams::default()),
             EffectKind::Circles => EffectParams::Circles(CirclesParams::default()),
+            EffectKind::Pinwheel => EffectParams::Pinwheel(PinwheelParams::default()),
+            EffectKind::Snowflakes => EffectParams::Snowflakes(SnowflakesParams::default()),
+            EffectKind::Plasma => EffectParams::Plasma(PlasmaParams::default()),
+            EffectKind::Butterfly => EffectParams::Butterfly(ButterflyParams::default()),
+            EffectKind::Garlands => EffectParams::Garlands(GarlandsParams::default()),
+            EffectKind::Lines => EffectParams::Lines(LinesParams::default()),
+            EffectKind::Life => EffectParams::Life(LifeParams::default()),
+            EffectKind::Tendril => EffectParams::Tendril(TendrilParams::default()),
+            EffectKind::Text => EffectParams::Text(TextParams::default()),
             EffectKind::Faces => EffectParams::Faces(FacesParams::default()),
         }
     }
@@ -631,6 +703,15 @@ impl EffectParams {
             EffectParams::Fan(p) => p.sanitize(),
             EffectParams::Morph(p) => p.sanitize(),
             EffectParams::Circles(p) => p.sanitize(),
+            EffectParams::Pinwheel(p) => p.sanitize(),
+            EffectParams::Snowflakes(p) => p.sanitize(),
+            EffectParams::Plasma(p) => p.sanitize(),
+            EffectParams::Butterfly(p) => p.sanitize(),
+            EffectParams::Garlands(p) => p.sanitize(),
+            EffectParams::Lines(p) => p.sanitize(),
+            EffectParams::Life(p) => p.sanitize(),
+            EffectParams::Tendril(p) => p.sanitize(),
+            EffectParams::Text(p) => p.sanitize(),
             EffectParams::Faces(p) => p.sanitize(),
         }
     }
@@ -663,6 +744,15 @@ impl EffectParams {
             EffectParams::Fan(p) => p.number(key),
             EffectParams::Morph(p) => p.number(key),
             EffectParams::Circles(p) => p.number(key),
+            EffectParams::Pinwheel(p) => p.number(key),
+            EffectParams::Snowflakes(p) => p.number(key),
+            EffectParams::Plasma(p) => p.number(key),
+            EffectParams::Butterfly(p) => p.number(key),
+            EffectParams::Garlands(p) => p.number(key),
+            EffectParams::Lines(p) => p.number(key),
+            EffectParams::Life(p) => p.number(key),
+            EffectParams::Tendril(p) => p.number(key),
+            EffectParams::Text(p) => p.number(key),
             EffectParams::Faces(p) => p.number(key),
         }
     }
@@ -689,6 +779,15 @@ impl EffectParams {
             EffectParams::Fan(p) => p.set_number(key, value),
             EffectParams::Morph(p) => p.set_number(key, value),
             EffectParams::Circles(p) => p.set_number(key, value),
+            EffectParams::Pinwheel(p) => p.set_number(key, value),
+            EffectParams::Snowflakes(p) => p.set_number(key, value),
+            EffectParams::Plasma(p) => p.set_number(key, value),
+            EffectParams::Butterfly(p) => p.set_number(key, value),
+            EffectParams::Garlands(p) => p.set_number(key, value),
+            EffectParams::Lines(p) => p.set_number(key, value),
+            EffectParams::Life(p) => p.set_number(key, value),
+            EffectParams::Tendril(p) => p.set_number(key, value),
+            EffectParams::Text(p) => p.set_number(key, value),
             EffectParams::Faces(p) => p.set_number(key, value),
         }
     }
@@ -714,6 +813,15 @@ impl EffectParams {
             EffectParams::Fan(p) => p.setting_problem(),
             EffectParams::Morph(p) => p.setting_problem(),
             EffectParams::Circles(p) => p.setting_problem(),
+            EffectParams::Pinwheel(p) => p.setting_problem(),
+            EffectParams::Snowflakes(p) => p.setting_problem(),
+            EffectParams::Plasma(p) => p.setting_problem(),
+            EffectParams::Butterfly(p) => p.setting_problem(),
+            EffectParams::Garlands(p) => p.setting_problem(),
+            EffectParams::Lines(p) => p.setting_problem(),
+            EffectParams::Life(p) => p.setting_problem(),
+            EffectParams::Tendril(p) => p.setting_problem(),
+            EffectParams::Text(p) => p.setting_problem(),
             EffectParams::Faces(p) => p.setting_problem(),
         };
         found.map(|(spec, why)| format!("{} {why}", spec.label))
@@ -1229,6 +1337,507 @@ effect_params! {
         center_x: f32 = 0.0 => "centerX", "Rings center across", number(-50.0, 50.0, 1.0), more;
         /// Where the rings spread from, below (-50) to above (50) the center.
         center_y: f32 = 0.0 => "centerY", "Rings center up", number(-50.0, 50.0, 1.0), more;
+    }
+}
+
+/// How a Pinwheel's arms are shaded across their width.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum PinwheelShading {
+    #[default]
+    Flat,
+    /// Brightest down the middle of each arm (xLights' 3D).
+    Raised,
+    /// Brightest at each arm's edges (xLights' 3D Inverted).
+    Sunken,
+    /// Fading from one edge of each arm to the other (xLights' Sweep).
+    Sweep,
+}
+
+choices!(PinwheelShading {
+    "flat" => "Flat",
+    "raised" => "Bright middle",
+    "sunken" => "Bright edges",
+    "sweep" => "Fading sweep",
+});
+
+/// How a Pinwheel's arms are drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum PinwheelStyle {
+    /// Every pixel within an arm lit (xLights' new render method).
+    #[default]
+    Smooth,
+    /// Each arm drawn as a bundle of spokes (xLights' old render method).
+    Spokes,
+}
+
+choices!(PinwheelStyle { "smooth" => "Smooth arms", "spokes" => "Spokes (older xLights)" });
+
+effect_params! {
+    /// Arms of the palette colors (from the second color on) turning around a center point,
+    /// bending as they go out with twist.
+    #[derive(Copy)]
+    pub struct PinwheelParams {
+        /// Number of arms.
+        arms: u32 = 3 => "arms", "Arms", int(1, 20);
+        /// How far the arms reach: 100 reaches the prop's corners.
+        arm_size: f32 = 100.0 => "armSize", "Arm length", number(0.0, 400.0, 1.0, "%");
+        /// How far the arms bend from center to tip.
+        twist: f32 = 0.0 => "twist", "Twist", number(-360.0, 360.0, 1.0, "degrees");
+        /// How much of each arm's slice of the circle it fills (0 is a thin line).
+        thickness: f32 = 0.0 => "thickness", "Thickness", number(0.0, 100.0, 1.0, "%");
+        /// How fast the arms turn (10 turns them 200 degrees a second).
+        speed: f32 = 10.0 => "speed", "Speed", number(0.0, 50.0, 1.0);
+        /// Turn counterclockwise (xLights' Rotation box) instead of clockwise.
+        counterclockwise: bool = true => "counterclockwise", "Counterclockwise", toggle;
+        /// Flat arms, or shaded across their width.
+        shading: PinwheelShading = PinwheelShading::Flat => "shading", "Shading", choice;
+        /// Where the first arm points at the start.
+        offset: f32 = 0.0 => "offset", "Start angle", number(0.0, 360.0, 1.0, "degrees"), more;
+        /// The center, left (-100) to right (100) of the middle.
+        center_x: f32 = 0.0 => "centerX", "Center across", number(-100.0, 100.0, 1.0), more;
+        /// The center, below (-100) to above (100) the middle.
+        center_y: f32 = 0.0 => "centerY", "Center up", number(-100.0, 100.0, 1.0), more;
+        /// Smooth arms, or arms drawn as spokes as older xLights did.
+        style: PinwheelStyle = PinwheelStyle::Smooth => "style", "Drawing", choice, more;
+    }
+}
+
+/// What each snowflake looks like.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum SnowflakeShape {
+    /// A different look for each flake.
+    Random,
+    #[default]
+    Dot,
+    Cross,
+    Bar,
+    BigCross,
+    Star,
+    Square,
+    Plus,
+    Diamond,
+    X,
+}
+
+choices!(SnowflakeShape {
+    "random" => "A random look each",
+    "dot" => "Dot",
+    "cross" => "Small cross (two colors)",
+    "bar" => "Three dots (two colors)",
+    "bigCross" => "Large cross (two colors)",
+    "star" => "Star (two colors)",
+    "square" => "Square",
+    "plus" => "Plus",
+    "diamond" => "Diamond",
+    "x" => "X",
+});
+
+/// How snowflakes move.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum SnowflakesMotion {
+    /// Sliding diagonally across the prop, wrapping around (xLights' Driving).
+    #[default]
+    Blowing,
+    /// Falling to the bottom and away, new ones starting at the top.
+    Falling,
+    /// Falling and piling up at the bottom.
+    PilingUp,
+}
+
+choices!(SnowflakesMotion {
+    "blowing" => "Blowing",
+    "falling" => "Falling",
+    "pilingUp" => "Falling and piling up",
+});
+
+effect_params! {
+    /// Snowflakes in the first palette color (the two-color looks take the second for their
+    /// arms), blowing across the prop or falling down it.
+    #[derive(Copy)]
+    pub struct SnowflakesParams {
+        /// Snowflakes on the prop at once.
+        count: u32 = 5 => "count", "Flakes", int(1, 100);
+        /// What each flake looks like.
+        flake: SnowflakeShape = SnowflakeShape::Dot => "flake", "Flake", choice;
+        /// How fast they move.
+        speed: f32 = 10.0 => "speed", "Speed", number(0.0, 50.0, 1.0);
+        /// Blowing across, falling, or falling and piling up.
+        motion: SnowflakesMotion = SnowflakesMotion::Blowing => "motion", "Motion", choice;
+        /// Frames of falling done before the effect starts, so the flakes are already spread out.
+        warmup: u32 = 0 => "warmup", "Head start", int(0, 100, "frames"), more;
+    }
+}
+
+/// Where Plasma's colors come from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum PlasmaColors {
+    #[default]
+    Palette,
+    RedGreen,
+    BlueGreen,
+    Rainbow,
+    White,
+}
+
+choices!(PlasmaColors {
+    "palette" => "The palette",
+    "redGreen" => "Red and green",
+    "blueGreen" => "Blue and green",
+    "rainbow" => "Rainbow",
+    "white" => "Shades of white",
+});
+
+effect_params! {
+    /// Waves of color flowing over the prop, worked out from several moving sine waves.
+    #[derive(Copy)]
+    pub struct PlasmaParams {
+        /// The palette blended across the waves, or a fixed color scheme.
+        colors: PlasmaColors = PlasmaColors::Palette => "colors", "Colors", choice;
+        /// Tightens the circular waves.
+        twist: u32 = 1 => "twist", "Twist", int(1, 10);
+        /// How many bands of color the waves are split into.
+        density: u32 = 1 => "density", "Line density", int(1, 10);
+        /// How fast the waves flow.
+        speed: f32 = 10.0 => "speed", "Speed", number(0.0, 100.0, 1.0);
+    }
+}
+
+/// Where Butterfly's colors come from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum ButterflyColors {
+    #[default]
+    Rainbow,
+    Palette,
+}
+
+choices!(ButterflyColors { "rainbow" => "Rainbow", "palette" => "The palette" });
+
+effect_params! {
+    /// Patterns worked out from each pixel's place, shifting over time: butterfly wings
+    /// (patterns 1 to 5) or plasma looks (6 to 10).
+    #[derive(Copy)]
+    pub struct ButterflyParams {
+        /// Patterns 1 to 5 are wings; 6 to 9 plasmas in fixed colors, and 10 a plasma in the palette.
+        pattern: u32 = 1 => "pattern", "Pattern", int(1, 10);
+        /// A rainbow, or the palette blended across the pattern.
+        colors: ButterflyColors = ButterflyColors::Rainbow => "colors", "Colors", choice;
+        /// How fast the pattern shifts.
+        speed: f32 = 10.0 => "speed", "Speed", number(0.0, 100.0, 1.0);
+        /// Which way the pattern shifts.
+        direction: Direction = Direction::Forward => "direction", "Direction", choice;
+        /// Splits the pattern into bands (for plasmas, more bands of color).
+        chunks: u32 = 1 => "chunks", "Chunks", int(1, 10), more;
+        /// With more than one chunk, every band this many apart is left dark.
+        skip: u32 = 2 => "skip", "Dark every", int(2, 10), more;
+    }
+}
+
+/// The shape of each garland.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum GarlandShape {
+    #[default]
+    Straight,
+    SmallSwags,
+    Swags,
+    DeepSwags,
+    DoubleDips,
+}
+
+choices!(GarlandShape {
+    "straight" => "Straight",
+    "smallSwags" => "Small swags",
+    "swags" => "Swags",
+    "deepSwags" => "Deep swags",
+    "doubleDips" => "Double dips",
+});
+
+/// Which way garlands stack up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum GarlandsDirection {
+    #[default]
+    Up,
+    Down,
+    Left,
+    Right,
+    UpThenDown,
+    DownThenUp,
+    LeftThenRight,
+    RightThenLeft,
+}
+
+choices!(GarlandsDirection {
+    "up" => "Up",
+    "down" => "Down",
+    "left" => "Left",
+    "right" => "Right",
+    "upThenDown" => "Up, then down",
+    "downThenUp" => "Down, then up",
+    "leftThenRight" => "Left, then right",
+    "rightThenLeft" => "Right, then left",
+});
+
+effect_params! {
+    /// Rows of garlands, one per row of pixels, sliding into place one after another until they
+    /// fill the prop, `cycles` times over the effect. Colors run through the palette from the
+    /// last row to the first.
+    #[derive(Copy)]
+    pub struct GarlandsParams {
+        /// Straight rows, or swags of different depths.
+        shape: GarlandShape = GarlandShape::Straight => "shape", "Garland", choice;
+        /// How far apart the garlands start, as a share of the prop.
+        spacing: f32 = 10.0 => "spacing", "Spacing", number(1.0, 100.0, 1.0, "%");
+        /// Times the garlands stack up over the effect.
+        cycles: f32 = 1.0 => "cycles", "Cycles", number(0.0, 20.0, 0.1);
+        /// Which way they stack.
+        direction: GarlandsDirection = GarlandsDirection::Up => "direction", "Stack direction", choice;
+    }
+}
+
+effect_params! {
+    /// Lines joining points that bounce around the prop, each line in the next palette color,
+    /// with copies trailing behind.
+    #[derive(Copy)]
+    pub struct LinesParams {
+        /// Number of lines.
+        count: u32 = 2 => "count", "Lines", int(1, 20);
+        /// Points in each line (more than two make a closed shape).
+        points: u32 = 3 => "points", "Points", int(2, 6);
+        /// Line thickness.
+        thickness: u32 = 1 => "thickness", "Thickness", int(1, 10, "pixels");
+        /// How far the points move each frame.
+        speed: f32 = 1.0 => "speed", "Speed", number(0.0, 10.0, 0.1, "pixels a frame");
+        /// Copies of each line left behind it.
+        trails: u32 = 0 => "trails", "Trails", int(0, 10);
+        /// Dim the trails, oldest the dimmest.
+        fade_trails: bool = true => "fadeTrails", "Fade trails", toggle, more;
+    }
+}
+
+/// The rules Life's cells live by: how many neighbors bring a cell to life (B) and keep it
+/// alive (S).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum LifeRules {
+    #[default]
+    Classic,
+    B35S236,
+    Amoeba,
+    Coagulations,
+    B25678S5678,
+}
+
+choices!(LifeRules {
+    "classic" => "Classic (B3/S23)",
+    "b35S236" => "B35/S236",
+    "amoeba" => "Amoeba (B357/S1358)",
+    "coagulations" => "Coagulations (B378/S235678)",
+    "b25678S5678" => "B25678/S5678",
+});
+
+effect_params! {
+    /// Conway's Game of Life on the prop's grid: random cells in the palette colors to start,
+    /// then a new generation every so often. The grid wraps around at its edges.
+    #[derive(Copy)]
+    pub struct LifeParams {
+        /// How many cells are alive at the start (100 fills about half the grid).
+        density: u32 = 50 => "density", "Starting cells", int(0, 100, "%");
+        /// Which neighbors bring cells to life and keep them alive.
+        rules: LifeRules = LifeRules::Classic => "rules", "Rules", choice;
+        /// How often a new generation comes (10 is two a second; 20 or more, one every frame).
+        speed: u32 = 10 => "speed", "Speed", int(1, 30);
+    }
+}
+
+/// How the point a Tendril follows moves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum TendrilMovement {
+    Random,
+    Square,
+    #[default]
+    Circle,
+    HorizontalZigZag,
+    HorizontalZigZagReturn,
+    VerticalZigZag,
+    VerticalZigZagReturn,
+    /// Held at one point (`manualX`, `manualY`).
+    Manual,
+}
+
+choices!(TendrilMovement {
+    "random" => "Random",
+    "square" => "Around a square",
+    "circle" => "Around a circle",
+    "horizontalZigZag" => "Zig zag across",
+    "horizontalZigZagReturn" => "Zig zag across and back",
+    "verticalZigZag" => "Zig zag up",
+    "verticalZigZagReturn" => "Zig zag up and back",
+    "manual" => "Held at a point",
+});
+
+effect_params! {
+    /// Springy tendrils trailing after a point that moves around the prop, in the palette
+    /// colors blended over the effect.
+    #[derive(Copy)]
+    pub struct TendrilParams {
+        /// How the point the tendrils follow moves.
+        movement: TendrilMovement = TendrilMovement::Circle => "movement", "Movement", choice;
+        /// How far the point moves each step.
+        movement_size: f32 = 10.0 => "movementSize", "Movement size", number(0.0, 20.0, 1.0);
+        /// How thick the tendrils are.
+        thickness: f32 = 3.0 => "thickness", "Thickness", number(1.0, 20.0, 1.0, "pixels");
+        /// Tendrils following the point, each a little springier.
+        tendrils: u32 = 1 => "tendrils", "Tendrils", int(1, 20);
+        /// Joints in each tendril: longer tendrils trail further.
+        length: u32 = 60 => "length", "Length", int(5, 100);
+        /// How often the point moves (10 every frame, 9 every other, and so on).
+        speed: u32 = 10 => "speed", "Speed", int(1, 10);
+        /// How quickly the tendrils slow down.
+        friction: u32 = 10 => "friction", "Friction", int(0, 20), more;
+        /// How much of the movement of the joint before it each joint carries on.
+        dampening: u32 = 10 => "dampening", "Dampening", int(0, 20), more;
+        /// How stiff the tendrils are toward their ends.
+        tension: u32 = 20 => "tension", "Tension", int(0, 39), more;
+        /// Moves the path left (negative) or right, as a share of the prop.
+        offset_x: f32 = 0.0 => "offsetX", "Offset across", number(-100.0, 100.0, 1.0, "%"), more;
+        /// Moves the path down (negative) or up, as a share of the prop.
+        offset_y: f32 = 0.0 => "offsetY", "Offset up", number(-100.0, 100.0, 1.0, "%"), more;
+        /// Where a held point is, from the left.
+        manual_x: f32 = 0.0 => "manualX", "Point across", number(0.0, 100.0, 1.0, "%"), more;
+        /// Where a held point is, from the bottom.
+        manual_y: f32 = 0.0 => "manualY", "Point up", number(0.0, 100.0, 1.0, "%"), more;
+    }
+}
+
+/// How text moves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum TextMovement {
+    #[default]
+    None,
+    Left,
+    Right,
+    Up,
+    Down,
+    UpLeft,
+    DownLeft,
+    UpRight,
+    DownRight,
+    /// From the start position to the end position over the effect.
+    Vector,
+    /// Left, bobbing up and down.
+    Wavy,
+    /// Left, then back right.
+    LeftRight,
+    /// Up, then back down.
+    UpDown,
+}
+
+choices!(TextMovement {
+    "none" => "Still",
+    "left" => "Left",
+    "right" => "Right",
+    "up" => "Up",
+    "down" => "Down",
+    "upLeft" => "Up and left",
+    "downLeft" => "Down and left",
+    "upRight" => "Up and right",
+    "downRight" => "Down and right",
+    "vector" => "From start to end",
+    "wavy" => "Left, bobbing",
+    "leftRight" => "Back and forth",
+    "upDown" => "Up and back down",
+});
+
+/// How text's letters are laid out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum TextOrientation {
+    #[default]
+    Across,
+    /// One letter under the other, the first at the top.
+    StackedDown,
+    /// One letter above the other, the first at the bottom.
+    StackedUp,
+}
+
+choices!(TextOrientation {
+    "across" => "Across",
+    "stackedDown" => "Stacked, reading down",
+    "stackedUp" => "Stacked, reading up",
+});
+
+/// A countdown shown in place of the text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum TextCountdown {
+    #[default]
+    None,
+    /// The text is a number of seconds, counting down to 0.
+    Seconds,
+    /// The text is a number of seconds, shown as minutes and seconds counting down.
+    MinutesSeconds,
+}
+
+choices!(TextCountdown {
+    "none" => "None",
+    "seconds" => "Seconds",
+    "minutesSeconds" => "Minutes and seconds",
+});
+
+effect_params! {
+    /// Text in PixelFlow's built-in pixel font, still or moving, in the first palette color (or
+    /// a palette color per letter or word when the palette has several).
+    pub struct TextParams {
+        /// What it says (a new line starts with \n).
+        text: String = "Hello".to_string() => "text", "Text", text;
+        /// Still, or moving.
+        movement: TextMovement = TextMovement::None => "movement", "Movement", choice;
+        /// How fast it moves.
+        speed: u32 = 10 => "speed", "Speed", int(0, 100);
+        /// How tall the letters are (8 is the font's own size; others scale it).
+        size: u32 = 8 => "size", "Letter height", int(4, 100, "pixels");
+        /// Letters across, or stacked one above another.
+        orientation: TextOrientation = TextOrientation::Across => "orientation", "Letters", choice;
+        /// Stop when the text reaches the middle.
+        to_center: bool = false => "toCenter", "Stop in the middle", toggle, more;
+        /// Cross the prop once instead of again and again.
+        no_repeat: bool = false => "noRepeat", "Cross once", toggle, more;
+        /// Where the text sits (or starts, moving from start to end), left (-) or right (+) of the middle.
+        start_x: f32 = 0.0 => "startX", "Start across", number(-200.0, 200.0, 1.0), more;
+        /// Where the text sits (or starts), below (-) or above (+) the middle.
+        start_y: f32 = 0.0 => "startY", "Start up", number(-200.0, 200.0, 1.0), more;
+        /// Where text moving from start to end ends, left (-) or right (+) of the middle.
+        end_x: f32 = 0.0 => "endX", "End across", number(-200.0, 200.0, 1.0), more;
+        /// Where text moving from start to end ends, below (-) or above (+) the middle.
+        end_y: f32 = 0.0 => "endY", "End up", number(-200.0, 200.0, 1.0), more;
+        /// Positions in pixels instead of a share of the prop.
+        pixel_offsets: bool = false => "pixelOffsets", "Positions in pixels", toggle, more;
+        /// A palette color per word instead of per letter.
+        color_per_word: bool = false => "colorPerWord", "A color per word", toggle, more;
+        /// Show a countdown from the number in the text instead.
+        countdown: TextCountdown = TextCountdown::None => "countdown", "Countdown", choice, more;
     }
 }
 

@@ -684,6 +684,72 @@ fn frames_are_reproducible_in_any_order() {
     }
 }
 
+#[test]
+fn effects_worked_out_frame_by_frame_look_the_same_played_or_jumped_to() {
+    // Falling snow, Lines, Life, and Tendril carry their state from frame to frame; the renderer
+    // keeps it while playing, and works it out again from the start when it jumps back.
+    let mut show = Show::new("m");
+    show.props.push(Prop::new(
+        "Matrix",
+        ShapeSource::Generator(Generator::Matrix {
+            columns: 20,
+            rows: 12,
+            width: 2.0,
+            height: 1.0,
+            wiring: Default::default(),
+        }),
+    ));
+    let target = Target::Prop(show.props[0].id);
+    let mut seq = Sequence::new("s", 4000);
+    let mut lines = Effect::new(EffectKind::Lines, 0, 4000).with_params(EffectParams::Lines(LinesParams {
+        trails: 2,
+        ..Default::default()
+    }));
+    lines.curves.insert("speed".into(), Curve::ramp(0.5, 3.0));
+    let snow = Effect::new(EffectKind::Snowflakes, 500, 4000).with_params(EffectParams::Snowflakes(
+        SnowflakesParams {
+            count: 15,
+            motion: SnowflakesMotion::PilingUp,
+            speed: 25.0,
+            ..Default::default()
+        },
+    ));
+    let life = Effect::new(EffectKind::Life, 0, 2000).with_palette([Rgb::GREEN]);
+    let tendril =
+        Effect::new(EffectKind::Tendril, 2000, 4000).with_params(EffectParams::Tendril(TendrilParams {
+            movement: TendrilMovement::Random,
+            ..Default::default()
+        }));
+    seq.rows
+        .push(row(target, vec![vec![lines], vec![snow], vec![life, tendril]]));
+    let mut played = renderer(&show);
+    let mut frames = Vec::new();
+    let mut frame = vec![0; played.frame_len()];
+    for i in 0..80 {
+        played.render_frame(&seq, i, &mut frame);
+        frames.push(frame.clone());
+    }
+    assert!(
+        frames.windows(2).filter(|w| w[0] != w[1]).count() > 70,
+        "it moves"
+    );
+    let mut jumping = renderer(&show);
+    for i in [79, 3, 40, 39, 41, 10, 79, 0, 60] {
+        jumping.render_frame(&seq, i, &mut frame);
+        assert_eq!(frame, frames[i as usize], "frame {i}");
+    }
+    // An edit starts the effect's state afresh.
+    let mut edited = seq.clone();
+    if let EffectParams::Lines(p) = &mut edited.rows[0].layers[0].effects[0].params {
+        p.count = 5;
+    }
+    played.render_frame(&edited, 80 - 1, &mut frame);
+    let mut fresh = renderer(&show);
+    let mut expected = vec![0; fresh.frame_len()];
+    fresh.render_frame(&edited, 79, &mut expected);
+    assert_eq!(frame, expected);
+}
+
 /// A synthetic show of `props` matrices of 50 × 20 pixels (1000 each).
 fn big_show(props: usize) -> Show {
     let mut show = Show::new("big");

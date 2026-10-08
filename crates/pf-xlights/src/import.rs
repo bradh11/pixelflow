@@ -10,7 +10,7 @@ use crate::channels::{ChannelRequest, resolve};
 use crate::geometry::{Geometry, XNode};
 use crate::layout::XLayout;
 use crate::model::XmlModel;
-use crate::networks::{XController, XOutput};
+use crate::networks::{OutputDefaults, XController, XOutput};
 use pf_model::{
     ColorOrder, Controller, Group, GroupMember, MAX_NULL_PIXELS, MAX_SHOW_PIXELS, NodeRange, Port, PortSlot,
     Prop, PropId, Protocol, Provenance, RegionRef, SacnConfig, SequenceChannels, ShapeSource, Show,
@@ -91,6 +91,8 @@ struct Target {
     start: u32,
     channels: u32,
     controller: Controller,
+    /// What xLights gives models on this controller that set no brightness or gamma.
+    defaults: Option<OutputDefaults>,
 }
 
 impl Target {
@@ -138,6 +140,7 @@ fn targets_for(x: &XController, notes: &mut Vec<String>) -> Vec<Target> {
                 start: x.start(),
                 channels: x.channels(),
                 controller,
+                defaults: x.defaults,
             }]
         }
         "E131" => sacn_targets(x, notes),
@@ -168,6 +171,7 @@ fn sacn_targets(x: &XController, notes: &mut Vec<String>) -> Vec<Target> {
             start: x.start(),
             channels: 0,
             controller: Controller::new(x.name.clone(), x.ip.clone(), protocol),
+            defaults: x.defaults,
         }];
     }
     let runs = universe_runs(&x.outputs);
@@ -215,6 +219,7 @@ fn sacn_targets(x: &XController, notes: &mut Vec<String>) -> Vec<Target> {
             start: run[0].start,
             channels,
             controller,
+            defaults: x.defaults,
         });
     }
     if split {
@@ -282,6 +287,118 @@ struct Placed {
     cpn: u32,
     runs: Vec<Run>,
     port: Option<u16>,
+    conn: Conn,
+}
+
+/// What a model's `<ControllerConnection>` says about its port, as far as PixelFlow keeps it.
+///
+/// xLights' attributes (`ControllerConnection`, `Model.cpp`): `brightness` (percent; a model that
+/// sets none takes its controller's `DefaultBrightnessUnderFullControl`), `gamma` (likewise
+/// `DefaultGammaUnderFullControl`), `reverse`, `colorOrder` (the order the controller applies),
+/// `nullNodes`/`endNullNodes`, `groupCount`, `zigZag`, and the smart remote settings.
+struct Conn {
+    brightness: u8,
+    gamma: f32,
+    reverse: bool,
+    /// The controller's own color order for this string, when xLights names one PixelFlow knows.
+    color_order: Option<ColorOrder>,
+    /// Settings PixelFlow has no place for (see [`Unmapped`]).
+    skipped: Skipped,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct Skipped {
+    null_pixels: bool,
+    grouping: bool,
+    zig_zag: bool,
+    smart_remote: bool,
+}
+
+/// Wired props whose connection settings couldn't come across, for the import notes.
+#[derive(Default)]
+struct Unmapped {
+    null_pixels: Vec<String>,
+    grouping: Vec<String>,
+    zig_zag: Vec<String>,
+    smart_remote: Vec<String>,
+    /// Reversed props wired in several pieces: reversing each piece wouldn't reverse the prop.
+    split_reverse: Vec<String>,
+}
+
+impl Unmapped {
+    fn into_notes(self, notes: &mut Vec<String>) {
+        let mut note = |names: Vec<String>, what: &str| {
+            if !names.is_empty() {
+                notes.push(format!("{what}: {}.", list(&names)));
+            }
+        };
+        note(
+            self.null_pixels,
+            "These props use null pixels set on the controller port, which PixelFlow doesn't import \
+             (its null pixels take up channels, which would shift the props' channels away from \
+             xLights'), so they were left out",
+        );
+        note(
+            self.grouping,
+            "These props group pixels on the controller (xLights' group count), which PixelFlow \
+             doesn't import",
+        );
+        note(
+            self.zig_zag,
+            "These props use the controller's zig zag setting, which PixelFlow doesn't import",
+        );
+        note(
+            self.smart_remote,
+            "These props are on smart remotes, which PixelFlow doesn't import yet; they're wired by port only",
+        );
+        note(
+            self.split_reverse,
+            "These props are reversed in xLights but wired in several pieces, so PixelFlow left them \
+             unreversed",
+        );
+    }
+}
+
+/// A number from the first of the model's connection attributes named in `names` (xLights spells
+/// some of them two ways, an older lower case and a newer capitalised one).
+fn conn_number(model: &XmlModel, names: &[&str]) -> Option<f64> {
+    names
+        .iter()
+        .find_map(|n| model.connection.get(*n))
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .filter(|v| v.is_finite())
+}
+
+/// The connection settings of `model` (`cpn` channels per node) on a controller with `defaults`.
+fn connection(model: &XmlModel, defaults: Option<OutputDefaults>, cpn: u8) -> Conn {
+    let brightness = conn_number(model, &["brightness", "Brightness"])
+        .map(|b| b.clamp(0.0, 100.0) as u8)
+        .or(defaults.map(|d| d.brightness))
+        .unwrap_or(100);
+    let gamma = conn_number(model, &["gamma", "Gamma"])
+        .filter(|g| *g > 0.0)
+        .map(|g| g as f32)
+        .or(defaults.map(|d| d.gamma))
+        .unwrap_or(1.0);
+    let nonzero = |names: &[&str], min: f64| conn_number(model, names).is_some_and(|v| v >= min);
+    let color_order = model
+        .connection
+        .get("colorOrder")
+        .map(|v| color_order(v.trim(), cpn))
+        .filter(|(_, exact)| *exact)
+        .map(|(order, _)| order);
+    Conn {
+        brightness,
+        gamma,
+        reverse: nonzero(&["reverse", "Reverse"], 1.0),
+        color_order,
+        skipped: Skipped {
+            null_pixels: nonzero(&["nullNodes"], 1.0) || nonzero(&["endNullNodes"], 1.0),
+            grouping: nonzero(&["groupCount"], 2.0),
+            zig_zag: nonzero(&["zigZag", "ZigZag"], 1.0),
+            smart_remote: nonzero(&["SmartRemote"], 1.0),
+        },
+    }
 }
 
 /// Builds the show. `geometry` computes a model's nodes (injected so wiring can be tested alone).
@@ -487,6 +604,7 @@ fn build_show_within(
                     .get("Port")
                     .and_then(|p| p.trim().parse::<u16>().ok())
                     .filter(|p| *p > 0),
+                conn: connection(model, targets[slot].defaults, info.cpn),
             }),
             None => unwired.push(model.name.clone()),
         }
@@ -500,11 +618,13 @@ fn build_show_within(
 
     // Wire each controller's models in channel order.
     let mut wired = 0;
+    let mut unmapped = Unmapped::default();
     for (slot, target) in targets.iter_mut().enumerate() {
         let mut placed = by_target.remove(&slot).unwrap_or_default();
         placed.sort_by_key(|p| p.start);
-        wired += wire(target, placed, &show.props, &mut notes);
+        wired += wire(target, placed, &show.props, &mut notes, &mut unmapped);
     }
+    unmapped.into_notes(&mut notes);
     show.controllers = targets.into_iter().map(|t| t.controller).collect();
 
     // Groups: members by name (`Prop/Submodel` for a submodel); nested groups are flattened.
@@ -580,7 +700,13 @@ fn build_show_within(
 
 /// Wires `placed` (in channel order) onto `target`'s ports, each prop exactly at its xLights
 /// channels or not at all. Returns how many props were wired.
-fn wire(target: &mut Target, placed: Vec<Placed>, props: &[Prop], notes: &mut Vec<String>) -> usize {
+fn wire(
+    target: &mut Target,
+    placed: Vec<Placed>,
+    props: &[Prop],
+    notes: &mut Vec<String>,
+    unmapped: &mut Unmapped,
+) -> usize {
     let name = target.controller.name.clone();
     let end = u64::from(target.start) + u64::from(target.channels);
     // Where the last wired prop's channels end: gaps are measured from here.
@@ -638,6 +764,10 @@ fn wire(target: &mut Target, placed: Vec<Placed>, props: &[Prop], notes: &mut Ve
             }
             let mut slot = PortSlot::new(p.prop);
             slot.null_pixels = nulls as u32;
+            slot.brightness = Some(p.conn.brightness);
+            slot.gamma = Some(p.conn.gamma);
+            slot.reverse = p.conn.reverse && p.runs.len() == 1;
+            slot.controller_color_order = p.conn.color_order;
             if p.runs.len() > 1 {
                 slot.segment = Some(NodeRange::new(run.first_node, run.first_node + run.nodes));
             }
@@ -672,9 +802,40 @@ fn wire(target: &mut Target, placed: Vec<Placed>, props: &[Prop], notes: &mut Ve
         }
         cursor = at_end;
         wired += 1;
+        let (skipped, name) = (p.conn.skipped, &p.name);
+        for (skip, names) in [
+            (skipped.null_pixels, &mut unmapped.null_pixels),
+            (skipped.grouping, &mut unmapped.grouping),
+            (skipped.zig_zag, &mut unmapped.zig_zag),
+            (skipped.smart_remote, &mut unmapped.smart_remote),
+            (p.conn.reverse && p.runs.len() > 1, &mut unmapped.split_reverse),
+        ] {
+            if skip {
+                names.push(name.clone());
+            }
+        }
+    }
+    for port in &mut ports {
+        share_port_levels(port);
     }
     target.controller.ports = ports;
     wired
+}
+
+/// Moves brightness and gamma from a port's slots up to the port when every slot has the same
+/// value, the common case (a whole controller dimmed the same). Each model's own values stay on
+/// its slots only where a port's models differ, which a port-wide value can't express.
+fn share_port_levels(port: &mut Port) {
+    let Some(first) = port.slots.first() else { return };
+    let (brightness, gamma) = (first.brightness, first.gamma);
+    if let Some(b) = brightness.filter(|_| port.slots.iter().all(|s| s.brightness == brightness)) {
+        port.brightness = b;
+        port.slots.iter_mut().for_each(|s| s.brightness = None);
+    }
+    if let Some(g) = gamma.filter(|_| port.slots.iter().all(|s| s.gamma == gamma)) {
+        port.gamma = g;
+        port.slots.iter_mut().for_each(|s| s.gamma = None);
+    }
 }
 
 #[cfg(test)]
@@ -746,6 +907,7 @@ mod tests {
             kind: "Ethernet".into(),
             active: true,
             keep_channel_numbers: false,
+            defaults: None,
             outputs: vec![XOutput {
                 universe: 1,
                 start,
@@ -1053,6 +1215,7 @@ mod tests {
             kind: "Ethernet".into(),
             active: true,
             keep_channel_numbers: false,
+            defaults: None,
             outputs: outputs
                 .iter()
                 .map(|&(universe, channels)| {

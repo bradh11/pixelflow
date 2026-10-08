@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Networks>
+  <Controller Id="1" Name="Falcon" Type="Ethernet" Vendor="Falcon" Model="F16V5" FullxLightsControl="TRUE" DefaultBrightnessUnderFullControl="40" DefaultGammaUnderFullControl="1" IP="192.0.2.20" Protocol="DDP" ActiveState="Active">
+    <network NetworkType="DDP" ComPort="192.0.2.20" BaudRate="1" MaxChannels="3000" KeepChannelNumbers="0" ChannelsPerPacket="1440"/>
+  </Controller>
+  <Controller Id="2" Name="Player" Type="Ethernet" Vendor="FPP" Model="FPP Player Only" DefaultBrightnessUnderFullControl="40" DefaultGammaUnderFullControl="2" IP="192.0.2.30" Protocol="DDP" ActiveState="Active">
+    <network NetworkType="DDP" ComPort="192.0.2.30" BaudRate="1" MaxChannels="300" KeepChannelNumbers="0" ChannelsPerPacket="1440"/>
+  </Controller>
+</Networks>

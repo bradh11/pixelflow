@@ -176,3 +176,65 @@ fn controllers_with_odd_universe_sizes_import_with_their_wiring() {
     assert_eq!(addresses("Fence"), at("Wide", &[(20, 424), (21, 1), (21, 4)]));
     assert_eq!(addresses("Post"), at("Wide", &[(21, 7), (21, 10)]));
 }
+
+#[test]
+fn output_levels_come_from_the_models_and_the_controllers_full_control_defaults() {
+    let imported = fixture("output-settings-show");
+    let falcon = &imported.show.controllers[0];
+    let level = |port: usize| {
+        let p = &falcon.ports[port];
+        (
+            p.number,
+            p.brightness,
+            p.gamma,
+            p.slots.iter().map(|s| s.brightness).collect::<Vec<_>>(),
+        )
+    };
+    // Port 1: one model sets 40 and the other takes the controller's default of 40, so the
+    // whole port is 40 and the slots add nothing.
+    assert_eq!(level(0), (1, 40, 1.0, vec![None, None]));
+    // Port 3: the two models differ (30, and the default 40), so each slot keeps its own.
+    assert_eq!(level(1), (3, 100, 1.0, vec![Some(30), Some(40)]));
+    // Port 4: an explicit 100 beats the default; gamma, reverse and the controller's color order follow.
+    assert_eq!(level(2), (4, 100, 2.2, vec![None]));
+    let garland = &falcon.ports[2].slots[0];
+    assert!(garland.reverse && garland.gamma.is_none());
+    assert_eq!(garland.controller_color_order, Some(pf_model::ColorOrder::Grb));
+    assert!(!falcon.ports[0].slots[0].reverse);
+    assert_eq!(falcon.ports[0].slots[0].controller_color_order, None);
+    // A controller xLights doesn't fully control ignores its listed defaults.
+    let player = &imported.show.controllers[1];
+    assert_eq!((player.ports[0].brightness, player.ports[0].gamma), (100, 1.0));
+    // What PixelFlow can't hold is reported, by prop.
+    let notes = imported.notes.join("\n");
+    assert!(notes.contains("null pixels set on the controller port") && notes.contains("Garland."));
+    assert!(notes.contains("group pixels on the controller") && notes.contains("Garland."));
+    assert!(!notes.contains("Roofline"), "{notes}");
+}
+
+#[test]
+fn the_layout_photo_is_found_in_the_show_folder_and_placed_like_xlights_draws_it() {
+    let imported = fixture("output-settings-show");
+    let photo = imported.show.background.as_ref().expect("a background photo");
+    let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/output-settings-show");
+    // xLights had it under /Users/someone/Documents/xlights/Assets/; here it's under Assets/.
+    assert_eq!(
+        pf_model::path_from_text(&photo.path),
+        std::path::absolute(folder.join("Assets/house.png")).unwrap()
+    );
+    // An 8 x 4 photo in an 800 x 400 layout area fills it: 8 units wide, 4 tall, on the bottom edge.
+    assert_eq!((photo.x, photo.y, photo.width), (0.0, 4.0, 8.0));
+    // Brightness 60% and alpha 50% give a strength of 30%.
+    assert_eq!(photo.opacity, 0.3);
+    assert!(photo.problem().is_none());
+    assert!(
+        !imported.notes.iter().any(|n| n.contains("photo")),
+        "{:?}",
+        imported.notes
+    );
+}
+
+#[test]
+fn a_show_without_a_photo_setting_has_no_background() {
+    assert!(fixture("sample-show").show.background.is_none());
+}

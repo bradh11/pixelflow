@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xrgb>
+  <models type="rgb_effects">
+    <model name="Roofline" DisplayAs="Single Line" StringType="RGB Nodes" parm1="1" parm2="100" parm3="1"
+           WorldPosX="100.0" WorldPosY="600.0" X2="500.0" Y2="0.0" StartChannel="!Falcon:1">
+      <ControllerConnection Port="1" Protocol="ws2811" brightness="40"/>
+    </model>
+    <model name="Arches" DisplayAs="Single Line" StringType="RGB Nodes" parm1="1" parm2="50" parm3="1"
+           WorldPosX="100.0" WorldPosY="500.0" X2="500.0" Y2="0.0" StartChannel="!Falcon:301">
+      <ControllerConnection Port="1" Protocol="ws2811"/>
+    </model>
+    <model name="Left Window" DisplayAs="Single Line" StringType="RGB Nodes" parm1="1" parm2="50" parm3="1"
+           WorldPosX="100.0" WorldPosY="400.0" X2="500.0" Y2="0.0" StartChannel="!Falcon:451">
+      <ControllerConnection Port="3" Protocol="ws2811" brightness="30"/>
+    </model>
+    <model name="Right Window" DisplayAs="Single Line" StringType="RGB Nodes" parm1="1" parm2="50" parm3="1"
+           WorldPosX="700.0" WorldPosY="400.0" X2="500.0" Y2="0.0" StartChannel="!Falcon:601">
+      <ControllerConnection Port="3" Protocol="ws2811"/>
+    </model>
+    <model name="Garland" DisplayAs="Single Line" StringType="RGB Nodes" parm1="1" parm2="50" parm3="1"
+           WorldPosX="100.0" WorldPosY="300.0" X2="500.0" Y2="0.0" StartChannel="!Falcon:751">
+      <ControllerConnection Port="4" Protocol="ws2811" brightness="100" gamma="2.2" Reverse="1" colorOrder="GRB" nullNodes="3" groupCount="2"/>
+    </model>
+    <model name="Porch Rail" DisplayAs="Single Line" StringType="RGB Nodes" parm1="1" parm2="50" parm3="1"
+           WorldPosX="100.0" WorldPosY="200.0" X2="500.0" Y2="0.0" StartChannel="!Player:1">
+      <ControllerConnection Port="1" Protocol="ws2811"/>
+    </model>
+  </models>
+  <settings>
+    <backgroundBrightness value="60"/>
+    <backgroundImage value="/Users/someone/Documents/xlights/Assets/house.png"/>
+    <backgroundAlpha value="50"/>
+    <scaleImage value="0"/>
+    <previewWidth value="800"/>
+    <previewHeight value="400"/>
+  </settings>
+</xrgb>

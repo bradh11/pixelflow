@@ -9,6 +9,7 @@
 //! with each xLights effect translated to the closest PixelFlow effect and a report of what
 //! didn't come across exactly.
 
+mod background;
 mod channels;
 mod error;
 mod geometry;
@@ -28,7 +29,7 @@ pub use geometry::{Geometry, XNode, geometry, upright_positions};
 pub use import::{ImportSummary, XlightsImport, build_show};
 pub use layout::{XGroup, XLayout, parse_layout};
 pub use model::XmlModel;
-pub use networks::{XController, XOutput, parse_networks};
+pub use networks::{OutputDefaults, XController, XOutput, parse_networks};
 pub use sequence::{SequenceImport, SequenceImportSummary, build_sequence, import_sequence_file};
 pub use timing::{TimingFileImport, kind_for_name, parse_audacity, parse_xtiming, read_timing_file, xtiming};
 
@@ -56,7 +57,8 @@ pub fn import_folder(dir: &Path) -> Result<XlightsImport, XlightsError> {
         }
         std::fs::read_to_string(path).map_err(err)
     };
-    let layout = parse_layout(&read(&layout_path, "xlights_rgbeffects.xml")?)?;
+    let layout_xml = read(&layout_path, "xlights_rgbeffects.xml")?;
+    let layout = parse_layout(&layout_xml)?;
     let networks_path = dir.join("xlights_networks.xml");
     let (controllers, missing_networks) = if networks_path.is_file() {
         (
@@ -72,6 +74,9 @@ pub fn import_folder(dir: &Path) -> Result<XlightsImport, XlightsError> {
         .filter(|n| !n.is_empty())
         .unwrap_or_else(|| "xLights Show".to_string());
     let mut result = build_show(&name, &controllers, &layout, geometry);
+    if let Some(photo) = background::parse(&layout_xml) {
+        result.show.background = background::build(&photo, dir, &mut result.notes);
+    }
     if missing_networks {
         result.notes.insert(
             0,

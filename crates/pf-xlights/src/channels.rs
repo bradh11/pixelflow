@@ -156,6 +156,7 @@ mod tests {
             kind: "Ethernet".into(),
             active: true,
             keep_channel_numbers: false,
+            defaults: None,
             outputs,
         };
         vec![

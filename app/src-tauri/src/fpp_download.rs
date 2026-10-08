@@ -36,7 +36,7 @@ impl ChosenFolders {
             .insert(folder);
     }
 
-    fn contains(&self, folder: &Path) -> bool {
+    pub(crate) fn contains(&self, folder: &Path) -> bool {
         self.0
             .lock()
             .unwrap_or_else(PoisonError::into_inner)

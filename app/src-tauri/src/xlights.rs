@@ -3,6 +3,7 @@
 use crate::PathArg;
 use crate::{AppState, Reply, message};
 use pf_engine::{CheckedShow, SequenceSnapshot, ShowSnapshot};
+use pf_xlights::vendor::{Mapping, Package};
 use pf_xlights::{ImportSummary, SequenceImportSummary};
 use serde::Serialize;
 use tauri::State;
@@ -59,17 +60,49 @@ pub(crate) struct XlightsSequenceImported {
 /// unsaved sequence. It replaces the open sequence without asking, so callers check for unsaved
 /// changes first (the app's store does, through `get_sequence_doc`). Reading and converting
 /// happen off the engine lock.
+///
+/// With a `mapping` (see `vendor::inspect_xlights_sequence`), `path` may also be a vendor
+/// package (`.zip`, `.xsqz`) or folder, and `sequence` one of the sequences in it: effects go
+/// where the mapping says, and the mapping is remembered under `key` for next time. A zip's
+/// music is copied into the show's `music` folder, or, while the show isn't saved, that of
+/// `music_folder`, a folder the user picked in the shell's dialog.
 #[tauri::command]
 pub(crate) async fn import_xlights_sequence(
     state: State<'_, AppState>,
     path: PathArg,
+    sequence: Option<String>,
+    mapping: Option<Mapping>,
+    key: Option<String>,
+    music_folder: Option<PathArg>,
 ) -> Reply<XlightsSequenceImported> {
     let show = state.engine().show().clone();
-    let imported = tauri::async_runtime::spawn_blocking(move || {
-        pf_xlights::import_sequence_file(&path, &show, pf_audio::find_audio).map_err(|e| e.to_string())
+    let music = crate::vendor::music_folder(&state, music_folder.as_deref());
+    let remember = mapping.clone().zip(key);
+    let imported = tauri::async_runtime::spawn_blocking(move || match mapping {
+        None => {
+            pf_xlights::import_sequence_file(&path, &show, pf_audio::find_audio).map_err(|e| e.to_string())
+        }
+        Some(mapping) => {
+            let package = Package::open(&path).map_err(|e| e.to_string())?;
+            pf_xlights::vendor::import(
+                &package,
+                sequence.as_deref(),
+                &show,
+                &mapping,
+                music.as_deref(),
+                pf_audio::find_audio,
+            )
+            .map_err(|e| e.to_string())
+        }
     })
     .await
     .map_err(|_| "Something went wrong reading the xLights sequence.".to_string())??;
+    if let Some((mapping, key)) = remember {
+        let saved = std::sync::Arc::clone(&state.vendor_mappings);
+        let _ =
+            tauri::async_runtime::spawn_blocking(move || saved.set(&key, &mapping, crate::recent::now_ms()))
+                .await;
+    }
     let snapshot = state
         .engine()
         .adopt_sequence_doc(imported.sequence)

@@ -122,6 +122,16 @@ impl Settings {
         }
     }
 
+    /// Every key, in no particular order.
+    pub fn keys(&self) -> impl Iterator<Item = &str> {
+        self.map.keys().map(String::as_str)
+    }
+
+    /// Sets `key` to `value`, replacing what was there.
+    pub fn set(&mut self, key: &str, value: String) {
+        self.map.insert(key.to_string(), value);
+    }
+
     /// True when `key`'s value is an active value curve (the setting changes over the effect).
     pub fn curve_active(&self, key: &str) -> bool {
         self.get(key).is_some_and(|v| v.contains("Active=TRUE"))
@@ -238,6 +248,8 @@ pub struct ParsedPalette {
     pub sparkle_color: Rgb,
     /// Sparkles that follow the music (`C_CHECKBOX_MusicSparkles`).
     pub music_sparkles: bool,
+    /// The sparkles' value curve (`C_VALUECURVE_SparkleFrequency`), when active.
+    pub sparkles_curve: Option<String>,
     /// Other color settings PixelFlow can't apply (hue/saturation/value shifts, sparkles...).
     pub extras: Vec<&'static str>,
 }
@@ -253,6 +265,7 @@ impl Default for ParsedPalette {
             sparkles: 0,
             sparkle_color: Rgb::WHITE,
             music_sparkles: false,
+            sparkles_curve: None,
             extras: Vec::new(),
         }
     }
@@ -284,7 +297,7 @@ pub fn parse_palette(text: &str) -> ParsedPalette {
         ..ParsedPalette::default()
     };
     if settings.curve_active("C_VALUECURVE_SparkleFrequency") {
-        palette.extras.push("sparkles that change over the effect");
+        palette.sparkles_curve = settings.get("C_VALUECURVE_SparkleFrequency").map(str::to_string);
     }
     if settings.curve_active("C_VALUECURVE_Brightness") {
         palette.extras.push("brightness curve");
@@ -430,6 +443,7 @@ mod tests {
         let curve = parse_palette(
             "C_SLIDER_SparkleFrequency=10,C_VALUECURVE_SparkleFrequency=Active=TRUE|Type=Ramp|",
         );
-        assert_eq!(curve.extras, vec!["sparkles that change over the effect"]);
+        assert!(curve.extras.is_empty());
+        assert_eq!(curve.sparkles_curve.as_deref(), Some("Active=TRUE|Type=Ramp|"));
     }
 }

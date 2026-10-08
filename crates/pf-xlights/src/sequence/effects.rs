@@ -2,13 +2,19 @@
 //!
 //! Settings keys and defaults follow xLights' `src-core/effects/*Effect.cpp`; speeds that xLights
 //! counts per effect ("cycles") become per-second rates using the effect's length.
+//!
+//! Settings that change over the effect (value curves) are translated the same way at each point
+//! where they change, and every PixelFlow setting that changes as a result gets a curve through
+//! those values (see [`param_curves`]).
 
+use super::curves::{Driven, STEPS, XlCurve};
 use super::settings::{ParsedPalette, Settings};
 use super::{list, plural};
 use pf_sequence::{
-    Axis, BarsParams, Blend, ChaseParams, ColorWashParams, Direction, EffectParams, FaceColorSource,
-    FaceEyes, FacesParams, FireParams, Gradient, MeteorDirection, MeteorsParams, OffParams, OnParams,
-    Palette, Rgb, RippleParams, ShimmerParams, SpiralParams, StrobeParams, TwinkleParams, WaveParams,
+    Axis, BarsParams, Blend, ChaseParams, ColorWashParams, Curve, CurveShape, Direction, EffectParams,
+    FaceColorSource, FaceEyes, FacesParams, FireParams, Gradient, MAX_CURVE_CYCLES, MIN_CURVE_CYCLES,
+    MeteorDirection, MeteorsParams, OffParams, OnParams, Palette, Rgb, RippleParams, SettingRange,
+    ShimmerParams, SpiralParams, StrobeParams, TwinkleParams, WaveParams,
 };
 use std::collections::BTreeMap;
 
@@ -38,6 +44,8 @@ pub struct Translated {
     pub sparkle_color: Rgb,
     /// PixelFlow's blur (xLights' Blur minus one).
     pub blur: u32,
+    /// Settings that change over the effect, by PixelFlow setting key.
+    pub curves: BTreeMap<String, Curve>,
     pub fidelity: Fidelity,
 }
 
@@ -75,13 +83,231 @@ fn count(v: f64, min: u32, max: u32) -> u32 {
     }
 }
 
-/// Notes the settings that change over the effect in xLights (value curves), which PixelFlow
-/// imports at their fixed value.
-fn curves(s: &Settings, keys: &[&str], diff: &mut Diff) {
-    if keys.iter().any(|k| s.curve_active(&format!("E_VALUECURVE_{k}"))) {
-        diff.add("settings that change over the effect kept at one value");
+/// xLights settings whose text box shows the slider's value divided (`Bars_Cycles` 0-300 on the
+/// slider is 0-30 cycles in the box), from xLights' effect metadata. Value curves run in slider
+/// units.
+const DIVISORS: [(&str, f64); 15] = [
+    ("Bars_Cycles", 10.0),
+    ("ColorWash_Cycles", 10.0),
+    ("Fire_GrowthCycles", 10.0),
+    ("Ripple_Outline", 10.0),
+    ("Ripple_Spacing", 10.0),
+    ("Ripple_Cycles", 10.0),
+    ("Ripple_Twist", 10.0),
+    ("Ripple_Velocity", 10.0),
+    ("Shimmer_Cycles", 10.0),
+    ("Chase_Rotations", 10.0),
+    ("Chase_Offset", 10.0),
+    ("Spirals_Rotation", 10.0),
+    ("Spirals_Movement", 10.0),
+    ("Number_Waves", 360.0),
+    ("Wave_Speed", 100.0),
+];
+/// Divided settings that xLights stores as the slider all the same.
+const STORED_AS_SLIDER: [&str; 1] = ["Spirals_Rotation"];
+
+/// Puts a value curve's value (slider units) in the effect setting `id`, under whichever keys the
+/// file stores it as (the slider undivided, the text box divided).
+fn put(s: &mut Settings, id: &str, value: f64) {
+    let divisor = DIVISORS.iter().find(|(k, _)| *k == id).map_or(1.0, |(_, d)| *d);
+    let [slider, text, spin] = ["E_SLIDER_", "E_TEXTCTRL_", "E_SPINCTRL_"].map(|p| format!("{p}{id}"));
+    let mut stored = false;
+    for (key, v) in [(&slider, value), (&text, value / divisor), (&spin, value)] {
+        if s.contains(key) {
+            s.set(key, v.to_string());
+            stored = true;
+        }
+    }
+    if !stored {
+        if divisor != 1.0 && !STORED_AS_SLIDER.contains(&id) {
+            s.set(&text, (value / divisor).to_string());
+        } else {
+            s.set(&slider, value.to_string());
+        }
     }
 }
+
+fn driven_note(driven: Driven) -> &'static str {
+    match driven {
+        Driven::Music => "settings that follow the music held at their middle value",
+        Driven::TimingTrack => "settings that follow a timing track held at their middle value",
+    }
+}
+
+/// When to read curves (each a value just before and from each grid step on): the start, and
+/// each step, twice where any of them jumps there. `(step, from it on)`.
+fn sample_times(curves: &[&[(f64, f64)]]) -> Vec<(usize, bool)> {
+    let mut times = vec![(0, true)];
+    for step in 1..=STEPS {
+        times.push((step, false));
+        if step < STEPS && curves.iter().any(|c| c[step].0 != c[step].1) {
+            times.push((step, true));
+        }
+    }
+    times
+}
+
+/// A PixelFlow curve through `(time, value)` samples in time order (two at one time are a jump),
+/// or `None` when the value never changes. Points on a straight line between their neighbours
+/// are left out; a straight line from start to end is a ramp.
+fn curve_through(samples: &[(f32, f32)]) -> Option<Curve> {
+    // To 5 decimals, which is past what a setting shows and keeps files tidy.
+    let samples: Vec<(f32, f32)> = samples
+        .iter()
+        .map(|&(t, v)| (t, ((f64::from(v) * 1e5).round() / 1e5) as f32))
+        .collect();
+    let (lo, hi) = samples
+        .iter()
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), &(_, v)| {
+            (lo.min(v), hi.max(v))
+        });
+    let spread = hi - lo;
+    if spread.is_nan() || spread <= 1e-6 * hi.abs().max(1.0) {
+        return None;
+    }
+    let eps = (hi - lo) * 1e-5;
+    let mut kept: Vec<(f32, f32)> = Vec::new();
+    for &p in &samples {
+        if kept.last() == Some(&p) {
+            continue;
+        }
+        while let [.., a, b] = kept[..] {
+            let on_line = a.0 < b.0 && b.0 < p.0 && {
+                let along = a.1 + (p.1 - a.1) * (b.0 - a.0) / (p.0 - a.0);
+                (b.1 - along).abs() <= eps
+            };
+            if !on_line {
+                break;
+            }
+            kept.pop();
+        }
+        kept.push(p);
+    }
+    if let [(t0, a), (t1, b)] = kept[..]
+        && t0 == 0.0
+        && t1 == 1.0
+    {
+        return Some(Curve::ramp(a, b));
+    }
+    let level = |v: f32| ((v - lo) / (hi - lo) * 10_000.0).round() / 10_000.0;
+    Some(Curve::custom(
+        lo,
+        hi,
+        kept.iter().map(|&(t, v)| [t, level(v)]).collect(),
+    ))
+}
+
+/// The curve for one effect-wide setting (sparkles, blur) from the xLights value curve on it,
+/// `convert` turning each value (slider units) into PixelFlow's: the value at the start, and the
+/// curve when it changes.
+fn setting_curve(curve: &XlCurve, convert: impl Fn(f64) -> f32, diff: &mut Diff) -> (f32, Option<Curve>) {
+    if let Some(driven) = curve.driven() {
+        diff.add(driven_note(driven));
+        return (convert(curve.middle()), None);
+    }
+    let values = curve.values();
+    let samples: Vec<(f32, f32)> = sample_times(&[&values])
+        .into_iter()
+        .map(|(step, after)| {
+            let (before, on) = values[step];
+            (
+                step as f32 / STEPS as f32,
+                convert(if after { on } else { before }),
+            )
+        })
+        .collect();
+    (samples[0].1, curve_through(&samples))
+}
+
+/// The effect's own settings that change over it (`E_VALUECURVE_<id>`), by setting id.
+fn effect_curves(s: &Settings) -> Vec<(String, XlCurve)> {
+    let mut found: Vec<(String, XlCurve)> = s
+        .keys()
+        .filter_map(|key| {
+            let id = key.strip_prefix("E_VALUECURVE_")?;
+            Some((id.to_string(), XlCurve::parse(s.get(key)?)?))
+        })
+        .collect();
+    found.sort_by(|a, b| a.0.cmp(&b.0));
+    found
+}
+
+/// The curves for an effect whose xLights settings change over it (`moving`: setting id and its
+/// values at each grid step; `s` holds their values at the start). The effect is translated
+/// again at each step, and each PixelFlow number setting that changes gets a curve through its
+/// values there. Notes from every step are kept.
+#[allow(clippy::too_many_arguments)]
+fn param_curves(
+    name: &str,
+    s: &Settings,
+    moving: &[(String, Vec<(f64, f64)>)],
+    colors: &[Rgb],
+    duration_ms: u64,
+    frame_ms: u32,
+    base: &EffectParams,
+    diff: &mut Diff,
+) -> BTreeMap<String, Curve> {
+    let kind = base.kind();
+    let keys: Vec<&str> = kind
+        .settings()
+        .iter()
+        .filter(|spec| matches!(spec.range, SettingRange::Number { .. } | SettingRange::Int { .. }))
+        .map(|spec| spec.key)
+        .collect();
+    let values: Vec<&[(f64, f64)]> = moving.iter().map(|(_, v)| v.as_slice()).collect();
+    let mut series: Vec<Vec<(f32, f32)>> = vec![Vec::new(); keys.len()];
+    for (step, after) in sample_times(&values) {
+        let mut at = s.clone();
+        for (id, v) in moving {
+            put(&mut at, id, if after { v[step].1 } else { v[step].0 });
+        }
+        let params = match effect_params(name, &at, colors, duration_ms, frame_ms, diff) {
+            Kind::Params(p) if p.kind() == kind => p,
+            _ => {
+                diff.add("settings that change over the effect kept at one value");
+                return BTreeMap::new();
+            }
+        };
+        let clamped = params.sanitized();
+        if clamped != params {
+            diff.add(BEYOND_RANGE);
+        }
+        for (key, points) in keys.iter().zip(&mut series) {
+            if let Some(v) = clamped.number(key) {
+                points.push((step as f32 / STEPS as f32, v));
+            }
+        }
+    }
+    keys.iter()
+        .zip(&series)
+        .filter_map(|(key, points)| Some((key.to_string(), curve_through(points)?)))
+        .collect()
+}
+
+/// xLights' On repeats its brightness ramp `On_Cycles` times over the effect: a saw from the
+/// start brightness to the end, on both (so the brightness is the saw's).
+fn on_cycles(s: &Settings, params: &EffectParams, curves: &mut BTreeMap<String, Curve>, diff: &mut Diff) {
+    let EffectParams::On(p) = params else {
+        return;
+    };
+    let cycles = Reader { s }.get("On_Cycles", 1.0, 0.0, 100.0) as f32;
+    let ramps = (p.start_level - p.end_level).abs() > 1e-6;
+    if !ramps || (cycles - 1.0).abs() <= 1e-6 {
+        return;
+    }
+    if !(MIN_CURVE_CYCLES..=MAX_CURVE_CYCLES).contains(&cycles)
+        || curves.contains_key("startLevel")
+        || curves.contains_key("endLevel")
+    {
+        diff.add("repeating brightness ramp shown once");
+        return;
+    }
+    let saw = Curve::shaped(CurveShape::Saw, p.start_level, p.end_level, cycles);
+    curves.insert("startLevel".into(), saw.clone());
+    curves.insert("endLevel".into(), saw);
+}
+
+const BEYOND_RANGE: &str = "settings beyond PixelFlow's range set to the nearest it allows";
 
 /// What an xLights effect becomes.
 enum Kind {
@@ -144,12 +370,8 @@ fn effect_key(name: &str) -> String {
 fn on(r: &Reader, diff: &mut Diff) -> EffectParams {
     let start = r.get("Eff_On_Start", 100.0, 0.0, 100.0);
     let end = r.get("Eff_On_End", 100.0, 0.0, 100.0);
-    curves(r.s, &["Eff_On_Start", "Eff_On_End", "On_Transparency"], diff);
     if r.check("On_Shimmer") {
         diff.add("shimmer not shown");
-    }
-    if (r.get("On_Cycles", 1.0, 0.0, 100.0) - 1.0).abs() > 1e-6 && (start - end).abs() > 1e-6 {
-        diff.add("repeating brightness ramp shown once");
     }
     if r.get("On_Transparency", 0.0, 0.0, 100.0) > 0.0 {
         diff.add("transparency not applied");
@@ -163,7 +385,6 @@ fn on(r: &Reader, diff: &mut Diff) -> EffectParams {
 
 fn color_wash(r: &Reader, colors: &[Rgb], diff: &mut Diff) -> EffectParams {
     let cycles = r.get("ColorWash_Cycles", 1.0, 0.1, 20.0);
-    curves(r.s, &["ColorWash_Cycles"], diff);
     if cycles > 1.0 + 1e-6 && colors.len() > 1 {
         diff.add("repeated color cycles go back and forth instead of restarting");
     }
@@ -185,11 +406,6 @@ fn color_wash(r: &Reader, colors: &[Rgb], diff: &mut Diff) -> EffectParams {
 fn bars(r: &Reader, n_colors: f64, duration_ms: u64, diff: &mut Diff) -> EffectParams {
     let repeats = r.get("Bars_BarCount", 1.0, 1.0, 5.0);
     let cycles = r.get("Bars_Cycles", 1.0, 0.0, 30.0);
-    curves(
-        r.s,
-        &["Bars_BarCount", "Bars_Cycles", "Bars_Center", "Bars_Angle"],
-        diff,
-    );
     diff.add("bars have gaps between them");
     let (axis, reverse, moving) = match r.choice("Bars_Direction", "up") {
         "up" => (Axis::Vertical, false, true),
@@ -254,11 +470,6 @@ fn single_strand(r: &Reader, duration_ms: u64, diff: &mut Diff) -> Kind {
             let chases = r.get("Number_Chases", 1.0, 1.0, 20.0);
             let size = r.get("Color_Mix1", 10.0, 1.0, 100.0);
             let rotations = r.get("Chase_Rotations", 1.0, 0.0, 50.0);
-            curves(
-                r.s,
-                &["Number_Chases", "Color_Mix1", "Chase_Rotations", "Chase_Offset"],
-                diff,
-            );
             let (reverse, bounce, moving) = match r.choice("Chase_Type1", "Left-Right") {
                 "Left-Right" => (false, false, true),
                 "Right-Left" => (true, false, true),
@@ -314,17 +525,6 @@ fn wave(r: &Reader, diff: &mut Diff) -> EffectParams {
     .clamp(0.5, 10.0);
     // xLights moves the wave `speed` degrees every 50 ms.
     let speed = r.get("Wave_Speed", 10.0, 0.0, 50.0) * 20.0 / 360.0;
-    curves(
-        r.s,
-        &[
-            "Number_Waves",
-            "Wave_Speed",
-            "Thickness_Percentage",
-            "Wave_Height",
-            "Wave_YOffset",
-        ],
-        diff,
-    );
     let shape = r.choice("Wave_Type", "Sine");
     if shape != "Sine" {
         diff.add(format!("'{shape}' wave shown as a sine wave"));
@@ -349,7 +549,6 @@ fn wave(r: &Reader, diff: &mut Diff) -> EffectParams {
 
 fn twinkle(r: &Reader, frame: f64, diff: &mut Diff) -> EffectParams {
     let steps = r.get("Twinkle_Steps", 30.0, 2.0, 400.0);
-    curves(r.s, &["Twinkle_Count", "Twinkle_Steps"], diff);
     if r.check("Twinkle_Strobe") {
         diff.add("strobing twinkles shown as soft twinkles");
     }
@@ -361,7 +560,6 @@ fn twinkle(r: &Reader, frame: f64, diff: &mut Diff) -> EffectParams {
 }
 
 fn shimmer(r: &Reader, duration_ms: u64, diff: &mut Diff) -> EffectParams {
-    curves(r.s, &["Shimmer_Duty_Factor", "Shimmer_Cycles"], diff);
     if r.check("Shimmer_Use_All_Colors") {
         diff.add("a random color per pixel shown as one color at a time");
     }
@@ -390,16 +588,6 @@ fn strobe(r: &Reader, frame: f64, diff: &mut Diff) -> EffectParams {
 fn spirals(r: &Reader, n_colors: f64, duration_ms: u64, diff: &mut Diff) -> EffectParams {
     let repeats = r.get("Spirals_Count", 1.0, 1.0, 5.0);
     let movement = r.get("Spirals_Movement", 1.0, -20.0, 20.0);
-    curves(
-        r.s,
-        &[
-            "Spirals_Count",
-            "Spirals_Rotation",
-            "Spirals_Thickness",
-            "Spirals_Movement",
-        ],
-        diff,
-    );
     if r.check("Spirals_Blend") || r.check("Spirals_3D") {
         diff.add("blended or 3D look not shown");
     }
@@ -423,7 +611,6 @@ fn spirals(r: &Reader, n_colors: f64, duration_ms: u64, diff: &mut Diff) -> Effe
 }
 
 fn fire(r: &Reader, diff: &mut Diff) -> EffectParams {
-    curves(r.s, &["Fire_Height", "Fire_HueShift", "Fire_GrowthCycles"], diff);
     if r.get("Fire_HueShift", 0.0, 0.0, 100.0) > 0.0 {
         diff.add("hue shift not applied");
     }
@@ -444,16 +631,6 @@ fn fire(r: &Reader, diff: &mut Diff) -> EffectParams {
 }
 
 fn meteors(r: &Reader, diff: &mut Diff) -> EffectParams {
-    curves(
-        r.s,
-        &[
-            "Meteors_Count",
-            "Meteors_Length",
-            "Meteors_Speed",
-            "Meteors_Swirl_Intensity",
-        ],
-        diff,
-    );
     diff.add("meteor count and speed approximated");
     let direction = match r.choice("Meteors_Effect", "Down") {
         "Down" => MeteorDirection::Down,
@@ -482,16 +659,6 @@ fn meteors(r: &Reader, diff: &mut Diff) -> EffectParams {
 }
 
 fn ripple(r: &Reader, duration_ms: u64, diff: &mut Diff) -> EffectParams {
-    curves(
-        r.s,
-        &[
-            "Ripple_Cycles",
-            "Ripple_Thickness",
-            "Ripple_Spacing",
-            "Ripple_Outline",
-        ],
-        diff,
-    );
     let shape = r.choice("Ripple_Object_To_Draw", "Circle");
     if shape != "Circle" {
         diff.add(format!("'{shape}' ripples shown as circles"));
@@ -691,14 +858,15 @@ fn buffer(s: &Settings, diff: &mut Diff) -> u32 {
         diff.add("buffer rotation or flip not applied");
     }
     let changed = |key: &str, neutral: f64| s.num(key).is_some_and(|v| (v - neutral).abs() > 1e-6);
-    if changed("B_SLIDER_Rotation", 0.0) || changed("B_SLIDER_Zoom", 1.0) {
+    // Rotation, zoom, and pivot curves move the buffer too.
+    let moving = s
+        .keys()
+        .any(|k| k.starts_with("B_VALUECURVE_") && k != "B_VALUECURVE_Blur" && s.curve_active(k));
+    if changed("B_SLIDER_Rotation", 0.0) || changed("B_SLIDER_Zoom", 1.0) || moving {
         diff.add("rotation or zoom not applied");
     }
     if !s.text("B_CUSTOM_SubBuffer", "").is_empty() {
         diff.add("sub-buffer (part of the prop) not applied");
-    }
-    if s.curve_active("B_VALUECURVE_Blur") {
-        diff.add("blur that changes over the effect kept at one value");
     }
     // xLights reads the slider as a whole number (`GetInt`); past 15 it blurs as 15.
     let blur = s.num_or("B_SLIDER_Blur", 1.0).trunc();
@@ -706,6 +874,24 @@ fn buffer(s: &Settings, diff: &mut Diff) -> u32 {
         diff.add("blur above 15 shown at 15");
     }
     (blur.clamp(1.0, f64::from(pf_sequence::MAX_BLUR + 1)) as u32) - 1
+}
+
+/// The blur's value curve (`B_VALUECURVE_Blur`, xLights' 1-15), as PixelFlow's blur: its value at
+/// the start and the curve.
+fn blur_curve(s: &Settings, diff: &mut Diff) -> Option<(u32, Option<Curve>)> {
+    let curve = XlCurve::parse_in(s.get("B_VALUECURVE_Blur")?, 1.0, 15.0)?;
+    let max = f64::from(pf_sequence::MAX_BLUR + 1);
+    let (start, curve) = setting_curve(&curve, |v| (v.trunc().clamp(1.0, max) - 1.0) as f32, diff);
+    Some((start as u32, curve))
+}
+
+/// The sparkles' value curve (`C_VALUECURVE_SparkleFrequency`, 0-200): the value at the start and
+/// the curve.
+fn sparkles_curve(palette: &ParsedPalette, diff: &mut Diff) -> Option<(u32, Option<Curve>)> {
+    let curve = XlCurve::parse_in(palette.sparkles_curve.as_deref()?, 0.0, 200.0)?;
+    let max = f64::from(pf_sequence::MAX_SPARKLES);
+    let (start, curve) = setting_curve(&curve, |v| v.trunc().clamp(0.0, max) as f32, diff);
+    Some((start as u32, curve))
 }
 
 /// The palette's sparkles and their color (dimmed by the palette's brightness, as xLights applies
@@ -773,36 +959,73 @@ pub fn translate(
 ) -> Option<Translated> {
     let mut diff = Diff(Vec::new());
     let colors = palette_colors(palette, &mut diff);
-    let (sparkles, sparkle_color) = sparkles(palette, &mut diff);
+    let (mut sparkles, sparkle_color) = sparkles(palette, &mut diff);
     let blend = blend(s, &mut diff);
     let (fade_in_ms, fade_out_ms) = fades(s, duration_ms, &mut diff);
-    let blur = buffer(s, &mut diff);
+    let mut blur = buffer(s, &mut diff);
+    let mut curves = BTreeMap::new();
+    if let Some((start, curve)) = sparkles_curve(palette, &mut diff) {
+        sparkles = start;
+        curves.extend(curve.map(|c| ("sparkles".to_string(), c)));
+    }
+    if let Some((start, curve)) = blur_curve(s, &mut diff) {
+        blur = start;
+        curves.extend(curve.map(|c| ("blur".to_string(), c)));
+    }
+    // Settings that change over the effect start at their first value; music and timing-track
+    // ones stay at their middle.
+    let mut start = s.clone();
+    let mut moving = Vec::new();
+    for (id, curve) in effect_curves(s) {
+        if let Some(driven) = curve.driven() {
+            diff.add(driven_note(driven));
+            put(&mut start, &id, curve.middle());
+        } else {
+            let values = curve.values();
+            put(&mut start, &id, values[0].1);
+            moving.push((id, values));
+        }
+    }
     Some(
-        match effect_params(name, s, &colors, duration_ms, frame_ms, &mut diff) {
+        match effect_params(name, &start, &colors, duration_ms, frame_ms, &mut diff) {
             Kind::Skip => return None,
-            Kind::Params(params) => Translated {
+            Kind::Params(params) => {
                 // PixelFlow's settings table has the final say on ranges (evaluated before
                 // `fidelity`, so a clamp counts as an approximation).
-                params: {
-                    let clamped = params.sanitized();
-                    if clamped != params {
-                        diff.add("settings beyond PixelFlow's range set to the nearest it allows");
-                    }
-                    clamped
-                },
-                palette: Palette::new(colors),
-                blend,
-                fade_in_ms,
-                fade_out_ms,
-                sparkles,
-                sparkle_color,
-                blur,
-                fidelity: if diff.0.is_empty() {
-                    Fidelity::Exact
-                } else {
-                    Fidelity::Approximate(diff.0)
-                },
-            },
+                let clamped = params.sanitized();
+                if clamped != params {
+                    diff.add(BEYOND_RANGE);
+                }
+                if !moving.is_empty() {
+                    curves.extend(param_curves(
+                        name,
+                        &start,
+                        &moving,
+                        &colors,
+                        duration_ms,
+                        frame_ms,
+                        &clamped,
+                        &mut diff,
+                    ));
+                }
+                on_cycles(&start, &clamped, &mut curves, &mut diff);
+                Translated {
+                    params: clamped,
+                    palette: Palette::new(colors),
+                    blend,
+                    fade_in_ms,
+                    fade_out_ms,
+                    sparkles,
+                    sparkle_color,
+                    blur,
+                    curves,
+                    fidelity: if diff.0.is_empty() {
+                        Fidelity::Exact
+                    } else {
+                        Fidelity::Approximate(diff.0)
+                    },
+                }
+            }
             Kind::Placeholder => Translated {
                 params: EffectParams::On(OnParams {
                     gradient: Gradient::None,
@@ -816,6 +1039,7 @@ pub fn translate(
                 sparkles,
                 sparkle_color,
                 blur,
+                curves,
                 fidelity: Fidelity::Placeholder,
             },
         },
@@ -1096,20 +1320,146 @@ mod tests {
     }
 
     #[test]
-    fn sparkles_and_blur_xlights_varies_are_noted() {
-        let s = Settings::parse("B_SLIDER_Blur=40,B_VALUECURVE_Blur=Active=TRUE|Type=Ramp|");
+    fn sparkles_and_blur_that_change_over_the_effect_get_curves() {
+        let s = Settings::parse(
+            "B_SLIDER_Blur=40,B_VALUECURVE_Blur=Active=TRUE|Type=Ramp|Min=1.00|Max=15.00|P1=1.00|P2=15.00|RV=TRUE|",
+        );
         let mut p = palette(&[Rgb::RED]);
         p.sparkles = 10;
         p.music_sparkles = true;
+        p.sparkles_curve = Some("Active=TRUE|Type=Music|Min=0.00|Max=200.00|P2=200.00|RV=TRUE|".into());
         let t = translate("Color Wash", &s, &p, 1000, 25).unwrap();
-        assert_eq!(t.blur, 14);
+        // The blur goes from none to the most; xLights takes the whole part of each value, so
+        // it climbs in steps.
+        assert_eq!(t.blur, 0, "the curve's start, not the slider");
+        let blur = &t.curves["blur"];
+        assert_eq!((blur.from, blur.to), (0.0, 14.0));
+        assert_eq!(blur.value_at(0.5).round(), 7.0);
+        // Sparkles that follow the music are held at their middle.
+        assert_eq!(t.sparkles, 100);
+        assert!(!t.curves.contains_key("sparkles"));
         assert_eq!(
             t.fidelity,
             Fidelity::Approximate(vec![
                 "music-driven sparkles shown at a steady rate".into(),
-                "blur that changes over the effect kept at one value".into(),
                 "blur above 15 shown at 15".into(),
+                "settings that follow the music held at their middle value".into(),
             ])
+        );
+    }
+
+    #[test]
+    fn effect_settings_that_change_get_curves_through_the_translation() {
+        // Spirals' rotation (tenths of a wrap on the slider) on xLights' sine: two cycles,
+        // starting three quarters in, between -9 and 9 wraps.
+        let s = Settings::parse(
+            "E_SLIDER_Spirals_Rotation=20,E_TEXTCTRL_Spirals_Movement=1.0,\
+             E_VALUECURVE_Spirals_Rotation=Active=TRUE|Id=ID_VALUECURVE_Spirals_Rotation|Type=Sine|Min=-90.00|Max=90.00|P1=75.00|P2=90.00|P3=20.00|RV=TRUE|",
+        );
+        let t = translate("Spirals", &s, &palette(&[Rgb::RED]), 4000, 25).unwrap();
+        assert_eq!(t.fidelity, Fidelity::Exact, "{:?}", t.fidelity);
+        let twist = &t.curves["twist"];
+        assert_eq!(twist.shape, CurveShape::Custom);
+        assert_eq!((twist.from, twist.to), (-9.0, 9.0));
+        let EffectParams::Spiral(p) = t.params else {
+            panic!("{:?}", t.params)
+        };
+        assert_eq!(p.twist, -9.0, "the setting holds the curve's start");
+        for time in [0.0f64, 0.1, 0.125, 0.25, 0.4, 0.5, 0.75] {
+            let r = time * 2.0 * std::f64::consts::TAU + 0.75 * std::f64::consts::TAU;
+            let want = (9.0 * r.sin()) as f32;
+            assert!(
+                (twist.value_at(time as f32) - want).abs() < 0.01,
+                "{time}: {want}"
+            );
+        }
+        assert!(t.curves.len() == 1, "nothing else changes: {:?}", t.curves.keys());
+
+        // A ramp on Bars' cycles (the text box shows tenths of the slider) becomes a ramp of
+        // its speed, per second over the 2 s effect.
+        let s = Settings::parse(
+            "E_CHOICE_Bars_Direction=up,E_TEXTCTRL_Bars_Cycles=1.0,\
+             E_VALUECURVE_Bars_Cycles=Active=TRUE|Type=Ramp|Min=0.00|Max=300.00|P1=20.00|P2=100.00|RV=TRUE|",
+        );
+        let t = translate("Bars", &s, &palette(&[Rgb::RED]), 2000, 25).unwrap();
+        assert_eq!(t.curves["speed"], Curve::ramp(1.0, 5.0));
+
+        // A square wave on a whole-number setting keeps its sharp edges.
+        let s = Settings::parse(
+            "E_VALUECURVE_Meteors_Count=Active=TRUE|Type=Square|Min=1.00|Max=100.00|P1=10.00|P2=40.00|P3=2.00|RV=TRUE|",
+        );
+        let t = translate("Meteors", &s, &palette(&[Rgb::RED]), 2000, 25).unwrap();
+        let count = &t.curves["count"];
+        assert_eq!(
+            [0.1, 0.249, 0.25, 0.4, 0.5, 0.8].map(|t| count.value_at(t).round()),
+            [10.0, 10.0, 40.0, 40.0, 10.0, 40.0]
+        );
+
+        // Curves on settings PixelFlow doesn't use change nothing.
+        let s = Settings::parse(
+            "E_VALUECURVE_Bars_Center=Active=TRUE|Type=Ramp|Min=-100.00|Max=100.00|P1=-100.00|P2=100.00|RV=TRUE|",
+        );
+        let t = translate("Bars", &s, &palette(&[Rgb::RED]), 2000, 25).unwrap();
+        assert!(t.curves.is_empty());
+    }
+
+    #[test]
+    fn music_and_timing_track_curves_hold_their_middle_and_say_so() {
+        let s = Settings::parse(
+            "E_SLIDER_Twinkle_Count=3,E_VALUECURVE_Twinkle_Count=Active=TRUE|Type=Inverted Music|Min=2.00|Max=100.00|P1=10.00|P2=50.00|RV=TRUE|",
+        );
+        let t = translate("Twinkle", &s, &palette(&[Rgb::RED]), 2000, 25).unwrap();
+        let EffectParams::Twinkle(p) = t.params else {
+            panic!("{:?}", t.params)
+        };
+        assert!((p.density - 0.3).abs() < 1e-6, "between 10 and 50: {}", p.density);
+        assert!(t.curves.is_empty());
+        assert_eq!(
+            t.fidelity,
+            Fidelity::Approximate(vec![
+                "settings that follow the music held at their middle value".into()
+            ])
+        );
+        let s = Settings::parse(
+            "E_VALUECURVE_Twinkle_Count=Active=TRUE|Type=Timing Track Toggle|Min=2.00|Max=100.00|P1=10.00|P2=50.00|TT=Beats|RV=TRUE|",
+        );
+        let t = translate("Twinkle", &s, &palette(&[Rgb::RED]), 2000, 25).unwrap();
+        assert_eq!(
+            t.fidelity,
+            Fidelity::Approximate(vec![
+                "settings that follow a timing track held at their middle value".into()
+            ])
+        );
+    }
+
+    #[test]
+    fn on_repeats_its_brightness_ramp() {
+        let s =
+            Settings::parse("E_TEXTCTRL_Eff_On_Start=100,E_TEXTCTRL_Eff_On_End=0,E_TEXTCTRL_On_Cycles=3.0");
+        let t = translate("On", &s, &palette(&[Rgb::RED]), 3000, 25).unwrap();
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        let saw = Curve::shaped(CurveShape::Saw, 1.0, 0.0, 3.0);
+        assert_eq!(t.curves["startLevel"], saw);
+        assert_eq!(t.curves["endLevel"], saw);
+        // Once through is the plain ramp.
+        let s = Settings::parse("E_TEXTCTRL_Eff_On_Start=100,E_TEXTCTRL_Eff_On_End=0");
+        assert!(
+            translate("On", &s, &palette(&[Rgb::RED]), 3000, 25)
+                .unwrap()
+                .curves
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn curve_through_keeps_only_the_points_it_needs() {
+        let line: Vec<(f32, f32)> = (0..=10).map(|i| (i as f32 / 10.0, i as f32 * 2.0)).collect();
+        assert_eq!(curve_through(&line), Some(Curve::ramp(0.0, 20.0)));
+        assert_eq!(curve_through(&[(0.0, 3.0), (0.5, 3.0), (1.0, 3.0)]), None);
+        let step = curve_through(&[(0.0, 0.0), (0.5, 0.0), (0.5, 4.0), (1.0, 4.0)]).unwrap();
+        assert_eq!(
+            step,
+            Curve::custom(0.0, 4.0, vec![[0.0, 0.0], [0.5, 0.0], [0.5, 1.0], [1.0, 1.0]])
         );
     }
 

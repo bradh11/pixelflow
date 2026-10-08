@@ -6,6 +6,7 @@
 //! equivalent. Nothing is approximated or left out silently: the report counts what came in
 //! exactly, what was approximated (and how), and what was shown as a placeholder.
 
+mod curves;
 mod effects;
 mod settings;
 mod xsq;
@@ -351,7 +352,7 @@ impl<'a> Builder<'a> {
             sparkles: translated.sparkles,
             sparkle_color: translated.sparkle_color,
             blur: translated.blur,
-            curves: Default::default(),
+            curves: translated.curves,
         })
     }
 

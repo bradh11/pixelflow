@@ -130,7 +130,7 @@ export function Input({ className = "", ...props }: InputHTMLAttributes<HTMLInpu
 }
 
 export function Select({ className = "", ...props }: ComponentProps<"select">) {
-  return <select className={`${CONTROL} ${className}`} {...props} />;
+  return <select className={`pf-select ${CONTROL} ${className}`} {...props} />;
 }
 
 const UNSAVED = {

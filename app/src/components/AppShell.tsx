@@ -256,8 +256,9 @@ function StatusBar() {
   return (
     <footer className="relative flex h-8 shrink-0 items-center gap-4 border-t border-neutral-200 px-3 text-xs text-neutral-500 dark:border-neutral-800">
       <span>
-        {plural(summary.props, "prop")} · {thousands(summary.pixels)} pixels · {plural(summary.controllers, "controller")} ·{" "}
-        {plural(summary.universes, "universe")}
+        {plural(summary.props, "prop")} · {thousands(summary.pixels)} pixels · {plural(summary.controllers, "controller")}
+        {/* DDP controllers have no universes, so "0 universes" would only confuse. */}
+        {summary.universes > 0 && ` · ${plural(summary.universes, "universe")}`}
       </span>
       <LiveOutput />
       <button

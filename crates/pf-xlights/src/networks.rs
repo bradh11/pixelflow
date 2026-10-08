@@ -16,8 +16,18 @@ pub struct XOutput {
     pub channels: u32,
 }
 
+/// The brightness and gamma xLights gives a model that doesn't set its own, on a controller xLights
+/// fully controls (`FullxLightsControl`, with `DefaultBrightnessUnderFullControl` and
+/// `DefaultGammaUnderFullControl`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OutputDefaults {
+    /// Percent, 0-100.
+    pub brightness: u8,
+    pub gamma: f32,
+}
+
 /// A controller and its absolute channel range.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct XController {
     pub name: String,
     /// IP address (empty for serial and null controllers).
@@ -30,6 +40,9 @@ pub struct XController {
     pub active: bool,
     /// DDP packets carry absolute channel numbers (`KeepChannelNumbers`).
     pub keep_channel_numbers: bool,
+    /// What a model on this controller gets when it sets no brightness or gamma. `None` unless
+    /// xLights has the controller under full control; otherwise xLights uses 100% and gamma 1.
+    pub defaults: Option<OutputDefaults>,
     pub outputs: Vec<XOutput>,
 }
 
@@ -110,6 +123,18 @@ pub fn parse_networks(xml: &str) -> Result<Vec<XController>, XlightsError> {
                     .iter()
                     .map(|n| add_output(number(*n, "BaudRate"), number(*n, "MaxChannels")))
                     .collect();
+                let defaults = (attr(child, "FullxLightsControl") == "TRUE").then(|| OutputDefaults {
+                    brightness: attr(child, "DefaultBrightnessUnderFullControl")
+                        .parse::<f64>()
+                        .ok()
+                        .filter(|b| b.is_finite())
+                        .map_or(100, |b| b.clamp(0.0, 100.0) as u8),
+                    gamma: attr(child, "DefaultGammaUnderFullControl")
+                        .parse::<f32>()
+                        .ok()
+                        .filter(|g| g.is_finite() && *g > 0.0)
+                        .unwrap_or(1.0),
+                });
                 controllers.push(XController {
                     name: attr(child, "Name").to_string(),
                     ip: ip.to_string(),
@@ -117,6 +142,7 @@ pub fn parse_networks(xml: &str) -> Result<Vec<XController>, XlightsError> {
                     kind: kind.to_string(),
                     active,
                     keep_channel_numbers: networks.iter().any(|n| attr(*n, "KeepChannelNumbers") == "1"),
+                    defaults,
                     outputs,
                 });
             }
@@ -153,6 +179,7 @@ pub fn parse_networks(xml: &str) -> Result<Vec<XController>, XlightsError> {
                         kind: "Legacy".to_string(),
                         active: attr(child, "Enabled") != "No",
                         keep_channel_numbers: false,
+                        defaults: None,
                         outputs,
                     });
                 }

@@ -80,8 +80,9 @@ function SendMenu({ onPick }: { onPick: (entry: SequenceEntry) => void }) {
 
 /**
  * The sequences, music, and playlists stored on the FPP, with Play for sequences and playlists
- * (it asks first when a show is running) and Send a sequence. Each tab is read when first shown,
- * and again on Refresh or after a send; reading changes nothing.
+ * (it asks first when a show is running), Download for sequences (a copy on this computer; it
+ * only reads from the FPP), and Send a sequence. Each tab is read when first shown, and again on
+ * Refresh or after a send; reading changes nothing.
  */
 export function FppLibrary({ address, fppName, turn, onPlayed }: { address: string; fppName: string; turn: number; onPlayed: () => void }) {
   const backend = useApp((s) => s.backend);
@@ -191,7 +192,7 @@ export function FppLibrary({ address, fppName, turn, onPlayed }: { address: stri
                 <th className="py-1.5 pl-3 font-medium">Date</th>
                 {playable && (
                   <th className="w-px py-1.5">
-                    <span className="sr-only">Play</span>
+                    <span className="sr-only">{folder === "sequences" ? "Download and play" : "Play"}</span>
                   </th>
                 )}
               </tr>

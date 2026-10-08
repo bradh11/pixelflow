@@ -5,8 +5,8 @@
 //! Only GETs reach the FPP (its file listings, the sequence's details, and the two files; see
 //! `pf_devices::fpp_download`). Files are written only inside that folder, under the names the
 //! FPP listed, and only once whole: each arrives in a hidden temporary file, and both are moved
-//! into place together once both are in. Cancel, or any failure, leaves nothing behind. A file
-//! already in the folder is replaced only when the user chose Replace.
+//! into place (music first) once both are in. Cancel, or any failure while downloading, leaves
+//! nothing behind. A file already in the folder is replaced only when the user chose Replace.
 
 use crate::{AppState, PathArg, Reply};
 use pf_devices::Http;
@@ -63,7 +63,7 @@ fn grouped(n: u32) -> String {
     let digits = n.to_string();
     let mut out = String::new();
     for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(c);

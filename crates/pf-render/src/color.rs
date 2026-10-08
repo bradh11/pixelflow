@@ -57,7 +57,7 @@ pub(crate) fn lit(rgb: [f32; 3]) -> bool {
 }
 
 /// Hue, saturation, and value (each 0–1), worked out as xLights' `toHSV` does.
-fn to_hsv([mut r, mut g, mut b]: [f32; 3]) -> [f32; 3] {
+pub(crate) fn to_hsv([mut r, mut g, mut b]: [f32; 3]) -> [f32; 3] {
     let mut k = 0.0f32;
     if g < b {
         std::mem::swap(&mut g, &mut b);
@@ -79,7 +79,7 @@ fn to_hsv([mut r, mut g, mut b]: [f32; 3]) -> [f32; 3] {
 
 /// A color from hue, saturation, and value, as xLights' `fromHSV` makes it: a hue of 1 or more
 /// counts as the last sector, and one below 0 gives grey at the lowest level.
-fn from_hsv([h, s, v]: [f32; 3]) -> [f32; 3] {
+pub(crate) fn from_hsv([h, s, v]: [f32; 3]) -> [f32; 3] {
     if s == 0.0 {
         return [v, v, v];
     }

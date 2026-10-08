@@ -9,15 +9,22 @@
 //! always give the same picture. [`export`] writes a sequence as an FPP `.fseq` file.
 
 mod blur;
+mod circles;
 mod color;
 mod effects;
 pub mod export;
 pub mod faces;
+mod fan;
 mod geometry;
+mod morph;
+mod raster;
 mod render;
+mod shape;
 mod sparkles;
 
 pub use color::{Colors, Rgba};
-pub use effects::{Canvas, EffectTime, Faces, MAX_METEORS, Shade, Shader, shade_pixel};
+pub use effects::{
+    Canvas, Circles, EffectTime, Faces, Fan, MAX_METEORS, Morph, Shade, Shader, Shape, shade_pixel,
+};
 pub use geometry::{Pixel, PixelBuffer, SceneGeometry};
 pub use render::Renderer;

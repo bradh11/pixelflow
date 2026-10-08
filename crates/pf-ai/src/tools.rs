@@ -328,6 +328,7 @@ fn referenced_defs(schema: &Value, defs: &Map<String, Value>) -> BTreeSet<String
 const SHARED_DEFINITIONS: &[(&str, &str, &str)] = &[
     ("Prop", "show_add_prop", "prop"),
     ("Controller", "show_add_controller", "controller"),
+    ("Group", "show_add_group", "group"),
     ("Effect", "sequence_add_effect", "effect"),
     ("EffectParams", "sequence_add_effect", "effect.params"),
 ];

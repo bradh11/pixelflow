@@ -13,6 +13,7 @@ mod paths;
 mod primitives;
 mod prop;
 mod region;
+mod render_style;
 mod shape;
 mod show;
 mod validate;
@@ -38,9 +39,14 @@ pub use region::{
     BufferStyle, FaceColors, FaceDefinition, LineLayout, NodeRange, NodeRun, Phoneme, Region, RegionKind,
     RegionRef, SubmodelLine, format_line, parse_line,
 };
+pub use render_style::{
+    BufferTransform, DEFAULT_GRID_SIZE, GroupLayout, MAX_GRID_SIZE, MIN_GRID_SIZE, RenderStyle,
+};
 pub use shape::{
     Corner, CubeStart, CubeStyle, Generator, MatrixWiring, Orientation, PolySegment, Provenance, ShapeSource,
     StarStart, StrandStyle, TreeStyle,
 };
-pub use show::{Background, CURRENT_SCHEMA_VERSION, HouseModel, SequenceEntry, Show, ShowSettings};
+pub use show::{
+    Background, CURRENT_SCHEMA_VERSION, HouseModel, LayoutArea, SequenceEntry, Show, ShowSettings,
+};
 pub use validate::{limit_issues, validate_show};

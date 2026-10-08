@@ -1,6 +1,9 @@
 //! Props (physical light elements) and groups of props.
 
-use crate::{ColorOrder, GroupId, PropId, Region, RegionId, RegionRef, ShapeSource, Transform};
+use crate::{
+    ColorOrder, DEFAULT_GRID_SIZE, GroupId, GroupLayout, PropId, Region, RegionId, RegionRef, ShapeSource,
+    Transform,
+};
 use serde::{Deserialize, Serialize};
 
 /// A physical light element: an arch, a matrix, a tree, etc.
@@ -97,6 +100,23 @@ pub struct Group {
     pub name: String,
     #[serde(default)]
     pub members: Vec<GroupMember>,
+    /// How effects lay the group's pixels out, unless an effect picks its own render style.
+    #[serde(default)]
+    #[cfg_attr(feature = "schema", schemars(description = ""))]
+    pub layout: GroupLayout,
+    /// The most cells along the longer side of the group's grid (the grid layouts and the "per
+    /// preview" render style), from [`MIN_GRID_SIZE`](crate::MIN_GRID_SIZE) to
+    /// [`MAX_GRID_SIZE`](crate::MAX_GRID_SIZE).
+    #[serde(default = "default_grid_size")]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(description = "Most grid cells across (10-4000; 400).")
+    )]
+    pub grid_size: u32,
+}
+
+fn default_grid_size() -> u32 {
+    DEFAULT_GRID_SIZE
 }
 
 impl Group {
@@ -105,6 +125,8 @@ impl Group {
             id: GroupId::new(),
             name: name.into(),
             members: Vec::new(),
+            layout: GroupLayout::default(),
+            grid_size: DEFAULT_GRID_SIZE,
         }
     }
 

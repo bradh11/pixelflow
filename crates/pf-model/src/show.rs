@@ -21,8 +21,9 @@ use std::path::Path;
 /// (`polyLine` and the other xLights prop types); 10 = more settings for arches, circles, stars
 /// and trees (several arches in a row, layers, start positions, spirals and more ways to wire a
 /// tree), so they can match xLights'; 11 = an sACN universe can carry any number of channels from
-/// 1 to 512, not just 510 or 512.
-pub const CURRENT_SCHEMA_VERSION: u32 = 11;
+/// 1 to 512, not just 510 or 512; 12 = groups have a `layout` and `gridSize` saying how effects
+/// lay out their pixels, and the show an optional `layoutArea`.
+pub const CURRENT_SCHEMA_VERSION: u32 = 12;
 
 /// Show-wide settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -70,6 +71,19 @@ pub struct Show {
     /// A 3D model of the house shown in the 3D view, if the user chose one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub house_model: Option<HouseModel>,
+    /// The layout's area from its origin, for groups laid out on a grid over the whole layout
+    /// (xLights' preview size); when missing, the area out to the farthest prop.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout_area: Option<LayoutArea>,
+}
+
+/// The size of the layout's area, in layout units.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct LayoutArea {
+    pub width: f32,
+    pub height: f32,
 }
 
 /// A photo drawn behind the layout so props can be placed over the real house.
@@ -223,6 +237,7 @@ impl Show {
             sequences: Vec::new(),
             background: None,
             house_model: None,
+            layout_area: None,
         }
     }
 

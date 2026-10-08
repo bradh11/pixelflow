@@ -31,6 +31,7 @@ type Migration = fn(Value) -> Result<Value, ModelError>;
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
 const MIGRATIONS: &[Migration] = &[
     v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11,
+    v11_to_v12,
 ];
 
 /// Version 2 only adds the `falcon` adapter value, so version 1 documents are already valid.
@@ -114,6 +115,22 @@ fn v9_to_v10(doc: Value) -> Result<Value, ModelError> {
 /// Version 11 lets an sACN universe carry any number of channels from 1 to 512. Version 10 files
 /// hold 510 or 512, which version 11 reads the same way, so they're already valid.
 fn v10_to_v11(doc: Value) -> Result<Value, ModelError> {
+    Ok(doc)
+}
+
+/// Version 12 gives each group a `layout` and `gridSize` for effects, and the show an optional
+/// `layoutArea`. Groups before it get xLights' defaults: the minimal grid, 400 cells.
+fn v11_to_v12(mut doc: Value) -> Result<Value, ModelError> {
+    if let Some(groups) = doc.get_mut("groups").and_then(Value::as_array_mut) {
+        for group in groups.iter_mut().filter_map(Value::as_object_mut) {
+            group
+                .entry("layout")
+                .or_insert_with(|| Value::from("minimalGrid"));
+            group
+                .entry("gridSize")
+                .or_insert_with(|| Value::from(crate::DEFAULT_GRID_SIZE));
+        }
+    }
     Ok(doc)
 }
 
@@ -253,23 +270,55 @@ mod tests {
     }
 
     #[test]
-    fn version_7_to_10_files_open_unchanged_and_save_as_version_11() {
+    fn version_7_to_11_files_open_unchanged_and_save_as_version_12() {
         // A show with no new prop shapes, saved now, then labelled as written by older versions:
         // 7 (full paths), 8 (relative paths and `savedIn`) and 9 (new prop shapes, none used here).
         let mut show = sample_show();
         show.sequences
             .push(crate::SequenceEntry::new("Medley", "Medley.fseq"));
         let text = show_file_to_json(&show, Some("/Shows/Haas")).unwrap();
-        assert!(text.contains("\"schemaVersion\": 11"), "written as version 11");
-        for version in [7, 8, 9, 10, 11] {
-            let old = text.replace("\"schemaVersion\": 11", &format!("\"schemaVersion\": {version}"));
+        assert!(text.contains("\"schemaVersion\": 12"), "written as version 12");
+        for version in [7, 8, 9, 10, 11, 12] {
+            let old = text.replace("\"schemaVersion\": 12", &format!("\"schemaVersion\": {version}"));
             let (read, saved_in) = show_file_from_json(&old).unwrap();
             assert_eq!(read, show, "version {version} reads as it was");
-            assert_eq!(read.schema_version, 11);
+            assert_eq!(read.schema_version, 12);
             assert_eq!(saved_in.as_deref(), Some("/Shows/Haas"), "version {version}");
             let saved: Value = serde_json::from_str(&show_to_json(&read).unwrap()).unwrap();
-            assert_eq!(saved["schemaVersion"], 11);
+            assert_eq!(saved["schemaVersion"], 12);
         }
+    }
+
+    #[test]
+    fn version_11_groups_get_the_minimal_grid_and_keep_their_layout_once_set() {
+        let prop = crate::PropId::new();
+        let old = format!(
+            r#"{{ "schemaVersion": 11, "name": "x",
+                 "props": [{{ "id": "{prop}", "name": "Arch",
+                              "shape": {{ "source": "generator", "type": "arch", "nodes": 10, "width": 2, "height": 1 }} }}],
+                 "groups": [{{ "id": "{}", "name": "All", "members": ["{prop}"] }}] }}"#,
+            crate::GroupId::new()
+        );
+        let mut show = show_from_json(&old).unwrap();
+        let group = &show.groups[0];
+        assert_eq!(group.layout, crate::GroupLayout::MinimalGrid, "xLights' default");
+        assert_eq!(group.grid_size, 400);
+        assert_eq!(show.layout_area, None);
+        let saved: Value = serde_json::from_str(&show_to_json(&show).unwrap()).unwrap();
+        assert_eq!(saved["groups"][0]["layout"], "minimalGrid");
+        assert_eq!(saved["groups"][0]["gridSize"], 400);
+
+        show.groups[0].layout = crate::GroupLayout::HorizontalPerModel;
+        show.groups[0].grid_size = 250;
+        show.layout_area = Some(crate::LayoutArea {
+            width: 19.0,
+            height: 16.0,
+        });
+        let read = show_from_json(&show_to_json(&show).unwrap()).unwrap();
+        assert_eq!(read, show);
+        let saved: Value = serde_json::from_str(&show_to_json(&read).unwrap()).unwrap();
+        assert_eq!(saved["groups"][0]["layout"], "horizontalPerModel");
+        assert_eq!(saved["layoutArea"]["width"], 19.0);
     }
 
     #[test]
@@ -357,7 +406,7 @@ mod tests {
         }
         let text = show_to_json(&show).unwrap();
         let saved: Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(saved["schemaVersion"], 11);
+        assert_eq!(saved["schemaVersion"], CURRENT_SCHEMA_VERSION);
         assert_eq!(saved["props"][0]["shape"]["type"], "polyLine");
         let back = show_from_json(&text).unwrap();
         assert_eq!(back.props, show.props);
@@ -487,7 +536,7 @@ mod tests {
         assert_eq!(show.background.unwrap().path, "/Shows/house.jpg");
         let saved: Value =
             serde_json::from_str(&show_to_json(&show_from_json(v7).unwrap()).unwrap()).unwrap();
-        assert_eq!(saved["schemaVersion"], 11);
+        assert_eq!(saved["schemaVersion"], CURRENT_SCHEMA_VERSION);
     }
 
     #[test]

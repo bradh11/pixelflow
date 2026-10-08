@@ -7,7 +7,16 @@
 import catalogJson from "./effectCatalog.json";
 import type { MemoryBackend } from "./memory";
 import { renderSequenceFrame } from "./memoryRender";
-import type { MissingFile, PlaybackStatus, SequenceImportSummary, ShowSnapshot } from "./types";
+import { importVendor, inspectVendor, type MemoryVendorPackage } from "./memoryVendor";
+import type {
+  MissingFile,
+  PlaybackStatus,
+  SequenceImportSummary,
+  ShowSnapshot,
+  VendorImportOptions,
+  VendorInspection,
+  VendorMapping,
+} from "./types";
 import { fileName } from "../lib/format";
 import { missingFile, resolveAudio } from "../lib/showFiles";
 import {
@@ -400,6 +409,14 @@ export class MemorySequencer implements SequencerApi {
   /** What the xLights sequence dialog returns, and what importing any .xsq produces. */
   nextXlightsSequencePath: string | null = null;
   xlightsSequenceImport: { sequence: Sequence; summary: SequenceImportSummary; notes: string[] } | null = null;
+  /** Vendor packages "on disk", by path, and the mappings remembered for each vendor. */
+  vendorPackages = new Map<string, MemoryVendorPackage>();
+  savedVendorMappings = new Map<string, VendorMapping>();
+  /** xLights mapping files "on disk", and what the folder and .xmap dialogs return. */
+  xmapFiles = new Map<string, VendorMapping>();
+  nextXlightsPackageFolder: string | null = null;
+  nextXmapPath: string | null = null;
+  nextXmapSavePath: string | null = null;
   /** Timing files "on disk" (what importing each gives), the tracks exported to each path, and
    * what the timing file dialog returns. */
   timingFiles = new Map<string, { tracks: TimingTrack[]; notes: string[] }>();
@@ -750,8 +767,73 @@ export class MemorySequencer implements SequencerApi {
     return this.nextSavePath;
   }
 
-  async importXlightsSequence(path: string) {
+  /** Where a package's music goes: the saved show's music folder, else that of the folder picked. */
+  private vendorMusicFolder(picked: string | null): string | null {
+    const show = this.backend?.path;
+    if (show) return `${show.slice(0, show.lastIndexOf("/"))}/music`;
+    return picked ? `${picked}/music` : null;
+  }
+
+  async inspectXlightsSequence(path: string, sequence?: string): Promise<VendorInspection> {
+    this.calls.push(`inspectXlightsSequence:${path}`);
+    const pkg = this.vendorPackages.get(path);
+    if (pkg) {
+      const show = this.backend?.show ?? fail("Open a show first.");
+      return inspectVendor(pkg, show, sequence, this.savedVendorMappings.get(pkg.key) ?? null, this.vendorMusicFolder(null));
+    }
+    // A plain .xsq of the user's own: every model is in the show.
+    const imported = this.xlightsSequenceImport ?? fail(`Could not read ${path}: no such file`);
+    return {
+      sequences: [fileName(path)],
+      sequence: fileName(path),
+      song: imported.sequence.name,
+      hasLayout: false,
+      items: [],
+      targets: [],
+      suggestions: [],
+      mapping: { items: {} },
+      key: `sequence:${path}`,
+      allExact: true,
+      music: null,
+      musicFolder: null,
+    };
+  }
+
+  async readXmap(path: string) {
+    this.calls.push(`readXmap:${path}`);
+    const mapping = this.xmapFiles.get(path) ?? fail(`Couldn't read ${path}: no such file`);
+    return { mapping: structuredClone(mapping), nodesSkipped: 0 };
+  }
+
+  async writeXmap(path: string, mapping: VendorMapping) {
+    this.calls.push(`writeXmap:${path}`);
+    if (!path.toLowerCase().endsWith(".xmap")) fail("Mappings are saved as .xmap files.");
+    this.xmapFiles.set(path, structuredClone(mapping));
+  }
+
+  async pickXlightsPackageFolder() {
+    return this.nextXlightsPackageFolder;
+  }
+
+  async pickXmapPath() {
+    return this.nextXmapPath;
+  }
+
+  async pickXmapSavePath(_defaultName: string) {
+    return this.nextXmapSavePath;
+  }
+
+  async importXlightsSequence(path: string, options?: VendorImportOptions) {
     this.calls.push(`importXlightsSequence:${path}`);
+    const pkg = options ? this.vendorPackages.get(path) : undefined;
+    if (pkg && options) {
+      const show = this.backend?.show ?? fail("Open a show first.");
+      const built = importVendor(pkg, show, options.sequence, options.mapping, this.vendorMusicFolder(options.musicFolder));
+      this.savedVendorMappings.set(options.key, structuredClone(options.mapping));
+      this.replace(built.sequence, null);
+      this.savedRevision = this.revision - 1;
+      return { snapshot: this.snapshot(), summary: built.summary, notes: built.notes };
+    }
     const imported = this.xlightsSequenceImport ?? fail(`Could not read ${path}: no such file`);
     this.replace(structuredClone(imported.sequence), null);
     this.savedRevision = this.revision - 1; // an import has unsaved changes

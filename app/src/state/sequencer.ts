@@ -18,7 +18,7 @@ import {
   type SequenceSnapshot,
 } from "../api/sequence";
 import type { SequencerApi } from "../api/sequencer";
-import type { MissingFile, PlaybackStatus, XlightsSequenceImported } from "../api/types";
+import type { MissingFile, PlaybackStatus, VendorImportOptions, XlightsSequenceImported } from "../api/types";
 import { clock, fileName, plural, shownPath } from "../lib/format";
 import { folderOf } from "../lib/showFiles";
 import { tapEdits } from "../lib/timelineMath";
@@ -176,9 +176,10 @@ interface SequencerState {
   /** Starts a new sequence (with `rows`, when given: see `rowsForShow`). */
   newSequence(name: string, durationMs: number, audio: string | null, rows?: Row[]): Promise<boolean>;
   open(path: string): Promise<boolean>;
-  /** Imports the xLights sequence at `path` and opens it (unsaved), replacing the open one
-   * without asking; the import report, or null when it failed (the error is shown). */
-  importXlights(path: string): Promise<XlightsSequenceImported | null>;
+  /** Imports the xLights sequence at `path` (a vendor's, with `options`: see
+   * SequencerApi.importXlightsSequence) and opens it (unsaved), replacing the open one without
+   * asking; the import report, or null when it failed (the error is shown). */
+  importXlights(path: string, options?: VendorImportOptions): Promise<XlightsSequenceImported | null>;
   /**
    * Runs `action`, which replaces the open sequence, and returns what it returns; or, when the open
    * sequence has unsaved changes, asks first (Save / Don't save / Cancel) and returns null. The
@@ -490,13 +491,13 @@ export const useSequencer = create<SequencerState>((set, get) => {
       return ok === true;
     },
 
-    async importXlights(path) {
+    async importXlights(path, options) {
       const { api } = get();
       if (!api) return null;
       return serial(() =>
         guarded(async () => {
           await halt();
-          const imported = await api.importXlightsSequence(path);
+          const imported = options ? await api.importXlightsSequence(path, options) : await api.importXlightsSequence(path);
           // Opened like any other document: unsaved, so it's kept (autosaved) until it's saved.
           adopt(imported.snapshot);
           set({ selection: [], markSelection: null, activeTrack: null, playheadMs: 0, collapsed: [], suggestBeats: false, docKey: newDocKey(), notice: null });

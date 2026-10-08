@@ -20,6 +20,7 @@ mod playback;
 mod probes;
 mod recent;
 mod sequencer;
+mod vendor;
 mod xlights;
 
 use devices::DeviceAccess;
@@ -64,6 +65,8 @@ struct AppState {
     /// The xLights folder the open show was imported from, and that show's generation: its
     /// first save starts there.
     imported_from: Mutex<Option<(u64, PathBuf)>>,
+    /// The vendor mappings used last (see `vendor`).
+    vendor_mappings: Arc<vendor::SavedMappings>,
 }
 
 impl AppState {
@@ -352,6 +355,9 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         sequencer::export_timing_track,
         xlights::import_xlights,
         xlights::import_xlights_sequence,
+        vendor::inspect_xlights_sequence,
+        vendor::read_xmap,
+        vendor::write_xmap,
         layout::preview_props,
         layout::preview_props_3d,
         layout::pick_image,
@@ -414,9 +420,10 @@ pub fn run() {
                 download_folders: Default::default(),
                 checking_files: Default::default(),
                 recent: Arc::new(recent::RecentShows::new(config_dir.clone())),
-                last_folders: pickers::LastFolders::new(config_dir),
+                last_folders: pickers::LastFolders::new(config_dir.clone()),
                 dialog: Default::default(),
                 imported_from: Mutex::default(),
+                vendor_mappings: Arc::new(vendor::SavedMappings::new(config_dir)),
             });
             // macOS has a menu bar either way: this one has the show's File menu.
             #[cfg(target_os = "macos")]
@@ -541,6 +548,7 @@ mod tests {
                 last_folders: pickers::LastFolders::new(Some(dir.join("config"))),
                 dialog: Default::default(),
                 imported_from: Mutex::default(),
+                vendor_mappings: Arc::new(vendor::SavedMappings::new(Some(dir.join("config")))),
             })
             .build(context())
             .unwrap()
@@ -1324,6 +1332,155 @@ mod tests {
                 .contains("doesn't look like an xLights show folder"),
             "{error}"
         );
+    }
+
+    /// A zip of `(name, contents)` at `path`.
+    fn write_zip(path: &std::path::Path, files: &[(&str, &[u8])]) {
+        use std::io::Write as _;
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+        for (name, bytes) in files {
+            zip.start_file(*name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(bytes).unwrap();
+        }
+        zip.finish().unwrap();
+    }
+
+    #[test]
+    fn a_vendor_package_maps_onto_the_show_and_its_mapping_and_music_are_kept() {
+        let (_app, webview, dir) = app();
+        let fixtures =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/pf-xlights/fixtures");
+        call(
+            &webview,
+            "import_xlights",
+            json!({ "folder": fixtures.join("sample-show") }),
+        )
+        .unwrap();
+        let package = dir.path().join("Vendor Song.zip");
+        write_zip(
+            &package,
+            &[
+                (
+                    "Vendor/xlights_rgbeffects.xml",
+                    &std::fs::read(fixtures.join("sample-show/xlights_rgbeffects.xml")).unwrap(),
+                ),
+                (
+                    "Vendor/Sequences/effects.xsq",
+                    &std::fs::read(fixtures.join("sequences/effects.xsq")).unwrap(),
+                ),
+                ("Vendor/Music/effects.mp3", b"ID3 not really a song"),
+            ],
+        );
+        let inspect = || call(&webview, "inspect_xlights_sequence", json!({ "path": package })).unwrap();
+        let inspected = inspect();
+        assert_eq!(inspected["sequences"], json!(["Vendor/Sequences/effects.xsq"]));
+        assert_eq!(inspected["hasLayout"], true);
+        assert_eq!(inspected["music"], "effects.mp3");
+        assert_eq!(inspected["musicFolder"], Value::Null, "the show isn't saved yet");
+        assert_eq!(inspected["mapping"]["items"]["Mega Tree"], json!(["Mega Tree"]));
+        let tree = inspected["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["name"] == "Mega Tree")
+            .unwrap();
+        assert_eq!(tree["type"], "tree");
+        assert!(tree["effects"].as_u64().unwrap() > 0);
+
+        // The user skips the tree; with no folder for the music yet, it's left out, with a note.
+        let mut mapping = inspected["mapping"].clone();
+        mapping["items"]["Mega Tree"] = json!([]);
+        let import = |music_folder: Option<&std::path::Path>| {
+            call(
+                &webview,
+                "import_xlights_sequence",
+                json!({
+                    "path": package,
+                    "sequence": inspected["sequence"],
+                    "mapping": mapping,
+                    "key": inspected["key"],
+                    "musicFolder": music_folder,
+                }),
+            )
+            .unwrap()
+        };
+        let imported = import(None);
+        assert_eq!(imported["snapshot"]["sequence"]["name"], "Effects");
+        assert_eq!(imported["snapshot"]["sequence"]["audio"], Value::Null);
+        let notes = imported["notes"].to_string();
+        assert!(notes.contains("Mega Tree"), "{notes}");
+        assert!(notes.contains("effects.mp3) wasn't saved"), "{notes}");
+
+        // Next time, it starts from the mapping used.
+        let again = inspect();
+        assert_eq!(again["mapping"]["items"]["Mega Tree"], json!([]));
+        let reasons: Vec<&str> = again["suggestions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["reason"].as_str().unwrap())
+            .collect();
+        assert!(
+            reasons.iter().all(|r| *r == "saved" || *r == "none"),
+            "{reasons:?}"
+        );
+
+        // A folder the window names but the user never picked isn't written to.
+        let elsewhere = dir.path().join("elsewhere");
+        import(Some(&elsewhere));
+        assert!(!elsewhere.exists());
+
+        // Once the show is saved, the music goes in its music folder.
+        let house = dir.path().join("House");
+        std::fs::create_dir_all(&house).unwrap();
+        call(
+            &webview,
+            "save_show_as",
+            json!({ "path": house.join("house.pixelflow.json") }),
+        )
+        .unwrap();
+        assert_eq!(
+            inspect()["musicFolder"],
+            pf_model::path_to_text(&house.join("music"))
+        );
+        let imported = import(None);
+        let music = house.join("music/effects.mp3");
+        assert_eq!(
+            imported["snapshot"]["sequence"]["audio"],
+            pf_model::path_to_text(&music)
+        );
+        assert_eq!(std::fs::read(&music).unwrap(), b"ID3 not really a song");
+    }
+
+    #[test]
+    fn mappings_save_as_xmap_files_and_load_back() {
+        let (_app, webview, dir) = app();
+        let mapping =
+            json!({ "items": { "Mega Tree": ["Tree", "Pillars"], "Arch/Left": ["Door Arch/Left"] } });
+        let path = dir.path().join("vendor.xmap");
+        call(
+            &webview,
+            "write_xmap",
+            json!({ "path": path, "mapping": mapping }),
+        )
+        .unwrap();
+        assert!(std::fs::read_to_string(&path).unwrap().starts_with("false\n"));
+        let read = call(&webview, "read_xmap", json!({ "path": path })).unwrap();
+        assert_eq!(read["mapping"]["items"]["Arch/Left"], json!(["Door Arch/Left"]));
+        let mut targets: Vec<String> =
+            serde_json::from_value(read["mapping"]["items"]["Mega Tree"].clone()).unwrap();
+        targets.sort();
+        assert_eq!(targets, ["Pillars", "Tree"]);
+        assert_eq!(read["nodesSkipped"], 0);
+        let refused = call(
+            &webview,
+            "write_xmap",
+            json!({ "path": dir.path().join("vendor.txt"), "mapping": mapping }),
+        )
+        .unwrap_err();
+        assert!(refused.as_str().unwrap().contains(".xmap"), "{refused}");
+        assert!(!dir.path().join("vendor.txt").exists());
     }
 
     #[test]

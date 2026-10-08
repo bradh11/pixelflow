@@ -41,8 +41,14 @@ pub(crate) enum PickKind {
     ShowSave,
     /// An xLights show folder to import.
     XlightsFolder,
-    /// An xLights sequence (`.xsq`) to import.
+    /// An xLights sequence (`.xsq`), or a vendor's package of one (`.zip`, `.xsqz`), to import.
     XlightsSequence,
+    /// A folder holding a vendor's sequence (a package already unzipped).
+    XlightsPackageFolder,
+    /// An xLights mapping file (`.xmap`) to load.
+    Xmap,
+    /// Where to save an xLights mapping file.
+    XmapSave,
     /// An FPP sequence (`.fseq`) to add to the show.
     Fseq,
     /// Where to export an `.fseq`.
@@ -117,9 +123,34 @@ impl PickKind {
             ),
             Self::XlightsSequence => (
                 Open,
-                "Choose an xLights sequence",
-                &[("xLights sequence", &["xsq"])],
+                "Choose an xLights sequence or a vendor's package",
+                &[
+                    ("xLights sequence or package", &["xsq", "zip", "xsqz", "xml"]),
+                    ("xLights sequence", &["xsq", "xml"]),
+                    ("Vendor package", &["zip", "xsqz"]),
+                ],
                 "xlights",
+                Near::Show,
+            ),
+            Self::XlightsPackageFolder => (
+                Folder,
+                "Choose the folder the vendor's sequence is in",
+                &[],
+                "xlights",
+                Near::Show,
+            ),
+            Self::Xmap => (
+                Open,
+                "Load an xLights mapping",
+                &[("xLights mapping", &["xmap"])],
+                "xmap",
+                Near::Show,
+            ),
+            Self::XmapSave => (
+                Save,
+                "Save the mapping for xLights",
+                &[("xLights mapping", &["xmap"])],
+                "xmap",
                 Near::Show,
             ),
             Self::Fseq => (

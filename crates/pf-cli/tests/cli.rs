@@ -372,6 +372,64 @@ fn an_xlights_sequence_imports_onto_a_show_and_saves_as_a_sequence_file() {
 }
 
 #[test]
+fn a_sequence_auto_maps_and_its_mapping_saves_as_an_xmap_that_imports_the_same() {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../pf-xlights/fixtures");
+    let dir = std::env::temp_dir();
+    let show = dir.join(format!("pixelflow-map-show-{}.json", std::process::id()));
+    let xmap = dir.join(format!("pixelflow-map-{}.xmap", std::process::id()));
+    let imported = pixelflow(&[
+        "xlights",
+        fixtures.join("sample-show").to_str().unwrap(),
+        "--save",
+        show.to_str().unwrap(),
+    ]);
+    assert!(imported.status.success(), "{}", stdout(&imported));
+    let sequence = fixtures.join("sequences/effects.xsq");
+    let mapped = pixelflow(&[
+        "xlights-sequence",
+        sequence.to_str().unwrap(),
+        "--show",
+        show.to_str().unwrap(),
+        "--auto-map",
+        "--save-xmap",
+        xmap.to_str().unwrap(),
+    ]);
+    let again = pixelflow(&[
+        "xlights-sequence",
+        sequence.to_str().unwrap(),
+        "--show",
+        show.to_str().unwrap(),
+        "--xmap",
+        xmap.to_str().unwrap(),
+    ]);
+    let written = std::fs::read_to_string(&xmap).unwrap_or_default();
+    std::fs::remove_file(&show).ok();
+    std::fs::remove_file(&xmap).ok();
+    let (text, text_again) = (stdout(&mapped), stdout(&again));
+    assert!(mapped.status.success(), "{text}");
+    assert!(again.status.success(), "{text_again}");
+    assert!(
+        text.contains("Mapped 8 of 11 items (82% of 29 effects)"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Santa's Sleigh & Reindeer (model, 1 effect)"),
+        "{text}"
+    );
+    assert!(text.contains("[exact 1.00]"), "{text}");
+    assert!(written.starts_with("false\n"), "{written}");
+    // The same effects come in either way.
+    assert!(
+        text.contains("8 rows, 22 effects (16 exact, 6 approximated"),
+        "{text}"
+    );
+    assert!(
+        text_again.contains("8 rows, 22 effects (16 exact, 6 approximated"),
+        "{text_again}"
+    );
+}
+
+#[test]
 fn an_xlights_import_saved_with_save_opens_again() {
     let folder = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../pf-xlights/fixtures/sample-show");
     let path = std::env::temp_dir().join(format!("pixelflow-xlights-{}.json", std::process::id()));

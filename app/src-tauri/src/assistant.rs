@@ -470,6 +470,7 @@ mod tests {
                 last_folders: crate::pickers::LastFolders::new(None),
                 dialog: Default::default(),
                 imported_from: Mutex::default(),
+                vendor_mappings: Arc::new(crate::vendor::SavedMappings::new(None)),
             })
             .manage(AiState::new(KeyVault::new(Box::new(store)), providers))
             .build(context())

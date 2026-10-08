@@ -40,6 +40,7 @@ pf-ai = { path = "../../crates/pf-ai", features = ["test-fixtures"] }
 pf-output = { path = "../../crates/pf-output" }
 tauri = { version = "2", features = ["test"] }
 tempfile = "3"
+zip = { version = "8.6.0", default-features = false, features = ["deflate-flate2"] }
 
 # Camera-map decoding is slow unoptimized; keep it quick in development builds too.
 [profile.dev.package.pf-camera-map]

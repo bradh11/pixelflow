@@ -79,6 +79,10 @@ pub struct XsqElement {
     pub submodels: Vec<XsqSubmodelLayer>,
     /// Effects on the model's strands and single nodes.
     pub sub_effects: usize,
+    /// Layers of effects on the model's strands (their own, not their nodes'), in file order,
+    /// named as xLights names them ("Strand 1", or the strand's name). Their effects are also
+    /// counted in `sub_effects`.
+    pub strands: Vec<XsqSubmodelLayer>,
 }
 
 impl XsqElement {
@@ -262,6 +266,7 @@ impl Reader<'_> {
             layers: Vec::new(),
             submodels: Vec::new(),
             sub_effects: 0,
+            strands: Vec::new(),
         };
         for layer in node.children().filter(Node::is_element) {
             match layer.tag_name().name() {
@@ -290,6 +295,28 @@ impl Reader<'_> {
                         .descendants()
                         .filter(|d| d.is_element() && d.tag_name().name() == "Effect")
                         .count();
+                    let effects: Vec<XsqEffect> = children(layer, "Effect")
+                        .filter_map(|e| self.effect(e, kind))
+                        .collect();
+                    if !effects.is_empty() {
+                        let index = layer
+                            .attribute("index")
+                            .and_then(|i| i.trim().parse::<usize>().ok())
+                            .unwrap_or(0);
+                        let name = trim_name(layer.attribute("name").unwrap_or(""));
+                        element.strands.push(XsqSubmodelLayer {
+                            name: if name.is_empty() {
+                                format!("Strand {}", index.saturating_add(1))
+                            } else {
+                                name
+                            },
+                            layer: layer
+                                .attribute("layer")
+                                .and_then(|l| l.trim().parse::<usize>().ok())
+                                .unwrap_or(0),
+                            effects,
+                        });
+                    }
                 }
                 _ => {}
             }
@@ -396,6 +423,9 @@ mod tests {
         assert_eq!((roof.kind, roof.name.as_str()), (ElementKind::Model, "Roof"));
         assert_eq!(roof.layers.len(), 2);
         assert_eq!(roof.sub_effects, 2, "strand and node effects");
+        assert_eq!(roof.strands.len(), 1, "the strand's own effects are kept");
+        assert_eq!(roof.strands[0].name, "Strand 1");
+        assert_eq!(roof.strands[0].effects.len(), 1);
         assert_eq!(roof.submodel_effects(), 2);
         assert_eq!(
             roof.submodels

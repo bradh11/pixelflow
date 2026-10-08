@@ -1225,7 +1225,10 @@ export type PickKind =
   | "sequenceDocSave"
   | "timingFile"
   | "timingExport"
-  | "downloadFolder";
+  | "downloadFolder"
+  | "xlightsPackageFolder"
+  | "xmap"
+  | "xmapSave";
 
 /** The show an xLights import produced, with a report of anything not imported exactly. */
 export interface XlightsImported {
@@ -1257,4 +1260,109 @@ export interface XlightsSequenceImported {
   snapshot: SequenceSnapshot;
   summary: SequenceImportSummary;
   notes: string[];
+}
+
+/** Where each vendor item's effects go: the item ("Model", "Model/Submodel", "Model/Strand 1")
+ * to the show's props, groups, and submodels ("Prop/Submodel") by name. An empty list skips it. */
+export interface VendorMapping {
+  items: Record<string, string[]>;
+}
+
+/** What a vendor item or a target is ("model" is a prop, in the show). */
+export type VendorItemKind = "model" | "group" | "submodel" | "strand";
+
+/** The kind of prop, for matching like with like and for icons. */
+export type VendorPropType =
+  | "tree"
+  | "arch"
+  | "matrix"
+  | "canes"
+  | "line"
+  | "window"
+  | "star"
+  | "circle"
+  | "wreath"
+  | "spinner"
+  | "sphere"
+  | "cube"
+  | "icicles"
+  | "snowflake"
+  | "flood"
+  | "other";
+
+/** Why a mapping was suggested. */
+export type VendorMatchReason = "saved" | "exact" | "alias" | "name" | "type" | "size" | "none";
+
+/** A vendor model, group, submodel, or strand with effects in the sequence. */
+export interface VendorItem {
+  name: string;
+  label: string;
+  parent: string | null;
+  kind: VendorItemKind;
+  type: VendorPropType;
+  displayAs: string | null;
+  /** Effects on the item itself (not its submodels or strands). */
+  effects: number;
+  /** Lights, when the vendor's layout says (0 when unknown). */
+  pixels: number;
+}
+
+/** A prop, group, or submodel in the show effects can go to. */
+export interface VendorTarget {
+  name: string;
+  label: string;
+  parent: string | null;
+  kind: Exclude<VendorItemKind, "strand">;
+  type: VendorPropType;
+  pixels: number;
+}
+
+/** The best idea for one vendor item; applied when confidence is at least VENDOR_AUTO_MAP. */
+export interface VendorSuggestion {
+  item: string;
+  targets: string[];
+  confidence: number;
+  reason: VendorMatchReason;
+}
+
+/** The least confidence a suggestion is applied with (the engine's AUTO_MAP_CONFIDENCE). */
+export const VENDOR_AUTO_MAP = 0.5;
+
+/** What's in a vendor package, and a suggested mapping onto the open show. */
+export interface VendorInspection {
+  /** The sequences in the package (paths inside it), best first. */
+  sequences: string[];
+  sequence: string;
+  song: string;
+  hasLayout: boolean;
+  items: VendorItem[];
+  targets: VendorTarget[];
+  /** One per item, in `items` order. */
+  suggestions: VendorSuggestion[];
+  /** The suggestions applied, and the mapping saved for this vendor last time. */
+  mapping: VendorMapping;
+  /** What the mapping is remembered under. */
+  key: string;
+  /** Every item has a prop of the same name (the user's own sequence): nothing to map. */
+  allExact: boolean;
+  /** A zip's music file, copied next to the show on import. */
+  music: string | null;
+  /** Where that music goes; null while the show isn't saved (choose a folder first). */
+  musicFolder: string | null;
+}
+
+/** How to import a vendor sequence (see SequencerApi.importXlightsSequence). */
+export interface VendorImportOptions {
+  sequence: string;
+  mapping: VendorMapping;
+  key: string;
+  /** A folder picked for the music while the show isn't saved. */
+  musicFolder: string | null;
+}
+
+/** A mapping read from an xLights .xmap file. */
+export interface XmapRead {
+  mapping: VendorMapping;
+  /** Lines mapping single nodes, which PixelFlow doesn't import. */
+  nodesSkipped: number;
 }

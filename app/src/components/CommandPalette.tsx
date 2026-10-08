@@ -64,6 +64,7 @@ export function CommandPalette() {
     { id: "camera-map", label: "Map pixels with a camera…", run: () => state.setScreen("cameraMap") },
     { id: "import-xlights", label: "Import from xLights…", run: state.importXlights },
     { id: "import-xlights-sequence", label: "Import xLights sequence…", run: state.importXlightsSequence },
+    { id: "import-xlights-sequence-folder", label: "Import xLights sequence from a folder…", run: state.importXlightsSequenceFolder },
     { id: "save", label: "Save", shortcut: hintFor("save"), run: () => saveFocused(false) },
     { id: "save-as", label: "Save as…", shortcut: hintFor("save-as"), run: state.saveAs },
     { id: "undo", label: "Undo", shortcut: hintFor("undo"), run: () => undoFocused(false) },

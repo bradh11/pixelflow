@@ -2,7 +2,17 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { whileFileDialog } from "./fileDialogs";
 import { pickPath } from "./tauri";
-import type { FoundFile, MissingFile, PlaybackStatus, ShowSnapshot, XlightsSequenceImported } from "./types";
+import type {
+  FoundFile,
+  MissingFile,
+  PlaybackStatus,
+  ShowSnapshot,
+  VendorImportOptions,
+  VendorInspection,
+  VendorMapping,
+  XlightsSequenceImported,
+  XmapRead,
+} from "./types";
 import type {
   Analysis,
   EffectInfo,
@@ -98,8 +108,18 @@ export interface SequencerApi {
   pickTimingExportPath(defaultName: string): Promise<string | null>;
   /** Imports the xLights sequence (.xsq) at `path` onto the open show and opens it as a new,
    * unsaved sequence. It replaces the open sequence without asking: check `getSequenceDoc()`
-   * for unsaved changes first (the store's importXlightsSequence does). */
-  importXlightsSequence(path: string): Promise<XlightsSequenceImported>;
+   * for unsaved changes first (the store's importXlightsSequence does). With `options` (from
+   * inspectXlightsSequence), `path` may be a vendor package (.zip, .xsqz) or folder: effects go
+   * where the mapping says, the mapping is remembered for the vendor, and a zip's music is copied
+   * next to the show (or into `musicFolder` while the show isn't saved). */
+  importXlightsSequence(path: string, options?: VendorImportOptions): Promise<XlightsSequenceImported>;
+  /** Looks inside a sequence, vendor package, or folder (its sequence `sequence`, or its best one)
+   * and suggests how its models map onto the open show. Reads only. */
+  inspectXlightsSequence(path: string, sequence?: string): Promise<VendorInspection>;
+  /** Reads an xLights mapping file (.xmap). */
+  readXmap(path: string): Promise<XmapRead>;
+  /** Saves a mapping as an xLights mapping file (.xmap). */
+  writeXmap(path: string, mapping: VendorMapping): Promise<void>;
   /** The open sequence's music, when it isn't where the sequence says; else null. */
   sequenceMusicMissing(): Promise<MissingFile | null>;
   /**
@@ -111,6 +131,9 @@ export interface SequencerApi {
   locateSequenceMusic(): Promise<SequenceEditResult | null>;
   /** Native dialogs; null when cancelled. */
   pickXlightsSequencePath(): Promise<string | null>;
+  pickXlightsPackageFolder(): Promise<string | null>;
+  pickXmapPath(): Promise<string | null>;
+  pickXmapSavePath(defaultName: string): Promise<string | null>;
   pickSequenceDocPath(): Promise<string | null>;
   pickSequenceDocSavePath(defaultName: string): Promise<string | null>;
   pickExportPath(defaultName: string): Promise<string | null>;
@@ -157,11 +180,17 @@ export const tauriSequencer: SequencerApi = {
   exportTimingTrack: (id, path) => invoke("export_timing_track", { id, path }),
   pickTimingFilePath: () => pickPath("timingFile"),
   pickTimingExportPath: (defaultName) => pickPath("timingExport", defaultName),
-  importXlightsSequence: (path) => invoke("import_xlights_sequence", { path }),
+  importXlightsSequence: (path, options) => invoke("import_xlights_sequence", options ? { path, ...options } : { path }),
+  inspectXlightsSequence: (path, sequence) => invoke("inspect_xlights_sequence", sequence ? { path, sequence } : { path }),
+  readXmap: (path) => invoke("read_xmap", { path }),
+  writeXmap: (path, mapping) => invoke("write_xmap", { path, mapping }),
   sequenceMusicMissing: () => invoke("sequence_music_missing"),
   findSequenceMusic: () => invoke("find_sequence_music"),
   locateSequenceMusic: () => whileFileDialog(() => invoke("locate_sequence_music")),
   pickXlightsSequencePath: () => pickPath("xlightsSequence"),
+  pickXlightsPackageFolder: () => pickPath("xlightsPackageFolder"),
+  pickXmapPath: () => pickPath("xmap"),
+  pickXmapSavePath: (defaultName) => pickPath("xmapSave", defaultName),
   pickSequenceDocPath: () => pickPath("sequenceDoc"),
   pickSequenceDocSavePath: (defaultName) => pickPath("sequenceDocSave", defaultName),
   pickExportPath: (defaultName) => pickPath("fseqExport", defaultName),

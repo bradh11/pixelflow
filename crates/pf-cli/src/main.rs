@@ -63,9 +63,10 @@ enum Command {
         save: Option<PathBuf>,
     },
     /// Import an xLights sequence (.xsq) onto a show: report what comes in, and optionally save
-    /// it as a PixelFlow sequence file.
+    /// it as a PixelFlow sequence file. A vendor's sequence (a .zip or .xsqz package, or the
+    /// folder it unpacked to) is mapped onto the show's props as xLights' Import Effects does.
     XlightsSequence {
-        /// The xLights sequence (.xsq).
+        /// The xLights sequence (.xsq), vendor package (.zip, .xsqz), or folder.
         file: PathBuf,
         /// The show it plays on (props and groups are matched by their xLights names).
         #[arg(long)]
@@ -73,6 +74,22 @@ enum Command {
         /// Save the imported sequence here (.pfseq.json).
         #[arg(long)]
         save: Option<PathBuf>,
+        /// Map the sequence's models onto the show's props by name, alias, type, and size, and
+        /// report the mapping (always done for packages and folders).
+        #[arg(long)]
+        auto_map: bool,
+        /// Which sequence in a package (as the report lists them); the first otherwise.
+        #[arg(long)]
+        sequence: Option<String>,
+        /// Use this xLights mapping file (.xmap) instead of mapping automatically.
+        #[arg(long)]
+        xmap: Option<PathBuf>,
+        /// Write the mapping used to this .xmap file.
+        #[arg(long)]
+        save_xmap: Option<PathBuf>,
+        /// Copy a package's music into this folder.
+        #[arg(long)]
+        music_folder: Option<PathBuf>,
     },
 }
 
@@ -155,9 +172,53 @@ fn run(cli: Cli) -> Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
-        Command::XlightsSequence { file, show, save } => {
+        Command::XlightsSequence {
+            file,
+            show,
+            save,
+            auto_map,
+            sequence,
+            xmap,
+            save_xmap,
+            music_folder,
+        } => {
             let show = load(&show)?;
-            let imported = pf_xlights::import_sequence_file(&file, &show, pf_audio::find_audio)?;
+            let plain_xsq = file.is_file() && file.extension().is_some_and(|e| e.eq_ignore_ascii_case("xsq"));
+            let imported = if plain_xsq && !auto_map && xmap.is_none() && save_xmap.is_none() {
+                pf_xlights::import_sequence_file(&file, &show, pf_audio::find_audio)?
+            } else {
+                let package = pf_xlights::vendor::Package::open(&file)?;
+                let inspection = pf_xlights::vendor::inspect(&package, sequence.as_deref(), &show, |_| None)?;
+                let mapping = match &xmap {
+                    Some(path) => {
+                        let text = std::fs::read_to_string(path)
+                            .with_context(|| format!("could not read {}", path.display()))?;
+                        let read = pf_xlights::vendor::read_xmap(&text)?;
+                        if read.nodes_skipped > 0 {
+                            outln!(
+                                "The mapping maps {} single nodes, which PixelFlow doesn't import.",
+                                read.nodes_skipped
+                            )?;
+                        }
+                        read.mapping
+                    }
+                    None => inspection.mapping.clone(),
+                };
+                out!("{}", report::mapping(&inspection, &mapping))?;
+                if let Some(path) = save_xmap {
+                    std::fs::write(&path, pf_xlights::vendor::write_xmap(&mapping))
+                        .with_context(|| format!("could not save {}", path.display()))?;
+                    outln!("Saved the mapping to {}", path.display())?;
+                }
+                pf_xlights::vendor::import(
+                    &package,
+                    Some(&inspection.sequence),
+                    &show,
+                    &mapping,
+                    music_folder.as_deref(),
+                    pf_audio::find_audio,
+                )?
+            };
             let (seq, s) = (&imported.sequence, &imported.summary);
             outln!(
                 "{}: {} long, {} rows, {} effects ({} exact, {} approximated, {} placeholders, {} not imported), {} timing tracks, {} marks ({} lyrics, {} not imported)",

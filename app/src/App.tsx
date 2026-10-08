@@ -10,6 +10,7 @@ import { ErrorBanner } from "./components/ErrorBanner";
 import { ImportReport } from "./components/ImportReport";
 import { FilesReport } from "./components/MissingFiles";
 import { SequenceImportReport } from "./components/SequenceImportReport";
+import { VendorImportDialog } from "./components/VendorImportDialog";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { Toasts } from "./components/Toasts";
 import { TooltipLayer } from "./components/Tooltip";
@@ -84,6 +85,7 @@ export function App() {
       <ErrorBanner />
       <ImportReport />
       <FilesReport />
+      <VendorImportDialog />
       <SequenceImportReport />
       <AiSettings />
       <DraftPreview />

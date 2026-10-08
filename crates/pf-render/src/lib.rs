@@ -21,6 +21,7 @@ mod raster;
 mod render;
 mod shape;
 mod sparkles;
+mod styles;
 
 pub use color::{Colors, Rgba};
 pub use effects::{

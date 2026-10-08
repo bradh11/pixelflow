@@ -110,9 +110,10 @@ fn groups_draw_across_all_members_as_one_canvas() {
     seq.rows
         .push(row(Target::Group(show.groups[0].id), vec![vec![ramp]]));
     let (a, b) = pixels(&render(&show, &seq, 0));
-    // The group spans x from -0.5 to 2.5: A's pixels are at u 0, 1/9, 2/9, 3/9; B's at 6/9..1.
+    // The group spans x from -0.5 to 2.5, 300 xLights units: a grid 301 cells across, as in
+    // xLights. A's pixels fall in cells 0, 33, 66, 100 (positions truncate); B's in 200 to 300.
     let reds: Vec<u8> = a.iter().map(|p| p[0]).chain(b.iter().map(|p| p[0])).collect();
-    assert_eq!(reds, vec![0, 28, 57, 85, 170, 198, 227, 255]);
+    assert_eq!(reds, vec![0, 28, 56, 85, 170, 198, 226, 255]);
 
     // A chase counts pixels across the members in order.
     let chase = Effect::new(EffectKind::Chase, 0, 1000).with_params(EffectParams::Chase(ChaseParams {
@@ -123,6 +124,54 @@ fn groups_draw_across_all_members_as_one_canvas() {
     let (a, b) = pixels(&render(&show, &seq, 500));
     assert_eq!(a.iter().map(|p| p[0]).collect::<Vec<_>>(), vec![0, 0, 0, 0]);
     assert_eq!(b.iter().map(|p| p[0]).collect::<Vec<_>>(), vec![255, 255, 0, 0]);
+}
+
+#[test]
+fn render_styles_lay_the_group_out_per_effect() {
+    let show = show();
+    let ramp = |style: pf_model::RenderStyle| {
+        let mut effect = Effect::new(EffectKind::On, 0, 1000)
+            .with_palette([Rgb::BLACK, Rgb::WHITE])
+            .with_params(EffectParams::On(OnParams {
+                gradient: Gradient::Horizontal,
+                ..OnParams::default()
+            }));
+        effect.render_style = style;
+        effect
+    };
+    let reds = |effects: Vec<Effect>| {
+        let mut seq = Sequence::new("s", 1000);
+        seq.rows
+            .push(row(Target::Group(show.groups[0].id), vec![effects]));
+        let (a, b) = pixels(&render(&show, &seq, 0));
+        a.iter()
+            .map(|p| p[0])
+            .chain(b.iter().map(|p| p[0]))
+            .collect::<Vec<u8>>()
+    };
+    // Per model: the ramp runs across each member on its own.
+    assert_eq!(
+        reds(vec![ramp(pf_model::RenderStyle::PerModelDefault)]),
+        vec![0, 85, 170, 255, 0, 85, 170, 255]
+    );
+    // Vertical per model: each member is a row, so the ramp runs along each.
+    assert_eq!(
+        reds(vec![ramp(pf_model::RenderStyle::VerticalPerModel)]),
+        vec![0, 85, 170, 255, 0, 85, 170, 255]
+    );
+    // Single line: all eight pixels in a row.
+    assert_eq!(
+        reds(vec![ramp(pf_model::RenderStyle::SingleLine)]),
+        vec![0, 36, 73, 109, 146, 182, 219, 255]
+    );
+    // Layers in different styles mix on the same pixels: a flipped ramp added on top.
+    let mut flipped = ramp(pf_model::RenderStyle::PerModelDefault);
+    flipped.buffer_transform = pf_model::BufferTransform::FlipHorizontal;
+    flipped.blend = Blend::Add;
+    assert_eq!(
+        reds(vec![ramp(pf_model::RenderStyle::PerModelDefault), flipped]),
+        vec![255; 8]
+    );
 }
 
 #[test]

@@ -67,13 +67,21 @@ pub(crate) async fn sequence_frame(state: State<'_, AppState>) -> Reply<Response
     Ok(Response::new(state.engine().sequence_frame().unwrap_or_default()))
 }
 
-/// Adds the sequence file at `path` to the show (finding its music next to it), as one undo step.
+/// Adds the sequence file at `path` to the show, as one undo step, with `music` when given (a
+/// download names the file it saved), else the music found next to it.
 #[tauri::command]
-pub(crate) async fn add_sequence(state: State<'_, AppState>, path: PathArg) -> Reply<ShowSnapshot> {
-    let entry = tauri::async_runtime::spawn_blocking(move || pf_engine::sequence_entry_for(&path))
+pub(crate) async fn add_sequence(
+    state: State<'_, AppState>,
+    path: PathArg,
+    music: Option<PathArg>,
+) -> Reply<ShowSnapshot> {
+    let mut entry = tauri::async_runtime::spawn_blocking(move || pf_engine::sequence_entry_for(&path))
         .await
         .map_err(|_| "Something went wrong reading the sequence.".to_string())?
         .map_err(message)?;
+    if let Some(music) = music {
+        entry.audio = Some(pf_model::path_to_text(&music));
+    }
     state.engine().add_sequence(entry).map_err(message)
 }
 

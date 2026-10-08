@@ -61,6 +61,8 @@ pub(crate) enum PickKind {
     Photo,
     /// A 3D model of the house.
     HouseModel,
+    /// A folder to save a sequence downloaded from an FPP in (the show isn't saved yet).
+    DownloadFolder,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -182,6 +184,13 @@ impl PickKind {
                 "Choose a 3D model of your house",
                 &[("3D model", crate::house::MODEL_EXTENSIONS)],
                 "model",
+                Near::Show,
+            ),
+            Self::DownloadFolder => (
+                Folder,
+                "Choose where to save the sequence",
+                &[],
+                "download",
                 Near::Show,
             ),
         };
@@ -432,8 +441,9 @@ pub(crate) async fn pick<R: tauri::Runtime>(
 }
 
 /// Shows a dialog of `kind` (a save dialog suggests `name`); the path chosen as path text, or
-/// null when cancelled. The path isn't trusted for anything by being chosen here: photos and
-/// house models are picked with their own commands, which let the window read them.
+/// null when cancelled. The path isn't trusted for anything by being chosen here, except that a
+/// folder picked to download into may then be downloaded into: photos and house models are
+/// picked with their own commands, which let the window read them.
 #[tauri::command]
 pub(crate) async fn pick_path<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
@@ -443,7 +453,11 @@ pub(crate) async fn pick_path<R: tauri::Runtime>(
 ) -> Reply<Option<String>> {
     let mut request = Pick::of(kind);
     request.file_name = name.filter(|n| !n.is_empty() && !n.contains(['/', '\\']));
-    Ok(pick(&app, &state, request).await?.map(|p| path_to_text(&p)))
+    let picked = pick(&app, &state, request).await?;
+    if let (PickKind::DownloadFolder, Some(folder)) = (kind, &picked) {
+        state.download_folders.add(folder.clone());
+    }
+    Ok(picked.map(|p| path_to_text(&p)))
 }
 
 #[cfg(test)]

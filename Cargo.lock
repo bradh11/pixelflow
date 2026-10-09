@@ -1810,6 +1810,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "pf-lexicon"
+version = "0.1.0"
+dependencies = [
+ "zstd",
+]
+
+[[package]]
 name = "pf-mapping"
 version = "0.1.0"
 dependencies = [

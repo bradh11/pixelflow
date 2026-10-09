@@ -1,0 +1,13 @@
+[package]
+name = "pf-lexicon"
+description = "How English words are said: the CMU Pronouncing Dictionary, letter rules for other words, syllables, and singing mouth shapes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+zstd.workspace = true
+
+[lints]
+workspace = true

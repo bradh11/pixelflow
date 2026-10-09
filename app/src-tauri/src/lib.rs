@@ -19,6 +19,7 @@ mod menu;
 mod pickers;
 mod playback;
 mod probes;
+mod progress;
 mod recent;
 mod sequencer;
 mod vendor;
@@ -329,6 +330,7 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         playback::play_sequence,
         playback::set_playback_volume,
         playback::audio_waveform,
+        playback::probe_audio,
         sequencer::new_sequence_doc,
         sequencer::sequence_recoveries,
         sequencer::recover_sequence,
@@ -419,6 +421,7 @@ pub fn run() {
             let mut engine = Engine::new(data_dir);
             // Songs' audio tracks (what effects that follow the music read), worked out once.
             engine.set_audio_cache_dir(app.path().app_cache_dir().ok().map(|d| d.join("audio")));
+            engine.set_audio_progress(Some(Arc::new(progress::audio_track_reporter(app.handle()))));
             app.manage(AppState {
                 engine: Mutex::new(engine),
                 devices: DeviceAccess::network().with_setup_dir(setups_dir),

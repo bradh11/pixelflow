@@ -1,14 +1,15 @@
 //! Sequence playback commands and the live preview.
 
+use crate::progress::{AudioTask, reporter};
 use crate::{AppState, PathArg, Reply, message};
-use pf_audio::Waveform;
+use pf_audio::{AudioInfo, Waveform};
 use pf_engine::{PlaybackStatus, ShowSnapshot};
 use pf_model::SequenceId;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, PoisonError};
 use std::time::SystemTime;
-use tauri::State;
 use tauri::ipc::Response;
+use tauri::{AppHandle, Runtime, State};
 
 /// Plays a rendered sequence (`.fseq`) from `position_ms` to the controllers that know their
 /// sequence channels.
@@ -111,14 +112,37 @@ pub(crate) async fn set_playback_volume(
     Ok(state.engine().set_playback_volume(volume))
 }
 
-/// The music file's loudness over time, for the timeline. Decoded once per version of the file
-/// (a changed file is decoded again); asking again while it decodes waits for that decode.
+/// How long a music file plays, and its format, found quickly from what the file says about
+/// itself; a file that doesn't say is read through, sending progress events as it goes (see
+/// `progress`).
 #[tauri::command]
-pub(crate) async fn audio_waveform(
+pub(crate) async fn probe_audio<R: Runtime>(app: AppHandle<R>, path: String) -> Reply<AudioInfo> {
+    let report = reporter(&app, AudioTask::Probe, &path);
+    let file = pf_model::path_from_text(&path);
+    tauri::async_runtime::spawn_blocking(move || {
+        let found = pf_audio::probe(&file, &report);
+        if found.is_err() {
+            // Over all the same.
+            report(1.0);
+        }
+        found
+    })
+    .await
+    .map_err(|_| "Something went wrong reading the music.".to_string())?
+    .map_err(|e| e.to_string())
+}
+
+/// The music file's loudness over time, for the timeline. Decoded once per version of the file
+/// (a changed file is decoded again), sending progress events as it goes; asking again while it
+/// decodes waits for that decode.
+#[tauri::command]
+pub(crate) async fn audio_waveform<R: Runtime>(
+    app: AppHandle<R>,
     state: State<'_, AppState>,
     path: String,
     slices: usize,
 ) -> Reply<Waveform> {
+    let report = reporter(&app, AudioTask::Waveform, &path);
     let path = pf_model::path_from_text(&path);
     let slices = slices.clamp(1, 20_000);
     let file = path.clone();
@@ -140,8 +164,14 @@ pub(crate) async fn audio_waveform(
         Arc::clone(cache.entry(key.clone()).or_default())
     };
     let result = tauri::async_runtime::spawn_blocking(move || {
-        cell.get_or_init(|| pf_audio::waveform(&path, slices).map_err(|e| e.to_string()))
-            .clone()
+        cell.get_or_init(|| {
+            let decoded = pf_audio::waveform_reporting(&path, slices, &report);
+            if decoded.is_err() {
+                report(1.0);
+            }
+            decoded.map_err(|e| e.to_string())
+        })
+        .clone()
     })
     .await
     .map_err(|_| "Something went wrong reading the music.".to_string())?;

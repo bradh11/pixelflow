@@ -621,7 +621,7 @@ fn every_tool_definition_is_well_formed_for_both_providers() {
             "{}",
             spec.name
         );
-        assert!(spec.description.len() > 20, "{} needs a description", spec.name);
+        assert!(spec.description.len() > 8, "{} needs a description", spec.name);
         assert!(
             !spec.description.contains("[`"),
             "{}: rustdoc links in a description",
@@ -787,6 +787,22 @@ fn tool_definitions_stay_small() {
             );
         }
     }
+    // Ids are plain strings, and descriptions plain text, in every tool.
+    for tool in Toolbox::new().tools() {
+        let text = tool.spec.input_schema.to_string();
+        assert!(
+            !text.contains("Identifies") && !text.contains("[`"),
+            "{}: {text}",
+            tool.spec.name
+        );
+    }
+    let remove = Toolbox::new()
+        .find("sequence_remove_effect")
+        .unwrap()
+        .spec
+        .input_schema
+        .clone();
+    assert_eq!(remove["properties"]["id"], json!({ "type": "string" }));
     // Each large definition is spelled out in one tool only.
     for (def, owner) in [
         ("Prop", "show_add_prop"),

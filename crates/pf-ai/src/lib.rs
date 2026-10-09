@@ -16,6 +16,7 @@ pub mod agent;
 pub mod align;
 pub mod anthropic;
 pub mod arrange;
+pub mod cues;
 pub mod diff;
 pub mod draft;
 pub mod error;

@@ -13,7 +13,7 @@ use pf_engine::{
 use pf_model::{PropId, Show};
 use pf_sequence::{EffectId, Sequence, TimingTrackId};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 /// What the user is looking at, sent with each message so "these props" means something.
@@ -95,6 +95,8 @@ pub struct Draft {
     locked_edges: usize,
     /// Timing tracks `place_effects` cut effects at.
     placed_on: Vec<TimingTrackId>,
+    /// Cues staged so far, by kind (see [`crate::cues`]).
+    cues: BTreeMap<String, usize>,
 }
 
 impl Draft {
@@ -107,6 +109,7 @@ impl Draft {
             sequence_edits: Vec::new(),
             locked_edges: 0,
             placed_on: Vec::new(),
+            cues: BTreeMap::new(),
         }
     }
 
@@ -155,6 +158,13 @@ impl Draft {
     pub fn placed_on(&mut self, id: TimingTrackId) {
         if !self.placed_on.contains(&id) {
             self.placed_on.push(id);
+        }
+    }
+
+    /// Counts cues staged on the draft, by kind (for the proposal's summary).
+    pub fn staged(&mut self, counts: &BTreeMap<String, usize>) {
+        for (cue, n) in counts {
+            *self.cues.entry(cue.clone()).or_default() += n;
         }
     }
 
@@ -226,6 +236,9 @@ impl Draft {
             summary: summary.trim().chars().take(2000).collect(),
             diff,
             locked_edges: if sequence_changed { self.locked_edges } else { 0 },
+            cues: sequence_changed
+                .then(|| crate::cues::summary(&self.cues))
+                .flatten(),
             show_edits: if show_changed {
                 self.show_edits.clone()
             } else {
@@ -270,6 +283,8 @@ pub struct Proposal {
     pub diff: Diff,
     /// Effect edges and timing marks the draft locked to the music.
     pub locked_edges: usize,
+    /// The cues staged ("Staged 14 cues: 6 hits, 3 word pops, …"), if any.
+    pub cues: Option<String>,
     pub show_edits: Vec<Edit>,
     pub sequence_edits: Vec<SequenceEdit>,
     /// The show revision the draft started from.
@@ -304,6 +319,8 @@ pub struct ProposalView {
     pub timeline: Option<Timeline>,
     /// For a sequence proposal: effect edges and timing marks locked to the music.
     pub locked_edges: usize,
+    /// For a sequence proposal: the cues staged, if any.
+    pub cues: Option<String>,
 }
 
 impl Proposal {
@@ -326,6 +343,7 @@ impl Proposal {
                 .unwrap_or_default(),
             timeline: sequences.map(|(_, after)| timeline(after, &self.draft_show)),
             locked_edges: if changes_sequence { self.locked_edges } else { 0 },
+            cues: self.cues.clone().filter(|_| changes_sequence),
         }
     }
 }

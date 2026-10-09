@@ -112,6 +112,17 @@ pub fn run_tool(toolbox: &Toolbox, call: &ToolCall, draft: &mut Draft, song: &mu
         }
         ToolKind::PlaceEffects => crate::arrange::place(draft, input).map_or_else(err, ok),
         ToolKind::RepeatEffects => crate::arrange::repeat(draft, input).map_or_else(err, ok),
+        ToolKind::StageCue => {
+            // The song gives the tempo, moments, and beats; without one, cues go by ms at 120 BPM.
+            let analysis = match song.music {
+                Some(_) => match song.analysis(draft) {
+                    Ok(analysis) => Some(analysis),
+                    Err(e) => return err(e),
+                },
+                None => None,
+            };
+            crate::cues::stage(draft, analysis.as_deref(), input).map_or_else(err, ok)
+        }
         ToolKind::AskForSong => Outcome::AskForSong,
         ToolKind::ReviewDraft => ok(draft.diff().describe()),
         ToolKind::ResetDraft => {

@@ -146,6 +146,7 @@ fn activity(name: &str) -> String {
         "add_song_timing" => "Drafting: song timing".into(),
         "place_effects" => "Drafting: place effects".into(),
         "repeat_effects" => "Drafting: repeat effects".into(),
+        "stage_cue" => "Drafting: staging cues".into(),
         "shape_settings" => "Looking at prop shapes".into(),
         "get_open_sequence" | "list_sequence_effects" | "get_timing_marks" => {
             "Looking at your sequence".into()

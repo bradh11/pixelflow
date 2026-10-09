@@ -10,6 +10,7 @@ publish.workspace = true
 pf-model = { workspace = true, features = ["schema"] }
 pf-sequence = { workspace = true, features = ["schema"] }
 pf-engine = { workspace = true, features = ["schema"] }
+pf-geometry.workspace = true
 pf-analysis.workspace = true
 pf-audio.workspace = true
 pf-render.workspace = true

@@ -65,7 +65,7 @@ pub fn phoneme_at(seq: &Sequence, track: Option<pf_sequence::TimingTrackId>, t_m
         }
     }
     // Words and lyrics: the letters' shapes spread evenly over the mark.
-    let shapes = word_phonemes(&mark.label);
+    let shapes = word_phonemes(mark.said());
     if shapes.is_empty() {
         return Phoneme::Rest;
     }

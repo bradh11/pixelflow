@@ -387,3 +387,43 @@ fn unsaved_changes_count_the_show_and_the_open_sequence() {
         .unwrap();
     assert!(engine.has_unsaved_changes());
 }
+
+#[test]
+fn a_relabelled_word_is_sung_as_its_new_label_says() {
+    use pf_engine::SequenceEdit;
+    use pf_sequence::{Mark, TimingKind, TimingTrack};
+    let (mut engine, _dir) = engine();
+    engine.new_sequence_doc("Song", 10_000, None).unwrap();
+    let sung = Mark::new(1_000, 1_400, "afraid").sung_as(Some("fraid".into()));
+    let track = TimingTrack::new("Lyrics (words)", TimingKind::Words, vec![sung.clone()]);
+    let id = track.id;
+    engine
+        .edit_sequence(vec![SequenceEdit::AddTimingTrack { track }])
+        .unwrap();
+    let mark = |engine: &Engine| engine.sequence_document().unwrap().timing_tracks[0].marks[0].clone();
+    // Moved: still sung as heard.
+    let mut moved = sung.clone();
+    moved.start_ms = 900;
+    let edit = |mark: Mark| SequenceEdit::SetMark {
+        track: id,
+        index: 0,
+        mark,
+    };
+    engine.edit_sequence(vec![edit(moved)]).unwrap();
+    assert_eq!(mark(&engine).sung.as_deref(), Some("fraid"));
+    // Relabelled: sung as the new label.
+    let mut relabelled = mark(&engine);
+    relabelled.label = "fraid".into();
+    engine.edit_sequence(vec![edit(relabelled)]).unwrap();
+    assert_eq!(
+        (mark(&engine).label.as_str(), mark(&engine).sung),
+        ("fraid", None)
+    );
+    // Kept in the file only when there is one.
+    let json = serde_json::to_string(&mark(&engine)).unwrap();
+    assert!(!json.contains("sung"), "{json}");
+    let old: Mark = serde_json::from_str(r#"{"startMs": 0, "endMs": 5, "label": "glow"}"#).unwrap();
+    assert_eq!(old.sung, None);
+    let kept = serde_json::to_string(&sung).unwrap();
+    assert_eq!(serde_json::from_str::<Mark>(&kept).unwrap(), sung);
+}

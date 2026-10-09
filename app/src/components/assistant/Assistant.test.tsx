@@ -68,6 +68,31 @@ describe("the assistant in a narrow window", () => {
     expect(sidebarRail()).toBe(false);
   });
 
+  it("resizes from its left edge, remembers the width, and resets on double-click", async () => {
+    localStorage.removeItem("pixelflow.assistantWidth");
+    window.innerWidth = 1600;
+    const { user } = await start();
+    await openPanel(user);
+    const edge = screen.getByRole("separator", { name: "Assistant width" });
+    // Dragging the edge left widens the panel.
+    fireEvent.pointerDown(edge, { button: 0, clientX: 1200 });
+    fireEvent.pointerMove(edge, { clientX: 1000 });
+    fireEvent.pointerUp(edge, { clientX: 1000 });
+    const dragged = Number(localStorage.getItem("pixelflow.assistantWidth"));
+    expect(dragged).toBeGreaterThan(300);
+    expect(panel().style.width).toBe(`${dragged}px`);
+    // Never wider than most of the window.
+    fireEvent.pointerDown(edge, { button: 0, clientX: 1000 });
+    fireEvent.pointerUp(edge, { clientX: -2000 });
+    expect(Number(localStorage.getItem("pixelflow.assistantWidth"))).toBe(960);
+    // The arrows move the edge too; double-click goes back to the default.
+    fireEvent.keyDown(edge, { key: "ArrowRight" });
+    expect(Number(localStorage.getItem("pixelflow.assistantWidth"))).toBe(940);
+    fireEvent.doubleClick(edge);
+    expect(localStorage.getItem("pixelflow.assistantWidth")).toBeNull();
+    expect(panel().style.width).toBe("");
+  });
+
   it("floats over the screen only below 1200 px, and takes a full column from 1440", async () => {
     window.innerWidth = 1100;
     const { user } = await start();

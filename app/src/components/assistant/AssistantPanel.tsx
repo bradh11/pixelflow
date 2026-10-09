@@ -1,5 +1,5 @@
 import { CheckCircle2, Loader2, MessageSquarePlus, Music, Send, Settings, Sparkles, Square, X } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { modelLabel, providerName } from "../../api/assistant";
 import { type ChatItem, useAssistant } from "../../state/assistant";
 import { useSequencer } from "../../state/sequencer";
@@ -41,7 +41,40 @@ function ChooseSong({ item }: { item: ChatItem }) {
  * The chat with the assistant, beside the current screen, or floating over its right side when
  * the window is too narrow to share (`overlay`). Replies stream in; changes come as a proposal card.
  */
+const WIDTH_KEY = "pixelflow.assistantWidth";
+const MIN_WIDTH = 300;
+/** The widest the panel goes: most of the window, so the screen beside it stays usable. */
+const maxWidth = () => Math.max(MIN_WIDTH, Math.round(window.innerWidth * 0.6));
+
+/** The width the panel was dragged to (a per-viewer convenience), or null for the default. */
+function loadWidth(): number | null {
+  try {
+    const saved = Number(localStorage.getItem(WIDTH_KEY));
+    return Number.isFinite(saved) && saved >= MIN_WIDTH ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveWidth(width: number | null) {
+  try {
+    if (width === null) localStorage.removeItem(WIDTH_KEY);
+    else localStorage.setItem(WIDTH_KEY, String(width));
+  } catch {
+    // Storage unavailable: the width holds until the app closes.
+  }
+}
+
 export function AssistantPanel({ overlay = false, compact = false }: { overlay?: boolean; compact?: boolean }) {
+  const [width, setWidth] = useState<number | null>(loadWidth);
+  const resizing = useRef<{ startX: number; from: number } | null>(null);
+  const panelRef = useRef<HTMLElement>(null);
+  const clampWidth = (w: number) => Math.round(Math.min(maxWidth(), Math.max(MIN_WIDTH, w)));
+  const currentWidth = () => {
+    if (width !== null) return width;
+    const measured = panelRef.current?.getBoundingClientRect().width ?? 0;
+    return measured > 0 ? measured : compact ? 320 : 384;
+  };
   const items = useAssistant((s) => s.items);
   const streaming = useAssistant((s) => s.streaming);
   const activity = useAssistant((s) => s.activity);
@@ -91,6 +124,7 @@ export function AssistantPanel({ overlay = false, compact = false }: { overlay?:
 
   return (
     <aside
+      ref={panelRef}
       aria-label="Assistant"
       data-overlay={overlay}
       data-width={compact ? "compact" : "full"}
@@ -103,12 +137,57 @@ export function AssistantPanel({ overlay = false, compact = false }: { overlay?:
         if (e.target === inputRef.current && draft.trim() !== "") inputRef.current.blur();
         else setOpen(false);
       }}
-      className={`flex ${compact ? "w-80" : "w-96"} max-w-[calc(100%-3rem)] shrink-0 flex-col border-l border-neutral-200 dark:border-neutral-800 ${
+      style={width === null ? undefined : { width: clampWidth(width) }}
+      className={`flex ${width === null ? (compact ? "w-80" : "w-96") : ""} max-w-[calc(100%-3rem)] shrink-0 flex-col border-l border-neutral-200 dark:border-neutral-800 ${
         overlay
           ? "absolute inset-y-0 right-0 z-30 bg-neutral-50 shadow-2xl dark:bg-neutral-950"
-          : "bg-neutral-50/60 dark:bg-neutral-950/40"
+          : "relative bg-neutral-50/60 dark:bg-neutral-950/40"
       }`}
     >
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Assistant width"
+        aria-valuemin={MIN_WIDTH}
+        aria-valuenow={Math.round(currentWidth())}
+        tabIndex={0}
+        title="Drag to resize the assistant (double-click to reset)"
+        className="absolute inset-y-0 -left-0.5 z-10 w-1.5 cursor-col-resize touch-none outline-none hover:bg-accent-400/40 focus-visible:bg-accent-400/40"
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          e.currentTarget.setPointerCapture?.(e.pointerId);
+          resizing.current = { startX: e.clientX, from: currentWidth() };
+        }}
+        onPointerMove={(e) => {
+          const r = resizing.current;
+          // The edge is on the left: dragging left widens the panel.
+          if (r) setWidth(clampWidth(r.from - (e.clientX - r.startX)));
+        }}
+        onPointerUp={(e) => {
+          const r = resizing.current;
+          resizing.current = null;
+          if (!r) return;
+          const next = clampWidth(r.from - (e.clientX - r.startX));
+          setWidth(next);
+          saveWidth(next);
+        }}
+        onPointerCancel={() => {
+          resizing.current = null;
+          setWidth(loadWidth());
+        }}
+        onDoubleClick={() => {
+          setWidth(null);
+          saveWidth(null);
+        }}
+        onKeyDown={(e) => {
+          if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+          e.preventDefault();
+          e.stopPropagation();
+          const next = clampWidth(currentWidth() + (e.key === "ArrowLeft" ? 20 : -20));
+          setWidth(next);
+          saveWidth(next);
+        }}
+      />
       <header className="flex h-12 shrink-0 items-center gap-1.5 border-b border-neutral-200 px-3 dark:border-neutral-800">
         <Sparkles size={16} className="text-accent-600 dark:text-accent-400" aria-hidden />
         <div className="flex min-w-0 flex-col leading-tight">

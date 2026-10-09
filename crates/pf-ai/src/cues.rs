@@ -137,10 +137,31 @@ impl Cue {
         }
     }
 
+    /// The cue for a moment's suggested treatment.
+    fn suggested(suggest: Suggest) -> Self {
+        match suggest {
+            Suggest::Hit | Suggest::Burst | Suggest::Flash => Cue::Hit,
+            Suggest::Blackout => Cue::Blackout,
+            Suggest::Minimal => Cue::Minimal,
+            Suggest::Ramp => Cue::Ramp,
+            Suggest::Chase => Cue::Chase,
+            Suggest::Full => Cue::Full,
+            Suggest::Sustain => Cue::Sustain,
+            Suggest::ColorShift => Cue::ColorShift,
+            Suggest::WordPop => Cue::WordPop,
+            Suggest::Change => Cue::Sweep,
+        }
+    }
+
     /// Accents over a moment, staged after the cues that last (so they go above them).
     fn is_point(self) -> bool {
         matches!(self, Cue::Hit | Cue::WordPop)
     }
+}
+
+/// The cue `stageMoments` stages for a moment that suggests `suggest` ("hit", "blackout", ...).
+pub fn suggested_cue(suggest: Suggest) -> &'static str {
+    Cue::suggested(suggest).word()
 }
 
 /// "Staged 14 cues: 6 hits, 3 word pops, 2 blackouts" from cues counted by kind (most first),
@@ -170,8 +191,8 @@ pub fn summary(counts: &BTreeMap<String, usize>) -> Option<String> {
 }
 
 /// What a prop does in a show, by its shape (or its name, for shapes that don't say).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Role {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Role {
     Outline,
     Tree,
     Matrix,
@@ -211,7 +232,7 @@ fn role_by_name(name: &str) -> Option<Role> {
     }
 }
 
-fn role_of(prop: &pf_model::Prop) -> Role {
+pub(crate) fn role_of(prop: &pf_model::Prop) -> Role {
     let by_shape = match &prop.shape {
         ShapeSource::Generator(g) => match g {
             Generator::Tree { .. } => Some(Role::Tree),
@@ -876,36 +897,22 @@ impl<'a> Stager<'a> {
             .collect();
         let mut specs: Vec<Spec> = picked
             .iter()
-            .map(|m| {
-                let cue = match m.suggest {
-                    Suggest::Hit | Suggest::Burst | Suggest::Flash => Cue::Hit,
-                    Suggest::Blackout => Cue::Blackout,
-                    Suggest::Minimal => Cue::Minimal,
-                    Suggest::Ramp => Cue::Ramp,
-                    Suggest::Chase => Cue::Chase,
-                    Suggest::Full => Cue::Full,
-                    Suggest::Sustain => Cue::Sustain,
-                    Suggest::ColorShift => Cue::ColorShift,
-                    Suggest::WordPop => Cue::WordPop,
-                    Suggest::Change => Cue::Sweep,
-                };
-                Spec {
-                    cue,
-                    at: m.time_ms,
-                    until: m
-                        .end_ms
-                        .filter(|e| *e > m.time_ms)
-                        .map(|e| e.min(self.duration())),
-                    props: all.clone(),
-                    with: Vec::new(),
-                    everything: true,
-                    intensity: m.importance.clamp(0.0, 1.0),
-                    colors: Vec::new(),
-                    direction: DIRECTIONS[0],
-                    pattern: m.label.clone().filter(|_| m.kind == MomentKind::Shout),
-                    track: None,
-                    hit: None,
-                }
+            .map(|m| Spec {
+                cue: Cue::suggested(m.suggest),
+                at: m.time_ms,
+                until: m
+                    .end_ms
+                    .filter(|e| *e > m.time_ms)
+                    .map(|e| e.min(self.duration())),
+                props: all.clone(),
+                with: Vec::new(),
+                everything: true,
+                intensity: m.importance.clamp(0.0, 1.0),
+                colors: Vec::new(),
+                direction: DIRECTIONS[0],
+                pattern: m.label.clone().filter(|_| m.kind == MomentKind::Shout),
+                track: None,
+                hit: None,
             })
             .collect();
         // A ramp ends on a hit of its own only where no staged moment lands.

@@ -49,7 +49,8 @@ Making a sequence: work like a lighting designer.
 4. Stage the moments with stage_cue (cues go on layers above the looks): stageMoments for a baseline, then cues to refine: hit on impacts, drops, and shouts; blackout through stops; ramp on builds; chase on fills; minimal on breakdowns; full on peaks; word_pop on hook words.
 5. With lyrics (analyze_song's lyrics): sing on talking props over vocalsMs, follow phrases with a lead prop, keep instrumental breaks distinct. For motion per syllable, place on track \"Lyrics (syllables)\" (add_song_timing makes it). No lyrics? Offer Find lyrics (beside Detect beats).
 6. Keep restraint: not everything at full, contrast before big hits, the biggest treatment (intensity 0.85+) only for the top few moments, release after a peak.
-- Then check with review_draft and propose once.
+7. Review: review_draft scores the sequence against the song and lists fixes with ready tool calls (repeat_effects ones first). Make them, review_draft once more, then propose: two reviews at most.
+- Asked to review a sequence: review_draft, then give the score and main fixes in plain words, and offer to make them.
 - place_effects: match on a lyrics track finds its words (on a syllables track, the syllables in them); spread is together, alternate, sweep, or build. The Moments track labels each moment (\"Shout: word\"); Drums marks kicks, snares, and crashes.
 - When analyze_song says sectionsFrom or accentsFrom \"user\", those are the user's own marks: follow them. Before the user sees your proposal, PixelFlow moves new effect edges within a beat onto the nearest section start, moment, accent, sung word, bar, or beat, so aim close.
 
@@ -60,6 +61,8 @@ Write for someone who knows their display but not software: short, plain sentenc
 /// What the chat panel hears while a reply is on its way.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
+// A proposal comes once a turn at most: boxing it would save nothing that matters.
+#[allow(clippy::large_enum_variant)]
 pub enum ChatEvent {
     /// More of the reply's text.
     Text { text: String },
@@ -259,12 +262,11 @@ impl ChatSession {
             analyzer: self.analyzer.as_ref(),
             cancel,
         };
-        lock_to_music(draft, &mut song);
         let summary = said
             .last()
             .cloned()
             .unwrap_or_else(|| "Changes from the assistant.".into());
-        let Some(proposal) = draft.propose(&summary) else {
+        let Some(proposal) = propose_reviewed(draft, &mut song, &summary) else {
             return false;
         };
         on_event(ChatEvent::Proposal {
@@ -472,7 +474,7 @@ impl ChatSession {
                         content,
                         is_error,
                     },
-                    Outcome::Propose { summary } => match lock_to_music(draft, &mut song).propose(&summary) {
+                    Outcome::Propose { summary } => match propose_reviewed(draft, &mut song, &summary) {
                         Some(proposal) => {
                             on_event(ChatEvent::Proposal {
                                 proposal: proposal.view(),
@@ -511,6 +513,22 @@ impl ChatSession {
 /// Locks the draft's new effect edges and timing marks to the song before the user sees them
 /// (the song is analyzed now if it hasn't been; without one, only the user's own Sections and
 /// Accents tracks count).
+/// The draft, locked to the music, as a proposal; one that changes the sequence carries its
+/// review (the same review_draft gives), so the user sees how it scores and what's left to fix.
+fn propose_reviewed(draft: &mut Draft, song: &mut Song<'_>, summary: &str) -> Option<Proposal> {
+    let draft = lock_to_music(draft, song);
+    let mut proposal = draft.propose(summary)?;
+    if !proposal.sequence_edits.is_empty() {
+        let analysis = song.analyzed();
+        proposal.review = draft
+            .review(analysis.as_deref(), song.cancel)
+            .ok()
+            .flatten()
+            .map(|r| r.view());
+    }
+    Some(proposal)
+}
+
 fn lock_to_music<'d>(draft: &'d mut Draft, song: &mut Song<'_>) -> &'d mut Draft {
     let changed = draft.sequence() != draft.base().sequence.as_ref().map(|s| &s.doc);
     if changed {

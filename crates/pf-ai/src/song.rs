@@ -81,7 +81,7 @@ fn round2(x: f32) -> f64 {
 }
 
 /// A section label without its count ("Chorus 2" → "Chorus"): what repeats.
-fn label_root(label: &str) -> &str {
+pub(crate) fn label_root(label: &str) -> &str {
     label
         .trim()
         .trim_end_matches(|c: char| c.is_ascii_digit())

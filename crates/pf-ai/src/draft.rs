@@ -5,12 +5,15 @@
 
 use crate::align::{Anchors, lock};
 use crate::diff::{Diff, diff};
+use crate::provider::Cancel;
+use crate::review::{Review, ReviewView, Subject};
 use crate::summary::{SectionSummary, Timeline, section_summaries, timeline};
 use pf_analysis::Analysis;
 use pf_engine::{
     Edit, Engine, EngineError, SequenceEdit, SequenceEditResult, ShowSnapshot, edited_sequence, edited_show,
 };
 use pf_model::{PropId, Show};
+use pf_render::AudioSource;
 use pf_sequence::{EffectId, Sequence, TimingTrackId};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -64,12 +67,16 @@ pub struct Workspace {
     /// The open sequence's song (resolved next to the sequence file), for analysis. Only ever
     /// read, never written.
     pub music: Option<PathBuf>,
+    /// The open sequence's music as the renderer reads it (shared with the engine, so a review
+    /// draws music-following effects without working the music out again).
+    pub audio: AudioSource,
     pub context: UiContext,
 }
 
 impl Workspace {
     pub fn from_engine(engine: &Engine, context: UiContext) -> Self {
         Self {
+            audio: engine.sequence_audio(),
             show: engine.show().clone(),
             revision: engine.revision(),
             show_generation: engine.show_generation(),
@@ -97,6 +104,8 @@ pub struct Draft {
     placed_on: Vec<TimingTrackId>,
     /// Cues staged so far, by kind (see [`crate::cues`]).
     cues: BTreeMap<String, usize>,
+    /// The last review, and the sequence it was of.
+    reviewed: Option<(Sequence, Review)>,
 }
 
 impl Draft {
@@ -110,6 +119,7 @@ impl Draft {
             locked_edges: 0,
             placed_on: Vec::new(),
             cues: BTreeMap::new(),
+            reviewed: None,
         }
     }
 
@@ -207,6 +217,29 @@ impl Draft {
         locked.edges()
     }
 
+    /// Reviews the draft's sequence against the song (see [`crate::review`]); the same sequence
+    /// isn't reviewed twice. `None` without a sequence; `Err` when stopped.
+    pub fn review(&mut self, analysis: Option<&Analysis>, cancel: &Cancel) -> Result<Option<Review>, String> {
+        let Some(doc) = &self.sequence else {
+            return Ok(None);
+        };
+        if let Some((seen, review)) = &self.reviewed
+            && seen == doc
+        {
+            return Ok(Some(review.clone()));
+        }
+        let subject = Subject {
+            show: &self.show,
+            doc,
+            user: self.base.sequence.as_ref().map(|s| &s.doc),
+            analysis,
+            audio: &self.base.audio,
+        };
+        let review = crate::review::review(&subject, cancel)?;
+        self.reviewed = Some((doc.clone(), review.clone()));
+        Ok(Some(review))
+    }
+
     /// Starts over from the workspace.
     pub fn reset(&mut self) {
         *self = Draft::new(self.base.clone());
@@ -239,6 +272,7 @@ impl Draft {
             cues: sequence_changed
                 .then(|| crate::cues::summary(&self.cues))
                 .flatten(),
+            review: None,
             show_edits: if show_changed {
                 self.show_edits.clone()
             } else {
@@ -285,6 +319,8 @@ pub struct Proposal {
     pub locked_edges: usize,
     /// The cues staged ("Staged 14 cues: 6 hits, 3 word pops, …"), if any.
     pub cues: Option<String>,
+    /// The final review of the sequence it proposes, if any.
+    pub review: Option<ReviewView>,
     pub show_edits: Vec<Edit>,
     pub sequence_edits: Vec<SequenceEdit>,
     /// The show revision the draft started from.
@@ -321,6 +357,8 @@ pub struct ProposalView {
     pub locked_edges: usize,
     /// For a sequence proposal: the cues staged, if any.
     pub cues: Option<String>,
+    /// For a sequence proposal: how it reviews against the song, and the fixes left.
+    pub review: Option<ReviewView>,
 }
 
 impl Proposal {
@@ -344,6 +382,7 @@ impl Proposal {
             timeline: sequences.map(|(_, after)| timeline(after, &self.draft_show)),
             locked_edges: if changes_sequence { self.locked_edges } else { 0 },
             cues: self.cues.clone().filter(|_| changes_sequence),
+            review: self.review.clone().filter(|_| changes_sequence),
         }
     }
 }

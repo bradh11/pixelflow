@@ -958,7 +958,7 @@ fn draft_tools() -> Vec<Tool> {
         Tool {
             spec: ToolSpec {
                 name: "review_draft".into(),
-                description: "Lists everything your draft changes so far, compared with the user's show and sequence."
+                description: "Reviews the draft's sequence (the open one, if unchanged) against its song: a score, one per criterion (top moments shown, contrast before hits, energy following the music, repeated sections alike, variety, flash safety, hook words, dark stretches, restraint), and up to 12 fixes with times and the tool calls that make them. Then lists everything your draft changes."
                     .into(),
                 input_schema: object(json!({}), &[]),
             },

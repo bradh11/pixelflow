@@ -817,6 +817,26 @@
         "label": "Appear on marks of",
         "more": true,
         "type": "timingTrack"
+      },
+      {
+        "default": false,
+        "description": "Make a shape appear when the music gets louder than the trigger level (and every 21 frames while it stays louder), instead of keeping `count` shown.",
+        "key": "fireOnMusic",
+        "label": "Appear with the music",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": 50.0,
+        "description": "How loud the music must get to make a shape appear.",
+        "key": "triggerLevel",
+        "label": "Music trigger level",
+        "max": 100.0,
+        "min": 0.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
       }
     ]
   },
@@ -1958,6 +1978,14 @@
             "value": "verticalZigZagReturn"
           },
           {
+            "label": "Across, as high as the music",
+            "value": "musicLine"
+          },
+          {
+            "label": "Around a circle sized by the music",
+            "value": "musicCircle"
+          },
+          {
             "label": "Held at a point",
             "value": "manual"
           }
@@ -2376,6 +2404,388 @@
         "key": "outline",
         "label": "Show outline",
         "type": "bool"
+      }
+    ]
+  },
+  {
+    "description": "Bars, levels, and flashes that follow the music or a timing track.",
+    "kind": "vuMeter",
+    "label": "VU Meter",
+    "settings": [
+      {
+        "default": "spectrogram",
+        "description": "What it draws.",
+        "key": "meter",
+        "label": "Type",
+        "options": [
+          {
+            "label": "Spectrogram",
+            "value": "spectrogram"
+          },
+          {
+            "label": "Spectrogram with peaks",
+            "value": "spectrogramPeak"
+          },
+          {
+            "label": "Spectrogram line",
+            "value": "spectrogramLine"
+          },
+          {
+            "label": "Spectrogram circle",
+            "value": "spectrogramCircleLine"
+          },
+          {
+            "label": "Volume bars",
+            "value": "volumeBars"
+          },
+          {
+            "label": "Waveform",
+            "value": "waveform"
+          },
+          {
+            "label": "On with the level",
+            "value": "on"
+          },
+          {
+            "label": "Color by level",
+            "value": "colorOn"
+          },
+          {
+            "label": "Color by the loudest note",
+            "value": "dominantFrequencyColor"
+          },
+          {
+            "label": "Blend by the loudest note",
+            "value": "dominantFrequencyColorGradient"
+          },
+          {
+            "label": "Intensity wave",
+            "value": "intensityWave"
+          },
+          {
+            "label": "Pulse on marks",
+            "value": "pulse"
+          },
+          {
+            "label": "Level bar",
+            "value": "levelBar"
+          },
+          {
+            "label": "Level random bar",
+            "value": "levelRandomBar"
+          },
+          {
+            "label": "Level color",
+            "value": "levelColor"
+          },
+          {
+            "label": "Level pulse",
+            "value": "levelPulse"
+          },
+          {
+            "label": "Level pulse color",
+            "value": "levelPulseColor"
+          },
+          {
+            "label": "Level jump",
+            "value": "levelJump"
+          },
+          {
+            "label": "Level jump to the top",
+            "value": "levelJump100"
+          },
+          {
+            "label": "Level shape",
+            "value": "levelShape"
+          },
+          {
+            "label": "Bar on marks",
+            "value": "timingEventBar"
+          },
+          {
+            "label": "Bouncing bar on marks",
+            "value": "timingEventBarBounce"
+          },
+          {
+            "label": "Random bar on marks",
+            "value": "timingEventRandomBar"
+          },
+          {
+            "label": "Bars on marks",
+            "value": "timingEventBars"
+          },
+          {
+            "label": "Spike on marks",
+            "value": "timingEventSpike"
+          },
+          {
+            "label": "Sweep on marks",
+            "value": "timingEventSweep"
+          },
+          {
+            "label": "Sweep on marks 2",
+            "value": "timingEventSweep2"
+          },
+          {
+            "label": "Timed sweep",
+            "value": "timingEventTimedSweep"
+          },
+          {
+            "label": "Timed sweep 2",
+            "value": "timingEventTimedSweep2"
+          },
+          {
+            "label": "Alternating timed sweep",
+            "value": "timingEventAlternateTimedSweep"
+          },
+          {
+            "label": "Alternating timed sweep 2",
+            "value": "timingEventAlternateTimedSweep2"
+          },
+          {
+            "label": "Timed chase from the middle",
+            "value": "timingEventChaseFromMiddle"
+          },
+          {
+            "label": "Timed chase to the middle",
+            "value": "timingEventChaseToMiddle"
+          },
+          {
+            "label": "Color on marks",
+            "value": "timingEventColor"
+          },
+          {
+            "label": "Jump on marks",
+            "value": "timingEventJump"
+          },
+          {
+            "label": "Jump to the top on marks",
+            "value": "timingEventJump100"
+          },
+          {
+            "label": "Pulse up on marks",
+            "value": "timingEventPulse"
+          },
+          {
+            "label": "Pulse color on marks",
+            "value": "timingEventPulseColor"
+          },
+          {
+            "label": "Notes on",
+            "value": "noteOn"
+          },
+          {
+            "label": "Note level pulse",
+            "value": "noteLevelPulse"
+          },
+          {
+            "label": "Note level jump",
+            "value": "noteLevelJump"
+          },
+          {
+            "label": "Note level jump to the top",
+            "value": "noteLevelJump100"
+          },
+          {
+            "label": "Note level bar",
+            "value": "noteLevelBar"
+          },
+          {
+            "label": "Note level random bar",
+            "value": "noteLevelRandomBar"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": 6,
+        "description": "Bars across (spectrograms, volume bars, waveforms), or frames a pulse or jump lasts.",
+        "key": "bars",
+        "label": "Bars",
+        "max": 100,
+        "min": 1,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 70,
+        "description": "The level (0-100) that triggers the level and note types; how long spectrogram peaks hold; a Level Shape's size.",
+        "key": "sensitivity",
+        "label": "Sensitivity",
+        "max": 100,
+        "min": 0,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 0.0,
+        "description": "Boosts (or cuts) the music's level.",
+        "key": "gain",
+        "label": "Gain",
+        "max": 100.0,
+        "min": -100.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": null,
+        "description": "The marks the timing types follow.",
+        "key": "timingTrack",
+        "label": "Timing track",
+        "type": "timingTrack"
+      },
+      {
+        "default": "circle",
+        "description": "The shape a Level Shape draws.",
+        "key": "shape",
+        "label": "Shape",
+        "more": true,
+        "options": [
+          {
+            "label": "Circle",
+            "value": "circle"
+          },
+          {
+            "label": "Filled circle",
+            "value": "filledCircle"
+          },
+          {
+            "label": "Square",
+            "value": "square"
+          },
+          {
+            "label": "Filled square",
+            "value": "filledSquare"
+          },
+          {
+            "label": "Diamond",
+            "value": "diamond"
+          },
+          {
+            "label": "Filled diamond",
+            "value": "filledDiamond"
+          },
+          {
+            "label": "Star",
+            "value": "star"
+          },
+          {
+            "label": "Filled star",
+            "value": "filledStar"
+          },
+          {
+            "label": "Tree",
+            "value": "tree"
+          },
+          {
+            "label": "Filled tree",
+            "value": "filledTree"
+          },
+          {
+            "label": "Cross",
+            "value": "crucifix"
+          },
+          {
+            "label": "Filled cross",
+            "value": "filledCrucifix"
+          },
+          {
+            "label": "Present",
+            "value": "present"
+          },
+          {
+            "label": "Filled present",
+            "value": "filledPresent"
+          },
+          {
+            "label": "Candy cane",
+            "value": "candyCane"
+          },
+          {
+            "label": "Snowflake",
+            "value": "snowflake"
+          },
+          {
+            "label": "Heart",
+            "value": "heart"
+          },
+          {
+            "label": "Filled heart",
+            "value": "filledHeart"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": true,
+        "description": "Let bars and shapes fall back slowly.",
+        "key": "slowFalls",
+        "label": "Slow falls",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": 36,
+        "description": "The lowest MIDI note the spectrogram and note types read.",
+        "key": "startNote",
+        "label": "Lowest note",
+        "max": 126,
+        "min": 0,
+        "more": true,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 84,
+        "description": "The highest.",
+        "key": "endNote",
+        "label": "Highest note",
+        "max": 126,
+        "min": 0,
+        "more": true,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": false,
+        "description": "Spread the low notes wider than the high ones.",
+        "key": "logX",
+        "label": "Logarithmic across",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": 0.0,
+        "description": "Moves the drawing left (-) or right (+), as a share of the prop.",
+        "key": "xOffset",
+        "label": "Offset across",
+        "max": 100.0,
+        "min": -100.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 0.0,
+        "description": "Moves the drawing down (-) or up (+).",
+        "key": "yOffset",
+        "label": "Offset up",
+        "max": 100.0,
+        "min": -100.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": "",
+        "description": "Only marks with this label (one word of it) count.",
+        "key": "filter",
+        "label": "Only marks labeled",
+        "more": true,
+        "type": "text"
       }
     ]
   }

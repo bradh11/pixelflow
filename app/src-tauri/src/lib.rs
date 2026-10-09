@@ -413,8 +413,11 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?;
             let setups_dir = data_dir.join("device-setups");
             let config_dir = app.path().app_config_dir().ok();
+            let mut engine = Engine::new(data_dir);
+            // Songs' audio tracks (what effects that follow the music read), worked out once.
+            engine.set_audio_cache_dir(app.path().app_cache_dir().ok().map(|d| d.join("audio")));
             app.manage(AppState {
-                engine: Mutex::new(Engine::new(data_dir)),
+                engine: Mutex::new(engine),
                 devices: DeviceAccess::network().with_setup_dir(setups_dir),
                 waveforms: Mutex::default(),
                 photos: Default::default(),

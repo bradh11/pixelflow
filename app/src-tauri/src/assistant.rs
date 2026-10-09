@@ -379,6 +379,7 @@ pub(crate) async fn ai_preview(ai: State<'_, AiState>, id: String) -> Reply<Resp
 /// Nothing is sent to the controllers.
 #[tauri::command]
 pub(crate) async fn ai_preview_frame(
+    state: State<'_, AppState>,
     ai: State<'_, AiState>,
     id: String,
     position_ms: u64,
@@ -398,9 +399,12 @@ pub(crate) async fn ai_preview_frame(
                 .draft_sequence
                 .filter(|_| !proposal.sequence_edits.is_empty())
                 .ok_or_else(|| "This suggestion doesn't change the sequence.".to_string())?;
+            let mut renderer = pf_engine::DraftRenderer::new(&proposal.draft_show);
+            // The draft follows the open sequence's music.
+            renderer.set_audio(state.engine().sequence_audio());
             DraftPlayer {
                 proposal: id,
-                renderer: pf_engine::DraftRenderer::new(&proposal.draft_show),
+                renderer,
                 doc,
             }
         }

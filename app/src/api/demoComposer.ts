@@ -7,16 +7,18 @@ import { formatMs } from "./memorySequencer";
 import { type Analysis, EFFECT_KINDS, type Effect, type EffectKind, type Row, type Sequence, type SequenceEdit, type TimingTrack, newEffect } from "./sequence";
 import type { Show } from "./types";
 
-/** The song's sections: a quiet intro, a verse, a loud chorus, and an outro, on bar lines. */
+/** The song's sections: as analysis found them, or else a quiet intro, a verse, a loud chorus,
+ * and an outro, on bar lines. */
 function sections(analysis: Analysis): { label: string; startMs: number; endMs: number; level: "low" | "medium" | "high" }[] {
+  if (analysis.sections?.length) return analysis.sections.map(({ label, startMs, endMs, level }) => ({ label, startMs, endMs, level }));
   const end = analysis.durationMs;
   const bars = analysis.bars.length > 4 ? analysis.bars : [0];
   const at = (fraction: number) => bars.reduce((best, b) => (Math.abs(b - end * fraction) < Math.abs(best - end * fraction) ? b : best), 0);
   const cuts = [0, at(0.125), at(0.5), at(0.875), end];
   const labels = [
     ["Intro", "low"],
-    ["Mid 1", "medium"],
-    ["High 1", "high"],
+    ["Verse", "medium"],
+    ["Chorus", "high"],
     ["Outro", "low"],
   ] as const;
   return labels
@@ -87,16 +89,18 @@ export function composeDemoSequence(doc: Sequence, show: Show, analysis: Analysi
     const { startMs: from, endMs: to } = part;
     const barMarks = marksIn(bars, from, to);
     const beatMarks = marksIn(beats, from, to);
-    if (part.label === "Intro") {
+    // Ends soft; loud sections in the chorus look, middling ones in the verse look.
+    const look = part.label === "Intro" ? "intro" : part.label === "Outro" ? "outro" : part.level === "high" ? "chorus" : part.level === "medium" ? "verse" : "outro";
+    if (look === "intro") {
       for (const row of groupRows) place(row, 0, "colorWash", from, to, cool, 400);
       propRows.forEach((row, i) => barMarks.forEach((m, j) => (i + j) % 2 === 0 && place(row, top, "twinkle", m.startMs, m.endMs, cool)));
-    } else if (part.label === "Mid 1") {
+    } else if (look === "verse") {
       for (const row of groupRows) place(row, 0, "shimmer", from, to, warm);
       beatMarks.forEach((m, j) => {
         const row = propRows[j % Math.max(1, propRows.length)];
         if (row) place(row, top, "on", m.startMs, m.endMs, warm);
       });
-    } else if (part.label === "High 1") {
+    } else if (look === "chorus") {
       for (const row of groupRows) barMarks.forEach((m, j) => place(row, 0, j % 2 === 0 ? "bars" : "spiral", m.startMs, m.endMs, festive));
       propRows.forEach((row, i) => barMarks.forEach((m) => place(row, top, i % 2 === 0 ? "chase" : "meteors", m.startMs, m.endMs, festive)));
     } else {

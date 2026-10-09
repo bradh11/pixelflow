@@ -358,8 +358,10 @@ pub fn align(
             let limit = next.unwrap_or(end_ms).min(end_ms).max(start + 1);
             let place = found[k].take();
             let end = match (&place, voice) {
+                // Never before its last letter was heard, whatever the voice's loudness says.
                 (Some(p), Some(v)) => {
-                    refine::word_end(v, start, p.heard_end.max(start + MIN_WORD_MS), next, end_ms)
+                    let heard = p.heard_end.max(start + MIN_WORD_MS);
+                    refine::word_end(v, start, heard, next, end_ms).max(heard)
                 }
                 (Some(p), None) => p.heard_end.max(start + MIN_WORD_MS),
                 (None, Some(v)) if whole_song => {

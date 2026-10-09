@@ -1676,6 +1676,7 @@ dependencies = [
  "pf-analysis",
  "pf-audio",
  "pf-engine",
+ "pf-lexicon",
  "pf-model",
  "pf-output",
  "pf-render",

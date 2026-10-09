@@ -13,6 +13,7 @@ pf-engine = { workspace = true, features = ["schema"] }
 pf-analysis.workspace = true
 pf-audio.workspace = true
 pf-render.workspace = true
+pf-lexicon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

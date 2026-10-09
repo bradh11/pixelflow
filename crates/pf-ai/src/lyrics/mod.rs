@@ -6,8 +6,10 @@
 //! 2. Published lyrics are looked up in LRCLIB ([`lrclib`]); only those four things are sent.
 //! 3. With an OpenAI key, and only after the user agreed to send the song's audio, OpenAI's
 //!    speech recognition hears the words and when they're sung ([`transcribe`]).
-//! 4. The two are put together ([`combine`]), sung stretches found ([`vocals`]), and all of it
-//!    written as Lyrics, Lyrics (words), and Vocals timing tracks ([`tracks`]).
+//! 4. The two are put together ([`combine`]), sung stretches found ([`vocals`]), the words
+//!    split into syllables and mouth shapes ([`syllables`]), and all of it written as Lyrics,
+//!    Lyrics (words), Lyrics (syllables), Lyrics (phonemes), and Vocals timing tracks
+//!    ([`tracks`]).
 //!
 //! What LRCLIB and OpenAI answered is kept by the song file's hash ([`cache`]), so the same song
 //! is never sent twice.
@@ -17,6 +19,7 @@ pub mod combine;
 pub mod gate;
 pub mod lrc;
 pub mod lrclib;
+pub mod syllables;
 pub mod tracks;
 pub mod transcribe;
 pub mod vocals;
@@ -317,7 +320,7 @@ pub fn find_lyrics(
         (TextFrom::Openai, _) => "Lyrics and word timing from OpenAI (LRCLIB had none for this song).",
     }
     .to_string();
-    let tracks = tracks::lyric_tracks(&phrases, &vocals, end);
+    let tracks = tracks::lyric_tracks(&phrases, &vocals, onsets, end);
     Ok(Found {
         phrases,
         vocals,
@@ -422,7 +425,7 @@ mod tests {
         assert_eq!(found.phrases[0].text, "Paper lanterns glowing");
         assert_eq!(found.phrases[0].start_ms, 1_200);
         assert_eq!(found.vocals, [(1_200, 6_400)]);
-        assert_eq!(found.tracks.len(), 3);
+        assert_eq!(found.tracks.len(), 5);
         assert_eq!(found.tracks[1].marks.len(), 6);
         // No artist in the tags: a search by title; the audio went to OpenAI once.
         assert!(lrclib.requests()[0].url.contains("/api/search?q=Lantern%20Song"));

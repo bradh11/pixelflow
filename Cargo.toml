@@ -35,6 +35,8 @@ rodio = { version = "0.22.2", default-features = false, features = ["playback", 
 symphonia = { version = "0.5.5", default-features = false, features = ["mp3", "wav", "pcm", "flac", "ogg", "vorbis", "isomp4", "aac"] }
 sha2 = "0.10.9"
 regex = { version = "1.13.1", default-features = false, features = ["std", "unicode-case", "unicode-perl"] }
+# Runs the on-device lyric alignment model (ONNX), pure Rust: nothing to install or bundle.
+tract-onnx = "0.23.8"
 pf-model = { path = "crates/pf-model" }
 pf-geometry = { path = "crates/pf-geometry" }
 pf-mapping = { path = "crates/pf-mapping" }
@@ -51,6 +53,7 @@ pf-render = { path = "crates/pf-render" }
 pf-analysis = { path = "crates/pf-analysis" }
 pf-camera-map = { path = "crates/pf-camera-map" }
 pf-lexicon = { path = "crates/pf-lexicon" }
+pf-align = { path = "crates/pf-align" }
 
 # The camera-map tests decode synthetic video frames, which is slow unoptimized.
 [profile.dev.package.pf-camera-map]

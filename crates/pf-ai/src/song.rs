@@ -1,11 +1,11 @@
-//! The open sequence's song: analyzed (tempo, beats, bars, energy, sections) the first time the
-//! assistant asks, kept for the chat, and turned into timing tracks in the draft. The analysis
-//! runs on the chat's thread, never holding the engine, and stops when the user presses Stop.
-//! The song file is only ever read.
+//! The open sequence's song: analyzed (tempo, beats, bars, energy, sections, accents) the first
+//! time the assistant asks, kept for the chat, and turned into timing tracks in the draft. The
+//! analysis runs on the chat's thread, never holding the engine, and stops when the user presses
+//! Stop. The song file is only ever read.
 
 use crate::draft::Draft;
 use crate::provider::Cancel;
-use pf_analysis::Analysis;
+use pf_analysis::{Analysis, BarEnergy};
 use pf_engine::SequenceEdit;
 use pf_sequence::TimingTrack;
 use serde_json::{Value, json};
@@ -32,8 +32,10 @@ pub struct Song<'a> {
     pub cancel: &'a Cancel,
 }
 
-/// Bar times listed by `analyze_song`, at most.
+/// Bar times (and bar energies) listed by `analyze_song`, at most.
 const MAX_LISTED_BARS: usize = 400;
+/// Accents listed by `analyze_song`, at most (the strongest).
+const MAX_LISTED_ACCENTS: usize = 60;
 
 impl Song<'_> {
     /// The song's analysis, run now if this song hasn't been analyzed yet.
@@ -59,7 +61,14 @@ impl Song<'_> {
     }
 }
 
-/// What `analyze_song` answers: tempo, counts, bar times, and sections with their energy.
+/// A 0–1 value to two places, as it reads in JSON (not 0.699999988).
+fn round2(x: f32) -> f64 {
+    (f64::from(x) * 100.0).round() / 100.0
+}
+
+/// What `analyze_song` answers: tempo, counts, bar times, sections (named, grouped by what
+/// repeats, with their energy), the strongest accents, each bar's energy and bass as a digit
+/// string (0–9, a digit per bar), and how sure the analysis is.
 pub fn describe(analysis: &Analysis) -> Value {
     let sections: Vec<Value> = analysis
         .sections()
@@ -67,24 +76,56 @@ pub fn describe(analysis: &Analysis) -> Value {
         .map(|s| {
             json!({
                 "label": s.label,
+                "group": s.group,
                 "startMs": s.start_ms,
                 "endMs": s.end_ms,
-                "energy": s.energy,
+                "energy": round2(s.energy),
                 "level": s.level,
+                "confidence": round2(s.confidence),
             })
         })
         .collect();
+    let mut accents: Vec<_> = analysis.events.iter().collect();
+    accents.sort_by(|a, b| b.strength.total_cmp(&a.strength));
+    accents.truncate(MAX_LISTED_ACCENTS);
+    accents.sort_by_key(|e| e.time_ms);
+    let accents: Vec<Value> = accents
+        .iter()
+        .map(|e| {
+            let mut accent = json!({ "atMs": e.time_ms, "kind": e.kind, "strength": round2(e.strength) });
+            if let Some(d) = e.duration_ms {
+                accent["forMs"] = d.into();
+            }
+            accent
+        })
+        .collect();
+    let digits = |level: fn(&BarEnergy) -> f32| -> String {
+        analysis
+            .bar_energy
+            .iter()
+            .take(MAX_LISTED_BARS)
+            .map(|e| char::from(b'0' + (level(e).clamp(0.0, 1.0) * 9.0).round() as u8))
+            .collect()
+    };
     json!({
         "durationMs": analysis.duration_ms,
         "tempoBpm": analysis.tempo_bpm.map(|t| (t * 10.0).round() / 10.0),
         "beats": analysis.beats.len(),
         "barsMs": analysis.bars.iter().take(MAX_LISTED_BARS).collect::<Vec<_>>(),
         "sections": sections,
+        "accents": accents,
+        "barEnergy": digits(|e| e.overall),
+        "barBass": digits(|e| e.low),
+        "confidence": {
+            "tempo": round2(analysis.confidence.tempo),
+            "downbeat": round2(analysis.confidence.downbeat),
+            "sections": round2(analysis.confidence.sections),
+        },
     })
 }
 
 /// The tracks `add_song_timing` can add, by name.
-pub const TRACK_CHOICES: [&str; 4] = ["beats", "bars", "sections", "onsets"];
+pub const TRACK_CHOICES: [&str; 5] = ["beats", "bars", "sections", "onsets", "accents"];
 
 /// Adds the song's timing tracks to the draft (one draft step); a track already there by name
 /// and kind is reused. Answers each track's name, id, mark count, and whether it was added.
@@ -101,6 +142,7 @@ pub fn add_timing(analysis: &Analysis, draft: &mut Draft, wanted: &[String]) -> 
             "beats" => beats.clone(),
             "bars" => bars.clone(),
             "sections" => analysis.sections_track(),
+            "accents" => analysis.accents_track(),
             "onsets" => onsets.clone(),
             other => {
                 return Err(format!(

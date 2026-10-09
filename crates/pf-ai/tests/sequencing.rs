@@ -5,7 +5,7 @@
 use pf_ai::provider::Message;
 use pf_ai::testing::{ScriptedProvider, calls, fake_key, says};
 use pf_ai::{AiError, Cancel, ChatEvent, ChatSession, TurnReply, UiContext, Workspace, apply_proposal};
-use pf_analysis::Analysis;
+use pf_analysis::{Analysis, BarEnergy, Confidence, Event, EventKind};
 use pf_engine::{Edit, Engine};
 use pf_model::{Generator, Group, GroupMember, Prop, ShapeSource};
 use pf_sequence::{EffectKind, Row, Target, TimingKind};
@@ -60,12 +60,30 @@ fn setup(song: Option<&str>) -> Setup {
     }
 }
 
-/// A 32 s song at 120 BPM: quiet for 8 s, loud for 16 s, quiet for 8 s.
+/// A 32 s song at 120 BPM: quiet for 8 s, loud for 16 s, quiet for 8 s; a build into the loud
+/// part, a drop at its start, and a hit in it.
 fn song_analysis() -> Analysis {
     let beats: Vec<u64> = (0..64).map(|i| i * 500).collect();
     let energy: Vec<f32> = (0..32)
         .map(|s| if (8..24).contains(&s) { 0.9 } else { 0.2 })
         .collect();
+    let bar_energy = (0..16)
+        .map(|b| {
+            let e = if (4..12).contains(&b) { 0.9 } else { 0.2 };
+            BarEnergy {
+                overall: e,
+                low: e - 0.1,
+                mid: e,
+                high: e,
+            }
+        })
+        .collect();
+    let event = |time_ms, kind, strength, duration_ms| Event {
+        time_ms,
+        kind,
+        strength,
+        duration_ms,
+    };
     Analysis {
         duration_ms: 32_000,
         tempo_bpm: Some(120.0),
@@ -73,6 +91,17 @@ fn song_analysis() -> Analysis {
         onsets: beats.clone(),
         beats,
         energy,
+        events: vec![
+            event(4_000, EventKind::Build, 0.6, Some(4_000)),
+            event(8_000, EventKind::Drop, 1.0, None),
+            event(16_250, EventKind::Hit, 0.8, None),
+        ],
+        bar_energy,
+        confidence: Confidence {
+            tempo: 0.9,
+            downbeat: 0.7,
+            sections: 0.0,
+        },
         ..Analysis::default()
     }
 }
@@ -225,6 +254,19 @@ fn the_song_is_analyzed_once_off_the_engine_and_summarized() {
     assert_eq!(labels, ["Intro", "High 1", "Outro"]);
     assert_eq!(summary["sections"][1]["startMs"], 8_000);
     assert_eq!(summary["sections"][1]["level"], "high");
+    assert_eq!(summary["sections"][0]["group"], "A");
+    let accents: Vec<(&str, u64)> = summary["accents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| (a["kind"].as_str().unwrap(), a["atMs"].as_u64().unwrap()))
+        .collect();
+    assert_eq!(accents, [("build", 4_000), ("drop", 8_000), ("hit", 16_250)]);
+    assert_eq!(summary["accents"][0]["forMs"], 4_000);
+    assert!(summary["accents"][1].get("forMs").is_none());
+    assert_eq!(summary["barEnergy"], "2222888888882222", "a digit per bar");
+    assert_eq!(summary["barBass"], "1111777777771111");
+    assert_eq!(summary["confidence"]["downbeat"], 0.7);
 
     ask(&mut session, &provider, &s.engine, "And again?").0.unwrap();
     assert_eq!(runs.load(Ordering::SeqCst), 1, "kept for the chat");
@@ -268,7 +310,10 @@ fn timing_tracks_come_from_the_song() {
         calls("", &[("add_song_timing", json!({}))]),
         calls(
             "",
-            &[("add_song_timing", json!({ "tracks": ["bars", "onsets"] }))],
+            &[(
+                "add_song_timing",
+                json!({ "tracks": ["bars", "onsets", "accents"] }),
+            )],
         ),
         says("Timing is in."),
     ]);
@@ -288,6 +333,8 @@ fn timing_tracks_come_from_the_song() {
     assert_eq!(second[0]["name"], "Bars");
     assert_eq!(second[0]["added"], false, "already there: reused");
     assert_eq!(second[1]["name"], "Onsets");
+    assert_eq!(second[2]["name"], "Accents");
+    assert_eq!(second[2]["marks"], 3, "the build, the drop, and the hit");
 
     let draft = session.draft().unwrap().sequence().unwrap();
     let kinds: Vec<TimingKind> = draft.timing_tracks.iter().map(|t| t.kind).collect();
@@ -297,6 +344,7 @@ fn timing_tracks_come_from_the_song() {
             TimingKind::Beats,
             TimingKind::Bars,
             TimingKind::Sections,
+            TimingKind::Custom,
             TimingKind::Custom
         ]
     );

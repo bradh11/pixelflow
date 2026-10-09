@@ -87,11 +87,13 @@ export interface LyricsRetimed {
   note: string;
 }
 
-/** How Find lyrics runs: the language it expects when nothing else says (ISO 639-1), and
- * whether to find again without what's kept for the song. */
+/** How Find lyrics runs: the language it expects when nothing else says (ISO 639-1), whether
+ * to find again without what's kept for the song, and whether to time the words on this computer
+ * (Settings → AI's on-device alignment; used only once its model is downloaded). */
 export interface LyricsOptions {
   language: string;
   fresh: boolean;
+  align?: boolean;
 }
 
 /** What looking for the open sequence's music found: where (now used), and the edit that did it. */
@@ -175,7 +177,7 @@ export interface SequencerApi {
   ): Promise<LyricsFound>;
   /** Lines the lyrics up again with another candidate or pasted lyrics, from what Find lyrics
    * gathered (nothing is looked up or sent), replacing the tracks as one undo step. */
-  chooseLyrics(choice: LyricsChoice): Promise<LyricsFound>;
+  chooseLyrics(choice: LyricsChoice, options?: { align?: boolean }): Promise<LyricsFound>;
   cancelLyrics(): Promise<void>;
   /**
    * Makes the "<name> (syllables)" and "<name> (phonemes)" tracks again from the words on the
@@ -276,12 +278,12 @@ export const tauriSequencer: SequencerApi = {
       ? await listen<{ label: string; fraction: number | null }>(LYRICS_PROGRESS_EVENT, (event) => onProgress(event.payload.label, event.payload.fraction ?? null))
       : null;
     try {
-      return await invoke<LyricsFound>("find_lyrics", { provider, upload, language: options.language, fresh: options.fresh });
+      return await invoke<LyricsFound>("find_lyrics", { provider, upload, language: options.language, fresh: options.fresh, align: options.align ?? false });
     } finally {
       unlisten?.();
     }
   },
-  chooseLyrics: (choice) => invoke("choose_lyrics", { choice }),
+  chooseLyrics: (choice, options) => invoke("choose_lyrics", { choice, align: options?.align ?? false }),
   cancelLyrics: () => invoke("cancel_lyrics"),
   syllablesFromWords: (track) => invoke("syllables_from_words", { track }),
   nudgeLyrics: (track, ms) => invoke("nudge_lyrics", { track, ms: Math.round(ms) }),

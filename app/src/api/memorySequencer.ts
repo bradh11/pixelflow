@@ -428,6 +428,9 @@ function newSequence(name: string, durationMs: number): Sequence {
   return { schemaVersion: 7, name, audio: null, durationMs, frameMs: 25, timingTracks: [], rows: [] };
 }
 
+/** Find lyrics' steps that read the whole song, and so report how far they've got. */
+const READS_THE_SONG = ["Lining up the words", "Separating the vocals", "Aligning the words"];
+
 /** The sequencer in memory. Each instance holds one open sequence, like the engine. */
 export class MemorySequencer implements SequencerApi {
   doc: Sequence | null = null;
@@ -503,6 +506,8 @@ export class MemorySequencer implements SequencerApi {
   /** What the last Find lyrics was asked with, and whether the audio was "heard". */
   lastLyricsOptions: LyricsOptions | null = null;
   private lyricsHeard: boolean | null = null;
+  /** The last lyrics were timed by on-device alignment. */
+  private lyricsAligned = false;
 
   /** With a memory backend, frames are drawn (roughly) from its show and playback runs on its clock. */
   constructor(readonly backend: MemoryBackend | null = null) {}
@@ -875,12 +880,20 @@ export class MemorySequencer implements SequencerApi {
     const doc = this.open_();
     if (!doc.audio) fail("This sequence has no music yet. Choose a song for it first.");
     const started = this.lyricsCancels;
-    const heard = gate.recognizer && upload;
-    const steps = ["Reading the song", "Looking up published lyrics", ...(heard ? ["Sending the audio to OpenAI to hear the words"] : []), "Lining up the words"];
+    // Aligned on this computer, published lyrics need nothing sent to OpenAI.
+    const aligned = options.align === true;
+    const heard = gate.recognizer && upload && !(aligned && this.lyricsFound);
+    const steps = [
+      "Reading the song",
+      "Looking up published lyrics",
+      ...(heard ? ["Sending the audio to OpenAI to hear the words"] : []),
+      "Lining up the words",
+      ...(aligned ? ["Separating the vocals", "Aligning the words"] : []),
+    ];
     for (const label of steps) {
       onProgress?.(label, null);
-      if (label === "Lining up the words" && this.lyricsStepMs > 0) {
-        // Reading the song's voice: progress as it goes.
+      if (READS_THE_SONG.includes(label) && this.lyricsStepMs > 0) {
+        // Reading the whole song: progress as it goes.
         const parts = Math.max(1, Math.round(this.lyricsStepMs / 100));
         for (let i = 0; i <= parts; i++) {
           onProgress?.(label, i / parts);
@@ -894,13 +907,15 @@ export class MemorySequencer implements SequencerApi {
     }
     if (!this.lyricsFound && !heard) fail("No lyrics found for this song.");
     this.lyricsHeard = heard;
+    this.lyricsAligned = aligned;
     return this.writeLyrics(this.lyricsFound ? this.lyricsCandidates[0] : null, null);
   }
 
   /** Lines the lyrics up again with another candidate or pasted lyrics, asking no one. */
-  async chooseLyrics(choice: LyricsChoice): Promise<LyricsFound> {
+  async chooseLyrics(choice: LyricsChoice, options?: { align?: boolean }): Promise<LyricsFound> {
     this.calls.push(`chooseLyrics:${"candidate" in choice ? choice.candidate : "pasted"}`);
     if (this.lyricsHeard === null) fail("Find this song's lyrics first.");
+    this.lyricsAligned = options?.align === true;
     if ("pasted" in choice) {
       const lines = choice.pasted
         .split("\n")
@@ -950,19 +965,30 @@ export class MemorySequencer implements SequencerApi {
     const c = picked?.candidate;
     const text = pasted ? "Lyrics: pasted" : c ? `Lyrics: ${c.artist} — ${c.title} (LRCLIB)` : "Lyrics: OpenAI speech recognition";
     const own = pasted ? "pasted" : "LRCLIB";
-    const timing = heard ? "word timing: OpenAI" : `line timing: ${own}`;
+    const aligned = this.lyricsAligned;
+    const timing = aligned ? "word timing: on this computer" : heard ? "word timing: OpenAI" : `line timing: ${own}`;
+    const summary = aligned
+      ? "Lyrics from LRCLIB, word timing found on this computer."
+      : heard
+        ? "Lyrics from LRCLIB, word timing from OpenAI."
+        : "Lyrics and line timing from LRCLIB; words are spread over each line.";
+    const timingNote = aligned
+      ? `Word timing found on this computer for ${words.length} of ${words.length} words.`
+      : heard
+        ? "Word timing locked to the vocals (average shift 40 ms)."
+        : null;
     return {
       result,
-      summary: heard ? "Lyrics from LRCLIB, word timing from OpenAI." : "Lyrics and line timing from LRCLIB; words are spread over each line.",
+      summary,
       source: `${text} · ${timing}`,
       notes: [],
       lines: phrases.length,
       words: words.length,
-      unsureWords: heard ? 0 : words.length,
+      unsureWords: heard || aligned ? 0 : words.length,
       candidates: this.lyricsFound ? this.lyricsCandidates.map((x) => x.candidate) : [],
       chosen: pasted ? null : (c?.id ?? null),
       pasted: pasted !== null,
-      timingNote: heard ? "Word timing locked to the vocals (average shift 40 ms)." : null,
+      timingNote,
     };
   }
 

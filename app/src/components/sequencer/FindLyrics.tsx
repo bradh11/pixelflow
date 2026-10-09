@@ -26,6 +26,7 @@ export function FindLyrics({ hasMusic }: { hasMusic: boolean }) {
   const hasKey = useAssistant((s) => s.hasKey);
   const lyricsAudioOk = useAssistant((s) => s.lyricsAudioOk);
   const language = useAssistant((s) => s.lyricsLanguage);
+  const align = useAssistant((s) => s.lyricsAlign);
   const [gate, setGate] = useState<LyricsGate | null>(null);
   const [why, setWhy] = useState(false);
   const [asking, setAsking] = useState(false);
@@ -46,7 +47,7 @@ export function FindLyrics({ hasMusic }: { hasMusic: boolean }) {
 
   const run = (upload: boolean, again = fresh) => {
     setAsking(false);
-    void useSequencer.getState().findLyrics(provider, upload, { language, fresh: again });
+    void useSequencer.getState().findLyrics(provider, upload, { language, fresh: again, align });
   };
   const press = (again: boolean) => {
     if (!gate?.ready) {
@@ -213,6 +214,7 @@ export function LyricsSource({ found, run }: { found: LyricsFound; run?: { provi
 
 function WrongSong({ found, run, onClose }: { found: LyricsFound; run?: { provider: ProviderId; upload: boolean }; onClose: () => void }) {
   const language = useAssistant((s) => s.lyricsLanguage);
+  const align = useAssistant((s) => s.lyricsAlign);
   const [text, setText] = useState("");
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -226,7 +228,7 @@ function WrongSong({ found, run, onClose }: { found: LyricsFound; run?: { provid
   }, [onClose]);
   const choose = (choice: { candidate: number } | { pasted: string }) => {
     onClose();
-    void useSequencer.getState().chooseLyrics(choice);
+    void useSequencer.getState().chooseLyrics(choice, { align });
   };
   return (
     <div
@@ -281,7 +283,7 @@ function WrongSong({ found, run, onClose }: { found: LyricsFound; run?: { provid
           title="Look the lyrics up and listen again, without what's kept for this song"
           onClick={() => {
             onClose();
-            if (run) void useSequencer.getState().findLyrics(run.provider, run.upload, { language, fresh: true });
+            if (run) void useSequencer.getState().findLyrics(run.provider, run.upload, { language, fresh: true, align });
           }}
         >
           Find again

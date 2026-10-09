@@ -24,7 +24,7 @@ beforeEach(() => {
     bottom: 600,
     toJSON: () => ({}),
   });
-  useAssistant.setState({ provider: "anthropic", lyricsAudioOk: false, lyricsLanguage: "en", settingsOpen: false });
+  useAssistant.setState({ provider: "anthropic", lyricsAudioOk: false, lyricsLanguage: "en", lyricsAlign: false, settingsOpen: false });
 });
 
 afterEach(() => {
@@ -145,7 +145,7 @@ describe("Find lyrics", () => {
     await waitFor(() => expect(findButton()).toHaveAttribute("aria-disabled", "false"));
     await user.click(findButton());
     expect(await screen.findByText("Lyrics: Lantern Band — Lantern Song (LRCLIB) · line timing: LRCLIB")).toBeInTheDocument();
-    expect(seq.lastLyricsOptions).toEqual({ language: "fr", fresh: false });
+    expect(seq.lastLyricsOptions).toEqual({ language: "fr", fresh: false, align: false });
 
     await user.click(screen.getByRole("button", { name: "Wrong song?" }));
     let picker = screen.getByRole("dialog", { name: "Choose the song's lyrics" });
@@ -173,8 +173,24 @@ describe("Find lyrics", () => {
     await user.click(screen.getByRole("button", { name: "Wrong song?" }));
     picker = screen.getByRole("dialog", { name: "Choose the song's lyrics" });
     await user.click(within(picker).getByRole("button", { name: "Find again" }));
-    await waitFor(() => expect(seq.lastLyricsOptions).toEqual({ language: "fr", fresh: true }));
+    await waitFor(() => expect(seq.lastLyricsOptions).toEqual({ language: "fr", fresh: true, align: false }));
     expect(seq.calls.filter((c) => c === "findLyrics:anthropic:false")).toHaveLength(2);
+  });
+
+  it("with on-device alignment, times the words here and sends nothing to OpenAI", async () => {
+    useAssistant.setState({ provider: "openai", lyricsAudioOk: true, lyricsAlign: true });
+    const { seq, user } = await openScreen(["openai"]);
+    seq.lyricsStepMs = 200;
+    await waitFor(() => expect(findButton()).toHaveAttribute("aria-disabled", "false"));
+    await user.click(findButton());
+    expect(await screen.findByRole("progressbar", { name: "Aligning the words" }, { timeout: 3000 })).toBeInTheDocument();
+    expect(await screen.findByText("Lyrics: Lantern Band — Lantern Song (LRCLIB) · word timing: on this computer", {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(seq.lastLyricsOptions).toEqual({ language: "en", fresh: false, align: true });
+    // Picking other lyrics keeps timing them here.
+    await user.click(screen.getByRole("button", { name: "Wrong song?" }));
+    const picker = screen.getByRole("dialog", { name: "Choose the song's lyrics" });
+    await user.click(within(picker).getAllByRole("button", { pressed: false })[1]);
+    expect(await screen.findByText("Lyrics: Cover Band — Lantern Song (LRCLIB) · word timing: on this computer")).toBeInTheDocument();
   });
 
   it("finds again on Shift-click", async () => {
@@ -183,6 +199,6 @@ describe("Find lyrics", () => {
     await user.keyboard("{Shift>}");
     await user.click(findButton());
     await user.keyboard("{/Shift}");
-    await waitFor(() => expect(seq.lastLyricsOptions).toEqual({ language: "en", fresh: true }));
+    await waitFor(() => expect(seq.lastLyricsOptions).toEqual({ language: "en", fresh: true, align: false }));
   });
 });

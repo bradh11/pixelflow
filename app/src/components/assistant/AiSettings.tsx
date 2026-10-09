@@ -4,6 +4,7 @@ import { type KeyLocation, type KeyStorage, type ModelInfo, PROVIDERS, providerN
 import { errorMessage } from "../../api/backend";
 import { LYRICS_LANGUAGES, useAssistant } from "../../state/assistant";
 import { Button, Field, Select } from "../ui";
+import { AlignmentSettings } from "./AlignmentSettings";
 
 /**
  * Settings → AI: the provider, its API key (typed once, sent to the app's credential store, and
@@ -139,7 +140,7 @@ export function AiSettings() {
         aria-modal="true"
         aria-labelledby="ai-settings-title"
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg rounded-xl border border-neutral-200 bg-white p-5 shadow-2xl dark:border-neutral-800 dark:bg-neutral-900"
+        className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-xl border border-neutral-200 bg-white p-5 shadow-2xl dark:border-neutral-800 dark:bg-neutral-900"
       >
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -245,6 +246,8 @@ export function AiSettings() {
             </p>
           )}
 
+          <h3 className="-mb-2 border-t border-neutral-200 pt-3 text-sm font-semibold dark:border-neutral-800">Lyrics</h3>
+
           <div className="flex flex-col gap-1 text-sm">
             <label htmlFor="ai-lyrics-language" className="text-neutral-600 dark:text-neutral-400">
               Lyrics language
@@ -266,10 +269,13 @@ export function AiSettings() {
             </label>
           )}
 
+          <AlignmentSettings />
+
           <p className="text-xs text-neutral-500">
             When you chat, PixelFlow sends your question and the parts of your show the assistant reads to {name}. The assistant
             can&apos;t save files, start lights, or contact your controllers; it drafts changes for you to apply. Find lyrics
-            sends only a song&apos;s name and length to LRCLIB, and its audio to OpenAI only if you agree.
+            sends only a song&apos;s name and length to LRCLIB, and its audio to OpenAI only if you agree. On-device alignment
+            downloads its model once, only if you agree.
           </p>
         </div>
       </div>

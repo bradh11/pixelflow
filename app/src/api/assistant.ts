@@ -143,6 +143,28 @@ export interface Applied {
   sequence: SequenceEditResult | null;
 }
 
+/** Find lyrics' on-device alignment model: what it is, where it downloads from, how big, and
+ * whether it's here. */
+export interface AlignModels {
+  /** Whether the app has a folder to keep it in. */
+  available: boolean;
+  installed: boolean;
+  downloading: boolean;
+  name: string;
+  licence: string;
+  /** The page that describes it. */
+  source: string;
+  /** Where each file downloads from. */
+  urls: string[];
+  bytes: number;
+}
+
+/** How far the model's download has got. */
+export interface ModelsProgress {
+  received: number;
+  total: number;
+}
+
 /**
  * Everything the assistant asks of the app. Keys only ever go in: nothing returns one, and every
  * call to a provider is made by the app (in Rust), never from this window. Errors reject with a
@@ -172,6 +194,14 @@ export interface AssistantApi {
   /** The draft sequence at `positionMs` on the draft show (frame bytes for `preview`'s pixels), to
    * play the draft without applying it. */
   previewFrame(id: string, positionMs: number): Promise<Uint8Array>;
+  /** Find lyrics' on-device alignment model, and whether it's downloaded. */
+  alignModels(): Promise<AlignModels>;
+  /** Downloads the alignment model (only after the user agreed), checking each file before it's
+   * kept. Rejects with "Stopped." after cancelAlignDownload. */
+  downloadAlignModels(onProgress?: (progress: ModelsProgress) => void): Promise<AlignModels>;
+  cancelAlignDownload(): Promise<void>;
+  /** Deletes the downloaded alignment model. */
+  removeAlignModels(): Promise<AlignModels>;
   /** Drops the proposal when the show or sequence it was made for isn't open anymore (call after
    * either is replaced). True when it was dropped. */
   sync(): Promise<boolean>;
@@ -207,6 +237,8 @@ async function failing<T>(call: Promise<T>): Promise<T> {
 
 /** The event the app streams replies on. */
 export const ASSISTANT_EVENT = "assistant-event";
+/** The event the alignment model's download reports its progress on. */
+export const ALIGN_MODELS_PROGRESS_EVENT = "align-models-progress";
 
 /** The assistant in the desktop app. */
 export const tauriAssistant: AssistantApi = {
@@ -232,5 +264,16 @@ export const tauriAssistant: AssistantApi = {
   discard: (id) => invoke("ai_discard", { id }),
   preview: async (id) => decodePreview(await invoke<ArrayBuffer | number[]>("ai_preview", { id })),
   previewFrame: async (id, positionMs) => new Uint8Array(await invoke<ArrayBuffer>("ai_preview_frame", { id, positionMs })),
+  alignModels: () => invoke("alignment_models"),
+  async downloadAlignModels(onProgress) {
+    const unlisten = onProgress ? await listen<ModelsProgress>(ALIGN_MODELS_PROGRESS_EVENT, (e) => onProgress(e.payload)) : null;
+    try {
+      return await invoke<AlignModels>("download_alignment_models");
+    } finally {
+      unlisten?.();
+    }
+  },
+  cancelAlignDownload: () => invoke("cancel_alignment_download"),
+  removeAlignModels: () => invoke("remove_alignment_models"),
   sync: () => invoke("ai_sync"),
 };

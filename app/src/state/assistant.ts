@@ -41,12 +41,14 @@ export const LYRICS_LANGUAGES: { code: string; name: string }[] = [
 ];
 
 /** Provider and model per provider, whether Find lyrics may send a song's audio to OpenAI
- * without asking, and the language it expects: not secrets, so kept in local storage. */
+ * without asking, the language it expects, and whether it times words on this computer: not
+ * secrets, so kept in local storage. */
 interface SavedSettings {
   provider: ProviderId;
   models: Partial<Record<ProviderId, string>>;
   lyricsAudioOk: boolean;
   lyricsLanguage: string;
+  lyricsAlign: boolean;
 }
 
 function loadSettings(): SavedSettings {
@@ -59,14 +61,14 @@ function loadSettings(): SavedSettings {
       if (typeof model === "string" && model.length > 0 && model.length <= 200) models[id] = model;
     }
     const lyricsLanguage = LYRICS_LANGUAGES.some((l) => l.code === saved.lyricsLanguage) ? (saved.lyricsLanguage as string) : "en";
-    return { provider, models, lyricsAudioOk: saved.lyricsAudioOk === true, lyricsLanguage };
+    return { provider, models, lyricsAudioOk: saved.lyricsAudioOk === true, lyricsLanguage, lyricsAlign: saved.lyricsAlign === true };
   } catch {
-    return { provider: "anthropic", models: {}, lyricsAudioOk: false, lyricsLanguage: "en" };
+    return { provider: "anthropic", models: {}, lyricsAudioOk: false, lyricsLanguage: "en", lyricsAlign: false };
   }
 }
 
 function settingsOf(s: SavedSettings): SavedSettings {
-  return { provider: s.provider, models: s.models, lyricsAudioOk: s.lyricsAudioOk, lyricsLanguage: s.lyricsLanguage };
+  return { provider: s.provider, models: s.models, lyricsAudioOk: s.lyricsAudioOk, lyricsLanguage: s.lyricsLanguage, lyricsAlign: s.lyricsAlign };
 }
 
 function saveSettings(settings: SavedSettings) {
@@ -111,6 +113,8 @@ interface AssistantState {
   lyricsAudioOk: boolean;
   /** The language Find lyrics expects when the published lyrics and the song's tags don't say. */
   lyricsLanguage: string;
+  /** Find lyrics times the words on this computer (its model downloaded in Settings → AI). */
+  lyricsAlign: boolean;
   /** Whether the current provider has a key (null until checked). */
   hasKey: boolean | null;
   items: ChatItem[];
@@ -134,6 +138,7 @@ interface AssistantState {
   setModel(model: string): void;
   setLyricsAudioOk(ok: boolean): void;
   setLyricsLanguage(code: string): void;
+  setLyricsAlign(on: boolean): void;
   /** Checks whether the current provider has a key (after Settings changes it). */
   refreshKey(): Promise<void>;
   send(text: string): Promise<void>;
@@ -192,6 +197,7 @@ export const useAssistant = create<AssistantState>((set, get) => {
     models: saved.models,
     lyricsAudioOk: saved.lyricsAudioOk,
     lyricsLanguage: saved.lyricsLanguage,
+    lyricsAlign: saved.lyricsAlign,
     hasKey: null,
     items: [],
     streaming: false,
@@ -233,6 +239,11 @@ export const useAssistant = create<AssistantState>((set, get) => {
     setLyricsLanguage(lyricsLanguage) {
       set({ lyricsLanguage });
       saveSettings({ ...settingsOf(get()), lyricsLanguage });
+    },
+
+    setLyricsAlign(lyricsAlign) {
+      set({ lyricsAlign });
+      saveSettings({ ...settingsOf(get()), lyricsAlign });
     },
 
     async refreshKey() {

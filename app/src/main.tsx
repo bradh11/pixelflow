@@ -58,6 +58,7 @@ if (inTauri()) {
   if (demo) {
     assistant.keys.set("anthropic", "keychain");
     assistant.delayMs = 20;
+    assistant.alignDownloadMs = 4000;
     if (!useAssistant.getState().models.anthropic) useAssistant.getState().setModel("claude-opus-5-5");
   }
   void useAssistant.getState().connect(assistant);

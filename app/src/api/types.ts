@@ -1156,8 +1156,9 @@ export interface AudioInfo {
 }
 
 /** Long work on a music file: its length (when the header doesn't say), its waveform, the audio
- * track effects follow, and its beats. */
-export type AudioTask = "probe" | "waveform" | "audioTrack" | "beats";
+ * track effects follow, its beats, and Find lyrics' on-device alignment (separating the vocals, aligning
+ * the words). */
+export type AudioTask = "probe" | "waveform" | "audioTrack" | "beats" | "separate" | "align";
 
 /** How far long work on a music file has got. */
 export interface AudioProgress {

@@ -13,12 +13,18 @@
 //! What was gathered for the last song is kept, so other published lyrics, or lyrics the user
 //! pastes, can be lined up again without asking anyone ([`choose_lyrics`]). What went wrong
 //! talking to LRCLIB or OpenAI is logged in detail; the user is told in plain words.
+//!
+//! **On-device alignment** (`align`, the user's Settings → AI choice): the words are lined up
+//! with the song on this computer ([`pf_ai::lyrics::forced`]), with its model downloaded once,
+//! only when the user agrees ([`download_alignment_models`]), into the app's data folder.
 
 use crate::assistant::AiState;
-use crate::progress::Throttle;
+use crate::progress::{AUDIO_PROGRESS_EVENT, AudioProgress, AudioTask, Throttle};
 use crate::{AppState, Reply, message};
+use pf_ai::lyrics::forced::{OnDevice, SongAligner};
 use pf_ai::lyrics::{self, CandidateView, Choice, Gathered, LyricsCache, LyricsGate, Services, Step};
 use pf_ai::{Cancel, ProviderId};
+use pf_align::ModelStore;
 use pf_engine::{EngineError, SequenceEditResult};
 use pf_sequence::{TimingKind, TimingTrackId};
 use serde::Serialize;
@@ -46,13 +52,19 @@ struct Last {
     gathered: Gathered,
 }
 
-/// Find lyrics' state: who's asked, where answers are kept, the search in progress, and what
-/// was gathered last.
+/// Find lyrics' state: who's asked, where answers are kept, the search in progress, what was
+/// gathered last, and the on-device aligner's model.
 pub(crate) struct LyricsState {
     services: Arc<Services>,
     cache: Option<LyricsCache>,
     running: Mutex<Option<Cancel>>,
     last: Mutex<Option<Last>>,
+    /// Where the alignment model is kept, when the app has a data folder.
+    models: Option<ModelStore>,
+    /// The aligner, loaded once it's first used.
+    aligner: Mutex<Option<Arc<OnDevice>>>,
+    /// The model download in progress.
+    downloading: Mutex<Option<Cancel>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -66,16 +78,36 @@ impl LyricsState {
             cache: cache_dir.as_deref().map(LyricsCache::new),
             running: Mutex::default(),
             last: Mutex::default(),
+            models: None,
+            aligner: Mutex::default(),
+            downloading: Mutex::default(),
         }
     }
 
-    /// LRCLIB and OpenAI over HTTPS, kept in the app's cache folder, problems logged.
-    pub(crate) fn live(cache_dir: Option<PathBuf>) -> Self {
+    /// The alignment model kept under `data_dir`.
+    pub(crate) fn with_models(mut self, data_dir: Option<PathBuf>) -> Self {
+        self.models = data_dir.map(|dir| ModelStore::new(&dir, pf_align::WAV2VEC2));
+        self
+    }
+
+    /// LRCLIB and OpenAI over HTTPS, kept in the app's cache folder, problems logged; the
+    /// alignment model in its data folder.
+    pub(crate) fn live(cache_dir: Option<PathBuf>, data_dir: Option<PathBuf>) -> Self {
         let services = Services {
             log: Box::new(|line| log::warn!("find lyrics: {line}")),
             ..Services::live()
         };
-        Self::new(services, cache_dir)
+        Self::new(services, cache_dir).with_models(data_dir)
+    }
+
+    /// The on-device aligner, when its model is downloaded (loaded once, on first use).
+    fn aligner(&self) -> Option<Arc<OnDevice>> {
+        let store = self.models.as_ref()?;
+        let mut kept = lock(&self.aligner);
+        if kept.is_none() {
+            *kept = OnDevice::new(store).map(Arc::new);
+        }
+        kept.clone().filter(|_| store.is_installed())
     }
 }
 
@@ -194,11 +226,32 @@ fn add_found(state: &AppState, doc: u64, music: &Path, found: lyrics::Found) -> 
     })
 }
 
+/// Sends the progress of an on-device alignment step on `path` as the window's other long
+/// music work does ([`AUDIO_PROGRESS_EVENT`]).
+fn alignment_progress<R: Runtime>(app: &AppHandle<R>, step: &str, path: &Path, fraction: f32) {
+    let task = if step == Step::Separating.label() {
+        AudioTask::Separate
+    } else if step == Step::Aligning.label() {
+        AudioTask::Align
+    } else {
+        return;
+    };
+    let _ = app.emit(
+        AUDIO_PROGRESS_EVENT,
+        AudioProgress {
+            task,
+            path: pf_model::path_to_text(path),
+            stage: task.stage(),
+            fraction,
+        },
+    );
+}
+
 /// Finds the open sequence's lyrics and adds them as timing tracks (one undo step). `upload`:
 /// the user agreed to send the song's audio to OpenAI (used only with an OpenAI key).
 /// `language`: the user's Lyrics language (ISO 639-1; English when not given), for when
 /// neither the published lyrics nor the song's tags say. `fresh`: Find again, without what's
-/// kept for the song.
+/// kept for the song. `align`: time the words on this computer, when its model is downloaded.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn find_lyrics<R: Runtime>(
@@ -210,6 +263,7 @@ pub(crate) async fn find_lyrics<R: Runtime>(
     upload: bool,
     language: Option<String>,
     fresh: Option<bool>,
+    align: Option<bool>,
 ) -> Reply<LyricsFound> {
     let vault = ai.vault();
     let gate = lyrics::gate(&vault, provider);
@@ -230,6 +284,11 @@ pub(crate) async fn find_lyrics<R: Runtime>(
     let _running = Running(&lyrics_state.running);
     let services = Arc::clone(&lyrics_state.services);
     let cache = lyrics_state.cache.clone();
+    let aligner = if align.unwrap_or(false) {
+        lyrics_state.aligner()
+    } else {
+        None
+    };
     let looked = song.music.clone();
     let sections = song.sections.clone();
     let stop = cancel.clone();
@@ -247,6 +306,7 @@ pub(crate) async fn find_lyrics<R: Runtime>(
                         fraction: Some(fraction),
                     },
                 );
+                alignment_progress(&app, label, &looked, fraction);
             }
         };
         let request = lyrics::Request {
@@ -259,6 +319,7 @@ pub(crate) async fn find_lyrics<R: Runtime>(
             language: &language,
             fresh: fresh.unwrap_or(false),
             progress: &progress,
+            aligner: aligner.as_deref().map(|a| a as &dyn SongAligner),
         };
         let mut on_step = |step: Step| {
             at.set(step.label());
@@ -269,6 +330,7 @@ pub(crate) async fn find_lyrics<R: Runtime>(
                     fraction: None,
                 },
             );
+            alignment_progress(&app, step.label(), &looked, 0.0);
         };
         let gathered = lyrics::gather(&services, &request, &mut on_step)?;
         let found = lyrics::assemble(&services, &request, &gathered, &mut on_step)?;
@@ -288,12 +350,14 @@ pub(crate) async fn find_lyrics<R: Runtime>(
 
 /// Lines the open sequence's lyrics up again with other lyrics: another of the published ones
 /// found, or lyrics the user pasted (plain lines or LRC). Uses what Find lyrics gathered for
-/// the song, asking no one, and keeps the choice for the song. One undo step.
+/// the song, asking no one, and keeps the choice for the song. One undo step. `align`: time the
+/// words on this computer, as [`find_lyrics`].
 #[tauri::command]
 pub(crate) async fn choose_lyrics(
     state: State<'_, AppState>,
     lyrics_state: State<'_, LyricsState>,
     choice: Choice,
+    align: Option<bool>,
 ) -> Reply<LyricsFound> {
     let song = sequence_song(&state)?;
     let mut gathered = match lock(&lyrics_state.last).as_ref() {
@@ -305,6 +369,11 @@ pub(crate) async fn choose_lyrics(
     let _running = Running(&lyrics_state.running);
     let services = Arc::clone(&lyrics_state.services);
     let cache = lyrics_state.cache.clone();
+    let aligner = if align.unwrap_or(false) {
+        lyrics_state.aligner()
+    } else {
+        None
+    };
     let looked = song.music.clone();
     let stop = cancel.clone();
     let kept = gathered.clone();
@@ -319,6 +388,7 @@ pub(crate) async fn choose_lyrics(
             language: lyrics::language::DEFAULT,
             fresh: false,
             progress: &|_| {},
+            aligner: aligner.as_deref().map(|a| a as &dyn SongAligner),
         };
         lyrics::assemble(&services, &request, &kept, &mut |_| {})
     })
@@ -448,6 +518,129 @@ pub(crate) async fn retime_lyrics(
         return Err("The sequence or its music changed meanwhile. Try again.".to_string());
     }
     retime_lyrics_in(&mut engine, track, &voice)
+}
+
+/// The event the alignment model's download reports its progress with.
+pub(crate) const ALIGN_MODELS_PROGRESS_EVENT: &str = "align-models-progress";
+
+/// The on-device alignment model, as Settings shows it: what it is, where it comes from, how
+/// big, and whether it's here.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AlignModels {
+    /// Whether the app has somewhere to keep it.
+    pub available: bool,
+    pub installed: bool,
+    pub downloading: bool,
+    pub name: &'static str,
+    pub licence: &'static str,
+    /// The page that describes it.
+    pub source: &'static str,
+    /// Where each file is downloaded from.
+    pub urls: Vec<&'static str>,
+    pub bytes: u64,
+}
+
+/// How far the model's download has got.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ModelsProgress {
+    pub received: u64,
+    pub total: u64,
+}
+
+fn align_models(lyrics_state: &LyricsState) -> AlignModels {
+    let manifest = pf_align::WAV2VEC2;
+    AlignModels {
+        available: lyrics_state.models.is_some(),
+        installed: lyrics_state.models.as_ref().is_some_and(ModelStore::is_installed),
+        downloading: lock(&lyrics_state.downloading).is_some(),
+        name: manifest.name,
+        licence: manifest.licence,
+        source: manifest.source,
+        urls: manifest.files.iter().map(|f| f.url).collect(),
+        bytes: manifest.bytes(),
+    }
+}
+
+/// The on-device alignment model: what it is and whether it's downloaded.
+#[tauri::command]
+pub(crate) async fn alignment_models(lyrics_state: State<'_, LyricsState>) -> Reply<AlignModels> {
+    Ok(align_models(&lyrics_state))
+}
+
+/// Downloads the on-device alignment model (after the user agreed in Settings), each file
+/// checked against its SHA-256 before it's kept. Reports its progress
+/// ([`ALIGN_MODELS_PROGRESS_EVENT`]); [`cancel_alignment_download`] stops it, keeping nothing.
+#[tauri::command]
+pub(crate) async fn download_alignment_models<R: Runtime>(
+    app: AppHandle<R>,
+    lyrics_state: State<'_, LyricsState>,
+) -> Reply<AlignModels> {
+    let store = lyrics_state
+        .models
+        .clone()
+        .ok_or_else(|| "PixelFlow has no folder to keep the model in.".to_string())?;
+    let cancel = {
+        let mut downloading = lock(&lyrics_state.downloading);
+        if downloading.is_some() {
+            return Err("The model is already downloading.".to_string());
+        }
+        let cancel = Cancel::new();
+        *downloading = Some(cancel.clone());
+        cancel
+    };
+    let _downloading = Running(&lyrics_state.downloading);
+    let stop = cancel.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let throttle = Throttle::default();
+        store.download(
+            &|received, total| {
+                let fraction = received as f32 / total.max(1) as f32;
+                if throttle.due(fraction, Instant::now()) {
+                    let _ = app.emit(ALIGN_MODELS_PROGRESS_EVENT, ModelsProgress { received, total });
+                }
+            },
+            &|| stop.is_cancelled(),
+        )
+    })
+    .await
+    .map_err(|_| "Something went wrong downloading the model.".to_string())?;
+    match result {
+        Ok(()) => {}
+        Err(pf_align::AlignError::Cancelled) => return Err("Stopped.".to_string()),
+        Err(error) => {
+            log::warn!("alignment model download: {error:?}");
+            return Err(error.to_string());
+        }
+    }
+    drop(_downloading);
+    Ok(align_models(&lyrics_state))
+}
+
+/// Stops the model download (nothing half-downloaded is kept).
+#[tauri::command]
+pub(crate) async fn cancel_alignment_download(lyrics_state: State<'_, LyricsState>) -> Reply<()> {
+    if let Some(cancel) = lock(&lyrics_state.downloading).as_ref() {
+        cancel.cancel();
+    }
+    Ok(())
+}
+
+/// Deletes the on-device alignment model from the app's data folder.
+#[tauri::command]
+pub(crate) async fn remove_alignment_models(lyrics_state: State<'_, LyricsState>) -> Reply<AlignModels> {
+    if lock(&lyrics_state.downloading).is_some() {
+        return Err("Wait for the download to finish, or stop it, first.".to_string());
+    }
+    *lock(&lyrics_state.aligner) = None;
+    if let Some(store) = &lyrics_state.models {
+        store.remove().map_err(|e| {
+            log::warn!("removing the alignment model: {e:?}");
+            "The model couldn't be removed.".to_string()
+        })?;
+    }
+    Ok(align_models(&lyrics_state))
 }
 
 /// Stops finding lyrics (it ends at its next step, adding nothing).

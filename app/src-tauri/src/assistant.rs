@@ -487,18 +487,21 @@ mod tests {
                 vendor_mappings: Arc::new(crate::vendor::SavedMappings::new(None)),
             })
             .manage(AiState::new(KeyVault::new(Box::new(store)), providers))
-            .manage(crate::lyrics::LyricsState::new(
-                pf_ai::lyrics::Services {
-                    lrclib: pf_ai::lyrics::lrclib::Lrclib::new(lrclib.clone())
-                        .with_retry_delay(std::time::Duration::ZERO),
-                    transcriber: pf_ai::lyrics::transcribe::Transcriber::new(whisper.clone())
-                        .with_retry(RetryPolicy::immediate()),
-                    voice: Box::new(|_, _, _| Ok(pf_analysis::VocalTrack::default())),
-                    tags: Box::new(|path| pf_audio::read_tags(path).ok()),
-                    log: Box::new(|_| {}),
-                },
-                None,
-            ))
+            .manage(
+                crate::lyrics::LyricsState::new(
+                    pf_ai::lyrics::Services {
+                        lrclib: pf_ai::lyrics::lrclib::Lrclib::new(lrclib.clone())
+                            .with_retry_delay(std::time::Duration::ZERO),
+                        transcriber: pf_ai::lyrics::transcribe::Transcriber::new(whisper.clone())
+                            .with_retry(RetryPolicy::immediate()),
+                        voice: Box::new(|_, _, _| Ok(pf_analysis::VocalTrack::default())),
+                        tags: Box::new(|path| pf_audio::read_tags(path).ok()),
+                        log: Box::new(|_| {}),
+                    },
+                    None,
+                )
+                .with_models(Some(dir.path().join("data"))),
+            )
             .build(context())
             .unwrap();
         let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
@@ -1072,6 +1075,45 @@ mod tests {
             ]
         );
         call(&t, "cancel_lyrics", json!({})).unwrap();
+    }
+
+    #[test]
+    fn the_alignment_model_is_described_until_downloaded_and_find_lyrics_works_without_it() {
+        let t = app_with(MemoryStore::new());
+        call(
+            &t,
+            "set_api_key",
+            json!({ "provider": "openai", "key": FAKE_KEY }),
+        )
+        .unwrap();
+        let models = call(&t, "alignment_models", json!({})).unwrap();
+        assert_eq!(models["available"], true);
+        assert_eq!(models["installed"], false);
+        assert_eq!(models["downloading"], false);
+        assert_eq!(models["licence"], "Apache-2.0");
+        assert_eq!(models["bytes"], 189_118_943);
+        assert!(
+            models["urls"][0]
+                .as_str()
+                .unwrap()
+                .starts_with("https://huggingface.co/")
+        );
+        // Nothing to remove: fine. Nothing to stop: fine.
+        assert_eq!(
+            call(&t, "remove_alignment_models", json!({})).unwrap()["installed"],
+            false
+        );
+        call(&t, "cancel_alignment_download", json!({})).unwrap();
+        // Asked to align without the model: found as before.
+        sequence_with_song(&t);
+        t.lrclib.push(Reply::ok(lrclib_reply()));
+        let found = call(
+            &t,
+            "find_lyrics",
+            json!({ "provider": "openai", "upload": false, "align": true }),
+        )
+        .unwrap();
+        assert!(found["source"].as_str().unwrap().ends_with("line timing: LRCLIB"));
     }
 
     #[test]

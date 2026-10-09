@@ -269,6 +269,52 @@ describe("timing tracks", () => {
     expect(track(seq, "Lead (syllables)").id).toBe(syllables);
   });
 
+  it("nudges a lyrics track with its words, syllables, and mouth shapes, one undo step a move", async () => {
+    const { seq, user } = await openScreen();
+    const add = (t: TimingTrack) => act(() => useSequencer.getState().edit([{ type: "addTimingTrack", track: t }]));
+    await add({ id: crypto.randomUUID(), name: "Lead", kind: "lyrics", marks: [{ startMs: 1000, endMs: 2000, label: "paper lanterns" }] });
+    await add({ id: crypto.randomUUID(), name: "Lead (words)", kind: "words", marks: [{ startMs: 1000, endMs: 1400, label: "paper" }, { startMs: 1500, endMs: 2000, label: "lanterns" }] });
+    await add({ id: crypto.randomUUID(), name: "Lead (syllables)", kind: "custom", marks: [{ startMs: 1000, endMs: 1200, label: "pa" }] });
+    await add({ id: crypto.randomUUID(), name: "Lead (phonemes)", kind: "phonemes", marks: [{ startMs: 1000, endMs: 1050, label: "MBP" }] });
+    // Not on a track that isn't a lyrics track.
+    await user.click(screen.getByRole("button", { name: "Beats menu" }));
+    expect(screen.queryByRole("menuitem", { name: "Nudge lyrics…" })).toBeNull();
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Lead (syllables) menu" }));
+    await user.click(screen.getByRole("menuitem", { name: "Nudge lyrics…" }));
+    const dialog = screen.getByRole("dialog", { name: "Nudge lyrics" });
+    const before = seq.undoStack.length;
+    await user.click(within(dialog).getByRole("button", { name: "Earlier by 50 ms" }));
+    await waitFor(() => expect(spans(track(seq, "Lead (words)"))).toEqual([[950, 1350, "paper"], [1450, 1950, "lanterns"]]));
+    expect(spans(track(seq, "Lead"))[0][0]).toBe(950);
+    expect(spans(track(seq, "Lead (syllables)"))[0][0]).toBe(950);
+    expect(spans(track(seq, "Lead (phonemes)"))[0][0]).toBe(950);
+    expect(seq.undoStack.length).toBe(before + 1);
+    // A typed amount, later.
+    const amount = within(dialog).getByRole("spinbutton", { name: "Move by (ms)" });
+    await user.clear(amount);
+    await user.type(amount, "120");
+    await user.click(within(dialog).getByRole("button", { name: "Later" }));
+    await waitFor(() => expect(spans(track(seq, "Lead"))[0][0]).toBe(1070));
+    expect(within(dialog).getByText(/Moved later by 70 ms in all/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Done" }));
+    // Undo takes back one move.
+    await act(() => useSequencer.getState().undo());
+    await waitFor(() => expect(spans(track(seq, "Lead"))[0][0]).toBe(950));
+  });
+
+  it("re-times a lyrics track's words to the vocals without looking anything up", async () => {
+    const { seq, user } = await openScreen();
+    const add = (t: TimingTrack) => act(() => useSequencer.getState().edit([{ type: "addTimingTrack", track: t }]));
+    await add({ id: crypto.randomUUID(), name: "Lead", kind: "lyrics", marks: [{ startMs: 1000, endMs: 2000, label: "paper lanterns" }] });
+    await add({ id: crypto.randomUUID(), name: "Lead (words)", kind: "words", marks: [{ startMs: 1000, endMs: 1400, label: "paper" }] });
+    await user.click(screen.getByRole("button", { name: "Lead menu" }));
+    await user.click(screen.getByRole("menuitem", { name: "Re-time to vocals" }));
+    await waitFor(() => expect(seq.calls).toContain(`retimeLyrics:${track(seq, "Lead").id}`));
+    await waitFor(() => expect(useSequencer.getState().notice?.text).toBe("The words already sit where the vocals start."));
+    expect(seq.calls.some((c) => c.startsWith("findLyrics"))).toBe(false);
+  });
+
   it("drags marks and their edges, labels them in place, adds them by double-click, and deletes them", async () => {
     const { seq, user } = await openScreen();
     await withLyrics([{ startMs: 6000, endMs: 9000, label: "Hello" }]);

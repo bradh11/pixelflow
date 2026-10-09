@@ -539,6 +539,9 @@ export interface Mark {
   startMs: number;
   endMs: number;
   label: string;
+  /** How a sung word's label is said, when not as it's spelled ("fraid" for "afraid"): its
+   * syllables and mouth shapes come from this. Dropped when the label changes. */
+  sung?: string;
 }
 
 export interface TimingTrack {

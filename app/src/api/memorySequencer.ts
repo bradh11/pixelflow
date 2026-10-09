@@ -39,7 +39,7 @@ import {
   type TimingTrack,
 } from "./sequence";
 import type { ProviderId } from "./assistant";
-import type { LyricsCandidate, LyricsChoice, LyricsFound, LyricsGate, LyricsOptions, MusicFound, SequencerApi } from "./sequencer";
+import type { LyricsCandidate, LyricsChoice, LyricsFound, LyricsGate, LyricsOptions, LyricsRetimed, MusicFound, SequencerApi } from "./sequencer";
 import * as marks from "./timingMarks";
 import { formatMs } from "./timingMarks";
 import { wordPhonemes } from "../lib/submodels";
@@ -281,8 +281,12 @@ export function applySequenceEdit(doc: Sequence, edit: SequenceEdit) {
       if (edit.mark.endMs > track.marks[edit.index].endMs) marks.checkInside(edit.mark.endMs, doc.durationMs);
       const other = marks.overlapWith(track.marks, edit.mark, [edit.index]);
       if (other >= 0) fail(marks.overlapMessage(track, track.marks[other]));
+      // A new label is sung as it's spelled, unless told otherwise.
+      const old = track.marks[edit.index];
+      const mark = { ...edit.mark };
+      if (mark.label !== old.label && mark.sung === old.sung) delete mark.sung;
       track.marks.splice(edit.index, 1);
-      track.marks.splice(marks.insertIndex(track.marks, edit.mark.startMs), 0, { ...edit.mark });
+      track.marks.splice(marks.insertIndex(track.marks, mark.startMs), 0, mark);
       return;
     }
     case "removeMarks": {
@@ -940,7 +944,47 @@ export class MemorySequencer implements SequencerApi {
       candidates: this.lyricsFound ? this.lyricsCandidates.map((x) => x.candidate) : [],
       chosen: pasted ? null : (c?.id ?? null),
       pasted: pasted !== null,
+      timingNote: heard ? "Word timing locked to the vocals (average shift 40 ms)." : null,
     };
+  }
+
+  /** The lyrics track `track` belongs with, and its words, syllables, and phonemes tracks. */
+  private lyricFamily(doc: Sequence, track: string): TimingTrack[] {
+    const picked = doc.timingTracks.find((t) => t.id === track);
+    if (!picked) return [];
+    const suffixes: [TimingTrack["kind"], string][] = [
+      ["lyrics", ""],
+      ["words", " (words)"],
+      ["custom", " (syllables)"],
+      ["phonemes", " (phonemes)"],
+    ];
+    const own = suffixes.find(([kind, suffix]) => kind === picked.kind && picked.name.endsWith(suffix));
+    if (!own) return [];
+    const base = picked.name.slice(0, picked.name.length - own[1].length);
+    return suffixes.flatMap(([kind, suffix]) => doc.timingTracks.filter((t) => t.kind === kind && t.name === `${base}${suffix}`));
+  }
+
+  async nudgeLyrics(track: string, ms: number): Promise<SequenceEditResult> {
+    this.calls.push(`nudgeLyrics:${track}:${ms}`);
+    const doc = this.open_();
+    const family = this.lyricFamily(doc, track).filter((t) => t.marks.length > 0);
+    if (family.length === 0 || ms === 0) fail("That isn't a lyrics track with marks to move.");
+    const at = (t: number) => Math.max(0, Math.min(doc.durationMs, t + ms));
+    const edits: SequenceEdit[] = family.map((t) => ({
+      type: "updateTimingTrack" as const,
+      track: { ...t, marks: t.marks.map((m) => ({ ...m, startMs: at(m.startMs), endMs: at(m.endMs) })).filter((m) => m.endMs > m.startMs) },
+    }));
+    return this.editSequence(edits);
+  }
+
+  /** There's no song to listen to here: the words stay where they are. */
+  async retimeLyrics(track: string): Promise<LyricsRetimed> {
+    this.calls.push(`retimeLyrics:${track}`);
+    const doc = this.open_();
+    const words = this.lyricFamily(doc, track).find((t) => t.kind === "words" && t.marks.length > 0);
+    if (!words) fail("There are no words to re-time on that lyrics track.");
+    const result = await this.editSequence([{ type: "updateTimingTrack", track: { ...words } }]);
+    return { result, note: "The words already sit where the vocals start." };
   }
 
   async cancelLyrics() {

@@ -292,6 +292,56 @@ export function PasteLyricsDialog({ doc, track, onClose }: { doc: Sequence; trac
   );
 }
 
+/** Whether `track` is a lyrics track or one of its words, syllables, or phonemes tracks. */
+export function isLyricTrack(track: TimingTrack): boolean {
+  return track.kind === "lyrics" || track.kind === "words" || track.kind === "phonemes" || (track.kind === "custom" && track.name.endsWith(" (syllables)"));
+}
+
+/** Moves a lyrics track and its words, syllables, and phonemes earlier or later together: each
+ * step at once (one undo step each), or a typed amount. */
+export function NudgeLyricsDialog({ track, onClose }: { track: TimingTrack; onClose: () => void }) {
+  const [amount, setAmount] = useState("100");
+  const [moved, setMoved] = useState(0);
+  const ms = Math.round(Number(amount));
+  const bad = !Number.isFinite(ms) || ms <= 0;
+  const nudge = async (by: number) => {
+    if (await useSequencer.getState().nudgeLyrics(track.id, by)) setMoved((m) => m + by);
+  };
+  const steps = [-50, -10, 10, 50];
+  return (
+    <Dialog label="Nudge lyrics" onClose={onClose}>
+      <p className="mt-2 text-neutral-600 dark:text-neutral-400">The lines, words, syllables, and mouth shapes move together.</p>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        {steps.map((by) => (
+          <Button key={by} onClick={() => void nudge(by)} aria-label={`${by < 0 ? "Earlier" : "Later"} by ${Math.abs(by)} ms`}>
+            {by < 0 ? `−${-by}` : `+${by}`} ms
+          </Button>
+        ))}
+      </div>
+      <div className="mt-4 flex flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-1">
+          <span className="text-neutral-600 dark:text-neutral-400">Move by (ms)</span>
+          <Input type="number" min={1} step={10} value={amount} aria-invalid={bad || undefined} onChange={(e) => setAmount(e.target.value)} className="w-28 tabular-nums" />
+        </label>
+        <Button disabled={bad} onClick={() => void nudge(-ms)}>
+          Earlier
+        </Button>
+        <Button disabled={bad} onClick={() => void nudge(ms)}>
+          Later
+        </Button>
+      </div>
+      <p className="mt-3 text-xs text-neutral-500" aria-live="polite">
+        {moved === 0 ? "Each move is one undo step." : `Moved ${moved < 0 ? "earlier" : "later"} by ${Math.abs(moved)} ms in all. Each move is one undo step.`}
+      </p>
+      <div className="mt-5 flex justify-end">
+        <Button variant="primary" onClick={onClose}>
+          Done
+        </Button>
+      </div>
+    </Dialog>
+  );
+}
+
 /** Breaks the selected phrase marks of a track (or every phrase with words, when none is selected)
  * into word marks on its words track, adding "<name> (words)" right below it when there's none. */
 export function breakIntoWords(trackId: string): Promise<boolean> {

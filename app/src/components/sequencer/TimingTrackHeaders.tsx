@@ -1,15 +1,16 @@
 // The timing tracks' names beside their strips above the rows: click one to pick it (T taps marks
 // onto the picked track), double-click to rename, drag the grip to reorder, and a menu for
-// everything else (generate marks, paste lyrics, break into words, import, export, delete).
+// everything else (generate marks, paste lyrics, break into words, nudge lyrics, re-time them to
+// the vocals, import, export, delete).
 
 import { GripVertical, MoreHorizontal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Sequence, TimingTrack } from "../../api/sequence";
 import { useSequencer } from "../../state/sequencer";
-import { GenerateMarksDialog, PasteLyricsDialog, breakIntoWords, kindLabel } from "./TimingDialogs";
+import { GenerateMarksDialog, NudgeLyricsDialog, PasteLyricsDialog, breakIntoWords, isLyricTrack, kindLabel } from "./TimingDialogs";
 import { RULER_H, TRACK_H, WAVE_H } from "./drawTimeline";
 
-type Open = { kind: "generate" | "lyrics"; track: string } | null;
+type Open = { kind: "generate" | "lyrics" | "nudge"; track: string } | null;
 
 export function TimingTrackHeaders({ doc }: { doc: Sequence }) {
   const activeTrack = useSequencer((s) => s.activeTrack);
@@ -100,6 +101,7 @@ export function TimingTrackHeaders({ doc }: { doc: Sequence }) {
       })}
       {dialog?.kind === "generate" && opened && <GenerateMarksDialog doc={doc} track={opened} onClose={() => setDialog(null)} />}
       {dialog?.kind === "lyrics" && opened && <PasteLyricsDialog doc={doc} track={opened} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "nudge" && opened && <NudgeLyricsDialog track={opened} onClose={() => setDialog(null)} />}
     </>
   );
 }
@@ -149,7 +151,7 @@ function TrackMenu({
   index: number;
   onClose: () => void;
   onRename: () => void;
-  onDialog: (kind: "generate" | "lyrics") => void;
+  onDialog: (kind: "generate" | "lyrics" | "nudge") => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
@@ -175,12 +177,16 @@ function TrackMenu({
   }, []);
   const store = useSequencer.getState();
   const editable = track.kind !== "phonemes";
+  const lyric = isLyricTrack(track) && track.marks.length > 0;
+  const retiming = useSequencer((s) => s.retimingLyrics);
   const items: { label: string; run: () => void; hidden?: boolean; disabled?: boolean; danger?: boolean }[] = [
     { label: "Rename", run: onRename },
     { label: "Generate marks…", run: () => onDialog("generate"), hidden: !editable },
     { label: "Paste lyrics…", run: () => onDialog("lyrics"), hidden: !editable },
     { label: "Break into words", run: () => void breakIntoWords(track.id), hidden: track.kind !== "lyrics" },
     { label: "Break into syllables", run: () => void store.syllablesFromWords(track.id), hidden: track.kind !== "words" || track.marks.length === 0 },
+    { label: "Nudge lyrics…", run: () => onDialog("nudge"), hidden: !lyric },
+    { label: "Re-time to vocals", run: () => void store.retimeLyrics(track.id), hidden: !lyric || !doc.audio, disabled: retiming },
     { label: "Move up", run: () => void store.edit([{ type: "moveTimingTrack", id: track.id, index: index - 1 }]), disabled: index === 0 },
     { label: "Move down", run: () => void store.edit([{ type: "moveTimingTrack", id: track.id, index: index + 1 }]), disabled: index === doc.timingTracks.length - 1 },
     { label: "Import timing file…", run: () => void store.importTiming() },

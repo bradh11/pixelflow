@@ -163,6 +163,37 @@ pub fn spell(letters: &[u8], phones: &[Phone], syllables: &[Range<usize>]) -> Ve
     if k == 0 {
         return Vec::new();
     }
+    let start_of = phone_letters(letters, phones);
+    let mut starts: Vec<usize> = syllables.iter().map(|s| start_of[s.start]).collect();
+    starts[0] = 0;
+    let doubled = |i: usize| i + 1 < n && letters[i] == letters[i + 1] && !is_vowel_letter(letters[i]);
+    for start in starts.iter_mut().skip(1) {
+        let b = *start;
+        if b >= 2 && doubled(b - 2) {
+            *start = b - 1;
+        } else if doubled(b) {
+            *start = b + 1;
+        }
+    }
+    // In order, each with a letter where there are enough.
+    for s in 1..k {
+        starts[s] = starts[s].max(starts[s - 1] + 1).min(n);
+    }
+    for s in (1..k).rev() {
+        let room = n.saturating_sub(k - s);
+        if starts[s] > room {
+            starts[s] = room.max(starts[s - 1]);
+        }
+    }
+    starts
+}
+
+/// Where each of `phones` starts in `letters` (lowercase a–z), as an index: the vowels matched
+/// to the letter rules' vowels, the consonants between shared out among the letters between.
+/// Letters left over (silent ones) go with the phone before them; a phone with no letter of its
+/// own ("-er" of "fire") starts where the one before it does.
+pub fn phone_letters(letters: &[u8], phones: &[Phone]) -> Vec<usize> {
+    let n = letters.len();
     let ruled: Vec<Range<usize>> = letter_rules(letters)
         .into_iter()
         .filter(|(p, _)| p.is_vowel())
@@ -206,28 +237,10 @@ pub fn spell(letters: &[u8], phones: &[Phone], syllables: &[Range<usize>]) -> Ve
             };
         }
     }
-    let mut starts: Vec<usize> = syllables.iter().map(|s| start_of[s.start]).collect();
-    starts[0] = 0;
-    let doubled = |i: usize| i + 1 < n && letters[i] == letters[i + 1] && !is_vowel_letter(letters[i]);
-    for start in starts.iter_mut().skip(1) {
-        let b = *start;
-        if b >= 2 && doubled(b - 2) {
-            *start = b - 1;
-        } else if doubled(b) {
-            *start = b + 1;
-        }
+    for i in 1..start_of.len() {
+        start_of[i] = start_of[i].max(start_of[i - 1]).min(n);
     }
-    // In order, each with a letter where there are enough.
-    for s in 1..k {
-        starts[s] = starts[s].max(starts[s - 1] + 1).min(n);
-    }
-    for s in (1..k).rev() {
-        let room = n.saturating_sub(k - s);
-        if starts[s] > room {
-            starts[s] = room.max(starts[s - 1]);
-        }
-    }
-    starts
+    start_of
 }
 
 /// Matches the dictionary's vowels (indices into `phones`, by `vowels`) with the letter rules'

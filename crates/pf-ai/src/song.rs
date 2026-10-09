@@ -1,11 +1,12 @@
-//! The open sequence's song: analyzed (tempo, beats, bars, energy, sections, accents) the first
-//! time the assistant asks, kept for the chat, and turned into timing tracks in the draft. The
+//! The open sequence's song: analyzed (tempo, beats, bars, energy, sections, accents, moments,
+//! drums) the first time the assistant asks, kept for the chat, and turned into timing tracks in
+//! the draft. The
 //! analysis runs on the chat's thread, never holding the engine, and stops when the user presses
 //! Stop. The song file is only ever read.
 
 use crate::draft::Draft;
 use crate::provider::Cancel;
-use pf_analysis::{Analysis, BarEnergy};
+use pf_analysis::{Analysis, BarEnergy, Moment};
 use pf_engine::SequenceEdit;
 use pf_sequence::{Sequence, TimingKind, TimingTrack};
 use serde_json::{Value, json};
@@ -41,6 +42,8 @@ const MAX_LISTED_LINES: usize = 40;
 const MAX_LINE_CHARS: usize = 40;
 /// Sung stretches listed by `analyze_song`, at most.
 const MAX_LISTED_VOCALS: usize = 30;
+/// Moments listed by `analyze_song`, at most (the most important).
+pub const MAX_LISTED_MOMENTS: usize = 40;
 
 impl Song<'_> {
     /// The song's analysis, run now if this song hasn't been analyzed yet.
@@ -219,9 +222,59 @@ fn lyrics_summary(user: &Sequence) -> Option<Value> {
     Some(summary)
 }
 
+/// The song's moments: with shouts from the user's sung words (their words track and lyric lines
+/// in `user`, the sequence's name as the title) when there are any.
+pub fn moments(analysis: &Analysis, user: Option<&Sequence>) -> Vec<Moment> {
+    let lyrics = |kind: TimingKind| {
+        user.and_then(|doc| {
+            doc.timing_tracks
+                .iter()
+                .find(|t| t.kind == kind && !t.marks.is_empty())
+        })
+    };
+    match (user, lyrics(TimingKind::Words)) {
+        (Some(doc), Some(words)) => {
+            let lines = lyrics(TimingKind::Lyrics).map_or(&[][..], |t| &t.marks[..]);
+            analysis.moments_with_words(&words.marks, lines, Some(&doc.name))
+        }
+        _ => analysis.moments.clone(),
+    }
+}
+
+/// The most important `MAX_LISTED_MOMENTS` moments, most important first, each as
+/// `[ms, kind, importance, suggest]`, then its label (or null, if it lasts but has none), then
+/// where it ends, if it lasts.
+fn moment_tuples(moments: &[Moment]) -> Vec<Value> {
+    let mut top: Vec<&Moment> = moments.iter().collect();
+    top.sort_by(|a, b| {
+        b.importance
+            .total_cmp(&a.importance)
+            .then(a.time_ms.cmp(&b.time_ms))
+    });
+    top.into_iter()
+        .take(MAX_LISTED_MOMENTS)
+        .map(|m| {
+            let mut tuple = vec![
+                json!(m.time_ms),
+                json!(m.kind.word()),
+                json!(round2(m.importance)),
+                json!(m.suggest.word()),
+            ];
+            if m.label.is_some() || m.end_ms.is_some() {
+                tuple.push(json!(m.label));
+            }
+            if let Some(end) = m.end_ms {
+                tuple.push(json!(end));
+            }
+            Value::Array(tuple)
+        })
+        .collect()
+}
+
 /// What `analyze_song` answers: tempo, counts, bar times, sections (named, grouped by what
-/// repeats, with their energy), the strongest accents, each bar's energy and bass as a digit
-/// string (0–9, a digit per bar), and how sure the analysis is. Sections and accents come from
+/// repeats, with their energy), the strongest accents, the most important moments
+/// ([`moment_tuples`]), each bar's energy, bass, and drums (kicks and snares) as a digit string
+/// (0–9, a digit per bar), and how sure the analysis is. Sections and accents come from
 /// the user's own Sections and Accents tracks in `user` when it has them (`sectionsFrom`,
 /// `accentsFrom`: "user"): those win over what was detected. With the user's lyrics, a short
 /// summary of them too (`lyrics`).
@@ -274,6 +327,12 @@ pub fn describe(analysis: &Analysis, user: Option<&Sequence>) -> Value {
             .map(|e| char::from(b'0' + (level(e).clamp(0.0, 1.0) * 9.0).round() as u8))
             .collect()
     };
+    let drums: String = analysis
+        .bar_drums
+        .iter()
+        .take(MAX_LISTED_BARS)
+        .map(|d| char::from(b'0' + (d.kick + d.snare).min(9) as u8))
+        .collect();
     let from = |user: bool| if user { "user" } else { "analysis" };
     let mut described = json!({
         "durationMs": analysis.duration_ms,
@@ -284,8 +343,10 @@ pub fn describe(analysis: &Analysis, user: Option<&Sequence>) -> Value {
         "sections": sections,
         "accentsFrom": from(my_accents.is_some()),
         "accents": accents,
+        "moments": moment_tuples(&moments(analysis, user)),
         "barEnergy": digits(|e| e.overall),
         "barBass": digits(|e| e.low),
+        "barDrums": drums,
         "confidence": {
             "tempo": round2(analysis.confidence.tempo),
             "downbeat": round2(analysis.confidence.downbeat),
@@ -299,15 +360,20 @@ pub fn describe(analysis: &Analysis, user: Option<&Sequence>) -> Value {
 }
 
 /// The tracks `add_song_timing` can add, by name.
-pub const TRACK_CHOICES: [&str; 7] = [
+pub const TRACK_CHOICES: [&str; 9] = [
     "beats",
     "bars",
     "sections",
     "onsets",
     "accents",
+    "moments",
+    "drums",
     "syllables",
     "phonemes",
 ];
+
+/// The tracks `add_song_timing` adds when none are named.
+pub const DEFAULT_TRACKS: [&str; 5] = ["beats", "bars", "sections", "accents", "moments"];
 
 /// The tracks made from the user's sung words rather than the song's analysis.
 const FROM_WORDS: [&str; 2] = ["syllables", "phonemes"];
@@ -378,6 +444,8 @@ pub fn add_timing(
             "bars" => bars.clone(),
             "sections" => analysis.sections_track(),
             "accents" => analysis.accents_track(),
+            "moments" => moments_track(analysis, doc),
+            "drums" => analysis.drums_track(),
             _ => onsets.clone(),
         };
         let existing = doc
@@ -400,6 +468,17 @@ pub fn add_timing(
         draft.edit_sequence_batch(edits).map_err(|e| e.to_string())?;
     }
     Ok(Value::Array(out))
+}
+
+/// The "Moments" track: the song's moments ([`moments`], with shouts from the sung words in
+/// `doc`), labeled.
+pub fn moments_track(analysis: &Analysis, doc: &Sequence) -> TimingTrack {
+    let beat_ms = analysis
+        .tempo_bpm
+        .filter(|t| *t > 0.0)
+        .map_or(500, |t| (60_000.0 / t).round() as u64)
+        .clamp(100, 1000);
+    pf_analysis::moments_track(&moments(analysis, Some(doc)), beat_ms, analysis.duration_ms)
 }
 
 /// A timing track named or identified by `key` (its id or its name, any case).

@@ -159,10 +159,10 @@ impl Draft {
     }
 
     /// Moves the effect edges and timing marks the draft added or moved onto the song's
-    /// sections, accents, sung words, bars, and beats (see [`crate::align`]), as one more step
-    /// of the draft. The user's own Sections and Accents tracks win over the analysis's; edges
-    /// on the syllables of a syllables track effects were cut at stay on them. Answers how many
-    /// edges moved.
+    /// sections, moments, accents, sung words, bars, and beats (see [`crate::align`]), as one
+    /// more step of the draft. The user's own Sections, Moments, and Accents tracks win over the
+    /// analysis's; edges on the syllables of a syllables track effects were cut at stay on them.
+    /// Answers how many edges moved.
     pub fn lock_to_music(&mut self, analysis: Option<&Analysis>) -> usize {
         let base = self.base.sequence.as_ref().map(|s| &s.doc);
         let Some(doc) = self.sequence.as_ref().filter(|doc| Some(*doc) != base) else {
@@ -184,6 +184,8 @@ impl Draft {
                 let mut tracks = a.timing_tracks();
                 tracks.push(a.sections_track());
                 tracks.push(a.accents_track());
+                tracks.push(a.drums_track());
+                tracks.push(crate::song::moments_track(a, base.unwrap_or(doc)));
                 tracks.into_iter().map(|t| t.marks).collect()
             })
             .unwrap_or_default();

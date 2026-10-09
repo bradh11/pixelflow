@@ -6,7 +6,9 @@
 use pf_ai::provider::Message;
 use pf_ai::testing::{ScriptedProvider, calls, fake_key, says};
 use pf_ai::{AiError, Cancel, ChatEvent, ChatSession, TurnReply, UiContext, Workspace, apply_proposal};
-use pf_analysis::{Analysis, BarEnergy, Confidence, Event, EventKind};
+use pf_analysis::{
+    Analysis, BarDrums, BarEnergy, Confidence, Drum, DrumHit, Event, EventKind, Moment, MomentKind,
+};
 use pf_engine::{Edit, Engine, SequenceEdit};
 use pf_model::{Generator, Group, GroupMember, Prop, ShapeSource};
 use pf_sequence::{EffectKind, Mark, Row, Target, TimingKind, TimingTrack};
@@ -62,7 +64,7 @@ fn setup(song: Option<&str>) -> Setup {
 }
 
 /// A 32 s song at 120 BPM: quiet for 8 s, loud for 16 s, quiet for 8 s; a build into the loud
-/// part, a drop at its start, and a hit in it.
+/// part, a drop at its start, and a hit in it; drums in the loud part, with a crash on the drop.
 fn song_analysis() -> Analysis {
     let beats: Vec<u64> = (0..64).map(|i| i * 500).collect();
     let energy: Vec<f32> = (0..32)
@@ -98,12 +100,59 @@ fn song_analysis() -> Analysis {
             event(16_250, EventKind::Hit, 0.8, None),
         ],
         bar_energy,
+        moments: vec![
+            moment(4_000, Some(8_000), MomentKind::Build, 0.6, None),
+            moment(8_000, None, MomentKind::Drop, 0.95, None),
+            moment(16_250, None, MomentKind::Impact, 0.7, None),
+            moment(20_000, Some(22_000), MomentKind::Hold, 0.4, Some("end")),
+        ],
+        drums: vec![
+            DrumHit {
+                time_ms: 8_000,
+                drum: Drum::Crash,
+                strength: 1.0,
+            },
+            DrumHit {
+                time_ms: 16_250,
+                drum: Drum::Snare,
+                strength: 0.9,
+            },
+        ],
+        bar_drums: (0..16)
+            .map(|b| {
+                let n = if (4..12).contains(&b) { 2 } else { 0 };
+                BarDrums {
+                    kick: n,
+                    snare: n,
+                    hat: 2 * n,
+                    crash: u16::from(b == 4),
+                }
+            })
+            .collect(),
         confidence: Confidence {
             tempo: 0.9,
             downbeat: 0.7,
             sections: 0.0,
         },
         ..Analysis::default()
+    }
+}
+
+fn moment(
+    time_ms: u64,
+    end_ms: Option<u64>,
+    kind: MomentKind,
+    importance: f32,
+    label: Option<&str>,
+) -> Moment {
+    Moment {
+        time_ms,
+        end_ms,
+        kind,
+        strength: importance,
+        importance,
+        label: label.map(str::to_string),
+        suggest: kind.suggest(),
     }
 }
 
@@ -267,6 +316,17 @@ fn the_song_is_analyzed_once_off_the_engine_and_summarized() {
     assert!(summary["accents"][1].get("forMs").is_none());
     assert_eq!(summary["barEnergy"], "2222888888882222", "a digit per bar");
     assert_eq!(summary["barBass"], "1111777777771111");
+    assert_eq!(summary["barDrums"], "0000444444440000", "kicks and snares");
+    // The moments, most important first: [ms, kind, importance, suggest, label, endMs].
+    assert_eq!(
+        summary["moments"],
+        json!([
+            [8_000, "drop", 0.95, "burst"],
+            [16_250, "impact", 0.7, "hit"],
+            [4_000, "build", 0.6, "ramp", null, 8_000],
+            [20_000, "hold", 0.4, "sustain", "end", 22_000],
+        ])
+    );
     assert_eq!(summary["confidence"]["downbeat"], 0.7);
 
     ask(&mut session, &provider, &s.engine, "And again?").0.unwrap();
@@ -327,10 +387,14 @@ fn timing_tracks_come_from_the_song() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names, ["Beats", "Bars", "Sections", "Accents"]);
+    assert_eq!(names, ["Beats", "Bars", "Sections", "Accents", "Moments"]);
     assert_eq!(first[0]["marks"], 64);
     assert_eq!(first[2]["marks"], 3);
     assert_eq!(first[3]["marks"], 3, "the build, the drop, and the hit");
+    assert_eq!(
+        first[4]["marks"], 4,
+        "the build, the drop, the impact, and the hold"
+    );
     let second: Value = serde_json::from_str(&results_in(&provider, 2)[0].0).unwrap();
     assert_eq!(second[0]["name"], "Bars");
     assert_eq!(second[0]["added"], false, "already there: reused");
@@ -347,9 +411,10 @@ fn timing_tracks_come_from_the_song() {
             TimingKind::Bars,
             TimingKind::Sections,
             TimingKind::Custom,
+            TimingKind::Custom,
             TimingKind::Custom
         ],
-        "Accents, then Onsets"
+        "Accents, Moments, then Onsets"
     );
     assert!(
         s.engine.sequence_document().unwrap().timing_tracks.is_empty(),
@@ -550,7 +615,7 @@ fn effects_go_on_many_rows_at_once_along_timing_marks() {
     apply_proposal(&mut engine, session.proposal().unwrap()).unwrap();
     let after = engine.sequence_document().unwrap();
     assert_eq!(after.effect_count(), 12 + 4 + 4 + 6 + 1);
-    assert_eq!(after.timing_tracks.len(), 4);
+    assert_eq!(after.timing_tracks.len(), 5);
     engine.undo_sequence().unwrap();
     assert_eq!(
         engine.sequence_document().unwrap(),
@@ -1018,6 +1083,78 @@ fn lyrics_are_summarized_and_their_words_can_be_accented() {
     assert_eq!(placed(&session, &a, 0), [(2_800, 3_900), (10_120, 11_000)]);
     // Locked onto the sung word, not the beat 200 ms away.
     assert_eq!(placed(&session, &b, 0), [(10_120, 11_000)]);
+}
+
+#[test]
+fn shouts_come_from_the_sung_words_and_moments_and_drums_become_tracks() {
+    let mut s = setup(Some("/music/song.mp3"));
+    // Made-up lyrics: a word sung on its own three times, an exclamation.
+    let shout = |at: u64| Mark::new(at, at + 600, "Spooky!");
+    let lines = TimingTrack::new(
+        "Lyrics",
+        TimingKind::Lyrics,
+        vec![
+            Mark::new(9_000, 10_800, "Who will we call"),
+            shout(11_000),
+            shout(19_000),
+            shout(27_000),
+        ],
+    );
+    let mut words: Vec<Mark> = ["Who", "will", "we", "call"]
+        .iter()
+        .enumerate()
+        .map(|(i, w)| Mark::new(9_000 + 450 * i as u64, 9_450 + 450 * i as u64, *w))
+        .collect();
+    words.extend([shout(11_000), shout(19_000), shout(27_000)]);
+    s.engine
+        .edit_sequence(vec![
+            SequenceEdit::AddTimingTrack { track: lines },
+            SequenceEdit::AddTimingTrack {
+                track: TimingTrack::new("Lyrics (words)", TimingKind::Words, words),
+            },
+        ])
+        .unwrap();
+    let provider = ScriptedProvider::new(vec![
+        calls("", &[("analyze_song", json!({}))]),
+        calls(
+            "",
+            &[("add_song_timing", json!({ "tracks": ["moments", "drums"] }))],
+        ),
+        says("Spooky."),
+    ]);
+    let (mut session, _) = session();
+    ask(&mut session, &provider, &s.engine, "What stands out?")
+        .0
+        .unwrap();
+    let summary: Value = serde_json::from_str(&results_in(&provider, 1)[0].0).unwrap();
+    let shouts: Vec<(u64, &str)> = summary["moments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|m| m[1] == "shout")
+        .map(|m| (m[0].as_u64().unwrap(), m[4].as_str().unwrap()))
+        .collect();
+    assert_eq!(shouts.len(), 3, "{}", summary["moments"]);
+    assert!(shouts.iter().all(|&(_, word)| word == "Spooky"), "{shouts:?}");
+    assert!(
+        summary["moments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|m| m[1] != "shout" || m[3] == "word-pop")
+    );
+
+    let doc = session.draft().unwrap().sequence().unwrap();
+    let track = |name: &str| doc.timing_tracks.iter().find(|t| t.name == name).unwrap();
+    let labels = |name: &str| -> Vec<String> { track(name).marks.iter().map(|m| m.label.clone()).collect() };
+    assert!(
+        labels("Moments").contains(&"Shout: Spooky".to_string()),
+        "{:?}",
+        labels("Moments")
+    );
+    assert!(labels("Moments").contains(&"Drop".to_string()));
+    assert_eq!(labels("Drums"), ["Crash", "Snare"]);
+    assert_eq!(track("Drums").marks[0].start_ms, 8_000);
 }
 
 #[test]

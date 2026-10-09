@@ -859,7 +859,7 @@ fn song_tools() -> Vec<Tool> {
             "add_song_timing",
             "Adds the song's timing tracks to the draft, reusing ones already there; answers their ids.",
             object(
-                json!({ "tracks": { "type": "array", "items": { "enum": crate::song::TRACK_CHOICES }, "description": "Default: beats, bars, sections, accents." } }),
+                json!({ "tracks": { "type": "array", "items": { "enum": crate::song::TRACK_CHOICES }, "description": "Default: beats, bars, sections, accents, moments." } }),
                 &[],
             ),
             ToolKind::AddSongTiming,

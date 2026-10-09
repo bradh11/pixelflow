@@ -7,6 +7,7 @@
 //! | anchor | from | reach |
 //! |---|---|---|
 //! | section boundary | the user's Sections track, else the detected sections | 1 beat |
+//! | moment | the user's Moments track, else the song's impacts, stops (and where they end), restarts, shouts, drops, and any other moment of importance 0.6 or more (and where one that lasts ends) | ½ beat |
 //! | accent | the user's Accents track, else hits, drops, breaks, builds (and where breaks and builds end) | ½ beat |
 //! | word | where each sung word starts, from the user's Lyrics (words) track (else its Lyrics lines) | ½ beat |
 //! | syllable | where each sung syllable starts and ends, only from a syllables track the draft placed effects on | 1 ms |
@@ -25,7 +26,7 @@
 //! marks never overlap. An edge whose move would break a rule stays where it is. Running the pass
 //! again changes nothing.
 
-use pf_analysis::Analysis;
+use pf_analysis::{Analysis, MomentKind};
 use pf_engine::SequenceEdit;
 use pf_sequence::{EffectId, Mark, Sequence, TimingKind, TimingTrack};
 use std::collections::{HashMap, HashSet};
@@ -34,6 +35,7 @@ use std::collections::{HashMap, HashSet};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Anchor {
     Section,
+    Moment,
     Accent,
     Word,
     Syllable,
@@ -41,8 +43,9 @@ pub enum Anchor {
     Beat,
 }
 
-const ANCHORS: [Anchor; 6] = [
+const ANCHORS: [Anchor; 7] = [
     Anchor::Section,
+    Anchor::Moment,
     Anchor::Accent,
     Anchor::Word,
     Anchor::Syllable,
@@ -61,7 +64,7 @@ const DEFAULT_BEAT_MS: f64 = 500.0;
 pub struct Anchors {
     beat_ms: f64,
     /// Sorted times for each kind of anchor, in [`Anchor`] order.
-    times: [Vec<u64>; 6],
+    times: [Vec<u64>; 7],
 }
 
 /// The time in `sorted` nearest `t`.
@@ -89,6 +92,21 @@ fn is_sections(track: &TimingTrack) -> bool {
 fn is_accents(track: &TimingTrack) -> bool {
     track.name.trim().eq_ignore_ascii_case("accents") && !track.marks.is_empty()
 }
+
+fn is_moments(track: &TimingTrack) -> bool {
+    track.name.trim().eq_ignore_ascii_case("moments") && !track.marks.is_empty()
+}
+
+/// Moments always worth landing on, whatever their importance.
+const KEY_MOMENTS: [MomentKind; 5] = [
+    MomentKind::Impact,
+    MomentKind::Stop,
+    MomentKind::Restart,
+    MomentKind::Shout,
+    MomentKind::Drop,
+];
+/// Other moments worth landing on, from this importance.
+const IMPORTANT: f32 = 0.6;
 
 /// The user's own Sections track in `doc`, if it has one with marks.
 pub fn user_sections(doc: &Sequence) -> Option<&TimingTrack> {
@@ -122,6 +140,7 @@ impl Anchors {
             beat_ms,
             times: [
                 sorted(sections),
+                Vec::new(),
                 sorted(accents),
                 Vec::new(),
                 Vec::new(),
@@ -129,6 +148,12 @@ impl Anchors {
                 sorted(beats),
             ],
         }
+    }
+
+    /// These anchors with the song's moments (times in any order).
+    pub fn with_moments(mut self, moments: Vec<u64>) -> Self {
+        self.times[Anchor::Moment as usize] = sorted(moments);
+        self
     }
 
     /// These anchors with where sung words start (in any order).
@@ -144,9 +169,10 @@ impl Anchors {
         self
     }
 
-    /// The song's anchors: sections and accents from the user's own tracks in `user` when it has
-    /// them (they win over what was detected), sung words from its lyrics, the rest from
-    /// `analysis`. `None` with nothing to lock to.
+    /// The song's anchors: sections, moments, and accents from the user's own tracks in `user`
+    /// when it has them (they win over what was detected), sung words from its lyrics (which
+    /// also find shouts among the moments), the rest from `analysis`. `None` with nothing to lock
+    /// to.
     pub fn for_song(analysis: Option<&Analysis>, user: Option<&Sequence>) -> Option<Self> {
         let beat_ms = analysis
             .and_then(|a| a.tempo_bpm)
@@ -178,12 +204,35 @@ impl Anchors {
                 })
                 .unwrap_or_default(),
         };
+        let moments = match user.and_then(|doc| doc.timing_tracks.iter().find(|t| is_moments(t))) {
+            Some(track) => track
+                .marks
+                .iter()
+                .flat_map(|m| {
+                    std::iter::once(m.start_ms).chain((m.end_ms - m.start_ms > span).then_some(m.end_ms))
+                })
+                .collect(),
+            None => analysis
+                .map(|a| {
+                    crate::song::moments(a, user)
+                        .into_iter()
+                        .filter(|m| KEY_MOMENTS.contains(&m.kind) || m.importance >= IMPORTANT)
+                        .flat_map(|m| {
+                            let end = m.end_ms.filter(|&e| e - m.time_ms > span);
+                            std::iter::once(m.time_ms).chain(end)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+        };
         let (bars, beats) = analysis.map_or_else(Default::default, |a| (a.bars.clone(), a.beats.clone()));
         let words = user
             .and_then(user_words)
             .map(|track| track.marks.iter().map(|m| m.start_ms).collect())
             .unwrap_or_default();
-        let anchors = Self::new(beat_ms, sections, accents, bars, beats).with_words(words);
+        let anchors = Self::new(beat_ms, sections, accents, bars, beats)
+            .with_moments(moments)
+            .with_words(words);
         anchors.times.iter().any(|t| !t.is_empty()).then_some(anchors)
     }
 
@@ -192,7 +241,7 @@ impl Anchors {
         let b = self.beat_ms;
         match anchor {
             Anchor::Section => b,
-            Anchor::Accent | Anchor::Word => b / 2.0,
+            Anchor::Moment | Anchor::Accent | Anchor::Word => b / 2.0,
             Anchor::Syllable => SYLLABLE_REACH_MS,
             // A quarter of a 4/4 bar.
             Anchor::Bar => b,
@@ -561,6 +610,55 @@ mod tests {
         // No lyrics: no word anchors.
         let a = Anchors::for_song(Some(&analysis), Some(&Sequence::new("Song", 32_000))).unwrap();
         assert_eq!(a.snap(6_180), None);
+    }
+
+    #[test]
+    fn the_songs_key_moments_come_before_its_accents() {
+        let moment = |time_ms, end_ms, kind: MomentKind, importance| pf_analysis::Moment {
+            time_ms,
+            end_ms,
+            kind,
+            strength: importance,
+            importance,
+            label: None,
+            suggest: kind.suggest(),
+        };
+        let analysis = Analysis {
+            duration_ms: 32_000,
+            tempo_bpm: Some(120.0),
+            beats: (0..64).map(|i| i * 500).collect(),
+            events: vec![pf_analysis::Event {
+                time_ms: 12_300,
+                kind: pf_analysis::EventKind::Hit,
+                strength: 1.0,
+                duration_ms: None,
+            }],
+            moments: vec![
+                moment(12_300, None, MomentKind::Impact, 0.3),
+                moment(14_000, Some(16_000), MomentKind::Stop, 0.5),
+                moment(20_100, None, MomentKind::Fill, 0.3),
+                moment(24_100, None, MomentKind::Peak, 0.8),
+            ],
+            ..Analysis::default()
+        };
+        let a = Anchors::for_song(Some(&analysis), None).unwrap();
+        // An impact where there's also an accent: the moment, the more important.
+        assert_eq!(a.snap(12_200), Some((12_300, Anchor::Moment)));
+        // A stop, and where it ends; an important peak; not an unimportant fill.
+        assert_eq!(a.snap(14_100), Some((14_000, Anchor::Moment)));
+        assert_eq!(a.snap(15_950), Some((16_000, Anchor::Moment)));
+        assert_eq!(a.snap(24_150), Some((24_100, Anchor::Moment)));
+        assert_eq!(a.snap(20_120), Some((20_000, Anchor::Beat)));
+        // The user's own Moments track wins.
+        let mut user = Sequence::new("Song", 32_000);
+        user.timing_tracks.push(TimingTrack::new(
+            "Moments",
+            TimingKind::Custom,
+            vec![Mark::new(20_100, 20_350, "Fill")],
+        ));
+        let a = Anchors::for_song(Some(&analysis), Some(&user)).unwrap();
+        assert_eq!(a.snap(20_120), Some((20_100, Anchor::Moment)));
+        assert_eq!(a.snap(14_100), Some((14_000, Anchor::Beat)));
     }
 
     #[test]

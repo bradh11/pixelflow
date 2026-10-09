@@ -11,15 +11,19 @@
 //!   ("sooo") shortened, a dictionary word with an ending ("dancin'", "snowmen's"), two or three
 //!   dictionary words run together ("ghostbusters"), and failing those the letter rules
 //!   ([`rules`]).
+//! - **Words in other languages** (accented Latin not in the dictionary, Cyrillic, Greek) are
+//!   split by their vowels ([`foreign`]), their phones a rough guess.
 //! - **Syllables** ([`syllables`]) split by maximal onset, the vowels their nuclei.
 //! - **Mouth shapes** ([`Arpa::mouth`]) follow xLights' `phoneme_mapping` (the Preston Blair
 //!   set: AI, E, O, U, WQ, L, MBP, FV, etc).
 
 pub mod dict;
+pub mod foreign;
 pub mod phones;
 pub mod rules;
 pub mod syllables;
 
+pub use foreign::is_vowel_letter;
 pub use phones::{Arpa, Phone, mouth_shapes, parse_phones, spelled};
 
 use std::ops::Range;
@@ -275,9 +279,38 @@ fn pieces(chars: &[char]) -> Vec<Piece> {
     out
 }
 
+/// Whether `chars` should be split by its vowels ([`foreign`]): it has a letter beyond a–z and
+/// isn't a dictionary word with accents ("Café").
+fn sounded_by_vowels(chars: &[char], dictionary: bool) -> bool {
+    if !foreign::has_foreign_letters(chars) {
+        return false;
+    }
+    let all_fold = chars
+        .iter()
+        .filter(|c| c.is_alphabetic())
+        .all(|&c| fold(c).is_some());
+    let listed_word = dictionary
+        && all_fold
+        && pieces(chars).iter().all(|(_, letters)| {
+            let key: String = letters.iter().map(|&(b, _)| b as char).collect();
+            listed(&key).is_some()
+        });
+    !listed_word
+}
+
 /// How `word` is said (any case, punctuation ignored); `None` without letters.
 pub fn pronounce(word: &str) -> Option<Pronunciation> {
     let chars: Vec<char> = word.chars().collect();
+    if sounded_by_vowels(&chars, true) {
+        let phones = foreign::syllables(&chars)?
+            .into_iter()
+            .flat_map(|(_, p)| p)
+            .collect();
+        return Some(Pronunciation {
+            phones,
+            source: Source::Rules,
+        });
+    }
     let mut phones = Vec::new();
     let mut source = Source::Dictionary;
     let pieces = pieces(&chars);
@@ -307,15 +340,22 @@ pub fn syllables(word: &str) -> Vec<Syllable> {
 
 fn syllables_from(word: &str, dictionary: bool) -> Vec<Syllable> {
     let chars: Vec<char> = word.chars().collect();
-    let pieces = pieces(&chars);
-    if pieces.is_empty() {
+    let by_vowels = sounded_by_vowels(&chars, dictionary)
+        .then(|| foreign::syllables(&chars))
+        .flatten();
+    let pieces = if by_vowels.is_some() {
+        Vec::new()
+    } else {
+        pieces(&chars)
+    };
+    if pieces.is_empty() && by_vowels.is_none() {
         return vec![Syllable {
             text: word.to_string(),
             phones: Vec::new(),
         }];
     }
     // Each syllable's phones and the character it starts at.
-    let mut found: Vec<(usize, Vec<Phone>)> = Vec::new();
+    let mut found: Vec<(usize, Vec<Phone>)> = by_vowels.unwrap_or_default();
     for (k, (span, letters)) in pieces.iter().enumerate() {
         let key: String = letters.iter().map(|&(b, _)| b as char).collect();
         let plain: Vec<(u8, usize)> = letters.iter().copied().filter(|&(b, _)| b != b'\'').collect();
@@ -424,7 +464,16 @@ mod tests {
         assert_eq!(texts(&syllables("hmm")), ["hmm"]);
         assert_eq!(texts(&syllables("42")), ["42"]);
         assert!(syllables("42")[0].phones.is_empty());
-        for word in ["Ghostbusters!", "everything", "rock'n'roll", "a", "x-mas", "Noël"] {
+        for word in [
+            "Ghostbusters!",
+            "everything",
+            "rock'n'roll",
+            "a",
+            "x-mas",
+            "Noël",
+            "«молоко»,",
+            "corazón!",
+        ] {
             assert_eq!(
                 syllables(word)
                     .iter()
@@ -433,6 +482,25 @@ mod tests {
                 word
             );
         }
+    }
+
+    #[test]
+    fn other_languages_split_by_their_vowels() {
+        assert_eq!(texts(&syllables("привет")), ["при", "вет"]);
+        assert_eq!(texts(&syllables("Молоко,")), ["Мо", "ло", "ко,"]);
+        assert_eq!(texts(&syllables("моя")), ["мо", "я"]);
+        assert_eq!(syllables("здравствуйте").len(), 3);
+        assert_eq!(texts(&syllables("corazón")), ["co", "ra", "zón"]);
+        assert_eq!(texts(&syllables("canción")), ["can", "ción"]);
+        assert_eq!(texts(&syllables("mañana")), ["ma", "ña", "na"]);
+        assert_eq!(texts(&syllables("Mädchen")), ["Mäd", "chen"]);
+        assert_eq!(texts(&syllables("καλημέρα")), ["κα", "λη", "μέ", "ρα"]);
+        // Each has a vowel to sing, and mouth shapes.
+        assert!(syllables("молоко").iter().all(|s| s.nucleus().is_some()));
+        assert!(!word_mouths("привет").is_empty());
+        // English stays as it was, accented dictionary words too.
+        assert_eq!(texts(&syllables("Ghostbusters!")), ["Ghost", "bus", "ters!"]);
+        assert_eq!(said("Café"), spelled(&dict::lookup("cafe").unwrap()));
     }
 
     #[test]

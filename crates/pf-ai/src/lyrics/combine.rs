@@ -83,8 +83,13 @@ pub fn normalize(word: &str) -> String {
 }
 
 /// About how many syllables a word has: its vowel groups (a final silent "e" left out), each
-/// digit one, at least one.
+/// digit one, at least one. A word with letters beyond a–z is split as
+/// [`pf_lexicon::syllables`] splits it.
 pub fn syllables(word: &str) -> u32 {
+    let chars: Vec<char> = word.chars().collect();
+    if pf_lexicon::foreign::has_foreign_letters(&chars) {
+        return (pf_lexicon::syllables(word).len() as u32).max(1);
+    }
     let word = normalize(word);
     let digits = word.chars().filter(char::is_ascii_digit).count() as u32;
     let letters: Vec<char> = word.chars().filter(|c| c.is_alphabetic()).collect();
@@ -664,6 +669,9 @@ mod tests {
             ("rock'n'roll", 2),
             ("1999", 4),
             ("hmm", 1),
+            ("молоко", 3),
+            ("привет!", 2),
+            ("corazón", 3),
         ] {
             assert_eq!(syllables(word), n, "{word}");
         }

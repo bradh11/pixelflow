@@ -27,6 +27,8 @@
 //!     the sung words when there are lyrics ([`Analysis::moments_with_words`]).
 //! 11. **Voice**: separately, a cheap guess at when the voice is sounding ([`vocal_activity`]),
 //!     to fine-tune lyric timing.
+//! 12. **Audio track**: separately, what the music is doing at every frame of a sequence (levels,
+//!     bands, spectrum, onsets, beats) for effects that follow it ([`audio_track`]).
 
 mod beats;
 mod drums;
@@ -43,6 +45,7 @@ mod rises;
 mod sections;
 mod stops;
 mod structure;
+mod track;
 mod vocal;
 
 pub use beats::{bars, beat_grid, estimate_tempo};
@@ -53,6 +56,10 @@ pub use layers::Layers;
 pub use moments::{Moment, MomentKind, ShoutCues, Suggest, moments_track};
 pub use onset::{FRAME, HOP, OnsetEnvelope, onset_envelope, pick_onsets};
 pub use sections::{Level, Section};
+pub use track::{
+    AudioTrack, NOTES, RANGE_DB, SPECTRUM_BANDS, TILT_DB, TRACK_FORMAT, audio_track, audio_track_cancellable,
+    audio_track_file,
+};
 pub use vocal::{VOCAL_THRESHOLD, VocalActivity, vocal_activity, vocal_activity_file};
 
 use pf_audio::{AudioError, MonoSamples};

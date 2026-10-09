@@ -400,6 +400,10 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         lyrics::syllables_from_words,
         lyrics::nudge_lyrics,
         lyrics::retime_lyrics,
+        lyrics::alignment_models,
+        lyrics::download_alignment_models,
+        lyrics::cancel_alignment_download,
+        lyrics::remove_alignment_models,
         files::check_files,
         files::find_missing_files,
         files::locate_file,
@@ -454,7 +458,10 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             app.set_menu(menu::build(app.handle(), &app.state::<AppState>().recent)?)?;
             app.manage(assistant::AiState::live());
-            app.manage(lyrics::LyricsState::live(app.path().app_cache_dir().ok()));
+            app.manage(lyrics::LyricsState::live(
+                app.path().app_cache_dir().ok(),
+                app.path().app_data_dir().ok(),
+            ));
             app.manage(sync::SyncState::live());
             app.manage(vocals::VocalsState::default());
             let handle = app.handle().clone();

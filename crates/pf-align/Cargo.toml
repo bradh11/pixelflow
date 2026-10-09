@@ -1,0 +1,22 @@
+[package]
+name = "pf-align"
+description = "Lining sung words up with a song on this computer: a speech model's letters, forced alignment, and each word's syllables and sounds timed"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+pf-audio.workspace = true
+pf-lexicon.workspace = true
+realfft.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tract-onnx.workspace = true
+ureq = { workspace = true, features = ["rustls"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -81,6 +81,8 @@ export const AUDIO_STAGES: Record<AudioTask, string> = {
   waveform: "Reading the music",
   audioTrack: "Getting the music ready for effects",
   beats: "Finding the beats",
+  separate: "Separating the vocals",
+  align: "Aligning the words",
   vocals: "Finding the vocals",
 };
 

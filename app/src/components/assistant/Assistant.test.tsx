@@ -218,6 +218,7 @@ describe("Settings → AI", () => {
       models: { anthropic: "claude-opus-5-5", openai: "gpt-5.1" },
       lyricsAudioOk: false,
       lyricsLanguage: "en",
+      lyricsAlign: false,
     });
     // With OpenAI, whether Find lyrics asks before sending a song's audio (remembered too).
     const ask = within(dialog).getByRole("checkbox", { name: /Ask before Find lyrics sends a song's audio to OpenAI/ });
@@ -230,6 +231,56 @@ describe("Settings → AI", () => {
     await user.selectOptions(within(dialog).getByLabelText("Lyrics language"), "es");
     expect(JSON.parse(localStorage.getItem("pixelflow.ai")!).lyricsLanguage).toBe("es");
     useAssistant.getState().setLyricsLanguage("en");
+  });
+
+  it("downloads the alignment model only after asking, and removes it again", async () => {
+    const { user, assistant } = await start();
+    useAssistant.getState().setSettingsOpen(true);
+    const dialog = await screen.findByRole("dialog", { name: "Settings → AI" });
+    expect(await within(dialog).findByText("Needs a one-time download (189 MB).")).toBeInTheDocument();
+    const toggle = within(dialog).getByRole("checkbox", { name: "On-device alignment" });
+    expect(toggle).not.toBeChecked();
+    // Turning it on asks first: what, its licence, where from, and how big.
+    await user.click(toggle);
+    const ask = screen.getByRole("alertdialog", { name: "Download the alignment model?" });
+    expect(within(ask).getByText(/downloaded once \(189 MB\) from huggingface\.co/)).toBeInTheDocument();
+    expect(within(ask).getByText("Apache-2.0")).toBeInTheDocument();
+    expect(within(ask).getByText("https://huggingface.co/onnx-community/wav2vec2-base-960h-ONNX")).toBeInTheDocument();
+    // Cancel: nothing downloaded, still off.
+    await user.click(within(ask).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(assistant.calls).not.toContain("downloadAlignModels");
+    expect(toggle).not.toBeChecked();
+    // Download: on, once it's here.
+    await user.click(toggle);
+    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: /Download/ }));
+    expect(await within(dialog).findByText("Model downloaded (189 MB).")).toBeInTheDocument();
+    expect(toggle).toBeChecked();
+    expect(JSON.parse(localStorage.getItem("pixelflow.ai")!).lyricsAlign).toBe(true);
+    // Off and on again needs no download; Remove models turns it off.
+    await user.click(toggle);
+    await user.click(toggle);
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(toggle).toBeChecked();
+    await user.click(within(dialog).getByRole("button", { name: /Remove models/ }));
+    expect(await within(dialog).findByText("Needs a one-time download (189 MB).")).toBeInTheDocument();
+    expect(toggle).not.toBeChecked();
+    expect(assistant.alignInstalled).toBe(false);
+  });
+
+  it("a stopped download keeps alignment off", async () => {
+    const { user, assistant } = await start();
+    assistant.alignDownloadMs = 5_000;
+    useAssistant.getState().setSettingsOpen(true);
+    const dialog = await screen.findByRole("dialog", { name: "Settings → AI" });
+    await user.click(await within(dialog).findByRole("checkbox", { name: "On-device alignment" }));
+    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: /Download/ }));
+    expect(await within(dialog).findByRole("progressbar", { name: /Downloading the model/ })).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(within(dialog).queryByRole("progressbar")).not.toBeInTheDocument());
+    expect(within(dialog).getByRole("checkbox", { name: "On-device alignment" })).not.toBeChecked();
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+    expect(assistant.alignInstalled).toBe(false);
   });
 });
 

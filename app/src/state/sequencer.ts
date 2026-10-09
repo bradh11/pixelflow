@@ -242,11 +242,12 @@ interface SequencerState {
    * with `upload`) and adds Lyrics, Lyrics (words), Lyrics (syllables), Lyrics (phonemes), and
    * Vocals tracks as one undo step; a notice says where they came from. Null when it failed (the
    * error is shown) or was stopped. `options`: the language expected when nothing else says
-   * (English by default), and whether to find again without what's kept for the song. */
+   * (English by default), whether to find again without what's kept for the song, and whether to
+   * time the words on this computer. */
   findLyrics(provider: ProviderId, upload: boolean, options?: LyricsOptions): Promise<LyricsFound | null>;
   /** Lines the lyrics up again with another candidate or pasted lyrics (one undo step), asking no
-   * one. Null when it failed (the error is shown). */
-  chooseLyrics(choice: LyricsChoice): Promise<LyricsFound | null>;
+   * one (`align`: timed on this computer). Null when it failed (the error is shown). */
+  chooseLyrics(choice: LyricsChoice, options?: { align?: boolean }): Promise<LyricsFound | null>;
   /** Stops Find lyrics (nothing is added). */
   cancelLyrics(): Promise<void>;
   /** Makes syllables and mouth shapes again from the words track `trackId` (one undo step). */
@@ -696,7 +697,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
       }
     },
 
-    async chooseLyrics(choice) {
+    async chooseLyrics(choice, options) {
       const { api } = get();
       if (!api || get().findingLyrics !== null) return null;
       const run = get().notice?.lyricsRun;
@@ -704,7 +705,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
       try {
         let found: LyricsFound;
         try {
-          found = await api.chooseLyrics(choice);
+          found = await api.chooseLyrics(choice, options);
         } catch (e) {
           report(e);
           return null;

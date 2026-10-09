@@ -22,6 +22,7 @@ pf-audio = { path = "../../crates/pf-audio" }
 pf-analysis = { path = "../../crates/pf-analysis" }
 pf-sequence = { path = "../../crates/pf-sequence" }
 pf-ai = { path = "../../crates/pf-ai" }
+pf-align = { path = "../../crates/pf-align" }
 pf-geometry = { path = "../../crates/pf-geometry" }
 pf-fseq = { path = "../../crates/pf-fseq" }
 pf-camera-map = { path = "../../crates/pf-camera-map" }

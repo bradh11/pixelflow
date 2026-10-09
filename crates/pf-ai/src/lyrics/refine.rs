@@ -263,7 +263,7 @@ pub fn lock_to_voice(phrases: &[Phrase], voice: &VocalTrack, end_ms: u64) -> Loc
 
 /// The clearest onset for a word starting near `at` (ms), within `reach` of it and between
 /// `floor` and `ceiling`: its time and how clear it is (0–1).
-fn onset_near(
+pub(crate) fn onset_near(
     voice: &VocalTrack,
     at: f64,
     (floor, ceiling): (f64, f64),
@@ -314,7 +314,7 @@ fn onset_near(
 
 /// Where the word starting at `start` ends, before `next` (the next word's start, if any):
 /// see the module notes. `own_end` is where its source said it ends.
-fn word_end(voice: &VocalTrack, start: u64, own_end: u64, next: Option<u64>, end_ms: u64) -> u64 {
+pub(crate) fn word_end(voice: &VocalTrack, start: u64, own_end: u64, next: Option<u64>, end_ms: u64) -> u64 {
     let length = own_end.saturating_sub(start);
     let hold = own_end.max(start + MIN_WORD_MS) + HOLD_MS;
     let limit = match next {

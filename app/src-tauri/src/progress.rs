@@ -1,6 +1,7 @@
 //! How far long work on a music file has got, sent to the window as [`AUDIO_PROGRESS_EVENT`]
 //! events for its progress bars: reading the music for its waveform or its length, working out
-//! the audio track effects follow, and finding the beats. At most about ten a second.
+//! the audio track effects follow, finding the beats, and Find lyrics' on-device alignment. At
+//! most about ten a second.
 
 use serde::Serialize;
 use std::path::Path;
@@ -26,6 +27,10 @@ pub(crate) enum AudioTask {
     AudioTrack,
     /// Detect beats.
     Beats,
+    /// Find lyrics' on-device alignment, bringing the voice forward.
+    Separate,
+    /// Find lyrics' on-device alignment, hearing the song letter by letter.
+    Align,
     /// The lead vocal, for the timeline's vocals lane.
     Vocals,
 }
@@ -37,6 +42,8 @@ impl AudioTask {
             AudioTask::Probe | AudioTask::Waveform => "Reading the music",
             AudioTask::AudioTrack => "Getting the music ready for effects",
             AudioTask::Beats => "Finding the beats",
+            AudioTask::Separate => "Separating the vocals",
+            AudioTask::Align => "Aligning the words",
             AudioTask::Vocals => "Finding the vocals",
         }
     }

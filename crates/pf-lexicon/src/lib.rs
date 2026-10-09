@@ -336,9 +336,30 @@ pub fn word_mouths(word: &str) -> Vec<&'static str> {
 /// "bus", "ters!"). A word without letters is one syllable with no phones.
 pub fn syllables(word: &str) -> Vec<Syllable> {
     syllables_from(word, true)
+        .into_iter()
+        .map(|s| s.syllable)
+        .collect()
 }
 
-fn syllables_from(word: &str, dictionary: bool) -> Vec<Syllable> {
+/// A syllable and where its sounds are written: the character (an index into the word's
+/// characters) each of its phones starts at.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpelledSyllable {
+    pub syllable: Syllable,
+    /// The character its text starts at.
+    pub start: usize,
+    /// The character each phone starts at, in order, from `start` on.
+    pub phone_starts: Vec<usize>,
+}
+
+/// A word's syllables as [`syllables`] splits it, with the characters each phone is written
+/// with ("ghost": G at "gh", OW at "o", S at "s", T at "t"), for timing each sound from when its
+/// letters are heard.
+pub fn spelled_syllables(word: &str) -> Vec<SpelledSyllable> {
+    syllables_from(word, true)
+}
+
+fn syllables_from(word: &str, dictionary: bool) -> Vec<SpelledSyllable> {
     let chars: Vec<char> = word.chars().collect();
     let by_vowels = sounded_by_vowels(&chars, dictionary)
         .then(|| foreign::syllables(&chars))
@@ -349,13 +370,22 @@ fn syllables_from(word: &str, dictionary: bool) -> Vec<Syllable> {
         pieces(&chars)
     };
     if pieces.is_empty() && by_vowels.is_none() {
-        return vec![Syllable {
-            text: word.to_string(),
-            phones: Vec::new(),
+        return vec![SpelledSyllable {
+            syllable: Syllable {
+                text: word.to_string(),
+                phones: Vec::new(),
+            },
+            start: 0,
+            phone_starts: Vec::new(),
         }];
     }
-    // Each syllable's phones and the character it starts at.
-    let mut found: Vec<(usize, Vec<Phone>)> = by_vowels.unwrap_or_default();
+    // Each syllable's phones, the character it starts at, and where each phone starts (a
+    // syllable split by its vowels has its phones start with it).
+    let mut found: Vec<(usize, Vec<Phone>, Vec<usize>)> = by_vowels
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(at, phones)| (at, phones.clone(), vec![at; phones.len()]))
+        .collect();
     for (k, (span, letters)) in pieces.iter().enumerate() {
         let key: String = letters.iter().map(|&(b, _)| b as char).collect();
         let plain: Vec<(u8, usize)> = letters.iter().copied().filter(|&(b, _)| b != b'\'').collect();
@@ -364,28 +394,50 @@ fn syllables_from(word: &str, dictionary: bool) -> Vec<Syllable> {
             let spelling: Vec<u8> = plain[range.clone()].iter().map(|&(b, _)| b).collect();
             let split = syllables::syllabify(phones);
             let starts = syllables::spell(&spelling, phones, &split);
+            let letter_of = syllables::phone_letters(&spelling, phones);
+            let char_at = |letter: usize| plain.get(range.start + letter).map_or(span.end, |&(_, c)| c);
             for (s, (phones_at, letter)) in split.iter().zip(starts).enumerate() {
                 let at = if s == 0 && p == 0 {
                     // The piece's first syllable takes anything before its letters.
                     if k == 0 { 0 } else { span.start }
                 } else {
-                    plain.get(range.start + letter).map_or(span.end, |&(_, c)| c)
+                    char_at(letter)
                 };
-                found.push((at, phones[phones_at.clone()].to_vec()));
+                let phone_starts = phones_at.clone().map(|i| char_at(letter_of[i])).collect();
+                found.push((at, phones[phones_at.clone()].to_vec(), phone_starts));
             }
         }
     }
-    let mut out: Vec<Syllable> = Vec::new();
-    for (i, (at, phones)) in found.iter().enumerate() {
-        let end = found.get(i + 1).map_or(chars.len(), |(next, _)| *next);
+    let mut out: Vec<SpelledSyllable> = Vec::new();
+    for (i, (at, phones, phone_starts)) in found.iter().enumerate() {
+        let end = found.get(i + 1).map_or(chars.len(), |(next, _, _)| *next);
         let text: String = chars[(*at).min(end)..end].iter().collect();
         match out.last_mut() {
             // Too few letters to go round: shares the one before.
-            Some(last) if text.is_empty() => last.phones.extend(phones),
-            _ => out.push(Syllable {
-                text,
-                phones: phones.clone(),
+            Some(last) if text.is_empty() => {
+                last.syllable.phones.extend(phones);
+                last.phone_starts.extend(phone_starts);
+            }
+            _ => out.push(SpelledSyllable {
+                syllable: Syllable {
+                    text,
+                    phones: phones.clone(),
+                },
+                start: *at,
+                phone_starts: phone_starts.clone(),
             }),
+        }
+    }
+    // Each phone within its syllable's letters, in order.
+    let ends: Vec<usize> = (0..out.len())
+        .map(|i| out.get(i + 1).map_or(chars.len(), |s| s.start))
+        .collect();
+    let mut floor = 0;
+    for (s, end) in out.iter_mut().zip(ends) {
+        let last = end.saturating_sub(1).max(s.start);
+        for at in &mut s.phone_starts {
+            *at = (*at).max(s.start).max(floor).min(last);
+            floor = *at;
         }
     }
     out
@@ -442,13 +494,60 @@ mod tests {
 
     #[test]
     fn unlisted_words_get_syllables_too() {
-        let guessed = |w: &str| syllables_from(w, false);
+        let guessed =
+            |w: &str| -> Vec<Syllable> { syllables_from(w, false).into_iter().map(|s| s.syllable).collect() };
         assert_eq!(texts(&guessed("ghostbusters")), ["ghost", "bus", "ters"]);
         assert_eq!(texts(&guessed("thriller")), ["thril", "ler"]);
         assert_eq!(texts(&guessed("gonna")), ["gon", "na"]);
         assert_eq!(texts(&guessed("ooh")), ["ooh"]);
         assert_eq!(texts(&guessed("jingle")), ["jin", "gle"]);
         assert_eq!(texts(&guessed("tones")), ["tones"]);
+    }
+
+    #[test]
+    fn each_phone_knows_the_letters_it_is_written_with() {
+        let starts = |w: &str| -> Vec<(String, Vec<usize>)> {
+            spelled_syllables(w)
+                .into_iter()
+                .map(|s| (spelled(&s.syllable.phones), s.phone_starts))
+                .collect()
+        };
+        // "gh" is G, "o" OW, "s" S, "t" T.
+        assert_eq!(starts("ghost"), [("G OW1 S T".to_string(), vec![0, 2, 3, 4])]);
+        // "a·fraid": AH at the a, then F R EY D from the f.
+        assert_eq!(
+            starts("afraid"),
+            [
+                ("AH0".to_string(), vec![0]),
+                ("F R EY1 D".to_string(), vec![1, 2, 3, 5])
+            ]
+        );
+        // Each phone at or after its syllable's start, in order, inside the word.
+        for word in [
+            "Ghostbusters!",
+            "everything",
+            "rock'n'roll",
+            "fire",
+            "x",
+            "\"Snow-white,",
+            "42",
+            "Привет",
+        ] {
+            let chars = word.chars().count();
+            let mut last = 0;
+            for s in spelled_syllables(word) {
+                assert_eq!(s.phone_starts.len(), s.syllable.phones.len(), "{word}");
+                for &at in &s.phone_starts {
+                    assert!(at >= s.start && at >= last && at < chars.max(1), "{word}: {at}");
+                    last = at;
+                }
+            }
+            let joined: String = spelled_syllables(word)
+                .iter()
+                .map(|s| s.syllable.text.as_str())
+                .collect();
+            assert_eq!(joined, word);
+        }
     }
 
     #[test]

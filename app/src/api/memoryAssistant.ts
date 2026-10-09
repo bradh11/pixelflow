@@ -1,4 +1,5 @@
 import type {
+  AlignModels,
   Applied,
   AssistantApi,
   Change,
@@ -6,6 +7,7 @@ import type {
   KeyLocation,
   KeyStorage,
   ModelInfo,
+  ModelsProgress,
   ProposalView,
   ProviderId,
   TurnReply,
@@ -318,6 +320,64 @@ export class FakeAssistant implements AssistantApi {
   private current(id: string): Pending {
     if (!this.pending || this.pending.proposal.id !== id) throw new Error("That proposal isn't the latest one anymore.");
     return this.pending;
+  }
+
+  /** Whether the alignment model is "downloaded". */
+  alignInstalled = false;
+  /** Milliseconds the model's download takes (0 in tests). */
+  alignDownloadMs = 0;
+  private alignDownloads = 0;
+  private alignDownloading = false;
+
+  private alignView(): AlignModels {
+    return {
+      available: true,
+      installed: this.alignInstalled,
+      downloading: this.alignDownloading,
+      name: "wav2vec2-base-960h (English letters)",
+      licence: "Apache-2.0",
+      source: "https://huggingface.co/onnx-community/wav2vec2-base-960h-ONNX",
+      urls: ["https://huggingface.co/onnx-community/wav2vec2-base-960h-ONNX/resolve/729c1a6730fb549c20a1c73a3d3f96f11020225e/onnx/model_fp16.onnx"],
+      bytes: 189_118_943,
+    };
+  }
+
+  async alignModels() {
+    return this.alignView();
+  }
+
+  /** A pretend download: progress over alignDownloadMs, stopped by cancelAlignDownload. */
+  async downloadAlignModels(onProgress?: (progress: ModelsProgress) => void) {
+    this.calls.push("downloadAlignModels");
+    if (this.alignDownloading) throw new Error("The model is already downloading.");
+    const total = this.alignView().bytes;
+    const started = ++this.alignDownloads;
+    this.alignDownloading = true;
+    try {
+      const parts = Math.max(1, Math.round(this.alignDownloadMs / 100));
+      for (let i = 0; i <= parts; i++) {
+        if (started !== this.alignDownloads) throw new Error("Stopped.");
+        onProgress?.({ received: Math.round((total * i) / parts), total });
+        if (i < parts && this.alignDownloadMs > 0) await new Promise((r) => setTimeout(r, this.alignDownloadMs / parts));
+      }
+      if (started !== this.alignDownloads) throw new Error("Stopped.");
+      this.alignInstalled = true;
+    } finally {
+      if (started === this.alignDownloads) this.alignDownloading = false;
+    }
+    return this.alignView();
+  }
+
+  async cancelAlignDownload() {
+    if (!this.alignDownloading) return;
+    this.alignDownloads += 1;
+    this.alignDownloading = false;
+  }
+
+  async removeAlignModels() {
+    this.calls.push("removeAlignModels");
+    this.alignInstalled = false;
+    return this.alignView();
   }
 
   async sync() {

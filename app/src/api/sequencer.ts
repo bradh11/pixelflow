@@ -43,17 +43,46 @@ export interface LyricsGate {
   recognizer: boolean;
 }
 
+/** Published lyrics that could be the song. */
+export interface LyricsCandidate {
+  id: number;
+  artist: string;
+  title: string;
+  durationS: number;
+  /** Its language's name ("English"), when it can be told. */
+  language: string | null;
+  synced: boolean;
+}
+
+/** Lyrics the user picks instead: another candidate, or pasted text (plain lines or LRC). */
+export type LyricsChoice = { candidate: number } | { pasted: string };
+
 /** What Find lyrics added (Lyrics, Lyrics (words), Lyrics (syllables), Lyrics (phonemes), and
  * Vocals, as one undo step). */
 export interface LyricsFound {
   result: SequenceEditResult;
   /** Where the words and their timing came from: "Lyrics from LRCLIB, word timing from OpenAI." */
   summary: string;
+  /** "Lyrics: Lantern Band — Lantern Song (LRCLIB) · word timing: OpenAI" */
+  source: string;
   notes: string[];
   lines: number;
   words: number;
   /** Words whose timing is a guess. */
   unsureWords: number;
+  /** The published lyrics that could be the song, best first. */
+  candidates: LyricsCandidate[];
+  /** The candidate used. */
+  chosen: number | null;
+  /** Whether pasted lyrics were used. */
+  pasted: boolean;
+}
+
+/** How Find lyrics runs: the language it expects when nothing else says (ISO 639-1), and
+ * whether to find again without what's kept for the song. */
+export interface LyricsOptions {
+  language: string;
+  fresh: boolean;
 }
 
 /** What looking for the open sequence's music found: where (now used), and the edit that did it. */
@@ -128,7 +157,10 @@ export interface SequencerApi {
    * and adds them as timing tracks (one undo step), calling `onProgress` at each step. Rejects with
    * "Stopped." after cancelLyrics, and with "No lyrics found for this song." when there are none.
    */
-  findLyrics(provider: ProviderId | null, upload: boolean, onProgress?: (label: string) => void): Promise<LyricsFound>;
+  findLyrics(provider: ProviderId | null, upload: boolean, options: LyricsOptions, onProgress?: (label: string) => void): Promise<LyricsFound>;
+  /** Lines the lyrics up again with another candidate or pasted lyrics, from what Find lyrics
+   * gathered (nothing is looked up or sent), replacing the tracks as one undo step. */
+  chooseLyrics(choice: LyricsChoice): Promise<LyricsFound>;
   cancelLyrics(): Promise<void>;
   /**
    * Makes the "<name> (syllables)" and "<name> (phonemes)" tracks again from the words on the
@@ -217,14 +249,15 @@ export const tauriSequencer: SequencerApi = {
   analyzeAudio: (path) => invoke("analyze_audio", { path }),
   detectBeats: () => invoke("detect_beats"),
   lyricsGate: (provider) => invoke("lyrics_gate", { provider }),
-  findLyrics: async (provider, upload, onProgress) => {
+  findLyrics: async (provider, upload, options, onProgress) => {
     const unlisten = onProgress ? await listen<{ label: string }>(LYRICS_PROGRESS_EVENT, (event) => onProgress(event.payload.label)) : null;
     try {
-      return await invoke<LyricsFound>("find_lyrics", { provider, upload });
+      return await invoke<LyricsFound>("find_lyrics", { provider, upload, language: options.language, fresh: options.fresh });
     } finally {
       unlisten?.();
     }
   },
+  chooseLyrics: (choice) => invoke("choose_lyrics", { choice }),
   cancelLyrics: () => invoke("cancel_lyrics"),
   syllablesFromWords: (track) => invoke("syllables_from_words", { track }),
   importTimingFile: (path) => invoke("import_timing_file", { path }),

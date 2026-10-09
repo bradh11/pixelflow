@@ -192,6 +192,7 @@ describe("Settings → AI", () => {
       provider: "openai",
       models: { anthropic: "claude-opus-5-5", openai: "gpt-5.1" },
       lyricsAudioOk: false,
+      lyricsLanguage: "en",
     });
     // With OpenAI, whether Find lyrics asks before sending a song's audio (remembered too).
     const ask = within(dialog).getByRole("checkbox", { name: /Ask before Find lyrics sends a song's audio to OpenAI/ });
@@ -200,6 +201,10 @@ describe("Settings → AI", () => {
     expect(useAssistant.getState().lyricsAudioOk).toBe(true);
     expect(JSON.parse(localStorage.getItem("pixelflow.ai")!).lyricsAudioOk).toBe(true);
     useAssistant.getState().setLyricsAudioOk(false);
+    // The language Find lyrics expects, remembered too.
+    await user.selectOptions(within(dialog).getByLabelText("Lyrics language"), "es");
+    expect(JSON.parse(localStorage.getItem("pixelflow.ai")!).lyricsLanguage).toBe("es");
+    useAssistant.getState().setLyricsLanguage("en");
   });
 });
 

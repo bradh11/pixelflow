@@ -380,7 +380,7 @@ pub fn send_with_retries(
 }
 
 /// Sleeps in short steps so Stop takes effect quickly. False when cancelled.
-fn sleep_unless_cancelled(total: Duration, cancel: &Cancel) -> bool {
+pub(crate) fn sleep_unless_cancelled(total: Duration, cancel: &Cancel) -> bool {
     let step = Duration::from_millis(50);
     let mut left = total;
     while !left.is_zero() {

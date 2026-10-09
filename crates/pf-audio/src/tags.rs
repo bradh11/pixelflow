@@ -19,6 +19,9 @@ pub struct SongTags {
     pub artist: Option<String>,
     pub title: Option<String>,
     pub album: Option<String>,
+    /// The language its words are sung in, as tagged (ID3's TLAN is a three-letter ISO 639-2
+    /// code, "eng").
+    pub language: Option<String>,
     /// How long the file plays, when its header says.
     pub duration_ms: Option<u64>,
     /// Whether the title came from the file name rather than a tag.
@@ -41,6 +44,7 @@ fn take_tags(revision: &MetadataRevision, tags: &mut SongTags) {
             Some(StandardTagKey::Artist) => &mut tags.artist,
             Some(StandardTagKey::TrackTitle) => &mut tags.title,
             Some(StandardTagKey::Album) => &mut tags.album,
+            Some(StandardTagKey::Language) => &mut tags.language,
             _ => continue,
         };
         if slot.is_none() {

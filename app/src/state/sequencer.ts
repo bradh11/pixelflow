@@ -18,7 +18,7 @@ import {
   type SequenceSnapshot,
 } from "../api/sequence";
 import type { ProviderId } from "../api/assistant";
-import type { LyricsFound, SequencerApi } from "../api/sequencer";
+import type { LyricsChoice, LyricsFound, LyricsOptions, SequencerApi } from "../api/sequencer";
 import type { MissingFile, PlaybackStatus, VendorImportOptions, XlightsSequenceImported } from "../api/types";
 import { clock, fileName, plural, shownPath } from "../lib/format";
 import { folderOf } from "../lib/showFiles";
@@ -128,6 +128,11 @@ export interface Notice {
   notes: string[];
   /** Offer to save the show (the playlist add changed it). */
   saveShow: boolean;
+  /** What Find lyrics found, when that's what this says: its source line, and other lyrics to
+   * pick instead. */
+  lyrics?: LyricsFound;
+  /** How that Find lyrics ran, to find again the same way. */
+  lyricsRun?: { provider: ProviderId; upload: boolean };
 }
 
 /** Selected timing marks: on one track, picked by start time. */
@@ -230,8 +235,12 @@ interface SequencerState {
   /** Finds the song's lyrics with the assistant's `provider` (sending its audio to OpenAI only
    * with `upload`) and adds Lyrics, Lyrics (words), Lyrics (syllables), Lyrics (phonemes), and
    * Vocals tracks as one undo step; a notice says where they came from. Null when it failed (the
-   * error is shown) or was stopped. */
-  findLyrics(provider: ProviderId, upload: boolean): Promise<LyricsFound | null>;
+   * error is shown) or was stopped. `options`: the language expected when nothing else says
+   * (English by default), and whether to find again without what's kept for the song. */
+  findLyrics(provider: ProviderId, upload: boolean, options?: LyricsOptions): Promise<LyricsFound | null>;
+  /** Lines the lyrics up again with another candidate or pasted lyrics (one undo step), asking no
+   * one. Null when it failed (the error is shown). */
+  chooseLyrics(choice: LyricsChoice): Promise<LyricsFound | null>;
   /** Stops Find lyrics (nothing is added). */
   cancelLyrics(): Promise<void>;
   /** Makes syllables and mouth shapes again from the words track `trackId` (one undo step). */
@@ -288,6 +297,15 @@ interface SequencerState {
   findMusic(): Promise<boolean>;
   /** Asks where the music is now and uses that file (one undo step on the sequence). */
   locateMusic(): Promise<boolean>;
+}
+
+/** The notice for what Find lyrics found. */
+function lyricsNotice(found: LyricsFound, lyricsRun?: Notice["lyricsRun"]): Notice {
+  const notes = [...found.notes];
+  if (found.unsureWords > 0) {
+    notes.push(`${plural(found.unsureWords, "word")} ${found.unsureWords === 1 ? "has" : "have"} rough timing: drag ${found.unsureWords === 1 ? "it" : "them"} on Lyrics (words) if needed.`);
+  }
+  return { tone: "done", text: `Found ${plural(found.lines, "line")} and ${plural(found.words, "word")}. ${found.summary}`, notes, saveShow: false, lyrics: found, lyricsRun };
 }
 
 function report(e: unknown) {
@@ -626,24 +644,41 @@ export const useSequencer = create<SequencerState>((set, get) => {
       }
     },
 
-    async findLyrics(provider, upload) {
+    async findLyrics(provider, upload, options = { language: "en", fresh: false }) {
       const { api } = get();
       if (!api || get().findingLyrics !== null) return null;
       set({ findingLyrics: "Starting", notice: null });
       try {
         let found: LyricsFound;
         try {
-          found = await api.findLyrics(provider, upload, (label) => set({ findingLyrics: label }));
+          found = await api.findLyrics(provider, upload, options, (label) => set({ findingLyrics: label }));
         } catch (e) {
           if (errorMessage(e) !== "Stopped.") report(e);
           return null;
         }
         await serial(() => guarded(() => absorb(found.result, api)));
-        const notes = [...found.notes];
-        if (found.unsureWords > 0) {
-          notes.push(`${plural(found.unsureWords, "word")} ${found.unsureWords === 1 ? "has" : "have"} rough timing: drag ${found.unsureWords === 1 ? "it" : "them"} on Lyrics (words) if needed.`);
+        set({ notice: lyricsNotice(found, { provider, upload }) });
+        return found;
+      } finally {
+        set({ findingLyrics: null });
+      }
+    },
+
+    async chooseLyrics(choice) {
+      const { api } = get();
+      if (!api || get().findingLyrics !== null) return null;
+      const run = get().notice?.lyricsRun;
+      set({ findingLyrics: "Lining up the words" });
+      try {
+        let found: LyricsFound;
+        try {
+          found = await api.chooseLyrics(choice);
+        } catch (e) {
+          report(e);
+          return null;
         }
-        set({ notice: { tone: "done", text: `Found ${plural(found.lines, "line")} and ${plural(found.words, "word")}. ${found.summary}`, notes, saveShow: false } });
+        await serial(() => guarded(() => absorb(found.result, api)));
+        set({ notice: lyricsNotice(found, run) });
         return found;
       } finally {
         set({ findingLyrics: null });

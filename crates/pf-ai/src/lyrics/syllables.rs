@@ -126,6 +126,32 @@ pub fn shape_marks(start: u64, end: u64, phones: &[Phone]) -> Vec<Mark> {
     out
 }
 
+/// The syllable and mouth-shape marks for a word whose syllables and sounds were each timed
+/// ([`super::forced`]): a mark per syllable, and one per sound's mouth shape, a run of `etc`
+/// kept as one (as [`mouth_shapes`] keeps it).
+pub fn timed_marks(syllables: &[pf_align::SyllableTime]) -> Sung {
+    let mut sung = Sung::default();
+    for syllable in syllables {
+        if syllable.end_ms > syllable.start_ms {
+            sung.syllables.push(Mark::new(
+                syllable.start_ms,
+                syllable.end_ms,
+                syllable.text.clone(),
+            ));
+        }
+        for phone in &syllable.phones {
+            let shape = phone.phone.arpa.mouth();
+            match sung.phonemes.last_mut() {
+                Some(last) if shape == "etc" && last.label == "etc" && last.end_ms == phone.start_ms => {
+                    last.end_ms = phone.end_ms;
+                }
+                _ => sung.phonemes.push(Mark::new(phone.start_ms, phone.end_ms, shape)),
+            }
+        }
+    }
+    sung
+}
+
 /// The syllables and mouth shapes for timed `words` (in order, not overlapping): the
 /// syllables of a word longer than [`LONG_WORD_MS`] nudged onto `onsets` (where the voice
 /// starts a note, in order). A word too short to split stays whole.
@@ -305,6 +331,37 @@ mod tests {
         assert_eq!(
             spans(&sung.phonemes[sung.phonemes.len() - 1..]),
             [(2_000, 2_001, "O")]
+        );
+    }
+
+    #[test]
+    fn timed_sounds_become_marks_with_etc_runs_kept_as_one() {
+        let heard = |start: u64| pf_align::CharTime {
+            start_ms: start,
+            end_ms: start + 20,
+            confidence: 0.9,
+        };
+        // "ghost": g h o s t heard at 1000, 1020, 1040, 1500, 1560; held to 1700.
+        let chars: Vec<_> = [1_000, 1_020, 1_040, 1_500, 1_560]
+            .into_iter()
+            .map(|t| Some(heard(t)))
+            .collect();
+        let sounds = pf_align::word_sounds("ghost", 1_000, 1_700, &chars);
+        let sung = timed_marks(&sounds);
+        let spans: Vec<(u64, u64, &str)> = sung
+            .phonemes
+            .iter()
+            .map(|m| (m.start_ms, m.end_ms, m.label.as_str()))
+            .collect();
+        // G is etc, OW is O, S T one etc run.
+        assert_eq!(
+            spans,
+            [(1_000, 1_040, "etc"), (1_040, 1_500, "O"), (1_500, 1_680, "etc")]
+        );
+        assert_eq!(sung.syllables.len(), 1);
+        assert_eq!(
+            (sung.syllables[0].start_ms, sung.syllables[0].end_ms),
+            (1_000, 1_700)
         );
     }
 }

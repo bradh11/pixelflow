@@ -28,6 +28,8 @@ pub enum WordSource {
     Heard,
     /// A share of its line's time by syllables (or of the gap between heard neighbours).
     Spread,
+    /// Where its letters were heard, lined up on this computer ([`super::forced`]).
+    Aligned,
 }
 
 /// One sung word.

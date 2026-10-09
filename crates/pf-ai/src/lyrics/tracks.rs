@@ -49,6 +49,38 @@ fn sung_tracks(lyrics: &str, words: &[Mark], onsets: &[u64], end_ms: u64) -> [Ti
     ]
 }
 
+/// The syllables and phonemes tracks for `words` (one mark per word, in order), each word's
+/// from its timed `sounds` when it has them, else shared out (nudged onto `onsets`).
+fn timed_tracks(
+    lyrics: &str,
+    words: &[Mark],
+    sounds: &[Option<Vec<pf_align::SyllableTime>>],
+    onsets: &[u64],
+    end_ms: u64,
+) -> [TimingTrack; 2] {
+    let mut sung = super::syllables::Sung::default();
+    for (k, word) in words.iter().enumerate() {
+        let one = match sounds.get(k).and_then(Option::as_ref) {
+            Some(timed) => super::syllables::timed_marks(timed),
+            None => sung_marks(std::slice::from_ref(word), onsets),
+        };
+        sung.syllables.extend(one.syllables);
+        sung.phonemes.extend(one.phonemes);
+    }
+    [
+        TimingTrack::new(
+            format!("{lyrics}{SYLLABLES}"),
+            TimingKind::Custom,
+            tidy_marks(sung.syllables, end_ms).0,
+        ),
+        TimingTrack::new(
+            format!("{lyrics} (phonemes)"),
+            TimingKind::Phonemes,
+            tidy_marks(sung.phonemes, end_ms).0,
+        ),
+    ]
+}
+
 /// The Lyrics, Lyrics (words), Lyrics (syllables), Lyrics (phonemes), and Vocals tracks, marks
 /// tidied to fit `end_ms`; syllables nudged onto `onsets`.
 pub fn lyric_tracks(
@@ -57,11 +89,24 @@ pub fn lyric_tracks(
     onsets: &[u64],
     end_ms: u64,
 ) -> Vec<TimingTrack> {
+    lyric_tracks_timed(phrases, vocals, onsets, end_ms, &[])
+}
+
+/// [`lyric_tracks`], with the syllables and sounds of words the aligner timed (`sounds`, one
+/// per word in order, `None` for the rest; see [`super::forced`]) taken as timed: the other
+/// words' shared out as usual.
+pub fn lyric_tracks_timed(
+    phrases: &[Phrase],
+    vocals: &[(u64, u64)],
+    onsets: &[u64],
+    end_ms: u64,
+    sounds: &[Option<Vec<pf_align::SyllableTime>>],
+) -> Vec<TimingTrack> {
     let lines = phrases
         .iter()
         .map(|p| Mark::new(p.start_ms, p.end_ms, p.text.clone()))
         .collect();
-    let words = phrases
+    let words: Vec<Mark> = phrases
         .iter()
         .flat_map(|p| &p.words)
         .map(|w| Mark::new(w.start_ms, w.end_ms, w.text.clone()).sung_as(w.sung.clone()))
@@ -70,8 +115,13 @@ pub fn lyric_tracks(
         .iter()
         .map(|&(s, e)| Mark::new(s, e, VOCALS_LABEL))
         .collect();
+    let [syllables, phonemes] = if sounds.iter().any(Option::is_some) {
+        timed_tracks(LYRICS_TRACK, &words, sounds, onsets, end_ms)
+    } else {
+        let tidied = tidy_marks(words.clone(), end_ms).0;
+        sung_tracks(LYRICS_TRACK, &tidied, onsets, end_ms)
+    };
     let words = TimingTrack::new(WORDS_TRACK, TimingKind::Words, tidy_marks(words, end_ms).0);
-    let [syllables, phonemes] = sung_tracks(LYRICS_TRACK, &words.marks, onsets, end_ms);
     vec![
         TimingTrack::new(LYRICS_TRACK, TimingKind::Lyrics, tidy_marks(lines, end_ms).0),
         words,

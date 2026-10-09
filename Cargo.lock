@@ -1950,6 +1950,7 @@ dependencies = [
  "jsonschema",
  "keyring",
  "pf-ai",
+ "pf-align",
  "pf-analysis",
  "pf-audio",
  "pf-engine",

@@ -20,12 +20,20 @@
 //!    Lyrics (words), Lyrics (syllables), Lyrics (phonemes), and Vocals timing tracks
 //!    ([`tracks`]).
 //!
+//! **On-device alignment** ([`forced`]), when the user turned it on and its model is
+//! downloaded: once the words are known, each line is lined up with the song letter by letter
+//! on this computer, and words, syllables, and mouth shapes are timed from it (what the aligner
+//! is unsure of keeps the timing above). It needs only the text, so with published English
+//! lyrics the song's audio isn't sent to OpenAI at all; OpenAI then only hears the words of
+//! songs with none published.
+//!
 //! What LRCLIB and OpenAI answered, and the user's choice, are kept by the song file's hash
 //! ([`cache`]), so the same song is never sent twice, until the user asks to Find again.
 
 pub mod cache;
 pub mod choose;
 pub mod combine;
+pub mod forced;
 pub mod gate;
 pub mod language;
 pub mod lrc;
@@ -61,6 +69,10 @@ pub enum Step {
     LookingUp,
     Listening,
     LiningUp,
+    /// Bringing the voice forward for on-device alignment.
+    Separating,
+    /// Hearing the song letter by letter for on-device alignment.
+    Aligning,
 }
 
 impl Step {
@@ -70,6 +82,8 @@ impl Step {
             Step::LookingUp => "Looking up published lyrics",
             Step::Listening => "Sending the audio to OpenAI to hear the words",
             Step::LiningUp => "Lining up the words",
+            Step::Separating => "Separating the vocals",
+            Step::Aligning => "Aligning the words",
         }
     }
 }
@@ -129,6 +143,8 @@ pub struct Request<'a> {
     pub fresh: bool,
     /// Told how far a step that reads the whole song has got (0–1), for a progress bar.
     pub progress: &'a dyn Fn(f32),
+    /// The on-device aligner, when the user turned it on and its model is here ([`forced`]).
+    pub aligner: Option<&'a dyn forced::SongAligner>,
 }
 
 /// Lyrics the user chose instead of the ones picked for them.
@@ -163,6 +179,8 @@ pub enum TimingFrom {
     LrclibWords,
     /// The lyrics' line times, words shared out by syllables.
     LrclibLines,
+    /// Lined up on this computer ([`forced`]).
+    OnDevice,
 }
 
 /// A candidate as the user sees it, to pick another.
@@ -219,6 +237,9 @@ pub struct Found {
     /// What locking did, in numbers.
     #[serde(skip)]
     pub locked: Option<refine::Report>,
+    /// What on-device alignment did, in numbers, when it ran.
+    #[serde(skip)]
+    pub aligned: Option<forced::Report>,
     #[serde(skip)]
     pub tracks: Vec<TimingTrack>,
 }
@@ -275,6 +296,8 @@ const OPENAI: &str = "openai";
 const CHOICE: &str = "choice";
 
 const NO_LYRICS: &str = "No lyrics found for this song.";
+const NOT_ALIGNED: &str =
+    "These lyrics have no times, and they couldn't be lined up with the song on this computer.";
 /// Said when LRCLIB couldn't be asked but the recognizer heard the words.
 pub const LRCLIB_UNAVAILABLE: &str =
     "LRCLIB (published lyrics) was unavailable, so the words come from speech recognition only.";
@@ -427,8 +450,21 @@ pub fn gather(
     }
     .unwrap_or(fallback);
     let has_lines = entries.iter().any(|e| e.synced.is_some());
+    // With the on-device aligner, published (or pasted) English words need nothing heard: the
+    // song's audio stays here.
+    let has_text = match &choice {
+        Some(Choice::Pasted(text)) => !text.trim().is_empty(),
+        _ => picked.is_some_and(|c| {
+            (c.entry.synced.is_some() || c.entry.plain.is_some())
+                && c.language.as_deref().is_none_or(|l| l == expected)
+        }),
+    };
+    let aligned_here = request.aligner.is_some() && has_text && expected == forced::LANGUAGE;
 
     let heard = match &request.recognizer {
+        // What was heard before is still used (it's here already); nothing is sent.
+        Some(_) if aligned_here => kept::<Heard>(request, hash_ref, OPENAI)
+            .filter(|h| h.language.as_deref() == Some(expected.as_str()) && !h.words.is_empty()),
         Some(key) => {
             on_step(Step::Listening);
             let first_line = picked
@@ -538,8 +574,60 @@ fn source_line(text_from: TextFrom, timing_from: TimingFrom, chosen: Option<&Can
         TimingFrom::Openai => "word timing: OpenAI".to_string(),
         TimingFrom::LrclibWords => format!("word timing: {own}"),
         TimingFrom::LrclibLines => format!("line timing: {own}"),
+        TimingFrom::OnDevice => "word timing: on this computer".to_string(),
     };
     format!("{text} · {timing}")
+}
+
+/// Lines of plain lyrics with no times yet (all at 0), their words to be placed by the aligner.
+fn untimed(lines: &[String]) -> Vec<Phrase> {
+    lines
+        .iter()
+        .map(|line| Phrase {
+            text: line.clone(),
+            start_ms: 0,
+            end_ms: 0,
+            words: combine::split_words(line)
+                .into_iter()
+                .map(|text| Word {
+                    text,
+                    start_ms: 0,
+                    end_ms: 0,
+                    source: WordSource::Spread,
+                    confidence: 0.0,
+                    sung: None,
+                })
+                .collect(),
+        })
+        .filter(|p| !p.words.is_empty())
+        .collect()
+}
+
+/// The song heard letter by letter by `aligner` ([`forced`]): kept by the song file's hash and
+/// the model, worked out (bringing the voice forward, then hearing it) when not kept yet.
+fn hear_letters(
+    request: &Request<'_>,
+    aligner: &dyn forced::SongAligner,
+    hash: Option<&str>,
+    on_step: &mut dyn FnMut(Step),
+) -> Result<pf_align::Emission, String> {
+    let kind = forced::cache_kind(aligner.model());
+    if let (Some(hash), Some(cache)) = (hash, request.cache)
+        && let Some(kept) = cache
+            .load_bytes(hash, &kind)
+            .and_then(|b| pf_align::Emission::from_bytes(&b))
+    {
+        return Ok(kept);
+    }
+    on_step(Step::Separating);
+    let voice = aligner.voice(request.path, request.cancel, request.progress)?;
+    request.cancel.check().map_err(|_| "Stopped.".to_string())?;
+    on_step(Step::Aligning);
+    let emission = aligner.hear(&voice, request.cancel, request.progress)?;
+    if let (Some(hash), Some(cache), false) = (hash, request.cache, emission.frames() == 0) {
+        cache.store_bytes(hash, &kind, &emission.to_bytes());
+    }
+    Ok(emission)
 }
 
 /// Puts what was `gathered` together as timing tracks: the user's choice's lyrics (or the best
@@ -621,6 +709,8 @@ pub fn assemble(
             }
         }
         (None, None, Some(heard)) => (combine::from_heard(heard), TextFrom::Openai, TimingFrom::Openai),
+        // No times at all: the aligner places the words across the whole song.
+        (None, Some(lines), None) if request.aligner.is_some() => (untimed(lines), own, TimingFrom::OnDevice),
         (None, Some(_), None) if pasted.is_some() => {
             return Err(
                 "Pasted lyrics without times need OpenAI's speech recognition to hear when they're sung. Paste LRC lyrics (with [mm:ss] times), or set up an OpenAI key for the assistant.".into(),
@@ -637,18 +727,65 @@ pub fn assemble(
     if phrases.is_empty() {
         return Err(NO_LYRICS.into());
     }
+    // No times to go by: only the aligner can place the words.
+    let whole_song = timing_from == TimingFrom::OnDevice;
     // Word times locked onto the voice: line times only spread onto it, the rest moved to it.
     let locked = voice
         .as_ref()
-        .filter(|v| !v.is_empty())
+        .filter(|v| !v.is_empty() && !whole_song)
         .map(|v| match timing_from {
             TimingFrom::LrclibLines => refine::spread_onto_voice(&phrases, v, end),
             _ => refine::lock_to_voice(&phrases, v, end),
         });
-    let (phrases, locked) = match locked {
+    let (mut phrases, locked) = match locked {
         Some(l) => (l.phrases, Some(l.report)),
         None => (phrases, None),
     };
+    // Lined up on this computer, letter by letter, when the aligner is here and hears the
+    // lyrics' language.
+    let mut notes = gathered.notes.clone();
+    let mut timing_from = timing_from;
+    let mut sounds = Vec::new();
+    let mut aligned = None;
+    let text: String = phrases
+        .iter()
+        .map(|p| p.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let english = language::detect(&text).is_none_or(|l| l == forced::LANGUAGE);
+    match request.aligner {
+        Some(aligner) if english => match hear_letters(request, aligner, gathered.hash.as_deref(), on_step) {
+            Ok(emission) => {
+                let voice = voice.as_ref().filter(|v| !v.is_empty());
+                let done = forced::align(&phrases, &emission, voice, end, whole_song);
+                if whole_song && done.report.aligned == 0 {
+                    return Err(NOT_ALIGNED.into());
+                }
+                if whole_song || done.report.mostly_aligned() {
+                    timing_from = TimingFrom::OnDevice;
+                }
+                phrases = done.phrases;
+                sounds = done.sounds;
+                aligned = Some(done.report);
+            }
+            Err(_) if cancel.is_cancelled() => return Err(stopped()),
+            Err(error) => {
+                (services.log)(&format!("on-device alignment: {error}"));
+                if whole_song {
+                    return Err(NOT_ALIGNED.into());
+                }
+                notes.push(
+                    "On-device alignment couldn't be used this time, so the word timing is as found.".into(),
+                );
+            }
+        },
+        Some(_) if whole_song => return Err(NOT_ALIGNED.into()),
+        Some(_) => {
+            notes.push("On-device alignment hears English only, so these words' timing is as found.".into())
+        }
+        None => {}
+    }
+    cancel.check().map_err(|_| stopped())?;
     let words: Vec<(u64, u64)> = phrases
         .iter()
         .flat_map(|p| &p.words)
@@ -674,6 +811,9 @@ pub fn assemble(
         (TextFrom::Pasted, TimingFrom::LrclibLines) => {
             "Your pasted lyrics and their line timing; words are spread over each line."
         }
+        (TextFrom::Lrclib, TimingFrom::OnDevice) => "Lyrics from LRCLIB, word timing found on this computer.",
+        (TextFrom::Pasted, TimingFrom::OnDevice) => "Your pasted lyrics, word timing found on this computer.",
+        (TextFrom::Openai, TimingFrom::OnDevice) => "Lyrics from OpenAI, word timing found on this computer.",
         (TextFrom::Openai, _) if gathered.candidates.is_empty() => {
             "Lyrics and word timing from OpenAI (LRCLIB had none for this song)."
         }
@@ -681,7 +821,11 @@ pub fn assemble(
     }
     .to_string();
     let chosen = chosen.filter(|_| text_from == TextFrom::Lrclib);
-    let tracks = tracks::lyric_tracks(&phrases, &vocals, onsets, end);
+    let tracks = tracks::lyric_tracks_timed(&phrases, &vocals, onsets, end, &sounds);
+    let timing_note = aligned
+        .as_ref()
+        .and_then(forced::Report::sentence)
+        .or_else(|| locked.as_ref().and_then(refine::Report::sentence));
     Ok(Found {
         phrases,
         vocals,
@@ -689,13 +833,14 @@ pub fn assemble(
         timing_from,
         summary,
         source: source_line(text_from, timing_from, chosen),
-        notes: gathered.notes.clone(),
+        notes,
         unsure_words,
         candidates: gathered.candidates.iter().map(CandidateView::from).collect(),
         chosen: chosen.map(|c| c.entry.id),
         pasted: text_from == TextFrom::Pasted,
-        timing_note: locked.as_ref().and_then(refine::Report::sentence),
+        timing_note,
         locked,
+        aligned,
         tracks,
     })
 }
@@ -803,6 +948,7 @@ mod tests {
             language: language::DEFAULT,
             fresh: false,
             progress: &|_| {},
+            aligner: None,
         }
     }
 
@@ -1214,6 +1360,158 @@ mod tests {
         let found = find_lyrics(&f.services, &russian, &mut |_| {}).unwrap();
         assert_eq!(found.phrases[0].words[0].text, "Привет");
         assert_eq!(f.openai.requests().len(), 1);
+    }
+
+    /// An aligner that hears the made-up song's words where SYNCED puts them, a little late,
+    /// counting how often it listens.
+    struct FakeAligner {
+        listened: Mutex<usize>,
+        fails: bool,
+    }
+
+    impl FakeAligner {
+        fn new() -> Self {
+            Self {
+                listened: Mutex::new(0),
+                fails: false,
+            }
+        }
+    }
+
+    impl forced::SongAligner for FakeAligner {
+        fn model(&self) -> &str {
+            "fake-1"
+        }
+
+        fn voice(&self, _: &Path, _: &Cancel, progress: &dyn Fn(f32)) -> Result<Vec<f32>, String> {
+            *self.listened.lock().unwrap() += 1;
+            progress(1.0);
+            if self.fails {
+                return Err("the model file is damaged".into());
+            }
+            Ok(vec![0.0; 16])
+        }
+
+        fn hear(&self, _: &[f32], _: &Cancel, _: &dyn Fn(f32)) -> Result<pf_align::Emission, String> {
+            // 10 s; each line heard 300 ms after its published time.
+            let mut path = vec![pf_align::vocab::BLANK; 500];
+            forced::tests::heard(&mut path, 65, "paper lanterns glowing");
+            forced::tests::heard(&mut path, 215, "snowy rooftops shine");
+            Ok(forced::tests::emission_for(&path))
+        }
+    }
+
+    #[test]
+    fn with_the_aligner_published_lyrics_are_timed_here_and_nothing_is_sent() {
+        let (dir, path) = song();
+        let cache = LyricsCache::new(dir.path());
+        let cancel = Cancel::new();
+        let aligner = FakeAligner::new();
+        // An OpenAI key and the user's say-so, but published lines: the audio isn't sent.
+        let f = fakes(vec![Reply::ok(entry(Some(SYNCED), None))], vec![]);
+        let mut req = request(&path, Some(fake_key()), Some(&cache), &cancel);
+        req.aligner = Some(&aligner);
+        let mut steps = Vec::new();
+        let found = find_lyrics(&f.services, &req, &mut |s| steps.push(s)).unwrap();
+        assert!(f.openai.requests().is_empty());
+        assert_eq!(found.timing_from, TimingFrom::OnDevice);
+        assert_eq!(
+            found.summary,
+            "Lyrics from LRCLIB, word timing found on this computer."
+        );
+        assert_eq!(
+            found.source,
+            "Lyrics: Lantern Band — Lantern Song (LRCLIB) · word timing: on this computer"
+        );
+        assert_eq!(
+            steps,
+            [
+                Step::ReadingSong,
+                Step::LookingUp,
+                Step::LiningUp,
+                Step::Separating,
+                Step::Aligning
+            ]
+        );
+        // Each word where its letters were heard: "Paper" at step 65.
+        let words: Vec<&Word> = found.phrases.iter().flat_map(|p| &p.words).collect();
+        assert_eq!(words[0].start_ms, 1_300);
+        assert_eq!(found.phrases[1].start_ms, 4_300);
+        assert!(words.iter().all(|w| w.source == WordSource::Aligned));
+        assert_eq!(found.unsure_words, 0);
+        assert_eq!(found.aligned.as_ref().unwrap().aligned, 6);
+        assert!(
+            found
+                .timing_note
+                .unwrap()
+                .starts_with("Word timing found on this computer for 6 of 6 words")
+        );
+        // Syllables and mouth shapes from the letters: "Paper" is two syllables, the second
+        // from its second p (step 69).
+        let syllables = &found.tracks[2].marks;
+        assert_eq!((syllables[0].start_ms, syllables[1].start_ms), (1_300, 1_380));
+        assert!(!found.tracks[3].marks.is_empty());
+
+        // Again (another candidate chosen, say): what was heard is kept, nothing listened to.
+        let f = fakes(vec![], vec![]);
+        find_lyrics(&f.services, &req, &mut |_| {}).unwrap();
+        assert_eq!(*aligner.listened.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn with_the_aligner_plain_lyrics_need_no_times() {
+        let (_dir, path) = song();
+        let cancel = Cancel::new();
+        let aligner = FakeAligner::new();
+        let plain = "Paper lanterns glowing\nSnowy rooftops shine";
+        let f = fakes(vec![Reply::ok(entry(None, Some(plain)))], vec![]);
+        let mut req = request(&path, None, None, &cancel);
+        req.aligner = Some(&aligner);
+        let found = find_lyrics(&f.services, &req, &mut |_| {}).unwrap();
+        assert_eq!(found.timing_from, TimingFrom::OnDevice);
+        assert_eq!(found.phrases[0].start_ms, 1_300);
+        assert_eq!(found.phrases[1].start_ms, 4_300);
+        // Without the aligner, as before: they can't be timed.
+        let f = fakes(vec![Reply::ok(entry(None, Some(plain)))], vec![]);
+        let error = find_lyrics(&f.services, &request(&path, None, None, &cancel), &mut |_| {}).unwrap_err();
+        assert!(error.contains("not when they're sung"), "{error}");
+    }
+
+    #[test]
+    fn with_no_published_lyrics_openai_hears_them_and_the_aligner_times_them() {
+        let (_dir, path) = song();
+        let cancel = Cancel::new();
+        let aligner = FakeAligner::new();
+        let f = fakes(vec![Reply::ok("[]")], vec![Reply::ok(HEARD)]);
+        let mut req = request(&path, Some(fake_key()), None, &cancel);
+        req.aligner = Some(&aligner);
+        let found = find_lyrics(&f.services, &req, &mut |_| {}).unwrap();
+        assert_eq!(f.openai.requests().len(), 1);
+        assert_eq!(found.text_from, TextFrom::Openai);
+        assert_eq!(found.timing_from, TimingFrom::OnDevice);
+        assert_eq!(found.phrases[0].words[0].start_ms, 1_300);
+    }
+
+    #[test]
+    fn an_aligner_that_fails_leaves_the_timing_as_found() {
+        let (_dir, path) = song();
+        let cancel = Cancel::new();
+        let aligner = FakeAligner {
+            fails: true,
+            ..FakeAligner::new()
+        };
+        let f = fakes(vec![Reply::ok(entry(Some(SYNCED), None))], vec![]);
+        let mut req = request(&path, None, None, &cancel);
+        req.aligner = Some(&aligner);
+        let found = find_lyrics(&f.services, &req, &mut |_| {}).unwrap();
+        assert_eq!(found.timing_from, TimingFrom::LrclibLines);
+        assert_eq!(found.phrases[0].start_ms, 1_000);
+        assert!(
+            found.notes[0].starts_with("On-device alignment couldn't be used"),
+            "{:?}",
+            found.notes
+        );
+        assert!(f.log.lock().unwrap().iter().any(|l| l.contains("damaged")));
     }
 
     #[test]

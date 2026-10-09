@@ -628,6 +628,16 @@ fn names_cant_break_out_of_the_context_block() {
 }
 
 #[test]
+fn the_prompt_says_to_act_on_defaults_and_stays_short() {
+    let prompt = pf_ai::agent::SYSTEM_PROMPT;
+    assert!(prompt.contains("act on a sensible default and say what you assumed"));
+    assert!(prompt.contains("\"Lyrics (syllables)\""));
+    assert!(prompt.contains("Offer Find lyrics"));
+    // It's sent with every request: new rules come out of what's there.
+    assert!(prompt.len() <= 4_300, "{} bytes", prompt.len());
+}
+
+#[test]
 fn a_show_and_sequence_proposal_is_one_undo_step() {
     let (mut engine, _dir, _) = engine();
     engine.new_sequence_doc("Song", 30_000, None).unwrap();

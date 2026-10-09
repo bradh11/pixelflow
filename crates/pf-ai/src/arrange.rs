@@ -101,6 +101,17 @@ fn cut_track<'a>(tracks: &'a [TimingTrack], track: &'a TimingTrack, matching: bo
         .unwrap_or(track)
 }
 
+/// The words a syllables track's syllables belong to ("Lyrics (words)" beside "Lyrics
+/// (syllables)"), else any words track.
+fn syllables_words<'a>(tracks: &'a [TimingTrack], syllables: &TimingTrack) -> Option<&'a TimingTrack> {
+    let base = syllables.name.strip_suffix(" (syllables)")?;
+    let words = format!("{base} (words)");
+    tracks
+        .iter()
+        .find(|t| t.kind == TimingKind::Words && t.name == words && !t.marks.is_empty())
+        .or_else(|| crate::lyrics::tracks::words_track(tracks))
+}
+
 /// How effects are shared out among the rows, slot by slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Spread {
@@ -409,6 +420,7 @@ pub fn place(draft: &mut Draft, input: &Value) -> Result<String, String> {
         Value::String(text) => Some(text.as_str()),
         _ => return Err("match must be text: a word, a phrase, or a pattern.".into()),
     };
+    let mut cut_at = None;
     let slots: Vec<(u64, u64)> = match input["track"].as_str() {
         None if pattern.is_some() => {
             return Err("match needs a track whose marks to match, like \"Lyrics\".".into());
@@ -416,21 +428,40 @@ pub fn place(draft: &mut Draft, input: &Value) -> Result<String, String> {
         None => vec![(from, to)],
         Some(key) => {
             let track = find_track(&doc.timing_tracks, key).ok_or_else(|| {
-                format!("There's no timing track \"{key}\". get_open_sequence lists them; add_song_timing makes Beats, Bars, and Sections.")
+                format!("There's no timing track \"{key}\". get_open_sequence lists them; add_song_timing makes Beats, Bars, Sections, and syllables.")
             })?;
             let track = cut_track(&doc.timing_tracks, track, pattern.is_some());
+            cut_at = Some(track.id);
             let each = input["marksEach"].as_u64().unwrap_or(1).clamp(1, 10_000) as usize;
-            let marks: Vec<&Mark> = track
-                .marks
-                .iter()
-                .filter(|m| m.start_ms >= from && m.start_ms < to)
-                .collect();
-            let spans: Vec<(u64, u64)> = match pattern {
-                Some(pattern) => matching(&marks, pattern)?
+            fn starting_in(t: &TimingTrack, from: u64, to: u64) -> Vec<&Mark> {
+                t.marks
+                    .iter()
+                    .filter(|m| m.start_ms >= from && m.start_ms < to)
+                    .collect()
+            }
+            let within = |t| starting_in(t, from, to);
+            let marks = within(track);
+            let matched = |marks: &[&Mark], pattern: &str| -> Result<Vec<(u64, u64)>, String> {
+                Ok(matching(marks, pattern)?
                     .into_iter()
                     .map(|(first, last)| (marks[first].start_ms, marks[last].end_ms))
-                    .collect(),
-                None => marks.iter().map(|m| (m.start_ms, m.end_ms)).collect(),
+                    .collect())
+            };
+            let words = crate::lyrics::tracks::is_syllables(track)
+                .then(|| syllables_words(&doc.timing_tracks, track))
+                .flatten();
+            let spans: Vec<(u64, u64)> = match (pattern, words) {
+                // Words matched on the words track, each of their syllables a mark.
+                (Some(pattern), Some(words)) => {
+                    let sung = matched(&within(words), pattern)?;
+                    marks
+                        .iter()
+                        .filter(|m| sung.iter().any(|&(s, e)| m.start_ms >= s && m.start_ms < e))
+                        .map(|m| (m.start_ms, m.end_ms))
+                        .collect()
+                }
+                (Some(pattern), None) => matched(&marks, pattern)?,
+                (None, _) => marks.iter().map(|m| (m.start_ms, m.end_ms)).collect(),
             };
             let slots: Vec<(u64, u64)> = spans
                 .chunks(each)
@@ -471,6 +502,9 @@ pub fn place(draft: &mut Draft, input: &Value) -> Result<String, String> {
         return Err("That spread gives none of those rows an effect: add rows, or use more marks.".into());
     }
     draft.edit_sequence_batch(edits).map_err(|e| e.to_string())?;
+    if let Some(id) = cut_at {
+        draft.placed_on(id);
+    }
     let replaced = if removed > 0 {
         format!(", replacing {}", plural(removed, "effect", "effects"))
     } else {

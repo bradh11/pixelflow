@@ -11,7 +11,7 @@ use pf_engine::{
     Edit, Engine, EngineError, SequenceEdit, SequenceEditResult, ShowSnapshot, edited_sequence, edited_show,
 };
 use pf_model::{PropId, Show};
-use pf_sequence::{EffectId, Sequence};
+use pf_sequence::{EffectId, Sequence, TimingTrackId};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -93,6 +93,8 @@ pub struct Draft {
     sequence_edits: Vec<SequenceEdit>,
     /// Effect edges and timing marks locked to the music so far (see [`Draft::lock_to_music`]).
     locked_edges: usize,
+    /// Timing tracks `place_effects` cut effects at.
+    placed_on: Vec<TimingTrackId>,
 }
 
 impl Draft {
@@ -104,6 +106,7 @@ impl Draft {
             show_edits: Vec::new(),
             sequence_edits: Vec::new(),
             locked_edges: 0,
+            placed_on: Vec::new(),
         }
     }
 
@@ -148,9 +151,17 @@ impl Draft {
         Ok(())
     }
 
+    /// Notes that effects were cut at the timing track `id` (see [`Draft::lock_to_music`]).
+    pub fn placed_on(&mut self, id: TimingTrackId) {
+        if !self.placed_on.contains(&id) {
+            self.placed_on.push(id);
+        }
+    }
+
     /// Moves the effect edges and timing marks the draft added or moved onto the song's
     /// sections, accents, sung words, bars, and beats (see [`crate::align`]), as one more step
-    /// of the draft. The user's own Sections and Accents tracks win over the analysis's. Answers how many
+    /// of the draft. The user's own Sections and Accents tracks win over the analysis's; edges
+    /// on the syllables of a syllables track effects were cut at stay on them. Answers how many
     /// edges moved.
     pub fn lock_to_music(&mut self, analysis: Option<&Analysis>) -> usize {
         let base = self.base.sequence.as_ref().map(|s| &s.doc);
@@ -160,6 +171,13 @@ impl Draft {
         let Some(anchors) = Anchors::for_song(analysis, base) else {
             return 0;
         };
+        let syllables: Vec<u64> = doc
+            .timing_tracks
+            .iter()
+            .filter(|t| self.placed_on.contains(&t.id) && crate::lyrics::tracks::is_syllables(t))
+            .flat_map(|t| t.marks.iter().flat_map(|m| [m.start_ms, m.end_ms]))
+            .collect();
+        let anchors = anchors.with_syllables(syllables);
         // The song's own tracks, as analysis makes them, are the music already.
         let as_made: Vec<_> = analysis
             .map(|a| {

@@ -101,10 +101,13 @@ pub fn run_tool(toolbox: &Toolbox, call: &ToolCall, draft: &mut Draft, song: &mu
                     .map(String::from)
                     .to_vec(),
             };
-            match song
-                .analysis(draft)
-                .and_then(|analysis| crate::song::add_timing(&analysis, draft, &wanted))
-            {
+            // Syllables and phonemes come from the words: the analysis only if it's there.
+            let analysis = if crate::song::needs_analysis(&wanted) {
+                song.analysis(draft).map(Some)
+            } else {
+                Ok(song.analyzed())
+            };
+            match analysis.and_then(|analysis| crate::song::add_timing(analysis.as_deref(), draft, &wanted)) {
                 Ok(tracks) => ok(tracks.to_string()),
                 Err(e) => err(e),
             }

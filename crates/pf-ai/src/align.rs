@@ -9,12 +9,15 @@
 //! | section boundary | the user's Sections track, else the detected sections | 1 beat |
 //! | accent | the user's Accents track, else hits, drops, breaks, builds (and where breaks and builds end) | ½ beat |
 //! | word | where each sung word starts, from the user's Lyrics (words) track (else its Lyrics lines) | ½ beat |
+//! | syllable | where each sung syllable starts and ends, only from a syllables track the draft placed effects on | 1 ms |
 //! | bar (downbeat) | the analysis | ¼ bar (1 beat in 4/4), only when no beat is nearer |
 //! | beat | the analysis | ¼ beat |
 //!
 //! An edge goes to the anchor nearest for its reach (distance ÷ reach, smallest wins; a tie goes
 //! to the more important anchor), so an edge already on beat 2 stays there rather than jumping to
-//! the bar line a beat away, while one 300 ms off a section start lands on it.
+//! the bar line a beat away, while one 300 ms off a section start lands on it. A syllable only
+//! holds an edge already on it (an effect cut at a syllables track stays with each syllable,
+//! not pulled onto the beat), and pulls nothing else.
 //!
 //! **Rules**: only what the draft added or moved is touched (an effect's edge that is as the user
 //! had it stays); an effect never ends up shorter than a frame (or than it was, if shorter), and
@@ -33,17 +36,22 @@ pub enum Anchor {
     Section,
     Accent,
     Word,
+    Syllable,
     Bar,
     Beat,
 }
 
-const ANCHORS: [Anchor; 5] = [
+const ANCHORS: [Anchor; 6] = [
     Anchor::Section,
     Anchor::Accent,
     Anchor::Word,
+    Anchor::Syllable,
     Anchor::Bar,
     Anchor::Beat,
 ];
+
+/// How far a syllable reaches: only an edge already on it.
+const SYLLABLE_REACH_MS: f64 = 1.0;
 
 /// The beat without a tempo to go by (120 BPM).
 const DEFAULT_BEAT_MS: f64 = 500.0;
@@ -53,7 +61,7 @@ const DEFAULT_BEAT_MS: f64 = 500.0;
 pub struct Anchors {
     beat_ms: f64,
     /// Sorted times for each kind of anchor, in [`Anchor`] order.
-    times: [Vec<u64>; 5],
+    times: [Vec<u64>; 6],
 }
 
 /// The time in `sorted` nearest `t`.
@@ -116,6 +124,7 @@ impl Anchors {
                 sorted(sections),
                 sorted(accents),
                 Vec::new(),
+                Vec::new(),
                 sorted(bars),
                 sorted(beats),
             ],
@@ -125,6 +134,13 @@ impl Anchors {
     /// These anchors with where sung words start (in any order).
     pub fn with_words(mut self, words: Vec<u64>) -> Self {
         self.times[Anchor::Word as usize] = sorted(words);
+        self
+    }
+
+    /// These anchors with where sung syllables start and end (in any order): only for a
+    /// syllables track effects were placed on.
+    pub fn with_syllables(mut self, syllables: Vec<u64>) -> Self {
+        self.times[Anchor::Syllable as usize] = sorted(syllables);
         self
     }
 
@@ -177,6 +193,7 @@ impl Anchors {
         match anchor {
             Anchor::Section => b,
             Anchor::Accent | Anchor::Word => b / 2.0,
+            Anchor::Syllable => SYLLABLE_REACH_MS,
             // A quarter of a 4/4 bar.
             Anchor::Bar => b,
             Anchor::Beat => b / 4.0,
@@ -327,12 +344,13 @@ impl Spans {
     }
 }
 
-/// Tracks whose marks follow the voice (lyrics, words, phonemes): never moved to the beat.
-fn follows_the_voice(kind: TimingKind) -> bool {
+/// Tracks whose marks follow the voice (lyrics, words, syllables, phonemes): never moved to
+/// the beat.
+fn follows_the_voice(track: &TimingTrack) -> bool {
     matches!(
-        kind,
+        track.kind,
         TimingKind::Lyrics | TimingKind::Words | TimingKind::Phonemes
-    )
+    ) || crate::lyrics::tracks::is_syllables(track)
 }
 
 /// Locks what `draft` added or moved, compared with `base` (the user's sequence), to `anchors`.
@@ -379,7 +397,7 @@ pub fn lock(base: Option<&Sequence>, draft: &Sequence, anchors: &Anchors, as_mad
         }
     }
     for track in &draft.timing_tracks {
-        if follows_the_voice(track.kind) || as_made.contains(&track.marks) {
+        if follows_the_voice(track) || as_made.contains(&track.marks) {
             continue;
         }
         let kept: HashSet<(u64, u64, &str)> = base
@@ -626,6 +644,33 @@ mod tests {
         let a = Anchors::new(500.0, vec![32_000], vec![], vec![], vec![]);
         let locked = lock(Some(&base), &draft, &a, &[]);
         assert_eq!(times(&applied(&draft, &locked), 0), [(30_000, 32_000)]);
+    }
+
+    #[test]
+    fn syllables_hold_effects_on_them_and_pull_nothing_else() {
+        let base = doc_with(&[&[]]);
+        // Cut at syllables: "bus" 10,120–10,270 and "ters" 10,270–10,410.
+        let draft = doc_with(&[&[(10_120, 10_270), (10_270, 10_410)], &[(5_078, 6_000)]]);
+        // Without them, the hit at 10.3 s and the beats pull the edges about.
+        let moved = applied(&draft, &lock(Some(&base), &draft, &anchors(), &[]));
+        assert_ne!(times(&moved, 0), times(&draft, 0));
+        let a = anchors().with_syllables(vec![10_120, 10_270, 10_410, 5_079]);
+        let after = applied(&draft, &lock(Some(&base), &draft, &a, &[]));
+        assert_eq!(times(&after, 0), [(10_120, 10_270), (10_270, 10_410)]);
+        // A syllable a millisecond away doesn't beat a beat 78 ms away.
+        assert_eq!(times(&after, 1), [(5_000, 6_000)]);
+        // A drafted syllables track isn't moved to the beat.
+        let mut draft = Sequence::new("Song", 32_000);
+        let syllables = TimingTrack::new(
+            "Lyrics (syllables)",
+            TimingKind::Custom,
+            vec![
+                Mark::new(10_120, 10_270, "bus"),
+                Mark::new(10_270, 10_410, "ters"),
+            ],
+        );
+        draft.timing_tracks.push(syllables);
+        assert!(lock(Some(&base), &draft, &anchors(), &[]).edits.is_empty());
     }
 
     #[test]

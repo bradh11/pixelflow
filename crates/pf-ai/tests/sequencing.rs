@@ -1019,3 +1019,111 @@ fn lyrics_are_summarized_and_their_words_can_be_accented() {
     // Locked onto the sung word, not the beat 200 ms away.
     assert_eq!(placed(&session, &b, 0), [(10_120, 11_000)]);
 }
+
+#[test]
+fn syllables_are_made_from_the_words_and_effects_stay_on_them() {
+    let mut s = setup(Some("/music/song.mp3"));
+    let a = s.rows[0].clone();
+    // Made-up lyrics.
+    let lines = TimingTrack::new(
+        "Lyrics",
+        TimingKind::Lyrics,
+        vec![
+            Mark::new(2_100, 3_900, "Paper lanterns"),
+            Mark::new(10_120, 11_000, "Lanterns"),
+        ],
+    );
+    let words = TimingTrack::new(
+        "Lyrics (words)",
+        TimingKind::Words,
+        vec![
+            Mark::new(2_100, 2_800, "Paper"),
+            Mark::new(2_800, 3_900, "lanterns"),
+            Mark::new(10_120, 11_000, "Lanterns"),
+        ],
+    );
+    s.engine
+        .edit_sequence(vec![
+            SequenceEdit::AddTimingTrack { track: lines },
+            SequenceEdit::AddTimingTrack { track: words },
+        ])
+        .unwrap();
+    let provider = ScriptedProvider::new(vec![
+        calls(
+            "",
+            &[(
+                "add_song_timing",
+                json!({ "tracks": ["syllables", "phonemes", "syllables"] }),
+            )],
+        ),
+        calls(
+            "",
+            &[(
+                "place_effects",
+                json!({ "rowIds": [a], "fromMs": 0, "toMs": 32_000, "track": "Lyrics (syllables)", "match": "lanterns", "effect": { "kind": "on" } }),
+            )],
+        ),
+        calls(
+            "",
+            &[(
+                "propose_changes",
+                json!({ "summary": "A moves on each syllable." }),
+            )],
+        ),
+        says("Done."),
+    ]);
+    let (mut session, runs) = session();
+    ask(
+        &mut session,
+        &provider,
+        &s.engine,
+        "Move A on each syllable of lanterns",
+    )
+    .0
+    .unwrap();
+    let added: Value = serde_json::from_str(&results_in(&provider, 1)[0].0).unwrap();
+    assert_eq!(added[0]["name"], "Lyrics (syllables)");
+    assert_eq!(added[0]["marks"], 6, "Pa·per lan·terns Lan·terns");
+    assert_eq!(added[1]["name"], "Lyrics (phonemes)");
+    assert_eq!(added.as_array().unwrap().len(), 2);
+    // Analyzed once, to lock the draft to the music before proposing it.
+    assert_eq!(runs.load(Ordering::SeqCst), 1);
+    let doc = session.draft().unwrap().sequence().unwrap();
+    let syllables = doc
+        .timing_tracks
+        .iter()
+        .find(|t| t.name == "Lyrics (syllables)")
+        .unwrap();
+    let labels: Vec<&str> = syllables.marks.iter().map(|m| m.label.as_str()).collect();
+    assert_eq!(labels, ["Pa", "per", "lan", "terns", "Lan", "terns"]);
+    // An effect on each syllable of every "lanterns", each still on its syllable after the
+    // draft was locked to the music (the word starts and beats nearby don't pull them).
+    let want: Vec<(u64, u64)> = syllables.marks[2..]
+        .iter()
+        .map(|m| (m.start_ms, m.end_ms))
+        .collect();
+    assert_eq!(placed(&session, &a, 0), want);
+    assert!(want[1].0 > 2_800 && want[1].0 < 3_900, "{want:?}");
+    // analyze_song names the new tracks.
+    let summary = pf_ai::song::describe(&song_analysis(), Some(doc));
+    assert_eq!(summary["lyrics"]["syllablesTrack"], "Lyrics (syllables)");
+    assert_eq!(summary["lyrics"]["phonemesTrack"], "Lyrics (phonemes)");
+}
+
+#[test]
+fn syllables_need_words_to_come_from() {
+    let s = setup(Some("/music/song.mp3"));
+    let provider = ScriptedProvider::new(vec![
+        calls("", &[("add_song_timing", json!({ "tracks": ["syllables"] }))]),
+        says("No lyrics yet."),
+    ]);
+    let (mut session, runs) = session();
+    ask(&mut session, &provider, &s.engine, "Syllables please")
+        .0
+        .unwrap();
+    let (text, is_error) = &results_in(&provider, 1)[0];
+    assert!(is_error);
+    assert!(text.contains("Find lyrics"), "{text}");
+    // Syllables come from the words: the song isn't analyzed for them.
+    assert_eq!(runs.load(Ordering::SeqCst), 0);
+}

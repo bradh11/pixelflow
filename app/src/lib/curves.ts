@@ -37,7 +37,16 @@ export function curveLevel(curve: Curve, t: number): number {
       return phase;
     case "custom":
       return customLevel(curve.points ?? [], at);
+    default:
+      // The music and timing shapes follow the song or the marks while it plays; drawn here (and
+      // without them) halfway between their values.
+      return 0.5;
   }
+}
+
+/** Whether the curve follows the music or a timing track rather than the effect's time. */
+export function followsSomething(curve: Curve): boolean {
+  return !["ramp", "sine", "square", "saw", "custom"].includes(curve.shape);
 }
 
 /** The setting's value at time `t` (0–1 over the effect). */
@@ -63,15 +72,22 @@ export function effectAt(effect: Effect, ms: number): Effect {
 }
 
 /** The shapes people pick from: a ramp is "up" or "down" by which end is higher. */
-export type ShapeChoice = "rampUp" | "rampDown" | "sine" | "square" | "saw" | "custom";
+export type ShapeChoice = "rampUp" | "rampDown" | Exclude<CurveShape, "ramp">;
 
-export const SHAPE_CHOICES: { value: ShapeChoice; label: string }[] = [
+/** The shapes in the menu; the timing-track ones (from xLights files) only show on a curve that has one. */
+export const SHAPE_CHOICES: { value: ShapeChoice; label: string; onlyWhenSet?: boolean }[] = [
   { value: "rampUp", label: "Ramp up" },
   { value: "rampDown", label: "Ramp down" },
   { value: "sine", label: "Sine" },
   { value: "square", label: "Square" },
   { value: "saw", label: "Saw" },
   { value: "custom", label: "Custom" },
+  { value: "music", label: "Follows the music" },
+  { value: "invertedMusic", label: "Opposite the music" },
+  { value: "musicTrigger", label: "Jumps with the music" },
+  { value: "timingToggle", label: "Toggles on marks", onlyWhenSet: true },
+  { value: "timingFade", label: "Fades from each mark", onlyWhenSet: true },
+  { value: "timingFadeSpan", label: "Fades between marks", onlyWhenSet: true },
 ];
 
 export function shapeChoice(curve: Curve): ShapeChoice {
@@ -98,6 +114,15 @@ export function withShape(curve: Curve, choice: ShapeChoice): Curve {
       return { shape: "ramp", from: hi, to: lo };
     case "custom":
       return { shape: "custom", from: curve.from, to: curve.to, points: tracePoints(curve) };
+    case "music":
+    case "invertedMusic":
+      return { shape: choice, from: curve.from, to: curve.to };
+    case "musicTrigger":
+      return { shape: choice, from: curve.from, to: curve.to, trigger: 50, fade: 10 };
+    case "timingToggle":
+    case "timingFade":
+    case "timingFadeSpan":
+      return { ...curve, shape: choice };
     default: {
       const shape: CurveShape = choice;
       return curve.cycles === undefined ? { shape, from: curve.from, to: curve.to } : { shape, from: curve.from, to: curve.to, cycles: curve.cycles };

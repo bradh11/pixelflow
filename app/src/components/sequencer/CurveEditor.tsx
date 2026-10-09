@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import type { Curve, EffectSetting } from "../../api/sequence";
-import { MAX_CYCLES, MIN_CYCLES, SHAPE_CHOICES, type ShapeChoice, curveLevel, shapeChoice, tidyPoints, withShape } from "../../lib/curves";
+import { MAX_CYCLES, MIN_CYCLES, SHAPE_CHOICES, type ShapeChoice, curveLevel, followsSomething, shapeChoice, tidyPoints, withShape } from "../../lib/curves";
 import { FIELD, NumberDraft, useLiveValue } from "./effectControls";
 
 type NumberSpec = Extract<EffectSetting, { type: "number" | "int" }>;
@@ -27,11 +27,25 @@ export function CurveEditor({
   const fit = (v: number) => Math.min(setting.max, Math.max(setting.min, setting.type === "int" ? Math.round(v) : v));
   const repeats = shown.shape === "sine" || shown.shape === "square" || shown.shape === "saw";
   const value = (v: number) => (setting.type === "int" ? Math.round(v) : Number(v.toFixed(3)));
+  // What a music or timing curve needs besides its two values.
+  const extras: { key: "gain" | "trigger" | "fade"; label: string; min: number; max: number }[] =
+    shown.shape === "music" || shown.shape === "invertedMusic"
+      ? [{ key: "gain", label: "Gain %", min: -100, max: 100 }]
+      : shown.shape === "musicTrigger"
+        ? [
+            { key: "trigger", label: "Trigger %", min: 0, max: 100 },
+            { key: "fade", label: "Fade frames", min: 0, max: 1000 },
+          ]
+        : shown.shape === "timingFade"
+          ? [{ key: "fade", label: "Fade frames", min: 0, max: 1000 }]
+          : shown.shape === "timingFadeSpan"
+            ? [{ key: "fade", label: "Fade %", min: 0, max: 100 }]
+            : [];
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-1.5">
         <select id={id} className={`${FIELD} min-w-0 flex-1`} value={shapeChoice(shown)} onChange={(e) => void onChange(withShape(shown, e.target.value as ShapeChoice))}>
-          {SHAPE_CHOICES.map((c) => (
+          {SHAPE_CHOICES.filter((c) => !c.onlyWhenSet || c.value === shown.shape).map((c) => (
             <option key={c.value} value={c.value}>
               {c.label}
             </option>
@@ -52,7 +66,28 @@ export function CurveEditor({
           </label>
         )}
       </div>
-      <CurveGraph label={setting.label} curve={shown} onDrag={drag.push} onDragEnd={drag.end} onEdit={(c) => void onChange(c)} />
+      {followsSomething(shown) ? (
+        extras.length > 0 && (
+          <div className="grid grid-cols-2 gap-2">
+            {extras.map((x) => (
+              <label key={x.key} className="flex min-w-0 items-center gap-1 text-xs whitespace-nowrap text-neutral-500">
+                {x.label}
+                <NumberDraft
+                  aria-label={`${setting.label} ${x.label.toLowerCase()}`}
+                  className={`${FIELD} w-full min-w-0 tabular-nums`}
+                  min={x.min}
+                  max={x.max}
+                  step={1}
+                  value={shown[x.key] ?? 0}
+                  onCommit={(v) => onChange({ ...shown, [x.key]: Math.min(x.max, Math.max(x.min, v)) })}
+                />
+              </label>
+            ))}
+          </div>
+        )
+      ) : (
+        <CurveGraph label={setting.label} curve={shown} onDrag={drag.push} onDragEnd={drag.end} onEdit={(c) => void onChange(c)} />
+      )}
       <div className="grid grid-cols-2 gap-2">
         {(["from", "to"] as const).map((end) => (
           <label key={end} className="flex min-w-0 items-center gap-1 text-xs text-neutral-500">

@@ -315,6 +315,7 @@ export function SettingControl({
   onChange,
   faces,
   tracks,
+  singing = false,
   mixed = false,
   animate,
 }: {
@@ -325,6 +326,8 @@ export function SettingControl({
   faces: string[];
   /** The sequence's timing tracks, for a timing track setting. */
   tracks: TimingTrack[];
+  /** The effect sings (Faces): its timing track picks the words, and none leaves the mouth at rest. */
+  singing?: boolean;
   mixed?: boolean;
   animate?: CurveControl;
 }) {
@@ -357,7 +360,7 @@ export function SettingControl({
         <span className="text-neutral-600 dark:text-neutral-400">{setting.label}</span>
         <select className={FIELD} value={mixed ? MIXED_OPTION : current} onChange={(e) => void onChange(e.target.value === "" ? null : e.target.value)}>
           <MixedOption mixed={mixed} />
-          <option value="">None (mouth at rest)</option>
+          <option value="">{singing ? "None (mouth at rest)" : "None"}</option>
           {[...lyrics, ...others].map((t) => (
             <option key={t.id} value={t.id}>
               {t.name}
@@ -366,7 +369,7 @@ export function SettingControl({
         </select>
         {(() => {
           const kind = tracks.find((t) => t.id === current)?.kind;
-          if (mixed || current === "" || kind === undefined || kind === "phonemes") return null;
+          if (!singing || mixed || current === "" || kind === undefined || kind === "phonemes") return null;
           if (kind === "words" || kind === "lyrics")
             return <span className="text-xs text-neutral-500">Mouth shapes are spread evenly over each word; a phonemes track (Find lyrics makes one) times each shape.</span>;
           return <span className="text-xs text-neutral-500">This track has no words, so the mouth stays at rest. Pick a lyrics track to sing.</span>;

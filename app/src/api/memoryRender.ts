@@ -236,6 +236,13 @@ function shade(effect: Effect, ms: number, px: Px, seed: number): [Rgb, number] 
       const inside = px.u >= left && px.u < left + width && Math.abs(px.v - 0.5) < 0.15;
       return inside && hash(Math.floor((px.u - left) * 40), Math.floor(px.v * 10)) < 0.55 ? [get(0), 1] : [[0, 0, 0], 0];
     }
+    case "vuMeter": {
+      // A stand-in for the music (the engine reads the song): bars bouncing frame by frame.
+      const bars = Math.max(1, Math.min(32, num(p, "bars", 6)));
+      const bar = Math.min(bars - 1, Math.floor(px.u * bars));
+      const level = 0.25 + 0.7 * hash(bar, Math.floor(el * 12));
+      return px.v <= level ? [ramp(px.v), 1] : [[0, 0, 0], 0];
+    }
     default:
       return [[0, 0, 0], 0];
   }

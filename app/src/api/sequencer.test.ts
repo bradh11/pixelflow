@@ -34,8 +34,8 @@ describe("sequence helpers", () => {
     expect(effect.id).toMatch(/^[0-9a-f-]{36}$/);
     const row = newRow({ group: "g1" });
     expect(row.layers).toEqual([{ effects: [] }]);
-    expect(EFFECT_KINDS).toHaveLength(27);
-    expect(new Set(EFFECT_KINDS.map((k) => k.kind)).size).toBe(27);
+    expect(EFFECT_KINDS).toHaveLength(28);
+    expect(new Set(EFFECT_KINDS.map((k) => k.kind)).size).toBe(28);
   });
 });
 

@@ -59,6 +59,9 @@ if (inTauri()) {
   void useAssistant.getState().connect(assistant);
   const sequencer = new MemorySequencer(backend);
   assistant.sequencer = sequencer;
+  // Find lyrics waits for the assistant to be set up, like the app.
+  sequencer.hasAssistantKey = (provider) => assistant.keys.has(provider);
+  if (demo) sequencer.lyricsStepMs = 600;
   if (demo) {
     // A sample sequence, open on the Sequence screen.
     backend.nextAudioPath = DEMO_MUSIC;

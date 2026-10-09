@@ -17,10 +17,12 @@ const SETTINGS_KEY = "pixelflow.ai";
 /** What the chat says for the user once the song they chose has a new sequence. */
 export const SONG_CHOSEN_MESSAGE = "I chose a song, and the new sequence is open. Go ahead.";
 
-/** Provider and model per provider: not secrets, so kept in local storage. */
+/** Provider and model per provider, and whether Find lyrics may send a song's audio to OpenAI
+ * without asking: not secrets, so kept in local storage. */
 interface SavedSettings {
   provider: ProviderId;
   models: Partial<Record<ProviderId, string>>;
+  lyricsAudioOk: boolean;
 }
 
 function loadSettings(): SavedSettings {
@@ -32,9 +34,9 @@ function loadSettings(): SavedSettings {
       const model = saved.models?.[id];
       if (typeof model === "string" && model.length > 0 && model.length <= 200) models[id] = model;
     }
-    return { provider, models };
+    return { provider, models, lyricsAudioOk: saved.lyricsAudioOk === true };
   } catch {
-    return { provider: "anthropic", models: {} };
+    return { provider: "anthropic", models: {}, lyricsAudioOk: false };
   }
 }
 
@@ -76,6 +78,8 @@ interface AssistantState {
   provider: ProviderId;
   /** The model picked for each provider. */
   models: Partial<Record<ProviderId, string>>;
+  /** The user said Find lyrics may send a song's audio to OpenAI without asking again. */
+  lyricsAudioOk: boolean;
   /** Whether the current provider has a key (null until checked). */
   hasKey: boolean | null;
   items: ChatItem[];
@@ -97,6 +101,7 @@ interface AssistantState {
   setSettingsOpen(open: boolean): void;
   setProvider(provider: ProviderId): Promise<void>;
   setModel(model: string): void;
+  setLyricsAudioOk(ok: boolean): void;
   /** Checks whether the current provider has a key (after Settings changes it). */
   refreshKey(): Promise<void>;
   send(text: string): Promise<void>;
@@ -153,6 +158,7 @@ export const useAssistant = create<AssistantState>((set, get) => {
     settingsOpen: false,
     provider: saved.provider,
     models: saved.models,
+    lyricsAudioOk: saved.lyricsAudioOk,
     hasKey: null,
     items: [],
     streaming: false,
@@ -176,14 +182,19 @@ export const useAssistant = create<AssistantState>((set, get) => {
 
     async setProvider(provider) {
       set({ provider, hasKey: null });
-      saveSettings({ provider, models: get().models });
+      saveSettings({ provider, models: get().models, lyricsAudioOk: get().lyricsAudioOk });
       await get().refreshKey();
     },
 
     setModel(model) {
       const models = { ...get().models, [get().provider]: model };
       set({ models });
-      saveSettings({ provider: get().provider, models });
+      saveSettings({ provider: get().provider, models, lyricsAudioOk: get().lyricsAudioOk });
+    },
+
+    setLyricsAudioOk(lyricsAudioOk) {
+      set({ lyricsAudioOk });
+      saveSettings({ provider: get().provider, models: get().models, lyricsAudioOk });
     },
 
     async refreshKey() {

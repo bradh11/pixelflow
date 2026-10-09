@@ -38,7 +38,8 @@ import {
   type TimingImported,
   type TimingTrack,
 } from "./sequence";
-import type { MusicFound, SequencerApi } from "./sequencer";
+import type { ProviderId } from "./assistant";
+import type { LyricsFound, LyricsGate, MusicFound, SequencerApi } from "./sequencer";
 import * as marks from "./timingMarks";
 import { formatMs } from "./timingMarks";
 
@@ -435,6 +436,12 @@ export class MemorySequencer implements SequencerApi {
   replyDelayMs = 0;
   /** How long beat detection takes. */
   analysisDelayMs = 0;
+  /** Whether the assistant has a key for a provider (the stand-in assistant answers this). */
+  hasAssistantKey: (provider: ProviderId) => boolean = () => false;
+  /** How long each step of Find lyrics takes, and whether published lyrics are "found". */
+  lyricsStepMs = 0;
+  lyricsFound = true;
+  private lyricsCancels = 0;
 
   /** With a memory backend, frames are drawn (roughly) from its show and playback runs on its clock. */
   constructor(readonly backend: MemoryBackend | null = null) {}
@@ -752,6 +759,71 @@ export class MemorySequencer implements SequencerApi {
       ...tracks.map((track) => ({ type: "addTimingTrack" as const, track })),
     ];
     return this.editSequence(edits);
+  }
+
+  async lyricsGate(provider: ProviderId | null): Promise<LyricsGate> {
+    if (!provider || !this.hasAssistantKey(provider)) {
+      const what = provider ? `add your ${provider === "openai" ? "OpenAI" : "Anthropic"} key` : "set it up";
+      return { ready: false, reason: `Finding lyrics needs the assistant: ${what} in Settings → AI.`, recognizer: false };
+    }
+    return { ready: true, reason: null, recognizer: provider === "openai" };
+  }
+
+  /** Made-up lyrics spread over the sequence, as if LRCLIB (and OpenAI) had found them. */
+  async findLyrics(provider: ProviderId | null, upload: boolean, onProgress?: (label: string) => void): Promise<LyricsFound> {
+    this.calls.push(`findLyrics:${provider}:${upload}`);
+    const gate = await this.lyricsGate(provider);
+    if (!gate.ready) fail(gate.reason ?? "");
+    const doc = this.open_();
+    if (!doc.audio) fail("This sequence has no music yet. Choose a song for it first.");
+    const started = this.lyricsCancels;
+    const heard = gate.recognizer && upload;
+    const steps = ["Reading the song", "Looking up published lyrics", ...(heard ? ["Sending the audio to OpenAI to hear the words"] : []), "Lining up the words"];
+    for (const label of steps) {
+      onProgress?.(label);
+      await this.reply(undefined, this.lyricsStepMs);
+      if (this.lyricsCancels !== started) fail("Stopped.");
+    }
+    if (!this.lyricsFound && !heard) fail("No lyrics found for this song.");
+    const lines = ["Paper lanterns glowing", "Snowy rooftops shine", "Bells across the valley", "Ring the winter night"];
+    const latest = this.open_();
+    const verse = Math.min(16_000, latest.durationMs / 2);
+    const start = Math.min(4_000, latest.durationMs / 8);
+    const each = verse / lines.length;
+    const phrases: Mark[] = [];
+    const words: Mark[] = [];
+    lines.forEach((line, i) => {
+      const from = Math.round(start + i * each);
+      const to = Math.round(from + each * 0.85);
+      phrases.push({ startMs: from, endMs: to, label: line });
+      const parts = line.split(" ");
+      const step = (to - from) / parts.length;
+      parts.forEach((w, k) => words.push({ startMs: Math.round(from + k * step), endMs: Math.round(from + (k + 1) * step), label: w }));
+    });
+    const vocals: Mark[] = [{ startMs: phrases[0].startMs, endMs: phrases[phrases.length - 1].endMs, label: "Vocals" }];
+    const found: TimingTrack[] = [
+      { id: crypto.randomUUID(), name: "Lyrics", kind: "lyrics", marks: phrases },
+      { id: crypto.randomUUID(), name: "Lyrics (words)", kind: "words", marks: words },
+      { id: crypto.randomUUID(), name: "Vocals", kind: "custom", marks: vocals },
+    ];
+    // A track already there by name and kind takes the new marks (keeping its id).
+    const edits: SequenceEdit[] = found.map((track) => {
+      const had = latest.timingTracks.find((t) => t.name === track.name && t.kind === track.kind);
+      return had ? { type: "updateTimingTrack" as const, track: { ...track, id: had.id } } : { type: "addTimingTrack" as const, track };
+    });
+    const result = await this.editSequence(edits);
+    return {
+      result,
+      summary: heard ? "Lyrics from LRCLIB, word timing from OpenAI." : "Lyrics and line timing from LRCLIB; words are spread over each line.",
+      notes: [],
+      lines: phrases.length,
+      words: words.length,
+      unsureWords: heard ? 0 : words.length,
+    };
+  }
+
+  async cancelLyrics() {
+    this.lyricsCancels += 1;
   }
 
   async importTimingFile(path: string): Promise<TimingImported> {

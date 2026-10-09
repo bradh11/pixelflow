@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import type { ProviderId } from "./assistant";
 import { whileFileDialog } from "./fileDialogs";
 import { pickPath } from "./tauri";
 import type {
@@ -29,6 +30,30 @@ import type {
 
 /** The event the engine sends while exporting. */
 export const EXPORT_PROGRESS_EVENT = "sequence-export-progress";
+
+/** The event Find lyrics sends at each step. */
+export const LYRICS_PROGRESS_EVENT = "lyrics-progress";
+
+/** Whether Find lyrics can run: only once the assistant is set up (its provider's key is there). */
+export interface LyricsGate {
+  ready: boolean;
+  /** Why not, in one line. */
+  reason: string | null;
+  /** Whether the song's audio can be sent to OpenAI to hear the words (an OpenAI key). */
+  recognizer: boolean;
+}
+
+/** What Find lyrics added (Lyrics, Lyrics (words), and Vocals, as one undo step). */
+export interface LyricsFound {
+  result: SequenceEditResult;
+  /** Where the words and their timing came from: "Lyrics from LRCLIB, word timing from OpenAI." */
+  summary: string;
+  notes: string[];
+  lines: number;
+  words: number;
+  /** Words whose timing is a guess. */
+  unsureWords: number;
+}
 
 /** What looking for the open sequence's music found: where (now used), and the edit that did it. */
 export interface MusicFound {
@@ -95,6 +120,15 @@ export interface SequencerApi {
    * another sequence was opened, or the music changed, while the beats were being found.
    */
   detectBeats(): Promise<SequenceEditResult>;
+  /** Whether Find lyrics can run with the assistant's `provider`. The key is only checked for. */
+  lyricsGate(provider: ProviderId | null): Promise<LyricsGate>;
+  /**
+   * Finds the song's lyrics (LRCLIB, and with `upload` and an OpenAI key, OpenAI hearing the song)
+   * and adds them as timing tracks (one undo step), calling `onProgress` at each step. Rejects with
+   * "Stopped." after cancelLyrics, and with "No lyrics found for this song." when there are none.
+   */
+  findLyrics(provider: ProviderId | null, upload: boolean, onProgress?: (label: string) => void): Promise<LyricsFound>;
+  cancelLyrics(): Promise<void>;
   /**
    * Adds the timing tracks in an xLights `.xtiming` file or Audacity labels (`.txt`) after the
    * others (one undo step); a name already taken gets a number. Rejects if another sequence was
@@ -176,6 +210,16 @@ export const tauriSequencer: SequencerApi = {
   cancelSequenceExport: () => invoke("cancel_sequence_export"),
   analyzeAudio: (path) => invoke("analyze_audio", { path }),
   detectBeats: () => invoke("detect_beats"),
+  lyricsGate: (provider) => invoke("lyrics_gate", { provider }),
+  findLyrics: async (provider, upload, onProgress) => {
+    const unlisten = onProgress ? await listen<{ label: string }>(LYRICS_PROGRESS_EVENT, (event) => onProgress(event.payload.label)) : null;
+    try {
+      return await invoke<LyricsFound>("find_lyrics", { provider, upload });
+    } finally {
+      unlisten?.();
+    }
+  },
+  cancelLyrics: () => invoke("cancel_lyrics"),
   importTimingFile: (path) => invoke("import_timing_file", { path }),
   exportTimingTrack: (id, path) => invoke("export_timing_track", { id, path }),
   pickTimingFilePath: () => pickPath("timingFile"),

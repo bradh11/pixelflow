@@ -9,6 +9,7 @@
 //! `EffectParams::sanitize`) before an effect is drawn, so the settings panel, file loading, and
 //! the renderer all agree on what a setting can be. The constructors below rely on that.
 
+use crate::audio::{Audio, RenderContext};
 pub use crate::butterfly::Butterfly;
 pub use crate::circles::Circles;
 use crate::color::{Colors, Rgba, unit};
@@ -24,9 +25,10 @@ pub use crate::shape::Shape;
 pub use crate::snowflakes::Snowflakes;
 pub use crate::tendril::Tendril;
 pub use crate::text::Text;
+pub use crate::vumeter::VuMeter;
 use pf_sequence::{
     Axis, BarsParams, ChaseParams, ColorWashParams, Direction, EffectParams, FadeDirection, FadeParams,
-    FireParams, Gradient, MeteorDirection, MeteorsParams, OnParams, RippleParams, ShimmerParams,
+    FireParams, Gradient, MeteorDirection, MeteorsParams, OnParams, RippleParams, ShapeParams, ShimmerParams,
     SpiralParams, StrobeParams, TwinkleParams, WaveParams,
 };
 use std::f32::consts::TAU;
@@ -851,11 +853,69 @@ pub enum Shader {
     Tendril(Tendril),
     Text(Text),
     Faces(Faces),
+    VuMeter(VuMeter),
+}
+
+/// When a Shape fires its shapes (ms from the effect's start, while it plays): at each mark on its
+/// timing track, or with the music; `None` when it keeps `count` shapes shown.
+fn shape_marks(p: &ShapeParams, time: &EffectTime, cx: &RenderContext) -> Option<Vec<u64>> {
+    let (start, end) = (time.start_ms, time.start_ms + time.length_ms);
+    if let Some(track) = p.timing_track {
+        let marks = cx.marks(Some(track)).unwrap_or_default();
+        return Some(
+            marks
+                .iter()
+                .filter(|m| (start..end).contains(&m.start_ms))
+                .map(|m| m.start_ms - start)
+                .collect(),
+        );
+    }
+    p.fire_on_music.then(|| {
+        cx.audio
+            .map(|audio| music_marks(p, time, audio))
+            .unwrap_or_default()
+    })
+}
+
+/// xLights' Shape "Fire with music": a shape when the music's peak passes the trigger level, and
+/// again every 21 frames while it stays above (`REPEATTRIGGER`), up to the frame playing.
+fn music_marks(p: &ShapeParams, time: &EffectTime, audio: Audio) -> Vec<u64> {
+    let frame_ms = u64::from(time.frame_ms.max(1));
+    let trigger = p.trigger_level / 100.0;
+    let mut since = 0;
+    let mut marks = Vec::new();
+    for frame in time.start_ms / frame_ms..=(time.start_ms + time.elapsed_ms) / frame_ms {
+        if audio.peak(frame) > trigger {
+            if since == 0 || since > 20 {
+                marks.push((frame * frame_ms).saturating_sub(time.start_ms));
+            }
+            since += 1;
+            if since > 20 {
+                since = 0;
+            }
+        } else {
+            since = 0;
+        }
+    }
+    marks
 }
 
 impl Shader {
-    /// Prepares `params` for one frame, clamped to their kind's settings table first.
+    /// Prepares `params` for one frame, clamped to their kind's settings table first, without
+    /// the music or timing tracks (see [`Shader::in_context`]).
     pub fn new(params: &EffectParams, time: &EffectTime, colors: Colors, seed: u64, canvas: Canvas) -> Self {
+        Self::in_context(params, time, colors, seed, canvas, &RenderContext::default())
+    }
+
+    /// [`Shader::new`] reading the music and timing tracks the effect follows from `cx`.
+    pub fn in_context(
+        params: &EffectParams,
+        time: &EffectTime,
+        colors: Colors,
+        seed: u64,
+        canvas: Canvas,
+        cx: &RenderContext,
+    ) -> Self {
         match &params.sanitized() {
             EffectParams::On(p) => Shader::On(On::new(p, time, colors)),
             EffectParams::Off(_) => Shader::Off(Off),
@@ -871,11 +931,11 @@ impl Shader {
             EffectParams::Fire(p) => Shader::Fire(Fire::new(p, time, seed)),
             EffectParams::Meteors(p) => Shader::Meteors(Meteors::new(p, time, colors, seed, canvas)),
             EffectParams::Ripple(p) => Shader::Ripple(Ripple::new(p, time, colors)),
-            // Shapes on a timing track need its marks, which the renderer passes in (see
-            // `Renderer::render`); without them none appear.
+            // Shapes on a timing track or fired by the music appear when it says (none without
+            // it).
             EffectParams::Shape(p) => {
-                let marks = p.timing_track.map(|_| &[][..]);
-                Shader::Shape(Shape::new(p, time, colors, seed, canvas, marks))
+                let marks = shape_marks(p, time, cx);
+                Shader::Shape(Shape::new(p, time, colors, seed, canvas, marks.as_deref()))
             }
             EffectParams::Fan(p) => Shader::Fan(Fan::new(p, time, colors, canvas)),
             EffectParams::Morph(p) => Shader::Morph(Morph::new(p, time, colors, canvas)),
@@ -893,8 +953,9 @@ impl Shader {
             p @ (EffectParams::Snowflakes(_)
             | EffectParams::Lines(_)
             | EffectParams::Life(_)
-            | EffectParams::Tendril(_)) => {
-                crate::sim::run(p, time, colors, seed, canvas).unwrap_or(Shader::Off(Off))
+            | EffectParams::Tendril(_)
+            | EffectParams::VuMeter(_)) => {
+                crate::sim::run(p, time, colors, seed, canvas, cx).unwrap_or(Shader::Off(Off))
             }
             EffectParams::Faces(_) => Shader::Faces(Faces::default()),
         }
@@ -932,6 +993,7 @@ impl Shader {
             Shader::Tendril(s) => each.visit(s),
             Shader::Text(s) => each.visit(s),
             Shader::Faces(s) => each.visit(s),
+            Shader::VuMeter(s) => each.visit(s),
         }
     }
 }

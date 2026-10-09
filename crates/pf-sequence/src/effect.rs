@@ -1,7 +1,7 @@
 //! Effects: what lights up, when, and how it mixes with what's underneath.
 
 use crate::settings::{SettingRange, SettingSpec, choices, effect_params};
-use crate::{Curve, EffectId, Rgb, TimingTrackId};
+use crate::{Curve, CurveInputs, CurveTime, EffectId, Rgb, TimingTrackId};
 use pf_model::{BufferTransform, RenderStyle};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -187,6 +187,11 @@ pub struct Effect {
     pub sparkles: u32,
     #[serde(default = "white")]
     pub sparkle_color: Rgb,
+    /// Sparkles follow the music: as many as its loudness, up to `sparkles`.
+    // xLights' "Music" sparkles checkbox: the count times the music's peak in the frame. Without
+    // the music, the steady count.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub music_sparkles: bool,
     /// Softens the effect: 0 (none) to 14.
     // Before it mixes with the layers below; xLights' Blur setting minus one, up to
     // [`crate::MAX_BLUR`].
@@ -214,6 +219,10 @@ fn is_default<T: Default + PartialEq>(value: &T) -> bool {
     *value == T::default()
 }
 
+fn is_false(value: &bool) -> bool {
+    !value
+}
+
 /// A number setting a curve can change: its range, and whether it's a whole number.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CurveRange {
@@ -236,6 +245,7 @@ impl Effect {
             fade_out_ms: 0,
             sparkles: 0,
             sparkle_color: Rgb::WHITE,
+            music_sparkles: false,
             blur: 0,
             render_style: RenderStyle::Default,
             buffer_transform: BufferTransform::None,
@@ -297,12 +307,23 @@ impl Effect {
     }
 
     /// The effect as it plays at `t_ms`: each curve's value at that moment in place of its
-    /// setting (the effect itself when it has no curves).
+    /// setting (the effect itself when it has no curves). Curves that follow the music or a
+    /// timing track sit halfway (see [`Effect::at_with`]).
     pub fn at(&self, t_ms: u64) -> Cow<'_, Effect> {
-        if self.curves.is_empty() {
+        self.at_with(t_ms, &CurveInputs::default())
+    }
+
+    /// [`Effect::at`] with the music and timing tracks that curves (and music sparkles) follow.
+    pub fn at_with(&self, t_ms: u64, inputs: &CurveInputs) -> Cow<'_, Effect> {
+        let music = self.music_sparkles.then_some(inputs.peak).flatten();
+        if self.curves.is_empty() && music.is_none() {
             return Cow::Borrowed(self);
         }
-        let t = self.progress(t_ms);
+        let at = CurveTime {
+            start_ms: self.start_ms,
+            end_ms: self.end_ms,
+            t_ms,
+        };
         let mut now = Effect {
             id: self.id,
             start_ms: self.start_ms,
@@ -314,13 +335,14 @@ impl Effect {
             fade_out_ms: self.fade_out_ms,
             sparkles: self.sparkles,
             sparkle_color: self.sparkle_color,
+            music_sparkles: self.music_sparkles,
             blur: self.blur,
             render_style: self.render_style,
             buffer_transform: self.buffer_transform,
             curves: BTreeMap::new(),
         };
         for (key, curve) in &self.curves {
-            let value = curve.value_at(t);
+            let value = curve.value_in(at, inputs);
             // Saturating casts: NaN becomes 0, and the limits clamp the rest.
             match key.as_str() {
                 "sparkles" => now.sparkles = (value.round() as u32).min(crate::MAX_SPARKLES),
@@ -329,6 +351,11 @@ impl Effect {
                     now.params.set_number(key, value);
                 }
             }
+        }
+        if let Some(peak) = music {
+            // xLights' `(int)(factor * count)`.
+            let frame = t_ms / u64::from(if inputs.frame_ms == 0 { 50 } else { inputs.frame_ms });
+            now.sparkles = (peak(frame).clamp(0.0, 1.0) * now.sparkles as f32) as u32;
         }
         Cow::Owned(now)
     }
@@ -434,10 +461,11 @@ pub enum EffectKind {
     Tendril,
     Text,
     Faces,
+    VuMeter,
 }
 
 impl EffectKind {
-    pub const ALL: [EffectKind; 28] = [
+    pub const ALL: [EffectKind; 29] = [
         EffectKind::On,
         EffectKind::Off,
         EffectKind::ColorWash,
@@ -466,6 +494,7 @@ impl EffectKind {
         EffectKind::Tendril,
         EffectKind::Text,
         EffectKind::Faces,
+        EffectKind::VuMeter,
     ];
 
     /// The name people see.
@@ -499,6 +528,7 @@ impl EffectKind {
             EffectKind::Tendril => "Tendril",
             EffectKind::Text => "Text",
             EffectKind::Faces => "Faces",
+            EffectKind::VuMeter => "VU Meter",
         }
     }
 
@@ -539,6 +569,7 @@ impl EffectKind {
             EffectKind::Faces => {
                 "A singing face: the prop's face mouths the words on a timing track, with eyes that blink."
             }
+            EffectKind::VuMeter => "Bars, levels, and flashes that follow the music or a timing track.",
         }
     }
 
@@ -573,6 +604,7 @@ impl EffectKind {
             EffectKind::Tendril => TendrilParams::SETTINGS,
             EffectKind::Text => TextParams::SETTINGS,
             EffectKind::Faces => FacesParams::SETTINGS,
+            EffectKind::VuMeter => VuMeterParams::SETTINGS,
         }
     }
 }
@@ -611,6 +643,7 @@ pub enum EffectParams {
     Tendril(TendrilParams),
     Text(TextParams),
     Faces(FacesParams),
+    VuMeter(VuMeterParams),
 }
 
 impl EffectParams {
@@ -644,6 +677,7 @@ impl EffectParams {
             EffectParams::Tendril(_) => EffectKind::Tendril,
             EffectParams::Text(_) => EffectKind::Text,
             EffectParams::Faces(_) => EffectKind::Faces,
+            EffectParams::VuMeter(_) => EffectKind::VuMeter,
         }
     }
 
@@ -678,6 +712,7 @@ impl EffectParams {
             EffectKind::Tendril => EffectParams::Tendril(TendrilParams::default()),
             EffectKind::Text => EffectParams::Text(TextParams::default()),
             EffectKind::Faces => EffectParams::Faces(FacesParams::default()),
+            EffectKind::VuMeter => EffectParams::VuMeter(VuMeterParams::default()),
         }
     }
 
@@ -713,6 +748,7 @@ impl EffectParams {
             EffectParams::Tendril(p) => p.sanitize(),
             EffectParams::Text(p) => p.sanitize(),
             EffectParams::Faces(p) => p.sanitize(),
+            EffectParams::VuMeter(p) => p.sanitize(),
         }
     }
 
@@ -754,6 +790,7 @@ impl EffectParams {
             EffectParams::Tendril(p) => p.number(key),
             EffectParams::Text(p) => p.number(key),
             EffectParams::Faces(p) => p.number(key),
+            EffectParams::VuMeter(p) => p.number(key),
         }
     }
 
@@ -789,6 +826,7 @@ impl EffectParams {
             EffectParams::Tendril(p) => p.set_number(key, value),
             EffectParams::Text(p) => p.set_number(key, value),
             EffectParams::Faces(p) => p.set_number(key, value),
+            EffectParams::VuMeter(p) => p.set_number(key, value),
         }
     }
 
@@ -823,6 +861,7 @@ impl EffectParams {
             EffectParams::Tendril(p) => p.setting_problem(),
             EffectParams::Text(p) => p.setting_problem(),
             EffectParams::Faces(p) => p.setting_problem(),
+            EffectParams::VuMeter(p) => p.setting_problem(),
         };
         found.map(|(spec, why)| format!("{} {why}", spec.label))
     }
@@ -1231,6 +1270,11 @@ effect_params! {
         random_start: bool = true => "randomStart", "Staggered start", toggle, more;
         /// Make a shape appear at each mark on this timing track, instead of keeping `count` shown.
         timing_track: Option<TimingTrackId> = None => "timingTrack", "Appear on marks of", timing_track, more;
+        /// Make a shape appear when the music gets louder than the trigger level (and every 21
+        /// frames while it stays louder), instead of keeping `count` shown.
+        fire_on_music: bool = false => "fireOnMusic", "Appear with the music", toggle, more;
+        /// How loud the music must get to make a shape appear.
+        trigger_level: f32 = 50.0 => "triggerLevel", "Music trigger level", number(0.0, 100.0, 1.0, "%"), more;
     }
 }
 
@@ -1678,6 +1722,10 @@ pub enum TendrilMovement {
     HorizontalZigZagReturn,
     VerticalZigZag,
     VerticalZigZagReturn,
+    /// Back and forth across, as high as the music is loud.
+    MusicLine,
+    /// Around a circle as wide as the music is loud.
+    MusicCircle,
     /// Held at one point (`manualX`, `manualY`).
     Manual,
 }
@@ -1690,6 +1738,8 @@ choices!(TendrilMovement {
     "horizontalZigZagReturn" => "Zig zag across and back",
     "verticalZigZag" => "Zig zag up",
     "verticalZigZagReturn" => "Zig zag up and back",
+    "musicLine" => "Across, as high as the music",
+    "musicCircle" => "Around a circle sized by the music",
     "manual" => "Held at a point",
 });
 
@@ -1805,6 +1855,216 @@ choices!(TextCountdown {
     "seconds" => "Seconds",
     "minutesSeconds" => "Minutes and seconds",
 });
+
+/// What a VU Meter draws (xLights' VU Meter types).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum VuMeterType {
+    #[default]
+    Spectrogram,
+    SpectrogramPeak,
+    SpectrogramLine,
+    SpectrogramCircleLine,
+    VolumeBars,
+    Waveform,
+    On,
+    ColorOn,
+    DominantFrequencyColor,
+    DominantFrequencyColorGradient,
+    IntensityWave,
+    Pulse,
+    LevelBar,
+    LevelRandomBar,
+    LevelColor,
+    LevelPulse,
+    LevelPulseColor,
+    LevelJump,
+    LevelJump100,
+    LevelShape,
+    TimingEventBar,
+    TimingEventBarBounce,
+    TimingEventRandomBar,
+    TimingEventBars,
+    TimingEventSpike,
+    TimingEventSweep,
+    TimingEventSweep2,
+    TimingEventTimedSweep,
+    TimingEventTimedSweep2,
+    TimingEventAlternateTimedSweep,
+    TimingEventAlternateTimedSweep2,
+    TimingEventChaseFromMiddle,
+    TimingEventChaseToMiddle,
+    TimingEventColor,
+    TimingEventJump,
+    TimingEventJump100,
+    TimingEventPulse,
+    TimingEventPulseColor,
+    NoteOn,
+    NoteLevelPulse,
+    NoteLevelJump,
+    NoteLevelJump100,
+    NoteLevelBar,
+    NoteLevelRandomBar,
+}
+
+choices!(VuMeterType {
+    "spectrogram" => "Spectrogram",
+    "spectrogramPeak" => "Spectrogram with peaks",
+    "spectrogramLine" => "Spectrogram line",
+    "spectrogramCircleLine" => "Spectrogram circle",
+    "volumeBars" => "Volume bars",
+    "waveform" => "Waveform",
+    "on" => "On with the level",
+    "colorOn" => "Color by level",
+    "dominantFrequencyColor" => "Color by the loudest note",
+    "dominantFrequencyColorGradient" => "Blend by the loudest note",
+    "intensityWave" => "Intensity wave",
+    "pulse" => "Pulse on marks",
+    "levelBar" => "Level bar",
+    "levelRandomBar" => "Level random bar",
+    "levelColor" => "Level color",
+    "levelPulse" => "Level pulse",
+    "levelPulseColor" => "Level pulse color",
+    "levelJump" => "Level jump",
+    "levelJump100" => "Level jump to the top",
+    "levelShape" => "Level shape",
+    "timingEventBar" => "Bar on marks",
+    "timingEventBarBounce" => "Bouncing bar on marks",
+    "timingEventRandomBar" => "Random bar on marks",
+    "timingEventBars" => "Bars on marks",
+    "timingEventSpike" => "Spike on marks",
+    "timingEventSweep" => "Sweep on marks",
+    "timingEventSweep2" => "Sweep on marks 2",
+    "timingEventTimedSweep" => "Timed sweep",
+    "timingEventTimedSweep2" => "Timed sweep 2",
+    "timingEventAlternateTimedSweep" => "Alternating timed sweep",
+    "timingEventAlternateTimedSweep2" => "Alternating timed sweep 2",
+    "timingEventChaseFromMiddle" => "Timed chase from the middle",
+    "timingEventChaseToMiddle" => "Timed chase to the middle",
+    "timingEventColor" => "Color on marks",
+    "timingEventJump" => "Jump on marks",
+    "timingEventJump100" => "Jump to the top on marks",
+    "timingEventPulse" => "Pulse up on marks",
+    "timingEventPulseColor" => "Pulse color on marks",
+    "noteOn" => "Notes on",
+    "noteLevelPulse" => "Note level pulse",
+    "noteLevelJump" => "Note level jump",
+    "noteLevelJump100" => "Note level jump to the top",
+    "noteLevelBar" => "Note level bar",
+    "noteLevelRandomBar" => "Note level random bar",
+});
+
+impl VuMeterType {
+    /// Whether the type follows a timing track's marks.
+    pub fn uses_marks(self) -> bool {
+        use VuMeterType as T;
+        matches!(
+            self,
+            T::Pulse
+                | T::TimingEventBar
+                | T::TimingEventBarBounce
+                | T::TimingEventRandomBar
+                | T::TimingEventBars
+                | T::TimingEventSpike
+                | T::TimingEventSweep
+                | T::TimingEventSweep2
+                | T::TimingEventTimedSweep
+                | T::TimingEventTimedSweep2
+                | T::TimingEventAlternateTimedSweep
+                | T::TimingEventAlternateTimedSweep2
+                | T::TimingEventChaseFromMiddle
+                | T::TimingEventChaseToMiddle
+                | T::TimingEventColor
+                | T::TimingEventJump
+                | T::TimingEventJump100
+                | T::TimingEventPulse
+                | T::TimingEventPulseColor
+        )
+    }
+}
+
+/// The shape a VU Meter's Level Shape grows and shrinks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum VuMeterShape {
+    #[default]
+    Circle,
+    FilledCircle,
+    Square,
+    FilledSquare,
+    Diamond,
+    FilledDiamond,
+    Star,
+    FilledStar,
+    Tree,
+    FilledTree,
+    Crucifix,
+    FilledCrucifix,
+    Present,
+    FilledPresent,
+    CandyCane,
+    Snowflake,
+    Heart,
+    FilledHeart,
+}
+
+choices!(VuMeterShape {
+    "circle" => "Circle",
+    "filledCircle" => "Filled circle",
+    "square" => "Square",
+    "filledSquare" => "Filled square",
+    "diamond" => "Diamond",
+    "filledDiamond" => "Filled diamond",
+    "star" => "Star",
+    "filledStar" => "Filled star",
+    "tree" => "Tree",
+    "filledTree" => "Filled tree",
+    "crucifix" => "Cross",
+    "filledCrucifix" => "Filled cross",
+    "present" => "Present",
+    "filledPresent" => "Filled present",
+    "candyCane" => "Candy cane",
+    "snowflake" => "Snowflake",
+    "heart" => "Heart",
+    "filledHeart" => "Filled heart",
+});
+
+effect_params! {
+    /// xLights' VU Meter: bars, levels, shapes, and flashes worked out from the music's loudness
+    /// and spectrum each frame, or from a timing track's marks. The palette colors the bars from
+    /// bottom to top (the last color marks a spectrogram's peaks).
+    pub struct VuMeterParams {
+        /// What it draws.
+        meter: VuMeterType = VuMeterType::Spectrogram => "meter", "Type", choice;
+        /// Bars across (spectrograms, volume bars, waveforms), or frames a pulse or jump lasts.
+        bars: u32 = 6 => "bars", "Bars", int(1, 100);
+        /// The level (0-100) that triggers the level and note types; how long spectrogram peaks
+        /// hold; a Level Shape's size.
+        sensitivity: u32 = 70 => "sensitivity", "Sensitivity", int(0, 100);
+        /// Boosts (or cuts) the music's level.
+        gain: f32 = 0.0 => "gain", "Gain", number(-100.0, 100.0, 1.0, "%");
+        /// The marks the timing types follow.
+        timing_track: Option<TimingTrackId> = None => "timingTrack", "Timing track", timing_track;
+        /// The shape a Level Shape draws.
+        shape: VuMeterShape = VuMeterShape::Circle => "shape", "Shape", choice, more;
+        /// Let bars and shapes fall back slowly.
+        slow_falls: bool = true => "slowFalls", "Slow falls", toggle, more;
+        /// The lowest MIDI note the spectrogram and note types read.
+        start_note: u32 = 36 => "startNote", "Lowest note", int(0, 126), more;
+        /// The highest.
+        end_note: u32 = 84 => "endNote", "Highest note", int(0, 126), more;
+        /// Spread the low notes wider than the high ones.
+        log_x: bool = false => "logX", "Logarithmic across", toggle, more;
+        /// Moves the drawing left (-) or right (+), as a share of the prop.
+        x_offset: f32 = 0.0 => "xOffset", "Offset across", number(-100.0, 100.0, 1.0, "%"), more;
+        /// Moves the drawing down (-) or up (+).
+        y_offset: f32 = 0.0 => "yOffset", "Offset up", number(-100.0, 100.0, 1.0, "%"), more;
+        /// Only marks with this label (one word of it) count.
+        filter: String = String::new() => "filter", "Only marks labeled", text, more;
+    }
+}
 
 effect_params! {
     /// Text in PixelFlow's built-in pixel font, still or moving, in the first palette color (or
@@ -1924,6 +2184,35 @@ mod tests {
         assert_eq!(params.number("direction"), None);
         assert!(!params.set_number("direction", 1.0));
         assert!(!params.set_number("nothing", 1.0));
+    }
+
+    #[test]
+    fn music_sparkles_and_curves_follow_the_peak() {
+        let mut e = Effect::new(EffectKind::Twinkle, 0, 1000);
+        e.sparkles = 100;
+        e.music_sparkles = true;
+        let peak = |frame: u64| if frame < 4 { 0.25 } else { 0.999 };
+        let inputs = CurveInputs {
+            peak: Some(&peak),
+            frame_ms: 25,
+            tracks: &[],
+        };
+        assert_eq!(
+            e.at_with(50, &inputs).sparkles,
+            25,
+            "a quarter as loud, a quarter as many"
+        );
+        assert_eq!(e.at_with(100, &inputs).sparkles, 99, "rounded down, as xLights");
+        assert_eq!(e.at(50).sparkles, 100, "without the music, the steady count");
+        e.curves
+            .insert("density".into(), Curve::music(0.0, 1.0, 0.0, false));
+        let EffectParams::Twinkle(p) = &e.at_with(50, &inputs).params else {
+            unreachable!()
+        };
+        assert_eq!(p.density, 0.25);
+        let json = serde_json::to_value(&e).unwrap();
+        assert_eq!(json["musicSparkles"], true);
+        assert!(serde_json::to_value(Effect::new(EffectKind::On, 0, 1)).unwrap()["musicSparkles"].is_null());
     }
 
     #[test]

@@ -376,6 +376,7 @@ impl<'a> Builder<'a> {
             fade_out_ms: translated.fade_out_ms,
             sparkles: translated.sparkles,
             sparkle_color: translated.sparkle_color,
+            music_sparkles: false,
             blur: translated.blur,
             render_style: translated.render_style,
             buffer_transform: translated.buffer_transform,

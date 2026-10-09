@@ -19,8 +19,8 @@ use pf_mapping::ChannelMap;
 use pf_model::{SequenceId, Severity, Show, ValidationReport, path_from_text, path_to_text};
 use pf_output::{OutputSettings, Transport, UdpTransport};
 use pf_patterns::{Target, TargetRange, resolve_target};
-use pf_render::Renderer;
 use pf_render::export::{ExportLayout, ExportSummary};
+use pf_render::{AudioSource, Renderer};
 use pf_sequence::Sequence;
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -171,9 +171,15 @@ impl SequenceExport {
         path: &Path,
         progress: impl FnMut(u32, u32) -> bool,
     ) -> Result<ExportSummary, EngineError> {
-        let mut summary =
-            pf_render::export::export_fseq_file(&self.show, &self.map, &self.sequence, path, progress)
-                .map_err(|e| EngineError::Export(e.to_string()))?;
+        let mut summary = pf_render::export::export_fseq_file(
+            &self.show,
+            &self.map,
+            &self.sequence,
+            &AudioSource::none(),
+            path,
+            progress,
+        )
+        .map_err(|e| EngineError::Export(e.to_string()))?;
         if let Some(error) = &self.show_error {
             summary.notes.insert(
                 0,

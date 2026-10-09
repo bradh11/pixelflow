@@ -1861,6 +1861,7 @@ dependencies = [
 name = "pf-render"
 version = "0.1.0"
 dependencies = [
+ "pf-analysis",
  "pf-fseq",
  "pf-geometry",
  "pf-lexicon",

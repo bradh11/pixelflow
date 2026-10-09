@@ -7,7 +7,7 @@
 //!   that block, so the file plays on FPP with the same outputs;
 //! - controllers without them follow, back to back in show order.
 
-use crate::Renderer;
+use crate::{AudioSource, Renderer};
 use pf_fseq::{FseqError, FseqWriter, WriteOptions};
 use pf_mapping::ChannelMap;
 use pf_model::{ControllerId, Show};
@@ -186,13 +186,14 @@ pub fn export_layout(show: &Show, map: &ChannelMap) -> ExportLayout {
     place(show, map).0
 }
 
-/// Renders every frame of `seq` and writes an `.fseq` file to `out`. `progress` is called after
-/// each frame with (frames done, total frames); returning `false` cancels the export
-/// ([`ExportError::Cancelled`]) before the next frame.
+/// Renders every frame of `seq` (effects that follow the music reading `audio`) and writes an
+/// `.fseq` file to `out`. `progress` is called after each frame with (frames done, total frames);
+/// returning `false` cancels the export ([`ExportError::Cancelled`]) before the next frame.
 pub fn export_fseq<W: Write + Seek>(
     show: &Show,
     map: &ChannelMap,
     seq: &Sequence,
+    audio: &AudioSource,
     out: W,
     unique_id: u64,
     mut progress: impl FnMut(u32, u32) -> bool,
@@ -218,6 +219,7 @@ pub fn export_fseq<W: Write + Seek>(
 
     let plan = pf_output::build_offline_plan(show, map);
     let mut renderer = Renderer::new(show, map);
+    renderer.set_audio(audio.clone());
     let mut show_frame = vec![0u8; renderer.frame_len()];
     let mut seq_frame = vec![0u8; layout.channels as usize];
     let mut controller_frame = Vec::new();
@@ -260,6 +262,7 @@ pub fn export_fseq_file(
     show: &Show,
     map: &ChannelMap,
     seq: &Sequence,
+    audio: &AudioSource,
     path: &Path,
     progress: impl FnMut(u32, u32) -> bool,
 ) -> Result<ExportSummary, ExportError> {
@@ -281,7 +284,7 @@ pub fn export_fseq_file(
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_micros() as u64)
             .unwrap_or(0);
-        let (out, summary) = export_fseq(show, map, seq, BufWriter::new(file), unique_id, progress)?;
+        let (out, summary) = export_fseq(show, map, seq, audio, BufWriter::new(file), unique_id, progress)?;
         let file = out.into_inner().map_err(|e| write_err(e.into_error()))?;
         file.sync_all().map_err(write_err)?;
         fs::rename(&tmp, path).map_err(write_err)?;

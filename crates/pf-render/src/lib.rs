@@ -5,9 +5,11 @@
 //! is drawn on a **pixel buffer**: its pixels' front-view positions scaled to its bounding box, so
 //! effects work on any shape, and a group draws across all its members as one canvas.
 //!
-//! Rendering is deterministic: frame N depends only on the document, so seeking and export
-//! always give the same picture. [`export`] writes a sequence as an FPP `.fseq` file.
+//! Rendering is deterministic: frame N depends only on the document (and the music, for effects
+//! that follow it: see [`audio`]), so seeking and export always give the same picture. [`export`]
+//! writes a sequence as an FPP `.fseq` file.
 
+pub mod audio;
 mod blur;
 mod butterfly;
 mod circles;
@@ -32,11 +34,13 @@ mod sparkles;
 mod styles;
 mod tendril;
 mod text;
+mod vumeter;
 
+pub use audio::{Audio, AudioFill, AudioSource, AudioTrack, RenderContext};
 pub use color::{Colors, Rgba};
 pub use effects::{
     Butterfly, Canvas, Circles, DEFAULT_FRAME_MS, EffectTime, Faces, Fan, Garlands, Life, Lines, MAX_METEORS,
-    Morph, Pinwheel, Plasma, Shade, Shader, Shape, Snowflakes, Tendril, Text, shade_pixel,
+    Morph, Pinwheel, Plasma, Shade, Shader, Shape, Snowflakes, Tendril, Text, VuMeter, shade_pixel,
 };
 pub use geometry::{Pixel, PixelBuffer, SceneGeometry};
 pub use render::Renderer;

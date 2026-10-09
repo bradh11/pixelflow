@@ -797,6 +797,8 @@ fn shape(r: &Reader, frame: f64, diff: &mut Diff) -> EffectParams {
         random_movement,
         random_start: r.check_or("Shape_RandomInitial", true),
         timing_track: None,
+        fire_on_music: false,
+        trigger_level: 50.0,
     })
 }
 
@@ -2113,6 +2115,8 @@ mod tests {
                 random_movement: false,
                 random_start: false,
                 timing_track: None,
+                fire_on_music: false,
+                trigger_level: 50.0,
             })
         );
         // Unset checkboxes take xLights' defaults: fading, random places, staggered start.

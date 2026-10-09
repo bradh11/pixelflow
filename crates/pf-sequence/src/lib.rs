@@ -15,7 +15,10 @@ mod settings;
 mod timing;
 mod validate;
 
-pub use curve::{Curve, CurveShape, MAX_CURVE_CYCLES, MAX_CURVE_POINTS, MIN_CURVE_CYCLES};
+pub use curve::{
+    Curve, CurveInputs, CurveShape, CurveTime, MAX_CURVE_CYCLES, MAX_CURVE_FADE, MAX_CURVE_POINTS,
+    MIN_CURVE_CYCLES,
+};
 pub use document::{CURRENT_SCHEMA_VERSION, Layer, Mark, Row, Sequence, Target, TimingKind, TimingTrack};
 pub use effect::{
     Axis, BarsParams, Blend, ButterflyColors, ButterflyParams, ChaseParams, CirclesLook, CirclesParams,
@@ -25,7 +28,8 @@ pub use effect::{
     MorphParams, OffParams, OnParams, Palette, PinwheelParams, PinwheelShading, PinwheelStyle, PlasmaColors,
     PlasmaParams, RippleParams, ShapeObject, ShapeParams, ShimmerParams, SnowflakeShape, SnowflakesMotion,
     SnowflakesParams, SpiralParams, StrobeParams, TendrilMovement, TendrilParams, TextCountdown,
-    TextMovement, TextOrientation, TextParams, TwinkleParams, WaveParams,
+    TextMovement, TextOrientation, TextParams, TwinkleParams, VuMeterParams, VuMeterShape, VuMeterType,
+    WaveParams,
 };
 pub use ids::{EffectId, RowId, TimingTrackId};
 pub use io::{SequenceError, check_sequence, sequence_from_json, sequence_to_json};

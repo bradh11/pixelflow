@@ -163,14 +163,18 @@ pub fn validate_sequence(seq: &Sequence, show: &Show) -> Vec<SequenceIssue> {
                         Some(effect.id),
                     );
                 }
-                if let EffectParams::Shape(p) = &effect.params
-                    && let Some(track) = p.timing_track
+                let (marks_track, without) = match &effect.params {
+                    EffectParams::Shape(p) => (p.timing_track, "no shapes appear"),
+                    EffectParams::VuMeter(p) if p.meter.uses_marks() => (p.timing_track, "it shows nothing"),
+                    _ => (None, ""),
+                };
+                if let Some(track) = marks_track
                     && seq.timing_track(track).is_none()
                 {
                     push(
                         Severity::Warning,
                         format!(
-                            "{} uses a timing track that isn't in the sequence anymore, so no shapes appear.",
+                            "{} uses a timing track that isn't in the sequence anymore, so {without}.",
                             describe(effect)
                         ),
                         Some(row.id),

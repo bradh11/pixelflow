@@ -29,7 +29,7 @@ impl From<serde_json::Error> for SequenceError {
 type Migration = fn(Value) -> Result<Value, SequenceError>;
 
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
-const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5];
+const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6];
 
 /// Version 2 only adds submodel targets, so version 1 documents are already valid.
 fn v1_to_v2(doc: Value) -> Result<Value, SequenceError> {
@@ -51,6 +51,13 @@ fn v3_to_v4(doc: Value) -> Result<Value, SequenceError> {
 /// Version 5 only adds an effect's render style and buffer transform (the target's own layout,
 /// unturned, when missing), so version 4 documents are already valid.
 fn v4_to_v5(doc: Value) -> Result<Value, SequenceError> {
+    Ok(doc)
+}
+
+/// Version 6 only adds what follows the music (music sparkles, music and timing curve shapes, the
+/// VU Meter, Shape's and Tendril's music settings), all off or new when missing, so version 5
+/// documents are already valid.
+fn v5_to_v6(doc: Value) -> Result<Value, SequenceError> {
     Ok(doc)
 }
 
@@ -230,7 +237,7 @@ mod tests {
     }
 
     #[test]
-    fn version_3_files_open_unchanged_as_version_5() {
+    fn version_3_files_open_unchanged_as_the_current_version() {
         let text = r#"{ "schemaVersion": 3, "name": "x", "durationMs": 1000, "rows": [
             { "id": "11111111-0000-4000-8000-000000000001",
               "target": { "prop": "22222222-0000-4000-8000-000000000001" },
@@ -238,9 +245,9 @@ mod tests {
                   "startMs": 0, "endMs": 500, "params": { "kind": "chase", "speed": 2 },
                   "sparkles": 10, "blur": 3 } ] } ] } ] }"#;
         let seq = sequence_from_json(text).unwrap();
-        assert_eq!(seq.schema_version, 5);
+        assert_eq!(seq.schema_version, CURRENT_SCHEMA_VERSION);
         let effect = &seq.rows[0].layers[0].effects[0];
-        assert!(effect.curves.is_empty());
+        assert!(effect.curves.is_empty() && !effect.music_sparkles);
         assert_eq!((effect.sparkles, effect.blur), (10, 3));
         assert_eq!(effect.render_style, pf_model::RenderStyle::Default);
         assert_eq!(effect.buffer_transform, pf_model::BufferTransform::None);

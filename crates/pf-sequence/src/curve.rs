@@ -245,25 +245,25 @@ impl Curve {
     }
 
     /// xLights' "Music Trigger Fade": the curve it builds across the effect from the music (a
-    /// point every 200th of the effect, or every frame when that's shorter), read at `at`.
+    /// point every 200th of the effect, or every frame when that's shorter), read at `at`, as a
+    /// level between `from` and `to`. It's built from `from` and `to` themselves, as xLights builds
+    /// it from P1 and P2: a curve going down rather than up falls back at once, between points.
     fn trigger_fade(&self, at: CurveTime, frame_ms: u64, peak: &dyn Fn(u64) -> f32) -> f32 {
         let length = at.end_ms.saturating_sub(at.start_ms);
-        if length == 0 {
+        if length == 0 || self.to == self.from {
             return 0.0;
         }
+        let (min, max) = (self.from, self.to);
         let grid = |x: f64| ((x * 200.0).round() / 200.0) as f32;
         let x_of = |ms: i64| grid(ms as f64 / length as f64);
         let per_point = ((length as f32 / 200.0) as u64).max(frame_ms);
-        // Falls a fade's share a point; a curve going down instead of up drops straight away.
-        let step = if self.to > self.from {
-            1.0 / self.fade.max(0.0)
-        } else {
-            1.0
-        };
-        let step = if step.is_finite() && step > 0.0 { step } else { 1.0 };
+        let mut step = (max - min) / self.fade.max(0.0);
+        if !step.is_finite() || step <= 0.0 {
+            step = 0.0001 * (max - min).abs();
+        }
         let query = at.progress();
-        let mut points: Vec<(f32, f32)> = vec![(0.0, 0.0)];
-        let mut running = 0.0f32;
+        let mut points: Vec<(f32, f32)> = vec![(0.0, min)];
+        let mut running = min;
         let mut time = at.start_ms;
         // Points past the one after `query` don't change the reading.
         while time < at.end_ms && points.last().is_none_or(|p| p.0 <= query) {
@@ -277,24 +277,24 @@ impl Curve {
             }
             if loudest * 100.0 > self.trigger {
                 if time == at.start_ms {
-                    running = 1.0;
+                    running = max;
                     if let Some(last) = points.last_mut() {
                         last.1 = running;
                     }
-                } else if running != 1.0 {
+                } else if running != max {
                     points.push((x, running));
-                    running = 1.0;
+                    running = max;
                     points.push((x, running));
                 }
-            } else if running <= 0.0 {
-                running = 0.0;
+            } else if running <= min {
+                running = min;
             } else {
-                if running == 1.0 && points.last().is_some_and(|p| p.0 < prex || p.1 != running) {
+                if running == max && points.last().is_some_and(|p| p.0 < prex || p.1 != running) {
                     points.push((prex, running));
                 }
                 running -= step;
-                if running <= 0.0 {
-                    running = 0.0;
+                if running <= min {
+                    running = min;
                     points.push((x, running));
                 }
             }
@@ -305,8 +305,8 @@ impl Curve {
         }
         // Read as xLights reads a curve's points: straight from one to the next.
         let next = points[1..].iter().position(|p| p.0 >= query).map(|i| i + 1);
-        match next {
-            None => points.last().map_or(0.0, |p| p.1),
+        let value = match next {
+            None => points.last().map_or(min, |p| p.1),
             Some(i) => {
                 let (a, b) = (points[i - 1], points[i]);
                 if b.0 == a.0 || b.0 == query {
@@ -315,7 +315,8 @@ impl Curve {
                     a.1 + (b.1 - a.1) * (query - a.0) / (b.0 - a.0)
                 }
             }
-        }
+        };
+        (value - min) / (max - min)
     }
 
     /// xLights' timing track curves, at `at` on a track with `marks`.
@@ -640,6 +641,21 @@ mod tests {
         // Loud throughout: up from the start.
         let loud = |_: u64| 1.0;
         assert_eq!(c.level_in(at(500), &inputs(&loud, &[])), 1.0);
+        // Going down (P2 below P1), xLights resets to P1 at the next quiet point without a point
+        // of its own, so the curve runs straight back over the gap to the next trigger.
+        let down = Curve {
+            trigger: 50.0,
+            fade: 4.0,
+            ..Curve::shaped(CurveShape::MusicTrigger, 200.0, 0.0, 1.0)
+        };
+        let twice = |frame: u64| if frame == 5 || frame == 25 { 0.9 } else { 0.1 };
+        let cx = inputs(&twice, &[]);
+        let value = |t: u64| down.value_in(at(t), &cx);
+        // Triggers at 100 and 600 ms: from 0 at the first straight back up to 200 at the second.
+        assert_eq!(value(100), 200.0, "the first of the two points at the jump");
+        assert!((value(110) - 4.0).abs() < 1e-3, "{}", value(110));
+        assert!((value(300) - 80.0).abs() < 1e-3, "{}", value(300));
+        assert!((value(500) - 160.0).abs() < 1e-3, "{}", value(500));
     }
 
     #[test]

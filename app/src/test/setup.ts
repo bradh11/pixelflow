@@ -16,6 +16,7 @@ import { useView3d } from "../state/view3d";
 import { useWiring } from "../state/wiring";
 import { useShortcutSheet } from "../state/shortcutSheet";
 import { useContextMenu } from "../state/contextMenu";
+import { playClock, usePreviewSync } from "../state/previewSync";
 
 // jsdom lacks these browser APIs; the command palette (cmdk) uses them.
 globalThis.ResizeObserver ??= class {
@@ -50,4 +51,6 @@ afterEach(() => {
   useListWidth.setState({ width: 256 });
   useShortcutSheet.setState({ open: false });
   useContextMenu.setState({ menu: null });
+  usePreviewSync.setState({ offsetMs: 0 });
+  playClock.set(null);
 });

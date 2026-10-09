@@ -26,6 +26,8 @@ import { tapEdits } from "../lib/timelineMath";
 import { type SaveOptions, saidSaved, useApp } from "./store";
 import { describeSequenceEdits } from "../lib/describeChange";
 import { edited, stepped, useUndoLabels } from "./undoLabels";
+import { readingFrom } from "../lib/avSync";
+import { pipeline, playClock } from "./previewSync";
 
 const RECENT_KEY = "pixelflow.recentSequences";
 /** Whether playback loops, remembered on this computer. */
@@ -282,6 +284,8 @@ interface SequencerState {
   seek(ms: number): Promise<void>;
   /** Polls playback while it runs (the screen calls this on a timer). */
   pollPlayback(): Promise<void>;
+  /** Plays slower (1 as written, 0.5 half speed), live; false when nothing plays. */
+  setPlaybackSpeed(speed: number): Promise<boolean>;
   /** Exports an .fseq (asking where), optionally adding it to the show's playlist. */
   exportFseq(addToShow: boolean): Promise<ExportSummary | null>;
   /** Resolves once every edit made so far has reached the engine (before it exports or sends). */
@@ -334,10 +338,26 @@ export const useSequencer = create<SequencerState>((set, get) => {
   /** Set when the user cancels the running export, so its failure isn't reported as an error. */
   let cancelled = false;
 
+  /** Asks the player something, timing the question so its answer says where the music was when
+   * the engine looked (see `follow`). */
+  async function timed(call: () => Promise<PlaybackStatus | null>): Promise<{ next: PlaybackStatus | null; sentAt: number; gotAt: number }> {
+    const sentAt = performance.now();
+    const next = await call();
+    const gotAt = performance.now();
+    if (next) pipeline.noteAsk(gotAt - sentAt);
+    return { next, sentAt, gotAt };
+  }
+
+  /** Follows the music from an answer from the player (see state/previewSync). */
+  function follow(next: PlaybackStatus, sentAt: number, gotAt: number) {
+    playClock.set(readingFrom(next.nowMs ?? next.positionMs, next.speed ?? 1, next.state === "playing", sentAt, gotAt));
+  }
+
   /** Lets go of the player (if one is running), leaving the playhead where it is. */
   async function halt() {
     const backend = useApp.getState().backend;
     lastTap = null;
+    playClock.set(null);
     if (!backend || !get().status) return;
     ++transport;
     // Stopped as far as the screen is concerned at once; late answers are ignored.
@@ -875,14 +895,19 @@ export const useSequencer = create<SequencerState>((set, get) => {
       const turn = ++transport;
       lastTap = null;
       if (status && status.state === "paused") {
-        const next = await guarded(() => backend.pausePlayback(false));
-        if (next && turn === transport) set({ status: next });
+        const answer = await guarded(() => timed(() => backend.pausePlayback(false)));
+        if (answer?.next && turn === transport) {
+          follow(answer.next, answer.sentAt, answer.gotAt);
+          set({ status: answer.next });
+        }
         return;
       }
       const from = playheadMs >= doc.durationMs ? 0 : playheadMs;
-      const next = await guarded(() => api.playSequenceDoc(from));
-      if (next && turn === transport) {
+      const answer = await guarded(() => timed(() => api.playSequenceDoc(from)));
+      const next = answer?.next;
+      if (answer && next && turn === transport) {
         playheadAt = performance.now();
+        follow(next, answer.sentAt, answer.gotAt);
         set({ status: next, playheadMs: next.positionMs });
       }
     },
@@ -892,11 +917,25 @@ export const useSequencer = create<SequencerState>((set, get) => {
       if (!backend || !get().status) return;
       const turn = ++transport;
       lastTap = null;
-      const next = await guarded(() => backend.pausePlayback(true));
-      if (next && turn === transport) {
+      const answer = await guarded(() => timed(() => backend.pausePlayback(true)));
+      const next = answer?.next;
+      if (answer && next && turn === transport) {
         playheadAt = performance.now();
+        follow(next, answer.sentAt, answer.gotAt);
         set({ status: next, playheadMs: next.positionMs });
       }
+    },
+
+    async setPlaybackSpeed(speed) {
+      const backend = useApp.getState().backend;
+      if (!backend || !get().status) return false;
+      const turn = transport;
+      const answer = await guarded(() => timed(() => backend.setPlaybackSpeed(speed)));
+      const next = answer?.next;
+      if (!answer || !next || turn !== transport) return false;
+      follow(next, answer.sentAt, answer.gotAt);
+      set({ status: next });
+      return true;
     },
 
     async stop() {
@@ -914,10 +953,16 @@ export const useSequencer = create<SequencerState>((set, get) => {
       get().setPlayhead(ms);
       playheadAt = performance.now();
       const backend = useApp.getState().backend;
-      if (!backend || !get().status) return;
+      const status = get().status;
+      if (!backend || !status) return;
+      // The playhead goes there at once, rather than waiting for the player to answer.
+      playClock.set({ musicMs: get().playheadMs, atMs: playheadAt, speed: status.speed ?? 1, running: status.state === "playing" });
       const turn = ++transport;
-      const next = await guarded(() => backend.seekPlayback(get().playheadMs));
-      if (next && turn === transport) set({ status: next });
+      const answer = await guarded(() => timed(() => backend.seekPlayback(get().playheadMs)));
+      if (answer?.next && turn === transport) {
+        follow(answer.next, answer.sentAt, answer.gotAt);
+        set({ status: answer.next });
+      }
     },
 
     async pollPlayback() {
@@ -925,7 +970,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
       if (!backend || !get().status) return;
       const turn = transport;
       try {
-        const next = await backend.playbackStatus();
+        const { next, sentAt, gotAt } = await timed(() => backend.playbackStatus());
         // Play, pause, seek, or stop since the question: this answer is out of date.
         if (turn !== transport || !get().status) return;
         if (!next || !next.authored) {
@@ -941,6 +986,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
           return;
         }
         playheadAt = performance.now();
+        follow(next, sentAt, gotAt);
         set({ status: next, playheadMs: next.positionMs });
       } catch {
         // The next poll tries again.

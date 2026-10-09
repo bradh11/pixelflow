@@ -55,6 +55,8 @@ import { timelineMinHeight } from "../../lib/sequenceLayout";
 import { resolveAudio } from "../../lib/showFiles";
 import { isMenuKey, useContextMenu } from "../../state/contextMenu";
 import { effectMenuItems } from "../../state/sequenceActions";
+import { everyFrame, previewPosition } from "../../lib/avSync";
+import { pipeline, playClock, usePreviewSync } from "../../state/previewSync";
 
 /** Colors a new effect starts with. */
 export const DEFAULT_COLORS = ["#ff0000", "#00c000", "#ffffff"];
@@ -193,6 +195,8 @@ export function Timeline({ doc: fullDoc }: { doc: Sequence }) {
   const pendingKey = useRef(0);
   const [, redraw] = useState(0);
   const [ghost, setGhost] = useState<Ghost | null>(null);
+  /** Where the playhead is drawn while playing (see the effect below); null otherwise. */
+  const shownAt = useRef<number | null>(null);
 
   const index = useMemo(() => buildIndex(doc), [doc]);
   const collapsedSet = useMemo(() => new Set(collapsed), [collapsed]);
@@ -287,7 +291,7 @@ export function Timeline({ doc: fullDoc }: { doc: Sequence }) {
       view: current,
       scrollY,
       selection: selectionSet,
-      playheadMs,
+      playheadMs: shownAt.current ?? playheadMs,
       waveform,
       labels,
       drag: d?.kind === "move" && d.started ? d.moved : d?.kind === "resize" ? [{ ...d.item, ...d.result }] : (pending.current?.items ?? null),
@@ -305,6 +309,30 @@ export function Timeline({ doc: fullDoc }: { doc: Sequence }) {
     });
   };
   useEffect(draw);
+  const drawNow = useRef(draw);
+  drawNow.current = draw;
+
+  // While playing, the playhead moves on every screen refresh to where the music will be heard
+  // when the picture shows (see lib/avSync), not in steps as the player answers.
+  useEffect(() => {
+    if (!playing) {
+      shownAt.current = null;
+      return;
+    }
+    let last = 0;
+    const stop = everyFrame((t) => {
+      if (last) pipeline.noteRefresh(t - last);
+      last = t;
+      const music = playClock.musicAt(performance.now() + pipeline.refreshMs);
+      if (music === null) return;
+      shownAt.current = previewPosition(music, usePreviewSync.getState().offsetMs, latest.current.doc.durationMs);
+      drawNow.current();
+    });
+    return () => {
+      stop();
+      shownAt.current = null;
+    };
+  }, [playing]);
 
   /** Dropped marks still on their way, where they'll land (found by where they were). */
   function pendingSpans() {

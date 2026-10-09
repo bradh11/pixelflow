@@ -241,18 +241,24 @@ pub fn moments(analysis: &Analysis, user: Option<&Sequence>) -> Vec<Moment> {
     }
 }
 
-/// The most important `MAX_LISTED_MOMENTS` moments, most important first, each as
-/// `[ms, kind, importance, suggest]`, then its label (or null, if it lasts but has none), then
-/// where it ends, if it lasts.
-fn moment_tuples(moments: &[Moment]) -> Vec<Value> {
-    let mut top: Vec<&Moment> = moments.iter().collect();
+/// The song's moments as `analyze_song` lists them: the `MAX_LISTED_MOMENTS` most important,
+/// most important first (so "moment 3" means the same moment to the model and to the cues).
+pub fn ranked_moments(analysis: &Analysis, user: Option<&Sequence>) -> Vec<Moment> {
+    let mut top = moments(analysis, user);
     top.sort_by(|a, b| {
         b.importance
             .total_cmp(&a.importance)
             .then(a.time_ms.cmp(&b.time_ms))
     });
-    top.into_iter()
-        .take(MAX_LISTED_MOMENTS)
+    top.truncate(MAX_LISTED_MOMENTS);
+    top
+}
+
+/// Each moment as `[ms, kind, importance, suggest]`, then its label (or null, if it lasts but
+/// has none), then where it ends, if it lasts.
+fn moment_tuples(moments: &[Moment]) -> Vec<Value> {
+    moments
+        .iter()
         .map(|m| {
             let mut tuple = vec![
                 json!(m.time_ms),
@@ -273,7 +279,7 @@ fn moment_tuples(moments: &[Moment]) -> Vec<Value> {
 
 /// What `analyze_song` answers: tempo, counts, bar times, sections (named, grouped by what
 /// repeats, with their energy), the strongest accents, the most important moments
-/// ([`moment_tuples`]), each bar's energy, bass, and drums (kicks and snares) as a digit string
+/// ([`ranked_moments`]), each bar's energy, bass, and drums (kicks and snares) as a digit string
 /// (0–9, a digit per bar), and how sure the analysis is. Sections and accents come from
 /// the user's own Sections and Accents tracks in `user` when it has them (`sectionsFrom`,
 /// `accentsFrom`: "user"): those win over what was detected. With the user's lyrics, a short
@@ -343,7 +349,7 @@ pub fn describe(analysis: &Analysis, user: Option<&Sequence>) -> Value {
         "sections": sections,
         "accentsFrom": from(my_accents.is_some()),
         "accents": accents,
-        "moments": moment_tuples(&moments(analysis, user)),
+        "moments": moment_tuples(&ranked_moments(analysis, user)),
         "barEnergy": digits(|e| e.overall),
         "barBass": digits(|e| e.low),
         "barDrums": drums,

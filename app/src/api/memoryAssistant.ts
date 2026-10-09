@@ -269,6 +269,7 @@ export class FakeAssistant implements AssistantApi {
       timeline: composed.timeline,
       // The demo drafts on the song's marks already; it reports its edges as the app's locking would.
       lockedEdges: 2 * composed.edits.filter((e) => e.type === "addEffect").length,
+      cues: composed.cues,
     };
     this.pending = {
       proposal,
@@ -296,6 +297,7 @@ export class FakeAssistant implements AssistantApi {
       sections: [],
       timeline: null,
       lockedEdges: 0,
+      cues: null,
     };
     this.pending = { proposal, edits, draft, generation: this.backend.generation };
     onEvent({ kind: "proposal", proposal });

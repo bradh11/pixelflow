@@ -6,6 +6,7 @@ import type { Change, SectionSummary, TimelineView } from "./assistant";
 import { formatMs } from "./memorySequencer";
 import { type Analysis, EFFECT_KINDS, type Effect, type EffectKind, type Row, type Sequence, type SequenceEdit, type TimingTrack, newEffect } from "./sequence";
 import type { Show } from "./types";
+import { plural } from "../lib/format";
 
 /** The song's sections: as analysis found them, or else a quiet intro, a verse, a loud chorus,
  * and an outro, on bar lines. */
@@ -48,6 +49,8 @@ function rowName(row: Row, show: Show): string {
 
 export interface Composed {
   summary: string;
+  /** The cues staged ("Staged 2 cues: 2 hits"), if any. */
+  cues: string | null;
   edits: SequenceEdit[];
   draft: Sequence;
   changes: Change[];
@@ -84,6 +87,8 @@ export function composeDemoSequence(doc: Sequence, show: Show, analysis: Analysi
   const cool = ["#1e3a8a", "#ffffff"];
   const warm = ["#ffb347", "#ff6b35"];
   const festive = ["#ff1a1a", "#1aff4a", "#ffffff"];
+  const beatMs = analysis.tempoBpm ? 60_000 / analysis.tempoBpm : 500;
+  let hits = 0;
 
   for (const part of parts) {
     const { startMs: from, endMs: to } = part;
@@ -103,6 +108,9 @@ export function composeDemoSequence(doc: Sequence, show: Show, analysis: Analysi
     } else if (look === "chorus") {
       for (const row of groupRows) barMarks.forEach((m, j) => place(row, 0, j % 2 === 0 ? "bars" : "spiral", m.startMs, m.endMs, festive));
       propRows.forEach((row, i) => barMarks.forEach((m) => place(row, top, i % 2 === 0 ? "chase" : "meteors", m.startMs, m.endMs, festive)));
+      // A white hit on every prop as the chorus lands, above its look.
+      propRows.forEach((row) => place(row, top + 1, "impact", from, Math.round(from + 2 * beatMs), ["#ffffff"]));
+      if (propRows.length > 0) hits += 1;
     } else {
       for (const row of groupRows) place(row, 0, "fade", from, to, cool);
       propRows.forEach((row) => place(row, top, "twinkle", from, to, cool, 600));
@@ -157,6 +165,7 @@ export function composeDemoSequence(doc: Sequence, show: Show, analysis: Analysi
   const tempo = analysis.tempoBpm ? `${Math.round(analysis.tempoBpm)} BPM ` : "";
   return {
     summary: `A ${tempo}light show for "${doc.name}": a soft blue intro, a warm sweep across the props in the verse, everything moving in red and green for the chorus, then a slow fade. Synced to the beats and bars.`,
+    cues: hits > 0 ? `Staged ${plural(hits, "cue")}: ${plural(hits, "hit")}` : null,
     edits,
     draft,
     changes,

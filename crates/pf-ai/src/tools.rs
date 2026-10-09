@@ -32,6 +32,8 @@ pub enum ToolKind {
     PlaceEffects,
     /// Copies a stretch of effects to other times.
     RepeatEffects,
+    /// Expands lighting cues (hits, blackouts, ramps, ...) into effects.
+    StageCue,
     /// Offers the user a button to start a new sequence from a song.
     AskForSong,
     ReviewDraft,
@@ -910,6 +912,43 @@ fn song_tools() -> Vec<Tool> {
                 &["fromMs", "toMs", "startsMs"],
             ),
             ToolKind::RepeatEffects,
+        ),
+        tool(
+            "stage_cue",
+            "Stages lighting cues, each expanded into finished effects on a new top layer of its props' rows (section looks stay below; nothing overlaps). hit: ½ beat dark, then a punch decaying 1-2 beats (strobe and lightning when intensity ≥0.85). blackout: off until `until`, then a hit. ramp: brighter, faster, hotter each bar to until; ends on a hit at an impact (or hit:true). sweep: a wipe across the layout. chase: props flash one by one in layout order on track marks (else drum hits, else eighths). call_response: targets and with (else left and right halves) alternate on track marks (else bars). word_pop: a pop on each sung word matching match (a moment's word); ≥0.85 pops everything and sets faces singing. sing: talking props sing. minimal: a few props breathe dimly, the rest dark. full: meters, spirals, chases, bass pulses. sustain: hold, then fade out. color_shift: to colors, travelling across. breathe: a pulse with the bass, or on track. stageMoments stages each moment analyze_song lists from minImportance (and of kinds) as its suggest says.",
+            object(
+                json!({
+                    "cues": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "cue": { "enum": crate::cues::CUES },
+                                "at": { "type": ["integer", "string"], "description": "ms, \"m3\" (analyze_song's moment 3), or \"Track:5\" (a mark); a moment or mark that lasts sets until." },
+                                "until": { "type": ["integer", "string"] },
+                                "targets": { "type": "array", "items": { "type": "string" }, "description": format!("Groups or props by name, or {}. Default all.", crate::cues::TARGET_WORDS.join(", ")) },
+                                "with": { "type": "array", "items": { "type": "string" } },
+                                "intensity": { "type": "number", "minimum": 0, "maximum": 1, "description": "Default: the moment's importance, else 0.8." },
+                                "colors": { "type": "array", "items": { "type": "string" } },
+                                "direction": { "enum": crate::cues::DIRECTIONS },
+                                "match": { "type": "string" },
+                                "track": { "type": "string" },
+                                "hit": { "type": "boolean" },
+                            },
+                            "required": ["cue", "at"],
+                        },
+                    },
+                    "stageMoments": {
+                        "type": "object",
+                        "properties": {
+                            "minImportance": { "type": "number", "description": "Default 0.5." },
+                            "kinds": { "type": "array", "items": { "type": "string" } },
+                        },
+                    },
+                }),
+                &[],
+            ),
+            ToolKind::StageCue,
         ),
     ]
 }

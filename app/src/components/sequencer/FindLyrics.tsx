@@ -4,6 +4,7 @@ import type { LyricsFound, LyricsGate } from "../../api/sequencer";
 import type { ProviderId } from "../../api/assistant";
 import { useAssistant } from "../../state/assistant";
 import { useSequencer } from "../../state/sequencer";
+import { ProgressBar } from "../ProgressBar";
 import { Button } from "../ui";
 
 /** The question asked before a song's audio first goes to OpenAI. */
@@ -19,6 +20,7 @@ export const SEND_AUDIO_QUESTION = "This sends the song's audio to OpenAI to fin
 export function FindLyrics({ hasMusic }: { hasMusic: boolean }) {
   const api = useSequencer((s) => s.api);
   const step = useSequencer((s) => s.findingLyrics);
+  const fraction = useSequencer((s) => s.lyricsFraction);
   const docKey = useSequencer((s) => s.docKey);
   const provider = useAssistant((s) => s.provider);
   const hasKey = useAssistant((s) => s.hasKey);
@@ -58,7 +60,7 @@ export function FindLyrics({ hasMusic }: { hasMusic: boolean }) {
 
   if (step !== null) {
     return (
-      <span role="status" className="inline-flex max-w-56 items-center gap-1.5 px-2 text-sm text-neutral-600 dark:text-neutral-300">
+      <span role="status" className="relative inline-flex max-w-56 items-center gap-1.5 px-2 text-sm text-neutral-600 dark:text-neutral-300">
         <Loader2 size={15} className="shrink-0 animate-spin" aria-hidden />
         <span className="truncate">{step}…</span>
         <button
@@ -70,6 +72,8 @@ export function FindLyrics({ hasMusic }: { hasMusic: boolean }) {
         >
           <X size={14} />
         </button>
+        {/* While a step reads the whole song: how far it has got. */}
+        {fraction !== null && <ProgressBar slim label={step} fraction={fraction} className="absolute inset-x-2 bottom-0" />}
       </span>
     );
   }

@@ -2,7 +2,9 @@ import { AlertTriangle, AudioLines, CheckCircle2, Download, FileInput, FilePlus,
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { errorMessage } from "../api/backend";
+import type { AudioProgress } from "../api/types";
 import { MissingFileNotice, useMissingBannerNames } from "../components/MissingFiles";
+import { ProgressBar } from "../components/ProgressBar";
 import { SendToFppDialog } from "../components/SendToFppDialog";
 import { EffectPalette } from "../components/sequencer/EffectPalette";
 import { EffectSettings } from "../components/sequencer/EffectSettings";
@@ -21,6 +23,7 @@ import { type RecentSequence, recentFor, useSequencer } from "../state/sequencer
 import { saveSequenceAndShow } from "../state/saveAll";
 import { ariaKeysFor, comboLabel, hintFor } from "../lib/shortcuts";
 import { useApp } from "../state/store";
+import { useAudioProgress } from "../state/audioProgress";
 
 /** How often playback is checked while a sequence plays. */
 const POLL_MS = 50;
@@ -336,6 +339,13 @@ function ToolButton({
   );
 }
 
+/** How far Detect beats has got: a hairline under its button (its own component: it changes
+ * several times a second). */
+function BeatsProgress() {
+  const progress = useAudioProgress("beats");
+  return <ProgressBar slim label="Finding the beats" fraction={progress?.fraction ?? null} className="absolute inset-x-2 bottom-0" />;
+}
+
 /** "Alt" in tooltips, or "Option" on a Mac keyboard. */
 const ALT_KEY = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent) ? "Option" : "Alt";
 
@@ -400,14 +410,17 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
           </ToolButton>
           <PlayheadTime durationMs={s.durationMs} />
           <span className="mx-1 h-5 w-px bg-neutral-200 dark:bg-neutral-800" />
-          <ToolButton
-            label={s.detecting ? "Finding the beats…" : "Detect beats"}
-            hint="Find the song's beats, bars, sections, accents, moments, and drums as timing tracks. Sections, Accents, and Moments you already have stay as they are."
-            onClick={() => void act().detectBeats()}
-            disabled={!s.hasMusic || s.detecting}
-          >
-            <AudioLines size={16} /> <span className="hidden @min-[760px]:inline">{s.detecting ? "Finding beats…" : "Detect beats"}</span>
-          </ToolButton>
+          <span className="relative inline-flex">
+            <ToolButton
+              label={s.detecting ? "Finding the beats…" : "Detect beats"}
+              hint="Find the song's beats, bars, sections, accents, moments, and drums as timing tracks. Sections, Accents, and Moments you already have stay as they are."
+              onClick={() => void act().detectBeats()}
+              disabled={!s.hasMusic || s.detecting}
+            >
+              <AudioLines size={16} /> <span className="hidden @min-[760px]:inline">{s.detecting ? "Finding beats…" : "Detect beats"}</span>
+            </ToolButton>
+            {s.detecting && <BeatsProgress />}
+          </span>
           <FindLyrics hasMusic={s.hasMusic} />
           <ToolButton label="Add timing track" onClick={() => setAddingTrack(true)}>
             <ListPlus size={16} /> <span className="hidden @min-[760px]:inline">Add timing track</span>
@@ -816,6 +829,8 @@ function NewSequenceDialog({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState("");
   const [seconds, setSeconds] = useState(60);
   const [reading, setReading] = useState(false);
+  /** While a file that doesn't say how long it is is read through. */
+  const [readProgress, setReadProgress] = useState<AudioProgress | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
   const chooseMusic = async () => {
@@ -824,13 +839,15 @@ function NewSequenceDialog({ onClose }: { onClose: () => void }) {
     setReading(true);
     setProblem(null);
     try {
-      const waveform = await backend.audioWaveform(path, 100);
-      setMusic({ path, durationMs: waveform.durationMs });
+      // Its header says how long it is (quick); the waveform is drawn once the sequence opens.
+      const info = await backend.probeAudio(path, (p) => setReadProgress(p.fraction >= 1 ? null : p));
+      setMusic({ path, durationMs: info.durationMs });
       if (!name) setName(fileName(path).replace(/\.[^.]+$/, ""));
     } catch (e) {
       setProblem(errorMessage(e));
     } finally {
       setReading(false);
+      setReadProgress(null);
     }
   };
 
@@ -862,6 +879,7 @@ function NewSequenceDialog({ onClose }: { onClose: () => void }) {
             </span>
           )}
         </div>
+        {reading && readProgress && <ProgressBar label={readProgress.stage} fraction={readProgress.fraction} />}
         {problem && <p className="text-red-600 dark:text-red-400">{problem}</p>}
         <label className="flex flex-col gap-1">
           <span className="text-neutral-600 dark:text-neutral-400">Name</span>

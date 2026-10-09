@@ -43,9 +43,11 @@ import {
   xToTime,
   zoomAt,
 } from "../../lib/timelineMath";
+import { useAudioProgress } from "../../state/audioProgress";
 import { useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
 import { GoToScreen } from "../GoToScreen";
+import { ProgressBar } from "../ProgressBar";
 import { usePaletteDrag } from "./EffectPalette";
 import { TimingTrackHeaders } from "./TimingTrackHeaders";
 import { LANE_H, RULER_H, TRACK_H, WAVE_H, drawTimeline, topHeight } from "./drawTimeline";
@@ -835,6 +837,7 @@ export function Timeline({ doc: fullDoc }: { doc: Sequence }) {
             onKeyDown={onCanvasKeyDown}
             onPointerLeave={(e) => !drag.current && (e.currentTarget.style.cursor = "default")}
           />
+          {audio && !waveform && <WaveformReading audio={audio} />}
           {labelEdit && labelBox && (
             <input
               autoFocus
@@ -950,6 +953,31 @@ function ToolButton({ label, onClick, children }: { label: string; onClick: () =
 
 /** Row names beside the lanes, with ways to collapse, reorder, add layers to, and remove rows.
  * (Memoized: the timeline redraws with the playhead many times a second; the names don't.) */
+/** In place of the waveform while the music is read for it: what's going on, and how far it has
+ * got. Its own component, so the timeline isn't drawn again with every step. */
+function WaveformReading({ audio }: { audio: string }) {
+  const progress = useAudioProgress("waveform", audio);
+  if (!progress) return null;
+  return (
+    <div className="pointer-events-none absolute right-0 left-0 flex items-center justify-center" style={{ top: RULER_H, height: WAVE_H }}>
+      <ProgressBar label={progress.stage} fraction={progress.fraction} className="w-56 max-w-[60%]" />
+    </div>
+  );
+}
+
+/** A hairline under the Music row while the music's audio track (what effects that follow the
+ * music read) is worked out in the background; those effects follow the music once it's done. */
+function AudioTrackProgress() {
+  const progress = useAudioProgress("audioTrack");
+  if (!progress) return null;
+  const percent = Math.round(progress.fraction * 100);
+  return (
+    <div className="absolute inset-x-2 bottom-1" title={`${progress.stage}: ${percent}%. Effects that follow the music start following it when this is done.`}>
+      <ProgressBar slim label={progress.stage} fraction={progress.fraction} />
+    </div>
+  );
+}
+
 const RowHeaders = memo(function RowHeaders({
   doc,
   show,
@@ -988,8 +1016,9 @@ const RowHeaders = memo(function RowHeaders({
         <div className="flex items-center px-2 text-neutral-500" style={{ height: RULER_H }}>
           Time
         </div>
-        <div className="flex items-center gap-1 px-2 text-neutral-500" style={{ height: WAVE_H }}>
+        <div className="relative flex items-center gap-1 px-2 text-neutral-500" style={{ height: WAVE_H }}>
           <span className="min-w-0 flex-1 truncate">{doc.audio ? "Music" : "No music"}</span>
+          {doc.audio && <AudioTrackProgress />}
           {timingCount > 0 && (
             <button
               type="button"

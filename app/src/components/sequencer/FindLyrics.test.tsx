@@ -124,6 +124,21 @@ describe("Find lyrics", () => {
     expect(useApp.getState().error).toBeNull();
   });
 
+  it("shows how far it has got while it reads the song's voice", async () => {
+    const { seq, user } = await openScreen(["anthropic"]);
+    seq.lyricsStepMs = 400;
+    await waitFor(() => expect(findButton()).toHaveAttribute("aria-disabled", "false"));
+    await user.click(findButton());
+    // The steps before it can't tell how far they've got: no bar.
+    expect(await screen.findByText("Reading the song…")).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar", { name: "Reading the song" })).toBeNull();
+    const bar = await screen.findByRole("progressbar", { name: "Lining up the words" }, { timeout: 2000 });
+    await waitFor(() => expect(Number(bar.getAttribute("aria-valuenow"))).toBeGreaterThan(0));
+    await waitFor(() => expect(useSequencer.getState().findingLyrics).toBeNull(), { timeout: 2000 });
+    expect(useSequencer.getState().lyricsFraction).toBeNull();
+    expect(trackNames()).toContain("Vocals");
+  });
+
   it("says where the lyrics came from, and lets the user pick other lyrics or paste them", async () => {
     useAssistant.setState({ lyricsLanguage: "fr" });
     const { seq, user } = await openScreen(["anthropic"]);

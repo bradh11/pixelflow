@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Waveform } from "../api/types";
+import { useAudioProgress } from "../state/audioProgress";
+import { ProgressBar } from "./ProgressBar";
 
 /**
  * A song's loudness over time with a playhead at the music's position; clicking jumps there.
@@ -8,6 +10,7 @@ import type { Waveform } from "../api/types";
  */
 export function WaveformView({
   waveform,
+  audio = null,
   loading = false,
   positionMs,
   durationMs,
@@ -15,6 +18,8 @@ export function WaveformView({
   onSeek,
 }: {
   waveform: Waveform | null;
+  /** The music file, for how far reading it has got while `loading`. */
+  audio?: string | null;
   loading?: boolean;
   positionMs: number | null;
   durationMs: number;
@@ -81,11 +86,18 @@ export function WaveformView({
           onSeek(Math.max(0, Math.round(music + offsetMs)));
         }}
       />
-      {loading && (
-        <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-neutral-500">
-          Reading the music…
-        </span>
-      )}
+      {loading && <Reading audio={audio} />}
+    </div>
+  );
+}
+
+/** Over the waveform while the music is read for it, with how far it has got once the reading
+ * says. */
+function Reading({ audio }: { audio: string | null }) {
+  const progress = useAudioProgress("waveform", audio ?? "");
+  return (
+    <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-neutral-500">
+      {progress ? <ProgressBar label={progress.stage} fraction={progress.fraction} className="w-56 max-w-[60%]" /> : "Reading the music…"}
     </div>
   );
 }

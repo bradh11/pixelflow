@@ -14,6 +14,9 @@ pub enum AudioError {
     /// There's no working sound output (the detail is the system's, for logs).
     #[error("No sound output is available.")]
     NoOutput(String),
+    /// Reading the file was stopped part way.
+    #[error("Stopped.")]
+    Stopped,
 }
 
 fn open_message(path: &str, source: &std::io::Error) -> String {

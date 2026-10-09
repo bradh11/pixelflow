@@ -102,6 +102,21 @@ describe("timing tracks", () => {
     await waitFor(() => expect(spans(track(seq, "Lyrics"))).toEqual([[1000, 1500, ""]]));
   });
 
+  it("folds the timing tracks away and back, remembering the choice", async () => {
+    await openScreen();
+    useSequencer.setState({ timingHidden: false });
+    expect(screen.getByText("Beats")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Timing" }));
+    expect(useSequencer.getState().timingHidden).toBe(true);
+    expect(screen.queryByText("Beats")).not.toBeInTheDocument();
+    expect(localStorage.getItem("pixelflow.timingTracksHidden")).toBe("true");
+    const unfold = screen.getByRole("button", { name: "2 timing" });
+    expect(unfold).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(unfold);
+    expect(screen.getByText("Beats")).toBeInTheDocument();
+    expect(localStorage.getItem("pixelflow.timingTracksHidden")).toBe("false");
+  });
+
   it("asks for a track to be picked before tapping", async () => {
     const { user } = await openScreen();
     await user.keyboard("t");

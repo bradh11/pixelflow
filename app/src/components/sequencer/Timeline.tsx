@@ -145,7 +145,13 @@ function useSize(ref: React.RefObject<HTMLElement | null>) {
 }
 
 /** The effects on their rows over time, with the ruler, the music, and the timing marks above. */
-export function Timeline({ doc }: { doc: Sequence }) {
+export function Timeline({ doc: fullDoc }: { doc: Sequence }) {
+  // Folded timing tracks are left out of everything drawn here; snapping still uses them all.
+  const timingHidden = useSequencer((s) => s.timingHidden);
+  const doc = useMemo(
+    () => (timingHidden && fullDoc.timingTracks.length > 0 ? { ...fullDoc, timingTracks: [] } : fullDoc),
+    [fullDoc, timingHidden],
+  );
   const show = useApp((s) => s.snapshot?.show);
   const backend = useApp((s) => s.backend);
   const theme = useApp((s) => s.theme);
@@ -199,8 +205,8 @@ export function Timeline({ doc }: { doc: Sequence }) {
   const setView = useCallback((v: View) => setViewState(clampView(v, doc.durationMs, Math.max(1, width))), [doc.durationMs, width]);
 
   // Everything event handlers need, current as of the last render.
-  const latest = useRef({ doc, index, lanes, view: current, top, scrollY, snapping, selection, maxScroll, catalog, activeRow, playheadMs, size });
-  latest.current = { doc, index, lanes, view: current, top, scrollY, snapping, selection, maxScroll, catalog, activeRow, playheadMs, size };
+  const latest = useRef({ doc, fullDoc, index, lanes, view: current, top, scrollY, snapping, selection, maxScroll, catalog, activeRow, playheadMs, size });
+  latest.current = { doc, fullDoc, index, lanes, view: current, top, scrollY, snapping, selection, maxScroll, catalog, activeRow, playheadMs, size };
 
   // Fit the song when a different sequence is opened (not when this one is saved somewhere new).
   useEffect(() => setViewState(null), [docKey]);
@@ -256,7 +262,7 @@ export function Timeline({ doc }: { doc: Sequence }) {
   }, [backend, audio, doc.durationMs]);
 
   const snapFor = (exclude: string[], altKey: boolean) =>
-    latest.current.snapping && !altKey ? snapTargets(latest.current.doc, new Set(exclude)) : [];
+    latest.current.snapping && !altKey ? snapTargets(latest.current.fullDoc, new Set(exclude)) : [];
 
   const draw = () => {
     const canvas = canvasRef.current;
@@ -338,7 +344,7 @@ export function Timeline({ doc }: { doc: Sequence }) {
     if (x < 0 || x > rect.width || y < tp || y > rect.height) return null;
     const lane = laneAt(ls, y - tp + sy);
     if (!lane) return null;
-    const snap = latest.current.snapping && !alt ? { targets: snapTargets(d, new Set()), thresholdMs: SNAP_PX / v.pxPerMs } : undefined;
+    const snap = latest.current.snapping && !alt ? { targets: snapTargets(latest.current.fullDoc, new Set()), thresholdMs: SNAP_PX / v.pxPerMs } : undefined;
     const plan = planDrop({ doc: d, index: idx, lane, ms: xToTime(x, v), snap });
     if (!plan) return null;
     if (place) void addEffect(kind, plan);
@@ -809,7 +815,7 @@ export function Timeline({ doc }: { doc: Sequence }) {
   return (
     <div className="flex flex-1 flex-col overflow-hidden" style={{ minHeight: timelineMinHeight(top) }}>
       <div className="flex min-h-0 flex-1">
-        <RowHeaders doc={doc} show={show} lanes={lanes} top={top} scrollY={scrollY} rowsViewport={rowsViewport} />
+        <RowHeaders doc={doc} show={show} lanes={lanes} top={top} scrollY={scrollY} rowsViewport={rowsViewport} timingCount={fullDoc.timingTracks.length} />
         <div ref={bodyRef} className="relative min-w-0 flex-1">
           <canvas
             ref={canvasRef}
@@ -950,6 +956,7 @@ const RowHeaders = memo(function RowHeaders({
   top,
   scrollY,
   rowsViewport,
+  timingCount,
 }: {
   doc: Sequence;
   show: Show | undefined;
@@ -957,8 +964,11 @@ const RowHeaders = memo(function RowHeaders({
   top: number;
   scrollY: number;
   rowsViewport: number;
+  /** Timing tracks in the sequence, shown or folded away. */
+  timingCount: number;
 }) {
   const collapsed = useSequencer((s) => s.collapsed);
+  const timingHidden = useSequencer((s) => s.timingHidden);
   const activeRow = useSequencer((s) => s.activeRow);
   const { toggleCollapsed, edit, setActiveRow } = useSequencer.getState();
   const [adding, setAdding] = useState(false);
@@ -977,8 +987,20 @@ const RowHeaders = memo(function RowHeaders({
         <div className="flex items-center px-2 text-neutral-500" style={{ height: RULER_H }}>
           Time
         </div>
-        <div className="flex items-center px-2 text-neutral-500" style={{ height: WAVE_H }}>
-          {doc.audio ? "Music" : "No music"}
+        <div className="flex items-center gap-1 px-2 text-neutral-500" style={{ height: WAVE_H }}>
+          <span className="min-w-0 flex-1 truncate">{doc.audio ? "Music" : "No music"}</span>
+          {timingCount > 0 && (
+            <button
+              type="button"
+              aria-expanded={!timingHidden}
+              onClick={() => useSequencer.getState().toggleTimingHidden()}
+              title={timingHidden ? "Show the timing tracks" : "Fold the timing tracks away (snapping still uses them)"}
+              className="flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 hover:bg-neutral-200 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+            >
+              {timingHidden ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+              {timingHidden ? `${timingCount} timing` : "Timing"}
+            </button>
+          )}
         </div>
         <TimingTrackHeaders doc={doc} />
       </div>

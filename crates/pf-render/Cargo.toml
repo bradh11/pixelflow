@@ -11,6 +11,7 @@ pf-model.workspace = true
 pf-geometry.workspace = true
 pf-mapping.workspace = true
 pf-sequence.workspace = true
+pf-analysis.workspace = true
 pf-output.workspace = true
 pf-fseq.workspace = true
 pf-lexicon.workspace = true

@@ -1171,3 +1171,68 @@ fn a_looping_sequence_paused_at_the_end_stays_there_until_played() {
     assert_eq!(engine.playback_status().unwrap().state, "playing");
     engine.stop_playback();
 }
+
+#[test]
+fn effects_follow_the_music_in_the_preview_and_the_export_alike() {
+    let (mut engine, _recorded, dir) = engine();
+    let mut controller = engine.show().controllers[0].clone();
+    controller.sequence_channels = Some(pf_model::SequenceChannels {
+        start: 1,
+        count: 30,
+        raw_ddp_offsets: false,
+    });
+    engine.apply(vec![Edit::UpdateController { controller }]).unwrap();
+    // A loud second, then one at a quarter.
+    let rate = 22_050;
+    let samples: Vec<f32> = (0..2 * rate)
+        .map(|i| {
+            let amplitude = if i < rate { 1.0 } else { 0.25 };
+            amplitude * (std::f32::consts::TAU * 440.0 * i as f32 / rate as f32).sin()
+        })
+        .collect();
+    let song = dir.path().join("song.wav");
+    std::fs::write(&song, pf_audio::wav_bytes(&samples, rate as u32)).unwrap();
+    engine.set_audio_cache_dir(Some(dir.path().join("cache")));
+    engine
+        .new_sequence_doc("Song", 2000, Some(song.to_str().unwrap()))
+        .unwrap();
+    let row = Row::new(Target::Prop(engine.show().props[0].id));
+    let row_id = row.id;
+    let mut effect = on(Rgb::RED, 0, 2000);
+    for key in ["startLevel", "endLevel"] {
+        effect
+            .curves
+            .insert(key.into(), pf_sequence::Curve::music(0.0, 1.0, 0.0, false));
+    }
+    engine
+        .edit_sequence(vec![
+            SequenceEdit::AddRow { row, index: None },
+            SequenceEdit::AddEffect {
+                row: row_id,
+                layer: 0,
+                effect,
+            },
+        ])
+        .unwrap();
+    // Halfway while the music is worked out in the background, then following it.
+    let first = engine.sequence_doc_frame(500).unwrap();
+    assert!(
+        first == solid([128, 0, 0]) || first == solid([255, 0, 0]),
+        "{first:?}"
+    );
+    wait_until(|| engine.sequence_doc_frame(500).unwrap() == solid([255, 0, 0]));
+    let quiet = engine.sequence_doc_frame(1500).unwrap();
+    assert!((60..=66).contains(&quiet[0]), "{quiet:?}");
+    // The export follows it the same way, frame for frame.
+    let path = dir.path().join("song.fseq");
+    engine.export_sequence_doc(&path).unwrap();
+    let mut file = pf_fseq::Sequence::open(&path).unwrap();
+    let mut frame = vec![0u8; 30];
+    for index in [0u32, 20, 39, 40, 60, 79] {
+        file.read_frame(index, &mut frame).unwrap();
+        let preview = engine.sequence_doc_frame(u64::from(index) * 25).unwrap();
+        assert_eq!(frame, preview, "frame {index}");
+    }
+    // The track was kept on disk for next time.
+    assert_eq!(std::fs::read_dir(dir.path().join("cache")).unwrap().count(), 1);
+}

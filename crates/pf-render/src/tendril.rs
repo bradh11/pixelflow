@@ -106,6 +106,8 @@ impl Tendrils {
             M::VerticalZigZag => (middle_left, [tx, zig(tune), 1, 0]),
             M::HorizontalZigZagReturn => (middle_bottom, [0, zig(tune).max(1), 1, 0]),
             M::VerticalZigZagReturn => (middle_left, [0, zig(tune), 1, 0]),
+            M::MusicLine => ((tx, ty), [tx, 0, tune.max(1), 0]),
+            M::MusicCircle => (middle, [0, w.min(h) / 2, (tune * 3).max(1), 0]),
             M::Manual => ((p.manual_x as i32 * w / 100, p.manual_y as i32 * h / 100), [0; 4]),
         };
         let (friction, dampening, tension) = physics(p);
@@ -137,8 +139,10 @@ impl Tendrils {
     }
 
     /// Frame `frame` of the effect (0 the first), `absolute` frames from the start of the
-    /// sequence, with the settings then: the point moves on when the speed says so.
-    pub fn step(&mut self, p: &TendrilParams, seed: u64, frame: u64, absolute: u64) {
+    /// sequence, with the settings then: the point moves on when the speed says so. `peak` is
+    /// the music's peak in the frame (xLights' `max`), for the movements that follow it: 0.1
+    /// without music, as in xLights.
+    pub fn step(&mut self, p: &TendrilParams, seed: u64, frame: u64, absolute: u64, peak: Option<f32>) {
         let (w, h) = (self.width, self.height);
         let tune = p.movement_size as i32;
         let (tx, ty) = (p.offset_x as i32 * w / 100, p.offset_y as i32 * h / 100);
@@ -249,6 +253,26 @@ impl Tendrils {
                     *mv3 = -*mv3;
                 }
                 (*mv1 + tx, y)
+            }
+            M::MusicLine => {
+                let f = f64::from(peak.unwrap_or(0.1));
+                *mv1 += *mv3;
+                if (*mv1 < tx && *mv3 < 0) || (*mv1 > w + tx && *mv3 > 0) {
+                    *mv3 = -*mv3;
+                }
+                (*mv1, (f64::from(ty) + hf * f) as i32)
+            }
+            M::MusicCircle => {
+                let f = f64::from(peak.unwrap_or(0.1));
+                *mv2 = w.min(h) / 2;
+                *mv3 = (tune * 3).max(1);
+                *mv1 += *mv3;
+                let a = f64::from(*mv1) / 360.0 * PI * 2.0;
+                let r = f64::from(*mv2) * f * 2.0;
+                (
+                    (a.sin() * r + wf / 2.0 + f64::from(tx / 2)) as i32,
+                    (a.cos() * r + hf / 2.0 + f64::from(ty / 2)) as i32,
+                )
             }
             M::Manual => (p.manual_x as i32 * w / 100 + tx, p.manual_y as i32 * h / 100 + ty),
         };

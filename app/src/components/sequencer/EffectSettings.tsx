@@ -127,6 +127,7 @@ function Settings({ doc }: { doc: Sequence }) {
                 onChange={(value, gesture) => setParam(setting.key, value, gesture)}
                 faces={faceNames(show, target)}
                 tracks={doc.timingTracks}
+                singing={effect.params.kind === "faces"}
                 animate={setting.type === "number" || setting.type === "int" ? animate(setting.key) : undefined}
               />
             )}
@@ -231,6 +232,19 @@ function Settings({ doc }: { doc: Sequence }) {
               onPick={(value, gesture) => change((x) => ({ ...x, sparkleColor: value }), gesture)}
             />
           </div>
+          {(effect.sparkles ?? 0) > 0 && (
+            <label className="flex items-center gap-2 text-sm" title="As many sparkles as the music is loud, up to the setting above">
+              <input
+                type="checkbox"
+                checked={effect.musicSparkles ?? false}
+                onChange={(e) => {
+                  const musicSparkles = e.target.checked;
+                  void change((x) => ({ ...x, musicSparkles: musicSparkles || undefined }));
+                }}
+              />
+              Sparkles follow the music
+            </label>
+          )}
           <NumberSetting
             key={`${id}:blur`}
             setting={BLUR}

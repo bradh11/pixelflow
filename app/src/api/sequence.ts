@@ -34,7 +34,8 @@ export type EffectKind =
   | "life"
   | "tendril"
   | "text"
-  | "faces";
+  | "faces"
+  | "vuMeter";
 
 export type Gradient = "none" | "horizontal" | "vertical";
 /** What the Shape effect draws. */
@@ -116,6 +117,9 @@ export type EffectParams =
       randomStart?: boolean;
       /** Shapes appear at this track's marks instead of `count` at once. */
       timingTrack?: Uuid | null;
+      /** Shapes appear when the music gets louder than `triggerLevel` (0–100). */
+      fireOnMusic?: boolean;
+      triggerLevel?: number;
     }
   | {
       kind: "fan";
@@ -222,6 +226,8 @@ export type EffectParams =
         | "horizontalZigZagReturn"
         | "verticalZigZag"
         | "verticalZigZagReturn"
+        | "musicLine"
+        | "musicCircle"
         | "manual";
       movementSize?: number;
       thickness?: number;
@@ -275,13 +281,108 @@ export type EffectParams =
       eyes?: "open" | "auto" | "closed";
       colors?: "face" | "palette";
       outline?: boolean;
+    }
+  | {
+      kind: "vuMeter";
+      meter?: VuMeterType;
+      bars?: number;
+      sensitivity?: number;
+      gain?: number;
+      timingTrack?: Uuid | null;
+      shape?: VuMeterShape;
+      slowFalls?: boolean;
+      startNote?: number;
+      endNote?: number;
+      logX?: boolean;
+      xOffset?: number;
+      yOffset?: number;
+      filter?: string;
     };
+
+/** What a VU Meter draws (see `VuMeterType` in crates/pf-sequence/src/effect.rs). */
+export type VuMeterType =
+  | "spectrogram"
+  | "spectrogramPeak"
+  | "spectrogramLine"
+  | "spectrogramCircleLine"
+  | "volumeBars"
+  | "waveform"
+  | "on"
+  | "colorOn"
+  | "dominantFrequencyColor"
+  | "dominantFrequencyColorGradient"
+  | "intensityWave"
+  | "pulse"
+  | "levelBar"
+  | "levelRandomBar"
+  | "levelColor"
+  | "levelPulse"
+  | "levelPulseColor"
+  | "levelJump"
+  | "levelJump100"
+  | "levelShape"
+  | "timingEventBar"
+  | "timingEventBarBounce"
+  | "timingEventRandomBar"
+  | "timingEventBars"
+  | "timingEventSpike"
+  | "timingEventSweep"
+  | "timingEventSweep2"
+  | "timingEventTimedSweep"
+  | "timingEventTimedSweep2"
+  | "timingEventAlternateTimedSweep"
+  | "timingEventAlternateTimedSweep2"
+  | "timingEventChaseFromMiddle"
+  | "timingEventChaseToMiddle"
+  | "timingEventColor"
+  | "timingEventJump"
+  | "timingEventJump100"
+  | "timingEventPulse"
+  | "timingEventPulseColor"
+  | "noteOn"
+  | "noteLevelPulse"
+  | "noteLevelJump"
+  | "noteLevelJump100"
+  | "noteLevelBar"
+  | "noteLevelRandomBar";
+
+/** The shape a VU Meter's Level Shape draws. */
+export type VuMeterShape =
+  | "circle"
+  | "filledCircle"
+  | "square"
+  | "filledSquare"
+  | "diamond"
+  | "filledDiamond"
+  | "star"
+  | "filledStar"
+  | "tree"
+  | "filledTree"
+  | "crucifix"
+  | "filledCrucifix"
+  | "present"
+  | "filledPresent"
+  | "candyCane"
+  | "snowflake"
+  | "heart"
+  | "filledHeart";
 
 export interface Palette {
   colors: Rgb[];
 }
 
-export type CurveShape = "ramp" | "sine" | "square" | "saw" | "custom";
+export type CurveShape =
+  | "ramp"
+  | "sine"
+  | "square"
+  | "saw"
+  | "custom"
+  | "music"
+  | "invertedMusic"
+  | "musicTrigger"
+  | "timingToggle"
+  | "timingFade"
+  | "timingFadeSpan";
 
 /**
  * A setting that changes over its effect (see `Curve` in crates/pf-sequence/src/curve.rs): its
@@ -295,6 +396,14 @@ export interface Curve {
   to: number;
   cycles?: number;
   points?: [number, number][];
+  /** music, invertedMusic: boosts the music's level, -100 to 100 (%). */
+  gain?: number;
+  /** musicTrigger: how loud (0–100) the music must get. */
+  trigger?: number;
+  /** musicTrigger, timingFade: frames to fade over; timingFadeSpan: % of the gap to the next mark. */
+  fade?: number;
+  /** The timing shapes: the track whose marks drive the curve. */
+  timingTrack?: Uuid | null;
 }
 
 /** How an effect lays out its target's pixels (xLights' render styles). */
@@ -342,6 +451,8 @@ export interface Effect {
   sparkles?: number;
   /** The sparkles' color (white when missing). */
   sparkleColor?: Rgb;
+  /** Sparkles follow the music: as many as it's loud, up to `sparkles` (off when missing). */
+  musicSparkles?: boolean;
   /** Softening, 0 (none, when missing) to 14. */
   blur?: number;
   /** How the target's pixels are laid out for the effect (its own layout when missing). */
@@ -807,6 +918,7 @@ export const EFFECT_KINDS: { kind: EffectKind; label: string }[] = [
   { kind: "life", label: "Life" },
   { kind: "tendril", label: "Tendril" },
   { kind: "text", label: "Text" },
+  { kind: "vuMeter", label: "VU Meter" },
 ];
 
 /** A new effect of `kind` (engine-default settings, white) from `startMs` to `endMs`. */

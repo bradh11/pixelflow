@@ -1764,6 +1764,7 @@ dependencies = [
 name = "pf-engine"
 version = "0.1.0"
 dependencies = [
+ "pf-analysis",
  "pf-audio",
  "pf-camera-map",
  "pf-devices",
@@ -1779,6 +1780,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.21",
  "unicode-normalization",
@@ -1861,6 +1863,7 @@ dependencies = [
 name = "pf-render"
 version = "0.1.0"
 dependencies = [
+ "pf-analysis",
  "pf-fseq",
  "pf-geometry",
  "pf-lexicon",

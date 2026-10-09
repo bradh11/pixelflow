@@ -1,28 +1,34 @@
 //! Effects xLights works out frame by frame from the frame before: falling snowflakes, Lines,
-//! Life, and Tendril. Their state at frame N is the state at frame N − 1 moved on a step (with
-//! the settings at frame N, so curves apply as they do in xLights), starting from the effect's
-//! first frame. Every step's randomness is keyed to the effect's seed and the frame, so frame N
-//! depends only on the document, however it's reached.
+//! Life, Tendril, and the VU Meter. Their state at frame N is the state at frame N − 1 moved on a
+//! step (with the settings at frame N, so curves apply as they do in xLights), starting from the
+//! effect's first frame. Every step's randomness is keyed to the effect's seed and the frame, and
+//! the music and timing marks they follow are read for the frame, so frame N depends only on the
+//! document and the music, however it's reached.
 //!
 //! Drawn on its own ([`Shader::new`]), such an effect steps from its first frame every time. The
 //! renderer keeps each one's state between frames instead ([`Sims`]), so playing and exporting
 //! take one step a frame; seeking backwards starts again from the first frame.
 
+use crate::audio::{AudioTrack, RenderContext};
 use crate::color::Colors;
 use crate::effects::{Canvas, EffectTime, Shader};
 use crate::life::{Colony, Life};
 use crate::lines::{Lines, Moving};
 use crate::snowflakes::{Fall, Snowflakes};
 use crate::tendril::{Tendril, Tendrils};
-use pf_sequence::{Effect, EffectParams, SnowflakesMotion};
+use crate::vumeter::{Meter, VuMeter};
+use pf_sequence::{Effect, EffectParams, SnowflakesMotion, TimingTrackId};
 use std::collections::HashMap;
-use std::hash::Hash;
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 /// Whether an effect with these settings is worked out frame by frame.
 pub(crate) fn simulated(params: &EffectParams) -> bool {
     match params {
         EffectParams::Snowflakes(p) => p.motion != SnowflakesMotion::Blowing,
-        EffectParams::Lines(_) | EffectParams::Life(_) | EffectParams::Tendril(_) => true,
+        EffectParams::Lines(_)
+        | EffectParams::Life(_)
+        | EffectParams::Tendril(_)
+        | EffectParams::VuMeter(_) => true,
         _ => false,
     }
 }
@@ -34,6 +40,7 @@ pub(crate) enum Sim {
     Lines(Moving),
     Life(Colony),
     Tendril(Tendrils),
+    VuMeter(Meter),
 }
 
 /// What every step needs besides the settings.
@@ -58,12 +65,14 @@ impl Sim {
             EffectParams::Lines(_) => Sim::Lines(Moving::new(cx.canvas)),
             EffectParams::Life(p) => Sim::Life(Colony::seed(p, &cx.colors, cx.seed, cx.canvas)),
             EffectParams::Tendril(p) => Sim::Tendril(Tendrils::new(p, cx.seed, cx.canvas)),
+            EffectParams::VuMeter(_) => Sim::VuMeter(Meter::default()),
             _ => return None,
         })
     }
 
-    /// Moves on to frame `frame` (0 the first) with the settings then (clamped).
-    pub fn step(&mut self, params: &EffectParams, frame: u64, cx: &Context) {
+    /// Moves on to frame `frame` (0 the first) with the settings then (clamped), reading the
+    /// music and marks in `world`.
+    pub fn step(&mut self, params: &EffectParams, frame: u64, cx: &Context, world: &RenderContext) {
         match (self, params) {
             (Sim::Snowflakes(fall), EffectParams::Snowflakes(p)) => fall.step(p, cx.seed, frame),
             (Sim::Lines(lines), EffectParams::Lines(p)) => lines.step(p, cx.seed, frame),
@@ -71,14 +80,25 @@ impl Sim {
                 colony.step(p, &cx.colors, cx.seed, frame, cx.frame_ms);
             }
             (Sim::Tendril(tendrils), EffectParams::Tendril(p)) => {
-                tendrils.step(p, cx.seed, frame, cx.first_frame + frame);
+                let absolute = cx.first_frame + frame;
+                let peak = world.audio.map(|a| a.peak(absolute));
+                tendrils.step(p, cx.seed, frame, absolute, peak);
+            }
+            (Sim::VuMeter(meter), EffectParams::VuMeter(p)) => {
+                meter.step(p, cx.first_frame + frame, cx, world)
             }
             _ => {}
         }
     }
 
     /// The frame as it stands, drawn with the settings now (clamped).
-    pub fn shader(&self, params: &EffectParams, time: &EffectTime, cx: &Context) -> Shader {
+    pub fn shader(
+        &self,
+        params: &EffectParams,
+        time: &EffectTime,
+        cx: &Context,
+        world: &RenderContext,
+    ) -> Shader {
         match (self, params) {
             (Sim::Snowflakes(fall), _) => Shader::Snowflakes(Snowflakes::falling(
                 fall,
@@ -94,6 +114,9 @@ impl Sim {
             (Sim::Tendril(tendrils), EffectParams::Tendril(p)) => {
                 Shader::Tendril(Tendril::new(tendrils, p, time, cx.colors, cx.canvas))
             }
+            (Sim::VuMeter(meter), EffectParams::VuMeter(p)) => {
+                Shader::VuMeter(VuMeter::new(meter, p, cx.first_frame + time.frame(), cx, world))
+            }
             _ => Shader::Off(crate::effects::Off),
         }
     }
@@ -107,6 +130,7 @@ pub(crate) fn run(
     colors: Colors,
     seed: u64,
     canvas: Canvas,
+    world: &RenderContext,
 ) -> Option<Shader> {
     let cx = Context {
         seed,
@@ -117,9 +141,35 @@ pub(crate) fn run(
     };
     let mut sim = Sim::start(params, &cx)?;
     for frame in 0..=time.frame() {
-        sim.step(params, frame, &cx);
+        sim.step(params, frame, &cx, world);
     }
-    Some(sim.shader(params, time, &cx))
+    Some(sim.shader(params, time, &cx, world))
+}
+
+/// What an effect's frame-by-frame state was worked out from besides the effect: the music, and
+/// the marks of the timing tracks it follows (its own or its curves'). State kept for other music
+/// or marks is worked out again.
+fn surroundings(effect: &Effect, world: &RenderContext) -> (usize, u64) {
+    let audio = world
+        .audio
+        .map_or(0, |a| std::ptr::from_ref::<AudioTrack>(a.track()) as usize);
+    let mut tracks: Vec<TimingTrackId> = effect.curves.values().filter_map(|c| c.timing_track).collect();
+    if let EffectParams::VuMeter(p) = &effect.params
+        && let Some(track) = p.timing_track
+    {
+        tracks.push(track);
+    }
+    if tracks.is_empty() {
+        return (audio, 0);
+    }
+    let mut hasher = DefaultHasher::new();
+    for track in tracks {
+        for m in world.marks(Some(track)).unwrap_or_default() {
+            (m.start_ms, m.end_ms, &m.label).hash(&mut hasher);
+        }
+        u64::MAX.hash(&mut hasher);
+    }
+    (audio, hasher.finish())
 }
 
 /// One effect's state as the renderer keeps it: the effect it was worked out for, and how far.
@@ -128,6 +178,8 @@ struct Kept {
     effect: Effect,
     canvas: Canvas,
     frame_ms: u32,
+    /// The music and marks it was worked out with (see [`surroundings`]).
+    world: (usize, u64),
     /// Frames stepped so far (the next to step).
     stepped: u64,
     sim: Sim,
@@ -150,10 +202,17 @@ impl<K> Default for Sims<K> {
 impl<K: Hash + Eq> Sims<K> {
     /// `effect` (as written, curves and all) at `time` on `canvas`: its state moved on from
     /// where it was kept, or worked out from its first frame when it was kept for another effect,
-    /// grid, frame time, or a later frame. `None` for an effect that isn't worked out frame by
-    /// frame.
-    pub fn shader(&mut self, key: K, effect: &Effect, time: &EffectTime, canvas: Canvas) -> Option<Shader> {
-        let first = effect.at(effect.start_ms);
+    /// grid, frame time, music, marks, or a later frame. `None` for an effect that isn't worked out
+    /// frame by frame.
+    pub fn shader(
+        &mut self,
+        key: K,
+        effect: &Effect,
+        time: &EffectTime,
+        canvas: Canvas,
+        world: &RenderContext,
+    ) -> Option<Shader> {
+        let first = world.effect_at(effect, effect.start_ms);
         let first = first.params.sanitized();
         if !simulated(&first) {
             return None;
@@ -167,18 +226,21 @@ impl<K: Hash + Eq> Sims<K> {
             first_frame: effect.start_ms / u64::from(frame_ms),
         };
         let frame = time.frame();
+        let around = surroundings(effect, world);
         let kept = match self.kept.entry(key) {
             std::collections::hash_map::Entry::Occupied(slot) => {
                 let kept = slot.into_mut();
                 let usable = kept.stepped <= frame + 1
                     && kept.canvas == canvas
                     && kept.frame_ms == frame_ms
+                    && kept.world == around
                     && kept.effect == *effect;
                 if !usable {
                     *kept = Kept {
                         effect: effect.clone(),
                         canvas,
                         frame_ms,
+                        world: around,
                         stepped: 0,
                         sim: Sim::start(&first, &cx)?,
                         used: false,
@@ -190,19 +252,20 @@ impl<K: Hash + Eq> Sims<K> {
                 effect: effect.clone(),
                 canvas,
                 frame_ms,
+                world: around,
                 stepped: 0,
                 sim: Sim::start(&first, &cx)?,
                 used: false,
             }),
         };
         while kept.stepped <= frame {
-            let at = effect.at(effect.start_ms + kept.stepped * u64::from(frame_ms));
-            kept.sim.step(&at.params.sanitized(), kept.stepped, &cx);
+            let at = world.effect_at(effect, effect.start_ms + kept.stepped * u64::from(frame_ms));
+            kept.sim.step(&at.params.sanitized(), kept.stepped, &cx, world);
             kept.stepped += 1;
         }
         kept.used = true;
-        let now = effect.at(effect.start_ms + time.elapsed_ms);
-        Some(kept.sim.shader(&now.params.sanitized(), time, &cx))
+        let now = world.effect_at(effect, effect.start_ms + time.elapsed_ms);
+        Some(kept.sim.shader(&now.params.sanitized(), time, &cx, world))
     }
 
     /// Forgets the effects not drawn since the last sweep.

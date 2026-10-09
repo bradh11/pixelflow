@@ -749,3 +749,54 @@ fn shapes_fire_on_their_timing_track_and_old_fans_measure_in_pixels() {
     // Groups draw on xLights' grid, so sizes in pixels on a group match.
     assert!(!has_note(&i, "Circles"), "{:#?}", i.notes);
 }
+
+/// VU Meters bring their timing tracks, and so do curves that follow a timing track.
+#[test]
+fn vu_meters_and_curves_find_their_timing_tracks() {
+    let xml = r#"<xsequence FixedPointTiming="1">
+      <head><version>2024.19</version><sequenceTiming>25 ms</sequenceTiming><sequenceDuration>10</sequenceDuration></head>
+      <ElementEffects>
+        <Element type="timing" name="Beats">
+          <EffectLayer><Effect label="kick" startTime="0" endTime="500"/><Effect label="snare" startTime="500" endTime="1000"/></EffectLayer>
+        </Element>
+        <Element type="model" name="Window Matrix"><EffectLayer>
+          <Effect name="VU Meter" startTime="0" endTime="2000">E_CHOICE_VUMeter_Type=Timing Event Bar,E_CHOICE_VUMeter_TimingTrack=Beats,E_SLIDER_VUMeter_Bars=4,E_TEXTCTRL_Filter=snare</Effect>
+          <Effect name="VU Meter" startTime="2000" endTime="4000">E_CHOICE_VUMeter_Type=Timing Event Pulse,E_CHOICE_VUMeter_TimingTrack=Gone</Effect>
+          <Effect name="VU Meter" startTime="4000" endTime="6000">E_CHOICE_VUMeter_Type=Spectrogram Peak,E_SLIDER_VUMeter_Bars=16,E_CHECKBOX_VUMeter_LogarithmicX=1,E_SLIDER_VUMeter_StartNote=24</Effect>
+          <Effect name="Twinkle" startTime="6000" endTime="8000">E_VALUECURVE_Twinkle_Count=Active=TRUE|Type=Timing Track Toggle|Min=2.00|Max=100.00|P1=10.00|P2=50.00|TT=Beats|RV=TRUE|</Effect>
+        </EffectLayer></Element>
+      </ElementEffects>
+    </xsequence>"#;
+    let show = show();
+    let i = build_sequence(&parse_xsq(xml).unwrap(), &show, "x");
+    assert_opens(&i);
+    let beats = i.sequence.timing_tracks[0].id;
+    let effects = &row(&i, &show, "Window Matrix").layers[0].effects;
+    let vu = |n: usize| match &effects[n].params {
+        EffectParams::VuMeter(p) => p.clone(),
+        other => panic!("{other:?}"),
+    };
+    let bar = vu(0);
+    assert_eq!(
+        (bar.meter, bar.timing_track, bar.bars, bar.filter.as_str()),
+        (pf_sequence::VuMeterType::TimingEventBar, Some(beats), 4, "snare")
+    );
+    assert_eq!(vu(1).timing_track, None);
+    assert_note(
+        &i,
+        "VU Meter (1 effect) approximated: its timing track isn't in the sequence",
+    );
+    let spectrogram = vu(2);
+    assert_eq!(
+        (
+            spectrogram.meter,
+            spectrogram.bars,
+            spectrogram.log_x,
+            spectrogram.start_note
+        ),
+        (pf_sequence::VuMeterType::SpectrogramPeak, 16, true, 24)
+    );
+    assert_eq!(effects[3].curves["density"].timing_track, Some(beats));
+    assert_eq!(i.summary.placeholders, 0);
+    assert_eq!(i.summary.exact, 3, "{:#?}", i.notes);
+}

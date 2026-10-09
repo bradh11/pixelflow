@@ -1,6 +1,7 @@
 import {
   Activity,
   ArrowUpFromLine,
+  AudioLines,
   BarChart3,
   Blend,
   CircleDot,
@@ -64,6 +65,7 @@ export const EFFECT_ICONS: Record<EffectKind, LucideIcon> = {
   tendril: Sprout,
   text: Type,
   faces: Smile,
+  vuMeter: AudioLines,
 };
 
 /** Drags this far (screen pixels) before a press on the palette becomes a drag. */

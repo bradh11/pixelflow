@@ -46,6 +46,7 @@ const HUES: Record<EffectKind, number> = {
   tendril: 170,
   text: 30,
   faces: 340,
+  vuMeter: 150,
 };
 
 interface Theme {

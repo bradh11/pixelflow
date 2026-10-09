@@ -6,8 +6,9 @@
 //! held, for a wrapped point), and read at the effect's progress shifted by the time offset. The
 //! same is done here, so [`XlCurve::ticks`] gives the curve's exact value either side of each
 //! grid step: between steps it's a straight line, so those values are the whole curve. The music
-//! and timing-track types need the song's loudness or the timing marks while rendering;
-//! [`XlCurve::middle`] is the value they're held at instead.
+//! and timing-track types need the song's loudness or the timing marks while rendering: they
+//! become PixelFlow curves of the same kind between their two values ([`XlCurve::driven_ends`]),
+//! and [`XlCurve::middle`] is where they sit without the music or the track.
 
 /// Grid steps across an effect (xLights' `VC_X_POINTS`).
 pub const STEPS: usize = 200;
@@ -37,6 +38,11 @@ pub struct XlCurve {
     time_offset: i32,
     /// Custom and Random points (`Values=x:y;…`).
     values: Vec<(f32, f32)>,
+    /// The timing track a timing-track curve follows (`TT`), the labels it keeps (`FT`), and
+    /// another audio track a music curve follows (`AT`).
+    timing_track: String,
+    filter: String,
+    audio_track: String,
 }
 
 /// One point of xLights' curve: `x` on the grid, `y` 0–1, and whether it was wrapped (the line
@@ -131,6 +137,9 @@ impl XlCurve {
             start_end: false,
             time_offset: 0,
             values: Vec::new(),
+            timing_track: String::new(),
+            filter: String::new(),
+            audio_track: String::new(),
         };
         let num = |v: &str| super::leading_number(v).unwrap_or(0.0) as f32;
         let mut active = true;
@@ -149,6 +158,9 @@ impl XlCurve {
                 "P3" => c.p[2] = num(value),
                 "P4" => c.p[3] = num(value),
                 "TO" => c.time_offset = super::leading_number(value).unwrap_or(0.0) as i32,
+                "TT" => c.timing_track = value.trim().to_string(),
+                "FT" => c.filter = value.to_string(),
+                "AT" => c.audio_track = value.trim().to_string(),
                 "WRAP" => c.wrap = true,
                 "RV" => c.real_values = true,
                 "SE" => c.start_end = true,
@@ -205,8 +217,41 @@ impl XlCurve {
         (level(self.p[0]), level(self.p[1]))
     }
 
-    /// The middle of a music or timing-track curve's values, in the setting's units (what it's
-    /// held at).
+    /// The xLights curve type ("Music", "Timing Track Toggle", …).
+    pub fn kind(&self) -> &str {
+        &self.kind
+    }
+
+    /// Parameter `n` (1–4) as written, in the setting's units (the music curves' gain, trigger
+    /// level, and fade frames, the timing-track fades' frames or percent).
+    pub fn param(&self, n: usize) -> f32 {
+        self.p.get(n.wrapping_sub(1)).copied().unwrap_or(0.0)
+    }
+
+    /// The timing track a timing-track curve follows, by name.
+    pub fn timing_track(&self) -> Option<&str> {
+        Some(self.timing_track.as_str()).filter(|t| !t.is_empty())
+    }
+
+    /// The labels a timing-track curve keeps (every mark when `None`).
+    pub fn label_filter(&self) -> Option<&str> {
+        Some(self.filter.as_str()).filter(|t| !t.is_empty())
+    }
+
+    /// Another audio track a music curve follows instead of the sequence's music.
+    pub fn other_audio(&self) -> Option<&str> {
+        Some(self.audio_track.as_str()).filter(|t| !t.is_empty() && *t != "Main")
+    }
+
+    /// The two values a music or timing-track curve goes between (P1 and P2), in the setting's
+    /// units.
+    pub fn driven_ends(&self) -> (f64, f64) {
+        let (a, b) = self.driven_levels();
+        (self.output(a), self.output(b))
+    }
+
+    /// The middle of a music or timing-track curve's values, in the setting's units (where it
+    /// sits without the music or the track).
     pub fn middle(&self) -> f64 {
         let (a, b) = self.driven_levels();
         self.output((a + b) / 2.0)
@@ -710,9 +755,21 @@ mod tests {
 
     #[test]
     fn music_and_timing_curves_hold_their_middle() {
-        let music = curve("Active=TRUE|Type=Music|Min=0.00|Max=200.00|P2=200.00|RV=TRUE|");
+        let music =
+            curve("Active=TRUE|Type=Music|Min=0.00|Max=200.00|P2=200.00|P3=-20.00|AT=Vocals|RV=TRUE|");
         assert_eq!(music.driven(), Some(Driven::Music));
         assert!(close(music.middle(), 100.0));
+        assert_eq!(music.driven_ends(), (0.0, 200.0));
+        assert_eq!((music.param(3), music.other_audio()), (-20.0, Some("Vocals")));
+        let fade = curve(
+            "Active=TRUE|Type=Timing Track Fade Fixed|Min=0|Max=10|P1=2|P2=8|P3=12|TT=Beats|FT=kick|RV=TRUE|",
+        );
+        assert_eq!(
+            (fade.timing_track(), fade.label_filter(), fade.param(3)),
+            (Some("Beats"), Some("kick"), 12.0)
+        );
+        let (a, b) = fade.driven_ends();
+        assert!(close(a, 2.0) && close(b, 8.0), "{a} {b}");
         assert!(
             music
                 .values()

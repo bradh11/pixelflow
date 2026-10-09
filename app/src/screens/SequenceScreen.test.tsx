@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { Profiler } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
+import { EFFECT_ICONS } from "../components/sequencer/EffectPalette";
 import { EffectSettings } from "../components/sequencer/EffectSettings";
 import { demoPlayers, demoShow } from "../api/demo";
 import { DEMO_MUSIC, DEMO_SEQUENCE_PATH, demoSequence } from "../api/demoSequence";
@@ -411,6 +412,53 @@ describe("sequence screen", () => {
     await user.click(within(panel).getByRole("button", { name: "Change Height over the effect" }));
     await waitFor(() => expect(find().curves).toBeUndefined());
     expect(within(panel).getByRole("slider", { name: "Height" })).toHaveValue("0.8");
+  });
+
+  it("makes a setting and the sparkles follow the music", async () => {
+    const { seq, user } = await openScreen();
+    fireEvent.pointerDown(timeline(), { clientX: x(1000), clientY: LANE.archTop, button: 0, pointerId: 1 });
+    fireEvent.pointerUp(timeline(), { clientX: x(1000), clientY: LANE.archTop, pointerId: 1 });
+    const panel = screen.getByRole("complementary", { name: "Effect settings" });
+    const id = useSequencer.getState().selection[0];
+    const find = () => seq.doc!.rows.flatMap((r) => r.layers.flatMap((l) => l.effects)).find((e) => e.id === id)!;
+    await user.click(within(panel).getByRole("button", { name: "Change Height over the effect" }));
+    const shape = within(panel).getByRole("combobox", { name: "Height" });
+    // The timing-track shapes only come in from xLights files.
+    expect(within(shape).queryByRole("option", { name: "Toggles on marks" })).not.toBeInTheDocument();
+    await user.selectOptions(shape, "music");
+    await waitFor(() => expect(find().curves?.height).toEqual({ shape: "music", from: 0.8, to: 0 }));
+    // A music curve has a gain instead of a graph.
+    expect(within(panel).queryByRole("img", { name: "Height curve" })).not.toBeInTheDocument();
+    const gain = within(panel).getByRole("spinbutton", { name: "Height gain %" });
+    await user.clear(gain);
+    await user.type(gain, "25{Enter}");
+    await waitFor(() => expect(find().curves?.height.gain).toBe(25));
+    await user.selectOptions(shape, "musicTrigger");
+    await waitFor(() => expect(find().curves?.height).toMatchObject({ shape: "musicTrigger", trigger: 50, fade: 10 }));
+    // Sparkles follow the music once there are some.
+    await openMore(user, panel);
+    expect(within(panel).queryByRole("checkbox", { name: "Sparkles follow the music" })).not.toBeInTheDocument();
+    const sparkles = within(panel).getByRole("slider", { name: "Sparkles" });
+    fireEvent.change(sparkles, { target: { value: "120" } });
+    fireEvent.pointerUp(sparkles);
+    await waitFor(() => expect(find().sparkles).toBe(120));
+    await user.click(within(panel).getByRole("checkbox", { name: "Sparkles follow the music" }));
+    await waitFor(() => expect(find().musicSparkles).toBe(true));
+  });
+
+  it("shows a VU Meter's few settings up front and the rest under More", async () => {
+    const { seq } = await openScreen();
+    fireEvent.pointerDown(timeline(), { clientX: x(1000), clientY: LANE.archTop, button: 0, pointerId: 1 });
+    fireEvent.pointerUp(timeline(), { clientX: x(1000), clientY: LANE.archTop, pointerId: 1 });
+    const id = useSequencer.getState().selection[0];
+    const effect = seq.doc!.rows.flatMap((r) => r.layers.flatMap((l) => l.effects)).find((e) => e.id === id)!;
+    await act(() => useSequencer.getState().edit([{ type: "updateEffect", effect: { ...effect, params: { kind: "vuMeter" } } }]));
+    const panel = screen.getByRole("complementary", { name: "Effect settings" });
+    expect(within(panel).getByRole("combobox", { name: "Type" })).toHaveValue("spectrogram");
+    expect(within(panel).getByRole("slider", { name: "Bars" })).toHaveValue("6");
+    expect(within(panel).getByRole("slider", { name: "Sensitivity" })).toBeInTheDocument();
+    expect(within(panel).queryByRole("slider", { name: "Lowest note" })).not.toBeInTheDocument();
+    expect(EFFECT_ICONS.vuMeter).toBeDefined();
   });
 
   it("moves the playhead and selected effects with the keyboard, and copies and pastes", async () => {

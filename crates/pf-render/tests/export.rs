@@ -3,8 +3,8 @@
 use pf_model::{
     ColorOrder, Controller, Generator, Port, PortSlot, Prop, Protocol, SequenceChannels, ShapeSource, Show,
 };
-use pf_render::Renderer;
 use pf_render::export::{ExportError, export_fseq, export_fseq_file};
+use pf_render::{AudioSource, Renderer};
 use pf_sequence::*;
 use std::io::Cursor;
 
@@ -68,10 +68,18 @@ fn exports_controller_channels_into_their_sequence_block() {
     let seq = sequence(&show);
     let (map, _) = pf_mapping::map_show(&show);
     let mut calls = Vec::new();
-    let (out, summary) = export_fseq(&show, &map, &seq, Cursor::new(Vec::new()), 7, |done, total| {
-        calls.push((done, total));
-        true
-    })
+    let (out, summary) = export_fseq(
+        &show,
+        &map,
+        &seq,
+        &AudioSource::none(),
+        Cursor::new(Vec::new()),
+        7,
+        |done, total| {
+            calls.push((done, total));
+            true
+        },
+    )
     .unwrap();
     assert_eq!(calls, vec![(1, 4), (2, 4), (3, 4), (4, 4)]);
     assert_eq!((summary.frames, summary.frame_ms, summary.channels), (4, 50, 21));
@@ -106,7 +114,16 @@ fn every_frame_matches_the_renderer_when_brightness_is_full() {
     let mut seq = sequence(&show);
     seq.rows[0].layers[0].effects = vec![Effect::new(EffectKind::Twinkle, 0, 200)];
     let (map, _) = pf_mapping::map_show(&show);
-    let (out, _) = export_fseq(&show, &map, &seq, Cursor::new(Vec::new()), 0, |_, _| true).unwrap();
+    let (out, _) = export_fseq(
+        &show,
+        &map,
+        &seq,
+        &AudioSource::none(),
+        Cursor::new(Vec::new()),
+        0,
+        |_, _| true,
+    )
+    .unwrap();
     let mut file = pf_fseq::Sequence::from_reader(Cursor::new(out.into_inner())).unwrap();
     let mut renderer = Renderer::new(&show, &map);
     let mut expected = vec![0u8; renderer.frame_len()];
@@ -119,13 +136,67 @@ fn every_frame_matches_the_renderer_when_brightness_is_full() {
 }
 
 #[test]
+fn exports_with_music_match_the_preview() {
+    let mut show = show();
+    show.controllers[0].ports[0].slots[1].brightness = None;
+    show.controllers[0].ports[0].slots[1].reverse = false;
+    show.props[1].color_order = ColorOrder::Rgb;
+    let mut seq = sequence(&show);
+    seq.duration_ms = 2000;
+    // A quiet half second, a loud one, and quiet again.
+    let samples: Vec<f32> = (0..2 * 44_100)
+        .map(|i| {
+            let loud = (22_050..66_150).contains(&i);
+            (if loud { 0.9 } else { 0.1 }) * (std::f32::consts::TAU * 330.0 * i as f32 / 44_100.0).sin()
+        })
+        .collect();
+    let track = std::sync::Arc::new(pf_analysis::audio_track(samples, 44_100, seq.frame_ms));
+    let audio = AudioSource::ready(track);
+    let mut on = Effect::new(EffectKind::On, 0, 2000).with_palette([Rgb::WHITE]);
+    on.curves
+        .insert("startLevel".into(), Curve::music(0.0, 1.0, 0.0, false));
+    on.curves
+        .insert("endLevel".into(), Curve::music(0.0, 1.0, 0.0, false));
+    let mut vu = Effect::new(EffectKind::VuMeter, 0, 2000).with_palette([Rgb::RED, Rgb::BLUE]);
+    vu.params = EffectParams::VuMeter(VuMeterParams {
+        meter: VuMeterType::LevelPulse,
+        sensitivity: 50,
+        ..VuMeterParams::default()
+    });
+    seq.rows[0].layers[0].effects = vec![on];
+    seq.rows[1].layers[0].effects = vec![vu];
+    let (map, _) = pf_mapping::map_show(&show);
+    let (out, _) = export_fseq(&show, &map, &seq, &audio, Cursor::new(Vec::new()), 0, |_, _| true).unwrap();
+    let mut file = pf_fseq::Sequence::from_reader(Cursor::new(out.into_inner())).unwrap();
+    let mut renderer = Renderer::new(&show, &map);
+    renderer.set_audio(audio);
+    let mut expected = vec![0u8; renderer.frame_len()];
+    let mut frame = vec![0u8; 21];
+    let mut levels = Vec::new();
+    for i in 0..40 {
+        // Scrubbed out of order in the preview.
+        let i = (i * 7) % 40;
+        renderer.render_frame(&seq, u64::from(i), &mut expected);
+        file.read_frame(i, &mut frame).unwrap();
+        assert_eq!(&frame[6..21], &expected[..], "frame {i}");
+        levels.push((i, frame[6]));
+    }
+    levels.sort();
+    // The music shows: dim, bright, dim.
+    assert!(
+        levels[5].1 < 40 && levels[20].1 > 200 && levels[35].1 < 40,
+        "{levels:?}"
+    );
+}
+
+#[test]
 fn file_exports_are_atomic_and_errors_are_plain() {
     let show = show();
     let seq = sequence(&show);
     let (map, _) = pf_mapping::map_show(&show);
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("Song.fseq");
-    let summary = export_fseq_file(&show, &map, &seq, &path, |_, _| true).unwrap();
+    let summary = export_fseq_file(&show, &map, &seq, &AudioSource::none(), &path, |_, _| true).unwrap();
     assert_eq!(summary.frames, 4);
     let file = pf_fseq::Sequence::open(&path).unwrap();
     assert_eq!(file.header().frames, 4);
@@ -136,13 +207,14 @@ fn file_exports_are_atomic_and_errors_are_plain() {
     assert_eq!(names, vec!["Song.fseq"], "no temporary files left behind");
 
     let missing = dir.path().join("no/such/folder/Song.fseq");
-    let err = export_fseq_file(&show, &map, &seq, &missing, |_, _| true).unwrap_err();
+    let err = export_fseq_file(&show, &map, &seq, &AudioSource::none(), &missing, |_, _| true).unwrap_err();
     assert!(matches!(err, ExportError::Write { .. }));
     assert!(err.to_string().starts_with("Could not save"), "{err}");
 
     let empty = Show::new("empty");
     let (empty_map, _) = pf_mapping::map_show(&empty);
-    let err = export_fseq_file(&empty, &empty_map, &seq, &path, |_, _| true).unwrap_err();
+    let err =
+        export_fseq_file(&empty, &empty_map, &seq, &AudioSource::none(), &path, |_, _| true).unwrap_err();
     assert!(
         err.to_string().contains("Wire your props to a controller"),
         "{err}"
@@ -150,7 +222,7 @@ fn file_exports_are_atomic_and_errors_are_plain() {
 
     let mut short = seq.clone();
     short.duration_ms = 0;
-    let err = export_fseq_file(&show, &map, &short, &path, |_, _| true).unwrap_err();
+    let err = export_fseq_file(&show, &map, &short, &AudioSource::none(), &path, |_, _| true).unwrap_err();
     assert!(matches!(err, ExportError::Empty));
     assert_eq!(
         pf_fseq::Sequence::open(&path).unwrap().header().frames,
@@ -167,7 +239,7 @@ fn an_export_can_be_cancelled_and_leaves_nothing_behind() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("Song.fseq");
     let mut seen = Vec::new();
-    let err = export_fseq_file(&show, &map, &seq, &path, |done, _| {
+    let err = export_fseq_file(&show, &map, &seq, &AudioSource::none(), &path, |done, _| {
         seen.push(done);
         done < 2
     })
@@ -191,7 +263,9 @@ fn exports_to_the_same_file_at_once_each_use_their_own_temporary_file() {
     let path = dir.path().join("Song.fseq");
     let results: Vec<_> = std::thread::scope(|scope| {
         let jobs: Vec<_> = (0..8)
-            .map(|_| scope.spawn(|| export_fseq_file(&show, &map, &seq, &path, |_, _| true)))
+            .map(|_| {
+                scope.spawn(|| export_fseq_file(&show, &map, &seq, &AudioSource::none(), &path, |_, _| true))
+            })
             .collect();
         jobs.into_iter().map(|j| j.join().unwrap()).collect()
     });

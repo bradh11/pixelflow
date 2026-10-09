@@ -13,8 +13,10 @@ use serde::{Deserialize, Serialize};
 /// History: 1 = initial format; 2 = rows can target a submodel (`{ "region": { "prop", "region" } }`);
 /// 3 = effects have sparkles (`sparkles`, `sparkleColor`), `blur`, and more blends; 4 = effect
 /// settings can change over the effect (`curves`); 5 = effects can pick a render style
-/// (`renderStyle`) and turn or flip it (`bufferTransform`).
-pub const CURRENT_SCHEMA_VERSION: u32 = 5;
+/// (`renderStyle`) and turn or flip it (`bufferTransform`); 6 = curves and sparkles can follow the
+/// music (`musicSparkles`, the music and timing curve shapes), the VU Meter effect, and Shape and
+/// Tendril settings that follow the music.
+pub const CURRENT_SCHEMA_VERSION: u32 = 6;
 
 fn default_frame_ms() -> u32 {
     25

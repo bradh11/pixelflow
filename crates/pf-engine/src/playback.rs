@@ -18,7 +18,7 @@ use pf_fseq::Sequence;
 use pf_mapping::ChannelMap;
 use pf_model::{Protocol, SequenceId, Show};
 use pf_output::{OutputHandle, OutputPlan, OutputSettings, PassthroughRoute, Transport, wire_order};
-use pf_render::Renderer;
+use pf_render::{AudioSource, Renderer};
 use pf_sequence::Sequence as SequenceDoc;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -469,6 +469,7 @@ impl FrameSource for FileFrames {
 struct Pending {
     doc: Option<Arc<SequenceDoc>>,
     renderer: Option<Renderer>,
+    audio: Option<AudioSource>,
 }
 
 /// An edited document or show, handed to the player thread without stopping it.
@@ -476,12 +477,18 @@ struct Pending {
 pub(crate) struct LiveUpdates {
     waiting: AtomicBool,
     pending: Mutex<Pending>,
+    /// The music the sequence's effects follow, as last sent.
+    audio: Mutex<AudioSource>,
 }
 
 impl LiveUpdates {
     fn send(&self, update: impl FnOnce(&mut Pending)) {
         update(&mut self.pending.lock().unwrap_or_else(PoisonError::into_inner));
         self.waiting.store(true, Ordering::Release);
+    }
+
+    fn audio(&self) -> AudioSource {
+        self.audio.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 }
 
@@ -490,6 +497,8 @@ struct RenderedFrames {
     doc: Arc<SequenceDoc>,
     renderer: Renderer,
     updates: Arc<LiveUpdates>,
+    /// The music the effects follow (every renderer drawing them gets it).
+    audio: AudioSource,
 }
 
 impl FrameSource for RenderedFrames {
@@ -519,14 +528,21 @@ impl FrameSource for RenderedFrames {
         if let Some(doc) = pending.doc.take() {
             self.doc = doc;
         }
+        if let Some(audio) = pending.audio.take() {
+            self.audio = audio;
+        }
         if let Some(renderer) = pending.renderer.take() {
             self.renderer = renderer;
+        }
+        if !self.renderer.audio().same(&self.audio) {
+            self.renderer.set_audio(self.audio.clone());
         }
         true
     }
 
     fn relayout(&mut self, show: Show, map: ChannelMap, renderer: Option<Renderer>) {
         self.renderer = renderer.unwrap_or_else(|| Renderer::new(&show, &map));
+        self.renderer.set_audio(self.audio.clone());
     }
 }
 
@@ -819,6 +835,8 @@ pub(crate) struct DocumentRequest {
     /// The document's file, if it has been saved.
     pub path: Option<PathBuf>,
     pub music: Option<PathBuf>,
+    /// The music's audio track for the effects that follow it.
+    pub audio: AudioSource,
     /// The show's first error, if it has any (then only the preview plays).
     pub show_error: Option<String>,
     /// Send to the controllers (false: only the preview plays).
@@ -942,18 +960,25 @@ impl PlaybackSession {
             doc,
             path,
             music,
+            audio,
             show_error,
             send,
             volume,
             looping,
         } = request;
         let (plan, notes) = document_plan(show, map, show_error.as_deref(), send, doc.frame_ms);
-        let updates = Arc::new(LiveUpdates::default());
+        let updates = Arc::new(LiveUpdates {
+            audio: Mutex::new(audio.clone()),
+            ..LiveUpdates::default()
+        });
         let frame_ms = doc.frame_ms;
+        let mut renderer = Renderer::new(show, map);
+        renderer.set_audio(audio.clone());
         let source = RenderedFrames {
             doc,
-            renderer: Renderer::new(show, map),
+            renderer,
             updates: Arc::clone(&updates),
+            audio,
         };
         let launch = Launch {
             plan,
@@ -1151,6 +1176,7 @@ impl PlaybackSession {
             .renderer = None;
         let (plan, notes) = document_plan(show, map, show_error, send, doc.frame_ms);
         let mut renderer = Renderer::new(show, map);
+        renderer.set_audio(updates.audio());
         let (mut writer, reader) = pf_frame::frame_buffers(map.frame_len);
         // Start the new output on the moment showing now, not a black frame.
         let position_ms = {
@@ -1231,6 +1257,19 @@ impl PlaybackSession {
     pub fn update_document(&self, doc: Arc<SequenceDoc>) {
         if let SessionKind::Document { updates, .. } = &self.kind {
             updates.send(|p| p.doc = Some(doc));
+        }
+    }
+
+    /// For an authored sequence: the effects follow `audio` from the next frame on (nothing
+    /// changes when it's the music they already follow).
+    pub fn update_audio(&self, audio: AudioSource) {
+        if let SessionKind::Document { updates, .. } = &self.kind {
+            let mut current = updates.audio.lock().unwrap_or_else(PoisonError::into_inner);
+            if !current.same(&audio) {
+                *current = audio.clone();
+                drop(current);
+                updates.send(|p| p.audio = Some(audio));
+            }
         }
     }
 

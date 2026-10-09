@@ -1,5 +1,6 @@
 //! Drawing a whole sequence frame into the show frame.
 
+use crate::audio::{Audio, AudioSource, AudioTrack, RenderContext};
 use crate::blur::Grid;
 use crate::color::{Acc, Colors, Rgba, to_u8, write_pixel};
 use crate::effects::{Canvas, EffectTime, Shade, Shader, ShaderVisitor};
@@ -10,6 +11,7 @@ use pf_mapping::ChannelMap;
 use pf_model::{BufferTransform, RenderStyle, Show};
 use pf_sequence::{Blend, Effect, EffectId, EffectParams, Sequence, Target};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// A target laid out in a render style, turned or flipped.
 type BufferKey = (Target, RenderStyle, BufferTransform);
@@ -43,9 +45,11 @@ pub struct Renderer {
     row_acc: Vec<Acc>,
     /// One member of a per-model buffer being drawn.
     part_acc: Vec<Acc>,
-    /// The effects worked out frame by frame (falling snow, Lines, Life, Tendril), kept from
-    /// frame to frame by effect and the buffer (or part) they draw on.
+    /// The effects worked out frame by frame (falling snow, Lines, Life, Tendril, VU Meter),
+    /// kept from frame to frame by effect and the buffer (or part) they draw on.
     sims: Sims<(EffectId, BufferKey, usize)>,
+    /// The music effects follow (none, or still on its way: they draw as in silence).
+    audio: AudioSource,
 }
 
 impl Renderer {
@@ -66,7 +70,22 @@ impl Renderer {
             row_acc: Vec::new(),
             part_acc: Vec::new(),
             sims: Sims::default(),
+            audio: AudioSource::none(),
         }
+    }
+
+    /// The music the sequences drawn from now on follow (see [`crate::audio`]).
+    pub fn set_audio(&mut self, audio: AudioSource) {
+        self.audio = audio;
+    }
+
+    pub fn audio(&self) -> &AudioSource {
+        &self.audio
+    }
+
+    /// The music's audio track, once it's there.
+    pub fn audio_track(&self) -> Option<Arc<AudioTrack>> {
+        self.audio.track().cloned()
     }
 
     pub fn geometry(&self) -> &SceneGeometry {
@@ -89,6 +108,12 @@ impl Renderer {
     /// at or past the end of the sequence.
     pub fn render(&mut self, seq: &Sequence, t_ms: u64, frame: &mut [u8]) {
         self.show_acc.fill(Acc::ZERO);
+        let track = self.audio.track().cloned();
+        let cx = RenderContext::new(
+            track.as_deref().map(|t| Audio::new(t, seq.frame_ms)),
+            &seq.timing_tracks,
+            seq.frame_ms,
+        );
         if t_ms < seq.duration_ms {
             for row in &seq.rows {
                 let mut active = row
@@ -115,7 +140,7 @@ impl Renderer {
                 // whatever its blend: there is nothing below it to mix with (as in xLights).
                 for (n, source) in active.enumerate() {
                     // Settings that change over the effect, at this moment.
-                    let effect = &*source.at(t_ms);
+                    let effect = &*cx.effect_at(source, t_ms);
                     let time =
                         EffectTime::within(effect.start_ms, effect.end_ms, t_ms).with_frame_ms(seq.frame_ms);
                     let blend = if n == 0 { Blend::Normal } else { effect.blend };
@@ -160,6 +185,7 @@ impl Renderer {
                             cells: &mut self.cells,
                             blur_scratch: &mut self.blur_scratch,
                             acc: &mut self.row_acc,
+                            cx: &cx,
                         };
                         draw.run(Some(&shader));
                         if let Shader::Faces(faces) = shader {
@@ -178,7 +204,7 @@ impl Renderer {
                         });
                         let simulated =
                             self.sims
-                                .shader((source.id, key, WHOLE), source, &time, canvas_of(buffer));
+                                .shader((source.id, key, WHOLE), source, &time, canvas_of(buffer), &cx);
                         let draw = Draw {
                             effect,
                             blend,
@@ -190,11 +216,9 @@ impl Renderer {
                             cells: &mut self.cells,
                             blur_scratch: &mut self.blur_scratch,
                             acc: &mut self.row_acc,
+                            cx: &cx,
                         };
-                        match &simulated {
-                            Some(shader) => draw.run(Some(shader)),
-                            None => draw.shaped(seq),
-                        }
+                        draw.run(simulated.as_ref());
                         continue;
                     }
                     // A per-model style: the effect draws on each member's own buffer.
@@ -210,9 +234,13 @@ impl Renderer {
                             grid.near_pixels(blur_amount(effect));
                             &*grid
                         });
-                        let simulated =
-                            self.sims
-                                .shader((source.id, key, i), source, &time, canvas_of(&part.buffer));
+                        let simulated = self.sims.shader(
+                            (source.id, key, i),
+                            source,
+                            &time,
+                            canvas_of(&part.buffer),
+                            &cx,
+                        );
                         let draw = Draw {
                             effect,
                             blend,
@@ -224,11 +252,9 @@ impl Renderer {
                             cells: &mut self.cells,
                             blur_scratch: &mut self.blur_scratch,
                             acc: &mut self.part_acc,
+                            cx: &cx,
                         };
-                        match &simulated {
-                            Some(shader) => draw.run(Some(shader)),
-                            None => draw.shaped(seq),
-                        }
+                        draw.run(simulated.as_ref());
                         for (&s, &acc) in part.slots.iter().zip(&self.part_acc) {
                             self.row_acc[s as usize] = acc;
                         }
@@ -306,46 +332,11 @@ struct Draw<'a> {
     cells: &'a mut Vec<Rgba>,
     blur_scratch: &'a mut Vec<[f32; 4]>,
     acc: &'a mut [Acc],
+    /// The music and timing tracks the effect follows.
+    cx: &'a RenderContext<'a>,
 }
 
 impl Draw<'_> {
-    /// Draws the effect, working out its shapes first when they appear at a timing track's marks
-    /// (Shape).
-    fn shaped(self, seq: &Sequence) {
-        let effect = self.effect;
-        if let EffectParams::Shape(p) = &effect.params
-            && let Some(track) = p.timing_track
-        {
-            // Shapes on a timing track appear at its marks within the effect.
-            let mut p = p.clone();
-            p.sanitize();
-            let marks: Vec<u64> = seq
-                .timing_track(track)
-                .map(|t| {
-                    t.marks
-                        .iter()
-                        .filter(|m| effect.is_active_at(m.start_ms))
-                        .map(|m| m.start_ms - effect.start_ms)
-                        .collect()
-                })
-                .unwrap_or_default();
-            let time =
-                EffectTime::within(effect.start_ms, effect.end_ms, self.t_ms).with_frame_ms(self.frame_ms);
-            let colors = Colors::new(&effect.palette.colors);
-            let shader = Shader::Shape(crate::effects::Shape::new(
-                &p,
-                &time,
-                colors,
-                effect.id.seed(),
-                self.canvas,
-                Some(&marks),
-            ));
-            self.run(Some(&shader));
-        } else {
-            self.run(None);
-        }
-    }
-
     /// Draws the effect: shaded (on the grid and blurred, when it has blur), sparkled, faded, and
     /// mixed with the layers below. `shader` is given when the renderer had to work it out
     /// (Faces).
@@ -367,12 +358,13 @@ impl Draw<'_> {
         let shader = match shader {
             Some(shader) => shader,
             None => {
-                made = Shader::new(
+                made = Shader::in_context(
                     &effect.params,
                     &time,
                     Colors::new(&effect.palette.colors),
                     effect.id.seed(),
                     self.canvas,
+                    self.cx,
                 );
                 &made
             }

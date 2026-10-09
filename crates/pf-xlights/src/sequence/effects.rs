@@ -19,7 +19,8 @@ use pf_sequence::{
     OnParams, Palette, PinwheelParams, PinwheelShading, PinwheelStyle, PlasmaColors, PlasmaParams, Rgb,
     RippleParams, SettingRange, ShapeObject, ShapeParams, ShimmerParams, SnowflakeShape, SnowflakesMotion,
     SnowflakesParams, SpiralParams, StrobeParams, TendrilMovement, TendrilParams, TextCountdown,
-    TextMovement, TextOrientation, TextParams, TwinkleParams, WaveParams,
+    TextMovement, TextOrientation, TextParams, TwinkleParams, VuMeterParams, VuMeterShape, VuMeterType,
+    WaveParams,
 };
 use std::collections::BTreeMap;
 
@@ -47,12 +48,16 @@ pub struct Translated {
     pub fade_out_ms: u32,
     pub sparkles: u32,
     pub sparkle_color: Rgb,
+    pub music_sparkles: bool,
     /// PixelFlow's blur (xLights' Blur minus one).
     pub blur: u32,
     pub render_style: RenderStyle,
     pub buffer_transform: BufferTransform,
     /// Settings that change over the effect, by PixelFlow setting key.
     pub curves: BTreeMap<String, Curve>,
+    /// The curves that follow a timing track, by setting key, and the track's name (the
+    /// importer finds the track: see `Builder::effect`).
+    pub curve_tracks: Vec<(String, String)>,
     pub fidelity: Fidelity,
 }
 
@@ -137,11 +142,41 @@ fn put(s: &mut Settings, id: &str, value: f64) {
     }
 }
 
-fn driven_note(driven: Driven) -> &'static str {
-    match driven {
-        Driven::Music => "settings that follow the music held at their middle value",
-        Driven::TimingTrack => "settings that follow a timing track held at their middle value",
+/// A PixelFlow curve from `from` to `to` that follows what `curve` (a music or timing-track
+/// curve) follows, and the timing track it follows, by name.
+fn driven_curve(curve: &XlCurve, from: f32, to: f32, diff: &mut Diff) -> (Curve, Option<String>) {
+    let shaped = |shape| Curve::shaped(shape, from, to, 1.0);
+    let c = match curve.kind() {
+        "Music" => Curve::music(from, to, curve.param(3), false),
+        "Inverted Music" => Curve::music(from, to, curve.param(3), true),
+        "Music Trigger Fade" => Curve {
+            trigger: curve.param(3),
+            fade: curve.param(4),
+            ..shaped(CurveShape::MusicTrigger)
+        },
+        "Timing Track Toggle" => shaped(CurveShape::TimingToggle),
+        "Timing Track Fade Fixed" => Curve {
+            fade: curve.param(3),
+            ..shaped(CurveShape::TimingFade)
+        },
+        _ => Curve {
+            fade: curve.param(3),
+            ..shaped(CurveShape::TimingFadeSpan)
+        },
+    };
+    if curve.other_audio().is_some() {
+        diff.add("settings that follow another audio track follow the sequence's music");
     }
+    let track = match curve.driven() {
+        Some(Driven::TimingTrack) => {
+            if curve.label_filter().is_some() {
+                diff.add("settings that follow a timing track follow every mark, not only the labels chosen");
+            }
+            curve.timing_track().map(str::to_string)
+        }
+        _ => None,
+    };
+    (c, track)
 }
 
 /// When to read curves (each a value just before and from each grid step on): the start, and
@@ -208,12 +243,17 @@ fn curve_through(samples: &[(f32, f32)]) -> Option<Curve> {
 }
 
 /// The curve for one effect-wide setting (sparkles, blur) from the xLights value curve on it,
-/// `convert` turning each value (slider units) into PixelFlow's: the value at the start, and the
-/// curve when it changes.
-fn setting_curve(curve: &XlCurve, convert: impl Fn(f64) -> f32, diff: &mut Diff) -> (f32, Option<Curve>) {
-    if let Some(driven) = curve.driven() {
-        diff.add(driven_note(driven));
-        return (convert(curve.middle()), None);
+/// `convert` turning each value (slider units) into PixelFlow's: the value at the start, the
+/// curve when it changes, and the timing track it follows, by name.
+fn setting_curve(
+    curve: &XlCurve,
+    convert: impl Fn(f64) -> f32,
+    diff: &mut Diff,
+) -> (f32, Option<Curve>, Option<String>) {
+    if curve.driven().is_some() {
+        let (lo, hi) = curve.driven_ends();
+        let (c, track) = driven_curve(curve, convert(lo), convert(hi), diff);
+        return (convert(curve.middle()), Some(c), track);
     }
     let values = curve.values();
     let samples: Vec<(f32, f32)> = sample_times(&[&values])
@@ -226,7 +266,7 @@ fn setting_curve(curve: &XlCurve, convert: impl Fn(f64) -> f32, diff: &mut Diff)
             )
         })
         .collect();
-    (samples[0].1, curve_through(&samples))
+    (samples[0].1, curve_through(&samples), None)
 }
 
 /// The effect's own settings that change over it (`E_VALUECURVE_<id>`), by setting id.
@@ -769,9 +809,7 @@ fn shape_object(name: &str, diff: &mut Diff) -> ShapeObject {
 /// second. A timing track is looked up by name when the effect is placed (see `Builder::effect`).
 fn shape(r: &Reader, frame: f64, diff: &mut Diff) -> EffectParams {
     let use_timing = r.check("Shape_FireTiming") && !r.choice("Shape_FireTimingTrack", "").trim().is_empty();
-    if !use_timing && r.check("Shape_UseMusic") {
-        diff.add("shapes fired by the music shown as a steady stream");
-    }
+    let fire_on_music = !use_timing && r.check("Shape_UseMusic");
     if use_timing && !r.s.text("E_TEXTCTRL_Shape_FilterLabel", "").is_empty() {
         diff.add("shapes appear on every mark, not only the labels chosen");
     }
@@ -797,6 +835,8 @@ fn shape(r: &Reader, frame: f64, diff: &mut Diff) -> EffectParams {
         random_movement,
         random_start: r.check_or("Shape_RandomInitial", true),
         timing_track: None,
+        fire_on_music,
+        trigger_level: r.get("Shape_Sensitivity", 50.0, 0.0, 100.0) as f32,
     })
 }
 
@@ -1069,8 +1109,7 @@ fn life(r: &Reader) -> EffectParams {
     })
 }
 
-/// A Tendril (xLights' `TendrilEffect`). The two movements that follow the music move as the
-/// closest one that doesn't.
+/// A Tendril (xLights' `TendrilEffect`).
 fn tendril(r: &Reader, diff: &mut Diff) -> EffectParams {
     use TendrilMovement as M;
     let movement = match r.choice("Tendril_Movement", "Circle") {
@@ -1082,14 +1121,8 @@ fn tendril(r: &Reader, diff: &mut Diff) -> EffectParams {
         "Vertical Zig Zag" => M::VerticalZigZag,
         "Vert. Zig Zag Return" => M::VerticalZigZagReturn,
         "Manual" => M::Manual,
-        "Music Line" => {
-            diff.add("movement that follows the music shown as a zig zag");
-            M::VerticalZigZag
-        }
-        "Music Circle" => {
-            diff.add("movement that follows the music shown as a circle");
-            M::Circle
-        }
+        "Music Line" => M::MusicLine,
+        "Music Circle" => M::MusicCircle,
         other => {
             diff.add(format!("'{other}' movement shown as random"));
             M::Random
@@ -1109,6 +1142,133 @@ fn tendril(r: &Reader, diff: &mut Diff) -> EffectParams {
         offset_y: r.get("Tendril_YOffset", 0.0, -100.0, 100.0) as f32,
         manual_x: r.get("Tendril_ManualX", 0.0, 0.0, 100.0) as f32,
         manual_y: r.get("Tendril_ManualY", 0.0, 0.0, 100.0) as f32,
+    })
+}
+
+/// What a VU Meter draws, from xLights' name for it.
+fn vu_type(name: &str, diff: &mut Diff) -> VuMeterType {
+    use VuMeterType as T;
+    match name {
+        "Spectrogram" => T::Spectrogram,
+        "Spectrogram Peak" => T::SpectrogramPeak,
+        "Spectrogram Line" => T::SpectrogramLine,
+        "Spectrogram Circle Line" => T::SpectrogramCircleLine,
+        "Volume Bars" => T::VolumeBars,
+        "Waveform" => T::Waveform,
+        "On" => T::On,
+        "Color On" => T::ColorOn,
+        "Dominant Frequency Colour" => T::DominantFrequencyColor,
+        "Dominant Frequency Colour Gradient" => T::DominantFrequencyColorGradient,
+        "Intensity Wave" => T::IntensityWave,
+        "Pulse" => T::Pulse,
+        "Level Bar" => T::LevelBar,
+        "Level Random Bar" => T::LevelRandomBar,
+        "Level Color" => T::LevelColor,
+        "Level Pulse" => T::LevelPulse,
+        "Level Pulse Color" => T::LevelPulseColor,
+        "Level Jump" => T::LevelJump,
+        "Level Jump 100" => T::LevelJump100,
+        "Level Shape" => T::LevelShape,
+        "Timing Event Bar" => T::TimingEventBar,
+        "Timing Event Bar Bounce" => T::TimingEventBarBounce,
+        "Timing Event Random Bar" => T::TimingEventRandomBar,
+        "Timing Event Bars" => T::TimingEventBars,
+        "Timing Event Spike" => T::TimingEventSpike,
+        "Timing Event Sweep" => T::TimingEventSweep,
+        "Timing Event Sweep 2" => T::TimingEventSweep2,
+        "Timing Event Timed Sweep" => T::TimingEventTimedSweep,
+        "Timing Event Timed Sweep 2" => T::TimingEventTimedSweep2,
+        "Timing Event Alternate Timed Sweep" => T::TimingEventAlternateTimedSweep,
+        "Timing Event Alternate Timed Sweep 2" => T::TimingEventAlternateTimedSweep2,
+        "Timing Event Timed Chase From Middle" => T::TimingEventChaseFromMiddle,
+        "Timing Event Timed Chase To Middle" => T::TimingEventChaseToMiddle,
+        "Timing Event Color" => T::TimingEventColor,
+        "Timing Event Jump" => T::TimingEventJump,
+        "Timing Event Jump 100" => T::TimingEventJump100,
+        "Timing Event Pulse" => T::TimingEventPulse,
+        "Timing Event Pulse Color" => T::TimingEventPulseColor,
+        "Note On" => T::NoteOn,
+        "Note Level Pulse" => T::NoteLevelPulse,
+        "Note Level Jump" => T::NoteLevelJump,
+        "Note Level Jump 100" => T::NoteLevelJump100,
+        "Note Level Bar" => T::NoteLevelBar,
+        "Note Level Random Bar" => T::NoteLevelRandomBar,
+        // xLights draws the waveform within each frame from the raw samples, which the audio
+        // track doesn't keep.
+        "Frame Waveform" => {
+            diff.add("'Frame Waveform' shown as a waveform across frames");
+            T::Waveform
+        }
+        // An unknown type draws volume bars in xLights.
+        other => {
+            diff.add(format!("'{other}' shown as volume bars"));
+            T::VolumeBars
+        }
+    }
+}
+
+/// The shape a VU Meter's Level Shape draws.
+fn vu_shape(name: &str, diff: &mut Diff) -> VuMeterShape {
+    use VuMeterShape as S;
+    match name {
+        "Circle" => S::Circle,
+        "Filled Circle" => S::FilledCircle,
+        "Square" => S::Square,
+        "Filled Square" => S::FilledSquare,
+        "Diamond" => S::Diamond,
+        "Filled Diamond" => S::FilledDiamond,
+        "Star" => S::Star,
+        "Filled Star" => S::FilledStar,
+        "Tree" => S::Tree,
+        "Filled Tree" => S::FilledTree,
+        "Crucifix" => S::Crucifix,
+        "Filled Crucifix" => S::FilledCrucifix,
+        "Present" => S::Present,
+        "Filled Present" => S::FilledPresent,
+        "Candy Cane" => S::CandyCane,
+        "Snowflake" => S::Snowflake,
+        "Heart" => S::Heart,
+        "Filled Heart" => S::FilledHeart,
+        other => {
+            diff.add(format!("'{other}' level shape shown as a circle"));
+            S::Circle
+        }
+    }
+}
+
+/// A VU Meter (xLights' `VUMeterEffect`). Its timing track is looked up by name when the effect is
+/// placed (see `Builder::effect`).
+fn vu_meter(r: &Reader, diff: &mut Diff) -> EffectParams {
+    let meter = vu_type(r.choice("VUMeter_Type", "Waveform"), diff);
+    let shape = r.choice("VUMeter_Shape", "Circle");
+    let shape = if meter == VuMeterType::LevelShape {
+        vu_shape(shape, diff)
+    } else {
+        vu_shape(shape, &mut Diff(Vec::new()))
+    };
+    let filter = r.s.text("E_TEXTCTRL_Filter", "").to_string();
+    if !filter.is_empty() && r.check("Regex") && meter.uses_marks() {
+        diff.add("label filter read as plain text, not a pattern");
+    }
+    let audio = r.choice("VUMeter_AudioTrack", "");
+    if !audio.is_empty() && audio != "Main" {
+        diff.add("follows the sequence's music, not another audio track");
+    }
+    let note = |id: &str, default: f64| count(r.get(id, default, 0.0, 127.0), 0, 126);
+    EffectParams::VuMeter(VuMeterParams {
+        meter,
+        bars: count(r.get("VUMeter_Bars", 6.0, 1.0, 100.0), 1, 100),
+        sensitivity: count(r.get("VUMeter_Sensitivity", 70.0, 0.0, 100.0), 0, 100),
+        gain: r.get("VUMeter_Gain", 0.0, -100.0, 100.0) as f32,
+        timing_track: None,
+        shape,
+        slow_falls: r.check_or("VUMeter_SlowDownFalls", true),
+        start_note: note("VUMeter_StartNote", 36.0),
+        end_note: note("VUMeter_EndNote", 84.0),
+        log_x: r.check("VUMeter_LogarithmicX"),
+        x_offset: r.get("VUMeter_XOffset", 0.0, -100.0, 100.0) as f32,
+        y_offset: r.get("VUMeter_YOffset", 0.0, -100.0, 100.0) as f32,
+        filter,
     })
 }
 
@@ -1289,6 +1449,7 @@ fn effect_params(
         "life" => life(&r),
         "tendril" => tendril(&r, diff),
         "text" => text(&r, diff),
+        "vumeter" => vu_meter(&r, diff),
         // No direct equivalent: the closest PixelFlow effect, with its default settings.
         "fireworks" => closest("twinkles", EffectParams::Twinkle(TwinkleParams::default())),
         "snowstorm" => closest("falling meteors", EffectParams::Meteors(MeteorsParams::default())),
@@ -1412,29 +1573,26 @@ fn buffer(s: &Settings, diff: &mut Diff) -> Buffer {
 }
 
 /// The blur's value curve (`B_VALUECURVE_Blur`, xLights' 1-15), as PixelFlow's blur: its value at
-/// the start and the curve.
-fn blur_curve(s: &Settings, diff: &mut Diff) -> Option<(u32, Option<Curve>)> {
+/// the start, the curve, and the timing track it follows.
+fn blur_curve(s: &Settings, diff: &mut Diff) -> Option<(u32, Option<Curve>, Option<String>)> {
     let curve = XlCurve::parse_in(s.get("B_VALUECURVE_Blur")?, 1.0, 15.0)?;
     let max = f64::from(pf_sequence::MAX_BLUR + 1);
-    let (start, curve) = setting_curve(&curve, |v| (v.trunc().clamp(1.0, max) - 1.0) as f32, diff);
-    Some((start as u32, curve))
+    let (start, curve, track) = setting_curve(&curve, |v| (v.trunc().clamp(1.0, max) - 1.0) as f32, diff);
+    Some((start as u32, curve, track))
 }
 
-/// The sparkles' value curve (`C_VALUECURVE_SparkleFrequency`, 0-200): the value at the start and
-/// the curve.
-fn sparkles_curve(palette: &ParsedPalette, diff: &mut Diff) -> Option<(u32, Option<Curve>)> {
+/// The sparkles' value curve (`C_VALUECURVE_SparkleFrequency`, 0-200): the value at the start, the
+/// curve, and the timing track it follows.
+fn sparkles_curve(palette: &ParsedPalette, diff: &mut Diff) -> Option<(u32, Option<Curve>, Option<String>)> {
     let curve = XlCurve::parse_in(palette.sparkles_curve.as_deref()?, 0.0, 200.0)?;
     let max = f64::from(pf_sequence::MAX_SPARKLES);
-    let (start, curve) = setting_curve(&curve, |v| v.trunc().clamp(0.0, max) as f32, diff);
-    Some((start as u32, curve))
+    let (start, curve, track) = setting_curve(&curve, |v| v.trunc().clamp(0.0, max) as f32, diff);
+    Some((start as u32, curve, track))
 }
 
 /// The palette's sparkles and their color (dimmed by the palette's brightness, as xLights applies
 /// brightness after sparkles).
-fn sparkles(palette: &ParsedPalette, diff: &mut Diff) -> (u32, Rgb) {
-    if palette.sparkles > 0 && palette.music_sparkles {
-        diff.add("music-driven sparkles shown at a steady rate");
-    }
+fn sparkles(palette: &ParsedPalette) -> (u32, Rgb) {
     let c = palette.sparkle_color;
     let scale = brightness_scale(palette);
     let f = |v: u8| (f64::from(v) * scale).round() as u8;
@@ -1494,7 +1652,9 @@ pub fn translate(
 ) -> Option<Translated> {
     let mut diff = Diff(Vec::new());
     let colors = palette_colors(palette, &mut diff);
-    let (mut sparkles, sparkle_color) = sparkles(palette, &mut diff);
+    let (mut sparkles, sparkle_color) = sparkles(palette);
+    // xLights' music sparkles: the count times the music's peak (nothing to follow without any).
+    let music_sparkles = palette.music_sparkles && palette.sparkles > 0;
     let blend = blend(s, &mut diff);
     let (fade_in_ms, fade_out_ms) = fades(s, duration_ms, &mut diff);
     let Buffer {
@@ -1503,22 +1663,27 @@ pub fn translate(
         transform: buffer_transform,
     } = buffer(s, &mut diff);
     let mut curves = BTreeMap::new();
-    if let Some((start, curve)) = sparkles_curve(palette, &mut diff) {
+    let mut curve_tracks = Vec::new();
+    if let Some((start, curve, track)) = sparkles_curve(palette, &mut diff) {
         sparkles = start;
         curves.extend(curve.map(|c| ("sparkles".to_string(), c)));
+        curve_tracks.extend(track.map(|t| ("sparkles".to_string(), t)));
     }
-    if let Some((start, curve)) = blur_curve(s, &mut diff) {
+    if let Some((start, curve, track)) = blur_curve(s, &mut diff) {
         blur = start;
         curves.extend(curve.map(|c| ("blur".to_string(), c)));
+        curve_tracks.extend(track.map(|t| ("blur".to_string(), t)));
     }
     // Settings that change over the effect start at their first value; music and timing-track
-    // ones stay at their middle.
+    // ones at their middle (where they sit without the music or the track), and get curves that
+    // follow them (see `follow`).
     let mut start = s.clone();
     let mut moving = Vec::new();
+    let mut driven = Vec::new();
     for (id, curve) in effect_curves(s) {
-        if let Some(driven) = curve.driven() {
-            diff.add(driven_note(driven));
+        if curve.driven().is_some() {
             put(&mut start, &id, curve.middle());
+            driven.push((id, curve));
         } else {
             let values = curve.values();
             put(&mut start, &id, values[0].1);
@@ -1548,6 +1713,54 @@ pub fn translate(
                     ));
                 }
                 on_cycles(&start, &clamped, &mut curves, &mut diff);
+                for (id, curve) in &driven {
+                    let at = |value: f64| {
+                        let mut at = start.clone();
+                        put(&mut at, id, value);
+                        match effect_params(name, &at, &colors, duration_ms, frame_ms, &mut Diff(Vec::new()))
+                        {
+                            Kind::Params(p) if p.kind() == clamped.kind() => Some(p.sanitized()),
+                            _ => None,
+                        }
+                    };
+                    let (lo, hi) = curve.driven_ends();
+                    let (Some(low), Some(high), Some(mid)) = (at(lo), at(hi), at((lo + hi) / 2.0)) else {
+                        diff.add(
+                            "settings that follow the music or a timing track held at their middle value",
+                        );
+                        continue;
+                    };
+                    for spec in clamped.kind().settings() {
+                        let whole = match spec.range {
+                            SettingRange::Number { .. } => false,
+                            SettingRange::Int { .. } => true,
+                            _ => continue,
+                        };
+                        let (Some(a), Some(b), Some(m)) =
+                            (low.number(spec.key), high.number(spec.key), mid.number(spec.key))
+                        else {
+                            continue;
+                        };
+                        if (a - b).abs() <= 1e-6 * a.abs().max(b.abs()).max(1.0) {
+                            continue;
+                        }
+                        if curves.contains_key(spec.key) {
+                            diff.add("a setting that also changes over the effect doesn't follow the music or timing track too");
+                            continue;
+                        }
+                        // PixelFlow's curve is straight between the two ends: exact when the
+                        // setting translates straight across (most do).
+                        let off = (m - (a + b) / 2.0).abs();
+                        if off > if whole { 0.51 } else { 1e-3 * (b - a).abs() } {
+                            diff.add(
+                                "a setting that follows the music or a timing track does so approximately",
+                            );
+                        }
+                        let (c, track) = driven_curve(curve, a, b, &mut diff);
+                        curves.insert(spec.key.to_string(), c);
+                        curve_tracks.extend(track.map(|t| (spec.key.to_string(), t)));
+                    }
+                }
                 Translated {
                     params: clamped,
                     palette: Palette::new(colors),
@@ -1556,10 +1769,12 @@ pub fn translate(
                     fade_out_ms,
                     sparkles,
                     sparkle_color,
+                    music_sparkles,
                     blur,
                     render_style,
                     buffer_transform,
                     curves,
+                    curve_tracks,
                     fidelity: if diff.0.is_empty() {
                         Fidelity::Exact
                     } else {
@@ -1579,10 +1794,12 @@ pub fn translate(
                 fade_out_ms,
                 sparkles,
                 sparkle_color,
+                music_sparkles,
                 blur,
                 render_style,
                 buffer_transform,
                 curves,
+                curve_tracks,
                 fidelity: Fidelity::Placeholder,
             },
         },
@@ -1879,16 +2096,13 @@ mod tests {
         let blur = &t.curves["blur"];
         assert_eq!((blur.from, blur.to), (0.0, 14.0));
         assert_eq!(blur.value_at(0.5).round(), 7.0);
-        // Sparkles that follow the music are held at their middle.
-        assert_eq!(t.sparkles, 100);
-        assert!(!t.curves.contains_key("sparkles"));
+        // Sparkles that follow the music (a curve on them, and the music checkbox) follow it.
+        assert_eq!(t.sparkles, 100, "halfway without the music");
+        assert_eq!(t.curves["sparkles"], Curve::music(0.0, 200.0, 0.0, false));
+        assert!(t.music_sparkles);
         assert_eq!(
             t.fidelity,
-            Fidelity::Approximate(vec![
-                "music-driven sparkles shown at a steady rate".into(),
-                "blur above 15 shown at 15".into(),
-                "settings that follow the music held at their middle value".into(),
-            ])
+            Fidelity::Approximate(vec!["blur above 15 shown at 15".into()])
         );
     }
 
@@ -1948,30 +2162,61 @@ mod tests {
     }
 
     #[test]
-    fn music_and_timing_track_curves_hold_their_middle_and_say_so() {
+    fn music_and_timing_track_curves_follow_them_through_the_translation() {
+        // Twinkle's count (2-100) is its density in percent: between 10 and 50 is 0.1 to 0.5.
         let s = Settings::parse(
-            "E_SLIDER_Twinkle_Count=3,E_VALUECURVE_Twinkle_Count=Active=TRUE|Type=Inverted Music|Min=2.00|Max=100.00|P1=10.00|P2=50.00|RV=TRUE|",
+            "E_SLIDER_Twinkle_Count=3,E_VALUECURVE_Twinkle_Count=Active=TRUE|Type=Inverted Music|Min=2.00|Max=100.00|P1=10.00|P2=50.00|P3=25.00|RV=TRUE|",
         );
         let t = translate("Twinkle", &s, &palette(&[Rgb::RED]), 2000, 25).unwrap();
-        let EffectParams::Twinkle(p) = t.params else {
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        let EffectParams::Twinkle(p) = &t.params else {
             panic!("{:?}", t.params)
         };
-        assert!((p.density - 0.3).abs() < 1e-6, "between 10 and 50: {}", p.density);
-        assert!(t.curves.is_empty());
-        assert_eq!(
-            t.fidelity,
-            Fidelity::Approximate(vec![
-                "settings that follow the music held at their middle value".into()
-            ])
+        assert!(
+            (p.density - 0.3).abs() < 1e-6,
+            "halfway without the music: {}",
+            p.density
         );
+        let density = &t.curves["density"];
+        assert_eq!((density.shape, density.gain), (CurveShape::InvertedMusic, 25.0));
+        assert!((density.from - 0.1).abs() < 1e-6 && (density.to - 0.5).abs() < 1e-6);
+        assert!(t.curve_tracks.is_empty());
+
         let s = Settings::parse(
-            "E_VALUECURVE_Twinkle_Count=Active=TRUE|Type=Timing Track Toggle|Min=2.00|Max=100.00|P1=10.00|P2=50.00|TT=Beats|RV=TRUE|",
+            "E_VALUECURVE_Twinkle_Count=Active=TRUE|Type=Music Trigger Fade|Min=2.00|Max=100.00|P1=10.00|P2=50.00|P3=60.00|P4=8.00|RV=TRUE|",
         );
         let t = translate("Twinkle", &s, &palette(&[Rgb::RED]), 2000, 25).unwrap();
+        let density = &t.curves["density"];
+        assert_eq!(
+            (density.shape, density.trigger, density.fade),
+            (CurveShape::MusicTrigger, 60.0, 8.0)
+        );
+
+        let s = Settings::parse(
+            "E_VALUECURVE_Twinkle_Count=Active=TRUE|Type=Timing Track Fade Fixed|Min=2.00|Max=100.00|P1=10.00|P2=50.00|P3=12.00|TT=Beats|FT=kick|RV=TRUE|",
+        );
+        let t = translate("Twinkle", &s, &palette(&[Rgb::RED]), 2000, 25).unwrap();
+        let density = &t.curves["density"];
+        assert_eq!((density.shape, density.fade), (CurveShape::TimingFade, 12.0));
+        assert_eq!(t.curve_tracks, vec![("density".to_string(), "Beats".to_string())]);
         assert_eq!(
             t.fidelity,
             Fidelity::Approximate(vec![
-                "settings that follow a timing track held at their middle value".into()
+                "settings that follow a timing track follow every mark, not only the labels chosen".into()
+            ])
+        );
+
+        // A setting PixelFlow translates unevenly follows only approximately: Twinkle's steps
+        // (frames a twinkle takes) become a rate, one over them.
+        let s = Settings::parse(
+            "E_VALUECURVE_Twinkle_Steps=Active=TRUE|Type=Music|Min=2.00|Max=200.00|P1=10.00|P2=100.00|RV=TRUE|",
+        );
+        let t = translate("Twinkle", &s, &palette(&[Rgb::RED]), 2000, 25).unwrap();
+        assert_eq!(t.curves["rate"].shape, CurveShape::Music);
+        assert_eq!(
+            t.fidelity,
+            Fidelity::Approximate(vec![
+                "a setting that follows the music or a timing track does so approximately".into()
             ])
         );
     }
@@ -2113,6 +2358,8 @@ mod tests {
                 random_movement: false,
                 random_start: false,
                 timing_track: None,
+                fire_on_music: false,
+                trigger_level: 50.0,
             })
         );
         // Unset checkboxes take xLights' defaults: fading, random places, staggered start.
@@ -2136,16 +2383,30 @@ mod tests {
     #[test]
     fn shapes_pixelflow_cant_draw_say_so() {
         let s = Settings::parse(
-            "E_CHOICE_Shape_ObjectToDraw=Emoji,E_CHECKBOX_Shape_UseMusic=1,E_CHECKBOX_Shapes_RandomMovement=1",
+            "E_CHOICE_Shape_ObjectToDraw=Emoji,E_CHECKBOX_Shape_UseMusic=1,E_CHECKBOX_Shapes_RandomMovement=1,\
+             E_SLIDER_Shape_Sensitivity=35",
         );
         let t = translate("Shape", &s, &palette(&[Rgb::RED]), 4000, 50).unwrap();
         assert_eq!(
             t.fidelity,
-            Fidelity::Approximate(vec![
-                "shapes fired by the music shown as a steady stream".into(),
-                "'Emoji' shapes shown as circles".into(),
-            ])
+            Fidelity::Approximate(vec!["'Emoji' shapes shown as circles".into()])
         );
+        // Fired by the music, at its trigger level.
+        let EffectParams::Shape(p) = &t.params else {
+            unreachable!()
+        };
+        assert_eq!((p.fire_on_music, p.trigger_level), (true, 35.0));
+        // A timing track wins over the music, as in xLights.
+        let timed = Settings::parse(
+            "E_CHECKBOX_Shape_UseMusic=1,E_CHECKBOX_Shape_FireTiming=1,E_CHOICE_Shape_FireTimingTrack=Beats",
+        );
+        let EffectParams::Shape(p) = translate("Shape", &timed, &palette(&[]), 4000, 50)
+            .unwrap()
+            .params
+        else {
+            unreachable!()
+        };
+        assert!(!p.fire_on_music);
         let EffectParams::Shape(p) = t.params else {
             unreachable!()
         };
@@ -2463,7 +2724,7 @@ mod tests {
     }
 
     #[test]
-    fn life_and_tendril_translate_and_music_movements_say_so() {
+    fn life_and_tendril_translate_with_their_music_movements() {
         let s = Settings::parse("E_SLIDER_Life_Count=100,E_SLIDER_Life_Seed=3,E_SLIDER_Life_Speed=3");
         let t = translate("Life", &s, &palette(&[Rgb::RED]), 4000, 50).unwrap();
         assert_eq!(t.fidelity, Fidelity::Exact);
@@ -2502,11 +2763,87 @@ mod tests {
                 manual_y: 6.0,
             })
         );
-        let music = Settings::parse("E_CHOICE_Tendril_Movement=Music Circle");
-        let t = translate("Tendril", &music, &palette(&[]), 4000, 50).unwrap();
+        for (name, movement) in [
+            ("Music Circle", TendrilMovement::MusicCircle),
+            ("Music Line", TendrilMovement::MusicLine),
+        ] {
+            let music = Settings::parse(&format!("E_CHOICE_Tendril_Movement={name}"));
+            let t = translate("Tendril", &music, &palette(&[]), 4000, 50).unwrap();
+            assert_eq!(t.fidelity, Fidelity::Exact);
+            let EffectParams::Tendril(p) = t.params else {
+                unreachable!()
+            };
+            assert_eq!(p.movement, movement);
+        }
+    }
+
+    #[test]
+    fn vu_meters_translate_every_setting() {
+        let s = Settings::parse(
+            "E_CHOICE_VUMeter_Type=Level Shape,E_CHOICE_VUMeter_Shape=Filled Star,E_SLIDER_VUMeter_Bars=12,\
+             E_SLIDER_VUMeter_Sensitivity=40,E_SLIDER_VUMeter_Gain=-25,E_CHECKBOX_VUMeter_SlowDownFalls=0,\
+             E_SLIDER_VUMeter_StartNote=40,E_SLIDER_VUMeter_EndNote=127,E_CHECKBOX_VUMeter_LogarithmicX=1,\
+             E_SLIDER_VUMeter_XOffset=10,E_SLIDER_VUMeter_YOffset=-20,E_TEXTCTRL_Filter=kick,\
+             E_VALUECURVE_VUMeter_Gain=Active=TRUE|Type=Ramp|Min=-100.00|Max=100.00|P1=-50.00|P2=50.00|RV=TRUE|",
+        );
+        let t = translate("VU Meter", &s, &palette(&[Rgb::RED]), 2000, 25).unwrap();
+        assert_eq!(t.fidelity, Fidelity::Exact, "{:?}", t.fidelity);
+        assert_eq!(
+            t.params,
+            EffectParams::VuMeter(VuMeterParams {
+                meter: VuMeterType::LevelShape,
+                bars: 12,
+                sensitivity: 40,
+                gain: -50.0,
+                timing_track: None,
+                shape: VuMeterShape::FilledStar,
+                slow_falls: false,
+                start_note: 40,
+                end_note: 126,
+                log_x: true,
+                x_offset: 10.0,
+                y_offset: -20.0,
+                filter: "kick".into(),
+            })
+        );
+        assert_eq!(t.curves["gain"], Curve::ramp(-50.0, 50.0));
+        // xLights' defaults: a waveform.
+        let plain = translate("VUMeter", &Settings::default(), &palette(&[]), 2000, 25).unwrap();
+        let EffectParams::VuMeter(p) = plain.params else {
+            unreachable!()
+        };
+        assert_eq!(
+            (p.meter, p.bars, p.sensitivity, p.slow_falls),
+            (VuMeterType::Waveform, 6, 70, true)
+        );
+        // What PixelFlow can't do, it says.
+        let s = Settings::parse(
+            "E_CHOICE_VUMeter_Type=Frame Waveform,E_CHOICE_VUMeter_AudioTrack=Vocals,\
+             E_CHOICE_VUMeter_Shape=SVG",
+        );
+        let t = translate("VU Meter", &s, &palette(&[]), 2000, 25).unwrap();
         assert_eq!(
             t.fidelity,
-            Fidelity::Approximate(vec!["movement that follows the music shown as a circle".into()])
+            Fidelity::Approximate(vec![
+                "'Frame Waveform' shown as a waveform across frames".into(),
+                "follows the sequence's music, not another audio track".into(),
+            ])
+        );
+        let s = Settings::parse(
+            "E_CHOICE_VUMeter_Type=Level Shape,E_CHOICE_VUMeter_Shape=SVG,E_TEXTCTRL_Filter=a.*,E_CHECKBOX_Regex=1",
+        );
+        let t = translate("VU Meter", &s, &palette(&[]), 2000, 25).unwrap();
+        assert_eq!(
+            t.fidelity,
+            Fidelity::Approximate(vec!["'SVG' level shape shown as a circle".into()])
+        );
+        let s = Settings::parse(
+            "E_CHOICE_VUMeter_Type=Timing Event Color,E_TEXTCTRL_Filter=a.*,E_CHECKBOX_Regex=1",
+        );
+        let t = translate("VU Meter", &s, &palette(&[]), 2000, 25).unwrap();
+        assert_eq!(
+            t.fidelity,
+            Fidelity::Approximate(vec!["label filter read as plain text, not a pattern".into()])
         );
     }
 

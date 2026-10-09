@@ -93,6 +93,7 @@ export function MultiEffectSettings({ doc, ids }: { doc: Sequence; ids: string[]
                   onChange={(v, gesture) => setParam(setting.key, v, gesture)}
                   faces={faces}
                   tracks={doc.timingTracks}
+                  singing={effects.every((e) => e.params.kind === "faces")}
                   animate={setting.type === "number" || setting.type === "int" ? animate(setting.key) : undefined}
                 />
               );

@@ -357,6 +357,34 @@ impl<'a> Builder<'a> {
                 translated.fidelity = with_note(translated.fidelity, missing);
             }
         }
+        if let EffectParams::VuMeter(params) = &mut translated.params
+            && params.meter.uses_marks()
+        {
+            let wanted = unxml_safe(settings.text("E_CHOICE_VUMeter_TimingTrack", "").trim());
+            params.timing_track = self.mark_tracks.get(wanted.as_str()).copied();
+            if params.timing_track.is_none() && !wanted.is_empty() {
+                let missing = if self.timing_tracks.contains(&wanted) {
+                    "its timing track has more than one layer, so it shows nothing"
+                } else {
+                    "its timing track isn't in the sequence, so it shows nothing"
+                }
+                .to_string();
+                translated.fidelity = with_note(translated.fidelity, missing);
+            }
+        }
+        for (key, track) in std::mem::take(&mut translated.curve_tracks) {
+            let found = self.mark_tracks.get(unxml_safe(&track).as_str()).copied();
+            if let Some(curve) = translated.curves.get_mut(&key) {
+                curve.timing_track = found;
+            }
+            if found.is_none() {
+                translated.fidelity = with_note(
+                    translated.fidelity,
+                    "a setting's timing track isn't in the sequence, so the setting sits at its middle"
+                        .into(),
+                );
+            }
+        }
         self.tally.record(name, &translated.fidelity);
         self.summary.effects += 1;
         match translated.fidelity {
@@ -376,6 +404,7 @@ impl<'a> Builder<'a> {
             fade_out_ms: translated.fade_out_ms,
             sparkles: translated.sparkles,
             sparkle_color: translated.sparkle_color,
+            music_sparkles: translated.music_sparkles,
             blur: translated.blur,
             render_style: translated.render_style,
             buffer_transform: translated.buffer_transform,

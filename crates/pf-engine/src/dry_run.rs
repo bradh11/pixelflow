@@ -67,6 +67,11 @@ impl DraftRenderer {
         }
     }
 
+    /// The music effects that follow it read (see [`crate::Engine::sequence_audio`]).
+    pub fn set_audio(&mut self, audio: pf_render::AudioSource) {
+        self.renderer.set_audio(audio);
+    }
+
     /// The frame (show frame bytes) at `position_ms`.
     pub fn frame(&mut self, doc: &Sequence, position_ms: u64) -> Vec<u8> {
         let mut frame = vec![0u8; self.renderer.frame_len()];

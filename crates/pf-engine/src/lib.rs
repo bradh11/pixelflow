@@ -10,6 +10,7 @@
 //! [`SequenceEdit`]s, [`Engine::play_sequence_doc`] plays it live with its music, and
 //! [`Engine::sequence_export`] exports it as an `.fseq` file for FPP.
 
+mod audio;
 mod camera_map;
 mod dry_run;
 mod edit;
@@ -24,6 +25,7 @@ mod recovery;
 mod sequence_doc;
 mod snapshot;
 
+pub use audio::AudioTracks;
 pub use camera_map::{CameraMapProp, CameraMapTarget};
 pub use dry_run::{DraftRenderer, edited_sequence, edited_show, preview_props_of};
 pub use edit::Edit;

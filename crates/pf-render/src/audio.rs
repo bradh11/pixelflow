@@ -10,11 +10,34 @@
 //! Effects read the music for the frame they draw through [`Audio`], in the sequence's frames,
 //! from the [`RenderContext`] the renderer passes along (see `Shader::in_context`).
 
-use pf_sequence::{CurveInputs, Effect, Mark, TimingTrack};
+use pf_sequence::{CurveInputs, Effect, EffectParams, Mark, Sequence, TendrilMovement, TimingTrack};
 use std::borrow::Cow;
 use std::sync::{Arc, OnceLock};
 
 pub use pf_analysis::{AudioTrack, NOTES, SPECTRUM_BANDS};
+
+/// Whether the effect follows the music: curves or sparkles that follow it, a VU Meter that
+/// reads it, a Tendril moving with it, or a Shape fired by it.
+pub fn effect_follows_music(effect: &Effect) -> bool {
+    effect.music_sparkles
+        || effect.curves.values().any(|c| c.shape.follows_music())
+        || match &effect.params {
+            EffectParams::VuMeter(p) => p.meter.uses_music(),
+            EffectParams::Tendril(p) => {
+                matches!(
+                    p.movement,
+                    TendrilMovement::MusicLine | TendrilMovement::MusicCircle
+                )
+            }
+            EffectParams::Shape(p) => p.fire_on_music && p.timing_track.is_none(),
+            _ => false,
+        }
+}
+
+/// Whether any of the sequence's effects follow the music.
+pub fn follows_music(seq: &Sequence) -> bool {
+    seq.effects().any(effect_follows_music)
+}
 
 /// The music's audio track for a renderer: none, ready, or still on its way (filled in once,
 /// from another thread, by [`AudioFill::fill`]).

@@ -36,7 +36,7 @@ mod tendril;
 mod text;
 mod vumeter;
 
-pub use audio::{Audio, AudioFill, AudioSource, AudioTrack, RenderContext};
+pub use audio::{Audio, AudioFill, AudioSource, AudioTrack, RenderContext, follows_music};
 pub use color::{Colors, Rgba};
 pub use effects::{
     Butterfly, Canvas, Circles, DEFAULT_FRAME_MS, EffectTime, Faces, Fan, Garlands, Life, Lines, MAX_METEORS,

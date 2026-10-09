@@ -1,5 +1,6 @@
 //! The engine: owns the show, applies edits, saves, and runs live output.
 
+use crate::audio::AudioTracks;
 use crate::edit::Edit;
 use crate::error::EngineError;
 use crate::files::{
@@ -20,7 +21,7 @@ use pf_model::{SequenceId, Severity, Show, ValidationReport, path_from_text, pat
 use pf_output::{OutputSettings, Transport, UdpTransport};
 use pf_patterns::{Target, TargetRange, resolve_target};
 use pf_render::export::{ExportLayout, ExportSummary};
-use pf_render::{AudioSource, Renderer};
+use pf_render::{AudioSource, Renderer, follows_music};
 use pf_sequence::Sequence;
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -118,6 +119,8 @@ pub struct Engine {
     show_generation: u64,
     /// The user's home folder (searches never read all of it).
     home: Option<PathBuf>,
+    /// Audio tracks of the music sequences follow, worked out once (see [`AudioTracks`]).
+    audio: Arc<AudioTracks>,
 }
 
 /// What [`Engine::use_found_files`] did.
@@ -143,6 +146,9 @@ pub struct SequenceExport {
     sequence: Sequence,
     /// The show's first error, if it has any (noted in the summary).
     show_error: Option<String>,
+    /// The music the effects follow, and where its audio track comes from.
+    music: Option<PathBuf>,
+    audio: Arc<AudioTracks>,
 }
 
 impl SequenceExport {
@@ -166,20 +172,32 @@ impl SequenceExport {
 
     /// Renders every frame and writes the `.fseq` file atomically. `progress` gets (frames done,
     /// total frames) and returns `false` to cancel (the error says so, and no file is written).
+    /// Effects that follow the music read its audio track, worked out first if it isn't yet.
     pub fn run(
         &self,
         path: &Path,
         progress: impl FnMut(u32, u32) -> bool,
     ) -> Result<ExportSummary, EngineError> {
+        let track = self
+            .music
+            .as_deref()
+            .and_then(|music| self.audio.track(music, self.sequence.frame_ms));
+        let audio = track.map_or_else(AudioSource::none, AudioSource::ready);
         let mut summary = pf_render::export::export_fseq_file(
             &self.show,
             &self.map,
             &self.sequence,
-            &AudioSource::none(),
+            &audio,
             path,
             progress,
         )
         .map_err(|e| EngineError::Export(e.to_string()))?;
+        if self.music.is_some() && !audio.has_music() && follows_music(&self.sequence) {
+            summary.notes.insert(
+                0,
+                "The music couldn't be read, so effects that follow it are drawn as in silence.".into(),
+            );
+        }
         if let Some(error) = &self.show_error {
             summary.notes.insert(
                 0,
@@ -242,6 +260,23 @@ impl Engine {
                 .or_else(|| std::env::var_os("USERPROFILE"))
                 .map(PathBuf::from)
                 .filter(|p| p.is_absolute()),
+            audio: Arc::default(),
+        }
+    }
+
+    /// Keeps the audio tracks of sequences' music in `dir` (the app's cache folder), so they're
+    /// worked out once per song rather than once per run.
+    pub fn set_audio_cache_dir(&mut self, dir: Option<PathBuf>) {
+        self.audio.set_dir(dir);
+    }
+
+    /// The open sequence's music as an audio track for rendering: ready once it's worked out
+    /// (in the background, the first time a song and frame time are asked for), none without
+    /// music.
+    pub fn sequence_audio(&self) -> AudioSource {
+        match (&self.sequence, self.sequence_music()) {
+            (Some(open), Some(music)) => self.audio.source(&music, open.doc.frame_ms),
+            _ => AudioSource::none(),
         }
     }
 
@@ -1348,7 +1383,11 @@ impl Engine {
             let (map, _) = analyze(&self.show);
             self.preview_renderer = Some((self.revision, Renderer::new(&self.show, &map)));
         }
+        let audio = self.sequence_audio();
         let (_, renderer) = self.preview_renderer.as_mut()?;
+        if !renderer.audio().same(&audio) {
+            renderer.set_audio(audio);
+        }
         let mut frame = vec![0u8; renderer.frame_len()];
         renderer.render(&open.doc, position_ms, &mut frame);
         Some(frame)
@@ -1379,10 +1418,12 @@ impl Engine {
         self.stop_reason = None;
         self.stop_playback();
         let (map, report) = analyze(&self.show);
+        let audio = self.sequence_audio();
         let request = DocumentRequest {
             doc,
             path,
             music,
+            audio,
             show_error: first_error(&report).map(|i| i.message.clone()),
             send: self.send_sequence_doc,
             volume: self.volume,
@@ -1484,6 +1525,8 @@ impl Engine {
             map,
             sequence: open.doc.clone(),
             show_error: first_error(&report).map(|i| i.message.clone()),
+            music: self.sequence_music(),
+            audio: Arc::clone(&self.audio),
         })
     }
 
@@ -1531,6 +1574,7 @@ impl Engine {
         }
         let new_rate = *frame_ms != open.doc.frame_ms;
         session.update_document(Arc::new(open.doc.clone()));
+        session.update_audio(self.sequence_audio());
         if new_rate {
             self.rebuild_document_output();
         }

@@ -1956,6 +1956,12 @@ choices!(VuMeterType {
 });
 
 impl VuMeterType {
+    /// Whether the type reads the music (all but the timing types do, and Timing Event Jump
+    /// jumps as high as the music is loud).
+    pub fn uses_music(self) -> bool {
+        !self.uses_marks() || self == VuMeterType::TimingEventJump
+    }
+
     /// Whether the type follows a timing track's marks.
     pub fn uses_marks(self) -> bool {
         use VuMeterType as T;

@@ -190,13 +190,14 @@ fn track_index(doc: &Sequence, id: TimingTrackId) -> Result<usize, EngineError> 
         .ok_or_else(|| not_found("timing track"))
 }
 
-/// A timing track whose marks may be changed (phonemes come from xLights and stay as they are).
+/// A timing track whose marks may be changed (phonemes are made from words as a whole, never mark
+/// by mark).
 fn marks_mut(doc: &mut Sequence, id: TimingTrackId) -> Result<&mut TimingTrack, EngineError> {
     let at = track_index(doc, id)?;
     let track = &mut doc.timing_tracks[at];
     if track.kind == TimingKind::Phonemes {
         return Err(invalid(
-            "Phoneme tracks come from xLights and can't be edited here; edit the words instead.".to_string(),
+            "Phoneme tracks can't be edited mark by mark; edit the words, then use Break into syllables on the words track.".to_string(),
         ));
     }
     Ok(track)
@@ -2246,7 +2247,7 @@ mod tests {
                     marks: vec![Mark::new(0, 10, "AI")]
                 }
             ),
-            "Phoneme tracks come from xLights and can't be edited here; edit the words instead."
+            "Phoneme tracks can't be edited mark by mark; edit the words, then use Break into syllables on the words track."
         );
     }
 

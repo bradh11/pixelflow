@@ -777,13 +777,13 @@ fn song_tools() -> Vec<Tool> {
         ),
         tool(
             "analyze_song",
-            "The open sequence's song: tempo, bar start times; sections (Intro, Verse, Chorus …; the same group letter is the same music; energy 0–1), from the user's Sections track when sectionsFrom is \"user\"; accents to land on (hit, drop, break, build; forMs for breaks and builds), likewise; barEnergy and barBass, a digit per bar (0 quiet to 9 full); confidence; lyrics (lines, vocalsMs) if any.",
+            "The open sequence's song: tempo, bar start times; sections (Intro, Verse, Chorus …; the same group letter is the same music; energy 0–1), from the user's Sections track when sectionsFrom is \"user\"; accents to land on (hit, drop, break, build; forMs for breaks and builds), likewise; barEnergy and barBass, a digit per bar (0 quiet to 9 full); confidence; lyrics (lines, vocalsMs, syllable and phoneme tracks) if any.",
             object(json!({}), &[]),
             ToolKind::AnalyzeSong,
         ),
         tool(
             "add_song_timing",
-            "Adds the song's timing tracks to the draft (Beats labeled 1–4, numbered Bars, labeled Sections, Onsets, and Accents: hits, drops, breaks, builds), reusing ones already there; answers their ids.",
+            "Adds timing tracks to the draft (Beats labeled 1–4, numbered Bars, Sections, Onsets, Accents: hits, drops, breaks, builds; syllables and phonemes from the sung words), reusing ones already there; answers their ids.",
             object(
                 json!({ "tracks": { "type": "array", "items": { "enum": crate::song::TRACK_CHOICES }, "description": "Default: beats, bars, sections, accents." } }),
                 &[],
@@ -792,7 +792,7 @@ fn song_tools() -> Vec<Tool> {
         ),
         tool(
             "place_effects",
-            "Puts one effect on many rows from fromMs to toMs: one each, or cut at a timing track's marks (`track`: id or name; `match`: only marks with this word, phrase, or regex, a lyrics track's words; `marksEach` marks per effect) and shared out by `spread`: together, alternate (neighbours take turns), sweep (one row after another), build (rows join one by one). Refused where it overlaps effects on that layer, unless replace.",
+            "Puts one effect on many rows from fromMs to toMs: one each, or cut at a timing track's marks (`track`: id or name; `match`: only marks with this word, phrase, or regex, a lyrics track's words, a syllables track's syllables in them; `marksEach` marks per effect) and shared out by `spread`: together, alternate (neighbours take turns), sweep (one row after another), build (rows join one by one). Refused where it overlaps effects on that layer, unless replace.",
             object(
                 json!({
                     "rowIds": ids(),

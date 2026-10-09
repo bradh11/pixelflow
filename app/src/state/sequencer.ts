@@ -207,11 +207,14 @@ interface SequencerState {
   redo(): Promise<boolean>;
   detectBeats(): Promise<boolean>;
   /** Finds the song's lyrics with the assistant's `provider` (sending its audio to OpenAI only
-   * with `upload`) and adds Lyrics, Lyrics (words), and Vocals tracks as one undo step; a notice
-   * says where they came from. Null when it failed (the error is shown) or was stopped. */
+   * with `upload`) and adds Lyrics, Lyrics (words), Lyrics (syllables), Lyrics (phonemes), and
+   * Vocals tracks as one undo step; a notice says where they came from. Null when it failed (the
+   * error is shown) or was stopped. */
   findLyrics(provider: ProviderId, upload: boolean): Promise<LyricsFound | null>;
   /** Stops Find lyrics (nothing is added). */
   cancelLyrics(): Promise<void>;
+  /** Makes syllables and mouth shapes again from the words track `trackId` (one undo step). */
+  syllablesFromWords(trackId: string): Promise<boolean>;
   select(ids: string[], activeRow?: string | null): void;
   /** Selects marks on `track` by their start times (and makes it the active track). */
   selectMarks(track: string, starts: number[]): void;
@@ -628,6 +631,18 @@ export const useSequencer = create<SequencerState>((set, get) => {
       await get().api?.cancelLyrics();
     },
 
+    async syllablesFromWords(trackId) {
+      const { api } = get();
+      if (!api || !get().doc) return false;
+      const done = await serial(() =>
+        guarded(async () => {
+          await absorb(await api.syllablesFromWords(trackId), api);
+          return true;
+        }),
+      );
+      return done === true;
+    },
+
     setActiveTrack: (activeTrack) => {
       if (activeTrack !== get().activeTrack) lastTap = null;
       set({ activeTrack });
@@ -651,7 +666,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
         return;
       }
       if (track.kind === "phonemes") {
-        report("Phoneme tracks come from xLights and can't be edited here; tap onto another track.");
+        report("Phoneme tracks can't be edited mark by mark; tap onto another track.");
         return;
       }
       // Between polls the music has moved on from the last playhead the player reported.

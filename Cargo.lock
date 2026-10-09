@@ -1676,6 +1676,7 @@ dependencies = [
  "pf-analysis",
  "pf-audio",
  "pf-engine",
+ "pf-lexicon",
  "pf-model",
  "pf-output",
  "pf-render",
@@ -1810,6 +1811,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "pf-lexicon"
+version = "0.1.0"
+dependencies = [
+ "zstd",
+]
+
+[[package]]
 name = "pf-mapping"
 version = "0.1.0"
 dependencies = [
@@ -1855,6 +1863,7 @@ version = "0.1.0"
 dependencies = [
  "pf-fseq",
  "pf-geometry",
+ "pf-lexicon",
  "pf-mapping",
  "pf-model",
  "pf-output",

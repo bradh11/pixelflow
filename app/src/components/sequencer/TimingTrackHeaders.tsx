@@ -180,6 +180,7 @@ function TrackMenu({
     { label: "Generate marks…", run: () => onDialog("generate"), hidden: !editable },
     { label: "Paste lyrics…", run: () => onDialog("lyrics"), hidden: !editable },
     { label: "Break into words", run: () => void breakIntoWords(track.id), hidden: track.kind !== "lyrics" },
+    { label: "Break into syllables", run: () => void store.syllablesFromWords(track.id), hidden: track.kind !== "words" || track.marks.length === 0 },
     { label: "Move up", run: () => void store.edit([{ type: "moveTimingTrack", id: track.id, index: index - 1 }]), disabled: index === 0 },
     { label: "Move down", run: () => void store.edit([{ type: "moveTimingTrack", id: track.id, index: index + 1 }]), disabled: index === doc.timingTracks.length - 1 },
     { label: "Import timing file…", run: () => void store.importTiming() },

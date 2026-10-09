@@ -2,8 +2,8 @@
 //! under the playhead, following xLights' `FacesEffect` for node-range faces.
 //!
 //! - **Mouth:** on a Phonemes track, the mark's phoneme (`AI`, `E`, `etc`, `FV`, `L`, `MBP`, `O`,
-//!   `rest`, `U`, `WQ`). On a Words or Lyrics track PixelFlow guesses the mouth shapes from the
-//!   word's letters ([`word_phonemes`]): an approximation, not real speech analysis. Between
+//!   `rest`, `U`, `WQ`). On a Words or Lyrics track PixelFlow works the mouth shapes out from
+//!   how the word is said ([`word_phonemes`]) and spreads them evenly over the mark. Between
 //!   marks, with no track, and on a track without lyrics (beats, bars, sections, custom), the
 //!   mouth is at rest, as in xLights.
 //! - **Eyes:** open, closed, or open and blinking: a 150 ms blink every 3–5 seconds, at times
@@ -29,40 +29,17 @@ pub const BLINK_MS: u64 = 150;
 /// Shortest and longest time from one blink to the next.
 const BLINK_EVERY_MS: (u64, u64) = (3_000, 5_000);
 
-/// The mouth shapes a word makes, guessed from its letters (an approximation): vowels open the
-/// mouth (`a`/`i` AI, `e` E, `o` O, `u` and `oo` U, a final `y` E), `m`/`b`/`p` close it (MBP),
-/// `f`/`v` show FV, `l` L, `w`/`q` WQ, and other consonants etc. Repeats in a row merge.
+/// The mouth shapes a word makes, as xLights breaks a word down: its sounds from the CMU
+/// pronouncing dictionary (words it doesn't have are sounded out from their letters, see
+/// [`pf_lexicon`]), each sound's Preston Blair shape by xLights' phoneme mapping. Repeats in a
+/// row merge.
 pub fn word_phonemes(word: &str) -> Vec<Phoneme> {
-    let letters: Vec<char> = word
-        .chars()
-        .filter(|c| c.is_alphabetic())
-        .flat_map(char::to_lowercase)
-        .collect();
     let mut out: Vec<Phoneme> = Vec::new();
-    let mut i = 0;
-    while i < letters.len() {
-        let c = letters[i];
-        let next = letters.get(i + 1).copied();
-        let phoneme = match c {
-            'o' if next == Some('o') => {
-                i += 1;
-                Phoneme::U
-            }
-            'a' | 'i' => Phoneme::Ai,
-            'e' => Phoneme::E,
-            'o' => Phoneme::O,
-            'u' => Phoneme::U,
-            'y' if i + 1 == letters.len() && i > 0 => Phoneme::E,
-            'm' | 'b' | 'p' => Phoneme::Mbp,
-            'f' | 'v' => Phoneme::Fv,
-            'l' => Phoneme::L,
-            'w' | 'q' => Phoneme::Wq,
-            _ => Phoneme::Etc,
-        };
+    for shape in pf_lexicon::word_mouths(word) {
+        let phoneme = Phoneme::from_name(shape).unwrap_or(Phoneme::Etc);
         if out.last() != Some(&phoneme) {
             out.push(phoneme);
         }
-        i += 1;
     }
     out
 }
@@ -254,13 +231,18 @@ mod tests {
     use pf_sequence::{Mark, TimingTrack};
 
     #[test]
-    fn words_become_rough_mouth_shapes() {
+    fn words_become_mouth_shapes_by_how_they_sound() {
         use Phoneme::*;
         assert_eq!(word_phonemes("Moon"), vec![Mbp, U, Etc]);
-        assert_eq!(word_phonemes("silent"), vec![Etc, Ai, L, E, Etc]);
+        // S AY L AH N T: no sound for the e.
+        assert_eq!(word_phonemes("silent"), vec![Etc, Ai, L, Ai, Etc]);
         assert_eq!(word_phonemes("Happy!"), vec![Etc, Ai, Mbp, E]);
-        assert_eq!(word_phonemes("we've"), vec![Wq, E, Fv, E]);
-        assert_eq!(word_phonemes("y"), vec![Etc]);
+        assert_eq!(word_phonemes("we've"), vec![Wq, E, Fv]);
+        // A made-up word, sounded out: Z IH B L AH F L AA P.
+        assert_eq!(
+            word_phonemes("zibbleflop"),
+            vec![Etc, Ai, Mbp, L, Ai, Fv, L, Ai, Mbp]
+        );
         assert_eq!(word_phonemes("123 ..."), Vec::<Phoneme>::new());
     }
 

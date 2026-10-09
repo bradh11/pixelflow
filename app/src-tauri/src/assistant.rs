@@ -977,13 +977,39 @@ mod tests {
             (found["lines"].as_u64(), found["words"].as_u64()),
             (Some(2), Some(6))
         );
-        assert_eq!(track_names(&t), ["Lyrics", "Lyrics (words)", "Vocals"]);
+        assert_eq!(
+            track_names(&t),
+            [
+                "Lyrics",
+                "Lyrics (words)",
+                "Lyrics (syllables)",
+                "Lyrics (phonemes)",
+                "Vocals"
+            ]
+        );
         // Only the song's name and length went out; no audio (Anthropic can't hear it).
         let requests = t.lrclib.requests();
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].url, "https://lrclib.net/api/search?q=Lantern%20Song");
         assert!(t.whisper.requests().is_empty());
-        // One undo step takes all three away.
+        // Syllables and mouth shapes made again from the words: the same tracks, updated.
+        let doc = call(&t, "get_sequence_doc", json!({})).unwrap();
+        let tracks = doc["sequence"]["timingTracks"].as_array().unwrap().clone();
+        let id = |name: &str| tracks.iter().find(|t| t["name"] == name).unwrap()["id"].clone();
+        call(
+            &t,
+            "syllables_from_words",
+            json!({ "track": id("Lyrics (words)") }),
+        )
+        .unwrap();
+        let again = call(&t, "get_sequence_doc", json!({})).unwrap();
+        let syllables = &again["sequence"]["timingTracks"][2];
+        assert_eq!(syllables["id"], id("Lyrics (syllables)"));
+        assert_eq!(syllables["marks"][0]["label"], tracks[2]["marks"][0]["label"]);
+        let err = call(&t, "syllables_from_words", json!({ "track": id("Lyrics") })).unwrap_err();
+        assert_eq!(err, "That isn't a words track.");
+        // Made again from unchanged words, nothing changed: one undo step takes all that Find
+        // lyrics added away.
         call(&t, "undo_sequence", json!({})).unwrap();
         assert!(track_names(&t).is_empty());
     }
@@ -1029,7 +1055,16 @@ mod tests {
             format!("Bearer {FAKE_KEY}")
         );
         // Found again: the same tracks updated, not copies.
-        assert_eq!(track_names(&t), ["Lyrics", "Lyrics (words)", "Vocals"]);
+        assert_eq!(
+            track_names(&t),
+            [
+                "Lyrics",
+                "Lyrics (words)",
+                "Lyrics (syllables)",
+                "Lyrics (phonemes)",
+                "Vocals"
+            ]
+        );
         call(&t, "cancel_lyrics", json!({})).unwrap();
     }
 }

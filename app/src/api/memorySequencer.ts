@@ -42,6 +42,7 @@ import type { ProviderId } from "./assistant";
 import type { LyricsFound, LyricsGate, MusicFound, SequencerApi } from "./sequencer";
 import * as marks from "./timingMarks";
 import { formatMs } from "./timingMarks";
+import { wordPhonemes } from "../lib/submodels";
 
 /** The engine's effect catalog (a copy of the Rust table). */
 export const EFFECT_CATALOG = catalogJson as unknown as EffectInfo[];
@@ -53,6 +54,41 @@ function fail(message: string): never {
 }
 
 export { formatMs };
+
+/** A word's syllables, roughly: cut a letter before each vowel group after the first (the
+ * desktop app says them with a pronunciation dictionary). */
+function roughSyllables(word: string): string[] {
+  const groups = [...word.matchAll(/[aeiouy]+/gi)].map((m) => m.index ?? 0);
+  const cuts: number[] = [];
+  for (const at of groups.slice(1)) {
+    const cut = Math.max(at - 1, (cuts[cuts.length - 1] ?? 0) + 1, (groups[0] ?? 0) + 1);
+    if (cut < word.length && /[a-z]/i.test(word.slice(cut))) cuts.push(cut);
+  }
+  return [0, ...cuts].map((start, i) => word.slice(start, cuts[i] ?? word.length));
+}
+
+/** Syllables and mouth shapes for timed words, roughly: each word's time shared evenly by its
+ * syllables, and each syllable's by the shapes its letters make. */
+function sungMarks(words: Mark[]): { syllables: Mark[]; phonemes: Mark[] } {
+  const syllables: Mark[] = [];
+  const phonemes: Mark[] = [];
+  const spread = (startMs: number, endMs: number, labels: string[], out: Mark[]) => {
+    const n = Math.min(labels.length, endMs - startMs);
+    for (let k = 0; k < n; k++) {
+      out.push({ startMs: startMs + Math.round(((endMs - startMs) * k) / n), endMs: startMs + Math.round(((endMs - startMs) * (k + 1)) / n), label: labels[k] });
+    }
+  };
+  for (const word of words) {
+    const parts: Mark[] = [];
+    spread(word.startMs, word.endMs, roughSyllables(word.label), parts);
+    syllables.push(...parts);
+    for (const part of parts) {
+      const shapes = wordPhonemes(part.label).map((p) => (p === "ETC" ? "etc" : p === "REST" ? "rest" : p));
+      spread(part.startMs, part.endMs, shapes, phonemes);
+    }
+  }
+  return { syllables, phonemes };
+}
 
 /** Characters in a name or label (the engine's MAX_TEXT_LEN). */
 const MAX_TEXT_LEN = 4096;
@@ -328,7 +364,7 @@ function findTrack(doc: Sequence, id: string): TimingTrack {
 /** A track whose marks may change (phonemes from xLights stay as they are). */
 function editableTrack(doc: Sequence, id: string): TimingTrack {
   const track = findTrack(doc, id);
-  if (track.kind === "phonemes") fail("Phoneme tracks come from xLights and can't be edited here; edit the words instead.");
+  if (track.kind === "phonemes") fail("Phoneme tracks can't be edited mark by mark; edit the words, then use Break into syllables on the words track.");
   return track;
 }
 
@@ -801,9 +837,12 @@ export class MemorySequencer implements SequencerApi {
       parts.forEach((w, k) => words.push({ startMs: Math.round(from + k * step), endMs: Math.round(from + (k + 1) * step), label: w }));
     });
     const vocals: Mark[] = [{ startMs: phrases[0].startMs, endMs: phrases[phrases.length - 1].endMs, label: "Vocals" }];
+    const sung = sungMarks(words);
     const found: TimingTrack[] = [
       { id: crypto.randomUUID(), name: "Lyrics", kind: "lyrics", marks: phrases },
       { id: crypto.randomUUID(), name: "Lyrics (words)", kind: "words", marks: words },
+      { id: crypto.randomUUID(), name: "Lyrics (syllables)", kind: "custom", marks: sung.syllables },
+      { id: crypto.randomUUID(), name: "Lyrics (phonemes)", kind: "phonemes", marks: sung.phonemes },
       { id: crypto.randomUUID(), name: "Vocals", kind: "custom", marks: vocals },
     ];
     // A track already there by name and kind takes the new marks (keeping its id).
@@ -824,6 +863,26 @@ export class MemorySequencer implements SequencerApi {
 
   async cancelLyrics() {
     this.lyricsCancels += 1;
+  }
+
+  /** Syllables and mouth shapes made again from a words track, roughly (see `sungMarks`). */
+  async syllablesFromWords(track: string): Promise<SequenceEditResult> {
+    this.calls.push(`syllablesFromWords:${track}`);
+    const doc = this.open_();
+    const words = doc.timingTracks.find((t) => t.id === track);
+    if (!words || words.kind !== "words") fail("That isn't a words track.");
+    if (words.marks.length === 0) fail(`${words.name} has no words yet.`);
+    const base = words.name.endsWith(" (words)") ? words.name.slice(0, -" (words)".length) : words.name;
+    const sung = sungMarks(words.marks);
+    const made: TimingTrack[] = [
+      { id: crypto.randomUUID(), name: `${base} (syllables)`, kind: "custom", marks: sung.syllables },
+      { id: crypto.randomUUID(), name: `${base} (phonemes)`, kind: "phonemes", marks: sung.phonemes },
+    ];
+    const edits: SequenceEdit[] = made.map((t) => {
+      const had = doc.timingTracks.find((h) => h.name === t.name && h.kind === t.kind);
+      return had ? { type: "updateTimingTrack" as const, track: { ...t, id: had.id } } : { type: "addTimingTrack" as const, track: t };
+    });
+    return this.editSequence(edits);
   }
 
   async importTimingFile(path: string): Promise<TimingImported> {

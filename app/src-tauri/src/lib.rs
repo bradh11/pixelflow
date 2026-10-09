@@ -382,6 +382,7 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         assistant::ai_sync,
         lyrics::lyrics_gate,
         lyrics::find_lyrics,
+        lyrics::choose_lyrics,
         lyrics::cancel_lyrics,
         lyrics::syllables_from_words,
         files::check_files,

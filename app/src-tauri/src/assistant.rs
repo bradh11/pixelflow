@@ -489,11 +489,13 @@ mod tests {
             .manage(AiState::new(KeyVault::new(Box::new(store)), providers))
             .manage(crate::lyrics::LyricsState::new(
                 pf_ai::lyrics::Services {
-                    lrclib: pf_ai::lyrics::lrclib::Lrclib::new(lrclib.clone()),
+                    lrclib: pf_ai::lyrics::lrclib::Lrclib::new(lrclib.clone())
+                        .with_retry_delay(std::time::Duration::ZERO),
                     transcriber: pf_ai::lyrics::transcribe::Transcriber::new(whisper.clone())
                         .with_retry(RetryPolicy::immediate()),
                     voice: Box::new(|_, _| Ok(pf_analysis::VocalActivity::default())),
                     tags: Box::new(|path| pf_audio::read_tags(path).ok()),
+                    log: Box::new(|_| {}),
                 },
                 None,
             ))
@@ -1070,5 +1072,71 @@ mod tests {
             ]
         );
         call(&t, "cancel_lyrics", json!({})).unwrap();
+    }
+
+    #[test]
+    fn the_lyrics_language_goes_to_openai_and_other_lyrics_line_up_without_asking() {
+        let t = app_with(MemoryStore::new());
+        call(
+            &t,
+            "set_api_key",
+            json!({ "provider": "openai", "key": FAKE_KEY }),
+        )
+        .unwrap();
+        sequence_with_song(&t);
+        // Picking other lyrics before any were found.
+        let err = call(&t, "choose_lyrics", json!({ "choice": { "candidate": 1 } })).unwrap_err();
+        assert_eq!(err, "Find this song's lyrics first.");
+        // LRCLIB down (tried three times): the words heard, in the language asked for.
+        for _ in 0..3 {
+            t.lrclib.push(Reply::status(500, ""));
+        }
+        t.whisper.push(Reply::ok(
+            json!({ "text": "linternas de papel", "words": [
+                { "word": "linternas", "start": 0.6, "end": 1.0 },
+                { "word": "de", "start": 1.0, "end": 1.2 },
+                { "word": "papel", "start": 1.2, "end": 1.9 },
+            ] })
+            .to_string(),
+        ));
+        let found = call(
+            &t,
+            "find_lyrics",
+            json!({ "provider": "openai", "upload": true, "language": "es", "fresh": true }),
+        )
+        .unwrap();
+        assert_eq!(
+            found["notes"],
+            json!([
+                "LRCLIB (published lyrics) was unavailable, so the words come from speech recognition only."
+            ])
+        );
+        assert_eq!(
+            found["source"],
+            "Lyrics: OpenAI speech recognition · word timing: OpenAI"
+        );
+        let body =
+            String::from_utf8_lossy(t.whisper.requests()[0].body.as_ref().unwrap().as_bytes()).into_owned();
+        assert!(body.contains("name=\"language\"\r\n\r\nes\r\n"), "{body}");
+
+        // Pasted lyrics, lined up with what was heard: nobody asked again.
+        let asked = (t.lrclib.requests().len(), t.whisper.requests().len());
+        let found = call(
+            &t,
+            "choose_lyrics",
+            json!({ "choice": { "pasted": "Linternas de papel" } }),
+        )
+        .unwrap();
+        assert_eq!(found["pasted"], true);
+        assert_eq!(found["source"], "Lyrics: pasted · word timing: OpenAI");
+        assert_eq!(found["words"], 3);
+        assert_eq!((t.lrclib.requests().len(), t.whisper.requests().len()), asked);
+        let doc = call(&t, "get_sequence_doc", json!({})).unwrap();
+        assert_eq!(
+            doc["sequence"]["timingTracks"][0]["marks"][0]["label"],
+            "Linternas de papel"
+        );
+        let err = call(&t, "choose_lyrics", json!({ "choice": { "pasted": "  " } })).unwrap_err();
+        assert_eq!(err, "Paste the song's lyrics first.");
     }
 }

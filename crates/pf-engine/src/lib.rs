@@ -25,7 +25,7 @@ mod recovery;
 mod sequence_doc;
 mod snapshot;
 
-pub use audio::AudioTracks;
+pub use audio::{AudioTracks, TrackProgress};
 pub use camera_map::{CameraMapProp, CameraMapTarget};
 pub use dry_run::{DraftRenderer, edited_sequence, edited_show, preview_props_of};
 pub use edit::Edit;

@@ -21,7 +21,8 @@ fn main() {
         eprintln!("usage: lyric_timing_eval song.mp3 lrclib.json openai.json");
         std::process::exit(2);
     };
-    let voice = pf_analysis::vocal_track_file(Path::new(song), &|| false).expect("the song can't be read");
+    let voice =
+        pf_analysis::vocal_track_file(Path::new(song), &|| false, &|_| {}).expect("the song can't be read");
     let text = std::fs::read_to_string(published).expect("the published lyrics can't be read");
     // As kept now (a list), or by an earlier version (one entry).
     let published: Vec<Published> = serde_json::from_str(&text)

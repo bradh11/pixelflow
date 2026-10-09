@@ -20,7 +20,7 @@ fn main() {
     };
     let frame_ms = args.next().and_then(|a| a.parse().ok()).unwrap_or(25);
     let started = Instant::now();
-    let track = match audio_track_file(Path::new(&path), frame_ms, &|| false) {
+    let track = match audio_track_file(Path::new(&path), frame_ms, &|| false, &|_| {}) {
         Ok(t) => t,
         Err(e) => {
             eprintln!("{e}");

@@ -4,7 +4,8 @@
 //! background, and kept in memory and, when the engine has a cache folder, on disk, so playing,
 //! scrubbing, and exporting never work it out again. Renderers get an [`AudioSource`] at once:
 //! effects draw as in silence until the track is there, then follow the music. Exports wait for
-//! it ([`AudioTracks::track`]).
+//! it ([`AudioTracks::track`]). How far a track has got is passed to whoever asked to be told
+//! ([`AudioTracks::set_progress`]).
 
 use pf_analysis::{AudioTrack, TRACK_FORMAT, audio_track_file};
 use pf_render::{AudioFill, AudioSource};
@@ -43,6 +44,24 @@ impl Request {
     }
 }
 
+/// Told how far working out a track has got: the music file and a fraction (0–1). Each track
+/// worked out ends with 1, even one that can't be.
+pub type TrackProgress = dyn Fn(&Path, f32) + Send + Sync;
+
+/// Who's told how far tracks have got.
+#[derive(Default)]
+struct Reporter(Option<Arc<TrackProgress>>);
+
+impl std::fmt::Debug for Reporter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() {
+            "Reporter(set)"
+        } else {
+            "Reporter(none)"
+        })
+    }
+}
+
 /// Audio tracks by music file, worked out once and shared.
 #[derive(Debug, Default)]
 pub struct AudioTracks {
@@ -52,6 +71,8 @@ pub struct AudioTracks {
     memory: Mutex<HashMap<(String, u32), Arc<AudioTrack>>>,
     /// The source handed out for each music file asked for, oldest first.
     requests: Mutex<Vec<(Request, AudioSource)>>,
+    /// Told how far tracks being worked out have got.
+    progress: Mutex<Reporter>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -77,6 +98,18 @@ impl AudioTracks {
     /// Keeps tracks on disk in `dir` from now on (`None`: memory only).
     pub fn set_dir(&self, dir: Option<PathBuf>) {
         *lock(&self.dir) = dir;
+    }
+
+    /// Tells `report` how far each track worked out from now on has got (`None`: no one).
+    pub fn set_progress(&self, report: Option<Arc<TrackProgress>>) {
+        *lock(&self.progress) = Reporter(report);
+    }
+
+    fn report(&self, music: &Path, fraction: f32) {
+        let report = lock(&self.progress).0.clone();
+        if let Some(report) = report {
+            report(music, fraction);
+        }
     }
 
     fn file_for(&self, hash: &str, frame_ms: u32) -> Option<PathBuf> {
@@ -135,7 +168,12 @@ impl AudioTracks {
         let track = match cached {
             Some(track) => Arc::new(track),
             None => {
-                let track = Arc::new(audio_track_file(music, frame_ms, &|| false).ok()?);
+                let worked_out = audio_track_file(music, frame_ms, &|| false, &|f| self.report(music, f));
+                let Ok(track) = worked_out else {
+                    self.report(music, 1.0);
+                    return None;
+                };
+                let track = Arc::new(track);
                 if let Some(file) = &file {
                     keep_on_disk(file, &track.to_bytes());
                 }
@@ -232,5 +270,36 @@ mod tests {
 
         // No file: no music.
         assert!(!tracks.source(&dir.path().join("gone.wav"), 25).has_music());
+    }
+
+    #[test]
+    fn working_out_a_track_reports_how_far_it_has_got() {
+        let dir = tempfile::tempdir().unwrap();
+        let (song, junk) = (dir.path().join("a.wav"), dir.path().join("junk.mp3"));
+        wav(&song, 0.5);
+        fs::write(&junk, b"not audio").unwrap();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let tracks = AudioTracks::default();
+        let heard = Arc::clone(&seen);
+        tracks.set_progress(Some(Arc::new(move |path: &Path, f: f32| {
+            lock(&heard).push((path.to_path_buf(), f));
+        })));
+        tracks.track(&song, 25).unwrap();
+        let reports: Vec<f32> = lock(&seen)
+            .iter()
+            .map(|(p, f)| {
+                assert_eq!(p, &song);
+                *f
+            })
+            .collect();
+        assert!(reports.windows(2).all(|w| w[1] > w[0]), "{reports:?}");
+        assert_eq!(reports.last(), Some(&1.0));
+        // Kept: nothing more to report.
+        lock(&seen).clear();
+        tracks.track(&song, 25).unwrap();
+        assert!(lock(&seen).is_empty());
+        // Music that can't be read still ends.
+        assert!(tracks.track(&junk, 25).is_none());
+        assert_eq!(lock(&seen).last().map(|(_, f)| *f), Some(1.0));
     }
 }

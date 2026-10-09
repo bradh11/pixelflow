@@ -2,6 +2,11 @@
 //! `whisper-1`, `response_format=verbose_json`, word and segment timestamps), with the user's
 //! OpenAI key, and only after they agreed to send the song's audio.
 //!
+//! The recognizer is always told the language (`language`, ISO 639-1): left to guess, it can
+//! hear a sung English song as another language and write it in that one. A short `prompt` (the
+//! song's name and its first published line, when known) steers its spelling; whisper-1 reads
+//! only the last 224 tokens of one.
+//!
 //! Uploads are at most 25 MB. A song file under that in a format OpenAI takes goes as it is;
 //! anything else is decoded to mono 16 kHz WAV (about 1.9 MB a minute), and a song still too
 //! big for one upload (over ~13 minutes) is cut in parts, at section starts where it can be.
@@ -44,6 +49,55 @@ pub struct HeardWord {
 pub struct Heard {
     pub words: Vec<HeardWord>,
     pub lines: Vec<(u64, u64)>,
+    /// The language it was told to hear.
+    #[serde(default)]
+    pub language: Option<String>,
+}
+
+impl Heard {
+    /// The words heard, one after another.
+    pub fn text(&self) -> String {
+        self.words
+            .iter()
+            .map(|w| w.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+}
+
+/// What the recognizer is told about the song.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hint {
+    /// ISO 639-1 ("en").
+    pub language: String,
+    pub prompt: Option<String>,
+}
+
+/// The most of a prompt sent (whisper-1 reads only its last 224 tokens).
+const MAX_PROMPT_CHARS: usize = 400;
+
+/// A prompt for the recognizer: the song's title and artist, then its first published line
+/// ("Lantern Song, by Lantern Band. Paper lanterns glowing"). `None` when nothing is known.
+pub fn prompt(title: Option<&str>, artist: Option<&str>, first_line: Option<&str>) -> Option<String> {
+    let mut text = match (title, artist) {
+        (Some(title), Some(artist)) => format!("{title}, by {artist}."),
+        (Some(title), None) => format!("{title}."),
+        (None, Some(artist)) => format!("By {artist}."),
+        (None, None) => String::new(),
+    };
+    if let Some(line) = first_line.map(str::trim).filter(|l| !l.is_empty()) {
+        if !text.is_empty() {
+            text.push(' ');
+        }
+        text.push_str(line);
+    }
+    let text: String = text
+        .replace(['\r', '\n'], " ")
+        .chars()
+        .take(MAX_PROMPT_CHARS)
+        .collect();
+    let text = text.trim();
+    (!text.is_empty()).then(|| text.to_string())
 }
 
 fn ms(seconds: &Value) -> Option<u64> {
@@ -78,7 +132,11 @@ pub fn parse_verbose_json(body: &str, offset_ms: u64) -> Option<Heard> {
                 .collect()
         })
         .unwrap_or_default();
-    Some(Heard { words, lines })
+    Some(Heard {
+        words,
+        lines,
+        language: None,
+    })
 }
 
 /// Audio to send: a file's bytes, and where it starts in the song.
@@ -215,22 +273,33 @@ impl Transcriber {
         self
     }
 
-    /// What OpenAI hears in each upload, in song time.
-    pub fn transcribe(&self, key: &ApiKey, uploads: &[Upload], cancel: &Cancel) -> Result<Heard, AiError> {
-        let mut heard = Heard::default();
+    /// What OpenAI hears in each upload, in song time, told the language and given the prompt
+    /// in `hint`.
+    pub fn transcribe(
+        &self,
+        key: &ApiKey,
+        uploads: &[Upload],
+        hint: &Hint,
+        cancel: &Cancel,
+    ) -> Result<Heard, AiError> {
+        let mut heard = Heard {
+            language: Some(hint.language.clone()),
+            ..Heard::default()
+        };
+        let mut fields = vec![
+            ("model", MODEL),
+            ("response_format", "verbose_json"),
+            ("timestamp_granularities[]", "word"),
+            ("timestamp_granularities[]", "segment"),
+            ("language", hint.language.as_str()),
+        ];
+        if let Some(prompt) = &hint.prompt {
+            fields.push(("prompt", prompt.as_str()));
+        }
         for upload in uploads {
             cancel.check()?;
             let boundary = format!("pixelflow-{}", uuid::Uuid::new_v4().simple());
-            let body = multipart(
-                &boundary,
-                upload,
-                &[
-                    ("model", MODEL),
-                    ("response_format", "verbose_json"),
-                    ("timestamp_granularities[]", "word"),
-                    ("timestamp_granularities[]", "segment"),
-                ],
-            );
+            let body = multipart(&boundary, upload, &fields);
             let request = HttpRequest {
                 method: Method::Post,
                 url: format!("{}/v1/audio/transcriptions", self.base_url),
@@ -325,6 +394,17 @@ mod tests {
     }
 
     #[test]
+    fn prompts_name_the_song_and_its_first_line() {
+        assert_eq!(
+            prompt(Some("Lantern Song"), None, Some(" Paper lanterns\nglowing ")).as_deref(),
+            Some("Lantern Song. Paper lanterns glowing")
+        );
+        assert_eq!(prompt(None, None, Some("  ")), None);
+        let long = "la ".repeat(500);
+        assert!(prompt(None, None, Some(&long)).unwrap().chars().count() <= MAX_PROMPT_CHARS);
+    }
+
+    #[test]
     fn parts_are_cut_at_section_starts_when_they_fit() {
         let second = RATE as usize;
         // 30 minutes, at most 13 minutes a part, sections every 2 minutes.
@@ -383,9 +463,18 @@ mod tests {
                 offset_ms: 10_000,
             },
         ];
+        let hint = Hint {
+            language: "en".into(),
+            prompt: prompt(
+                Some("Lantern Song"),
+                Some("Lantern Band"),
+                Some("Paper lanterns glowing"),
+            ),
+        };
         let heard = transcriber
-            .transcribe(&fake_key(), &uploads, &Cancel::new())
+            .transcribe(&fake_key(), &uploads, &hint, &Cancel::new())
             .unwrap();
+        assert_eq!(heard.language.as_deref(), Some("en"));
         assert_eq!(heard.words.len(), 12);
         assert_eq!(heard.words[6].start_ms, 11_000);
         let requests = fake.requests();
@@ -401,6 +490,8 @@ mod tests {
             "name=\"model\"\r\n\r\nwhisper-1\r\n",
             "name=\"response_format\"\r\n\r\nverbose_json\r\n",
             "name=\"timestamp_granularities[]\"\r\n\r\nword\r\n",
+            "name=\"language\"\r\n\r\nen\r\n",
+            "name=\"prompt\"\r\n\r\nLantern Song, by Lantern Band. Paper lanterns glowing\r\n",
         ] {
             assert!(body.contains(part), "{part}");
         }
@@ -419,13 +510,17 @@ mod tests {
             bytes: vec![1, 2, 3],
             offset_ms: 0,
         };
+        let hint = Hint {
+            language: "en".into(),
+            prompt: None,
+        };
         let error = Transcriber::new(fake)
-            .transcribe(&fake_key(), std::slice::from_ref(&upload), &Cancel::new())
+            .transcribe(&fake_key(), std::slice::from_ref(&upload), &hint, &Cancel::new())
             .unwrap_err();
         assert_eq!(*error.root(), AiError::InvalidKey(ProviderId::Openai));
         let fake = Arc::new(FakeTransport::new(vec![Reply::status(413, "{}")]));
         let error = Transcriber::new(fake)
-            .transcribe(&fake_key(), &[upload], &Cancel::new())
+            .transcribe(&fake_key(), &[upload], &hint, &Cancel::new())
             .unwrap_err();
         assert!(error.to_string().contains("too large"), "{error}");
     }

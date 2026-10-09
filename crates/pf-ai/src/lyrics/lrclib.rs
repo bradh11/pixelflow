@@ -1,17 +1,23 @@
 //! Published lyrics from LRCLIB (<https://lrclib.net>), a free lyrics library with no key.
 //!
 //! Only the song's artist, title, album, and length are sent. First `GET /api/get` (an exact
-//! match on artist, title, album, and length, ±2 s on LRCLIB's side), then, when that finds
-//! nothing or the artist isn't known, `GET /api/search?q=` with the best candidate picked here:
-//! its length within ±3 s of the song's, its title (and artist, when known) alike, and synced
-//! lyrics preferred over plain ones. Instrumental entries and entries without lyrics are skipped.
+//! match on artist, title, album, and length, ±2 s on LRCLIB's side) when the artist is known,
+//! then `GET /api/search?q=`. The entries that could be the song are kept as candidates: length
+//! within ±3 s of the song's, title (and artist, when known) alike, with lyrics, and not
+//! instrumental ([`score`]). Which one is used is chosen by [`super::choose`].
+//!
+//! A server error, a timeout, or a dropped connection is tried again twice, after a short wait.
 
-use crate::http::{HeaderValue, HttpRequest, HttpResponse, Method, Transport, TransportError, USER_AGENT};
+use crate::http::{
+    HeaderValue, HttpRequest, HttpResponse, Method, Transport, TransportError, USER_AGENT,
+    sleep_unless_cancelled,
+};
 use crate::provider::Cancel;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::Read;
 use std::sync::Arc;
+use std::time::Duration;
 
 pub const BASE_URL: &str = "https://lrclib.net";
 
@@ -19,6 +25,10 @@ pub const BASE_URL: &str = "https://lrclib.net";
 const MAX_BODY: u64 = 8 * 1024 * 1024;
 /// How far the published length may be from the song's.
 pub const DURATION_SLACK_S: f64 = 3.0;
+/// Tries of one request in all (two retries).
+const ATTEMPTS: u32 = 3;
+/// The wait before the first retry; the second waits twice as long.
+const RETRY_DELAY: Duration = Duration::from_millis(500);
 
 /// What is asked of LRCLIB: nothing but the song's name and length.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -140,13 +150,24 @@ pub fn score(query: &SongQuery, entry: &Published) -> Option<f64> {
     Some(3.0 * title + 2.0 * artist + synced - off / DURATION_SLACK_S)
 }
 
-/// The entry that fits the song best, if any fits.
+/// The entry that fits the song best by name and length alone, if any fits.
 pub fn best(query: &SongQuery, entries: Vec<Published>) -> Option<Published> {
     entries
         .into_iter()
         .filter_map(|e| score(query, &e).map(|s| (s, e)))
         .max_by(|a, b| a.0.total_cmp(&b.0))
         .map(|(_, e)| e)
+}
+
+/// The entries that could be the song (see [`score`]), each once, in the order given.
+pub fn fitting(query: &SongQuery, entries: Vec<Published>) -> Vec<Published> {
+    let mut kept: Vec<Published> = Vec::new();
+    for entry in entries {
+        if score(query, &entry).is_some() && !kept.iter().any(|k| k.id == entry.id) {
+            kept.push(entry);
+        }
+    }
+    kept
 }
 
 /// Text for a URL query.
@@ -185,27 +206,54 @@ pub fn search_url(base: &str, query: &SongQuery) -> String {
     format!("{base}/api/search?q={}", escape(&words))
 }
 
-/// Why LRCLIB couldn't be asked.
+/// Why LRCLIB couldn't be asked, in words for the user ([`LookupError::detail`] has the
+/// particulars, for the log).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum LookupError {
     #[error(
         "Couldn't reach LRCLIB, the published lyrics library. Check your internet connection, then try again."
     )]
     Network,
-    #[error("LRCLIB took too long to answer. Try again.")]
+    #[error("LRCLIB, the published lyrics library, took too long to answer. Try again later.")]
     Timeout,
-    #[error("LRCLIB had a problem (HTTP {0}). Try again later.")]
+    #[error("The connection to LRCLIB, the published lyrics library, dropped. Try again later.")]
+    Dropped,
+    #[error("LRCLIB, the published lyrics library, isn't working right now. Try again later.")]
     Status(u16),
-    #[error("LRCLIB sent a reply PixelFlow couldn't read.")]
+    #[error("LRCLIB, the published lyrics library, sent a reply PixelFlow couldn't read.")]
     BadReply,
     #[error("Stopped.")]
     Cancelled,
+}
+
+impl LookupError {
+    /// What happened, for the log.
+    pub fn detail(&self) -> String {
+        match self {
+            LookupError::Network => "LRCLIB: couldn't connect".into(),
+            LookupError::Timeout => format!("LRCLIB: timed out ({ATTEMPTS} tries)"),
+            LookupError::Dropped => format!("LRCLIB: the connection dropped ({ATTEMPTS} tries)"),
+            LookupError::Status(status) => format!("LRCLIB: HTTP {status}"),
+            LookupError::BadReply => "LRCLIB: the reply wasn't the JSON expected".into(),
+            LookupError::Cancelled => "LRCLIB: stopped".into(),
+        }
+    }
+
+    /// Whether trying again soon might work: a server error, a timeout, or a dropped connection.
+    fn passing(&self) -> bool {
+        match self {
+            LookupError::Status(status) => *status >= 500,
+            LookupError::Timeout | LookupError::Dropped => true,
+            _ => false,
+        }
+    }
 }
 
 /// Asks LRCLIB.
 pub struct Lrclib {
     transport: Arc<dyn Transport>,
     base_url: String,
+    retry_delay: Duration,
 }
 
 impl Lrclib {
@@ -213,17 +261,39 @@ impl Lrclib {
         Self {
             transport,
             base_url: BASE_URL.to_string(),
+            retry_delay: RETRY_DELAY,
         }
     }
 
-    /// The JSON reply to a GET, or `None` for "not found".
-    fn get(&self, url: String, cancel: &Cancel) -> Result<Option<Value>, LookupError> {
+    /// Waits `delay` before the first retry (tests: none).
+    pub fn with_retry_delay(mut self, delay: Duration) -> Self {
+        self.retry_delay = delay;
+        self
+    }
+
+    /// The JSON reply to a GET, or `None` for "not found", tried again after a passing problem.
+    fn get(&self, url: &str, cancel: &Cancel) -> Result<Option<Value>, LookupError> {
+        let mut attempt = 1;
+        loop {
+            match self.get_once(url, cancel) {
+                Err(error) if error.passing() && attempt < ATTEMPTS => {
+                    if !sleep_unless_cancelled(self.retry_delay * attempt, cancel) {
+                        return Err(LookupError::Cancelled);
+                    }
+                    attempt += 1;
+                }
+                result => return result,
+            }
+        }
+    }
+
+    fn get_once(&self, url: &str, cancel: &Cancel) -> Result<Option<Value>, LookupError> {
         if cancel.is_cancelled() {
             return Err(LookupError::Cancelled);
         }
         let request = HttpRequest {
             method: Method::Get,
-            url,
+            url: url.to_string(),
             headers: vec![
                 ("user-agent", HeaderValue::Plain(USER_AGENT.into())),
                 ("accept", HeaderValue::Plain("application/json".into())),
@@ -232,7 +302,8 @@ impl Lrclib {
         };
         let response: HttpResponse = self.transport.send(&request).map_err(|e| match e {
             TransportError::Timeout | TransportError::ConnectTimeout => LookupError::Timeout,
-            _ => LookupError::Network,
+            TransportError::Failed => LookupError::Dropped,
+            TransportError::Unreachable => LookupError::Network,
         })?;
         if response.status == 404 {
             return Ok(None);
@@ -254,16 +325,27 @@ impl Lrclib {
             .map_err(|_| LookupError::BadReply)
     }
 
-    /// The published lyrics that best fit the song, if LRCLIB has any.
-    pub fn find(&self, query: &SongQuery, cancel: &Cancel) -> Result<Option<Published>, LookupError> {
+    /// The entries that could be the song: the exact match (when the artist is known) first,
+    /// then what a search finds. A failed search still leaves an exact match.
+    pub fn candidates(&self, query: &SongQuery, cancel: &Cancel) -> Result<Vec<Published>, LookupError> {
+        let mut entries = Vec::new();
         if let Some(url) = get_url(&self.base_url, query)
-            && let Some(value) = self.get(url, cancel)?
-            && let Some(found) = parse_record(&value).filter(|e| score(query, e).is_some())
+            && let Some(value) = self.get(&url, cancel)?
         {
-            return Ok(Some(found));
+            entries.extend(parse_record(&value));
         }
-        let found = self.get(search_url(&self.base_url, query), cancel)?;
-        Ok(found.and_then(|value| best(query, parse_search(&value))))
+        match self.get(&search_url(&self.base_url, query), cancel) {
+            Ok(found) => entries.extend(found.map(|v| parse_search(&v)).unwrap_or_default()),
+            Err(LookupError::Cancelled) => return Err(LookupError::Cancelled),
+            Err(_) if !fitting(query, entries.clone()).is_empty() => {}
+            Err(error) => return Err(error),
+        }
+        Ok(fitting(query, entries))
+    }
+
+    /// The published lyrics that best fit the song by name and length, if LRCLIB has any.
+    pub fn find(&self, query: &SongQuery, cancel: &Cancel) -> Result<Option<Published>, LookupError> {
+        Ok(best(query, self.candidates(query, cancel)?))
     }
 }
 
@@ -364,7 +446,7 @@ mod tests {
             ),
             Reply::ok(json!([entry(7, "Lantern Band", "Lantern Song", 238.0, true)]).to_string()),
         ]));
-        let lrclib = Lrclib::new(fake.clone());
+        let lrclib = Lrclib::new(fake.clone()).with_retry_delay(Duration::ZERO);
         let found = lrclib
             .find(
                 &query(Some("Lantern Band"), "Lantern Song", 237.0),
@@ -384,16 +466,66 @@ mod tests {
                 .all(|r| r.header("user-agent").unwrap().starts_with("PixelFlow/"))
         );
 
-        let fake = Arc::new(FakeTransport::new(vec![Reply::ok(
-            entry(9, "Lantern Band", "Lantern Song", 237.0, false).to_string(),
-        )]));
-        let found = Lrclib::new(fake.clone())
-            .find(
-                &query(Some("Lantern Band"), "Lantern Song", 237.0),
-                &Cancel::new(),
-            )
-            .unwrap();
+        // An exact match, then a search that finds it again and another: both kept, once each;
+        // a search that fails still leaves the exact match.
+        let fake = Arc::new(FakeTransport::new(vec![
+            Reply::ok(entry(9, "Lantern Band", "Lantern Song", 237.0, false).to_string()),
+            Reply::ok(
+                json!([
+                    entry(9, "Lantern Band", "Lantern Song", 237.0, false),
+                    entry(10, "Lantern Band", "Lantern Song", 238.0, true),
+                ])
+                .to_string(),
+            ),
+        ]));
+        let q = query(Some("Lantern Band"), "Lantern Song", 237.0);
+        let found = Lrclib::new(fake.clone()).candidates(&q, &Cancel::new()).unwrap();
+        assert_eq!(found.iter().map(|e| e.id).collect::<Vec<_>>(), [9, 10]);
+        assert_eq!(fake.requests().len(), 2);
+        let fake = Arc::new(FakeTransport::new(vec![
+            Reply::ok(entry(9, "Lantern Band", "Lantern Song", 237.0, false).to_string()),
+            Reply::Unreachable,
+        ]));
+        let found = Lrclib::new(fake).find(&q, &Cancel::new()).unwrap();
         assert_eq!(found.map(|e| e.id), Some(9));
+    }
+
+    #[test]
+    fn a_server_error_or_timeout_is_tried_again_twice() {
+        let ok = || Reply::ok(json!([entry(7, "Lantern Band", "Lantern Song", 238.0, true)]).to_string());
+        let q = query(None, "Lantern Song", 237.0);
+        let fake = Arc::new(FakeTransport::new(vec![Reply::status(500, ""), ok()]));
+        let lrclib = Lrclib::new(fake.clone()).with_retry_delay(Duration::ZERO);
+        assert_eq!(lrclib.find(&q, &Cancel::new()).unwrap().map(|e| e.id), Some(7));
+        assert_eq!(fake.requests().len(), 2);
+
+        let fake = Arc::new(FakeTransport::new(vec![
+            Reply::Timeout,
+            Reply::status(502, ""),
+            ok(),
+        ]));
+        let lrclib = Lrclib::new(fake.clone()).with_retry_delay(Duration::ZERO);
+        assert!(lrclib.find(&q, &Cancel::new()).unwrap().is_some());
+        assert_eq!(fake.requests().len(), 3);
+
+        let fake = Arc::new(FakeTransport::new(vec![
+            Reply::status(500, ""),
+            Reply::status(500, ""),
+            Reply::status(500, ""),
+            ok(),
+        ]));
+        let lrclib = Lrclib::new(fake.clone()).with_retry_delay(Duration::ZERO);
+        let error = lrclib.find(&q, &Cancel::new()).unwrap_err();
+        assert_eq!(error, LookupError::Status(500));
+        assert_eq!(fake.requests().len(), 3);
+        // The user sees no status code; the log does.
+        assert!(!error.to_string().contains("500"), "{error}");
+        assert_eq!(error.detail(), "LRCLIB: HTTP 500");
+
+        // A client error isn't tried again.
+        let fake = Arc::new(FakeTransport::new(vec![Reply::status(429, ""), ok()]));
+        let lrclib = Lrclib::new(fake.clone()).with_retry_delay(Duration::ZERO);
+        assert_eq!(lrclib.find(&q, &Cancel::new()), Err(LookupError::Status(429)));
         assert_eq!(fake.requests().len(), 1);
     }
 
@@ -404,11 +536,15 @@ mod tests {
             .find(&query(None, "Lantern Song", 237.0), &Cancel::new())
             .unwrap_err();
         assert_eq!(error, LookupError::Network);
-        let fake = Arc::new(FakeTransport::new(vec![Reply::status(503, "")]));
+        let fake = Arc::new(FakeTransport::new(vec![Reply::status(503, ""); 3]));
         let error = Lrclib::new(fake)
+            .with_retry_delay(Duration::ZERO)
             .find(&query(None, "Lantern Song", 237.0), &Cancel::new())
             .unwrap_err();
-        assert!(error.to_string().contains("HTTP 503"));
+        assert_eq!(
+            error.to_string(),
+            "LRCLIB, the published lyrics library, isn't working right now. Try again later."
+        );
         let fake = Arc::new(FakeTransport::new(vec![Reply::ok("not json")]));
         assert_eq!(
             Lrclib::new(fake).find(&query(None, "x", 1.0), &Cancel::new()),

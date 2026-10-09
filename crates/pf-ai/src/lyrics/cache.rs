@@ -1,7 +1,11 @@
 //! What was found for a song, kept by the song file's SHA-256 in the app's cache folder, so
-//! finding its lyrics again asks no one: `lyrics/<hash>-lrclib.json` (the published entry) and
-//! `lyrics/<hash>-openai.json` (what the recognizer heard). A cache that can't be read or
-//! written is skipped.
+//! finding its lyrics again asks no one: `lyrics/<hash>-lrclib.v2.json` (the published
+//! candidates), `lyrics/<hash>-openai.v2.json` (what the recognizer heard, and in which language
+//! it was told to hear it), and `lyrics/<hash>-choice.v2.json` (the lyrics the user chose).
+//! A cache that can't be read or written is skipped.
+//!
+//! Files are named with [`VERSION`], so what an earlier version kept (`<hash>-openai.json`,
+//! perhaps heard in the wrong language) is never read again; it's left where it is.
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -27,6 +31,9 @@ pub fn file_hash(path: &Path, stop: &dyn Fn() -> bool) -> Option<String> {
     Some(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
+/// The version in the cache's file names, raised when what's kept changes.
+pub const VERSION: u32 = 2;
+
 /// The lyrics cache folder.
 #[derive(Debug, Clone)]
 pub struct LyricsCache {
@@ -42,12 +49,17 @@ impl LyricsCache {
     }
 
     fn path(&self, hash: &str, kind: &str) -> PathBuf {
-        self.dir.join(format!("{hash}-{kind}.json"))
+        self.dir.join(format!("{hash}-{kind}.v{VERSION}.json"))
     }
 
     pub fn load<T: DeserializeOwned>(&self, hash: &str, kind: &str) -> Option<T> {
         let text = std::fs::read_to_string(self.path(hash, kind)).ok()?;
         serde_json::from_str(&text).ok()
+    }
+
+    /// Forgets what's kept for `hash` of `kind`.
+    pub fn remove(&self, hash: &str, kind: &str) {
+        let _ = std::fs::remove_file(self.path(hash, kind));
     }
 
     pub fn store<T: Serialize>(&self, hash: &str, kind: &str, value: &T) {
@@ -85,6 +97,20 @@ mod tests {
         cache.store("abc", "openai", &vec![1u32, 2, 3]);
         assert_eq!(cache.load::<Vec<u32>>("abc", "openai"), Some(vec![1, 2, 3]));
         assert_eq!(cache.load::<Vec<u32>>("abc", "lrclib"), None);
+        assert!(dir.path().join("lyrics/abc-openai.v2.json").exists());
+        cache.remove("abc", "openai");
+        assert_eq!(cache.load::<Vec<u32>>("abc", "openai"), None);
+    }
+
+    #[test]
+    fn what_an_earlier_version_kept_is_not_read() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("lyrics")).unwrap();
+        std::fs::write(dir.path().join("lyrics/abc-openai.json"), "[1,2,3]").unwrap();
+        let cache = LyricsCache::new(dir.path());
+        assert_eq!(cache.load::<Vec<u32>>("abc", "openai"), None);
+        // And it's left alone.
+        cache.store("abc", "openai", &vec![4u32]);
         assert!(dir.path().join("lyrics/abc-openai.json").exists());
     }
 }

@@ -640,6 +640,7 @@ mod tests {
                 })
                 .collect(),
             lines: Vec::new(),
+            language: None,
         }
     }
 

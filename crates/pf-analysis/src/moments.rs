@@ -856,25 +856,25 @@ mod tests {
         let word = |ms: u64, w: &str| Mark::new(ms, ms + 300, w);
         let words = [
             word(1_000, "who"),
-            word(1_300, "you"),
-            word(1_600, "gonna"),
-            word(1_900, "call?"),
-            word(4_000, "Ghostbusters!"),
-            word(6_000, "Ghostbusters!"),
-            word(8_000, "Ghostbusters!"),
-            word(10_500, "something"),
+            word(1_300, "lights"),
+            word(1_600, "the"),
+            word(1_900, "porch?"),
+            word(4_000, "Snowblasters!"),
+            word(6_000, "Snowblasters!"),
+            word(8_000, "Snowblasters!"),
+            word(10_500, "quiet"),
         ];
         let lines = [
-            Mark::new(1_000, 2_200, "Who you gonna call?"),
-            Mark::new(4_000, 4_500, "Ghostbusters!"),
-            Mark::new(6_000, 6_500, "Ghostbusters!"),
-            Mark::new(8_000, 8_500, "Ghostbusters!"),
-            Mark::new(10_500, 11_000, "something strange"),
+            Mark::new(1_000, 2_200, "Who lights the porch?"),
+            Mark::new(4_000, 4_500, "Snowblasters!"),
+            Mark::new(6_000, 6_500, "Snowblasters!"),
+            Mark::new(8_000, 8_500, "Snowblasters!"),
+            Mark::new(10_500, 11_000, "quiet night"),
         ];
-        let found = shouts_from_words(&cues, &words, &lines, Some("Ghostbusters"), 20.0);
+        let found = shouts_from_words(&cues, &words, &lines, Some("Snowblasters"), 20.0);
         let times: Vec<f64> = found.iter().map(|f| f.at).collect();
         assert_eq!(found.len(), 3, "{found:?}");
-        assert!(found.iter().all(|f| f.label.as_deref() == Some("Ghostbusters")));
+        assert!(found.iter().all(|f| f.label.as_deref() == Some("Snowblasters")));
         // The one where the voice jumps, on a hit, is the strongest.
         assert_eq!(times[0], 8.0, "{found:?}");
     }

@@ -634,6 +634,9 @@ fn the_prompt_says_to_act_on_defaults_and_stays_short() {
     assert!(prompt.contains("\"Lyrics (syllables)\""));
     assert!(prompt.contains("Offer Find lyrics"));
     assert!(prompt.contains("moments are [ms, kind, importance 0–1, suggest, label, endMs]"));
+    // Sequencing as a lighting designer: looks first, then the moments staged as cues.
+    assert!(prompt.contains("work like a lighting designer"));
+    assert!(prompt.contains("stage_cue") && prompt.contains("stageMoments"));
     // It's sent with every request: new rules come out of what's there. Guidance for using tools
     // is said here once rather than in each tool's description (see `tool_definitions_stay_small`).
     assert!(prompt.len() <= 5_300, "{} bytes", prompt.len());

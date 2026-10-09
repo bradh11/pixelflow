@@ -98,7 +98,7 @@ export function CommandPalette() {
         });
       },
     },
-    ...(sequenceHasMusic ? [{ id: "detect-beats", label: "Detect beats (find the beats, bars, sections, and accents)", run: () => useSequencer.getState().detectBeats() }] : []),
+    ...(sequenceHasMusic ? [{ id: "detect-beats", label: "Detect beats (find the beats, bars, sections, accents, moments, and drums)", run: () => useSequencer.getState().detectBeats() }] : []),
     {
       id: "scan",
       label: "Scan the network for controllers",

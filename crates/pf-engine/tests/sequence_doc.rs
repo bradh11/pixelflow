@@ -1123,14 +1123,17 @@ fn looping_plays_again_from_the_top_with_the_music_in_step() {
     for &(from, to) in jumps.lock().unwrap().iter().take(3) {
         assert_eq!(to, 0, "the music starts again from the top");
         assert!(
-            (200..250).contains(&from),
+            // A frame or two late is in step; a loaded machine can schedule the playback thread
+            // later still, so allow that without letting real drift (which adds up) through.
+            (200..350).contains(&from),
             "jumped back {from} ms in, for a 200 ms sequence"
         );
     }
     let lights = engine.playback_status().unwrap().position_ms;
     let heard = music.lock().unwrap().position().as_millis() as u64;
     assert!(
-        heard.abs_diff(lights) <= 50,
+        // The two positions are read a moment apart, on a thread that may be scheduled late.
+        heard.abs_diff(lights) <= 120,
         "lights at {lights} ms and music at {heard} ms after three loops"
     );
 

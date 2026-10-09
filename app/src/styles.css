@@ -35,3 +35,26 @@ body {
   background-size: 14px;
   padding-right: 1.75rem;
 }
+
+/* A progress bar that can't tell how far it has got sweeps from side to side. */
+.pf-progress-sweep {
+  animation: pf-progress-sweep 1.2s ease-in-out infinite;
+}
+
+@keyframes pf-progress-sweep {
+  from {
+    left: -33%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pf-progress-sweep {
+    animation: none;
+    left: 0;
+    width: 100%;
+    opacity: 0.5;
+  }
+}

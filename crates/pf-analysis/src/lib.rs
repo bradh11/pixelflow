@@ -68,7 +68,7 @@ pub use vocal_track::{
     OFFSET_HOLD_MS, VOCAL_TRACK_FORMAT, VocalTrack, vocal_track, vocal_track_cancellable, vocal_track_file,
 };
 
-use pf_audio::{AudioError, MonoSamples};
+use pf_audio::{AudioError, MonoSamples, Progress, reported};
 use pf_sequence::{Mark, TimingKind, TimingTrack};
 use serde::Serialize;
 use std::path::Path;
@@ -322,12 +322,25 @@ pub fn analyze_file(path: &Path) -> Result<Analysis, AnalysisError> {
 
 /// Like [`analyze_file`], stopping when `stop` says so (see [`analyze_cancellable`]).
 pub fn analyze_file_cancellable(path: &Path, stop: &dyn Fn() -> bool) -> Result<Analysis, AnalysisError> {
+    analyze_file_reporting(path, stop, &pf_audio::no_progress)
+}
+
+/// Like [`analyze_file_cancellable`], telling `progress` how far it has got (0–1, ending at 1
+/// when done). Reading the song is most of the work; the sections and bars after it the rest.
+pub fn analyze_file_reporting(
+    path: &Path,
+    stop: &dyn Fn() -> bool,
+    progress: &dyn Fn(f32),
+) -> Result<Analysis, AnalysisError> {
     let samples = MonoSamples::open(path)?;
     let rate = samples.sample_rate();
-    let analysis = analyze_cancellable(samples, rate, stop)?;
+    let read = samples.position();
+    let progress = Progress::new(progress);
+    let analysis = analyze_cancellable(reported(samples, read, &progress, 0.9), rate, stop)?;
     if analysis.duration_ms == 0 {
         return Err(AnalysisError::Empty);
     }
+    progress.finish();
     Ok(analysis)
 }
 

@@ -3,6 +3,7 @@
 
 use crate::error::AudioError;
 use crate::mono::MonoSamples;
+use crate::progress::{Progress, no_progress, reported};
 use std::path::Path;
 
 /// Samples between checks for a stop.
@@ -64,15 +65,28 @@ impl Resampler {
 
 /// Decodes a music file to mono at `rate` Hz, giving up when `stop` says so.
 pub fn mono_at_rate(path: &Path, rate: u32, stop: &dyn Fn() -> bool) -> Result<Vec<f32>, AudioError> {
+    mono_at_rate_reporting(path, rate, stop, &no_progress)
+}
+
+/// Like [`mono_at_rate`], telling `progress` how far it has got (0–1, ending at 1 when done).
+pub fn mono_at_rate_reporting(
+    path: &Path,
+    rate: u32,
+    stop: &dyn Fn() -> bool,
+    progress: &dyn Fn(f32),
+) -> Result<Vec<f32>, AudioError> {
     let samples = MonoSamples::open(path)?;
+    let progress = Progress::new(progress);
     let mut resampler = Resampler::new(samples.sample_rate(), rate);
+    let read = samples.position();
     let mut out = Vec::new();
-    for (i, sample) in samples.enumerate() {
+    for (i, sample) in reported(samples, read, &progress, 1.0).enumerate() {
         if i % CHECK_EVERY == 0 && stop() {
             return Err(AudioError::Stopped);
         }
         resampler.push(sample, &mut out);
     }
+    progress.finish();
     Ok(out)
 }
 

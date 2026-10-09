@@ -1,6 +1,7 @@
 //! Sequencer commands: authoring a sequence document, playing it live, exporting it to `.fseq`,
 //! and detecting beats in its music.
 
+use crate::progress::AudioTask;
 use crate::{AppState, PathArg, Reply, message};
 use pf_analysis::Analysis;
 use pf_engine::{
@@ -266,7 +267,10 @@ pub(crate) async fn analyze_audio(path: String) -> Reply<Analysis> {
 /// track. The analysis runs without holding the engine; the tracks are only added if the same
 /// sequence, with the same music, is still open.
 #[tauri::command]
-pub(crate) async fn detect_beats(state: State<'_, AppState>) -> Reply<SequenceEditResult> {
+pub(crate) async fn detect_beats<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+) -> Reply<SequenceEditResult> {
     let (doc, music) = {
         let engine = state.engine();
         let doc = engine
@@ -278,10 +282,17 @@ pub(crate) async fn detect_beats(state: State<'_, AppState>) -> Reply<SequenceEd
         (doc, music)
     };
     let analyzed = music.clone();
-    let analysis = tauri::async_runtime::spawn_blocking(move || pf_analysis::analyze_file(&analyzed))
-        .await
-        .map_err(|_| "Something went wrong analyzing the music.".to_string())?
-        .map_err(|e| e.to_string())?;
+    let report = crate::progress::reporter(&app, AudioTask::Beats, &pf_model::path_to_text(&music));
+    let analysis = tauri::async_runtime::spawn_blocking(move || {
+        let found = pf_analysis::analyze_file_reporting(&analyzed, &|| false, &report);
+        if found.is_err() {
+            report(1.0);
+        }
+        found
+    })
+    .await
+    .map_err(|_| "Something went wrong analyzing the music.".to_string())?
+    .map_err(|e| e.to_string())?;
     let mut engine = state.engine();
     let moments = match engine.sequence_document() {
         Some(seq) => pf_ai::song::moments_track(&analysis, seq),

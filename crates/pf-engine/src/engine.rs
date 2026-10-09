@@ -270,6 +270,12 @@ impl Engine {
         self.audio.set_dir(dir);
     }
 
+    /// Tells `report` how far working out each song's audio track has got (see
+    /// [`AudioTracks::set_progress`]).
+    pub fn set_audio_progress(&self, report: Option<Arc<crate::TrackProgress>>) {
+        self.audio.set_progress(report);
+    }
+
     /// The open sequence's music as an audio track for rendering: ready once it's worked out
     /// (in the background, the first time a song and frame time are asked for), none without
     /// music.

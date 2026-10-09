@@ -74,8 +74,9 @@ impl Step {
     }
 }
 
-/// Reads a song's lead vocal (see [`pf_analysis::vocal_track`]); tests use a stand-in.
-pub type VoiceReader = dyn Fn(&Path, &Cancel) -> Result<VocalTrack, String> + Send + Sync;
+/// Reads a song's lead vocal (see [`pf_analysis::vocal_track`]), telling the last argument how
+/// far it has got (0–1); tests use a stand-in.
+pub type VoiceReader = dyn Fn(&Path, &Cancel, &dyn Fn(f32)) -> Result<VocalTrack, String> + Send + Sync;
 
 /// Reads a song's tags (see [`pf_audio::read_tags`]).
 pub type TagReader = dyn Fn(&Path) -> Option<SongTags> + Send + Sync;
@@ -99,8 +100,9 @@ impl Services {
         Self {
             lrclib: Lrclib::new(std::sync::Arc::new(crate::http::UreqTransport::quick())),
             transcriber: Transcriber::new(std::sync::Arc::new(crate::http::UreqTransport::new())),
-            voice: Box::new(|path, cancel| {
-                pf_analysis::vocal_track_file(path, &|| cancel.is_cancelled()).map_err(|e| e.to_string())
+            voice: Box::new(|path, cancel, progress| {
+                pf_analysis::vocal_track_file(path, &|| cancel.is_cancelled(), progress)
+                    .map_err(|e| e.to_string())
             }),
             tags: Box::new(|path| pf_audio::read_tags(path).ok()),
             log: Box::new(|_| {}),
@@ -125,6 +127,8 @@ pub struct Request<'a> {
     pub language: &'a str,
     /// Find again: what's kept for the song (and the user's choice for it) isn't used.
     pub fresh: bool,
+    /// Told how far a step that reads the whole song has got (0–1), for a progress bar.
+    pub progress: &'a dyn Fn(f32),
 }
 
 /// Lyrics the user chose instead of the ones picked for them.
@@ -311,8 +315,13 @@ fn hear(
         return Ok(heard);
     }
     let cancel = request.cancel;
-    let uploads = transcribe::uploads_for(request.path, request.sections_ms, &|| cancel.is_cancelled())
-        .map_err(Unheard::Failed)?;
+    let uploads = transcribe::uploads_for(
+        request.path,
+        request.sections_ms,
+        &|| cancel.is_cancelled(),
+        request.progress,
+    )
+    .map_err(Unheard::Failed)?;
     let ask = |hint: &Hint| {
         services
             .transcriber
@@ -493,6 +502,7 @@ pub fn read_voice(
     hash: Option<&str>,
     cache: Option<&LyricsCache>,
     cancel: &Cancel,
+    progress: &dyn Fn(f32),
 ) -> Option<VocalTrack> {
     let kind = voice_kind();
     if let (Some(hash), Some(cache)) = (hash, cache)
@@ -502,7 +512,7 @@ pub fn read_voice(
     {
         return Some(track);
     }
-    let track = (services.voice)(path, cancel).ok()?;
+    let track = (services.voice)(path, cancel, progress).ok()?;
     if let (Some(hash), Some(cache), false) = (hash, cache, track.is_empty()) {
         cache.store_bytes(hash, &kind, &track.to_bytes());
     }
@@ -582,6 +592,7 @@ pub fn assemble(
         gathered.hash.as_deref(),
         request.cache,
         cancel,
+        request.progress,
     );
     cancel.check().map_err(|_| stopped())?;
     let onsets = voice.as_ref().map_or(&[][..], |v| &v.activity.onsets[..]);
@@ -750,7 +761,7 @@ mod tests {
         let services = Services {
             lrclib: Lrclib::new(lrclib_fake.clone()).with_retry_delay(Duration::ZERO),
             transcriber: Transcriber::new(openai_fake.clone()).with_retry(RetryPolicy::immediate()),
-            voice: Box::new(|_, _| Ok(VocalTrack::default())),
+            voice: Box::new(|_, _, _| Ok(VocalTrack::default())),
             tags: Box::new(|_| {
                 Some(SongTags {
                     title: Some("Lantern Song".into()),
@@ -791,6 +802,7 @@ mod tests {
             cancel,
             language: language::DEFAULT,
             fresh: false,
+            progress: &|_| {},
         }
     }
 

@@ -27,7 +27,7 @@
 use crate::layers::{LayerExtractor, Layers};
 use crate::onset::{OnsetEnvelope, clean, onset_envelope, pick_onsets};
 use crate::{AnalysisError, MAX_ANALYSIS_MS, beat_grid, estimate_tempo};
-use pf_audio::MonoSamples;
+use pf_audio::{MonoSamples, Progress, reported};
 use realfft::num_complex::Complex;
 use realfft::{RealFftPlanner, RealToComplex};
 use std::path::Path;
@@ -707,18 +707,23 @@ pub fn audio_track_cancellable(
     Ok(assemble(extractor.finish(), &envelope, &separator.finish()))
 }
 
-/// Decodes a music file and works out its audio track (see [`audio_track_cancellable`]).
+/// Decodes a music file and works out its audio track (see [`audio_track_cancellable`]),
+/// telling `progress` how far it has got (0–1, ending at 1 when done).
 pub fn audio_track_file(
     path: &Path,
     frame_ms: u32,
     stop: &dyn Fn() -> bool,
+    progress: &dyn Fn(f32),
 ) -> Result<AudioTrack, AnalysisError> {
     let samples = MonoSamples::open(path)?;
     let rate = samples.sample_rate();
-    let track = audio_track_cancellable(samples, rate, frame_ms, stop)?;
+    let read = samples.position();
+    let progress = Progress::new(progress);
+    let track = audio_track_cancellable(reported(samples, read, &progress, 0.95), rate, frame_ms, stop)?;
     if track.is_empty() {
         return Err(AnalysisError::Empty);
     }
+    progress.finish();
     Ok(track)
 }
 

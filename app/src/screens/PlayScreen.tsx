@@ -640,6 +640,7 @@ export function PlayScreen() {
             <div className="min-w-0 flex-1">
               <WaveformView
                 waveform={waveform}
+                audio={audio}
                 loading={waveformLoading}
                 positionMs={current ? position : null}
                 durationMs={length}

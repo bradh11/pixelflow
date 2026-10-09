@@ -20,7 +20,7 @@
 
 use crate::AnalysisError;
 use crate::vocal::{ActivityExtractor, VocalActivity};
-use pf_audio::StereoFrames;
+use pf_audio::{Progress, StereoFrames, reported};
 use realfft::num_complex::Complex;
 use realfft::{RealFftPlanner, RealToComplex};
 use std::collections::VecDeque;
@@ -276,11 +276,20 @@ pub fn vocal_track_cancellable(
     Ok(extractor.finish())
 }
 
-/// Decodes a music file and measures it (see [`vocal_track`]).
-pub fn vocal_track_file(path: &Path, stop: &dyn Fn() -> bool) -> Result<VocalTrack, AnalysisError> {
+/// Decodes a music file and measures it (see [`vocal_track`]), telling `progress` how far it
+/// has got (0–1, ending at 1 when done).
+pub fn vocal_track_file(
+    path: &Path,
+    stop: &dyn Fn() -> bool,
+    progress: &dyn Fn(f32),
+) -> Result<VocalTrack, AnalysisError> {
     let frames = StereoFrames::open(path)?;
     let rate = frames.sample_rate();
-    vocal_track_cancellable(frames, rate, stop)
+    let read = frames.position();
+    let progress = Progress::new(progress);
+    let track = vocal_track_cancellable(reported(frames, read, &progress, 0.98), rate, stop)?;
+    progress.finish();
+    Ok(track)
 }
 
 /// One frame's centred spectrum, waiting for the frames after it.

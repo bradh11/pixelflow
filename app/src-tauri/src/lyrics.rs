@@ -15,6 +15,7 @@
 //! talking to LRCLIB or OpenAI is logged in detail; the user is told in plain words.
 
 use crate::assistant::AiState;
+use crate::progress::Throttle;
 use crate::{AppState, Reply, message};
 use pf_ai::lyrics::{self, CandidateView, Choice, Gathered, LyricsCache, LyricsGate, Services, Step};
 use pf_ai::{Cancel, ProviderId};
@@ -23,6 +24,7 @@ use pf_sequence::{TimingKind, TimingTrackId};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::Instant;
 use tauri::{AppHandle, Emitter, Runtime, State};
 
 /// The event Find lyrics sends as it goes (see [`LyricsProgress`]).
@@ -33,6 +35,9 @@ pub(crate) const LYRICS_PROGRESS_EVENT: &str = "lyrics-progress";
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LyricsProgress {
     pub label: &'static str,
+    /// How far a step that reads the whole song has got (0–1); none at the start of a step,
+    /// and for steps that can't tell.
+    pub fraction: Option<f32>,
 }
 
 /// What was gathered for the last song lyrics were found for.
@@ -229,6 +234,21 @@ pub(crate) async fn find_lyrics<R: Runtime>(
     let sections = song.sections.clone();
     let stop = cancel.clone();
     let (found, gathered) = tauri::async_runtime::spawn_blocking(move || {
+        // The step the song is being read for, and how often a reading reports.
+        let at = std::cell::Cell::new(Step::ReadingSong.label());
+        let throttle = Throttle::default();
+        let progress = |fraction: f32| {
+            if throttle.due(fraction, Instant::now()) {
+                let label = at.get();
+                let _ = app.emit(
+                    LYRICS_PROGRESS_EVENT,
+                    LyricsProgress {
+                        label,
+                        fraction: Some(fraction),
+                    },
+                );
+            }
+        };
         let request = lyrics::Request {
             path: &looked,
             duration_ms: song.duration_ms,
@@ -238,9 +258,17 @@ pub(crate) async fn find_lyrics<R: Runtime>(
             cancel: &stop,
             language: &language,
             fresh: fresh.unwrap_or(false),
+            progress: &progress,
         };
         let mut on_step = |step: Step| {
-            let _ = app.emit(LYRICS_PROGRESS_EVENT, LyricsProgress { label: step.label() });
+            at.set(step.label());
+            let _ = app.emit(
+                LYRICS_PROGRESS_EVENT,
+                LyricsProgress {
+                    label: step.label(),
+                    fraction: None,
+                },
+            );
         };
         let gathered = lyrics::gather(&services, &request, &mut on_step)?;
         let found = lyrics::assemble(&services, &request, &gathered, &mut on_step)?;
@@ -290,6 +318,7 @@ pub(crate) async fn choose_lyrics(
             cancel: &stop,
             language: lyrics::language::DEFAULT,
             fresh: false,
+            progress: &|_| {},
         };
         lyrics::assemble(&services, &request, &kept, &mut |_| {})
     })
@@ -406,7 +435,7 @@ pub(crate) async fn retime_lyrics(
     let stop = cancel.clone();
     let voice = tauri::async_runtime::spawn_blocking(move || {
         let hash = lyrics::cache::file_hash(&music, &|| stop.is_cancelled());
-        lyrics::read_voice(&services, &music, hash.as_deref(), cache.as_ref(), &stop)
+        lyrics::read_voice(&services, &music, hash.as_deref(), cache.as_ref(), &stop, &|_| {})
     })
     .await
     .map_err(|_| "Something went wrong listening to the song.".to_string())?

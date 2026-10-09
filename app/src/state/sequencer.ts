@@ -185,6 +185,8 @@ interface SequencerState {
   detecting: boolean;
   /** While Find lyrics runs: what it's doing ("Looking up published lyrics"); else null. */
   findingLyrics: string | null;
+  /** How far the step Find lyrics is on has got (0–1), while it reads the whole song; else null. */
+  lyricsFraction: number | null;
   /** While Re-time to vocals runs. */
   retimingLyrics: boolean;
   /** Changes when a different document is opened or started (not when it's saved). */
@@ -464,6 +466,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
     suggestBeats: false,
     detecting: false,
     findingLyrics: null,
+    lyricsFraction: null,
     docKey: 0,
     revealAt: 0,
     revealTarget: "selection",
@@ -656,11 +659,11 @@ export const useSequencer = create<SequencerState>((set, get) => {
     async findLyrics(provider, upload, options = { language: "en", fresh: false }) {
       const { api } = get();
       if (!api || get().findingLyrics !== null) return null;
-      set({ findingLyrics: "Starting", notice: null });
+      set({ findingLyrics: "Starting", lyricsFraction: null, notice: null });
       try {
         let found: LyricsFound;
         try {
-          found = await api.findLyrics(provider, upload, options, (label) => set({ findingLyrics: label }));
+          found = await api.findLyrics(provider, upload, options, (label, fraction) => set({ findingLyrics: label, lyricsFraction: fraction }));
         } catch (e) {
           if (errorMessage(e) !== "Stopped.") report(e);
           return null;
@@ -669,7 +672,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
         set({ notice: lyricsNotice(found, { provider, upload }) });
         return found;
       } finally {
-        set({ findingLyrics: null });
+        set({ findingLyrics: null, lyricsFraction: null });
       }
     },
 
@@ -677,7 +680,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
       const { api } = get();
       if (!api || get().findingLyrics !== null) return null;
       const run = get().notice?.lyricsRun;
-      set({ findingLyrics: "Lining up the words" });
+      set({ findingLyrics: "Lining up the words", lyricsFraction: null });
       try {
         let found: LyricsFound;
         try {
@@ -690,7 +693,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
         set({ notice: lyricsNotice(found, run) });
         return found;
       } finally {
-        set({ findingLyrics: null });
+        set({ findingLyrics: null, lyricsFraction: null });
       }
     },
 

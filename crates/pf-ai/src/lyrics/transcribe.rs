@@ -197,8 +197,14 @@ pub fn part_bounds(total: usize, most: usize, cuts_ms: &[u64]) -> Vec<(usize, us
 }
 
 /// The audio to send for a song: the file itself when it can go as it is, else mono 16 kHz WAV
-/// in as few parts as fit, cut at `sections_ms` where it can be.
-pub fn uploads_for(path: &Path, sections_ms: &[u64], stop: &dyn Fn() -> bool) -> Result<Vec<Upload>, String> {
+/// in as few parts as fit, cut at `sections_ms` where it can be (telling `progress` how far that
+/// decoding has got).
+pub fn uploads_for(
+    path: &Path,
+    sections_ms: &[u64],
+    stop: &dyn Fn() -> bool,
+    progress: &dyn Fn(f32),
+) -> Result<Vec<Upload>, String> {
     let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(u64::MAX);
     if let Some(mime) = mime_for(path)
         && size <= MAX_FILE_BYTES as u64
@@ -215,7 +221,7 @@ pub fn uploads_for(path: &Path, sections_ms: &[u64], stop: &dyn Fn() -> bool) ->
             offset_ms: 0,
         }]);
     }
-    let samples = pf_audio::mono_at_rate(path, RATE, stop).map_err(|e| e.to_string())?;
+    let samples = pf_audio::mono_at_rate_reporting(path, RATE, stop, progress).map_err(|e| e.to_string())?;
     let most = (MAX_FILE_BYTES - 44) / 2;
     Ok(part_bounds(samples.len(), most, sections_ms)
         .into_iter()
@@ -431,14 +437,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("tune.wav");
         std::fs::write(&path, pf_audio::wav_bytes(&vec![0.1; 8_000], 8_000)).unwrap();
-        let uploads = uploads_for(&path, &[], &|| false).unwrap();
+        let uploads = uploads_for(&path, &[], &|| false, &|_| {}).unwrap();
         assert_eq!(uploads.len(), 1);
         assert_eq!(uploads[0].mime, "audio/wav");
         assert_eq!(uploads[0].bytes, std::fs::read(&path).unwrap());
         // A format OpenAI doesn't take is decoded to 16 kHz WAV.
         let odd = dir.path().join("tune.aiff-not");
         std::fs::copy(&path, &odd).unwrap();
-        let uploads = uploads_for(&odd, &[], &|| false).unwrap();
+        let uploads = uploads_for(&odd, &[], &|| false, &|_| {}).unwrap();
         assert_eq!(uploads.len(), 1);
         assert!(uploads[0].bytes.starts_with(b"RIFF"));
         // One second at 16 kHz, 16-bit.

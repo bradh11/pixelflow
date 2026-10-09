@@ -4,7 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Backend } from "./backend";
 import { whileFileDialog } from "./fileDialogs";
 import { decodePreview, decodePreview3d } from "./previewBytes";
-import type { FppDownloadProgress, FppDownloadResult, FppSendProgress, FppSendResult, MenuAction, PickKind } from "./types";
+import type { AudioInfo, AudioProgress, FppDownloadProgress, FppDownloadResult, FppSendProgress, FppSendResult, MenuAction, PickKind } from "./types";
 
 /** The event the shell sends when a File menu item is chosen in the menu bar. */
 const MENU_EVENT = "menu";
@@ -12,6 +12,8 @@ const MENU_EVENT = "menu";
 const FPP_SEND_PROGRESS_EVENT = "fpp-send-progress";
 /** The event a download from an FPP reports its progress with. */
 const FPP_DOWNLOAD_PROGRESS_EVENT = "fpp-download-progress";
+/** The event long work on a music file reports its progress with. */
+export const AUDIO_PROGRESS_EVENT = "audio-progress";
 
 /**
  * Shows a native file dialog of `kind` (a save dialog suggests `name`). The shell shows it as a
@@ -122,6 +124,19 @@ export const tauriBackend: Backend = {
   playSequence: (id, positionMs) => invoke("play_sequence", { id, positionMs }),
   setPlaybackVolume: (volume) => invoke("set_playback_volume", { volume }),
   audioWaveform: (path, slices) => invoke("audio_waveform", { path, slices }),
+  probeAudio: async (path, onProgress) => {
+    const unlisten = onProgress
+      ? await listen<AudioProgress>(AUDIO_PROGRESS_EVENT, (event) => {
+          if (event.payload.task === "probe" && event.payload.path === path) onProgress(event.payload);
+        })
+      : null;
+    try {
+      return await invoke<AudioInfo>("probe_audio", { path });
+    } finally {
+      unlisten?.();
+    }
+  },
+  onAudioProgress: (handler) => listen<AudioProgress>(AUDIO_PROGRESS_EVENT, (event) => handler(event.payload)),
   pickAudioPath: () => pickPath("music"),
   pickSequencePath: () => pickPath("fseq"),
   pickOpenPath: () => pickPath("show"),

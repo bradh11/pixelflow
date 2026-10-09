@@ -474,8 +474,11 @@ export class MemorySequencer implements SequencerApi {
   /** How long edit, undo, and redo replies take to come back (tests of a slow engine). The edit
    * itself lands at once, as in the engine; only the answer is late. */
   replyDelayMs = 0;
-  /** How long beat detection takes. */
+  /** How long beat detection takes (reporting progress as it goes, with a memory backend). */
   analysisDelayMs = 0;
+  /** How long working out an opened sequence's audio track takes in the background (0: it
+   * isn't, as if it were kept from before). */
+  audioTrackMs = 0;
   /** Whether the assistant has a key for a provider (the stand-in assistant answers this). */
   hasAssistantKey: (provider: ProviderId) => boolean = () => false;
   /** How long each step of Find lyrics takes, and whether published lyrics are "found". */
@@ -547,6 +550,9 @@ export class MemorySequencer implements SequencerApi {
     this.undoStack = [];
     this.redoStack = [];
     this.lastGesture = null;
+    // The engine works out the music's audio track (what effects that follow it read) in the
+    // background once a sequence with music opens.
+    if (doc.audio && this.audioTrackMs > 0) void this.backend?.readMusic("audioTrack", doc.audio, undefined, this.audioTrackMs);
   }
 
   async newSequenceDoc(name: string, durationMs: number, audio: string | null = null, rows: Row[] = []) {
@@ -799,7 +805,9 @@ export class MemorySequencer implements SequencerApi {
     const doc = this.open_();
     const docId = this.docId;
     if (!doc.audio) fail("This sequence has no music yet. Choose a song for it first.");
-    const analysis = await this.reply(await this.analyzeAudio(doc.audio), this.analysisDelayMs);
+    const analysis = await this.analyzeAudio(doc.audio);
+    if (this.backend) await this.backend.readMusic("beats", doc.audio, undefined, this.analysisDelayMs);
+    else await this.reply(undefined, this.analysisDelayMs);
     if (this.docId !== docId || this.doc?.audio !== doc.audio) {
       fail("The sequence or its music changed while the beats were being found. Run beat detection again.");
     }
@@ -859,7 +867,7 @@ export class MemorySequencer implements SequencerApi {
   }
 
   /** Made-up lyrics spread over the sequence, as if LRCLIB (and OpenAI) had found them. */
-  async findLyrics(provider: ProviderId | null, upload: boolean, options: LyricsOptions, onProgress?: (label: string) => void): Promise<LyricsFound> {
+  async findLyrics(provider: ProviderId | null, upload: boolean, options: LyricsOptions, onProgress?: (label: string, fraction: number | null) => void): Promise<LyricsFound> {
     this.calls.push(`findLyrics:${provider}:${upload}`);
     this.lastLyricsOptions = options;
     const gate = await this.lyricsGate(provider);
@@ -870,7 +878,17 @@ export class MemorySequencer implements SequencerApi {
     const heard = gate.recognizer && upload;
     const steps = ["Reading the song", "Looking up published lyrics", ...(heard ? ["Sending the audio to OpenAI to hear the words"] : []), "Lining up the words"];
     for (const label of steps) {
-      onProgress?.(label);
+      onProgress?.(label, null);
+      if (label === "Lining up the words" && this.lyricsStepMs > 0) {
+        // Reading the song's voice: progress as it goes.
+        const parts = Math.max(1, Math.round(this.lyricsStepMs / 100));
+        for (let i = 0; i <= parts; i++) {
+          onProgress?.(label, i / parts);
+          if (i < parts) await this.reply(undefined, this.lyricsStepMs / parts);
+          if (this.lyricsCancels !== started) fail("Stopped.");
+        }
+        continue;
+      }
       await this.reply(undefined, this.lyricsStepMs);
       if (this.lyricsCancels !== started) fail("Stopped.");
     }

@@ -1144,6 +1144,32 @@ export interface Waveform {
   peaks: number[];
 }
 
+/** A music file's length and format, found from what the file says about itself where it can. */
+export interface AudioInfo {
+  durationMs: number;
+  sampleRate: number;
+  channels: number;
+  /** The codec's short name ("mp3", "aac", "flac", "vorbis", "pcm_s16le"). */
+  codec: string;
+  /** Where the length came from: the file's header, counting an MP3's frames, or decoding it all. */
+  foundBy: "header" | "frames" | "decoding";
+}
+
+/** Long work on a music file: its length (when the header doesn't say), its waveform, the audio
+ * track effects follow, and its beats. */
+export type AudioTask = "probe" | "waveform" | "audioTrack" | "beats";
+
+/** How far long work on a music file has got. */
+export interface AudioProgress {
+  task: AudioTask;
+  /** The music file, as the window named it. */
+  path: string;
+  /** What's being done ("Reading the music"). */
+  stage: string;
+  /** How much is done (0–1); 1 when it's over, done or not. */
+  fraction: number;
+}
+
 /** Where a prop's pixels are drawn in the preview (x, y pairs) and where their colors sit in a live frame. */
 export interface PreviewProp {
   prop: Uuid;

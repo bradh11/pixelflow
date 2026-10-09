@@ -1,4 +1,6 @@
 import type {
+  AudioInfo,
+  AudioProgress,
   DeviceComparison,
   DeviceDetails,
   RestorePlan,
@@ -214,8 +216,19 @@ export interface Backend {
   playSequence(id: string, positionMs: number): Promise<PlaybackStatus>;
   /** Music volume (0–1) for playback. */
   setPlaybackVolume(volume: number): Promise<PlaybackStatus | null>;
-  /** A music file's loudness over time, in `slices` slices. */
+  /** A music file's loudness over time, in `slices` slices (progress goes to onAudioProgress). */
   audioWaveform(path: string, slices: number): Promise<Waveform>;
+  /**
+   * How long a music file plays, from what it says about itself: quick, except for a file that
+   * doesn't say, which is read through, calling `onProgress` as it goes.
+   */
+  probeAudio(path: string, onProgress?: (progress: AudioProgress) => void): Promise<AudioInfo>;
+  /**
+   * Calls `handler` as long work on music files gets along (waveforms, the audio track effects
+   * follow, beats), about ten times a second at most; resolves with a function that stops
+   * listening.
+   */
+  onAudioProgress(handler: (progress: AudioProgress) => void): Promise<() => void>;
   /** Shows a native "choose music" dialog; null when cancelled. */
   pickAudioPath(): Promise<string | null>;
   /** Shows a native "open sequence" dialog; null when cancelled. */

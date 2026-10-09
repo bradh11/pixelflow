@@ -208,7 +208,7 @@ impl MusicPlayer {
     /// Opens `path` on the default output, paused at the start.
     pub fn open(path: &Path) -> Result<Self, AudioError> {
         let shared = Arc::new(Shared::default());
-        let source = MusicSource::new(open_decoder(path)?, Arc::clone(&shared));
+        let source = MusicSource::new(open_decoder(path)?.0, Arc::clone(&shared));
         let lost = Arc::clone(&shared);
         let on_error = move |error: StreamError| {
             if matches!(
@@ -370,7 +370,7 @@ mod tests {
         let path = dir.path().join("ramp.wav");
         write_ramp(&path);
         let shared = Arc::new(Shared::default());
-        let source = MusicSource::new(open_decoder(&path).unwrap(), Arc::clone(&shared));
+        let source = MusicSource::new(open_decoder(&path).unwrap().0, Arc::clone(&shared));
         let (player, output) = Player::new();
         let music = MusicPlayer::with_player(player, source, shared, Duration::ZERO, None);
         (music, output, dir)

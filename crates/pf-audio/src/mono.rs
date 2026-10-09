@@ -1,34 +1,40 @@
 //! Decoding a music file to mono samples, a few at a time, for analysis.
 
-use crate::decode::open_decoder;
+use crate::decode::{FileDecoder, open_decoder};
 use crate::error::AudioError;
-use rodio::{Decoder, Source};
-use std::fs::File;
-use std::io::BufReader;
+use crate::progress::ReadPosition;
+use rodio::Source;
 use std::path::Path;
 
 /// A music file decoded on the fly to mono samples (channels averaged) at its own sample rate.
 /// Nothing is held in memory beyond the decoder's buffer, so long songs are fine.
 pub struct MonoSamples {
-    decoder: Decoder<BufReader<File>>,
+    decoder: FileDecoder,
     channels: usize,
     rate: u32,
+    position: ReadPosition,
 }
 
 impl MonoSamples {
     /// Opens `path` for decoding.
     pub fn open(path: &Path) -> Result<Self, AudioError> {
-        let decoder = open_decoder(path)?;
+        let (decoder, position) = open_decoder(path)?;
         Ok(Self {
             channels: usize::from(decoder.channels().get()),
             rate: decoder.sample_rate().get(),
             decoder,
+            position,
         })
     }
 
     /// Samples per second.
     pub fn sample_rate(&self) -> u32 {
         self.rate
+    }
+
+    /// How far into the file decoding has got, for showing progress.
+    pub fn position(&self) -> ReadPosition {
+        self.position.clone()
     }
 }
 

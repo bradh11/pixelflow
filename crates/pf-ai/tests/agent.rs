@@ -637,6 +637,10 @@ fn the_prompt_says_to_act_on_defaults_and_stays_short() {
     // Sequencing as a lighting designer: looks first, then the moments staged as cues.
     assert!(prompt.contains("work like a lighting designer"));
     assert!(prompt.contains("stage_cue") && prompt.contains("stageMoments"));
+    // Then it reviews its own draft against the song, fixes it, and reviews once more.
+    assert!(prompt.contains("review_draft scores the sequence against the song"));
+    assert!(prompt.contains("two reviews at most"));
+    assert!(prompt.contains("Asked to review a sequence: review_draft"));
     // It's sent with every request: new rules come out of what's there. Guidance for using tools
     // is said here once rather than in each tool's description (see `tool_definitions_stay_small`).
     assert!(prompt.len() <= 5_300, "{} bytes", prompt.len());

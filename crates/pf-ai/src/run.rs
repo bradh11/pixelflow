@@ -124,7 +124,7 @@ pub fn run_tool(toolbox: &Toolbox, call: &ToolCall, draft: &mut Draft, song: &mu
             crate::cues::stage(draft, analysis.as_deref(), input).map_or_else(err, ok)
         }
         ToolKind::AskForSong => Outcome::AskForSong,
-        ToolKind::ReviewDraft => ok(draft.diff().describe()),
+        ToolKind::ReviewDraft => review_draft(draft, song),
         ToolKind::ResetDraft => {
             draft.reset();
             ok("Your draft is back to the user's show and sequence.")
@@ -142,6 +142,22 @@ pub fn run_tool(toolbox: &Toolbox, call: &ToolCall, draft: &mut Draft, song: &mu
             Outcome::Propose { summary }
         }
         ToolKind::Query(query) => run_query(*query, input, draft),
+    }
+}
+
+/// `review_draft`: the review of the draft's sequence against the song (see [`crate::review`]),
+/// then what the draft changes.
+fn review_draft(draft: &mut Draft, song: &mut Song<'_>) -> Outcome {
+    let changes = draft.diff().describe();
+    if draft.sequence().is_none() {
+        return ok(changes);
+    }
+    // Without a song (or one that can't be read), the parts that need none are reviewed.
+    let analysis = song.music.and_then(|_| song.analysis(draft).ok());
+    match draft.review(analysis.as_deref(), song.cancel) {
+        Ok(Some(review)) => ok(format!("Review: {}\n\nChanges: {changes}", review.to_model())),
+        Ok(None) => ok(changes),
+        Err(e) => err(e),
     }
 }
 

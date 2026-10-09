@@ -2,7 +2,7 @@
 // song, add Beats / Bars / Sections timing, place effects section by section), scripted, so the
 // browser demo shows the whole flow. Pure: it returns the edits and the draft, and changes nothing.
 
-import type { Change, SectionSummary, TimelineView } from "./assistant";
+import type { Change, ReviewView, SectionSummary, TimelineView } from "./assistant";
 import { formatMs } from "./memorySequencer";
 import { type Analysis, EFFECT_KINDS, type Effect, type EffectKind, type Row, type Sequence, type SequenceEdit, type TimingTrack, newEffect } from "./sequence";
 import type { Show } from "./types";
@@ -51,6 +51,8 @@ export interface Composed {
   summary: string;
   /** The cues staged ("Staged 2 cues: 2 hits"), if any. */
   cues: string | null;
+  /** How the draft reviews against the song, as the app's review would put it. */
+  review: ReviewView;
   edits: SequenceEdit[];
   draft: Sequence;
   changes: Change[];
@@ -163,9 +165,17 @@ export function composeDemoSequence(doc: Sequence, show: Show, analysis: Analysi
     moreRows: Math.max(0, lit.length - 48),
   };
   const tempo = analysis.tempoBpm ? `${Math.round(analysis.tempoBpm)} BPM ` : "";
+  // The review: the chorus hits land; a section that holds one look for over 16 bars is left to fix.
+  const barMs = 4 * beatMs;
+  const stale = parts
+    .filter((p) => p.endMs - p.startMs > 16 * barMs)
+    .map((p) => `${formatMs(p.startMs)} ${p.label} holds the same look for ${Math.round((p.endMs - p.startMs) / barMs)} bars: change it partway.`);
+  const score = Math.max(60, 98 - 5 * stale.length);
+  const moments = hits === 0 ? "" : hits === 1 ? " · the top moment emphasised" : ` · all ${hits} top moments emphasised`;
   return {
     summary: `A ${tempo}light show for "${doc.name}": a soft blue intro, a warm sweep across the props in the verse, everything moving in red and green for the chorus, then a slow fade. Synced to the beats and bars.`,
     cues: hits > 0 ? `Staged ${plural(hits, "cue")}: ${plural(hits, "hit")}` : null,
+    review: { score, line: `Review: ${score}/100${moments} · flashes safe`, items: stale },
     edits,
     draft,
     changes,

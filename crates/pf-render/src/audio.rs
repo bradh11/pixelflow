@@ -98,6 +98,13 @@ impl AudioSource {
     }
 }
 
+/// Two sources are equal when they're the same source ([`AudioSource::same`]).
+impl PartialEq for AudioSource {
+    fn eq(&self, other: &Self) -> bool {
+        self.same(other)
+    }
+}
+
 /// An audio track read in a sequence's frames (frame `n` starts at `n × frame_ms`). Past the end
 /// of the music everything reads as silence.
 #[derive(Debug, Clone, Copy)]

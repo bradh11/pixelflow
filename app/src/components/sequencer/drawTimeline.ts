@@ -3,17 +3,19 @@
 // effects cost no more than the few dozen in view.
 
 import type { EffectKind, Sequence } from "../../api/sequence";
-import type { Waveform } from "../../api/types";
+import type { VocalLane, Waveform } from "../../api/types";
 import { type DragItem, type EffectIndex, type Lane, type MarkSpan, type View, effectsInView, marksInView, rulerTicks, timeToX } from "../../lib/timelineMath";
 
 export const RULER_H = 24;
 export const WAVE_H = 44;
 export const TRACK_H = 18;
 export const LANE_H = 30;
+export const VOCALS_H = 40;
 
-/** Height of the band above the rows: ruler, music, and one strip per timing track. */
-export function topHeight(doc: Sequence): number {
-  return RULER_H + WAVE_H + TRACK_H * doc.timingTracks.length;
+/** Height of the band above the rows: ruler, music, one strip per timing track, and the vocals
+ * lane when it's shown. */
+export function topHeight(doc: Sequence, vocals = false): number {
+  return RULER_H + WAVE_H + TRACK_H * doc.timingTracks.length + (vocals ? VOCALS_H : 0);
 }
 
 /** A hue per effect kind, so kinds can be told apart at a glance. */
@@ -65,6 +67,8 @@ interface Theme {
   muted: string;
   wave: string;
   wavePlayed: string;
+  vocals: string;
+  vocalsBand: string;
   playhead: string;
   accent: string;
   mark: string;
@@ -84,6 +88,8 @@ const DARK: Theme = {
   muted: "#8a8a94",
   wave: "rgba(150,150,165,0.55)",
   wavePlayed: "rgb(139,92,246)",
+  vocals: "rgba(236,132,190,0.8)",
+  vocalsBand: "#101015",
   playhead: "#f5f5f5",
   accent: "#a78bfa",
   mark: "rgba(167,139,250,0.75)",
@@ -103,6 +109,8 @@ const LIGHT: Theme = {
   muted: "#71717a",
   wave: "rgba(110,110,125,0.55)",
   wavePlayed: "rgb(124,58,237)",
+  vocals: "rgba(190,24,93,0.7)",
+  vocalsBand: "#ececf1",
   playhead: "#18181b",
   accent: "#7c3aed",
   mark: "rgba(124,58,237,0.7)",
@@ -139,6 +147,8 @@ export interface TimelineScene {
   activeTrack?: string | null;
   /** Timing marks being dragged, drawn where they'd land. */
   markDrag?: { track: string; spans: MarkSpan[] } | null;
+  /** The vocals lane under the timing tracks, when shown (its lane null while it's worked out). */
+  vocals?: { lane: VocalLane | null } | null;
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -155,7 +165,7 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
 export function drawTimeline(ctx: CanvasRenderingContext2D, s: TimelineScene) {
   const t = s.theme === "dark" ? DARK : LIGHT;
   const { width, height, view, doc } = s;
-  const top = topHeight(doc);
+  const top = topHeight(doc, !!s.vocals);
   const t0 = view.startMs;
   const t1 = view.startMs + width / view.pxPerMs;
   ctx.fillStyle = t.bg;
@@ -363,6 +373,8 @@ export function drawTimeline(ctx: CanvasRenderingContext2D, s: TimelineScene) {
     }
   });
 
+  if (s.vocals) drawVocals(ctx, t, s.vocals.lane, RULER_H + WAVE_H + TRACK_H * doc.timingTracks.length, view, t0, t1, width);
+
   // Snap line and playhead over everything.
   if (s.snappedAt !== null) {
     ctx.fillStyle = t.accent;
@@ -379,6 +391,62 @@ export function drawTimeline(ctx: CanvasRenderingContext2D, s: TimelineScene) {
     ctx.closePath();
     ctx.fill();
   }
+}
+
+/** The lead vocal's loudness from `y` down (one bar per screen pixel, the loudest value in it, or
+ * each value as wide as it lasts when zoomed in), with a tick where the voice starts each sound. */
+function drawVocals(ctx: CanvasRenderingContext2D, t: Theme, lane: VocalLane | null, y: number, view: View, t0: number, t1: number, width: number) {
+  ctx.fillStyle = t.vocalsBand;
+  ctx.fillRect(0, y, width, VOCALS_H);
+  ctx.fillStyle = t.line;
+  ctx.fillRect(0, y, width, 1);
+  if (!lane || lane.levels.length === 0 || lane.hopMs <= 0) return;
+  const mid = y + VOCALS_H / 2;
+  const first = Math.max(0, Math.floor((t0 - lane.offsetMs) / lane.hopMs));
+  const last = Math.min(lane.levels.length, Math.ceil((t1 - lane.offsetMs) / lane.hopMs) + 1);
+  ctx.fillStyle = t.vocals;
+  const bar = (x: number, w: number, level: number) => {
+    const h = Math.max(1, (level / 255) * (VOCALS_H - 8));
+    ctx.fillRect(x, mid - h / 2, w, h);
+  };
+  if (lane.hopMs * view.pxPerMs > 1) {
+    for (let i = first; i < last; i++) {
+      const x0 = Math.floor(timeToX(lane.offsetMs + i * lane.hopMs, view));
+      const x1 = Math.floor(timeToX(lane.offsetMs + (i + 1) * lane.hopMs, view));
+      if (lane.levels[i] > 0) bar(x0, Math.max(1, x1 - x0), lane.levels[i]);
+    }
+  } else {
+    let px = -1;
+    let peak = 0;
+    for (let i = first; i < last; i++) {
+      const x = Math.floor(timeToX(lane.offsetMs + i * lane.hopMs, view));
+      if (x !== px) {
+        if (px >= 0 && peak > 0) bar(px, 1, peak);
+        px = x;
+        peak = 0;
+      }
+      peak = Math.max(peak, lane.levels[i]);
+    }
+    if (px >= 0 && peak > 0) bar(px, 1, peak);
+  }
+  // Onset ticks only where they're far enough apart to tell.
+  const [o0, o1] = [lowerIndex(lane.onsets, t0), lowerIndex(lane.onsets, t1)];
+  if ((o1 - o0) * 4 < width) {
+    ctx.fillStyle = t.accent;
+    for (let i = o0; i < o1; i++) ctx.fillRect(Math.round(timeToX(lane.onsets[i], view)), y + VOCALS_H - 6, 1, 5);
+  }
+}
+
+/** First index in sorted `values` at or after `x`. */
+function lowerIndex(values: readonly number[], x: number): number {
+  let lo = 0;
+  let hi = values.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (values[mid] < x) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
 }
 
 function drawEffect(

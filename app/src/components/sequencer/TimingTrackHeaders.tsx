@@ -1,11 +1,13 @@
 // The timing tracks' names beside their strips above the rows: click one to pick it (T taps marks
 // onto the picked track), double-click to rename, drag the grip to reorder, and a menu for
 // everything else (generate marks, paste lyrics, break into words, nudge lyrics, re-time them to
-// the vocals, import, export, delete).
+// the vocals, tap timing, the vocals lane, import, export, delete).
 
 import { GripVertical, MoreHorizontal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Sequence, TimingTrack } from "../../api/sequence";
+import { canTapTime } from "../../lib/lyricEdits";
+import { useLyricTools } from "../../state/lyricTools";
 import { useSequencer } from "../../state/sequencer";
 import { GenerateMarksDialog, NudgeLyricsDialog, PasteLyricsDialog, breakIntoWords, isLyricTrack, kindLabel } from "./TimingDialogs";
 import { RULER_H, TRACK_H, WAVE_H } from "./drawTimeline";
@@ -179,6 +181,7 @@ function TrackMenu({
   const editable = track.kind !== "phonemes";
   const lyric = isLyricTrack(track) && track.marks.length > 0;
   const retiming = useSequencer((s) => s.retimingLyrics);
+  const vocalsShown = useLyricTools((s) => s.vocalsShown);
   const items: { label: string; run: () => void; hidden?: boolean; disabled?: boolean; danger?: boolean }[] = [
     { label: "Rename", run: onRename },
     { label: "Generate marks…", run: () => onDialog("generate"), hidden: !editable },
@@ -187,6 +190,12 @@ function TrackMenu({
     { label: "Break into syllables", run: () => void store.syllablesFromWords(track.id), hidden: track.kind !== "words" || track.marks.length === 0 },
     { label: "Nudge lyrics…", run: () => onDialog("nudge"), hidden: !lyric },
     { label: "Re-time to vocals", run: () => void store.retimeLyrics(track.id), hidden: !lyric || !doc.audio, disabled: retiming },
+    { label: "Tap timing…", run: () => useLyricTools.getState().openTap(track.id), hidden: !canTapTime(track) || !doc.audio },
+    {
+      label: vocalsShown ? "Hide vocals lane" : "Show vocals lane",
+      run: () => useLyricTools.getState().setVocalsShown(!vocalsShown),
+      hidden: !isLyricTrack(track) || !doc.audio,
+    },
     { label: "Move up", run: () => void store.edit([{ type: "moveTimingTrack", id: track.id, index: index - 1 }]), disabled: index === 0 },
     { label: "Move down", run: () => void store.edit([{ type: "moveTimingTrack", id: track.id, index: index + 1 }]), disabled: index === doc.timingTracks.length - 1 },
     { label: "Import timing file…", run: () => void store.importTiming() },

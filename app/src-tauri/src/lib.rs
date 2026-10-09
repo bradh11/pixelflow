@@ -22,8 +22,10 @@ mod probes;
 mod progress;
 mod recent;
 mod sequencer;
+mod sync;
 mod vendor;
 mod video;
+mod vocals;
 mod xlights;
 
 use devices::DeviceAccess;
@@ -330,6 +332,11 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         playback::add_sequence,
         playback::play_sequence,
         playback::set_playback_volume,
+        playback::set_playback_speed,
+        sync::sync_click_start,
+        sync::sync_click_position,
+        sync::sync_click_stop,
+        vocals::vocal_lane,
         playback::audio_waveform,
         playback::probe_audio,
         sequencer::new_sequence_doc,
@@ -448,6 +455,8 @@ pub fn run() {
             app.set_menu(menu::build(app.handle(), &app.state::<AppState>().recent)?)?;
             app.manage(assistant::AiState::live());
             app.manage(lyrics::LyricsState::live(app.path().app_cache_dir().ok()));
+            app.manage(sync::SyncState::live());
+            app.manage(vocals::VocalsState::default());
             let handle = app.handle().clone();
             std::thread::Builder::new()
                 .name("pixelflow-autosave".into())
@@ -569,6 +578,13 @@ mod tests {
                 imported_from: Mutex::default(),
                 vendor_mappings: Arc::new(vendor::SavedMappings::new(Some(dir.join("config")))),
             })
+            .manage(sync::SyncState::with_opener(Arc::new(|_| {
+                Ok((
+                    Box::new(pf_audio::SilentClock::new()) as Box<dyn pf_audio::AudioClock + Send>,
+                    None,
+                ))
+            })))
+            .manage(vocals::VocalsState::default())
             .build(context())
             .unwrap()
     }
@@ -1722,7 +1738,56 @@ mod tests {
         assert_eq!(status["state"], "playing");
         let status = call(&webview, "set_playback_volume", json!({ "volume": 0.5 })).unwrap();
         assert_eq!(status["volume"], 0.5);
+        let status = call(&webview, "set_playback_speed", json!({ "speed": 0.5 })).unwrap();
+        assert_eq!(status["speed"], 0.5);
+        assert!(status["nowMs"].as_u64().unwrap() >= status["positionMs"].as_u64().unwrap());
         call(&webview, "stop_playback", json!({})).unwrap();
+        assert_eq!(
+            call(&webview, "set_playback_speed", json!({ "speed": 0.5 })).unwrap(),
+            Value::Null
+        );
+    }
+
+    #[test]
+    fn the_preview_sync_click_starts_tells_where_it_is_and_stops() {
+        let (_app, webview, _dir) = app();
+        assert_eq!(
+            call(&webview, "sync_click_position", json!({})).unwrap(),
+            Value::Null
+        );
+        let click = call(&webview, "sync_click_start", json!({ "intervalMs": 10 })).unwrap();
+        assert_eq!(click["intervalMs"], 250, "no quicker than four a second");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let at = call(&webview, "sync_click_position", json!({}))
+            .unwrap()
+            .as_f64()
+            .unwrap();
+        assert!(at >= 20.0, "{at}");
+        call(&webview, "sync_click_stop", json!({})).unwrap();
+        assert_eq!(
+            call(&webview, "sync_click_position", json!({})).unwrap(),
+            Value::Null
+        );
+    }
+
+    #[test]
+    fn the_vocals_lane_is_worked_out_once_per_music_file() {
+        let (_app, webview, dir) = app();
+        let song = dir.path().join("clicks.wav");
+        write_clicks(&song);
+        let path = pf_model::path_to_text(&song);
+        let lane = call(&webview, "vocal_lane", json!({ "path": path })).unwrap();
+        let levels = lane["levels"].as_array().unwrap();
+        // About one value every 6 ms over the 12 s song.
+        assert!((1_500..2_500).contains(&levels.len()), "{}", levels.len());
+        assert!(lane["hopMs"].as_f64().unwrap() > 0.0);
+        assert!(lane["onsets"].is_array());
+        assert_eq!(
+            call(&webview, "vocal_lane", json!({ "path": path })).unwrap(),
+            lane
+        );
+        let missing = call(&webview, "vocal_lane", json!({ "path": "/nowhere/song.mp3" })).unwrap_err();
+        assert!(missing.as_str().unwrap().contains("can't find"), "{missing}");
     }
 
     /// A 12 s, 22.05 kHz mono WAV with a click every 500 ms.

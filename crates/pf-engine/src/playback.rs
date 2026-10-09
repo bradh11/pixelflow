@@ -59,9 +59,15 @@ pub struct PlaybackStatus {
     /// `playing`, `paused`, or `ended`.
     pub state: &'static str,
     pub path: PathBuf,
+    /// The start of the frame showing now.
     pub position_ms: u64,
+    /// Where the music is now, between frames (for following playback smoothly): the player's
+    /// last reading carried on to this moment.
+    pub now_ms: u64,
     pub duration_ms: u64,
     pub frame_ms: u32,
+    /// How fast it plays: 1.0 as written, 0.5 at half speed.
+    pub speed: f32,
     /// Controllers receiving the sequence, with their send health.
     pub controllers: Vec<ControllerStatus>,
     /// Plain-language notes, such as controllers that were left out and why.
@@ -107,6 +113,10 @@ struct Control {
     /// How far the lights run ahead of the music.
     offset_ms: i32,
     volume: f32,
+    /// How fast it plays (see [`PlaybackSession::set_speed`]).
+    speed: f32,
+    /// The lights' time (ms) when the player last looked, and when that was.
+    reading: Option<(u64, Instant)>,
     /// At the end, go back to the top and play on (see [`PlaybackSession::set_looping`]).
     looping: bool,
     /// Why the music isn't playing at all.
@@ -129,6 +139,8 @@ impl Default for Control {
             error: None,
             offset_ms: 0,
             volume: 1.0,
+            speed: 1.0,
+            reading: None,
             looping: false,
             music_note: None,
             clock_note: None,
@@ -314,6 +326,8 @@ struct MusicTime {
     /// The clock's last position, and when it last moved (or was resumed or jumped).
     last: Duration,
     moved: Instant,
+    /// How fast it plays (1.0: as written).
+    speed: f32,
 }
 
 impl MusicTime {
@@ -339,7 +353,18 @@ impl MusicTime {
             paused,
             last,
             moved: Instant::now(),
+            speed: 1.0,
         }
+    }
+
+    /// Plays at `speed` (1.0: as written) from now on.
+    fn set_speed(&mut self, speed: f32) {
+        self.speed = speed;
+        self.clock.set_speed(speed);
+        if let Some((watch, _)) = &mut self.count_in {
+            watch.set_speed(speed);
+        }
+        self.moved = Instant::now();
     }
 
     /// Moves to `music_ms` (negative: a count-in before the song).
@@ -350,6 +375,7 @@ impl MusicTime {
             }
             self.clock.seek(Duration::ZERO);
             let mut watch = SilentClock::new();
+            watch.set_speed(self.speed);
             if !self.paused {
                 watch.start(Duration::ZERO);
             }
@@ -401,7 +427,11 @@ impl MusicTime {
         }
         let still = now - self.moved;
         let own_time = !self.paused && (self.clock.finished() || still > STALL);
-        let music = if own_time { self.last + still } else { position };
+        let music = if own_time {
+            self.last + still.mul_f32(self.speed)
+        } else {
+            position
+        };
         i64::try_from(music.as_millis()).unwrap_or(i64::MAX)
     }
 
@@ -648,12 +678,13 @@ fn run_player(
     let mut shown = Some(u32::try_from(start_ms / u64::from(first_step.max(1))).unwrap_or(u32::MAX));
     let mut dark = false;
     let mut applied_volume = volume;
+    let mut applied_speed = 1.0;
     let mut note: Option<String> = None;
     while !stop.load(Ordering::Relaxed) {
         let (total, step) = frames.source.timing();
         let step = step.max(1);
         let step_ms = u64::from(step);
-        let (paused, seek, offset, volume, ended, looping, rebuild) = {
+        let (paused, seek, offset, volume, speed, ended, looping, rebuild) = {
             let mut c = lock(control);
             c.frames = total;
             c.frame_ms = step;
@@ -662,11 +693,16 @@ fn run_player(
                 c.seek_to.take(),
                 c.offset_ms,
                 c.volume,
+                c.speed,
                 c.ended,
                 c.looping,
                 c.rebuild.take(),
             )
         };
+        if speed != applied_speed {
+            time.set_speed(speed);
+            applied_speed = speed;
+        }
         if let Some(rebuild) = rebuild {
             frames.rebuild(rebuild);
             shown = None;
@@ -711,6 +747,7 @@ fn run_player(
             }
             light = light_for(time.now_ms(), offset);
         }
+        lock(control).reading = Some((light, Instant::now()));
         let due = light / step_ms;
         // An edited sequence or show redraws the current frame, even while paused.
         let changed = frames.source.changed();
@@ -1212,6 +1249,7 @@ impl PlaybackSession {
         let frame = frame.min(c.frames.saturating_sub(1));
         c.seek_to = Some(u64::from(frame) * u64::from(frame_ms));
         c.frame = frame;
+        c.reading = None;
         if c.error.is_none() {
             // Seeking after the end plays again (the player thread is still running).
             c.ended = false;
@@ -1227,6 +1265,17 @@ impl PlaybackSession {
     /// Sets the music volume (0.0–1.0), live.
     pub fn set_volume(&self, volume: f32) {
         lock(&self.control).volume = volume.clamp(0.0, 1.0);
+    }
+
+    /// Plays at `speed`, live: 1.0 as written, down to [`pf_audio::SLOWEST`] (the music's pitch
+    /// drops with it, and the lights slow down with the music).
+    pub fn set_speed(&self, speed: f32) {
+        let speed = if speed.is_finite() {
+            speed.clamp(pf_audio::SLOWEST, 1.0)
+        } else {
+            1.0
+        };
+        lock(&self.control).speed = speed;
     }
 
     /// Plays again from the top each time the lights reach the end (the music jumps back with
@@ -1297,22 +1346,33 @@ impl PlaybackSession {
             SessionKind::File { request, .. } => (request.sequence, request.music.clone(), false),
             SessionKind::Document { music, .. } => (None, music.clone(), true),
         };
+        let state = if c.ended || crashed {
+            "ended"
+        } else if c.paused {
+            "paused"
+        } else {
+            "playing"
+        };
+        let position_ms = if (c.ended || c.lights_done) && error.is_none() {
+            duration_ms
+        } else {
+            u64::from(c.frame) * u64::from(c.frame_ms)
+        };
+        let now_ms = match c.reading {
+            Some((light, at)) if state == "playing" && !c.lights_done => {
+                let since = at.elapsed().mul_f32(c.speed);
+                (light + u64::try_from(since.as_millis()).unwrap_or(0)).min(duration_ms)
+            }
+            _ => position_ms,
+        };
         PlaybackStatus {
-            state: if c.ended || crashed {
-                "ended"
-            } else if c.paused {
-                "paused"
-            } else {
-                "playing"
-            },
+            state,
             path: self.path.clone(),
-            position_ms: if (c.ended || c.lights_done) && error.is_none() {
-                duration_ms
-            } else {
-                u64::from(c.frame) * u64::from(c.frame_ms)
-            },
+            position_ms,
+            now_ms,
             duration_ms,
             frame_ms: c.frame_ms,
+            speed: c.speed,
             controllers: controller_status(&stats),
             notes: self
                 .notes

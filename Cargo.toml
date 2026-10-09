@@ -37,6 +37,13 @@ sha2 = "0.10.9"
 regex = { version = "1.13.1", default-features = false, features = ["std", "unicode-case", "unicode-perl"] }
 # Runs the on-device lyric alignment model (ONNX), pure Rust: nothing to install or bundle.
 tract-onnx = "0.23.8"
+# H.264 for video export: OpenH264 (BSD-2), built from the source the crate ships (needs only a C++
+# compiler; NASM speeds it up on x86 when present).
+openh264 = { version = "0.9.8", default-features = false, features = ["source"] }
+# AAC-LC for video export's sound, in pure Rust (MIT).
+oxideav-aac = "0.1.7"
+# Reading the layout photo for video export (pure Rust decoders).
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 pf-model = { path = "crates/pf-model" }
 pf-geometry = { path = "crates/pf-geometry" }
 pf-mapping = { path = "crates/pf-mapping" }
@@ -54,9 +61,16 @@ pf-analysis = { path = "crates/pf-analysis" }
 pf-camera-map = { path = "crates/pf-camera-map" }
 pf-lexicon = { path = "crates/pf-lexicon" }
 pf-align = { path = "crates/pf-align" }
+pf-video = { path = "crates/pf-video" }
 
 # The camera-map tests decode synthetic video frames, which is slow unoptimized.
 [profile.dev.package.pf-camera-map]
+opt-level = 2
+
+# Video export's tests encode a few small frames and a little sound; slow unoptimized.
+[profile.dev.package.openh264-sys2]
+opt-level = 2
+[profile.dev.package.oxideav-aac]
 opt-level = 2
 
 [workspace.lints.rust]

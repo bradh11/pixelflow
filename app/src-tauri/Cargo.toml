@@ -26,6 +26,7 @@ pf-align = { path = "../../crates/pf-align" }
 pf-geometry = { path = "../../crates/pf-geometry" }
 pf-fseq = { path = "../../crates/pf-fseq" }
 pf-camera-map = { path = "../../crates/pf-camera-map" }
+pf-video = { path = "../../crates/pf-video" }
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

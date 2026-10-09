@@ -1273,6 +1273,7 @@ export type PickKind =
   | "xlightsSequence"
   | "fseq"
   | "fseqExport"
+  | "videoExport"
   | "music"
   | "sequenceDoc"
   | "sequenceDocSave"

@@ -43,7 +43,8 @@ export interface LyricsGate {
   recognizer: boolean;
 }
 
-/** What Find lyrics added (Lyrics, Lyrics (words), and Vocals, as one undo step). */
+/** What Find lyrics added (Lyrics, Lyrics (words), Lyrics (syllables), Lyrics (phonemes), and
+ * Vocals, as one undo step). */
 export interface LyricsFound {
   result: SequenceEditResult;
   /** Where the words and their timing came from: "Lyrics from LRCLIB, word timing from OpenAI." */
@@ -129,6 +130,11 @@ export interface SequencerApi {
    */
   findLyrics(provider: ProviderId | null, upload: boolean, onProgress?: (label: string) => void): Promise<LyricsFound>;
   cancelLyrics(): Promise<void>;
+  /**
+   * Makes the "<name> (syllables)" and "<name> (phonemes)" tracks again from the words on the
+   * words track `track` (one undo step, replacing tracks of those names); nothing is looked up.
+   */
+  syllablesFromWords(track: string): Promise<SequenceEditResult>;
   /**
    * Adds the timing tracks in an xLights `.xtiming` file or Audacity labels (`.txt`) after the
    * others (one undo step); a name already taken gets a number. Rejects if another sequence was
@@ -220,6 +226,7 @@ export const tauriSequencer: SequencerApi = {
     }
   },
   cancelLyrics: () => invoke("cancel_lyrics"),
+  syllablesFromWords: (track) => invoke("syllables_from_words", { track }),
   importTimingFile: (path) => invoke("import_timing_file", { path }),
   exportTimingTrack: (id, path) => invoke("export_timing_track", { id, path }),
   pickTimingFilePath: () => pickPath("timingFile"),

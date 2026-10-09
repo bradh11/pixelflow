@@ -10,7 +10,7 @@ export const SEND_AUDIO_QUESTION = "This sends the song's audio to OpenAI to fin
 
 /**
  * Find lyrics, beside Detect beats: the song's words and when each is sung, as Lyrics, Lyrics
- * (words), and Vocals timing tracks. Only once the assistant is set up; until then it's disabled,
+ * (words), Lyrics (syllables), Lyrics (phonemes), and Vocals timing tracks. Only once the assistant is set up; until then it's disabled,
  * and pressing it says why with a way to the assistant's settings. With an OpenAI key, it asks
  * before the song's audio first goes to OpenAI. While it runs, it shows what it's doing and a
  * Stop button.
@@ -73,7 +73,7 @@ export function FindLyrics({ hasMusic }: { hasMusic: boolean }) {
   const hint = !hasMusic
     ? "Find lyrics needs a song: choose this sequence's music first."
     : gate?.ready
-      ? "Find the song's words and when each is sung, as Lyrics, Lyrics (words), and Vocals timing tracks."
+      ? "Find the song's words and when each is sung, as timing tracks for lines, words, syllables, mouth shapes, and singing."
       : (gate?.reason ?? "Finding lyrics needs the assistant: set it up in Settings → AI.");
   return (
     <span className="relative inline-flex">

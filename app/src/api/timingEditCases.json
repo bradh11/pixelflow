@@ -173,7 +173,7 @@
     "name": "phonemes stay as they are",
     "tracks": [{ "id": "a0000000-0000-4000-8000-000000000001", "name": "Lyrics (phonemes)", "kind": "phonemes", "marks": [{ "startMs": 0, "endMs": 900, "label": "AI" }] }],
     "edits": [{ "type": "removeMarks", "track": "a0000000-0000-4000-8000-000000000001", "indices": [0] }],
-    "expect": { "error": "Phoneme tracks come from xLights and can't be edited here; edit the words instead." }
+    "expect": { "error": "Phoneme tracks can't be edited mark by mark; edit the words, then use Break into syllables on the words track." }
   },
   {
     "name": "a track that's gone",

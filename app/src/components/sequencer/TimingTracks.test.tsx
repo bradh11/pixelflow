@@ -230,6 +230,30 @@ describe("timing tracks", () => {
     expect(spans(track(seq, "Lead (words)"))).toEqual([[0, 1000, "la"]]);
   });
 
+  it("breaks a words track into syllables and mouth shapes, again replacing them", async () => {
+    const { seq, user } = await openScreen();
+    const add = (t: TimingTrack) => act(() => useSequencer.getState().edit([{ type: "addTimingTrack", track: t }]));
+    await add({ id: crypto.randomUUID(), name: "Lead", kind: "lyrics", marks: [{ startMs: 0, endMs: 2000, label: "paper lanterns" }] });
+    await add({ id: crypto.randomUUID(), name: "Lead (words)", kind: "words", marks: [{ startMs: 0, endMs: 1000, label: "paper" }, { startMs: 1000, endMs: 2000, label: "lanterns" }] });
+    // Only on a words track with words.
+    await user.click(screen.getByRole("button", { name: "Lead menu" }));
+    expect(screen.queryByRole("menuitem", { name: "Break into syllables" })).toBeNull();
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Lead (words) menu" }));
+    await user.click(screen.getByRole("menuitem", { name: "Break into syllables" }));
+    await waitFor(() => expect(seq.doc!.timingTracks.map((t) => t.name)).toEqual(["Beats", "Bars", "Lead", "Lead (words)", "Lead (syllables)", "Lead (phonemes)"]));
+    expect(spans(track(seq, "Lead (syllables)"))).toEqual([[0, 500, "pa"], [500, 1000, "per"], [1000, 1500, "lan"], [1500, 2000, "terns"]]);
+    expect(track(seq, "Lead (phonemes)").kind).toBe("phonemes");
+    expect(seq.calls).toContain(`syllablesFromWords:${track(seq, "Lead (words)").id}`);
+    // Again: the same tracks, not copies.
+    const syllables = track(seq, "Lead (syllables)").id;
+    await user.click(screen.getByRole("button", { name: "Lead (words) menu" }));
+    await user.click(screen.getByRole("menuitem", { name: "Break into syllables" }));
+    await waitFor(() => expect(seq.calls.filter((c) => c.startsWith("syllablesFromWords")).length).toBe(2));
+    expect(seq.doc!.timingTracks).toHaveLength(6);
+    expect(track(seq, "Lead (syllables)").id).toBe(syllables);
+  });
+
   it("drags marks and their edges, labels them in place, adds them by double-click, and deletes them", async () => {
     const { seq, user } = await openScreen();
     await withLyrics([{ startMs: 6000, endMs: 9000, label: "Hello" }]);

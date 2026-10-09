@@ -368,7 +368,7 @@ export function SettingControl({
           const kind = tracks.find((t) => t.id === current)?.kind;
           if (mixed || current === "" || kind === undefined || kind === "phonemes") return null;
           if (kind === "words" || kind === "lyrics")
-            return <span className="text-xs text-neutral-500">Words are turned into mouth shapes letter by letter, so lips move roughly; a phonemes track from xLights is exact.</span>;
+            return <span className="text-xs text-neutral-500">Mouth shapes are spread evenly over each word; a phonemes track (Find lyrics makes one) times each shape.</span>;
           return <span className="text-xs text-neutral-500">This track has no words, so the mouth stays at rest. Pick a lyrics track to sing.</span>;
         })()}
       </label>

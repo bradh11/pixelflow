@@ -385,6 +385,8 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         lyrics::choose_lyrics,
         lyrics::cancel_lyrics,
         lyrics::syllables_from_words,
+        lyrics::nudge_lyrics,
+        lyrics::retime_lyrics,
         files::check_files,
         files::find_missing_files,
         files::locate_file,

@@ -792,7 +792,8 @@ export function Timeline({ doc: fullDoc }: { doc: Sequence }) {
       const index = track.marks.findIndex((m) => m.startMs === edit.startMs);
       if (index < 0) throw new Error("That mark moved before its label was saved. Double-click it to type the label again.");
       if (track.marks[index].label === label) return [];
-      return [{ type: "setMark", track: track.id, index, mark: { ...track.marks[index], label } }];
+      const { startMs, endMs } = track.marks[index];
+      return [{ type: "setMark", track: track.id, index, mark: { startMs, endMs, label } }];
     });
   };
 

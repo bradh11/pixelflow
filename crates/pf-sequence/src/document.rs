@@ -218,6 +218,11 @@ pub struct Mark {
     pub end_ms: u64,
     #[serde(default)]
     pub label: String,
+    /// How a sung word's label is said, when not as it's spelled ("fraid" for "afraid", heard
+    /// so by speech recognition): its syllables and mouth shapes are made from this. Dropped
+    /// when the label is changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sung: Option<String>,
 }
 
 impl Mark {
@@ -226,7 +231,19 @@ impl Mark {
             start_ms,
             end_ms,
             label: label.into(),
+            sung: None,
         }
+    }
+
+    /// The same mark, said as `sung` (see [`Mark::sung`]).
+    pub fn sung_as(mut self, sung: Option<String>) -> Self {
+        self.sung = sung;
+        self
+    }
+
+    /// What the label is said as: [`Mark::sung`], else the label.
+    pub fn said(&self) -> &str {
+        self.sung.as_deref().unwrap_or(&self.label)
     }
 }
 

@@ -245,9 +245,14 @@ fn set_mark(track: &mut TimingTrack, index: usize, mark: &Mark, duration_ms: u64
     if let Some(other) = track.overlap_with(mark, &[index]) {
         return Err(invalid(track.overlap_message(&track.marks[other])));
     }
+    // A new label is sung as it's spelled, unless told otherwise.
+    let mut mark = mark.clone();
+    if mark.label != old.label && mark.sung == old.sung {
+        mark.sung = None;
+    }
     track.marks.remove(index);
     let at = track.insert_index(mark.start_ms);
-    track.marks.insert(at, mark.clone());
+    track.marks.insert(at, mark);
     Ok(())
 }
 
@@ -468,6 +473,7 @@ impl SequenceEdit {
                     .filter(|l| !l.is_empty())
                     .collect::<Vec<_>>()
                     .join(" ");
+                first.sung = None;
                 track.marks.remove(index + 1);
             }
             SequenceEdit::GenerateMarks {

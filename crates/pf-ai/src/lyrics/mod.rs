@@ -14,7 +14,8 @@
 //! 4. The candidate that is the song is chosen ([`choose`]): by the words heard in common, its
 //!    language, name, and length. The user can pick another, or paste lyrics ([`Choice`]); the
 //!    words are then lined up again from what was gathered ([`Gathered`]), asking no one.
-//! 5. The two are put together ([`combine`]), sung stretches found ([`vocals`]), the words
+//! 5. The two are put together ([`combine`]), the word times locked onto the song's lead vocal
+//!    ([`refine`]), sung stretches found ([`vocals`]), the words
 //!    split into syllables and mouth shapes ([`syllables`]), and all of it written as Lyrics,
 //!    Lyrics (words), Lyrics (syllables), Lyrics (phonemes), and Vocals timing tracks
 //!    ([`tracks`]).
@@ -29,6 +30,7 @@ pub mod gate;
 pub mod language;
 pub mod lrc;
 pub mod lrclib;
+pub mod refine;
 pub mod syllables;
 pub mod tracks;
 pub mod transcribe;
@@ -43,7 +45,7 @@ use crate::error::AiError;
 use crate::provider::Cancel;
 use crate::secret::ApiKey;
 use lrclib::{LookupError, Lrclib, Published, SongQuery};
-use pf_analysis::VocalActivity;
+use pf_analysis::{VOCAL_TRACK_FORMAT, VocalTrack};
 use pf_audio::SongTags;
 use pf_sequence::TimingTrack;
 use serde::de::DeserializeOwned;
@@ -72,8 +74,8 @@ impl Step {
     }
 }
 
-/// Reads a song's voice (see [`pf_analysis::vocal_activity`]); tests use a stand-in.
-pub type VoiceReader = dyn Fn(&Path, &Cancel) -> Result<VocalActivity, String> + Send + Sync;
+/// Reads a song's lead vocal (see [`pf_analysis::vocal_track`]); tests use a stand-in.
+pub type VoiceReader = dyn Fn(&Path, &Cancel) -> Result<VocalTrack, String> + Send + Sync;
 
 /// Reads a song's tags (see [`pf_audio::read_tags`]).
 pub type TagReader = dyn Fn(&Path) -> Option<SongTags> + Send + Sync;
@@ -98,7 +100,7 @@ impl Services {
             lrclib: Lrclib::new(std::sync::Arc::new(crate::http::UreqTransport::quick())),
             transcriber: Transcriber::new(std::sync::Arc::new(crate::http::UreqTransport::new())),
             voice: Box::new(|path, cancel| {
-                pf_analysis::vocal_activity_file(path, &|| cancel.is_cancelled()).map_err(|e| e.to_string())
+                pf_analysis::vocal_track_file(path, &|| cancel.is_cancelled()).map_err(|e| e.to_string())
             }),
             tags: Box::new(|path| pf_audio::read_tags(path).ok()),
             log: Box::new(|_| {}),
@@ -207,6 +209,12 @@ pub struct Found {
     pub chosen: Option<i64>,
     /// Whether the user's pasted lyrics were used.
     pub pasted: bool,
+    /// How the word times were locked onto the voice ("Word timing locked to the vocals
+    /// (average shift 120 ms)."), when they were.
+    pub timing_note: Option<String>,
+    /// What locking did, in numbers.
+    #[serde(skip)]
+    pub locked: Option<refine::Report>,
     #[serde(skip)]
     pub tracks: Vec<TimingTrack>,
 }
@@ -472,6 +480,35 @@ pub fn gather(
     })
 }
 
+/// What the song's lead vocal is kept under in the cache.
+fn voice_kind() -> String {
+    format!("voice{VOCAL_TRACK_FORMAT}")
+}
+
+/// The song's lead vocal ([`VocalTrack`]): kept by the song file's `hash` once worked out.
+/// `None` when the song can't be read (or it's stopped).
+pub fn read_voice(
+    services: &Services,
+    path: &Path,
+    hash: Option<&str>,
+    cache: Option<&LyricsCache>,
+    cancel: &Cancel,
+) -> Option<VocalTrack> {
+    let kind = voice_kind();
+    if let (Some(hash), Some(cache)) = (hash, cache)
+        && let Some(track) = cache
+            .load_bytes(hash, &kind)
+            .and_then(|b| VocalTrack::from_bytes(&b))
+    {
+        return Some(track);
+    }
+    let track = (services.voice)(path, cancel).ok()?;
+    if let (Some(hash), Some(cache), false) = (hash, cache, track.is_empty()) {
+        cache.store_bytes(hash, &kind, &track.to_bytes());
+    }
+    Some(track)
+}
+
 /// The source line: what the words and their timing came from.
 fn source_line(text_from: TextFrom, timing_from: TimingFrom, chosen: Option<&Candidate>) -> String {
     let text = match (text_from, chosen) {
@@ -539,9 +576,15 @@ pub fn assemble(
     let heard = gathered.heard.as_ref();
 
     on_step(Step::LiningUp);
-    let voice = (services.voice)(request.path, cancel).ok();
+    let voice = read_voice(
+        services,
+        request.path,
+        gathered.hash.as_deref(),
+        request.cache,
+        cancel,
+    );
     cancel.check().map_err(|_| stopped())?;
-    let onsets = voice.as_ref().map_or(&[][..], |v| &v.onsets[..]);
+    let onsets = voice.as_ref().map_or(&[][..], |v| &v.activity.onsets[..]);
     let end = request.duration_ms;
     let (phrases, text_from, timing_from) = match (&synced, &plain, heard) {
         (Some(lines), _, Some(heard)) => (
@@ -583,6 +626,18 @@ pub fn assemble(
     if phrases.is_empty() {
         return Err(NO_LYRICS.into());
     }
+    // Word times locked onto the voice: line times only spread onto it, the rest moved to it.
+    let locked = voice
+        .as_ref()
+        .filter(|v| !v.is_empty())
+        .map(|v| match timing_from {
+            TimingFrom::LrclibLines => refine::spread_onto_voice(&phrases, v, end),
+            _ => refine::lock_to_voice(&phrases, v, end),
+        });
+    let (phrases, locked) = match locked {
+        Some(l) => (l.phrases, Some(l.report)),
+        None => (phrases, None),
+    };
     let words: Vec<(u64, u64)> = phrases
         .iter()
         .flat_map(|p| &p.words)
@@ -590,7 +645,7 @@ pub fn assemble(
         .collect();
     let mut vocals = vocals::regions_from_words(&words);
     if let Some(voice) = &voice {
-        vocals = vocals::refine(&vocals, voice, end);
+        vocals = vocals::refine(&vocals, &voice.activity, end);
     }
     let unsure_words = phrases
         .iter()
@@ -628,6 +683,8 @@ pub fn assemble(
         candidates: gathered.candidates.iter().map(CandidateView::from).collect(),
         chosen: chosen.map(|c| c.entry.id),
         pasted: text_from == TextFrom::Pasted,
+        timing_note: locked.as_ref().and_then(refine::Report::sentence),
+        locked,
         tracks,
     })
 }
@@ -693,7 +750,7 @@ mod tests {
         let services = Services {
             lrclib: Lrclib::new(lrclib_fake.clone()).with_retry_delay(Duration::ZERO),
             transcriber: Transcriber::new(openai_fake.clone()).with_retry(RetryPolicy::immediate()),
-            voice: Box::new(|_, _| Ok(VocalActivity::default())),
+            voice: Box::new(|_, _| Ok(VocalTrack::default())),
             tags: Box::new(|_| {
                 Some(SongTags {
                     title: Some("Lantern Song".into()),

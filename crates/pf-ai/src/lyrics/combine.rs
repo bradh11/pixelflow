@@ -40,6 +40,10 @@ pub struct Word {
     pub source: WordSource,
     /// 0–1: how sure its time is.
     pub confidence: f32,
+    /// How it was sung, when the recognizer heard it said otherwise than it's spelled ("fraid"
+    /// for "afraid"): its syllables and mouth shapes come from this.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sung: Option<String>,
 }
 
 /// One sung line and its words.
@@ -71,6 +75,10 @@ const EDGE_SYLLABLE_MS: u64 = 350;
 const LINE_GAP_MS: u64 = 1_000;
 /// The most words in a line made from heard words alone.
 const MAX_LINE_WORDS: usize = 12;
+/// Heard words shorter than this (ms) have no time to go by.
+const MIN_HEARD_MS: u64 = 30;
+/// The shortest a word is shared out (ms), where there's room.
+const MIN_WORD_MS: u64 = 60;
 /// The most alignment cells worked out (published words × heard words).
 const MAX_CELLS: usize = 40_000_000;
 
@@ -168,6 +176,24 @@ pub fn likeness(a: &str, b: &str) -> f32 {
 fn part_of(a: &str, b: &str) -> bool {
     let (short, long) = if a.len() <= b.len() { (a, b) } else { (b, a) };
     short.chars().count() >= 3 && long.starts_with(short) && short != long
+}
+
+/// How a `published` word was sung, when the recognizer heard it said otherwise: its start
+/// left off ("fraid" for "afraid", "round" for "around") or a letter or two changed
+/// ("runnin" for "running"). `None` when it's the same word, or too unlike to be one (a word
+/// heard in parts, "snow" for "snowflakes", isn't said otherwise).
+pub fn sung_as(published: &str, heard: &str) -> Option<String> {
+    let (p, h) = (normalize(published), normalize(heard));
+    if h.is_empty() || p == h {
+        return None;
+    }
+    let (pn, hn) = (p.chars().count(), h.chars().count());
+    let elided = hn >= 3 && p.ends_with(&h);
+    let changed = pn.abs_diff(hn) <= 2 && likeness(&p, &h) >= 0.6;
+    let spelled: String = heard
+        .trim_matches(|c: char| !c.is_alphanumeric() && c != '\'')
+        .to_string();
+    (elided || changed).then_some(spelled)
 }
 
 /// Lines up `published` words with `heard` words in order (Needleman–Wunsch: alike words score,
@@ -407,6 +433,7 @@ pub fn from_lines(lines: &[TimedLine], onsets: &[u64]) -> Vec<Phrase> {
                             end_ms: end,
                             source: WordSource::Published,
                             confidence: STAMPED,
+                            sung: None,
                         }
                     })
                     .collect()
@@ -423,6 +450,7 @@ pub fn from_lines(lines: &[TimedLine], onsets: &[u64]) -> Vec<Phrase> {
                         end_ms: end,
                         source: WordSource::Spread,
                         confidence: SPREAD,
+                        sung: None,
                     })
                     .collect()
             };
@@ -438,6 +466,8 @@ struct Slot {
     text: String,
     line: usize,
     time: Option<(u64, u64, WordSource, f32)>,
+    /// How the recognizer heard it said, when that differs from its spelling.
+    sung: Option<String>,
 }
 
 /// Times for the words with none: each run between timed words shares the gap by syllables,
@@ -476,10 +506,58 @@ fn fill(slots: &mut [Slot], window: &dyn Fn(usize) -> Option<(u64, u64)>, durati
                 (from, to) = (lo, hi);
             }
         }
+        // No room left (the line's time already taken, or the words either side heard back
+        // to back): room is made after the word before, taken from it (and then the word
+        // after) where they're long enough to give it.
+        let needed = MIN_WORD_MS * weights.len() as u64;
+        if to < from + needed {
+            let room = after.map_or(duration_ms, |a| a.max(from));
+            to = (from + edge).min(room).max(to);
+        }
+        if to < from + needed
+            && let Some(p) = k.checked_sub(1)
+            && let Some((s, e, source, confidence)) = slots[p].time
+            && e > s + MIN_WORD_MS
+        {
+            let give = (from + needed - to).min(e - s - MIN_WORD_MS);
+            from -= give.min(from);
+            slots[p].time = Some((s, e - give, source, confidence));
+        }
+        if to < from + needed
+            && let Some((s, e, source, confidence)) = slots.get(run_end).and_then(|s| s.time)
+            && e > s + MIN_WORD_MS
+        {
+            let give = (from + needed - to).min(e - s - MIN_WORD_MS);
+            to += give;
+            slots[run_end].time = Some((s + give, e, source, confidence));
+        }
         for (slot, (start, end)) in slots[k..run_end].iter_mut().zip(share(from, to, &weights)) {
             slot.time = Some((start, end, WordSource::Spread, FILLED));
         }
         k = run_end;
+    }
+}
+
+/// Whether a heard word's time can be used: the recognizer sometimes gives the words at the
+/// end of what it heard no length at all ("no ghost" both at the same instant).
+fn heard_well(word: &HeardWord) -> bool {
+    word.end_ms >= word.start_ms + MIN_HEARD_MS
+}
+
+/// The longest a heard word is believed to last: longer, it took in the silence or music
+/// after it.
+fn longest_word_ms(word: &str) -> u64 {
+    700 + 600 * u64::from(syllables(word))
+}
+
+/// Heard times put right where the recognizer is known to stretch them: a word lasting far
+/// longer than it could ([`longest_word_ms`]) took in what came after it, and is cut short.
+fn trim_heard(slots: &mut [Slot]) {
+    for slot in slots.iter_mut() {
+        if let Some((start, end, source, confidence)) = slot.time {
+            let end = end.min(start + longest_word_ms(&slot.text));
+            slot.time = Some((start, end, source, confidence));
+        }
     }
 }
 
@@ -506,6 +584,7 @@ fn phrases_from_slots(slots: Vec<Slot>) -> Vec<Phrase> {
                 end_ms,
                 source,
                 confidence,
+                sung: slot.sung,
             });
         }
     }
@@ -534,6 +613,7 @@ pub fn from_lines_and_heard(lines: &[TimedLine], heard: &Heard, duration_ms: u64
                 text: w.clone(),
                 line: l,
                 time: None,
+                sung: None,
             })
         })
         .collect();
@@ -542,15 +622,17 @@ pub fn from_lines_and_heard(lines: &[TimedLine], heard: &Heard, duration_ms: u64
     let allowed = |i: usize, j: usize| {
         let line = &lines[slots[i].line];
         let at = words[j].start_ms;
-        at + LINE_SLACK_MS >= line.start_ms && at <= line.end_ms + LINE_SLACK_MS
+        heard_well(&words[j]) && at + LINE_SLACK_MS >= line.start_ms && at <= line.end_ms + LINE_SLACK_MS
     };
     let pairs = align(&published, &heard_texts(words), &allowed);
     for (slot, pair) in slots.iter_mut().zip(pairs) {
         if let Some((j, alike)) = pair {
             let w = &words[j];
             slot.time = Some((w.start_ms, w.end_ms, WordSource::Matched, matched(alike)));
+            slot.sung = sung_as(&slot.text, &w.text);
         }
     }
+    trim_heard(&mut slots);
     let window = |l: usize| lines.get(l).map(|line| (line.start_ms, line.end_ms));
     fill(&mut slots, &window, duration_ms);
     phrases_from_slots(slots)
@@ -566,11 +648,14 @@ pub fn from_plain_and_heard(lines: &[String], heard: &Heard, duration_ms: u64) -
                 text: w,
                 line: l,
                 time: None,
+                sung: None,
             })
         })
         .collect();
     let published: Vec<String> = slots.iter().map(|s| normalize(&s.text)).collect();
-    let pairs = align(&published, &heard_texts(&heard.words), &|_, _| true);
+    let pairs = align(&published, &heard_texts(&heard.words), &|_, j| {
+        heard_well(&heard.words[j])
+    });
     // Without a single word heard alike, these aren't the words that were sung.
     if !pairs.iter().flatten().any(|&(_, alike)| alike >= 0.5) {
         return Vec::new();
@@ -579,8 +664,10 @@ pub fn from_plain_and_heard(lines: &[String], heard: &Heard, duration_ms: u64) -
         if let Some((j, alike)) = pair {
             let w = &heard.words[j];
             slot.time = Some((w.start_ms, w.end_ms, WordSource::Matched, matched(alike)));
+            slot.sung = sung_as(&slot.text, &w.text);
         }
     }
+    trim_heard(&mut slots);
     fill(&mut slots, &|_| None, duration_ms);
     phrases_from_slots(slots)
 }
@@ -616,6 +703,7 @@ pub fn from_heard(heard: &Heard) -> Vec<Phrase> {
                 end_ms: w.end_ms,
                 source: WordSource::Heard,
                 confidence: HEARD,
+                sung: None,
             });
         }
     }
@@ -847,6 +935,68 @@ mod tests {
         alone.lines = vec![(1_000, 2_000), (2_000, 5_000)];
         let lines: Vec<String> = from_heard(&alone).into_iter().map(|p| p.text).collect();
         assert_eq!(lines, ["paper lanterns", "glowing snowy shine"]);
+    }
+
+    #[test]
+    fn a_word_heard_said_otherwise_is_sung_as_heard_and_spelled_as_published() {
+        assert_eq!(sung_as("afraid", "'fraid").as_deref(), Some("'fraid"));
+        assert_eq!(sung_as("around", "round").as_deref(), Some("round"));
+        assert_eq!(sung_as("running", "runnin'").as_deref(), Some("runnin'"));
+        assert_eq!(sung_as("lantern", "Lantern!"), None);
+        assert_eq!(sung_as("snowflakes", "snow"), None);
+        assert_eq!(sung_as("ya", "you"), None);
+        let lines = timed_lines(&parse_lrc("[00:10.00]Lanterns all around\n[00:13.00]"), 60_000);
+        let h = heard(&[
+            ("lanterns", 10_100, 10_600),
+            ("all", 10_600, 10_800),
+            ("round", 10_800, 11_500),
+        ]);
+        let phrases = from_lines_and_heard(&lines, &h, 60_000);
+        let around = &phrases[0].words[2];
+        assert_eq!(
+            (around.text.as_str(), around.sung.as_deref()),
+            ("around", Some("round"))
+        );
+        assert_eq!(phrases[0].words[0].sung, None);
+    }
+
+    #[test]
+    fn words_heard_with_no_length_are_still_placed() {
+        // Made-up words; the recognizer ran the line's last word on for seconds and gave the
+        // two after it no length at all.
+        let lines = timed_lines(
+            &parse_lrc("[00:10.00]I see no lantern\n[00:16.00]Glow\n[00:18.00]"),
+            60_000,
+        );
+        let h = heard(&[
+            ("i", 10_000, 10_300),
+            ("see", 10_300, 14_500),
+            ("no", 14_500, 14_500),
+            ("lantern", 14_500, 14_500),
+            ("glow", 16_000, 16_500),
+        ]);
+        let phrases = from_lines_and_heard(&lines, &h, 60_000);
+        let words = &phrases[0].words;
+        let shown: Vec<&str> = words.iter().map(|w| w.text.as_str()).collect();
+        assert_eq!(shown, ["I", "see", "no", "lantern"]);
+        // "see" is cut to what one syllable could take, and the words after it fit after it.
+        assert!(words[1].end_ms <= 10_300 + longest_word_ms("see"));
+        for w in &words[2..] {
+            assert!(w.end_ms >= w.start_ms + MIN_WORD_MS, "{w:?}");
+            assert_eq!(w.source, WordSource::Spread);
+            assert!(w.confidence < 0.5);
+        }
+        assert!(words.windows(2).all(|w| w[0].end_ms <= w[1].start_ms));
+        // Words heard back to back with one left unheard between them make room for it.
+        let lines = timed_lines(&parse_lrc("[00:10.00]Paper snowy lanterns\n[00:12.00]"), 60_000);
+        let h = heard(&[
+            ("paper", 10_000, 10_600),
+            ("snowy", 10_600, 10_600),
+            ("lanterns", 10_600, 11_400),
+        ]);
+        let words = &from_lines_and_heard(&lines, &h, 60_000)[0].words;
+        assert_eq!(words.len(), 3);
+        assert!(words[1].end_ms >= words[1].start_ms + MIN_WORD_MS, "{words:?}");
     }
 
     #[test]

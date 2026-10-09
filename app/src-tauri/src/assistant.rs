@@ -493,7 +493,7 @@ mod tests {
                         .with_retry_delay(std::time::Duration::ZERO),
                     transcriber: pf_ai::lyrics::transcribe::Transcriber::new(whisper.clone())
                         .with_retry(RetryPolicy::immediate()),
-                    voice: Box::new(|_, _| Ok(pf_analysis::VocalActivity::default())),
+                    voice: Box::new(|_, _| Ok(pf_analysis::VocalTrack::default())),
                     tags: Box::new(|path| pf_audio::read_tags(path).ok()),
                     log: Box::new(|_| {}),
                 },

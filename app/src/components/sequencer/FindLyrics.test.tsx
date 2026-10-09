@@ -101,6 +101,8 @@ describe("Find lyrics", () => {
     await user.click(within(dialog).getByRole("button", { name: "Continue" }));
     await waitFor(() => expect(seq.calls).toContain("findLyrics:openai:true"));
     expect(await screen.findByText(/word timing from OpenAI/)).toBeInTheDocument();
+    // And how far the words moved to meet the voice.
+    expect(screen.getByText(/Word timing locked to the vocals \(average shift 40 ms\)\./)).toBeInTheDocument();
     expect(useAssistant.getState().lyricsAudioOk).toBe(true);
     await waitFor(() => expect(useSequencer.getState().findingLyrics).toBeNull());
 

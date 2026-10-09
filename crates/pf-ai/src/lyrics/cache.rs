@@ -62,6 +62,21 @@ impl LyricsCache {
         let _ = std::fs::remove_file(self.path(hash, kind));
     }
 
+    fn bytes_path(&self, hash: &str, kind: &str) -> PathBuf {
+        self.dir.join(format!("{hash}-{kind}.v{VERSION}.bin"))
+    }
+
+    /// What's kept for `hash` of `kind` as bytes.
+    pub fn load_bytes(&self, hash: &str, kind: &str) -> Option<Vec<u8>> {
+        std::fs::read(self.bytes_path(hash, kind)).ok()
+    }
+
+    pub fn store_bytes(&self, hash: &str, kind: &str, bytes: &[u8]) {
+        if std::fs::create_dir_all(&self.dir).is_ok() {
+            let _ = pf_engine::write_atomic(&self.bytes_path(hash, kind), bytes);
+        }
+    }
+
     pub fn store<T: Serialize>(&self, hash: &str, kind: &str, value: &T) {
         let Ok(text) = serde_json::to_vec(value) else {
             return;
@@ -100,6 +115,10 @@ mod tests {
         assert!(dir.path().join("lyrics/abc-openai.v2.json").exists());
         cache.remove("abc", "openai");
         assert_eq!(cache.load::<Vec<u32>>("abc", "openai"), None);
+        assert_eq!(cache.load_bytes("abc", "voice1"), None);
+        cache.store_bytes("abc", "voice1", b"PFVT");
+        assert_eq!(cache.load_bytes("abc", "voice1").as_deref(), Some(&b"PFVT"[..]));
+        assert!(dir.path().join("lyrics/abc-voice1.v2.bin").exists());
     }
 
     #[test]

@@ -1,7 +1,9 @@
 //! Find lyrics: the open sequence's song's words and when each is sung, as Lyrics, Lyrics
 //! (words), Lyrics (syllables), Lyrics (phonemes), and Vocals timing tracks, in one undo step.
 //! Syllables and mouth shapes can also be made again from a words track already there
-//! ([`syllables_from_words`]), nothing looked up.
+//! ([`syllables_from_words`]), the lyrics tracks nudged earlier or later together
+//! ([`nudge_lyrics`]), or their words locked onto the song's voice again ([`retime_lyrics`]),
+//! nothing looked up.
 //!
 //! Only when the user presses it, and only once the assistant is set up (see
 //! [`pf_ai::lyrics::gate`]). LRCLIB is asked for published lyrics with the song's name and
@@ -111,6 +113,8 @@ pub(crate) struct LyricsFound {
     pub chosen: Option<i64>,
     /// Whether the user's pasted lyrics were used.
     pub pasted: bool,
+    /// "Word timing locked to the vocals (average shift 120 ms).", when it was.
+    pub timing_note: Option<String>,
 }
 
 /// The open sequence's song: its id, music, length, and section starts.
@@ -181,6 +185,7 @@ fn add_found(state: &AppState, doc: u64, music: &Path, found: lyrics::Found) -> 
         candidates: found.candidates,
         chosen: found.chosen,
         pasted: found.pasted,
+        timing_note: found.timing_note,
     })
 }
 
@@ -271,6 +276,7 @@ pub(crate) async fn choose_lyrics(
     let cancel = start(&lyrics_state)?;
     let _running = Running(&lyrics_state.running);
     let services = Arc::clone(&lyrics_state.services);
+    let cache = lyrics_state.cache.clone();
     let looked = song.music.clone();
     let stop = cancel.clone();
     let kept = gathered.clone();
@@ -280,7 +286,7 @@ pub(crate) async fn choose_lyrics(
             duration_ms: song.duration_ms,
             sections_ms: &[],
             recognizer: None,
-            cache: None,
+            cache: cache.as_ref(),
             cancel: &stop,
             language: lyrics::language::DEFAULT,
             fresh: false,
@@ -329,6 +335,92 @@ pub(crate) async fn syllables_from_words(
     syllables_from_words_in(&mut state.engine(), track)
 }
 
+/// Moves the lyrics tracks `track` belongs with (its lines, words, syllables, and phonemes) by
+/// `ms` (negative: earlier) together: one undo step.
+pub(crate) fn nudge_lyrics_in(
+    engine: &mut pf_engine::Engine,
+    track: TimingTrackId,
+    ms: i64,
+) -> Result<SequenceEditResult, String> {
+    let seq = engine
+        .sequence_document()
+        .ok_or_else(|| EngineError::NoSequence.to_string())?;
+    let edits = lyrics::tracks::nudge_edits(&seq.timing_tracks, track, ms, seq.duration_ms)
+        .ok_or_else(|| "That isn't a lyrics track with marks to move.".to_string())?;
+    engine.edit_sequence(edits).map_err(message)
+}
+
+/// See [`nudge_lyrics_in`].
+#[tauri::command]
+pub(crate) async fn nudge_lyrics(
+    state: State<'_, AppState>,
+    track: TimingTrackId,
+    ms: i64,
+) -> Reply<SequenceEditResult> {
+    nudge_lyrics_in(&mut state.engine(), track, ms)
+}
+
+/// What Re-time to vocals did: the edit's reply, and what to tell the user.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LyricsRetimed {
+    pub result: SequenceEditResult,
+    /// "Word timing locked to the vocals (average shift 40 ms)."
+    pub note: String,
+}
+
+/// Locks the words on the lyrics tracks `track` belongs with onto `voice` (the song's lead
+/// vocal) again, making the lines, syllables, and phonemes again from them: one undo step.
+pub(crate) fn retime_lyrics_in(
+    engine: &mut pf_engine::Engine,
+    track: TimingTrackId,
+    voice: &pf_analysis::VocalTrack,
+) -> Result<LyricsRetimed, String> {
+    let seq = engine
+        .sequence_document()
+        .ok_or_else(|| EngineError::NoSequence.to_string())?;
+    let (edits, report) = lyrics::tracks::retime_edits(&seq.timing_tracks, track, voice, seq.duration_ms)
+        .ok_or_else(|| "There are no words to re-time on that lyrics track.".to_string())?;
+    let note = report
+        .sentence()
+        .unwrap_or_else(|| "The words already sit where the vocals start.".to_string());
+    let result = engine.edit_sequence(edits).map_err(message)?;
+    Ok(LyricsRetimed { result, note })
+}
+
+/// Re-time to vocals: locks the words already on the lyrics tracks `track` belongs with onto
+/// the song's voice (see [`retime_lyrics_in`]), reading only the song file (or what's kept of
+/// it): nothing is sent anywhere.
+#[tauri::command]
+pub(crate) async fn retime_lyrics(
+    state: State<'_, AppState>,
+    lyrics_state: State<'_, LyricsState>,
+    track: TimingTrackId,
+) -> Reply<LyricsRetimed> {
+    let song = sequence_song(&state)?;
+    let cancel = start(&lyrics_state)?;
+    let _running = Running(&lyrics_state.running);
+    let services = Arc::clone(&lyrics_state.services);
+    let cache = lyrics_state.cache.clone();
+    let music = song.music.clone();
+    let stop = cancel.clone();
+    let voice = tauri::async_runtime::spawn_blocking(move || {
+        let hash = lyrics::cache::file_hash(&music, &|| stop.is_cancelled());
+        lyrics::read_voice(&services, &music, hash.as_deref(), cache.as_ref(), &stop)
+    })
+    .await
+    .map_err(|_| "Something went wrong listening to the song.".to_string())?
+    .ok_or_else(|| "The song's music couldn't be read.".to_string())?;
+    if cancel.is_cancelled() {
+        return Err("Stopped.".to_string());
+    }
+    let mut engine = state.engine();
+    if engine.sequence_doc_id() != Some(song.doc) || engine.sequence_music().as_deref() != Some(&song.music) {
+        return Err("The sequence or its music changed meanwhile. Try again.".to_string());
+    }
+    retime_lyrics_in(&mut engine, track, &voice)
+}
+
 /// Stops finding lyrics (it ends at its next step, adding nothing).
 #[tauri::command]
 pub(crate) async fn cancel_lyrics(lyrics_state: State<'_, LyricsState>) -> Reply<()> {
@@ -336,4 +428,97 @@ pub(crate) async fn cancel_lyrics(lyrics_state: State<'_, LyricsState>) -> Reply
         cancel.cancel();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pf_engine::Engine;
+    use pf_sequence::{Mark, TimingTrack};
+
+    /// A sequence with made-up lyrics tracks: two words, their syllables and mouth shapes.
+    fn engine() -> (Engine, tempfile::TempDir, Vec<TimingTrackId>) {
+        let dir = tempfile::tempdir().unwrap();
+        let mut engine = Engine::new(dir.path());
+        engine.new_show("Show");
+        engine.new_sequence_doc("Song", 10_000, None).unwrap();
+        let tracks = vec![
+            TimingTrack::new(
+                "Lyrics",
+                TimingKind::Lyrics,
+                vec![Mark::new(1_000, 2_000, "Paper lantern")],
+            ),
+            TimingTrack::new(
+                "Lyrics (words)",
+                TimingKind::Words,
+                vec![
+                    Mark::new(1_000, 1_400, "Paper"),
+                    Mark::new(1_500, 2_000, "lantern"),
+                ],
+            ),
+            TimingTrack::new(
+                "Lyrics (syllables)",
+                TimingKind::Custom,
+                vec![Mark::new(1_000, 1_200, "Pa"), Mark::new(1_200, 1_400, "per")],
+            ),
+            TimingTrack::new(
+                "Lyrics (phonemes)",
+                TimingKind::Phonemes,
+                vec![Mark::new(1_000, 1_050, "MBP")],
+            ),
+            TimingTrack::new("Beats", TimingKind::Beats, vec![Mark::new(0, 500, "1")]),
+        ];
+        let ids = tracks.iter().map(|t| t.id).collect();
+        let edits = tracks
+            .into_iter()
+            .map(|track| pf_engine::SequenceEdit::AddTimingTrack { track })
+            .collect();
+        engine.edit_sequence(edits).unwrap();
+        (engine, dir, ids)
+    }
+
+    fn starts(engine: &Engine) -> Vec<(String, u64)> {
+        engine
+            .sequence_document()
+            .unwrap()
+            .timing_tracks
+            .iter()
+            .map(|t| (t.name.clone(), t.marks[0].start_ms))
+            .collect()
+    }
+
+    #[test]
+    fn a_nudge_moves_all_four_lyrics_tracks_in_one_undo_step() {
+        let (mut engine, _dir, ids) = engine();
+        nudge_lyrics_in(&mut engine, ids[1], -50).unwrap();
+        let moved: Vec<u64> = starts(&engine).iter().map(|s| s.1).collect();
+        // The four lyrics tracks 50 ms earlier; the beats where they were.
+        assert_eq!(moved, [950, 950, 950, 950, 0]);
+        engine.undo_sequence().unwrap();
+        let back: Vec<u64> = starts(&engine).iter().map(|s| s.1).collect();
+        assert_eq!(back, [1_000, 1_000, 1_000, 1_000, 0]);
+        assert!(nudge_lyrics_in(&mut engine, ids[4], 10).is_err());
+    }
+
+    #[test]
+    fn re_time_to_vocals_needs_only_the_voice() {
+        let (mut engine, _dir, ids) = engine();
+        // A voice with nothing in it: the words keep their time, and the user is told.
+        let voice = pf_analysis::VocalTrack {
+            hop_ms: 10.0,
+            energy: vec![0.0; 1_000],
+            onset: vec![0.0; 1_000],
+            consonant: vec![0.0; 1_000],
+            rise: vec![0.0; 1_000],
+            voiced: vec![false; 1_000],
+            ..Default::default()
+        };
+        let done = retime_lyrics_in(&mut engine, ids[0], &voice).unwrap();
+        assert_eq!(done.note, "The words already sit where the vocals start.");
+        let seq = engine.sequence_document().unwrap();
+        assert_eq!(seq.timing_tracks[1].marks[0].start_ms, 1_000);
+        // One undo step.
+        engine.undo_sequence().unwrap();
+        assert!(retime_lyrics_in(&mut engine, ids[4], &voice).is_err());
+    }
 }

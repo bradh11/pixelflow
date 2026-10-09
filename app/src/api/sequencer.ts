@@ -76,6 +76,15 @@ export interface LyricsFound {
   chosen: number | null;
   /** Whether pasted lyrics were used. */
   pasted: boolean;
+  /** "Word timing locked to the vocals (average shift 120 ms).", when it was. */
+  timingNote: string | null;
+}
+
+/** What Re-time to vocals did (one undo step), and what to tell the user. */
+export interface LyricsRetimed {
+  result: SequenceEditResult;
+  /** "Word timing locked to the vocals (average shift 40 ms)." */
+  note: string;
 }
 
 /** How Find lyrics runs: the language it expects when nothing else says (ISO 639-1), and
@@ -167,6 +176,13 @@ export interface SequencerApi {
    * words track `track` (one undo step, replacing tracks of those names); nothing is looked up.
    */
   syllablesFromWords(track: string): Promise<SequenceEditResult>;
+  /** Moves the lyrics tracks `track` belongs with (its lines, words, syllables, and phonemes) by
+   * `ms` (negative: earlier) together, as one undo step. */
+  nudgeLyrics(track: string, ms: number): Promise<SequenceEditResult>;
+  /** Locks the words already on the lyrics tracks `track` belongs with onto the song's voice
+   * again, and makes the lines, syllables, and phonemes again from them (one undo step). Reads
+   * only the song file: nothing is looked up or sent. */
+  retimeLyrics(track: string): Promise<LyricsRetimed>;
   /**
    * Adds the timing tracks in an xLights `.xtiming` file or Audacity labels (`.txt`) after the
    * others (one undo step); a name already taken gets a number. Rejects if another sequence was
@@ -260,6 +276,8 @@ export const tauriSequencer: SequencerApi = {
   chooseLyrics: (choice) => invoke("choose_lyrics", { choice }),
   cancelLyrics: () => invoke("cancel_lyrics"),
   syllablesFromWords: (track) => invoke("syllables_from_words", { track }),
+  nudgeLyrics: (track, ms) => invoke("nudge_lyrics", { track, ms: Math.round(ms) }),
+  retimeLyrics: (track) => invoke("retime_lyrics", { track }),
   importTimingFile: (path) => invoke("import_timing_file", { path }),
   exportTimingTrack: (id, path) => invoke("export_timing_track", { id, path }),
   pickTimingFilePath: () => pickPath("timingFile"),

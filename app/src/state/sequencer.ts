@@ -185,6 +185,8 @@ interface SequencerState {
   detecting: boolean;
   /** While Find lyrics runs: what it's doing ("Looking up published lyrics"); else null. */
   findingLyrics: string | null;
+  /** While Re-time to vocals runs. */
+  retimingLyrics: boolean;
   /** Changes when a different document is opened or started (not when it's saved). */
   docKey: number;
   /** Bumped to ask the timeline to bring the selection (or the playhead) and the active row into view. */
@@ -245,6 +247,11 @@ interface SequencerState {
   cancelLyrics(): Promise<void>;
   /** Makes syllables and mouth shapes again from the words track `trackId` (one undo step). */
   syllablesFromWords(trackId: string): Promise<boolean>;
+  /** Moves the lyrics tracks `trackId` belongs with by `ms` together (one undo step). */
+  nudgeLyrics(trackId: string, ms: number): Promise<boolean>;
+  /** Locks the words on the lyrics tracks `trackId` belongs with onto the song's voice again
+   * (one undo step), saying how far they moved. */
+  retimeLyrics(trackId: string): Promise<boolean>;
   select(ids: string[], activeRow?: string | null): void;
   /** Selects marks on `track` by their start times (and makes it the active track). */
   selectMarks(track: string, starts: number[]): void;
@@ -305,7 +312,8 @@ function lyricsNotice(found: LyricsFound, lyricsRun?: Notice["lyricsRun"]): Noti
   if (found.unsureWords > 0) {
     notes.push(`${plural(found.unsureWords, "word")} ${found.unsureWords === 1 ? "has" : "have"} rough timing: drag ${found.unsureWords === 1 ? "it" : "them"} on Lyrics (words) if needed.`);
   }
-  return { tone: "done", text: `Found ${plural(found.lines, "line")} and ${plural(found.words, "word")}. ${found.summary}`, notes, saveShow: false, lyrics: found, lyricsRun };
+  const timing = found.timingNote ? ` ${found.timingNote}` : "";
+  return { tone: "done", text: `Found ${plural(found.lines, "line")} and ${plural(found.words, "word")}. ${found.summary}${timing}`, notes, saveShow: false, lyrics: found, lyricsRun };
 }
 
 function report(e: unknown) {
@@ -461,6 +469,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
     revealTarget: "selection",
     recoveries: [],
     notice: null,
+    retimingLyrics: false,
     replacing: null,
 
     async connect(api) {
@@ -687,6 +696,38 @@ export const useSequencer = create<SequencerState>((set, get) => {
 
     async cancelLyrics() {
       await get().api?.cancelLyrics();
+    },
+
+    async nudgeLyrics(trackId, ms) {
+      const { api } = get();
+      if (!api || !get().doc || ms === 0) return false;
+      const done = await serial(() =>
+        guarded(async () => {
+          await absorb(await api.nudgeLyrics(trackId, ms), api);
+          return true;
+        }),
+      );
+      return done === true;
+    },
+
+    async retimeLyrics(trackId) {
+      const { api } = get();
+      if (!api || !get().doc || get().retimingLyrics) return false;
+      set({ retimingLyrics: true });
+      try {
+        let retimed;
+        try {
+          retimed = await api.retimeLyrics(trackId);
+        } catch (e) {
+          report(e);
+          return false;
+        }
+        await serial(() => guarded(() => absorb(retimed.result, api)));
+        set({ notice: { tone: "done", text: retimed.note, notes: [], saveShow: false } });
+        return true;
+      } finally {
+        set({ retimingLyrics: false });
+      }
     },
 
     async syllablesFromWords(trackId) {

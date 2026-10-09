@@ -132,11 +132,12 @@ pub fn shape_marks(start: u64, end: u64, phones: &[Phone]) -> Vec<Mark> {
 pub fn sung_marks(words: &[Mark], onsets: &[u64]) -> Sung {
     let mut sung = Sung::default();
     for word in words {
-        let syllables = pf_lexicon::syllables(&word.label);
+        let syllables = pf_lexicon::syllables(word.said());
         let weights: Vec<f64> = syllables.iter().map(pf_lexicon::Syllable::weight).collect();
         let Some(mut parts) = share(word.start_ms, word.end_ms, &weights) else {
             if word.end_ms > word.start_ms {
-                sung.syllables.push(word.clone());
+                sung.syllables
+                    .push(Mark::new(word.start_ms, word.end_ms, word.label.clone()));
                 let phones: Vec<Phone> = syllables.iter().flat_map(|s| s.phones.clone()).collect();
                 sung.phonemes
                     .extend(shape_marks(word.start_ms, word.end_ms, &phones));

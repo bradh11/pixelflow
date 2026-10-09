@@ -518,6 +518,7 @@ fn single_strand(r: &Reader, duration_ms: u64, diff: &mut Diff) -> Kind {
                 bands: 10,
                 direction: direction(way == "Right"),
                 bounce: false,
+                ..ChaseParams::default()
             }))
         }
         "FX" => Kind::Placeholder,
@@ -553,6 +554,7 @@ fn single_strand(r: &Reader, duration_ms: u64, diff: &mut Diff) -> Kind {
                 bands: count(chases, 1, 20),
                 direction: direction(reverse),
                 bounce,
+                ..ChaseParams::default()
             }))
         }
     }
@@ -568,6 +570,7 @@ fn marquee(r: &Reader, diff: &mut Diff) -> EffectParams {
         bands: 10,
         direction: direction(r.check("Marquee_Reverse")),
         bounce: false,
+        ..ChaseParams::default()
     })
 }
 

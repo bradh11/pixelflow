@@ -364,7 +364,7 @@ impl Draw<'_> {
                     Colors::new(&effect.palette.colors),
                     effect.id.seed(),
                     self.canvas,
-                    self.cx,
+                    &self.cx.with_members(self.buffer.members.as_ref()),
                 );
                 &made
             }

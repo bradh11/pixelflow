@@ -29,7 +29,7 @@ impl From<serde_json::Error> for SequenceError {
 type Migration = fn(Value) -> Result<Value, SequenceError>;
 
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
-const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6];
+const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7];
 
 /// Version 2 only adds submodel targets, so version 1 documents are already valid.
 fn v1_to_v2(doc: Value) -> Result<Value, SequenceError> {
@@ -58,6 +58,12 @@ fn v4_to_v5(doc: Value) -> Result<Value, SequenceError> {
 /// VU Meter, Shape's and Tendril's music settings), all off or new when missing, so version 5
 /// documents are already valid.
 fn v5_to_v6(doc: Value) -> Result<Value, SequenceError> {
+    Ok(doc)
+}
+
+/// Version 7 only adds effect kinds (Impact, Wipe, Lightning, Pulse, Sing, Color Shift) and Chase
+/// settings that chase as before when missing, so version 6 documents are already valid.
+fn v6_to_v7(doc: Value) -> Result<Value, SequenceError> {
     Ok(doc)
 }
 
@@ -358,7 +364,7 @@ mod tests {
             sequence_from_json(r#"{ "schemaVersion": "1", "name": "x" }"#),
             Err(SequenceError::InvalidSchemaVersion(_))
         ));
-        let err = sequence_from_json(r#"{ "schemaVersion": 7, "name": "x" }"#).unwrap_err();
+        let err = sequence_from_json(r#"{ "schemaVersion": 8, "name": "x" }"#).unwrap_err();
         assert!(err.to_string().contains("update PixelFlow"), "{err}");
         assert!(matches!(sequence_from_json("[1, 2"), Err(SequenceError::Json(_))));
     }

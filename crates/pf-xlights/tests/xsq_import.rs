@@ -332,7 +332,8 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
             width: 0.4,
             bands: 2,
             direction: Direction::Reverse,
-            bounce: true
+            bounce: true,
+            ..ChaseParams::default()
         })
     );
 

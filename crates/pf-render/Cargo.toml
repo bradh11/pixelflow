@@ -13,6 +13,7 @@ pf-mapping.workspace = true
 pf-sequence.workspace = true
 pf-output.workspace = true
 pf-fseq.workspace = true
+pf-lexicon.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 

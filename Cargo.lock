@@ -1862,6 +1862,7 @@ version = "0.1.0"
 dependencies = [
  "pf-fseq",
  "pf-geometry",
+ "pf-lexicon",
  "pf-mapping",
  "pf-model",
  "pf-output",

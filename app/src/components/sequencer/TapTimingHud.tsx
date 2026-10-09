@@ -48,14 +48,6 @@ export function TapTimingHud({ top }: { top: number }) {
     };
   }, []);
 
-  // Leaving the timeline mid-tap changes nothing.
-  useEffect(
-    () => () => {
-      if (useLyricTools.getState().tap) void useLyricTools.getState().cancelTap();
-    },
-    [],
-  );
-
   if (!tap || !track) return null;
   const unit = track.kind === "words" ? "word" : "syllable";
   const next = tap.session ? nextMark(tap.session) : null;

@@ -225,6 +225,13 @@ export function Timeline({ doc: fullDoc }: { doc: Sequence }) {
 
   // Fit the song when a different sequence is opened (not when this one is saved somewhere new).
   useEffect(() => setViewState(null), [docKey]);
+  // Leaving the timeline, or opening another sequence, mid-tap changes nothing.
+  useEffect(
+    () => () => {
+      if (useLyricTools.getState().tap) void useLyricTools.getState().cancelTap();
+    },
+    [docKey],
+  );
   useEffect(() => setScrollY((y) => Math.min(y, maxScroll)), [maxScroll]);
 
   // After a keyboard or problem-list pick: scroll the rows to the active row (or the selected

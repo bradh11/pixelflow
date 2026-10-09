@@ -9,7 +9,7 @@ import { demoPlayers, demoShow } from "../api/demo";
 import { DEMO_MUSIC, DEMO_SEQUENCE_PATH, demoSequence } from "../api/demoSequence";
 import { MemoryBackend } from "../api/memory";
 import { MemorySequencer } from "../api/memorySequencer";
-import type { Effect, Sequence } from "../api/sequence";
+import type { Effect, EffectParams, Sequence } from "../api/sequence";
 import { useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
 import { runMenuAction } from "../state/menuActions";
@@ -459,6 +459,32 @@ describe("sequence screen", () => {
     expect(within(panel).getByRole("slider", { name: "Sensitivity" })).toBeInTheDocument();
     expect(within(panel).queryByRole("slider", { name: "Lowest note" })).not.toBeInTheDocument();
     expect(EFFECT_ICONS.vuMeter).toBeDefined();
+  });
+
+  it("shows the show effects' few settings up front and the rare ones under More", async () => {
+    const { seq } = await openScreen();
+    fireEvent.pointerDown(timeline(), { clientX: x(1000), clientY: LANE.archTop, button: 0, pointerId: 1 });
+    fireEvent.pointerUp(timeline(), { clientX: x(1000), clientY: LANE.archTop, pointerId: 1 });
+    const id = useSequencer.getState().selection[0];
+    const effect = () => seq.doc!.rows.flatMap((r) => r.layers.flatMap((l) => l.effects)).find((e) => e.id === id)!;
+    const panel = () => screen.getByRole("complementary", { name: "Effect settings" });
+    const show = async (params: EffectParams) => act(() => useSequencer.getState().edit([{ type: "updateEffect", effect: { ...effect(), params } }]));
+    await show({ kind: "impact" });
+    expect(within(panel()).getByRole("combobox", { name: "Decay" })).toHaveValue("exponential");
+    expect(within(panel()).queryByRole("slider", { name: "Hit point across" })).not.toBeInTheDocument();
+    await show({ kind: "wipe" });
+    expect(within(panel()).getByRole("combobox", { name: "Direction" })).toHaveValue("leftToRight");
+    await show({ kind: "lightning" });
+    expect(within(panel()).getByRole("checkbox", { name: "Flash only" })).not.toBeChecked();
+    expect(within(panel()).queryByRole("slider", { name: "Jags" })).not.toBeInTheDocument();
+    await show({ kind: "pulse" });
+    expect(within(panel()).getByRole("combobox", { name: "Shape" })).toHaveValue("sine");
+    expect(within(panel()).queryByRole("slider", { name: "Release" })).not.toBeInTheDocument();
+    await show({ kind: "sing" });
+    expect(within(panel()).getByRole("combobox", { name: "Style" })).toHaveValue("mouth");
+    await show({ kind: "colorShift" });
+    expect(within(panel()).getByRole("slider", { name: "Stagger" })).toHaveValue("0");
+    for (const kind of ["impact", "wipe", "lightning", "pulse", "sing", "colorShift"] as const) expect(EFFECT_ICONS[kind]).toBeDefined();
   });
 
   it("moves the playhead and selected effects with the keyboard, and copies and pastes", async () => {

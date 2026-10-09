@@ -35,7 +35,13 @@ export type EffectKind =
   | "tendril"
   | "text"
   | "faces"
-  | "vuMeter";
+  | "vuMeter"
+  | "impact"
+  | "wipe"
+  | "lightning"
+  | "pulse"
+  | "sing"
+  | "colorShift";
 
 export type Gradient = "none" | "horizontal" | "vertical";
 /** What the Shape effect draws. */
@@ -87,7 +93,18 @@ export type EffectParams =
   | { kind: "off" }
   | { kind: "colorWash"; cycles?: number; gradient?: Gradient }
   | { kind: "fade"; direction?: "in" | "out" }
-  | { kind: "chase"; speed?: number; width?: number; bands?: number; direction?: Direction; bounce?: boolean }
+  | {
+      kind: "chase";
+      speed?: number;
+      width?: number;
+      bands?: number;
+      direction?: Direction;
+      bounce?: boolean;
+      /** Along the wiring, left to right, or prop by prop on a group. */
+      order?: "wiring" | "across" | "props" | "propsAcross";
+      /** Steps on this track's marks instead of moving at the speed. */
+      timingTrack?: Uuid | null;
+    }
   | { kind: "bars"; count?: number; speed?: number; axis?: Axis; direction?: Direction }
   | { kind: "wave"; cycles?: number; speed?: number; height?: number; thickness?: number; direction?: Direction }
   | { kind: "twinkle"; density?: number; rate?: number }
@@ -297,7 +314,42 @@ export type EffectParams =
       xOffset?: number;
       yOffset?: number;
       filter?: string;
-    };
+    }
+  | {
+      kind: "impact";
+      decay?: "linear" | "exponential" | "punch";
+      color?: "white" | "palette";
+      colorShift?: boolean;
+      bloom?: number;
+      hold?: number;
+      centerX?: number;
+      centerY?: number;
+    }
+  | { kind: "wipe"; direction?: Sweep; mode?: "on" | "onOff" | "off"; duration?: number; softness?: number; band?: number }
+  | {
+      kind: "lightning";
+      density?: number;
+      branches?: number;
+      flashOnly?: boolean;
+      glow?: number;
+      thickness?: number;
+      segments?: number;
+    }
+  | {
+      kind: "pulse";
+      source?: "marks" | "level" | "bass" | "onsets";
+      timingTrack?: Uuid | null;
+      shape?: "sine" | "saw" | "square" | "heartbeat";
+      min?: number;
+      max?: number;
+      attack?: number;
+      release?: number;
+    }
+  | { kind: "sing"; mode?: "mouth" | "wordPop" | "barMouth" | "karaoke"; timingTrack?: Uuid | null; min?: number }
+  | { kind: "colorShift"; ease?: "instant" | "linear" | "smooth"; duration?: number; stagger?: number; direction?: Sweep };
+
+/** Which way a Wipe (or a staggered Color Shift) travels (see `Sweep` in crates/pf-sequence/src/effect.rs). */
+export type Sweep = "leftToRight" | "rightToLeft" | "up" | "down" | "centerOut" | "edgesIn" | "diagonal" | "radial";
 
 /** What a VU Meter draws (see `VuMeterType` in crates/pf-sequence/src/effect.rs). */
 export type VuMeterType =
@@ -919,6 +971,12 @@ export const EFFECT_KINDS: { kind: EffectKind; label: string }[] = [
   { kind: "tendril", label: "Tendril" },
   { kind: "text", label: "Text" },
   { kind: "vuMeter", label: "VU Meter" },
+  { kind: "impact", label: "Impact" },
+  { kind: "wipe", label: "Wipe" },
+  { kind: "lightning", label: "Lightning" },
+  { kind: "pulse", label: "Pulse" },
+  { kind: "sing", label: "Sing" },
+  { kind: "colorShift", label: "Color Shift" },
 ];
 
 /** A new effect of `kind` (engine-default settings, white) from `startMs` to `endMs`. */

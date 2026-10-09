@@ -47,6 +47,12 @@ const HUES: Record<EffectKind, number> = {
   text: 30,
   faces: 340,
   vuMeter: 150,
+  impact: 45,
+  wipe: 185,
+  lightning: 250,
+  pulse: 355,
+  sing: 310,
+  colorShift: 275,
 };
 
 interface Theme {

@@ -7,7 +7,7 @@ use crate::draft::Draft;
 use crate::provider::Cancel;
 use pf_analysis::{Analysis, BarEnergy};
 use pf_engine::SequenceEdit;
-use pf_sequence::{Sequence, TimingTrack};
+use pf_sequence::{Sequence, TimingKind, TimingTrack};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -36,6 +36,11 @@ pub struct Song<'a> {
 const MAX_LISTED_BARS: usize = 400;
 /// Accents listed by `analyze_song`, at most (the strongest).
 const MAX_LISTED_ACCENTS: usize = 60;
+/// Lyric lines listed by `analyze_song`, at most, and the characters of each.
+const MAX_LISTED_LINES: usize = 40;
+const MAX_LINE_CHARS: usize = 40;
+/// Sung stretches listed by `analyze_song`, at most.
+const MAX_LISTED_VOCALS: usize = 30;
 
 impl Song<'_> {
     /// The song's analysis, run now if this song hasn't been analyzed yet.
@@ -148,11 +153,60 @@ fn user_accents(analysis: &Analysis, track: &TimingTrack) -> Vec<Value> {
         .collect()
 }
 
+/// The user's lyrics, briefly: the lyrics track and its words track by name, each line's start
+/// and words (the first lines, cut short), and the sung stretches from their Vocals track.
+/// `None` without lyrics.
+fn lyrics_summary(user: &Sequence) -> Option<Value> {
+    let lines = user
+        .timing_tracks
+        .iter()
+        .find(|t| t.kind == TimingKind::Lyrics && !t.marks.is_empty())?;
+    let words = user
+        .timing_tracks
+        .iter()
+        .find(|t| t.kind == TimingKind::Words && t.name == format!("{} (words)", lines.name))
+        .or_else(|| user.timing_tracks.iter().find(|t| t.kind == TimingKind::Words));
+    let listed: Vec<Value> = lines
+        .marks
+        .iter()
+        .take(MAX_LISTED_LINES)
+        .map(|m| {
+            let mut text: String = m.label.trim().chars().take(MAX_LINE_CHARS).collect();
+            if m.label.trim().chars().count() > MAX_LINE_CHARS {
+                text.push('…');
+            }
+            json!([m.start_ms, text])
+        })
+        .collect();
+    let mut summary = json!({ "track": lines.name, "lines": listed });
+    if let Some(words) = words {
+        summary["wordsTrack"] = words.name.clone().into();
+    }
+    if lines.marks.len() > MAX_LISTED_LINES {
+        summary["moreLines"] = (lines.marks.len() - MAX_LISTED_LINES).into();
+    }
+    if let Some(vocals) = user
+        .timing_tracks
+        .iter()
+        .find(|t| t.name.eq_ignore_ascii_case(crate::lyrics::tracks::VOCALS_TRACK) && !t.marks.is_empty())
+    {
+        let sung: Vec<Value> = vocals
+            .marks
+            .iter()
+            .take(MAX_LISTED_VOCALS)
+            .map(|m| json!([m.start_ms, m.end_ms]))
+            .collect();
+        summary["vocalsMs"] = sung.into();
+    }
+    Some(summary)
+}
+
 /// What `analyze_song` answers: tempo, counts, bar times, sections (named, grouped by what
 /// repeats, with their energy), the strongest accents, each bar's energy and bass as a digit
 /// string (0–9, a digit per bar), and how sure the analysis is. Sections and accents come from
 /// the user's own Sections and Accents tracks in `user` when it has them (`sectionsFrom`,
-/// `accentsFrom`: "user"): those win over what was detected.
+/// `accentsFrom`: "user"): those win over what was detected. With the user's lyrics, a short
+/// summary of them too (`lyrics`).
 pub fn describe(analysis: &Analysis, user: Option<&Sequence>) -> Value {
     let my_sections = user.and_then(crate::align::user_sections);
     let sections: Vec<Value> = match my_sections {
@@ -203,7 +257,7 @@ pub fn describe(analysis: &Analysis, user: Option<&Sequence>) -> Value {
             .collect()
     };
     let from = |user: bool| if user { "user" } else { "analysis" };
-    json!({
+    let mut described = json!({
         "durationMs": analysis.duration_ms,
         "tempoBpm": analysis.tempo_bpm.map(|t| (t * 10.0).round() / 10.0),
         "beats": analysis.beats.len(),
@@ -219,7 +273,11 @@ pub fn describe(analysis: &Analysis, user: Option<&Sequence>) -> Value {
             "downbeat": round2(analysis.confidence.downbeat),
             "sections": round2(analysis.confidence.sections),
         },
-    })
+    });
+    if let Some(lyrics) = user.and_then(lyrics_summary) {
+        described["lyrics"] = lyrics;
+    }
+    described
 }
 
 /// The tracks `add_song_timing` can add, by name.

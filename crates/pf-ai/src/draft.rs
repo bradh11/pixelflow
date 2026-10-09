@@ -149,8 +149,8 @@ impl Draft {
     }
 
     /// Moves the effect edges and timing marks the draft added or moved onto the song's
-    /// sections, accents, bars, and beats (see [`crate::align`]), as one more step of the draft.
-    /// The user's own Sections and Accents tracks win over the analysis's. Answers how many
+    /// sections, accents, sung words, bars, and beats (see [`crate::align`]), as one more step
+    /// of the draft. The user's own Sections and Accents tracks win over the analysis's. Answers how many
     /// edges moved.
     pub fn lock_to_music(&mut self, analysis: Option<&Analysis>) -> usize {
         let base = self.base.sequence.as_ref().map(|s| &s.doc);

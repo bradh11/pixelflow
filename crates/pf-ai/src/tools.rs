@@ -777,7 +777,7 @@ fn song_tools() -> Vec<Tool> {
         ),
         tool(
             "analyze_song",
-            "The open sequence's song: tempo, bar start times; sections (Intro, Verse, Chorus …; a group letter: the same letter is the same music again; energy 0–1), from the user's Sections track when sectionsFrom is \"user\"; accents to land on (hit, drop, break, build; forMs for breaks and builds), likewise; barEnergy and barBass, a digit per bar (0 quiet to 9 full); and confidence.",
+            "The open sequence's song: tempo, bar start times; sections (Intro, Verse, Chorus …; the same group letter is the same music; energy 0–1), from the user's Sections track when sectionsFrom is \"user\"; accents to land on (hit, drop, break, build; forMs for breaks and builds), likewise; barEnergy and barBass, a digit per bar (0 quiet to 9 full); confidence; lyrics (lines, vocalsMs) if any.",
             object(json!({}), &[]),
             ToolKind::AnalyzeSong,
         ),
@@ -792,7 +792,7 @@ fn song_tools() -> Vec<Tool> {
         ),
         tool(
             "place_effects",
-            "Puts one effect on many rows from fromMs to toMs: one each, or cut at a timing track's marks (`track`: id or name; `marksEach` marks per effect) and shared out by `spread`: together, alternate (neighbours take turns), sweep (one row after another), build (rows join one by one). Refused where it overlaps effects on that layer, unless replace.",
+            "Puts one effect on many rows from fromMs to toMs: one each, or cut at a timing track's marks (`track`: id or name; `match`: only marks with this word, phrase, or regex, a lyrics track's words; `marksEach` marks per effect) and shared out by `spread`: together, alternate (neighbours take turns), sweep (one row after another), build (rows join one by one). Refused where it overlaps effects on that layer, unless replace.",
             object(
                 json!({
                     "rowIds": ids(),
@@ -812,6 +812,7 @@ fn song_tools() -> Vec<Tool> {
                         "required": ["kind"],
                     },
                     "track": { "type": "string" },
+                    "match": { "type": "string" },
                     "marksEach": { "type": "integer", "minimum": 1 },
                     "spread": { "enum": crate::arrange::SPREADS },
                     "layer": { "type": "integer", "minimum": 0, "description": "Default 0, the bottom; one past the top adds a layer." },

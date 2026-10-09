@@ -21,6 +21,7 @@ ureq = { workspace = true, features = ["rustls"] }
 keyring = { version = "=4.2.0", default-features = false, features = ["v1"] }
 zeroize = "=1.9.0"
 sha2.workspace = true
+regex.workspace = true
 
 [features]
 # Recorded provider replies and a scripted provider, for tests in this and other crates.

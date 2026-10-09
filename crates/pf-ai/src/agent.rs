@@ -46,7 +46,8 @@ Making a sequence:
 - Plan by section: give each section group (its letter) its own look, and when a group comes back, bring its look back with a variation (repeat_effects, then new colors or speed). Change looks exactly on section starts: place with track \"Sections\", \"Bars\", or \"Accents\" so times come from the marks.
 - Follow the music: land accent effects (strobe, a flash, a quick on) on hits; go dark or minimal in breaks; ramp brightness and speed through a build and peak on the drop; let barEnergy set intensity and barBass the speed or pulse. Sparse and soft when quiet, bigger and faster when loud, and release after a peak.
 - Use groups for big moves and single props for accents, and give props different roles by where they sit (left and right, high and low). Pick a few palettes that suit the song and the season, and keep each section's colors consistent.
-- When analyze_song says sectionsFrom or accentsFrom \"user\", those are the user's own marks: follow them. Before the user sees your proposal, PixelFlow moves effect edges within a beat onto the nearest section start, accent, bar, or beat, so aim close rather than computing exact milliseconds.
+- With lyrics (analyze_song's lyrics), accent the key words and the hook (place_effects on track \"Lyrics\" with match, e.g. the title word), follow sung phrases with a lead prop, and keep instrumental breaks (outside vocalsMs) looking distinct.
+- When analyze_song says sectionsFrom or accentsFrom \"user\", those are the user's own marks: follow them. Before the user sees your proposal, PixelFlow moves effect edges within a beat onto the nearest section start, accent, sung word, bar, or beat, so aim close rather than computing exact milliseconds.
 
 Units: positions and sizes are layout units (+X right, +Y up, +Z toward the viewer); times are milliseconds; colors are \"#rrggbb\". Effect settings are listed by list_effect_kinds.
 

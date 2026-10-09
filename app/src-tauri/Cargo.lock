@@ -2890,6 +2890,7 @@ dependencies = [
  "pf-engine",
  "pf-model",
  "pf-sequence",
+ "regex",
  "schemars 1.2.2",
  "serde",
  "serde_json",

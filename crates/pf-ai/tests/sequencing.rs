@@ -1,14 +1,15 @@
 //! Making a sequence with the assistant: asking for a song when none is open, reading the song
 //! (beats, bars, sections), and the high-level tools that place many effects at once. All of it
-//! lands in the draft; Apply is one sequence undo step; nothing reaches files, output, or devices.
+//! lands in the draft, locked to the music before it's proposed; Apply is one sequence undo step;
+//! nothing reaches files, output, or devices.
 
 use pf_ai::provider::Message;
 use pf_ai::testing::{ScriptedProvider, calls, fake_key, says};
 use pf_ai::{AiError, Cancel, ChatEvent, ChatSession, TurnReply, UiContext, Workspace, apply_proposal};
 use pf_analysis::{Analysis, BarEnergy, Confidence, Event, EventKind};
-use pf_engine::{Edit, Engine};
+use pf_engine::{Edit, Engine, SequenceEdit};
 use pf_model::{Generator, Group, GroupMember, Prop, ShapeSource};
-use pf_sequence::{EffectKind, Row, Target, TimingKind};
+use pf_sequence::{EffectKind, Mark, Row, Target, TimingKind, TimingTrack};
 use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::Arc;
@@ -326,15 +327,16 @@ fn timing_tracks_come_from_the_song() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names, ["Beats", "Bars", "Sections"]);
+    assert_eq!(names, ["Beats", "Bars", "Sections", "Accents"]);
     assert_eq!(first[0]["marks"], 64);
     assert_eq!(first[2]["marks"], 3);
+    assert_eq!(first[3]["marks"], 3, "the build, the drop, and the hit");
     let second: Value = serde_json::from_str(&results_in(&provider, 2)[0].0).unwrap();
     assert_eq!(second[0]["name"], "Bars");
     assert_eq!(second[0]["added"], false, "already there: reused");
     assert_eq!(second[1]["name"], "Onsets");
     assert_eq!(second[2]["name"], "Accents");
-    assert_eq!(second[2]["marks"], 3, "the build, the drop, and the hit");
+    assert_eq!(second[2]["added"], false);
 
     let draft = session.draft().unwrap().sequence().unwrap();
     let kinds: Vec<TimingKind> = draft.timing_tracks.iter().map(|t| t.kind).collect();
@@ -346,7 +348,8 @@ fn timing_tracks_come_from_the_song() {
             TimingKind::Sections,
             TimingKind::Custom,
             TimingKind::Custom
-        ]
+        ],
+        "Accents, then Onsets"
     );
     assert!(
         s.engine.sequence_document().unwrap().timing_tracks.is_empty(),
@@ -547,7 +550,7 @@ fn effects_go_on_many_rows_at_once_along_timing_marks() {
     apply_proposal(&mut engine, session.proposal().unwrap()).unwrap();
     let after = engine.sequence_document().unwrap();
     assert_eq!(after.effect_count(), 12 + 4 + 4 + 6 + 1);
-    assert_eq!(after.timing_tracks.len(), 3);
+    assert_eq!(after.timing_tracks.len(), 4);
     engine.undo_sequence().unwrap();
     assert_eq!(
         engine.sequence_document().unwrap(),
@@ -792,4 +795,141 @@ fn misspelled_effect_settings_are_refused_through_either_provider() {
         let text = result["content"].as_str().unwrap();
         assert!(text.contains(key) && text.contains(hint), "{tool}: {text}");
     }
+}
+
+#[test]
+fn a_sloppy_draft_is_locked_to_the_music_before_the_user_sees_it() {
+    let s = setup(Some("/music/song.mp3"));
+    let [a, b] = [0, 1].map(|i| s.rows[i].clone());
+    let provider = ScriptedProvider::new(vec![
+        calls(
+            "",
+            &[
+                // The intro and the loud part, each edge a little off its section's.
+                (
+                    "place_effects",
+                    json!({ "rowIds": [a], "fromMs": 130, "toMs": 7_880, "effect": { "kind": "twinkle" } }),
+                ),
+                (
+                    "place_effects",
+                    json!({ "rowIds": [a], "fromMs": 8_210, "toMs": 23_700, "effect": { "kind": "colorWash" } }),
+                ),
+                // A flash near the hit, and a beat-long pulse already on the beat.
+                (
+                    "place_effects",
+                    json!({ "rowIds": [b], "fromMs": 16_190, "toMs": 16_340, "effect": { "kind": "strobe" } }),
+                ),
+                (
+                    "place_effects",
+                    json!({ "rowIds": [b], "fromMs": 17_500, "toMs": 18_000, "effect": { "kind": "on" } }),
+                ),
+            ],
+        ),
+        calls(
+            "",
+            &[("propose_changes", json!({ "summary": "Looks per section." }))],
+        ),
+        says("Have a look."),
+    ]);
+    let (mut session, runs) = session();
+    let (reply, _) = ask(&mut session, &provider, &s.engine, "Make a show");
+    let proposal = reply.unwrap().proposal.unwrap();
+    assert_eq!(
+        runs.load(Ordering::SeqCst),
+        1,
+        "the song is analyzed to lock to it"
+    );
+    assert_eq!(placed(&session, &a, 0), [(0, 8_000), (8_000, 24_000)]);
+    // The flash starts on the hit (its end, between beats, stays); the pulse doesn't move.
+    assert_eq!(placed(&session, &b, 0), [(16_250, 16_340), (17_500, 18_000)]);
+    assert_eq!(proposal.locked_edges, 5);
+    let json = serde_json::to_value(&proposal).unwrap();
+    assert_eq!(json["lockedEdges"], 5);
+
+    // Applied, it's still one undo step.
+    let mut engine = s.engine;
+    apply_proposal(&mut engine, session.proposal().unwrap()).unwrap();
+    let row = &engine.sequence_document().unwrap().rows[0];
+    assert_eq!(row.layers[0].effects[0].start_ms, 0);
+    engine.undo_sequence().unwrap();
+    assert_eq!(engine.sequence_document().unwrap().effect_count(), 0);
+}
+
+#[test]
+fn the_users_own_sections_and_accents_win_over_the_analysis() {
+    let mut s = setup(Some("/music/song.mp3"));
+    let a = s.rows[0].clone();
+    let sections = TimingTrack::new(
+        "Sections",
+        TimingKind::Sections,
+        vec![
+            Mark::new(0, 9_250, "Intro"),
+            Mark::new(9_250, 20_000, "Chorus 1"),
+            Mark::new(20_000, 26_000, "Verse"),
+            Mark::new(26_000, 32_000, "Chorus 2"),
+        ],
+    );
+    let accents = TimingTrack::new(
+        "Accents",
+        TimingKind::Custom,
+        vec![
+            Mark::new(12_120, 12_400, "Hit"),
+            Mark::new(14_000, 16_000, "Break"),
+        ],
+    );
+    s.engine
+        .edit_sequence(vec![
+            SequenceEdit::AddTimingTrack { track: sections },
+            SequenceEdit::AddTimingTrack { track: accents },
+        ])
+        .unwrap();
+    let provider = ScriptedProvider::new(vec![
+        calls("", &[("analyze_song", json!({}))]),
+        calls(
+            "",
+            &[(
+                "place_effects",
+                json!({ "rowIds": [a], "fromMs": 9_400, "toMs": 12_080, "effect": { "kind": "fire" } }),
+            )],
+        ),
+        calls(
+            "",
+            &[("propose_changes", json!({ "summary": "Fire in the chorus." }))],
+        ),
+        says("Done."),
+    ]);
+    let (mut session, _) = session();
+    ask(&mut session, &provider, &s.engine, "Fire in the chorus")
+        .0
+        .unwrap();
+    let summary: Value = serde_json::from_str(&results_in(&provider, 1)[0].0).unwrap();
+    assert_eq!(summary["sectionsFrom"], "user");
+    assert_eq!(summary["accentsFrom"], "user");
+    let sections: Vec<(&str, &str, u64)> = summary["sections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| {
+            (
+                s["label"].as_str().unwrap(),
+                s["group"].as_str().unwrap(),
+                s["startMs"].as_u64().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        sections,
+        [
+            ("Intro", "A", 0),
+            ("Chorus 1", "B", 9_250),
+            ("Verse", "C", 20_000),
+            ("Chorus 2", "B", 26_000)
+        ],
+        "a chorus that comes back is the same group"
+    );
+    assert_eq!(summary["accents"][0], json!({ "atMs": 12_120, "kind": "hit" }));
+    assert_eq!(summary["accents"][1]["kind"], "break");
+    assert_eq!(summary["accents"][1]["forMs"], 2_000);
+    // Locked to the user's section start (off the detected beat grid) and their hit.
+    assert_eq!(placed(&session, &a, 0), [(9_250, 12_120)]);
 }

@@ -13,9 +13,9 @@ use std::path::Path;
 
 /// The sample rate the model hears (Hz).
 pub const RATE: u32 = 16_000;
-/// Samples per analysis window (32 ms) and between windows (8 ms).
-const WINDOW: usize = 512;
-const HOP: usize = 128;
+/// Samples per analysis window (64 ms) and between windows (16 ms).
+const WINDOW: usize = 1_024;
+const HOP: usize = 256;
 /// Under this (Hz), nothing is kept: kick and bass, not voice.
 const LOW_CUT_HZ: f32 = 90.0;
 /// How strongly a difference between the sides turns a frequency down (as the vocal track's).

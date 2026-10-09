@@ -26,7 +26,9 @@
 //!     shouts, drops, crashes, and section changes ([`Analysis::moments`]); shouts again from
 //!     the sung words when there are lyrics ([`Analysis::moments_with_words`]).
 //! 11. **Voice**: separately, a cheap guess at when the voice is sounding ([`vocal_activity`]),
-//!     to fine-tune lyric timing.
+//!     to fine-tune lyric timing; and finer, the lead vocal brought forward (the middle of
+//!     the mix, its pitched part, and its consonants) with where it starts and stops a sound
+//!     ([`vocal_track`]), to lock sung words onto.
 //! 12. **Audio track**: separately, what the music is doing at every frame of a sequence (levels,
 //!     bands, spectrum, onsets, beats) for effects that follow it ([`audio_track`]).
 
@@ -47,6 +49,7 @@ mod stops;
 mod structure;
 mod track;
 mod vocal;
+mod vocal_track;
 
 pub use beats::{bars, beat_grid, estimate_tempo};
 pub use drums::{BarDrums, Drum, DrumHit};
@@ -61,6 +64,9 @@ pub use track::{
     audio_track_file,
 };
 pub use vocal::{VOCAL_THRESHOLD, VocalActivity, vocal_activity, vocal_activity_file};
+pub use vocal_track::{
+    OFFSET_HOLD_MS, VOCAL_TRACK_FORMAT, VocalTrack, vocal_track, vocal_track_cancellable, vocal_track_file,
+};
 
 use pf_audio::{AudioError, MonoSamples};
 use pf_sequence::{Mark, TimingKind, TimingTrack};

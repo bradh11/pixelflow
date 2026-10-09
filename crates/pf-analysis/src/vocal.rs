@@ -61,51 +61,100 @@ pub fn vocal_activity(
     rate: u32,
     stop: &dyn Fn() -> bool,
 ) -> Result<VocalActivity, AnalysisError> {
-    let rate = rate.max(1);
-    // About 23 ms between frames, a power of two; windows twice as long.
-    let hop = (0.0232 * f64::from(rate)).log2().round().clamp(5.0, 13.0).exp2() as usize;
-    let window = 2 * hop;
-    let fft = RealFftPlanner::<f32>::new().plan_fft_forward(window);
-    let bin_hz = rate as f32 / window as f32;
-    let first = ((LOW_HZ / bin_hz).ceil() as usize).max(1);
-    let last = ((HIGH_HZ / bin_hz).floor() as usize).min(window / 2);
-    let hann: Vec<f32> = (0..window)
-        .map(|i| 0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / window as f32).cos())
-        .collect();
-    let mut mid_in = fft.make_input_vec();
-    let mut side_in = fft.make_input_vec();
-    let mut mid_out = fft.make_output_vec();
-    let mut side_out = fft.make_output_vec();
-    let mut scratch = fft.make_scratch_vec();
-    let mut mid = vec![0.0f32; window];
-    let mut side = vec![0.0f32; window];
-    let mut filled = 0;
-    let mut raw: Vec<f32> = Vec::new();
-    let mut band_power: Vec<f32> = Vec::new();
+    let mut extractor = ActivityExtractor::new(rate);
     for (i, (l, r)) in frames.into_iter().enumerate() {
         if i % CHECK_EVERY == 0 && stop() {
             return Err(AnalysisError::Cancelled);
         }
+        extractor.push(l, r);
+    }
+    Ok(extractor.finish())
+}
+
+/// Takes (left, right) pairs one at a time (see [`vocal_activity`]), so other measures can be
+/// taken from the same pass over the song.
+pub(crate) struct ActivityExtractor {
+    hop: usize,
+    window: usize,
+    rate: u32,
+    fft: std::sync::Arc<dyn realfft::RealToComplex<f32>>,
+    first: usize,
+    last: usize,
+    hann: Vec<f32>,
+    mid_in: Vec<f32>,
+    side_in: Vec<f32>,
+    mid_out: Vec<realfft::num_complex::Complex<f32>>,
+    side_out: Vec<realfft::num_complex::Complex<f32>>,
+    scratch: Vec<realfft::num_complex::Complex<f32>>,
+    mid: Vec<f32>,
+    side: Vec<f32>,
+    filled: usize,
+    raw: Vec<f32>,
+    band_power: Vec<f32>,
+}
+
+impl ActivityExtractor {
+    pub(crate) fn new(rate: u32) -> Self {
+        let rate = rate.max(1);
+        // About 23 ms between frames, a power of two; windows twice as long.
+        let hop = (0.0232 * f64::from(rate)).log2().round().clamp(5.0, 13.0).exp2() as usize;
+        let window = 2 * hop;
+        let fft = RealFftPlanner::<f32>::new().plan_fft_forward(window);
+        let bin_hz = rate as f32 / window as f32;
+        let first = ((LOW_HZ / bin_hz).ceil() as usize).max(1);
+        let last = ((HIGH_HZ / bin_hz).floor() as usize).min(window / 2);
+        Self {
+            hop,
+            window,
+            rate,
+            first,
+            last,
+            hann: (0..window)
+                .map(|i| 0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / window as f32).cos())
+                .collect(),
+            mid_in: fft.make_input_vec(),
+            side_in: fft.make_input_vec(),
+            mid_out: fft.make_output_vec(),
+            side_out: fft.make_output_vec(),
+            scratch: fft.make_scratch_vec(),
+            fft,
+            mid: vec![0.0; window],
+            side: vec![0.0; window],
+            filled: 0,
+            raw: Vec::new(),
+            band_power: Vec::new(),
+        }
+    }
+
+    pub(crate) fn push(&mut self, l: f32, r: f32) {
         let clean = |s: f32| if s.is_finite() { s.clamp(-1.0, 1.0) } else { 0.0 };
         let (l, r) = (clean(l), clean(r));
-        mid[filled] = (l + r) / 2.0;
-        side[filled] = (l - r) / 2.0;
-        filled += 1;
-        if filled < window {
-            continue;
+        self.mid[self.filled] = (l + r) / 2.0;
+        self.side[self.filled] = (l - r) / 2.0;
+        self.filled += 1;
+        if self.filled < self.window {
+            return;
         }
-        for k in 0..window {
-            mid_in[k] = mid[k] * hann[k];
-            side_in[k] = side[k] * hann[k];
+        for k in 0..self.window {
+            self.mid_in[k] = self.mid[k] * self.hann[k];
+            self.side_in[k] = self.side[k] * self.hann[k];
         }
         // A plan's own buffers are always the right length.
-        let _ = fft.process_with_scratch(&mut mid_in, &mut mid_out, &mut scratch);
-        let _ = fft.process_with_scratch(&mut side_in, &mut side_out, &mut scratch);
+        let _ = self
+            .fft
+            .process_with_scratch(&mut self.mid_in, &mut self.mid_out, &mut self.scratch);
+        let _ = self
+            .fft
+            .process_with_scratch(&mut self.side_in, &mut self.side_out, &mut self.scratch);
         let power = |c: &realfft::num_complex::Complex<f32>| c.norm_sqr();
-        let mid_total: f32 = mid_out.iter().map(power).sum::<f32>() + FLOOR;
-        let band: Vec<f32> = mid_out[first..=last].iter().map(|c| power(c) + FLOOR).collect();
+        let (first, last) = (self.first, self.last);
+        let mid_total: f32 = self.mid_out.iter().map(power).sum::<f32>() + FLOOR;
+        let band: Vec<f32> = self.mid_out[first..=last]
+            .iter()
+            .map(|c| power(c) + FLOOR)
+            .collect();
         let mid_band: f32 = band.iter().sum();
-        let side_band: f32 = side_out[first..=last].iter().map(power).sum::<f32>() + FLOOR;
+        let side_band: f32 = self.side_out[first..=last].iter().map(power).sum::<f32>() + FLOOR;
         let centre = mid_band / (mid_band + side_band);
         let share = (mid_band / mid_total).min(1.0);
         let mean = mid_band / band.len() as f32;
@@ -113,14 +162,17 @@ pub fn vocal_activity(
         let pitched = 1.0 - (geometric / mean).clamp(0.0, 1.0);
         // Twice as much in the middle as the sides counts fully (0.5 is an even spread).
         let centred = ((centre - 0.5) * 2.0).clamp(0.0, 1.0);
-        raw.push(centred * share.sqrt() * pitched);
-        band_power.push(mid_band);
-        mid.copy_within(hop.., 0);
-        side.copy_within(hop.., 0);
-        filled = window - hop;
+        self.raw.push(centred * share.sqrt() * pitched);
+        self.band_power.push(mid_band);
+        self.mid.copy_within(self.hop.., 0);
+        self.side.copy_within(self.hop.., 0);
+        self.filled = self.window - self.hop;
     }
-    let hop_ms = hop as f64 * 1000.0 / f64::from(rate);
-    Ok(finish(raw, band_power, hop_ms))
+
+    pub(crate) fn finish(self) -> VocalActivity {
+        let hop_ms = self.hop as f64 * 1000.0 / f64::from(self.rate);
+        finish(self.raw, self.band_power, hop_ms)
+    }
 }
 
 /// The value at `share` of the way up `values`, sorted (0 when empty).

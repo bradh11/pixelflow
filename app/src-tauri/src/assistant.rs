@@ -675,7 +675,7 @@ mod tests {
         assert!(
             requests
                 .iter()
-                .all(|r| !r.body.as_deref().unwrap_or("").contains(FAKE_KEY))
+                .all(|r| !r.body.as_ref().and_then(|b| b.text()).unwrap_or("").contains(FAKE_KEY))
         );
         assert_eq!(call(&t, "get_snapshot", json!({})).unwrap(), original);
 

@@ -33,6 +33,7 @@ unicode-normalization = "0.1.25"
 rodio = { version = "0.22.2", default-features = false, features = ["playback", "mp3", "wav", "flac", "vorbis", "mp4"] }
 # rodio's own decoder, for reading tags (the same formats rodio decodes).
 symphonia = { version = "0.5.5", default-features = false, features = ["mp3", "wav", "pcm", "flac", "ogg", "vorbis", "isomp4", "aac"] }
+sha2 = "0.10.9"
 pf-model = { path = "crates/pf-model" }
 pf-geometry = { path = "crates/pf-geometry" }
 pf-mapping = { path = "crates/pf-mapping" }

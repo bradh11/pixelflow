@@ -11,6 +11,7 @@ pf-model = { workspace = true, features = ["schema"] }
 pf-sequence = { workspace = true, features = ["schema"] }
 pf-engine = { workspace = true, features = ["schema"] }
 pf-analysis.workspace = true
+pf-audio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -19,6 +20,7 @@ schemars.workspace = true
 ureq = { workspace = true, features = ["rustls"] }
 keyring = { version = "=4.2.0", default-features = false, features = ["v1"] }
 zeroize = "=1.9.0"
+sha2.workspace = true
 
 [features]
 # Recorded provider replies and a scripted provider, for tests in this and other crates.

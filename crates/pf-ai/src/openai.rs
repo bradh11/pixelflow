@@ -127,7 +127,7 @@ impl OpenAi {
                 ("content-type", HeaderValue::Plain("application/json".into())),
                 ("accept", HeaderValue::Plain("text/event-stream".into())),
             ],
-            body: Some(body.to_string()),
+            body: Some(body.to_string().into()),
         }
     }
 }
@@ -347,7 +347,7 @@ fn classify(status: Option<u16>, error: &Value, key: &ApiKey, model: &str) -> Ai
     base.with_details(details(status, &parts, key))
 }
 
-fn send_error(error: SendError, key: &ApiKey, model: &str) -> AiError {
+pub(crate) fn send_error(error: SendError, key: &ApiKey, model: &str) -> AiError {
     let p = ProviderId::Openai;
     match error {
         SendError::Cancelled => AiError::Cancelled,

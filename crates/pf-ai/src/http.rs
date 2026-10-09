@@ -5,6 +5,7 @@ use crate::provider::Cancel;
 use crate::secret::ApiKey;
 use std::fmt;
 use std::io::{BufRead, BufReader, Read};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// A header value: plain text, or the API key (never printed).
@@ -41,13 +42,58 @@ pub enum Method {
     Post,
 }
 
+/// A request's body: text (JSON), or bytes (a file upload, shown in `Debug` only by its size).
+#[derive(Clone, PartialEq, Eq)]
+pub enum Body {
+    Text(String),
+    Bytes(Arc<[u8]>),
+}
+
+impl Body {
+    pub fn as_bytes(&self) -> &[u8] {
+        match self {
+            Body::Text(text) => text.as_bytes(),
+            Body::Bytes(bytes) => bytes,
+        }
+    }
+
+    /// The body as text, when it is text.
+    pub fn text(&self) -> Option<&str> {
+        match self {
+            Body::Text(text) => Some(text),
+            Body::Bytes(_) => None,
+        }
+    }
+}
+
+impl From<String> for Body {
+    fn from(text: String) -> Self {
+        Body::Text(text)
+    }
+}
+
+impl From<Vec<u8>> for Body {
+    fn from(bytes: Vec<u8>) -> Self {
+        Body::Bytes(bytes.into())
+    }
+}
+
+impl fmt::Debug for Body {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Body::Text(text) => write!(f, "{text:?}"),
+            Body::Bytes(bytes) => write!(f, "<{} bytes>", bytes.len()),
+        }
+    }
+}
+
 /// One request. Its `Debug` hides the key.
 #[derive(Debug, Clone)]
 pub struct HttpRequest {
     pub method: Method,
     pub url: String,
     pub headers: Vec<(&'static str, HeaderValue)>,
-    pub body: Option<String>,
+    pub body: Option<Body>,
 }
 
 impl HttpRequest {
@@ -101,6 +147,13 @@ pub trait Transport: Send + Sync {
     fn send(&self, request: &HttpRequest) -> Result<HttpResponse, TransportError>;
 }
 
+/// How PixelFlow names itself to the services it calls.
+pub const USER_AGENT: &str = concat!(
+    "PixelFlow/",
+    env!("CARGO_PKG_VERSION"),
+    " (https://github.com/bradh11/pixelflow)"
+);
+
 /// Real HTTPS (rustls, Mozilla's root certificates).
 #[derive(Debug, Clone)]
 pub struct UreqTransport {
@@ -114,6 +167,21 @@ impl Default for UreqTransport {
 }
 
 impl UreqTransport {
+    /// For quick lookups on public services (published lyrics): short timeouts, since nothing
+    /// there thinks for long.
+    pub fn quick() -> Self {
+        let config = ureq::Agent::config_builder()
+            .timeout_connect(Some(Duration::from_secs(10)))
+            .timeout_send_request(Some(Duration::from_secs(15)))
+            .timeout_recv_response(Some(Duration::from_secs(20)))
+            .timeout_recv_body(Some(Duration::from_secs(30)))
+            .http_status_as_error(false)
+            .max_redirects(0)
+            .user_agent(USER_AGENT)
+            .build();
+        Self { agent: config.into() }
+    }
+
     pub fn new() -> Self {
         let config = ureq::Agent::config_builder()
             .timeout_connect(Some(Duration::from_secs(15)))
@@ -126,7 +194,7 @@ impl UreqTransport {
             .http_status_as_error(false)
             // A redirect could carry the key header somewhere else: never follow one.
             .max_redirects(0)
-            .user_agent(concat!("PixelFlow/", env!("CARGO_PKG_VERSION")))
+            .user_agent(USER_AGENT)
             .build();
         Self { agent: config.into() }
     }
@@ -169,7 +237,7 @@ impl Transport for UreqTransport {
                 for (name, value) in &request.headers {
                     builder = builder.header(*name, value.text());
                 }
-                builder.send(request.body.as_deref().unwrap_or(""))
+                builder.send(request.body.as_ref().map_or(&[][..], Body::as_bytes))
             }
         }
         .map_err(|e| transport_error(&e))?;
@@ -342,7 +410,7 @@ mod tests {
                 ),
                 ("content-type", HeaderValue::Plain("application/json".into())),
             ],
-            body: Some("{}".into()),
+            body: Some(String::from("{}").into()),
         }
     }
 

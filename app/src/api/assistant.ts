@@ -106,6 +106,8 @@ export interface ProposalView {
   /** For a sequence proposal: effect edges and timing marks moved onto the music (section
    * starts, accents, bars, beats) before it was shown. */
   lockedEdges: number;
+  /** For a sequence proposal: the cues staged ("Staged 14 cues: 6 hits, 3 word pops, …"), if any. */
+  cues: string | null;
 }
 
 /** What arrives while a reply streams in. */

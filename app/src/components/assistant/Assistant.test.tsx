@@ -371,6 +371,7 @@ describe("creating a sequence", () => {
     expect(assistant.sent.at(-1)).toBe("I chose a song, and the new sequence is open. Go ahead.");
     expect(within(card).getByText("By section")).toBeInTheDocument();
     expect(within(card).getByText(/Locked \d+ edges to the music/)).toBeInTheDocument();
+    expect(within(card).getByText(/^Staged \d+ cues?: \d+ hits?$/)).toBeInTheDocument();
     expect(within(card).getByText("Intro", { selector: "span" })).toBeInTheDocument();
     expect(within(card).getByRole("img", { name: /Timeline of the draft/ })).toBeInTheDocument();
     expect(within(card).getByRole("button", { name: /Show all \d+/ })).toBeInTheDocument();
@@ -411,6 +412,7 @@ describe("the review card", () => {
     sections: [],
     timeline: null,
     lockedEdges: 0,
+    cues: null,
   });
   const falcon: Change = {
     section: "controller",

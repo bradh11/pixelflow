@@ -8,6 +8,7 @@ import catalogJson from "./effectCatalog.json";
 import type { MemoryBackend } from "./memory";
 import { renderSequenceFrame } from "./memoryRender";
 import { importVendor, inspectVendor, type MemoryVendorPackage } from "./memoryVendor";
+import { MemoryVideo } from "./memoryVideo";
 import type {
   MissingFile,
   PlaybackStatus,
@@ -41,6 +42,7 @@ import {
 import type { ProviderId } from "./assistant";
 import type { LyricsCandidate, LyricsChoice, LyricsFound, LyricsGate, LyricsOptions, LyricsRetimed, MusicFound, SequencerApi } from "./sequencer";
 import * as marks from "./timingMarks";
+import type { VideoProgress, VideoRequest } from "./video";
 import { formatMs } from "./timingMarks";
 import { wordPhonemes } from "../lib/submodels";
 
@@ -1208,5 +1210,28 @@ export class MemorySequencer implements SequencerApi {
 
   async pickExportPath(_defaultName: string) {
     return this.nextSavePath;
+  }
+
+  /** Video export, simulated (see MemoryVideo). */
+  readonly video = new MemoryVideo(
+    () => this.doc,
+    () => !!this.backend?.show.background,
+  );
+
+  videoExportChoices() {
+    return this.video.videoExportChoices();
+  }
+
+  exportVideo(path: string, request: VideoRequest, onProgress?: (progress: VideoProgress) => void) {
+    this.calls.push("exportVideo");
+    return this.video.exportVideo(path, request, onProgress);
+  }
+
+  cancelVideoExport() {
+    return this.video.cancelVideoExport();
+  }
+
+  pickVideoPath(defaultName: string) {
+    return this.video.pickVideoPath(defaultName);
   }
 }

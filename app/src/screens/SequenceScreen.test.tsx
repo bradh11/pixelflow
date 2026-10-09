@@ -569,9 +569,11 @@ describe("sequence screen", () => {
     await user.keyboard("{ArrowDown}");
     expect(items[1]).toHaveFocus();
     await user.keyboard("{ArrowDown}");
+    expect(items[2]).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
     expect(items[0]).toHaveFocus();
     await user.keyboard("{ArrowUp}");
-    expect(items[1]).toHaveFocus();
+    expect(items[2]).toHaveFocus();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "More ways to export" })).toHaveFocus();

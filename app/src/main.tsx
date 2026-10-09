@@ -69,6 +69,9 @@ if (inTauri()) {
     sequencer.lyricsStepMs = 600;
     sequencer.analysisDelayMs = 1500;
     sequencer.audioTrackMs = 2500;
+    // A video export takes a few seconds, as if ffmpeg were installed too.
+    sequencer.video.stepMs = 150;
+    sequencer.video.ffmpeg = "x264";
   }
   if (demo) {
     // A sample sequence, open on the Sequence screen.

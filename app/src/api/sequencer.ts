@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import type { ProviderId } from "./assistant";
 import { whileFileDialog } from "./fileDialogs";
 import { pickPath } from "./tauri";
+import { tauriVideo, type VideoApi } from "./video";
 import type {
   FoundFile,
   MissingFile,
@@ -103,7 +104,7 @@ export interface MusicFound {
 }
 
 /** Everything the sequencer asks of the engine. Errors reject with a plain-language message. */
-export interface SequencerApi {
+export interface SequencerApi extends VideoApi {
   /**
    * Starts a new sequence with `audio` as its music (or none) and `rows` (none when left out),
    * replacing the open one (ask before discarding changes). It starts with no unsaved changes and
@@ -235,6 +236,7 @@ export interface SequencerApi {
 
 /** The real engine, in the Tauri desktop shell. */
 export const tauriSequencer: SequencerApi = {
+  ...tauriVideo,
   newSequenceDoc: (name, durationMs, audio, rows) => invoke("new_sequence_doc", rows?.length ? { name, durationMs, audio, rows } : { name, durationMs, audio }),
   sequenceRecoveries: () => invoke("sequence_recoveries"),
   recoverSequence: (id) => invoke("recover_sequence", { id }),

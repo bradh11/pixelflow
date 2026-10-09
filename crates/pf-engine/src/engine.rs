@@ -170,6 +170,31 @@ impl SequenceExport {
         self.sequence.duration_ms
     }
 
+    /// The show the sequence plays on.
+    pub fn show(&self) -> &Show {
+        &self.show
+    }
+
+    /// The sequence being exported.
+    pub fn sequence(&self) -> &Sequence {
+        &self.sequence
+    }
+
+    /// The music the sequence plays with, if it has any.
+    pub fn music(&self) -> Option<&Path> {
+        self.music.as_deref()
+    }
+
+    /// The music's audio track for effects that follow it, worked out first if it isn't yet:
+    /// none without music, or when it can't be read.
+    pub fn audio_source(&self) -> AudioSource {
+        let track = self
+            .music
+            .as_deref()
+            .and_then(|music| self.audio.track(music, self.sequence.frame_ms));
+        track.map_or_else(AudioSource::none, AudioSource::ready)
+    }
+
     /// Renders every frame and writes the `.fseq` file atomically. `progress` gets (frames done,
     /// total frames) and returns `false` to cancel (the error says so, and no file is written).
     /// Effects that follow the music read its audio track, worked out first if it isn't yet.
@@ -178,11 +203,7 @@ impl SequenceExport {
         path: &Path,
         progress: impl FnMut(u32, u32) -> bool,
     ) -> Result<ExportSummary, EngineError> {
-        let track = self
-            .music
-            .as_deref()
-            .and_then(|music| self.audio.track(music, self.sequence.frame_ms));
-        let audio = track.map_or_else(AudioSource::none, AudioSource::ready);
+        let audio = self.audio_source();
         let mut summary = pf_render::export::export_fseq_file(
             &self.show,
             &self.map,

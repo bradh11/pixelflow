@@ -1,4 +1,4 @@
-import { AlertTriangle, AudioLines, CheckCircle2, Download, FileInput, FilePlus, FolderOpen, History, Info, Lightbulb, ListMusic, ListPlus, Magnet, MoreHorizontal, Pause, Play, Repeat, Save, Send, Square, X } from "lucide-react";
+import { AlertTriangle, AudioLines, CheckCircle2, Download, FileInput, FilePlus, Film, FolderOpen, History, Info, Lightbulb, ListMusic, ListPlus, Magnet, MoreHorizontal, Pause, Play, Repeat, Save, Send, Square, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { errorMessage } from "../api/backend";
@@ -8,6 +8,7 @@ import { ProgressBar } from "../components/ProgressBar";
 import { SendToFppDialog } from "../components/SendToFppDialog";
 import { EffectPalette } from "../components/sequencer/EffectPalette";
 import { EffectSettings } from "../components/sequencer/EffectSettings";
+import { ExportVideoDialog } from "../components/sequencer/ExportVideoDialog";
 import { FindLyrics, LyricsSource } from "../components/sequencer/FindLyrics";
 import { SequencePreview } from "../components/sequencer/SequencePreview";
 import { AddTimingTrackDialog } from "../components/sequencer/TimingDialogs";
@@ -499,9 +500,10 @@ function ExportControls() {
   );
 }
 
-/** Exporting the .fseq file yourself, for people who want the file. */
+/** Exporting the .fseq file yourself, for people who want the file, or a video to share. */
 function ExportMenu() {
   const [open, setOpen] = useState(false);
+  const [video, setVideo] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -568,8 +570,12 @@ function ExportMenu() {
           <button type="button" role="menuitem" className={item} onClick={() => choose(() => void exportToPlaylist())}>
             <ListMusic size={14} /> Export and add to this show's playlist…
           </button>
+          <button type="button" role="menuitem" className={item} onClick={() => choose(() => setVideo(true))}>
+            <Film size={14} /> Export video…
+          </button>
         </div>
       )}
+      {video && <ExportVideoDialog onClose={() => setVideo(false)} />}
     </span>
   );
 }

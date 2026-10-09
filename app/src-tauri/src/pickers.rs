@@ -53,6 +53,8 @@ pub(crate) enum PickKind {
     Fseq,
     /// Where to export an `.fseq`.
     FseqExport,
+    /// Where to export a video of the sequence.
+    VideoExport,
     /// Music for a sequence.
     Music,
     /// Open a PixelFlow sequence.
@@ -165,6 +167,13 @@ impl PickKind {
                 "Export the sequence for FPP",
                 &[("FPP sequence", &["fseq"])],
                 "fseq",
+                Near::Sequence,
+            ),
+            Self::VideoExport => (
+                Save,
+                "Export a video of the sequence",
+                &[("MP4 video", &["mp4"])],
+                "video",
                 Near::Sequence,
             ),
             Self::Music => (Open, "Choose music", &[("Music", MUSIC)], "music", Near::Sequence),

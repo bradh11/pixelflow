@@ -146,16 +146,25 @@ pub fn words_track(existing: &[TimingTrack]) -> Option<&TimingTrack> {
 /// (syllables)" for "Lyrics (words)"), each replacing its namesake. Syllables are nudged onto
 /// `onsets`. `None` without words.
 pub fn from_words(existing: &[TimingTrack], onsets: &[u64], end_ms: u64) -> Option<Vec<SequenceEdit>> {
-    let words = words_track(existing)?;
+    Some(from_words_track(existing, words_track(existing)?, onsets, end_ms))
+}
+
+/// Syllables and phonemes tracks made again from `words`, one of the `existing` tracks (see
+/// [`from_words`]).
+pub fn from_words_track(
+    existing: &[TimingTrack],
+    words: &TimingTrack,
+    onsets: &[u64],
+    end_ms: u64,
+) -> Vec<SequenceEdit> {
     let base = words.name.strip_suffix(" (words)").unwrap_or(&words.name);
-    let edits = sung_tracks(base, &words.marks, onsets, end_ms)
+    sung_tracks(base, &words.marks, onsets, end_ms)
         .into_iter()
         .map(|mut track| {
             track.name = free_name(existing, &track.name, track.kind);
             add_or_update(existing, track)
         })
-        .collect();
-    Some(edits)
+        .collect()
 }
 
 #[cfg(test)]

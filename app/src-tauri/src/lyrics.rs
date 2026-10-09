@@ -1,5 +1,7 @@
 //! Find lyrics: the open sequence's song's words and when each is sung, as Lyrics, Lyrics
-//! (words), and Vocals timing tracks, in one undo step.
+//! (words), Lyrics (syllables), Lyrics (phonemes), and Vocals timing tracks, in one undo step.
+//! Syllables and mouth shapes can also be made again from a words track already there
+//! ([`syllables_from_words`]), nothing looked up.
 //!
 //! Only when the user presses it, and only once the assistant is set up (see
 //! [`pf_ai::lyrics::gate`]). LRCLIB is asked for published lyrics with the song's name and
@@ -11,7 +13,7 @@ use crate::{AppState, Reply, message};
 use pf_ai::lyrics::{self, LyricsCache, LyricsGate, Services, Step};
 use pf_ai::{Cancel, ProviderId};
 use pf_engine::{EngineError, SequenceEditResult};
-use pf_sequence::TimingKind;
+use pf_sequence::{TimingKind, TimingTrackId};
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -176,6 +178,36 @@ pub(crate) async fn find_lyrics<R: Runtime>(
         words: found.phrases.iter().map(|p| p.words.len()).sum(),
         unsure_words: found.unsure_words,
     })
+}
+
+/// Makes the open sequence's syllables and mouth shapes (its "<name> (syllables)" and "<name>
+/// (phonemes)" tracks) again from the words on the words track `track`, without looking the
+/// lyrics up: one undo step, replacing the tracks of those names.
+pub(crate) fn syllables_from_words_in(
+    engine: &mut pf_engine::Engine,
+    track: TimingTrackId,
+) -> Result<SequenceEditResult, String> {
+    let seq = engine
+        .sequence_document()
+        .ok_or_else(|| EngineError::NoSequence.to_string())?;
+    let words = seq
+        .timing_track(track)
+        .filter(|t| t.kind == TimingKind::Words)
+        .ok_or_else(|| "That isn't a words track.".to_string())?;
+    if words.marks.is_empty() {
+        return Err(format!("{} has no words yet.", words.name));
+    }
+    let edits = lyrics::tracks::from_words_track(&seq.timing_tracks, words, &[], seq.duration_ms);
+    engine.edit_sequence(edits).map_err(message)
+}
+
+/// See [`syllables_from_words_in`].
+#[tauri::command]
+pub(crate) async fn syllables_from_words(
+    state: State<'_, AppState>,
+    track: TimingTrackId,
+) -> Reply<SequenceEditResult> {
+    syllables_from_words_in(&mut state.engine(), track)
 }
 
 /// Stops finding lyrics (it ends at its next step, adding nothing).

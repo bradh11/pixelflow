@@ -383,6 +383,7 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         lyrics::lyrics_gate,
         lyrics::find_lyrics,
         lyrics::cancel_lyrics,
+        lyrics::syllables_from_words,
         files::check_files,
         files::find_missing_files,
         files::locate_file,

@@ -777,13 +777,13 @@ fn song_tools() -> Vec<Tool> {
         ),
         tool(
             "analyze_song",
-            "The open sequence's song: tempo, beat count, bar start times, and sections with their energy (0–1) and level.",
+            "The open sequence's song: tempo, beat count, bar start times; sections with a name (Intro, Verse, Chorus, Bridge …), a group letter (the same letter is the same music again), energy (0–1), level, and confidence; the strongest accents to land on (hit, drop, break, build; strength 0–1; forMs for breaks and builds); barEnergy and barBass, a digit per bar (0 quiet to 9 full); and how sure the tempo, downbeats, and sections are.",
             object(json!({}), &[]),
             ToolKind::AnalyzeSong,
         ),
         tool(
             "add_song_timing",
-            "Adds the song's timing tracks to the draft (Beats labeled 1–4, numbered Bars, labeled Sections, Onsets), reusing ones already there; answers their ids.",
+            "Adds the song's timing tracks to the draft (Beats labeled 1–4, numbered Bars, labeled Sections, Onsets, and Accents: hits, drops, breaks, builds), reusing ones already there; answers their ids.",
             object(
                 json!({ "tracks": { "type": "array", "items": { "enum": crate::song::TRACK_CHOICES }, "description": "Default: beats, bars, sections." } }),
                 &[],

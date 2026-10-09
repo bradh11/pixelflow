@@ -1,5 +1,9 @@
-//! A song's energy over time, and sections from it.
+//! A song's sections, and its loudness per second (what sections came from before the song's
+//! structure was analyzed, and still do for an analysis made without it).
 
+use crate::energy::scale_db;
+use crate::grid::{Grid, Synced};
+use crate::structure::{self, MAX_SECTIONS, Ssm};
 use crate::{Analysis, OnsetEnvelope};
 use pf_sequence::{Mark, TimingKind, TimingTrack};
 use serde::Serialize;
@@ -14,7 +18,7 @@ pub enum Level {
 }
 
 impl Level {
-    fn of(energy: f32) -> Self {
+    pub(crate) fn of(energy: f32) -> Self {
         if energy < 0.4 {
             Level::Low
         } else if energy < 0.7 {
@@ -33,21 +37,25 @@ impl Level {
     }
 }
 
-/// A stretch of the song at one energy level.
+/// A section of the song.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Section {
     pub start_ms: u64,
     pub end_ms: u64,
-    /// Mean energy, 0–1.
+    /// Mean energy, 0–1 (relative to the song's loud parts).
     pub energy: f32,
     pub level: Level,
-    /// "Intro", "Outro", or the level and its count ("High 2").
+    /// What it probably is: "Intro", "Verse", "Pre-Chorus", "Chorus", "Bridge", "Break",
+    /// "Interlude", "Outro", or "Part" (repeated, but not one of those); "Whole song" when the song
+    /// is one section. From an analysis without structure: the level and its count ("High 2").
     pub label: String,
+    /// Sections of the same material share a letter (A, B, A, C …).
+    pub group: String,
+    /// How sure the grouping and label are, 0–1.
+    pub confidence: f32,
 }
 
-/// Sections at most (a longer song's are merged into fewer).
-const MAX_SECTIONS: usize = 32;
 /// Bars per phrase, the unit sections are made of.
 const PHRASE_BARS: usize = 4;
 /// The phrase length without a beat to go by.
@@ -79,6 +87,71 @@ pub(crate) fn energy_per_second(envelope: &OnsetEnvelope) -> Vec<f32> {
     }
     raw.iter()
         .map(|&e| ((e / reference).min(1.0) * 100.0).round() / 100.0)
+        .collect()
+}
+
+/// Sections from the structure: units of `grid` cut at `cuts`, grouped by what repeats in
+/// `ssm`, and named.
+pub(crate) fn from_structure(grid: &Grid, synced: &Synced, ssm: &Ssm, cuts: &[usize]) -> Vec<Section> {
+    let n = grid.len().min(synced.loudness_db.len());
+    if n == 0 || grid.end <= 0.0 {
+        return Vec::new();
+    }
+    let mut edges = vec![0];
+    edges.extend(cuts.iter().copied().filter(|&c| c > 0 && c < n));
+    edges.push(n);
+    edges.dedup();
+    let cut: Vec<(usize, usize)> = edges.windows(2).map(|w| (w[0], w[1])).collect();
+    let (cut_group, cut_sure) = structure::groups(ssm, &cut);
+    // Back-to-back sections of the same material are one section; groups are then numbered by
+    // first appearance again.
+    let mut spans: Vec<(usize, usize)> = Vec::new();
+    let mut group: Vec<usize> = Vec::new();
+    let mut sure: Vec<(f32, f32)> = Vec::new();
+    for (i, &(a, b)) in cut.iter().enumerate() {
+        if group.last() == Some(&cut_group[i]) {
+            if let (Some(span), Some(s)) = (spans.last_mut(), sure.last_mut()) {
+                span.1 = b;
+                *s = (s.0 + cut_sure[i], s.1 + 1.0);
+            }
+        } else {
+            spans.push((a, b));
+            group.push(cut_group[i]);
+            sure.push((cut_sure[i], 1.0));
+        }
+    }
+    let mut order: Vec<usize> = Vec::new();
+    for g in &mut group {
+        let at = order.iter().position(|o| o == g).unwrap_or_else(|| {
+            order.push(*g);
+            order.len() - 1
+        });
+        *g = at;
+    }
+    let sure: Vec<f32> = sure.iter().map(|&(sum, n)| sum / n).collect();
+    let unit_energy = scale_db(&synced.loudness_db[..n]);
+    let energy: Vec<f32> = spans
+        .iter()
+        .map(|&(a, b)| {
+            let mean = unit_energy[a..b].iter().sum::<f32>() / (b - a) as f32;
+            (mean * 100.0).round() / 100.0
+        })
+        .collect();
+    let starts: Vec<f64> = spans.iter().map(|&(a, _)| grid.start_of(a)).collect();
+    let names = structure::names(&group, &energy, &starts, grid.end);
+    let ms = |s: f64| (s * 1000.0).round() as u64;
+    spans
+        .iter()
+        .enumerate()
+        .map(|(i, &(a, b))| Section {
+            start_ms: if a == 0 { 0 } else { ms(grid.start_of(a)) },
+            end_ms: ms(grid.start_of(b)),
+            energy: energy[i],
+            level: Level::of(energy[i]),
+            label: names[i].0.clone(),
+            group: structure::letter(group[i]),
+            confidence: ((sure[i] + names[i].1) / 2.0 * 100.0).round() / 100.0,
+        })
         .collect()
 }
 
@@ -147,9 +220,13 @@ impl Analysis {
         }
     }
 
-    /// The song's sections: runs of phrases at the same energy level, back to back from the
-    /// start to the end. The first and last are "Intro" and "Outro" unless they're high.
+    /// The song's sections, back to back from the start to the end: those found from its
+    /// structure (the `sections` field) or, for an analysis without them, runs of phrases at the
+    /// same energy level (the first and last "Intro" and "Outro" unless they're high).
     pub fn sections(&self) -> Vec<Section> {
+        if !self.sections.is_empty() {
+            return self.sections.clone();
+        }
         if self.duration_ms == 0 {
             return Vec::new();
         }
@@ -197,18 +274,92 @@ impl Analysis {
                     energy,
                     level,
                     label,
+                    group: crate::structure::letter(level as usize),
+                    confidence: 0.3,
                 }
             })
             .collect()
     }
 
-    /// The sections as a "Sections" timing track, labeled.
+    /// The sections as a "Sections" timing track, labeled, and numbered where a label comes up
+    /// more than once ("Chorus 2").
     pub fn sections_track(&self) -> TimingTrack {
-        let marks = self
-            .sections()
-            .into_iter()
-            .map(|s| Mark::new(s.start_ms, s.end_ms, s.label))
+        let sections = self.sections();
+        let mut seen: Vec<(&str, usize)> = Vec::new();
+        let marks = sections
+            .iter()
+            .map(|s| {
+                let repeats = sections.iter().filter(|o| o.label == s.label).count() > 1;
+                let label = if repeats && !s.label.ends_with(|c: char| c.is_ascii_digit()) {
+                    let n = match seen.iter_mut().find(|(l, _)| *l == s.label) {
+                        Some((_, n)) => {
+                            *n += 1;
+                            *n
+                        }
+                        None => {
+                            seen.push((&s.label, 1));
+                            1
+                        }
+                    };
+                    format!("{} {n}", s.label)
+                } else {
+                    s.label.clone()
+                };
+                Mark::new(s.start_ms, s.end_ms, label)
+            })
             .collect();
         TimingTrack::new("Sections", TimingKind::Sections, marks)
+    }
+
+    /// The moments to land on ([`Analysis::events`]) as an "Accents" timing track: breaks and
+    /// builds for as long as they last, hits and drops for a beat (cut short by the next one).
+    /// A hit or drop inside a break or build is left out.
+    pub fn accents_track(&self) -> TimingTrack {
+        let beat = self
+            .tempo_bpm
+            .filter(|t| *t > 0.0)
+            .map_or(250, |t| (60_000.0 / t).round() as u64)
+            .clamp(100, 1000);
+        let spans: Vec<(u64, u64)> = self
+            .events
+            .iter()
+            .filter_map(|e| e.duration_ms.map(|d| (e.time_ms, e.time_ms + d)))
+            .collect();
+        let mut marks: Vec<Mark> = self
+            .events
+            .iter()
+            .filter(|e| {
+                e.duration_ms.is_some() || !spans.iter().any(|&(a, b)| e.time_ms > a && e.time_ms < b)
+            })
+            .map(|e| {
+                let end = e.time_ms + e.duration_ms.unwrap_or(beat).max(1);
+                Mark::new(
+                    e.time_ms,
+                    end.min(self.duration_ms.max(e.time_ms + 1)),
+                    e.kind.word(),
+                )
+            })
+            .collect();
+        marks.sort_by_key(|m| (m.start_ms, m.end_ms));
+        let mut kept: Vec<Mark> = Vec::with_capacity(marks.len());
+        for mark in marks {
+            if let Some(last) = kept.last_mut()
+                && last.end_ms > mark.start_ms
+            {
+                if mark.start_ms > last.start_ms {
+                    last.end_ms = mark.start_ms;
+                } else {
+                    // Two at once: the longer is kept.
+                    if mark.end_ms > last.end_ms {
+                        *last = mark;
+                    }
+                    continue;
+                }
+            }
+            if mark.end_ms > mark.start_ms {
+                kept.push(mark);
+            }
+        }
+        TimingTrack::new("Accents", TimingKind::Custom, kept)
     }
 }

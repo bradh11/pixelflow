@@ -671,13 +671,55 @@ export interface ExportSummary {
   notes: string[];
 }
 
+/** A section of a song, as analysis found it (crates/pf-analysis Section). */
+export interface AnalysisSection {
+  startMs: number;
+  endMs: number;
+  /** Mean energy, 0–1 (relative to the song's loud parts). */
+  energy: number;
+  level: "low" | "medium" | "high";
+  /** "Intro", "Verse", "Pre-Chorus", "Chorus", "Bridge", "Break", "Interlude", "Outro", "Part", or "Whole song". */
+  label: string;
+  /** Sections of the same material share a letter (A, B, A, C …). */
+  group: string;
+  /** How sure the grouping and label are, 0–1. */
+  confidence: number;
+}
+
+/** A moment in a song to land on. */
+export interface AnalysisEvent {
+  timeMs: number;
+  kind: "hit" | "drop" | "break" | "build";
+  /** 0–1: 1 is the strongest of its kind in the song. */
+  strength: number;
+  /** How long it lasts (breaks and builds). */
+  durationMs?: number;
+}
+
+/** One bar's energy, each 0–1 relative to the song. */
+export interface BarEnergy {
+  overall: number;
+  low: number;
+  mid: number;
+  high: number;
+}
+
 /** What beat detection found in a song (times in ms). */
 export interface Analysis {
   durationMs: number;
   tempoBpm: number | null;
   beats: number[];
+  /** The first beat of each bar (the downbeats). */
   bars: number[];
   onsets: number[];
+  /** The song's sections from its structure (empty when it had none to find). */
+  sections: AnalysisSection[];
+  /** Hits, drops, breaks, and builds, in time order. */
+  events: AnalysisEvent[];
+  /** One per entry in `bars`. */
+  barEnergy: BarEnergy[];
+  /** How sure each part is, 0–1. */
+  confidence: { tempo: number; downbeat: number; sections: number };
 }
 
 /** Every effect kind with the name people see, in menu order. */

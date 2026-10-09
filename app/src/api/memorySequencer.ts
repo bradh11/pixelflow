@@ -681,7 +681,41 @@ export class MemorySequencer implements SequencerApi {
   async analyzeAudio(_path: string): Promise<Analysis> {
     const durationMs = this.doc?.durationMs ?? 60_000;
     const beats = Array.from({ length: Math.floor(durationMs / 500) }, (_, i) => i * 500);
-    return { durationMs, tempoBpm: 120, beats, bars: beats.filter((_, i) => i % 4 === 0), onsets: beats };
+    const bars = beats.filter((_, i) => i % 4 === 0);
+    // A quiet intro, a verse, a loud chorus, and an outro, on bar lines.
+    const at = (fraction: number) => bars.reduce((best, b) => (Math.abs(b - durationMs * fraction) < Math.abs(best - durationMs * fraction) ? b : best), 0);
+    const cuts = [0, at(0.125), at(0.5), at(0.875), durationMs];
+    const parts = [
+      { label: "Intro", group: "A", level: "low", energy: 0.3 },
+      { label: "Verse", group: "B", level: "medium", energy: 0.6 },
+      { label: "Chorus", group: "C", level: "high", energy: 0.95 },
+      { label: "Outro", group: "D", level: "low", energy: 0.3 },
+    ] as const;
+    const sections = parts
+      .map((p, i) => ({ ...p, startMs: cuts[i], endMs: cuts[i + 1], confidence: 0.8 }))
+      .filter((s) => s.endMs > s.startMs);
+    const energyAt = (ms: number) => sections.find((s) => ms >= s.startMs && ms < s.endMs)?.energy ?? 0.3;
+    const chorus = sections.find((s) => s.label === "Chorus");
+    const events: Analysis["events"] = chorus
+      ? [
+          { timeMs: chorus.startMs, kind: "drop", strength: 1 },
+          { timeMs: chorus.startMs + 4000, kind: "hit", strength: 0.8 },
+        ]
+      : [];
+    return {
+      durationMs,
+      tempoBpm: 120,
+      beats,
+      bars,
+      onsets: beats,
+      sections,
+      events,
+      barEnergy: bars.map((b) => {
+        const e = energyAt(b);
+        return { overall: e, low: e, mid: e, high: e };
+      }),
+      confidence: { tempo: 0.9, downbeat: 0.8, sections: 0.8 },
+    };
   }
 
   async detectBeats() {

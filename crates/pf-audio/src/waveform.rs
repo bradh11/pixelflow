@@ -2,6 +2,7 @@
 
 use crate::decode::open_decoder;
 use crate::error::AudioError;
+use crate::progress::{Progress, no_progress, reported};
 use rodio::Source;
 use serde::Serialize;
 use std::path::Path;
@@ -20,14 +21,24 @@ pub struct Waveform {
 
 /// Decodes the whole file at `path` and returns its peaks in `slices` equal slices.
 pub fn waveform(path: &Path, slices: usize) -> Result<Waveform, AudioError> {
-    let decoder = open_decoder(path)?;
+    waveform_reporting(path, slices, &no_progress)
+}
+
+/// Like [`waveform`], telling `progress` how far it has got (0–1, ending at 1 when done).
+pub fn waveform_reporting(
+    path: &Path,
+    slices: usize,
+    progress: &dyn Fn(f32),
+) -> Result<Waveform, AudioError> {
+    let (decoder, read) = open_decoder(path)?;
+    let progress = Progress::new(progress);
     // The rate and channel count are read once: music files keep them for their whole length
     // (a file that changed mid-way would get a slightly wrong duration, nothing worse).
     let rate = u64::from(decoder.sample_rate().get());
     let channels = u64::from(decoder.channels().get());
     let mut blocks = Vec::new();
     let (mut peak, mut count, mut total) = (0.0f32, 0usize, 0u64);
-    for sample in decoder {
+    for sample in reported(decoder, read, &progress, 1.0) {
         peak = peak.max(sample.abs());
         count += 1;
         total += 1;
@@ -51,5 +62,6 @@ pub fn waveform(path: &Path, slices: usize) -> Result<Waveform, AudioError> {
                 .min(1.0)
         })
         .collect();
+    progress.finish();
     Ok(Waveform { duration_ms, peaks })
 }

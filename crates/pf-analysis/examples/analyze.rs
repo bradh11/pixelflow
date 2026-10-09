@@ -1,14 +1,26 @@
 //! Prints what analysis finds in a music file: tempo, the first downbeat, sections, the
-//! strongest hits, and how long it took.
+//! strongest hits, drum counts, the top moments, and how long it took.
 //!
 //! `cargo run --release -p pf-analysis --example analyze -- song.mp3`
 
-use pf_analysis::{EventKind, analyze_file};
+use pf_analysis::{BarDrums, EventKind, Moment, MomentKind, analyze_file};
 use std::path::Path;
 use std::time::Instant;
 
 fn clock(ms: u64) -> String {
     format!("{}:{:04.1}", ms / 60_000, (ms % 60_000) as f64 / 1000.0)
+}
+
+fn line(m: &Moment) -> String {
+    let span = m.end_ms.map_or(String::new(), |e| format!("–{}", clock(e)));
+    let label = m.label.as_ref().map_or(String::new(), |l| format!(" ({l})"));
+    format!(
+        "{}{span} {}{label} {:.2} → {}",
+        clock(m.time_ms),
+        m.kind.word(),
+        m.importance,
+        m.suggest.word()
+    )
 }
 
 fn main() {
@@ -58,22 +70,24 @@ fn main() {
         count(EventKind::Break),
         count(EventKind::Build)
     );
-    let mut hits: Vec<_> = a.events.iter().filter(|e| e.kind == EventKind::Hit).collect();
-    hits.sort_by(|x, y| y.strength.total_cmp(&x.strength));
-    let top: Vec<String> = hits
-        .iter()
-        .take(10)
-        .map(|e| format!("{} ({:.2})", clock(e.time_ms), e.strength))
-        .collect();
-    println!("top hits: {}", top.join(", "));
-    for e in a.events.iter().filter(|e| e.kind != EventKind::Hit) {
-        println!(
-            "  {:?} at {} strength {:.2}{}",
-            e.kind,
-            clock(e.time_ms),
-            e.strength,
-            e.duration_ms
-                .map_or(String::new(), |d| format!(" for {:.1} s", d as f64 / 1000.0))
-        );
+    let total = |f: fn(&BarDrums) -> u16| a.bar_drums.iter().map(|b| u32::from(f(b))).sum::<u32>();
+    println!(
+        "drums: {} kicks, {} snares, {} hats, {} crashes; {} notable",
+        total(|b| b.kick),
+        total(|b| b.snare),
+        total(|b| b.hat),
+        total(|b| b.crash),
+        a.drums.len()
+    );
+    println!("top moments ({} in all):", a.moments.len());
+    for m in a.top_moments(25) {
+        println!("  {}", line(m));
+    }
+    for kind in [MomentKind::Breakdown, MomentKind::Stop, MomentKind::Fill] {
+        let of: Vec<String> = a.moments.iter().filter(|m| m.kind == kind).map(line).collect();
+        println!("{}s: {}", kind.word(), of.len());
+        for l in of {
+            println!("  {l}");
+        }
     }
 }

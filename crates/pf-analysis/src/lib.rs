@@ -18,23 +18,39 @@
 //! 8. **Energy and accents**: each bar's loudness overall and in the bass, mids, and treble, 0–1
 //!    ([`Analysis::bar_energy`]); and moments to land on: hits, drops, breaks, and builds
 //!    ([`Analysis::events`]).
-//! 9. **Voice**: separately, a cheap guess at when the voice is sounding ([`vocal_activity`]),
-//!    to fine-tune lyric timing.
+//! 9. **Drums and the rest**: alongside, every ~12 ms, the song split into its percussive and
+//!    harmonic parts by median filtering ([`Layers`]), and the drum hits in the percussive part
+//!    told apart: kick, snare, hi-hat, crash ([`Analysis::drums`], [`Analysis::bar_drums`]).
+//! 10. **Moments**: from all of that, what makes a show dramatic, ranked by importance:
+//!     impacts, stops and restarts, breakdowns, builds, fills, peaks, holds, key changes,
+//!     shouts, drops, crashes, and section changes ([`Analysis::moments`]); shouts again from
+//!     the sung words when there are lyrics ([`Analysis::moments_with_words`]).
+//! 11. **Voice**: separately, a cheap guess at when the voice is sounding ([`vocal_activity`]),
+//!     to fine-tune lyric timing.
 
 mod beats;
+mod drums;
 mod energy;
 mod events;
 mod features;
 mod grid;
+mod key;
+mod layers;
 mod meter;
+mod moments;
 mod onset;
+mod rises;
 mod sections;
+mod stops;
 mod structure;
 mod vocal;
 
 pub use beats::{bars, beat_grid, estimate_tempo};
+pub use drums::{BarDrums, Drum, DrumHit};
 pub use energy::BarEnergy;
 pub use events::{Event, EventKind};
+pub use layers::Layers;
+pub use moments::{Moment, MomentKind, ShoutCues, Suggest, moments_track};
 pub use onset::{FRAME, HOP, OnsetEnvelope, onset_envelope, pick_onsets};
 pub use sections::{Level, Section};
 pub use vocal::{VOCAL_THRESHOLD, VocalActivity, vocal_activity, vocal_activity_file};
@@ -78,7 +94,17 @@ pub struct Analysis {
     pub events: Vec<Event>,
     /// Each bar's energy (one per entry in `bars`).
     pub bar_energy: Vec<BarEnergy>,
+    /// What makes the song dramatic, ranked ([`Moment::importance`]), in time order.
+    pub moments: Vec<Moment>,
+    /// The notable drum hits (crashes, and kicks and snares harder than those around), in time
+    /// order; every bar's counts are in `bar_drums`.
+    pub drums: Vec<DrumHit>,
+    /// Each bar's drum hits (one per entry in `bars`).
+    pub bar_drums: Vec<BarDrums>,
     pub confidence: Confidence,
+    /// What shouts are found from, for lyrics that come later.
+    #[serde(skip)]
+    pub shout_cues: ShoutCues,
 }
 
 /// How sure the analysis is of each part, 0–1.
@@ -127,11 +153,20 @@ pub fn analyze_cancellable(
         .map(|(_, s)| s);
     // The features are taken from the same samples as the envelope, as they go by.
     let mut extractor = features::FeatureExtractor::new(rate);
-    let envelope = onset_envelope(checked.inspect(|&s| extractor.push(onset::clean(s))), rate);
+    let mut separator = layers::LayerExtractor::new(rate);
+    let envelope = onset_envelope(
+        checked.inspect(|&s| {
+            let s = onset::clean(s);
+            extractor.push(s);
+            separator.push(s);
+        }),
+        rate,
+    );
     if stopped || stop() {
         return Err(AnalysisError::Cancelled);
     }
     let features = extractor.finish();
+    let layers = separator.finish();
     let onsets = pick_onsets(&envelope);
     let tempo = estimate_tempo(&envelope);
     let beat_frames = tempo
@@ -182,7 +217,12 @@ pub fn analyze_cancellable(
         downbeat: round2(downbeat),
         sections: round2(sections.iter().map(|s| s.confidence).sum::<f32>() / sections.len().max(1) as f32),
     };
-    Ok(Analysis {
+    if stop() {
+        return Err(AnalysisError::Cancelled);
+    }
+    let drum_onsets = drums::onsets(&layers);
+    let bar_drums = drums::bar_drums(&drum_onsets, &seconds(&bars), end);
+    let mut analysis = Analysis {
         duration_ms,
         tempo_bpm: tempo.map(|period| (60.0 / (period * envelope.frame_seconds())) as f32),
         beats,
@@ -192,8 +232,70 @@ pub fn analyze_cancellable(
         sections,
         events,
         bar_energy,
+        drums: drums::notable(&drum_onsets, end),
+        bar_drums,
         confidence,
-    })
+        ..Analysis::default()
+    };
+    let (found, cues) = find_moments(&analysis, &layers, &features, &drum_onsets);
+    analysis.moments = moments::rank(found, moments::from_events(&analysis.events), &analysis);
+    analysis.shout_cues = cues;
+    Ok(analysis)
+}
+
+/// Every detector's moments in `analysis` (all but its moments filled in), and what shouts are
+/// found from.
+fn find_moments(
+    analysis: &Analysis,
+    layers: &Layers,
+    features: &features::Features,
+    onsets: &[drums::Onset],
+) -> (Vec<moments::Found>, ShoutCues) {
+    let seconds = |times: &[u64]| times.iter().map(|&t| t as f64 / 1000.0).collect::<Vec<_>>();
+    let (beats, bars) = (seconds(&analysis.beats), seconds(&analysis.bars));
+    let song = moments::Song {
+        layers,
+        features,
+        onsets,
+        beats: &beats,
+        bars: &bars,
+        sections: &analysis.sections,
+        bar_drums: &analysis.bar_drums,
+        bar_energy: &analysis.bar_energy,
+        end: analysis.duration_ms as f64 / 1000.0,
+        beat: analysis
+            .tempo_bpm
+            .filter(|t| *t > 0.0)
+            .map_or(0.5, |t| 60.0 / f64::from(t)),
+        levels: moments::Levels::new(layers),
+    };
+    let (mut found, gaps) = stops::stops(&song);
+    let impacts = rises::impacts(&song);
+    found.extend(rises::builds(&song, &impacts));
+    found.extend(impacts);
+    let breakdowns = stops::breakdowns(&song);
+    // A chord held through a breakdown is the breakdown; one at the end stays a hold.
+    let within = |h: &moments::Found| {
+        breakdowns.iter().any(|b| {
+            let (a, z) = (h.at.max(b.at), h.end.unwrap_or(h.at).min(b.end.unwrap_or(b.at)));
+            h.label.is_none() && z - a > 0.5 * (h.end.unwrap_or(h.at) - h.at)
+        })
+    };
+    found.extend(stops::holds(&song).into_iter().filter(|h| !within(h)));
+    found.extend(breakdowns);
+    found.extend(rises::fills(&song));
+    found.extend(rises::peaks(&song));
+    found.extend(key::key_changes(&song));
+    found.extend(moments::section_changes(&analysis.sections));
+    let cues = ShoutCues {
+        frame_s: layers.frame_seconds(),
+        offset_s: layers.time_s(0),
+        voice_db: layers.voice_db.clone(),
+        hits: song.audible().map(|o| (o.time_s, o.strength())).collect(),
+        gaps,
+    };
+    found.extend(moments::vocal_bursts(&cues, song.end));
+    (found, cues)
 }
 
 fn round2(x: f32) -> f32 {
@@ -237,7 +339,8 @@ fn spans(times: &[u64], end_ms: u64, label: impl Fn(usize) -> String) -> Vec<Mar
 
 impl Analysis {
     /// Timing tracks for the sequence: "Beats" (labeled 1–4 within each bar), "Bars" (numbered),
-    /// and "Onsets". See also [`Analysis::sections_track`] and [`Analysis::accents_track`].
+    /// and "Onsets". See also [`Analysis::sections_track`], [`Analysis::accents_track`],
+    /// [`Analysis::moments_track`], and [`Analysis::drums_track`].
     pub fn timing_tracks(&self) -> Vec<TimingTrack> {
         let first_bar = self.bars.first().copied();
         // How far into a bar the first beat is, so beat labels count from each downbeat.

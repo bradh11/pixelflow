@@ -357,6 +357,19 @@ impl<'a> Builder<'a> {
                 translated.fidelity = with_note(translated.fidelity, missing);
             }
         }
+        if let EffectParams::Chase(params) = &mut translated.params {
+            let wanted = unxml_safe(settings.text("E_CHOICE_SingleStrand_TimingTrack", "").trim());
+            params.timing_track = self.mark_tracks.get(wanted.as_str()).copied();
+            if params.timing_track.is_none() && !wanted.is_empty() {
+                let missing = if self.timing_tracks.contains(&wanted) {
+                    "its timing track has more than one layer, so it chases at its speed"
+                } else {
+                    "its timing track isn't in the sequence, so it chases at its speed"
+                }
+                .to_string();
+                translated.fidelity = with_note(translated.fidelity, missing);
+            }
+        }
         if let EffectParams::VuMeter(params) = &mut translated.params
             && params.meter.uses_marks()
         {

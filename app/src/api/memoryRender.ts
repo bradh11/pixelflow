@@ -7,7 +7,7 @@ import { frontView } from "../lib/geometry";
 import { channelsPerPixel, nodeCount } from "../lib/shows";
 import { facePartColor, faceParts, facesOf, phonemeAt, targetNodes } from "../lib/submodels";
 import { effectAt } from "../lib/curves";
-import type { Effect, Sequence } from "./sequence";
+import type { Effect, Sequence, Sweep, TimingTrack } from "./sequence";
 import type { FaceDefinition, Prop, Show } from "./types";
 
 type Rgb = [number, number, number];
@@ -40,8 +40,39 @@ function num(params: Record<string, unknown>, key: string, fallback: number): nu
   return typeof v === "number" && Number.isFinite(v) ? v : fallback;
 }
 
+/** Where a pixel is along a sweep: 0 where it starts, 1 where it ends. */
+function sweepAt(px: Px, sweep: Sweep | undefined): number {
+  switch (sweep) {
+    case "rightToLeft":
+      return 1 - px.u;
+    case "up":
+      return px.v;
+    case "down":
+      return 1 - px.v;
+    case "centerOut":
+      return Math.abs(px.u - 0.5) * 2;
+    case "edgesIn":
+      return 1 - Math.abs(px.u - 0.5) * 2;
+    case "diagonal":
+      return (px.u + px.v) / 2;
+    case "radial":
+      return Math.hypot(px.u - 0.5, px.v - 0.5) / Math.SQRT1_2;
+    default:
+      return px.u;
+  }
+}
+
+/** How far a mouth shape opens (0–1), as the engine's Sing effect opens it. */
+const OPEN: Record<string, number> = { AI: 1, O: 0.9, E: 0.75, U: 0.6, WQ: 0.5, L: 0.5, ETC: 0.45, FV: 0.3, MBP: 0, REST: 0 };
+
+/** The mark of `track` under `ms`, with its number. */
+function markAt(track: TimingTrack | undefined, ms: number): { i: number; startMs: number; endMs: number } | null {
+  const i = track ? track.marks.findIndex((m) => m.startMs <= ms && ms < m.endMs) : -1;
+  return track && i >= 0 ? { i, startMs: track.marks[i].startMs, endMs: track.marks[i].endMs } : null;
+}
+
 /** One effect's color and coverage (0–1) at one pixel. */
-function shade(effect: Effect, ms: number, px: Px, seed: number): [Rgb, number] {
+function shade(effect: Effect, ms: number, px: Px, seed: number, tracks: TimingTrack[] = []): [Rgb, number] {
   const p = effect.params as Record<string, unknown> & { kind: string };
   const colors = effect.palette.colors.length > 0 ? effect.palette.colors.map(parseColor) : [[255, 255, 255] as Rgb];
   const get = (k: number) => colors[((Math.floor(k) % colors.length) + colors.length) % colors.length];
@@ -77,7 +108,8 @@ function shade(effect: Effect, ms: number, px: Px, seed: number): [Rgb, number] 
       const bands = Math.max(1, num(p, "bands", 1));
       let pos = el * num(p, "speed", 1);
       if (p.bounce) pos = 1 - Math.abs(1 - frac(pos / 2) * 2);
-      const s = (x - pos) * bands;
+      const along = p.order === undefined || p.order === "wiring" ? x : reverse ? 1 - px.u : px.u;
+      const s = (along - pos) * bands;
       return frac(s) < num(p, "width", 0.2) ? [get(s), 1] : [[0, 0, 0], 0];
     }
     case "bars": {
@@ -243,6 +275,92 @@ function shade(effect: Effect, ms: number, px: Px, seed: number): [Rgb, number] 
       const level = 0.25 + 0.7 * hash(bar, Math.floor(el * 12));
       return px.v <= level ? [ramp(px.v), 1] : [[0, 0, 0], 0];
     }
+    case "impact": {
+      const hold = num(p, "hold", 0) / length;
+      const x = Math.max(0, (t - hold) / Math.max(0.001, 1 - hold));
+      const fade = p.decay === "linear" ? 1 - x : p.decay === "punch" ? (1 - x) ** 2 * (0.75 + 0.25 * Math.cos(x * 12)) : Math.exp(-4.6 * x);
+      const bloom = num(p, "bloom", 0);
+      const reach = bloom > 0 ? (ms - effect.startMs) / bloom : 2;
+      const r = Math.hypot(px.u - num(p, "centerX", 50) / 100, px.v - num(p, "centerY", 50) / 100) / Math.SQRT1_2;
+      const hit: Rgb = p.color === "palette" ? get(0) : [255, 255, 255];
+      return r <= reach ? [p.colorShift ? (x < 0.5 ? hit : ramp(x)) : hit, fade] : [[0, 0, 0], 0];
+    }
+    case "wipe": {
+      const d = Math.max(0.01, num(p, "duration", 50) / 100);
+      const off = p.mode === "off" || (p.mode === "onOff" && t > 1 - Math.min(0.5, d));
+      const progress = Math.min(1, p.mode === "onOff" && off ? (t - (1 - Math.min(0.5, d))) / Math.min(0.5, d) : t / (p.mode === "onOff" ? Math.min(0.5, d) : d));
+      const s = sweepAt(px, p.direction as Sweep | undefined);
+      const band = num(p, "band", 0);
+      if (band > 0) {
+        const lead = (off ? 1 - progress : progress) * (1 + band);
+        return s <= lead && s > lead - band ? [ramp(s), 1] : [[0, 0, 0], 0];
+      }
+      return (off ? s > progress : s <= progress) ? [ramp(s), 1] : [[0, 0, 0], 0];
+    }
+    case "lightning": {
+      // A strike a slot, flickering: the main stroke, a re-strike, then the tail.
+      const slot = 1 / Math.max(0.1, num(p, "density", 1));
+      const k = Math.floor(el / slot);
+      const since = el - (k + hash(k, seed) * 0.8) * slot;
+      if (since < 0) return [[0, 0, 0], 0];
+      const level = Math.max(Math.exp(-since / 0.045), since > 0.09 ? 0.8 * Math.exp(-(since - 0.09) / 0.07) : 0);
+      if (level < 0.01) return [[0, 0, 0], 0];
+      if (p.flashOnly) return [get(0), level];
+      const x = 0.2 + 0.6 * hash(seed, k) + 0.08 * Math.sin(px.v * 23 + k) + 0.04 * Math.sin(px.v * 61 + k * 3);
+      return Math.abs(px.u - x) < 0.025 ? [get(0), level] : [get(0), level * num(p, "glow", 0.25)];
+    }
+    case "pulse": {
+      const track = tracks.find((tr) => tr.id === p.timingTrack);
+      const now = ms;
+      let phase = frac((ms - effect.startMs) / 500);
+      let k = Math.floor((ms - effect.startMs) / 500);
+      if (p.source !== undefined && p.source !== "marks") {
+        // A stand-in for the music: a beat twice a second, rising and falling.
+        phase = frac(el * 2);
+      } else if (track) {
+        const i = track.marks.filter((m) => m.startMs <= now).length - 1;
+        if (i < 0) return [get(0), num(p, "min", 0.1)];
+        const next = track.marks[i + 1]?.startMs ?? track.marks[i].endMs;
+        phase = (now - track.marks[i].startMs) / Math.max(1, next - track.marks[i].startMs);
+        k = i;
+      }
+      const shape = p.shape ?? "sine";
+      const f = phase >= 1 ? 0 : shape === "saw" ? 1 - phase : shape === "square" ? (phase < 0.5 ? 1 : 0) : shape === "heartbeat" ? Math.max(Math.exp(-((phase / 0.08) ** 2)), 0.6 * Math.exp(-(((phase - 0.28) / 0.08) ** 2))) : 0.5 + 0.5 * Math.cos(2 * Math.PI * phase);
+      const [lo, hi] = [num(p, "min", 0.1), num(p, "max", 1)];
+      return [get(k), lo + (hi - lo) * f];
+    }
+    case "sing": {
+      const track = tracks.find((tr) => tr.id === p.timingTrack);
+      const mark = markAt(track, ms);
+      const lo = num(p, "min", 0);
+      const open = mark ? (track?.kind === "phonemes" || track?.kind === "words" || track?.kind === "lyrics" ? OPEN[phonemeAt(track, ms).toUpperCase()] ?? 0.45 : 0.8) : 0;
+      const x = mark ? (ms - mark.startMs) / Math.max(1, mark.endMs - mark.startMs) : 0;
+      switch (p.mode) {
+        case "wordPop":
+          return mark ? [get(mark.i), lo + (1 - lo) * Math.exp(-3 * x)] : [get(0), lo];
+        case "barMouth":
+          return Math.abs(px.v - 0.5) <= open / 2 && open > 0 ? [get(0), 1] : [get(0), lo];
+        case "karaoke":
+          return mark ? (px.u <= x ? [get(0), 1] : [get(1), lo]) : [[0, 0, 0], 0];
+        default:
+          return [get(0), lo + (1 - lo) * open];
+      }
+    }
+    case "colorShift": {
+      const changes = Math.max(1, colors.length - 1);
+      const slot = 1 / changes;
+      const k = Math.min(changes - 1, Math.floor(t / slot));
+      const window = Math.min(slot, num(p, "duration", 25) / 100);
+      const stagger = num(p, "stagger", 0) / 100;
+      const delay = stagger * window * sweepAt(px, p.direction as Sweep | undefined);
+      const own = window * (1 - stagger);
+      const x = t - k * slot - delay;
+      let f = own <= 0 ? (x >= 0 ? 1 : 0) : Math.max(0, Math.min(1, x / own));
+      if (p.ease === "instant") f = f > 0 ? 1 : 0;
+      else if (p.ease !== "linear") f = f * f * (3 - 2 * f);
+      const [a, b] = [get(k), get(k + 1)];
+      return [[a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f], 1];
+    }
     default:
       return [[0, 0, 0], 0];
   }
@@ -343,7 +461,7 @@ export function renderSequenceFrame(doc: Sequence, show: Show, ms: number): Uint
           if (!effect) return;
           const face = faces.get(effect)?.get(p.prop.id);
           const lit = face?.get(k);
-          const [rgb, coverage] = face ? (lit ? [lit, 1] : [[0, 0, 0] as Rgb, 0]) : shade(effect, ms, px, hash(layer, effect.id.length + effect.startMs));
+          const [rgb, coverage] = face ? (lit ? [lit, 1] : [[0, 0, 0] as Rgb, 0]) : shade(effect, ms, px, hash(layer, effect.id.length + effect.startMs), doc.timingTracks);
           const alpha = coverage * fadeLevel(effect, ms);
           if (alpha <= 0) return;
           r = r * (1 - alpha) + rgb[0] * alpha;

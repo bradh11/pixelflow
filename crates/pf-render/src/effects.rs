@@ -13,25 +13,33 @@ use crate::audio::{Audio, RenderContext};
 pub use crate::butterfly::Butterfly;
 pub use crate::circles::Circles;
 use crate::color::{Colors, Rgba, unit};
+pub use crate::color_shift::ColorShift;
 pub use crate::fan::Fan;
 pub use crate::garlands::Garlands;
+use crate::geometry::Members;
 use crate::geometry::Pixel;
+pub use crate::impact::Impact;
 pub use crate::life::Life;
+pub use crate::lightning::Lightning;
 pub use crate::lines::Lines;
 pub use crate::morph::Morph;
 pub use crate::pinwheel::Pinwheel;
 pub use crate::plasma::Plasma;
+pub use crate::pulse::Pulse;
 pub use crate::shape::Shape;
+pub use crate::sing::Sing;
 pub use crate::snowflakes::Snowflakes;
 pub use crate::tendril::Tendril;
 pub use crate::text::Text;
 pub use crate::vumeter::VuMeter;
+pub use crate::wipe::Wipe;
 use pf_sequence::{
-    Axis, BarsParams, ChaseParams, ColorWashParams, Direction, EffectParams, FadeDirection, FadeParams,
-    FireParams, Gradient, MeteorDirection, MeteorsParams, OnParams, RippleParams, ShapeParams, ShimmerParams,
-    SpiralParams, StrobeParams, TwinkleParams, WaveParams,
+    Axis, BarsParams, ChaseOrder, ChaseParams, ColorWashParams, Direction, EffectParams, FadeDirection,
+    FadeParams, FireParams, Gradient, MeteorDirection, MeteorsParams, OnParams, RippleParams, ShapeParams,
+    ShimmerParams, SpiralParams, StrobeParams, TwinkleParams, WaveParams,
 };
 use std::f32::consts::TAU;
+use std::sync::Arc;
 
 /// The frame time assumed when none is given (xLights' usual 50 ms, 20 frames a second).
 pub const DEFAULT_FRAME_MS: u32 = 50;
@@ -306,11 +314,90 @@ pub struct Chase {
     head: f32,
     bands: f32,
     width: f32,
+    /// Left to right: the columns across the target.
+    across: Option<f32>,
+    /// Prop by prop: the group's members, each one's place in the chase, and the leader's place.
+    props: Option<PropChase>,
+}
+
+/// A chase from prop to prop of a group.
+struct PropChase {
+    members: Arc<Members>,
+    places: Vec<u32>,
+    leader: u32,
+}
+
+/// How many marks of a timing track start from `from_ms` up to `t_ms`.
+pub(crate) fn marks_passed(marks: &[pf_sequence::Mark], from_ms: u64, t_ms: u64) -> u64 {
+    let upto = marks.partition_point(|m| m.start_ms <= t_ms);
+    let before = marks.partition_point(|m| m.start_ms < from_ms);
+    upto.saturating_sub(before) as u64
 }
 
 impl Chase {
-    pub fn new(p: &ChaseParams, time: &EffectTime, colors: Colors) -> Self {
-        let (whole, fraction) = time.cycles(p.speed);
+    pub fn new(p: &ChaseParams, time: &EffectTime, colors: Colors, canvas: Canvas) -> Self {
+        Self::in_context(p, time, colors, canvas, &RenderContext::default())
+    }
+
+    /// The chase, stepping on the marks of its timing track and going prop by prop on the
+    /// group `cx` draws on.
+    pub fn in_context(
+        p: &ChaseParams,
+        time: &EffectTime,
+        colors: Colors,
+        canvas: Canvas,
+        cx: &RenderContext,
+    ) -> Self {
+        let bands = p.bands.max(1) as f32;
+        // Steps taken on a timing track: none until the second mark (the first starts it).
+        let steps = p.timing_track.map(|track| {
+            let marks = cx.marks(Some(track)).unwrap_or_default();
+            marks_passed(marks, time.start_ms, time.start_ms + time.elapsed_ms).saturating_sub(1)
+        });
+        let props = match (p.order, cx.members) {
+            (ChaseOrder::Props | ChaseOrder::PropsAcross, Some(members)) if members.count() > 0 => {
+                let n = members.count() as u64;
+                let places = match p.order {
+                    ChaseOrder::PropsAcross => members.ranks_across(),
+                    _ => (0..n as u32).collect(),
+                };
+                // The leader's place: one prop per mark, or `speed` trips a second.
+                let leader = match steps {
+                    Some(k) if p.bounce && n > 1 => {
+                        let k = k % (2 * n - 2);
+                        if k < n { k } else { 2 * n - 2 - k }
+                    }
+                    Some(k) => k % n,
+                    None => {
+                        let (whole, fraction) = time.cycles(p.speed);
+                        let at = if p.bounce && whole % 2 == 1 {
+                            1.0 - fraction
+                        } else {
+                            fraction
+                        };
+                        ((at * n as f32) as u64).min(n - 1)
+                    }
+                };
+                let leader = match p.direction {
+                    Direction::Forward => leader,
+                    Direction::Reverse => n - 1 - leader,
+                } as u32;
+                Some(PropChase {
+                    members: members.clone(),
+                    places,
+                    leader,
+                })
+            }
+            _ => None,
+        };
+        // Along the pixels: `speed` trips a second, or a band's length per mark.
+        let (whole, fraction) = match steps {
+            Some(k) => {
+                let trips = k as f64 * f64::from(p.width / bands);
+                (trips.floor() as u64, trips.fract() as f32)
+            }
+            None => time.cycles(p.speed),
+        };
         let head = if p.bounce {
             // Out on even trips, back on odd ones.
             if whole % 2 == 0 { fraction } else { 1.0 - fraction }
@@ -320,8 +407,10 @@ impl Chase {
         Self {
             colors,
             head: flip(head, p.direction),
-            bands: p.bands.max(1) as f32,
+            bands,
             width: p.width,
+            across: (p.order != ChaseOrder::Wiring).then_some(canvas.columns.max(1) as f32),
+            props,
         }
     }
 }
@@ -329,8 +418,33 @@ impl Chase {
 impl Shade for Chase {
     #[inline]
     fn shade(&self, px: &Pixel) -> Rgba {
+        if let Some(props) = &self.props {
+            // Props ahead of the leader, in the order of the chase: band k covers the first
+            // `width` of each band's share of the props (at least one).
+            let n = props.places.len() as f32;
+            let Some(place) = props
+                .members
+                .of(px.index)
+                .and_then(|m| props.places.get(m as usize))
+            else {
+                return Rgba::CLEAR;
+            };
+            let ahead = (*place as f32 - props.leader as f32).rem_euclid(n);
+            let spacing = n / self.bands;
+            let band = (ahead / spacing).floor();
+            return if ahead - band * spacing < (self.width * spacing).max(1.0) {
+                Rgba::opaque(self.colors.get(band as u64))
+            } else {
+                Rgba::CLEAR
+            };
+        }
         // In band units, measured from the head: band k covers [k, k + width).
-        let s = (along(px) - self.head) * self.bands;
+        // Left to right by column, at each column's middle, like pixels along the wiring.
+        let x = match self.across {
+            Some(columns) => (px.u * (columns - 1.0) + 0.5) / columns,
+            None => along(px),
+        };
+        let s = (x - self.head) * self.bands;
         let band = s.floor();
         if s - band < self.width {
             let k = band.rem_euclid(self.bands) as u64;
@@ -854,6 +968,12 @@ pub enum Shader {
     Text(Text),
     Faces(Faces),
     VuMeter(VuMeter),
+    Impact(Impact),
+    Wipe(Wipe),
+    Lightning(Lightning),
+    Pulse(Pulse),
+    Sing(Sing),
+    ColorShift(ColorShift),
 }
 
 /// When a Shape fires its shapes (ms from the effect's start, while it plays): at each mark on its
@@ -921,7 +1041,7 @@ impl Shader {
             EffectParams::Off(_) => Shader::Off(Off),
             EffectParams::ColorWash(p) => Shader::ColorWash(ColorWash::new(p, time, colors)),
             EffectParams::Fade(p) => Shader::Fade(Fade::new(p, time, colors)),
-            EffectParams::Chase(p) => Shader::Chase(Chase::new(p, time, colors)),
+            EffectParams::Chase(p) => Shader::Chase(Chase::in_context(p, time, colors, canvas, cx)),
             EffectParams::Bars(p) => Shader::Bars(Bars::new(p, time, colors)),
             EffectParams::Wave(p) => Shader::Wave(Wave::new(p, time, colors)),
             EffectParams::Twinkle(p) => Shader::Twinkle(Twinkle::new(p, time, colors, seed)),
@@ -958,6 +1078,12 @@ impl Shader {
                 crate::sim::run(p, time, colors, seed, canvas, cx).unwrap_or(Shader::Off(Off))
             }
             EffectParams::Faces(_) => Shader::Faces(Faces::default()),
+            EffectParams::Impact(p) => Shader::Impact(Impact::new(p, time, colors)),
+            EffectParams::Wipe(p) => Shader::Wipe(Wipe::new(p, time, colors, canvas)),
+            EffectParams::Lightning(p) => Shader::Lightning(Lightning::new(p, time, colors, seed, canvas)),
+            EffectParams::Pulse(p) => Shader::Pulse(Pulse::new(p, time, colors, cx)),
+            EffectParams::Sing(p) => Shader::Sing(Sing::new(p, time, colors, canvas, cx)),
+            EffectParams::ColorShift(p) => Shader::ColorShift(ColorShift::new(p, time, colors, canvas)),
         }
     }
 
@@ -994,6 +1120,12 @@ impl Shader {
             Shader::Text(s) => each.visit(s),
             Shader::Faces(s) => each.visit(s),
             Shader::VuMeter(s) => each.visit(s),
+            Shader::Impact(s) => each.visit(s),
+            Shader::Wipe(s) => each.visit(s),
+            Shader::Lightning(s) => each.visit(s),
+            Shader::Pulse(s) => each.visit(s),
+            Shader::Sing(s) => each.visit(s),
+            Shader::ColorShift(s) => each.visit(s),
         }
     }
 }

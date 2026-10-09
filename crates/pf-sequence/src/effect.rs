@@ -462,10 +462,16 @@ pub enum EffectKind {
     Text,
     Faces,
     VuMeter,
+    Impact,
+    Wipe,
+    Lightning,
+    Pulse,
+    Sing,
+    ColorShift,
 }
 
 impl EffectKind {
-    pub const ALL: [EffectKind; 29] = [
+    pub const ALL: [EffectKind; 35] = [
         EffectKind::On,
         EffectKind::Off,
         EffectKind::ColorWash,
@@ -495,6 +501,12 @@ impl EffectKind {
         EffectKind::Text,
         EffectKind::Faces,
         EffectKind::VuMeter,
+        EffectKind::Impact,
+        EffectKind::Wipe,
+        EffectKind::Lightning,
+        EffectKind::Pulse,
+        EffectKind::Sing,
+        EffectKind::ColorShift,
     ];
 
     /// The name people see.
@@ -529,6 +541,12 @@ impl EffectKind {
             EffectKind::Text => "Text",
             EffectKind::Faces => "Faces",
             EffectKind::VuMeter => "VU Meter",
+            EffectKind::Impact => "Impact",
+            EffectKind::Wipe => "Wipe",
+            EffectKind::Lightning => "Lightning",
+            EffectKind::Pulse => "Pulse",
+            EffectKind::Sing => "Sing",
+            EffectKind::ColorShift => "Color Shift",
         }
     }
 
@@ -570,6 +588,18 @@ impl EffectKind {
                 "A singing face: the prop's face mouths the words on a timing track, with eyes that blink."
             }
             EffectKind::VuMeter => "Bars, levels, and flashes that follow the music or a timing track.",
+            EffectKind::Impact => "A full-brightness hit that fades away, for the big moments.",
+            EffectKind::Wipe => {
+                "Color sweeping across the prop (or the whole layout), then holding or clearing."
+            }
+            EffectKind::Lightning => "Bolts and flashes that flicker like real lightning.",
+            EffectKind::Pulse => "Brightness breathing with the beat, a timing track, or the music.",
+            EffectKind::Sing => {
+                "Any prop sings along: brightness, a mouth bar, or a fill that follows the lyrics."
+            }
+            EffectKind::ColorShift => {
+                "The palette colors changing one to the next, everywhere at once or sweeping across."
+            }
         }
     }
 
@@ -605,6 +635,12 @@ impl EffectKind {
             EffectKind::Text => TextParams::SETTINGS,
             EffectKind::Faces => FacesParams::SETTINGS,
             EffectKind::VuMeter => VuMeterParams::SETTINGS,
+            EffectKind::Impact => ImpactParams::SETTINGS,
+            EffectKind::Wipe => WipeParams::SETTINGS,
+            EffectKind::Lightning => LightningParams::SETTINGS,
+            EffectKind::Pulse => PulseParams::SETTINGS,
+            EffectKind::Sing => SingParams::SETTINGS,
+            EffectKind::ColorShift => ColorShiftParams::SETTINGS,
         }
     }
 }
@@ -644,6 +680,12 @@ pub enum EffectParams {
     Text(TextParams),
     Faces(FacesParams),
     VuMeter(VuMeterParams),
+    Impact(ImpactParams),
+    Wipe(WipeParams),
+    Lightning(LightningParams),
+    Pulse(PulseParams),
+    Sing(SingParams),
+    ColorShift(ColorShiftParams),
 }
 
 impl EffectParams {
@@ -678,6 +720,12 @@ impl EffectParams {
             EffectParams::Text(_) => EffectKind::Text,
             EffectParams::Faces(_) => EffectKind::Faces,
             EffectParams::VuMeter(_) => EffectKind::VuMeter,
+            EffectParams::Impact(_) => EffectKind::Impact,
+            EffectParams::Wipe(_) => EffectKind::Wipe,
+            EffectParams::Lightning(_) => EffectKind::Lightning,
+            EffectParams::Pulse(_) => EffectKind::Pulse,
+            EffectParams::Sing(_) => EffectKind::Sing,
+            EffectParams::ColorShift(_) => EffectKind::ColorShift,
         }
     }
 
@@ -713,6 +761,12 @@ impl EffectParams {
             EffectKind::Text => EffectParams::Text(TextParams::default()),
             EffectKind::Faces => EffectParams::Faces(FacesParams::default()),
             EffectKind::VuMeter => EffectParams::VuMeter(VuMeterParams::default()),
+            EffectKind::Impact => EffectParams::Impact(ImpactParams::default()),
+            EffectKind::Wipe => EffectParams::Wipe(WipeParams::default()),
+            EffectKind::Lightning => EffectParams::Lightning(LightningParams::default()),
+            EffectKind::Pulse => EffectParams::Pulse(PulseParams::default()),
+            EffectKind::Sing => EffectParams::Sing(SingParams::default()),
+            EffectKind::ColorShift => EffectParams::ColorShift(ColorShiftParams::default()),
         }
     }
 
@@ -749,6 +803,12 @@ impl EffectParams {
             EffectParams::Text(p) => p.sanitize(),
             EffectParams::Faces(p) => p.sanitize(),
             EffectParams::VuMeter(p) => p.sanitize(),
+            EffectParams::Impact(p) => p.sanitize(),
+            EffectParams::Wipe(p) => p.sanitize(),
+            EffectParams::Lightning(p) => p.sanitize(),
+            EffectParams::Pulse(p) => p.sanitize(),
+            EffectParams::Sing(p) => p.sanitize(),
+            EffectParams::ColorShift(p) => p.sanitize(),
         }
     }
 
@@ -791,6 +851,12 @@ impl EffectParams {
             EffectParams::Text(p) => p.number(key),
             EffectParams::Faces(p) => p.number(key),
             EffectParams::VuMeter(p) => p.number(key),
+            EffectParams::Impact(p) => p.number(key),
+            EffectParams::Wipe(p) => p.number(key),
+            EffectParams::Lightning(p) => p.number(key),
+            EffectParams::Pulse(p) => p.number(key),
+            EffectParams::Sing(p) => p.number(key),
+            EffectParams::ColorShift(p) => p.number(key),
         }
     }
 
@@ -827,6 +893,12 @@ impl EffectParams {
             EffectParams::Text(p) => p.set_number(key, value),
             EffectParams::Faces(p) => p.set_number(key, value),
             EffectParams::VuMeter(p) => p.set_number(key, value),
+            EffectParams::Impact(p) => p.set_number(key, value),
+            EffectParams::Wipe(p) => p.set_number(key, value),
+            EffectParams::Lightning(p) => p.set_number(key, value),
+            EffectParams::Pulse(p) => p.set_number(key, value),
+            EffectParams::Sing(p) => p.set_number(key, value),
+            EffectParams::ColorShift(p) => p.set_number(key, value),
         }
     }
 
@@ -862,6 +934,12 @@ impl EffectParams {
             EffectParams::Text(p) => p.setting_problem(),
             EffectParams::Faces(p) => p.setting_problem(),
             EffectParams::VuMeter(p) => p.setting_problem(),
+            EffectParams::Impact(p) => p.setting_problem(),
+            EffectParams::Wipe(p) => p.setting_problem(),
+            EffectParams::Lightning(p) => p.setting_problem(),
+            EffectParams::Pulse(p) => p.setting_problem(),
+            EffectParams::Sing(p) => p.setting_problem(),
+            EffectParams::ColorShift(p) => p.setting_problem(),
         };
         found.map(|(spec, why)| format!("{} {why}", spec.label))
     }
@@ -1004,8 +1082,31 @@ effect_params! {
     }
 }
 
+/// What a Chase runs along.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum ChaseOrder {
+    #[default]
+    Wiring,
+    /// The pixels, left to right.
+    Across,
+    /// A group's props in turn, in the group's order.
+    Props,
+    /// A group's props in turn, left to right.
+    PropsAcross,
+}
+
+choices!(ChaseOrder {
+    "wiring" => "Along the wiring",
+    "across" => "Left to right",
+    "props" => "Prop by prop, in group order",
+    "propsAcross" => "Prop by prop, left to right",
+});
+
 effect_params! {
-    /// Bands of light moving along the pixels in wiring order (several bands make a marquee).
+    /// Bands of light moving along the pixels in wiring order (several bands make a marquee),
+    /// across the prop, or from prop to prop of a group.
     #[derive(Copy)]
     pub struct ChaseParams {
         /// Trips along the whole prop per second.
@@ -1014,10 +1115,14 @@ effect_params! {
         width: f32 = 0.2 => "width", "Band width", number(0.0, 1.0, 0.01);
         /// Bands spread evenly along the prop; they take the palette colors in turn.
         bands: u32 = 1 => "bands", "Bands", int(1, 1000);
-        /// Which way the bands move along the wiring.
+        /// Which way the bands move.
         direction: Direction = Direction::Forward => "direction", "Direction", choice;
         /// Go back and forth instead of wrapping around.
         bounce: bool = false => "bounce", "Bounce", toggle;
+        /// Along the wiring, left to right, or prop by prop on a group.
+        order: ChaseOrder = ChaseOrder::Wiring => "order", "Order", choice;
+        /// Step on each mark instead of moving at the speed: a prop, or a band's length.
+        timing_track: Option<TimingTrackId> = None => "timingTrack", "Step on marks of", timing_track, more;
     }
 }
 
@@ -2104,6 +2209,274 @@ effect_params! {
         color_per_word: bool = false => "colorPerWord", "A color per word", toggle, more;
         /// Show a countdown from the number in the text instead.
         countdown: TextCountdown = TextCountdown::None => "countdown", "Countdown", choice, more;
+    }
+}
+
+/// How an Impact's hit fades.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum ImpactDecay {
+    Linear,
+    /// Fast, then slow.
+    #[default]
+    Exponential,
+    /// Dips, rebounds, then fades.
+    Punch,
+}
+
+choices!(ImpactDecay {
+    "linear" => "Even",
+    "exponential" => "Fast, then slow",
+    "punch" => "Punch (dips and rebounds)",
+});
+
+/// The color of an Impact's hit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum HitColor {
+    #[default]
+    White,
+    /// The first palette color.
+    Palette,
+}
+
+choices!(HitColor { "white" => "White", "palette" => "The first palette color" });
+
+effect_params! {
+    /// A full-brightness hit at the start that fades away over the effect, optionally blooming
+    /// out from a point and fading through the palette.
+    #[derive(Copy)]
+    pub struct ImpactParams {
+        /// How the hit fades.
+        decay: ImpactDecay = ImpactDecay::Exponential => "decay", "Decay", choice;
+        /// White, or the first palette color.
+        color: HitColor = HitColor::White => "color", "Hit color", choice;
+        /// Fade through the palette colors as it decays.
+        color_shift: bool = false => "colorShift", "Shift colors", toggle;
+        /// How long the hit takes to spread from its point (0: everywhere at once).
+        bloom: f32 = 0.0 => "bloom", "Bloom", number(0.0, 2000.0, 10.0, "ms");
+        /// How long it stays at full brightness before fading.
+        hold: f32 = 0.0 => "hold", "Hold", number(0.0, 2000.0, 10.0, "ms"), more;
+        /// Where the bloom starts, from the left (0) to the right (100).
+        center_x: f32 = 50.0 => "centerX", "Hit point across", number(0.0, 100.0, 1.0, "%"), more;
+        /// Where the bloom starts, from the bottom (0) to the top (100).
+        center_y: f32 = 50.0 => "centerY", "Hit point up", number(0.0, 100.0, 1.0, "%"), more;
+    }
+}
+
+/// Which way a sweep (a Wipe, a staggered Color Shift) travels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum Sweep {
+    #[default]
+    LeftToRight,
+    RightToLeft,
+    Up,
+    Down,
+    CenterOut,
+    EdgesIn,
+    /// Bottom left to top right.
+    Diagonal,
+    /// A circle growing from the center.
+    Radial,
+}
+
+choices!(Sweep {
+    "leftToRight" => "Left to right",
+    "rightToLeft" => "Right to left",
+    "up" => "Up",
+    "down" => "Down",
+    "centerOut" => "From the center out",
+    "edgesIn" => "From the edges in",
+    "diagonal" => "Diagonal",
+    "radial" => "Circle from the center",
+});
+
+/// What a Wipe does over the effect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum WipeMode {
+    /// Wipes on, then holds.
+    #[default]
+    On,
+    /// Wipes on, holds, then wipes off at the end.
+    OnOff,
+    /// Starts lit and wipes off.
+    Off,
+}
+
+choices!(WipeMode { "on" => "Wipe on and hold", "onOff" => "Wipe on, then off", "off" => "Wipe off" });
+
+effect_params! {
+    /// Color sweeping across the target's buffer (in the palette colors, spread along the
+    /// sweep). On a group drawn Per Preview it sweeps across the layout.
+    #[derive(Copy)]
+    pub struct WipeParams {
+        /// Which way it sweeps.
+        direction: Sweep = Sweep::LeftToRight => "direction", "Direction", choice;
+        /// Wipe on and hold, on then off, or off.
+        mode: WipeMode = WipeMode::On => "mode", "Mode", choice;
+        /// How long each wipe takes.
+        duration: f32 = 50.0 => "duration", "Wipe time", number(1.0, 100.0, 1.0, "% of the effect");
+        /// How soft the edge is, as a share of the prop.
+        softness: f32 = 0.1 => "softness", "Soft edge", number(0.0, 1.0, 0.01);
+        /// 0 fills behind the edge; more sweeps a bar this wide (a share of the prop) instead.
+        band: f32 = 0.0 => "band", "Bar width", number(0.0, 1.0, 0.01);
+    }
+}
+
+effect_params! {
+    /// Lightning: strikes at random moments, each a bright stroke, quick re-strikes, then a
+    /// fading glow, in the first palette color. Bolts on matrices and other wide props; a flash
+    /// on lines and outlines.
+    #[derive(Copy)]
+    pub struct LightningParams {
+        /// Strikes per second, on average.
+        density: f32 = 1.0 => "density", "Strikes", number(0.1, 10.0, 0.1, "per second");
+        /// How much the bolts fork (0: never).
+        branches: f32 = 0.3 => "branches", "Branches", number(0.0, 1.0, 0.01);
+        /// Flash the whole prop instead of drawing bolts.
+        flash_only: bool = false => "flashOnly", "Flash only", toggle;
+        /// How brightly the whole prop flashes with each bolt.
+        glow: f32 = 0.25 => "glow", "Sky glow", number(0.0, 1.0, 0.01), more;
+        /// Bolt thickness.
+        thickness: u32 = 1 => "thickness", "Thickness", int(1, 10, "pixels"), more;
+        /// Jags in each bolt.
+        segments: u32 = 8 => "segments", "Jags", int(2, 30), more;
+    }
+}
+
+/// What a Pulse follows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum PulseSource {
+    /// A timing track's marks (twice a second without one).
+    #[default]
+    Marks,
+    Level,
+    Bass,
+    /// Each new sound.
+    Onsets,
+}
+
+choices!(PulseSource {
+    "marks" => "A timing track's marks",
+    "level" => "The music's level",
+    "bass" => "The bass",
+    "onsets" => "Each new sound",
+});
+
+/// The shape of each pulse on a mark.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum PulseShape {
+    #[default]
+    Sine,
+    Saw,
+    Square,
+    /// Two beats, the second softer.
+    Heartbeat,
+}
+
+choices!(PulseShape {
+    "sine" => "Smooth",
+    "saw" => "Hit and fade",
+    "square" => "On and off",
+    "heartbeat" => "Heartbeat",
+});
+
+effect_params! {
+    /// Brightness breathing between `min` and `max`: a pulse on each mark of a timing track
+    /// (each mark takes the next palette color), or following the music's level, bass, or new
+    /// sounds with an attack and release.
+    #[derive(Copy)]
+    pub struct PulseParams {
+        /// What it pulses with.
+        source: PulseSource = PulseSource::Marks => "source", "Follows", choice;
+        /// The marks it pulses on (beats, bars, any track).
+        timing_track: Option<TimingTrackId> = None => "timingTrack", "Timing track", timing_track;
+        /// Each pulse's shape on the marks.
+        shape: PulseShape = PulseShape::Sine => "shape", "Shape", choice;
+        /// Brightness between pulses (0–1).
+        min: f32 = 0.1 => "min", "Lowest", number(0.0, 1.0, 0.01);
+        /// Brightness at the peak (0–1).
+        max: f32 = 1.0 => "max", "Highest", number(0.0, 1.0, 0.01);
+        /// How fast it rises with the music.
+        attack: f32 = 20.0 => "attack", "Attack", number(0.0, 1000.0, 5.0, "ms"), more;
+        /// How fast it falls back with the music.
+        release: f32 = 250.0 => "release", "Release", number(0.0, 2000.0, 10.0, "ms"), more;
+    }
+}
+
+/// How a Sing effect shows the singing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum SingMode {
+    /// Brightness opens with the mouth on each syllable.
+    #[default]
+    Mouth,
+    /// A flash on each word.
+    WordPop,
+    /// A band across the middle, as wide as the mouth is open.
+    BarMouth,
+    /// A fill across the prop over each word or line.
+    Karaoke,
+}
+
+choices!(SingMode {
+    "mouth" => "Brightness opens with the mouth",
+    "wordPop" => "A flash on each word",
+    "barMouth" => "A mouth bar",
+    "karaoke" => "Fill across each word",
+});
+
+effect_params! {
+    /// Makes any prop sing along with a timing track: words, syllables, or phonemes open the
+    /// mouth by how they sound (wide for AI and O, shut for MBP); lines and words for the fill.
+    #[derive(Copy)]
+    pub struct SingParams {
+        /// How the singing shows.
+        mode: SingMode = SingMode::Mouth => "mode", "Style", choice;
+        /// The syllables, words, phonemes, or lyric lines it sings.
+        timing_track: Option<TimingTrackId> = None => "timingTrack", "Timing track", timing_track;
+        /// Brightness with the mouth shut (0–1); what's still to sing in a fill.
+        min: f32 = 0.0 => "min", "Closed brightness", number(0.0, 1.0, 0.01);
+    }
+}
+
+/// How a Color Shift changes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum ShiftEase {
+    Instant,
+    Linear,
+    #[default]
+    Smooth,
+}
+
+choices!(ShiftEase { "instant" => "Instant", "linear" => "Even", "smooth" => "Eased" });
+
+effect_params! {
+    /// The palette colors in turn, changing from each to the next: the first change at the
+    /// start, the rest spread evenly over the effect. Staggered, a change travels across the prop.
+    #[derive(Copy)]
+    pub struct ColorShiftParams {
+        /// Instant, even, or eased.
+        ease: ShiftEase = ShiftEase::Smooth => "ease", "Change", choice;
+        /// How long each change takes.
+        duration: f32 = 25.0 => "duration", "Change time", number(0.0, 100.0, 1.0, "% of the effect");
+        /// How much of the change time it takes to travel across the prop (0: everywhere at once).
+        stagger: f32 = 0.0 => "stagger", "Stagger", number(0.0, 100.0, 1.0, "%");
+        /// Which way a staggered change travels.
+        direction: Sweep = Sweep::LeftToRight => "direction", "Stagger direction", choice, more;
     }
 }
 

@@ -15,9 +15,10 @@
 //! effects find it back in the same cell. Every style of one target lists the same pixels in the
 //! same order; only where they are on the grid differs.
 
-use crate::geometry::{Member, Pixel, PixelBuffer, Point, SceneGeometry};
+use crate::geometry::{Member, Members, Pixel, PixelBuffer, Point, SceneGeometry};
 use pf_model::{BufferTransform, GroupLayout, MAX_GRID_SIZE, MIN_GRID_SIZE, RenderStyle};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// xLights layout units per PixelFlow layout unit (the xLights import's scale).
 pub(crate) const XLIGHTS_UNITS: f32 = 100.0;
@@ -74,6 +75,7 @@ fn on_cells(points: &[Point], cells: &Cells) -> PixelBuffer {
         columns: u32::try_from(width).unwrap_or(u32::MAX),
         rows: u32::try_from(height).unwrap_or(u32::MAX),
         parts: Vec::new(),
+        members: None,
     }
 }
 
@@ -434,13 +436,23 @@ impl SceneGeometry {
                         })
                     })
                     .collect();
+                buffer.members = Some(members_of(&owner, members.len(), &buffer));
                 return buffer;
             }
             // Only the styles above lay out a group.
             Some(_) => grid(),
         };
-        on_cells(&points, &cells)
+        let mut buffer = on_cells(&points, &cells);
+        buffer.members = Some(members_of(&owner, members.len(), &buffer));
+        buffer
     }
+}
+
+/// Which member each of a group buffer's pixels belongs to (`owner`: each pixel's member and
+/// place in it).
+fn members_of(owner: &[(usize, usize)], count: usize, buffer: &PixelBuffer) -> Arc<Members> {
+    let of = owner.iter().map(|&(m, _)| m as u32).collect();
+    Arc::new(Members::new(of, count, &buffer.pixels))
 }
 
 impl PixelBuffer {
@@ -456,6 +468,9 @@ impl PixelBuffer {
         }
         if transform.turns() {
             std::mem::swap(&mut self.columns, &mut self.rows);
+        }
+        if let Some(members) = &self.members {
+            self.members = Some(Arc::new(members.moved(&self.pixels)));
         }
         for part in &mut self.parts {
             part.buffer.transform(transform);

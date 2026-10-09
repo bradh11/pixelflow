@@ -19,6 +19,7 @@ use pf_model::{
 };
 use pf_sequence::Target;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 /// One pixel as an effect sees it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -46,6 +47,61 @@ pub struct PixelBuffer {
     /// For a per-model render style: the members, each drawn on its own buffer. Empty when the
     /// effect draws on this buffer.
     pub(crate) parts: Vec<Part>,
+    /// For a group: which member each pixel belongs to, for effects that go prop by prop.
+    pub(crate) members: Option<Arc<Members>>,
+}
+
+/// A group's members as its buffer lays them out.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Members {
+    /// Each pixel's member (its place in the group), in buffer order.
+    of: Vec<u32>,
+    /// Each member's middle, left (0) to right (1); members with no pixels of their own last.
+    across: Vec<f32>,
+}
+
+impl Members {
+    /// The members of `count` pixels' `pixels`, `of` giving each one's member.
+    pub(crate) fn new(of: Vec<u32>, count: usize, pixels: &[Pixel]) -> Self {
+        let mut sums = vec![(0.0f64, 0u32); count];
+        for (&m, px) in of.iter().zip(pixels) {
+            if let Some(sum) = sums.get_mut(m as usize) {
+                *sum = (sum.0 + f64::from(px.u), sum.1 + 1);
+            }
+        }
+        let across = sums
+            .iter()
+            .map(|&(u, n)| if n == 0 { 2.0 } else { (u / f64::from(n)) as f32 })
+            .collect();
+        Self { of, across }
+    }
+
+    /// How many members there are.
+    pub fn count(&self) -> usize {
+        self.across.len()
+    }
+
+    /// The member of the pixel at `index` in the buffer.
+    #[inline]
+    pub fn of(&self, index: u32) -> Option<u32> {
+        self.of.get(index as usize).copied()
+    }
+
+    /// Each member's place when they're taken left to right (ties in group order).
+    pub fn ranks_across(&self) -> Vec<u32> {
+        let mut order: Vec<usize> = (0..self.across.len()).collect();
+        order.sort_by(|&a, &b| self.across[a].total_cmp(&self.across[b]).then(a.cmp(&b)));
+        let mut ranks = vec![0; order.len()];
+        for (rank, m) in order.into_iter().enumerate() {
+            ranks[m] = rank as u32;
+        }
+        ranks
+    }
+
+    /// The same members after the buffer's pixels moved (a buffer transform).
+    pub(crate) fn moved(&self, pixels: &[Pixel]) -> Self {
+        Self::new(self.of.clone(), self.across.len(), pixels)
+    }
 }
 
 /// One member of a group drawn on its own (a per-model render style).
@@ -82,6 +138,7 @@ impl PixelBuffer {
             columns: 1,
             rows: 1,
             parts: Vec::new(),
+            members: None,
         }
     }
 }
@@ -442,6 +499,7 @@ fn region_buffer(prop: &PropGeometry, region: &Region) -> PixelBuffer {
                 columns: u32::try_from(max_c - min_c + 1).unwrap_or(1),
                 rows: u32::try_from(max_r - min_r + 1).unwrap_or(1),
                 parts: Vec::new(),
+                members: None,
             }
         }
         // Keep XY and faces: the pixels where they are on the prop, in node order (xLights keeps
@@ -535,6 +593,7 @@ fn grid_buffer(
         columns: u32::try_from(width).unwrap_or(1).max(1),
         rows: u32::try_from(height).unwrap_or(1).max(1),
         parts: Vec::new(),
+        members: None,
     }
 }
 
@@ -583,6 +642,7 @@ fn build_buffer(points: &[Point]) -> PixelBuffer {
         columns,
         rows,
         parts: Vec::new(),
+        members: None,
     }
 }
 

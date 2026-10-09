@@ -21,15 +21,16 @@ pub use curve::{
 };
 pub use document::{CURRENT_SCHEMA_VERSION, Layer, Mark, Row, Sequence, Target, TimingKind, TimingTrack};
 pub use effect::{
-    Axis, BarsParams, Blend, ButterflyColors, ButterflyParams, ChaseParams, CirclesLook, CirclesParams,
-    ColorWashParams, CurveRange, Direction, Effect, EffectKind, EffectParams, FaceColorSource, FaceEyes,
-    FacesParams, FadeDirection, FadeParams, FanParams, FireParams, GarlandShape, GarlandsDirection,
-    GarlandsParams, Gradient, LifeParams, LifeRules, LinesParams, MeteorDirection, MeteorsParams,
-    MorphParams, OffParams, OnParams, Palette, PinwheelParams, PinwheelShading, PinwheelStyle, PlasmaColors,
-    PlasmaParams, RippleParams, ShapeObject, ShapeParams, ShimmerParams, SnowflakeShape, SnowflakesMotion,
-    SnowflakesParams, SpiralParams, StrobeParams, TendrilMovement, TendrilParams, TextCountdown,
-    TextMovement, TextOrientation, TextParams, TwinkleParams, VuMeterParams, VuMeterShape, VuMeterType,
-    WaveParams,
+    Axis, BarsParams, Blend, ButterflyColors, ButterflyParams, ChaseOrder, ChaseParams, CirclesLook,
+    CirclesParams, ColorShiftParams, ColorWashParams, CurveRange, Direction, Effect, EffectKind,
+    EffectParams, FaceColorSource, FaceEyes, FacesParams, FadeDirection, FadeParams, FanParams, FireParams,
+    GarlandShape, GarlandsDirection, GarlandsParams, Gradient, HitColor, ImpactDecay, ImpactParams,
+    LifeParams, LifeRules, LightningParams, LinesParams, MeteorDirection, MeteorsParams, MorphParams,
+    OffParams, OnParams, Palette, PinwheelParams, PinwheelShading, PinwheelStyle, PlasmaColors, PlasmaParams,
+    PulseParams, PulseShape, PulseSource, RippleParams, ShapeObject, ShapeParams, ShiftEase, ShimmerParams,
+    SingMode, SingParams, SnowflakeShape, SnowflakesMotion, SnowflakesParams, SpiralParams, StrobeParams,
+    Sweep, TendrilMovement, TendrilParams, TextCountdown, TextMovement, TextOrientation, TextParams,
+    TwinkleParams, VuMeterParams, VuMeterShape, VuMeterType, WaveParams, WipeMode, WipeParams,
 };
 pub use ids::{EffectId, RowId, TimingTrackId};
 pub use io::{SequenceError, check_sequence, sequence_from_json, sequence_to_json};

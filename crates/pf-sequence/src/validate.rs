@@ -166,6 +166,11 @@ pub fn validate_sequence(seq: &Sequence, show: &Show) -> Vec<SequenceIssue> {
                 let (marks_track, without) = match &effect.params {
                     EffectParams::Shape(p) => (p.timing_track, "no shapes appear"),
                     EffectParams::VuMeter(p) if p.meter.uses_marks() => (p.timing_track, "it shows nothing"),
+                    EffectParams::Chase(p) => (p.timing_track, "it stays still"),
+                    EffectParams::Pulse(p) if p.source == crate::PulseSource::Marks => {
+                        (p.timing_track, "it stays at its lowest")
+                    }
+                    EffectParams::Sing(p) => (p.timing_track, "it doesn't sing"),
                     _ => (None, ""),
                 };
                 if let Some(track) = marks_track

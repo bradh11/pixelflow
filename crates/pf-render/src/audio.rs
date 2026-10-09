@@ -10,14 +10,17 @@
 //! Effects read the music for the frame they draw through [`Audio`], in the sequence's frames,
 //! from the [`RenderContext`] the renderer passes along (see `Shader::in_context`).
 
-use pf_sequence::{CurveInputs, Effect, EffectParams, Mark, Sequence, TendrilMovement, TimingTrack};
+use crate::geometry::Members;
+use pf_sequence::{
+    CurveInputs, Effect, EffectParams, Mark, PulseSource, Sequence, TendrilMovement, TimingTrack,
+};
 use std::borrow::Cow;
 use std::sync::{Arc, OnceLock};
 
 pub use pf_analysis::{AudioTrack, NOTES, SPECTRUM_BANDS};
 
 /// Whether the effect follows the music: curves or sparkles that follow it, a VU Meter that
-/// reads it, a Tendril moving with it, or a Shape fired by it.
+/// reads it, a Tendril moving with it, a Shape fired by it, or a Pulse with it.
 pub fn effect_follows_music(effect: &Effect) -> bool {
     effect.music_sparkles
         || effect.curves.values().any(|c| c.shape.follows_music())
@@ -30,6 +33,7 @@ pub fn effect_follows_music(effect: &Effect) -> bool {
                 )
             }
             EffectParams::Shape(p) => p.fire_on_music && p.timing_track.is_none(),
+            EffectParams::Pulse(p) => p.source != PulseSource::Marks,
             _ => false,
         }
 }
@@ -201,6 +205,8 @@ pub struct RenderContext<'a> {
     pub tracks: &'a [TimingTrack],
     /// The sequence's frame time.
     pub frame_ms: u32,
+    /// The members of the group being drawn on, for effects that go prop by prop.
+    pub members: Option<&'a Arc<Members>>,
 }
 
 impl<'a> RenderContext<'a> {
@@ -209,7 +215,19 @@ impl<'a> RenderContext<'a> {
             audio,
             tracks,
             frame_ms,
+            members: None,
         }
+    }
+
+    /// The same context drawing on a buffer with `members`.
+    pub fn with_members(self, members: Option<&'a Arc<Members>>) -> Self {
+        Self { members, ..self }
+    }
+
+    /// The timing track `track`, if the sequence has it.
+    pub fn track(&self, track: Option<pf_sequence::TimingTrackId>) -> Option<&'a TimingTrack> {
+        let track = track?;
+        self.tracks.iter().find(|t| t.id == track)
     }
 
     /// `effect` as it plays at `t_ms`, its curves (and music sparkles) reading the music and

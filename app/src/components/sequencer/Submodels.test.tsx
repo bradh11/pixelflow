@@ -7,7 +7,7 @@ import { DEMO_SEQUENCE_PATH, demoSequence } from "../../api/demoSequence";
 import { MemoryBackend } from "../../api/memory";
 import { renderSequenceFrame } from "../../api/memoryRender";
 import { MemorySequencer } from "../../api/memorySequencer";
-import { newEffect, newRow } from "../../api/sequence";
+import { type EffectParams, newEffect, newRow, type TimingTrack } from "../../api/sequence";
 import type { Show } from "../../api/types";
 import { channelsPerPixel, nodeCount } from "../../lib/shows";
 import { useSequencer } from "../../state/sequencer";
@@ -157,5 +157,28 @@ describe("the in-browser stand-in renderer", () => {
     const red = [];
     for (let n = 0; n < 512; n++) if (sung[before + n * 3] === 0xff && sung[before + n * 3 + 1] === 0x2d) red.push(n);
     expect(red.length).toBeGreaterThan(0);
+  });
+
+  it("lights a prop for each show effect and changes it over time", () => {
+    const show = demoShow();
+    const doc = demoSequence(show, 60_000);
+    const beats: TimingTrack = { id: crypto.randomUUID(), name: "Beats", kind: "beats", marks: [0, 500, 1000, 1500].map((ms) => ({ startMs: ms, endMs: ms + 50, label: "" })) };
+    const words: TimingTrack = { id: crypto.randomUUID(), name: "Lyrics (words)", kind: "words", marks: [{ startMs: 0, endMs: 1000, label: "la" }] };
+    const kinds: EffectParams[] = [
+      { kind: "impact" },
+      { kind: "wipe" },
+      { kind: "lightning", density: 4 },
+      { kind: "pulse", timingTrack: beats.id },
+      { kind: "sing", timingTrack: words.id, mode: "karaoke" },
+      { kind: "colorShift", stagger: 50 },
+    ];
+    for (const params of kinds) {
+      const row = newRow({ prop: show.props.find((p) => p.name === "Window Matrix")!.id });
+      row.layers[0].effects.push({ ...newEffect(params.kind, 0, 2000, ["#ff0000", "#0000ff"]), params });
+      const one = { ...doc, timingTracks: [beats, words], rows: [row] };
+      const frames = [100, 400, 700, 1300].map((ms) => renderSequenceFrame(one, show, ms));
+      expect(frames.some((f) => f.some((b) => b > 0)), params.kind).toBe(true);
+      expect(frames.some((f, i) => i > 0 && f.some((b, k) => b !== frames[0][k])), params.kind).toBe(true);
+    }
   });
 });

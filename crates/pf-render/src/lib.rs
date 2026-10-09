@@ -14,33 +14,41 @@ mod blur;
 mod butterfly;
 mod circles;
 mod color;
+mod color_shift;
 mod effects;
 pub mod export;
 pub mod faces;
 mod fan;
 mod garlands;
 mod geometry;
+mod impact;
 mod life;
+mod lightning;
 mod lines;
 mod morph;
 mod pinwheel;
 mod plasma;
+mod pulse;
 mod raster;
 mod render;
 mod shape;
 mod sim;
+mod sing;
 mod snowflakes;
 mod sparkles;
 mod styles;
 mod tendril;
 mod text;
 mod vumeter;
+mod wipe;
 
 pub use audio::{Audio, AudioFill, AudioSource, AudioTrack, RenderContext, follows_music};
 pub use color::{Colors, Rgba};
 pub use effects::{
-    Butterfly, Canvas, Circles, DEFAULT_FRAME_MS, EffectTime, Faces, Fan, Garlands, Life, Lines, MAX_METEORS,
-    Morph, Pinwheel, Plasma, Shade, Shader, Shape, Snowflakes, Tendril, Text, VuMeter, shade_pixel,
+    Butterfly, Canvas, Chase, Circles, ColorShift, DEFAULT_FRAME_MS, EffectTime, Faces, Fan, Garlands,
+    Impact, Life, Lightning, Lines, MAX_METEORS, Morph, Pinwheel, Plasma, Pulse, Shade, Shader, Shape, Sing,
+    Snowflakes, Tendril, Text, VuMeter, Wipe, shade_pixel,
 };
-pub use geometry::{Pixel, PixelBuffer, SceneGeometry};
+pub use geometry::{Members, Pixel, PixelBuffer, SceneGeometry};
 pub use render::Renderer;
+pub use sing::{mouth_open, openness};

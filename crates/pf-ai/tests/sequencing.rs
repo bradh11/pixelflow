@@ -73,6 +73,7 @@ fn song_analysis() -> Analysis {
         onsets: beats.clone(),
         beats,
         energy,
+        ..Analysis::default()
     }
 }
 

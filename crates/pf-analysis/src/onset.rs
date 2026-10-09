@@ -42,6 +42,15 @@ impl OnsetEnvelope {
     }
 }
 
+/// A sample made safe to analyze: finite, within -1..1.
+pub(crate) fn clean(sample: f32) -> f32 {
+    if sample.is_finite() {
+        sample.clamp(-1.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
 /// Computes the onset envelope of mono samples, a frame at a time (memory stays small).
 pub fn onset_envelope(samples: impl Iterator<Item = f32>, sample_rate: u32) -> OnsetEnvelope {
     let fft = RealFftPlanner::<f32>::new().plan_fft_forward(FRAME);
@@ -59,7 +68,7 @@ pub fn onset_envelope(samples: impl Iterator<Item = f32>, sample_rate: u32) -> O
     let mut samples_seen = 0u64;
     let mut values = Vec::new();
     let mut loudness = Vec::new();
-    let mut samples = samples.map(|s| if s.is_finite() { s.clamp(-1.0, 1.0) } else { 0.0 });
+    let mut samples = samples.map(clean);
     let mut done = false;
     while !done {
         // Fill the window: the first time completely, then a hop at a time.

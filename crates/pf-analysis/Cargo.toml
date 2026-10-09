@@ -1,6 +1,6 @@
 [package]
 name = "pf-analysis"
-description = "Music analysis for sequencing: onsets, tempo, beats, and bars as timing tracks"
+description = "Music analysis for sequencing: onsets, tempo, beats, bars, sections, and accents as timing tracks"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,6 +12,9 @@ pf-sequence.workspace = true
 realfft.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
 
 [lints]
 workspace = true

@@ -1,5 +1,5 @@
-//! Music analysis for sequencing: where the notes start (onsets), the tempo, the beats, and the
-//! bars, ready to use as timing tracks.
+//! Music analysis for sequencing: where the notes start (onsets), the tempo, the beats, the bars,
+//! the song's sections, and the moments to land on, ready to use as timing tracks.
 //!
 //! 1. **Onset envelope**: the song (mono) is cut into 1024-sample frames every 512 samples; each
 //!    frame's log-magnitude spectrum is compared with the previous one, and the total rise
@@ -9,17 +9,29 @@
 //!    to avoid half- and double-time mistakes.
 //! 4. **Beats**: dynamic programming picks the beat times that land on strong onsets while
 //!    staying close to the tempo (Ellis, 2007), so the grid follows small tempo drifts.
-//! 5. **Bars**: 4/4 is assumed; the downbeat is whichever of every 4 beats is strongest overall.
-//! 6. **Energy and sections**: each frame's loudness (RMS), averaged per second and scaled to the
-//!    song's loud parts (its 95th percentile), so 1 is as loud as the song gets. Sections are runs
-//!    of 4-bar phrases (8 s without a beat) at the same energy level, merged; see
-//!    [`Analysis::sections`].
+//! 5. **Features**: alongside, every ~46 ms, timbre coefficients (from a log-mel spectrum),
+//!    chroma, loudness, flux, and band energies, averaged per beat.
+//! 6. **Bars**: 4/4 is assumed; the downbeat is the one of every 4 beats where strong onsets,
+//!    kicks, chord changes, and section changes fall most.
+//! 7. **Sections**: where the timbre and harmony change (novelty in self-similarity matrices), on
+//!    bar lines, grouped by what repeats and named (Verse, Chorus …); see [`Analysis::sections()`].
+//! 8. **Energy and accents**: each bar's loudness overall and in the bass, mids, and treble, 0–1
+//!    ([`Analysis::bar_energy`]); and moments to land on: hits, drops, breaks, and builds
+//!    ([`Analysis::events`]).
 
 mod beats;
+mod energy;
+mod events;
+mod features;
+mod grid;
+mod meter;
 mod onset;
 mod sections;
+mod structure;
 
 pub use beats::{bars, beat_grid, estimate_tempo};
+pub use energy::BarEnergy;
+pub use events::{Event, EventKind};
 pub use onset::{FRAME, HOP, OnsetEnvelope, onset_envelope, pick_onsets};
 pub use sections::{Level, Section};
 
@@ -42,19 +54,39 @@ pub enum AnalysisError {
 }
 
 /// What analysis found in a song. Times are in milliseconds from the start.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Analysis {
     pub duration_ms: u64,
     /// Beats per minute, if the song has a steady pulse.
     pub tempo_bpm: Option<f32>,
     pub beats: Vec<u64>,
-    /// The first beat of each bar (assuming 4/4).
+    /// The first beat of each bar (assuming 4/4): the downbeats.
     pub bars: Vec<u64>,
     pub onsets: Vec<u64>,
     /// How loud each second is, 0–1 (1 = as loud as the song's loud parts).
     #[serde(skip)]
     pub energy: Vec<f32>,
+    /// The song's sections from its structure, back to back (empty for an analysis made without
+    /// it: [`Analysis::sections()`] then works them out from `energy`).
+    pub sections: Vec<Section>,
+    /// Moments to land on (hits, drops, breaks, builds), in time order.
+    pub events: Vec<Event>,
+    /// Each bar's energy (one per entry in `bars`).
+    pub bar_energy: Vec<BarEnergy>,
+    pub confidence: Confidence,
+}
+
+/// How sure the analysis is of each part, 0–1.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Confidence {
+    /// The tempo and beats (how much stronger the sound is on the beats than between them).
+    pub tempo: f32,
+    /// Which beat is beat 1.
+    pub downbeat: f32,
+    /// The sections' grouping and names (their mean).
+    pub sections: f32,
 }
 
 /// Samples between checks for a stop.
@@ -89,25 +121,79 @@ pub fn analyze_cancellable(
             !stopped
         })
         .map(|(_, s)| s);
-    let envelope = onset_envelope(checked, rate);
-    if stopped {
+    // The features are taken from the same samples as the envelope, as they go by.
+    let mut extractor = features::FeatureExtractor::new(rate);
+    let envelope = onset_envelope(checked.inspect(|&s| extractor.push(onset::clean(s))), rate);
+    if stopped || stop() {
         return Err(AnalysisError::Cancelled);
     }
+    let features = extractor.finish();
     let onsets = pick_onsets(&envelope);
     let tempo = estimate_tempo(&envelope);
     let beat_frames = tempo
         .map(|period| beat_grid(&envelope, period, &onsets))
         .unwrap_or_default();
-    let bar_frames = bars(&envelope, &beat_frames);
     let ms = |frames: &[usize]| frames.iter().map(|&f| envelope.time_ms(f)).collect::<Vec<_>>();
+    let beats = ms(&beat_frames);
+    let duration_ms = envelope.duration_ms();
+    let seconds = |times: &[u64]| times.iter().map(|&t| t as f64 / 1000.0).collect::<Vec<_>>();
+    let end = duration_ms as f64 / 1000.0;
+
+    // Beat-long units with the features averaged over each, compared every one with every other
+    // (unless there are too many to: a very long recording's sections then come from its
+    // loudness, see `Analysis::sections()`).
+    let period = tempo.map(|p| p * envelope.frame_seconds());
+    let grid = grid::Grid::new(&seconds(&beats), period, end);
+    let synced = grid::sync(&features, &grid);
+    let similarity = (grid.len() <= structure::MAX_UNITS)
+        .then(|| (structure::Ssm::timbre(&synced), structure::Ssm::chroma(&synced)));
+    let novelty = match &similarity {
+        Some((timbre, chroma)) => structure::novelty(timbre, chroma),
+        None => vec![0.0; grid.len()],
+    };
+    if stop() {
+        return Err(AnalysisError::Cancelled);
+    }
+
+    let (phase, downbeat) =
+        meter::downbeat_phase(&envelope, &features, &grid, &synced, &novelty, &beat_frames);
+    let bars: Vec<u64> = beats
+        .iter()
+        .copied()
+        .skip(phase)
+        .step_by(structure::BEATS_PER_BAR)
+        .collect();
+    let bar_phase = if beats.is_empty() { 0 } else { grid.lead + phase };
+    let sections = match &similarity {
+        Some((timbre, chroma)) => {
+            let cuts = structure::boundaries(&novelty, &grid, bar_phase, structure::min_section_units());
+            sections::from_structure(&grid, &synced, &structure::Ssm::mean(timbre, chroma), &cuts)
+        }
+        None => Vec::new(),
+    };
+    let bar_energy = energy::bar_energy(&features, &seconds(&bars), end);
+    let events = events::events(&envelope, &onsets, &seconds(&beats), &seconds(&bars), &bar_energy);
+    let confidence = Confidence {
+        tempo: round2(meter::tempo_confidence(&envelope, &beat_frames)),
+        downbeat: round2(downbeat),
+        sections: round2(sections.iter().map(|s| s.confidence).sum::<f32>() / sections.len().max(1) as f32),
+    };
     Ok(Analysis {
-        duration_ms: envelope.duration_ms(),
+        duration_ms,
         tempo_bpm: tempo.map(|period| (60.0 / (period * envelope.frame_seconds())) as f32),
-        beats: ms(&beat_frames),
-        bars: ms(&bar_frames),
+        beats,
+        bars,
         onsets: ms(&onsets),
         energy: sections::energy_per_second(&envelope),
+        sections,
+        events,
+        bar_energy,
+        confidence,
     })
+}
+
+fn round2(x: f32) -> f32 {
+    (x * 100.0).round() / 100.0
 }
 
 /// Decodes and analyzes a music file.
@@ -147,7 +233,7 @@ fn spans(times: &[u64], end_ms: u64, label: impl Fn(usize) -> String) -> Vec<Mar
 
 impl Analysis {
     /// Timing tracks for the sequence: "Beats" (labeled 1–4 within each bar), "Bars" (numbered),
-    /// and "Onsets".
+    /// and "Onsets". See also [`Analysis::sections_track`] and [`Analysis::accents_track`].
     pub fn timing_tracks(&self) -> Vec<TimingTrack> {
         let first_bar = self.bars.first().copied();
         // How far into a bar the first beat is, so beat labels count from each downbeat.

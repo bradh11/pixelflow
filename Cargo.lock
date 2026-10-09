@@ -1648,6 +1648,7 @@ dependencies = [
  "pf-sequence",
  "realfft",
  "serde",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 

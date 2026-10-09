@@ -46,6 +46,12 @@ zip = { version = "8.6.0", default-features = false, features = ["deflate-flate2
 [profile.dev.package.pf-camera-map]
 opt-level = 2
 
+# Everything the shell depends on (audio decoding, analysis, rendering) is optimized in dev
+# builds too: decoding a song took 10-16 s unoptimized against 0.2 s optimized. The shell's own
+# code keeps fast rebuilds and full debug info.
+[profile.dev.package."*"]
+opt-level = 2
+
 # The desktop shell is its own workspace so the core crates build and test without
 # Tauri's system dependencies.
 [workspace]

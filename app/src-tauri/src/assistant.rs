@@ -66,6 +66,11 @@ impl AiState {
         )
     }
 
+    /// The keys, for checking one is there (Find lyrics) and for requests made from Rust.
+    pub(crate) fn vault(&self) -> Arc<KeyVault> {
+        Arc::clone(&self.vault)
+    }
+
     /// Lets go of the draft being previewed (its proposal was applied, discarded, or dropped).
     fn forget_player(&self) {
         *lock(&self.player) = None;
@@ -436,6 +441,9 @@ mod tests {
         app: App<MockRuntime>,
         webview: WebviewWindow<MockRuntime>,
         anthropic: Arc<FakeTransport>,
+        /// Find lyrics' recorded LRCLIB and OpenAI replies.
+        lrclib: Arc<FakeTransport>,
+        whisper: Arc<FakeTransport>,
         _dir: tempfile::TempDir,
     }
 
@@ -448,6 +456,8 @@ mod tests {
             .with_transport(move || Ok(Box::new(transport.clone()) as Box<dyn pf_output::Transport>));
         let anthropic = Arc::new(FakeTransport::default());
         let openai = Arc::new(FakeTransport::default());
+        let lrclib = Arc::new(FakeTransport::default());
+        let whisper = Arc::new(FakeTransport::default());
         let providers = Providers {
             anthropic: Arc::new(
                 pf_ai::anthropic::Anthropic::new(anthropic.clone()).with_retry(RetryPolicy::immediate()),
@@ -473,6 +483,16 @@ mod tests {
                 vendor_mappings: Arc::new(crate::vendor::SavedMappings::new(None)),
             })
             .manage(AiState::new(KeyVault::new(Box::new(store)), providers))
+            .manage(crate::lyrics::LyricsState::new(
+                pf_ai::lyrics::Services {
+                    lrclib: pf_ai::lyrics::lrclib::Lrclib::new(lrclib.clone()),
+                    transcriber: pf_ai::lyrics::transcribe::Transcriber::new(whisper.clone())
+                        .with_retry(RetryPolicy::immediate()),
+                    voice: Box::new(|_, _| Ok(pf_analysis::VocalActivity::default())),
+                    tags: Box::new(|path| pf_audio::read_tags(path).ok()),
+                },
+                None,
+            ))
             .build(context())
             .unwrap();
         let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
@@ -482,6 +502,8 @@ mod tests {
             app,
             webview,
             anthropic,
+            lrclib,
+            whisper,
             _dir: dir,
         }
     }
@@ -672,11 +694,13 @@ mod tests {
         let requests = t.anthropic.requests();
         assert_eq!(requests.len(), 3);
         assert_eq!(requests[0].header("x-api-key").unwrap(), FAKE_KEY);
-        assert!(
-            requests
-                .iter()
-                .all(|r| !r.body.as_deref().unwrap_or("").contains(FAKE_KEY))
-        );
+        assert!(requests.iter().all(|r| {
+            !r.body
+                .as_ref()
+                .and_then(|b| b.text())
+                .unwrap_or("")
+                .contains(FAKE_KEY)
+        }));
         assert_eq!(call(&t, "get_snapshot", json!({})).unwrap(), original);
 
         let id = proposal["id"].as_str().unwrap();
@@ -869,5 +893,143 @@ mod tests {
             json!([{ "id": "claude-opus-5-5", "name": "Claude Opus 5.5", "recommended": true }])
         );
         assert!(t.app.try_state::<AiState>().is_some());
+    }
+
+    /// Made-up lyrics, as LRCLIB answers a search.
+    fn lrclib_reply() -> String {
+        json!([{
+            "id": 1, "trackName": "Lantern Song", "artistName": "Lantern Band", "albumName": "Made Up",
+            "duration": 4.0, "instrumental": false,
+            "plainLyrics": "Paper lanterns glowing\nSnowy rooftops shine",
+            "syncedLyrics": "[00:00.50]Paper lanterns glowing\n[00:02.00]Snowy rooftops shine\n[00:03.50]",
+        }])
+        .to_string()
+    }
+
+    /// A new sequence whose music is a silent 4 s WAV named like the song.
+    fn sequence_with_song(t: &TestApp) {
+        let song = t._dir.path().join("01 - Lantern Song.wav");
+        std::fs::write(&song, pf_audio::wav_bytes(&vec![0.0; 64_000], 16_000)).unwrap();
+        call(
+            t,
+            "new_sequence_doc",
+            json!({ "name": "Lantern Song", "durationMs": 4_000, "audio": song.to_string_lossy() }),
+        )
+        .unwrap();
+    }
+
+    fn track_names(t: &TestApp) -> Vec<String> {
+        let doc = call(t, "get_sequence_doc", json!({})).unwrap();
+        doc["sequence"]["timingTracks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn lyrics_wait_for_the_assistant_to_be_set_up() {
+        let t = app_with(MemoryStore::new());
+        sequence_with_song(&t);
+        let gate = call(&t, "lyrics_gate", json!({ "provider": null })).unwrap();
+        assert_eq!(gate["ready"], false);
+        let gate = call(&t, "lyrics_gate", json!({ "provider": "anthropic" })).unwrap();
+        assert_eq!(gate["ready"], false);
+        assert!(gate["reason"].as_str().unwrap().contains("Settings → AI"));
+        let err = call(
+            &t,
+            "find_lyrics",
+            json!({ "provider": "anthropic", "upload": true }),
+        )
+        .unwrap_err();
+        assert!(err.as_str().unwrap().contains("Settings → AI"), "{err}");
+        // Nothing was asked of anyone.
+        assert!(t.lrclib.requests().is_empty() && t.whisper.requests().is_empty());
+    }
+
+    #[test]
+    fn with_anthropic_published_lyrics_become_timing_tracks_in_one_undo_step() {
+        let t = app_with(MemoryStore::new());
+        call(
+            &t,
+            "set_api_key",
+            json!({ "provider": "anthropic", "key": FAKE_KEY }),
+        )
+        .unwrap();
+        sequence_with_song(&t);
+        assert_eq!(
+            call(&t, "lyrics_gate", json!({ "provider": "anthropic" })).unwrap(),
+            json!({ "ready": true, "reason": null, "recognizer": false })
+        );
+        t.lrclib.push(Reply::ok(lrclib_reply()));
+        let found = call(
+            &t,
+            "find_lyrics",
+            json!({ "provider": "anthropic", "upload": true }),
+        )
+        .unwrap();
+        assert_eq!(
+            found["summary"],
+            "Lyrics and line timing from LRCLIB; words are spread over each line."
+        );
+        assert_eq!(
+            (found["lines"].as_u64(), found["words"].as_u64()),
+            (Some(2), Some(6))
+        );
+        assert_eq!(track_names(&t), ["Lyrics", "Lyrics (words)", "Vocals"]);
+        // Only the song's name and length went out; no audio (Anthropic can't hear it).
+        let requests = t.lrclib.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].url, "https://lrclib.net/api/search?q=Lantern%20Song");
+        assert!(t.whisper.requests().is_empty());
+        // One undo step takes all three away.
+        call(&t, "undo_sequence", json!({})).unwrap();
+        assert!(track_names(&t).is_empty());
+    }
+
+    #[test]
+    fn with_openai_the_audio_goes_only_when_the_user_agreed() {
+        let t = app_with(MemoryStore::new());
+        call(
+            &t,
+            "set_api_key",
+            json!({ "provider": "openai", "key": FAKE_KEY }),
+        )
+        .unwrap();
+        sequence_with_song(&t);
+        assert_eq!(
+            call(&t, "lyrics_gate", json!({ "provider": "openai" })).unwrap()["recognizer"],
+            true
+        );
+        t.lrclib.push(Reply::ok(lrclib_reply()));
+        call(
+            &t,
+            "find_lyrics",
+            json!({ "provider": "openai", "upload": false }),
+        )
+        .unwrap();
+        assert!(t.whisper.requests().is_empty());
+
+        t.lrclib.push(Reply::ok(lrclib_reply()));
+        t.whisper.push(Reply::ok(
+            json!({ "text": "paper lanterns glowing", "words": [
+                { "word": "paper", "start": 0.6, "end": 0.9 },
+                { "word": "lanterns", "start": 0.9, "end": 1.4 },
+                { "word": "glowing", "start": 1.4, "end": 1.9 },
+            ] })
+            .to_string(),
+        ));
+        let found = call(&t, "find_lyrics", json!({ "provider": "openai", "upload": true })).unwrap();
+        assert_eq!(found["summary"], "Lyrics from LRCLIB, word timing from OpenAI.");
+        let requests = t.whisper.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(
+            requests[0].header("authorization").unwrap(),
+            format!("Bearer {FAKE_KEY}")
+        );
+        // Found again: the same tracks updated, not copies.
+        assert_eq!(track_names(&t), ["Lyrics", "Lyrics (words)", "Vocals"]);
+        call(&t, "cancel_lyrics", json!({})).unwrap();
     }
 }

@@ -18,6 +18,8 @@
 //! 8. **Energy and accents**: each bar's loudness overall and in the bass, mids, and treble, 0–1
 //!    ([`Analysis::bar_energy`]); and moments to land on: hits, drops, breaks, and builds
 //!    ([`Analysis::events`]).
+//! 9. **Voice**: separately, a cheap guess at when the voice is sounding ([`vocal_activity`]),
+//!    to fine-tune lyric timing.
 
 mod beats;
 mod energy;
@@ -28,12 +30,14 @@ mod meter;
 mod onset;
 mod sections;
 mod structure;
+mod vocal;
 
 pub use beats::{bars, beat_grid, estimate_tempo};
 pub use energy::BarEnergy;
 pub use events::{Event, EventKind};
 pub use onset::{FRAME, HOP, OnsetEnvelope, onset_envelope, pick_onsets};
 pub use sections::{Level, Section};
+pub use vocal::{VOCAL_THRESHOLD, VocalActivity, vocal_activity, vocal_activity_file};
 
 use pf_audio::{AudioError, MonoSamples};
 use pf_sequence::{Mark, TimingKind, TimingTrack};

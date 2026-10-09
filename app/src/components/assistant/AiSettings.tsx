@@ -14,7 +14,8 @@ export function AiSettings() {
   const api = useAssistant((s) => s.api);
   const provider = useAssistant((s) => s.provider);
   const model = useAssistant((s) => s.models[s.provider] ?? null);
-  const { setSettingsOpen, setProvider, setModel, refreshKey } = useAssistant.getState();
+  const lyricsAudioOk = useAssistant((s) => s.lyricsAudioOk);
+  const { setSettingsOpen, setProvider, setModel, setLyricsAudioOk, refreshKey } = useAssistant.getState();
   const keyRef = useRef<HTMLInputElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const [storage, setStorage] = useState<KeyStorage | null>(null);
@@ -243,9 +244,17 @@ export function AiSettings() {
             </p>
           )}
 
+          {provider === "openai" && (
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" className="mt-0.5" checked={!lyricsAudioOk} onChange={(e) => setLyricsAudioOk(!e.target.checked)} />
+              <span>Ask before Find lyrics sends a song&apos;s audio to OpenAI to hear the words</span>
+            </label>
+          )}
+
           <p className="text-xs text-neutral-500">
             When you chat, PixelFlow sends your question and the parts of your show the assistant reads to {name}. The assistant
-            can&apos;t save files, start lights, or contact your controllers; it drafts changes for you to apply.
+            can&apos;t save files, start lights, or contact your controllers; it drafts changes for you to apply. Find lyrics
+            sends only a song&apos;s name and length to LRCLIB, and its audio to OpenAI only if you agree.
           </p>
         </div>
       </div>

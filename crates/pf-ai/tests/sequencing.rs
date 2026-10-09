@@ -933,3 +933,89 @@ fn the_users_own_sections_and_accents_win_over_the_analysis() {
     // Locked to the user's section start (off the detected beat grid) and their hit.
     assert_eq!(placed(&session, &a, 0), [(9_250, 12_120)]);
 }
+
+#[test]
+fn lyrics_are_summarized_and_their_words_can_be_accented() {
+    let mut s = setup(Some("/music/song.mp3"));
+    let [a, b] = [0, 1].map(|i| s.rows[i].clone());
+    // Made-up lyrics.
+    let lines = TimingTrack::new(
+        "Lyrics",
+        TimingKind::Lyrics,
+        vec![
+            Mark::new(2_100, 5_900, "Paper lanterns glowing"),
+            Mark::new(10_120, 13_900, "Lanterns on the snowy rooftops"),
+        ],
+    );
+    let words = [
+        (2_100, 2_800, "Paper"),
+        (2_800, 3_900, "lanterns"),
+        (3_900, 5_900, "glowing"),
+        (10_120, 11_000, "Lanterns"),
+        (11_000, 11_400, "on"),
+        (11_400, 11_800, "the"),
+        (11_800, 12_600, "snowy"),
+        (12_600, 13_900, "rooftops"),
+    ];
+    let words = TimingTrack::new(
+        "Lyrics (words)",
+        TimingKind::Words,
+        words.iter().map(|&(s, e, w)| Mark::new(s, e, w)).collect(),
+    );
+    let vocals = TimingTrack::new(
+        "Vocals",
+        TimingKind::Custom,
+        vec![
+            Mark::new(2_100, 5_900, "Vocals"),
+            Mark::new(10_120, 13_900, "Vocals"),
+        ],
+    );
+    s.engine
+        .edit_sequence(
+            [lines, words, vocals]
+                .into_iter()
+                .map(|track| SequenceEdit::AddTimingTrack { track })
+                .collect(),
+        )
+        .unwrap();
+    let provider = ScriptedProvider::new(vec![
+        calls("", &[("analyze_song", json!({}))]),
+        calls(
+            "",
+            &[
+                // Every "lanterns", on its word.
+                (
+                    "place_effects",
+                    json!({ "rowIds": [a], "fromMs": 0, "toMs": 32_000, "track": "Lyrics", "match": "lanterns", "effect": { "kind": "strobe" } }),
+                ),
+                // A sloppy start, near where a word is sung.
+                (
+                    "place_effects",
+                    json!({ "rowIds": [b], "fromMs": 10_300, "toMs": 11_000, "effect": { "kind": "on" } }),
+                ),
+            ],
+        ),
+        calls(
+            "",
+            &[("propose_changes", json!({ "summary": "Lanterns flash." }))],
+        ),
+        says("Done."),
+    ]);
+    let (mut session, _) = session();
+    ask(&mut session, &provider, &s.engine, "Flash on lanterns")
+        .0
+        .unwrap();
+    let summary: Value = serde_json::from_str(&results_in(&provider, 1)[0].0).unwrap();
+    assert_eq!(
+        summary["lyrics"],
+        json!({
+            "track": "Lyrics",
+            "wordsTrack": "Lyrics (words)",
+            "lines": [[2_100, "Paper lanterns glowing"], [10_120, "Lanterns on the snowy rooftops"]],
+            "vocalsMs": [[2_100, 5_900], [10_120, 13_900]],
+        })
+    );
+    assert_eq!(placed(&session, &a, 0), [(2_800, 3_900), (10_120, 11_000)]);
+    // Locked onto the sung word, not the beat 200 ms away.
+    assert_eq!(placed(&session, &b, 0), [(10_120, 11_000)]);
+}

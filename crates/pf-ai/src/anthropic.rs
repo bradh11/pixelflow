@@ -100,7 +100,7 @@ impl Anthropic {
             method: Method::Post,
             url: format!("{}/v1/messages", self.base_url),
             headers,
-            body: Some(body.to_string()),
+            body: Some(body.to_string().into()),
         }
     }
 }

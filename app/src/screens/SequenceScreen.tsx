@@ -6,6 +6,7 @@ import { MissingFileNotice, useMissingBannerNames } from "../components/MissingF
 import { SendToFppDialog } from "../components/SendToFppDialog";
 import { EffectPalette } from "../components/sequencer/EffectPalette";
 import { EffectSettings } from "../components/sequencer/EffectSettings";
+import { FindLyrics } from "../components/sequencer/FindLyrics";
 import { SequencePreview } from "../components/sequencer/SequencePreview";
 import { AddTimingTrackDialog } from "../components/sequencer/TimingDialogs";
 import { AddRowMenu, Timeline } from "../components/sequencer/Timeline";
@@ -407,6 +408,7 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
           >
             <AudioLines size={16} /> <span className="hidden @min-[760px]:inline">{s.detecting ? "Finding beats…" : "Detect beats"}</span>
           </ToolButton>
+          <FindLyrics hasMusic={s.hasMusic} />
           <ToolButton label="Add timing track" onClick={() => setAddingTrack(true)}>
             <ListPlus size={16} /> <span className="hidden @min-[760px]:inline">Add timing track</span>
           </ToolButton>

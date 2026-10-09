@@ -8,6 +8,7 @@
 //! |---|---|---|
 //! | section boundary | the user's Sections track, else the detected sections | 1 beat |
 //! | accent | the user's Accents track, else hits, drops, breaks, builds (and where breaks and builds end) | ½ beat |
+//! | word | where each sung word starts, from the user's Lyrics (words) track (else its Lyrics lines) | ½ beat |
 //! | bar (downbeat) | the analysis | ¼ bar (1 beat in 4/4), only when no beat is nearer |
 //! | beat | the analysis | ¼ beat |
 //!
@@ -31,11 +32,18 @@ use std::collections::{HashMap, HashSet};
 pub enum Anchor {
     Section,
     Accent,
+    Word,
     Bar,
     Beat,
 }
 
-const ANCHORS: [Anchor; 4] = [Anchor::Section, Anchor::Accent, Anchor::Bar, Anchor::Beat];
+const ANCHORS: [Anchor; 5] = [
+    Anchor::Section,
+    Anchor::Accent,
+    Anchor::Word,
+    Anchor::Bar,
+    Anchor::Beat,
+];
 
 /// The beat without a tempo to go by (120 BPM).
 const DEFAULT_BEAT_MS: f64 = 500.0;
@@ -45,7 +53,7 @@ const DEFAULT_BEAT_MS: f64 = 500.0;
 pub struct Anchors {
     beat_ms: f64,
     /// Sorted times for each kind of anchor, in [`Anchor`] order.
-    times: [Vec<u64>; 4],
+    times: [Vec<u64>; 5],
 }
 
 /// The time in `sorted` nearest `t`.
@@ -84,6 +92,16 @@ pub fn user_accents(doc: &Sequence) -> Option<&TimingTrack> {
     doc.timing_tracks.iter().find(|t| is_accents(t))
 }
 
+/// The user's sung words in `doc`: a words track with marks, else a lyrics track's lines.
+pub fn user_words(doc: &Sequence) -> Option<&TimingTrack> {
+    let with = |kind: TimingKind| {
+        doc.timing_tracks
+            .iter()
+            .find(|t| t.kind == kind && !t.marks.is_empty())
+    };
+    with(TimingKind::Words).or_else(|| with(TimingKind::Lyrics))
+}
+
 impl Anchors {
     /// Anchors from times (each in any order), with a beat of `beat_ms`.
     pub fn new(beat_ms: f64, sections: Vec<u64>, accents: Vec<u64>, bars: Vec<u64>, beats: Vec<u64>) -> Self {
@@ -94,13 +112,25 @@ impl Anchors {
         };
         Self {
             beat_ms,
-            times: [sorted(sections), sorted(accents), sorted(bars), sorted(beats)],
+            times: [
+                sorted(sections),
+                sorted(accents),
+                Vec::new(),
+                sorted(bars),
+                sorted(beats),
+            ],
         }
     }
 
+    /// These anchors with where sung words start (in any order).
+    pub fn with_words(mut self, words: Vec<u64>) -> Self {
+        self.times[Anchor::Word as usize] = sorted(words);
+        self
+    }
+
     /// The song's anchors: sections and accents from the user's own tracks in `user` when it has
-    /// them (they win over what was detected), the rest from `analysis`. `None` with nothing to
-    /// lock to.
+    /// them (they win over what was detected), sung words from its lyrics, the rest from
+    /// `analysis`. `None` with nothing to lock to.
     pub fn for_song(analysis: Option<&Analysis>, user: Option<&Sequence>) -> Option<Self> {
         let beat_ms = analysis
             .and_then(|a| a.tempo_bpm)
@@ -133,7 +163,11 @@ impl Anchors {
                 .unwrap_or_default(),
         };
         let (bars, beats) = analysis.map_or_else(Default::default, |a| (a.bars.clone(), a.beats.clone()));
-        let anchors = Self::new(beat_ms, sections, accents, bars, beats);
+        let words = user
+            .and_then(user_words)
+            .map(|track| track.marks.iter().map(|m| m.start_ms).collect())
+            .unwrap_or_default();
+        let anchors = Self::new(beat_ms, sections, accents, bars, beats).with_words(words);
         anchors.times.iter().any(|t| !t.is_empty()).then_some(anchors)
     }
 
@@ -142,7 +176,7 @@ impl Anchors {
         let b = self.beat_ms;
         match anchor {
             Anchor::Section => b,
-            Anchor::Accent => b / 2.0,
+            Anchor::Accent | Anchor::Word => b / 2.0,
             // A quarter of a 4/4 bar.
             Anchor::Bar => b,
             Anchor::Beat => b / 4.0,
@@ -470,6 +504,45 @@ mod tests {
         assert_eq!(slow.snap(10_900), Some((10_000, Anchor::Section)));
         assert_eq!(fast.snap(10_300), None);
         assert_eq!(fast.reach(Anchor::Beat), 62.5);
+    }
+
+    #[test]
+    fn sung_words_are_anchors_when_there_are_lyrics() {
+        let mut user = Sequence::new("Song", 32_000);
+        user.timing_tracks.push(TimingTrack::new(
+            "Lyrics",
+            TimingKind::Lyrics,
+            vec![Mark::new(6_100, 7_400, "Paper lanterns")],
+        ));
+        user.timing_tracks.push(TimingTrack::new(
+            "Lyrics (words)",
+            TimingKind::Words,
+            vec![
+                Mark::new(6_100, 6_700, "Paper"),
+                Mark::new(6_870, 7_400, "lanterns"),
+            ],
+        ));
+        let analysis = Analysis {
+            duration_ms: 32_000,
+            tempo_bpm: Some(120.0),
+            beats: (0..64).map(|i| i * 500).collect(),
+            ..Analysis::default()
+        };
+        let a = Anchors::for_song(Some(&analysis), Some(&user)).unwrap();
+        // A word start within half a beat wins over the beat beside it, like an accent.
+        assert_eq!(a.snap(6_800), Some((6_870, Anchor::Word)));
+        assert_eq!(a.snap(6_180), Some((6_100, Anchor::Word)));
+        assert_eq!(a.reach(Anchor::Word), 250.0);
+        // Beyond half a beat, the beat.
+        assert_eq!(a.snap(7_480), Some((7_500, Anchor::Beat)));
+        // Lines alone, without words: their starts.
+        user.timing_tracks.pop();
+        let a = Anchors::for_song(Some(&analysis), Some(&user)).unwrap();
+        assert_eq!(a.snap(6_180), Some((6_100, Anchor::Word)));
+        assert_eq!(a.snap(6_800), None);
+        // No lyrics: no word anchors.
+        let a = Anchors::for_song(Some(&analysis), Some(&Sequence::new("Song", 32_000))).unwrap();
+        assert_eq!(a.snap(6_180), None);
     }
 
     #[test]

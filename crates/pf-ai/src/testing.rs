@@ -94,7 +94,14 @@ impl FakeTransport {
     /// The JSON body of request `index`.
     pub fn body(&self, index: usize) -> Value {
         let requests = self.requests();
-        serde_json::from_str(requests[index].body.as_deref().unwrap_or("null")).expect("JSON body")
+        serde_json::from_str(
+            requests[index]
+                .body
+                .as_ref()
+                .and_then(|b| b.text())
+                .unwrap_or("null"),
+        )
+        .expect("JSON body")
     }
 }
 

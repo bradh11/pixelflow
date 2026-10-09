@@ -14,6 +14,7 @@ mod fpp_send;
 mod house;
 mod layout;
 mod logging;
+mod lyrics;
 mod menu;
 mod pickers;
 mod playback;
@@ -379,6 +380,9 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         assistant::ai_preview,
         assistant::ai_preview_frame,
         assistant::ai_sync,
+        lyrics::lyrics_gate,
+        lyrics::find_lyrics,
+        lyrics::cancel_lyrics,
         files::check_files,
         files::find_missing_files,
         files::locate_file,
@@ -429,6 +433,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             app.set_menu(menu::build(app.handle(), &app.state::<AppState>().recent)?)?;
             app.manage(assistant::AiState::live());
+            app.manage(lyrics::LyricsState::live(app.path().app_cache_dir().ok()));
             let handle = app.handle().clone();
             std::thread::Builder::new()
                 .name("pixelflow-autosave".into())

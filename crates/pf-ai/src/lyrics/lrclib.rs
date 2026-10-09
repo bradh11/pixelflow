@@ -1,0 +1,426 @@
+//! Published lyrics from LRCLIB (<https://lrclib.net>), a free lyrics library with no key.
+//!
+//! Only the song's artist, title, album, and length are sent. First `GET /api/get` (an exact
+//! match on artist, title, album, and length, ±2 s on LRCLIB's side), then, when that finds
+//! nothing or the artist isn't known, `GET /api/search?q=` with the best candidate picked here:
+//! its length within ±3 s of the song's, its title (and artist, when known) alike, and synced
+//! lyrics preferred over plain ones. Instrumental entries and entries without lyrics are skipped.
+
+use crate::http::{HeaderValue, HttpRequest, HttpResponse, Method, Transport, TransportError, USER_AGENT};
+use crate::provider::Cancel;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::io::Read;
+use std::sync::Arc;
+
+pub const BASE_URL: &str = "https://lrclib.net";
+
+/// The largest reply read (a search answers up to 20 entries, each with its lyrics twice).
+const MAX_BODY: u64 = 8 * 1024 * 1024;
+/// How far the published length may be from the song's.
+pub const DURATION_SLACK_S: f64 = 3.0;
+
+/// What is asked of LRCLIB: nothing but the song's name and length.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SongQuery {
+    pub artist: Option<String>,
+    pub title: String,
+    pub album: Option<String>,
+    pub duration_s: Option<f64>,
+}
+
+/// One entry in LRCLIB.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Published {
+    pub id: i64,
+    pub artist: String,
+    pub title: String,
+    pub duration_s: f64,
+    pub instrumental: bool,
+    /// LRC text, one stamped line per sung line.
+    pub synced: Option<String>,
+    pub plain: Option<String>,
+}
+
+fn text(value: &Value) -> Option<String> {
+    value
+        .as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// One entry from LRCLIB's JSON (`None` when it isn't one).
+pub fn parse_record(value: &Value) -> Option<Published> {
+    Some(Published {
+        id: value["id"].as_i64()?,
+        artist: text(&value["artistName"]).unwrap_or_default(),
+        title: text(&value["trackName"]).unwrap_or_default(),
+        duration_s: value["duration"].as_f64().unwrap_or(0.0),
+        instrumental: value["instrumental"].as_bool().unwrap_or(false),
+        synced: text(&value["syncedLyrics"]),
+        plain: text(&value["plainLyrics"]),
+    })
+}
+
+/// The entries of a search reply.
+pub fn parse_search(value: &Value) -> Vec<Published> {
+    value
+        .as_array()
+        .map(|items| items.iter().filter_map(parse_record).collect())
+        .unwrap_or_default()
+}
+
+/// Lowercase words of letters and digits, with what's in brackets and after " - " left out
+/// ("Lantern Song - From \"A Film\" (Remastered)" is "lantern song"), and "jr", "feat"
+/// and "the" dropped.
+pub fn name_words(name: &str) -> Vec<String> {
+    let mut kept = String::new();
+    let mut depth = 0usize;
+    for c in name.chars() {
+        match c {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            _ if depth == 0 => kept.push(c),
+            _ => {}
+        }
+    }
+    let main = kept.split(" - ").next().unwrap_or("");
+    main.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty() && !matches!(*w, "jr" | "feat" | "ft" | "the"))
+        .map(str::to_string)
+        .collect()
+}
+
+/// How alike two names are, 0–1: the same words is 1, one inside the other 0.8, else the share
+/// of words they have in common.
+pub fn similarity(a: &str, b: &str) -> f64 {
+    let (a, b) = (name_words(a), name_words(b));
+    if a.is_empty() || b.is_empty() {
+        return 0.0;
+    }
+    if a == b {
+        return 1.0;
+    }
+    let inside = |x: &[String], y: &[String]| x.windows(y.len().max(1)).any(|w| w == y);
+    if (a.len() > b.len() && inside(&a, &b)) || (b.len() > a.len() && inside(&b, &a)) {
+        return 0.8;
+    }
+    let common = a.iter().filter(|w| b.contains(w)).count();
+    common as f64 / a.len().max(b.len()) as f64
+}
+
+/// How well an entry fits the song (higher is better), or `None` when it can't be the song:
+/// no lyrics, instrumental, a title too unlike, or a length off by more than 3 s.
+pub fn score(query: &SongQuery, entry: &Published) -> Option<f64> {
+    if entry.instrumental || (entry.synced.is_none() && entry.plain.is_none()) {
+        return None;
+    }
+    // A title is sometimes filed under the artist's name, and the other way round.
+    let title = similarity(&query.title, &entry.title).max(0.9 * similarity(&query.title, &entry.artist));
+    if title < 0.5 {
+        return None;
+    }
+    let off = match query.duration_s {
+        Some(duration) if entry.duration_s > 0.0 => {
+            let off = (entry.duration_s - duration).abs();
+            if off > DURATION_SLACK_S {
+                return None;
+            }
+            off
+        }
+        _ => DURATION_SLACK_S,
+    };
+    let artist = query.artist.as_deref().map_or(0.5, |a| {
+        similarity(a, &entry.artist).max(similarity(a, &entry.title))
+    });
+    let synced = if entry.synced.is_some() { 1.0 } else { 0.0 };
+    Some(3.0 * title + 2.0 * artist + synced - off / DURATION_SLACK_S)
+}
+
+/// The entry that fits the song best, if any fits.
+pub fn best(query: &SongQuery, entries: Vec<Published>) -> Option<Published> {
+    entries
+        .into_iter()
+        .filter_map(|e| score(query, &e).map(|s| (s, e)))
+        .max_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, e)| e)
+}
+
+/// Text for a URL query.
+fn escape(text: &str) -> String {
+    text.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+/// The exact-match URL, when the artist is known.
+pub fn get_url(base: &str, query: &SongQuery) -> Option<String> {
+    let artist = query.artist.as_deref()?;
+    let mut url = format!(
+        "{base}/api/get?artist_name={}&track_name={}",
+        escape(artist),
+        escape(&query.title)
+    );
+    if let Some(album) = &query.album {
+        url.push_str(&format!("&album_name={}", escape(album)));
+    }
+    if let Some(duration) = query.duration_s {
+        url.push_str(&format!("&duration={}", duration.round() as u64));
+    }
+    Some(url)
+}
+
+/// The search URL: artist and title as one query.
+pub fn search_url(base: &str, query: &SongQuery) -> String {
+    let words = match &query.artist {
+        Some(artist) => format!("{artist} {}", query.title),
+        None => query.title.clone(),
+    };
+    format!("{base}/api/search?q={}", escape(&words))
+}
+
+/// Why LRCLIB couldn't be asked.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum LookupError {
+    #[error(
+        "Couldn't reach LRCLIB, the published lyrics library. Check your internet connection, then try again."
+    )]
+    Network,
+    #[error("LRCLIB took too long to answer. Try again.")]
+    Timeout,
+    #[error("LRCLIB had a problem (HTTP {0}). Try again later.")]
+    Status(u16),
+    #[error("LRCLIB sent a reply PixelFlow couldn't read.")]
+    BadReply,
+    #[error("Stopped.")]
+    Cancelled,
+}
+
+/// Asks LRCLIB.
+pub struct Lrclib {
+    transport: Arc<dyn Transport>,
+    base_url: String,
+}
+
+impl Lrclib {
+    pub fn new(transport: Arc<dyn Transport>) -> Self {
+        Self {
+            transport,
+            base_url: BASE_URL.to_string(),
+        }
+    }
+
+    /// The JSON reply to a GET, or `None` for "not found".
+    fn get(&self, url: String, cancel: &Cancel) -> Result<Option<Value>, LookupError> {
+        if cancel.is_cancelled() {
+            return Err(LookupError::Cancelled);
+        }
+        let request = HttpRequest {
+            method: Method::Get,
+            url,
+            headers: vec![
+                ("user-agent", HeaderValue::Plain(USER_AGENT.into())),
+                ("accept", HeaderValue::Plain("application/json".into())),
+            ],
+            body: None,
+        };
+        let response: HttpResponse = self.transport.send(&request).map_err(|e| match e {
+            TransportError::Timeout | TransportError::ConnectTimeout => LookupError::Timeout,
+            _ => LookupError::Network,
+        })?;
+        if response.status == 404 {
+            return Ok(None);
+        }
+        if !(200..300).contains(&response.status) {
+            return Err(LookupError::Status(response.status));
+        }
+        let mut body = String::new();
+        response
+            .body
+            .take(MAX_BODY)
+            .read_to_string(&mut body)
+            .map_err(|_| LookupError::BadReply)?;
+        if cancel.is_cancelled() {
+            return Err(LookupError::Cancelled);
+        }
+        serde_json::from_str(&body)
+            .map(Some)
+            .map_err(|_| LookupError::BadReply)
+    }
+
+    /// The published lyrics that best fit the song, if LRCLIB has any.
+    pub fn find(&self, query: &SongQuery, cancel: &Cancel) -> Result<Option<Published>, LookupError> {
+        if let Some(url) = get_url(&self.base_url, query)
+            && let Some(value) = self.get(url, cancel)?
+            && let Some(found) = parse_record(&value).filter(|e| score(query, e).is_some())
+        {
+            return Ok(Some(found));
+        }
+        let found = self.get(search_url(&self.base_url, query), cancel)?;
+        Ok(found.and_then(|value| best(query, parse_search(&value))))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::{FakeTransport, Reply};
+    use serde_json::json;
+
+    fn entry(id: i64, artist: &str, title: &str, duration: f64, synced: bool) -> Value {
+        json!({
+            "id": id,
+            "trackName": title,
+            "artistName": artist,
+            "albumName": "Made Up Album",
+            "duration": duration,
+            "instrumental": false,
+            "plainLyrics": "Paper lanterns glowing\nSnowy rooftops shine",
+            "syncedLyrics": if synced { json!("[00:10.00]Paper lanterns glowing\n[00:14.00]Snowy rooftops shine") } else { Value::Null },
+        })
+    }
+
+    fn query(artist: Option<&str>, title: &str, duration: f64) -> SongQuery {
+        SongQuery {
+            artist: artist.map(str::to_string),
+            title: title.into(),
+            album: None,
+            duration_s: Some(duration),
+        }
+    }
+
+    #[test]
+    fn names_compare_by_their_words() {
+        assert_eq!(
+            name_words("Lantern Song - From \"A Film\" (Remastered 2009)"),
+            ["lantern", "song"]
+        );
+        assert_eq!(similarity("The Lantern Band, Jr.", "Lantern Band Jr"), 1.0);
+        assert_eq!(similarity("Lantern Song", "Lantern Song Extended Mix"), 0.8);
+        assert!(similarity("Lantern Song", "Rooftop Waltz") < 0.5);
+    }
+
+    #[test]
+    fn the_best_match_is_close_in_length_alike_in_name_and_synced() {
+        let entries = parse_search(&json!([
+            entry(1, "The Lantern Band", "Lantern Song", 251.0, true),
+            entry(2, "Lantern Band", "Lantern Song (Live)", 238.0, false),
+            entry(3, "Lantern Band", "Lantern Song", 239.5, true),
+            entry(4, "Someone Else", "Rooftop Waltz", 238.0, true),
+            { "id": 5, "trackName": "Lantern Song", "artistName": "Lantern Band", "duration": 238.0, "instrumental": true },
+        ]));
+        assert_eq!(entries.len(), 5);
+        let q = query(Some("Lantern Band"), "Lantern Song", 237.0);
+        // 1 is 14 s too long; 4 is another song; 5 is instrumental: 3 (synced) beats 2 (plain).
+        assert_eq!(score(&q, &entries[0]), None);
+        assert_eq!(score(&q, &entries[3]), None);
+        assert_eq!(score(&q, &entries[4]), None);
+        assert_eq!(best(&q, entries.clone()).map(|e| e.id), Some(3));
+        // Without an artist the title and length decide.
+        let q = query(None, "lantern song", 238.2);
+        assert_eq!(best(&q, entries).map(|e| e.id), Some(3));
+        // Nothing near the right length: nothing.
+        let q = query(None, "Lantern Song", 300.0);
+        assert_eq!(
+            best(
+                &q,
+                parse_search(&json!([entry(1, "A", "Lantern Song", 251.0, true)]))
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn urls_carry_only_the_song_name_and_length() {
+        let q = SongQuery {
+            artist: Some("Lantern Band".into()),
+            title: "Lantern Song".into(),
+            album: Some("Rooftops & Snow".into()),
+            duration_s: Some(237.4),
+        };
+        assert_eq!(
+            get_url(BASE_URL, &q).unwrap(),
+            "https://lrclib.net/api/get?artist_name=Lantern%20Band&track_name=Lantern%20Song&album_name=Rooftops%20%26%20Snow&duration=237"
+        );
+        assert_eq!(
+            search_url(BASE_URL, &q),
+            "https://lrclib.net/api/search?q=Lantern%20Band%20Lantern%20Song"
+        );
+        assert_eq!(get_url(BASE_URL, &query(None, "Lantern Song", 1.0)), None);
+    }
+
+    #[test]
+    fn an_exact_match_first_then_a_search() {
+        let fake = Arc::new(FakeTransport::new(vec![
+            Reply::status(
+                404,
+                r#"{"code":404,"name":"TrackNotFound","message":"Failed to find specified track"}"#,
+            ),
+            Reply::ok(json!([entry(7, "Lantern Band", "Lantern Song", 238.0, true)]).to_string()),
+        ]));
+        let lrclib = Lrclib::new(fake.clone());
+        let found = lrclib
+            .find(
+                &query(Some("Lantern Band"), "Lantern Song", 237.0),
+                &Cancel::new(),
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(found.id, 7);
+        assert!(found.synced.unwrap().starts_with("[00:10.00]"));
+        let requests = fake.requests();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[0].url.starts_with("https://lrclib.net/api/get?"));
+        assert!(requests[1].url.starts_with("https://lrclib.net/api/search?q="));
+        assert!(
+            requests
+                .iter()
+                .all(|r| r.header("user-agent").unwrap().starts_with("PixelFlow/"))
+        );
+
+        let fake = Arc::new(FakeTransport::new(vec![Reply::ok(
+            entry(9, "Lantern Band", "Lantern Song", 237.0, false).to_string(),
+        )]));
+        let found = Lrclib::new(fake.clone())
+            .find(
+                &query(Some("Lantern Band"), "Lantern Song", 237.0),
+                &Cancel::new(),
+            )
+            .unwrap();
+        assert_eq!(found.map(|e| e.id), Some(9));
+        assert_eq!(fake.requests().len(), 1);
+    }
+
+    #[test]
+    fn failures_are_plain() {
+        let fake = Arc::new(FakeTransport::new(vec![Reply::Unreachable]));
+        let error = Lrclib::new(fake)
+            .find(&query(None, "Lantern Song", 237.0), &Cancel::new())
+            .unwrap_err();
+        assert_eq!(error, LookupError::Network);
+        let fake = Arc::new(FakeTransport::new(vec![Reply::status(503, "")]));
+        let error = Lrclib::new(fake)
+            .find(&query(None, "Lantern Song", 237.0), &Cancel::new())
+            .unwrap_err();
+        assert!(error.to_string().contains("HTTP 503"));
+        let fake = Arc::new(FakeTransport::new(vec![Reply::ok("not json")]));
+        assert_eq!(
+            Lrclib::new(fake).find(&query(None, "x", 1.0), &Cancel::new()),
+            Err(LookupError::BadReply)
+        );
+        let cancel = Cancel::new();
+        cancel.cancel();
+        let fake = Arc::new(FakeTransport::new(vec![]));
+        assert_eq!(
+            Lrclib::new(fake.clone()).find(&query(None, "x", 1.0), &cancel),
+            Err(LookupError::Cancelled)
+        );
+        assert!(fake.requests().is_empty());
+    }
+}

@@ -17,7 +17,8 @@ import {
   type SequenceRecovery,
   type SequenceSnapshot,
 } from "../api/sequence";
-import type { SequencerApi } from "../api/sequencer";
+import type { ProviderId } from "../api/assistant";
+import type { LyricsFound, SequencerApi } from "../api/sequencer";
 import type { MissingFile, PlaybackStatus, VendorImportOptions, XlightsSequenceImported } from "../api/types";
 import { clock, fileName, plural, shownPath } from "../lib/format";
 import { folderOf } from "../lib/showFiles";
@@ -156,6 +157,8 @@ interface SequencerState {
   /** Set right after a new sequence with music: offer to find its beats. */
   suggestBeats: boolean;
   detecting: boolean;
+  /** While Find lyrics runs: what it's doing ("Looking up published lyrics"); else null. */
+  findingLyrics: string | null;
   /** Changes when a different document is opened or started (not when it's saved). */
   docKey: number;
   /** Bumped to ask the timeline to bring the selection (or the playhead) and the active row into view. */
@@ -203,6 +206,12 @@ interface SequencerState {
   undo(): Promise<boolean>;
   redo(): Promise<boolean>;
   detectBeats(): Promise<boolean>;
+  /** Finds the song's lyrics with the assistant's `provider` (sending its audio to OpenAI only
+   * with `upload`) and adds Lyrics, Lyrics (words), and Vocals tracks as one undo step; a notice
+   * says where they came from. Null when it failed (the error is shown) or was stopped. */
+  findLyrics(provider: ProviderId, upload: boolean): Promise<LyricsFound | null>;
+  /** Stops Find lyrics (nothing is added). */
+  cancelLyrics(): Promise<void>;
   select(ids: string[], activeRow?: string | null): void;
   /** Selects marks on `track` by their start times (and makes it the active track). */
   selectMarks(track: string, starts: number[]): void;
@@ -402,6 +411,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
     exporting: null,
     suggestBeats: false,
     detecting: false,
+    findingLyrics: null,
     docKey: 0,
     revealAt: 0,
     revealTarget: "selection",
@@ -588,6 +598,34 @@ export const useSequencer = create<SequencerState>((set, get) => {
       } finally {
         set({ detecting: false });
       }
+    },
+
+    async findLyrics(provider, upload) {
+      const { api } = get();
+      if (!api || get().findingLyrics !== null) return null;
+      set({ findingLyrics: "Starting", notice: null });
+      try {
+        let found: LyricsFound;
+        try {
+          found = await api.findLyrics(provider, upload, (label) => set({ findingLyrics: label }));
+        } catch (e) {
+          if (errorMessage(e) !== "Stopped.") report(e);
+          return null;
+        }
+        await serial(() => guarded(() => absorb(found.result, api)));
+        const notes = [...found.notes];
+        if (found.unsureWords > 0) {
+          notes.push(`${plural(found.unsureWords, "word")} ${found.unsureWords === 1 ? "has" : "have"} rough timing: drag ${found.unsureWords === 1 ? "it" : "them"} on Lyrics (words) if needed.`);
+        }
+        set({ notice: { tone: "done", text: `Found ${plural(found.lines, "line")} and ${plural(found.words, "word")}. ${found.summary}`, notes, saveShow: false } });
+        return found;
+      } finally {
+        set({ findingLyrics: null });
+      }
+    },
+
+    async cancelLyrics() {
+      await get().api?.cancelLyrics();
     },
 
     setActiveTrack: (activeTrack) => {

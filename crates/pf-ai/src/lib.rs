@@ -21,6 +21,7 @@ pub mod draft;
 pub mod error;
 pub mod http;
 pub mod keys;
+pub mod lyrics;
 pub mod openai;
 pub mod provider;
 pub mod run;

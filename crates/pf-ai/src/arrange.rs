@@ -1,20 +1,105 @@
 //! Many effects in one tool call, so a whole song fits in a reasonable number of steps:
 //! `place_effects` puts one effect on many rows over a time range, cut at a timing track's
-//! marks and spread across the rows; `repeat_effects` copies a stretch of effects to other
-//! times. Each is one batch of [`SequenceEdit`]s on the draft: all of it, or (with the reason)
+//! marks (all of them, or those whose label matches: a sung word or phrase) and spread across
+//! the rows; `repeat_effects` copies a stretch of effects to other times. Each is one batch of [`SequenceEdit`]s on the draft: all of it, or (with the reason)
 //! none of it.
 
 use crate::diff::target_name;
 use crate::draft::Draft;
 use crate::song::find_track;
 use pf_engine::SequenceEdit;
-use pf_sequence::{Blend, Effect, EffectId, EffectKind, EffectParams, Palette, Rgb, Row, RowId, format_ms};
+use pf_sequence::{
+    Blend, Effect, EffectId, EffectKind, EffectParams, Mark, Palette, Rgb, Row, RowId, TimingKind,
+    TimingTrack, format_ms,
+};
 use serde_json::{Value, json};
 
 /// Effects one call may add, at most.
 pub const MAX_PLACED: usize = 2_000;
 /// Copies one `repeat_effects` call may make, at most.
 const MAX_REPEATS: usize = 200;
+/// The longest `match` taken.
+const MAX_MATCH_CHARS: usize = 200;
+
+/// The lowercase words of a label, letters and digits only ("Hang ya bells up?" is hang, ya,
+/// bells, up).
+fn label_words(label: &str) -> Vec<String> {
+    label
+        .split(|c: char| !(c.is_alphanumeric() || c == '\''))
+        .map(|w| {
+            w.chars()
+                .filter(|c| c.is_alphanumeric())
+                .flat_map(char::to_lowercase)
+                .collect::<String>()
+        })
+        .filter(|w| !w.is_empty())
+        .collect()
+}
+
+/// The marks matching `pattern`, each as the first and last mark it covers (by index into
+/// `marks`). Plain words match whole words in any case, punctuation aside, and several in a
+/// row match words in a row, across marks too ("hang ya bells up" on a words track covers
+/// four marks); `|` separates choices. Anything else with regex characters is a
+/// case-insensitive regular expression tried on each label.
+pub fn matching(marks: &[&Mark], pattern: &str) -> Result<Vec<(usize, usize)>, String> {
+    let pattern = pattern.trim();
+    if pattern.is_empty() || pattern.chars().count() > MAX_MATCH_CHARS {
+        return Err(format!(
+            "match must be a word, a phrase, or a pattern of up to {MAX_MATCH_CHARS} characters."
+        ));
+    }
+    if pattern.contains(['\\', '^', '$', '.', '*', '+', '?', '(', ')', '[', ']', '{', '}']) {
+        let regex = regex::RegexBuilder::new(pattern)
+            .case_insensitive(true)
+            .size_limit(1 << 20)
+            .build()
+            .map_err(|_| {
+                format!("\"{pattern}\" isn't a pattern PixelFlow can use; give a word or a phrase.")
+            })?;
+        return Ok((0..marks.len())
+            .filter(|&k| regex.is_match(&marks[k].label))
+            .map(|k| (k, k))
+            .collect());
+    }
+    // Every word of every mark, with the mark it's in.
+    let words: Vec<(String, usize)> = marks
+        .iter()
+        .enumerate()
+        .flat_map(|(k, m)| label_words(&m.label).into_iter().map(move |w| (w, k)))
+        .collect();
+    let mut found: Vec<(usize, usize)> = Vec::new();
+    for choice in pattern.split('|') {
+        let wanted = label_words(choice);
+        if wanted.is_empty() || wanted.len() > words.len() {
+            continue;
+        }
+        for at in 0..=words.len() - wanted.len() {
+            if words[at..at + wanted.len()]
+                .iter()
+                .zip(&wanted)
+                .all(|((w, _), x)| w == x)
+            {
+                found.push((words[at].1, words[at + wanted.len() - 1].1));
+            }
+        }
+    }
+    found.sort_unstable();
+    found.dedup();
+    Ok(found)
+}
+
+/// The track `place_effects` cuts at: `track`, or, to match words on a lyrics track, its words
+/// track ("Lyrics (words)" beside "Lyrics") when there is one.
+fn cut_track<'a>(tracks: &'a [TimingTrack], track: &'a TimingTrack, matching: bool) -> &'a TimingTrack {
+    if !matching || track.kind != TimingKind::Lyrics {
+        return track;
+    }
+    let words = format!("{} (words)", track.name);
+    tracks
+        .iter()
+        .find(|t| t.kind == TimingKind::Words && t.name == words && !t.marks.is_empty())
+        .unwrap_or(track)
+}
 
 /// How effects are shared out among the rows, slot by slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -297,6 +382,7 @@ pub fn place(draft: &mut Draft, input: &Value) -> Result<String, String> {
             "toMs",
             "effect",
             "track",
+            "match",
             "marksEach",
             "spread",
             "layer",
@@ -318,29 +404,46 @@ pub fn place(draft: &mut Draft, input: &Value) -> Result<String, String> {
             format_ms(doc.duration_ms)
         ));
     }
+    let pattern = match &input["match"] {
+        Value::Null => None,
+        Value::String(text) => Some(text.as_str()),
+        _ => return Err("match must be text: a word, a phrase, or a pattern.".into()),
+    };
     let slots: Vec<(u64, u64)> = match input["track"].as_str() {
+        None if pattern.is_some() => {
+            return Err("match needs a track whose marks to match, like \"Lyrics\".".into());
+        }
         None => vec![(from, to)],
         Some(key) => {
             let track = find_track(&doc.timing_tracks, key).ok_or_else(|| {
                 format!("There's no timing track \"{key}\". get_open_sequence lists them; add_song_timing makes Beats, Bars, and Sections.")
             })?;
+            let track = cut_track(&doc.timing_tracks, track, pattern.is_some());
             let each = input["marksEach"].as_u64().unwrap_or(1).clamp(1, 10_000) as usize;
-            let marks: Vec<_> = track
+            let marks: Vec<&Mark> = track
                 .marks
                 .iter()
                 .filter(|m| m.start_ms >= from && m.start_ms < to)
                 .collect();
-            let slots: Vec<(u64, u64)> = marks
+            let spans: Vec<(u64, u64)> = match pattern {
+                Some(pattern) => matching(&marks, pattern)?
+                    .into_iter()
+                    .map(|(first, last)| (marks[first].start_ms, marks[last].end_ms))
+                    .collect(),
+                None => marks.iter().map(|m| (m.start_ms, m.end_ms)).collect(),
+            };
+            let slots: Vec<(u64, u64)> = spans
                 .chunks(each)
                 .filter_map(|chunk| {
-                    let start = chunk.first()?.start_ms;
-                    let end = chunk.last()?.end_ms.min(to);
+                    let start = chunk.first()?.0;
+                    let end = chunk.last()?.1.min(to);
                     (end > start).then_some((start, end))
                 })
                 .collect();
             if slots.is_empty() {
+                let matched = pattern.map_or(String::new(), |p| format!(" match \"{p}\" and"));
                 return Err(format!(
-                    "No marks of \"{}\" start between {} and {}.",
+                    "No marks of \"{}\"{matched} start between {} and {}.",
                     track.name,
                     format_ms(from),
                     format_ms(to)
@@ -465,4 +568,67 @@ pub fn repeat(draft: &mut Draft, input: &Value) -> Result<String, String> {
         plural(pattern_size, "effect", "effects"),
         plural(starts.len(), "start time", "start times")
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn matched(labels: &[&str], pattern: &str) -> Result<Vec<(usize, usize)>, String> {
+        let marks: Vec<Mark> = labels
+            .iter()
+            .enumerate()
+            .map(|(i, l)| Mark::new(i as u64 * 1_000, i as u64 * 1_000 + 900, *l))
+            .collect();
+        let refs: Vec<&Mark> = marks.iter().collect();
+        matching(&refs, pattern)
+    }
+
+    #[test]
+    fn plain_words_match_whole_words_in_any_case() {
+        let lines = [
+            "Paper lanterns glowing",
+            "Lantern light!",
+            "Snowy rooftops",
+            "LANTERNS, lanterns",
+        ];
+        assert_eq!(matched(&lines, "lanterns"), Ok(vec![(0, 0), (3, 3)]));
+        assert_eq!(matched(&lines, "Lantern"), Ok(vec![(1, 1)]));
+        // Choices.
+        assert_eq!(matched(&lines, "snowy|light"), Ok(vec![(1, 1), (2, 2)]));
+        assert_eq!(matched(&lines, "chimney"), Ok(vec![]));
+    }
+
+    #[test]
+    fn a_phrase_covers_words_in_a_row_across_marks() {
+        let words = [
+            "Hang",
+            "ya",
+            "bells",
+            "up?",
+            "Lanterns!",
+            "hang",
+            "ya",
+            "bells",
+            "up",
+        ];
+        assert_eq!(matched(&words, "hang ya bells up"), Ok(vec![(0, 3), (5, 8)]));
+        assert_eq!(matched(&words, "lanterns"), Ok(vec![(4, 4)]));
+        // Apostrophes don't split a word.
+        assert_eq!(matched(&["Shinin' bright"], "shinin"), Ok(vec![(0, 0)]));
+    }
+
+    #[test]
+    fn patterns_are_regular_expressions_and_bad_ones_are_explained() {
+        let words = ["Lantern", "lanterns", "glow", "glowing"];
+        assert_eq!(matched(&words, "^lanterns?$"), Ok(vec![(0, 0), (1, 1)]));
+        assert_eq!(matched(&words, "glow.*"), Ok(vec![(2, 2), (3, 3)]));
+        assert!(
+            matched(&words, "(unclosed")
+                .unwrap_err()
+                .contains("isn't a pattern")
+        );
+        assert!(matched(&words, "  ").is_err());
+        assert!(matched(&words, &"x".repeat(300)).is_err());
+    }
 }

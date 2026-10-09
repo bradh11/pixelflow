@@ -1,10 +1,11 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { App } from "../App";
 import { MemoryBackend } from "../api/memory";
 import { useAssistant } from "../state/assistant";
 import { useLayoutEditor } from "../state/layoutEditor";
+import { usePreviewSync } from "../state/previewSync";
 import { useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
 
@@ -72,5 +73,33 @@ describe("Settings", () => {
     await startFresh();
     useApp.getState().setScreen("settings");
     expect(await screen.findByText(/^PixelFlow \d+\.\d+\.\d+/)).toBeInTheDocument();
+  });
+
+  it("plays a click to line the preview up, with an offset kept on this computer", async () => {
+    const user = await startFresh();
+    const backend = useApp.getState().backend as MemoryBackend;
+    useApp.getState().setScreen("settings");
+    const slider = await screen.findByRole("slider", { name: "Preview offset" });
+    fireEvent.change(slider, { target: { value: "40" } });
+    expect(usePreviewSync.getState().offsetMs).toBe(40);
+    expect(localStorage.getItem("pixelflow.previewSyncMs")).toBe("40");
+    expect(screen.getByText("+40 ms (picture earlier)")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Play the click" }));
+    expect(backend.calls).toContain("syncClickStart:500");
+    await user.click(screen.getByRole("button", { name: "Tap along" }));
+    expect(screen.getByText(/Press Space or T on every click/)).toBeInTheDocument();
+    // Taps need to know where the click is: wait for its first answer.
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    for (let i = 0; i < 6; i++) fireEvent.keyDown(window, { key: " " });
+    const use = await screen.findByRole("button", { name: /^Use / });
+    const suggested = Number(use.textContent!.replace(/^Use \+?/, "").replace(" ms", ""));
+    await user.click(use);
+    expect(usePreviewSync.getState().offsetMs).toBe(suggested);
+
+    await user.click(screen.getByRole("button", { name: "Stop the click" }));
+    expect(backend.calls).toContain("syncClickStop");
+    await user.click(screen.getByRole("button", { name: "Reset" }));
+    expect(usePreviewSync.getState().offsetMs).toBe(0);
   });
 });

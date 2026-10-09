@@ -9,6 +9,8 @@ import type {
   SendReport,
   UseProps,
   Waveform,
+  VocalLane,
+  SyncClick,
   XlightsImported,
   PlaybackStatus,
   PreviewSet,
@@ -80,6 +82,9 @@ export interface Backend {
   checkFiles(all: boolean): Promise<ShowSnapshot>;
   /** Asks where a file is now (a native dialog) and points the show at it (one undo step); null when cancelled. */
   locateFile(file: FileRole): Promise<ShowSnapshot | null>;
+  /** Plays slower (1 as written, down to 0.25), live: the music's pitch drops with it, and the
+   * lights slow down with it. Each playback starts as written. Null when nothing plays. */
+  setPlaybackSpeed(speed: number): Promise<PlaybackStatus | null>;
   listHistory(): Promise<HistoryEntry[]>;
   restoreHistory(id: string): Promise<ShowSnapshot>;
   startOutput(pattern: PatternSpec, target: TargetSpec): Promise<OutputStatus>;
@@ -218,6 +223,15 @@ export interface Backend {
   setPlaybackVolume(volume: number): Promise<PlaybackStatus | null>;
   /** A music file's loudness over time, in `slices` slices (progress goes to onAudioProgress). */
   audioWaveform(path: string, slices: number): Promise<Waveform>;
+  /** The song's lead vocal (loudness and onsets), worked out once per music file (progress goes to
+   * onAudioProgress as "vocals"). */
+  vocalLane(path: string): Promise<VocalLane>;
+  /** Starts a metronome on the sound output the music uses, clicking every `intervalMs` (the first
+   * click at 0), for lining the preview up with what is heard. */
+  syncClickStart(intervalMs: number): Promise<SyncClick>;
+  /** Where the metronome is being heard (ms since its first click); null when it isn't playing. */
+  syncClickPosition(): Promise<number | null>;
+  syncClickStop(): Promise<void>;
   /**
    * How long a music file plays, from what it says about itself: quick, except for a file that
    * doesn't say, which is read through, calling `onProgress` as it goes.

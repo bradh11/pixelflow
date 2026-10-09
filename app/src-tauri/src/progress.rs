@@ -31,6 +31,8 @@ pub(crate) enum AudioTask {
     Separate,
     /// Find lyrics' on-device alignment, hearing the song letter by letter.
     Align,
+    /// The lead vocal, for the timeline's vocals lane.
+    Vocals,
 }
 
 impl AudioTask {
@@ -42,6 +44,7 @@ impl AudioTask {
             AudioTask::Beats => "Finding the beats",
             AudioTask::Separate => "Separating the vocals",
             AudioTask::Align => "Aligning the words",
+            AudioTask::Vocals => "Finding the vocals",
         }
     }
 }

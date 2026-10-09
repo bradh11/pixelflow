@@ -1118,9 +1118,14 @@ export interface FppDownloadResult {
 export interface PlaybackStatus {
   state: "playing" | "paused" | "ended";
   path: string;
+  /** The start of the frame showing now. */
   positionMs: number;
+  /** Where the music is now, between frames (for following playback smoothly). */
+  nowMs: number;
   durationMs: number;
   frameMs: number;
+  /** How fast it plays: 1 as written, 0.5 at half speed (the pitch drops with it). */
+  speed: number;
   controllers: ControllerStatus[];
   /** Plain-language notes, such as controllers that were left out and why. */
   notes: string[];
@@ -1144,6 +1149,27 @@ export interface Waveform {
   peaks: number[];
 }
 
+/** A song's lead vocal brought forward (the middle of the mix, its pitched sound): how loud it is
+ * every few milliseconds, and where it starts each sound. Value `i` stands for
+ * `offsetMs + i * hopMs`. */
+export interface VocalLane {
+  hopMs: number;
+  offsetMs: number;
+  /** 0–255. */
+  levels: number[];
+  /** Where the voice starts a sound (ms), in order. */
+  onsets: number[];
+}
+
+/** A preview sync click that started: how often it clicks, and what the sound output says about
+ * its delay (one buffer; the device's own delay after that isn't reported). */
+export interface SyncClick {
+  intervalMs: number;
+  outputLatencyMs: number | null;
+  sampleRate: number | null;
+  bufferFrames: number | null;
+}
+
 /** A music file's length and format, found from what the file says about itself where it can. */
 export interface AudioInfo {
   durationMs: number;
@@ -1156,9 +1182,9 @@ export interface AudioInfo {
 }
 
 /** Long work on a music file: its length (when the header doesn't say), its waveform, the audio
- * track effects follow, its beats, and Find lyrics' on-device alignment (separating the vocals, aligning
- * the words). */
-export type AudioTask = "probe" | "waveform" | "audioTrack" | "beats" | "separate" | "align";
+ * track effects follow, its beats, the timeline's vocals lane, and Find lyrics' on-device alignment
+ * (separating the vocals, aligning the words). */
+export type AudioTask = "probe" | "waveform" | "audioTrack" | "beats" | "vocals" | "separate" | "align";
 
 /** How far long work on a music file has got. */
 export interface AudioProgress {

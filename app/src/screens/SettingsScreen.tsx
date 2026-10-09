@@ -2,6 +2,7 @@ import { Keyboard, Sparkles } from "lucide-react";
 import type { ReactNode } from "react";
 import { version } from "../../package.json";
 import { providerName } from "../api/assistant";
+import { PreviewSyncSettings } from "../components/PreviewSyncSettings";
 import { Button, Card, PageHeader } from "../components/ui";
 import { hintFor } from "../lib/shortcuts";
 import { useAssistant } from "../state/assistant";
@@ -100,6 +101,10 @@ export function SettingsScreen() {
           onChange={(on) => useSequencer.getState().setLooping(on)}
         />
         <p className="text-xs text-neutral-500">Each sequence's audio offset is set beside it on the Play screen.</p>
+      </Section>
+
+      <Section title="Preview sync" description="Line the app's preview up with what you hear on this computer.">
+        <PreviewSyncSettings />
       </Section>
 
       <Section title="Layout">

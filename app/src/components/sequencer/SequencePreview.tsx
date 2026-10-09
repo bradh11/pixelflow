@@ -12,6 +12,8 @@ import { type PhotoImage, useBackgroundImage, usePreviewProps, usePreviewProps3d
 import { Layout3dView } from "../layout3d/Layout3dView";
 import { ModeSwitch } from "../layout3d/ModeSwitch";
 import { IconButton } from "../ui";
+import { everyFrame, frameTarget } from "../../lib/avSync";
+import { pipeline, playClock, usePreviewSync } from "../../state/previewSync";
 
 /** The display's width over its height (props and photo), for sizing the preview to it. */
 export function useDisplayAspect(): number {
@@ -30,8 +32,6 @@ export function useDisplayAspect(): number {
 
 const BACKDROP = "#0a0a0c";
 const COLORS = { unlit: "rgba(200, 200, 200, 0.35)", selected: "#a78bfa", dark: "rgba(70, 70, 70, 0.55)" };
-/** How often the preview picks up colors while the sequence plays. */
-const PLAY_MS = 40;
 
 /**
  * The show as it looks at the playhead, flat like the Layout screen or in 3D (view only, with the
@@ -53,7 +53,6 @@ export function SequencePreview({
   place?: "side" | "top";
   onPlace?: (place: "side" | "top") => void;
 }) {
-  const backend = useApp((s) => s.backend);
   const snapshot = useApp((s) => s.snapshot);
   const show = snapshot?.show;
   const preview = usePreviewProps();
@@ -61,7 +60,7 @@ export function SequencePreview({
   const api = useSequencer((s) => s.api);
   const playheadMs = useSequencer((s) => s.playheadMs);
   const revision = useSequencer((s) => s.revision);
-  const playing = useSequencer((s) => s.status !== null);
+  const running = useSequencer((s) => s.status?.state === "playing");
   const activeRow = useSequencer((s) => s.activeRow);
   const mode = useView3d((s) => s.sequenceMode);
   const setMode = useView3d((s) => s.setSequenceMode);
@@ -76,7 +75,7 @@ export function SequencePreview({
 
   // Still: render the moment at the playhead (the latest moment wins).
   useEffect(() => {
-    if (!api || playing) return;
+    if (!api || running) return;
     const s = still.current;
     s.wanted = playheadMs;
     const next = () => {
@@ -87,7 +86,7 @@ export function SequencePreview({
       api
         .sequenceDocFrame(ms)
         .then(
-          (f) => s.live && !useSequencer.getState().status && setFrame(f.length ? f : null),
+          (f) => s.live && useSequencer.getState().status?.state !== "playing" && setFrame(f.length ? f : null),
           () => s.live && setFrame(null),
         )
         .finally(() => {
@@ -96,7 +95,7 @@ export function SequencePreview({
         });
     };
     next();
-  }, [api, playheadMs, revision, playing, doc]);
+  }, [api, playheadMs, revision, running, doc]);
   useEffect(() => {
     const s = still.current;
     s.live = true;
@@ -105,29 +104,35 @@ export function SequencePreview({
     };
   }, []);
 
-  // Playing: follow the engine's live frame.
+  // Playing: the moment that will be heard when the frame reaches the screen (see lib/avSync),
+  // one frame asked for at a time. Controllers get the engine's own frames, untouched.
   useEffect(() => {
-    if (!backend || !playing) return;
-    let cancelled = false;
+    if (!api || !running) return;
     let pending = false;
-    const timer = setInterval(() => {
-      if (pending) return;
+    let live = true;
+    const stop = everyFrame(() => {
+      const reading = playClock.reading();
+      if (pending || !reading) return;
+      const sentAt = performance.now();
+      const { offsetMs } = usePreviewSync.getState();
+      const ms = frameTarget(reading, sentAt, pipeline.fetchMs ?? 0, pipeline.refreshMs, offsetMs, doc.durationMs);
       pending = true;
-      backend.liveFrame().then(
+      api.sequenceDocFrame(Math.round(ms)).then(
         (f) => {
           pending = false;
-          if (!cancelled && f.length) setFrame(f);
+          pipeline.noteFetch(performance.now() - sentAt);
+          if (live && useSequencer.getState().status?.state === "playing" && f.length) setFrame(f);
         },
         () => {
           pending = false;
         },
       );
-    }, PLAY_MS);
+    });
     return () => {
-      cancelled = true;
-      clearInterval(timer);
+      live = false;
+      stop();
     };
-  }, [backend, playing]);
+  }, [api, running, doc.durationMs]);
 
   // The selected row's pixels, by prop: whole props, a submodel's pixels, or a group's members.
   const segments = useMemo(() => {

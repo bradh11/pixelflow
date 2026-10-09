@@ -873,6 +873,14 @@ impl Engine {
         Some(session.status())
     }
 
+    /// Plays slower (1.0: as written, 0.5: half speed), live; the lights slow down with the
+    /// music. Each new playback starts as written.
+    pub fn set_playback_speed(&mut self, speed: f32) -> Option<PlaybackStatus> {
+        let session = self.playback.as_ref()?;
+        session.set_speed(speed);
+        Some(session.status())
+    }
+
     /// Pauses or resumes playback (controllers keep showing the paused frame).
     pub fn set_playback_paused(&mut self, paused: bool) -> Option<PlaybackStatus> {
         let session = self.playback.as_ref()?;

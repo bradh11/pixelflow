@@ -1,8 +1,8 @@
-import { ChevronDown, ChevronRight, GripVertical, Layers, Maximize2, Plus, Trash2, ZoomIn, ZoomOut } from "lucide-react";
+import { ChevronDown, ChevronRight, GripVertical, Layers, Maximize2, Plus, Trash2, X, ZoomIn, ZoomOut } from "lucide-react";
 import { Fragment, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { submodelsOf, targetKey, targetName } from "../../lib/submodels";
 import { defaultParams, newEffect, newRow, type EffectKind, type Sequence, type SequenceEdit, type SequenceTarget, type TimingTrack } from "../../api/sequence";
-import type { Show, Waveform } from "../../api/types";
+import type { Show, VocalLane, Waveform } from "../../api/types";
 import {
   type DragItem,
   type Lane,
@@ -37,6 +37,7 @@ import {
   planDrop,
   resizeDrag,
   snapTargets,
+  spanView,
   timeToX,
   toggleSelection,
   touchingEdge,
@@ -50,11 +51,17 @@ import { GoToScreen } from "../GoToScreen";
 import { ProgressBar } from "../ProgressBar";
 import { usePaletteDrag } from "./EffectPalette";
 import { TimingTrackHeaders } from "./TimingTrackHeaders";
-import { LANE_H, RULER_H, TRACK_H, WAVE_H, drawTimeline, topHeight } from "./drawTimeline";
+import { LANE_H, RULER_H, TRACK_H, VOCALS_H, WAVE_H, drawTimeline, topHeight } from "./drawTimeline";
 import { timelineMinHeight } from "../../lib/sequenceLayout";
 import { resolveAudio } from "../../lib/showFiles";
-import { isMenuKey, useContextMenu } from "../../state/contextMenu";
+import { type MenuItem, isMenuKey, useContextMenu } from "../../state/contextMenu";
 import { effectMenuItems } from "../../state/sequenceActions";
+import { everyFrame, previewPosition } from "../../lib/avSync";
+import { pipeline, playClock, usePreviewSync } from "../../state/previewSync";
+import { canTapTime, followEdits, lineSpan, withOnsets } from "../../lib/lyricEdits";
+import { useLyricTools } from "../../state/lyricTools";
+import { TapTimingHud } from "./TapTimingHud";
+import { isLyricTrack } from "./TimingDialogs";
 
 /** Colors a new effect starts with. */
 export const DEFAULT_COLORS = ["#ff0000", "#00c000", "#ffffff"];
@@ -179,7 +186,11 @@ export function Timeline({ doc: fullDoc }: { doc: Sequence }) {
   const pendingMarks = useRef<{ key: number; track: string; moves: MarkMove[] } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const size = useSize(bodyRef);
-  const top = topHeight(doc);
+  const vocalsShown = useLyricTools((s) => s.vocalsShown) && doc.audio !== null;
+  const tapping = useLyricTools((s) => s.tap !== null);
+  const top = topHeight(doc, vocalsShown);
+  /** The song's lead vocal, for the vocals lane and for lyric marks to snap to. */
+  const [vocals, setVocals] = useState<VocalLane | null>(null);
   const [view, setViewState] = useState<View | null>(null);
   const [scrollY, setScrollY] = useState(0);
   const [waveform, setWaveform] = useState<Waveform | null>(null);
@@ -193,6 +204,8 @@ export function Timeline({ doc: fullDoc }: { doc: Sequence }) {
   const pendingKey = useRef(0);
   const [, redraw] = useState(0);
   const [ghost, setGhost] = useState<Ghost | null>(null);
+  /** Where the playhead is drawn while playing (see the effect below); null otherwise. */
+  const shownAt = useRef<number | null>(null);
 
   const index = useMemo(() => buildIndex(doc), [doc]);
   const collapsedSet = useMemo(() => new Set(collapsed), [collapsed]);
@@ -207,11 +220,18 @@ export function Timeline({ doc: fullDoc }: { doc: Sequence }) {
   const setView = useCallback((v: View) => setViewState(clampView(v, doc.durationMs, Math.max(1, width))), [doc.durationMs, width]);
 
   // Everything event handlers need, current as of the last render.
-  const latest = useRef({ doc, fullDoc, index, lanes, view: current, top, scrollY, snapping, selection, maxScroll, catalog, activeRow, playheadMs, size });
-  latest.current = { doc, fullDoc, index, lanes, view: current, top, scrollY, snapping, selection, maxScroll, catalog, activeRow, playheadMs, size };
+  const latest = useRef({ doc, fullDoc, index, lanes, view: current, top, scrollY, snapping, selection, maxScroll, catalog, activeRow, playheadMs, size, vocals });
+  latest.current = { doc, fullDoc, index, lanes, view: current, top, scrollY, snapping, selection, maxScroll, catalog, activeRow, playheadMs, size, vocals };
 
   // Fit the song when a different sequence is opened (not when this one is saved somewhere new).
   useEffect(() => setViewState(null), [docKey]);
+  // Leaving the timeline, or opening another sequence, mid-tap changes nothing.
+  useEffect(
+    () => () => {
+      if (useLyricTools.getState().tap) void useLyricTools.getState().cancelTap();
+    },
+    [docKey],
+  );
   useEffect(() => setScrollY((y) => Math.min(y, maxScroll)), [maxScroll]);
 
   // After a keyboard or problem-list pick: scroll the rows to the active row (or the selected
@@ -263,7 +283,24 @@ export function Timeline({ doc: fullDoc }: { doc: Sequence }) {
     };
   }, [backend, audio, doc.durationMs]);
 
-  const snapFor = (exclude: string[], altKey: boolean) =>
+  // The lead vocal: for the vocals lane, and for marks on lyrics tracks to snap to where the voice
+  // starts a sound. Worked out (once per song) when either can use it.
+  const hasLyrics = fullDoc.timingTracks.some((t) => (t.kind === "words" || t.kind === "lyrics" || isLyricTrack(t)) && t.marks.length > 0);
+  const wantVocals = !!audio && (vocalsShown || hasLyrics);
+  useEffect(() => {
+    setVocals(null);
+    if (!backend || !audio || !wantVocals) return;
+    let cancelled = false;
+    backend.vocalLane(audio).then(
+      (lane) => !cancelled && setVocals(lane),
+      () => !cancelled && setVocals(null),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [backend, audio, wantVocals]);
+
+  const snapFor =(exclude: string[], altKey: boolean) =>
     latest.current.snapping && !altKey ? snapTargets(latest.current.fullDoc, new Set(exclude)) : [];
 
   const draw = () => {
@@ -287,7 +324,7 @@ export function Timeline({ doc: fullDoc }: { doc: Sequence }) {
       view: current,
       scrollY,
       selection: selectionSet,
-      playheadMs,
+      playheadMs: shownAt.current ?? playheadMs,
       waveform,
       labels,
       drag: d?.kind === "move" && d.started ? d.moved : d?.kind === "resize" ? [{ ...d.item, ...d.result }] : (pending.current?.items ?? null),
@@ -302,9 +339,34 @@ export function Timeline({ doc: fullDoc }: { doc: Sequence }) {
           : d?.kind === "markResize"
             ? { track: d.track, spans: d.spans }
             : pendingSpans(),
+      vocals: vocalsShown ? { lane: vocals } : null,
     });
   };
   useEffect(draw);
+  const drawNow = useRef(draw);
+  drawNow.current = draw;
+
+  // While playing, the playhead moves on every screen refresh to where the music will be heard
+  // when the picture shows (see lib/avSync), not in steps as the player answers.
+  useEffect(() => {
+    if (!playing) {
+      shownAt.current = null;
+      return;
+    }
+    let last = 0;
+    const stop = everyFrame((t) => {
+      if (last) pipeline.noteRefresh(t - last);
+      last = t;
+      const music = playClock.musicAt(performance.now() + pipeline.refreshMs);
+      if (music === null) return;
+      shownAt.current = previewPosition(music, usePreviewSync.getState().offsetMs, latest.current.doc.durationMs);
+      drawNow.current();
+    });
+    return () => {
+      stop();
+      shownAt.current = null;
+    };
+  }, [playing]);
 
   /** Dropped marks still on their way, where they'll land (found by where they were). */
   function pendingSpans() {
@@ -398,7 +460,7 @@ export function Timeline({ doc: fullDoc }: { doc: Sequence }) {
   /** The timing track whose strip is at `y` (canvas coordinates), if any. */
   const trackAt = (y: number): TimingTrack | null => {
     const k = Math.floor((y - RULER_H - WAVE_H) / TRACK_H);
-    return y >= RULER_H + WAVE_H && y < latest.current.top ? (latest.current.doc.timingTracks[k] ?? null) : null;
+    return y >= RULER_H + WAVE_H ? (latest.current.doc.timingTracks[k] ?? null) : null;
   };
 
   /** A press on a timing track's strip: pick the track, select marks, or start dragging them. */
@@ -426,8 +488,10 @@ export function Timeline({ doc: fullDoc }: { doc: Sequence }) {
       drag.current = null;
       return;
     }
+    // Lyrics also snap to where the voice starts a sound.
+    const onsets = isLyricTrack(track) ? latest.current.vocals?.onsets : null;
     const targets = (indices: number[]) =>
-      latest.current.snapping && !e.altKey ? snapTargets(d, new Set(), { track: track.id, indices: new Set(indices) }) : [];
+      latest.current.snapping && !e.altKey ? withOnsets(snapTargets(d, new Set(), { track: track.id, indices: new Set(indices) }), onsets) : [];
     const m = track.marks[hit.index];
     const span = (i: number) => ({ startMs: track.marks[i].startMs, endMs: track.marks[i].endMs });
     if (hit.part !== "body") {
@@ -459,6 +523,11 @@ export function Timeline({ doc: fullDoc }: { doc: Sequence }) {
     e.preventDefault();
     const { x, y } = point(e);
     const { view: v, top: tp, scrollY: sy, lanes: ls, index: idx, selection: sel } = latest.current;
+    const track = trackAt(y);
+    if (track) {
+      openMarkMenu(track, x, e.clientX, e.clientY);
+      return;
+    }
     if (y < tp) return;
     const lane = laneAt(ls, y - tp + sy);
     if (!lane) return;
@@ -468,6 +537,36 @@ export function Timeline({ doc: fullDoc }: { doc: Sequence }) {
     const ids = !hit ? [] : sel.includes(hit.id) ? sel : [hit.id];
     if (hit && !sel.includes(hit.id)) store.select(ids);
     openEffectMenu(ids, e.clientX, e.clientY);
+  };
+  /** The right-click menu for the timing mark under the pointer (picking it): zoom to its line,
+   * and tap timing from it on a words or syllables track. */
+  const openMarkMenu = (track: TimingTrack, x: number, clientX: number, clientY: number) => {
+    const { view: v, doc: d, size: sz } = latest.current;
+    const hit = hitMark(track.marks, x, v);
+    if (!hit) return;
+    const mark = track.marks[hit.index];
+    const store = useSequencer.getState();
+    store.selectMarks(track.id, [mark.startMs]);
+    const lyric = isLyricTrack(track);
+    const items: MenuItem[] = [
+      {
+        label: lyric ? "Zoom to line" : "Zoom to mark",
+        run: () => {
+          const span = lyric ? lineSpan(d, track.id, mark) : mark;
+          setViewState(spanView(span.startMs, span.endMs, Math.max(1, sz.width), d.durationMs));
+        },
+      },
+    ];
+    if (canTapTime(track)) {
+      items.push({
+        label: "Tap timing from here…",
+        run: () => {
+          store.setPlayhead(mark.startMs);
+          useLyricTools.getState().openTap(track.id);
+        },
+      });
+    }
+    useContextMenu.getState().open({ x: clientX, y: clientY, label: mark.label ? `Mark '${mark.label}'` : "Mark", items, opener: canvasRef.current });
   };
   const openEffectMenu = (ids: string[], x: number, y: number) => {
     const label = ids.length === 0 ? "Timeline" : ids.length === 1 ? "Effect" : `${ids.length} effects`;
@@ -711,7 +810,13 @@ export function Timeline({ doc: fullDoc }: { doc: Sequence }) {
         if (!track) return [];
         const spans = markMovesToSpans(track, moves);
         if (!spans) throw new Error("That mark changed before the move landed, so it stayed where it is. Drag it again.");
-        return markMoveEdits(track, spans);
+        // On a lyrics track, the syllables and mouth shapes under a moved word go with it.
+        const follow = followEdits(
+          doc,
+          trackId,
+          moves.map((m) => ({ from: { startMs: m.fromStartMs, endMs: m.fromEndMs }, to: { startMs: m.startMs, endMs: m.endMs } })),
+        );
+        return [...markMoveEdits(track, spans), ...follow];
       })
       .then((ok) => ok && store.selectMarks(trackId, moves.slice(0, selected).map((m) => m.startMs)))
       .finally(() => {
@@ -818,7 +923,16 @@ export function Timeline({ doc: fullDoc }: { doc: Sequence }) {
   return (
     <div className="flex flex-1 flex-col overflow-hidden" style={{ minHeight: timelineMinHeight(top) }}>
       <div className="flex min-h-0 flex-1">
-        <RowHeaders doc={doc} show={show} lanes={lanes} top={top} scrollY={scrollY} rowsViewport={rowsViewport} timingCount={fullDoc.timingTracks.length} />
+        <RowHeaders
+          doc={doc}
+          show={show}
+          lanes={lanes}
+          top={top}
+          scrollY={scrollY}
+          rowsViewport={rowsViewport}
+          timingCount={fullDoc.timingTracks.length}
+          vocalsShown={vocalsShown}
+        />
         <div ref={bodyRef} className="relative min-w-0 flex-1">
           <canvas
             ref={canvasRef}
@@ -826,7 +940,7 @@ export function Timeline({ doc: fullDoc }: { doc: Sequence }) {
             role="application"
             aria-label="Timeline"
             aria-roledescription="timeline"
-            aria-description="Drag effects to move them, drag their edges to change their length, drag across empty space to select several. Arrow keys move the playhead or the selected effects. On a timing track, drag marks or their edges, double-click a mark to type its label or empty space to add one, and press T as the music plays to tap marks in."
+            aria-description="Drag effects to move them, drag their edges to change their length, drag across empty space to select several. Arrow keys move the playhead or the selected effects. On a timing track, drag marks or their edges, double-click a mark to type its label or empty space to add one, right-click a mark to zoom to its line or tap-time from it, and press T as the music plays to tap marks in."
             className="absolute inset-0 h-full w-full touch-none outline-none"
             onDoubleClick={onDoubleClick}
             onPointerDown={onPointerDown}
@@ -838,6 +952,8 @@ export function Timeline({ doc: fullDoc }: { doc: Sequence }) {
             onPointerLeave={(e) => !drag.current && (e.currentTarget.style.cursor = "default")}
           />
           {audio && !waveform && <WaveformReading audio={audio} />}
+          {vocalsShown && audio && !vocals && <VocalsReading audio={audio} top={top - VOCALS_H} />}
+          {tapping && <TapTimingHud top={top} />}
           {labelEdit && labelBox && (
             <input
               autoFocus
@@ -965,6 +1081,17 @@ function WaveformReading({ audio }: { audio: string }) {
   );
 }
 
+/** In the vocals lane while the song's lead vocal is worked out: how far it has got. */
+function VocalsReading({ audio, top }: { audio: string; top: number }) {
+  const progress = useAudioProgress("vocals", audio);
+  if (!progress) return null;
+  return (
+    <div className="pointer-events-none absolute right-0 left-0 flex items-center justify-center" style={{ top, height: VOCALS_H }}>
+      <ProgressBar label={progress.stage} fraction={progress.fraction} className="w-56 max-w-[60%]" />
+    </div>
+  );
+}
+
 /** A hairline under the Music row while the music's audio track (what effects that follow the
  * music read) is worked out in the background; those effects follow the music once it's done. */
 function AudioTrackProgress() {
@@ -986,6 +1113,7 @@ const RowHeaders = memo(function RowHeaders({
   scrollY,
   rowsViewport,
   timingCount,
+  vocalsShown,
 }: {
   doc: Sequence;
   show: Show | undefined;
@@ -995,6 +1123,7 @@ const RowHeaders = memo(function RowHeaders({
   rowsViewport: number;
   /** Timing tracks in the sequence, shown or folded away. */
   timingCount: number;
+  vocalsShown: boolean;
 }) {
   const collapsed = useSequencer((s) => s.collapsed);
   const timingHidden = useSequencer((s) => s.timingHidden);
@@ -1033,6 +1162,24 @@ const RowHeaders = memo(function RowHeaders({
           )}
         </div>
         <TimingTrackHeaders doc={doc} />
+        {vocalsShown && (
+          <div
+            className="flex items-center gap-1 pr-0.5 pl-2 text-neutral-500"
+            style={{ height: VOCALS_H }}
+            title="The song's lead vocal, from the middle of the mix: each bump is the voice getting louder, each tick a sound starting. Lyrics marks snap to the ticks."
+          >
+            <span className="min-w-0 flex-1 truncate">Vocals (isolated)</span>
+            <button
+              type="button"
+              aria-label="Hide the vocals lane"
+              title="Hide the vocals lane"
+              onClick={() => useLyricTools.getState().setVocalsShown(false)}
+              className="rounded p-0.5 hover:bg-neutral-200 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        )}
       </div>
       <div className="relative min-h-0 flex-1 overflow-hidden" role="list" aria-label="Rows">
         {visible.map((lane) => {

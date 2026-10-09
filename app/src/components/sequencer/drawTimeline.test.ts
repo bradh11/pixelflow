@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Effect, Sequence } from "../../api/sequence";
 import { buildIndex, layoutLanes, rulerTicks } from "../../lib/timelineMath";
-import { LANE_H, RULER_H, WAVE_H, drawTimeline } from "./drawTimeline";
+import { LANE_H, RULER_H, TRACK_H, VOCALS_H, WAVE_H, drawTimeline, topHeight } from "./drawTimeline";
 
 /** A 2D context stand-in that remembers the text and rectangles drawn. */
 function recorder() {
@@ -102,6 +102,26 @@ describe("drawing the timeline", () => {
     // Each mark's span fills its strip (2 px in, under the music band).
     const strip = rects.filter((r) => r.y === RULER_H + WAVE_H + 2 && r.w === 100);
     expect(strip.map((r) => r.x)).toEqual([0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 550]);
+  });
+
+  it("draws the vocals lane under the timing tracks, with a tick at each onset", () => {
+    const { ctx, rects } = recorder();
+    const sequence: Sequence = { ...doc([]), timingTracks: [{ id: "t", name: "Words", kind: "words", marks: [] }] };
+    expect(topHeight(sequence, true)).toBe(topHeight(sequence) + VOCALS_H);
+    // One value per 10 ms, loud from 1.0 to 1.2 s; at 1 px per ms each is 10 px wide.
+    const levels = Array.from({ length: 6000 }, (_, i) => (i >= 100 && i < 120 ? 255 : 0));
+    drawTimeline(ctx, { ...scene(sequence, { startMs: 1000, pxPerMs: 1 }), vocals: { lane: { hopMs: 10, offsetMs: 0, levels, onsets: [1000, 1500] } } });
+    const laneTop = RULER_H + WAVE_H + TRACK_H;
+    const inLane = rects.filter((r) => r.y > laneTop && r.y + r.h <= laneTop + VOCALS_H);
+    const bars = inLane.filter((r) => r.h > 10);
+    expect(bars.map((b) => b.x)).toEqual(Array.from({ length: 20 }, (_, i) => i * 10));
+    expect(bars.every((b) => b.w === 10)).toBe(true);
+    const ticks = inLane.filter((r) => r.w === 1 && r.h === 5);
+    expect(ticks.map((r) => r.x)).toEqual([0, 500]);
+    // Shown before it's worked out: an empty lane, nothing in it.
+    const empty = recorder();
+    drawTimeline(empty.ctx, { ...scene(sequence, { startMs: 1000, pxPerMs: 1 }), vocals: { lane: null } });
+    expect(empty.rects.filter((r) => r.y > laneTop + 1 && r.y + r.h <= laneTop + VOCALS_H && r.h > 2)).toEqual([]);
   });
 
   it("labels the ruler readably for long sequences", () => {

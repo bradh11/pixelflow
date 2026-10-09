@@ -36,6 +36,8 @@ import type {
   PlaybackStatus,
   ImportSummary,
   Waveform,
+  VocalLane,
+  SyncClick,
   Discovery,
   SilentPeer,
   Edit,
@@ -81,6 +83,7 @@ export const AUDIO_STAGES: Record<AudioTask, string> = {
   beats: "Finding the beats",
   separate: "Separating the vocals",
   align: "Aligning the words",
+  vocals: "Finding the vocals",
 };
 
 /**
@@ -128,6 +131,7 @@ export class MemoryBackend implements Backend {
   private audioProgressHandlers = new Set<(progress: AudioProgress) => void>();
   /** Songs whose waveform has been read (kept, as the shell keeps them). */
   private waveformsRead = new Set<string>();
+  private vocalsRead = new Set<string>();
   /** Image files "on disk", keyed by path, and what the photo dialog returns. */
   images = new Map<string, Uint8Array>();
   nextImagePath: string | null = null;
@@ -162,8 +166,32 @@ export class MemoryBackend implements Backend {
     music: string | null;
     /** An authored sequence (see playAuthored), rendered here instead of the rainbow. */
     authored?: AuthoredPlayback;
+    /** How fast it plays (1 when left out). */
+    speed?: number;
   } | null = null;
   private volume = 1;
+  /** The preview sync click: how often it clicks, and when it started (Date.now). */
+  private syncClick: { intervalMs: number; since: number } | null = null;
+  /** What a song's lead vocal looks like here: a burst of syllables every few hundred ms, sung
+   * four seconds in every six. */
+  vocalLaneFor = (_path: string): VocalLane => {
+    const hopMs = 10;
+    const length = Math.ceil(this.sequenceDurationMs / hopMs);
+    const levels = new Array<number>(length).fill(0);
+    const onsets: number[] = [];
+    for (let at = 1000, k = 0; at < this.sequenceDurationMs - 500; k++) {
+      if (at % 6000 < 4000) {
+        onsets.push(at);
+        const loud = 150 + ((k * 37) % 100);
+        for (let i = 0; i < 24; i++) {
+          const j = Math.round(at / hopMs) + i;
+          if (j < length) levels[j] = Math.max(levels[j], Math.round(loud * Math.min(1, (i + 1) / 2) * Math.exp(-i / 12)));
+        }
+      }
+      at += 260 + ((k * 53) % 120);
+    }
+    return { hopMs, offsetMs: 0, levels, onsets };
+  };
   /** What a music file's waveform looks like here (a gentle wave), and its length. */
   waveformFor = (_path: string, slices: number): Waveform => ({
     durationMs: this.sequenceDurationMs,
@@ -1118,15 +1146,18 @@ export class MemoryBackend implements Backend {
     if (!this.playing) return null;
     const { path, positionMs, since, sequence, music, authored } = this.playing;
     const duration = authored?.durationMs ?? this.sequenceDurationMs;
-    const played = positionMs + (since === null ? 0 : Date.now() - since);
+    const speed = this.playing.speed ?? 1;
+    const played = positionMs + (since === null ? 0 : (Date.now() - since) * speed);
     const position = authored?.looping && duration > 0 ? played % duration : Math.min(duration, played);
     const ended = position >= duration;
     return {
       state: ended ? "ended" : since === null ? "paused" : "playing",
       path,
       positionMs: position,
+      nowMs: position,
       durationMs: duration,
       frameMs: authored?.frameMs ?? 50,
+      speed,
       controllers: this.show.controllers
         .filter((c) => c.sequenceChannels)
         .map((c) => ({ id: c.id, name: c.name, state: "ok" as const, packetsSent: 0, sendErrors: 0, lastError: null })),
@@ -1198,6 +1229,38 @@ export class MemoryBackend implements Backend {
   async setPlaybackVolume(volume: number) {
     this.volume = Math.min(1, Math.max(0, volume));
     return this.playbackNow();
+  }
+
+  async setPlaybackSpeed(speed: number) {
+    this.calls.push(`setPlaybackSpeed:${speed}`);
+    const now = this.playbackNow();
+    if (!this.playing || !now) return null;
+    const since = this.playing.since === null ? null : Date.now();
+    this.playing = { ...this.playing, positionMs: now.positionMs, since, speed: Math.min(1, Math.max(0.25, speed)) };
+    return this.playbackNow();
+  }
+
+  async vocalLane(path: string) {
+    this.calls.push(`vocalLane:${path}`);
+    if (!this.vocalsRead.has(path)) await this.readMusic("vocals", path);
+    this.vocalsRead.add(path);
+    return this.vocalLaneFor(path);
+  }
+
+  async syncClickStart(intervalMs: number): Promise<SyncClick> {
+    this.calls.push(`syncClickStart:${intervalMs}`);
+    const interval = Math.min(2000, Math.max(250, intervalMs));
+    this.syncClick = { intervalMs: interval, since: Date.now() };
+    return { intervalMs: interval, outputLatencyMs: null, sampleRate: null, bufferFrames: null };
+  }
+
+  async syncClickPosition() {
+    return this.syncClick ? Date.now() - this.syncClick.since : null;
+  }
+
+  async syncClickStop() {
+    this.calls.push("syncClickStop");
+    this.syncClick = null;
   }
 
   async audioWaveform(path: string, slices: number) {

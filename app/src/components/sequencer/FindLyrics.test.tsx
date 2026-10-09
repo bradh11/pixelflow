@@ -24,7 +24,7 @@ beforeEach(() => {
     bottom: 600,
     toJSON: () => ({}),
   });
-  useAssistant.setState({ provider: "anthropic", lyricsAudioOk: false, settingsOpen: false });
+  useAssistant.setState({ provider: "anthropic", lyricsAudioOk: false, lyricsLanguage: "en", settingsOpen: false });
 });
 
 afterEach(() => {
@@ -120,5 +120,52 @@ describe("Find lyrics", () => {
     await waitFor(() => expect(useSequencer.getState().findingLyrics).toBeNull());
     expect(trackNames()).not.toContain("Vocals");
     expect(useApp.getState().error).toBeNull();
+  });
+
+  it("says where the lyrics came from, and lets the user pick other lyrics or paste them", async () => {
+    useAssistant.setState({ lyricsLanguage: "fr" });
+    const { seq, user } = await openScreen(["anthropic"]);
+    await waitFor(() => expect(findButton()).toHaveAttribute("aria-disabled", "false"));
+    await user.click(findButton());
+    expect(await screen.findByText("Lyrics: Lantern Band — Lantern Song (LRCLIB) · line timing: LRCLIB")).toBeInTheDocument();
+    expect(seq.lastLyricsOptions).toEqual({ language: "fr", fresh: false });
+
+    await user.click(screen.getByRole("button", { name: "Wrong song?" }));
+    let picker = screen.getByRole("dialog", { name: "Choose the song's lyrics" });
+    const options = within(picker).getAllByRole("button", { pressed: false });
+    expect(within(picker).getByRole("button", { pressed: true })).toHaveTextContent("Lantern Band — Lantern Song");
+    expect(options.map((o) => o.textContent)).toEqual([
+      "Lantern Band — Lantern Song (Live)4:01 · English · no line times",
+      "Cover Band — Lantern Song3:57 · Russian · timed lines",
+    ]);
+    await user.click(options[1]);
+    expect(await screen.findByText("Lyrics: Cover Band — Lantern Song (LRCLIB) · line timing: LRCLIB")).toBeInTheDocument();
+    expect(seq.calls).toContain("chooseLyrics:3");
+    const lyrics = () => useSequencer.getState().doc?.timingTracks.find((t) => t.name === "Lyrics");
+    expect(lyrics()?.marks[0].label).toBe("Привет молоко");
+
+    // Pasted lyrics instead.
+    await user.click(screen.getByRole("button", { name: "Wrong song?" }));
+    picker = screen.getByRole("dialog", { name: "Choose the song's lyrics" });
+    await user.type(within(picker).getByLabelText(/Or paste the lyrics/), "Candles in the window{enter}Frost upon the glass");
+    await user.click(within(picker).getByRole("button", { name: "Use pasted lyrics" }));
+    expect(await screen.findByText("Lyrics: pasted · line timing: pasted")).toBeInTheDocument();
+    expect(lyrics()?.marks.map((m) => m.label)).toEqual(["Candles in the window", "Frost upon the glass"]);
+
+    // Find again: without what's kept, the same way as before.
+    await user.click(screen.getByRole("button", { name: "Wrong song?" }));
+    picker = screen.getByRole("dialog", { name: "Choose the song's lyrics" });
+    await user.click(within(picker).getByRole("button", { name: "Find again" }));
+    await waitFor(() => expect(seq.lastLyricsOptions).toEqual({ language: "fr", fresh: true }));
+    expect(seq.calls.filter((c) => c === "findLyrics:anthropic:false")).toHaveLength(2);
+  });
+
+  it("finds again on Shift-click", async () => {
+    const { seq, user } = await openScreen(["anthropic"]);
+    await waitFor(() => expect(findButton()).toHaveAttribute("aria-disabled", "false"));
+    await user.keyboard("{Shift>}");
+    await user.click(findButton());
+    await user.keyboard("{/Shift}");
+    await waitFor(() => expect(seq.lastLyricsOptions).toEqual({ language: "en", fresh: true }));
   });
 });

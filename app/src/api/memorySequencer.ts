@@ -39,7 +39,7 @@ import {
   type TimingTrack,
 } from "./sequence";
 import type { ProviderId } from "./assistant";
-import type { LyricsFound, LyricsGate, MusicFound, SequencerApi } from "./sequencer";
+import type { LyricsCandidate, LyricsChoice, LyricsFound, LyricsGate, LyricsOptions, MusicFound, SequencerApi } from "./sequencer";
 import * as marks from "./timingMarks";
 import { formatMs } from "./timingMarks";
 import { wordPhonemes } from "../lib/submodels";
@@ -478,6 +478,24 @@ export class MemorySequencer implements SequencerApi {
   lyricsStepMs = 0;
   lyricsFound = true;
   private lyricsCancels = 0;
+  /** The published lyrics Find lyrics "finds", best first, and each one's (made-up) lines. */
+  lyricsCandidates: { candidate: LyricsCandidate; lines: string[] }[] = [
+    {
+      candidate: { id: 1, artist: "Lantern Band", title: "Lantern Song", durationS: 238, language: "English", synced: true },
+      lines: ["Paper lanterns glowing", "Snowy rooftops shine", "Bells across the valley", "Ring the winter night"],
+    },
+    {
+      candidate: { id: 2, artist: "Lantern Band", title: "Lantern Song (Live)", durationS: 240.5, language: "English", synced: false },
+      lines: ["Paper lanterns glowing", "Snowy rooftops shining", "Bells across the valley", "Ringing in the night"],
+    },
+    {
+      candidate: { id: 3, artist: "Cover Band", title: "Lantern Song", durationS: 237, language: "Russian", synced: true },
+      lines: ["Привет молоко", "Молоко и снег", "Привет привет", "Снег и свет"],
+    },
+  ];
+  /** What the last Find lyrics was asked with, and whether the audio was "heard". */
+  lastLyricsOptions: LyricsOptions | null = null;
+  private lyricsHeard: boolean | null = null;
 
   /** With a memory backend, frames are drawn (roughly) from its show and playback runs on its clock. */
   constructor(readonly backend: MemoryBackend | null = null) {}
@@ -837,8 +855,9 @@ export class MemorySequencer implements SequencerApi {
   }
 
   /** Made-up lyrics spread over the sequence, as if LRCLIB (and OpenAI) had found them. */
-  async findLyrics(provider: ProviderId | null, upload: boolean, onProgress?: (label: string) => void): Promise<LyricsFound> {
+  async findLyrics(provider: ProviderId | null, upload: boolean, options: LyricsOptions, onProgress?: (label: string) => void): Promise<LyricsFound> {
     this.calls.push(`findLyrics:${provider}:${upload}`);
+    this.lastLyricsOptions = options;
     const gate = await this.lyricsGate(provider);
     if (!gate.ready) fail(gate.reason ?? "");
     const doc = this.open_();
@@ -852,7 +871,31 @@ export class MemorySequencer implements SequencerApi {
       if (this.lyricsCancels !== started) fail("Stopped.");
     }
     if (!this.lyricsFound && !heard) fail("No lyrics found for this song.");
-    const lines = ["Paper lanterns glowing", "Snowy rooftops shine", "Bells across the valley", "Ring the winter night"];
+    this.lyricsHeard = heard;
+    return this.writeLyrics(this.lyricsFound ? this.lyricsCandidates[0] : null, null);
+  }
+
+  /** Lines the lyrics up again with another candidate or pasted lyrics, asking no one. */
+  async chooseLyrics(choice: LyricsChoice): Promise<LyricsFound> {
+    this.calls.push(`chooseLyrics:${"candidate" in choice ? choice.candidate : "pasted"}`);
+    if (this.lyricsHeard === null) fail("Find this song's lyrics first.");
+    if ("pasted" in choice) {
+      const lines = choice.pasted
+        .split("\n")
+        .map((l) => l.replace(/\[[^\]]*\]/g, "").trim())
+        .filter((l) => l.length > 0);
+      if (lines.length === 0) fail("Paste the song's lyrics first.");
+      return this.writeLyrics(null, lines);
+    }
+    const picked = this.lyricsCandidates.find((c) => c.candidate.id === choice.candidate);
+    if (!picked) fail("Those lyrics aren't among the ones found. Find lyrics again.");
+    return this.writeLyrics(picked, null);
+  }
+
+  /** The lyrics tracks for `picked`'s lines (or `pasted` ones), spread over the sequence. */
+  private async writeLyrics(picked: { candidate: LyricsCandidate; lines: string[] } | null, pasted: string[] | null): Promise<LyricsFound> {
+    const heard = this.lyricsHeard === true;
+    const lines = pasted ?? picked?.lines ?? ["Paper lanterns glowing", "Snowy rooftops shine"];
     const latest = this.open_();
     const verse = Math.min(16_000, latest.durationMs / 2);
     const start = Math.min(4_000, latest.durationMs / 8);
@@ -882,13 +925,21 @@ export class MemorySequencer implements SequencerApi {
       return had ? { type: "updateTimingTrack" as const, track: { ...track, id: had.id } } : { type: "addTimingTrack" as const, track };
     });
     const result = await this.editSequence(edits);
+    const c = picked?.candidate;
+    const text = pasted ? "Lyrics: pasted" : c ? `Lyrics: ${c.artist} — ${c.title} (LRCLIB)` : "Lyrics: OpenAI speech recognition";
+    const own = pasted ? "pasted" : "LRCLIB";
+    const timing = heard ? "word timing: OpenAI" : `line timing: ${own}`;
     return {
       result,
       summary: heard ? "Lyrics from LRCLIB, word timing from OpenAI." : "Lyrics and line timing from LRCLIB; words are spread over each line.",
+      source: `${text} · ${timing}`,
       notes: [],
       lines: phrases.length,
       words: words.length,
       unsureWords: heard ? 0 : words.length,
+      candidates: this.lyricsFound ? this.lyricsCandidates.map((x) => x.candidate) : [],
+      chosen: pasted ? null : (c?.id ?? null),
+      pasted: pasted !== null,
     };
   }
 

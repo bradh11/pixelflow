@@ -6,7 +6,7 @@ import { MissingFileNotice, useMissingBannerNames } from "../components/MissingF
 import { SendToFppDialog } from "../components/SendToFppDialog";
 import { EffectPalette } from "../components/sequencer/EffectPalette";
 import { EffectSettings } from "../components/sequencer/EffectSettings";
-import { FindLyrics } from "../components/sequencer/FindLyrics";
+import { FindLyrics, LyricsSource } from "../components/sequencer/FindLyrics";
 import { SequencePreview } from "../components/sequencer/SequencePreview";
 import { AddTimingTrackDialog } from "../components/sequencer/TimingDialogs";
 import { AddRowMenu, Timeline } from "../components/sequencer/Timeline";
@@ -649,6 +649,7 @@ function NoticeLine() {
       )}
       <div className="min-w-0 flex-1">
         <p>{notice.text}</p>
+        {notice.lyrics && <LyricsSource found={notice.lyrics} run={notice.lyricsRun} />}
         {notice.notes.length > 0 && (
           <ul className="mt-1 list-disc pl-5 text-xs text-neutral-600 dark:text-neutral-400">
             {notice.notes.map((note, i) => (

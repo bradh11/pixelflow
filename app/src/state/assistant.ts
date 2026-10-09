@@ -17,12 +17,36 @@ const SETTINGS_KEY = "pixelflow.ai";
 /** What the chat says for the user once the song they chose has a new sequence. */
 export const SONG_CHOSEN_MESSAGE = "I chose a song, and the new sequence is open. Go ahead.";
 
-/** Provider and model per provider, and whether Find lyrics may send a song's audio to OpenAI
- * without asking: not secrets, so kept in local storage. */
+/** The languages offered for Find lyrics (ISO 639-1), named as the app names them. */
+export const LYRICS_LANGUAGES: { code: string; name: string }[] = [
+  { code: "en", name: "English" },
+  { code: "es", name: "Spanish" },
+  { code: "fr", name: "French" },
+  { code: "de", name: "German" },
+  { code: "it", name: "Italian" },
+  { code: "pt", name: "Portuguese" },
+  { code: "nl", name: "Dutch" },
+  { code: "sv", name: "Swedish" },
+  { code: "pl", name: "Polish" },
+  { code: "ru", name: "Russian" },
+  { code: "uk", name: "Ukrainian" },
+  { code: "el", name: "Greek" },
+  { code: "ar", name: "Arabic" },
+  { code: "he", name: "Hebrew" },
+  { code: "hi", name: "Hindi" },
+  { code: "th", name: "Thai" },
+  { code: "ko", name: "Korean" },
+  { code: "ja", name: "Japanese" },
+  { code: "zh", name: "Chinese" },
+];
+
+/** Provider and model per provider, whether Find lyrics may send a song's audio to OpenAI
+ * without asking, and the language it expects: not secrets, so kept in local storage. */
 interface SavedSettings {
   provider: ProviderId;
   models: Partial<Record<ProviderId, string>>;
   lyricsAudioOk: boolean;
+  lyricsLanguage: string;
 }
 
 function loadSettings(): SavedSettings {
@@ -34,10 +58,15 @@ function loadSettings(): SavedSettings {
       const model = saved.models?.[id];
       if (typeof model === "string" && model.length > 0 && model.length <= 200) models[id] = model;
     }
-    return { provider, models, lyricsAudioOk: saved.lyricsAudioOk === true };
+    const lyricsLanguage = LYRICS_LANGUAGES.some((l) => l.code === saved.lyricsLanguage) ? (saved.lyricsLanguage as string) : "en";
+    return { provider, models, lyricsAudioOk: saved.lyricsAudioOk === true, lyricsLanguage };
   } catch {
-    return { provider: "anthropic", models: {}, lyricsAudioOk: false };
+    return { provider: "anthropic", models: {}, lyricsAudioOk: false, lyricsLanguage: "en" };
   }
+}
+
+function settingsOf(s: SavedSettings): SavedSettings {
+  return { provider: s.provider, models: s.models, lyricsAudioOk: s.lyricsAudioOk, lyricsLanguage: s.lyricsLanguage };
 }
 
 function saveSettings(settings: SavedSettings) {
@@ -80,6 +109,8 @@ interface AssistantState {
   models: Partial<Record<ProviderId, string>>;
   /** The user said Find lyrics may send a song's audio to OpenAI without asking again. */
   lyricsAudioOk: boolean;
+  /** The language Find lyrics expects when the published lyrics and the song's tags don't say. */
+  lyricsLanguage: string;
   /** Whether the current provider has a key (null until checked). */
   hasKey: boolean | null;
   items: ChatItem[];
@@ -102,6 +133,7 @@ interface AssistantState {
   setProvider(provider: ProviderId): Promise<void>;
   setModel(model: string): void;
   setLyricsAudioOk(ok: boolean): void;
+  setLyricsLanguage(code: string): void;
   /** Checks whether the current provider has a key (after Settings changes it). */
   refreshKey(): Promise<void>;
   send(text: string): Promise<void>;
@@ -159,6 +191,7 @@ export const useAssistant = create<AssistantState>((set, get) => {
     provider: saved.provider,
     models: saved.models,
     lyricsAudioOk: saved.lyricsAudioOk,
+    lyricsLanguage: saved.lyricsLanguage,
     hasKey: null,
     items: [],
     streaming: false,
@@ -182,19 +215,24 @@ export const useAssistant = create<AssistantState>((set, get) => {
 
     async setProvider(provider) {
       set({ provider, hasKey: null });
-      saveSettings({ provider, models: get().models, lyricsAudioOk: get().lyricsAudioOk });
+      saveSettings({ ...settingsOf(get()), provider });
       await get().refreshKey();
     },
 
     setModel(model) {
       const models = { ...get().models, [get().provider]: model };
       set({ models });
-      saveSettings({ provider: get().provider, models, lyricsAudioOk: get().lyricsAudioOk });
+      saveSettings({ ...settingsOf(get()), models });
     },
 
     setLyricsAudioOk(lyricsAudioOk) {
       set({ lyricsAudioOk });
-      saveSettings({ provider: get().provider, models: get().models, lyricsAudioOk });
+      saveSettings({ ...settingsOf(get()), lyricsAudioOk });
+    },
+
+    setLyricsLanguage(lyricsLanguage) {
+      set({ lyricsLanguage });
+      saveSettings({ ...settingsOf(get()), lyricsLanguage });
     },
 
     async refreshKey() {

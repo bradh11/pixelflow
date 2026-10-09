@@ -2,7 +2,7 @@ import { KeyRound, RefreshCw, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type KeyLocation, type KeyStorage, type ModelInfo, PROVIDERS, providerName } from "../../api/assistant";
 import { errorMessage } from "../../api/backend";
-import { useAssistant } from "../../state/assistant";
+import { LYRICS_LANGUAGES, useAssistant } from "../../state/assistant";
 import { Button, Field, Select } from "../ui";
 
 /**
@@ -15,7 +15,8 @@ export function AiSettings() {
   const provider = useAssistant((s) => s.provider);
   const model = useAssistant((s) => s.models[s.provider] ?? null);
   const lyricsAudioOk = useAssistant((s) => s.lyricsAudioOk);
-  const { setSettingsOpen, setProvider, setModel, setLyricsAudioOk, refreshKey } = useAssistant.getState();
+  const lyricsLanguage = useAssistant((s) => s.lyricsLanguage);
+  const { setSettingsOpen, setProvider, setModel, setLyricsAudioOk, setLyricsLanguage, refreshKey } = useAssistant.getState();
   const keyRef = useRef<HTMLInputElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const [storage, setStorage] = useState<KeyStorage | null>(null);
@@ -243,6 +244,20 @@ export function AiSettings() {
               {error}
             </p>
           )}
+
+          <div className="flex flex-col gap-1 text-sm">
+            <label htmlFor="ai-lyrics-language" className="text-neutral-600 dark:text-neutral-400">
+              Lyrics language
+            </label>
+            <Select id="ai-lyrics-language" value={lyricsLanguage} onChange={(e) => setLyricsLanguage(e.target.value)}>
+              {LYRICS_LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.name}
+                </option>
+              ))}
+            </Select>
+            <p className="text-xs text-neutral-500">What Find lyrics expects a song to be sung in when its published lyrics and tags don&apos;t say.</p>
+          </div>
 
           {provider === "openai" && (
             <label className="flex items-start gap-2 text-sm">

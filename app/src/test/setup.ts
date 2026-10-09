@@ -17,6 +17,7 @@ import { useWiring } from "../state/wiring";
 import { useShortcutSheet } from "../state/shortcutSheet";
 import { useContextMenu } from "../state/contextMenu";
 import { playClock, usePreviewSync } from "../state/previewSync";
+import { useLyricTools } from "../state/lyricTools";
 
 // jsdom lacks these browser APIs; the command palette (cmdk) uses them.
 globalThis.ResizeObserver ??= class {
@@ -52,5 +53,6 @@ afterEach(() => {
   useShortcutSheet.setState({ open: false });
   useContextMenu.setState({ menu: null });
   usePreviewSync.setState({ offsetMs: 0 });
+  useLyricTools.setState({ vocalsShown: false, tap: null });
   playClock.set(null);
 });

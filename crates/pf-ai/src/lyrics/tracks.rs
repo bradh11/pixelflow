@@ -1,7 +1,8 @@
 //! Lyrics as timing tracks, laid out as xLights lyric imports are: "Lyrics" (a mark per sung
 //! line, kind lyrics) and "Lyrics (words)" (a mark per word, kind words), so the Faces effect
 //! sings them and they export to `.xtiming` together; plus "Vocals" (a mark per sung stretch).
-//! There's no phonemes track: the Faces effect works the mouth shapes out from the words.
+//! No phonemes track is made (the Faces effect works the mouth shapes out from the words), but
+//! one already there from xLights is kept in time with the new words.
 
 use super::combine::Phrase;
 use pf_engine::SequenceEdit;
@@ -45,12 +46,42 @@ fn free_name(existing: &[TimingTrack], name: &str, kind: TimingKind) -> String {
     name
 }
 
+/// Mouth shapes for words: each word's time shared evenly by the shapes its letters make (the
+/// Faces effect's own guess for words, [`pf_render::faces::word_phonemes`]).
+pub fn phoneme_marks(words: &[Mark]) -> Vec<Mark> {
+    let mut out = Vec::new();
+    for word in words {
+        let shapes = pf_render::faces::word_phonemes(&word.label);
+        let length = word.end_ms.saturating_sub(word.start_ms);
+        let count = (shapes.len() as u64).min(length);
+        for (k, shape) in shapes.iter().take(count as usize).enumerate() {
+            let k = k as u64;
+            let start = word.start_ms + length * k / count;
+            let end = word.start_ms + length * (k + 1) / count;
+            out.push(Mark::new(start, end, shape.xlights_name()));
+        }
+    }
+    out
+}
+
 /// The edits that put found tracks (from [`lyric_tracks`]) in a sequence with `existing` tracks:
 /// a track already there by name and kind gets the new marks (keeping its id, so effects that
 /// sing to it still do); one of another kind is left alone and the found one named apart. The
-/// words track stays named after the lyrics track.
+/// words track stays named after the lyrics track. A phonemes track already beside the lyrics
+/// (from xLights) follows the new words, so a face singing to it stays in time; none is made
+/// otherwise, as faces sing straight from the words.
 pub fn track_edits(existing: &[TimingTrack], found: Vec<TimingTrack>) -> Vec<SequenceEdit> {
     let lyrics_name = free_name(existing, LYRICS_TRACK, TimingKind::Lyrics);
+    let phonemes = existing
+        .iter()
+        .find(|t| t.kind == TimingKind::Phonemes && t.name == format!("{lyrics_name} (phonemes)"));
+    let follow = phonemes
+        .zip(found.iter().find(|t| t.kind == TimingKind::Words))
+        .map(|(had, words)| {
+            let mut track = had.clone();
+            track.marks = phoneme_marks(&words.marks);
+            SequenceEdit::UpdateTimingTrack { track }
+        });
     found
         .into_iter()
         .map(|mut track| {
@@ -60,7 +91,10 @@ pub fn track_edits(existing: &[TimingTrack], found: Vec<TimingTrack>) -> Vec<Seq
                 _ => track.name.clone(),
             };
             track.name = free_name(existing, &wanted, track.kind);
-            match existing.iter().find(|t| t.name == track.name && t.kind == track.kind) {
+            match existing
+                .iter()
+                .find(|t| t.name == track.name && t.kind == track.kind)
+            {
                 Some(had) => {
                     track.id = had.id;
                     SequenceEdit::UpdateTimingTrack { track }
@@ -68,6 +102,7 @@ pub fn track_edits(existing: &[TimingTrack], found: Vec<TimingTrack>) -> Vec<Seq
                 None => SequenceEdit::AddTimingTrack { track },
             }
         })
+        .chain(follow)
         .collect()
 }
 
@@ -133,7 +168,11 @@ mod tests {
         let found = lyric_tracks(&[], &[(0, 10)], 100);
         // Nothing there yet: all added.
         let edits = track_edits(&[], found.clone());
-        assert!(edits.iter().all(|e| matches!(e, SequenceEdit::AddTimingTrack { .. })));
+        assert!(
+            edits
+                .iter()
+                .all(|e| matches!(e, SequenceEdit::AddTimingTrack { .. }))
+        );
         // A Lyrics track of the same kind keeps its id; an xLights "Vocals" lyrics track is left
         // alone.
         let lyrics = TimingTrack::new("Lyrics", TimingKind::Lyrics, vec![]);
@@ -149,7 +188,11 @@ mod tests {
             .collect();
         assert_eq!(
             shown,
-            [("update", "Lyrics"), ("add", "Lyrics (words)"), ("add", "Vocals (found)")]
+            [
+                ("update", "Lyrics"),
+                ("add", "Lyrics (words)"),
+                ("add", "Vocals (found)")
+            ]
         );
         assert!(matches!(&edits[0], SequenceEdit::UpdateTimingTrack { track } if track.id == lyrics.id));
         // A custom track named Lyrics: the found ones go beside it, words named to match.
@@ -162,5 +205,42 @@ mod tests {
             })
             .collect();
         assert_eq!(names, ["Lyrics (found)", "Lyrics (found) (words)", "Vocals"]);
+    }
+
+    #[test]
+    fn a_phonemes_track_already_there_follows_the_new_words() {
+        assert_eq!(
+            phoneme_marks(&[Mark::new(1_000, 1_600, "Paper"), Mark::new(2_000, 2_001, "glow")]),
+            [
+                Mark::new(1_000, 1_120, "MBP"),
+                Mark::new(1_120, 1_240, "AI"),
+                Mark::new(1_240, 1_360, "MBP"),
+                Mark::new(1_360, 1_480, "E"),
+                Mark::new(1_480, 1_600, "etc"),
+                // Too short to share: its first shape only.
+                Mark::new(2_000, 2_001, "etc"),
+            ]
+        );
+        let phrases = vec![Phrase {
+            text: "Paper".into(),
+            start_ms: 1_000,
+            end_ms: 1_600,
+            words: vec![word("Paper", 1_000, 1_600)],
+        }];
+        let found = lyric_tracks(&phrases, &[], 10_000);
+        let lyrics = TimingTrack::new("Lyrics", TimingKind::Lyrics, vec![]);
+        let phonemes = TimingTrack::new(
+            "Lyrics (phonemes)",
+            TimingKind::Phonemes,
+            vec![Mark::new(0, 5, "O")],
+        );
+        let edits = track_edits(&[lyrics, phonemes.clone()], found.clone());
+        let Some(SequenceEdit::UpdateTimingTrack { track }) = edits.last() else {
+            panic!("{edits:?}");
+        };
+        assert_eq!(track.id, phonemes.id);
+        assert_eq!(track.marks.len(), 5);
+        // Without one, none is made.
+        assert_eq!(track_edits(&[], found).len(), 3);
     }
 }

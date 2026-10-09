@@ -2889,6 +2889,7 @@ dependencies = [
  "pf-audio",
  "pf-engine",
  "pf-model",
+ "pf-render",
  "pf-sequence",
  "regex",
  "schemars 1.2.2",

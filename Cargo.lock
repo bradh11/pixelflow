@@ -1678,6 +1678,7 @@ dependencies = [
  "pf-engine",
  "pf-model",
  "pf-output",
+ "pf-render",
  "pf-sequence",
  "regex",
  "schemars",

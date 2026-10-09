@@ -64,8 +64,8 @@ impl MomentKind {
     /// How much this kind of moment matters to a show, 0–1.
     fn weight(self) -> f32 {
         match self {
-            MomentKind::Stop | MomentKind::KeyChange | MomentKind::Drop => 0.9,
-            MomentKind::Impact | MomentKind::Breakdown | MomentKind::Shout | MomentKind::Peak => 0.8,
+            MomentKind::Stop | MomentKind::KeyChange | MomentKind::Drop | MomentKind::Shout => 0.9,
+            MomentKind::Impact | MomentKind::Breakdown | MomentKind::Peak => 0.8,
             MomentKind::Restart | MomentKind::Build => 0.7,
             MomentKind::Hold => 0.6,
             MomentKind::Fill | MomentKind::Crash | MomentKind::SectionChange => 0.5,
@@ -306,8 +306,8 @@ const MERGED: [MomentKind; 5] = [
 /// Moments of a kind kept per minute of song, at most (the strongest).
 fn per_minute(kind: MomentKind) -> f64 {
     match kind {
-        MomentKind::Impact | MomentKind::Crash | MomentKind::Shout | MomentKind::Stop => 4.0,
-        MomentKind::Fill | MomentKind::Restart => 3.0,
+        MomentKind::Impact | MomentKind::Crash | MomentKind::Stop => 4.0,
+        MomentKind::Fill | MomentKind::Restart | MomentKind::Shout => 3.0,
         MomentKind::Hold | MomentKind::Build | MomentKind::Breakdown | MomentKind::Drop => 2.0,
         MomentKind::Peak | MomentKind::KeyChange | MomentKind::SectionChange => 100.0,
     }
@@ -401,7 +401,12 @@ pub(crate) fn rank(detected: Vec<Found>, mapped: Vec<Found>, analysis: &Analysis
     let mut ranked: Vec<(Found, f32)> = found
         .into_iter()
         .map(|f| {
-            let rarity = 1.0 - ((count(f.kind) / minutes.max(0.5)) / 4.0).min(1.0) as f32;
+            // A hook is shouted again and again: that's what makes it one.
+            let rarity = if f.kind == MomentKind::Shout {
+                0.5
+            } else {
+                1.0 - ((count(f.kind) / minutes.max(0.5)) / 4.0).min(1.0) as f32
+            };
             let contrast = match f.end {
                 // A span: inside it against before it.
                 Some(end) if end - f.at > 2.0 * beat => energy(f.at - 4.0, f.at)
@@ -579,15 +584,19 @@ fn plain(word: &str) -> String {
         .to_string()
 }
 
-/// The word as shown: without the punctuation around it.
+/// The word as shown: without the punctuation around it, capitalized.
 fn shown(word: &str) -> String {
-    word.trim_matches(|c: char| !c.is_alphanumeric()).to_string()
+    let word = word.trim_matches(|c: char| !c.is_alphanumeric());
+    let mut chars = word.chars();
+    chars
+        .next()
+        .map_or(String::new(), |first| first.to_uppercase().chain(chars).collect())
 }
 
 /// Shouts from the song's sung words (`words`, labeled marks; `lines`, the lyric lines, to tell a
 /// word sung on its own): the words repeated most (the hook, and the title's words) and words on
 /// their own, scored by whether they land with a drum hit or in a stop, the voice jumping, and
-/// an exclamation mark; the best few per minute.
+/// an exclamation mark; the best three per minute, at least 2 s apart.
 pub(crate) fn shouts_from_words(
     cues: &ShoutCues,
     words: &[Mark],
@@ -646,9 +655,18 @@ pub(crate) fn shouts_from_words(
             (score >= 0.4).then(|| Found::new(MomentKind::Shout, t, score.min(1.0)).labeled(shown(&m.label)))
         })
         .collect();
+    // The best few per minute, at least 2 s apart (a hook sung twice in a row is one shout).
     found.sort_by(|a, b| b.strength.total_cmp(&a.strength));
-    found.truncate((4.0 * (duration / 60.0).max(1.0)).ceil() as usize);
-    found
+    let mut kept: Vec<Found> = Vec::new();
+    for f in found {
+        if kept.len() as f64 >= (3.0 * (duration / 60.0).max(1.0)).ceil() {
+            break;
+        }
+        if kept.iter().all(|k| (k.at - f.at).abs() >= 2.0) {
+            kept.push(f);
+        }
+    }
+    kept
 }
 
 impl Analysis {

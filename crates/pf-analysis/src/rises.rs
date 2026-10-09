@@ -1,9 +1,10 @@
 //! Where the music pushes: impacts, crashes, builds into them, fills, and peaks.
 //!
 //! - **Impact**: a broadband drum hit (loud in every drum band) or a crash that stands out: its
-//!   flux over the strong hits' within 3 s, plus a point per 3 dB the music is louder in the bar
-//!   after than the bar before, a point for a crash, half for landing on a downbeat, and up to
-//!   half for loud cymbals; 2½ points or more. Its strength is against the song's biggest.
+//!   flux over the strong hits' within 3 s (at least 1.2 but for a crash), plus a point per 3 dB
+//!   (up to 9) the music is louder in the bar after than the bar before, a point for a crash,
+//!   half for landing on a downbeat, and up to half for loud cymbals; 2½ points or more. Its
+//!   strength is against the song's biggest.
 //! - **Crash**: a crash cymbal, hard.
 //! - **Build**: 1–8 bars over which brightness (the spectral centroid), the treble, snare and
 //!   tom density, and loudness rise together (each against its own spread over the song), paired
@@ -13,15 +14,18 @@
 //!   at least two more than the bars around have there, or three in places the two bars before
 //!   left empty (on a sixteenth-note grid).
 //! - **Peak**: the four bars that are loudest, brightest, and busiest together ("climax"), and
-//!   each loud section's two busiest bars.
+//!   each loud section's two busiest bars, where they stand out from the song or the section.
 
 use crate::drums::{Drum, Onset, percentile};
 use crate::layers::CYMBAL;
 use crate::moments::{Found, MomentKind, Song};
 use crate::sections::Level;
 
-/// Impacts: how much an impact must stand out (see [`impacts`]).
+/// Impacts: how much an impact must stand out (see [`impacts`]): its score, and its flux over
+/// the strong hits' around (unless it's a crash). The music's jump counts up to this (dB).
 const IMPACT_SCORE: f32 = 2.5;
+const STAND_OUT: f32 = 1.2;
+const MOST_JUMP_DB: f32 = 9.0;
 
 /// Impacts and crashes.
 pub(crate) fn impacts(song: &Song) -> Vec<Found> {
@@ -54,8 +58,14 @@ pub(crate) fn impacts(song: &Song) -> Vec<Found> {
         let jump = song.mean_db(&l.total_db, o.time_s, o.time_s + span)
             - song.mean_db(&l.total_db, o.time_s - span, o.time_s - 0.05);
         let on_downbeat = song.bars.iter().any(|&b| (b - o.time_s).abs() <= 0.07);
-        let score = o.flux / usual
-            + jump.max(0.0) / 3.0
+        let stands_out = o.flux / usual;
+        // One hit like all the others (a click track's) isn't an impact, however much quieter
+        // it was before it.
+        if !crash && stands_out < STAND_OUT {
+            continue;
+        }
+        let score = stands_out
+            + jump.clamp(0.0, MOST_JUMP_DB) / 3.0
             + if crash { 1.0 } else { 0.0 }
             + if on_downbeat { 0.5 } else { 0.0 }
             + (o.level[CYMBAL] + 6.0).clamp(0.0, 6.0) / 12.0;
@@ -117,14 +127,19 @@ fn lift(song: &Song, units: &[f64]) -> Vec<f32> {
             song.mean_db(&l.total_db, a, b)
         })
         .collect();
-    let z = |v: &[f32]| -> Vec<f32> {
+    // Against the song's spread, though at least `least` (a song that hardly changes doesn't
+    // have its small changes blown up).
+    let z = |v: &[f32], least: f32| -> Vec<f32> {
         let mean = v.iter().sum::<f32>() / v.len().max(1) as f32;
         let sd = (v.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / v.len().max(1) as f32).sqrt();
-        v.iter()
-            .map(|x| if sd < 1e-6 { 0.0 } else { (x - mean) / sd })
-            .collect()
+        v.iter().map(|x| (x - mean) / sd.max(least)).collect()
     };
-    let parts = [z(&centroid), z(&treble), z(&density), z(&loud)];
+    let parts = [
+        z(&centroid, 150.0),
+        z(&treble, 2.0),
+        z(&density, 0.75),
+        z(&loud, 2.0),
+    ];
     let raw: Vec<f32> = (0..n)
         .map(|i| parts.iter().map(|p| p[i]).sum::<f32>() / 4.0)
         .collect();
@@ -250,6 +265,10 @@ pub(crate) fn fills(song: &Song) -> Vec<Found> {
     found
 }
 
+/// How far (in intensity, 0–1) a peak stands over the song's usual (a section's peak, over half
+/// this over the section's mean).
+const PEAK_OVER: f32 = 0.1;
+
 /// The climax and each loud section's peak.
 pub(crate) fn peaks(song: &Song) -> Vec<Found> {
     let bars = song.bar_starts();
@@ -275,7 +294,9 @@ pub(crate) fn peaks(song: &Song) -> Vec<Found> {
             .max_by(|a, b| a.1.total_cmp(&b.1))
     };
     let mut found = Vec::new();
-    let Some((climax, top)) = best(0, n, 4) else {
+    // A song that's as full throughout has no climax.
+    let usual = percentile(&intensity, 50);
+    let Some((climax, top)) = best(0, n, 4).filter(|&(_, top)| top >= usual + PEAK_OVER) else {
         return found;
     };
     found.push(
@@ -290,8 +311,8 @@ pub(crate) fn peaks(song: &Song) -> Vec<Found> {
         if to < from + 4 || (from < climax + 4 && climax < to) {
             continue;
         }
-        if let Some((j, level)) = best(from, to, 2) {
-            let mean = intensity[from..to].iter().sum::<f32>() / (to - from) as f32;
+        let mean = intensity[from..to].iter().sum::<f32>() / (to - from) as f32;
+        if let Some((j, level)) = best(from, to, 2).filter(|&(_, level)| level >= mean + PEAK_OVER / 2.0) {
             found.push(
                 Found::new(
                     MomentKind::Peak,

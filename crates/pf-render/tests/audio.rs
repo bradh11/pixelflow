@@ -181,7 +181,10 @@ fn level_bars_rise_with_the_level() {
     };
     let crossing = meter(&p, Some(&track), &[], 1000 + 6 * u64::from(FRAME_MS));
     let heights: Vec<usize> = crossing.iter().map(|c| height(c)).collect();
-    assert_eq!(heights, [19, 19, 19, 19, 19, 19, 4, 4, 4, 4, 4, 4]);
+    // A full-scale sine's sampled peak lands on either side of 1.0 depending on the platform's
+    // sin(), so the loud bars may round to 19 or 20.
+    assert!(heights[..6].iter().all(|&h| h == 19 || h == 20), "{heights:?}");
+    assert_eq!(heights[6..], [4, 4, 4, 4, 4, 4], "{heights:?}");
     // Without the music, nothing (as in xLights).
     assert!(meter(&p, None, &[], 500).iter().all(|c| height(c) == 0));
 }

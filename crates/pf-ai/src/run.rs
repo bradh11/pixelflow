@@ -97,9 +97,7 @@ pub fn run_tool(toolbox: &Toolbox, call: &ToolCall, draft: &mut Draft, song: &mu
                     .iter()
                     .filter_map(|n| n.as_str().map(str::to_string))
                     .collect(),
-                None => ["beats", "bars", "sections", "accents"]
-                    .map(String::from)
-                    .to_vec(),
+                None => crate::song::DEFAULT_TRACKS.map(String::from).to_vec(),
             };
             // Syllables and phonemes come from the words: the analysis only if it's there.
             let analysis = if crate::song::needs_analysis(&wanted) {

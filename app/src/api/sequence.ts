@@ -696,6 +696,56 @@ export interface AnalysisEvent {
   durationMs?: number;
 }
 
+/** What kind of moment (crates/pf-analysis MomentKind). */
+export type MomentKind =
+  | "impact"
+  | "stop"
+  | "restart"
+  | "breakdown"
+  | "build"
+  | "fill"
+  | "peak"
+  | "hold"
+  | "key_change"
+  | "shout"
+  | "drop"
+  | "crash"
+  | "section_change";
+
+/** A treatment hint for a moment (crates/pf-analysis Suggest). */
+export type MomentSuggest = "hit" | "blackout" | "burst" | "minimal" | "ramp" | "chase" | "full" | "sustain" | "color-shift" | "word-pop" | "flash" | "change";
+
+/** A moment that makes a show dramatic, ranked (crates/pf-analysis Moment). */
+export interface Moment {
+  timeMs: number;
+  /** Where it ends, for one that lasts (a breakdown, a build, a stop's gap). */
+  endMs?: number;
+  kind: MomentKind;
+  /** How clearly it is this kind of moment, 0–1. */
+  strength: number;
+  /** How much it matters in this song, 0–1. */
+  importance: number;
+  /** A word, a section's name, a key change ("C→D"), or a kind of stop. */
+  label?: string;
+  suggest: MomentSuggest;
+}
+
+/** A notable drum hit. */
+export interface DrumHit {
+  timeMs: number;
+  drum: "kick" | "snare" | "hat" | "crash";
+  /** How hard, 0–1. */
+  strength: number;
+}
+
+/** How many of each drum a bar has. */
+export interface BarDrums {
+  kick: number;
+  snare: number;
+  hat: number;
+  crash: number;
+}
+
 /** One bar's energy, each 0–1 relative to the song. */
 export interface BarEnergy {
   overall: number;
@@ -718,6 +768,12 @@ export interface Analysis {
   events: AnalysisEvent[];
   /** One per entry in `bars`. */
   barEnergy: BarEnergy[];
+  /** What makes the song dramatic, ranked by importance, in time order. */
+  moments: Moment[];
+  /** The notable drum hits (crashes, and kicks and snares harder than those around). */
+  drums: DrumHit[];
+  /** One per entry in `bars`. */
+  barDrums: BarDrums[];
   /** How sure each part is, 0–1. */
   confidence: { tempo: number; downbeat: number; sections: number };
 }

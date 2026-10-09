@@ -328,3 +328,11 @@ fn analysis_serializes_its_structure() {
     assert!(json["events"].is_array());
     assert!(json.get("energy").is_none(), "per-second energy stays out");
 }
+
+#[test]
+fn a_song_under_half_a_minute_is_analyzed() {
+    // Too short to aim for a section boundary, though the harmony changes.
+    let a = analyze(song(&[(&C_MAJOR, 1), (&E_MINOR, 6)], 11.0), RATE);
+    assert_eq!(a.duration_ms, 22_000);
+    assert!(!a.sections().is_empty());
+}

@@ -84,6 +84,7 @@ impl Toolbox {
         tools.extend(song_tools());
         tools.extend(draft_tools());
         compact_large_unions(&mut tools);
+        inline_ids(&mut tools);
         share_large_definitions(&mut tools);
         Self { tools }
     }
@@ -333,6 +334,83 @@ const SHARED_DEFINITIONS: &[(&str, &str, &str)] = &[
     ("EffectParams", "sequence_add_effect", "effect.params"),
 ];
 
+/// A doc comment as a model reads it: on one line, with rustdoc links as plain names
+/// ("an [`crate::Effect`]" → "an Effect").
+fn plain_doc(doc: &str) -> String {
+    let mut out = doc.replace('\n', " ");
+    while let Some(start) = out.find("[`") {
+        let Some(len) = out[start..].find("`]") else {
+            break;
+        };
+        let inner = out[start + 2..start + len].to_string();
+        let name = inner.rsplit("::").next().unwrap_or(&inner).to_string();
+        out.replace_range(start..start + len + 2, &name);
+    }
+    out
+}
+
+/// Whether a definition is an id: a string that only says what it identifies.
+fn is_id(definition: &Value) -> bool {
+    definition.as_object().is_some_and(|d| {
+        d.get("type") == Some(&json!("string"))
+            && d.get("description")
+                .and_then(Value::as_str)
+                .is_some_and(|text| text.starts_with("Identifies"))
+            && d.keys()
+                .all(|k| ["type", "description", "format"].contains(&k.as_str()))
+    })
+}
+
+/// Writes ids (`PropId`, `RowId`, `TimingTrackId` …) in place as plain strings and drops their
+/// definitions: a field's name says what it identifies, and a dozen tools each carried the same
+/// "Identifies a …" definitions (about 3 KB in all).
+fn inline_ids(tools: &mut [Tool]) {
+    fn walk(value: &mut Value, ids: &BTreeSet<String>) {
+        match value {
+            Value::Object(map) => {
+                if let Some(Value::String(r)) = map.get("$ref")
+                    && let Some(name) = r.strip_prefix("#/$defs/")
+                    && ids.contains(name)
+                {
+                    map.remove("$ref");
+                    map.insert("type".into(), json!("string"));
+                }
+                map.values_mut().for_each(|v| walk(v, ids));
+            }
+            Value::Array(items) => items.iter_mut().for_each(|v| walk(v, ids)),
+            _ => {}
+        }
+    }
+    for tool in tools.iter_mut() {
+        let schema = &mut tool.spec.input_schema;
+        let ids: BTreeSet<String> = schema["$defs"]
+            .as_object()
+            .map(|defs| {
+                defs.iter()
+                    .filter(|(_, d)| is_id(d))
+                    .map(|(name, _)| name.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        if ids.is_empty() {
+            continue;
+        }
+        walk(schema, &ids);
+        if let Some(object) = schema.as_object_mut() {
+            let empty = object
+                .get_mut("$defs")
+                .and_then(Value::as_object_mut)
+                .map(|defs| {
+                    defs.retain(|name, _| !ids.contains(name));
+                    defs.is_empty()
+                });
+            if empty == Some(true) {
+                object.remove("$defs");
+            }
+        }
+    }
+}
+
 /// A value that is its type's empty one: `false`, `0`, `null`, `""`, `[]` or `{}`.
 fn is_empty_value(value: &Value) -> bool {
     match value {
@@ -367,6 +445,9 @@ fn share_large_definitions(tools: &mut [Tool]) {
                 // An empty description (set to keep a Rust doc comment out of the schema) says nothing.
                 if map.get("description").is_some_and(|d| d.as_str() == Some("")) {
                     map.remove("description");
+                }
+                if let Some(Value::String(doc)) = map.get_mut("description") {
+                    *doc = plain_doc(doc);
                 }
                 if let Some(Value::String(r)) = map.get("$ref")
                     && let Some(name) = r.strip_prefix("#/$defs/")
@@ -491,33 +572,26 @@ fn variant_tools(
 }
 
 /// A tool's description: what the edit does, from its doc comment (or its name). What every edit
-/// tool has in common (drafts only, ids, whole-item updates) is said once, in the system prompt.
-fn describe(prefix: &str, tag: &str, doc: Option<&str>) -> String {
-    let what = doc.map(|d| d.replace('\n', " ")).unwrap_or_else(|| sentence(tag));
+/// tool has in common (it drafts one change to the show or the open sequence, by its name; ids;
+/// whole-item updates) is said once, in the system prompt.
+fn describe(tag: &str, doc: Option<&str>) -> String {
+    let what = doc.map(plain_doc).unwrap_or_else(|| sentence(tag));
     let stop = if what.ends_with('.') { "" } else { "." };
-    format!("{prefix}: {what}{stop}")
+    format!("{what}{stop}")
 }
 
 /// One tool per show [`Edit`] variant.
 pub fn show_edit_tools() -> Vec<Tool> {
     let root = serde_json::to_value(schemars::schema_for!(Edit)).unwrap_or(Value::Null);
-    variant_tools(
-        root,
-        show_tool_name,
-        |tag, doc| describe("Draft change to the show", tag, doc),
-        |tag| ToolKind::ShowEdit { tag },
-    )
+    variant_tools(root, show_tool_name, describe, |tag| ToolKind::ShowEdit { tag })
 }
 
 /// One tool per open-sequence [`SequenceEdit`] variant.
 pub fn sequence_edit_tools() -> Vec<Tool> {
     let root = serde_json::to_value(schemars::schema_for!(SequenceEdit)).unwrap_or(Value::Null);
-    variant_tools(
-        root,
-        sequence_tool_name,
-        |tag, doc| describe("Draft change to the open sequence", tag, doc),
-        |tag| ToolKind::SequenceEdit { tag },
-    )
+    variant_tools(root, sequence_tool_name, describe, |tag| ToolKind::SequenceEdit {
+        tag,
+    })
 }
 
 /// Turns a show edit tool call back into the engine's edit (its input plus the implied tag).
@@ -771,28 +845,28 @@ fn song_tools() -> Vec<Tool> {
     vec![
         tool(
             "ask_for_song",
-            "Shows the user a Choose a song button that starts a new, unsaved sequence from a song of theirs, with a row per prop and group. Use it when no sequence is open (or they want a new one), then end your turn: their next message says when it's open.",
+            "Shows a Choose a song button that starts a new sequence (a row per prop and group) from a song of the user's. Then end your turn.",
             object(json!({}), &[]),
             ToolKind::AskForSong,
         ),
         tool(
             "analyze_song",
-            "The open sequence's song: tempo, bar start times; sections (Intro, Verse, Chorus …; the same group letter is the same music; energy 0–1), from the user's Sections track when sectionsFrom is \"user\"; accents to land on (hit, drop, break, build; forMs for breaks and builds), likewise; barEnergy and barBass, a digit per bar (0 quiet to 9 full); confidence; lyrics (lines, vocalsMs, syllable and phoneme tracks) if any.",
+            "The open sequence's song: tempo, bars, sections, accents, ranked moments, each bar's energy, bass, and drums, and its lyrics if any.",
             object(json!({}), &[]),
             ToolKind::AnalyzeSong,
         ),
         tool(
             "add_song_timing",
-            "Adds timing tracks to the draft (Beats labeled 1–4, numbered Bars, Sections, Onsets, Accents: hits, drops, breaks, builds; syllables and phonemes from the sung words), reusing ones already there; answers their ids.",
+            "Adds the song's timing tracks to the draft, reusing ones already there; answers their ids.",
             object(
-                json!({ "tracks": { "type": "array", "items": { "enum": crate::song::TRACK_CHOICES }, "description": "Default: beats, bars, sections, accents." } }),
+                json!({ "tracks": { "type": "array", "items": { "enum": crate::song::TRACK_CHOICES }, "description": "Default: beats, bars, sections, accents, moments." } }),
                 &[],
             ),
             ToolKind::AddSongTiming,
         ),
         tool(
             "place_effects",
-            "Puts one effect on many rows from fromMs to toMs: one each, or cut at a timing track's marks (`track`: id or name; `match`: only marks with this word, phrase, or regex, a lyrics track's words, a syllables track's syllables in them; `marksEach` marks per effect) and shared out by `spread`: together, alternate (neighbours take turns), sweep (one row after another), build (rows join one by one). Refused where it overlaps effects on that layer, unless replace.",
+            "Puts one effect on many rows from fromMs to toMs: one each, or cut at a timing track's marks, shared out by spread. Refused where it overlaps effects on that layer, unless replace.",
             object(
                 json!({
                     "rowIds": ids(),
@@ -811,9 +885,9 @@ fn song_tools() -> Vec<Tool> {
                         },
                         "required": ["kind"],
                     },
-                    "track": { "type": "string" },
-                    "match": { "type": "string" },
-                    "marksEach": { "type": "integer", "minimum": 1 },
+                    "track": { "type": "string", "description": "Id or name." },
+                    "match": { "type": "string", "description": "Only marks with this word, phrase, or regex." },
+                    "marksEach": { "type": "integer", "minimum": 1, "description": "Marks per effect." },
                     "spread": { "enum": crate::arrange::SPREADS },
                     "layer": { "type": "integer", "minimum": 0, "description": "Default 0, the bottom; one past the top adds a layer." },
                     "replace": { "type": "boolean" },
@@ -862,8 +936,7 @@ fn draft_tools() -> Vec<Tool> {
         Tool {
             spec: ToolSpec {
                 name: "propose_changes".into(),
-                description: "Shows your draft to the user as a proposal: your summary, a list of every change, and a preview, with Apply and Discard buttons. Call it once, when the draft is ready. Nothing changes unless the user presses Apply, which applies the whole draft as one undo step."
-                    .into(),
+                description: "Shows your draft to the user as a proposal (your summary, every change, a preview) to apply or discard. Call it once, when the draft is ready.".into(),
                 input_schema: object(
                     json!({ "summary": { "type": "string", "description": "One or two plain sentences saying what the changes do." } }),
                     &["summary"],
@@ -925,12 +998,9 @@ mod tests {
     #[test]
     fn an_edit_that_works_on_files_never_becomes_a_tool() {
         let tags = ["renameShow", "relinkFile", "useFoundFiles", "relinkSequenceMusic"];
-        let tools = variant_tools(
-            tagged_enum(&tags),
-            show_tool_name,
-            |tag, doc| describe("Draft change to the show", tag, doc),
-            |tag| ToolKind::ShowEdit { tag },
-        );
+        let tools = variant_tools(tagged_enum(&tags), show_tool_name, describe, |tag| {
+            ToolKind::ShowEdit { tag }
+        });
         let names: Vec<&str> = tools.iter().map(|t| t.spec.name.as_str()).collect();
         assert_eq!(names, ["show_rename_show"]);
         assert!(is_file_operation("relinkFile"));

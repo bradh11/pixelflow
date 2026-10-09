@@ -259,10 +259,12 @@ pub(crate) async fn analyze_audio(path: String) -> Reply<Analysis> {
         .map_err(|e| e.to_string())
 }
 
-/// Detects beats in the open sequence's music and adds Beats, Bars, and Onsets timing tracks
-/// (replacing earlier ones), and Sections and Accents (unless the sequence has them already: the
-/// user's own are kept), as one undo step. The analysis runs without holding the engine; the
-/// tracks are only added if the same sequence, with the same music, is still open.
+/// Detects beats in the open sequence's music and adds Beats, Bars, Onsets, and Drums timing
+/// tracks (replacing earlier ones), and Sections, Accents, and Moments (unless the sequence has
+/// them already: the user's own are kept), as one undo step; Accents, Moments, and Drums only
+/// when the song has some. Moments find shouts in the sequence's sung words, if it has a words
+/// track. The analysis runs without holding the engine; the tracks are only added if the same
+/// sequence, with the same music, is still open.
 #[tauri::command]
 pub(crate) async fn detect_beats(state: State<'_, AppState>) -> Reply<SequenceEditResult> {
     let (doc, music) = {
@@ -280,10 +282,20 @@ pub(crate) async fn detect_beats(state: State<'_, AppState>) -> Reply<SequenceEd
         .await
         .map_err(|_| "Something went wrong analyzing the music.".to_string())?
         .map_err(|e| e.to_string())?;
+    let mut engine = state.engine();
+    let moments = match engine.sequence_document() {
+        Some(seq) => pf_ai::song::moments_track(&analysis, seq),
+        None => analysis.moments_track(),
+    };
     let mut tracks = analysis.timing_tracks();
-    let found = [analysis.sections_track(), analysis.accents_track()];
+    let found = [
+        analysis.sections_track(),
+        analysis.accents_track(),
+        moments,
+        analysis.drums_track(),
+    ];
     tracks.extend(found.into_iter().filter(|t| !t.marks.is_empty()));
-    add_detected_tracks(&mut state.engine(), doc, &music, tracks)
+    add_detected_tracks(&mut engine, doc, &music, tracks)
 }
 
 /// What importing a timing file did: the edit's reply, the tracks added (by name, as they were
@@ -414,14 +426,14 @@ pub(crate) fn write_timing_file(path: &Path, layers: &[TimingTrack]) -> Reply<us
     Ok(layers[0].marks.len())
 }
 
-/// Whether a detected track is one the user shapes by hand (sections, accents): one already in
-/// the sequence by that name is kept instead of replaced.
+/// Whether a detected track is one the user shapes by hand (sections, accents, moments): one
+/// already in the sequence by that name is kept instead of replaced.
 fn shaped_by_hand(track: &TimingTrack) -> bool {
-    track.kind == TimingKind::Sections || track.name == "Accents"
+    track.kind == TimingKind::Sections || track.name == "Accents" || track.name == "Moments"
 }
 
 /// Adds detected timing tracks, if the sequence `doc` with music `music` is still the open one.
-/// Sections and Accents already there are the user's and stay as they are.
+/// Sections, Accents, and Moments already there are the user's and stay as they are.
 pub(crate) fn add_detected_tracks(
     engine: &mut Engine,
     doc: u64,

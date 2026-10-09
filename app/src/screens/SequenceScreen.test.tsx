@@ -113,7 +113,7 @@ describe("sequence screen", () => {
     await waitFor(() => expect(useSequencer.getState().doc?.rows).toHaveLength(4));
     const banner = screen.getByText(/Find the beats, bars, and sections in this song/).closest("[role=status]")!;
     await user.click(within(banner as HTMLElement).getByRole("button", { name: "Detect beats" }));
-    await waitFor(() => expect(useSequencer.getState().doc?.timingTracks.map((t) => t.name)).toEqual(["Beats", "Bars", "Sections", "Accents"]));
+    await waitFor(() => expect(useSequencer.getState().doc?.timingTracks.map((t) => t.name)).toEqual(["Beats", "Bars", "Sections", "Accents", "Moments", "Drums"]));
     expect(screen.getByRole("group", { name: "Timing track Beats" })).toBeInTheDocument();
   });
 

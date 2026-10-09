@@ -633,8 +633,10 @@ fn the_prompt_says_to_act_on_defaults_and_stays_short() {
     assert!(prompt.contains("act on a sensible default and say what you assumed"));
     assert!(prompt.contains("\"Lyrics (syllables)\""));
     assert!(prompt.contains("Offer Find lyrics"));
-    // It's sent with every request: new rules come out of what's there.
-    assert!(prompt.len() <= 4_300, "{} bytes", prompt.len());
+    assert!(prompt.contains("moments are [ms, kind, importance 0–1, suggest, label, endMs]"));
+    // It's sent with every request: new rules come out of what's there. Guidance for using tools
+    // is said here once rather than in each tool's description (see `tool_definitions_stay_small`).
+    assert!(prompt.len() <= 5_300, "{} bytes", prompt.len());
 }
 
 #[test]

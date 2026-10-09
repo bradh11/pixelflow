@@ -745,6 +745,12 @@ export class MemorySequencer implements SequencerApi {
           { timeMs: chorus.startMs + 4000, kind: "hit", strength: 0.8 },
         ]
       : [];
+    const moments: Analysis["moments"] = chorus
+      ? [
+          { timeMs: chorus.startMs, kind: "drop", strength: 1, importance: 0.9, label: "Chorus", suggest: "burst" },
+          { timeMs: chorus.startMs + 4000, kind: "impact", strength: 0.8, importance: 0.7, suggest: "hit" },
+        ]
+      : [];
     return {
       durationMs,
       tempoBpm: 120,
@@ -756,6 +762,12 @@ export class MemorySequencer implements SequencerApi {
       barEnergy: bars.map((b) => {
         const e = energyAt(b);
         return { overall: e, low: e, mid: e, high: e };
+      }),
+      moments,
+      drums: chorus ? [{ timeMs: chorus.startMs, drum: "crash", strength: 1 }] : [],
+      barDrums: bars.map((b) => {
+        const n = energyAt(b) > 0.5 ? 2 : 0;
+        return { kick: n, snare: n, hat: 2 * n, crash: b === chorus?.startMs ? 1 : 0 };
       }),
       confidence: { tempo: 0.9, downbeat: 0.8, sections: 0.8 },
     };
@@ -781,12 +793,31 @@ export class MemorySequencer implements SequencerApi {
         kind: "custom",
         marks: analysis.events.map((e) => ({ startMs: e.timeMs, endMs: e.timeMs + (e.durationMs ?? beatMs), label: e.kind[0].toUpperCase() + e.kind.slice(1) })),
       },
+      {
+        id: crypto.randomUUID(),
+        name: "Moments",
+        kind: "custom",
+        marks: analysis.moments.map((m) => {
+          const kind = m.kind.replace("_", " ");
+          const word = kind[0].toUpperCase() + kind.slice(1);
+          return { startMs: m.timeMs, endMs: m.endMs ?? m.timeMs + beatMs / 2, label: m.label ? `${word}: ${m.label}` : word };
+        }),
+      },
     ];
-    // Sections and Accents already there are the user's own: kept as they are.
+    const drums: TimingTrack = {
+      id: crypto.randomUUID(),
+      name: "Drums",
+      kind: "custom",
+      marks: analysis.drums
+        .filter((d) => d.drum !== "hat")
+        .map((d) => ({ startMs: d.timeMs, endMs: d.timeMs + beatMs / 4, label: d.drum[0].toUpperCase() + d.drum.slice(1) })),
+    };
+    // Sections, Accents, and Moments already there are the user's own: kept as they are.
     const tracks: TimingTrack[] = [
       { id: crypto.randomUUID(), name: "Beats", kind: "beats", marks: marks(analysis.beats, (i) => String((i % 4) + 1)) },
       { id: crypto.randomUUID(), name: "Bars", kind: "bars", marks: marks(analysis.bars, (i) => String(i + 1)) },
       ...found.filter((t) => t.marks.length > 0 && !latest.timingTracks.some((have) => have.name === t.name)),
+      ...(drums.marks.length > 0 ? [drums] : []),
     ];
     const edits: SequenceEdit[] = [
       ...latest.timingTracks

@@ -402,7 +402,7 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
           <span className="mx-1 h-5 w-px bg-neutral-200 dark:bg-neutral-800" />
           <ToolButton
             label={s.detecting ? "Finding the beats…" : "Detect beats"}
-            hint="Find the song's beats, bars, sections, and accents as timing tracks. Sections and Accents you already have stay as they are."
+            hint="Find the song's beats, bars, sections, accents, moments, and drums as timing tracks. Sections, Accents, and Moments you already have stay as they are."
             onClick={() => void act().detectBeats()}
             disabled={!s.hasMusic || s.detecting}
           >

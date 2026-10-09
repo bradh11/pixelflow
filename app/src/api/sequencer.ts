@@ -163,10 +163,16 @@ export interface SequencerApi {
   lyricsGate(provider: ProviderId | null): Promise<LyricsGate>;
   /**
    * Finds the song's lyrics (LRCLIB, and with `upload` and an OpenAI key, OpenAI hearing the song)
-   * and adds them as timing tracks (one undo step), calling `onProgress` at each step. Rejects with
+   * and adds them as timing tracks (one undo step), calling `onProgress` at each step (and with how
+   * far it has got, while a step reads the whole song). Rejects with
    * "Stopped." after cancelLyrics, and with "No lyrics found for this song." when there are none.
    */
-  findLyrics(provider: ProviderId | null, upload: boolean, options: LyricsOptions, onProgress?: (label: string) => void): Promise<LyricsFound>;
+  findLyrics(
+    provider: ProviderId | null,
+    upload: boolean,
+    options: LyricsOptions,
+    onProgress?: (label: string, fraction: number | null) => void,
+  ): Promise<LyricsFound>;
   /** Lines the lyrics up again with another candidate or pasted lyrics, from what Find lyrics
    * gathered (nothing is looked up or sent), replacing the tracks as one undo step. */
   chooseLyrics(choice: LyricsChoice): Promise<LyricsFound>;
@@ -266,7 +272,9 @@ export const tauriSequencer: SequencerApi = {
   detectBeats: () => invoke("detect_beats"),
   lyricsGate: (provider) => invoke("lyrics_gate", { provider }),
   findLyrics: async (provider, upload, options, onProgress) => {
-    const unlisten = onProgress ? await listen<{ label: string }>(LYRICS_PROGRESS_EVENT, (event) => onProgress(event.payload.label)) : null;
+    const unlisten = onProgress
+      ? await listen<{ label: string; fraction: number | null }>(LYRICS_PROGRESS_EVENT, (event) => onProgress(event.payload.label, event.payload.fraction ?? null))
+      : null;
     try {
       return await invoke<LyricsFound>("find_lyrics", { provider, upload, language: options.language, fresh: options.fresh });
     } finally {

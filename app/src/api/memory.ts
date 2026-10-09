@@ -1,5 +1,8 @@
 import type { Backend } from "./backend";
 import type {
+  AudioInfo,
+  AudioProgress,
+  AudioTask,
   FppSoftware,
   ChannelMap,
   DeviceComparison,
@@ -70,6 +73,14 @@ import { sampleShow } from "./sampleShow";
 import { MAX_UNIVERSE_SIZE, isUniverseSize } from "../lib/controllerEdit";
 import { type Setup, applySetup, compareSetup, deviceSetup, diffPorts, isPlaceholder, matchProps, oneStringPerPort, showSetup, stringKey, takeFromDevice } from "../lib/deviceSetup";
 
+/** What each kind of long work on music says it's doing (as the shell says). */
+export const AUDIO_STAGES: Record<AudioTask, string> = {
+  probe: "Reading the music",
+  waveform: "Reading the music",
+  audioTrack: "Getting the music ready for effects",
+  beats: "Finding the beats",
+};
+
 /**
  * An in-memory stand-in for the engine, used by tests and when the UI runs in a plain
  * browser. It applies edits and undo/redo like the engine, and maps channels much like it
@@ -107,6 +118,14 @@ export class MemoryBackend implements Backend {
   sequenceDurationMs = 60_000;
   nextSequencePath: string | null = null;
   nextAudioPath: string | null = null;
+  /** How long reading a song through takes here, reporting progress as it goes (0: at once).
+   * Waveforms always read it through; probing only when `probeFromHeader` is false. */
+  musicReadMs = 0;
+  /** Whether music files say how long they are (else probing reads them through). */
+  probeFromHeader = true;
+  private audioProgressHandlers = new Set<(progress: AudioProgress) => void>();
+  /** Songs whose waveform has been read (kept, as the shell keeps them). */
+  private waveformsRead = new Set<string>();
   /** Image files "on disk", keyed by path, and what the photo dialog returns. */
   images = new Map<string, Uint8Array>();
   nextImagePath: string | null = null;
@@ -1180,7 +1199,45 @@ export class MemoryBackend implements Backend {
   }
 
   async audioWaveform(path: string, slices: number) {
+    if (!this.waveformsRead.has(path)) await this.readMusic("waveform", path);
+    this.waveformsRead.add(path);
     return this.waveformFor(path, slices);
+  }
+
+  async probeAudio(path: string, onProgress?: (progress: AudioProgress) => void): Promise<AudioInfo> {
+    this.calls.push(`probeAudio:${path}`);
+    if (!this.probeFromHeader) await this.readMusic("probe", path, onProgress);
+    return {
+      durationMs: this.waveformFor(path, 1).durationMs,
+      sampleRate: 44_100,
+      channels: 2,
+      codec: "mp3",
+      foundBy: this.probeFromHeader ? "header" : "decoding",
+    };
+  }
+
+  async onAudioProgress(handler: (progress: AudioProgress) => void) {
+    this.audioProgressHandlers.add(handler);
+    return () => void this.audioProgressHandlers.delete(handler);
+  }
+
+  /** Tells whoever listens (see onAudioProgress) how far long work on a music file has got. */
+  emitAudioProgress(progress: AudioProgress) {
+    for (const handler of [...this.audioProgressHandlers]) handler(progress);
+  }
+
+  /** Pretends `task` reads `path` through over `ms` (musicReadMs by default), reporting progress
+   * about ten times a second, as the shell does. */
+  async readMusic(task: AudioTask, path: string, onProgress?: (progress: AudioProgress) => void, ms = this.musicReadMs) {
+    if (ms <= 0) return;
+    const stage = AUDIO_STAGES[task];
+    const steps = Math.max(1, Math.round(ms / 100));
+    for (let i = 0; i <= steps; i++) {
+      const progress = { task, path, stage, fraction: i / steps };
+      onProgress?.(progress);
+      this.emitAudioProgress(progress);
+      if (i < steps) await new Promise((resolve) => setTimeout(resolve, ms / steps));
+    }
   }
 
   async pickAudioPath() {

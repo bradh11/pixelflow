@@ -37,6 +37,10 @@ if (inTauri()) {
     backend.fppSoftwares = demoFppSoftware();
     backend.openUrl = (url) => void window.open(url, "_blank", "noopener");
     backend.fppSendStepMs = 150;
+    // Reading music takes a moment, with progress along the way; `?demo&slowmusic`: music files
+    // that don't say how long they are, so New sequence reads them through too.
+    backend.musicReadMs = 1200;
+    backend.probeFromHeader = !new URLSearchParams(location.search).has("slowmusic");
     // Camera mapping offers a made-up video of the lights flashing.
     backend.cameraMapSamples = true;
     backend.nextSequencePath = "/Shows/Christmas Medley 2017.fseq";
@@ -61,7 +65,11 @@ if (inTauri()) {
   assistant.sequencer = sequencer;
   // Find lyrics waits for the assistant to be set up, like the app.
   sequencer.hasAssistantKey = (provider) => assistant.keys.has(provider);
-  if (demo) sequencer.lyricsStepMs = 600;
+  if (demo) {
+    sequencer.lyricsStepMs = 600;
+    sequencer.analysisDelayMs = 1500;
+    sequencer.audioTrackMs = 2500;
+  }
   if (demo) {
     // A sample sequence, open on the Sequence screen.
     backend.nextAudioPath = DEMO_MUSIC;

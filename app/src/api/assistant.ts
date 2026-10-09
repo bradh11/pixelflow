@@ -103,6 +103,9 @@ export interface ProposalView {
   sections: SectionSummary[];
   /** For a sequence proposal: the draft sequence drawn small. */
   timeline: TimelineView | null;
+  /** For a sequence proposal: effect edges and timing marks moved onto the music (section
+   * starts, accents, bars, beats) before it was shown. */
+  lockedEdges: number;
 }
 
 /** What arrives while a reply streams in. */

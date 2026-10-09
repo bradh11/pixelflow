@@ -1,4 +1,4 @@
-import { Check, Eye, EyeOff, Minus, Pencil, Play, Plus, ShieldAlert, X } from "lucide-react";
+import { Check, Eye, EyeOff, Magnet, Minus, Pencil, Play, Plus, ShieldAlert, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Change, DiffSection, ProposalView, SectionSummary } from "../../api/assistant";
 import { plural } from "../../lib/format";
@@ -200,6 +200,11 @@ export function ProposalCard({ proposal, current }: { proposal: ProposalView; cu
         <span className="shrink-0 text-xs text-neutral-500">{tally}</span>
       </div>
       <p className="mt-1">{proposal.summary}</p>
+      {proposal.lockedEdges > 0 && (
+        <p className="mt-0.5 flex items-center gap-1 text-xs text-neutral-500" title="Effect edges and timing marks moved onto the nearest section start, accent, bar, or beat">
+          <Magnet size={12} aria-hidden /> Locked {plural(proposal.lockedEdges, "edge")} to the music
+        </p>
+      )}
       {proposal.timeline && <TimelineThumbnail timeline={proposal.timeline} />}
       {proposal.sections.length > 0 && <Sections sections={proposal.sections} />}
       {open && running && touchesControllers && (

@@ -357,6 +357,7 @@ describe("creating a sequence", () => {
     expect(within(panel).getByText("I chose a song, and the new sequence is open. Go ahead.")).toBeInTheDocument();
     expect(assistant.sent.at(-1)).toBe("I chose a song, and the new sequence is open. Go ahead.");
     expect(within(card).getByText("By section")).toBeInTheDocument();
+    expect(within(card).getByText(/Locked \d+ edges to the music/)).toBeInTheDocument();
     expect(within(card).getByText("Intro", { selector: "span" })).toBeInTheDocument();
     expect(within(card).getByRole("img", { name: /Timeline of the draft/ })).toBeInTheDocument();
     expect(within(card).getByRole("button", { name: /Show all \d+/ })).toBeInTheDocument();
@@ -396,6 +397,7 @@ describe("the review card", () => {
     changesSequence: false,
     sections: [],
     timeline: null,
+    lockedEdges: 0,
   });
   const falcon: Change = {
     section: "controller",
@@ -439,6 +441,8 @@ describe("the review card", () => {
     const { user } = await start();
     render(<ProposalCard proposal={proposal([falcon])} current />);
     const card = screen.getByRole("region", { name: "Proposed changes" });
+    // Nothing was locked to the music (a show change): no line about it.
+    expect(within(card).queryByText(/to the music/)).not.toBeInTheDocument();
     expect(within(card).getByText("Sends light data to a new address: 203.0.113.9")).toBeInTheDocument();
     expect(within(card).getByText("address: 203.0.113.9")).toBeInTheDocument();
     expect(within(card).queryByText("port 5: Star")).not.toBeInTheDocument();

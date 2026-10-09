@@ -801,3 +801,43 @@ fn vu_meters_and_curves_find_their_timing_tracks() {
     assert_eq!(i.summary.placeholders, 0);
     assert_eq!(i.summary.exact, 3, "{:#?}", i.notes);
 }
+
+/// Lightning comes in as PixelFlow's Lightning, and a Single Strand chase on a timing track steps
+/// on its marks.
+#[test]
+fn lightning_and_chases_on_a_timing_track() {
+    let xml = r#"<xsequence FixedPointTiming="1">
+      <head><version>2024.19</version><sequenceTiming>25 ms</sequenceTiming><sequenceDuration>10</sequenceDuration></head>
+      <ElementEffects>
+        <Element type="timing" name="Beats">
+          <EffectLayer><Effect label="" startTime="0" endTime="500"/><Effect label="" startTime="500" endTime="1000"/></EffectLayer>
+        </Element>
+        <Element type="model" name="Window Matrix"><EffectLayer>
+          <Effect name="Lightning" startTime="0" endTime="2000">E_SLIDER_Number_Bolts=12,E_CHECKBOX_ForkedLightning=1,E_SLIDER_Lightning_WIDTH=3,E_CHOICE_Lightning_Direction=Down</Effect>
+          <Effect name="Single Strand" startTime="2000" endTime="4000">E_CHOICE_SingleStrand_TimingTrack=Beats,E_SLIDER_Number_Chases=2</Effect>
+          <Effect name="Single Strand" startTime="4000" endTime="6000">E_CHOICE_SingleStrand_TimingTrack=Gone</Effect>
+        </EffectLayer></Element>
+      </ElementEffects>
+    </xsequence>"#;
+    let show = show();
+    let i = build_sequence(&parse_xsq(xml).unwrap(), &show, "x");
+    assert_opens(&i);
+    let beats = i.sequence.timing_tracks[0].id;
+    let effects = &row(&i, &show, "Window Matrix").layers[0].effects;
+    let EffectParams::Lightning(bolt) = &effects[0].params else {
+        panic!("{:?}", effects[0].params)
+    };
+    assert_eq!((bolt.segments, bolt.thickness, bolt.branches), (12, 3, 0.5));
+    assert!(!bolt.flash_only);
+    let chase = |n: usize| match &effects[n].params {
+        EffectParams::Chase(p) => *p,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!((chase(1).timing_track, chase(1).bands), (Some(beats), 2));
+    assert_eq!(chase(2).timing_track, None);
+    assert_note(
+        &i,
+        "its timing track isn't in the sequence, so it chases at its speed",
+    );
+    assert_eq!(i.summary.placeholders, 0);
+}

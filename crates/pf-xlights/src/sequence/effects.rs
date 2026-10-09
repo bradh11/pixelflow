@@ -15,12 +15,12 @@ use pf_sequence::{
     Axis, BarsParams, Blend, ButterflyColors, ButterflyParams, ChaseParams, CirclesLook, CirclesParams,
     ColorWashParams, Curve, CurveShape, Direction, EffectParams, FaceColorSource, FaceEyes, FacesParams,
     FanParams, FireParams, GarlandShape, GarlandsDirection, GarlandsParams, Gradient, LifeParams, LifeRules,
-    LinesParams, MAX_CURVE_CYCLES, MIN_CURVE_CYCLES, MeteorDirection, MeteorsParams, MorphParams, OffParams,
-    OnParams, Palette, PinwheelParams, PinwheelShading, PinwheelStyle, PlasmaColors, PlasmaParams, Rgb,
-    RippleParams, SettingRange, ShapeObject, ShapeParams, ShimmerParams, SnowflakeShape, SnowflakesMotion,
-    SnowflakesParams, SpiralParams, StrobeParams, TendrilMovement, TendrilParams, TextCountdown,
-    TextMovement, TextOrientation, TextParams, TwinkleParams, VuMeterParams, VuMeterShape, VuMeterType,
-    WaveParams,
+    LightningParams, LinesParams, MAX_CURVE_CYCLES, MIN_CURVE_CYCLES, MeteorDirection, MeteorsParams,
+    MorphParams, OffParams, OnParams, Palette, PinwheelParams, PinwheelShading, PinwheelStyle, PlasmaColors,
+    PlasmaParams, Rgb, RippleParams, SettingRange, ShapeObject, ShapeParams, ShimmerParams, SnowflakeShape,
+    SnowflakesMotion, SnowflakesParams, SpiralParams, StrobeParams, TendrilMovement, TendrilParams,
+    TextCountdown, TextMovement, TextOrientation, TextParams, TwinkleParams, VuMeterParams, VuMeterShape,
+    VuMeterType, WaveParams,
 };
 use std::collections::BTreeMap;
 
@@ -546,7 +546,7 @@ fn single_strand(r: &Reader, duration_ms: u64, diff: &mut Diff) -> Kind {
                 diff.add("start offset not applied");
             }
             if !r.choice("SingleStrand_TimingTrack", "").is_empty() {
-                diff.add("timing-track pacing not applied");
+                diff.add("steps a band on each timing mark instead of chasing between marks");
             }
             Kind::Params(EffectParams::Chase(ChaseParams {
                 speed: if moving { rate(rotations, duration_ms) } else { 0.0 },
@@ -640,6 +640,30 @@ fn strobe(r: &Reader, frame: f64, diff: &mut Diff) -> EffectParams {
         // A new set of flashes every `frames` frames.
         rate: (1000.0 / (frames * frame)) as f32,
         density: unit(r.get("Number_Strobes", 3.0, 1.0, 300.0) / 100.0).max(0.01),
+    })
+}
+
+/// Lightning (xLights' `LightningEffect`). xLights grows one bolt from the bottom (or down from
+/// the top) over its first `Number_Bolts` frames, redrawing its jags (up to `Number_Segments`
+/// cells sideways) every frame, and holds it to the end; PixelFlow strikes again and again, each
+/// strike flickering and fading, so the bolt count becomes its jags.
+fn lightning(r: &Reader, diff: &mut Diff) -> EffectParams {
+    diff.add("shown as strikes that flicker and fade instead of one bolt held for the effect");
+    if r.choice("Lightning_Direction", "Up") != "Down" {
+        diff.add("bolts strike down from the top");
+    }
+    if r.get("Lightning_TopX", 0.0, -50.0, 50.0) != 0.0
+        || r.get("Lightning_TopY", 0.0, 0.0, 100.0) != 0.0
+        || r.get("Lightning_BOTX", 0.0, -50.0, 50.0) != 0.0
+    {
+        diff.add("start point and drift not applied");
+    }
+    EffectParams::Lightning(LightningParams {
+        density: 4.0,
+        branches: if r.check("ForkedLightning") { 0.5 } else { 0.0 },
+        thickness: count(r.get("Lightning_WIDTH", 1.0, 1.0, 7.0), 1, 10),
+        segments: count(r.get("Number_Bolts", 10.0, 1.0, 50.0), 2, 30),
+        ..LightningParams::default()
     })
 }
 
@@ -1459,7 +1483,7 @@ fn effect_params(
         "shockwave" => closest("a ripple", EffectParams::Ripple(RippleParams::default())),
         "galaxy" => closest("a spiral", EffectParams::Spiral(SpiralParams::default())),
         "fill" | "curtain" => closest("moving bars", EffectParams::Bars(BarsParams::default())),
-        "lightning" => closest("a strobe", EffectParams::Strobe(StrobeParams::default())),
+        "lightning" => lightning(&r, diff),
         "adjust" | "warp" | "duplicate" | "dmx" | "servo" | "movinghead" => return Kind::Skip,
         _ => return Kind::Placeholder,
     })
@@ -3013,6 +3037,7 @@ mod tests {
             "Life",
             "Tendril",
             "Text",
+            "Lightning",
         ] {
             for duration in [1, 25, 3_600_000] {
                 let t = translate(name, &wild, &palette(&[Rgb::RED]), duration, 10).unwrap();

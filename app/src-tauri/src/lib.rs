@@ -1892,12 +1892,30 @@ mod tests {
         let doc = call(&webview, "get_sequence_doc", json!({})).unwrap();
         let tracks = doc["sequence"]["timingTracks"].as_array().unwrap();
         let names: Vec<&str> = tracks.iter().map(|t| t["name"].as_str().unwrap()).collect();
-        assert_eq!(names, vec!["Beats", "Bars", "Onsets"]);
+        // Clicks have one section and nothing that stands out: no Accents.
+        assert_eq!(names, vec!["Beats", "Bars", "Onsets", "Sections"]);
         assert!(tracks[0]["marks"].as_array().unwrap().len() >= 20);
+        // The user's own sections are kept when beats are detected again.
+        let mut sections = tracks[3].clone();
+        sections["marks"][0]["label"] = json!("Mine");
+        call(
+            &webview,
+            "edit_sequence",
+            json!({ "edits": [{ "type": "updateTimingTrack", "track": sections }] }),
+        )
+        .unwrap();
+        call(&webview, "detect_beats", json!({})).unwrap();
+        let doc = call(&webview, "get_sequence_doc", json!({})).unwrap();
+        let tracks = doc["sequence"]["timingTracks"].as_array().unwrap();
+        let names: Vec<&str> = tracks.iter().map(|t| t["name"].as_str().unwrap()).collect();
+        assert_eq!(names, vec!["Sections", "Beats", "Bars", "Onsets"]);
+        assert_eq!(tracks[0]["marks"][0]["label"], "Mine");
+        call(&webview, "undo_sequence", json!({})).unwrap();
+        call(&webview, "undo_sequence", json!({})).unwrap();
         let snap = call(&webview, "undo_sequence", json!({})).unwrap();
         assert_eq!(
             snap["changes"]["removedTimingTracks"].as_array().unwrap().len(),
-            3
+            4
         );
         let doc = call(&webview, "get_sequence_doc", json!({})).unwrap();
         assert_eq!(doc["sequence"]["timingTracks"], json!([]));

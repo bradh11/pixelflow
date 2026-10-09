@@ -729,9 +729,21 @@ export class MemorySequencer implements SequencerApi {
     const latest = this.open_();
     const marks = (times: number[], label: (i: number) => string) =>
       times.map((t, i) => ({ startMs: t, endMs: times[i + 1] ?? doc.durationMs, label: label(i) }));
+    const beatMs = 60_000 / (analysis.tempoBpm ?? 120);
+    const found: TimingTrack[] = [
+      { id: crypto.randomUUID(), name: "Sections", kind: "sections", marks: analysis.sections.map((s) => ({ startMs: s.startMs, endMs: s.endMs, label: s.label })) },
+      {
+        id: crypto.randomUUID(),
+        name: "Accents",
+        kind: "custom",
+        marks: analysis.events.map((e) => ({ startMs: e.timeMs, endMs: e.timeMs + (e.durationMs ?? beatMs), label: e.kind[0].toUpperCase() + e.kind.slice(1) })),
+      },
+    ];
+    // Sections and Accents already there are the user's own: kept as they are.
     const tracks: TimingTrack[] = [
       { id: crypto.randomUUID(), name: "Beats", kind: "beats", marks: marks(analysis.beats, (i) => String((i % 4) + 1)) },
       { id: crypto.randomUUID(), name: "Bars", kind: "bars", marks: marks(analysis.bars, (i) => String(i + 1)) },
+      ...found.filter((t) => t.marks.length > 0 && !latest.timingTracks.some((have) => have.name === t.name)),
     ];
     const edits: SequenceEdit[] = [
       ...latest.timingTracks

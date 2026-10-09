@@ -3,8 +3,10 @@
 //! engine as one undo step. Until the user presses Apply, nothing the assistant does reaches
 //! the open show, the controllers, or any file.
 
+use crate::align::{Anchors, lock};
 use crate::diff::{Diff, diff};
 use crate::summary::{SectionSummary, Timeline, section_summaries, timeline};
+use pf_analysis::Analysis;
 use pf_engine::{
     Edit, Engine, EngineError, SequenceEdit, SequenceEditResult, ShowSnapshot, edited_sequence, edited_show,
 };
@@ -89,6 +91,8 @@ pub struct Draft {
     show_edits: Vec<Edit>,
     sequence: Option<Sequence>,
     sequence_edits: Vec<SequenceEdit>,
+    /// Effect edges and timing marks locked to the music so far (see [`Draft::lock_to_music`]).
+    locked_edges: usize,
 }
 
 impl Draft {
@@ -99,6 +103,7 @@ impl Draft {
             base,
             show_edits: Vec::new(),
             sequence_edits: Vec::new(),
+            locked_edges: 0,
         }
     }
 
@@ -143,6 +148,35 @@ impl Draft {
         Ok(())
     }
 
+    /// Moves the effect edges and timing marks the draft added or moved onto the song's
+    /// sections, accents, bars, and beats (see [`crate::align`]), as one more step of the draft.
+    /// The user's own Sections and Accents tracks win over the analysis's. Answers how many
+    /// edges moved.
+    pub fn lock_to_music(&mut self, analysis: Option<&Analysis>) -> usize {
+        let base = self.base.sequence.as_ref().map(|s| &s.doc);
+        let Some(doc) = self.sequence.as_ref().filter(|doc| Some(*doc) != base) else {
+            return 0;
+        };
+        let Some(anchors) = Anchors::for_song(analysis, base) else {
+            return 0;
+        };
+        // The song's own tracks, as analysis makes them, are the music already.
+        let as_made: Vec<_> = analysis
+            .map(|a| {
+                let mut tracks = a.timing_tracks();
+                tracks.push(a.sections_track());
+                tracks.push(a.accents_track());
+                tracks.into_iter().map(|t| t.marks).collect()
+            })
+            .unwrap_or_default();
+        let locked = lock(base, doc, &anchors, &as_made);
+        if locked.edits.is_empty() || self.edit_sequence_batch(locked.edits.clone()).is_err() {
+            return 0;
+        }
+        self.locked_edges += locked.edges();
+        locked.edges()
+    }
+
     /// Starts over from the workspace.
     pub fn reset(&mut self) {
         *self = Draft::new(self.base.clone());
@@ -171,6 +205,7 @@ impl Draft {
             id: uuid::Uuid::new_v4().to_string(),
             summary: summary.trim().chars().take(2000).collect(),
             diff,
+            locked_edges: if sequence_changed { self.locked_edges } else { 0 },
             show_edits: if show_changed {
                 self.show_edits.clone()
             } else {
@@ -213,6 +248,8 @@ pub struct Proposal {
     pub id: String,
     pub summary: String,
     pub diff: Diff,
+    /// Effect edges and timing marks the draft locked to the music.
+    pub locked_edges: usize,
     pub show_edits: Vec<Edit>,
     pub sequence_edits: Vec<SequenceEdit>,
     /// The show revision the draft started from.
@@ -245,6 +282,8 @@ pub struct ProposalView {
     pub sections: Vec<SectionSummary>,
     /// For a sequence proposal: the draft sequence drawn small.
     pub timeline: Option<Timeline>,
+    /// For a sequence proposal: effect edges and timing marks locked to the music.
+    pub locked_edges: usize,
 }
 
 impl Proposal {
@@ -266,6 +305,7 @@ impl Proposal {
                 .map(|(before, after)| section_summaries(before, after))
                 .unwrap_or_default(),
             timeline: sequences.map(|(_, after)| timeline(after, &self.draft_show)),
+            locked_edges: if changes_sequence { self.locked_edges } else { 0 },
         }
     }
 }

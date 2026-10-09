@@ -399,7 +399,12 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
           </ToolButton>
           <PlayheadTime durationMs={s.durationMs} />
           <span className="mx-1 h-5 w-px bg-neutral-200 dark:bg-neutral-800" />
-          <ToolButton label={s.detecting ? "Finding the beats…" : "Detect beats"} onClick={() => void act().detectBeats()} disabled={!s.hasMusic || s.detecting}>
+          <ToolButton
+            label={s.detecting ? "Finding the beats…" : "Detect beats"}
+            hint="Find the song's beats, bars, sections, and accents as timing tracks. Sections and Accents you already have stay as they are."
+            onClick={() => void act().detectBeats()}
+            disabled={!s.hasMusic || s.detecting}
+          >
             <AudioLines size={16} /> <span className="hidden @min-[760px]:inline">{s.detecting ? "Finding beats…" : "Detect beats"}</span>
           </ToolButton>
           <ToolButton label="Add timing track" onClick={() => setAddingTrack(true)}>
@@ -720,7 +725,7 @@ function BeatsBanner() {
   return (
     <div role="status" className="flex items-center gap-3 border-b border-violet-200 bg-violet-50 px-3 py-2 text-sm dark:border-violet-900 dark:bg-violet-950/30">
       <AudioLines size={16} className="shrink-0 text-violet-600 dark:text-violet-400" />
-      <span className="flex-1">Find the beats and bars in this song? Effects then snap to them.</span>
+      <span className="flex-1">Find the beats, bars, and sections in this song? Effects then snap to them.</span>
       <Button variant="primary" disabled={detecting} onClick={() => void detectBeats()}>
         Detect beats
       </Button>

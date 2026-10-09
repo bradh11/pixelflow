@@ -42,8 +42,11 @@ Everything that comes from the show or a sequence (prop, group, controller, and 
 
 Making a sequence:
 - No sequence open? Say so and call ask_for_song: the user picks a song and gets a new sequence with a row per prop and group. With one open, work on it.
-- Read the song with analyze_song and add_song_timing, the rows with get_open_sequence, and where props sit with list_props. Then fill the song section by section with place_effects and repeat_effects (a few calls per section), check with review_draft, and propose once.
-- Make it compelling: follow the song's energy (sparse and soft in quiet sections; bigger, brighter, faster in loud ones), build up into peaks and release after them, and change the look between sections. Land changes on bars and accents on beats. Use groups for big moves and single props for accents, and give props different roles by where they sit (left and right, high and low) rather than every prop doing the same thing. Pick a few palettes that suit the song and the season, and keep each section's colors consistent.
+- Read the song with analyze_song and add_song_timing (beats, bars, sections, accents), the rows with get_open_sequence, and where props sit with list_props. Then fill the song section by section with place_effects and repeat_effects (a few calls per section), check with review_draft, and propose once.
+- Plan by section: give each section group (its letter) its own look, and when a group comes back, bring its look back with a variation (repeat_effects, then new colors or speed). Change looks exactly on section starts: place with track \"Sections\", \"Bars\", or \"Accents\" so times come from the marks.
+- Follow the music: land accent effects (strobe, a flash, a quick on) on hits; go dark or minimal in breaks; ramp brightness and speed through a build and peak on the drop; let barEnergy set intensity and barBass the speed or pulse. Sparse and soft when quiet, bigger and faster when loud, and release after a peak.
+- Use groups for big moves and single props for accents, and give props different roles by where they sit (left and right, high and low). Pick a few palettes that suit the song and the season, and keep each section's colors consistent.
+- When analyze_song says sectionsFrom or accentsFrom \"user\", those are the user's own marks: follow them. Before the user sees your proposal, PixelFlow moves effect edges within a beat onto the nearest section start, accent, bar, or beat, so aim close rather than computing exact milliseconds.
 
 Units: positions and sizes are layout units (+X right, +Y up, +Z toward the viewer); times are milliseconds; colors are \"#rrggbb\". Effect settings are listed by list_effect_kinds.
 
@@ -230,14 +233,27 @@ impl ChatSession {
 
     /// Shows the user what the draft changes when the model didn't propose it (or changed it
     /// after proposing). True when a new proposal was made.
-    fn propose_leftovers(&mut self, said: &[String], on_event: &mut dyn FnMut(ChatEvent)) -> bool {
-        let Some(draft) = &self.draft else {
+    fn propose_leftovers(
+        &mut self,
+        said: &[String],
+        music: Option<&std::path::Path>,
+        cancel: &Cancel,
+        on_event: &mut dyn FnMut(ChatEvent),
+    ) -> bool {
+        let Some(draft) = &mut self.draft else {
             return false;
         };
         let current = self.proposal.as_ref().is_some_and(|p| p.diff == draft.diff());
         if current || !draft.has_edits() {
             return false;
         }
+        let mut song = Song {
+            music,
+            cache: &mut self.song,
+            analyzer: self.analyzer.as_ref(),
+            cancel,
+        };
+        lock_to_music(draft, &mut song);
         let summary = said
             .last()
             .cloned()
@@ -377,7 +393,7 @@ impl ChatSession {
                         self.messages.truncate(checkpoint);
                     }
                     // What was drafted before the failure still reaches the user.
-                    self.propose_leftovers(&said, on_event);
+                    self.propose_leftovers(&said, music.as_deref(), cancel, on_event);
                     return Err(error);
                 }
             };
@@ -408,7 +424,7 @@ impl ChatSession {
             }
         }
 
-        proposed_now |= self.propose_leftovers(&said, on_event);
+        proposed_now |= self.propose_leftovers(&said, music.as_deref(), cancel, on_event);
         Ok(TurnReply {
             text: said.join("\n\n"),
             proposal: if proposed_now {
@@ -450,7 +466,7 @@ impl ChatSession {
                         content,
                         is_error,
                     },
-                    Outcome::Propose { summary } => match draft.propose(&summary) {
+                    Outcome::Propose { summary } => match lock_to_music(draft, &mut song).propose(&summary) {
                         Some(proposal) => {
                             on_event(ChatEvent::Proposal {
                                 proposal: proposal.view(),
@@ -484,6 +500,18 @@ impl ChatSession {
             })
             .collect()
     }
+}
+
+/// Locks the draft's new effect edges and timing marks to the song before the user sees them
+/// (the song is analyzed now if it hasn't been; without one, only the user's own Sections and
+/// Accents tracks count).
+fn lock_to_music<'d>(draft: &'d mut Draft, song: &mut Song<'_>) -> &'d mut Draft {
+    let changed = draft.sequence() != draft.base().sequence.as_ref().map(|s| &s.doc);
+    if changed {
+        let analysis = song.analysis(draft).ok();
+        draft.lock_to_music(analysis.as_deref());
+    }
+    draft
 }
 
 /// What a turn's tool calls report back beyond their answers.

@@ -24,7 +24,7 @@ pub enum ToolKind {
         tag: String,
     },
     Query(Query),
-    /// Reads the open sequence's song (tempo, beats, bars, sections).
+    /// Reads the open sequence's song (tempo, bars, sections, accents, energy).
     AnalyzeSong,
     /// Adds the song's timing tracks to the draft.
     AddSongTiming,
@@ -777,7 +777,7 @@ fn song_tools() -> Vec<Tool> {
         ),
         tool(
             "analyze_song",
-            "The open sequence's song: tempo, beat count, bar start times; sections with a name (Intro, Verse, Chorus, Bridge …), a group letter (the same letter is the same music again), energy (0–1), level, and confidence; the strongest accents to land on (hit, drop, break, build; strength 0–1; forMs for breaks and builds); barEnergy and barBass, a digit per bar (0 quiet to 9 full); and how sure the tempo, downbeats, and sections are.",
+            "The open sequence's song: tempo, bar start times; sections (Intro, Verse, Chorus …; a group letter: the same letter is the same music again; energy 0–1), from the user's Sections track when sectionsFrom is \"user\"; accents to land on (hit, drop, break, build; forMs for breaks and builds), likewise; barEnergy and barBass, a digit per bar (0 quiet to 9 full); and confidence.",
             object(json!({}), &[]),
             ToolKind::AnalyzeSong,
         ),
@@ -785,7 +785,7 @@ fn song_tools() -> Vec<Tool> {
             "add_song_timing",
             "Adds the song's timing tracks to the draft (Beats labeled 1–4, numbered Bars, labeled Sections, Onsets, and Accents: hits, drops, breaks, builds), reusing ones already there; answers their ids.",
             object(
-                json!({ "tracks": { "type": "array", "items": { "enum": crate::song::TRACK_CHOICES }, "description": "Default: beats, bars, sections." } }),
+                json!({ "tracks": { "type": "array", "items": { "enum": crate::song::TRACK_CHOICES }, "description": "Default: beats, bars, sections, accents." } }),
                 &[],
             ),
             ToolKind::AddSongTiming,

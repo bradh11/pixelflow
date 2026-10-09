@@ -7,7 +7,7 @@ use crate::draft::Draft;
 use crate::provider::Cancel;
 use pf_analysis::{Analysis, BarEnergy};
 use pf_engine::SequenceEdit;
-use pf_sequence::TimingTrack;
+use pf_sequence::{Sequence, TimingTrack};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -66,39 +66,134 @@ fn round2(x: f32) -> f64 {
     (f64::from(x) * 100.0).round() / 100.0
 }
 
-/// What `analyze_song` answers: tempo, counts, bar times, sections (named, grouped by what
-/// repeats, with their energy), the strongest accents, each bar's energy and bass as a digit
-/// string (0–9, a digit per bar), and how sure the analysis is.
-pub fn describe(analysis: &Analysis) -> Value {
-    let sections: Vec<Value> = analysis
-        .sections()
+/// A section label without its count ("Chorus 2" → "Chorus"): what repeats.
+fn label_root(label: &str) -> &str {
+    label
+        .trim()
+        .trim_end_matches(|c: char| c.is_ascii_digit())
+        .trim_end()
+}
+
+/// The mean of `level` over the bars that start in `start..end` (`None` without any).
+fn bar_mean(analysis: &Analysis, start: u64, end: u64, level: fn(&BarEnergy) -> f32) -> Option<f32> {
+    let values: Vec<f32> = analysis
+        .bars
         .iter()
-        .map(|s| {
-            json!({
-                "label": s.label,
-                "group": s.group,
-                "startMs": s.start_ms,
-                "endMs": s.end_ms,
-                "energy": round2(s.energy),
-                "level": s.level,
-                "confidence": round2(s.confidence),
-            })
-        })
+        .zip(&analysis.bar_energy)
+        .filter(|(b, _)| (start..end).contains(*b))
+        .map(|(_, e)| level(e))
         .collect();
-    let mut accents: Vec<_> = analysis.events.iter().collect();
-    accents.sort_by(|a, b| b.strength.total_cmp(&a.strength));
-    accents.truncate(MAX_LISTED_ACCENTS);
-    accents.sort_by_key(|e| e.time_ms);
-    let accents: Vec<Value> = accents
+    (!values.is_empty()).then(|| values.iter().sum::<f32>() / values.len() as f32)
+}
+
+/// The user's own sections, from their Sections track: labeled as they are, grouped by label
+/// (a count after it doesn't matter), with the song's energy in each.
+fn user_sections(analysis: &Analysis, track: &TimingTrack) -> Vec<Value> {
+    let mut roots: Vec<String> = Vec::new();
+    track
+        .marks
         .iter()
-        .map(|e| {
-            let mut accent = json!({ "atMs": e.time_ms, "kind": e.kind, "strength": round2(e.strength) });
-            if let Some(d) = e.duration_ms {
-                accent["forMs"] = d.into();
+        .enumerate()
+        .map(|(i, m)| {
+            let named = !m.label.trim().is_empty();
+            let label = if named {
+                m.label.trim().to_string()
+            } else {
+                format!("Section {}", i + 1)
+            };
+            // An unnamed section is its own group.
+            let root = if named {
+                label_root(&label).to_string()
+            } else {
+                label.clone()
+            };
+            let at = roots.iter().position(|r| *r == root).unwrap_or_else(|| {
+                roots.push(root);
+                roots.len() - 1
+            });
+            let group = char::from(b'A' + (at % 26) as u8).to_string();
+            let mut section =
+                json!({ "label": label, "group": group, "startMs": m.start_ms, "endMs": m.end_ms });
+            if let Some(energy) = bar_mean(analysis, m.start_ms, m.end_ms, |e| e.overall) {
+                section["energy"] = round2(energy).into();
+            }
+            section
+        })
+        .collect()
+}
+
+/// The user's own accents, from their Accents track: a kind from each label (a hit when it
+/// names none), and how long the long ones last.
+fn user_accents(analysis: &Analysis, track: &TimingTrack) -> Vec<Value> {
+    let beat = analysis
+        .tempo_bpm
+        .filter(|t| *t > 0.0)
+        .map_or(500, |t| (60_000.0 / t) as u64);
+    track
+        .marks
+        .iter()
+        .take(MAX_LISTED_ACCENTS)
+        .map(|m| {
+            let word = m.label.trim().to_ascii_lowercase();
+            let kind = ["hit", "drop", "break", "build"]
+                .into_iter()
+                .find(|k| word.starts_with(k))
+                .unwrap_or("hit");
+            let mut accent = json!({ "atMs": m.start_ms, "kind": kind });
+            if m.end_ms - m.start_ms > 2 * beat {
+                accent["forMs"] = (m.end_ms - m.start_ms).into();
             }
             accent
         })
-        .collect();
+        .collect()
+}
+
+/// What `analyze_song` answers: tempo, counts, bar times, sections (named, grouped by what
+/// repeats, with their energy), the strongest accents, each bar's energy and bass as a digit
+/// string (0–9, a digit per bar), and how sure the analysis is. Sections and accents come from
+/// the user's own Sections and Accents tracks in `user` when it has them (`sectionsFrom`,
+/// `accentsFrom`: "user"): those win over what was detected.
+pub fn describe(analysis: &Analysis, user: Option<&Sequence>) -> Value {
+    let my_sections = user.and_then(crate::align::user_sections);
+    let sections: Vec<Value> = match my_sections {
+        Some(track) => user_sections(analysis, track),
+        None => analysis
+            .sections()
+            .iter()
+            .map(|s| {
+                json!({
+                    "label": s.label,
+                    "group": s.group,
+                    "startMs": s.start_ms,
+                    "endMs": s.end_ms,
+                    "energy": round2(s.energy),
+                    "level": s.level,
+                    "confidence": round2(s.confidence),
+                })
+            })
+            .collect(),
+    };
+    let my_accents = user.and_then(crate::align::user_accents);
+    let accents: Vec<Value> = match my_accents {
+        Some(track) => user_accents(analysis, track),
+        None => {
+            let mut accents: Vec<_> = analysis.events.iter().collect();
+            accents.sort_by(|a, b| b.strength.total_cmp(&a.strength));
+            accents.truncate(MAX_LISTED_ACCENTS);
+            accents.sort_by_key(|e| e.time_ms);
+            accents
+                .iter()
+                .map(|e| {
+                    let mut accent =
+                        json!({ "atMs": e.time_ms, "kind": e.kind, "strength": round2(e.strength) });
+                    if let Some(d) = e.duration_ms {
+                        accent["forMs"] = d.into();
+                    }
+                    accent
+                })
+                .collect()
+        }
+    };
     let digits = |level: fn(&BarEnergy) -> f32| -> String {
         analysis
             .bar_energy
@@ -107,12 +202,15 @@ pub fn describe(analysis: &Analysis) -> Value {
             .map(|e| char::from(b'0' + (level(e).clamp(0.0, 1.0) * 9.0).round() as u8))
             .collect()
     };
+    let from = |user: bool| if user { "user" } else { "analysis" };
     json!({
         "durationMs": analysis.duration_ms,
         "tempoBpm": analysis.tempo_bpm.map(|t| (t * 10.0).round() / 10.0),
         "beats": analysis.beats.len(),
         "barsMs": analysis.bars.iter().take(MAX_LISTED_BARS).collect::<Vec<_>>(),
+        "sectionsFrom": from(my_sections.is_some()),
         "sections": sections,
+        "accentsFrom": from(my_accents.is_some()),
         "accents": accents,
         "barEnergy": digits(|e| e.overall),
         "barBass": digits(|e| e.low),

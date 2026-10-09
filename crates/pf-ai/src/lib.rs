@@ -13,6 +13,7 @@
 //!   user's Apply, as one undo step.
 
 pub mod agent;
+pub mod align;
 pub mod anthropic;
 pub mod arrange;
 pub mod diff;

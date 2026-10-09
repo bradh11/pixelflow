@@ -85,7 +85,10 @@ pub fn run_tool(toolbox: &Toolbox, call: &ToolCall, draft: &mut Draft, song: &mu
             Err(e) => err(e),
         },
         ToolKind::AnalyzeSong => match song.analysis(draft) {
-            Ok(analysis) => ok(crate::song::describe(&analysis).to_string()),
+            Ok(analysis) => {
+                let user = draft.base().sequence.as_ref().map(|s| &s.doc);
+                ok(crate::song::describe(&analysis, user).to_string())
+            }
             Err(e) => err(e),
         },
         ToolKind::AddSongTiming => {
@@ -94,7 +97,9 @@ pub fn run_tool(toolbox: &Toolbox, call: &ToolCall, draft: &mut Draft, song: &mu
                     .iter()
                     .filter_map(|n| n.as_str().map(str::to_string))
                     .collect(),
-                None => ["beats", "bars", "sections"].map(String::from).to_vec(),
+                None => ["beats", "bars", "sections", "accents"]
+                    .map(String::from)
+                    .to_vec(),
             };
             match song
                 .analysis(draft)

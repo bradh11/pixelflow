@@ -223,11 +223,15 @@ pub(crate) fn boundaries(novelty: &[f32], grid: &Grid, bar_phase: usize, min_uni
         if chosen.len() >= most {
             break;
         }
-        // Past the aim, only peaks that stand out nearly as much as the typical one chosen.
+        // Past the aim, only peaks that stand out nearly as much as the typical one chosen (none,
+        // for a song too short to aim for any).
         if chosen.len() >= aim {
             let mut rises: Vec<f32> = chosen.iter().map(|c| c.1).collect();
             rises.sort_by(f32::total_cmp);
-            if rise < 0.7 * rises[rises.len() / 2] {
+            if rises
+                .get(rises.len() / 2)
+                .is_none_or(|&typical| rise < 0.7 * typical)
+            {
                 break;
             }
         }

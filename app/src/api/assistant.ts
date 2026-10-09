@@ -108,6 +108,17 @@ export interface ProposalView {
   lockedEdges: number;
   /** For a sequence proposal: the cues staged ("Staged 14 cues: 6 hits, 3 word pops, …"), if any. */
   cues: string | null;
+  /** For a sequence proposal: how it reviews against its song, and the fixes left. */
+  review: ReviewView | null;
+}
+
+/** A sequence reviewed against its song, as the proposal card shows it. */
+export interface ReviewView {
+  score: number;
+  /** "Review: 92/100 · all 12 top moments emphasised · flashes safe" */
+  line: string;
+  /** The fixes left, each "m:ss.mmm what". */
+  items: string[];
 }
 
 /** What arrives while a reply streams in. */

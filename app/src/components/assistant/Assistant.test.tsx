@@ -372,6 +372,7 @@ describe("creating a sequence", () => {
     expect(within(card).getByText("By section")).toBeInTheDocument();
     expect(within(card).getByText(/Locked \d+ edges to the music/)).toBeInTheDocument();
     expect(within(card).getByText(/^Staged \d+ cues?: \d+ hits?$/)).toBeInTheDocument();
+    expect(within(card).getByText(/^Review: \d+\/100 · .* · flashes safe/)).toBeInTheDocument();
     expect(within(card).getByText("Intro", { selector: "span" })).toBeInTheDocument();
     expect(within(card).getByRole("img", { name: /Timeline of the draft/ })).toBeInTheDocument();
     expect(within(card).getByRole("button", { name: /Show all \d+/ })).toBeInTheDocument();
@@ -413,6 +414,7 @@ describe("the review card", () => {
     timeline: null,
     lockedEdges: 0,
     cues: null,
+    review: null,
   });
   const falcon: Change = {
     section: "controller",
@@ -465,6 +467,30 @@ describe("the review card", () => {
     expect(within(card).getByText("port 5: Star")).toBeInTheDocument();
     await user.click(within(card).getByRole("button", { name: "Show fewer" }));
     expect(within(card).queryByText("port 5: Star")).not.toBeInTheDocument();
+  });
+
+  it("shows a sequence's review in a line, with the fixes left behind it", async () => {
+    const { user } = await start();
+    const review = {
+      score: 86,
+      line: "Review: 86/100 · 11 of 12 top moments emphasised · flashes safe",
+      items: ["1:23.400 The impact (m3) doesn't show: nothing jumps within a beat of it.", "2:05.000 Chorus 3 looks unlike Chorus 1 though it's the same music."],
+    };
+    const sequence = { ...proposal([]), changesShow: false, changesSequence: true, review };
+    const { unmount } = render(<ProposalCard proposal={sequence} current />);
+    const card = screen.getByRole("region", { name: "Proposed changes" });
+    expect(within(card).getByText(/^Review: 86\/100 · 11 of 12 top moments emphasised · flashes safe/)).toBeVisible();
+    expect(within(card).getByText(/2 fixes left/)).toBeInTheDocument();
+    const fix = within(card).getByText(/The impact \(m3\) doesn't show/);
+    expect(fix).not.toBeVisible();
+    await user.click(within(card).getByText(/2 fixes left/));
+    expect(fix).toBeVisible();
+    unmount();
+
+    // Nothing left to fix: just the line.
+    render(<ProposalCard proposal={{ ...sequence, review: { ...review, items: [] } }} current />);
+    expect(screen.getByText(/^Review: 86\/100/)).toBeVisible();
+    expect(screen.queryByText(/left$/)).not.toBeInTheDocument();
   });
 
   it("warns when lights are running and the proposal changes controllers", async () => {

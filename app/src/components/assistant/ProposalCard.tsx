@@ -1,6 +1,6 @@
-import { Check, Clapperboard, Eye, EyeOff, Magnet, Minus, Pencil, Play, Plus, ShieldAlert, X } from "lucide-react";
+import { Check, ChevronRight, Clapperboard, ClipboardCheck, Eye, EyeOff, Magnet, Minus, Pencil, Play, Plus, ShieldAlert, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { Change, DiffSection, ProposalView, SectionSummary } from "../../api/assistant";
+import type { Change, DiffSection, ProposalView, ReviewView, SectionSummary } from "../../api/assistant";
 import { plural } from "../../lib/format";
 import { formatTime } from "../../lib/timelineMath";
 import { useAssistant } from "../../state/assistant";
@@ -26,6 +26,46 @@ const ORDER: DiffSection[] = ["show", "prop", "group", "controller", "playlist",
 const FIRST_DETAILS = 5;
 /** Changes listed in a section before "Show all". */
 const FIRST_CHANGES = 12;
+
+const REVIEW_TITLE = "How the draft scores against the song: its top moments, contrast, energy, repeated parts, variety, flashing, hook words, dark stretches, and restraint";
+
+/** How a sequence proposal reviews against its song, with the fixes left behind a disclosure. */
+function Review({ review }: { review: ReviewView }) {
+  const left = review.items.length;
+  const line = (
+    <>
+      <ClipboardCheck size={12} className="mt-0.5 shrink-0" aria-hidden />
+      <span>
+        {review.line}
+        {left > 0 && (
+          <>
+            {` · ${left} ${left === 1 ? "fix" : "fixes"} left`}
+            <ChevronRight size={12} className="ml-0.5 inline align-[-2px] transition-transform group-open:rotate-90" aria-hidden />
+          </>
+        )}
+      </span>
+    </>
+  );
+  if (left === 0) {
+    return (
+      <p className="mt-0.5 flex items-start gap-1 text-xs text-neutral-500" title={REVIEW_TITLE}>
+        {line}
+      </p>
+    );
+  }
+  return (
+    <details className="group mt-0.5 text-xs text-neutral-500">
+      <summary className="flex cursor-pointer list-none items-start gap-1 select-none [&::-webkit-details-marker]:hidden" title={REVIEW_TITLE}>
+        {line}
+      </summary>
+      <ul className="mt-0.5 list-disc pl-5">
+        {review.items.map((item, i) => (
+          <li key={i}>{item}</li>
+        ))}
+      </ul>
+    </details>
+  );
+}
 
 /** What a sequence proposal does in each section of the song. */
 function Sections({ sections }: { sections: SectionSummary[] }) {
@@ -205,6 +245,7 @@ export function ProposalCard({ proposal, current }: { proposal: ProposalView; cu
           <Clapperboard size={12} aria-hidden /> {proposal.cues}
         </p>
       )}
+      {proposal.review && <Review review={proposal.review} />}
       {proposal.lockedEdges > 0 && (
         <p className="mt-0.5 flex items-center gap-1 text-xs text-neutral-500" title="Effect edges and timing marks moved onto the nearest section start, accent, bar, or beat">
           <Magnet size={12} aria-hidden /> Locked {plural(proposal.lockedEdges, "edge")} to the music

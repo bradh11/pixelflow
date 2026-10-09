@@ -44,6 +44,13 @@ export function zoomAt(view: View, factor: number, anchorX: number, durationMs: 
   return clampView({ startMs: anchor - anchorX / pxPerMs, pxPerMs }, durationMs, width);
 }
 
+/** `startMs`–`endMs` filling the view, with a little room either side. */
+export function spanView(startMs: number, endMs: number, width: number, durationMs: number): View {
+  const pad = Math.max(100, (endMs - startMs) * 0.1);
+  const pxPerMs = Math.max(width, 1) / Math.max(1, endMs - startMs + 2 * pad);
+  return clampView({ startMs: startMs - pad, pxPerMs }, durationMs, width);
+}
+
 /** While playing: when the playhead leaves the view, turn the page so it's near the left again. */
 export function followPlayhead(view: View, ms: number, width: number, durationMs: number): View {
   const visible = Math.max(width, 1) / view.pxPerMs;

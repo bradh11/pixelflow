@@ -3,6 +3,8 @@
 //! Nothing here waits on the sound device: jumps are handed to the audio thread, which applies
 //! them before its next sample, and the play position is what the audio thread has handed to the
 //! output (smoothed between its buffers). A stalled or unplugged device can't freeze the caller.
+//! It can play slower than written (for timing marks by ear): the samples are stretched, so the
+//! pitch drops with the speed.
 
 use crate::clock::AudioClock;
 use crate::decode::open_decoder;
@@ -12,7 +14,7 @@ use rodio::stream::DeviceSinkConfig;
 use rodio::{ChannelCount, DeviceSinkBuilder, MixerDeviceSink, Player, Sample, SampleRate, Source};
 use std::cell::Cell;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -37,13 +39,23 @@ struct Shared {
     seek_error: Mutex<Option<String>>,
     /// The sound device went away (unplugged, or the system stopped the stream).
     device_lost: AtomicBool,
+    /// How fast the music plays (an `f32`'s bits; 0 stands for full speed).
+    speed: AtomicU32,
 }
 
 impl Shared {
     fn position(&self) -> Duration {
         Duration::from_nanos(self.position_ns.load(Ordering::Acquire))
     }
+
+    fn speed(&self) -> f64 {
+        let speed = f32::from_bits(self.speed.load(Ordering::Acquire));
+        if speed > 0.0 { f64::from(speed) } else { 1.0 }
+    }
 }
+
+/// The slowest the music plays (a quarter of its speed); it never plays faster than written.
+pub const SLOWEST: f32 = 0.25;
 
 fn nanos(d: Duration) -> u64 {
     u64::try_from(d.as_nanos()).unwrap_or(u64::MAX)
@@ -51,7 +63,8 @@ fn nanos(d: Duration) -> u64 {
 
 /// The music as the output reads it. It makes jumps on the audio thread, counts what it has handed
 /// over, and after the end of the song carries on with silence, so the clock keeps time (lights
-/// longer than the song still finish) and a jump back plays the music again.
+/// longer than the song still finish) and a jump back plays the music again. Slowed down, each
+/// frame it hands over lies between two of the song's, a little further on each time.
 ///
 /// The channel count and sample rate are read once at the start: music files keep them for their
 /// whole length.
@@ -62,29 +75,90 @@ struct MusicSource<S> {
     rate: SampleRate,
     /// Where in the current frame the next sample falls (0 = first channel).
     channel: u16,
-    /// Position of the last jump, and whole frames handed over since.
+    /// Position of the last jump, and how many of the song's frames have played since (with a
+    /// fraction of one while slowed down).
     base: Duration,
-    frames: u64,
+    frames: f64,
     ended: bool,
+    /// The frame being handed over.
+    out: Vec<Sample>,
+    /// Slowed down: the song's frames either side of where it is, and how far between them (0–1).
+    slow: Option<(Vec<Sample>, Vec<Sample>, f64)>,
 }
 
 impl<S: Source> MusicSource<S> {
     fn new(inner: S, shared: Arc<Shared>) -> Self {
+        let channels = inner.channels();
         Self {
-            channels: inner.channels(),
+            channels,
             rate: inner.sample_rate(),
             inner,
             shared,
             channel: 0,
             base: Duration::ZERO,
-            frames: 0,
+            frames: 0.0,
             ended: false,
+            out: vec![0.0; usize::from(channels.get())],
+            slow: None,
         }
     }
 
     fn played(&self) -> Duration {
-        let ns = u128::from(self.frames) * 1_000_000_000 / u128::from(self.rate.get());
-        self.base + Duration::from_nanos(u64::try_from(ns).unwrap_or(u64::MAX))
+        self.base + Duration::from_secs_f64(self.frames / f64::from(self.rate.get()))
+    }
+
+    /// The song's next frame into `frame` (silence after its end).
+    fn read_frame(&mut self, frame: &mut [Sample]) {
+        for sample in frame {
+            *sample = if self.ended {
+                0.0
+            } else if let Some(s) = self.inner.next() {
+                s
+            } else {
+                self.ended = true;
+                self.shared.finished.store(true, Ordering::Release);
+                0.0
+            };
+        }
+    }
+
+    /// Works out the next frame to hand over, `speed` of the song's frames on from the last.
+    fn next_frame(&mut self, speed: f64) {
+        let mut out = std::mem::take(&mut self.out);
+        if speed >= 1.0 {
+            if let Some((_, ahead, _)) = self.slow.take() {
+                // Back to full speed: the frame ahead, then straight on from there.
+                out.copy_from_slice(&ahead);
+                self.frames = self.frames.floor() + 2.0;
+            } else {
+                self.read_frame(&mut out);
+                self.frames += 1.0;
+            }
+        } else {
+            let (mut from, mut to, mut along) = match self.slow.take() {
+                Some(slow) => slow,
+                None => {
+                    let mut from = vec![0.0; out.len()];
+                    let mut to = vec![0.0; out.len()];
+                    self.read_frame(&mut from);
+                    self.read_frame(&mut to);
+                    (from, to, 0.0)
+                }
+            };
+            let t = along as f32;
+            for ((o, a), b) in out.iter_mut().zip(&from).zip(&to) {
+                *o = a + (b - a) * t;
+            }
+            along += speed;
+            self.frames += speed;
+            while along >= 1.0 {
+                std::mem::swap(&mut from, &mut to);
+                self.read_frame(&mut to);
+                along -= 1.0;
+            }
+            self.slow = Some((from, to, along));
+        }
+        self.out = out;
     }
 
     /// Makes a requested jump. Never blocks: if the caller is handing one over right now, the
@@ -100,7 +174,8 @@ impl<S: Source> MusicSource<S> {
         match self.inner.try_seek(target) {
             Ok(()) => {
                 self.base = target;
-                self.frames = 0;
+                self.frames = 0.0;
+                self.slow = None;
                 self.ended = false;
                 self.shared.finished.store(false, Ordering::Release);
                 *self
@@ -133,20 +208,13 @@ impl<S: Source> Iterator for MusicSource<S> {
             self.shared
                 .position_ns
                 .store(nanos(self.played()), Ordering::Release);
+            let speed = self.shared.speed();
+            self.next_frame(speed);
         }
-        let sample = if self.ended {
-            0.0
-        } else if let Some(sample) = self.inner.next() {
-            sample
-        } else {
-            self.ended = true;
-            self.shared.finished.store(true, Ordering::Release);
-            0.0
-        };
+        let sample = self.out[usize::from(self.channel)];
         self.channel += 1;
         if self.channel >= self.channels.get() {
             self.channel = 0;
-            self.frames += 1;
         }
         Some(sample)
     }
@@ -188,12 +256,24 @@ fn buffer_time(config: &DeviceSinkConfig) -> Duration {
     }
 }
 
+/// How the sound output was opened: what it says about its delay.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OutputInfo {
+    pub sample_rate: u32,
+    /// Frames per buffer, when the output was opened with a fixed size.
+    pub buffer_frames: Option<u32>,
+    /// About how long the output takes to play what it's handed: one buffer. The sound
+    /// system's own delay after that (the device, a Bluetooth link) isn't reported.
+    pub latency: Duration,
+}
+
 /// Plays a music file on the default sound output; its play position is the clock.
 pub struct MusicPlayer {
     player: Player,
     shared: Arc<Shared>,
     /// About how long the output takes to play what it's handed.
     latency: Duration,
+    output: Option<OutputInfo>,
     /// The last jump asked for: where to, and its number.
     pending: Duration,
     requested: u64,
@@ -207,8 +287,23 @@ pub struct MusicPlayer {
 impl MusicPlayer {
     /// Opens `path` on the default output, paused at the start.
     pub fn open(path: &Path) -> Result<Self, AudioError> {
+        Self::open_source(open_decoder(path)?.0)
+    }
+
+    /// A metronome clicking every `every` (the first click at the start) on the default output,
+    /// paused at the start: its position says exactly when each click is heard.
+    pub fn metronome(every: Duration) -> Result<Self, AudioError> {
+        Self::open_source(crate::metronome::Metronome::new(every))
+    }
+
+    /// How the sound output was opened (none without one).
+    pub fn output(&self) -> Option<OutputInfo> {
+        self.output
+    }
+
+    fn open_source<S: Source + Send + 'static>(inner: S) -> Result<Self, AudioError> {
         let shared = Arc::new(Shared::default());
-        let source = MusicSource::new(open_decoder(path)?.0, Arc::clone(&shared));
+        let source = MusicSource::new(inner, Arc::clone(&shared));
         let lost = Arc::clone(&shared);
         let on_error = move |error: StreamError| {
             if matches!(
@@ -231,9 +326,20 @@ impl MusicPlayer {
             .or_else(|_| DeviceSinkBuilder::open_default_sink())
             .map_err(|e| AudioError::NoOutput(e.to_string()))?;
         output.log_on_drop(false);
-        let latency = buffer_time(output.config());
+        let config = output.config();
+        let latency = buffer_time(config);
+        let info = OutputInfo {
+            sample_rate: config.sample_rate().get(),
+            buffer_frames: match config.buffer_size() {
+                BufferSize::Fixed(frames) => Some(*frames),
+                BufferSize::Default => None,
+            },
+            latency,
+        };
         let player = Player::connect_new(output.mixer());
-        Ok(Self::with_player(player, source, shared, latency, Some(output)))
+        let mut music = Self::with_player(player, source, shared, latency, Some(output));
+        music.output = Some(info);
+        Ok(music)
     }
 
     fn with_player<S: Source + Send + 'static>(
@@ -249,6 +355,7 @@ impl MusicPlayer {
             player,
             shared,
             latency,
+            output: None,
             pending: Duration::ZERO,
             requested: 0,
             playing: false,
@@ -299,7 +406,9 @@ impl AudioClock for MusicPlayer {
             now
         };
         if self.playing {
-            heard(raw, now - changed, self.latency)
+            // The output's delay is in wall time; slowed down, less of the song fits in it.
+            let speed = self.shared.speed();
+            heard(raw, (now - changed).mul_f64(speed), self.latency.mul_f64(speed))
         } else {
             raw
         }
@@ -307,6 +416,15 @@ impl AudioClock for MusicPlayer {
 
     fn set_volume(&mut self, volume: f32) {
         self.player.set_volume(volume.clamp(0.0, 1.0));
+    }
+
+    fn set_speed(&mut self, speed: f32) {
+        let speed = if speed.is_finite() {
+            speed.clamp(SLOWEST, 1.0)
+        } else {
+            1.0
+        };
+        self.shared.speed.store(speed.to_bits(), Ordering::Release);
     }
 
     fn finished(&self) -> bool {
@@ -473,6 +591,28 @@ mod tests {
         let sample = pull(&mut output, 100);
         assert_near(music.position(), 1290);
         assert!((ramp_ms(sample) - 1290.0).abs() < 15.0, "{}", ramp_ms(sample));
+    }
+
+    #[test]
+    fn plays_slower_and_back_at_full_speed() {
+        let (mut music, mut output, _dir) = player_without_output();
+        music.start(Duration::from_millis(500));
+        music.set_speed(0.5);
+        let sample = pull(&mut output, 400);
+        assert_near(music.position(), 700);
+        assert!(
+            (ramp_ms(sample) - 700.0).abs() < 12.0,
+            "the music itself is slowed: {}",
+            ramp_ms(sample)
+        );
+        music.set_speed(1.0);
+        let sample = pull(&mut output, 200);
+        assert_near(music.position(), 900);
+        assert!((ramp_ms(sample) - 900.0).abs() < 12.0, "{}", ramp_ms(sample));
+        music.set_speed(0.75);
+        music.seek(Duration::from_millis(100));
+        pull(&mut output, 400);
+        assert_near(music.position(), 400);
     }
 
     #[test]

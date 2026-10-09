@@ -1239,3 +1239,82 @@ fn effects_follow_the_music_in_the_preview_and_the_export_alike() {
     // The track was kept on disk for next time.
     assert_eq!(std::fs::read_dir(dir.path().join("cache")).unwrap().count(), 1);
 }
+
+/// A silent clock that notes every speed it's asked to play at.
+struct SpeedClock {
+    inner: pf_audio::SilentClock,
+    speeds: Arc<Mutex<Vec<f32>>>,
+}
+
+impl AudioClock for SpeedClock {
+    fn start(&mut self, position: Duration) {
+        self.inner.start(position);
+    }
+    fn pause(&mut self) {
+        self.inner.pause();
+    }
+    fn resume(&mut self) {
+        self.inner.resume();
+    }
+    fn seek(&mut self, position: Duration) {
+        self.inner.seek(position);
+    }
+    fn position(&self) -> Duration {
+        self.inner.position()
+    }
+    fn set_volume(&mut self, _volume: f32) {}
+    fn set_speed(&mut self, speed: f32) {
+        self.speeds.lock().unwrap().push(speed);
+        self.inner.set_speed(speed);
+    }
+}
+
+#[test]
+fn playback_slows_down_and_says_where_it_is_between_frames() {
+    let (engine, _recorded, _dir) = engine();
+    let speeds: Arc<Mutex<Vec<f32>>> = Default::default();
+    let noted = speeds.clone();
+    let clocks: ClockFactory = Arc::new(move |_music: Option<&Path>| {
+        Ok(Box::new(SpeedClock {
+            inner: pf_audio::SilentClock::new(),
+            speeds: noted.clone(),
+        }) as Box<dyn AudioClock>)
+    });
+    let mut engine = engine.with_clocks(clocks);
+    new_doc(&mut engine, 60_000);
+    assert!(engine.set_playback_speed(0.5).is_none(), "nothing playing");
+
+    let status = engine.play_sequence_doc(1000).unwrap();
+    assert_eq!(status.speed, 1.0);
+    let status = engine.set_playback_speed(0.5).unwrap();
+    assert_eq!(status.speed, 0.5);
+    wait_until(|| speeds.lock().unwrap().contains(&0.5));
+    // Slowed down, the music moves about half as far as the time that passes.
+    let before = engine.playback_status().unwrap().now_ms;
+    let started = Instant::now();
+    std::thread::sleep(Duration::from_millis(200));
+    let after = engine.playback_status().unwrap();
+    let moved = after.now_ms - before;
+    let elapsed = started.elapsed().as_millis() as u64;
+    assert!(moved <= elapsed / 2 + 30, "moved {moved} ms in {elapsed} ms");
+    assert!(moved >= 60, "moved {moved} ms in {elapsed} ms");
+    // Between frames, `now_ms` runs on from the start of the frame showing.
+    assert!(after.now_ms >= after.position_ms, "{after:?}");
+    assert!(
+        after.now_ms < after.position_ms + 2 * u64::from(after.frame_ms) + 30,
+        "{after:?}"
+    );
+
+    assert_eq!(
+        engine.set_playback_speed(4.0).unwrap().speed,
+        1.0,
+        "never faster than written"
+    );
+    assert_eq!(engine.set_playback_speed(0.01).unwrap().speed, pf_audio::SLOWEST);
+    engine.stop_playback();
+    assert_eq!(
+        engine.play_sequence_doc(0).unwrap().speed,
+        1.0,
+        "each playback starts as written"
+    );
+}

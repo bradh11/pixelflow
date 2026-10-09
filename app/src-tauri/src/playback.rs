@@ -112,6 +112,16 @@ pub(crate) async fn set_playback_volume(
     Ok(state.engine().set_playback_volume(volume))
 }
 
+/// Plays slower (1.0: as written, down to 0.25), live: the music's pitch drops with it, and the
+/// lights slow down with the music.
+#[tauri::command]
+pub(crate) async fn set_playback_speed(
+    state: State<'_, AppState>,
+    speed: f32,
+) -> Reply<Option<PlaybackStatus>> {
+    Ok(state.engine().set_playback_speed(speed))
+}
+
 /// How long a music file plays, and its format, found quickly from what the file says about
 /// itself; a file that doesn't say is read through, sending progress events as it goes (see
 /// `progress`).

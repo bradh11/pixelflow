@@ -26,6 +26,8 @@ pub(crate) enum AudioTask {
     AudioTrack,
     /// Detect beats.
     Beats,
+    /// The lead vocal, for the timeline's vocals lane.
+    Vocals,
 }
 
 impl AudioTask {
@@ -35,6 +37,7 @@ impl AudioTask {
             AudioTask::Probe | AudioTask::Waveform => "Reading the music",
             AudioTask::AudioTrack => "Getting the music ready for effects",
             AudioTask::Beats => "Finding the beats",
+            AudioTask::Vocals => "Finding the vocals",
         }
     }
 }

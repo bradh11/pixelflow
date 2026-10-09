@@ -6,6 +6,7 @@ import { demoShow } from "../../api/demo";
 import { DEMO_SEQUENCE_PATH, demoSequence } from "../../api/demoSequence";
 import { MemoryBackend } from "../../api/memory";
 import { MemorySequencer } from "../../api/memorySequencer";
+import { usePreviewSync } from "../../state/previewSync";
 import { useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
 import { loadShowView, saveShowView, showViewKey, useView3d } from "../../state/view3d";
@@ -94,14 +95,19 @@ describe("the Sequence screen's 3D preview", () => {
     expect(localStorage.getItem("pixelflow.sequenceMode")).toBe("2d");
   });
 
-  it("follows the playing sequence's live frames", async () => {
-    const { user, backend } = await openScreen();
+  it("follows the playing sequence, a little ahead by the preview sync offset", async () => {
+    const { user, seq } = await openScreen();
     await user.click(within(preview()).getByRole("button", { name: "3D" }));
     await waitFor(() => expect(fake.colors.at(-1)?.lit).toBe(true));
+    usePreviewSync.getState().setOffset(250);
     const live = new Uint8Array(3 * 2000).fill(7);
-    vi.spyOn(backend, "liveFrame").mockResolvedValue(live);
+    const frames = vi.spyOn(seq, "sequenceDocFrame").mockResolvedValue(live);
     await act(() => useSequencer.getState().play());
     await waitFor(() => expect(fake.colors.at(-1)?.rgb.slice(0, 3)).toEqual([7, 7, 7]), { timeout: 2000 });
+    // Asked for the moment the offset puts the picture at (playing from the top).
+    const asked = frames.mock.calls.at(-1)![0];
+    expect(asked).toBeGreaterThanOrEqual(250);
+    expect(asked).toBeLessThan(250 + 1000);
     await act(() => useSequencer.getState().stop());
   });
 

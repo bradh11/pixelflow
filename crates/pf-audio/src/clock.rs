@@ -14,6 +14,9 @@ pub trait AudioClock {
     fn position(&self) -> Duration;
     /// 0.0 (silent) to 1.0 (full).
     fn set_volume(&mut self, volume: f32);
+    /// How fast it plays: 1.0 as written, 0.5 at half speed (the music's pitch drops with it).
+    /// Clocks that can't change speed play as written.
+    fn set_speed(&mut self, _speed: f32) {}
     /// Whether the music has played to its end. Clocks without music always have.
     fn finished(&self) -> bool {
         true
@@ -27,10 +30,11 @@ pub trait AudioClock {
 /// A stopwatch that keeps time without sound (sequences with no music, and tests).
 #[derive(Debug)]
 pub struct SilentClock {
-    /// Position when the clock last started or was paused.
+    /// Position when the clock last started, was paused, or changed speed.
     base: Duration,
     /// When it started running; `None` while paused.
     since: Option<Instant>,
+    speed: f64,
 }
 
 impl SilentClock {
@@ -38,6 +42,7 @@ impl SilentClock {
         Self {
             base: Duration::ZERO,
             since: None,
+            speed: 1.0,
         }
     }
 }
@@ -73,10 +78,26 @@ impl AudioClock for SilentClock {
     }
 
     fn position(&self) -> Duration {
-        self.base + self.since.map_or(Duration::ZERO, |s| s.elapsed())
+        self.base
+            + self
+                .since
+                .map_or(Duration::ZERO, |s| s.elapsed().mul_f64(self.speed))
     }
 
     fn set_volume(&mut self, _volume: f32) {}
+
+    fn set_speed(&mut self, speed: f32) {
+        let speed = if speed.is_finite() && speed > 0.0 {
+            f64::from(speed.min(1.0))
+        } else {
+            1.0
+        };
+        self.base = self.position();
+        if self.since.is_some() {
+            self.since = Some(Instant::now());
+        }
+        self.speed = speed;
+    }
 }
 
 #[cfg(test)]
@@ -100,5 +121,24 @@ mod tests {
         clock.resume();
         std::thread::sleep(Duration::from_millis(20));
         assert!(clock.position() > Duration::from_secs(60));
+    }
+
+    #[test]
+    fn the_silent_clock_runs_slower() {
+        let mut clock = SilentClock::new();
+        clock.set_speed(0.5);
+        let started = Instant::now();
+        clock.start(Duration::ZERO);
+        std::thread::sleep(Duration::from_millis(100));
+        let slowed = clock.position();
+        let elapsed = started.elapsed();
+        assert!(slowed >= Duration::from_millis(50), "{slowed:?}");
+        assert!(
+            slowed <= elapsed.mul_f64(0.5) + Duration::from_millis(1),
+            "{slowed:?} after {elapsed:?}"
+        );
+        clock.set_speed(1.0);
+        std::thread::sleep(Duration::from_millis(30));
+        assert!(clock.position() >= slowed + Duration::from_millis(30));
     }
 }

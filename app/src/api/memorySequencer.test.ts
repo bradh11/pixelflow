@@ -123,14 +123,17 @@ describe("MemorySequencer", () => {
     ).rejects.toThrow("The export was cancelled.");
   });
 
-  it("adds beat tracks once per name, as one undo step", async () => {
+  it("adds beat tracks once per name, keeping sections and accents already there, as one undo step", async () => {
     const { seq } = await authored();
     await expect(seq.detectBeats()).rejects.toThrow("no music yet");
     await seq.editSequence([{ type: "updateInfo", name: "Song", audio: "song.mp3", durationMs: 10_000, frameMs: 25 }]);
     await seq.detectBeats();
+    expect(seq.doc!.timingTracks.map((t) => t.name)).toEqual(["Beats", "Bars", "Sections", "Accents"]);
+    const sections = seq.doc!.timingTracks[2];
     const reply = await seq.detectBeats();
     expect(reply.changes.removedTimingTracks).toHaveLength(2);
-    expect(seq.doc!.timingTracks.map((t) => t.name)).toEqual(["Beats", "Bars"]);
+    expect(seq.doc!.timingTracks.map((t) => t.name)).toEqual(["Sections", "Accents", "Beats", "Bars"]);
+    expect(seq.doc!.timingTracks[0]).toEqual(sections);
   });
 });
 

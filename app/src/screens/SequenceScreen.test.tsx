@@ -111,9 +111,9 @@ describe("sequence screen", () => {
     expect(within(picker).getAllByRole("button")[0]).toHaveAccessibleName("Add every prop (4)");
     await user.click(within(picker).getByRole("button", { name: "Add every prop (4)" }));
     await waitFor(() => expect(useSequencer.getState().doc?.rows).toHaveLength(4));
-    const banner = screen.getByText(/Find the beats and bars in this song/).closest("[role=status]")!;
+    const banner = screen.getByText(/Find the beats, bars, and sections in this song/).closest("[role=status]")!;
     await user.click(within(banner as HTMLElement).getByRole("button", { name: "Detect beats" }));
-    await waitFor(() => expect(useSequencer.getState().doc?.timingTracks.map((t) => t.name)).toEqual(["Beats", "Bars"]));
+    await waitFor(() => expect(useSequencer.getState().doc?.timingTracks.map((t) => t.name)).toEqual(["Beats", "Bars", "Sections", "Accents"]));
     expect(screen.getByRole("group", { name: "Timing track Beats" })).toBeInTheDocument();
   });
 

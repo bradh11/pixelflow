@@ -7,7 +7,7 @@ use pf_engine::{
     Engine, EngineError, ExportLayout, ExportSummary, PlaybackStatus, SequenceEdit, SequenceEditResult,
     SequenceExport, SequenceRecovery, SequenceSnapshot, ShowSnapshot,
 };
-use pf_sequence::{EffectInfo, Row, TimingTrack};
+use pf_sequence::{EffectInfo, Row, TimingKind, TimingTrack};
 use serde::Serialize;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -260,7 +260,8 @@ pub(crate) async fn analyze_audio(path: String) -> Reply<Analysis> {
 }
 
 /// Detects beats in the open sequence's music and adds Beats, Bars, and Onsets timing tracks
-/// (replacing earlier ones), as one undo step. The analysis runs without holding the engine; the
+/// (replacing earlier ones), and Sections and Accents (unless the sequence has them already: the
+/// user's own are kept), as one undo step. The analysis runs without holding the engine; the
 /// tracks are only added if the same sequence, with the same music, is still open.
 #[tauri::command]
 pub(crate) async fn detect_beats(state: State<'_, AppState>) -> Reply<SequenceEditResult> {
@@ -279,7 +280,10 @@ pub(crate) async fn detect_beats(state: State<'_, AppState>) -> Reply<SequenceEd
         .await
         .map_err(|_| "Something went wrong analyzing the music.".to_string())?
         .map_err(|e| e.to_string())?;
-    add_detected_tracks(&mut state.engine(), doc, &music, analysis.timing_tracks())
+    let mut tracks = analysis.timing_tracks();
+    let found = [analysis.sections_track(), analysis.accents_track()];
+    tracks.extend(found.into_iter().filter(|t| !t.marks.is_empty()));
+    add_detected_tracks(&mut state.engine(), doc, &music, tracks)
 }
 
 /// What importing a timing file did: the edit's reply, the tracks added (by name, as they were
@@ -410,7 +414,14 @@ pub(crate) fn write_timing_file(path: &Path, layers: &[TimingTrack]) -> Reply<us
     Ok(layers[0].marks.len())
 }
 
+/// Whether a detected track is one the user shapes by hand (sections, accents): one already in
+/// the sequence by that name is kept instead of replaced.
+fn shaped_by_hand(track: &TimingTrack) -> bool {
+    track.kind == TimingKind::Sections || track.name == "Accents"
+}
+
 /// Adds detected timing tracks, if the sequence `doc` with music `music` is still the open one.
+/// Sections and Accents already there are the user's and stay as they are.
 pub(crate) fn add_detected_tracks(
     engine: &mut Engine,
     doc: u64,
@@ -423,5 +434,13 @@ pub(crate) fn add_detected_tracks(
                 .to_string(),
         );
     }
+    let have: Vec<String> = engine
+        .sequence_document()
+        .map(|d| d.timing_tracks.iter().map(|t| t.name.clone()).collect())
+        .unwrap_or_default();
+    let tracks = tracks
+        .into_iter()
+        .filter(|t| !(shaped_by_hand(t) && have.contains(&t.name)))
+        .collect();
     engine.replace_timing_tracks(tracks).map_err(message)
 }

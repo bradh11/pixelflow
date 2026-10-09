@@ -23,6 +23,7 @@ mod progress;
 mod recent;
 mod sequencer;
 mod vendor;
+mod video;
 mod xlights;
 
 use devices::DeviceAccess;
@@ -352,6 +353,9 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         sequencer::add_sequence_doc_to_show,
         sequencer::sequence_export_layout,
         sequencer::export_sequence_doc,
+        video::video_export_choices,
+        video::export_video,
+        video::cancel_video_export,
         sequencer::analyze_audio,
         sequencer::detect_beats,
         sequencer::import_timing_file,

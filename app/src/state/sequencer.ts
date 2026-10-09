@@ -64,6 +64,25 @@ export function recentFor(recent: RecentSequence[], show: string | null): { mine
   return { mine, others: recent.filter((r) => !mine.includes(r)) };
 }
 
+const TIMING_HIDDEN_KEY = "pixelflow.timingTracksHidden";
+
+/** Whether the timing tracks were folded away last time (a per-viewer convenience). */
+function loadTimingHidden(): boolean {
+  try {
+    return localStorage.getItem(TIMING_HIDDEN_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function saveTimingHidden(on: boolean) {
+  try {
+    localStorage.setItem(TIMING_HIDDEN_KEY, String(on));
+  } catch {
+    // Storage unavailable: the tracks stay folded until the app closes.
+  }
+}
+
 function loadLoop(): boolean {
   try {
     return localStorage.getItem(LOOP_KEY) === "true";
@@ -148,6 +167,8 @@ interface SequencerState {
   /** Playback goes round again from the top at the end (the engine jumps the music back too). */
   looping: boolean;
   snapping: boolean;
+  /** The timing tracks are folded away above the rows (snapping still uses them). */
+  timingHidden: boolean;
   collapsed: string[];
   clipboard: Copied[];
   /** Sequences opened or saved lately, with the show each was used with. */
@@ -229,6 +250,7 @@ interface SequencerState {
   setActiveRow(id: string | null): void;
   setPlayhead(ms: number): void;
   toggleCollapsed(rowId: string): void;
+  toggleTimingHidden(): void;
   setSnapping(on: boolean): void;
   setSendToControllers(on: boolean): Promise<void>;
   /** Turns looping on or off (remembered on this computer); a playing sequence switches at once. */
@@ -408,6 +430,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
     sendToControllers: false,
     looping: loadLoop(),
     snapping: true,
+    timingHidden: loadTimingHidden(),
     collapsed: [],
     clipboard: [],
     recent: loadRecent(),
@@ -728,6 +751,11 @@ export const useSequencer = create<SequencerState>((set, get) => {
     toggleCollapsed: (rowId) => {
       const collapsed = get().collapsed;
       set({ collapsed: collapsed.includes(rowId) ? collapsed.filter((id) => id !== rowId) : [...collapsed, rowId] });
+    },
+    toggleTimingHidden: () => {
+      const timingHidden = !get().timingHidden;
+      set({ timingHidden });
+      saveTimingHidden(timingHidden);
     },
     setSnapping: (snapping) => set({ snapping }),
 

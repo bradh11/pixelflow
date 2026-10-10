@@ -1138,7 +1138,8 @@ fn build(file: &XsqFile, show: &Show, fallback_name: &str, mapping: Option<&Mapp
 
 /// Imports the `.xsq` file at `path` for `show`. `find_audio` locates its music from the
 /// sequence's path and the file it names (PixelFlow's `pf_audio::find_audio`); the sequence is
-/// named after its song, or the file when it has none.
+/// named after its song, or the file when it has none. Its pictures are looked for near it (see
+/// [`find_pictures`]).
 pub fn import_sequence_file(
     path: &Path,
     show: &Show,
@@ -1147,7 +1148,78 @@ pub fn import_sequence_file(
     let file = read_sequence_file(path)?;
     let mut import = build_sequence(&file, show, &name_from_path(path));
     find_music(&mut import, &file, path, find_audio);
+    find_pictures(&mut import, Some(path));
     Ok(import)
+}
+
+/// The folders an xLights sequence's pictures are looked for in: the sequence's own, then the
+/// ones above it up to the show folder (the one with the layout), or three up when none is.
+fn picture_folders(sequence: &Path) -> Vec<PathBuf> {
+    let mut folders = Vec::new();
+    for folder in sequence.ancestors().skip(1).take(4) {
+        if folder.as_os_str().is_empty() {
+            break;
+        }
+        folders.push(folder.to_path_buf());
+        if folder.join("xlights_rgbeffects.xml").is_file() {
+            break;
+        }
+    }
+    folders
+}
+
+/// Points the import's Picture effects at their files on this computer (the sequence was read
+/// from `path`): each where the sequence says, else by its name in the xLights show folder or
+/// under it with the old show folder's part of the path removed, the way the layout's photo is
+/// found. One that isn't found keeps what the sequence says, and a note names it.
+pub(crate) fn find_pictures(import: &mut SequenceImport, path: Option<&Path>) {
+    let folders = path.map(picture_folders).unwrap_or_default();
+    let mut found: HashMap<String, Option<String>> = HashMap::new();
+    let mut lost: Vec<String> = Vec::new();
+    let effects = import
+        .sequence
+        .rows
+        .iter_mut()
+        .flat_map(|row| &mut row.layers)
+        .flat_map(|layer| &mut layer.effects);
+    for effect in effects {
+        let EffectParams::Picture(p) = &mut effect.params else {
+            continue;
+        };
+        if p.file.is_empty() {
+            continue;
+        }
+        let here = found.entry(p.file.clone()).or_insert_with(|| {
+            folders
+                .iter()
+                .find_map(|folder| crate::background::find(&p.file, folder))
+                .map(|at| pf_model::path_to_text(&std::path::absolute(&at).unwrap_or(at)))
+                .filter(|text| text.chars().count() <= MAX_TEXT_LEN)
+        });
+        match here {
+            Some(text) => p.file = text.clone(),
+            None => {
+                let name = pf_model::file_name_of(&p.file);
+                if !lost.contains(&name) {
+                    lost.push(name);
+                }
+            }
+        }
+    }
+    if !lost.is_empty() {
+        let (what, them) = if lost.len() == 1 {
+            ("a picture", "it")
+        } else {
+            ("pictures", "them")
+        };
+        import.notes.insert(
+            0,
+            format!(
+                "Couldn't find {what} near the sequence ({}); choose {them} in the Picture effects' settings.",
+                list(&lost)
+            ),
+        );
+    }
 }
 
 /// The too-large message for a sequence of `size` bytes.

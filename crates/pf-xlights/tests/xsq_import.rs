@@ -841,3 +841,133 @@ fn lightning_and_chases_on_a_timing_track() {
     );
     assert_eq!(i.summary.placeholders, 0);
 }
+
+/// An xLights sequence with a Pictures effect per `file`, written into `folder`.
+fn pictures_xsq(folder: &Path, files: &[&str]) -> PathBuf {
+    let effects: String = files
+        .iter()
+        .map(|f| {
+            format!(
+                "    <Effect>E_CHOICE_Scaling=Scale Keep Aspect Ratio,E_TEXTCTRL_Pictures_Filename={f}</Effect>\n"
+            )
+        })
+        .collect();
+    let placed: String = (0..files.len())
+        .map(|i| {
+            format!(
+                "        <Effect ref=\"{i}\" name=\"Pictures\" palette=\"0\" startTime=\"{}\" endTime=\"{}\"/>\n",
+                i * 1000,
+                (i + 1) * 1000
+            )
+        })
+        .collect();
+    let xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<xsequence BaseChannel="0" ChanCtrlBasic="0" ChanCtrlColor="0" FixedPointTiming="1" ModelBlending="true">
+  <head>
+    <version>2025.01</version>
+    <song>Pictures</song>
+    <sequenceTiming>25 ms</sequenceTiming>
+    <sequenceType>Animation</sequenceType>
+    <sequenceDuration>10.000</sequenceDuration>
+  </head>
+  <ColorPalettes>
+    <ColorPalette>C_BUTTON_Palette1=#FF0000,C_CHECKBOX_Palette1=1</ColorPalette>
+  </ColorPalettes>
+  <EffectDB>
+{effects}  </EffectDB>
+  <ElementEffects>
+    <Element type="model" name="Window Matrix">
+      <EffectLayer>
+{placed}      </EffectLayer>
+    </Element>
+  </ElementEffects>
+</xsequence>
+"#
+    );
+    std::fs::create_dir_all(folder).unwrap();
+    let path = folder.join("pics.xsq");
+    std::fs::write(&path, xml).unwrap();
+    path
+}
+
+#[test]
+fn pictures_are_found_where_the_sequence_says_or_by_name_in_the_show_folder() {
+    use pf_sequence::{PictureFit, PictureParams, PictureTiming};
+    let dir = tempfile::tempdir().unwrap();
+    let xlights = dir.path().join("xlights");
+    let touch = |path: PathBuf| {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"GIF89a").unwrap();
+        path
+    };
+    // The show folder (the one with the layout), with its pictures in it and below it.
+    touch(xlights.join("xlights_rgbeffects.xml"));
+    let santa = touch(xlights.join("Images/santa dancing.gif"));
+    let star = touch(xlights.join("star.png"));
+    let elsewhere = touch(dir.path().join("Art/elf.gif"));
+    let elsewhere_text = pf_model::path_to_text(&elsewhere);
+    // The sequence is two folders down, as xLights users often keep them.
+    let xsq = pictures_xsq(
+        &xlights.join("Sequences/2025"),
+        &[
+            // From another computer: found under the show folder by the end of its path.
+            r"C:\Users\someone\Documents\xlights\Images\santa dancing.gif",
+            // Somewhere that isn't there: found in the show folder by its name.
+            "/Volumes/Old Disk/shows/star.png",
+            // Where it says: used as it is.
+            &elsewhere_text,
+            // Nowhere: kept as written, and named in a note (once, however often it's used).
+            r"D:\Art\gone.gif",
+            r"D:\Art\gone.gif",
+            "",
+        ],
+    );
+    let i = import_sequence_file(&xsq, &show(), |_, _| None).unwrap();
+    assert_opens(&i);
+    let pictures: Vec<&PictureParams> = i.sequence.rows[0].layers[0]
+        .effects
+        .iter()
+        .map(|e| match &e.params {
+            EffectParams::Picture(p) => p,
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    let files: Vec<&str> = pictures.iter().map(|p| p.file.as_str()).collect();
+    assert_eq!(
+        files,
+        [
+            pf_model::path_to_text(&santa).as_str(),
+            pf_model::path_to_text(&star).as_str(),
+            elsewhere_text.as_str(),
+            r"D:\Art\gone.gif",
+            r"D:\Art\gone.gif",
+            "",
+        ]
+    );
+    assert!(
+        pictures
+            .iter()
+            .all(|p| p.fit == PictureFit::Fit && p.timing == PictureTiming::Stretch)
+    );
+    assert_note(
+        &i,
+        "Couldn't find a picture near the sequence (gone.gif); choose it in the Picture effects' settings.",
+    );
+    // They're real Picture effects now, not dim stand-ins, and none is approximate.
+    assert_eq!(
+        (i.summary.placeholders, i.summary.approximate, i.summary.exact),
+        (0, 0, 6),
+        "{:#?}",
+        i.notes
+    );
+    assert!(!has_note(&i, "no matching effect"));
+
+    // Without the layout to say where the show folder ends, the folders just above are tried.
+    std::fs::remove_file(xlights.join("xlights_rgbeffects.xml")).unwrap();
+    let i = import_sequence_file(&xsq, &show(), |_, _| None).unwrap();
+    let EffectParams::Picture(p) = &i.sequence.rows[0].layers[0].effects[0].params else {
+        unreachable!()
+    };
+    assert_eq!(p.file, pf_model::path_to_text(&santa));
+}

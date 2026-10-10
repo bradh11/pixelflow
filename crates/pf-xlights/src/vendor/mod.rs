@@ -508,7 +508,10 @@ pub fn import(
     let (name, file) = package.read_sequence(sequence)?;
     let fallback = name_from_path(Path::new(file_name(&name)));
     let mut import = build_sequence_mapped(&file, show, &fallback, mapping);
-    if let Some(path) = package.file_path(&name) {
+    // Pictures are only looked for on disk: a zip's stay in it (and are named in a note).
+    let on_disk = package.file_path(&name);
+    crate::sequence::find_pictures(&mut import, on_disk.as_deref());
+    if let Some(path) = on_disk {
         find_music(&mut import, &file, &path, find_audio);
         return Ok(import);
     }

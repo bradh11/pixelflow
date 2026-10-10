@@ -716,6 +716,99 @@ fn a_start_past_the_end_is_refused_not_a_crash() {
     assert_eq!(placed(&session, &a, 0), [(0, 1000)], "nothing copied");
 }
 
+#[test]
+fn dancers_are_looked_up_and_placed_like_any_effect() {
+    let s = setup(Some("/music/song.mp3"));
+    let [a, b] = [0, 1].map(|i| s.rows[i].clone());
+    let dancer = |row: &String, settings: Value| {
+        (
+            "place_effects",
+            json!({ "rowIds": [row], "fromMs": 8000, "toMs": 24000, "effect": { "kind": "dancer", "settings": settings } }),
+        )
+    };
+    let provider = ScriptedProvider::new(vec![
+        calls("", &[("list_effect_kinds", json!({ "kind": "dancer" }))]),
+        calls(
+            "",
+            &[
+                dancer(&a, json!({ "character": "skeleton" })),
+                dancer(&b, json!({ "character": "skeleton", "mirror": true })),
+                dancer(&a, json!({ "character": "zombie" })),
+            ],
+        ),
+        says("Two skeletons, facing each other."),
+    ]);
+    let (mut session, _) = session();
+    let (reply, _) = ask(
+        &mut session,
+        &provider,
+        &s.engine,
+        "Dancing skeletons on A and B through the loud part",
+    );
+    reply.unwrap();
+    // The lookup gives every setting with its choices, in a few short lines' worth.
+    let (listed, is_error) = results_in(&provider, 1).remove(0);
+    assert!(!is_error, "{listed}");
+    assert!(listed.len() < 3_600, "{} bytes", listed.len());
+    let catalog: Value = serde_json::from_str(&listed).unwrap();
+    assert_eq!(catalog.as_array().map(Vec::len), Some(1));
+    assert_eq!(catalog[0]["kind"], "dancer");
+    let keys: Vec<&str> = catalog[0]["settings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|setting| setting["key"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            "character",
+            "moves",
+            "timingTrack",
+            "speed",
+            "size",
+            "mirror",
+            "count",
+            "usePalette",
+            "bassBounce",
+            "x",
+            "y",
+            "stagger",
+            "background",
+            "routine"
+        ]
+    );
+    let characters: Vec<&str> = catalog[0]["settings"][0]["options"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|option| option["value"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        characters,
+        ["skeleton", "ghost", "witch", "santa", "snowman", "elf"]
+    );
+    // Placed on both rows through the section, the second mirrored; a character it doesn't
+    // have is refused.
+    let results = results_in(&provider, 2);
+    assert!(!results[0].1 && !results[1].1, "{results:?}");
+    assert!(results[2].1 && results[2].0.contains("zombie"), "{results:?}");
+    let doc = session.draft().unwrap().sequence().unwrap();
+    for (row, mirror) in [(&a, false), (&b, true)] {
+        assert_eq!(placed(&session, row, 0), [(8000, 24000)]);
+        let row = doc.rows.iter().find(|r| &r.id.to_string() == row).unwrap();
+        let effect = &row.layers[0].effects[0];
+        assert_eq!(effect.kind(), EffectKind::Dancer);
+        let settings = serde_json::to_value(&effect.params).unwrap();
+        assert_eq!(
+            (&settings["character"], &settings["mirror"]),
+            (&json!("skeleton"), &json!(mirror))
+        );
+        // Left to follow the song's beats.
+        assert_eq!(settings["timingTrack"], Value::Null);
+    }
+}
+
 /// An OpenAI Responses stream with one function call (then nothing else).
 fn openai_call(name: &str, input: &Value) -> String {
     let item = json!({ "id": "fc_1", "type": "function_call", "status": "completed", "call_id": "call_1", "name": name, "arguments": input.to_string() });

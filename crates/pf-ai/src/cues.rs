@@ -29,7 +29,7 @@ use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The cues, as `stage_cue` takes them.
-pub const CUES: [&str; 13] = [
+pub const CUES: [&str; 14] = [
     "hit",
     "blackout",
     "ramp",
@@ -43,7 +43,11 @@ pub const CUES: [&str; 13] = [
     "sustain",
     "color_shift",
     "breathe",
+    "dance",
 ];
+
+/// The characters a dance cue's `match` takes: the Dancer effect's.
+pub const CHARACTERS: [&str; 6] = ["skeleton", "ghost", "witch", "santa", "snowman", "elf"];
 
 /// Which way a sweep travels (and a chase steps): the Wipe effect's directions.
 pub const DIRECTIONS: [&str; 6] = ["leftToRight", "rightToLeft", "up", "down", "centerOut", "edgesIn"];
@@ -91,9 +95,10 @@ enum Cue {
     Sustain,
     ColorShift,
     Breathe,
+    Dance,
 }
 
-const ALL_CUES: [Cue; 13] = [
+const ALL_CUES: [Cue; 14] = [
     Cue::Hit,
     Cue::Blackout,
     Cue::Ramp,
@@ -107,6 +112,7 @@ const ALL_CUES: [Cue; 13] = [
     Cue::Sustain,
     Cue::ColorShift,
     Cue::Breathe,
+    Cue::Dance,
 ];
 
 impl Cue {
@@ -133,6 +139,7 @@ impl Cue {
             "full" => ("full look", "full looks"),
             "sustain" => ("sustain", "sustains"),
             "color_shift" => ("color shift", "color shifts"),
+            "dance" => ("dance", "dances"),
             _ => ("breath", "breaths"),
         }
     }
@@ -340,6 +347,8 @@ struct Spec {
     track: Option<TimingTrackId>,
     /// End a ramp, or follow a blackout, with a hit (`None`: as the music says).
     hit: Option<bool>,
+    /// Who dances (a dance cue's `match`).
+    character: &'static str,
 }
 
 /// The effects being staged, on a copy of the draft's sequence kept in step with them.
@@ -417,7 +426,7 @@ pub fn stage(draft: &mut Draft, analysis: Option<&Analysis>, input: &Value) -> R
     let steps = !auto.is_null()
         || words
             .iter()
-            .any(|w| ["ramp", "chase", "call_response", "breathe"].contains(w));
+            .any(|w| ["ramp", "chase", "call_response", "breathe", "dance"].contains(w));
     if let Some(analysis) = analysis
         && steps
     {
@@ -845,6 +854,13 @@ impl<'a> Stager<'a> {
             .as_str()
             .map(str::to_string)
             .or_else(|| when.moment.as_ref().and_then(|m| m.label.clone()));
+        let character = match value["match"].as_str().filter(|_| cue == Cue::Dance) {
+            None => CHARACTERS[0],
+            Some(word) => CHARACTERS
+                .into_iter()
+                .find(|c| *c == word.trim().to_lowercase())
+                .ok_or_else(|| format!("match is who dances: one of {}.", CHARACTERS.join(", ")))?,
+        };
         Ok(Spec {
             cue,
             at: when.at,
@@ -858,6 +874,7 @@ impl<'a> Stager<'a> {
             pattern,
             track,
             hit: value["hit"].as_bool(),
+            character,
         })
     }
 
@@ -913,6 +930,7 @@ impl<'a> Stager<'a> {
                 pattern: m.label.clone().filter(|_| m.kind == MomentKind::Shout),
                 track: None,
                 hit: None,
+                character: CHARACTERS[0],
             })
             .collect();
         // A ramp ends on a hit of its own only where no staged moment lands.
@@ -1177,6 +1195,7 @@ impl<'a> Stager<'a> {
             Cue::Sustain => self.sustain(spec),
             Cue::ColorShift => self.color_shift(spec),
             Cue::Breathe => self.breathe(spec),
+            Cue::Dance => self.dance(spec)?,
         }
         Ok(self.edits.len() > before)
     }
@@ -1798,5 +1817,58 @@ impl<'a> Stager<'a> {
             let pulse = make(EffectKind::Pulse, settings.clone(), spec.at, end, &palette);
             self.put(row, layer, pulse);
         }
+    }
+
+    /// Dancing characters from `at` to `until` (else four bars) on the matrices among the
+    /// targets (on the targets as named, when none is a matrix): a Dancer on the song's beats
+    /// over a dark layer, bouncing with the bass by intensity, in its own colors or the cue's.
+    /// With several props, the ones right of their middle are mirrored, so a pair faces each
+    /// other.
+    fn dance(&mut self, spec: &Spec) -> Result<(), String> {
+        let matrices: Vec<PropId> = spec
+            .props
+            .iter()
+            .copied()
+            .filter(|p| self.props.get(p).is_some_and(|i| i.role == Role::Matrix))
+            .collect();
+        let props = match (matrices.is_empty(), spec.everything) {
+            (false, _) => matrices,
+            (true, false) => spec.props.clone(),
+            (true, true) => {
+                return Err("no props are matrices: name the props to dance on in targets.".into());
+            }
+        };
+        let end = spec
+            .until
+            .unwrap_or(spec.at + 4 * self.bar())
+            .min(self.duration());
+        let span = (spec.at, end);
+        let (lo, hi) = self.bounds(&props);
+        let middle = (lo[0] + hi[0]) / 2.0;
+        let mut settings = json!({
+            "character": spec.character,
+            "usePalette": !spec.colors.is_empty(),
+            "bassBounce": if self.analysis.is_some() { (0.6 * spec.intensity * 100.0).round() / 100.0 } else { 0.0 },
+        });
+        if let Some(beats) = self.track("Beats") {
+            settings["timingTrack"] = json!(beats.id);
+        }
+        for row in self.rows_for(&props, span) {
+            let layer = self.layer_for(row, span);
+            self.put(row, layer, make(EffectKind::Off, json!({}), spec.at, end, &[]));
+            let on: Vec<&PropInfo> = self.covers[row]
+                .iter()
+                .filter_map(|p| self.props.get(p))
+                .collect();
+            let mut settings = settings.clone();
+            settings["mirror"] = json!(props.len() > 1 && on.len() == 1 && on[0].center()[0] > middle);
+            let mut dancer = make(EffectKind::Dancer, settings, spec.at, end, &spec.colors);
+            // A row of several props: a dancer on each, rather than one across them all.
+            if on.len() > 1 {
+                dancer.render_style = RenderStyle::PerModelDefault;
+            }
+            self.put(row, layer + 1, dancer);
+        }
+        Ok(())
     }
 }

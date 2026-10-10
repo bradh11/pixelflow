@@ -49,7 +49,7 @@ import {
   resizeView,
   type Rect,
 } from "../../lib/layoutMath";
-import { batchPixels, drawBatches } from "../../lib/pixelBatches";
+import { DOT_RADIUS, batchPixels, drawBatches, drawPixels } from "../../lib/pixelBatches";
 import { updateEdits } from "../../lib/layoutEdits";
 import {
   type LineEnd,
@@ -91,6 +91,7 @@ import { pickForMenu, propMenuItems } from "../../state/layoutActions";
 import { registerCanvas, useLayoutEditor } from "../../state/layoutEditor";
 import { commitGesture, settlePending, unsettled } from "../../state/layoutGestures";
 import { useApp } from "../../state/store";
+import { useView3d } from "../../state/view3d";
 import { GUIDE_COLORS, drawGuideMarks } from "./guideMarks";
 import { type PhotoImage, useLiveFrame } from "./useLayoutData";
 
@@ -475,8 +476,8 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
 
     const props = effectivePreview();
     const selected = new Set(editor.selected);
-    const radius = Math.min(4.5, Math.max(1.3, view.zoom * 0.05));
-    drawBatches(ctx, batchPixels(props, frame.current, view, s, selected, PIXEL_COLORS, radius), radius, ratio);
+    const radius = Math.min(4.5, Math.max(1.3, view.zoom * DOT_RADIUS));
+    drawPixels(ctx, props, frame.current, view, s, selected, PIXEL_COLORS, radius, ratio, useView3d.getState().glow);
 
     // A submodel or face picked in the properties panel, drawn over its prop a little bigger.
     const hl = editor.highlight;
@@ -637,6 +638,9 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
       }),
     [redraw],
   );
+
+  // So does the glow around lit pixels.
+  useEffect(() => useView3d.subscribe((st, prev) => st.glow !== prev.glow && redraw()), [redraw]);
 
   // Gestures the engine's new positions include no longer need drawing on top.
   useEffect(() => {

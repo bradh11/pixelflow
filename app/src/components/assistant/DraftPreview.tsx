@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { PreviewProp } from "../../api/types";
 import { formatTime } from "../../lib/timelineMath";
 import { useAssistant } from "../../state/assistant";
+import { useView3d } from "../../state/view3d";
 import { PreviewCanvas } from "../PreviewCanvas";
 import { Button } from "../ui";
 
@@ -86,6 +87,7 @@ export function DraftPreview() {
   const preview = useAssistant((s) => s.preview);
   const proposal = useAssistant((s) => s.proposal);
   const busy = useAssistant((s) => s.busy);
+  const glow = useView3d((s) => s.glow);
   const { hidePreview, apply, discard } = useAssistant.getState();
   const closeRef = useRef<HTMLButtonElement>(null);
   const plays = proposal?.changesSequence === true && proposal.timeline !== null;
@@ -134,7 +136,8 @@ export function DraftPreview() {
                 ? "The draft sequence playing on your layout, without its music."
                 : `The layout with the draft applied. ${proposal.changedProps.length} added or changed props are highlighted.`}
             </p>
-            <PreviewCanvas props={preview.props} frame={frame} />
+            {/* A draft sequence plays with the viewer's glow; the picture of what changes is plain. */}
+            <PreviewCanvas props={preview.props} frame={frame} glow={plays ? glow : 0} />
           </div>
         </div>
         <div className="flex items-center gap-4 border-t border-neutral-200 px-4 py-3 text-sm dark:border-neutral-800">

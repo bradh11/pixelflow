@@ -343,8 +343,8 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
       (scene) => {
         if (cancelled) return;
         sceneRef.current = scene;
-        const { bloom, ground } = useView3d.getState();
-        scene.setOptions({ bloom, ground });
+        const { glow, ground } = useView3d.getState();
+        scene.setOptions({ glow, ground });
         const s = size();
         scene.resize(s, Math.min(MAX_RATIO, window.devicePixelRatio || 1));
         setReady(true);
@@ -477,7 +477,7 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
       useView3d.subscribe((st, prev) => {
         const scene = sceneRef.current;
         if (!scene) return;
-        if (st.bloom !== prev.bloom || st.ground !== prev.ground) scene.setOptions({ bloom: st.bloom, ground: st.ground });
+        if (st.glow !== prev.glow || st.ground !== prev.ground) scene.setOptions({ glow: st.glow, ground: st.ground });
         if (st.photoDepth !== prev.photoDepth) syncBackdrop();
         if (st.command && st.command !== prev.command) runCamera(st.command.action);
         invalidate();

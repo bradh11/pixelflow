@@ -6,6 +6,7 @@ import type { VideoChoices, VideoProgress, VideoRequest, VideoSummary } from "..
 import { clock, fileName, sizeText } from "../../lib/format";
 import { formatTime, parseTime } from "../../lib/timelineMath";
 import { useSequencer } from "../../state/sequencer";
+import { useView3d } from "../../state/view3d";
 import { ProgressBar } from "../ProgressBar";
 import { Button, Input, Select } from "../ui";
 
@@ -17,12 +18,12 @@ interface Settings {
   fps: 30 | 60;
   photo: boolean;
   pixelSize: number;
-  /** 0 (crisp dots) to 1. */
-  glow: number;
+  /** 0 (crisp dots) to 1; null until one is chosen here: the video then glows as the previews do. */
+  glow: number | null;
   ffmpeg: boolean;
 }
 
-const DEFAULTS: Settings = { height: 1080, fps: 30, photo: true, pixelSize: 1, glow: 0, ffmpeg: false };
+const DEFAULTS: Settings = { height: 1080, fps: 30, photo: true, pixelSize: 1, glow: null, ffmpeg: false };
 
 const PIXEL_SIZES = [
   { value: 0.6, label: "Small" },
@@ -39,7 +40,7 @@ function loadSettings(): Settings {
       fps: saved.fps === 60 ? 60 : 30,
       photo: saved.photo !== false,
       pixelSize: PIXEL_SIZES.some((p) => p.value === saved.pixelSize) ? saved.pixelSize! : 1,
-      glow: typeof saved.glow === "number" && Number.isFinite(saved.glow) ? Math.min(1, Math.max(0, saved.glow)) : 0,
+      glow: typeof saved.glow === "number" && Number.isFinite(saved.glow) ? Math.min(1, Math.max(0, saved.glow)) : null,
       ffmpeg: saved.ffmpeg === true,
     };
   } catch {
@@ -95,6 +96,9 @@ export function ExportVideoDialog({ onClose }: { onClose: () => void }) {
   const playheadMs = useSequencer((s) => s.playheadMs);
   const [choices, setChoices] = useState<VideoChoices | null>(null);
   const [settings, setSettings] = useState<Settings>(loadSettings);
+  // Until a glow is chosen here, the video starts with the glow the previews are shown with.
+  const previewGlow = useView3d((s) => s.glow);
+  const glow = settings.glow ?? previewGlow;
   const span = doc ? selectionSpan(doc, selection) : null;
   const [range, setRange] = useState<Range>(span ? "selection" : "all");
   const [from, setFrom] = useState(() => formatTime(span?.startMs ?? playheadMs, 100));
@@ -171,7 +175,7 @@ export function ExportVideoDialog({ onClose }: { onClose: () => void }) {
       endMs: range === "all" ? null : endMs,
       photo,
       pixelSize: settings.pixelSize,
-      glow: settings.glow,
+      glow,
       ffmpeg,
     };
     setPhase({ kind: "exporting", progress: null, cancelling: false });
@@ -279,16 +283,16 @@ export function ExportVideoDialog({ onClose }: { onClose: () => void }) {
               <label className="col-span-2 flex flex-col gap-1" title="None for bare bulbs; more for lights behind diffusers">
                 <span className={`${label} flex justify-between`}>
                   <span>Glow</span>
-                  <span className="tabular-nums">{settings.glow === 0 ? "None" : `${Math.round(settings.glow * 100)}%`}</span>
+                  <span className="tabular-nums">{glow === 0 ? "None" : `${Math.round(glow * 100)}%`}</span>
                 </span>
                 <input
                   type="range"
                   min={0}
                   max={100}
                   step={5}
-                  value={Math.round(settings.glow * 100)}
+                  value={Math.round(glow * 100)}
                   aria-label="Glow"
-                  aria-valuetext={settings.glow === 0 ? "None" : `${Math.round(settings.glow * 100)}%`}
+                  aria-valuetext={glow === 0 ? "None" : `${Math.round(glow * 100)}%`}
                   onChange={(e) => update({ glow: Number(e.target.value) / 100 })}
                   className="accent-accent-500"
                 />

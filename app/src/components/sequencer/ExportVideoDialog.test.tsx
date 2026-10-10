@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../App";
@@ -11,6 +11,7 @@ import type { Sequence } from "../../api/sequence";
 import type { VideoProgress } from "../../api/video";
 import { useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
+import { useView3d } from "../../state/view3d";
 import { qualityLabel, selectionSpan } from "./ExportVideoDialog";
 
 beforeEach(() => {
@@ -116,6 +117,40 @@ describe("Export video", () => {
     expect(within(again).getByLabelText("Pixel size")).toHaveValue("1.5");
     expect(within(again).getByRole("checkbox", { name: "Show the house photo behind the lights" })).not.toBeChecked();
     expect(within(again).getByRole("slider", { name: "Glow" })).toHaveValue("40");
+  });
+
+  it("starts with the glow the previews are shown with, until a glow is chosen here", async () => {
+    useView3d.getState().setGlow(0.3);
+    const { seq, user, dialog } = await openScreen();
+    const glow = within(dialog).getByRole("slider", { name: "Glow" });
+    expect(glow).toHaveValue("30");
+    expect(within(dialog).getByText("30%")).toBeInTheDocument();
+    // Other choices are remembered without fixing the glow.
+    await user.selectOptions(within(dialog).getByLabelText("Size"), "720");
+    await user.click(within(dialog).getByRole("button", { name: "Export…" }));
+    expect(await within(dialog).findByText("Saved Christmas Medley 2017.mp4 (1:00, 720p).")).toBeInTheDocument();
+    expect(seq.video.requests[0].request).toMatchObject({ height: 720, glow: 0.3 });
+    await user.click(within(dialog).getByRole("button", { name: "Done" }));
+
+    // The previews are turned up: the dialog follows.
+    const reopen = async () => {
+      await user.click(screen.getByRole("button", { name: "More ways to export" }));
+      await user.click(screen.getByRole("menuitem", { name: "Export video…" }));
+      return screen.findByRole("dialog", { name: "Export video" });
+    };
+    act(() => useView3d.getState().setGlow(0.6));
+    let again = await reopen();
+    expect(within(again).getByLabelText("Size")).toHaveValue("720");
+    expect(within(again).getByRole("slider", { name: "Glow" })).toHaveValue("60");
+
+    // A glow chosen here stays, whatever the previews are set to afterwards.
+    fireEvent.change(within(again).getByRole("slider", { name: "Glow" }), { target: { value: "10" } });
+    await user.click(within(again).getByRole("button", { name: "Close" }));
+    act(() => useView3d.getState().setGlow(1));
+    again = await reopen();
+    expect(within(again).getByRole("slider", { name: "Glow" })).toHaveValue("10");
+    // And choosing one here doesn't change the previews.
+    expect(useView3d.getState().glow).toBe(1);
   });
 
   it("cancels, saying no file was written", async () => {

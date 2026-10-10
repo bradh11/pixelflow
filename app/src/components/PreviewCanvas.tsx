@@ -1,77 +1,40 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { PreviewProp } from "../api/types";
+import { boxOfPoints, fitView, unionBox } from "../lib/layoutMath";
+import { DOT_RADIUS, drawPixels } from "../lib/pixelBatches";
 
-/** Color for pixels that have no live data. */
-const UNLIT = "rgba(128, 128, 128, 0.25)";
+const BACKDROP = "#050505";
+/** Pixels with no live data are gray; while something plays, pixels that are off aren't drawn. */
+const COLORS = { unlit: "rgba(128, 128, 128, 0.25)", selected: "rgba(128, 128, 128, 0.25)" };
+const NONE: ReadonlySet<string> = new Set();
 
-interface Bounds {
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
-}
-
-function boundsOf(props: PreviewProp[]): Bounds | null {
-  let b: Bounds | null = null;
-  for (const p of props) {
-    for (let i = 0; i + 1 < p.points.length; i += 2) {
-      const [x, y] = [p.points[i], p.points[i + 1]];
-      b = b
-        ? { minX: Math.min(b.minX, x), minY: Math.min(b.minY, y), maxX: Math.max(b.maxX, x), maxY: Math.max(b.maxY, y) }
-        : { minX: x, minY: y, maxX: x, maxY: y };
-    }
-  }
-  return b;
-}
-
-/** Draws every prop's pixels (front view) in their current colors from `frame` (a show frame). */
-export function PreviewCanvas({ props, frame }: { props: PreviewProp[]; frame: Uint8Array | null }) {
+/**
+ * Draws every prop's pixels (front view) in their current colors from `frame` (a show frame), as
+ * crisp dots like the Sequence screen's preview, with as much glow around the lit ones as `glow`
+ * says (0–1; none unless given).
+ */
+export function PreviewCanvas({ props, frame, glow = 0 }: { props: PreviewProp[]; frame: Uint8Array | null; glow?: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const bounds = useMemo(() => boundsOf(props), [props]);
-  const pixelCount = useMemo(() => props.reduce((n, p) => n + p.points.length / 2, 0), [props]);
+  const box = useMemo(() => unionBox(props.map((p) => boxOfPoints(p.points))), [props]);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
     const ratio = window.devicePixelRatio || 1;
-    const { clientWidth: w, clientHeight: h } = canvas;
-    if (canvas.width !== Math.round(w * ratio) || canvas.height !== Math.round(h * ratio)) {
-      canvas.width = Math.round(w * ratio);
-      canvas.height = Math.round(h * ratio);
+    const size = { width: canvas.clientWidth, height: canvas.clientHeight };
+    if (canvas.width !== Math.round(size.width * ratio) || canvas.height !== Math.round(size.height * ratio)) {
+      canvas.width = Math.round(size.width * ratio);
+      canvas.height = Math.round(size.height * ratio);
     }
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    ctx.fillStyle = "#050505";
-    ctx.fillRect(0, 0, w, h);
-    if (!bounds) return;
-    const pad = 24;
-    const spanX = Math.max(bounds.maxX - bounds.minX, 1e-6);
-    const spanY = Math.max(bounds.maxY - bounds.minY, 1e-6);
-    const scale = Math.min((w - 2 * pad) / spanX, (h - 2 * pad) / spanY);
-    const offsetX = (w - spanX * scale) / 2;
-    const offsetY = (h - spanY * scale) / 2;
-    // Dot size shrinks as the display gets denser, within readable limits.
-    const radius = Math.max(1.2, Math.min(4, Math.sqrt((w * h) / Math.max(pixelCount, 1)) / 4));
-    ctx.globalCompositeOperation = "lighter";
-    for (const p of props) {
-      for (let i = 0, n = 0; i + 1 < p.points.length; i += 2, n++) {
-        const x = offsetX + (p.points[i] - bounds.minX) * scale;
-        const y = offsetY + (bounds.maxY - p.points[i + 1]) * scale;
-        const at = p.frameOffset + n * p.channelsPerPixel;
-        if (frame && at + 2 < frame.length) {
-          const [r, g, b] = [frame[at], frame[at + 1], frame[at + 2]];
-          if (r + g + b === 0) continue;
-          ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-        } else {
-          ctx.fillStyle = UNLIT;
-        }
-        ctx.beginPath();
-        ctx.arc(x, y, radius, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-    ctx.globalCompositeOperation = "source-over";
-  }, [props, frame, bounds, pixelCount]);
+    ctx.fillStyle = BACKDROP;
+    ctx.fillRect(0, 0, size.width, size.height);
+    if (!box) return;
+    const view = fitView(box, size, 24);
+    const radius = Math.min(4, Math.max(1.2, view.zoom * DOT_RADIUS));
+    drawPixels(ctx, props, frame, view, size, NONE, COLORS, radius, ratio, glow);
+  }, [props, frame, box, glow]);
 
   useEffect(draw, [draw]);
 

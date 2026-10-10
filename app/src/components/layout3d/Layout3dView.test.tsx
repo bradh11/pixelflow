@@ -2,6 +2,7 @@ import { act, render, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { emptyShow } from "../../api/memory";
+import { useView3d } from "../../state/view3d";
 import { Layout3dView } from "./Layout3dView";
 import type { Scene3d, SceneFactory } from "./scene";
 
@@ -45,6 +46,27 @@ describe("the 3D view's renderer", () => {
     expect(made[0].disposed, "still in use").toBe(0);
     unmount();
     await waitFor(() => expect(made[0].disposed).toBe(1));
+  });
+
+  it("is told how much the viewer has the lights glow, and again whenever that changes", async () => {
+    const options: { glow: number; ground: boolean }[] = [];
+    useView3d.getState().setGlow(0.35);
+    render(
+      <Layout3dView
+        preview={{ revision: 0, props: [] }}
+        show={emptyShow("Home")}
+        photo={{ image: null, aspect: 0.75, problem: null, reload: () => {} }}
+        storageKey="k"
+        frame={null}
+        sceneFactory={async () => ({ ...stub, setOptions: (o) => void options.push(o) })}
+      />,
+    );
+    await waitFor(() => expect(options).toEqual([{ glow: 0.35, ground: true }]));
+    act(() => useView3d.getState().setGlow(0));
+    expect(options.at(-1)).toEqual({ glow: 0, ground: true });
+    act(() => useView3d.getState().setGround(false));
+    expect(options.at(-1)).toEqual({ glow: 0, ground: false });
+    expect(options).toHaveLength(3);
   });
 
   it("says so plainly when the graphics card drops the 3D view", async () => {

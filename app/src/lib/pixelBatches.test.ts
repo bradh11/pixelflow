@@ -52,6 +52,23 @@ describe("drawing pixels by color", () => {
     expect(Object.fromEntries(batches.map((b) => [b.color, b.xy.length / 2]))).toEqual({ dark: 2, "rgb(0, 255, 0)": 1 });
   });
 
+  it("leaves out pixels that are off when there's no color for them", () => {
+    const frame = new Uint8Array([255, 0, 0, 0, 0, 0]);
+    const batches = batchPixels([prop("a", [0, 0, 1, 0])], frame, VIEW, SIZE, new Set(), { unlit: "unlit", selected: "selected" });
+    expect(batches.map((b) => [b.color, b.xy.length / 2])).toEqual([["rgb(255, 0, 0)", 1]]);
+    // With nothing playing, every pixel is still drawn.
+    expect(batchPixels([prop("a", [0, 0, 1, 0])], null, VIEW, SIZE, new Set(), { unlit: "unlit", selected: "selected" })[0].xy.length / 2).toBe(2);
+  });
+
+  it("draws lit pixels dimmer when asked to (a glow adds the rest), and the others as they are", () => {
+    const frame = new Uint8Array([255, 128, 0, 0, 0, 0]);
+    const colors = (dim?: number) => batchPixels([prop("a", [0, 0, 1, 0])], frame, VIEW, SIZE, new Set(), COLORS, 0, dim).map((b) => b.color);
+    expect(colors()).toEqual(["rgb(255, 132, 0)", "dark"]);
+    expect(colors(1)).toEqual(colors());
+    expect(colors(0.5)).toEqual(["rgb(132, 66, 0)", "dark"]);
+    expect(batchPixels([prop("a", [0, 0])], null, VIEW, SIZE, new Set(), COLORS, 0, 0.5)[0].color).toBe("unlit");
+  });
+
   it("skips pixels off the canvas, keeping ones within the margin", () => {
     const batches = batchPixels([prop("a", [0, 0, 5.2, 0, 9, 9])], null, VIEW, SIZE, new Set(), COLORS, 3);
     expect(batches[0].xy.length / 2).toBe(2);

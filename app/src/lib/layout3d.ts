@@ -51,6 +51,12 @@ export const DEFAULT_PITCH = 0.18;
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const rad = (deg: number) => (deg * Math.PI) / 180;
 
+/**
+ * How strongly the 3D view's bloom spreads the lights' glow, for a glow level (0–1): none at 0,
+ * and 0.9 at half way (the level a saved "Glow on" reads as: see state/view3d.ts).
+ */
+export const bloomStrength = (glow: number) => 1.8 * (Number.isFinite(glow) ? clamp(glow, 0, 1) : 0);
+
 export const v3 = (x: number, y: number, z: number): V3 => ({ x, y, z });
 export const add = (a: V3, b: V3): V3 => v3(a.x + b.x, a.y + b.y, a.z + b.z);
 export const sub = (a: V3, b: V3): V3 => v3(a.x - b.x, a.y - b.y, a.z - b.z);

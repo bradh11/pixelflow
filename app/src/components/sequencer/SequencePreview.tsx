@@ -3,12 +3,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Sequence } from "../../api/sequence";
 import type { PreviewProp, PreviewSet3d, Show } from "../../api/types";
 import { backgroundBox, boxOfPoints, fitView, toScreen, unionBox } from "../../lib/layoutMath";
-import { batchPixels, drawBatches } from "../../lib/pixelBatches";
+import { DOT_RADIUS, drawPixels } from "../../lib/pixelBatches";
 import { targetNodes, targetPreview } from "../../lib/submodels";
 import { useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
 import { showViewKey, useView3d } from "../../state/view3d";
 import { type PhotoImage, useBackgroundImage, usePreviewProps, usePreviewProps3d } from "../layout/useLayoutData";
+import { GlowControl } from "../layout3d/GlowControl";
 import { Layout3dView } from "../layout3d/Layout3dView";
 import { ModeSwitch } from "../layout3d/ModeSwitch";
 import { IconButton } from "../ui";
@@ -32,6 +33,7 @@ export function useDisplayAspect(): number {
 
 const BACKDROP = "#0a0a0c";
 const COLORS = { unlit: "rgba(200, 200, 200, 0.35)", selected: "#a78bfa", dark: "rgba(70, 70, 70, 0.55)" };
+const NONE: ReadonlySet<string> = new Set();
 
 /**
  * The show as it looks at the playhead, flat like the Layout screen or in 3D (view only, with the
@@ -157,7 +159,11 @@ export function SequencePreview({
   return (
     <section aria-label="Preview" className="flex h-full w-full flex-col gap-1.5">
       <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1">
-        <ModeSwitch mode={mode} onChange={setMode} />
+        <span className="inline-flex items-center gap-0.5">
+          <ModeSwitch mode={mode} onChange={setMode} />
+          {/* Beside the timeline the column is narrow, at the window's edge. */}
+          <GlowControl iconOnly={place === "side"} align={place === "side" ? "right" : "left"} />
+        </span>
         <label className="flex items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-300" title="Show only the pixels of the row being worked on">
           <input type="checkbox" checked={onlyRow} onChange={(e) => setOnlyRow(e.target.checked)} />
           {place === "side" ? "Row only" : "Selected row only"}
@@ -207,6 +213,7 @@ export function SequencePreview({
 
 /** The props drawn flat, front on, as on the Layout screen (with the photo behind, dimmed). */
 function FlatPreview({ props, frame, show, photo, onlyRow }: { props: PreviewProp[]; frame: Uint8Array | null; show: Show | undefined; photo: PhotoImage; onlyRow: boolean }) {
+  const glow = useView3d((s) => s.glow);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
 
@@ -253,9 +260,9 @@ function FlatPreview({ props, frame, show, photo, onlyRow }: { props: PreviewPro
       ctx.drawImage(photo.image, tl.x, tl.y, br.x - tl.x, br.y - tl.y);
       ctx.globalAlpha = 1;
     }
-    const radius = Math.min(4, Math.max(1.2, view.zoom * 0.05));
-    drawBatches(ctx, batchPixels(props, frame, view, size, new Set(), COLORS, radius), radius, ratio);
-  }, [props, frame, size, show?.background, photo, onlyRow]);
+    const radius = Math.min(4, Math.max(1.2, view.zoom * DOT_RADIUS));
+    drawPixels(ctx, props, frame, view, size, NONE, COLORS, radius, ratio, glow);
+  }, [props, frame, size, show?.background, photo, onlyRow, glow]);
 
   return <canvas ref={canvasRef} role="img" aria-label="Preview of the show at the playhead" className="h-full w-full rounded-md" />;
 }

@@ -45,6 +45,9 @@ pub(crate) struct VideoRequest {
     pub end_ms: Option<u64>,
     pub photo: bool,
     pub pixel_size: f32,
+    /// How much each lit dot glows, 0 (crisp dots, when the dialog doesn't say) to 1.
+    #[serde(default)]
+    pub glow: f32,
     /// Encode with ffmpeg (when it's installed).
     pub ffmpeg: bool,
 }
@@ -143,6 +146,9 @@ fn options_for(request: &VideoRequest) -> Reply<VideoOptions> {
     if !(request.pixel_size.is_finite() && (0.25..=4.0).contains(&request.pixel_size)) {
         return Err("The pixel size is out of range.".into());
     }
+    if !(request.glow.is_finite() && (0.0..=1.0).contains(&request.glow)) {
+        return Err("The glow is out of range.".into());
+    }
     Ok(VideoOptions {
         width: request.width,
         height: request.height,
@@ -151,6 +157,7 @@ fn options_for(request: &VideoRequest) -> Reply<VideoOptions> {
         end_ms: request.end_ms,
         photo: request.photo,
         pixel_size: request.pixel_size,
+        glow: request.glow,
         ffmpeg: None,
     })
 }
@@ -220,6 +227,7 @@ mod tests {
             end_ms: None,
             photo: false,
             pixel_size: 1.0,
+            glow: 0.0,
             ffmpeg: false,
         }
     }
@@ -293,6 +301,14 @@ mod tests {
             },
             VideoRequest {
                 pixel_size: 9.0,
+                ..request()
+            },
+            VideoRequest {
+                glow: 1.5,
+                ..request()
+            },
+            VideoRequest {
+                glow: f32::NAN,
                 ..request()
             },
         ] {

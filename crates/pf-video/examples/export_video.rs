@@ -102,6 +102,7 @@ fn main() -> anyhow::Result<()> {
         end_ms,
         photo: !flag("--no-photo"),
         pixel_size: 1.0,
+        glow: 0.0,
         ffmpeg,
     };
     println!(

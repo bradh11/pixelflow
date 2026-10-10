@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../App";
@@ -82,7 +82,7 @@ describe("Export video", () => {
     expect(seq.video.requests).toEqual([
       {
         path: "/Users/you/Movies/Christmas Medley 2017.mp4",
-        request: { width: 1920, height: 1080, fps: 30, startMs: 0, endMs: null, photo: true, pixelSize: 1, ffmpeg: false },
+        request: { width: 1920, height: 1080, fps: 30, startMs: 0, endMs: null, photo: true, pixelSize: 1, glow: 0, ffmpeg: false },
       },
     ]);
     expect(within(dialog).getByText(/H\.264 \(OpenH264\) · AAC 192 kb\/s/)).toBeInTheDocument();
@@ -90,16 +90,21 @@ describe("Export video", () => {
     expect(screen.queryByRole("dialog", { name: "Export video" })).not.toBeInTheDocument();
   });
 
-  it("remembers the size, rate, dot size, and encoder for next time", async () => {
+  it("remembers the size, rate, dot size, glow, and encoder for next time", async () => {
     const { seq, user, dialog } = await openScreen({ ffmpeg: "x264" });
     await user.selectOptions(within(dialog).getByLabelText("Size"), "720");
     await user.selectOptions(within(dialog).getByLabelText("Frame rate"), "60");
     await user.selectOptions(within(dialog).getByLabelText("Pixel size"), "Large");
     await user.selectOptions(within(dialog).getByLabelText("Encoder"), "ffmpeg (higher quality)");
     await user.click(within(dialog).getByRole("checkbox", { name: "Show the house photo behind the lights" }));
+    // Glow starts at none (bare bulbs); slide it up for lights behind diffusers.
+    const glow = within(dialog).getByRole("slider", { name: "Glow" });
+    expect(glow).toHaveValue("0");
+    fireEvent.change(glow, { target: { value: "40" } });
+    expect(within(dialog).getByText("40%")).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Export…" }));
     expect(await within(dialog).findByText("Saved Christmas Medley 2017.mp4 (1:00, 720p60).")).toBeInTheDocument();
-    expect(seq.video.requests[0].request).toEqual({ width: 1280, height: 720, fps: 60, startMs: 0, endMs: null, photo: false, pixelSize: 1.5, ffmpeg: true });
+    expect(seq.video.requests[0].request).toEqual({ width: 1280, height: 720, fps: 60, startMs: 0, endMs: null, photo: false, pixelSize: 1.5, glow: 0.4, ffmpeg: true });
     await user.click(within(dialog).getByRole("button", { name: "Done" }));
 
     await user.click(screen.getByRole("button", { name: "More ways to export" }));
@@ -110,6 +115,7 @@ describe("Export video", () => {
     expect(within(again).getByLabelText("Frame rate")).toHaveValue("60");
     expect(within(again).getByLabelText("Pixel size")).toHaveValue("1.5");
     expect(within(again).getByRole("checkbox", { name: "Show the house photo behind the lights" })).not.toBeChecked();
+    expect(within(again).getByRole("slider", { name: "Glow" })).toHaveValue("40");
   });
 
   it("cancels, saying no file was written", async () => {
@@ -212,7 +218,7 @@ describe("video export helpers", () => {
       () => doc,
       () => false,
     );
-    const ok = { width: 1280, height: 720, fps: 30, startMs: 0, endMs: null, photo: false, pixelSize: 1, ffmpeg: false };
+    const ok = { width: 1280, height: 720, fps: 30, startMs: 0, endMs: null, photo: false, pixelSize: 1, glow: 0, ffmpeg: false };
     const stages: string[] = [];
     const summary = await video.exportVideo("/v.mp4", ok, (p) => stages.push(p.stage));
     expect(new Set(stages)).toEqual(new Set(["rendering", "writing"]));

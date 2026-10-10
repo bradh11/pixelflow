@@ -17,10 +17,12 @@ interface Settings {
   fps: 30 | 60;
   photo: boolean;
   pixelSize: number;
+  /** 0 (crisp dots) to 1. */
+  glow: number;
   ffmpeg: boolean;
 }
 
-const DEFAULTS: Settings = { height: 1080, fps: 30, photo: true, pixelSize: 1, ffmpeg: false };
+const DEFAULTS: Settings = { height: 1080, fps: 30, photo: true, pixelSize: 1, glow: 0, ffmpeg: false };
 
 const PIXEL_SIZES = [
   { value: 0.6, label: "Small" },
@@ -37,6 +39,7 @@ function loadSettings(): Settings {
       fps: saved.fps === 60 ? 60 : 30,
       photo: saved.photo !== false,
       pixelSize: PIXEL_SIZES.some((p) => p.value === saved.pixelSize) ? saved.pixelSize! : 1,
+      glow: typeof saved.glow === "number" && Number.isFinite(saved.glow) ? Math.min(1, Math.max(0, saved.glow)) : 0,
       ffmpeg: saved.ffmpeg === true,
     };
   } catch {
@@ -168,6 +171,7 @@ export function ExportVideoDialog({ onClose }: { onClose: () => void }) {
       endMs: range === "all" ? null : endMs,
       photo,
       pixelSize: settings.pixelSize,
+      glow: settings.glow,
       ffmpeg,
     };
     setPhase({ kind: "exporting", progress: null, cancelling: false });
@@ -271,6 +275,24 @@ export function ExportVideoDialog({ onClose }: { onClose: () => void }) {
               >
                 <input type="checkbox" checked={photo} disabled={!choices?.photo} onChange={(e) => update({ photo: e.target.checked })} />
                 Show the house photo behind the lights
+              </label>
+              <label className="col-span-2 flex flex-col gap-1" title="None for bare bulbs; more for lights behind diffusers">
+                <span className={`${label} flex justify-between`}>
+                  <span>Glow</span>
+                  <span className="tabular-nums">{settings.glow === 0 ? "None" : `${Math.round(settings.glow * 100)}%`}</span>
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={Math.round(settings.glow * 100)}
+                  aria-label="Glow"
+                  aria-valuetext={settings.glow === 0 ? "None" : `${Math.round(settings.glow * 100)}%`}
+                  onChange={(e) => update({ glow: Number(e.target.value) / 100 })}
+                  className="accent-accent-500"
+                />
+                <span className="text-xs text-neutral-500">None for bare bulbs, more for lights behind diffusers.</span>
               </label>
             </fieldset>
             {phase.kind === "choose" && phase.error && (

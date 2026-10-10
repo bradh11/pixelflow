@@ -47,3 +47,4 @@ Thumbs.db
 /xlights_*.xml
 /*.xsq
 /*.mp3
+.playwright-mcp

@@ -24,6 +24,8 @@ export interface VideoRequest {
   photo: boolean;
   /** The dots' size against the preview's (1 is the same). */
   pixelSize: number;
+  /** How much each lit dot glows, 0 (crisp dots) to 1. */
+  glow: number;
   /** Encode with ffmpeg instead of the built-in encoders. */
   ffmpeg: boolean;
 }

@@ -65,7 +65,9 @@ pub(crate) struct XlightsSequenceImported {
 /// package (`.zip`, `.xsqz`) or folder, and `sequence` one of the sequences in it: effects go
 /// where the mapping says, and the mapping is remembered under `key` for next time. A zip's
 /// music is copied into the show's `music` folder, or, while the show isn't saved, that of
-/// `music_folder`, a folder the user picked in the shell's dialog.
+/// `music_folder`, a folder the user picked in the shell's dialog. The pictures its Pictures
+/// effects were found to use are copied into the show's `images` folder (while the show isn't
+/// saved, they're used where they are, and a note says so).
 #[tauri::command]
 pub(crate) async fn import_xlights_sequence(
     state: State<'_, AppState>,
@@ -75,25 +77,33 @@ pub(crate) async fn import_xlights_sequence(
     key: Option<String>,
     music_folder: Option<PathArg>,
 ) -> Reply<XlightsSequenceImported> {
-    let show = state.engine().show().clone();
+    let (show, pictures) = {
+        let engine = state.engine();
+        (engine.show().clone(), engine.picture_files())
+    };
     let music = crate::vendor::music_folder(&state, music_folder.as_deref());
     let remember = mapping.clone().zip(key);
-    let imported = tauri::async_runtime::spawn_blocking(move || match mapping {
-        None => {
-            pf_xlights::import_sequence_file(&path, &show, pf_audio::find_audio).map_err(|e| e.to_string())
-        }
-        Some(mapping) => {
-            let package = Package::open(&path).map_err(|e| e.to_string())?;
-            pf_xlights::vendor::import(
-                &package,
-                sequence.as_deref(),
-                &show,
-                &mapping,
-                music.as_deref(),
-                pf_audio::find_audio,
-            )
-            .map_err(|e| e.to_string())
-        }
+    let imported = tauri::async_runtime::spawn_blocking(move || {
+        let mut imported = match mapping {
+            None => pf_xlights::import_sequence_file(&path, &show, pf_audio::find_audio)
+                .map_err(|e| e.to_string())?,
+            Some(mapping) => {
+                let package = Package::open(&path).map_err(|e| e.to_string())?;
+                pf_xlights::vendor::import(
+                    &package,
+                    sequence.as_deref(),
+                    &show,
+                    &mapping,
+                    music.as_deref(),
+                    pf_audio::find_audio,
+                )
+                .map_err(|e| e.to_string())?
+            }
+        };
+        // The pictures the import found on this computer become the show's own.
+        let notes = pictures.adopt_all(&mut imported.sequence);
+        imported.notes.splice(0..0, notes);
+        Ok::<_, String>(imported)
     })
     .await
     .map_err(|_| "Something went wrong reading the xLights sequence.".to_string())??;

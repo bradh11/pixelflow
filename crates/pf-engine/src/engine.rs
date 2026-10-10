@@ -1357,6 +1357,32 @@ impl Engine {
         ))
     }
 
+    /// Points the open sequence's Picture effects at what a search found, once each found file
+    /// has been taken for the show: `stored` pairs a found file's old place (its `from`) with
+    /// what the effects store for it now. One undo step. `None` when another sequence was opened
+    /// since the search started.
+    pub fn use_found_sequence_pictures(
+        &mut self,
+        outcome: &SearchOutcome,
+        stored: &[(String, String)],
+    ) -> Result<Option<SequenceEditResult>, EngineError> {
+        if self.sequence_doc_id() != Some(outcome.generation) {
+            return Ok(None);
+        }
+        self.relink_sequence_pictures(stored).map(Some)
+    }
+
+    /// The open sequence's problems as its snapshot lists them (none without a sequence): what
+    /// [`pf_sequence::validate_sequence`] finds, and the pictures the last check found missing.
+    pub fn sequence_issues(&self) -> Vec<pf_sequence::SequenceIssue> {
+        let Some(open) = &self.sequence else {
+            return Vec::new();
+        };
+        let mut issues = pf_sequence::validate_sequence(&open.doc, &self.show);
+        self.add_picture_issues(&mut issues);
+        issues
+    }
+
     /// Points the open sequence's Picture effects at other files, as one undo step: each of
     /// `changes` is a missing picture's `path` (as [`Engine::sequence_pictures_missing`] lists
     /// it) and what the effects store instead (see [`PictureFiles::adopt`]).

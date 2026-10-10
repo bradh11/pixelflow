@@ -254,6 +254,45 @@ impl PictureFiles {
         Ok(self.stored(&target))
     }
 
+    /// Takes every picture `doc`'s Picture effects name by a full path (an import found them on
+    /// this computer) for the show, as [`PictureFiles::adopt`] does, and points the effects at
+    /// what they store now (reads and writes the disk). Returns what couldn't be taken, as
+    /// notes; those effects keep the path they had.
+    pub fn adopt_all(&self, doc: &mut pf_sequence::Sequence) -> Vec<String> {
+        let mut taken: HashMap<String, Result<String, String>> = HashMap::new();
+        let mut notes = Vec::new();
+        let saved = self.images_folder().is_some();
+        let effects = doc
+            .rows
+            .iter_mut()
+            .flat_map(|row| &mut row.layers)
+            .flat_map(|layer| &mut layer.effects);
+        for effect in effects {
+            let pf_sequence::EffectParams::Picture(p) = &mut effect.params else {
+                continue;
+            };
+            if !is_full_path_text(&p.file) {
+                continue;
+            }
+            let path = path_from_text(&p.file);
+            if !path.is_file() {
+                continue;
+            }
+            match taken.entry(p.file.clone()).or_insert_with(|| self.adopt(&path)) {
+                Ok(stored) => p.file = stored.clone(),
+                Err(why) if !notes.contains(why) => notes.push(why.clone()),
+                Err(_) => {}
+            }
+        }
+        if !saved && taken.values().any(Result::is_ok) {
+            notes.push(
+                "The show isn't saved yet, so the sequence's pictures were left where they are instead of being copied into the show's images folder."
+                    .to_string(),
+            );
+        }
+        notes
+    }
+
     /// The pictures in the show's images folder, as effects store them (`images/<name>`), by
     /// name (reads the disk). None while the show isn't saved.
     pub fn listed(&self) -> Vec<String> {

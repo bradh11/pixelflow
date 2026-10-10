@@ -126,6 +126,7 @@ async fn pick<R: tauri::Runtime>(
         FileRole::Music { .. } | FileRole::SequenceDocMusic => PickKind::Music,
         FileRole::Photo => PickKind::Photo,
         FileRole::HouseModel => PickKind::HouseModel,
+        FileRole::Picture => PickKind::Picture,
     };
     let mut request = Pick::of(kind);
     request.title = Some(match name {

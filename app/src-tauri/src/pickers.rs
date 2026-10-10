@@ -69,6 +69,8 @@ pub(crate) enum PickKind {
     Photo,
     /// A 3D model of the house.
     HouseModel,
+    /// A picture or GIF for a Picture effect.
+    Picture,
     /// A folder to save a sequence downloaded from an FPP in (the show isn't saved yet).
     DownloadFolder,
 }
@@ -224,6 +226,13 @@ impl PickKind {
                 "Choose a 3D model of your house",
                 &[("3D model", crate::house::MODEL_EXTENSIONS)],
                 "model",
+                Near::Show,
+            ),
+            Self::Picture => (
+                Open,
+                "Choose a picture or GIF",
+                &[("Picture", &pf_engine::PICTURE_EXTENSIONS)],
+                "picture",
                 Near::Show,
             ),
             Self::DownloadFolder => (

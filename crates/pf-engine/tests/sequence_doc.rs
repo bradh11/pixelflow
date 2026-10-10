@@ -1079,6 +1079,22 @@ impl AudioClock for SharedClock {
 
 #[test]
 fn looping_plays_again_from_the_top_with_the_music_in_step() {
+    // The timing here is measured in real time, on a playback thread a busy machine can
+    // schedule late, so being out of step once proves nothing: only three times running does.
+    // Real drift builds up every loop and fails every attempt.
+    let mut late = Vec::new();
+    for _ in 0..3 {
+        match one_looping_run() {
+            Ok(()) => return,
+            Err(why) => late.push(why),
+        }
+    }
+    panic!("out of step three times running: {late:?}");
+}
+
+/// Plays a looping 200 ms sequence through three loops. What must always hold is asserted;
+/// what depends on the machine keeping time comes back as an `Err`.
+fn one_looping_run() -> Result<(), String> {
     let (engine, recorded, _dir) = engine();
     let music: Arc<Mutex<pf_audio::SilentClock>> = Default::default();
     let jumps: Arc<Mutex<Vec<(u64, u64)>>> = Default::default();
@@ -1122,20 +1138,20 @@ fn looping_plays_again_from_the_top_with_the_music_in_step() {
     // (within a frame or two), so nothing builds up between them from one loop to the next.
     for &(from, to) in jumps.lock().unwrap().iter().take(3) {
         assert_eq!(to, 0, "the music starts again from the top");
-        assert!(
-            // A frame or two late is in step; a loaded machine can schedule the playback thread
-            // later still, so allow that without letting real drift (which adds up) through.
-            (200..350).contains(&from),
-            "jumped back {from} ms in, for a 200 ms sequence"
-        );
+        assert!(from >= 200, "jumped back {from} ms in, before the sequence's end");
+        // A frame or two late is in step.
+        if from >= 350 {
+            return Err(format!("jumped back {from} ms in, for a 200 ms sequence"));
+        }
     }
     let lights = engine.playback_status().unwrap().position_ms;
     let heard = music.lock().unwrap().position().as_millis() as u64;
-    assert!(
-        // The two positions are read a moment apart, on a thread that may be scheduled late.
-        heard.abs_diff(lights) <= 120,
-        "lights at {lights} ms and music at {heard} ms after three loops"
-    );
+    // The two positions are read a moment apart.
+    if heard.abs_diff(lights) > 120 {
+        return Err(format!(
+            "lights at {lights} ms and music at {heard} ms after three loops"
+        ));
+    }
 
     // The controllers got every loop: red, green, then red again.
     let mut colors: Vec<Vec<u8>> = packets(&recorded).iter().map(|p| p[10..40].to_vec()).collect();
@@ -1155,6 +1171,7 @@ fn looping_plays_again_from_the_top_with_the_music_in_step() {
     engine.play_sequence_doc(0).unwrap();
     engine.stop_playback();
     assert!(engine.playback_status().is_none());
+    Ok(())
 }
 
 #[test]

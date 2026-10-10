@@ -41,7 +41,8 @@ export type EffectKind =
   | "lightning"
   | "pulse"
   | "sing"
-  | "colorShift";
+  | "colorShift"
+  | "dancer";
 
 export type Gradient = "none" | "horizontal" | "vertical";
 /** What the Shape effect draws. */
@@ -346,7 +347,28 @@ export type EffectParams =
       release?: number;
     }
   | { kind: "sing"; mode?: "mouth" | "wordPop" | "barMouth" | "karaoke"; timingTrack?: Uuid | null; min?: number }
-  | { kind: "colorShift"; ease?: "instant" | "linear" | "smooth"; duration?: number; stagger?: number; direction?: Sweep };
+  | { kind: "colorShift"; ease?: "instant" | "linear" | "smooth"; duration?: number; stagger?: number; direction?: Sweep }
+  | {
+      kind: "dancer";
+      character?: DancerCharacter;
+      moves?: "mix" | "bounce" | "armWave" | "kick" | "twist" | "shuffle" | "jump" | "headBob";
+      /** The beats it dances to; none: the song's Beats track, else two a second. */
+      timingTrack?: Uuid | null;
+      speed?: "half" | "normal" | "double";
+      size?: number;
+      mirror?: boolean;
+      count?: number;
+      usePalette?: boolean;
+      bassBounce?: number;
+      x?: number;
+      y?: number;
+      stagger?: number;
+      background?: "off" | "glow";
+      routine?: number;
+    };
+
+/** Who a Dancer is (see `DancerCharacter` in crates/pf-sequence/src/effect.rs). */
+export type DancerCharacter = "skeleton" | "ghost" | "witch" | "santa" | "snowman" | "elf";
 
 /** Which way a Wipe (or a staggered Color Shift) travels (see `Sweep` in crates/pf-sequence/src/effect.rs). */
 export type Sweep = "leftToRight" | "rightToLeft" | "up" | "down" | "centerOut" | "edgesIn" | "diagonal" | "radial";
@@ -980,6 +1002,7 @@ export const EFFECT_KINDS: { kind: EffectKind; label: string }[] = [
   { kind: "pulse", label: "Pulse" },
   { kind: "sing", label: "Sing" },
   { kind: "colorShift", label: "Color Shift" },
+  { kind: "dancer", label: "Dancer" },
 ];
 
 /** A new effect of `kind` (engine-default settings, white) from `startMs` to `endMs`. */

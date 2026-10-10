@@ -171,6 +171,7 @@ describe("the in-browser stand-in renderer", () => {
       { kind: "pulse", timingTrack: beats.id },
       { kind: "sing", timingTrack: words.id, mode: "karaoke" },
       { kind: "colorShift", stagger: 50 },
+      { kind: "dancer", character: "witch" },
     ];
     for (const params of kinds) {
       const row = newRow({ prop: show.props.find((p) => p.name === "Window Matrix")!.id });

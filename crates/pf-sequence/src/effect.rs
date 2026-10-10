@@ -468,10 +468,11 @@ pub enum EffectKind {
     Pulse,
     Sing,
     ColorShift,
+    Dancer,
 }
 
 impl EffectKind {
-    pub const ALL: [EffectKind; 35] = [
+    pub const ALL: [EffectKind; 36] = [
         EffectKind::On,
         EffectKind::Off,
         EffectKind::ColorWash,
@@ -507,6 +508,7 @@ impl EffectKind {
         EffectKind::Pulse,
         EffectKind::Sing,
         EffectKind::ColorShift,
+        EffectKind::Dancer,
     ];
 
     /// The name people see.
@@ -547,6 +549,7 @@ impl EffectKind {
             EffectKind::Pulse => "Pulse",
             EffectKind::Sing => "Sing",
             EffectKind::ColorShift => "Color Shift",
+            EffectKind::Dancer => "Dancer",
         }
     }
 
@@ -600,6 +603,9 @@ impl EffectKind {
             EffectKind::ColorShift => {
                 "The palette colors changing one to the next, everywhere at once or sweeping across."
             }
+            EffectKind::Dancer => {
+                "A skeleton, ghost, witch, Santa, snowman, or elf dancing to the beat; for matrices."
+            }
         }
     }
 
@@ -641,6 +647,7 @@ impl EffectKind {
             EffectKind::Pulse => PulseParams::SETTINGS,
             EffectKind::Sing => SingParams::SETTINGS,
             EffectKind::ColorShift => ColorShiftParams::SETTINGS,
+            EffectKind::Dancer => DancerParams::SETTINGS,
         }
     }
 }
@@ -686,6 +693,7 @@ pub enum EffectParams {
     Pulse(PulseParams),
     Sing(SingParams),
     ColorShift(ColorShiftParams),
+    Dancer(DancerParams),
 }
 
 impl EffectParams {
@@ -726,6 +734,7 @@ impl EffectParams {
             EffectParams::Pulse(_) => EffectKind::Pulse,
             EffectParams::Sing(_) => EffectKind::Sing,
             EffectParams::ColorShift(_) => EffectKind::ColorShift,
+            EffectParams::Dancer(_) => EffectKind::Dancer,
         }
     }
 
@@ -767,6 +776,7 @@ impl EffectParams {
             EffectKind::Pulse => EffectParams::Pulse(PulseParams::default()),
             EffectKind::Sing => EffectParams::Sing(SingParams::default()),
             EffectKind::ColorShift => EffectParams::ColorShift(ColorShiftParams::default()),
+            EffectKind::Dancer => EffectParams::Dancer(DancerParams::default()),
         }
     }
 
@@ -809,6 +819,7 @@ impl EffectParams {
             EffectParams::Pulse(p) => p.sanitize(),
             EffectParams::Sing(p) => p.sanitize(),
             EffectParams::ColorShift(p) => p.sanitize(),
+            EffectParams::Dancer(p) => p.sanitize(),
         }
     }
 
@@ -857,6 +868,7 @@ impl EffectParams {
             EffectParams::Pulse(p) => p.number(key),
             EffectParams::Sing(p) => p.number(key),
             EffectParams::ColorShift(p) => p.number(key),
+            EffectParams::Dancer(p) => p.number(key),
         }
     }
 
@@ -899,6 +911,7 @@ impl EffectParams {
             EffectParams::Pulse(p) => p.set_number(key, value),
             EffectParams::Sing(p) => p.set_number(key, value),
             EffectParams::ColorShift(p) => p.set_number(key, value),
+            EffectParams::Dancer(p) => p.set_number(key, value),
         }
     }
 
@@ -940,6 +953,7 @@ impl EffectParams {
             EffectParams::Pulse(p) => p.setting_problem(),
             EffectParams::Sing(p) => p.setting_problem(),
             EffectParams::ColorShift(p) => p.setting_problem(),
+            EffectParams::Dancer(p) => p.setting_problem(),
         };
         found.map(|(spec, why)| format!("{} {why}", spec.label))
     }
@@ -2477,6 +2491,118 @@ effect_params! {
         stagger: f32 = 0.0 => "stagger", "Stagger", number(0.0, 100.0, 1.0, "%");
         /// Which way a staggered change travels.
         direction: Sweep = Sweep::LeftToRight => "direction", "Stagger direction", choice, more;
+    }
+}
+
+/// Who a Dancer is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum DancerCharacter {
+    #[default]
+    Skeleton,
+    Ghost,
+    Witch,
+    Santa,
+    Snowman,
+    Elf,
+}
+
+choices!(DancerCharacter {
+    "skeleton" => "Skeleton",
+    "ghost" => "Ghost",
+    "witch" => "Witch",
+    "santa" => "Santa",
+    "snowman" => "Snowman",
+    "elf" => "Elf",
+});
+
+/// What a Dancer dances.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum DancerMove {
+    /// A different move each bar.
+    #[default]
+    Mix,
+    Bounce,
+    ArmWave,
+    Kick,
+    Twist,
+    Shuffle,
+    Jump,
+    HeadBob,
+}
+
+choices!(DancerMove {
+    "mix" => "Mix (a new move each bar)",
+    "bounce" => "Bounce",
+    "armWave" => "Arm wave",
+    "kick" => "Kick",
+    "twist" => "Twist",
+    "shuffle" => "Shuffle",
+    "jump" => "Jump",
+    "headBob" => "Head bob",
+});
+
+/// How fast a Dancer dances next to the beat.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum DancerSpeed {
+    Half,
+    #[default]
+    Normal,
+    Double,
+}
+
+choices!(DancerSpeed { "half" => "Half time", "normal" => "On the beat", "double" => "Double time" });
+
+/// What's drawn behind a Dancer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum DancerBackground {
+    #[default]
+    Off,
+    Glow,
+}
+
+choices!(DancerBackground { "off" => "None", "glow" => "A dim glow" });
+
+effect_params! {
+    /// A character drawn by code, dancing: a new pose on each beat, a new move each bar. Made to
+    /// read on small matrices (a 12 × 50 pillar); it sheds detail as the prop gets smaller.
+    #[derive(Copy)]
+    pub struct DancerParams {
+        /// Who dances.
+        character: DancerCharacter = DancerCharacter::Skeleton => "character", "Character", choice;
+        /// One move, or a mix that changes each bar.
+        moves: DancerMove = DancerMove::Mix => "moves", "Moves", choice;
+        /// The beats it dances to. None: the song's Beats track, else two beats a second.
+        timing_track: Option<TimingTrackId> = None => "timingTrack", "Timing track", timing_track;
+        /// Half time, on the beat, or double time.
+        speed: DancerSpeed = DancerSpeed::Normal => "speed", "Speed", choice;
+        /// Height, as a share of the prop's (less where the prop is too narrow).
+        size: f32 = 90.0 => "size", "Size", number(10.0, 200.0, 1.0, "%");
+        /// Flip left to right, so dancers on paired props face each other.
+        mirror: bool = false => "mirror", "Mirror", toggle;
+        /// Dancers side by side.
+        count: u32 = 1 => "count", "Dancers", int(1, 12);
+        /// Color the character from the palette instead of its own colors.
+        use_palette: bool = false => "usePalette", "Palette colors", toggle;
+        /// How much the bass adds to the bounce (0: none).
+        bass_bounce: f32 = 0.0 => "bassBounce", "Bass bounce", number(0.0, 1.0, 0.01);
+        /// Where it stands, from the left (0) to the right (100).
+        x: f32 = 50.0 => "x", "Across", number(0.0, 100.0, 1.0, "%"), more;
+        /// How far above the bottom it stands.
+        y: f32 = 0.0 => "y", "Up", number(0.0, 100.0, 1.0, "%"), more;
+        /// How many beats later each next dancer moves.
+        stagger: f32 = 0.0 => "stagger", "Stagger", number(0.0, 4.0, 0.25, "beats"), more;
+        /// A dim glow behind the dancer.
+        background: DancerBackground = DancerBackground::Off => "background", "Background", choice, more;
+        /// Which routine the mix dances. Dancers with the same number move together.
+        routine: u32 = 1 => "routine", "Routine", int(1, 99), more;
     }
 }
 

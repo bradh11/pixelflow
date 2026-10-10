@@ -14,6 +14,7 @@ pub use crate::butterfly::Butterfly;
 pub use crate::circles::Circles;
 use crate::color::{Colors, Rgba, unit};
 pub use crate::color_shift::ColorShift;
+pub use crate::dancer::Dancer;
 pub use crate::fan::Fan;
 pub use crate::garlands::Garlands;
 use crate::geometry::Members;
@@ -974,6 +975,7 @@ pub enum Shader {
     Pulse(Pulse),
     Sing(Sing),
     ColorShift(ColorShift),
+    Dancer(Dancer),
 }
 
 /// When a Shape fires its shapes (ms from the effect's start, while it plays): at each mark on its
@@ -1084,6 +1086,7 @@ impl Shader {
             EffectParams::Pulse(p) => Shader::Pulse(Pulse::new(p, time, colors, cx)),
             EffectParams::Sing(p) => Shader::Sing(Sing::new(p, time, colors, canvas, cx)),
             EffectParams::ColorShift(p) => Shader::ColorShift(ColorShift::new(p, time, colors, canvas)),
+            EffectParams::Dancer(p) => Shader::Dancer(Dancer::new(p, time, colors, canvas, cx)),
         }
     }
 
@@ -1126,6 +1129,7 @@ impl Shader {
             Shader::Pulse(s) => each.visit(s),
             Shader::Sing(s) => each.visit(s),
             Shader::ColorShift(s) => each.visit(s),
+            Shader::Dancer(s) => each.visit(s),
         }
     }
 }

@@ -3338,5 +3338,224 @@
         "type": "choice"
       }
     ]
+  },
+  {
+    "description": "A skeleton, ghost, witch, Santa, snowman, or elf dancing to the beat; for matrices.",
+    "kind": "dancer",
+    "label": "Dancer",
+    "settings": [
+      {
+        "default": "skeleton",
+        "description": "Who dances.",
+        "key": "character",
+        "label": "Character",
+        "options": [
+          {
+            "label": "Skeleton",
+            "value": "skeleton"
+          },
+          {
+            "label": "Ghost",
+            "value": "ghost"
+          },
+          {
+            "label": "Witch",
+            "value": "witch"
+          },
+          {
+            "label": "Santa",
+            "value": "santa"
+          },
+          {
+            "label": "Snowman",
+            "value": "snowman"
+          },
+          {
+            "label": "Elf",
+            "value": "elf"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": "mix",
+        "description": "One move, or a mix that changes each bar.",
+        "key": "moves",
+        "label": "Moves",
+        "options": [
+          {
+            "label": "Mix (a new move each bar)",
+            "value": "mix"
+          },
+          {
+            "label": "Bounce",
+            "value": "bounce"
+          },
+          {
+            "label": "Arm wave",
+            "value": "armWave"
+          },
+          {
+            "label": "Kick",
+            "value": "kick"
+          },
+          {
+            "label": "Twist",
+            "value": "twist"
+          },
+          {
+            "label": "Shuffle",
+            "value": "shuffle"
+          },
+          {
+            "label": "Jump",
+            "value": "jump"
+          },
+          {
+            "label": "Head bob",
+            "value": "headBob"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": null,
+        "description": "The beats it dances to. None: the song's Beats track, else two beats a second.",
+        "key": "timingTrack",
+        "label": "Timing track",
+        "type": "timingTrack"
+      },
+      {
+        "default": "normal",
+        "description": "Half time, on the beat, or double time.",
+        "key": "speed",
+        "label": "Speed",
+        "options": [
+          {
+            "label": "Half time",
+            "value": "half"
+          },
+          {
+            "label": "On the beat",
+            "value": "normal"
+          },
+          {
+            "label": "Double time",
+            "value": "double"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": 90.0,
+        "description": "Height, as a share of the prop's (less where the prop is too narrow).",
+        "key": "size",
+        "label": "Size",
+        "max": 200.0,
+        "min": 10.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": false,
+        "description": "Flip left to right, so dancers on paired props face each other.",
+        "key": "mirror",
+        "label": "Mirror",
+        "type": "bool"
+      },
+      {
+        "default": 1,
+        "description": "Dancers side by side.",
+        "key": "count",
+        "label": "Dancers",
+        "max": 12,
+        "min": 1,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": false,
+        "description": "Color the character from the palette instead of its own colors.",
+        "key": "usePalette",
+        "label": "Palette colors",
+        "type": "bool"
+      },
+      {
+        "default": 0.0,
+        "description": "How much the bass adds to the bounce (0: none).",
+        "key": "bassBounce",
+        "label": "Bass bounce",
+        "max": 1.0,
+        "min": 0.0,
+        "step": 0.01,
+        "type": "number"
+      },
+      {
+        "default": 50.0,
+        "description": "Where it stands, from the left (0) to the right (100).",
+        "key": "x",
+        "label": "Across",
+        "max": 100.0,
+        "min": 0.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 0.0,
+        "description": "How far above the bottom it stands.",
+        "key": "y",
+        "label": "Up",
+        "max": 100.0,
+        "min": 0.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 0.0,
+        "description": "How many beats later each next dancer moves.",
+        "key": "stagger",
+        "label": "Stagger",
+        "max": 4.0,
+        "min": 0.0,
+        "more": true,
+        "step": 0.25,
+        "type": "number",
+        "unit": "beats"
+      },
+      {
+        "default": "off",
+        "description": "A dim glow behind the dancer.",
+        "key": "background",
+        "label": "Background",
+        "more": true,
+        "options": [
+          {
+            "label": "None",
+            "value": "off"
+          },
+          {
+            "label": "A dim glow",
+            "value": "glow"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": 1,
+        "description": "Which routine the mix dances. Dancers with the same number move together.",
+        "key": "routine",
+        "label": "Routine",
+        "max": 99,
+        "min": 1,
+        "more": true,
+        "step": 1,
+        "type": "int"
+      }
+    ]
   }
 ]

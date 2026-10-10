@@ -55,6 +55,7 @@ const HUES: Record<EffectKind, number> = {
   pulse: 355,
   sing: 310,
   colorShift: 275,
+  dancer: 105,
 };
 
 interface Theme {

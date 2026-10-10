@@ -825,6 +825,174 @@ fn breathe_pulses_with_the_bass_or_on_a_track() {
     assert!(added.iter().all(|a| a.effect.kind() == EffectKind::Pulse));
 }
 
+/// Two pillars (12 × 50 matrices) either side of a roof line, with a wash on each for the whole
+/// song. `own_rows`: a row for each prop; without, only a row for the group of the pillars.
+fn pillars(own_rows: bool) -> Setup {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = Engine::new(dir.path());
+    let pillar = |name: &str, x: f32| {
+        let matrix = Generator::Matrix {
+            columns: 12,
+            rows: 50,
+            width: 0.6,
+            height: 2.5,
+            wiring: Default::default(),
+        };
+        at(Prop::new(name, ShapeSource::Generator(matrix)), x, 0.0)
+    };
+    let props = [
+        pillar("Pillar Right", 3.0),
+        line("Roof", -2.0, 5.0),
+        pillar("Pillar Left", -3.0),
+    ];
+    let mut both = Group::new("Pillars");
+    both.members = vec![GroupMember::Prop(props[0].id), GroupMember::Prop(props[2].id)];
+    let mut edits: Vec<Edit> = props.iter().map(|p| Edit::AddProp { prop: p.clone() }).collect();
+    edits.push(Edit::AddGroup { group: both.clone() });
+    engine.apply(edits).unwrap();
+    let mut rows: Vec<Row> = match own_rows {
+        true => props.iter().map(|p| Row::new(Target::Prop(p.id))).collect(),
+        false => vec![Row::new(Target::Group(both.id))],
+    };
+    for row in &mut rows {
+        row.layers[0]
+            .effects
+            .push(Effect::new(EffectKind::ColorWash, 0, SONG_MS));
+    }
+    engine
+        .new_sequence_doc_with_rows("Bones", SONG_MS, Some("/music/bones.mp3"), rows)
+        .unwrap();
+    Setup { engine, _dir: dir }
+}
+
+#[test]
+fn a_dance_puts_dancers_on_the_matrices_with_a_pair_facing_each_other() {
+    let s = pillars(true);
+    let mut d = draft(&s);
+    let said = stage(
+        &mut d,
+        json!({ "cues": [{ "cue": "dance", "at": 8_000, "until": 16_000, "intensity": 0.5 }] }),
+    )
+    .unwrap();
+    assert!(said.starts_with("Staged 1 cue: 1 dance"), "{said}");
+    let added = staged(&d);
+    // Staging added the song's beats for them to follow.
+    let beats = d
+        .sequence()
+        .unwrap()
+        .timing_tracks
+        .iter()
+        .find(|t| t.name == "Beats")
+        .unwrap()
+        .id;
+    assert!(on(&added, "Roof").is_empty(), "only the matrices dance");
+    for (pillar, mirror) in [("Pillar Left", false), ("Pillar Right", true)] {
+        let here = on(&added, pillar);
+        // Dark over the look, the dancer over that.
+        let kinds: Vec<(EffectKind, usize)> = here.iter().map(|a| (a.effect.kind(), a.layer)).collect();
+        assert_eq!(kinds, [(EffectKind::Off, 1), (EffectKind::Dancer, 2)], "{pillar}");
+        assert!(
+            here.iter()
+                .all(|a| (a.effect.start_ms, a.effect.end_ms) == (8_000, 16_000))
+        );
+        let dancer = params(&here[1].effect);
+        assert_eq!(dancer["character"], "skeleton", "{pillar}");
+        assert_eq!(dancer["mirror"], mirror, "{pillar}");
+        assert_eq!(dancer["timingTrack"], json!(beats));
+        assert_eq!(dancer["usePalette"], false);
+        assert_eq!(
+            dancer["bassBounce"].as_f64().map(|v| (v * 100.0).round()),
+            Some(30.0)
+        );
+    }
+    // Another character, in the cue's colors, for four bars; one prop alone isn't mirrored.
+    stage(
+        &mut d,
+        json!({ "cues": [{ "cue": "dance", "at": 20_000, "targets": ["Pillar Right"], "match": "Santa", "colors": ["#ff0000"] }] }),
+    )
+    .unwrap();
+    let santa = of_kind(&staged(&d), EffectKind::Dancer)
+        .into_iter()
+        .find(|a| a.effect.start_ms == 20_000)
+        .unwrap()
+        .clone();
+    assert_eq!(santa.row, "Pillar Right");
+    assert_eq!(santa.effect.end_ms, 20_000 + 16 * BEAT);
+    let settings = params(&santa.effect);
+    assert_eq!(
+        (
+            &settings["character"],
+            &settings["mirror"],
+            &settings["usePalette"]
+        ),
+        (&json!("santa"), &json!(false), &json!(true))
+    );
+    assert_eq!(santa.effect.palette.colors, [pf_sequence::Rgb::RED]);
+    assert_well_formed(d.sequence().unwrap());
+    // Who dances is one of the characters.
+    let before = staged(&d).len();
+    let refused = stage(
+        &mut d,
+        json!({ "cues": [{ "cue": "dance", "at": 0, "match": "zombie" }] }),
+    )
+    .unwrap_err();
+    assert!(
+        refused.contains("skeleton, ghost, witch, santa, snowman, elf"),
+        "{refused}"
+    );
+    assert_eq!(staged(&d).len(), before);
+    // Props named that aren't matrices dance as named.
+    stage(
+        &mut d,
+        json!({ "cues": [{ "cue": "dance", "at": 0, "until": 2_000, "targets": ["Roof"] }] }),
+    )
+    .unwrap();
+    assert_eq!(of_kind(&on_row(&staged(&d), "Roof"), EffectKind::Dancer).len(), 1);
+}
+
+fn on_row(added: &[Added], row: &str) -> Vec<Added> {
+    added.iter().filter(|a| a.row == row).cloned().collect()
+}
+
+#[test]
+fn a_dance_on_a_group_row_draws_a_dancer_on_each_of_its_props() {
+    let s = pillars(false);
+    let mut d = draft(&s);
+    stage(
+        &mut d,
+        json!({ "cues": [{ "cue": "dance", "at": 4_000, "until": 8_000, "match": "ghost" }] }),
+    )
+    .unwrap();
+    let added = staged(&d);
+    let here = on(&added, "Pillars");
+    assert_eq!(here.len(), 2, "{added:?}");
+    let dancer = &here[1].effect;
+    assert_eq!(dancer.kind(), EffectKind::Dancer);
+    assert_eq!(dancer.render_style, pf_model::RenderStyle::PerModelDefault);
+    assert_eq!(params(dancer)["character"], "ghost");
+    assert_eq!(params(dancer)["mirror"], false);
+    // Among every kind of prop, only the matrix dances.
+    let s = setup(false);
+    let mut d = draft(&s);
+    stage(&mut d, json!({ "cues": [{ "cue": "dance", "at": 0 }] })).unwrap();
+    let dancers = staged(&d);
+    assert_eq!(of_kind(&dancers, EffectKind::Dancer).len(), 1);
+    assert_eq!(of_kind(&dancers, EffectKind::Dancer)[0].row, "Matrix");
+    // A show without matrices has nothing to dance on until props are named.
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = Engine::new(dir.path());
+    let roof = line("Roof", 0.0, 5.0);
+    engine.apply(vec![Edit::AddProp { prop: roof.clone() }]).unwrap();
+    let rows = vec![Row::new(Target::Prop(roof.id))];
+    engine
+        .new_sequence_doc_with_rows("Bones", SONG_MS, None, rows)
+        .unwrap();
+    let mut d = Draft::new(Workspace::from_engine(&engine, UiContext::default()));
+    let refused = stage(&mut d, json!({ "cues": [{ "cue": "dance", "at": 0 }] })).unwrap_err();
+    assert!(refused.contains("name the props to dance on"), "{refused}");
+    assert!(!d.has_edits());
+}
+
 #[test]
 fn many_cues_go_in_one_call_as_one_draft_step() {
     let s = setup(true);

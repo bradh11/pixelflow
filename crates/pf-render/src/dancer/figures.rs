@@ -197,6 +197,7 @@ impl Figure<'_> {
         }
     }
 
+    /// Half the thickness of a bone, or of a thin arm or leg.
     fn stroke(&self) -> f32 {
         self.limb(0.0125)
     }
@@ -417,9 +418,7 @@ impl Body {
         // The body sways until a shoulder meets the edge; the head, until it's a column short
         // of it (a raised arm passes there).
         let sway = (reach - across).max(0.0);
-        let nod = (reach - 0.5 - head_r)
-            .max(0.0)
-            .max(sway.min(reach + 0.5 - head_r));
+        let nod = (reach - 0.5 - head_r).max(0.0);
         let lean = pose.lean.to_radians();
         let tilt = pose.tilt.to_radians();
         let up = |angle: f32, length: f32| [length * angle.sin(), length * angle.cos()];
@@ -994,12 +993,22 @@ fn snowman(fig: &mut Figure) {
     let crisp = fig.crisp();
     let stroke = fig.stroke();
     // The balls, bottom up: the bottom one may fill the width, the middle leaves room for arms.
-    let balls = [
-        fig.half(0.19).min(fig.reach + 0.5),
-        fig.girth(0.155),
-        fig.girth(0.155).min(fig.half(0.11)),
-    ];
+    // A small snowman keeps a head big enough for a face (five cells across from 12 tall), on
+    // a bottom ball bigger than its middle one.
+    let face = if crisp && s >= 12.0 { 2.5 } else { 0.5 };
+    let middle = fig.girth(0.155);
+    let head = middle.min(fig.half(0.11).max(face));
+    let bottom = fig.half(0.19).max(if crisp { middle + 1.0 } else { 0.0 });
+    let balls = [bottom.min(fig.reach + 0.5), middle.max(head), head];
     let whole = |v: f32| if crisp { v.round() } else { v };
+    // Each ball sits a little into the one below: deeper where they'd stand taller than the
+    // figure should, and deeper with a bounce.
+    let hat_rows = fig.cells(0.14, 2.0);
+    let spare = 2.0 * (balls[0] + balls[1] + balls[2]) + hat_rows - 1.0 - s;
+    let sink = whole(0.03 * s)
+        .max((spare / 2.0).ceil())
+        .min(2.0 * balls[2] - 1.0)
+        .max(0.0);
     let jump = pose.feet[0][1].min(pose.feet[1][1]).max(0.0) * s;
     let squash = (-pose.root[1] * s * 0.6).clamp(0.0, 0.08 * s);
     let lean = pose.lean.to_radians().sin();
@@ -1015,10 +1024,9 @@ fn snowman(fig: &mut Figure) {
             pose.root[0] * s * 1.5 + lean * 0.25 * s + pose.head[0] * s * 1.5,
         ),
     ];
-    // Each ball sits a little into the one below; a bounce sits them deeper.
     let mut ys = [whole(jump) + balls[0], 0.0, 0.0];
-    ys[1] = ys[0] + balls[0] + balls[1] - whole(0.03 * s + squash);
-    ys[2] = ys[1] + balls[1] + balls[2] - whole(0.03 * s + 0.5 * squash) + whole(pose.head[1] * s);
+    ys[1] = ys[0] + balls[0] + balls[1] - sink - whole(squash);
+    ys[2] = ys[1] + balls[1] + balls[2] - sink - whole(0.5 * squash) + whole(pose.head[1] * s);
     // Stick arms from the middle ball, a column out from it, up or down with the pose's arms.
     let length = 0.2 * s;
     for (i, side) in SIDES.into_iter().enumerate() {
@@ -1072,7 +1080,7 @@ fn snowman(fig: &mut Figure) {
     let brim = (r + fig.cells(0.02, 1.0)).min(fig.reach + 0.5);
     let crown = (r - 1.0).max(1.5).min(r);
     let rows = fig.cells(0.022, 1.0);
-    let height = fig.cells(0.14, 2.0);
+    let height = hat_rows;
     fig.paint
         .rect([c[0] - crown, top - 1.0], [c[0] + crown, top - 1.0 + height], hat);
     if r >= 1.5 {

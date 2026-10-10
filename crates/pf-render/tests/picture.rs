@@ -1289,3 +1289,76 @@ fn renderers_that_wait_share_one_reading_and_a_preview_keeps_what_it_has_meanwhi
     );
     assert_ne!(sharp, meanwhile, "then from the ones read for its new size");
 }
+
+#[test]
+fn a_sequences_pictures_are_read_ahead_so_playing_finds_them_ready() {
+    let show = pillar_show();
+    let names = ["a.png", "b.png", "c.png"];
+    let colors = [RED, GREEN, BLUE];
+    let files: HashMap<String, Vec<u8>> = names
+        .iter()
+        .zip(colors)
+        .map(|(name, color)| (name.to_string(), png(4, 6, move |_, _| color)))
+        .collect();
+    let reads = Arc::new(AtomicUsize::new(0));
+    let count = Arc::clone(&reads);
+    let pictures = Pictures::new(move |file| {
+        count.fetch_add(1, Ordering::SeqCst);
+        files.get(file).cloned().ok_or("it isn't there".to_string())
+    });
+    let arrived = Arc::new(AtomicUsize::new(0));
+    let told = Arc::clone(&arrived);
+    pictures.on_arrival(Some(Arc::new(move || {
+        told.fetch_add(1, Ordering::SeqCst);
+    })));
+    // Three pictures, one after another, and one that isn't there.
+    let mut seq = Sequence::new("s", 4_000);
+    seq.frame_ms = FRAME_MS;
+    let mut row = Row::new(Target::Prop(show.props[0].id));
+    row.layers[0].effects = names
+        .iter()
+        .chain(&["gone.png"])
+        .enumerate()
+        .map(|(i, name)| {
+            Effect::new(EffectKind::Picture, i as u64 * 1000, (i as u64 + 1) * 1000)
+                .with_params(EffectParams::Picture(of(name)))
+        })
+        .collect();
+    seq.rows.push(row);
+    let mut renderer = Renderer::new(&show, &pf_mapping::map_show(&show).0);
+    renderer.set_pictures(pictures.clone());
+    assert!(renderer.read_pictures_ahead(&seq));
+    for _ in 0..500 {
+        if arrived.load(Ordering::SeqCst) > 0 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(
+        arrived.load(Ordering::SeqCst),
+        1,
+        "told once, when all of them are there"
+    );
+    assert_eq!(reads.load(Ordering::SeqCst), 4);
+    // The first frame of each effect has its picture: nothing is read as it plays.
+    for (i, color) in colors.iter().enumerate() {
+        let mut frame = vec![0u8; renderer.frame_len()];
+        renderer.render(&seq, i as u64 * 1000, &mut frame);
+        assert!(
+            frame.chunks(3).all(|px| px == &color[..3]),
+            "{}: {frame:?}",
+            names[i]
+        );
+    }
+    let mut frame = vec![0u8; renderer.frame_len()];
+    renderer.render(&seq, 3_500, &mut frame);
+    assert!(frame.iter().all(|&b| b == 0), "the missing one draws nothing");
+    assert_eq!(reads.load(Ordering::SeqCst), 4);
+    // Asked again, there's nothing left to read.
+    assert!(renderer.read_pictures_ahead(&seq));
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    assert_eq!(
+        (reads.load(Ordering::SeqCst), arrived.load(Ordering::SeqCst)),
+        (4, 1)
+    );
+}

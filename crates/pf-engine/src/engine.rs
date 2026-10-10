@@ -129,6 +129,9 @@ pub struct Engine {
     /// The open sequence's pictures the last check found can't be drawn, by what their effects
     /// store. Snapshots read this, never the disk (see [`Engine::sequence_picture_check`]).
     pictures_missing: Vec<(String, MissingFile)>,
+    /// The sequence (its document, its revision, and the show's) whose pictures were last asked
+    /// to be read ahead.
+    pictures_read_for: Option<(u64, u64, u64)>,
 }
 
 /// What [`Engine::use_found_files`] did.
@@ -303,6 +306,7 @@ impl Engine {
             pictures: Pictures::new(move |file| reader.read(file)),
             picture_files,
             pictures_missing: Vec::new(),
+            pictures_read_for: None,
         }
     }
 
@@ -1273,6 +1277,7 @@ impl Engine {
         if self.picture_files.set_folder(self.show_folder()) {
             self.pictures.clear();
             self.pictures_missing.clear();
+            self.pictures_read_for = None;
         }
     }
 
@@ -1646,6 +1651,12 @@ impl Engine {
         let (_, renderer) = self.preview_renderer.as_mut()?;
         if !renderer.audio().same(&audio) {
             renderer.set_audio(audio);
+        }
+        // The sequence's pictures are read ahead whenever it or the show changes, so playing
+        // doesn't reach an effect before its picture.
+        let now = (open.id(), open.snapshot_revision(), self.revision);
+        if self.pictures_read_for != Some(now) && renderer.read_pictures_ahead(&open.doc) {
+            self.pictures_read_for = Some(now);
         }
         let mut frame = vec![0u8; renderer.frame_len()];
         renderer.render(&open.doc, position_ms, &mut frame);

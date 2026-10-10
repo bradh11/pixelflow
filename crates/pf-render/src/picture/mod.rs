@@ -79,6 +79,43 @@ fn fitted(fit: PictureFit, native: (f64, f64), grid: (f64, f64)) -> (f64, f64) {
     }
 }
 
+/// What the effect wants of its picture on a target's grid (see `library.rs`), and how the
+/// picture is turned: quarter turns to the right, and whether that lays it on its side.
+pub(crate) fn wanted(p: &PictureParams, canvas: Canvas) -> (Want, u8, bool) {
+    let (width, height) = grid_size(canvas);
+    let (quarters, sideways) = match p.turn {
+        PictureTurn::None => (0, false),
+        PictureTurn::Right => (1, true),
+        PictureTurn::Half => (2, false),
+        PictureTurn::Left => (3, true),
+    };
+    // The grid as the picture sees it before it's turned.
+    let (columns, rows) = if sideways {
+        (height, width)
+    } else {
+        (width, height)
+    };
+    let scale = f64::from(p.scale.max(1.0)) / 100.0;
+    let want = Want {
+        columns: columns as u32,
+        rows: rows as u32,
+        need: match p.fit {
+            PictureFit::Fit => Need::Fit,
+            PictureFit::Fill | PictureFit::Stretch => Need::Fill,
+            PictureFit::Actual => Need::Full,
+        },
+        doublings: scale.max(1.0).log2().ceil() as u8,
+        look: Look {
+            crisp: p.crisp,
+            // Of full white, as red + green + blue.
+            black: p
+                .black_transparent
+                .then(|| (f64::from(p.black_level.clamp(0.0, 100.0)) * 7.65).round() as u16),
+        },
+    };
+    (want, quarters, sideways)
+}
+
 pub struct Picture {
     /// The frame at the size it's drawn; none when there's nothing to draw.
     frame: Option<Arc<Bitmap>>,
@@ -114,36 +151,8 @@ impl Picture {
             return Self::NOTHING;
         };
         let (width, height) = grid_size(canvas);
-        let (quarters, sideways) = match p.turn {
-            PictureTurn::None => (0, false),
-            PictureTurn::Right => (1, true),
-            PictureTurn::Half => (2, false),
-            PictureTurn::Left => (3, true),
-        };
+        let (want, quarters, sideways) = wanted(p, canvas);
         let scale = f64::from(p.scale.max(1.0)) / 100.0;
-        // The grid as the picture sees it before it's turned.
-        let (columns, rows) = if sideways {
-            (height, width)
-        } else {
-            (width, height)
-        };
-        let want = Want {
-            columns: columns as u32,
-            rows: rows as u32,
-            need: match p.fit {
-                PictureFit::Fit => Need::Fit,
-                PictureFit::Fill | PictureFit::Stretch => Need::Fill,
-                PictureFit::Actual => Need::Full,
-            },
-            doublings: scale.max(1.0).log2().ceil() as u8,
-            look: Look {
-                crisp: p.crisp,
-                // Of full white, as red + green + blue.
-                black: p
-                    .black_transparent
-                    .then(|| (f64::from(p.black_level.clamp(0.0, 100.0)) * 7.65).round() as u16),
-            },
-        };
         let Some(frames) = pictures.frames(&p.file, want) else {
             return Self::NOTHING;
         };

@@ -96,6 +96,37 @@ impl Renderer {
         &self.pictures
     }
 
+    /// Starts reading the pictures `seq`'s Picture effects draw that aren't here yet, in the
+    /// background, so each is there by the time its effect is first drawn (played live, an
+    /// effect would otherwise show without its picture for a moment). False when it's still
+    /// reading an earlier lot: ask again with a later frame.
+    pub fn read_pictures_ahead(&mut self, seq: &Sequence) -> bool {
+        let mut wanted = Vec::new();
+        for row in &seq.rows {
+            for effect in row.layers.iter().flat_map(|layer| &layer.effects) {
+                let EffectParams::Picture(p) = &effect.params else {
+                    continue;
+                };
+                if p.file.trim().is_empty() {
+                    continue;
+                }
+                let key: BufferKey = (row.target, effect.render_style, effect.buffer_transform);
+                let buffer = &*self
+                    .buffers
+                    .entry(key)
+                    .or_insert_with(|| self.geometry.styled_buffer(key.0, key.1, key.2));
+                // A per-model style draws the picture on each member's own grid.
+                let whole = buffer.parts.is_empty().then_some(buffer);
+                for buffer in whole.into_iter().chain(buffer.parts.iter().map(|p| &p.buffer)) {
+                    if !buffer.pixels.is_empty() {
+                        wanted.push((p.file.clone(), crate::picture::wanted(p, canvas_of(buffer)).0));
+                    }
+                }
+            }
+        }
+        self.pictures.read_ahead(wanted)
+    }
+
     /// The music's audio track, once it's there.
     pub fn audio_track(&self) -> Option<Arc<AudioTrack>> {
         self.audio.track().cloned()

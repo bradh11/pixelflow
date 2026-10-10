@@ -20,7 +20,7 @@ use super::decode::{Decoded, Look, MAX_LEVEL, decode};
 use super::resample::{Bitmap, resize, turned};
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 /// The most memory the pictures' frames take together, and the frames at the size they're drawn.
@@ -185,6 +185,8 @@ struct Library {
     state: Mutex<State>,
     /// Told whenever a picture read in the background is there (or couldn't be read).
     arrived: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Whether a sequence's pictures are being read ahead (one sequence's worth at a time).
+    ahead: AtomicBool,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -307,6 +309,7 @@ impl Pictures {
                     reading: HashSet::new(),
                 }),
                 arrived: Mutex::new(None),
+                ahead: AtomicBool::new(false),
             })),
             wait: false,
         }
@@ -446,6 +449,61 @@ impl Pictures {
             });
             return meanwhile;
         }
+    }
+
+    /// Reads the pictures in `wanted` that aren't here yet, one after another on a thread of
+    /// their own, so effects later in a sequence find theirs ready. Whoever shows frames is told
+    /// once they're all there. While one lot is being read, another isn't started (the answer is
+    /// then `false`): ask again for what's still wanted.
+    pub(crate) fn read_ahead(&self, wanted: Vec<(String, Want)>) -> bool {
+        let Some(library) = &self.library else {
+            return true;
+        };
+        let wanted: Vec<(String, Want)> = {
+            let mut state = lock(&library.state);
+            let mut missing: Vec<(String, Want)> = Vec::new();
+            for (file, want) in wanted {
+                let here = match state.files.get(&file) {
+                    Some(File::Failed(_)) => true,
+                    Some(&File::Read { contents, native }) => state
+                        .frames
+                        .get(&(contents, want.level(native), want.look))
+                        .is_some(),
+                    None => false,
+                };
+                if !here && !file.trim().is_empty() && !missing.iter().any(|m| m.0 == file && m.1 == want) {
+                    missing.push((file, want));
+                }
+            }
+            missing
+        };
+        if wanted.is_empty() {
+            return true;
+        }
+        if library.ahead.swap(true, Ordering::AcqRel) {
+            return false;
+        }
+        let waiting = self.waiting();
+        let shared = Arc::clone(library);
+        let work = move || {
+            for (file, want) in wanted {
+                waiting.frames(&file, want);
+            }
+            shared.ahead.store(false, Ordering::Release);
+            let told = lock(&shared.arrived).clone();
+            if let Some(told) = told {
+                told();
+            }
+        };
+        if std::thread::Builder::new()
+            .name("pictures".into())
+            .spawn(work)
+            .is_err()
+        {
+            // No thread to read them on: each is read when it's first drawn instead.
+            library.ahead.store(false, Ordering::Release);
+        }
+        true
     }
 
     /// One of `frames`' frames at the size and turn it's drawn.

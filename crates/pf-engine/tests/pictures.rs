@@ -91,11 +91,16 @@ fn shown(engine: &mut Engine) -> [u8; 3] {
     }
 }
 
-/// Whether the strip stays dark: drawn once (which asks for the picture), then again once
-/// whatever was being read has been.
+/// Whether the strip stays dark: drawn once (which asks for the picture), then again once the
+/// picture is known not to be readable.
 fn dark(engine: &mut Engine) -> bool {
     let asked = engine.sequence_doc_frame(1_000).unwrap();
-    std::thread::sleep(Duration::from_millis(200));
+    let file = file_of(engine);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while engine.pictures().problem(&file).is_none() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(engine.pictures().problem(&file).is_some(), "{file} was read");
     let settled = engine.sequence_doc_frame(1_000).unwrap();
     asked.iter().chain(&settled).all(|&b| b == 0)
 }

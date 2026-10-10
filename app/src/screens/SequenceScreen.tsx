@@ -1,5 +1,5 @@
 import { AlertTriangle, AudioLines, CheckCircle2, Download, FileInput, FilePlus, Film, FolderOpen, History, Info, Lightbulb, ListMusic, ListPlus, Magnet, MoreHorizontal, Pause, Play, Repeat, Save, Send, Square, X } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { errorMessage } from "../api/backend";
 import type { AudioProgress } from "../api/types";
@@ -20,7 +20,7 @@ import { formatTime } from "../lib/timelineMath";
 import { MAX_ROWS, type Sequence, rowsForShow } from "../api/sequence";
 import { sequenceArrangement, sidePreview } from "../lib/sequenceLayout";
 import { useElementWidth } from "../lib/useWidth";
-import { type RecentSequence, recentFor, useSequencer } from "../state/sequencer";
+import { type RecentSequence, pictureFiles, recentFor, useSequencer } from "../state/sequencer";
 import { saveSequenceAndShow } from "../state/saveAll";
 import { ariaKeysFor, comboLabel, hintFor } from "../lib/shortcuts";
 import { useApp } from "../state/store";
@@ -114,6 +114,7 @@ export function SequenceScreen() {
       <Toolbar onNew={() => guard(() => setCreating(true))} onOpen={() => guard(() => void openFile())} />
       <NoticeLine />
       {doc && <MissingMusicLine />}
+      {doc && <MissingPictureLines />}
       <RecoveryOffer onRecover={(id) => guard(() => void useSequencer.getState().recover(id))} />
       {doc ? <Workspace /> : <Start onNew={() => setCreating(true)} onOpen={openFile} />}
       {creating && <NewSequenceDialog onClose={() => setCreating(false)} />}
@@ -705,6 +706,44 @@ function MissingMusicLine() {
   return (
     <div className="border-b border-amber-200 px-3 py-2 dark:border-amber-900/70">
       <MissingFileNotice missing={missing} onFind={() => void findMusic()} onLocate={() => void locateMusic()} />
+    </div>
+  );
+}
+
+/** The most missing pictures spelled out one by one (the rest are counted). */
+const MISSING_PICTURES_SHOWN = 3;
+
+/** The sequence's pictures that can't be drawn: find them again or locate each. */
+function MissingPictureLines() {
+  const doc = useSequencer((s) => s.doc);
+  const path = useSequencer((s) => s.path);
+  const docKey = useSequencer((s) => s.docKey);
+  const showPath = useApp((s) => s.snapshot?.path ?? null);
+  const missing = useSequencer((s) => s.picturesMissing);
+  const { checkPictures, findPictures, locatePicture } = useSequencer.getState();
+  // Looked at again whenever the pictures the effects name change, or the show's folder does.
+  const files = useMemo(() => pictureFiles(doc).sort().join("\n"), [doc]);
+  useEffect(() => {
+    void checkPictures();
+  }, [files, path, docKey, showPath, checkPictures]);
+  // Coming back to PixelFlow: pictures may have come back, gone, or been redrawn meanwhile.
+  useEffect(() => {
+    const onFocus = () => void useSequencer.getState().checkPictures();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
+  if (missing.length === 0) return null;
+  const more = missing.length - MISSING_PICTURES_SHOWN;
+  return (
+    <div className="flex flex-col gap-2 border-b border-amber-200 px-3 py-2 dark:border-amber-900/70">
+      {missing.slice(0, MISSING_PICTURES_SHOWN).map((m) => (
+        <MissingFileNotice key={m.path} missing={m} showOwner onFind={() => void findPictures()} onLocate={() => void locatePicture(m.path)} />
+      ))}
+      {more > 0 && (
+        <p className="text-sm text-amber-900 dark:text-amber-200">
+          And {more} more {more === 1 ? "picture" : "pictures"}: Find again looks for all of them.
+        </p>
+      )}
     </div>
   );
 }

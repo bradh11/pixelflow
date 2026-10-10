@@ -172,6 +172,7 @@ describe("the in-browser stand-in renderer", () => {
       { kind: "sing", timingTrack: words.id, mode: "karaoke" },
       { kind: "colorShift", stagger: 50 },
       { kind: "dancer", character: "witch" },
+      { kind: "picture", file: "images/star.png", movement: "left", moveSpeed: 1 },
     ];
     for (const params of kinds) {
       const row = newRow({ prop: show.props.find((p) => p.name === "Window Matrix")!.id });

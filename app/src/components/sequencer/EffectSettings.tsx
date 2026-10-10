@@ -25,6 +25,7 @@ import {
   SettingsPlacementContext,
   clamp,
   faceNames,
+  usesColors,
 } from "./effectControls";
 import { MultiEffectSettings } from "./MultiEffectSettings";
 import { More } from "../ui";
@@ -135,7 +136,7 @@ function Settings({ doc }: { doc: Sequence }) {
         </Section>
       )}
 
-      {effect.params.kind !== "off" && effect.params.kind !== "fire" && (
+      {usesColors(effect) && (
         <Section title="Colors">
           <ColorList
             key={id}

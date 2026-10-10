@@ -15,6 +15,7 @@ import {
   Flower2,
   Grid3x3,
   HeartPulse,
+  Image as ImageIcon,
   Lightbulb,
   LightbulbOff,
   type LucideIcon,
@@ -80,6 +81,7 @@ export const EFFECT_ICONS: Record<EffectKind, LucideIcon> = {
   sing: MicVocal,
   colorShift: SwatchBook,
   dancer: PersonStanding,
+  picture: ImageIcon,
 };
 
 /** Drags this far (screen pixels) before a press on the palette becomes a drag. */

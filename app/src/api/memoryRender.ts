@@ -410,6 +410,29 @@ function shade(effect: Effect, ms: number, px: Px, seed: number, tracks: TimingT
       ];
       return limbs.some(([ax, ay, bx, by]) => fromLine(x, y, ax, ay, bx, by) < 0.04) ? [body, 1] : [[0, 0, 0], 0];
     }
+    case "picture": {
+      // A small landscape standing in for the file (the engine draws the picture itself): sized
+      // by its fit, scrolled or zoomed by its movement, its sun bobbing so it's seen to play.
+      if (typeof p.file !== "string" || p.file.trim() === "") return [[0, 0, 0], 0];
+      let [x, y] = [px.u - 0.5, px.v - 0.5];
+      const wide = px.aspect >= 1;
+      // A square picture: fitted, the longer side of the prop has room left over.
+      if (p.fit === "fill" ? !wide : p.fit !== "stretch" && wide) x *= px.aspect;
+      else if (p.fit !== "stretch") y /= px.aspect;
+      const zoom = p.movement === "zoomIn" ? t : p.movement === "zoomOut" ? 1 - t : 1;
+      const size = (num(p, "scale", 100) / 100) * zoom;
+      if (size <= 0) return [[0, 0, 0], 0];
+      const trip = frac(el * num(p, "moveSpeed", 0.25)) * 2 - 1;
+      x = (x - num(p, "xOffset", 0) / 100 + (p.movement === "left" ? trip : p.movement === "right" ? -trip : 0)) / size + 0.5;
+      y = (y - num(p, "yOffset", 0) / 100 + (p.movement === "up" ? -trip : p.movement === "down" ? trip : 0)) / size + 0.5;
+      if (p.wrap) [x, y] = [frac(x), frac(y)];
+      if (x < 0 || x >= 1 || y < 0 || y >= 1) return [[0, 0, 0], 0];
+      const tint = p.tint ? get(0).map((c) => c / 255) : [1, 1, 1];
+      const paint = (c: Rgb): [Rgb, number] => [[c[0] * tint[0], c[1] * tint[1], c[2] * tint[2]], 1];
+      if (Math.hypot(x - 0.7, y - 0.72 - 0.05 * Math.sin(el * 3)) < 0.13) return paint([255, 214, 64]);
+      if (y < 0.34 + 0.1 * Math.sin(x * 7)) return paint([40, 150, 70]);
+      return paint([30 + 60 * y, 70 + 80 * y, 150 + 90 * y]);
+    }
     default:
       return [[0, 0, 0], 0];
   }

@@ -62,6 +62,7 @@ export function SequencePreview({
   const api = useSequencer((s) => s.api);
   const playheadMs = useSequencer((s) => s.playheadMs);
   const revision = useSequencer((s) => s.revision);
+  const picturesArrived = useSequencer((s) => s.picturesArrived);
   const running = useSequencer((s) => s.status?.state === "playing");
   const activeRow = useSequencer((s) => s.activeRow);
   const mode = useView3d((s) => s.sequenceMode);
@@ -97,7 +98,7 @@ export function SequencePreview({
         });
     };
     next();
-  }, [api, playheadMs, revision, running, doc]);
+  }, [api, playheadMs, revision, running, doc, picturesArrived]);
   useEffect(() => {
     const s = still.current;
     s.live = true;

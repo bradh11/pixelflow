@@ -42,7 +42,8 @@ export type EffectKind =
   | "pulse"
   | "sing"
   | "colorShift"
-  | "dancer";
+  | "dancer"
+  | "picture";
 
 export type Gradient = "none" | "horizontal" | "vertical";
 /** What the Shape effect draws. */
@@ -365,6 +366,27 @@ export type EffectParams =
       stagger?: number;
       background?: "off" | "glow";
       routine?: number;
+    }
+  | {
+      kind: "picture";
+      /** The picture file: `images/<name>` in the show's folder, or a full path. */
+      file?: string;
+      fit?: "fit" | "fill" | "stretch" | "actual";
+      timing?: "loop" | "once" | "stretch";
+      playSpeed?: number;
+      movement?: "none" | "left" | "right" | "up" | "down" | "zoomIn" | "zoomOut" | "pan";
+      moveSpeed?: number;
+      wrap?: boolean;
+      xOffset?: number;
+      yOffset?: number;
+      scale?: number;
+      blackTransparent?: boolean;
+      turn?: "none" | "right" | "half" | "left";
+      crisp?: boolean;
+      blackLevel?: number;
+      startFrame?: number;
+      pixelOffsets?: boolean;
+      tint?: boolean;
     };
 
 /** Who a Dancer is (see `DancerCharacter` in crates/pf-sequence/src/effect.rs). */
@@ -752,6 +774,8 @@ export type EffectSetting = SettingBase &
     | { type: "face"; default: string }
     /** Free text. */
     | { type: "text"; default: string }
+    /** A picture file, as the effect stores it ("" = none chosen yet). */
+    | { type: "image"; default: string }
     /** One of the sequence's timing tracks, by id. */
     | { type: "timingTrack"; default: Uuid | null }
   );
@@ -1003,6 +1027,7 @@ export const EFFECT_KINDS: { kind: EffectKind; label: string }[] = [
   { kind: "sing", label: "Sing" },
   { kind: "colorShift", label: "Color Shift" },
   { kind: "dancer", label: "Dancer" },
+  { kind: "picture", label: "Picture" },
 ];
 
 /** A new effect of `kind` (engine-default settings, white) from `startMs` to `endMs`. */

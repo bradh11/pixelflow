@@ -3557,5 +3557,247 @@
         "type": "int"
       }
     ]
+  },
+  {
+    "description": "Your own picture or animated GIF, fitted to the prop: still, scrolling, or zooming; for matrices.",
+    "kind": "picture",
+    "label": "Picture",
+    "settings": [
+      {
+        "default": "",
+        "description": "The picture file: a GIF, PNG, JPEG, WebP, or BMP in the show's images folder.",
+        "key": "file",
+        "label": "Picture",
+        "type": "image"
+      },
+      {
+        "default": "fit",
+        "description": "How it's sized to the prop.",
+        "key": "fit",
+        "label": "Fit",
+        "options": [
+          {
+            "label": "Fit inside",
+            "value": "fit"
+          },
+          {
+            "label": "Fill (crop)",
+            "value": "fill"
+          },
+          {
+            "label": "Stretch",
+            "value": "stretch"
+          },
+          {
+            "label": "Actual pixels",
+            "value": "actual"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": "loop",
+        "description": "How an animated picture plays.",
+        "key": "timing",
+        "label": "Animation",
+        "options": [
+          {
+            "label": "Loop",
+            "value": "loop"
+          },
+          {
+            "label": "Play once and hold",
+            "value": "once"
+          },
+          {
+            "label": "Stretch to the effect",
+            "value": "stretch"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": 1.0,
+        "description": "Times its own speed (stretched: passes over the effect).",
+        "key": "playSpeed",
+        "label": "Animation speed",
+        "max": 10.0,
+        "min": 0.1,
+        "step": 0.05,
+        "type": "number",
+        "unit": "x"
+      },
+      {
+        "default": "none",
+        "description": "Still, scrolling, zooming, or panning.",
+        "key": "movement",
+        "label": "Movement",
+        "options": [
+          {
+            "label": "None",
+            "value": "none"
+          },
+          {
+            "label": "Scroll left",
+            "value": "left"
+          },
+          {
+            "label": "Scroll right",
+            "value": "right"
+          },
+          {
+            "label": "Scroll up",
+            "value": "up"
+          },
+          {
+            "label": "Scroll down",
+            "value": "down"
+          },
+          {
+            "label": "Zoom in",
+            "value": "zoomIn"
+          },
+          {
+            "label": "Zoom out",
+            "value": "zoomOut"
+          },
+          {
+            "label": "Slow pan",
+            "value": "pan"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": 0.25,
+        "description": "Trips across the prop per second, scrolling.",
+        "key": "moveSpeed",
+        "label": "Scroll speed",
+        "max": 10.0,
+        "min": 0.0,
+        "step": 0.01,
+        "type": "number"
+      },
+      {
+        "default": false,
+        "description": "What scrolls off one side comes back on the other.",
+        "key": "wrap",
+        "label": "Wrap around",
+        "type": "bool"
+      },
+      {
+        "default": 0.0,
+        "description": "Moves it left (-) or right (+), as a share of the prop.",
+        "key": "xOffset",
+        "label": "Offset across",
+        "max": 200.0,
+        "min": -200.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 0.0,
+        "description": "Moves it down (-) or up (+).",
+        "key": "yOffset",
+        "label": "Offset up",
+        "max": 200.0,
+        "min": -200.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 100.0,
+        "description": "Its size, on top of the fit.",
+        "key": "scale",
+        "label": "Scale",
+        "max": 1000.0,
+        "min": 1.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": false,
+        "description": "Black lets the layers below show, for pictures with no clear parts.",
+        "key": "blackTransparent",
+        "label": "Black is transparent",
+        "type": "bool"
+      },
+      {
+        "default": "none",
+        "description": "Turns the picture.",
+        "key": "turn",
+        "label": "Turn",
+        "more": true,
+        "options": [
+          {
+            "label": "Upright",
+            "value": "none"
+          },
+          {
+            "label": "Quarter turn right",
+            "value": "right"
+          },
+          {
+            "label": "Upside down",
+            "value": "half"
+          },
+          {
+            "label": "Quarter turn left",
+            "value": "left"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": false,
+        "description": "Sharp-edged pixels instead of smoothed ones when it's resized.",
+        "key": "crisp",
+        "label": "Crisp pixels",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": 0.0,
+        "description": "How dark still counts as black.",
+        "key": "blackLevel",
+        "label": "Black up to",
+        "max": 100.0,
+        "min": 0.0,
+        "more": true,
+        "step": 0.5,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 1,
+        "description": "The frame an animated picture starts on.",
+        "key": "startFrame",
+        "label": "Start on frame",
+        "max": 10000,
+        "min": 1,
+        "more": true,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": false,
+        "description": "Offsets in prop pixels instead of a share of the prop.",
+        "key": "pixelOffsets",
+        "label": "Offsets in pixels",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": false,
+        "description": "Tints the picture with the first palette color.",
+        "key": "tint",
+        "label": "Tint with the palette",
+        "more": true,
+        "type": "bool"
+      }
+    ]
   }
 ]

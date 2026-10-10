@@ -24,6 +24,7 @@ import type {
   Row,
   SequenceEdit,
   SequenceEditResult,
+  SequenceIssue,
   SequenceRecovery,
   SequenceSnapshot,
   TimingImported,
@@ -34,6 +35,9 @@ export const EXPORT_PROGRESS_EVENT = "sequence-export-progress";
 
 /** The event Find lyrics sends at each step. */
 export const LYRICS_PROGRESS_EVENT = "lyrics-progress";
+
+/** The event the engine sends when a picture a preview was waiting for has been read. */
+export const PICTURES_EVENT = "pictures-arrived";
 
 /** Whether Find lyrics can run: only once the assistant is set up (its provider's key is there). */
 export interface LyricsGate {
@@ -100,6 +104,22 @@ export interface LyricsOptions {
 /** What looking for the open sequence's music found: where (now used), and the edit that did it. */
 export interface MusicFound {
   found: FoundFile | null;
+  result: SequenceEditResult | null;
+  /** True when the search stopped before looking everywhere (it took too long). */
+  gaveUp: boolean;
+}
+
+/** The open sequence's pictures that can't be drawn, and its problems (which name them). */
+export interface PicturesChecked {
+  missing: MissingFile[];
+  issues: SequenceIssue[];
+}
+
+/** What finding or locating the open sequence's pictures did. */
+export interface PicturesRelinked extends PicturesChecked {
+  /** The names of the pictures now pointed at where they are. */
+  found: string[];
+  /** The edit that pointed the effects there (one undo step), when any changed. */
   result: SequenceEditResult | null;
   /** True when the search stopped before looking everywhere (it took too long). */
   gaveUp: boolean;
@@ -226,6 +246,26 @@ export interface SequencerApi extends VideoApi {
   findSequenceMusic(): Promise<MusicFound>;
   /** Asks where the open sequence's music is now (a native dialog) and uses it; null when cancelled. */
   locateSequenceMusic(): Promise<SequenceEditResult | null>;
+  /**
+   * Asks for a picture for a Picture effect (a native dialog). It's copied into the show's images
+   * folder (used where it is while the show isn't saved); the answer is what the effect's `file`
+   * stores for it, or null when cancelled.
+   */
+  pickPicture(): Promise<string | null>;
+  /** The bytes of the picture a Picture effect's `file` names, to show it in the settings. */
+  readPicture(file: string): Promise<Uint8Array>;
+  /** The pictures in the show's images folder, as a Picture effect's `file` names them. */
+  listPictures(): Promise<string[]>;
+  /** Looks at whether the open sequence's pictures are there. */
+  checkSequencePictures(): Promise<PicturesChecked>;
+  /** Looks for the open sequence's missing pictures by name in the show's folder and the
+   * sequence's, and uses the ones it finds (one undo step on the sequence). */
+  findSequencePictures(): Promise<PicturesRelinked>;
+  /** Asks where a missing picture (its `path`) is now and uses the file chosen; null when cancelled. */
+  locateSequencePicture(path: string): Promise<PicturesRelinked | null>;
+  /** Calls `handler` whenever a picture the preview was waiting for has been read; the answer
+   * stops it. */
+  onPicturesArrived(handler: () => void): () => void;
   /** Native dialogs; null when cancelled. */
   pickXlightsSequencePath(): Promise<string | null>;
   pickXlightsPackageFolder(): Promise<string | null>;
@@ -301,6 +341,16 @@ export const tauriSequencer: SequencerApi = {
   sequenceMusicMissing: () => invoke("sequence_music_missing"),
   findSequenceMusic: () => invoke("find_sequence_music"),
   locateSequenceMusic: () => whileFileDialog(() => invoke("locate_sequence_music")),
+  pickPicture: () => whileFileDialog(() => invoke("pick_picture")),
+  readPicture: async (file) => new Uint8Array(await invoke<ArrayBuffer>("read_picture", { file })),
+  listPictures: () => invoke("list_pictures"),
+  checkSequencePictures: () => invoke("check_sequence_pictures"),
+  findSequencePictures: () => invoke("find_sequence_pictures"),
+  locateSequencePicture: (path) => whileFileDialog(() => invoke("locate_sequence_picture", { path })),
+  onPicturesArrived: (handler) => {
+    const stop = listen(PICTURES_EVENT, handler);
+    return () => void stop.then((unlisten) => unlisten());
+  },
   pickXlightsSequencePath: () => pickPath("xlightsSequence"),
   pickXlightsPackageFolder: () => pickPath("xlightsPackageFolder"),
   pickXmapPath: () => pickPath("xmap"),

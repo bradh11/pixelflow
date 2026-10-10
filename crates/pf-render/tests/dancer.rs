@@ -1,7 +1,7 @@
 //! The Dancer effect: its characters on a pillar and on other grids, its moves, the beat it
 //! follows, and that it draws the same picture every time.
 
-use pf_model::{Generator, Prop, ShapeSource, Show};
+use pf_model::{Corner, Generator, MatrixWiring, Orientation, Prop, ShapeSource, Show, Transform, Vec3};
 use pf_render::audio::{AudioSource, AudioTrack};
 use pf_render::{Audio, Canvas, Colors, EffectTime, Pixel, RenderContext, Renderer, Rgba, Shade, Shader};
 use pf_sequence::*;
@@ -769,19 +769,30 @@ fn a_glow_goes_behind_the_dancer() {
 // ---------------------------------------------------------------------------------------------
 // The same every time
 
-/// A show with one 12 × 50 pillar.
+/// A show with one 12 × 50 pillar, as an imported one can be: twelve strands of fifty wired
+/// up and down, squeezed narrow in the layout, and leaning a degree.
 fn pillar_show() -> Show {
-    let mut show = Show::new("t");
-    show.props.push(Prop::new(
+    let mut pillar = Prop::new(
         "Pillar Left",
         ShapeSource::Generator(Generator::Matrix {
             columns: 12,
             rows: 50,
-            width: 1.2,
-            height: 5.0,
-            wiring: Default::default(),
+            width: 0.11,
+            height: 0.49,
+            wiring: MatrixWiring {
+                start: Corner::BottomLeft,
+                orientation: Orientation::Vertical,
+                serpentine: true,
+            },
         }),
-    ));
+    );
+    pillar.transform = Transform {
+        position: Vec3::new(-6.5, 3.5, -2.0),
+        rotation_deg: Vec3::new(0.0, 0.0, -1.0),
+        scale: Vec3::new(2.6, 5.7, 1.0),
+    };
+    let mut show = Show::new("t");
+    show.props.push(pillar);
     show
 }
 
@@ -836,12 +847,14 @@ fn it_renders_on_a_matrix_prop_and_seeks() {
     for t in (0..8_000).step_by(120) {
         let mut frame = vec![0u8; renderer.frame_len()];
         renderer.render(&seq, t, &mut frame);
-        // As many pixels lit as the picture has, in the skeleton's white.
+        // Pixel for pixel the picture drawn on a 12 × 50 grid, up one strand and down the next.
         let cx = RenderContext::new(None, &seq.timing_tracks, FRAME_MS);
         let picture = dance(DancerParams::default(), 12, 50, t, &cx);
-        let lit = frame.chunks(3).filter(|px| px[0] > 51).count();
-        assert_eq!(lit, picture.lit_count(), "at {t}");
-        assert!(frame.chunks(3).all(|px| px[0] == px[1] && px[1] == px[2]));
+        for (n, px) in frame.chunks(3).enumerate() {
+            let (column, along) = (n / 50, n % 50);
+            let row = if column % 2 == 0 { along } else { 49 - along };
+            assert_eq!(px, picture.at(column, row).to_rgb8(), "at {t}: pixel {n}");
+        }
         frames.push(frame);
     }
     assert!(frames.windows(4).all(|w| w[0] != w[3]), "it keeps moving");

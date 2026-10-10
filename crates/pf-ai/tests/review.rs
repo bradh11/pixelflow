@@ -10,7 +10,7 @@ use pf_ai::{Cancel, ChatEvent, ChatSession, Draft, OpenDoc, UiContext, Workspace
 use pf_analysis::{Analysis, BarEnergy, Confidence, Moment, MomentKind};
 use pf_engine::{Edit, Engine};
 use pf_model::{Generator, Group, GroupMember, Prop, Rgb, ShapeSource, Show, Vec3};
-use pf_render::AudioSource;
+use pf_render::{AudioSource, Pictures};
 use pf_sequence::{Effect, EffectKind, Mark, Row, Sequence, Target, TimingKind, TimingTrack};
 use serde_json::{Value, json};
 use std::path::Path;
@@ -131,6 +131,7 @@ fn review(show: &Show, doc: &Sequence, analysis: Option<&Analysis>) -> Review {
         user: Some(doc),
         analysis,
         audio: &AudioSource::none(),
+        pictures: &Pictures::none(),
     };
     pf_ai::review::review(&subject, &Cancel::new()).unwrap()
 }
@@ -147,6 +148,8 @@ fn draft(show: &Show, doc: &Sequence) -> Draft {
         }),
         music: None,
         audio: AudioSource::none(),
+        pictures: Pictures::none(),
+        images: Vec::new(),
         context: UiContext::default(),
     })
 }

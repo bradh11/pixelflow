@@ -5,6 +5,7 @@ use crate::blur::Grid;
 use crate::color::{Acc, Colors, Rgba, to_u8, write_pixel};
 use crate::effects::{Canvas, EffectTime, Shade, Shader, ShaderVisitor};
 use crate::geometry::{Pixel, PixelBuffer, SceneGeometry};
+use crate::picture::Pictures;
 use crate::sim::Sims;
 use crate::sparkles::Sparkles;
 use pf_mapping::ChannelMap;
@@ -50,6 +51,8 @@ pub struct Renderer {
     sims: Sims<(EffectId, BufferKey, usize)>,
     /// The music effects follow (none, or still on its way: they draw as in silence).
     audio: AudioSource,
+    /// The pictures Picture effects draw (none: they draw nothing).
+    pictures: Pictures,
 }
 
 impl Renderer {
@@ -71,6 +74,7 @@ impl Renderer {
             part_acc: Vec::new(),
             sims: Sims::default(),
             audio: AudioSource::none(),
+            pictures: Pictures::none(),
         }
     }
 
@@ -81,6 +85,46 @@ impl Renderer {
 
     pub fn audio(&self) -> &AudioSource {
         &self.audio
+    }
+
+    /// The pictures the sequences drawn from now on show (see [`Pictures`]).
+    pub fn set_pictures(&mut self, pictures: Pictures) {
+        self.pictures = pictures;
+    }
+
+    pub fn pictures(&self) -> &Pictures {
+        &self.pictures
+    }
+
+    /// Starts reading the pictures `seq`'s Picture effects draw that aren't here yet, in the
+    /// background, so each is there by the time its effect is first drawn (played live, an
+    /// effect would otherwise show without its picture for a moment). False when it's still
+    /// reading an earlier lot: ask again with a later frame.
+    pub fn read_pictures_ahead(&mut self, seq: &Sequence) -> bool {
+        let mut wanted = Vec::new();
+        for row in &seq.rows {
+            for effect in row.layers.iter().flat_map(|layer| &layer.effects) {
+                let EffectParams::Picture(p) = &effect.params else {
+                    continue;
+                };
+                if p.file.trim().is_empty() {
+                    continue;
+                }
+                let key: BufferKey = (row.target, effect.render_style, effect.buffer_transform);
+                let buffer = &*self
+                    .buffers
+                    .entry(key)
+                    .or_insert_with(|| self.geometry.styled_buffer(key.0, key.1, key.2));
+                // A per-model style draws the picture on each member's own grid.
+                let whole = buffer.parts.is_empty().then_some(buffer);
+                for buffer in whole.into_iter().chain(buffer.parts.iter().map(|p| &p.buffer)) {
+                    if !buffer.pixels.is_empty() {
+                        wanted.push((p.file.clone(), crate::picture::wanted(p, canvas_of(buffer)).0));
+                    }
+                }
+            }
+        }
+        self.pictures.read_ahead(wanted)
     }
 
     /// The music's audio track, once it's there.
@@ -109,11 +153,13 @@ impl Renderer {
     pub fn render(&mut self, seq: &Sequence, t_ms: u64, frame: &mut [u8]) {
         self.show_acc.fill(Acc::ZERO);
         let track = self.audio.track().cloned();
+        let pictures = self.pictures.clone();
         let cx = RenderContext::new(
             track.as_deref().map(|t| Audio::new(t, seq.frame_ms)),
             &seq.timing_tracks,
             seq.frame_ms,
-        );
+        )
+        .with_pictures(&pictures);
         if t_ms < seq.duration_ms {
             for row in &seq.rows {
                 let mut active = row

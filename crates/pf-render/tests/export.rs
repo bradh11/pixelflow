@@ -4,7 +4,7 @@ use pf_model::{
     ColorOrder, Controller, Generator, Port, PortSlot, Prop, Protocol, SequenceChannels, ShapeSource, Show,
 };
 use pf_render::export::{ExportError, export_fseq, export_fseq_file};
-use pf_render::{AudioSource, Renderer};
+use pf_render::{AudioSource, Pictures, Renderer};
 use pf_sequence::*;
 use std::io::Cursor;
 
@@ -73,6 +73,7 @@ fn exports_controller_channels_into_their_sequence_block() {
         &map,
         &seq,
         &AudioSource::none(),
+        &Pictures::none(),
         Cursor::new(Vec::new()),
         7,
         |done, total| {
@@ -119,6 +120,7 @@ fn every_frame_matches_the_renderer_when_brightness_is_full() {
         &map,
         &seq,
         &AudioSource::none(),
+        &Pictures::none(),
         Cursor::new(Vec::new()),
         0,
         |_, _| true,
@@ -166,7 +168,17 @@ fn exports_with_music_match_the_preview() {
     seq.rows[0].layers[0].effects = vec![on];
     seq.rows[1].layers[0].effects = vec![vu];
     let (map, _) = pf_mapping::map_show(&show);
-    let (out, _) = export_fseq(&show, &map, &seq, &audio, Cursor::new(Vec::new()), 0, |_, _| true).unwrap();
+    let (out, _) = export_fseq(
+        &show,
+        &map,
+        &seq,
+        &audio,
+        &Pictures::none(),
+        Cursor::new(Vec::new()),
+        0,
+        |_, _| true,
+    )
+    .unwrap();
     let mut file = pf_fseq::Sequence::from_reader(Cursor::new(out.into_inner())).unwrap();
     let mut renderer = Renderer::new(&show, &map);
     renderer.set_audio(audio);
@@ -196,7 +208,16 @@ fn file_exports_are_atomic_and_errors_are_plain() {
     let (map, _) = pf_mapping::map_show(&show);
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("Song.fseq");
-    let summary = export_fseq_file(&show, &map, &seq, &AudioSource::none(), &path, |_, _| true).unwrap();
+    let summary = export_fseq_file(
+        &show,
+        &map,
+        &seq,
+        &AudioSource::none(),
+        &Pictures::none(),
+        &path,
+        |_, _| true,
+    )
+    .unwrap();
     assert_eq!(summary.frames, 4);
     let file = pf_fseq::Sequence::open(&path).unwrap();
     assert_eq!(file.header().frames, 4);
@@ -207,14 +228,31 @@ fn file_exports_are_atomic_and_errors_are_plain() {
     assert_eq!(names, vec!["Song.fseq"], "no temporary files left behind");
 
     let missing = dir.path().join("no/such/folder/Song.fseq");
-    let err = export_fseq_file(&show, &map, &seq, &AudioSource::none(), &missing, |_, _| true).unwrap_err();
+    let err = export_fseq_file(
+        &show,
+        &map,
+        &seq,
+        &AudioSource::none(),
+        &Pictures::none(),
+        &missing,
+        |_, _| true,
+    )
+    .unwrap_err();
     assert!(matches!(err, ExportError::Write { .. }));
     assert!(err.to_string().starts_with("Could not save"), "{err}");
 
     let empty = Show::new("empty");
     let (empty_map, _) = pf_mapping::map_show(&empty);
-    let err =
-        export_fseq_file(&empty, &empty_map, &seq, &AudioSource::none(), &path, |_, _| true).unwrap_err();
+    let err = export_fseq_file(
+        &empty,
+        &empty_map,
+        &seq,
+        &AudioSource::none(),
+        &Pictures::none(),
+        &path,
+        |_, _| true,
+    )
+    .unwrap_err();
     assert!(
         err.to_string().contains("Wire your props to a controller"),
         "{err}"
@@ -222,7 +260,16 @@ fn file_exports_are_atomic_and_errors_are_plain() {
 
     let mut short = seq.clone();
     short.duration_ms = 0;
-    let err = export_fseq_file(&show, &map, &short, &AudioSource::none(), &path, |_, _| true).unwrap_err();
+    let err = export_fseq_file(
+        &show,
+        &map,
+        &short,
+        &AudioSource::none(),
+        &Pictures::none(),
+        &path,
+        |_, _| true,
+    )
+    .unwrap_err();
     assert!(matches!(err, ExportError::Empty));
     assert_eq!(
         pf_fseq::Sequence::open(&path).unwrap().header().frames,
@@ -239,10 +286,18 @@ fn an_export_can_be_cancelled_and_leaves_nothing_behind() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("Song.fseq");
     let mut seen = Vec::new();
-    let err = export_fseq_file(&show, &map, &seq, &AudioSource::none(), &path, |done, _| {
-        seen.push(done);
-        done < 2
-    })
+    let err = export_fseq_file(
+        &show,
+        &map,
+        &seq,
+        &AudioSource::none(),
+        &Pictures::none(),
+        &path,
+        |done, _| {
+            seen.push(done);
+            done < 2
+        },
+    )
     .unwrap_err();
     assert!(matches!(err, ExportError::Cancelled));
     assert_eq!(err.to_string(), "The export was cancelled.");
@@ -264,7 +319,17 @@ fn exports_to_the_same_file_at_once_each_use_their_own_temporary_file() {
     let results: Vec<_> = std::thread::scope(|scope| {
         let jobs: Vec<_> = (0..8)
             .map(|_| {
-                scope.spawn(|| export_fseq_file(&show, &map, &seq, &AudioSource::none(), &path, |_, _| true))
+                scope.spawn(|| {
+                    export_fseq_file(
+                        &show,
+                        &map,
+                        &seq,
+                        &AudioSource::none(),
+                        &Pictures::none(),
+                        &path,
+                        |_, _| true,
+                    )
+                })
             })
             .collect();
         jobs.into_iter().map(|j| j.join().unwrap()).collect()

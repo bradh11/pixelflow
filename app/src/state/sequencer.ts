@@ -311,6 +311,33 @@ interface SequencerState {
   findMusic(): Promise<boolean>;
   /** Asks where the music is now and uses that file (one undo step on the sequence). */
   locateMusic(): Promise<boolean>;
+  /** The open sequence's pictures that can't be drawn (see checkPictures). */
+  picturesMissing: MissingFile[];
+  /** Goes up when a picture the preview was waiting for has been read, so it draws again. */
+  picturesArrived: number;
+  /** Asks whether the open sequence's pictures are where they say (after opening, or a new
+   * picture); the sequence's problems then name the ones that aren't. */
+  checkPictures(): Promise<void>;
+  /** Looks for the missing pictures in the show's and the sequence's folders and uses the ones
+   * found (one undo step on the sequence), saying what happened. */
+  findPictures(): Promise<boolean>;
+  /** Asks where a missing picture (its `path`) is now and uses that file (one undo step). */
+  locatePicture(path: string): Promise<boolean>;
+  /** Asks for a picture for a Picture effect: what its `file` setting stores, or null. */
+  choosePicture(): Promise<string | null>;
+}
+
+/** The files the sequence's Picture effects name, each once. */
+export function pictureFiles(doc: Sequence | null): string[] {
+  const files = new Set<string>();
+  for (const row of doc?.rows ?? []) {
+    for (const layer of row.layers) {
+      for (const effect of layer.effects) {
+        if (effect.params.kind === "picture" && effect.params.file?.trim()) files.add(effect.params.file);
+      }
+    }
+  }
+  return [...files];
 }
 
 /** The notice for what Find lyrics found. */
@@ -451,6 +478,9 @@ export const useSequencer = create<SequencerState>((set, get) => {
     return ok === true;
   }
 
+  /** Stops listening for pictures arriving from the engine this store was connected to. */
+  let stopPictures: () => void = () => {};
+
   async function guarded<T>(call: () => Promise<T>): Promise<T | null> {
     try {
       return await call();
@@ -500,6 +530,12 @@ export const useSequencer = create<SequencerState>((set, get) => {
       // Calls still waiting on a previous engine have nothing to do with this one.
       queue = Promise.resolve();
       set({ api });
+      stopPictures();
+      stopPictures = api.onPicturesArrived(() => {
+        if (get().api !== api) return;
+        set({ picturesArrived: get().picturesArrived + 1 });
+        void get().checkPictures();
+      });
       await guarded(async () => {
         const [catalog, snapshot, recoveries] = await Promise.all([api.effectCatalog(), api.getSequenceDoc(), api.sequenceRecoveries()]);
         set({ catalog, recoveries });
@@ -532,6 +568,7 @@ export const useSequencer = create<SequencerState>((set, get) => {
           suggestBeats: false,
           notice: null,
           musicMissing: null,
+          picturesMissing: [],
           docKey: newDocKey(),
         });
       });
@@ -1133,6 +1170,77 @@ export const useSequencer = create<SequencerState>((set, get) => {
       );
       await get().checkMusic();
       return ok === true;
+    },
+
+    picturesMissing: [],
+    picturesArrived: 0,
+
+    async checkPictures() {
+      const { api, doc, revision } = get();
+      if (!api || pictureFiles(doc).length === 0) {
+        if (get().picturesMissing.length > 0) set({ picturesMissing: [] });
+        return;
+      }
+      const checked = await guarded(() => api.checkSequencePictures());
+      if (!checked || get().api !== api) return;
+      // The problems name the missing pictures; an edit made meanwhile brings its own.
+      set(get().revision === revision ? { picturesMissing: checked.missing, issues: checked.issues } : { picturesMissing: checked.missing });
+    },
+
+    async findPictures() {
+      const { api } = get();
+      const missing = get().picturesMissing;
+      if (!api || missing.length === 0) return false;
+      const names = (list: string[]) => (list.length > 3 ? `${list.slice(0, 3).join(", ")} and ${list.length - 3} more` : list.join(", "));
+      const ok = await serial(() =>
+        guarded(async () => {
+          const found = await api.findSequencePictures();
+          if (found.result) await absorb(found.result, api);
+          const still = found.missing.map((m) => m.name);
+          set({
+            picturesMissing: found.missing,
+            issues: found.issues,
+            notice:
+              found.found.length > 0
+                ? {
+                    tone: "done",
+                    text: `Found ${names(found.found)} and put ${found.found.length === 1 ? "it" : "them"} in the show's images folder.${found.result ? " Undo puts the old place back." : ""}`,
+                    notes: still.length > 0 ? [`Still missing: ${names(still)}. Use Locate… to choose ${still.length === 1 ? "it" : "them"}.`] : [],
+                    saveShow: false,
+                  }
+                : {
+                    tone: "info",
+                    text: found.gaveUp
+                      ? `PixelFlow stopped looking for ${names(still)} before it had checked every folder. Use Locate… to choose ${still.length === 1 ? "it" : "them"}.`
+                      : `PixelFlow couldn't find ${names(still)} in the show's or the sequence's folder. Use Locate… to choose ${still.length === 1 ? "it" : "them"}.`,
+                    notes: [],
+                    saveShow: false,
+                  },
+          });
+          return found.found.length > 0;
+        }),
+      );
+      return ok === true;
+    },
+
+    async locatePicture(path) {
+      const { api } = get();
+      if (!api || !get().doc) return false;
+      const ok = await serial(() =>
+        guarded(async () => {
+          const located = await api.locateSequencePicture(path);
+          if (!located) return false;
+          if (located.result) await absorb(located.result, api);
+          set({ picturesMissing: located.missing, issues: located.issues });
+          return true;
+        }),
+      );
+      return ok === true;
+    },
+
+    async choosePicture() {
+      const { api } = get();
+      return api ? guarded(() => api.pickPicture()) : null;
     },
 
     dismissBeats: () => set({ suggestBeats: false }),

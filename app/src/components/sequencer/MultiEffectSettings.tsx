@@ -6,7 +6,7 @@ import { targetName } from "../../lib/submodels";
 import { formatTime, shiftEdits } from "../../lib/timelineMath";
 import { useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
-import { BLUR, BlendOptions, ColorList, FIELD, KindSettings, MIXED_OPTION, MixedOption, MsField, NumberSetting, Panel, SPARKLES, Section, SettingControl, clamp, faceNames } from "./effectControls";
+import { BLUR, BlendOptions, ColorList, FIELD, KindSettings, MIXED_OPTION, MixedOption, MsField, NumberSetting, Panel, SPARKLES, Section, SettingControl, clamp, faceNames, usesColors } from "./effectControls";
 
 /**
  * Settings for several selected effects at once: what they share (colors, mixing, fades, and
@@ -52,7 +52,7 @@ export function MultiEffectSettings({ doc, ids }: { doc: Sequence; ids: string[]
   const sparkles = shared(effects.map((e) => e.sparkles ?? 0));
   const blur = shared(effects.map((e) => e.blur ?? 0));
   const length = shared(effects.map((e) => e.endMs - e.startMs));
-  const usesColors = effects.some((e) => e.params.kind !== "off" && e.params.kind !== "fire");
+  const showColors = effects.some(usesColors);
   const from = Math.min(...effects.map((e) => e.startMs));
   const to = Math.max(...effects.map((e) => e.endMs));
   const label = kind ? `${effects.length} ${info?.label ?? kind} effects` : `${effects.length} effects`;
@@ -102,7 +102,7 @@ export function MultiEffectSettings({ doc, ids }: { doc: Sequence; ids: string[]
         </Section>
       )}
 
-      {usesColors && (
+      {showColors && (
         <Section title="Colors">
           <ColorList
             key={fresh}

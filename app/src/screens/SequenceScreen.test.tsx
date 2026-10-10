@@ -513,6 +513,91 @@ describe("sequence screen", () => {
     expect(EFFECT_ICONS.dancer).toBeDefined();
   });
 
+  it("shows a picture's file, fit, and movement up front, and chooses a picture through the app's dialog", async () => {
+    const { backend, seq, user } = await openScreen();
+    // One picture already in the show's images folder, and another the dialog will hand back.
+    seq.pictures.set("images/Star.png", new Uint8Array([1, 2, 3]));
+    backend.images.set("/Downloads/santa dancing.gif", new Uint8Array([4, 5, 6]));
+    seq.nextPicturePath = "/Downloads/santa dancing.gif";
+    fireEvent.pointerDown(timeline(), { clientX: x(1000), clientY: LANE.archTop, button: 0, pointerId: 1 });
+    fireEvent.pointerUp(timeline(), { clientX: x(1000), clientY: LANE.archTop, pointerId: 1 });
+    const id = useSequencer.getState().selection[0];
+    const effect = () => seq.doc!.rows.flatMap((r) => r.layers.flatMap((l) => l.effects)).find((e) => e.id === id)!;
+    await act(() => useSequencer.getState().edit([{ type: "updateEffect", effect: { ...effect(), params: { kind: "picture" } } }]));
+    const panel = screen.getByRole("complementary", { name: "Effect settings" });
+    // No picture yet: it says so, offers the dialog, and nothing is missing.
+    expect(within(panel).getByText("No picture yet")).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: /isn't where it was/ })).not.toBeInTheDocument();
+    expect(within(panel).getByRole("combobox", { name: "Fit" })).toHaveValue("fit");
+    expect(within(panel).getByRole("combobox", { name: "Animation" })).toHaveValue("loop");
+    expect(within(panel).getByRole("slider", { name: "Animation speed" })).toHaveValue("1");
+    const movement = within(panel).getByRole("combobox", { name: "Movement" });
+    expect(within(movement).getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "None",
+      "Scroll left",
+      "Scroll right",
+      "Scroll up",
+      "Scroll down",
+      "Zoom in",
+      "Zoom out",
+      "Slow pan",
+    ]);
+    expect(within(panel).getByRole("slider", { name: "Scale" })).toHaveValue("100");
+    expect(within(panel).getByRole("checkbox", { name: "Black is transparent" })).not.toBeChecked();
+    for (const rare of ["Turn", "Crisp pixels", "Black up to", "Start on frame", "Tint with the palette"]) expect(within(panel).queryByLabelText(rare)).not.toBeInTheDocument();
+    // Its own colors: the palette isn't shown until it's asked to tint.
+    expect(within(panel).queryByRole("heading", { name: "Colors" })).not.toBeInTheDocument();
+    // Choosing asks the app, which copies the file into the show's images folder.
+    await user.click(within(panel).getByRole("button", { name: "Choose picture…" }));
+    await waitFor(() => expect(effect().params).toMatchObject({ kind: "picture", file: "images/santa dancing.gif" }));
+    expect(seq.calls).toContain("pickPicture");
+    expect(await within(panel).findByText("santa dancing.gif")).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Replace…" })).toBeInTheDocument();
+    // The pictures already in the show are one click away.
+    const inShow = await within(panel).findByRole("combobox", { name: "Pictures in this show" });
+    expect(within(inShow).getAllByRole("option").map((o) => o.textContent)).toEqual(["Pictures in this show…", "Star.png"]);
+    await user.selectOptions(inShow, "images/Star.png");
+    await waitFor(() => expect(effect().params).toMatchObject({ file: "images/Star.png" }));
+    await user.selectOptions(movement, "left");
+    expect(effect().params).toMatchObject({ kind: "picture", movement: "left" });
+    expect(EFFECT_ICONS.picture).toBeDefined();
+  });
+
+  it("names a picture that's missing, finds it again in the show's folder, and locates another", async () => {
+    const { backend, seq, user } = await openScreen();
+    fireEvent.pointerDown(timeline(), { clientX: x(1000), clientY: LANE.archTop, button: 0, pointerId: 1 });
+    fireEvent.pointerUp(timeline(), { clientX: x(1000), clientY: LANE.archTop, pointerId: 1 });
+    const id = useSequencer.getState().selection[0];
+    const effect = () => seq.doc!.rows.flatMap((r) => r.layers.flatMap((l) => l.effects)).find((e) => e.id === id)!;
+    // The sequence names a picture as another computer had it.
+    const elsewhere = "C:\\Users\\someone\\xlights\\Images\\santa dancing.gif";
+    await act(() => useSequencer.getState().edit([{ type: "updateEffect", effect: { ...effect(), params: { kind: "picture", file: elsewhere } } }]));
+    const notice = await screen.findByRole("group", { name: "santa dancing.gif isn't where it was." });
+    expect(within(notice).getByText(/Picture effect at/)).toBeInTheDocument();
+    // The sequence's problems name the file too.
+    expect(useSequencer.getState().issues.map((i) => i.message)).toEqual([expect.stringContaining("shows nothing: santa dancing.gif isn't where it was.")]);
+    // Not in the show's folder: it says so, and offers Locate.
+    await user.click(within(notice).getByRole("button", { name: "Find santa dancing.gif again" }));
+    expect(await screen.findByText(/couldn't find santa dancing.gif in the show's or the sequence's folder/)).toBeInTheDocument();
+    // In the show's folder after all: found, copied into images, and the effect follows.
+    backend.images.set("/Shows/Assets/santa dancing.gif", new Uint8Array([7]));
+    seq.findablePictures.set(elsewhere, "/Shows/Assets/santa dancing.gif");
+    await user.click(within(notice).getByRole("button", { name: "Find santa dancing.gif again" }));
+    await waitFor(() => expect(effect().params).toMatchObject({ file: "images/santa dancing.gif" }));
+    expect(await screen.findByText(/Found santa dancing.gif and put it in the show's images folder. Undo puts the old place back./)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("group", { name: /isn't where it was/ })).not.toBeInTheDocument());
+    expect(useSequencer.getState().issues).toEqual([]);
+    // Undo: missing again. Locate asks the user instead, and uses what they choose.
+    await act(() => useSequencer.getState().undo());
+    const again = await screen.findByRole("group", { name: "santa dancing.gif isn't where it was." });
+    backend.images.set("/Downloads/Santa.gif", new Uint8Array([8]));
+    seq.nextPicturePath = "/Downloads/Santa.gif";
+    await user.click(within(again).getByRole("button", { name: "Locate santa dancing.gif" }));
+    await waitFor(() => expect(effect().params).toMatchObject({ file: "images/Santa.gif" }));
+    expect(seq.calls).toContain("locateSequencePicture");
+    await waitFor(() => expect(screen.queryByRole("group", { name: /isn't where it was/ })).not.toBeInTheDocument());
+  });
+
   it("moves the playhead and selected effects with the keyboard, and copies and pastes", async () => {
     const { seq, user, show } = await openScreen();
     timeline().focus();

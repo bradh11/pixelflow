@@ -56,7 +56,9 @@ export function MissingFileNotice({
       <p className="flex items-start gap-2">
         <FileQuestion size={15} className="mt-0.5 shrink-0" aria-hidden />
         <span className="min-w-0">
-          <span className="font-medium break-words">{missing.name}</span> isn't where it was.
+          <span className="font-medium break-words">{missing.name}</span>
+          {/* What's wrong with it, as the engine says it ("… isn't where it was."). */}
+          {missing.message.startsWith(`${missing.name} `) ? missing.message.slice(missing.name.length) : " isn't where it was."}
           {showOwner && <span className="block text-xs text-amber-800/80 dark:text-amber-300/80">{missing.owner}</span>}
           <span className="block truncate text-xs text-amber-800/80 dark:text-amber-300/80" title={shownPath(missing.wasAt)}>
             {wasIn(missing.wasAt)}

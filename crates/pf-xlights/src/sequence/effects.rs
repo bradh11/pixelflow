@@ -16,11 +16,12 @@ use pf_sequence::{
     ColorWashParams, Curve, CurveShape, Direction, EffectParams, FaceColorSource, FaceEyes, FacesParams,
     FanParams, FireParams, GarlandShape, GarlandsDirection, GarlandsParams, Gradient, LifeParams, LifeRules,
     LightningParams, LinesParams, MAX_CURVE_CYCLES, MIN_CURVE_CYCLES, MeteorDirection, MeteorsParams,
-    MorphParams, OffParams, OnParams, Palette, PinwheelParams, PinwheelShading, PinwheelStyle, PlasmaColors,
-    PlasmaParams, Rgb, RippleParams, SettingRange, ShapeObject, ShapeParams, ShimmerParams, SnowflakeShape,
-    SnowflakesMotion, SnowflakesParams, SpiralParams, StrobeParams, TendrilMovement, TendrilParams,
-    TextCountdown, TextMovement, TextOrientation, TextParams, TwinkleParams, VuMeterParams, VuMeterShape,
-    VuMeterType, WaveParams,
+    MorphParams, OffParams, OnParams, Palette, PictureFit, PictureMovement, PictureParams, PictureTiming,
+    PinwheelParams, PinwheelShading, PinwheelStyle, PlasmaColors, PlasmaParams, Rgb, RippleParams,
+    SettingRange, ShapeObject, ShapeParams, ShimmerParams, SnowflakeShape, SnowflakesMotion,
+    SnowflakesParams, SpiralParams, StrobeParams, TendrilMovement, TendrilParams, TextCountdown,
+    TextMovement, TextOrientation, TextParams, TwinkleParams, VuMeterParams, VuMeterShape, VuMeterType,
+    WaveParams,
 };
 use std::collections::BTreeMap;
 
@@ -1431,6 +1432,211 @@ fn faces(r: &Reader, diff: &mut Diff) -> EffectParams {
     })
 }
 
+/// The picture file a Pictures effect names: xLights has stored it under three controls over the
+/// years (the newest first).
+fn picture_file(s: &Settings) -> &str {
+    [
+        "E_TEXTCTRL_Pictures_Filename",
+        "E_FILEPICKERCTRL_Pictures_Filename",
+        "E_FILEPICKER_Pictures_Filename",
+    ]
+    .iter()
+    .map(|key| s.text(key, "").trim())
+    .find(|file| !file.is_empty())
+    .unwrap_or("")
+}
+
+/// How a Pictures effect sizes its picture: xLights' `Scaling` choice, or the "Scale to fit"
+/// checkbox sequences older than 2017.6 have instead.
+fn picture_fit(r: &Reader, diff: &mut Diff) -> PictureFit {
+    let old = if r.check("Pictures_ScaleToFit") {
+        "Scale To Fit"
+    } else {
+        "No Scaling"
+    };
+    match r.choice("Scaling", old) {
+        "No Scaling" => PictureFit::Actual,
+        "Scale To Fit" => PictureFit::Stretch,
+        "Scale Keep Aspect Ratio" => PictureFit::Fit,
+        "Scale Keep Aspect Ratio Crop" => PictureFit::Fill,
+        other => {
+            diff.add(format!("'{other}' scaling shown pixel for pixel"));
+            PictureFit::Actual
+        }
+    }
+}
+
+/// Pictures (xLights' `PicturesEffect`): the file as the sequence names it (the importer then
+/// looks for it on this computer: see `find_pictures`), sized, placed, and scrolled as xLights
+/// does. What changes over the effect besides its value curves (a size from start to end, a
+/// "vector" move) becomes curves in [`picture_curves`].
+///
+/// - Sizing, offsets, black made clear, and scrolling left, right, up, and down match.
+/// - An animated GIF plays at its own speed when xLights loops it, and is spread over the
+///   effect when it doesn't. PixelFlow keeps each frame's share of the pass where xLights gives
+///   every frame the same time: the same thing for a GIF whose frames are equally long.
+/// - Diagonal moves, peekaboo, wiggle, flag wave, and tiling have no match and are noted.
+fn pictures(r: &Reader, duration_ms: u64, diff: &mut Diff) -> EffectParams {
+    let file = picture_file(r.s);
+    let direction = r.choice("Pictures_Direction", "none");
+    let speed = r.get("Pictures_Speed", 1.0, 0.0, 20.0);
+    let wrap_x = r.check("Pictures_WrapX");
+    use PictureMovement as M;
+    let (movement, wrap) = match direction {
+        "none" | "vector" => (M::None, wrap_x),
+        "left" => (M::Left, wrap_x),
+        "right" => (M::Right, wrap_x),
+        "up" => (M::Up, false),
+        "down" => (M::Down, false),
+        "up once" | "down once" => {
+            if speed > 1.0 + 1e-6 {
+                diff.add(format!("'{direction}' crosses again and again instead of once"));
+            }
+            (if direction == "up once" { M::Up } else { M::Down }, false)
+        }
+        "up-left" | "down-left" | "up-right" | "down-right" => {
+            let (way, movement) = if direction.ends_with("left") {
+                ("left", M::Left)
+            } else {
+                ("right", M::Right)
+            };
+            diff.add(format!("'{direction}' movement shown moving {way}"));
+            (movement, wrap_x)
+        }
+        "zoom in" => {
+            diff.add("'zoom in' grows from the middle to the picture's size, not from the corner to the whole prop");
+            if (speed - 1.0).abs() > 1e-6 {
+                diff.add("repeated zooming shown as one zoom over the effect");
+            }
+            (M::ZoomIn, false)
+        }
+        "tile-left" | "tile-right" | "tile-up" | "tile-down" => {
+            diff.add(format!(
+                "'{direction}' shown as one picture wrapping round rather than tiles, at a speed of its own"
+            ));
+            let movement = match direction {
+                "tile-left" => M::Left,
+                "tile-right" => M::Right,
+                "tile-up" => M::Up,
+                _ => M::Down,
+            };
+            (movement, true)
+        }
+        other => {
+            // Peekaboo (four ways), wiggle, and flag wave.
+            diff.add(format!("'{other}' movement not shown: the picture stays still"));
+            (M::None, wrap_x)
+        }
+    };
+    if wrap_x && !wrap && !matches!(movement, M::None | M::Left | M::Right) {
+        diff.add("wrapping across not shown on a picture that isn't moving across");
+    }
+    let scrolls = matches!(movement, M::Left | M::Right | M::Up | M::Down);
+    let fit = picture_fit(r, diff);
+    // xLights only scales a picture shown pixel for pixel.
+    let scale = match fit {
+        PictureFit::Actual => r.get("Pictures_StartScale", 100.0, 0.0, 1000.0),
+        _ => 100.0,
+    };
+    // A scrolling picture's offset up is taken downward by xLights.
+    let up = r.get("PicturesYC", 0.0, -100.0, 100.0);
+    let y_offset = if scrolls || movement == M::ZoomIn { -up } else { up };
+    let stem = file
+        .rsplit(['/', '\\'])
+        .next()
+        .and_then(|name| name.rsplit_once('.'))
+        .map_or("", |(stem, _)| stem);
+    if stem.ends_with("-1") {
+        diff.add("numbered picture files (name-1, name-2, and so on) shown as the first picture alone");
+    }
+    if r.check("Pictures_Shimmer") {
+        diff.add("shimmer not shown");
+    }
+    if !r.check_or("SuppressGIFBackground", true) {
+        diff.add("a GIF's background color not drawn");
+    }
+    EffectParams::Picture(PictureParams {
+        file: file.to_string(),
+        fit,
+        timing: if r.check("LoopGIF") {
+            PictureTiming::Loop
+        } else {
+            PictureTiming::Stretch
+        },
+        play_speed: r.get("Pictures_FrameRateAdj", 1.0, 0.0, 100.0) as f32,
+        movement,
+        move_speed: if scrolls {
+            rate(speed, duration_ms)
+        } else {
+            PictureParams::default().move_speed
+        },
+        wrap,
+        x_offset: r.get("PicturesXC", 0.0, -100.0, 100.0) as f32,
+        y_offset: y_offset as f32,
+        scale: scale as f32,
+        black_transparent: r.check("Pictures_TransparentBlack"),
+        // xLights' level is red + green + blue (0-765); PixelFlow's a share of full white.
+        black_level: (r.get("Pictures_TransparentBlack", 0.0, 0.0, 765.0) / 7.65) as f32,
+        pixel_offsets: r.check("Pictures_PixelOffsets"),
+        ..PictureParams::default()
+    })
+}
+
+/// What an xLights Pictures effect changes over the effect besides its value curves: its size
+/// from the start scale to the end scale (shown pixel for pixel), and a "vector" move from its
+/// offsets to its end offsets. xLights repeats both as often as the effect's speed says.
+fn picture_curves(
+    s: &Settings,
+    params: &EffectParams,
+    curves: &mut BTreeMap<String, Curve>,
+    diff: &mut Diff,
+) {
+    let EffectParams::Picture(p) = params else {
+        return;
+    };
+    let r = Reader { s };
+    let direction = r.choice("Pictures_Direction", "none");
+    let speed = r.get("Pictures_Speed", 1.0, 0.0, 20.0) as f32;
+    let mut ramps: Vec<(&str, f32, f32)> = Vec::new();
+    if p.fit == PictureFit::Actual {
+        let end = r.get("Pictures_EndScale", 100.0, 0.0, 1000.0) as f32;
+        ramps.push(("scale", p.scale, end.clamp(1.0, 1000.0)));
+    }
+    if direction == "vector" {
+        // xLights reads a "vector" move's offsets from the sliders alone: a value curve on them
+        // does nothing.
+        curves.remove("xOffset");
+        curves.remove("yOffset");
+        ramps.push((
+            "xOffset",
+            p.x_offset,
+            r.get("PicturesEndXC", 0.0, -100.0, 100.0) as f32,
+        ));
+        ramps.push((
+            "yOffset",
+            p.y_offset,
+            r.get("PicturesEndYC", 0.0, -100.0, 100.0) as f32,
+        ));
+    }
+    ramps.retain(|(_, from, to)| (from - to).abs() > 1e-6);
+    if ramps.is_empty() {
+        return;
+    }
+    let once = (speed - 1.0).abs() <= 1e-6 || direction.ends_with("once");
+    let repeats = (MIN_CURVE_CYCLES..=MAX_CURVE_CYCLES).contains(&speed);
+    if !once && !repeats {
+        diff.add("a size or position that changes over and over shown changing once over the effect");
+    }
+    for (key, from, to) in ramps {
+        let curve = if once || !repeats {
+            Curve::ramp(from, to)
+        } else {
+            Curve::shaped(CurveShape::Saw, from, to, speed)
+        };
+        curves.insert(key.to_string(), curve);
+    }
+}
+
 /// The effect-specific translation of the xLights effect `name`.
 fn effect_params(
     name: &str,
@@ -1477,6 +1683,7 @@ fn effect_params(
         "tendril" => tendril(&r, diff),
         "text" => text(&r, diff),
         "vumeter" => vu_meter(&r, diff),
+        "pictures" => pictures(&r, duration_ms, diff),
         // No direct equivalent: the closest PixelFlow effect, with its default settings.
         "fireworks" => closest("twinkles", EffectParams::Twinkle(TwinkleParams::default())),
         "snowstorm" => closest("falling meteors", EffectParams::Meteors(MeteorsParams::default())),
@@ -1668,6 +1875,25 @@ fn palette_colors(palette: &ParsedPalette, diff: &mut Diff) -> Vec<Rgb> {
         .collect()
 }
 
+/// A picture has its own colors, so the palette's brightness (which xLights applies to every
+/// effect) can't dim them the way it dims other effects' palette colors: the picture is tinted
+/// with a grey that dim instead. At full brightness it's left alone.
+fn dimmed_picture(
+    params: EffectParams,
+    colors: Vec<Rgb>,
+    palette: &ParsedPalette,
+) -> (EffectParams, Vec<Rgb>) {
+    let scale = brightness_scale(palette);
+    match params {
+        EffectParams::Picture(mut p) if scale < 1.0 => {
+            p.tint = true;
+            let level = (255.0 * scale).round() as u8;
+            (EffectParams::Picture(p), vec![Rgb::new(level, level, level)])
+        }
+        other => (other, colors),
+    }
+}
+
 /// Translates one xLights effect lasting `duration_ms` in a sequence with `frame_ms` frames.
 /// `None` for effects that are left out ([`Fidelity::Skipped`]).
 pub fn translate(
@@ -1740,6 +1966,7 @@ pub fn translate(
                     ));
                 }
                 on_cycles(&start, &clamped, &mut curves, &mut diff);
+                picture_curves(&start, &clamped, &mut curves, &mut diff);
                 for (id, curve) in &driven {
                     let at = |value: f64| {
                         let mut at = start.clone();
@@ -1788,6 +2015,7 @@ pub fn translate(
                         curve_tracks.extend(track.map(|t| (spec.key.to_string(), t)));
                     }
                 }
+                let (clamped, colors) = dimmed_picture(clamped, colors, palette);
                 Translated {
                     params: clamped,
                     palette: Palette::new(colors),
@@ -3049,6 +3277,268 @@ mod tests {
                 );
             }
         }
+    }
+
+    fn picture(settings: &str, duration_ms: u64) -> (PictureParams, Translated) {
+        let t = translate(
+            "Pictures",
+            &Settings::parse(settings),
+            &palette(&[]),
+            duration_ms,
+            25,
+        )
+        .unwrap();
+        let EffectParams::Picture(p) = t.params.clone() else {
+            panic!("{:?}", t.params)
+        };
+        (p, t)
+    }
+
+    fn notes(t: &Translated) -> Vec<String> {
+        match &t.fidelity {
+            Fidelity::Approximate(notes) => notes.clone(),
+            Fidelity::Exact => Vec::new(),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn pictures_keep_their_file_size_place_and_scrolling() {
+        // A looping GIF scrolling left twice over 10 s, wrapping, black made clear.
+        let (p, t) = picture(
+            r"E_TEXTCTRL_Pictures_Filename=C:\Users\me\xlights\Images\santa dancing.gif,E_CHOICE_Scaling=Scale Keep Aspect Ratio,E_CHOICE_Pictures_Direction=left,E_TEXTCTRL_Pictures_Speed=2,E_SLIDER_PicturesXC=10,E_SLIDER_PicturesYC=-20,E_CHECKBOX_Pictures_WrapX=1,E_CHECKBOX_LoopGIF=1,E_TEXTCTRL_Pictures_FrameRateAdj=1.5,E_CHECKBOX_Pictures_TransparentBlack=1,E_TEXTCTRL_Pictures_TransparentBlack=153",
+            10_000,
+        );
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        assert!(
+            (p.black_level - 20.0).abs() < 1e-4,
+            "153 of 765 is a fifth: {}",
+            p.black_level
+        );
+        assert_eq!(
+            PictureParams {
+                black_level: 20.0,
+                ..p
+            },
+            PictureParams {
+                file: r"C:\Users\me\xlights\Images\santa dancing.gif".into(),
+                fit: PictureFit::Fit,
+                timing: PictureTiming::Loop,
+                play_speed: 1.5,
+                movement: PictureMovement::Left,
+                // Two trips in ten seconds.
+                move_speed: 0.2,
+                wrap: true,
+                x_offset: 10.0,
+                // xLights takes a scrolling picture's offset the other way up.
+                y_offset: 20.0,
+                black_transparent: true,
+                black_level: 20.0,
+                ..PictureParams::default()
+            }
+        );
+        assert!(t.curves.is_empty());
+        // The palette's brightness dims a picture as a grey tint; its colors don't color it.
+        let mut dim = palette(&[Rgb::RED, Rgb::BLUE]);
+        dim.brightness = 40.0;
+        let t = translate("Pictures", &Settings::default(), &dim, 1000, 25).unwrap();
+        let EffectParams::Picture(p) = &t.params else {
+            panic!("{:?}", t.params)
+        };
+        assert!(p.tint);
+        assert_eq!(t.palette.colors, vec![Rgb::new(102, 102, 102)]);
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        // Nothing set: no file yet, pixel for pixel, still, its animation spread over the effect.
+        let (p, t) = picture("", 4_000);
+        assert_eq!(
+            p,
+            PictureParams {
+                fit: PictureFit::Actual,
+                timing: PictureTiming::Stretch,
+                ..PictureParams::default()
+            }
+        );
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        assert_eq!(t.palette.colors, vec![Rgb::WHITE]);
+        // Each way of scaling, and the checkbox old sequences have instead.
+        for (scaling, fit) in [
+            ("No Scaling", PictureFit::Actual),
+            ("Scale To Fit", PictureFit::Stretch),
+            ("Scale Keep Aspect Ratio", PictureFit::Fit),
+            ("Scale Keep Aspect Ratio Crop", PictureFit::Fill),
+        ] {
+            let (p, t) = picture(
+                &format!("E_CHOICE_Scaling={scaling},E_SLIDER_PicturesYC=30"),
+                1000,
+            );
+            assert_eq!(
+                (p.fit, p.y_offset, &t.fidelity),
+                (fit, 30.0, &Fidelity::Exact),
+                "{scaling}"
+            );
+        }
+        let (old, t) = picture(
+            "E_FILEPICKER_Pictures_Filename=tree.png,E_CHECKBOX_Pictures_ScaleToFit=1,E_CHECKBOX_Pictures_PixelOffsets=1",
+            1000,
+        );
+        assert_eq!(
+            (old.file.as_str(), old.fit, old.pixel_offsets),
+            ("tree.png", PictureFit::Stretch, true)
+        );
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        let (older, _) = picture("E_FILEPICKERCTRL_Pictures_Filename= star.bmp ", 1000);
+        assert_eq!(older.file, "star.bmp");
+        // Up and down scroll too (xLights never wraps them); a frame rate out of range is noted.
+        let (up, t) = picture(
+            "E_CHOICE_Pictures_Direction=up,E_CHECKBOX_Pictures_WrapX=1,E_TEXTCTRL_Pictures_Speed=1,E_TEXTCTRL_Pictures_FrameRateAdj=40",
+            2_000,
+        );
+        assert_eq!(
+            (up.movement, up.move_speed, up.wrap, up.play_speed),
+            (PictureMovement::Up, 0.5, false, 10.0)
+        );
+        assert_eq!(
+            notes(&t),
+            [
+                "wrapping across not shown on a picture that isn't moving across",
+                BEYOND_RANGE
+            ]
+        );
+    }
+
+    #[test]
+    fn picture_movements_without_a_match_are_noted() {
+        let moved = |direction: &str, more: &str| {
+            let (p, t) = picture(&format!("E_CHOICE_Pictures_Direction={direction},{more}"), 5_000);
+            (p.movement, p.wrap, notes(&t))
+        };
+        use PictureMovement as M;
+        assert_eq!(moved("down", ""), (M::Down, false, vec![]));
+        assert_eq!(moved("right", ""), (M::Right, false, vec![]));
+        assert_eq!(
+            moved("up-left", ""),
+            (
+                M::Left,
+                false,
+                vec!["'up-left' movement shown moving left".to_string()]
+            )
+        );
+        assert_eq!(
+            moved("down-right", "").2,
+            ["'down-right' movement shown moving right"]
+        );
+        for still in [
+            "peekaboo",
+            "peekaboo 90",
+            "peekaboo 180",
+            "peekaboo 270",
+            "wiggle",
+            "flag wave",
+        ] {
+            assert_eq!(
+                moved(still, ""),
+                (
+                    M::None,
+                    false,
+                    vec![format!("'{still}' movement not shown: the picture stays still")]
+                )
+            );
+        }
+        assert_eq!(
+            moved("zoom in", "E_TEXTCTRL_Pictures_Speed=3"),
+            (
+                M::ZoomIn,
+                false,
+                vec![
+                    "'zoom in' grows from the middle to the picture's size, not from the corner to the whole prop"
+                        .to_string(),
+                    "repeated zooming shown as one zoom over the effect".to_string()
+                ]
+            )
+        );
+        assert_eq!(
+            moved("tile-up", ""),
+            (
+                M::Up,
+                true,
+                vec![
+                    "'tile-up' shown as one picture wrapping round rather than tiles, at a speed of its own"
+                        .to_string()
+                ]
+            )
+        );
+        assert_eq!(moved("tile-left", "").0, M::Left);
+        // Crossing once is exact until it's asked to cross faster than the effect lasts.
+        assert_eq!(moved("up once", ""), (M::Up, false, vec![]));
+        assert_eq!(
+            moved("down once", "E_TEXTCTRL_Pictures_Speed=4"),
+            (
+                M::Down,
+                false,
+                vec!["'down once' crosses again and again instead of once".to_string()]
+            )
+        );
+        // What else isn't drawn says so.
+        let (_, t) = picture(
+            "E_TEXTCTRL_Pictures_Filename=frames/clip-1.jpg,E_CHECKBOX_Pictures_Shimmer=1,E_CHECKBOX_SuppressGIFBackground=0",
+            1000,
+        );
+        assert_eq!(
+            notes(&t),
+            [
+                "numbered picture files (name-1, name-2, and so on) shown as the first picture alone",
+                "shimmer not shown",
+                "a GIF's background color not drawn"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_pictures_size_and_position_that_change_get_curves() {
+        // Pixel for pixel, growing from half size to double over the effect.
+        let (p, t) = picture(
+            "E_CHOICE_Scaling=No Scaling,E_SLIDER_Pictures_StartScale=50,E_SLIDER_Pictures_EndScale=200",
+            4_000,
+        );
+        assert_eq!(p.scale, 50.0);
+        assert_eq!(t.curves["scale"], Curve::ramp(50.0, 200.0));
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        // Three times over, with the movement's speed.
+        let (_, t) = picture(
+            "E_SLIDER_Pictures_StartScale=50,E_SLIDER_Pictures_EndScale=200,E_TEXTCTRL_Pictures_Speed=3,E_CHOICE_Pictures_Direction=left",
+            4_000,
+        );
+        assert_eq!(
+            t.curves["scale"],
+            Curve::shaped(CurveShape::Saw, 50.0, 200.0, 3.0)
+        );
+        // xLights doesn't scale a picture it fits, whatever the sliders say.
+        let (p, t) = picture(
+            "E_CHOICE_Scaling=Scale To Fit,E_SLIDER_Pictures_StartScale=50,E_SLIDER_Pictures_EndScale=200",
+            4_000,
+        );
+        assert_eq!(p.scale, 100.0);
+        assert!(t.curves.is_empty());
+        // A "vector" move: from its offsets to its end offsets, standing still otherwise.
+        let (p, t) = picture(
+            "E_CHOICE_Pictures_Direction=vector,E_SLIDER_PicturesXC=-50,E_SLIDER_PicturesYC=10,E_SLIDER_PicturesEndXC=50,E_SLIDER_PicturesEndYC=10",
+            4_000,
+        );
+        assert_eq!(
+            (p.movement, p.x_offset, p.y_offset),
+            (PictureMovement::None, -50.0, 10.0)
+        );
+        assert_eq!(t.curves["xOffset"], Curve::ramp(-50.0, 50.0));
+        assert!(!t.curves.contains_key("yOffset"), "it doesn't move up or down");
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        // An offset on a value curve follows it.
+        let (p, t) = picture(
+            "E_CHOICE_Scaling=Scale To Fit,E_VALUECURVE_PicturesXC=Active=TRUE|Id=ID_VALUECURVE_PicturesXC|Type=Ramp|Min=-100.00|Max=100.00|P1=-50.00|P2=50.00|RV=TRUE|",
+            4_000,
+        );
+        assert_eq!(p.x_offset, -50.0, "the setting holds the curve's start");
+        assert_eq!(t.curves["xOffset"], Curve::ramp(-50.0, 50.0));
+        assert_eq!(t.curves.len(), 1, "{:?}", t.curves.keys());
     }
 
     #[test]

@@ -18,7 +18,7 @@ use pf_fseq::Sequence;
 use pf_mapping::ChannelMap;
 use pf_model::{Protocol, SequenceId, Show};
 use pf_output::{OutputHandle, OutputPlan, OutputSettings, PassthroughRoute, Transport, wire_order};
-use pf_render::{AudioSource, Renderer};
+use pf_render::{AudioSource, Pictures, Renderer};
 use pf_sequence::Sequence as SequenceDoc;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -509,6 +509,8 @@ pub(crate) struct LiveUpdates {
     pending: Mutex<Pending>,
     /// The music the sequence's effects follow, as last sent.
     audio: Mutex<AudioSource>,
+    /// The pictures its Picture effects draw (every renderer drawing them gets them).
+    pictures: Pictures,
 }
 
 impl LiveUpdates {
@@ -567,12 +569,16 @@ impl FrameSource for RenderedFrames {
         if !self.renderer.audio().same(&self.audio) {
             self.renderer.set_audio(self.audio.clone());
         }
+        if !self.renderer.pictures().same(&self.updates.pictures) {
+            self.renderer.set_pictures(self.updates.pictures.clone());
+        }
         true
     }
 
     fn relayout(&mut self, show: Show, map: ChannelMap, renderer: Option<Renderer>) {
         self.renderer = renderer.unwrap_or_else(|| Renderer::new(&show, &map));
         self.renderer.set_audio(self.audio.clone());
+        self.renderer.set_pictures(self.updates.pictures.clone());
     }
 }
 
@@ -874,6 +880,8 @@ pub(crate) struct DocumentRequest {
     pub music: Option<PathBuf>,
     /// The music's audio track for the effects that follow it.
     pub audio: AudioSource,
+    /// The pictures Picture effects draw.
+    pub pictures: Pictures,
     /// The show's first error, if it has any (then only the preview plays).
     pub show_error: Option<String>,
     /// Send to the controllers (false: only the preview plays).
@@ -998,6 +1006,7 @@ impl PlaybackSession {
             path,
             music,
             audio,
+            pictures,
             show_error,
             send,
             volume,
@@ -1006,11 +1015,13 @@ impl PlaybackSession {
         let (plan, notes) = document_plan(show, map, show_error.as_deref(), send, doc.frame_ms);
         let updates = Arc::new(LiveUpdates {
             audio: Mutex::new(audio.clone()),
+            pictures: pictures.clone(),
             ..LiveUpdates::default()
         });
         let frame_ms = doc.frame_ms;
         let mut renderer = Renderer::new(show, map);
         renderer.set_audio(audio.clone());
+        renderer.set_pictures(pictures);
         let source = RenderedFrames {
             doc,
             renderer,
@@ -1214,6 +1225,7 @@ impl PlaybackSession {
         let (plan, notes) = document_plan(show, map, show_error, send, doc.frame_ms);
         let mut renderer = Renderer::new(show, map);
         renderer.set_audio(updates.audio());
+        renderer.set_pictures(updates.pictures.clone());
         let (mut writer, reader) = pf_frame::frame_buffers(map.frame_len);
         // Start the new output on the moment showing now, not a black frame.
         let position_ms = {

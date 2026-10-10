@@ -262,14 +262,19 @@ pub(crate) async fn ai_send<R: Runtime>(
         *turns += 1;
         *turns
     };
-    let workspace = {
+    let (mut workspace, pictures) = {
         let engine = state.engine();
-        Workspace::from_engine(&engine, context.unwrap_or_default())
+        (
+            Workspace::from_engine(&engine, context.unwrap_or_default()),
+            engine.picture_files(),
+        )
     };
     let vault = Arc::clone(&ai.vault);
     let llm = ai.providers.get(provider);
     let session = Arc::clone(&ai.session);
     off_thread_failing(move || {
+        // The pictures in the show's images folder, read here rather than under the engine.
+        workspace.images = pictures.listed();
         let key = vault.key(provider)?;
         let mut session = lock(&session);
         Ok(session.run_turn(
@@ -400,8 +405,9 @@ pub(crate) async fn ai_preview_frame(
                 .filter(|_| !proposal.sequence_edits.is_empty())
                 .ok_or_else(|| "This suggestion doesn't change the sequence.".to_string())?;
             let mut renderer = pf_engine::DraftRenderer::new(&proposal.draft_show);
-            // The draft follows the open sequence's music.
+            // The draft follows the open sequence's music, and draws the show's pictures.
             renderer.set_audio(state.engine().sequence_audio());
+            renderer.set_pictures(state.engine().pictures());
             DraftPlayer {
                 proposal: id,
                 renderer,

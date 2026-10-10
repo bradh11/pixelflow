@@ -30,7 +30,7 @@ type Migration = fn(Value) -> Result<Value, SequenceError>;
 
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
 const MIGRATIONS: &[Migration] = &[
-    v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8,
+    v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9,
 ];
 
 /// Version 2 only adds submodel targets, so version 1 documents are already valid.
@@ -71,6 +71,11 @@ fn v6_to_v7(doc: Value) -> Result<Value, SequenceError> {
 
 /// Version 8 only adds an effect kind (Dancer), so version 7 documents are already valid.
 fn v7_to_v8(doc: Value) -> Result<Value, SequenceError> {
+    Ok(doc)
+}
+
+/// Version 9 only adds an effect kind (Picture), so version 8 documents are already valid.
+fn v8_to_v9(doc: Value) -> Result<Value, SequenceError> {
     Ok(doc)
 }
 
@@ -300,8 +305,71 @@ mod tests {
             .effects
             .push(crate::Effect::new(crate::EffectKind::Dancer, 500, 1000).with_params(dancer));
         let saved = sequence_to_json(&seq).unwrap();
-        assert!(saved.contains(r#""schemaVersion": 8"#), "{saved}");
+        assert!(saved.contains(r#""schemaVersion": 9"#), "{saved}");
         assert_eq!(sequence_from_json(&saved).unwrap(), seq);
+    }
+
+    #[test]
+    fn version_8_files_open_as_the_current_version_and_pictures_round_trip() {
+        let text = r#"{ "schemaVersion": 8, "name": "x", "durationMs": 1000, "rows": [
+            { "id": "11111111-0000-4000-8000-000000000001",
+              "target": { "prop": "22222222-0000-4000-8000-000000000001" },
+              "layers": [ { "effects": [ { "id": "33333333-0000-4000-8000-000000000001",
+                  "startMs": 0, "endMs": 500, "params": { "kind": "dancer", "character": "elf" } } ] } ] } ] }"#;
+        let mut seq = sequence_from_json(text).unwrap();
+        assert_eq!(seq.schema_version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(
+            seq.rows[0].layers[0].effects[0].params,
+            EffectParams::Dancer(crate::DancerParams {
+                character: crate::DancerCharacter::Elf,
+                ..Default::default()
+            })
+        );
+        // A picture with a few settings: the rest take their defaults, and it saves and opens again.
+        let picture: EffectParams = serde_json::from_str(
+            r#"{ "kind": "picture", "file": "images/santa dancing.gif", "fit": "fill", "movement": "left" }"#,
+        )
+        .unwrap();
+        assert_eq!(
+            picture,
+            EffectParams::Picture(crate::PictureParams {
+                file: "images/santa dancing.gif".into(),
+                fit: crate::PictureFit::Fill,
+                movement: crate::PictureMovement::Left,
+                ..Default::default()
+            })
+        );
+        seq.rows[0].layers[0]
+            .effects
+            .push(crate::Effect::new(crate::EffectKind::Picture, 500, 1000).with_params(picture));
+        let saved = sequence_to_json(&seq).unwrap();
+        assert!(saved.contains(r#""schemaVersion": 9"#), "{saved}");
+        assert!(saved.contains(r#""file": "images/santa dancing.gif""#), "{saved}");
+        assert_eq!(sequence_from_json(&saved).unwrap(), seq);
+        // A new picture has no file yet and plays at its own speed; settings out of range are
+        // pulled back in.
+        let EffectParams::Picture(new) = EffectParams::default_for(crate::EffectKind::Picture) else {
+            unreachable!()
+        };
+        assert_eq!(
+            (new.file.as_str(), new.timing, new.play_speed, new.start_frame),
+            ("", crate::PictureTiming::Loop, 1.0, 1)
+        );
+        let mut odd = EffectParams::Picture(crate::PictureParams {
+            play_speed: -3.0,
+            scale: f32::NAN,
+            start_frame: 0,
+            ..Default::default()
+        });
+        assert!(odd.setting_problem().is_some());
+        odd.sanitize();
+        assert_eq!(
+            odd,
+            EffectParams::Picture(crate::PictureParams {
+                play_speed: 0.1,
+                ..Default::default()
+            })
+        );
     }
 
     #[test]
@@ -407,7 +475,7 @@ mod tests {
             sequence_from_json(r#"{ "schemaVersion": "1", "name": "x" }"#),
             Err(SequenceError::InvalidSchemaVersion(_))
         ));
-        let err = sequence_from_json(r#"{ "schemaVersion": 9, "name": "x" }"#).unwrap_err();
+        let err = sequence_from_json(r#"{ "schemaVersion": 10, "name": "x" }"#).unwrap_err();
         assert!(err.to_string().contains("update PixelFlow"), "{err}");
         assert!(matches!(sequence_from_json("[1, 2"), Err(SequenceError::Json(_))));
     }

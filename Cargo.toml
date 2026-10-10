@@ -42,8 +42,10 @@ tract-onnx = "0.23.8"
 openh264 = { version = "0.9.8", default-features = false, features = ["source"] }
 # AAC-LC for video export's sound, in pure Rust (MIT).
 oxideav-aac = "0.1.7"
-# Reading the layout photo for video export (pure Rust decoders).
+# Reading the layout photo for video export and the Picture effect's files (pure Rust decoders).
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
+# Writing test GIFs frame by frame (the `image` crate's own GIF reader and writer).
+gif = "0.14.2"
 pf-model = { path = "crates/pf-model" }
 pf-geometry = { path = "crates/pf-geometry" }
 pf-mapping = { path = "crates/pf-mapping" }

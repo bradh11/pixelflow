@@ -469,10 +469,11 @@ pub enum EffectKind {
     Sing,
     ColorShift,
     Dancer,
+    Picture,
 }
 
 impl EffectKind {
-    pub const ALL: [EffectKind; 36] = [
+    pub const ALL: [EffectKind; 37] = [
         EffectKind::On,
         EffectKind::Off,
         EffectKind::ColorWash,
@@ -509,6 +510,7 @@ impl EffectKind {
         EffectKind::Sing,
         EffectKind::ColorShift,
         EffectKind::Dancer,
+        EffectKind::Picture,
     ];
 
     /// The name people see.
@@ -550,6 +552,7 @@ impl EffectKind {
             EffectKind::Sing => "Sing",
             EffectKind::ColorShift => "Color Shift",
             EffectKind::Dancer => "Dancer",
+            EffectKind::Picture => "Picture",
         }
     }
 
@@ -606,6 +609,9 @@ impl EffectKind {
             EffectKind::Dancer => {
                 "A skeleton, ghost, witch, Santa, snowman, or elf dancing to the beat; for matrices."
             }
+            EffectKind::Picture => {
+                "Your own picture or animated GIF, fitted to the prop: still, scrolling, or zooming; for matrices."
+            }
         }
     }
 
@@ -648,6 +654,7 @@ impl EffectKind {
             EffectKind::Sing => SingParams::SETTINGS,
             EffectKind::ColorShift => ColorShiftParams::SETTINGS,
             EffectKind::Dancer => DancerParams::SETTINGS,
+            EffectKind::Picture => PictureParams::SETTINGS,
         }
     }
 }
@@ -694,6 +701,7 @@ pub enum EffectParams {
     Sing(SingParams),
     ColorShift(ColorShiftParams),
     Dancer(DancerParams),
+    Picture(PictureParams),
 }
 
 impl EffectParams {
@@ -735,6 +743,7 @@ impl EffectParams {
             EffectParams::Sing(_) => EffectKind::Sing,
             EffectParams::ColorShift(_) => EffectKind::ColorShift,
             EffectParams::Dancer(_) => EffectKind::Dancer,
+            EffectParams::Picture(_) => EffectKind::Picture,
         }
     }
 
@@ -777,6 +786,7 @@ impl EffectParams {
             EffectKind::Sing => EffectParams::Sing(SingParams::default()),
             EffectKind::ColorShift => EffectParams::ColorShift(ColorShiftParams::default()),
             EffectKind::Dancer => EffectParams::Dancer(DancerParams::default()),
+            EffectKind::Picture => EffectParams::Picture(PictureParams::default()),
         }
     }
 
@@ -820,6 +830,7 @@ impl EffectParams {
             EffectParams::Sing(p) => p.sanitize(),
             EffectParams::ColorShift(p) => p.sanitize(),
             EffectParams::Dancer(p) => p.sanitize(),
+            EffectParams::Picture(p) => p.sanitize(),
         }
     }
 
@@ -869,6 +880,7 @@ impl EffectParams {
             EffectParams::Sing(p) => p.number(key),
             EffectParams::ColorShift(p) => p.number(key),
             EffectParams::Dancer(p) => p.number(key),
+            EffectParams::Picture(p) => p.number(key),
         }
     }
 
@@ -912,6 +924,7 @@ impl EffectParams {
             EffectParams::Sing(p) => p.set_number(key, value),
             EffectParams::ColorShift(p) => p.set_number(key, value),
             EffectParams::Dancer(p) => p.set_number(key, value),
+            EffectParams::Picture(p) => p.set_number(key, value),
         }
     }
 
@@ -954,6 +967,7 @@ impl EffectParams {
             EffectParams::Sing(p) => p.setting_problem(),
             EffectParams::ColorShift(p) => p.setting_problem(),
             EffectParams::Dancer(p) => p.setting_problem(),
+            EffectParams::Picture(p) => p.setting_problem(),
         };
         found.map(|(spec, why)| format!("{} {why}", spec.label))
     }
@@ -2603,6 +2617,138 @@ effect_params! {
         background: DancerBackground = DancerBackground::Off => "background", "Background", choice, more;
         /// Which routine the mix dances. Dancers with the same number move together.
         routine: u32 = 1 => "routine", "Routine", int(1, 99), more;
+    }
+}
+
+/// How a Picture is sized to the prop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum PictureFit {
+    /// All of it shows, with room left over on two sides.
+    #[default]
+    Fit,
+    /// It covers the prop, cut off on two sides.
+    Fill,
+    Stretch,
+    /// One picture pixel per prop pixel.
+    Actual,
+}
+
+choices!(PictureFit {
+    "fit" => "Fit inside",
+    "fill" => "Fill (crop)",
+    "stretch" => "Stretch",
+    "actual" => "Actual pixels",
+});
+
+/// How an animated Picture plays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum PictureTiming {
+    /// At its own speed, again and again.
+    #[default]
+    Loop,
+    /// Once at its own speed, then its last frame stays.
+    Once,
+    /// One pass takes the whole effect.
+    Stretch,
+}
+
+choices!(PictureTiming {
+    "loop" => "Loop",
+    "once" => "Play once and hold",
+    "stretch" => "Stretch to the effect",
+});
+
+/// How a Picture moves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum PictureMovement {
+    #[default]
+    None,
+    Left,
+    Right,
+    Up,
+    Down,
+    /// Grows from nothing over the effect.
+    ZoomIn,
+    /// Shrinks to nothing over the effect.
+    ZoomOut,
+    /// A picture larger than the prop slides across it over the effect.
+    Pan,
+}
+
+choices!(PictureMovement {
+    "none" => "None",
+    "left" => "Scroll left",
+    "right" => "Scroll right",
+    "up" => "Scroll up",
+    "down" => "Scroll down",
+    "zoomIn" => "Zoom in",
+    "zoomOut" => "Zoom out",
+    "pan" => "Slow pan",
+});
+
+/// How a Picture is turned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum PictureTurn {
+    #[default]
+    None,
+    Right,
+    Half,
+    Left,
+}
+
+choices!(PictureTurn {
+    "none" => "Upright",
+    "right" => "Quarter turn right",
+    "half" => "Upside down",
+    "left" => "Quarter turn left",
+});
+
+effect_params! {
+    /// A picture or animated GIF from a file, drawn on the prop's grid a cell per pixel. Clear
+    /// parts of the picture let the layers below show.
+    pub struct PictureParams {
+        /// The picture file: a GIF, PNG, JPEG, WebP, or BMP in the show's images folder.
+        file: String = String::new() => "file", "Picture", image;
+        /// How it's sized to the prop.
+        fit: PictureFit = PictureFit::Fit => "fit", "Fit", choice;
+        /// How an animated picture plays.
+        timing: PictureTiming = PictureTiming::Loop => "timing", "Animation", choice;
+        /// Times its own speed (stretched: passes over the effect).
+        play_speed: f32 = 1.0 => "playSpeed", "Animation speed", number(0.1, 10.0, 0.05, "x");
+        /// Still, scrolling, zooming, or panning.
+        movement: PictureMovement = PictureMovement::None => "movement", "Movement", choice;
+        /// Trips across the prop per second, scrolling.
+        move_speed: f32 = 0.25 => "moveSpeed", "Scroll speed", number(0.0, 10.0, 0.01);
+        /// What scrolls off one side comes back on the other.
+        wrap: bool = false => "wrap", "Wrap around", toggle;
+        /// Moves it left (-) or right (+), as a share of the prop.
+        x_offset: f32 = 0.0 => "xOffset", "Offset across", number(-200.0, 200.0, 1.0, "%");
+        /// Moves it down (-) or up (+).
+        y_offset: f32 = 0.0 => "yOffset", "Offset up", number(-200.0, 200.0, 1.0, "%");
+        /// Its size, on top of the fit.
+        scale: f32 = 100.0 => "scale", "Scale", number(1.0, 1000.0, 1.0, "%");
+        /// Black lets the layers below show, for pictures with no clear parts.
+        black_transparent: bool = false => "blackTransparent", "Black is transparent", toggle;
+        /// Turns the picture.
+        turn: PictureTurn = PictureTurn::None => "turn", "Turn", choice, more;
+        /// Sharp-edged pixels instead of smoothed ones when it's resized.
+        crisp: bool = false => "crisp", "Crisp pixels", toggle, more;
+        /// How dark still counts as black.
+        black_level: f32 = 0.0 => "blackLevel", "Black up to", number(0.0, 100.0, 0.5, "%"), more;
+        /// The frame an animated picture starts on.
+        start_frame: u32 = 1 => "startFrame", "Start on frame", int(1, 10000), more;
+        /// Offsets in prop pixels instead of a share of the prop.
+        pixel_offsets: bool = false => "pixelOffsets", "Offsets in pixels", toggle, more;
+        /// Tints the picture with the first palette color.
+        tint: bool = false => "tint", "Tint with the palette", toggle, more;
     }
 }
 

@@ -470,7 +470,9 @@ export type FileRole =
   | { kind: "music"; id: Uuid }
   | { kind: "photo" }
   | { kind: "houseModel" }
-  | { kind: "sequenceDocMusic" };
+  | { kind: "sequenceDocMusic" }
+  /** A picture one of the open sequence's Picture effects draws (told apart by its path). */
+  | { kind: "picture" };
 
 /** A file that isn't where the show (or the open sequence) says it is. */
 export interface MissingFile {

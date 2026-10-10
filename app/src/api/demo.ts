@@ -87,6 +87,19 @@ function demoFace(): Region {
 
 /** Where the demo show's house photo "is". */
 export const DEMO_PHOTO = "/Photos/Demo House.svg";
+/** A picture for a Picture effect in the demo, as the "choose a picture" dialog returns it. */
+export const DEMO_PICTURE = "/Pictures/Snowman.svg";
+
+/** A small drawing of a snowman on a clear ground, standing in for the user's own artwork. */
+export function demoPicture(): Uint8Array {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+<circle cx="32" cy="46" r="15" fill="#f4f7fb"/><circle cx="32" cy="24" r="10" fill="#f4f7fb"/>
+<rect x="24" y="6" width="16" height="10" fill="#22252b"/><rect x="20" y="14" width="24" height="3" fill="#22252b"/>
+<circle cx="28" cy="22" r="1.6" fill="#22252b"/><circle cx="36" cy="22" r="1.6" fill="#22252b"/>
+<polygon points="32,25 42,27 32,29" fill="#f08a24"/><rect x="23" y="32" width="18" height="4" fill="#c1272d"/>
+</svg>`;
+  return new TextEncoder().encode(svg);
+}
 
 /**
  * The demo show as if it had been opened from a folder that moved (`?demo&missing`): two songs

@@ -4,7 +4,7 @@ import { App } from "./App";
 import { tauriAssistant } from "./api/assistant";
 import { FakeAssistant } from "./api/memoryAssistant";
 import { useAssistant } from "./state/assistant";
-import { DEMO_PHOTO, DEMO_SHOW_PATH, demoDevices, demoFppFileDetails, demoFppFiles, demoFppSchedules, demoFppSoftware, demoHousePhoto, demoMissingFiles, demoPlayers, demoRecentShows, demoShow, demoShowDevices } from "./api/demo";
+import { DEMO_PHOTO, DEMO_PICTURE, DEMO_SHOW_PATH, demoDevices, demoFppFileDetails, demoFppFiles, demoFppSchedules, demoFppSoftware, demoHousePhoto, demoMissingFiles, demoPicture, demoPlayers, demoRecentShows, demoShow, demoShowDevices } from "./api/demo";
 import { DEMO_MUSIC, DEMO_SEQUENCE_PATH, demoSequence } from "./api/demoSequence";
 import { MemoryBackend } from "./api/memory";
 import { MemorySequencer } from "./api/memorySequencer";
@@ -81,6 +81,10 @@ if (inTauri()) {
     sequencer.nextOpenPath = DEMO_SEQUENCE_PATH;
     sequencer.nextSavePath = DEMO_SEQUENCE_PATH;
     // A vendor's sequence to import and map onto the demo house.
+    // A picture in the show's images folder, and the same one for the dialog to hand back.
+    sequencer.pictures.set("images/Snowman.svg", demoPicture());
+    backend.images.set(DEMO_PICTURE, demoPicture());
+    sequencer.nextPicturePath = DEMO_PICTURE;
     sequencer.vendorPackages.set(DEMO_VENDOR_PATH, demoVendorPackage());
     sequencer.nextXlightsSequencePath = DEMO_VENDOR_PATH;
     void sequencer.openSequenceDoc(DEMO_SEQUENCE_PATH).then(() => useSequencer.getState().connect(sequencer));

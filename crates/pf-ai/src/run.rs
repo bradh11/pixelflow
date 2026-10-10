@@ -245,7 +245,7 @@ fn run_query(query: Query, input: &Value, draft: &Draft) -> Outcome {
             }
         }
         Query::OpenSequence => match draft.sequence() {
-            Some(doc) => ok(sequence_summary(show, doc)),
+            Some(doc) => ok(with_pictures(sequence_summary(show, doc), draft).to_string()),
             None => ok("No sequence is open in the editor."),
         },
         Query::SequenceEffects => match draft.sequence() {
@@ -349,6 +349,22 @@ fn prop_summary(show: &Show, prop: &pf_model::Prop) -> Value {
     })
 }
 
+/// The most pictures listed (the rest are counted).
+const MAX_PICTURES: usize = 30;
+
+/// Adds the pictures in the show's images folder to a summary, as a Picture effect's `file`
+/// names them: nothing when there are none.
+fn with_pictures(mut summary: Value, draft: &Draft) -> Value {
+    let images = &draft.base().images;
+    if !images.is_empty() {
+        summary["pictures"] = json!(images.iter().take(MAX_PICTURES).collect::<Vec<_>>());
+        if images.len() > MAX_PICTURES {
+            summary["morePictures"] = json!(images.len() - MAX_PICTURES);
+        }
+    }
+    summary
+}
+
 fn overview(draft: &Draft) -> String {
     let show = draft.show();
     let report = pf_model::validate_show(show);
@@ -358,7 +374,7 @@ fn overview(draft: &Draft) -> String {
         .take(20)
         .map(|i| i.message.as_str())
         .collect();
-    json!({
+    let summary = json!({
         "name": show.name,
         "frameRate": show.settings.frame_rate,
         "props": show.props.len(),
@@ -370,8 +386,8 @@ fn overview(draft: &Draft) -> String {
         "problems": problems,
         "openSequence": draft.sequence().map(|s| json!({ "name": s.name, "length": format_ms(s.duration_ms) })),
         "draftChanges": draft.diff().changes.len(),
-    })
-    .to_string()
+    });
+    with_pictures(summary, draft).to_string()
 }
 
 fn selection(draft: &Draft) -> String {
@@ -407,7 +423,7 @@ fn selection(draft: &Draft) -> String {
     .to_string()
 }
 
-fn sequence_summary(show: &Show, doc: &Sequence) -> String {
+fn sequence_summary(show: &Show, doc: &Sequence) -> Value {
     json!({
         "name": doc.name,
         "durationMs": doc.duration_ms,
@@ -423,7 +439,6 @@ fn sequence_summary(show: &Show, doc: &Sequence) -> String {
             "id": t.id, "name": t.name, "kind": t.kind, "marks": t.marks.len(),
         })).collect::<Vec<_>>(),
     })
-    .to_string()
 }
 
 fn effects(show: &Show, doc: &Sequence, input: &Value) -> String {

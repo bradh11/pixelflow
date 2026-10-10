@@ -26,7 +26,7 @@ use crate::cues::{Role, role_of, suggested_cue};
 use crate::provider::Cancel;
 use pf_analysis::{Analysis, Moment, MomentKind};
 use pf_model::{PropId, Show};
-use pf_render::AudioSource;
+use pf_render::{AudioSource, Pictures};
 use pf_sequence::{Sequence, Target, format_ms};
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -80,6 +80,8 @@ pub struct Subject<'a> {
     pub analysis: Option<&'a Analysis>,
     /// The music, for the effects that follow it.
     pub audio: &'a AudioSource,
+    /// The show's pictures, for Picture effects.
+    pub pictures: &'a Pictures,
 }
 
 /// One fix in the punch list.
@@ -217,7 +219,7 @@ pub fn review(subject: &Subject<'_>, cancel: &Cancel) -> Result<Review, String> 
     if subject.audio.has_music() && audio.track().is_none() {
         notes.push("The music wasn't ready, so effects that follow it were drawn as in silence.".into());
     }
-    let frames = draw(subject.show, subject.doc, &audio, cancel)?;
+    let frames = draw(subject.show, subject.doc, &audio, subject.pictures, cancel)?;
     let song = Song::new(subject);
     if subject.analysis.is_none() {
         notes.push(
@@ -347,7 +349,13 @@ struct Part {
 /// A prop's pixels in the frame: its byte offset, bytes per pixel, and pixel count.
 type Pixels = (usize, usize, usize);
 
-fn draw(show: &Show, doc: &Sequence, audio: &AudioSource, cancel: &Cancel) -> Result<Frames, String> {
+fn draw(
+    show: &Show,
+    doc: &Sequence,
+    audio: &AudioSource,
+    pictures: &Pictures,
+    cancel: &Cancel,
+) -> Result<Frames, String> {
     let step = STEP_MS.max(u64::from(doc.frame_ms));
     let layout: Vec<(PropId, Pixels)> = pf_engine::preview_props_of(show)
         .into_iter()
@@ -368,7 +376,7 @@ fn draw(show: &Show, doc: &Sequence, audio: &AudioSource, cancel: &Cancel) -> Re
             .map(|start| {
                 let range = start..(start + chunk).min(n);
                 let pixels = &pixels;
-                scope.spawn(move || draw_part(show, doc, audio, pixels, step, range, cancel))
+                scope.spawn(move || draw_part(show, doc, audio, pictures, pixels, step, range, cancel))
             })
             .collect();
         handles.into_iter().map(|h| h.join().ok().flatten()).collect()
@@ -398,10 +406,12 @@ fn draw(show: &Show, doc: &Sequence, audio: &AudioSource, cancel: &Cancel) -> Re
     Ok(frames)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_part(
     show: &Show,
     doc: &Sequence,
     audio: &AudioSource,
+    pictures: &Pictures,
     pixels: &[Pixels],
     step: u64,
     range: Range<usize>,
@@ -409,6 +419,7 @@ fn draw_part(
 ) -> Option<Part> {
     let mut renderer = pf_engine::DraftRenderer::new(show);
     renderer.set_audio(audio.clone());
+    renderer.set_pictures(pictures.waiting());
     let total: usize = pixels.iter().map(|p| p.2).sum();
     let count = range.len();
     let mut part = Part {

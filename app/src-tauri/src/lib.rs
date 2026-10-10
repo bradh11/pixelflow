@@ -17,6 +17,7 @@ mod logging;
 mod lyrics;
 mod menu;
 mod pickers;
+mod pictures;
 mod playback;
 mod probes;
 mod progress;
@@ -410,6 +411,12 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         files::sequence_music_missing,
         files::find_sequence_music,
         files::locate_sequence_music,
+        pictures::pick_picture,
+        pictures::read_picture,
+        pictures::list_pictures,
+        pictures::check_sequence_pictures,
+        pictures::find_sequence_pictures,
+        pictures::locate_sequence_picture,
         pickers::pick_path,
         recent::list_recent_shows,
         recent::forget_recent_show,
@@ -437,6 +444,8 @@ pub fn run() {
             // Songs' audio tracks (what effects that follow the music read), worked out once.
             engine.set_audio_cache_dir(app.path().app_cache_dir().ok().map(|d| d.join("audio")));
             engine.set_audio_progress(Some(Arc::new(progress::audio_track_reporter(app.handle()))));
+            // A picture read for a preview shows as soon as it's there.
+            pictures::report_arrivals(app.handle(), &engine);
             app.manage(AppState {
                 engine: Mutex::new(engine),
                 devices: DeviceAccess::network().with_setup_dir(setups_dir),
@@ -2862,6 +2871,256 @@ mod tests {
         );
         let again = call(&webview, "find_sequence_music", json!({})).unwrap();
         assert_eq!(again, json!({ "found": null, "result": null, "gaveUp": false }));
+    }
+
+    /// The smallest GIF with something to see: one red pixel.
+    const RED_GIF: &[u8] = b"GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\x00\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;";
+
+    /// A saved show with a 4-pixel strip, and an open sequence with a Picture effect on it
+    /// naming `file`. Returns the show's folder.
+    fn show_with_a_picture_effect(
+        webview: &WebviewWindow<MockRuntime>,
+        dir: &std::path::Path,
+        file: &str,
+    ) -> std::path::PathBuf {
+        let prop = json!({
+            "id": "11111111-0000-4000-8000-0000000000aa", "name": "Strip",
+            "shape": { "source": "generator", "type": "line", "nodes": 4, "length": 1.0 }
+        });
+        call(
+            webview,
+            "apply_edits",
+            json!({ "edits": [{ "type": "addProp", "prop": prop }] }),
+        )
+        .unwrap();
+        let folder = dir.join("Show");
+        std::fs::create_dir_all(&folder).unwrap();
+        call(
+            webview,
+            "save_show_as",
+            json!({ "path": folder.join("House.pixelflow.json") }),
+        )
+        .unwrap();
+        call(
+            webview,
+            "new_sequence_doc",
+            json!({ "name": "Song", "durationMs": 2000 }),
+        )
+        .unwrap();
+        let row = json!({ "id": "44444444-0000-4000-8000-000000000001",
+            "target": { "prop": "11111111-0000-4000-8000-0000000000aa" }, "layers": [{ "effects": [] }] });
+        let effect = json!({ "id": "55555555-0000-4000-8000-000000000001", "startMs": 0, "endMs": 2000,
+            "params": { "kind": "picture", "file": file, "fit": "stretch" } });
+        call(
+            webview,
+            "edit_sequence",
+            json!({ "edits": [
+                { "type": "addRow", "row": row },
+                { "type": "addEffect", "row": "44444444-0000-4000-8000-000000000001", "layer": 0, "effect": effect },
+            ] }),
+        )
+        .unwrap();
+        folder
+    }
+
+    /// The preview at half a second, once a picture being read has had time to arrive.
+    fn settled_frame(webview: &WebviewWindow<MockRuntime>) -> Vec<u8> {
+        let mut frame = Vec::new();
+        for _ in 0..200 {
+            frame = call_raw(webview, "sequence_doc_frame", json!({ "positionMs": 500 })).unwrap();
+            if frame.iter().any(|&b| b != 0) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        frame
+    }
+
+    #[test]
+    fn a_picture_is_read_only_from_the_shows_images_folder_or_once_chosen() {
+        let (app, webview, dir) = app();
+        let show = show_with_a_picture_effect(&webview, dir.path(), "images/santa.gif");
+        let inside = show.join("images/santa.gif");
+        std::fs::create_dir_all(inside.parent().unwrap()).unwrap();
+        std::fs::write(&inside, RED_GIF).unwrap();
+        std::fs::write(show.join("images/notes.txt"), "not a picture").unwrap();
+        std::fs::write(show.join("secret.gif"), RED_GIF).unwrap();
+        let outside = dir.path().join("outside.gif");
+        std::fs::write(&outside, RED_GIF).unwrap();
+
+        // By what the effect stores, for the settings to show.
+        let bytes = call_raw(&webview, "read_picture", json!({ "file": "images/santa.gif" })).unwrap();
+        assert_eq!(bytes, RED_GIF);
+        assert_eq!(
+            call(&webview, "list_pictures", json!({})).unwrap(),
+            json!(["images/santa.gif"])
+        );
+        // Naming any other file doesn't make it readable: not next to the show, not by climbing
+        // out of the folder, not by its full path.
+        for file in [json!("secret.gif"), json!("images/../secret.gif"), json!(outside)] {
+            let error = call(&webview, "read_picture", json!({ "file": file })).unwrap_err();
+            assert!(
+                error
+                    .as_str()
+                    .unwrap()
+                    .contains("it isn't in the show's images folder"),
+                "{file}: {error}"
+            );
+        }
+        let error = call(&webview, "read_picture", json!({ "file": "images/notes.txt" })).unwrap_err();
+        assert_eq!(
+            error,
+            "notes.txt can't be shown: it isn't a GIF, PNG, JPEG, WebP, or BMP picture."
+        );
+        // Only choosing it in the shell's dialog does.
+        app.state::<AppState>().engine().picture_files().allow(&outside);
+        let bytes = call_raw(&webview, "read_picture", json!({ "file": outside })).unwrap();
+        assert_eq!(bytes, RED_GIF);
+        // The effect draws the picture from the images folder.
+        let frame = settled_frame(&webview);
+        assert!(frame.chunks(3).all(|px| px == [255, 0, 0]), "{frame:?}");
+    }
+
+    #[test]
+    fn a_sequences_missing_picture_is_named_found_again_and_drawn() {
+        let (_app, webview, dir) = app();
+        // The sequence names a picture as another computer had it.
+        let show =
+            show_with_a_picture_effect(&webview, dir.path(), r"C:\Users\someone\xlights\Images\star.gif");
+        let checked = call(&webview, "check_sequence_pictures", json!({})).unwrap();
+        assert_eq!(checked["missing"].as_array().unwrap().len(), 1, "{checked}");
+        assert_eq!(checked["missing"][0]["name"], "star.gif");
+        assert_eq!(checked["missing"][0]["file"], json!({ "kind": "picture" }));
+        assert_eq!(checked["missing"][0]["message"], "star.gif isn't where it was.");
+        let issue = checked["issues"][0]["message"].as_str().unwrap();
+        assert!(
+            issue.starts_with("The Picture effect at 0:00.000 shows nothing: star.gif isn't where it was."),
+            "{issue}"
+        );
+        assert_eq!(
+            checked["issues"][0]["effect"],
+            "55555555-0000-4000-8000-000000000001"
+        );
+        // It draws nothing, and nothing goes wrong.
+        let frame = call_raw(&webview, "sequence_doc_frame", json!({ "positionMs": 500 })).unwrap();
+        assert!(frame.iter().all(|&b| b == 0));
+        // The sequence's own problems carry it from then on.
+        let open = call(&webview, "get_sequence_doc", json!({})).unwrap();
+        assert_eq!(open["issues"], checked["issues"]);
+
+        // It's in the show's folder under its old name: found, copied into images, and the
+        // effect pointed at it, as one undo step.
+        std::fs::create_dir_all(show.join("Assets")).unwrap();
+        std::fs::write(show.join("Assets/star.gif"), RED_GIF).unwrap();
+        let found = call(&webview, "find_sequence_pictures", json!({})).unwrap();
+        assert_eq!(found["found"], json!(["star.gif"]));
+        assert_eq!(found["result"]["changed"], true);
+        assert_eq!((&found["missing"], &found["issues"]), (&json!([]), &json!([])));
+        assert_eq!(found["gaveUp"], false);
+        assert_eq!(std::fs::read(show.join("images/star.gif")).unwrap(), RED_GIF);
+        let open = call(&webview, "get_sequence_doc", json!({})).unwrap();
+        assert_eq!(
+            open["sequence"]["rows"][0]["layers"][0]["effects"][0]["params"]["file"],
+            "images/star.gif"
+        );
+        let frame = settled_frame(&webview);
+        assert!(frame.chunks(3).all(|px| px == [255, 0, 0]), "{frame:?}");
+        // Nothing left to look for.
+        let error = call(&webview, "find_sequence_pictures", json!({})).unwrap_err();
+        assert_eq!(error, "None of the open sequence's pictures are missing.");
+        // Undo puts the old place back, and the next check says it's missing again.
+        call(&webview, "undo_sequence", json!({})).unwrap();
+        let checked = call(&webview, "check_sequence_pictures", json!({})).unwrap();
+        assert_eq!(checked["missing"][0]["name"], "star.gif");
+    }
+
+    #[test]
+    fn an_imported_xlights_sequences_pictures_become_the_shows_own() {
+        let (_app, webview, dir) = app();
+        let fixtures =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/pf-xlights/fixtures");
+        call(
+            &webview,
+            "import_xlights",
+            json!({ "folder": fixtures.join("sample-show") }),
+        )
+        .unwrap();
+        // An xLights folder of its own, with a sequence that shows a picture on the matrix.
+        let xlights = dir.path().join("xlights");
+        std::fs::create_dir_all(xlights.join("Images")).unwrap();
+        std::fs::write(xlights.join("xlights_rgbeffects.xml"), "<xrgb/>").unwrap();
+        std::fs::write(xlights.join("Images/santa dancing.gif"), RED_GIF).unwrap();
+        let xsq = xlights.join("santa.xsq");
+        std::fs::write(
+            &xsq,
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<xsequence BaseChannel="0" ChanCtrlBasic="0" ChanCtrlColor="0" FixedPointTiming="1" ModelBlending="true">
+  <head><version>2025.01</version><song>Santa</song><sequenceTiming>25 ms</sequenceTiming>
+    <sequenceType>Animation</sequenceType><sequenceDuration>4.000</sequenceDuration></head>
+  <ColorPalettes><ColorPalette>C_BUTTON_Palette1=#FF0000,C_CHECKBOX_Palette1=1</ColorPalette></ColorPalettes>
+  <EffectDB>
+    <Effect>E_CHOICE_Scaling=Scale To Fit,E_TEXTCTRL_Pictures_Filename=C:\Users\someone\xlights\Images\santa dancing.gif</Effect>
+  </EffectDB>
+  <ElementEffects>
+    <Element type="model" name="Window Matrix">
+      <EffectLayer><Effect ref="0" name="Pictures" palette="0" startTime="0" endTime="4000"/></EffectLayer>
+    </Element>
+  </ElementEffects>
+</xsequence>
+"#,
+        )
+        .unwrap();
+        let file_of = |imported: &Value| {
+            imported["snapshot"]["sequence"]["rows"][0]["layers"][0]["effects"][0]["params"]["file"].clone()
+        };
+        // While the show isn't saved there's no images folder: the picture is used where it
+        // was found, and a note says so.
+        let imported = call(&webview, "import_xlights_sequence", json!({ "path": xsq })).unwrap();
+        assert_eq!(imported["summary"]["placeholders"], 0);
+        assert_eq!(
+            file_of(&imported),
+            json!(xlights.join("Images/santa dancing.gif"))
+        );
+        assert!(
+            imported["notes"][0]
+                .as_str()
+                .unwrap()
+                .starts_with("The show isn't saved yet, so the sequence's pictures were left where they are"),
+            "{imported}"
+        );
+        let checked = call(&webview, "check_sequence_pictures", json!({})).unwrap();
+        assert_eq!(checked["missing"], json!([]));
+        // Saved, the import copies it into the show's images folder.
+        let show = dir.path().join("Show");
+        std::fs::create_dir_all(&show).unwrap();
+        call(
+            &webview,
+            "save_show_as",
+            json!({ "path": show.join("House.pixelflow.json") }),
+        )
+        .unwrap();
+        let imported = call(&webview, "import_xlights_sequence", json!({ "path": xsq })).unwrap();
+        assert_eq!(file_of(&imported), "images/santa dancing.gif");
+        assert_eq!(
+            std::fs::read(show.join("images/santa dancing.gif")).unwrap(),
+            RED_GIF
+        );
+        assert!(
+            imported["notes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|n| !n.as_str().unwrap().contains("isn't saved")),
+            "{imported}"
+        );
+        let checked = call(&webview, "check_sequence_pictures", json!({})).unwrap();
+        assert_eq!(
+            (&checked["missing"], &checked["issues"]),
+            (&json!([]), &json!([]))
+        );
+        // And the matrix shows it.
+        let frame = settled_frame(&webview);
+        assert!(frame.chunks(3).any(|px| px == [255, 0, 0]), "nothing red");
     }
 
     #[test]

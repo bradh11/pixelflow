@@ -727,7 +727,7 @@ fn query_tools() -> Vec<Tool> {
     vec![
         query(
             "get_show_overview",
-            "The show at a glance (with your draft changes): its name, frame rate, how many props, groups, controllers, and playlist sequences, its problems, the open sequence, and what the user has selected.",
+            "The show at a glance (with your draft changes): its name, frame rate, how many props, groups, controllers, and playlist sequences, its problems, the open sequence, its pictures (for picture effects), and what the user has selected.",
             object(json!({}), &[]),
             Query::Overview,
         ),
@@ -796,7 +796,7 @@ fn query_tools() -> Vec<Tool> {
         ),
         query(
             "get_open_sequence",
-            "The sequence open in the editor (with your draft changes): name, length, music, rows (what each lights, layers, effect counts), and timing tracks.",
+            "The sequence open in the editor (with your draft changes): name, length, music, rows (what each lights, layers, effect counts), timing tracks, and the show's pictures.",
             object(json!({}), &[]),
             Query::OpenSequence,
         ),

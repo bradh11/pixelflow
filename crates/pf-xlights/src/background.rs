@@ -74,9 +74,9 @@ fn parts(path: &str) -> Vec<&str> {
         .collect()
 }
 
-/// Where the photo is on this computer: as written, else by name in `folder`, else under
-/// `folder` with the old show folder's part of the path removed.
-fn find(written: &str, folder: &Path) -> Option<PathBuf> {
+/// Where the photo (or a Pictures effect's picture) is on this computer: as written, else by
+/// name in `folder`, else under `folder` with the old show folder's part of the path removed.
+pub(crate) fn find(written: &str, folder: &Path) -> Option<PathBuf> {
     let as_written = Path::new(written);
     if as_written.is_absolute() && as_written.is_file() {
         return Some(as_written.to_path_buf());

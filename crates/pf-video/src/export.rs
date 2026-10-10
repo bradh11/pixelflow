@@ -443,6 +443,7 @@ fn draw_frames(
             scope.spawn(move || {
                 let mut renderer = DraftRenderer::new(job.show());
                 renderer.set_audio(audio.clone());
+                renderer.set_pictures(job.pictures());
                 let mut canvas = Canvas::new(scene.width(), scene.height());
                 let mut last: Option<(u64, Vec<u8>)> = None;
                 loop {

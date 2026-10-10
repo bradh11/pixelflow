@@ -13,7 +13,7 @@ use pf_engine::{
     Edit, Engine, EngineError, SequenceEdit, SequenceEditResult, ShowSnapshot, edited_sequence, edited_show,
 };
 use pf_model::{PropId, Show};
-use pf_render::AudioSource;
+use pf_render::{AudioSource, Pictures};
 use pf_sequence::{EffectId, Sequence, TimingTrackId};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -70,6 +70,12 @@ pub struct Workspace {
     /// The open sequence's music as the renderer reads it (shared with the engine, so a review
     /// draws music-following effects without working the music out again).
     pub audio: AudioSource,
+    /// The show's pictures as the renderer draws them (shared with the engine), each waited for,
+    /// so a review sees Picture effects.
+    pub pictures: Pictures,
+    /// The pictures in the show's images folder, as a Picture effect's `file` names them
+    /// (`images/santa.gif`). Listed by whoever made the workspace, off the engine.
+    pub images: Vec<String>,
     pub context: UiContext,
 }
 
@@ -77,6 +83,8 @@ impl Workspace {
     pub fn from_engine(engine: &Engine, context: UiContext) -> Self {
         Self {
             audio: engine.sequence_audio(),
+            pictures: engine.pictures().waiting(),
+            images: Vec::new(),
             show: engine.show().clone(),
             revision: engine.revision(),
             show_generation: engine.show_generation(),
@@ -234,6 +242,7 @@ impl Draft {
             user: self.base.sequence.as_ref().map(|s| &s.doc),
             analysis,
             audio: &self.base.audio,
+            pictures: &self.base.pictures,
         };
         let review = crate::review::review(&subject, cancel)?;
         self.reviewed = Some((doc.clone(), review.clone()));

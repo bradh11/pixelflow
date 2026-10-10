@@ -40,7 +40,18 @@ import {
   type TimingTrack,
 } from "./sequence";
 import type { ProviderId } from "./assistant";
-import type { LyricsCandidate, LyricsChoice, LyricsFound, LyricsGate, LyricsOptions, LyricsRetimed, MusicFound, SequencerApi } from "./sequencer";
+import type {
+  LyricsCandidate,
+  LyricsChoice,
+  LyricsFound,
+  LyricsGate,
+  LyricsOptions,
+  LyricsRetimed,
+  MusicFound,
+  PicturesChecked,
+  PicturesRelinked,
+  SequencerApi,
+} from "./sequencer";
 import * as marks from "./timingMarks";
 import type { VideoProgress, VideoRequest } from "./video";
 import { formatMs } from "./timingMarks";
@@ -427,7 +438,7 @@ export function diffSequences(before: Sequence, after: Sequence): SequenceChange
 }
 
 function newSequence(name: string, durationMs: number): Sequence {
-  return { schemaVersion: 8, name, audio: null, durationMs, frameMs: 25, timingTracks: [], rows: [] };
+  return { schemaVersion: 9, name, audio: null, durationMs, frameMs: 25, timingTracks: [], rows: [] };
 }
 
 /** Find lyrics' steps that read the whole song, and so report how far they've got. */
@@ -511,6 +522,13 @@ export class MemorySequencer implements SequencerApi {
   /** The last lyrics were timed by on-device alignment. */
   private lyricsAligned = false;
 
+  /** Picture files "in the show's images folder", by what an effect stores (`images/<name>`). */
+  pictures = new Map<string, Uint8Array>();
+  /** The file the "choose a picture" dialog returns (its bytes are among the backend's images). */
+  nextPicturePath: string | null = null;
+  /** Where a search of the show's folder finds a missing picture, by the path its effect had. */
+  findablePictures = new Map<string, string>();
+
   /** With a memory backend, frames are drawn (roughly) from its show and playback runs on its clock. */
   constructor(readonly backend: MemoryBackend | null = null) {}
 
@@ -532,7 +550,7 @@ export class MemorySequencer implements SequencerApi {
       canUndo: this.undoStack.length > 0,
       canRedo: this.redoStack.length > 0,
       sequence: structuredClone(sequence),
-      issues: structuredClone(this.issues),
+      issues: this.allIssues(),
     };
   }
 
@@ -544,7 +562,7 @@ export class MemorySequencer implements SequencerApi {
       canRedo: this.redoStack.length > 0,
       changed: changes !== null,
       changes: changes ?? noChanges(),
-      issues: structuredClone(this.issues),
+      issues: this.allIssues(),
     };
   }
 
@@ -1224,6 +1242,105 @@ export class MemorySequencer implements SequencerApi {
     if (!to) return null;
     if (this.backend?.missingPaths.has(to)) fail(`${fileName(to)} isn't there anymore. Choose another file.`);
     return this.setMusic(to);
+  }
+
+  /** The open sequence's Picture effects that name a file, by file. */
+  private pictureEffects(): Map<string, { id: string; row: string; startMs: number }[]> {
+    const byFile = new Map<string, { id: string; row: string; startMs: number }[]>();
+    for (const row of this.doc?.rows ?? []) {
+      for (const effect of row.layers.flatMap((l) => l.effects)) {
+        const file = effect.params.kind === "picture" ? (effect.params.file ?? "").trim() : "";
+        if (file) byFile.set(file, [...(byFile.get(file) ?? []), { id: effect.id, row: row.id, startMs: effect.startMs }]);
+      }
+    }
+    return byFile;
+  }
+
+  /** The pictures that aren't in the images folder, as the engine lists them. */
+  private picturesMissing(): MissingFile[] {
+    return [...this.pictureEffects()]
+      .filter(([file]) => !this.pictures.has(file))
+      .map(([file, effects]) => missingFile({ kind: "picture" }, file, `Picture effect at ${formatMs(effects[0].startMs)}`));
+  }
+
+  /** The sequence's problems: the ones set here, and a warning naming each missing picture. */
+  private allIssues(): SequenceIssue[] {
+    const issues = structuredClone(this.issues);
+    for (const [file, effects] of this.pictureEffects()) {
+      if (this.pictures.has(file)) continue;
+      for (const effect of effects) {
+        issues.push({
+          severity: "warning",
+          message: `The Picture effect at ${formatMs(effect.startMs)} shows nothing: ${fileName(file)} isn't where it was. Find it again, or choose another in its settings.`,
+          row: effect.row,
+          effect: effect.id,
+        });
+      }
+    }
+    return issues;
+  }
+
+  /** Copies a chosen file into the "images folder" under its own name, as the engine does. */
+  private adoptPicture(path: string): string {
+    const bytes = this.backend?.images.get(path) ?? this.pictures.get(path);
+    if (!bytes || this.backend?.missingPaths.has(path)) fail(`${fileName(path)} can't be used: it isn't there.`);
+    const stored = `images/${fileName(path)}`;
+    this.pictures.set(stored, bytes);
+    return stored;
+  }
+
+  /** Points every Picture effect naming `from` at `to` (one undo step). */
+  private async relinkPictures(changes: [string, string][]): Promise<SequenceEditResult | null> {
+    const edits: SequenceEdit[] = [];
+    for (const row of this.open_().rows) {
+      for (const effect of row.layers.flatMap((l) => l.effects)) {
+        if (effect.params.kind !== "picture") continue;
+        const file = effect.params.file;
+        const to = changes.find(([from]) => from === file)?.[1];
+        if (to !== undefined && to !== file) edits.push({ type: "setEffectParams", id: effect.id, params: { ...effect.params, file: to } });
+      }
+    }
+    return edits.length > 0 ? this.editSequence(edits) : null;
+  }
+
+  async pickPicture() {
+    this.calls.push("pickPicture");
+    return this.nextPicturePath ? this.adoptPicture(this.nextPicturePath) : null;
+  }
+
+  async readPicture(file: string) {
+    const bytes = this.pictures.get(file);
+    if (!bytes) fail(`${fileName(file)} can't be shown: it isn't there.`);
+    return bytes.slice();
+  }
+
+  async listPictures() {
+    return [...this.pictures.keys()].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+  }
+
+  async checkSequencePictures(): Promise<PicturesChecked> {
+    return this.doc ? { missing: this.picturesMissing(), issues: this.allIssues() } : { missing: [], issues: [] };
+  }
+
+  async findSequencePictures(): Promise<PicturesRelinked> {
+    this.calls.push("findSequencePictures");
+    const missing = this.picturesMissing();
+    if (missing.length === 0) fail("None of the open sequence's pictures are missing.");
+    const found = missing.filter((m) => this.findablePictures.has(m.path));
+    const result = await this.relinkPictures(found.map((m) => [m.path, this.adoptPicture(this.findablePictures.get(m.path)!)]));
+    return { found: found.map((m) => m.name), result, missing: this.picturesMissing(), issues: this.allIssues(), gaveUp: false };
+  }
+
+  async locateSequencePicture(path: string): Promise<PicturesRelinked | null> {
+    this.calls.push("locateSequencePicture");
+    if (!this.nextPicturePath) return null;
+    const result = await this.relinkPictures([[path, this.adoptPicture(this.nextPicturePath)]]);
+    return { found: [fileName(path)], result, missing: this.picturesMissing(), issues: this.allIssues(), gaveUp: false };
+  }
+
+  onPicturesArrived(_handler: () => void) {
+    // Nothing is read in the background here: pictures are there or they aren't.
+    return () => {};
   }
 
   async pickSequenceDocPath() {

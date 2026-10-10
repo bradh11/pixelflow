@@ -1,12 +1,15 @@
-import { Plus, Spline, X } from "lucide-react";
+import { Image as ImageIcon, ImagePlus, Plus, Spline, X } from "lucide-react";
 import { createContext, useContext, useEffect, useId, useRef, useState } from "react";
+import { errorMessage } from "../../api/backend";
 import type { Blend, Curve, Effect, EffectSetting, Sequence, SequenceTarget, TimingTrack } from "../../api/sequence";
 import type { Show } from "../../api/types";
+import { fileName, shownPath } from "../../lib/format";
 import { startCurve } from "../../lib/curves";
 import { memberProp } from "../../lib/shows";
 import { facesOf, targetProp } from "../../lib/submodels";
-import { newGesture } from "../../state/sequencer";
-import { More } from "../ui";
+import { newGesture, useSequencer } from "../../state/sequencer";
+import { imageType } from "../layout/useLayoutData";
+import { Button, More } from "../ui";
 import { CurveEditor } from "./CurveEditor";
 
 // The controls the effect settings panel is made of: setting fields from the catalog, colors,
@@ -36,6 +39,13 @@ export const BLENDS: { value: Blend; label: string; help: string; more?: true }[
   { value: "bottomHalf", label: "Bottom half only", help: "Shows on the bottom half; the layers below on the top half (xLights: Bottom-Top).", more: true },
   { value: "leftHalf", label: "Left half only", help: "Shows on the left half; the layers below on the right half (xLights: Left-Right).", more: true },
 ];
+
+/** Whether an effect's palette colors show in it: every effect's do but Off's, Fire's, and a
+ * Picture's that isn't tinted (it has its own colors). */
+export function usesColors(effect: Effect): boolean {
+  const p = effect.params;
+  return p.kind !== "off" && p.kind !== "fire" && !(p.kind === "picture" && !p.tint);
+}
 
 /** The blends as options for a list, the less common ones grouped apart. */
 export function BlendOptions() {
@@ -380,6 +390,9 @@ export function SettingControl({
   if (setting.type === "text") {
     return <TextSetting setting={setting} value={typeof value === "string" ? value : setting.default} onChange={onChange} mixed={mixed} />;
   }
+  if (setting.type === "image") {
+    return <ImageSetting setting={setting} value={typeof value === "string" ? value : setting.default} onChange={onChange} mixed={mixed} />;
+  }
   if (setting.type === "bool") {
     return (
       <label className="flex items-center gap-2 text-sm" title={setting.description}>
@@ -404,6 +417,92 @@ export function SettingControl({
     );
   }
   return <NumberSetting setting={setting} value={typeof value === "number" ? value : setting.default} onChange={onChange} mixed={mixed} animate={animate} />;
+}
+
+/**
+ * A picture setting: the picture, small, with its file's name; a button that asks for a file
+ * (the desktop app copies it into the show's images folder); and the pictures already in that
+ * folder to choose from.
+ */
+function ImageSetting({
+  setting,
+  value,
+  onChange,
+  mixed,
+}: {
+  setting: Extract<EffectSetting, { type: "image" }>;
+  value: string;
+  onChange: (value: unknown, gesture?: string) => Promise<boolean>;
+  mixed: boolean;
+}) {
+  const api = useSequencer((s) => s.api);
+  const arrived = useSequencer((s) => s.picturesArrived);
+  const [inShow, setInShow] = useState<string[]>([]);
+  const [shown, setShown] = useState<{ file: string; url: string | null; problem: string | null } | null>(null);
+  const file = mixed ? "" : value;
+  useEffect(() => {
+    let live = true;
+    void api?.listPictures().then(
+      (list) => live && setInShow(list),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [api, file]);
+  useEffect(() => {
+    if (!api || !file) return;
+    let live = true;
+    let url: string | null = null;
+    void api.readPicture(file).then(
+      (bytes) => {
+        if (!live) return;
+        // Where the browser can't make one (tests), the name alone shows.
+        if (typeof URL.createObjectURL === "function") url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: imageType(file) }));
+        setShown({ file, url, problem: null });
+      },
+      (e) => live && setShown({ file, url: null, problem: errorMessage(e) }),
+    );
+    return () => {
+      live = false;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [api, file, arrived]);
+  const choose = async () => {
+    const stored = await useSequencer.getState().choosePicture();
+    if (stored !== null) void onChange(stored);
+  };
+  const picture = shown?.file === file ? shown : null;
+  const others = inShow.filter((f) => f !== file);
+  return (
+    <div className="flex flex-col gap-1.5 text-sm" title={setting.description}>
+      <span className="text-neutral-600 dark:text-neutral-400">{setting.label}</span>
+      <div className="flex items-center gap-2">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded border border-neutral-300 bg-neutral-950 text-neutral-500 dark:border-neutral-700">
+          {picture?.url ? <img src={picture.url} alt="" className="h-full w-full object-contain [image-rendering:pixelated]" /> : <ImageIcon size={18} aria-hidden />}
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
+          <span className="max-w-full truncate" title={file ? shownPath(file) : undefined}>
+            {mixed ? "Different in each effect" : file ? fileName(file) : "No picture yet"}
+          </span>
+          <Button className="!px-2 !py-1" onClick={() => void choose()}>
+            <ImagePlus size={14} aria-hidden /> {file || mixed ? "Replace…" : "Choose picture…"}
+          </Button>
+        </div>
+      </div>
+      {others.length > 0 && (
+        <select aria-label="Pictures in this show" className={FIELD} value="" onChange={(e) => e.target.value && void onChange(e.target.value)}>
+          <option value="">Pictures in this show…</option>
+          {others.map((f) => (
+            <option key={f} value={f}>
+              {fileName(f)}
+            </option>
+          ))}
+        </select>
+      )}
+      {picture?.problem && <span className="text-xs text-amber-700 dark:text-amber-400">{picture.problem}</span>}
+    </div>
+  );
 }
 
 /** A free-text setting: typed into a box and sent when Enter is pressed or the box is left (Escape puts it back). */

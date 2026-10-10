@@ -1357,3 +1357,142 @@ fn syllables_need_words_to_come_from() {
     // Syllables come from the words: the song isn't analyzed for them.
     assert_eq!(runs.load(Ordering::SeqCst), 0);
 }
+
+#[test]
+fn pictures_are_listed_looked_up_and_placed_like_any_effect() {
+    let s = setup(Some("/music/song.mp3"));
+    let a = s.rows[0].clone();
+    let picture = |settings: Value| {
+        (
+            "place_effects",
+            json!({ "rowIds": [a], "fromMs": 8000, "toMs": 24000, "effect": { "kind": "picture", "settings": settings } }),
+        )
+    };
+    let provider = ScriptedProvider::new(vec![
+        calls(
+            "",
+            &[
+                ("get_open_sequence", json!({})),
+                ("get_show_overview", json!({})),
+                ("list_effect_kinds", json!({ "kind": "picture" })),
+            ],
+        ),
+        calls(
+            "",
+            &[
+                picture(json!({ "file": "images/santa dancing.gif", "fit": "fill", "movement": "left" })),
+                picture(json!({ "file": "images/santa dancing.gif", "fit": "sideways" })),
+            ],
+        ),
+        says("Santa scrolls across A."),
+    ]);
+    let (mut session, _) = session();
+    // The show's images folder as the shell lists it: more pictures than are worth spelling out.
+    let mut workspace = Workspace::from_engine(&s.engine, UiContext::default());
+    workspace.images = std::iter::once("images/santa dancing.gif".to_string())
+        .chain((1..40).map(|i| format!("images/frame {i:02}.png")))
+        .collect();
+    session
+        .run_turn(
+            &provider,
+            &fake_key(),
+            "scripted",
+            "Put my santa gif on A, scrolling",
+            workspace,
+            &Cancel::new(),
+            &mut |_| {},
+        )
+        .unwrap();
+    // Both summaries list the first thirty by the name an effect's file takes, and count the rest.
+    let read = results_in(&provider, 1);
+    for (summary, is_error) in &read[..2] {
+        assert!(!is_error, "{summary}");
+        let summary: Value = serde_json::from_str(summary).unwrap();
+        let listed = summary["pictures"].as_array().unwrap();
+        assert_eq!(listed.len(), 30);
+        assert_eq!(listed[0], "images/santa dancing.gif");
+        assert_eq!(listed[29], "images/frame 29.png");
+        assert_eq!(summary["morePictures"], 10);
+    }
+    // The lookup gives every setting with its choices, in a few short lines' worth.
+    let (listed, is_error) = &read[2];
+    assert!(!is_error, "{listed}");
+    assert!(listed.len() < 3_600, "{} bytes", listed.len());
+    let catalog: Value = serde_json::from_str(listed).unwrap();
+    assert_eq!(catalog.as_array().map(Vec::len), Some(1));
+    assert_eq!(catalog[0]["kind"], "picture");
+    let settings = catalog[0]["settings"].as_array().unwrap();
+    let keys: Vec<&str> = settings.iter().map(|s| s["key"].as_str().unwrap()).collect();
+    assert_eq!(
+        keys,
+        [
+            "file",
+            "fit",
+            "timing",
+            "playSpeed",
+            "movement",
+            "moveSpeed",
+            "wrap",
+            "xOffset",
+            "yOffset",
+            "scale",
+            "blackTransparent",
+            "turn",
+            "crisp",
+            "blackLevel",
+            "startFrame",
+            "pixelOffsets",
+            "tint"
+        ]
+    );
+    assert_eq!(
+        (&settings[0]["type"], &settings[0]["default"]),
+        (&json!("image"), &json!(""))
+    );
+    let fits: Vec<&str> = settings[1]["options"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|option| option["value"].as_str().unwrap())
+        .collect();
+    assert_eq!(fits, ["fit", "fill", "stretch", "actual"]);
+    // Placed with its file and settings; a fit it doesn't have is refused.
+    let results = results_in(&provider, 2);
+    assert!(!results[0].1, "{results:?}");
+    assert!(results[1].1 && results[1].0.contains("sideways"), "{results:?}");
+    assert_eq!(placed(&session, &a, 0), [(8000, 24000)]);
+    let doc = session.draft().unwrap().sequence().unwrap();
+    let row = doc.rows.iter().find(|r| r.id.to_string() == a).unwrap();
+    let effect = &row.layers[0].effects[0];
+    assert_eq!(effect.kind(), EffectKind::Picture);
+    let settings = serde_json::to_value(&effect.params).unwrap();
+    assert_eq!(
+        (
+            &settings["file"],
+            &settings["fit"],
+            &settings["movement"],
+            &settings["timing"]
+        ),
+        (
+            &json!("images/santa dancing.gif"),
+            &json!("fill"),
+            &json!("left"),
+            &json!("loop")
+        )
+    );
+    // With no pictures in the folder, the summaries don't mention them.
+    let provider = ScriptedProvider::new(vec![
+        calls(
+            "",
+            &[("get_open_sequence", json!({})), ("get_show_overview", json!({}))],
+        ),
+        says("No pictures yet."),
+    ]);
+    let (mut session, _) = self::session();
+    ask(&mut session, &provider, &s.engine, "What pictures do I have?")
+        .0
+        .unwrap();
+    for (summary, _) in results_in(&provider, 1) {
+        assert!(!summary.contains("ictures"), "{summary}");
+    }
+}

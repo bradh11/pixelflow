@@ -644,6 +644,8 @@ fn the_prompt_says_to_act_on_defaults_and_stays_short() {
     // Characters that dance go on the matrices, a pair facing each other.
     assert!(prompt.contains("stage_cue dance") && prompt.contains("dancer effects on the matrices"));
     assert!(prompt.contains("mirror on the right-hand one of a pair"));
+    // The user's own artwork is a picture effect, with a file from the ones listed.
+    assert!(prompt.contains("picture effects on matrices, file one of get_open_sequence's pictures"));
     // It's sent with every request: new rules come out of what's there. Guidance for using tools
     // is said here once rather than in each tool's description (see `tool_definitions_stay_small`).
     assert!(prompt.len() <= 5_300, "{} bytes", prompt.len());

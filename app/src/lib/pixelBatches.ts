@@ -7,6 +7,9 @@
 
 import type { PreviewProp } from "../api/types";
 import type { Size, View } from "./layoutMath";
+import { coreDim, drawHalos, planHalos } from "./pixelGlow";
+
+export { DOT_RADIUS } from "./pixelGlow";
 
 /** The colors used when a pixel isn't showing a lit color of its own. */
 export interface PixelColors {
@@ -14,8 +17,8 @@ export interface PixelColors {
   unlit: string;
   /** Not playing: a selected prop's pixels. */
   selected: string;
-  /** Playing, but this pixel is off (black). */
-  dark: string;
+  /** Playing, but this pixel is off (black). Left out, pixels that are off aren't drawn. */
+  dark?: string;
 }
 
 /** Every pixel of one color, as screen x, y pairs. */
@@ -71,7 +74,8 @@ let scratchKey = new Int32Array(0);
 /**
  * The props' pixels on screen, grouped by the color to draw them: their color in `frame` while
  * something plays (rounded), otherwise the unlit or selected color. `margin` (screen pixels) is
- * how far off the canvas a pixel may be and still be drawn (its radius).
+ * how far off the canvas a pixel may be and still be drawn (its radius). `dim` (0–1) is how
+ * bright lit pixels are drawn: less than their color when a glow adds the rest (see pixelGlow.ts).
  */
 export function batchPixels(
   props: PreviewProp[],
@@ -81,6 +85,7 @@ export function batchPixels(
   selected: ReadonlySet<string>,
   colors: PixelColors,
   margin = 0,
+  dim = 1,
 ): PixelBatch[] {
   let total = 0;
   for (const p of props) total += p.points.length >> 1;
@@ -93,6 +98,7 @@ export function batchPixels(
   const counts = new Map<number, number>();
   const [halfW, halfH, zoom, cx, cy] = [size.width / 2, size.height / 2, view.zoom, view.cx, view.cy];
   const [minX, maxX, minY, maxY] = [-margin, size.width + margin, -margin, size.height + margin];
+  const dark = colors.dark;
   let n = 0;
   for (const p of props) {
     const pts = p.points;
@@ -108,8 +114,9 @@ export function batchPixels(
         if (o + 2 >= frame!.length) key = DARK;
         else {
           const [r, g, b] = [frame![o], frame![o + 1], frame![o + 2]];
-          key = r + g + b === 0 ? DARK : (level(r) << 10) | (level(g) << 5) | level(b);
+          key = r + g + b === 0 ? DARK : (level(r * dim) << 10) | (level(g * dim) << 5) | level(b * dim);
         }
+        if (key === DARK && dark === undefined) continue;
       }
       xs[n] = sx;
       ys[n] = sy;
@@ -126,7 +133,7 @@ export function batchPixels(
     b.xy[b.at++] = ys[i];
   }
   const fixed = (color: string) => ({ color, rgba: packColor(color) });
-  const colorOf = (key: number) => (key === UNLIT ? fixed(colors.unlit) : key === SELECTED ? fixed(colors.selected) : key === DARK ? fixed(colors.dark) : shade(key));
+  const colorOf = (key: number) => (key === UNLIT ? fixed(colors.unlit) : key === SELECTED ? fixed(colors.selected) : key === DARK ? fixed(dark ?? "") : shade(key));
   // Selected pixels last, so they're drawn over others.
   return [...batches]
     .sort(([a], [b]) => (a === SELECTED ? 1 : 0) - (b === SELECTED ? 1 : 0))
@@ -210,4 +217,26 @@ export function drawBatches(ctx: CanvasRenderingContext2D, batches: PixelBatch[]
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.drawImage(layer.canvas, 0, 0);
   ctx.restore();
+}
+
+/**
+ * Draws the props' pixels (see `batchPixels` and `drawBatches`), then, while something plays, the
+ * glow around the lit ones: as much as `glow` (0–1) says, none at 0 (see pixelGlow.ts).
+ */
+export function drawPixels(
+  ctx: CanvasRenderingContext2D,
+  props: PreviewProp[],
+  frame: Uint8Array | null,
+  view: View,
+  size: Size,
+  selected: ReadonlySet<string>,
+  colors: PixelColors,
+  radius: number,
+  ratio: number,
+  glow: number,
+) {
+  const halos = frame && glow > 0 ? planHalos(ctx, glow, view, radius, ratio) : null;
+  const dim = halos ? coreDim(halos.step, halos.radius / radius) : 1;
+  drawBatches(ctx, batchPixels(props, frame, view, size, selected, colors, radius, dim), radius, ratio);
+  if (halos) drawHalos(ctx, halos, props, frame!, view, size, ratio);
 }

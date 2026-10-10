@@ -3,11 +3,12 @@
 //
 // - Grouping only, in Node: `PIXELFLOW_BENCH=1 pnpm vitest run src/lib/pixelBatches.bench.test.ts`
 // - Real drawing, in a browser: start `pnpm dev`, open the app, and in the console run
-//   `(await import("/src/lib/pixelBench.ts")).runCanvasBench()`.
+//   `(await import("/src/lib/pixelBench.ts")).runCanvasBench()`, or `.runGlowBench()` for a
+//   15,000-pixel show with every pixel lit, at no glow, half and full.
 
 import type { PreviewProp } from "../api/types";
 import type { Size, View } from "./layoutMath";
-import { batchPixels, drawBatches } from "./pixelBatches";
+import { batchPixels, drawBatches, drawPixels } from "./pixelBatches";
 
 export const BENCH_COLORS = { unlit: "rgba(220, 220, 220, 0.7)", selected: "#a78bfa", dark: "rgba(90, 90, 90, 0.6)" };
 
@@ -88,6 +89,39 @@ export function runCanvasBench(runs = 15) {
     for (const radius of [1.3, 3]) {
       result[`perPixelMs_x${ratio}_r${radius}`] = time(() => drawPerPixel(ctx, props, frame, view, size, radius));
       result[`batchedMs_x${ratio}_r${radius}`] = time(() => drawBatched(ctx, props, frame, view, size, radius, ratio));
+    }
+    canvas.remove();
+  }
+  console.table(result);
+  return result;
+}
+
+/**
+ * Times a whole frame of a show with every pixel lit on a real canvas, as the previews draw it:
+ * `plain` without any of the glow code, then at no glow, a little, half and full. `zoom` is the
+ * view's (22 fits the show on the canvas; zoomed in, halos are bigger and fewer pixels show).
+ */
+export function runGlowBench(runs = 15, pixels = 15_000, zoom = 22) {
+  const { props, frame, size, ...fit } = syntheticShow(pixels);
+  const view = { ...fit.view, zoom };
+  const result: Record<string, number> = { pixels: frame.length / 3 };
+  for (const ratio of [1, 2]) {
+    const canvas = document.createElement("canvas");
+    canvas.width = size.width * ratio;
+    canvas.height = size.height * ratio;
+    document.body.append(canvas);
+    const ctx = canvas.getContext("2d")!;
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    const time = (draw: () => void) =>
+      median(() => {
+        ctx.fillStyle = "#0a0a0c";
+        ctx.fillRect(0, 0, size.width, size.height);
+        draw();
+        ctx.getImageData(0, 0, 1, 1); // waits for the drawing to complete
+      }, runs);
+    for (const radius of [1.3, 3]) {
+      result[`plainMs_x${ratio}_r${radius}`] = time(() => drawBatched(ctx, props, frame, view, size, radius, ratio));
+      for (const glow of [0, 0.1, 0.5, 1]) result[`glow${glow * 100}Ms_x${ratio}_r${radius}`] = time(() => drawPixels(ctx, props, frame, view, size, new Set(), BENCH_COLORS, radius, ratio, glow));
     }
     canvas.remove();
   }

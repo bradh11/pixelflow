@@ -35,6 +35,8 @@ pub enum FileRole {
     HouseModel,
     /// The music of the sequence open on the Sequence screen.
     SequenceDocMusic,
+    /// A picture one of the open sequence's Picture effects draws.
+    Picture,
 }
 
 /// A file that isn't where the show (or the open sequence) says it is.
@@ -240,6 +242,11 @@ fn repoint(show: &mut Show, role: FileRole, to: String) -> Result<(), EngineErro
         FileRole::SequenceDocMusic => {
             return Err(EngineError::InvalidEdit(
                 "The open sequence's music isn't part of the show.".into(),
+            ));
+        }
+        FileRole::Picture => {
+            return Err(EngineError::InvalidEdit(
+                "The open sequence's pictures aren't part of the show.".into(),
             ));
         }
     }

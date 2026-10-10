@@ -24,6 +24,7 @@ pub use crate::life::Life;
 pub use crate::lightning::Lightning;
 pub use crate::lines::Lines;
 pub use crate::morph::Morph;
+pub use crate::picture::Picture;
 pub use crate::pinwheel::Pinwheel;
 pub use crate::plasma::Plasma;
 pub use crate::pulse::Pulse;
@@ -976,6 +977,7 @@ pub enum Shader {
     Sing(Sing),
     ColorShift(ColorShift),
     Dancer(Dancer),
+    Picture(Picture),
 }
 
 /// When a Shape fires its shapes (ms from the effect's start, while it plays): at each mark on its
@@ -1087,6 +1089,7 @@ impl Shader {
             EffectParams::Sing(p) => Shader::Sing(Sing::new(p, time, colors, canvas, cx)),
             EffectParams::ColorShift(p) => Shader::ColorShift(ColorShift::new(p, time, colors, canvas)),
             EffectParams::Dancer(p) => Shader::Dancer(Dancer::new(p, time, colors, canvas, cx)),
+            EffectParams::Picture(p) => Shader::Picture(Picture::new(p, time, colors, canvas, cx)),
         }
     }
 
@@ -1130,6 +1133,7 @@ impl Shader {
             Shader::Sing(s) => each.visit(s),
             Shader::ColorShift(s) => each.visit(s),
             Shader::Dancer(s) => each.visit(s),
+            Shader::Picture(s) => each.visit(s),
         }
     }
 }

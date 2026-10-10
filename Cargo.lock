@@ -2186,6 +2186,7 @@ dependencies = [
 name = "pf-engine"
 version = "0.1.0"
 dependencies = [
+ "image",
  "pf-analysis",
  "pf-audio",
  "pf-camera-map",
@@ -2285,6 +2286,8 @@ dependencies = [
 name = "pf-render"
 version = "0.1.0"
 dependencies = [
+ "gif",
+ "image",
  "pf-analysis",
  "pf-fseq",
  "pf-geometry",

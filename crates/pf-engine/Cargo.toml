@@ -32,6 +32,7 @@ schema = ["dep:schemars", "pf-model/schema", "pf-sequence/schema"]
 
 [dev-dependencies]
 tempfile.workspace = true
+image.workspace = true
 pf-devices = { workspace = true, features = ["test-fixtures"] }
 
 [lints]

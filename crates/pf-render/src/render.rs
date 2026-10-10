@@ -5,6 +5,7 @@ use crate::blur::Grid;
 use crate::color::{Acc, Colors, Rgba, to_u8, write_pixel};
 use crate::effects::{Canvas, EffectTime, Shade, Shader, ShaderVisitor};
 use crate::geometry::{Pixel, PixelBuffer, SceneGeometry};
+use crate::picture::Pictures;
 use crate::sim::Sims;
 use crate::sparkles::Sparkles;
 use pf_mapping::ChannelMap;
@@ -50,6 +51,8 @@ pub struct Renderer {
     sims: Sims<(EffectId, BufferKey, usize)>,
     /// The music effects follow (none, or still on its way: they draw as in silence).
     audio: AudioSource,
+    /// The pictures Picture effects draw (none: they draw nothing).
+    pictures: Pictures,
 }
 
 impl Renderer {
@@ -71,6 +74,7 @@ impl Renderer {
             part_acc: Vec::new(),
             sims: Sims::default(),
             audio: AudioSource::none(),
+            pictures: Pictures::none(),
         }
     }
 
@@ -81,6 +85,15 @@ impl Renderer {
 
     pub fn audio(&self) -> &AudioSource {
         &self.audio
+    }
+
+    /// The pictures the sequences drawn from now on show (see [`Pictures`]).
+    pub fn set_pictures(&mut self, pictures: Pictures) {
+        self.pictures = pictures;
+    }
+
+    pub fn pictures(&self) -> &Pictures {
+        &self.pictures
     }
 
     /// The music's audio track, once it's there.
@@ -109,11 +122,13 @@ impl Renderer {
     pub fn render(&mut self, seq: &Sequence, t_ms: u64, frame: &mut [u8]) {
         self.show_acc.fill(Acc::ZERO);
         let track = self.audio.track().cloned();
+        let pictures = self.pictures.clone();
         let cx = RenderContext::new(
             track.as_deref().map(|t| Audio::new(t, seq.frame_ms)),
             &seq.timing_tracks,
             seq.frame_ms,
-        );
+        )
+        .with_pictures(&pictures);
         if t_ms < seq.duration_ms {
             for row in &seq.rows {
                 let mut active = row

@@ -11,6 +11,7 @@
 //! from the [`RenderContext`] the renderer passes along (see `Shader::in_context`).
 
 use crate::geometry::Members;
+use crate::picture::Pictures;
 use pf_sequence::{
     CurveInputs, Effect, EffectParams, Mark, PulseSource, Sequence, TendrilMovement, TimingTrack,
 };
@@ -207,7 +208,7 @@ impl<'a> Audio<'a> {
 }
 
 /// What effects read besides their own settings while a frame is drawn: the music (when it's
-/// there) and the sequence's timing tracks.
+/// there), the sequence's timing tracks, and the show's pictures.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RenderContext<'a> {
     pub audio: Option<Audio<'a>>,
@@ -216,6 +217,8 @@ pub struct RenderContext<'a> {
     pub frame_ms: u32,
     /// The members of the group being drawn on, for effects that go prop by prop.
     pub members: Option<&'a Arc<Members>>,
+    /// The pictures Picture effects draw (none: they draw nothing).
+    pub pictures: Option<&'a Pictures>,
 }
 
 impl<'a> RenderContext<'a> {
@@ -225,6 +228,15 @@ impl<'a> RenderContext<'a> {
             tracks,
             frame_ms,
             members: None,
+            pictures: None,
+        }
+    }
+
+    /// The same context drawing pictures from `pictures`.
+    pub fn with_pictures(self, pictures: &'a Pictures) -> Self {
+        Self {
+            pictures: Some(pictures),
+            ..self
         }
     }
 

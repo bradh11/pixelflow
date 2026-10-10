@@ -163,6 +163,19 @@ pub fn validate_sequence(seq: &Sequence, show: &Show) -> Vec<SequenceIssue> {
                         Some(effect.id),
                     );
                 }
+                if let EffectParams::Picture(p) = &effect.params
+                    && p.file.trim().is_empty()
+                {
+                    push(
+                        Severity::Warning,
+                        format!(
+                            "{} has no picture yet, so it shows nothing. Choose one in its settings.",
+                            describe(effect)
+                        ),
+                        Some(row.id),
+                        Some(effect.id),
+                    );
+                }
                 let (marks_track, without) = match &effect.params {
                     EffectParams::Shape(p) => (p.timing_track, "no shapes appear"),
                     EffectParams::VuMeter(p) if p.meter.uses_marks() => (p.timing_track, "it shows nothing"),

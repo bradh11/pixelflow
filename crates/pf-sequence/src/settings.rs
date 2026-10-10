@@ -43,6 +43,8 @@ pub enum SettingRange {
     Face,
     /// Free text (at most [`MAX_TEXT_LEN`] characters).
     Text,
+    /// A picture file, by path (blank: none chosen yet).
+    Image,
     /// One of the sequence's timing tracks (or none).
     TimingTrack,
 }
@@ -154,7 +156,7 @@ impl SettingField for bool {
     }
 }
 
-/// A name (a face's) or text: at most [`MAX_TEXT_LEN`] characters.
+/// A name (a face's), text, or a file's path: at most [`MAX_TEXT_LEN`] characters.
 impl SettingField for String {
     fn sanitize(&mut self, _range: &SettingRange, _default: Self) {
         if self.chars().count() > MAX_TEXT_LEN {
@@ -243,6 +245,9 @@ macro_rules! range {
     };
     ($ty:ty, text) => {
         $crate::settings::SettingRange::Text
+    };
+    ($ty:ty, image) => {
+        $crate::settings::SettingRange::Image
     };
     ($ty:ty, timing_track) => {
         $crate::settings::SettingRange::TimingTrack
@@ -416,6 +421,10 @@ pub enum SettingValue {
     Text {
         default: String,
     },
+    /// A picture file, by path ("" = none chosen).
+    Image {
+        default: String,
+    },
     /// A timing track of the sequence, by id (`null` = none).
     TimingTrack {
         default: Option<TimingTrackId>,
@@ -461,6 +470,9 @@ fn effect_info(kind: EffectKind) -> EffectInfo {
                 },
                 SettingRange::Text => SettingValue::Text {
                     default: default.as_str().expect("a text default").to_string(),
+                },
+                SettingRange::Image => SettingValue::Image {
+                    default: default.as_str().expect("a file path default").to_string(),
                 },
                 SettingRange::TimingTrack => SettingValue::TimingTrack {
                     default: serde_json::from_value(default.clone()).expect("a timing track default"),
@@ -520,7 +532,7 @@ mod tests {
                         assert!(min < max && (min..=max).contains(&v), "{kind:?}.{}", spec.key);
                     }
                     SettingRange::Bool => assert!(value.is_boolean(), "{kind:?}.{}", spec.key),
-                    SettingRange::Face | SettingRange::Text => {
+                    SettingRange::Face | SettingRange::Text | SettingRange::Image => {
                         assert!(value.is_string(), "{kind:?}.{}", spec.key)
                     }
                     SettingRange::TimingTrack => assert!(value.is_null(), "{kind:?}.{}", spec.key),

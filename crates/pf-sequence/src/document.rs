@@ -16,8 +16,9 @@ use serde::{Deserialize, Serialize};
 /// (`renderStyle`) and turn or flip it (`bufferTransform`); 6 = curves and sparkles can follow the
 /// music (`musicSparkles`, the music and timing curve shapes), the VU Meter effect, and Shape and
 /// Tendril settings that follow the music; 7 = the show effects (Impact, Wipe, Lightning, Pulse,
-/// Sing, Color Shift) and Chase's order and timing track; 8 = the Dancer effect.
-pub const CURRENT_SCHEMA_VERSION: u32 = 8;
+/// Sing, Color Shift) and Chase's order and timing track; 8 = the Dancer effect; 9 = the Picture
+/// effect.
+pub const CURRENT_SCHEMA_VERSION: u32 = 9;
 
 fn default_frame_ms() -> u32 {
     25

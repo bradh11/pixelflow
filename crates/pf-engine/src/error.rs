@@ -64,4 +64,6 @@ pub enum EngineError {
     SearchOutdated,
     #[error("The open sequence has no music to look for.")]
     NoSequenceMusic,
+    #[error("None of the open sequence's pictures are missing.")]
+    NoSequencePictures,
 }

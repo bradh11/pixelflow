@@ -72,6 +72,11 @@ impl DraftRenderer {
         self.renderer.set_audio(audio);
     }
 
+    /// The pictures Picture effects draw (see [`crate::Engine::pictures`]).
+    pub fn set_pictures(&mut self, pictures: pf_render::Pictures) {
+        self.renderer.set_pictures(pictures);
+    }
+
     /// The frame (show frame bytes) at `position_ms`.
     pub fn frame(&mut self, doc: &Sequence, position_ms: u64) -> Vec<u8> {
         let mut frame = vec![0u8; self.renderer.frame_len()];

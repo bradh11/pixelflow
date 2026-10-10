@@ -20,6 +20,7 @@ mod files;
 mod history;
 mod output;
 mod persist;
+mod pictures;
 mod playback;
 mod recovery;
 mod sequence_doc;
@@ -42,6 +43,10 @@ pub use persist::{
     HistoryEntry, HistoryFile, LoadedShow, load_show, read_show, save_show_atomic, write_atomic,
 };
 pub use pf_render::export::{ExportBlock, ExportLayout, ExportSummary};
+pub use pictures::{
+    IMAGES_FOLDER, MAX_PICTURE_BYTES, PICTURE_EXTENSIONS, PictureCheck, PictureFiles, PictureStatus,
+    read_picture_file,
+};
 pub use playback::{
     ClockFactory, PlayRequest, PlaybackReady, PlaybackStatus, music_clocks, sequence_entry_for,
 };

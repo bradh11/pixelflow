@@ -400,8 +400,9 @@ pub(crate) async fn ai_preview_frame(
                 .filter(|_| !proposal.sequence_edits.is_empty())
                 .ok_or_else(|| "This suggestion doesn't change the sequence.".to_string())?;
             let mut renderer = pf_engine::DraftRenderer::new(&proposal.draft_show);
-            // The draft follows the open sequence's music.
+            // The draft follows the open sequence's music, and draws the show's pictures.
             renderer.set_audio(state.engine().sequence_audio());
+            renderer.set_pictures(state.engine().pictures());
             DraftPlayer {
                 proposal: id,
                 renderer,

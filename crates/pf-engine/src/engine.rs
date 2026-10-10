@@ -9,6 +9,7 @@ use crate::files::{
 use crate::history::History;
 use crate::output::{ControllerStatus, OutputSession, OutputStatus, PatternSpec, TargetSpec, output_key};
 use crate::persist::{self, HistoryEntry, HistoryFile, LoadedShow};
+use crate::pictures::{PictureCheck, PictureFiles, PictureStatus};
 use crate::playback::{
     self, ClockFactory, DocumentRequest, PlayRequest, PlaybackReady, PlaybackSession, PlaybackStatus,
     SessionKind, document_music,
@@ -21,7 +22,7 @@ use pf_model::{SequenceId, Severity, Show, ValidationReport, path_from_text, pat
 use pf_output::{OutputSettings, Transport, UdpTransport};
 use pf_patterns::{Target, TargetRange, resolve_target};
 use pf_render::export::{ExportLayout, ExportSummary};
-use pf_render::{AudioSource, Renderer, follows_music};
+use pf_render::{AudioSource, Pictures, Renderer, follows_music};
 use pf_sequence::Sequence;
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -121,6 +122,13 @@ pub struct Engine {
     home: Option<PathBuf>,
     /// Audio tracks of the music sequences follow, worked out once (see [`AudioTracks`]).
     audio: Arc<AudioTracks>,
+    /// Where the show's pictures are and which may be read, and the pictures themselves as
+    /// renderers draw them (see [`PictureFiles`]).
+    picture_files: Arc<PictureFiles>,
+    pictures: Pictures,
+    /// The open sequence's pictures the last check found can't be drawn, by what their effects
+    /// store. Snapshots read this, never the disk (see [`Engine::sequence_picture_check`]).
+    pictures_missing: Vec<(String, MissingFile)>,
 }
 
 /// What [`Engine::use_found_files`] did.
@@ -149,6 +157,8 @@ pub struct SequenceExport {
     /// The music the effects follow, and where its audio track comes from.
     music: Option<PathBuf>,
     audio: Arc<AudioTracks>,
+    /// The pictures Picture effects draw, each waited for.
+    pictures: Pictures,
 }
 
 impl SequenceExport {
@@ -195,6 +205,11 @@ impl SequenceExport {
         track.map_or_else(AudioSource::none, AudioSource::ready)
     }
 
+    /// The pictures Picture effects draw: each is read when it's first drawn, and waited for.
+    pub fn pictures(&self) -> Pictures {
+        self.pictures.clone()
+    }
+
     /// Renders every frame and writes the `.fseq` file atomically. `progress` gets (frames done,
     /// total frames) and returns `false` to cancel (the error says so, and no file is written).
     /// Effects that follow the music read its audio track, worked out first if it isn't yet.
@@ -209,6 +224,7 @@ impl SequenceExport {
             &self.map,
             &self.sequence,
             &audio,
+            &self.pictures,
             path,
             progress,
         )
@@ -244,6 +260,8 @@ impl std::fmt::Debug for Engine {
 impl Engine {
     /// An engine with a new untitled show. `data_dir` holds autosave history.
     pub fn new(data_dir: impl Into<PathBuf>) -> Self {
+        let picture_files = Arc::new(PictureFiles::default());
+        let reader = Arc::clone(&picture_files);
         Self {
             show: Show::new("Untitled Show"),
             path: None,
@@ -282,6 +300,9 @@ impl Engine {
                 .map(PathBuf::from)
                 .filter(|p| p.is_absolute()),
             audio: Arc::default(),
+            pictures: Pictures::new(move |file| reader.read(file)),
+            picture_files,
+            pictures_missing: Vec::new(),
         }
     }
 
@@ -536,6 +557,7 @@ impl Engine {
         let history_before = self.history_dir();
         persist::save_show_atomic(path, &self.show)?;
         self.path = Some(path.to_path_buf());
+        self.show_folder_changed();
         self.saved_revision = self.revision;
         // The history folder follows the file: a different file gets a first copy at the next
         // autosave. Saving to the same file again changes nothing there.
@@ -1075,6 +1097,7 @@ impl Engine {
     pub fn close_sequence_doc(&mut self) {
         self.stop_document_playback();
         self.sequence = None;
+        self.pictures_missing.clear();
         self.forget_sequence_autosave();
     }
 
@@ -1146,7 +1169,9 @@ impl Engine {
 
     /// The whole open sequence, for the UI (when it opens one, or to resync).
     pub fn sequence_doc(&self) -> Option<SequenceSnapshot> {
-        self.sequence.as_ref().map(|open| open.snapshot(&self.show))
+        let mut snapshot = self.sequence.as_ref()?.snapshot(&self.show);
+        self.add_picture_issues(&mut snapshot.issues);
+        Some(snapshot)
     }
 
     fn sequence_snapshot_unchecked(&self) -> SequenceSnapshot {
@@ -1224,7 +1249,178 @@ impl Engine {
             .expect("a sequence is open")
             .edit_result(changes, &self.show);
         result.show_revision = self.revision;
+        self.add_picture_issues(&mut result.issues);
         result
+    }
+
+    // --- Pictures the open sequence's Picture effects draw -------------------------------------
+
+    /// The show's pictures for rendering: each is read the first time it's drawn, on a thread of
+    /// its own (see [`Pictures::waiting`] for a renderer that must not leave any out).
+    pub fn pictures(&self) -> Pictures {
+        self.pictures.clone()
+    }
+
+    /// Where the show's pictures are and which may be read (see [`PictureFiles`]). Reading and
+    /// copying go through it without holding the engine.
+    pub fn picture_files(&self) -> Arc<PictureFiles> {
+        Arc::clone(&self.picture_files)
+    }
+
+    /// The show's folder changed (saved somewhere else, or another show): pictures stored
+    /// relative to it are other files now.
+    fn show_folder_changed(&mut self) {
+        if self.picture_files.set_folder(self.show_folder()) {
+            self.pictures.clear();
+            self.pictures_missing.clear();
+        }
+    }
+
+    /// Which of the open sequence's pictures are there, copied out to run without holding the
+    /// engine (see [`PictureCheck::run`]), then [`Engine::publish_picture_status`]. `None` when
+    /// no sequence is open.
+    pub fn sequence_picture_check(&self) -> Option<PictureCheck> {
+        let open = self.sequence.as_ref()?;
+        let mut wanted: Vec<(String, String)> = Vec::new();
+        for effect in open.doc.effects() {
+            let pf_sequence::EffectParams::Picture(p) = &effect.params else {
+                continue;
+            };
+            if p.file.trim().is_empty() || wanted.iter().any(|(file, _)| *file == p.file) {
+                continue;
+            }
+            let owner = format!("Picture effect at {}", pf_sequence::format_ms(effect.start_ms));
+            wanted.push((p.file.clone(), owner));
+        }
+        Some(PictureCheck {
+            files: Arc::clone(&self.picture_files),
+            pictures: self.pictures.clone(),
+            doc: open.id(),
+            wanted,
+        })
+    }
+
+    /// Takes in what a [`PictureCheck`] found, unless another sequence was opened since it
+    /// started: the pictures that can't be drawn, which the sequence's problems then name.
+    pub fn publish_picture_status(&mut self, status: PictureStatus) -> Vec<MissingFile> {
+        if self.sequence_doc_id() != Some(status.doc) {
+            return Vec::new();
+        }
+        self.pictures_missing = status.missing;
+        self.sequence_pictures_missing()
+    }
+
+    /// The open sequence's pictures the last check found can't be drawn (reads nothing).
+    pub fn sequence_pictures_missing(&self) -> Vec<MissingFile> {
+        self.pictures_missing.iter().map(|(_, m)| m.clone()).collect()
+    }
+
+    /// Looks at the open sequence's pictures now (reads the disk: see
+    /// [`Engine::sequence_picture_check`] to do that without holding the engine).
+    pub fn check_sequence_pictures(&mut self) -> Vec<MissingFile> {
+        match self.sequence_picture_check() {
+            Some(check) => self.publish_picture_status(check.run()),
+            None => Vec::new(),
+        }
+    }
+
+    /// A search for the open sequence's missing pictures, by name, in the show's folder and the
+    /// sequence's (and the folders below them), to run without holding the engine. What it finds
+    /// is taken for the show ([`PictureFiles::adopt`]) and the effects pointed at it with
+    /// [`Engine::relink_sequence_pictures`].
+    pub fn sequence_picture_search(&self) -> Result<FileSearch, EngineError> {
+        let open = self.sequence.as_ref().ok_or(EngineError::NoSequence)?;
+        if self.pictures_missing.is_empty() {
+            return Err(EngineError::NoSequencePictures);
+        }
+        let mut folders: Vec<PathBuf> = Vec::new();
+        for folder in [
+            self.show_folder(),
+            open.path.as_deref().and_then(persist::folder_of),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if !folders.iter().any(|f| folder.starts_with(f)) {
+                folders.retain(|f| !f.starts_with(folder));
+                folders.push(folder.to_path_buf());
+            }
+        }
+        if folders.is_empty() {
+            return Err(EngineError::SequenceNoFolderToSearch);
+        }
+        Ok(FileSearch::new(
+            folders,
+            self.sequence_pictures_missing(),
+            self.home.clone(),
+            open.id(),
+        ))
+    }
+
+    /// Points the open sequence's Picture effects at other files, as one undo step: each of
+    /// `changes` is a missing picture's `path` (as [`Engine::sequence_pictures_missing`] lists
+    /// it) and what the effects store instead (see [`PictureFiles::adopt`]).
+    pub fn relink_sequence_pictures(
+        &mut self,
+        changes: &[(String, String)],
+    ) -> Result<SequenceEditResult, EngineError> {
+        let open = self.sequence.as_ref().ok_or(EngineError::NoSequence)?;
+        // By what the effects store, or where that points.
+        let target = |file: &str| -> Option<&str> {
+            let at = self.picture_files.resolve(file).map(|p| path_to_text(&p));
+            changes
+                .iter()
+                .find(|(from, _)| from == file || Some(from) == at.as_ref())
+                .map(|(_, to)| to.as_str())
+        };
+        let mut edits = Vec::new();
+        for effect in open.doc.effects() {
+            if let pf_sequence::EffectParams::Picture(p) = &effect.params
+                && let Some(to) = target(&p.file)
+                && to != p.file
+            {
+                let mut params = p.clone();
+                params.file = to.to_string();
+                edits.push(SequenceEdit::SetEffectParams {
+                    id: effect.id,
+                    params: pf_sequence::EffectParams::Picture(params),
+                });
+            }
+        }
+        self.pictures_missing.retain(|(file, _)| target(file).is_none());
+        self.edit_sequence(edits)
+    }
+
+    /// Adds a warning for each of the open sequence's Picture effects whose picture the last
+    /// check found can't be drawn, naming the file.
+    fn add_picture_issues(&self, issues: &mut Vec<pf_sequence::SequenceIssue>) {
+        let Some(open) = self
+            .sequence
+            .as_ref()
+            .filter(|_| !self.pictures_missing.is_empty())
+        else {
+            return;
+        };
+        for row in &open.doc.rows {
+            for effect in row.layers.iter().flat_map(|layer| &layer.effects) {
+                let pf_sequence::EffectParams::Picture(p) = &effect.params else {
+                    continue;
+                };
+                if let Some((_, missing)) = self.pictures_missing.iter().find(|(file, _)| *file == p.file) {
+                    issues.push(pf_sequence::SequenceIssue {
+                        severity: Severity::Warning,
+                        message: format!(
+                            "The Picture effect at {} shows nothing: {} Find it again, or choose another in its settings.",
+                            pf_sequence::format_ms(effect.start_ms),
+                            missing.message
+                        ),
+                        row: Some(row.id),
+                        effect: Some(effect.id),
+                    });
+                }
+            }
+        }
+        issues.sort_by_key(|i| std::cmp::Reverse(i.severity));
     }
 
     /// The open sequence's music file (relative paths resolved next to the document), if any.
@@ -1416,7 +1612,9 @@ impl Engine {
             .is_none_or(|(rev, _)| *rev != self.revision)
         {
             let (map, _) = analyze(&self.show);
-            self.preview_renderer = Some((self.revision, Renderer::new(&self.show, &map)));
+            let mut renderer = Renderer::new(&self.show, &map);
+            renderer.set_pictures(self.pictures.clone());
+            self.preview_renderer = Some((self.revision, renderer));
         }
         let audio = self.sequence_audio();
         let (_, renderer) = self.preview_renderer.as_mut()?;
@@ -1459,6 +1657,7 @@ impl Engine {
             path,
             music,
             audio,
+            pictures: self.pictures.clone(),
             show_error: first_error(&report).map(|i| i.message.clone()),
             send: self.send_sequence_doc,
             volume: self.volume,
@@ -1562,6 +1761,7 @@ impl Engine {
             show_error: first_error(&report).map(|i| i.message.clone()),
             music: self.sequence_music(),
             audio: Arc::clone(&self.audio),
+            pictures: self.pictures.waiting(),
         })
     }
 
@@ -1571,6 +1771,7 @@ impl Engine {
     }
 
     fn replace_sequence(&mut self, open: OpenSequence) {
+        self.pictures_missing.clear();
         self.stop_document_playback();
         // The old sequence's kept copy goes with it (the UI asks before dropping changes).
         self.forget_sequence_autosave();
@@ -1686,6 +1887,7 @@ impl Engine {
         self.playback_stop_reason = None;
         self.show = show;
         self.path = path;
+        self.show_folder_changed();
         self.history.clear();
         self.links.clear();
         self.revision += 1;

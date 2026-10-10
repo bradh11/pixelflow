@@ -20,6 +20,7 @@ import {
   type LucideIcon,
   MicVocal,
   Orbit,
+  PersonStanding,
   Rainbow,
   Ribbon,
   Shapes,
@@ -78,6 +79,7 @@ export const EFFECT_ICONS: Record<EffectKind, LucideIcon> = {
   pulse: HeartPulse,
   sing: MicVocal,
   colorShift: SwatchBook,
+  dancer: PersonStanding,
 };
 
 /** Drags this far (screen pixels) before a press on the palette becomes a drag. */

@@ -487,6 +487,32 @@ describe("sequence screen", () => {
     for (const kind of ["impact", "wipe", "lightning", "pulse", "sing", "colorShift"] as const) expect(EFFECT_ICONS[kind]).toBeDefined();
   });
 
+  it("shows a dancer's main settings up front and where it stands under More", async () => {
+    const { seq, user } = await openScreen();
+    fireEvent.pointerDown(timeline(), { clientX: x(1000), clientY: LANE.archTop, button: 0, pointerId: 1 });
+    fireEvent.pointerUp(timeline(), { clientX: x(1000), clientY: LANE.archTop, pointerId: 1 });
+    const id = useSequencer.getState().selection[0];
+    const effect = () => seq.doc!.rows.flatMap((r) => r.layers.flatMap((l) => l.effects)).find((e) => e.id === id)!;
+    await act(() => useSequencer.getState().edit([{ type: "updateEffect", effect: { ...effect(), params: { kind: "dancer" } } }]));
+    const panel = screen.getByRole("complementary", { name: "Effect settings" });
+    const character = within(panel).getByRole("combobox", { name: "Character" });
+    expect(character).toHaveValue("skeleton");
+    expect(within(character).getAllByRole("option").map((o) => o.textContent)).toEqual(["Skeleton", "Ghost", "Witch", "Santa", "Snowman", "Elf"]);
+    expect(within(panel).getByRole("combobox", { name: "Moves" })).toHaveValue("mix");
+    expect(within(panel).getByRole("combobox", { name: "Speed" })).toHaveValue("normal");
+    expect(within(panel).getByRole("slider", { name: "Size" })).toHaveValue("90");
+    expect(within(panel).getByRole("checkbox", { name: "Mirror" })).not.toBeChecked();
+    expect(within(panel).getByRole("slider", { name: "Dancers" })).toHaveValue("1");
+    expect(within(panel).getByRole("checkbox", { name: "Palette colors" })).not.toBeChecked();
+    expect(within(panel).getByRole("slider", { name: "Bass bounce" })).toHaveValue("0");
+    for (const rare of ["Across", "Up", "Stagger", "Routine"]) expect(within(panel).queryByRole("slider", { name: rare })).not.toBeInTheDocument();
+    // Choosing a character and mirroring it are ordinary edits.
+    await user.selectOptions(character, "santa");
+    await user.click(within(panel).getByRole("checkbox", { name: "Mirror" }));
+    expect(effect().params).toMatchObject({ kind: "dancer", character: "santa", mirror: true });
+    expect(EFFECT_ICONS.dancer).toBeDefined();
+  });
+
   it("moves the playhead and selected effects with the keyboard, and copies and pastes", async () => {
     const { seq, user, show } = await openScreen();
     timeline().focus();

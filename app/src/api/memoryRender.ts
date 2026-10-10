@@ -7,7 +7,7 @@ import { frontView } from "../lib/geometry";
 import { channelsPerPixel, nodeCount } from "../lib/shows";
 import { facePartColor, faceParts, facesOf, phonemeAt, targetNodes } from "../lib/submodels";
 import { effectAt } from "../lib/curves";
-import type { Effect, Sequence, Sweep, TimingTrack } from "./sequence";
+import type { DancerCharacter, Effect, Sequence, Sweep, TimingTrack } from "./sequence";
 import type { FaceDefinition, Prop, Show } from "./types";
 
 type Rgb = [number, number, number];
@@ -33,6 +33,8 @@ interface Px {
   v: number;
   i: number;
   n: number;
+  /** How wide the target is next to its height. */
+  aspect: number;
 }
 
 function num(params: Record<string, unknown>, key: string, fallback: number): number {
@@ -60,6 +62,23 @@ function sweepAt(px: Px, sweep: Sweep | undefined): number {
     default:
       return px.u;
   }
+}
+
+/** A dancer's body and head colors. */
+const DANCERS: Record<DancerCharacter, [Rgb, Rgb]> = {
+  skeleton: [[255, 255, 255], [255, 255, 255]],
+  ghost: [[224, 240, 255], [224, 240, 255]],
+  witch: [[153, 36, 255], [77, 255, 38]],
+  santa: [[255, 15, 10], [255, 255, 255]],
+  snowman: [[255, 255, 255], [255, 255, 255]],
+  elf: [[26, 230, 31], [255, 178, 128]],
+};
+
+/** How far (x, y) is from the line a–b. */
+function fromLine(x: number, y: number, ax: number, ay: number, bx: number, by: number): number {
+  const [dx, dy] = [bx - ax, by - ay];
+  const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1)));
+  return Math.hypot(ax + t * dx - x, ay + t * dy - y);
 }
 
 /** How far a mouth shape opens (0–1), as the engine's Sing effect opens it. */
@@ -361,6 +380,36 @@ function shade(effect: Effect, ms: number, px: Px, seed: number, tracks: TimingT
       const [a, b] = [get(k), get(k + 1)];
       return [[a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f], 1];
     }
+    case "dancer": {
+      // A stick figure in the character's colors: an arm up on each beat, turn about, and a
+      // bob. The engine draws the characters themselves.
+      const count = Math.max(1, Math.round(num(p, "count", 1)));
+      const across = (p.mirror ? 1 - px.u : px.u) * count;
+      const slot = Math.min(count - 1, Math.floor(across));
+      const track = tracks.find((tr) => tr.id === p.timingTrack) ?? tracks.find((tr) => tr.kind === "beats");
+      let beat = (ms - effect.startMs) / 500;
+      if (track && track.marks.length > 1) {
+        const i = Math.min(track.marks.length - 2, Math.max(0, track.marks.filter((m) => m.startMs <= ms).length - 1));
+        beat = i + (ms - track.marks[i].startMs) / Math.max(1, track.marks[i + 1].startMs - track.marks[i].startMs);
+      }
+      beat = (beat - slot * num(p, "stagger", 0)) * (p.speed === "half" ? 0.5 : p.speed === "double" ? 2 : 1);
+      // As tall as its size says, or as its share of the width allows.
+      const wide = px.aspect / count;
+      const tall = Math.min(num(p, "size", 90) / 100, wide * 3.6);
+      const x = ((across - slot - num(p, "x", 50) / 100) * wide) / tall;
+      const y = (px.v - num(p, "y", 0) / 100) / tall + 0.03 * (0.5 + 0.5 * Math.cos(2 * Math.PI * beat));
+      const up = Math.floor(beat) % 2 === 0 ? -1 : 1;
+      const [body, head] = p.usePalette ? [get(0), get(1)] : DANCERS[(p.character as DancerCharacter | undefined) ?? "skeleton"];
+      if (Math.hypot(x, y - 0.87) < 0.11) return [head, 1];
+      const limbs = [
+        [0, 0.42, 0, 0.76],
+        [0, 0.72, -0.2, up < 0 ? 0.98 : 0.46],
+        [0, 0.72, 0.2, up > 0 ? 0.98 : 0.46],
+        [0, 0.42, -0.1, 0],
+        [0, 0.42, 0.1, 0],
+      ];
+      return limbs.some(([ax, ay, bx, by]) => fromLine(x, y, ax, ay, bx, by) < 0.04) ? [body, 1] : [[0, 0, 0], 0];
+    }
     default:
       return [[0, 0, 0], 0];
   }
@@ -455,6 +504,7 @@ export function renderSequenceFrame(doc: Sequence, show: Show, ms: number): Uint
           v: maxY > minY ? (y - minY) / (maxY - minY) : 0.5,
           i: index - 1,
           n: total,
+          aspect: maxX > minX && maxY > minY ? (maxX - minX) / (maxY - minY) : 1,
         };
         let [r, g, b, a] = [0, 0, 0, 0];
         active.forEach((effect, layer) => {

@@ -16,10 +16,11 @@ const BACKDROP: [u16; 3] = [10, 10, 12];
 /// An unlit pixel: the preview's "dark" color, gray at 55%.
 const UNLIT: u16 = 70;
 const UNLIT_ALPHA: u32 = 141;
-/// How far a dot's glow reaches, in core radii (its Gaussian width), and how strong it is next to
-/// the core (out of 256).
-const GLOW_WIDTH: f32 = 1.8;
-const GLOW_STRENGTH: f32 = 0.35;
+/// A glow's width (its Gaussian width, in core radii) and strength next to the core, at none and
+/// at full glow; the level picks between them. Half way is the preview's look: bare bulbs want
+/// little or none, lights behind diffusers more.
+const GLOW_WIDTH: (f32, f32) = (1.2, 2.4);
+const GLOW_STRENGTH: (f32, f32) = (0.0, 0.7);
 /// The picture height the preview's sizes are given for (a preview about this tall on a Retina
 /// screen draws at twice its size in device pixels).
 const PREVIEW_HEIGHT: f32 = 540.0;
@@ -31,6 +32,8 @@ pub struct Look {
     pub height: u32,
     /// The dots' size against the preview's (1 draws them as the preview does).
     pub pixel_size: f32,
+    /// How much each lit dot glows, 0 (crisp dots) to 1.
+    pub glow: f32,
 }
 
 /// The layout photo, read from its file, and where it sits in the layout.
@@ -108,9 +111,16 @@ impl Canvas {
 struct Sprite(Vec<(i32, i32, u32, u32)>);
 
 impl Sprite {
-    /// A round dot of `radius` with soft edges, and a glow around it when `glow`.
-    fn new(radius: f32, glow: bool) -> Self {
-        let sigma = radius * GLOW_WIDTH;
+    /// A round dot of `radius` with soft edges, and a glow around it of `level` (0 for none, to 1).
+    fn new(radius: f32, level: f32) -> Self {
+        let level = if level.is_finite() {
+            level.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let glow = level > 0.0;
+        let sigma = radius * (GLOW_WIDTH.0 + (GLOW_WIDTH.1 - GLOW_WIDTH.0) * level);
+        let strength = GLOW_STRENGTH.0 + (GLOW_STRENGTH.1 - GLOW_STRENGTH.0) * level;
         let reach = if glow {
             (radius + 2.2 * sigma).ceil()
         } else {
@@ -122,7 +132,7 @@ impl Sprite {
                 let d = ((dx * dx + dy * dy) as f32).sqrt();
                 let core = (radius + 0.5 - d).clamp(0.0, 1.0);
                 let halo = if glow {
-                    (1.0 - core) * GLOW_STRENGTH * (-(d / sigma) * (d / sigma)).exp()
+                    (1.0 - core) * strength * (-(d / sigma) * (d / sigma)).exp()
                 } else {
                     0.0
                 };
@@ -195,8 +205,8 @@ impl Scene {
             height,
             background: Vec::new(),
             dots: Vec::new(),
-            lit: Sprite::new(radius, true),
-            unlit: Sprite::new(radius, false),
+            lit: Sprite::new(radius, look.glow),
+            unlit: Sprite::new(radius, 0.0),
             radius,
             zoom,
             center: (width as f32 / 2.0, height as f32 / 2.0),
@@ -354,6 +364,7 @@ mod tests {
         width: 320,
         height: 180,
         pixel_size: 1.0,
+        glow: 0.5,
     };
 
     #[test]
@@ -403,12 +414,54 @@ mod tests {
     }
 
     #[test]
+    fn the_glow_level_goes_from_crisp_dots_to_a_wide_halo() {
+        let props = [prop(&[0.0, 0.0], 0)];
+        // The red just outside a lit dot's core, and a little further out, at a glow level.
+        let around = |glow: f32| {
+            let look = Look {
+                width: 640,
+                height: 360,
+                pixel_size: 1.0,
+                glow,
+            };
+            let scene = Scene::new(&props, None, &look).unwrap();
+            let r = scene.radius();
+            let mut canvas = Canvas::new(1, 1);
+            scene.draw(&[255, 0, 0], &mut canvas);
+            let (x, y) = scene.to_picture(0.0, 0.0);
+            let (x, y) = (x.round() as u32, y.round() as u32);
+            let near = canvas.pixel(x + r.ceil() as u32 + 2, y)[0];
+            let far = canvas.pixel(x + (r * 3.0).ceil() as u32, y)[0];
+            // The night sky well away from the dot.
+            let sky = canvas.pixel(x + 60, y)[0];
+            (canvas.pixel(x, y)[0], near - sky, far - sky)
+        };
+        let (core, near, far) = around(0.0);
+        assert_eq!(core, 255);
+        assert!(
+            near < 3 && far < 3,
+            "no glow: only the sky past the dot ({near}, {far})"
+        );
+        let (_, half_near, half_far) = around(0.5);
+        let (_, full_near, full_far) = around(1.0);
+        assert!(half_near > near + 20, "half glow shows: {half_near}");
+        assert!(
+            full_near > half_near && full_far > half_far,
+            "full glow is brighter and wider"
+        );
+        // Out-of-range levels are kept in range rather than refused.
+        assert_eq!(around(-1.0), around(0.0));
+        assert_eq!(around(9.0), around(1.0));
+    }
+
+    #[test]
     fn dots_glow_and_add_up() {
         let props = [prop(&[0.0, 0.0, 1.0, 0.0, 2.0, 0.0], 0)];
         let look = Look {
             width: 640,
             height: 360,
             pixel_size: 1.0,
+            glow: 0.5,
         };
         let scene = Scene::new(&props, None, &look).unwrap();
         let r = scene.radius();
@@ -438,6 +491,7 @@ mod tests {
             width: 640,
             height: 360,
             pixel_size: 1.0,
+            glow: 0.5,
         };
         let scene = Scene::new(&props, None, &look).unwrap();
         let (mut both, mut one) = (Canvas::new(1, 1), Canvas::new(1, 1));

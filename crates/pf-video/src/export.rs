@@ -39,6 +39,8 @@ pub struct VideoOptions {
     pub photo: bool,
     /// The dots' size against the preview's.
     pub pixel_size: f32,
+    /// How much each lit dot glows, 0 (crisp dots) to 1.
+    pub glow: f32,
     /// Encode with this ffmpeg instead of the built-in encoders.
     pub ffmpeg: Option<Ffmpeg>,
 }
@@ -208,6 +210,7 @@ pub fn export_video(
         width: options.width,
         height: options.height,
         pixel_size: options.pixel_size,
+        glow: options.glow,
     };
     let props = preview_props_of(job.show());
     let scene = Scene::new(&props, photo.as_ref(), &look).ok_or(VideoError::NothingToShow)?;
@@ -556,6 +559,7 @@ mod tests {
             end_ms: None,
             photo: false,
             pixel_size: 1.0,
+            glow: 0.0,
             ffmpeg: None,
         }
     }
@@ -635,6 +639,7 @@ mod tests {
         let out = dir.path().join("Song.mp4");
         let big = VideoOptions {
             pixel_size: 4.0,
+            glow: 0.0,
             ..options()
         };
         let summary = export_video(&job, &big, &out, |_| true).unwrap();

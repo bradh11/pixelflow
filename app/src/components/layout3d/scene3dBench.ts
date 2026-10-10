@@ -50,13 +50,13 @@ function rainbow(frame: Uint8Array, shift: number) {
 }
 
 /** `keep` leaves the last frame on screen (for a screenshot) instead of removing the canvas. */
-export async function runScene3dBench({ pixels = 200_000, frames = 300, width = 1280, height = 720, bloom = true, keep = false } = {}) {
+export async function runScene3dBench({ pixels = 200_000, frames = 300, width = 1280, height = 720, glow = 0.5, keep = false } = {}) {
   const canvas = document.createElement("canvas");
   Object.assign(canvas.style, { position: "fixed", left: "0", top: "0", width: `${width}px`, height: `${height}px`, zIndex: "9999" });
   document.body.append(canvas);
   const scene = createThreeScene(canvas);
   scene.resize({ width, height }, window.devicePixelRatio || 1);
-  scene.setOptions({ bloom, ground: true });
+  scene.setOptions({ glow, ground: true });
   const { props, frameLength } = syntheticShow3d(pixels);
   const packed = packPositions(props);
   scene.setPixels(packed.xyz);
@@ -121,7 +121,7 @@ export async function runScene3dBench({ pixels = 200_000, frames = 300, width = 
   const result = {
     pixels: packed.xyz.length / 3,
     size: `${width}×${height} @${window.devicePixelRatio || 1}x`,
-    bloom,
+    glow,
     gpu: renderer && gl ? String(gl.getParameter(renderer.UNMASKED_RENDERER_WEBGL)) : "unknown",
     paintedFps: Math.round(painted * 10) / 10,
     msPerFrameFinished: Math.round(msPerFrame * 100) / 100,

@@ -1,9 +1,10 @@
 // The 3D view drawn with three.js: a night scene (sky, ground), the photo as an upright
-// backdrop, an optional house model, and every pixel as a glowing bulb — all pixels in one
-// draw call (one Points object whose positions and colors are updated in place). While lights
-// are lit, a bloom pass spreads their glow: only the pixels bloom (drawn alone, with the photo
-// and model in black so they still hide what's behind them), never the photo's bright spots.
-// Selection outlines and the move gizmo are drawn over the top, unbloomed.
+// backdrop, an optional house model, and every pixel as a bulb — all pixels in one draw call
+// (one Points object whose positions and colors are updated in place). Lit bulbs glow as much
+// as the viewer's Glow setting says, none at 0: each has a halo like the 2D previews' and the
+// video export's, and a bloom pass spreads the light further. Only the pixels bloom (drawn
+// alone, with the photo and model in black so they still hide what's behind them), never the
+// photo's bright spots. Selection outlines and the move gizmo are drawn over the top, unbloomed.
 
 import {
   AdditiveBlending,
@@ -47,7 +48,7 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
-import { type Box3, type GizmoHandle, type V3, FOV_DEG, PLANE_AT, PLANE_SIZE, clipRange, orbitEye } from "../../lib/layout3d";
+import { type Box3, type GizmoHandle, type V3, FOV_DEG, PLANE_AT, PLANE_SIZE, bloomStrength, clipRange, orbitEye } from "../../lib/layout3d";
 import type { Scene3d } from "./scene";
 
 const SKY_TOP = new Color("#04060f");
@@ -57,7 +58,7 @@ const ACCENT = new Color("#a78bfa");
 const HIGHLIGHT = new Color("#facc15");
 const AXIS_COLORS: Record<"x" | "y" | "z", Color> = { x: new Color("#ef4444"), y: new Color("#22c55e"), z: new Color("#3b82f6") };
 
-/** A bulb's sprite is this many times its core's size: the rest is its halo. */
+/** A bulb's sprite is this many times its core's size: the rest is room for its halo. */
 const SPRITE_PER_BULB = 5;
 
 const PIXEL_VERTEX = /* glsl */ `
@@ -95,7 +96,13 @@ const PIXEL_FRAGMENT = /* glsl */ `
     float r = length(d);
     if (r > 1.0) discard;
     float core = 1.0 - smoothstep(vCore * 0.6, vCore, r);
-    float halo = exp(-r * r * 6.0) * 0.55 * glow * (1.0 - r);
+    // The halo the 2D previews and the video export draw at this glow level: a bell from the
+    // bulb's edge out, 1.2 to 2.4 bulb radii wide and up to 0.7 of the color strong. That's a
+    // share of the color as seen, so it's raised to 2.2 here, where colors add as light. It
+    // fades out by the sprite's edge.
+    float bell = vCore * (1.2 + 1.2 * glow);
+    float seen = (1.0 - core) * 0.7 * glow * exp(-(r * r) / (bell * bell));
+    float halo = pow(seen, 2.2) * (1.0 - smoothstep(0.85, 1.0, r));
     vec3 c = vColor * (core * 1.6 + halo) * vDim;
     gl_FragColor = vec4(c, 1.0);
     #include <colorspace_fragment>
@@ -364,7 +371,8 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
   bloomComposer.renderToScreen = false;
   const bloomRender = new RenderPass(bloomScene, camera);
   bloomComposer.addPass(bloomRender);
-  const bloom = new UnrealBloomPass(new Vector2(256, 256), 0.9, 0.45, 0);
+  // Its strength follows the glow level (see `setOptions`).
+  const bloom = new UnrealBloomPass(new Vector2(256, 256), 0, 0.45, 0);
   bloomComposer.addPass(bloom);
   const composer = new EffectComposer(renderer);
   const mainRender = new RenderPass(scene, camera);
@@ -381,7 +389,9 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
   composer.addPass(mix);
   const output = new OutputPass();
   composer.addPass(output);
-  let bloomOn = true;
+  /** How much lit pixels glow (0–1), and whether the colors now are live ones. */
+  let glow = 0;
+  let lit = false;
   let size = { width: 1, height: 1, ratio: 1 };
 
   const raycaster = new Raycaster();
@@ -463,14 +473,16 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
       position.needsUpdate = true;
     },
 
-    setColors(rgb, lit) {
+    setColors(rgb, live) {
       const tint = pixelGeometry.getAttribute("tint") as BufferAttribute | undefined;
       if (!tint) return;
       const array = tint.array as Uint8Array;
       array.set(rgb.length > array.length ? rgb.subarray(0, array.length) : rgb);
       tint.clearUpdateRanges();
       tint.needsUpdate = true;
-      pixelMaterial.uniforms.glow.value = lit ? 1 : 0;
+      lit = live;
+      // Only lit pixels glow: unlit bulbs are just small grey dots.
+      pixelMaterial.uniforms.glow.value = lit ? glow : 0;
     },
 
     setBulbSize(bulb) {
@@ -577,7 +589,9 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
     },
 
     setOptions(options) {
-      bloomOn = options.bloom;
+      glow = Number.isFinite(options.glow) ? Math.min(1, Math.max(0, options.glow)) : 0;
+      pixelMaterial.uniforms.glow.value = lit ? glow : 0;
+      bloom.strength = bloomStrength(glow);
       ground.visible = options.ground;
     },
 
@@ -595,8 +609,8 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
       pixelMaterial.uniforms.maxPx.value = 96 * size.ratio;
       pixelMaterial.uniforms.minPx.value = 2.5 * size.ratio;
       renderer.autoClear = true;
-      // Only lit pixels glow: unlit bulbs are just small grey dots.
-      if (bloomOn && pixelMaterial.uniforms.glow.value > 0) {
+      // With nothing glowing there's nothing to bloom: the scene is drawn straight to the screen.
+      if (pixelMaterial.uniforms.glow.value > 0) {
         bloomComposer.render();
         composer.render();
       } else renderer.render(scene, camera);

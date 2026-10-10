@@ -22,7 +22,7 @@ export interface Scene3d {
   setPixels(xyz: Float32Array): void;
   /** Changes the positions of `xyz.length / 3` pixels from pixel `start` on (after `setPixels`). */
   updatePixels(start: number, xyz: Float32Array): void;
-  /** Every pixel's color (RGB bytes); `lit` is true for live colors, which glow. */
+  /** Every pixel's color (RGB bytes); `lit` is true for live colors, which glow as much as the options say. */
   setColors(rgb: Uint8Array, lit: boolean): void;
   /** How big a bulb is, in layout units. */
   setBulbSize(size: number): void;
@@ -38,8 +38,8 @@ export interface Scene3d {
   setSelectionBox(box: Box3 | null): void;
   /** The move gizmo at `origin`, arrows `length` long, with a handle highlighted; or none. */
   setGizmo(gizmo: { origin: V3; length: number; highlight: GizmoHandle | null } | null): void;
-  /** Glow around lit pixels, and the ground. */
-  setOptions(options: { bloom: boolean; ground: boolean }): void;
+  /** How much lit pixels glow (0 for none, to 1), and the ground. */
+  setOptions(options: { glow: number; ground: boolean }): void;
   /** Draws a frame from the camera. */
   render(orbit: Orbit): void;
   dispose(): void;

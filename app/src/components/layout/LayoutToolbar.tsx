@@ -32,6 +32,7 @@ import { useShallow } from "zustand/react/shallow";
 import { DEFAULT_VIEW, MAX_ZOOM, MIN_ZOOM } from "../../lib/layoutMath";
 import { type Tool, useLayoutEditor } from "../../state/layoutEditor";
 import { useView3d } from "../../state/view3d";
+import { GlowControl } from "../layout3d/GlowControl";
 import { ModeSwitch } from "../layout3d/ModeSwitch";
 import { usePropertiesOpen } from "./PropertiesDock";
 import { drawsProps, setLayoutMode } from "../layout3d/useLayout3dKeys";
@@ -325,8 +326,9 @@ export function LayoutToolbar({ photo, tips }: { photo: ReactNode; tips: string[
       aria-label="Layout tools"
       className="@container flex min-w-0 flex-1 flex-wrap items-center gap-0.5 rounded-lg border border-neutral-200 bg-white p-1 dark:border-neutral-800 dark:bg-neutral-900"
     >
-      <span className="mr-1">
+      <span className="mr-1 inline-flex items-center gap-0.5">
         <ModeSwitch mode={mode} onChange={setLayoutMode} hint="V switches" />
+        <GlowControl iconOnly />
       </span>
       {TOOLS.map(({ tool: t, label, hint, icon: Icon }) => {
         const off = in3d && drawsProps(t);

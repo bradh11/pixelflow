@@ -1,6 +1,6 @@
-// How the layout is shown: in 2D or 3D, and the 3D view's settings. The 3D camera and the
-// photo's depth are view state, not part of the show: they're remembered on this computer for
-// each show file instead.
+// How the layout is shown: in 2D or 3D, how much lit pixels glow in every preview, and the 3D
+// view's settings. None of it is part of the show: it's how this viewer likes to look at it,
+// remembered on this computer (the 3D camera and the photo's depth for each show file).
 
 import { create } from "zustand";
 import { type Box3, type Orbit, type Preset, parseOrbit } from "../lib/layout3d";
@@ -17,8 +17,11 @@ interface View3dState {
   playMode: LayoutMode;
   /** The Sequence screen's preview. */
   sequenceMode: LayoutMode;
-  /** Glow around lit pixels. */
-  bloom: boolean;
+  /**
+   * How much lit pixels glow in every preview (2D and 3D; Layout, Sequence and Play), from 0
+   * (none: crisp dots, as bare bulbs look) to 1 (as lights behind diffusers look).
+   */
+  glow: number;
   /** The ground and its grid. */
   ground: boolean;
   /** The latest camera request; `seq` tells a repeat from the one before. */
@@ -34,7 +37,7 @@ interface View3dState {
   setMode(mode: LayoutMode): void;
   setPlayMode(mode: LayoutMode): void;
   setSequenceMode(mode: LayoutMode): void;
-  setBloom(on: boolean): void;
+  setGlow(level: number): void;
   setGround(on: boolean): void;
   camera(action: CameraAction): void;
   /** Reads the remembered settings for the show `key`. */
@@ -65,12 +68,19 @@ function write(key: string, value: string) {
   }
 }
 
-function storedOptions(): { bloom: boolean; ground: boolean } {
+const glowLevel = (level: number) => (Number.isFinite(level) ? Math.min(1, Math.max(0, level)) : 0);
+
+/**
+ * The options remembered on this computer. Settings saved without a glow level may hold the 3D
+ * view's Glow button, on or off, instead (`bloom`): on reads as half way, about how that looked.
+ */
+export function loadViewOptions(): { glow: number; ground: boolean } {
   try {
     const o = JSON.parse(read(OPTIONS_KEY) ?? "{}") as Record<string, unknown>;
-    return { bloom: o.bloom !== false, ground: o.ground !== false };
+    const glow = typeof o.glow === "number" ? glowLevel(o.glow) : o.bloom === true ? 0.5 : 0;
+    return { glow, ground: o.ground !== false };
   } catch {
-    return { bloom: true, ground: true };
+    return { glow: 0, ground: true };
   }
 }
 
@@ -112,7 +122,7 @@ export const useView3d = create<View3dState>((set, get) => ({
   mode: read(MODE_KEY) === "3d" ? "3d" : "2d",
   playMode: read(PLAY_MODE_KEY) === "3d" ? "3d" : "2d",
   sequenceMode: read(SEQUENCE_MODE_KEY) === "3d" ? "3d" : "2d",
-  ...storedOptions(),
+  ...loadViewOptions(),
   command: null,
   showKey: null,
   photoDepth: DEFAULT_PHOTO_DEPTH,
@@ -131,12 +141,13 @@ export const useView3d = create<View3dState>((set, get) => ({
     write(SEQUENCE_MODE_KEY, sequenceMode);
     set({ sequenceMode });
   },
-  setBloom(bloom) {
-    write(OPTIONS_KEY, JSON.stringify({ bloom, ground: get().ground }));
-    set({ bloom });
+  setGlow(level) {
+    const glow = glowLevel(level);
+    write(OPTIONS_KEY, JSON.stringify({ glow, ground: get().ground }));
+    set({ glow });
   },
   setGround(ground) {
-    write(OPTIONS_KEY, JSON.stringify({ bloom: get().bloom, ground }));
+    write(OPTIONS_KEY, JSON.stringify({ glow: get().glow, ground }));
     set({ ground });
   },
   camera: (action) => set({ command: { seq: (get().command?.seq ?? 0) + 1, action } }),

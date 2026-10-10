@@ -1,4 +1,5 @@
-import { BufferAttribute, type Object3D, Points, type Scene, Vector3, WebGLRenderTarget, type WebGLRenderer } from "three";
+import { BufferAttribute, type Object3D, Points, type Scene, type ShaderMaterial, Vector3, WebGLRenderTarget, type WebGLRenderer } from "three";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { Pass } from "three/addons/postprocessing/Pass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
@@ -75,7 +76,7 @@ describe("the three.js scene", () => {
   it("frees the mix pass's material and every geometry and material in its scenes", () => {
     const renderer = fakeRenderer();
     const scene = createThreeScene({} as HTMLCanvasElement, () => renderer as unknown as WebGLRenderer);
-    scene.setOptions({ bloom: false, ground: true });
+    scene.setOptions({ glow: 0, ground: true });
     scene.setPixels(new Float32Array([0, 0, 0]));
     scene.render(ORBIT);
     const freed = new Set<unknown>();
@@ -99,7 +100,7 @@ describe("the three.js scene", () => {
   it("uploads every position after a full update, even when a partial one follows before the next frame", () => {
     const renderer = fakeRenderer();
     const scene = createThreeScene({} as HTMLCanvasElement, () => renderer as unknown as WebGLRenderer);
-    scene.setOptions({ bloom: false, ground: true });
+    scene.setOptions({ glow: 0, ground: true });
     scene.setPixels(new Float32Array(9));
     scene.render(ORBIT);
     const points = () => {
@@ -121,6 +122,62 @@ describe("the three.js scene", () => {
     // Afterwards, partial updates upload only what changed again.
     scene.updatePixels(0, new Float32Array([5, 5, 5]));
     expect(position.updateRanges).toEqual([{ start: 0, count: 3 }]);
+  });
+
+  it("glows as much as the level says: straight to the screen at none, a halo and a bloom as strong as the level above", () => {
+    const renderer = fakeRenderer();
+    // The bloom's strength each time a frame goes through the bloom's passes.
+    const bloomed: number[] = [];
+    vi.spyOn(EffectComposer.prototype, "render").mockImplementation(function (this: EffectComposer) {
+      const bloom = this.passes.find((p) => p instanceof UnrealBloomPass);
+      if (bloom) bloomed.push((bloom as UnrealBloomPass).strength);
+    });
+    const scene = createThreeScene({} as HTMLCanvasElement, () => renderer as unknown as WebGLRenderer);
+    scene.setPixels(new Float32Array(6));
+    const colors = new Uint8Array([255, 0, 0, 0, 255, 0]);
+    // The bulbs' own halo follows the level too (the `glow` their shader draws with).
+    const halo = () => {
+      let found: Points | null = null;
+      renderer.drawn[0].traverse((o) => {
+        if (o instanceof Points) found = o;
+      });
+      return ((found! as Points).material as ShaderMaterial).uniforms.glow.value as number;
+    };
+
+    // No glow: lit bulbs are drawn straight to the screen, with no halo.
+    scene.setOptions({ glow: 0, ground: true });
+    scene.setColors(colors, true);
+    scene.render(ORBIT);
+    expect(renderer.drawn).toHaveLength(1);
+    expect(bloomed).toEqual([]);
+    expect(halo()).toBe(0);
+
+    // Half way.
+    scene.setOptions({ glow: 0.5, ground: true });
+    scene.render(ORBIT);
+    expect(renderer.drawn).toHaveLength(1);
+    expect(bloomed).toHaveLength(1);
+    expect(bloomed[0]).toBeCloseTo(0.9);
+    expect(halo()).toBe(0.5);
+
+    scene.setOptions({ glow: 1, ground: true });
+    scene.render(ORBIT);
+    expect(bloomed[1]).toBeCloseTo(1.8);
+    expect(halo()).toBe(1);
+    // A level out of range is kept in range.
+    scene.setOptions({ glow: 9, ground: true });
+    expect(halo()).toBe(1);
+
+    // Bulbs that aren't lit (nothing is playing) don't glow, whatever the level.
+    scene.setColors(colors, false);
+    scene.render(ORBIT);
+    expect(renderer.drawn).toHaveLength(2);
+    expect(bloomed).toHaveLength(2);
+    expect(halo()).toBe(0);
+    // Lit again, they glow at the level set meanwhile.
+    scene.setOptions({ glow: 0.25, ground: true });
+    scene.setColors(colors, true);
+    expect(halo()).toBe(0.25);
   });
 
   it("explains a model it can't read in plain words", () => {

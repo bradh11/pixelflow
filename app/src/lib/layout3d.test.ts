@@ -10,6 +10,7 @@ import {
   MAX_PITCH,
   MIN_PITCH,
   backdropBox,
+  bloomStrength,
   boundsOfXyz,
   clipRange,
   composeGestures3d,
@@ -435,5 +436,16 @@ describe("pixel colors", () => {
     const { xyz, starts } = packPositions([prop("a", [1, 2, 3]), prop("b", [4, 5, 6, 7, 8, 9])]);
     expect(Array.from(xyz)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
     expect(starts.get("b")).toEqual({ start: 1, count: 2 });
+  });
+});
+
+describe("the 3D view's bloom", () => {
+  it("is as strong as the glow level says: none at none, 0.9 at half way", () => {
+    expect(bloomStrength(0)).toBe(0);
+    expect(bloomStrength(0.5)).toBeCloseTo(0.9);
+    expect(bloomStrength(1)).toBeCloseTo(1.8);
+    for (let level = 0.05; level <= 1; level += 0.05) expect(bloomStrength(level)).toBeGreaterThan(bloomStrength(level - 0.05));
+    // A level out of range is kept in range; one that isn't a number is none.
+    expect([bloomStrength(-1), bloomStrength(9), bloomStrength(NaN)]).toEqual([0, bloomStrength(1), 0]);
   });
 });

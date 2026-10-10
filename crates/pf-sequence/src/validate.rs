@@ -171,6 +171,7 @@ pub fn validate_sequence(seq: &Sequence, show: &Show) -> Vec<SequenceIssue> {
                         (p.timing_track, "it stays at its lowest")
                     }
                     EffectParams::Sing(p) => (p.timing_track, "it doesn't sing"),
+                    EffectParams::Dancer(p) => (p.timing_track, "it dances to the song's beats instead"),
                     _ => (None, ""),
                 };
                 if let Some(track) = marks_track

@@ -15,6 +15,7 @@ mod butterfly;
 mod circles;
 mod color;
 mod color_shift;
+mod dancer;
 mod effects;
 pub mod export;
 pub mod faces;
@@ -45,9 +46,9 @@ mod wipe;
 pub use audio::{Audio, AudioFill, AudioSource, AudioTrack, RenderContext, follows_music};
 pub use color::{Colors, Rgba};
 pub use effects::{
-    Butterfly, Canvas, Chase, Circles, ColorShift, DEFAULT_FRAME_MS, EffectTime, Faces, Fan, Garlands,
-    Impact, Life, Lightning, Lines, MAX_METEORS, Morph, Pinwheel, Plasma, Pulse, Shade, Shader, Shape, Sing,
-    Snowflakes, Tendril, Text, VuMeter, Wipe, shade_pixel,
+    Butterfly, Canvas, Chase, Circles, ColorShift, DEFAULT_FRAME_MS, Dancer, EffectTime, Faces, Fan,
+    Garlands, Impact, Life, Lightning, Lines, MAX_METEORS, Morph, Pinwheel, Plasma, Pulse, Shade, Shader,
+    Shape, Sing, Snowflakes, Tendril, Text, VuMeter, Wipe, shade_pixel,
 };
 pub use geometry::{Members, Pixel, PixelBuffer, SceneGeometry};
 pub use render::Renderer;

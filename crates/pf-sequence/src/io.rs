@@ -29,7 +29,9 @@ impl From<serde_json::Error> for SequenceError {
 type Migration = fn(Value) -> Result<Value, SequenceError>;
 
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
-const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7];
+const MIGRATIONS: &[Migration] = &[
+    v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8,
+];
 
 /// Version 2 only adds submodel targets, so version 1 documents are already valid.
 fn v1_to_v2(doc: Value) -> Result<Value, SequenceError> {
@@ -64,6 +66,11 @@ fn v5_to_v6(doc: Value) -> Result<Value, SequenceError> {
 /// Version 7 only adds effect kinds (Impact, Wipe, Lightning, Pulse, Sing, Color Shift) and Chase
 /// settings that chase as before when missing, so version 6 documents are already valid.
 fn v6_to_v7(doc: Value) -> Result<Value, SequenceError> {
+    Ok(doc)
+}
+
+/// Version 8 only adds an effect kind (Dancer), so version 7 documents are already valid.
+fn v7_to_v8(doc: Value) -> Result<Value, SequenceError> {
     Ok(doc)
 }
 
@@ -262,6 +269,42 @@ mod tests {
     }
 
     #[test]
+    fn version_7_files_open_as_the_current_version_and_dancers_round_trip() {
+        let text = r#"{ "schemaVersion": 7, "name": "x", "durationMs": 1000, "rows": [
+            { "id": "11111111-0000-4000-8000-000000000001",
+              "target": { "prop": "22222222-0000-4000-8000-000000000001" },
+              "layers": [ { "effects": [ { "id": "33333333-0000-4000-8000-000000000001",
+                  "startMs": 0, "endMs": 500, "params": { "kind": "pulse", "shape": "saw" } } ] } ] } ] }"#;
+        let mut seq = sequence_from_json(text).unwrap();
+        assert_eq!(seq.schema_version, CURRENT_SCHEMA_VERSION);
+        let old = &seq.rows[0].layers[0].effects[0];
+        assert_eq!(
+            old.params,
+            EffectParams::Pulse(crate::PulseParams {
+                shape: crate::PulseShape::Saw,
+                ..Default::default()
+            })
+        );
+        // A dancer with a few settings: the rest take their defaults, and it saves and opens again.
+        let dancer: EffectParams =
+            serde_json::from_str(r#"{ "kind": "dancer", "character": "ghost", "mirror": true }"#).unwrap();
+        assert_eq!(
+            dancer,
+            EffectParams::Dancer(crate::DancerParams {
+                character: crate::DancerCharacter::Ghost,
+                mirror: true,
+                ..Default::default()
+            })
+        );
+        seq.rows[0].layers[0]
+            .effects
+            .push(crate::Effect::new(crate::EffectKind::Dancer, 500, 1000).with_params(dancer));
+        let saved = sequence_to_json(&seq).unwrap();
+        assert!(saved.contains(r#""schemaVersion": 8"#), "{saved}");
+        assert_eq!(sequence_from_json(&saved).unwrap(), seq);
+    }
+
+    #[test]
     fn render_styles_and_transforms_round_trip_and_are_left_out_when_default() {
         let mut seq = Sequence::new("x", 1000);
         let mut effect = crate::Effect::new(crate::EffectKind::On, 0, 500);
@@ -364,7 +407,7 @@ mod tests {
             sequence_from_json(r#"{ "schemaVersion": "1", "name": "x" }"#),
             Err(SequenceError::InvalidSchemaVersion(_))
         ));
-        let err = sequence_from_json(r#"{ "schemaVersion": 8, "name": "x" }"#).unwrap_err();
+        let err = sequence_from_json(r#"{ "schemaVersion": 9, "name": "x" }"#).unwrap_err();
         assert!(err.to_string().contains("update PixelFlow"), "{err}");
         assert!(matches!(sequence_from_json("[1, 2"), Err(SequenceError::Json(_))));
     }

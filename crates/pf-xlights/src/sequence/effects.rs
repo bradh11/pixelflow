@@ -733,7 +733,10 @@ fn spirals(r: &Reader, n_colors: f64, duration_ms: u64) -> EffectParams {
     })
 }
 
+/// PixelFlow's Fire is a simulation of its own, not xLights' (`FireEffect::Render` builds each
+/// frame's flames afresh on the target's grid): the same kind of look, measurably different.
 fn fire(r: &Reader, diff: &mut Diff) -> EffectParams {
+    diff.add("PixelFlow's own flames: their shape and random placement differ from xLights'");
     if r.get("Fire_HueShift", 0.0, 0.0, 100.0) > 0.0 {
         diff.add("hue shift not applied");
     }
@@ -1578,6 +1581,14 @@ fn pictures(r: &Reader, duration_ms: u64, diff: &mut Diff) -> EffectParams {
         PictureFit::Actual => r.get("Pictures_StartScale", 100.0, 0.0, 1000.0),
         _ => 100.0,
     };
+    // xLights resizes by taking the nearest pixel (`wxImage::Rescale` as it calls it); PixelFlow
+    // blends them, so a resized picture's pixels aren't the same ones.
+    let resized = fit != PictureFit::Actual
+        || scale != 100.0
+        || r.get("Pictures_EndScale", 100.0, 0.0, 1000.0) != 100.0;
+    if resized {
+        diff.add("resized by blending its pixels, where xLights takes the nearest one");
+    }
     // A scrolling picture's offset up is taken downward by xLights.
     let up = r.get("PicturesYC", 0.0, -100.0, 100.0);
     let y_offset = if scrolls || movement == M::ZoomIn { -up } else { up };
@@ -3429,6 +3440,33 @@ mod tests {
     }
 
     #[test]
+    fn fire_is_pixelflows_own_and_says_so() {
+        // Even with nothing set that PixelFlow's fire lacks, its flames aren't xLights'.
+        let s = Settings::parse("E_SLIDER_Fire_Height=70");
+        let t = translate("Fire", &s, &palette(&[]), 2000, 25).unwrap();
+        assert!(matches!(&t.params, EffectParams::Fire(p) if (p.height - 0.7).abs() < 1e-6));
+        assert_eq!(
+            t.fidelity,
+            Fidelity::Approximate(vec![
+                "PixelFlow's own flames: their shape and random placement differ from xLights'".into()
+            ])
+        );
+        let s = Settings::parse("E_SLIDER_Fire_HueShift=40,E_CHOICE_Fire_Location=Top");
+        let Fidelity::Approximate(reasons) = translate("Fire", &s, &palette(&[]), 2000, 25).unwrap().fidelity
+        else {
+            panic!("approximate")
+        };
+        assert_eq!(
+            reasons,
+            [
+                "PixelFlow's own flames: their shape and random placement differ from xLights'",
+                "hue shift not applied",
+                "fire from the top shown rising from the bottom",
+            ]
+        );
+    }
+
+    #[test]
     fn settings_beyond_pixelflows_ranges_are_clamped_and_reported() {
         // 20 turns in half a second is faster than PixelFlow's spiral turns.
         let s = Settings::parse("E_SLIDER_Spirals_Rotation=250,E_TEXTCTRL_Spirals_Movement=20.0");
@@ -3528,7 +3566,11 @@ mod tests {
             r"E_TEXTCTRL_Pictures_Filename=C:\Users\me\xlights\Images\santa dancing.gif,E_CHOICE_Scaling=Scale Keep Aspect Ratio,E_CHOICE_Pictures_Direction=left,E_TEXTCTRL_Pictures_Speed=2,E_SLIDER_PicturesXC=10,E_SLIDER_PicturesYC=-20,E_CHECKBOX_Pictures_WrapX=1,E_CHECKBOX_LoopGIF=1,E_TEXTCTRL_Pictures_FrameRateAdj=1.5,E_CHECKBOX_Pictures_TransparentBlack=1,E_TEXTCTRL_Pictures_TransparentBlack=153",
             10_000,
         );
-        assert_eq!(t.fidelity, Fidelity::Exact);
+        // Everything comes across; only the resizing isn't xLights' (it takes the nearest pixel).
+        assert_eq!(
+            notes(&t),
+            ["resized by blending its pixels, where xLights takes the nearest one"]
+        );
         assert!(
             (p.black_level - 20.0).abs() < 1e-4,
             "153 of 765 is a fifth: {}",
@@ -3590,11 +3632,10 @@ mod tests {
                 &format!("E_CHOICE_Scaling={scaling},E_SLIDER_PicturesYC=30"),
                 1000,
             );
-            assert_eq!(
-                (p.fit, p.y_offset, &t.fidelity),
-                (fit, 30.0, &Fidelity::Exact),
-                "{scaling}"
-            );
+            assert_eq!((p.fit, p.y_offset), (fit, 30.0), "{scaling}");
+            // Only a picture at its own size is the same pixels as xLights'.
+            let same = notes(&t).is_empty();
+            assert_eq!(same, fit == PictureFit::Actual, "{scaling}: {:?}", t.fidelity);
         }
         let (old, t) = picture(
             "E_FILEPICKER_Pictures_Filename=tree.png,E_CHECKBOX_Pictures_ScaleToFit=1,E_CHECKBOX_Pictures_PixelOffsets=1",
@@ -3604,7 +3645,10 @@ mod tests {
             (old.file.as_str(), old.fit, old.pixel_offsets),
             ("tree.png", PictureFit::Stretch, true)
         );
-        assert_eq!(t.fidelity, Fidelity::Exact);
+        assert_eq!(
+            notes(&t),
+            ["resized by blending its pixels, where xLights takes the nearest one"]
+        );
         let (older, _) = picture("E_FILEPICKERCTRL_Pictures_Filename= star.bmp ", 1000);
         assert_eq!(older.file, "star.bmp");
         // Up and down scroll too (xLights never wraps them); a frame rate out of range is noted.
@@ -3721,6 +3765,12 @@ mod tests {
         );
         assert_eq!(p.scale, 50.0);
         assert_eq!(t.curves["scale"], Curve::ramp(50.0, 200.0));
+        assert_eq!(
+            notes(&t),
+            ["resized by blending its pixels, where xLights takes the nearest one"]
+        );
+        // At its own size the whole time, nothing is resized.
+        let (_, t) = picture("E_CHOICE_Scaling=No Scaling", 4_000);
         assert_eq!(t.fidelity, Fidelity::Exact);
         // Three times over, with the movement's speed.
         let (_, t) = picture(

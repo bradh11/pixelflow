@@ -140,7 +140,7 @@ Code and data taken from xLights and other projects' **source** are a different 
 
 ## PixelFlow's own packages
 
-None of PixelFlow's 21 own packages states a licence (no `license` or `license-file` in any manifest).
+None of PixelFlow's 22 own packages states a licence (no `license` or `license-file` in any manifest).
 
 ## (a) Engine workspace: shipped packages by licence
 

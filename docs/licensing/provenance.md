@@ -63,23 +63,28 @@ Approximate implementation lines by category, for the crates with the most:
 | `pf-geometry` (17 files) | about 1,620 | about 900 | about 330 | 0 | about 400 |
 | `app/src/lib/geometry.ts` | 691 | 691 | | | |
 
-For scale: the Rust code is about 161,000 lines including tests. The direct-port lines are
+For scale: the Rust code is about 168,000 lines including tests. The direct-port lines are
 roughly 9,000 to 10,000 of those, and are concentrated in three places: the effects that carry an
 xLights effect's name, the model geometry (where each pixel of an imported prop sits), and value
 curves.
 
 **The renderer.** About 37% of `pf-render`'s implementation lines follow xLights source. Thirteen
 effects (Plasma, Morph, Tendril, Snowflakes, Garlands, Circles, Fan, Butterfly, Pinwheel, Life,
-Lines, Shape, VU Meter) are ports of the xLights effect of the same name, 80 to 95% of each file.
-So are the pieces every layer passes through: line and circle drawing, blur, the xLights layer
+Lines, Shape, VU Meter) are ports of the xLights effect of the same name: 80 to 95% of each
+file, except Circles and Life, where about half is ported and the rest is PixelFlow's own
+arrangement of xLights' constants or the ordinary algorithm. So are the pieces every layer passes through: line and circle drawing, blur, the xLights layer
 blend modes and HSV conversion, sparkles, submodel and group buffer layout, and Text's movement.
 The remaining 63% is PixelFlow's own: the render pipeline, the picture loader, the closed-form
 effects in `effects.rs` (On, Color Wash, Fade, Chase, Bars, Wave, Twinkle, Shimmer, Strobe,
 Spiral, Meteors, Ripple, Fire), and Wipe, Impact, Pulse, Sing, Color Shift, Lightning, Dancer, and
 Picture.
 
-**Tests.** No test compares against frames rendered by xLights, and there are no golden files
-from xLights. The effect tests assert properties (cells lit, counts, positions worked out from
+**Tests.** No unit test compares against frames rendered by xLights, and there are no golden
+files from xLights in the repository. (A separate tool, `pf-fidelity`, measures an imported
+sequence against the `.fseq` xLights itself rendered for it, from files the user supplies: see
+[../fidelity.md](../fidelity.md). It compares output with output and reads no xLights source,
+which is also what describing behaviour for a clean-room rewrite would need.) The effect tests
+assert properties (cells lit, counts, positions worked out from
 the formula in the test's comment). A rewrite that kept the same visible behaviour and settings
 would be expected to pass most of them. Tests of the shared render code assert particular xLights
 rules by number (the blur box table, sub-buffer edge rounding, group grid sizes, the sparkle
@@ -242,7 +247,8 @@ none; they were not all read line by line.
 ## Independent
 
 Everything not listed above. In particular: `pf-engine`, `pf-output` (sACN and DDP from their
-public specifications), `pf-audio`, `pf-analysis` apart from the note spectrogram, `pf-align`,
+public specifications), `pf-fidelity` (which compares rendered output and cites no source),
+`pf-audio`, `pf-analysis` apart from the note spectrogram, `pf-align`,
 `pf-camera-map`, `pf-video`, `pf-patterns`, `pf-frame`, `pf-cli`, `pf-ai` apart from
 `shape_marks`, `pf-lexicon` apart from the mouth table (its letter-to-sound rules and
 syllabifier have no xLights counterpart), `pf-xlights`'s XML reader, vendor package reader, and

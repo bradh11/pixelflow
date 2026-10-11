@@ -5,7 +5,9 @@ misled assistant could make the app do, and where the user's keys and data go. I
 was found, what was fixed on the spot, and what is left as a recommendation.
 
 - **Reviewed:** the tree at `develop` commit `86417f4` (October 2026), then the fixes on the
-  `chore/licensing-security-audit` branch.
+  `chore/licensing-security-audit` branch. While the review ran, `develop` moved to `e1baaf4`
+  (the preview's own window, and the import fidelity tool); the branch was rebased onto it, the
+  new window was read (section 5), and the line numbers below are from the rebased branch.
 - **Method:** reading the code, with file and line for each claim (line numbers are as of that
   branch). A few claims were run: the two High findings and the audio panic were reproduced in
   throwaway tests before being fixed. Nothing was run against real controllers, model APIs, or the
@@ -26,7 +28,7 @@ plain language: [privacy-and-data-flow.md](../privacy-and-data-flow.md).
 | The controllers and their configuration | Devices on the LAN, most with no authentication at all |
 | The show while it runs | An FPP playing a schedule; live output from PixelFlow |
 | What the user's network looks like (addresses, device names) | Show files, the discovery results, the window's local storage |
-| The app staying up | A crash or hang loses unsaved work since the last autosave (every 30 s, `app/src-tauri/src/lib.rs:43`) |
+| The app staying up | A crash or hang loses unsaved work since the last autosave (every 30 s, `app/src-tauri/src/lib.rs:44`) |
 
 ## 2. Who might attack, and how
 
@@ -122,7 +124,7 @@ user has to take first.
   `device_url` (`crates/pf-devices/src/http.rs:66`) formats `http://{host}{path}`, and nothing
   checked `host`. The show model only warns about IPv6 and spaces
   (`crates/pf-model/src/validate.rs:247`). The Play screen asks every FPP controller in the show
-  for its sequence list as soon as it is shown (`app/src/screens/PlayScreen.tsx:190`,
+  for its sequence list as soon as it is shown (`app/src/components/play/OnYourFpp.tsx:37`,
   `app/src-tauri/src/fpp_send.rs:609`).
 - **So:** a show with the address `fpp.local/api/system/reboot?x=` turned that read into
   `GET http://fpp.local/api/system/reboot?x=/api/sequence`. Opening a stranger's show and looking
@@ -230,10 +232,10 @@ Fixed:
 | # | What | Fix |
 |---|---|---|
 | 19 | A photo `1e12` units wide (or not a number) was resized to that many pixels for a video | Drawn only when it comes out no larger than a few times the picture (`crates/pf-video/src/raster.rs:276`); the show model reports such a photo (`crates/pf-model/src/show.rs:114`) |
-| 20 | A 40-byte `.fseq` claimed a 4 GB compressed block and room was set aside for it | The buffer grows with what the file holds (`crates/pf-fseq/src/sequence.rs:155`) |
+| 20 | A 40-byte `.fseq` claimed a 4 GB compressed block and room was set aside for it | The buffer grows with what the file holds (`crates/pf-fseq/src/sequence.rs:171`) |
 | 21 | `Song.mp3.exe` from an FPP was saved into the show's music folder | Only `.fseq` from sequences and music from music (`crates/pf-devices/src/fpp_download.rs:82`) |
 | 22 | `forget_device_setup_copy("../show.pixelflow")` deleted any `.json` the user can; reachable only from the window's own code | A key is a device's own or names no file (`app/src-tauri/src/device_setup.rs:114`) |
-| 23 | `object-src`, `base-uri`, and `form-action` were unrestricted | Set to none, self, self (`app/src-tauri/tauri.conf.json:24`), with a test pinning the hardening (`lib.rs:1023`) |
+| 23 | `object-src`, `base-uri`, and `form-action` were unrestricted | Set to none, self, self (`app/src-tauri/tauri.conf.json:24`), with a test pinning the hardening (`lib.rs:1144`) |
 | 24 | `frames * 1000 / rate` and similar on numbers from headers and devices | Checked, and a header claiming over a day is not believed (`crates/pf-audio/src/probe.rs:25`); device lengths likewise (`crates/pf-devices/src/fpp_info.rs:69`) |
 | 25 | Hashing or decoding a multi-gigabyte file named like music read all of it | 2 GB limit (`crates/pf-audio/src/decode.rs:20`) |
 
@@ -265,10 +267,10 @@ Not fixed:
 - **30. No spending limit.** A message may take 24 model calls of up to 32,000 output tokens
   (`crates/pf-ai/src/agent.rs:23`); the conversation is never trimmed; nothing tracks cost. R8.
 - **31. The window is trusted with paths.** `open_show`, `save_show_as`
-  (`app/src-tauri/src/lib.rs:169`, `:224`), the sequence, export, mapping, and audio commands
-  take any path the window gives them. Reading a photo, a house model, or a picture is
+  (`app/src-tauri/src/lib.rs:172`, `:227`), the sequence, export, mapping, and audio commands
+  take any path the main window gives them. Reading a photo, a house model, or a picture is
   different: those go through lists of what the user picked or a show named
-  (`lib.rs:86`, `layout.rs:56`, `house.rs:38`, `crates/pf-engine/src/pictures.rs:144`). If the
+  (`lib.rs:89`, `layout.rs:56`, `house.rs:38`, `crates/pf-engine/src/pictures.rs:144`). If the
   window's own code were ever subverted, it could write a show or an export to any path the user
   can. The content policy makes that hard to reach. R9.
 - **32. Bounded costs.**
@@ -335,11 +337,12 @@ source.
 | Question | Answer | Evidence |
 |---|---|---|
 | Can a page from elsewhere call a command? | No. Tauri refuses any command from an origin that is not the app's own unless a capability names that origin, and none does. | `tauri-2.12.1/src/webview/mod.rs:2080` ("or when the request comes from a non-local (remote) origin"); `capabilities/default.json` has no `remote` |
-| Which Tauri APIs can the window use? | `core:default` (events, window and path getters, menus) and closing its own window. No file, shell, HTTP, or dialog access. | `capabilities/default.json:6`; `the_window_gets_no_dialog_permissions` (`lib.rs:1005`) |
-| The dialog plugin is loaded: can the window open a dialog? | No. The shell shows every dialog itself and the window has no dialog permission. | `lib.rs:437`, `pickers.rs` |
+| Which Tauri APIs can the main window use? | `core:default` (events, window and path getters, menus) and closing its own window. No file, shell, HTTP, or dialog access. | `capabilities/default.json:6`; `the_window_gets_no_dialog_permissions` (`lib.rs:1038`) |
+| The preview's own window (popped out)? | The shell makes it; the main window cannot make windows. It shows the app's own page and gets no Tauri permissions at all. Of the app's commands it may call eleven (the show, pixel positions, frames, the photo and house model through their allow-lists, where playback is, a note to the main window, and its own full screen); every other command is refused before it runs, by window label. | `capabilities/preview.json`; `preview_window.rs:50`, `:69`; `lib.rs:436`; `the_preview_pops_out_into_its_own_window_which_only_reads_what_it_draws` (`lib.rs:1065`) |
+| The dialog plugin is loaded: can a window open a dialog? | No. The shell shows every dialog itself and no window has a dialog permission. | `lib.rs:462`, `pickers.rs` |
 | Content policy | `default-src 'self'`; scripts from the app only (no inline, no `eval`); styles may be inline; images `self`, `data:`, `blob:`; connections only to the app and its IPC; plugins none; base and forms self. No remote address anywhere. | `tauri.conf.json:24` |
 | Asset protocol | Off. Files reach the window as bytes from commands that check them. | No `assetProtocol` in the config; the `protocol-asset` feature is not enabled (`Cargo.toml:33`) |
-| `dangerous*` switches, `withGlobalTauri` | None set. | `tauri.conf.json`; pinned by `the_window_loads_and_runs_nothing_from_outside_the_app` (`lib.rs:1023`) |
+| `dangerous*` switches, `withGlobalTauri` | None set. | `tauri.conf.json`; pinned by `the_window_loads_and_runs_nothing_from_outside_the_app` (`lib.rs:1144`) |
 | Devtools in release | Off: Tauri's `devtools` feature is not enabled, so the inspector exists only in debug builds. | `Cargo.toml:33` |
 | Does the window run text from files or models? | No. Nothing uses `dangerouslySetInnerHTML`, `innerHTML`, `eval`, or a Markdown renderer; assistant replies are plain text. | `app/src`, searched; `AssistantPanel.tsx:250` |
 | Does anything start another program? | The system browser, for a controller's own web page, with the address and page checked against allow-lists; and `ffmpeg` when chosen. | `devices.rs:391`, `:407`; `ffmpeg.rs:47` |
@@ -459,7 +462,8 @@ Worth saying, because most of the review confirmed careful work.
 - **The workspace forbids `unsafe`** (`Cargo.toml`, `[workspace.lints.rust]`).
 - **The window gets no filesystem.** Photos, models, and pictures are read by the shell after
   checking them against what the user picked, with type and size checks on the opened file
-  (`lib.rs:86`, `layout.rs`, `house.rs`, `pictures.rs`).
+  (`lib.rs:89`, `layout.rs`, `house.rs`, `pictures.rs`).
+- **The preview's own window** is given only the commands it draws with, and no permissions.
 - **Imports are bounded:** the XML guard (size, depth, nodes, no DTD), per-model light limits,
   sequence limits, the zip reader that never extracts by name, the `.fseq` header checks.
 - **Devices:** no redirects and no proxy (`http.rs:132`, `:133`), timeouts on every client,

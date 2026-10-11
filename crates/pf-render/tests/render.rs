@@ -1113,3 +1113,169 @@ fn shapes_on_a_timing_track_appear_at_its_marks() {
     seq.timing_tracks.clear();
     assert!(on(&seq, 2100).is_empty());
 }
+
+/// A 40 x 24 matrix between two lines, and a group of all three that draws on each member in
+/// turn: a show with a prop large enough to be cut into several tiles.
+fn tiled_show() -> Show {
+    let mut show = Show::new("t");
+    let mut matrix = Prop::new(
+        "Matrix",
+        ShapeSource::Generator(Generator::Matrix {
+            columns: 40,
+            rows: 24,
+            width: 2.0,
+            height: 1.2,
+            wiring: pf_model::MatrixWiring::default(),
+        }),
+    );
+    matrix.transform.position = Vec3::new(4.0, 0.0, 0.0);
+    show.props.push(line("A", 30, 0.0));
+    show.props.push(matrix);
+    show.props.push(line("B", 17, 8.0));
+    let mut group = Group::new("All");
+    group.layout = pf_model::GroupLayout::PerModelDefault;
+    group.members = show.props.iter().map(|p| p.id.into()).collect();
+    show.groups.push(group);
+    show
+}
+
+/// Layers of effects on every prop of [`tiled_show`] and on its group: blurred, sparkling,
+/// faded, mixed by blends that look at what's below, and one that carries on from frame to frame.
+fn layered_sequence(show: &Show, blending: RowBlending) -> Sequence {
+    let mut seq = Sequence::new("s", 2000);
+    seq.row_blending = blending;
+    let effect = |kind: EffectKind, blend: Blend, blur: u32| {
+        let mut effect = Effect::new(kind, 0, 2000).with_palette([Rgb::RED, Rgb::GREEN, Rgb::BLUE]);
+        effect.blend = blend;
+        effect.blur = blur;
+        effect.sparkles = 40;
+        effect.fade_in_ms = 300;
+        effect
+    };
+    for (n, prop) in show.props.iter().enumerate() {
+        seq.rows.push(row(
+            Target::Prop(prop.id),
+            vec![
+                vec![effect(EffectKind::Plasma, Blend::Normal, n as u32 * 2)],
+                vec![effect(EffectKind::Bars, Blend::Average, 0)],
+                vec![effect(EffectKind::Life, Blend::Add, 0)],
+            ],
+        ));
+    }
+    seq.rows.push(row(
+        Target::Group(show.groups[0].id),
+        vec![
+            vec![effect(EffectKind::Butterfly, Blend::Max, 3)],
+            vec![effect(EffectKind::Twinkle, Blend::Reveal, 0)],
+        ],
+    ));
+    seq
+}
+
+/// Frames 0 to 5, then 30, then 2 again (a jump back), drawn in turn.
+fn drawn(renderer: &mut Renderer, seq: &Sequence) -> Vec<Vec<u8>> {
+    [0, 1, 2, 3, 4, 5, 30, 2]
+        .into_iter()
+        .map(|index| {
+            let mut frame = vec![0xAA; renderer.frame_len()];
+            renderer.render_frame(seq, index, &mut frame);
+            frame
+        })
+        .collect()
+}
+
+#[test]
+fn a_frame_is_the_same_bytes_on_any_number_of_threads_and_tiles() {
+    let show = tiled_show();
+    let pool = pf_render::RenderPool::new(3).expect("three threads");
+    for blending in RowBlending::ALL {
+        let seq = layered_sequence(&show, blending);
+        let reference = {
+            let mut one = renderer(&show);
+            one.set_pool(None);
+            drawn(&mut one, &seq)
+        };
+        assert!(reference[3].iter().any(|&b| b != 0 && b != 0xAA));
+        // Left alone (a frame this small stays on the caller's thread), on three threads, and
+        // with the show cut into tiles of a pixel, of a size nothing here is a multiple of, and
+        // of more than the whole show.
+        let mut alone = renderer(&show);
+        assert_eq!(drawn(&mut alone, &seq), reference, "{blending:?}");
+        for tile in [1, 97, 5000] {
+            for threads in [None, Some(pool.clone())] {
+                let mut cut = renderer(&show);
+                cut.set_tile_pixels(tile);
+                cut.set_pool(threads.clone());
+                assert_eq!(
+                    drawn(&mut cut, &seq),
+                    reference,
+                    "{blending:?}, tiles of {tile}, {} threads",
+                    threads.map_or(1, |pool| pool.threads())
+                );
+            }
+        }
+        // Laid out ahead, and cut again part way through: still the same frames.
+        let mut recut = renderer(&show);
+        recut.lay_out_ahead(&seq);
+        recut.set_pool(Some(pool.clone()));
+        let mut frame = vec![0; recut.frame_len()];
+        recut.render_frame(&seq, 0, &mut frame);
+        recut.set_tile_pixels(13);
+        assert_eq!(drawn(&mut recut, &seq), reference, "{blending:?}, cut again");
+    }
+}
+
+#[test]
+fn props_out_of_order_in_the_frame_are_written_where_the_map_puts_them() {
+    let show = tiled_show();
+    let seq = layered_sequence(&show, RowBlending::Cover);
+    let (map, _) = pf_mapping::map_show(&show);
+    let mut in_order = Renderer::new(&show, &map);
+    let reference = drawn(&mut in_order, &seq);
+    // The same props with the last one's bytes first in the frame.
+    let mut moved = map.clone();
+    let last = moved.props.len() - 1;
+    let shift = moved.props[last].byte_len();
+    for prop in &mut moved.props[..last] {
+        prop.frame_offset += shift;
+    }
+    moved.props[last].frame_offset = 0;
+    let pool = pf_render::RenderPool::new(3).expect("three threads");
+    for threads in [None, Some(pool)] {
+        let mut out_of_order = Renderer::new(&show, &moved);
+        out_of_order.set_pool(threads);
+        for (frame, wanted) in drawn(&mut out_of_order, &seq).iter().zip(&reference) {
+            for (was, now) in map.props.iter().zip(&moved.props) {
+                let len = was.byte_len();
+                assert_eq!(
+                    frame[now.frame_offset..now.frame_offset + len],
+                    wanted[was.frame_offset..was.frame_offset + len]
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_frame_shorter_than_the_shows_is_written_as_far_as_it_goes() {
+    let show = tiled_show();
+    let seq = layered_sequence(&show, RowBlending::Cover);
+    let mut whole = renderer(&show);
+    let mut full = vec![0xAA; whole.frame_len()];
+    whole.render_frame(&seq, 3, &mut full);
+    let pool = pf_render::RenderPool::new(3).expect("three threads");
+    for threads in [None, Some(pool)] {
+        // Ending in the middle of the matrix, part way through a pixel: the pixels that fit are
+        // written, and the bytes of the one that doesn't are left alone.
+        for len in [0, 100, 1001, full.len() - 1] {
+            let mut short = vec![0xAA; len];
+            let mut renderer = renderer(&show);
+            renderer.set_tile_pixels(64);
+            renderer.set_pool(threads.clone());
+            renderer.render_frame(&seq, 3, &mut short);
+            let pixels = len / 3 * 3;
+            assert_eq!(short[..pixels], full[..pixels], "{len} bytes");
+            assert!(short[pixels..].iter().all(|&b| b == 0xAA), "{len} bytes");
+        }
+    }
+}

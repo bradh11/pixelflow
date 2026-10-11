@@ -1290,7 +1290,7 @@ impl Shade for Shader {
     fn shade(&self, px: &Pixel) -> Rgba {
         struct One<'a>(&'a Pixel);
         impl ShaderVisitor<Rgba> for One<'_> {
-            fn visit<S: Shade>(self, shader: &S) -> Rgba {
+            fn visit<S: Shade + Sync>(self, shader: &S) -> Rgba {
                 shader.shade(self.0)
             }
         }
@@ -1298,9 +1298,10 @@ impl Shade for Shader {
     }
 }
 
-/// Something done with a concrete shader type.
+/// Something done with a concrete shader type. Every shader can be read from several threads at
+/// once (shading changes nothing in it), so a visitor may share its work out among them.
 pub(crate) trait ShaderVisitor<R> {
-    fn visit<S: Shade>(self, shader: &S) -> R;
+    fn visit<S: Shade + Sync>(self, shader: &S) -> R;
 }
 
 /// One effect's color at one pixel: `(t_norm, elapsed_ms, pixel, params, palette) -> Rgba`,

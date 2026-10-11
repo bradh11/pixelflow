@@ -117,7 +117,7 @@ pub(crate) async fn off_thread<T: Send + 'static>(
 ) -> Reply<T> {
     tauri::async_runtime::spawn_blocking(work)
         .await
-        .map_err(|_| "Something went wrong talking to the device.".to_string())?
+        .map_err(|_| "Something went wrong talking to the controller.".to_string())?
 }
 
 fn inspect(

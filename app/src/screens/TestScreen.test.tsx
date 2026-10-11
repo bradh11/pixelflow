@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import { demoShow } from "../api/demo";
 import { MemoryBackend } from "../api/memory";
 import { currentSetupKey, useSetup } from "../state/setup";
+import { moreOpen } from "../components/ui";
+import { useLayoutEditor } from "../state/layoutEditor";
 import { useApp } from "../state/store";
 import { TestScreen } from "./TestScreen";
 
@@ -62,7 +64,7 @@ describe("test screen", () => {
     const { backend, user } = await setup(demoShow(), (b) => b.answering.add("192.168.1.50"));
     const list = screen.getByRole("region", { name: "Sends to" });
     // The whole show: only the FPP has props wired to it.
-    const fpp = await within(list).findByText("Answering");
+    const fpp = await within(list).findByText("Web page answering");
     expect(fpp.closest("li")).toHaveTextContent(/Main FPP192\.168\.1\.50sACN · universes 1–\d+ · ch 1–/);
     expect(within(list).queryByText("Porch WLED")).not.toBeInTheDocument();
 
@@ -70,13 +72,28 @@ describe("test screen", () => {
     const before = backend.calls.filter((c) => c === "checkControllers").length;
     backend.answering.clear();
     await user.click(screen.getByRole("button", { name: /Check again/ }));
-    expect(await within(list).findByText(/^Not answering — check it's powered on and on the same network as this computer$/)).toBeInTheDocument();
+    expect(await within(list).findByText(/^Web page not answering — check it's powered on and on the same network as this computer$/)).toBeInTheDocument();
     expect(backend.calls.filter((c) => c === "checkControllers").length).toBe(before + 1);
 
     // A single prop: only its controller, looked at again.
     await user.selectOptions(screen.getByRole("combobox", { name: "Target" }), "Prop: Mega Tree");
     await waitFor(() => expect(backend.calls.filter((c) => c === "checkControllers").length).toBe(before + 2));
     expect(within(list).getAllByRole("listitem")).toHaveLength(1);
+  });
+
+  it("says the Web page answering check is about the controller's web page, not light data", async () => {
+    await setup();
+    const list = screen.getByRole("region", { name: "Sends to" });
+    expect(within(list).getByText("This checks the controller's web page, not that light data is arriving.")).toBeInTheDocument();
+  });
+
+  it("points to the prop's color order on Layout, and opens it there", async () => {
+    const { user } = await setup();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Target" }), "Prop: Mega Tree");
+    await user.click(screen.getByRole("button", { name: /Open it on Layout/ }));
+    expect(useApp.getState().screen).toBe("layout");
+    expect(useLayoutEditor.getState().selected).toEqual([useApp.getState().snapshot!.show.props.find((p) => p.name === "Mega Tree")!.id]);
+    expect(moreOpen("layout-prop")).toBe(true);
   });
 
   it("with nothing wired on the target, says so, points to Wiring, and keeps Start off", async () => {
@@ -109,7 +126,7 @@ describe("test screen", () => {
     };
     const note = "This show's controllers aren't on your network. Add your own on the Controllers screen.";
     await setup(own(), (b) => (b.localPrefixes = ["10.28.128."]));
-    await screen.findByText(/^Not answering/);
+    await screen.findByText(/^Web page not answering/);
     expect(screen.queryByText(note)).not.toBeInTheDocument();
     cleanup();
     await setup(own(), (b) => (b.localPrefixes = ["192.168.7."]));

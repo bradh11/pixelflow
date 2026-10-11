@@ -177,10 +177,10 @@ describe("devices", () => {
     expect(within(dialog).getByRole("combobox", { name: "Prop for port 1 Porch Strip" })).toHaveDisplayValue(/^Porch Strip · /);
     expect(within(dialog).getByText("already on this port")).toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "Add to show" })).not.toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Compare with this device" })).toHaveClass("bg-accent-600");
+    expect(within(dialog).getByRole("button", { name: "Compare with this controller" })).toHaveClass("bg-accent-600");
     expect(within(dialog).getByRole("button", { name: "Add another copy" })).not.toHaveClass("bg-accent-600");
 
-    await user.click(within(dialog).getByRole("button", { name: "Compare with this device" }));
+    await user.click(within(dialog).getByRole("button", { name: "Compare with this controller" }));
     expect(await screen.findByRole("dialog", { name: "Compare with Porch WLED" })).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Import Porch WLED" })).not.toBeInTheDocument();
   });

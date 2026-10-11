@@ -1,6 +1,7 @@
 import { Play, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { type ClockReading, SYNC_RANGE_MS, type TapResult, calibrateTaps, eventTime, everyFrame, musicAt, nextReading, readingFrom, tapLag } from "../lib/avSync";
+import { PREVIEW_SYNC_SCOPE } from "../lib/labels";
 import { usePreviewSync } from "../state/previewSync";
 import { useApp } from "../state/store";
 import { Button } from "./ui";
@@ -111,8 +112,7 @@ export function PreviewSyncSettings() {
     <div className="flex flex-col gap-3 text-sm">
       <p className="text-neutral-600 dark:text-neutral-400">
         The music reaches your ears a little after PixelFlow sends it out, and the preview takes a moment to draw. If words or beats look a touch late or early in the
-        preview, play the click, then move the slider until the square flashes exactly on the click. This only moves the preview and the timeline's playhead on this
-        computer; the lights, Send to FPP, and exports keep their timing.
+        preview, play the click, then move the slider until the square flashes exactly on the click. {PREVIEW_SYNC_SCOPE}
       </p>
       <div className="flex flex-wrap items-center gap-3">
         {running ? (

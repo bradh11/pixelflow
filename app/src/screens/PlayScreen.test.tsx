@@ -151,11 +151,11 @@ describe("play, with a sequence open in the editor", () => {
     expect(seq.calls).toContain("setSequenceDocLoop:true");
     act(() => useSequencer.getState().setLooping(false));
 
-    const lights = within(transport()).getByRole("button", { name: "Show it on my lights" });
+    const lights = within(transport()).getByRole("button", { name: "Show on my lights" });
     expect(lights).toHaveAttribute("aria-pressed", "false");
     await user.click(lights);
     expect(seq.calls).toContain("setSequenceDocOutput:true");
-    expect(within(transport()).getByRole("button", { name: "Show it on my lights" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(transport()).getByRole("button", { name: "Show on my lights" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("stays in step with the Sequence screen: one playback, whichever screen is in front", async () => {
@@ -218,10 +218,10 @@ describe("play, with a sequence open in the editor", () => {
     expect(screen.getByRole("img", { name: "Preview of the lights" })).toBeInTheDocument();
     // Looping and "Show on my lights" are the open sequence's: a rendered one always goes to the lights.
     expect(within(transport()).queryByRole("button", { name: "Loop playback" })).not.toBeInTheDocument();
-    expect(within(transport()).queryByRole("button", { name: "Show it on my lights" })).not.toBeInTheDocument();
+    expect(within(transport()).queryByRole("button", { name: "Show on my lights" })).not.toBeInTheDocument();
     // Its music and the lights' timing against it are in the drawer.
     expect(within(music()).getByText("Wizards.mp3")).toBeInTheDocument();
-    expect(within(music()).getByRole("group", { name: "Music alignment" })).toBeInTheDocument();
+    expect(within(music()).getByRole("group", { name: "Light timing" })).toBeInTheDocument();
 
     await user.click(within(drawer()).getByRole("button", { name }));
     await waitFor(() => expect(seq.calls).toContain("playSequenceDoc@0"));
@@ -357,7 +357,9 @@ describe("play, rendered sequences", () => {
     expect(await within(transport()).findByRole("button", { name: "Pause" })).toBeInTheDocument();
     expect(within(transport()).getByText(/\/ 1:00$/)).toBeInTheDocument();
 
-    const alignment = within(music()).getByRole("group", { name: "Music alignment" });
+    const alignment = within(music()).getByRole("group", { name: "Light timing" });
+    expect(within(alignment).getByText("Move the lights earlier or later against the music.")).toBeInTheDocument();
+    expect(within(alignment).getByText("Light timing").getAttribute("title")).toMatch(/isn't saved into exported files or Send to FPP.*separate from Preview sync/);
     expect(within(alignment).getByText("Lights are in sync with the music")).toBeInTheDocument();
     await user.click(within(alignment).getByRole("button", { name: "+50 ms: lights earlier" }));
     await user.click(within(alignment).getByRole("button", { name: "−10 ms: lights later" }));
@@ -468,7 +470,7 @@ describe("play, rendered sequences", () => {
   it("adds quick alignment clicks together", async () => {
     const { user, backend } = await openPlay(true);
     await addSequences(user, backend, ["Medley"]);
-    const alignment = within(music()).getByRole("group", { name: "Music alignment" });
+    const alignment = within(music()).getByRole("group", { name: "Light timing" });
     const earlier = within(alignment).getByRole("button", { name: "+50 ms: lights earlier" });
     fireEvent.click(earlier);
     fireEvent.click(earlier);
@@ -599,7 +601,7 @@ describe("play, with an FPP", () => {
     expect(heading).toHaveAttribute("aria-expanded", "true");
     await user.click(heading);
     expect(heading).toHaveAttribute("aria-expanded", "false");
-    expect(within(music()).queryByRole("group", { name: "Music alignment" })).not.toBeInTheDocument();
+    expect(within(music()).queryByRole("group", { name: "Light timing" })).not.toBeInTheDocument();
     expect(JSON.parse(localStorage.getItem("pixelflow.playSections")!)).toEqual({ music: true });
   });
 });

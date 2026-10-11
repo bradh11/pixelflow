@@ -1124,12 +1124,9 @@ fn divided(r: &Reader, id: &str, divisor: f64, default: f64) -> f64 {
 
 /// A Pinwheel (xLights' `PinwheelEffect`). Its Rotation box turns the arms counterclockwise.
 ///
-/// Its settings come across number for number, but for the thickness of smooth arms. In xLights'
-/// own render of a smooth Pinwheel an arm measures about a degree wider than its Thickness says
-/// (one set to 18 degrees shows as 19 to 19.5), and PixelFlow's arm is exactly as wide as its
-/// thickness says, so a smooth arm's thickness is carried over a degree wider: one degree as a
-/// share of the sector for that many arms, added to the number, up to arms that touch. Spokes
-/// keep their number: PixelFlow counts their rays as xLights' render shows them.
+/// Its settings come across number for number, but for the thickness of smooth arms, which is
+/// carried over as the width such an arm measures in xLights' picture (see [`smooth_thickness`]).
+/// Spokes keep their number: PixelFlow counts their rays as that picture shows them.
 fn pinwheel(r: &Reader, diff: &mut Diff) -> EffectParams {
     let shading = match r.choice("Pinwheel_3D", "None") {
         "None" => PinwheelShading::Flat,
@@ -1149,8 +1146,7 @@ fn pinwheel(r: &Reader, diff: &mut Diff) -> EffectParams {
     };
     let thickness = r.get("Pinwheel_Thickness", 0.0, 0.0, 100.0);
     let thickness = match style {
-        // A sector is 360 degrees over the arms, so a degree is this many percent of it.
-        PinwheelStyle::Smooth => (thickness + 100.0 * f64::from(arms) / 360.0).min(100.0),
+        PinwheelStyle::Smooth => smooth_thickness(thickness, arms),
         PinwheelStyle::Spokes => thickness,
     };
     EffectParams::Pinwheel(PinwheelParams {
@@ -1166,6 +1162,24 @@ fn pinwheel(r: &Reader, diff: &mut Diff) -> EffectParams {
         center_y: r.get("PinwheelYC", 0.0, -100.0, 100.0) as f32,
         style,
     })
+}
+
+/// The thickness that makes PixelFlow's smooth Pinwheel arm as wide as the one xLights shows for
+/// `thickness` with `arms` arms.
+///
+/// PixelFlow's arm is exactly the share of its sector its thickness says. Measured on xLights'
+/// picture over ten arm counts and every thickness, an arm there is wider, and comes in whole
+/// degrees: the thickness counts in whole percent, and under 1 as 1; that share of the sector
+/// (360 degrees over the arms) is an angle; the arm is that angle's whole degrees and one more,
+/// up to arms that touch. So 5% of one arm's circle, 18 degrees, shows as 19; 1% of four arms'
+/// 90-degree sectors, 0.9 degrees, shows as 1; and no thickness at all shows as 4, 2, and 2
+/// degrees for one, two, and three arms.
+fn smooth_thickness(thickness: f64, arms: u32) -> f64 {
+    let arms = u64::from(arms.max(1));
+    let percent = (thickness.clamp(0.0, 100.0) as u64).max(1);
+    // Whole degrees in `percent` of a sector of 360 / arms degrees, and one more.
+    let degrees = percent * 360 / (100 * arms) + 1;
+    (degrees as f64 * arms as f64 / 3.6).min(100.0)
 }
 
 /// Snowflakes (xLights' `SnowflakesEffect`). The Type slider picks the look, 0 a random one.
@@ -3333,8 +3347,9 @@ mod tests {
             style: PinwheelStyle::Spokes,
         };
         assert_eq!(t.params, EffectParams::Pinwheel(spokes));
-        // The new method's arms come across a degree wider (here a thirtieth of a 30-degree
-        // sector, 3.33 points of thickness), and everything else the same.
+        // The new method's arms come across as wide as xLights shows them (here 16 degrees for
+        // the 15 that half a 30-degree sector is: 53.33 points of thickness), and everything
+        // else the same.
         let mut s = s;
         s.set("E_CHOICE_Pinwheel_Style", "New Render Method".into());
         let t = translate("Pinwheel", &s, &palette(&[Rgb::RED, Rgb::BLUE]), 4000, 25).unwrap();
@@ -3342,7 +3357,7 @@ mod tests {
         assert_eq!(
             t.params,
             EffectParams::Pinwheel(PinwheelParams {
-                thickness: (50.0_f64 + 100.0 / 30.0) as f32,
+                thickness: (16.0_f64 / 30.0 * 100.0) as f32,
                 style: PinwheelStyle::Smooth,
                 ..spokes
             })
@@ -3372,82 +3387,130 @@ mod tests {
     }
 
     #[test]
-    fn smooth_pinwheel_arms_come_across_a_degree_wider() {
-        let thickness = |settings: &str| {
+    fn smooth_pinwheel_arms_come_across_as_wide_as_xlights_shows_them() {
+        let translated = |settings: &str| {
             let t = translate("Pinwheel", &Settings::parse(settings), &palette(&[]), 4000, 25).unwrap();
-            assert_eq!(t.fidelity, Fidelity::Exact, "{settings}: {:?}", t.fidelity);
             let EffectParams::Pinwheel(p) = t.params else {
                 unreachable!()
             };
-            (p.thickness, t.curves.get("thickness").cloned())
+            (p, t.curves.get("thickness").cloned(), t.fidelity)
         };
-        let near = |got: f32, want: f32| (got - want).abs() < 1e-4;
-        // One arm's sector is the whole circle, so a degree is 1/360 of it: 18 degrees of
-        // thickness (5%) become 19. Four arms have 90-degree sectors: 45 degrees become 46.
-        let (one, _) = thickness("E_SLIDER_Pinwheel_Arms=1,E_SLIDER_Pinwheel_Thickness=5");
-        assert!(near(one * 360.0 / 100.0, 19.0), "{one}");
-        let (four, _) = thickness("E_SLIDER_Pinwheel_Arms=4,E_SLIDER_Pinwheel_Thickness=50");
-        assert!(near(four * 90.0 / 100.0, 46.0), "{four}");
-        // The thinnest arm gets its degree like any other (three arms by default: 120-degree
-        // sectors), and arms that touch, or come within a degree of it, touch.
-        let (thinnest, _) = thickness("E_SLIDER_Pinwheel_Thickness=0");
-        assert!(near(thinnest * 120.0 / 100.0, 1.0), "{thinnest}");
-        for full in ["100", "99.5"] {
-            let (touching, _) = thickness(&format!("E_SLIDER_Pinwheel_Thickness={full}"));
-            assert_eq!(touching, 100.0, "{full}");
+        // The arm's width in degrees, for a thickness and a number of arms.
+        let degrees = |thickness: &str, arms: u32| {
+            let (p, _, fidelity) = translated(&format!(
+                "E_SLIDER_Pinwheel_Arms={arms},E_TEXTCTRL_Pinwheel_Thickness={thickness}"
+            ));
+            assert_eq!(fidelity, Fidelity::Exact, "{arms} arms, thickness {thickness}");
+            f64::from(p.thickness) * 3.6 / f64::from(arms)
+        };
+        let near = |got: f64, want: f64| (got - want).abs() < 1e-3;
+        // The thickness's share of the sector, in whole degrees, and one more: 18 degrees show
+        // as 19 and 45 as 46, but 0.9 as 1, 22.5 as 23, and 1.2 as 2.
+        for (thickness, arms, want) in [
+            ("5", 1, 19.0),
+            ("50", 4, 46.0),
+            ("1", 4, 1.0),
+            ("25", 4, 23.0),
+            ("3", 12, 1.0),
+            ("5", 20, 1.0),
+            ("1", 3, 2.0),
+            ("96", 7, 50.0),
+        ] {
+            assert!(
+                near(degrees(thickness, arms), want),
+                "{arms} arms at {thickness}: {}",
+                degrees(thickness, arms)
+            );
         }
+        // A fraction of a percent is dropped, and anything under 1 counts as 1: no thickness at
+        // all shows as 4, 2, and 2 degrees for one, two, and three arms.
+        assert!(near(degrees("3.7", 1), degrees("3", 1)) && near(degrees("3", 1), 11.0));
+        for (arms, want) in [(1, 4.0), (2, 2.0), (3, 2.0), (4, 1.0)] {
+            assert!(
+                near(degrees("0", arms), want),
+                "{arms} arms: {}",
+                degrees("0", arms)
+            );
+            assert!(near(degrees("0.9", arms), want));
+        }
+        // Arms that touch, or whose extra degree closes the gap between them, touch.
+        for (thickness, arms) in [("100", 3), ("99", 4), ("100", 7)] {
+            assert_eq!(
+                translated(&format!(
+                    "E_SLIDER_Pinwheel_Arms={arms},E_TEXTCTRL_Pinwheel_Thickness={thickness}"
+                ))
+                .0
+                .thickness,
+                100.0
+            );
+        }
+        assert!(near(degrees("99", 3), 119.0));
         // Spokes keep their number.
-        let (spokes, _) = thickness(
+        let (spokes, _, _) = translated(
             "E_CHOICE_Pinwheel_Style=Old Render Method,E_SLIDER_Pinwheel_Arms=4,E_SLIDER_Pinwheel_Thickness=50",
         );
-        assert_eq!(spokes, 50.0);
+        assert_eq!(spokes.thickness, 50.0);
 
-        // A thickness that changes over the effect is a degree wider all the way along it.
-        let (start, curve) = thickness(
+        // A thickness that changes over the effect takes the width xLights shows at each moment
+        // along it: whole degrees, so it climbs in steps.
+        let (start, curve, fidelity) = translated(
             "E_SLIDER_Pinwheel_Arms=4,E_SLIDER_Pinwheel_Thickness=10,\
              E_VALUECURVE_Pinwheel_Thickness=Active=TRUE|Type=Ramp|Min=0.00|Max=100.00|P1=10.00|P2=30.00|RV=TRUE|",
         );
-        let degree = 100.0 / 90.0;
-        assert!(near(start, 10.0 + degree), "{start}");
-        let Some(Curve { from, to, .. }) = curve else {
-            panic!("no curve on the thickness")
-        };
+        assert_eq!(fidelity, Fidelity::Exact);
+        let curve = curve.expect("a curve on the thickness");
+        let width = |thickness: f32| f64::from(thickness) * 0.9;
+        assert!(near(width(start.thickness), 10.0), "{}", start.thickness);
         assert!(
-            near(from, 10.0 + degree) && near(to, 30.0 + degree),
-            "{from} to {to}"
+            near(width(curve.value_at(0.0)), 10.0) && near(width(curve.value_at(1.0)), 28.0),
+            "{curve:?}"
         );
-        // And so is a thickness that stays put while the number of arms changes: more arms have
-        // narrower sectors, of which a degree is a larger share.
-        let (start, curve) = thickness(
+        let mut last = 0.0;
+        for step in 0..=100 {
+            let here = width(curve.value_at(step as f32 / 100.0));
+            assert!(here >= last - 1e-3 && here <= 28.0 + 1e-3, "{curve:?}");
+            last = here;
+        }
+        // And so does a thickness that stays put while the number of arms changes: 20% is 37
+        // degrees of two arms' sectors and 13 of six arms'.
+        let (start, curve, _) = translated(
             "E_SLIDER_Pinwheel_Arms=2,E_SLIDER_Pinwheel_Thickness=20,\
              E_VALUECURVE_Pinwheel_Arms=Active=TRUE|Type=Ramp|Min=1.00|Max=20.00|P1=2.00|P2=6.00|RV=TRUE|",
         );
-        assert!(near(start, 20.0 + 100.0 / 180.0), "{start}");
         let curve = curve.expect("a curve on the thickness");
-        assert!(near(curve.value_at(0.0), 20.0 + 100.0 / 180.0), "{curve:?}");
-        assert!(near(curve.value_at(1.0), 20.0 + 100.0 / 60.0), "{curve:?}");
+        assert!(
+            near(f64::from(start.thickness) * 1.8, 37.0),
+            "{}",
+            start.thickness
+        );
+        assert!(near(f64::from(curve.value_at(0.0)) * 1.8, 37.0), "{curve:?}");
+        assert!(near(f64::from(curve.value_at(1.0)) * 0.6, 13.0), "{curve:?}");
 
-        // A thickness that follows the music does so a degree wider at both ends...
-        let (_, curve) = thickness(
+        // A thickness that follows the music is as wide as xLights shows it at both ends, and
+        // straight between: exact where the widths in between fall on that line...
+        let (_, curve, fidelity) = translated(
             "E_SLIDER_Pinwheel_Arms=4,E_SLIDER_Pinwheel_Thickness=10,\
              E_VALUECURVE_Pinwheel_Thickness=Active=TRUE|Type=Music|Min=0.00|Max=100.00|P1=10.00|P2=50.00|RV=TRUE|",
         );
         let curve = curve.expect("a curve on the thickness");
         assert!(
-            near(curve.from, 10.0 + degree) && near(curve.to, 50.0 + degree),
+            near(width(curve.from), 10.0) && near(width(curve.to), 46.0),
             "{curve:?}"
         );
-        // ...but not where that would take it past arms that touch: there the degree runs out
-        // along the way, which the import says.
-        let s = Settings::parse(
+        assert_eq!(fidelity, Fidelity::Exact);
+        // ...and approximate where they don't (below 1% xLights' arm stops getting thinner),
+        // which the import says.
+        let (_, curve, fidelity) = translated(
             "E_SLIDER_Pinwheel_Arms=4,E_SLIDER_Pinwheel_Thickness=10,\
-             E_VALUECURVE_Pinwheel_Thickness=Active=TRUE|Type=Music|Min=0.00|Max=100.00|P1=10.00|P2=100.00|RV=TRUE|",
+             E_VALUECURVE_Pinwheel_Thickness=Active=TRUE|Type=Music|Min=0.00|Max=100.00|P1=0.00|P2=50.00|RV=TRUE|",
         );
-        let t = translate("Pinwheel", &s, &palette(&[]), 4000, 25).unwrap();
-        let curve = &t.curves["thickness"];
-        assert!(near(curve.from, 10.0 + degree) && curve.to == 100.0, "{curve:?}");
+        let curve = curve.expect("a curve on the thickness");
+        assert!(
+            near(width(curve.from), 1.0) && near(width(curve.to), 46.0),
+            "{curve:?}"
+        );
         assert_eq!(
-            t.fidelity,
+            fidelity,
             Fidelity::Approximate(vec![
                 "a setting that follows the music or a timing track does so approximately".into()
             ])

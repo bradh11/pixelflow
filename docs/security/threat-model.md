@@ -286,6 +286,10 @@ Not fixed:
     to; the check and the open are separate steps.
   - Camera mapping accepts frames up to 4K each with no limit on their total (the frames come
     from the window, not a file).
+  - The picture resampler multiplies widths and heights as 32-bit numbers and relies on its
+    callers' limits (which hold: 16,384 a side).
+  - A music file's format is decided by its contents, not its name: a file called `.mp3` is
+    read as whatever it turns out to be, so every decoder is reachable from any name.
   - Resolving a controller's hostname happens while the engine is locked, so a name that will
     not resolve freezes the app for the system's timeout.
   - Neither `Cargo.toml` sets a release profile, so integer overflow wraps silently in release
@@ -488,6 +492,10 @@ instruction.
   file opens. List it as "on a network share: Check or Locate", and look only when the user
   clicks.
 - Ignore a `savedIn` folder that is a network path.
+- The same for the music a sequence names and the photo and pictures an xLights show names:
+  take them without asking only from inside the show's or the import's folder, and ask before
+  copying a picture in from anywhere else.
+- A path the user picks in a dialog is always accepted, wherever it is.
 - Smallest first step: only the network-path rule, on Windows.
 
 **R2. Paths and addresses from the assistant (finding 15).** Refuse an assistant edit that
@@ -504,7 +512,9 @@ address in a private range from the assistant.
   output, playback, Send to FPP, and Send setup.
 - In "Send to FPP", prefer a discovered FPP over an address from the show, and say when the
   target was never discovered.
-- Check that the music decodes as audio before sending it anywhere (the probe exists).
+- Check that the music decodes as audio before sending it anywhere (the probe exists), and
+  show its full path, not only its name, in the "Send to FPP" and "Send the song to OpenAI?"
+  confirmations.
 - On the Test and Play screens, contact only addresses on a local network when the screen
   opens; leave the rest to "Check again".
 - When a device reports other addresses, probe them only if they are private; list the rest as

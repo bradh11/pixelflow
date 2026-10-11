@@ -385,7 +385,7 @@ fn shut_down(state: &AppState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::{app, app_in, app_without_window, call, call_raw};
+    use crate::testing::{app, app_in, app_without_window, authored, call, call_raw, write_clicks};
     use serde_json::{Value, json};
     use tauri::WebviewWindow;
     use tauri::ipc::{CallbackFn, InvokeBody};
@@ -1686,36 +1686,6 @@ mod tests {
         assert!(missing.as_str().unwrap().contains("can't find"), "{missing}");
     }
 
-    /// A 12 s, 22.05 kHz mono WAV with a click every 500 ms.
-    fn write_clicks(path: &std::path::Path) {
-        let rate = 22_050u32;
-        let mut samples = vec![0i16; rate as usize * 12];
-        for beat in 0..23 {
-            let start = (250 + beat * 500) * rate as usize / 1000;
-            for k in 0..200 {
-                let v = (-(k as f32) / 40.0).exp() * (k as f32 * 0.6).sin() * 0.9;
-                samples[start + k] = (v * i16::MAX as f32) as i16;
-            }
-        }
-        let data_len = (samples.len() * 2) as u32;
-        let mut out = b"RIFF".to_vec();
-        out.extend_from_slice(&(36 + data_len).to_le_bytes());
-        out.extend_from_slice(b"WAVEfmt ");
-        out.extend_from_slice(&16u32.to_le_bytes());
-        out.extend_from_slice(&1u16.to_le_bytes());
-        out.extend_from_slice(&1u16.to_le_bytes());
-        out.extend_from_slice(&rate.to_le_bytes());
-        out.extend_from_slice(&(rate * 2).to_le_bytes());
-        out.extend_from_slice(&2u16.to_le_bytes());
-        out.extend_from_slice(&16u16.to_le_bytes());
-        out.extend_from_slice(b"data");
-        out.extend_from_slice(&data_len.to_le_bytes());
-        for s in samples {
-            out.extend_from_slice(&s.to_le_bytes());
-        }
-        std::fs::write(path, out).unwrap();
-    }
-
     #[test]
     fn sequences_are_authored_previewed_played_exported_and_beat_detected() {
         let (_app, webview, dir) = app();
@@ -1909,45 +1879,6 @@ mod tests {
                 .len()
                 == 12
         );
-    }
-
-    /// A strip wired to a controller and a new 2 s sequence with one red effect on it.
-    fn authored(webview: &WebviewWindow<MockRuntime>) {
-        let prop = json!({
-            "id": "11111111-0000-4000-8000-0000000000bb", "name": "Strip",
-            "shape": { "source": "generator", "type": "line", "nodes": 4, "length": 1.0 }
-        });
-        let controller = json!({
-            "id": "33333333-0000-4000-8000-0000000000bb", "name": "Bench", "address": "127.0.0.1:9",
-            "protocol": { "type": "ddp" },
-            "ports": [{ "number": 1, "slots": [{ "prop": "11111111-0000-4000-8000-0000000000bb" }] }]
-        });
-        call(
-            webview,
-            "apply_edits",
-            json!({ "edits": [{ "type": "addProp", "prop": prop }, { "type": "addController", "controller": controller }] }),
-        )
-        .unwrap();
-        call(
-            webview,
-            "new_sequence_doc",
-            json!({ "name": "Song", "durationMs": 2000 }),
-        )
-        .unwrap();
-        let row = json!({ "id": "44444444-0000-4000-8000-0000000000bb",
-            "target": { "prop": "11111111-0000-4000-8000-0000000000bb" }, "layers": [{ "effects": [] }] });
-        let effect = json!({ "id": "55555555-0000-4000-8000-0000000000bb", "startMs": 0, "endMs": 1000,
-            "params": { "kind": "on" }, "palette": { "colors": ["#ff0000"] }, "blend": "normal",
-            "fadeInMs": 0, "fadeOutMs": 0 });
-        call(
-            webview,
-            "edit_sequence",
-            json!({ "edits": [
-                { "type": "addRow", "row": row },
-                { "type": "addEffect", "row": "44444444-0000-4000-8000-0000000000bb", "layer": 0, "effect": effect },
-            ] }),
-        )
-        .unwrap();
     }
 
     #[test]

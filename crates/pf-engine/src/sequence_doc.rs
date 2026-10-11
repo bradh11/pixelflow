@@ -11,7 +11,6 @@ use pf_sequence::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Undo steps kept for a sequence.
@@ -1430,18 +1429,20 @@ pub fn load_sequence(path: &Path) -> Result<Sequence, EngineError> {
         path: path.to_path_buf(),
         source,
     };
-    let size = fs::metadata(path).map_err(read_err)?.len();
-    if size > MAX_SEQUENCE_BYTES as u64 {
-        return Err(EngineError::InvalidSequence {
-            path: path.to_path_buf(),
-            reason: format!(
-                "it is {} MB; PixelFlow reads sequence files up to {} MB",
-                size / (1024 * 1024),
-                MAX_SEQUENCE_BYTES / (1024 * 1024)
-            ),
-        });
-    }
-    let text = fs::read_to_string(path).map_err(read_err)?;
+    // Only an ordinary file, and never more of it than a sequence file can be.
+    let text = match crate::persist::read_text(path, MAX_SEQUENCE_BYTES as u64).map_err(read_err)? {
+        crate::persist::TextRead::Text(text) => text,
+        crate::persist::TextRead::TooLarge(size) => {
+            return Err(EngineError::InvalidSequence {
+                path: path.to_path_buf(),
+                reason: format!(
+                    "it is {} MB; PixelFlow reads sequence files up to {} MB",
+                    size / (1024 * 1024),
+                    MAX_SEQUENCE_BYTES / (1024 * 1024)
+                ),
+            });
+        }
+    };
     pf_sequence::sequence_from_json(&text).map_err(|e| EngineError::InvalidSequence {
         path: path.to_path_buf(),
         reason: e.to_string(),
@@ -1689,6 +1690,20 @@ mod tests {
                 .to_string()
                 .starts_with("Could not read")
         );
+        // A file larger than any sequence (a length only: nothing is written) isn't read.
+        let huge = dir.path().join("huge.pfseq.json");
+        std::fs::File::create(&huge)
+            .unwrap()
+            .set_len(MAX_SEQUENCE_BYTES as u64 + 1)
+            .unwrap();
+        let err = load_sequence(&huge).unwrap_err().to_string();
+        assert!(
+            err.contains("it is 64 MB; PixelFlow reads sequence files up to 64 MB"),
+            "{err}"
+        );
+        // Nor is a device named as one (it would be read for ever).
+        #[cfg(unix)]
+        assert!(load_sequence(Path::new("/dev/zero")).is_err());
     }
 
     /// Brings a copy of the document up to date the way [`SequenceChanges`] says the UI should.

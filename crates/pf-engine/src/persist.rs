@@ -5,12 +5,48 @@ use pf_model::Show;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const HISTORY_SUFFIX: &str = ".pixelflow.json";
+
+/// The largest show file read, in bytes (the same as a sequence file). A show with hundreds of
+/// props is well under a megabyte; a file can be any size, and takes many times its size in
+/// memory once parsed.
+pub const MAX_SHOW_BYTES: u64 = 64 * 1024 * 1024;
+
+/// A file's text, or how large the file is when that's more than was asked to be read.
+pub(crate) enum TextRead {
+    Text(String),
+    TooLarge(u64),
+}
+
+/// Reads the text of the file at `path`, up to `most` bytes of it. Only an ordinary file is
+/// read (a device or pipe named as a show could be read for ever), and never more than `most`,
+/// whatever size the file says it is.
+pub(crate) fn read_text(path: &Path, most: u64) -> std::io::Result<TextRead> {
+    let not_a_file = || std::io::Error::new(std::io::ErrorKind::InvalidInput, "it isn't a file");
+    if !fs::metadata(path)?.is_file() {
+        return Err(not_a_file());
+    }
+    let file = fs::File::open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(not_a_file());
+    }
+    if metadata.len() > most {
+        return Ok(TextRead::TooLarge(metadata.len()));
+    }
+    let mut text = String::new();
+    file.take(most + 1).read_to_string(&mut text)?;
+    Ok(if text.len() as u64 > most {
+        TextRead::TooLarge(text.len() as u64)
+    } else {
+        TextRead::Text(text)
+    })
+}
 
 static SAVE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -70,10 +106,21 @@ pub fn read_show(path: &Path) -> Result<LoadedShow, EngineError> {
 /// Reads a show file whose relative file paths start in `folder` (an autosaved copy kept away
 /// from the show file it belongs to), or stay relative without one.
 pub(crate) fn read_show_in(path: &Path, folder: Option<&Path>) -> Result<LoadedShow, EngineError> {
-    let text = fs::read_to_string(path).map_err(|source| EngineError::Read {
+    let read = read_text(path, MAX_SHOW_BYTES).map_err(|source| EngineError::Read {
         path: path.to_path_buf(),
         source,
     })?;
+    let text = match read {
+        TextRead::Text(text) => text,
+        TextRead::TooLarge(size) => {
+            return Err(EngineError::TooLarge(format!(
+                "{} is {} MB; PixelFlow reads show files up to {} MB.",
+                path.display(),
+                size / (1024 * 1024),
+                MAX_SHOW_BYTES / (1024 * 1024)
+            )));
+        }
+    };
     let (mut show, saved_in) =
         pf_model::show_file_from_json(&text).map_err(|source| EngineError::InvalidFile {
             path: path.to_path_buf(),
@@ -282,6 +329,39 @@ mod tests {
     use super::*;
     use std::fs;
     use std::path::Path;
+
+    #[test]
+    fn a_show_file_larger_than_any_show_is_not_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("huge.pixelflow.json");
+        // A length only: nothing is written, so it takes no room on disk.
+        fs::File::create(&path)
+            .unwrap()
+            .set_len(MAX_SHOW_BYTES + 1)
+            .unwrap();
+        let error = read_show(&path).err().unwrap().to_string();
+        assert!(
+            error.ends_with("huge.pixelflow.json is 64 MB; PixelFlow reads show files up to 64 MB."),
+            "{error}"
+        );
+        // Its size is the file's own, whatever was asked for: here, a limit under a real show's.
+        let small = dir.path().join("small.pixelflow.json");
+        save_show_atomic(&small, &Show::new("Small")).unwrap();
+        assert!(matches!(read_text(&small, 10), Ok(TextRead::TooLarge(n)) if n > 10));
+        assert!(matches!(read_text(&small, MAX_SHOW_BYTES), Ok(TextRead::Text(_))));
+    }
+
+    #[test]
+    fn only_an_ordinary_file_is_read_as_a_show() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("folder.pixelflow.json");
+        fs::create_dir(&folder).unwrap();
+        let error = read_show(&folder).err().unwrap().to_string();
+        assert!(error.starts_with("Could not read"), "{error}");
+        // A device would be read for ever.
+        #[cfg(unix)]
+        assert!(read_show(Path::new("/dev/zero")).is_err());
+    }
 
     #[test]
     fn atomic_save_round_trips_and_leaves_no_temp_files() {

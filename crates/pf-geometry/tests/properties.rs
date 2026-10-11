@@ -407,6 +407,15 @@ proptest! {
         prop_assert_eq!(points.len(), shape.node_count() as usize);
         prop_assert!(points.iter().all(|p| p.is_finite()));
     }
+
+    /// A shape drawn on a grid of its own has a cell on that grid for every pixel.
+    #[test]
+    fn own_grids_hold_every_pixel(generator in generator()) {
+        if let Some(grid) = pf_geometry::own_grid(&generator) {
+            prop_assert_eq!(grid.cells.len(), generator.node_count() as usize);
+            prop_assert!(grid.cells.iter().all(|&[c, r]| c < grid.columns && r < grid.rows));
+        }
+    }
 }
 
 fn shape() -> impl Strategy<Value = ShapeSource> {

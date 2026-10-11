@@ -1,6 +1,7 @@
 //! Spheres as xLights lays them out (`SphereModel::SetSphereCoord`): a vertical matrix's strands
 //! wrapped round a globe.
 
+use crate::OwnGrid;
 use pf_model::{Corner, StrandStyle, Vec3};
 use std::f64::consts::PI;
 
@@ -52,20 +53,40 @@ pub(crate) struct Sphere {
     pub strand_style: StrandStyle,
 }
 
+/// Where the `y`th pixel of strand `x` (in wiring order) sits: its column round the globe and
+/// its row from the south.
+fn cell(columns: u32, rows: u32, start: Corner, style: StrandStyle, x: u32, y: u32) -> [u32; 2] {
+    let from_left = matches!(start, Corner::BottomLeft | Corner::TopLeft);
+    let from_bottom = matches!(start, Corner::BottomLeft | Corner::BottomRight);
+    let along = along_strand(y, rows, x, style);
+    [
+        if from_left { x } else { columns - 1 - x },
+        if from_bottom { along } else { rows - 1 - along },
+    ]
+}
+
+/// The grid a sphere's effects are drawn on: its strands as the columns of a matrix, as in
+/// xLights, so what's drawn goes round the globe.
+pub(crate) fn grid(columns: u32, rows: u32, start: Corner, style: StrandStyle) -> OwnGrid {
+    OwnGrid {
+        columns,
+        rows,
+        cells: (0..columns)
+            .flat_map(|x| (0..rows).map(move |y| cell(columns, rows, start, style, x, y)))
+            .collect(),
+    }
+}
+
 /// Strand by strand (one per column), each running up from the south pole (down from the north
 /// when `start` is at the top), the columns in order round the left side (the right side when
 /// `start` is on the right).
 pub(crate) fn positions(s: Sphere) -> Vec<Vec3> {
     let (columns, rows) = (s.columns, s.rows);
-    let from_left = matches!(s.start, Corner::BottomLeft | Corner::TopLeft);
-    let from_bottom = matches!(s.start, Corner::BottomLeft | Corner::BottomRight);
     let radius = f64::from(s.radius);
     let mut out = Vec::with_capacity(columns.saturating_mul(rows) as usize);
     for x in 0..columns {
-        let column = if from_left { x } else { columns - 1 - x };
         for y in 0..rows {
-            let along = along_strand(y, rows, x, s.strand_style);
-            let row = if from_bottom { along } else { rows - 1 - along };
+            let [column, row] = cell(columns, rows, s.start, s.strand_style, x, y);
             let p = globe_point(
                 f64::from(column),
                 f64::from(row),
@@ -89,6 +110,15 @@ pub(crate) fn positions(s: Sphere) -> Vec<Vec3> {
 mod tests {
     use super::*;
     use crate::assert_close;
+
+    #[test]
+    fn the_grid_drawn_on_is_strands_by_the_pixels_up_them() {
+        let g = grid(2, 3, Corner::BottomLeft, StrandStyle::ZigZag);
+        assert_eq!((g.columns, g.rows), (2, 3));
+        assert_eq!(g.cells, [[0, 0], [0, 1], [0, 2], [1, 2], [1, 1], [1, 0]]);
+        let turned = grid(2, 3, Corner::TopRight, StrandStyle::NoZigZag);
+        assert_eq!(turned.cells[..4], [[1, 2], [1, 1], [1, 0], [0, 2]]);
+    }
 
     fn globe(columns: u32, rows: u32, start: Corner, strand_style: StrandStyle) -> Vec<Vec3> {
         positions(Sphere {

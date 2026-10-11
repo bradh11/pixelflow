@@ -17,11 +17,20 @@
 //! by where its pixels sit instead would guess the wrong number of columns and rows for a
 //! stretched one (a 12 × 50 pillar squeezed narrow comes out 8 × 75) and skew a tilted one, and
 //! anything drawn cell by cell (text, a dancer) would lose or double its lines.
+//!
+//! A prop whose shape is made of strings draws on the grid xLights gives that kind of model
+//! (`pf_geometry::own_grid`), whichever way it's turned: a tree's strings by the pixels up them,
+//! so what's drawn goes round the tree instead of across its front; arches a row each; candy
+//! canes and a spinner's arms a column each; a circle's rings a row each; a window frame the
+//! outside of a matrix; a custom shape its own cells. "Per Preview" lays any of them out where
+//! their pixels sit. Lines, poly lines, icicles, stars, wreaths, and cubes still draw where
+//! their pixels sit.
 
+use pf_geometry::OwnGrid;
 use pf_mapping::ChannelMap;
 use pf_model::{
     BufferStyle, BufferTransform, GroupId, GroupLayout, GroupMember, LineLayout, PropId, Region, RegionId,
-    RegionKind, RenderStyle, Show,
+    RegionKind, RenderStyle, ShapeSource, Show,
 };
 use pf_sequence::Target;
 use std::collections::{HashMap, HashSet};
@@ -160,19 +169,11 @@ pub(crate) struct PropGeometry {
     pub points: Vec<[f32; 2]>,
     /// How many of `points` came from the shape; the rest are padding (see [`SceneGeometry::new`]).
     pub real: usize,
-    /// The grid its shape's pixels fill, when it's one and stands upright in the layout.
+    /// The grid of its own the prop is drawn on: its shape's (a tree's strings by the pixels up
+    /// them), or the one its pixels fill when they fill one and it stands upright in the layout.
     pub grid: Option<OwnGrid>,
     /// The prop's submodels and faces.
     pub regions: Vec<Region>,
-}
-
-/// The grid a prop's pixels fill in its own shape: each node's column (from the left) and row
-/// (from the bottom).
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct OwnGrid {
-    columns: u32,
-    rows: u32,
-    cells: Vec<[u32; 2]>,
 }
 
 /// How far a grid's sides may lean in the layout and the prop still count as upright (a slope:
@@ -200,46 +201,44 @@ fn ranks(values: impl Iterator<Item = f32>) -> Option<(Vec<u32>, u32)> {
     Some((ranks, rank + 1))
 }
 
-impl OwnGrid {
-    /// The grid `local` (a shape's pixels in its own coordinates) fills: at least two columns
-    /// and rows, a pixel in every cell. `None` for any other shape, and for a prop that doesn't
-    /// stand upright in the layout (`world`: where the same pixels are there), whose picture
-    /// follows the layout instead.
-    fn of(local: &[pf_model::Vec3], world: &[[f32; 2]]) -> Option<Self> {
-        if local.len() != world.len() {
-            return None;
-        }
-        let (across, columns) = ranks(local.iter().map(|p| p.x))?;
-        let (up, rows) = ranks(local.iter().map(|p| p.y))?;
-        if columns < 2 || rows < 2 || columns as usize * rows as usize != local.len() {
-            return None;
-        }
-        let mut filled = vec![false; local.len()];
-        let (mut origin, mut right, mut top) = (None, None, None);
-        for (n, (&c, &r)) in across.iter().zip(&up).enumerate() {
-            if std::mem::replace(&mut filled[(r * columns + c) as usize], true) {
-                return None;
-            }
-            match (c, r) {
-                (0, 0) => origin = Some(world[n]),
-                (c, 0) if c == columns - 1 => right = Some(world[n]),
-                (0, r) if r == rows - 1 => top = Some(world[n]),
-                _ => {}
-            }
-        }
-        let (origin, right, top) = (origin?, right?, top?);
-        let level = [right[0] - origin[0], right[1] - origin[1]];
-        let plumb = [top[0] - origin[0], top[1] - origin[1]];
-        let upright = level[0] > 0.0
-            && level[1].abs() <= UPRIGHT * level[0]
-            && plumb[1] > 0.0
-            && plumb[0].abs() <= UPRIGHT * plumb[1];
-        upright.then(|| Self {
-            columns,
-            rows,
-            cells: across.into_iter().zip(up).map(|(c, r)| [c, r]).collect(),
-        })
+/// The grid `local` (a shape's pixels in its own coordinates) fills: at least two columns and
+/// rows, a pixel in every cell. `None` for any other shape, and for a prop that doesn't stand
+/// upright in the layout (`world`: where the same pixels are there), whose picture follows the
+/// layout instead.
+fn filled_grid(local: &[pf_model::Vec3], world: &[[f32; 2]]) -> Option<OwnGrid> {
+    if local.len() != world.len() {
+        return None;
     }
+    let (across, columns) = ranks(local.iter().map(|p| p.x))?;
+    let (up, rows) = ranks(local.iter().map(|p| p.y))?;
+    if columns < 2 || rows < 2 || columns as usize * rows as usize != local.len() {
+        return None;
+    }
+    let mut filled = vec![false; local.len()];
+    let (mut origin, mut right, mut top) = (None, None, None);
+    for (n, (&c, &r)) in across.iter().zip(&up).enumerate() {
+        if std::mem::replace(&mut filled[(r * columns + c) as usize], true) {
+            return None;
+        }
+        match (c, r) {
+            (0, 0) => origin = Some(world[n]),
+            (c, 0) if c == columns - 1 => right = Some(world[n]),
+            (0, r) if r == rows - 1 => top = Some(world[n]),
+            _ => {}
+        }
+    }
+    let (origin, right, top) = (origin?, right?, top?);
+    let level = [right[0] - origin[0], right[1] - origin[1]];
+    let plumb = [top[0] - origin[0], top[1] - origin[1]];
+    let upright = level[0] > 0.0
+        && level[1].abs() <= UPRIGHT * level[0]
+        && plumb[1] > 0.0
+        && plumb[0].abs() <= UPRIGHT * plumb[1];
+    upright.then(|| OwnGrid {
+        columns,
+        rows,
+        cells: across.into_iter().zip(up).map(|(c, r)| [c, r]).collect(),
+    })
 }
 
 impl PropGeometry {
@@ -267,7 +266,14 @@ impl PropGeometry {
         let Some(grid) = &self.grid else {
             return build_buffer(&(0..count).map(|n| self.point(n)).collect::<Vec<_>>());
         };
-        let at = |cell: u32, cells: u32| cell as f32 / (cells - 1) as f32;
+        // A grid one cell across (or high) has its pixels in the middle.
+        let at = |cell: u32, cells: u32| {
+            if cells <= 1 {
+                0.5
+            } else {
+                cell as f32 / (cells - 1) as f32
+            }
+        };
         let pixels = (0..count)
             .map(|n| {
                 // Padding past the shape's pixels draws in the middle.
@@ -369,7 +375,11 @@ impl SceneGeometry {
             // count toward the bounding box (it would stretch it to the origin); those pixels
             // draw at the middle of the box.
             let real = points.len();
-            let grid = OwnGrid::of(&pf_geometry::local_positions(&prop.shape), &points);
+            let grid = match &prop.shape {
+                ShapeSource::Generator(shape) => pf_geometry::own_grid(shape),
+                ShapeSource::Measured { .. } => None,
+            }
+            .or_else(|| filled_grid(&pf_geometry::local_positions(&prop.shape), &points));
             points.resize(nodes, [0.0, 0.0]);
             index.entry(layout.prop).or_insert(props.len());
             props.push(PropGeometry {
@@ -954,7 +964,7 @@ mod tests {
     fn only_a_full_grid_counts_as_one() {
         let grid = |local: &[[f32; 2]]| {
             let points: Vec<Vec3> = local.iter().map(|p| Vec3::new(p[0], p[1], 0.0)).collect();
-            OwnGrid::of(&points, local)
+            filled_grid(&points, local)
         };
         let full = [
             [0.0, 0.0],
@@ -976,6 +986,78 @@ mod tests {
         assert_eq!(grid(&[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [1.0, 1.0]]), None);
         assert_eq!(grid(&[[0.0, 0.0], [1.0, 0.0], [f32::NAN, 1.0], [0.0, 1.0]]), None);
         assert_eq!(grid(&[]), None);
+    }
+
+    #[test]
+    fn a_tree_draws_on_its_strings_by_the_pixels_up_them() {
+        // A round tree of 4 strings of 3. From the front its back strings sit behind its front
+        // ones; effects are drawn on a 4 × 3 grid that goes round it, as in xLights, however
+        // the tree is turned or stretched in the layout.
+        let mut tree = Prop::new(
+            "Tree",
+            ShapeSource::Generator(Generator::tree(4, 3, 2.0, 1.0, 0.1, pf_model::TreeStyle::Round)),
+        );
+        tree.transform = Transform {
+            position: Vec3::new(1.0, 0.0, 0.0),
+            rotation_deg: Vec3::new(0.0, 40.0, 10.0),
+            scale: Vec3::new(2.0, 1.5, 2.0),
+        };
+        let mut show = Show::new("t");
+        show.props.push(tree);
+        let id = show.props[0].id;
+        let geo = geometry(&show);
+        let buffer = geo.buffer(Target::Prop(id));
+        assert_eq!((buffer.columns, buffer.rows), (4, 3));
+        let cell = |n: usize| {
+            let px = &buffer.pixels[n];
+            ((px.u * 3.0).round() as u32, (px.v * 2.0).round() as u32)
+        };
+        // String by string, each from the base up.
+        assert_eq!(
+            [cell(0), cell(2), cell(3), cell(11)],
+            [(0, 0), (0, 2), (1, 0), (3, 2)]
+        );
+        assert_eq!((0..12).map(cell).collect::<HashSet<_>>().len(), 12);
+        // "Per Preview" still lays it out where its pixels sit in the layout.
+        let preview = geo.styled_buffer(Target::Prop(id), RenderStyle::PerPreview, BufferTransform::None);
+        assert_eq!(preview.len(), 12);
+        assert_ne!((preview.columns, preview.rows), (4, 3));
+    }
+
+    #[test]
+    fn shapes_with_strings_draw_along_them_and_stack_that_way_in_a_group() {
+        // An arch is one row, its pixels in order from its left foot (xLights' buffer for
+        // arches), not the curve it makes in the layout.
+        let arch = |name: &str, x: f32| {
+            let mut prop = Prop::new(name, ShapeSource::Generator(Generator::arch(5, 2.0, 1.0)));
+            prop.transform.position = Vec3::new(x, 0.0, 0.0);
+            prop
+        };
+        let mut show = Show::new("t");
+        show.props.push(arch("A", 0.0));
+        show.props.push(arch("B", 3.0));
+        let mut group = Group::new("Arches");
+        group.members = vec![show.props[0].id.into(), show.props[1].id.into()];
+        let gid = group.id;
+        show.groups.push(group);
+        let geo = geometry(&show);
+        let own = geo.buffer(Target::Prop(show.props[0].id));
+        assert_eq!((own.columns, own.rows), (5, 1));
+        assert_eq!(
+            own.pixels.iter().map(|px| (px.u, px.v)).collect::<Vec<_>>(),
+            vec![(0.0, 0.5), (0.25, 0.5), (0.5, 0.5), (0.75, 0.5), (1.0, 0.5)]
+        );
+        // The group's own layout is still where the pixels sit; a style that stacks the members'
+        // own buffers stacks those rows.
+        let grid = geo.buffer(Target::Group(gid));
+        assert!(grid.rows > 1);
+        let stacked = geo.styled_buffer(
+            Target::Group(gid),
+            RenderStyle::VerticalStack,
+            BufferTransform::None,
+        );
+        assert_eq!((stacked.columns, stacked.rows), (5, 2));
+        assert_eq!((stacked.pixels[0].v, stacked.pixels[5].v), (0.0, 1.0));
     }
 
     #[test]

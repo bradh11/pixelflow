@@ -1132,3 +1132,115 @@ fn a_stalled_sound_device_neither_stops_the_lights_nor_lets_them_run_ahead() {
             .all(|s| (0.0..=ON_TIME_MS).contains(&s.began_ms(0)))
     );
 }
+
+#[test]
+fn a_sound_device_that_never_comes_back_does_not_keep_the_sequence_from_ending() {
+    let run = Sim {
+        stalls: vec![at(5_000)..Duration::MAX],
+        ..Sim::new(800)
+    }
+    .run(22_000);
+    assert_eq!(run.shown.last().unwrap().frame, 799);
+    // The lights lost nothing but the second they waited: their twenty seconds end on time.
+    let dark = run.ticks.iter().find(|t| t.lights_done).unwrap();
+    assert!((ms(dark.at) - 20_000.0).abs() <= 12.0, "dark at {:?}", dark.at);
+    // And there it ends, dark: the lights don't come back on where the music stopped.
+    assert!(run.ended && run.lights_done);
+    assert!(ticks(&run, dark.at, run.finished).all(|t| t.lights_done));
+    assert_eq!(run.shown.iter().filter(|s| s.began >= dark.at).count(), 0);
+}
+
+#[test]
+fn a_pause_while_the_sound_device_is_stalled_holds_the_lights_where_they_are() {
+    let run = stalling(Duration::MAX)
+        .act(9_000, Act::Pause)
+        .act(10_000, Act::Resume)
+        .run(12_000);
+    let (paused, resumed) = (run.acted[0], run.acted[1]);
+    let stood = paused.as_millis() as u64;
+    // The lights stop where they had got to on their own, not back where the music stopped.
+    for tick in ticks(&run, paused, resumed) {
+        assert!(
+            tick.light.abs_diff(stood) <= 12,
+            "{} ms at {:?}",
+            tick.light,
+            tick.at
+        );
+    }
+    // Playing again carries on from there at once.
+    for tick in ticks(&run, resumed + at(1), run.finished) {
+        let wanted = stood + (tick.at - resumed).as_millis() as u64;
+        assert!(
+            tick.light.abs_diff(wanted) <= 12,
+            "{} ms at {:?}",
+            tick.light,
+            tick.at
+        );
+    }
+    assert!(
+        run.frames().windows(2).all(|pair| pair[1] > pair[0]),
+        "never back"
+    );
+}
+
+#[test]
+fn a_jump_while_the_sound_device_is_stalled_plays_on_from_there_at_once() {
+    let run = stalling(Duration::MAX).act(9_000, Act::Seek(30_000)).run(11_000);
+    let jumped = run.acted[0];
+    assert_eq!(run.shown_in(jumped, run.finished)[0].frame, 1200);
+    // The lights don't stand still for another second to find out the device is still stalled.
+    for tick in ticks(&run, jumped + at(1), run.finished) {
+        let wanted = 30_000 + (tick.at - jumped).as_millis() as u64;
+        assert!(
+            tick.light.abs_diff(wanted) <= 12,
+            "{} ms at {:?}",
+            tick.light,
+            tick.at
+        );
+        assert_eq!(tick.note.as_deref(), Some(STALL_NOTE), "at {:?}", tick.at);
+    }
+}
+
+#[test]
+fn a_new_speed_while_the_sound_device_is_stalled_carries_on_from_where_the_lights_are() {
+    let run = stalling(Duration::MAX).act(9_000, Act::Speed(0.5)).run(11_000);
+    let slowed = run.acted[0];
+    for tick in ticks(&run, slowed + at(1), run.finished) {
+        let wanted = slowed.as_millis() as u64 + (tick.at - slowed).as_millis() as u64 / 2;
+        assert!(
+            tick.light.abs_diff(wanted) <= 12,
+            "{} ms at {:?}",
+            tick.light,
+            tick.at
+        );
+    }
+}
+
+#[test]
+fn a_device_that_comes_back_after_a_pause_plays_from_where_the_lights_stopped() {
+    // Stalled from 5 s; paused at 9 s with the lights at 9 s; the device is back by the time
+    // play is pressed again.
+    let run = stalling(at(9_500))
+        .act(9_000, Act::Pause)
+        .act(10_000, Act::Resume)
+        .run(12_000);
+    let (paused, resumed) = (run.acted[0], run.acted[1]);
+    let stood = paused.as_millis() as u64;
+    // The music joins the lights, rather than the lights going back four seconds to it.
+    for tick in ticks(&run, resumed + at(1), run.finished) {
+        assert!(
+            tick.light.abs_diff(tick.music.as_millis() as u64) <= 1,
+            "at {:?}",
+            tick.at
+        );
+        let wanted = stood + (tick.at - resumed).as_millis() as u64;
+        assert!(
+            tick.light.abs_diff(wanted) <= 12,
+            "{} ms at {:?}",
+            tick.light,
+            tick.at
+        );
+    }
+    // Once the music is seen to move again, nothing more is said about it.
+    assert!(ticks(&run, resumed + at(40), run.finished).all(|t| t.note.is_none()));
+}

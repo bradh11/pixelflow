@@ -33,6 +33,8 @@ pub trait AudioClock {
     fn start(&mut self, position: Duration);
     fn pause(&mut self);
     fn resume(&mut self);
+    /// Jumps to `position`. The clock reads that position from then on, even before a slow
+    /// sound device has followed (playback relies on it to place the lights at once).
     fn seek(&mut self, position: Duration);
     /// Where playback is now.
     fn position(&self) -> Duration;

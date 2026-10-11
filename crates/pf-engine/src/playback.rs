@@ -343,6 +343,9 @@ struct MusicTime {
     /// The clock's last position, and when it last moved (or was resumed or jumped).
     last: Duration,
     moved: Instant,
+    /// The clock stood still for [`STALL`] when it should have been playing, and hasn't moved by
+    /// itself since: the lights keep their own time from where it stands.
+    stalled: bool,
     /// How fast it plays (1.0: as written).
     speed: f32,
     /// What the count-in and the watch for a stalled clock read the time from.
@@ -372,13 +375,28 @@ impl MusicTime {
             paused,
             last,
             moved: time.now(),
+            stalled: false,
             speed: 1.0,
             time,
         }
     }
 
+    /// While the clock isn't responding, the lights count on from where it stood. Before that
+    /// count starts again (a pause, a new speed), the clock is moved to where the lights have
+    /// got to, so they carry on from there and not from where the music stopped. A device that
+    /// comes back plays from there too.
+    fn carry_own_time(&mut self) {
+        if !self.stalled || self.paused || self.count_in.is_some() {
+            return;
+        }
+        let still = self.time.now().saturating_duration_since(self.moved);
+        self.clock.seek(self.last + still.mul_f32(self.speed));
+        self.last = self.clock.position();
+    }
+
     /// Plays at `speed` (1.0: as written) from now on.
     fn set_speed(&mut self, speed: f32) {
+        self.carry_own_time();
         self.speed = speed;
         self.clock.set_speed(speed);
         if let Some((watch, _)) = &mut self.count_in {
@@ -415,6 +433,9 @@ impl MusicTime {
         if paused == self.paused {
             return;
         }
+        if paused {
+            self.carry_own_time();
+        }
         self.paused = paused;
         match &mut self.count_in {
             Some((watch, _)) if paused => watch.pause(),
@@ -444,9 +465,14 @@ impl MusicTime {
         if position != self.last {
             self.last = position;
             self.moved = now;
+            self.stalled = false;
         }
         let still = now.saturating_duration_since(self.moved);
-        let own_time = !self.paused && (self.clock.finished() || still > STALL);
+        if !self.paused && !self.clock.finished() && still > STALL {
+            self.stalled = true;
+        }
+        // A clock known to be stalled is not waited for again after a jump or a pause.
+        let own_time = !self.paused && (self.clock.finished() || self.stalled);
         let music = if own_time {
             self.last + still.mul_f32(self.speed)
         } else {
@@ -457,10 +483,7 @@ impl MusicTime {
 
     /// The music should be moving but has stood still for a while.
     fn stalled(&self) -> bool {
-        !self.paused
-            && self.count_in.is_none()
-            && !self.clock.finished()
-            && self.time.now().saturating_duration_since(self.moved) > STALL
+        self.stalled && !self.paused && self.count_in.is_none() && !self.clock.finished()
     }
 
     /// Nothing more of the song is left to hear.

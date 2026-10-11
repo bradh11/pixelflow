@@ -6,7 +6,7 @@ import { DOT_RADIUS, GLOW_STEPS, type Halo, coreDim, glowStep, haloSprite, newSu
 const SIZE = { width: 100, height: 100 };
 // Screen = world × 10, centered: world (0, 0) is the canvas center.
 const VIEW = { cx: 0, cy: 0, zoom: 10 };
-const COLORS = { unlit: "unlit", selected: "selected", dark: "dark" };
+const COLORS = { unlit: "rgb(1, 2, 3)", selected: "rgb(7, 8, 9)", dark: "rgb(4, 5, 6)" };
 const HALF = GLOW_STEPS / 2;
 
 const prop = (id: string, points: number[], frameOffset = 0): PreviewProp => ({ prop: id, frameOffset, channelsPerPixel: 3, points });
@@ -163,36 +163,38 @@ describe("drawing pixels with their glow", () => {
     HTMLCanvasElement.prototype.getContext = getContext;
   });
 
-  /** A canvas context that records what's drawn on it, and gives the coarse picture one of its own. */
-  function canvases() {
+  /**
+   * A canvas context that records the pictures drawn on it, and gives the dots' image and the
+   * coarse picture of the halos contexts of their own (none for a canvas narrower than `from`).
+   */
+  function canvases(from = 0) {
     const drawn: { op: string; smooth: boolean; args: number[] }[] = [];
-    const styles: string[] = [];
     const main = {
       canvas: { width: 200, height: 200 },
       globalCompositeOperation: "source-over",
       imageSmoothingEnabled: false,
-      set fillStyle(v: string) {
-        styles.push(v);
-      },
-      beginPath() {},
-      moveTo() {},
-      arc() {},
-      rect() {},
-      fill() {},
       save() {},
       restore() {
         main.globalCompositeOperation = "source-over";
+        main.imageSmoothingEnabled = false;
       },
       setTransform() {},
       drawImage(_image: unknown, ...args: number[]) {
         drawn.push({ op: main.globalCompositeOperation, smooth: main.imageSmoothingEnabled, args });
       },
     };
-    const put = vi.fn();
+    // The color (red, green, blue, alpha) of the lit pixel's dot in each picture of the dots drawn, in turn.
+    const dots: number[][] = [];
+    const put = vi.fn((image: { data: Uint8ClampedArray }) => {
+      const { width, height } = main.canvas;
+      const middle = (100 * width + 100) * 4;
+      if (image.data.length === width * height * 4) dots.push(Array.from(image.data.subarray(middle, middle + 4)));
+    });
     HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement) {
-      return { createImageData: (w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4) }), putImageData: put, clearRect() {} };
+      return this.width < from ? null : { createImageData: (w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4) }), putImageData: put, clearRect() {} };
     } as unknown as typeof HTMLCanvasElement.prototype.getContext;
-    return { ctx: main as unknown as CanvasRenderingContext2D, drawn, styles, put };
+    const halos = () => drawn.filter((d) => d.op === "lighter");
+    return { ctx: main as unknown as CanvasRenderingContext2D, drawn, halos, dots, put };
   }
 
   const props = [prop("pillar", [0, 0])];
@@ -202,24 +204,32 @@ describe("drawing pixels with their glow", () => {
   const draw = (ctx: CanvasRenderingContext2D, f: Uint8Array | null, glow: number, view = CLOSE) => drawPixels(ctx, props, f, view, SIZE, new Set(), COLORS, 3, 2, glow);
 
   it("with no glow, draws crisp dots in their own colors and nothing else", () => {
-    const { ctx, drawn, styles, put } = canvases();
+    const { ctx, drawn, dots, put } = canvases();
     draw(ctx, frame, 0);
     draw(ctx, frame, 0.01);
     draw(ctx, frame, NaN);
-    expect(styles).toEqual(["rgb(255, 0, 0)", "rgb(255, 0, 0)", "rgb(255, 0, 0)"]);
-    expect(drawn).toEqual([]);
-    expect(put).not.toHaveBeenCalled();
+    expect(dots).toEqual([
+      [255, 0, 0, 255],
+      [255, 0, 0, 255],
+      [255, 0, 0, 255],
+    ]);
+    // Only the picture of the dots, as it is: nothing added, nothing smoothed.
+    expect(drawn.map((d) => [d.op, d.smooth])).toEqual([
+      ["source-over", false],
+      ["source-over", false],
+      ["source-over", false],
+    ]);
+    expect(put).toHaveBeenCalledTimes(3);
   });
 
   it("with glow, adds the halos over the dots in one enlarged, smoothed picture", () => {
-    const { ctx, drawn, styles, put } = canvases();
+    const { ctx, drawn, halos, dots, put } = canvases();
     draw(ctx, frame, 1);
-    expect(drawn).toHaveLength(1);
-    expect(drawn[0].op).toBe("lighter");
-    expect(drawn[0].smooth).toBe(true);
+    expect(drawn.map((d) => d.op)).toEqual(["source-over", "lighter"]);
+    expect(halos()[0].smooth).toBe(true);
     // The part of the coarse picture with halos in it, drawn several times its size, over the
     // lit pixel (device pixel 100, 100 of the 200 × 200 canvas).
-    const [sx, sy, sw, sh, dx, dy, dw, dh] = drawn[0].args;
+    const [sx, sy, sw, sh, dx, dy, dw, dh] = halos()[0].args;
     const cell = dw / sw;
     expect(cell).toBeGreaterThan(1);
     expect(dx).toBeCloseTo(sx * cell);
@@ -229,23 +239,25 @@ describe("drawing pixels with their glow", () => {
     expect(dx + dw).toBeGreaterThan(100);
     expect(dy).toBeLessThan(100);
     expect(dy + dh).toBeGreaterThan(100);
-    expect(put).toHaveBeenCalledTimes(1);
+    expect(put).toHaveBeenCalledTimes(2);
     // The dot is drawn dimmer by what its own halo adds back.
-    expect(styles).toEqual(["rgb(90, 0, 0)"]);
+    expect(dots).toEqual([[91, 0, 0, 255]]);
   });
 
   it("draws no halos while nothing plays, or when every pixel is off", () => {
-    const { ctx, drawn, styles, put } = canvases();
+    const { ctx, halos, dots, put } = canvases();
     draw(ctx, null, 1);
-    expect(styles).toEqual(["unlit"]);
     draw(ctx, new Uint8Array(3), 1);
-    expect(styles).toEqual(["unlit", "dark"]);
-    expect(drawn).toEqual([]);
-    expect(put).not.toHaveBeenCalled();
+    expect(dots).toEqual([
+      [1, 2, 3, 255],
+      [4, 5, 6, 255],
+    ]);
+    expect(halos()).toEqual([]);
+    expect(put).toHaveBeenCalledTimes(2);
   });
 
   it("sizes halos from the dot a pixel has in the layout, not from one drawn bigger to be seen", () => {
-    const { ctx, drawn, styles } = canvases();
+    const { ctx, halos, dots } = canvases();
     // Zoomed out: the layout's dot would be 1 screen pixel, but it's drawn with 3.
     const far = { ...VIEW, zoom: 1 / DOT_RADIUS };
     expect(planHalos(ctx, 1, far, 3, 2)?.radius).toBeCloseTo(1);
@@ -255,29 +267,42 @@ describe("drawing pixels with their glow", () => {
     draw(ctx, frame, 1, far);
     draw(ctx, frame, 1);
     // The smaller halo is drawn over less of the canvas, and its dot is dimmed less.
-    expect(drawn).toHaveLength(2);
-    expect(drawn[0].args[6]).toBeLessThan(drawn[1].args[6]);
-    const red = (style: string) => Number(/\d+/.exec(style)![0]);
-    expect(red(styles[0])).toBeGreaterThan(red(styles[1]));
-    expect(red(styles[0])).toBeLessThan(255);
+    expect(halos()).toHaveLength(2);
+    expect(halos()[0].args[6]).toBeLessThan(halos()[1].args[6]);
+    const [small, large] = dots.map(([red]) => red);
+    expect(small).toBeGreaterThan(large);
+    expect(small).toBeLessThan(255);
+  });
+
+  it("dims a dot drawn smaller than the layout's by more: it sits where its halo is strongest", () => {
+    const { ctx, halos, dots } = canvases();
+    // Pixels 6 device pixels apart: dots 4 across, in a view whose own dot is 12.
+    const row = [prop("row", [-0.05, 0, 0, 0, 0.05, 0])];
+    drawPixels(ctx, row, new Uint8Array(9).fill(200), CLOSE, SIZE, new Set(), COLORS, 3, 2, 1);
+    expect(halos()).toHaveLength(1);
+    const [[red, green, blue, alpha]] = dots;
+    expect([green, blue, alpha]).toEqual([red, red, 255]);
+    // Dimmer than drawn with no glow, and dimmer than a dot as big as its halo is made for.
+    expect(red).toBeLessThan(Math.round(200 * coreDim(GLOW_STEPS)));
+    expect(red).toBeGreaterThan(0);
   });
 
   it("draws plain dots when a halo would be too small to see", () => {
-    const { ctx, drawn, styles } = canvases();
+    const { ctx, halos, dots } = canvases();
     const tiny = { ...VIEW, zoom: 0.1 / DOT_RADIUS };
     expect(planHalos(ctx, 1, tiny, 3, 2)).toBeNull();
     draw(ctx, frame, 1, tiny);
-    expect(drawn).toEqual([]);
-    expect(styles).toEqual(["rgb(255, 0, 0)"]);
+    expect(halos()).toEqual([]);
+    expect(dots).toEqual([[255, 0, 0, 255]]);
   });
 
   it("draws the dots as they are where a halo can't be drawn", () => {
-    const { ctx, drawn, styles } = canvases();
-    HTMLCanvasElement.prototype.getContext = (() => null) as typeof HTMLCanvasElement.prototype.getContext;
-    // Another size of canvas, so the coarse picture has to be made again (and can't be).
+    // No context for a canvas as small as the coarse picture; the canvas is another size, so
+    // that picture has to be made again (and can't be).
+    const { ctx, halos, dots } = canvases(200);
     (ctx.canvas as { width: number }).width = 260;
     draw(ctx, frame, 1);
-    expect(drawn).toEqual([]);
-    expect(styles).toEqual(["rgb(255, 0, 0)"]);
+    expect(halos()).toEqual([]);
+    expect(dots).toEqual([[255, 0, 0, 255]]);
   });
 });

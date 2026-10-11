@@ -14,6 +14,10 @@ use std::io::BufReader;
 use std::ops::RangeInclusive;
 use std::path::Path;
 
+/// The largest file read as music (2 GB). An hour of sound is about 600 MB at CD quality with no
+/// compression, and about 2 GB at 24 bits and 96 kHz, so nothing a show plays comes near it. The
+/// limit keeps a file that is merely named like music (a disk image, say) from being read through.
+pub const MAX_MUSIC_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 /// The sample rates read, in Hz: from telephone quality to the highest studio rate. A header can
 /// claim any rate, and everything that works with the sound sizes itself from it: a rate of
 /// 1 Hz makes a second of sound hours long, and one of 4,000,000,000 Hz asks for buffers to
@@ -33,7 +37,8 @@ fn open_error(path: &Path, source: std::io::Error) -> AudioError {
 }
 
 /// Opens the music file at `path` for reading. Only an ordinary file is opened, never a pipe or
-/// a device: those can be read (or waited on) for ever.
+/// a device: those can be read (or waited on) for ever. And none larger than
+/// [`MAX_MUSIC_BYTES`].
 pub fn open_music_file(path: &Path) -> Result<File, AudioError> {
     let not_a_file = || std::io::Error::new(std::io::ErrorKind::InvalidInput, "not a file");
     // Looked at before opening: opening a pipe waits for whatever writes to it.
@@ -46,6 +51,11 @@ pub fn open_music_file(path: &Path) -> Result<File, AudioError> {
     let opened = file.metadata().map_err(|e| open_error(path, e))?;
     if !opened.is_file() {
         return Err(open_error(path, not_a_file()));
+    }
+    if opened.len() > MAX_MUSIC_BYTES {
+        return Err(AudioError::TooLarge {
+            path: path.display().to_string(),
+        });
     }
     Ok(file)
 }
@@ -190,6 +200,28 @@ mod tests {
         let song = dir.path().join("song.wav");
         std::fs::write(&song, wav(44_100, 2, 10)).unwrap();
         assert!(open_music_file(&song).is_ok());
+    }
+
+    #[test]
+    fn a_file_larger_than_any_music_is_not_read() {
+        let dir = tempfile::tempdir().unwrap();
+        // Lengths only: nothing is written, so these take no room on disk.
+        let sized = |name: &str, len: u64| {
+            let path = dir.path().join(name);
+            File::create(&path).unwrap().set_len(len).unwrap();
+            path
+        };
+        let huge = sized("huge.wav", MAX_MUSIC_BYTES + 1);
+        let error = open_music_file(&huge).unwrap_err();
+        assert!(matches!(error, AudioError::TooLarge { .. }), "{error:?}");
+        assert!(
+            error
+                .to_string()
+                .ends_with("huge.wav is larger than 2 GB, which is more than PixelFlow reads as music."),
+            "{error}"
+        );
+        assert!(matches!(open_decoder(&huge), Err(AudioError::TooLarge { .. })));
+        assert!(open_music_file(&sized("most.wav", MAX_MUSIC_BYTES)).is_ok());
     }
 
     /// Reading a device named as music would never end.

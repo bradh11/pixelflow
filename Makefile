@@ -5,7 +5,7 @@ SHELL_CRATE := app/src-tauri
 SHOW ?= examples/shows/demo.pixelflow.json
 
 .DEFAULT_GOAL := help
-.PHONY: help setup run ui test test-rust test-app lint fmt build licenses audit cli-validate cli-map discover clean
+.PHONY: help setup run ui test test-rust test-app lint fmt build licenses audit version bump cli-validate cli-map discover clean
 
 help: ## List the available commands
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -51,6 +51,14 @@ licenses: $(APP)/node_modules ## Rewrite the dependency licence inventory and th
 audit: ## Check dependencies against the advisory databases (needs cargo-audit; same as CI)
 	node --test scripts/audit.test.mjs
 	node scripts/audit.mjs
+
+version: ## Print the version and check every file agrees on it (same as CI)
+	node --test scripts/version.test.mjs
+	node scripts/version.mjs check
+
+bump: ## Set the version in every file: make bump VERSION=0.2.0 (add DRY=1 to only see what would change)
+	@test -n "$(VERSION)" || { echo "Which version? Like: make bump VERSION=0.2.0"; exit 2; }
+	node scripts/version.mjs set $(VERSION) $(if $(DRY),--dry-run,)
 
 cli-validate: ## Check a show file: make cli-validate SHOW=path/to/show.pixelflow.json
 	cargo run -q -p pf-cli -- validate $(SHOW)

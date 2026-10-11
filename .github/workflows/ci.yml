@@ -33,9 +33,15 @@ jobs:
       - name: Format
         if: runner.os == 'Linux'
         run: cargo fmt --all --check
+      - name: Every file says the same version
+        if: runner.os == 'Linux'
+        run: node --test scripts/version.test.mjs && node scripts/version.mjs check
       - name: Lint
+        if: ${{ !cancelled() }}
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # Every crate's tests run, and run even when a lint failed: one run shows all there is to fix.
       - name: Test
+        if: ${{ !cancelled() }}
         run: cargo test --workspace --locked --no-fail-fast
 
   # The UI and the desktop shell, on the two systems the app ships for.
@@ -70,14 +76,18 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
+      # The shell is built and checked even when a UI test failed (it only needs the built UI).
       - run: pnpm build
+        if: ${{ !cancelled() }}
       - name: Desktop shell format
-        if: runner.os == 'macOS'
+        if: ${{ !cancelled() && runner.os == 'macOS' }}
         working-directory: app/src-tauri
         run: cargo fmt --check
       - name: Desktop shell lint
+        if: ${{ !cancelled() }}
         working-directory: app/src-tauri
         run: cargo clippy --all-targets --locked -- -D warnings
       - name: Desktop shell test
+        if: ${{ !cancelled() }}
         working-directory: app/src-tauri
         run: cargo test --locked --no-fail-fast

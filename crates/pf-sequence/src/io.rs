@@ -30,7 +30,7 @@ type Migration = fn(Value) -> Result<Value, SequenceError>;
 
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
 const MIGRATIONS: &[Migration] = &[
-    v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10,
+    v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11,
 ];
 
 /// Version 2 only adds submodel targets, so version 1 documents are already valid.
@@ -84,6 +84,13 @@ fn v8_to_v9(doc: Value) -> Result<Value, SequenceError> {
 /// (Spiral's `lean` and looks; Bars' `motion`, `fill`, `center`, and looks; On's `solid`,
 /// `transparency`, and `shimmer`), so version 9 documents are already valid.
 fn v9_to_v10(doc: Value) -> Result<Value, SequenceError> {
+    Ok(doc)
+}
+
+/// Version 11 only adds effect settings with defaults for when they're missing (Fire's
+/// `location`, `style`, `hueShift`, `growthCycles`, and `growWithMusic`: rolling flames from the
+/// bottom, as before), so version 10 documents are already valid.
+fn v10_to_v11(doc: Value) -> Result<Value, SequenceError> {
     Ok(doc)
 }
 
@@ -313,7 +320,7 @@ mod tests {
             .effects
             .push(crate::Effect::new(crate::EffectKind::Dancer, 500, 1000).with_params(dancer));
         let saved = sequence_to_json(&seq).unwrap();
-        assert!(saved.contains(r#""schemaVersion": 10"#), "{saved}");
+        assert!(saved.contains(r#""schemaVersion": 11"#), "{saved}");
         assert_eq!(sequence_from_json(&saved).unwrap(), seq);
     }
 
@@ -351,7 +358,7 @@ mod tests {
             .effects
             .push(crate::Effect::new(crate::EffectKind::Picture, 500, 1000).with_params(picture));
         let saved = sequence_to_json(&seq).unwrap();
-        assert!(saved.contains(r#""schemaVersion": 10"#), "{saved}");
+        assert!(saved.contains(r#""schemaVersion": 11"#), "{saved}");
         assert!(saved.contains(r#""file": "images/santa dancing.gif""#), "{saved}");
         assert_eq!(sequence_from_json(&saved).unwrap(), seq);
         // A new picture has no file yet and plays at its own speed; settings out of range are
@@ -401,6 +408,50 @@ mod tests {
             );
             assert_eq!(sequence_from_json(&saved).unwrap(), seq);
         }
+    }
+
+    #[test]
+    fn version_10_files_open_with_the_fire_they_had_and_its_new_settings_round_trip() {
+        let text = r#"{ "schemaVersion": 10, "name": "x", "durationMs": 1000, "rows": [
+            { "id": "11111111-0000-4000-8000-000000000001",
+              "target": { "prop": "22222222-0000-4000-8000-000000000001" },
+              "layers": [ { "effects": [ { "id": "33333333-0000-4000-8000-000000000001",
+                  "startMs": 0, "endMs": 500, "params": { "kind": "fire", "height": 0.6 } } ] } ] } ] }"#;
+        let mut seq = sequence_from_json(text).unwrap();
+        assert_eq!(seq.schema_version, CURRENT_SCHEMA_VERSION);
+        // Rolling flames from the bottom, as a fire always was.
+        assert_eq!(
+            seq.rows[0].layers[0].effects[0].params,
+            EffectParams::Fire(crate::FireParams {
+                height: 0.6,
+                sparks: 0.6,
+                location: crate::FireLocation::Bottom,
+                style: crate::FireStyle::Rolling,
+                hue_shift: 0.0,
+                growth_cycles: 0.0,
+                grow_with_music: false,
+            })
+        );
+        let flicker: EffectParams = serde_json::from_str(
+            r#"{ "kind": "fire", "style": "flicker", "location": "left", "hueShift": 0.3,
+                 "growthCycles": 99, "growWithMusic": true }"#,
+        )
+        .unwrap();
+        seq.rows[0].layers[0]
+            .effects
+            .push(crate::Effect::new(crate::EffectKind::Fire, 500, 1000).with_params(flicker));
+        let saved = sequence_to_json(&seq).unwrap();
+        assert!(saved.contains(r#""schemaVersion": 11"#), "{saved}");
+        assert!(saved.contains(r#""style": "flicker""#), "{saved}");
+        let again = sequence_from_json(&saved).unwrap();
+        // Out-of-range settings are pulled back in on open.
+        let EffectParams::Fire(p) = &again.rows[0].layers[0].effects[1].params else {
+            panic!("a fire")
+        };
+        assert_eq!(
+            (p.style, p.location, p.growth_cycles, p.grow_with_music),
+            (crate::FireStyle::Flicker, crate::FireLocation::Left, 20.0, true)
+        );
     }
 
     #[test]
@@ -506,7 +557,7 @@ mod tests {
             sequence_from_json(r#"{ "schemaVersion": "1", "name": "x" }"#),
             Err(SequenceError::InvalidSchemaVersion(_))
         ));
-        let err = sequence_from_json(r#"{ "schemaVersion": 11, "name": "x" }"#).unwrap_err();
+        let err = sequence_from_json(r#"{ "schemaVersion": 12, "name": "x" }"#).unwrap_err();
         assert!(err.to_string().contains("update PixelFlow"), "{err}");
         assert!(matches!(sequence_from_json("[1, 2"), Err(SequenceError::Json(_))));
     }

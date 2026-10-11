@@ -3,9 +3,9 @@
 use pf_model::{Generator, Group, GroupMember, Prop, Provenance, ShapeSource, Show, Vec3};
 use pf_sequence::{
     Axis, BarsMotion, BarsParams, Blend, ChaseParams, ColorWashParams, Direction, Effect, EffectParams,
-    FaceColorSource, FaceEyes, FacesParams, FireParams, Gradient, Mark, MeteorDirection, MeteorsParams,
-    OnParams, Rgb, RippleParams, Row, RowBlending, ShapeObject, ShimmerParams, SpiralParams, StrobeParams,
-    Target, TimingKind, TwinkleParams, WaveParams,
+    FaceColorSource, FaceEyes, FacesParams, FireParams, FireStyle, Gradient, Mark, MeteorDirection,
+    MeteorsParams, OnParams, Rgb, RippleParams, Row, RowBlending, ShapeObject, ShimmerParams, SpiralParams,
+    StrobeParams, Target, TimingKind, TwinkleParams, WaveParams,
 };
 use pf_xlights::sequence::{Fidelity, SequenceImport, build_sequence, parse_xsq};
 use pf_xlights::{import_folder, import_sequence_file};
@@ -491,6 +491,7 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
             }),
             EffectParams::Fire(FireParams {
                 height: 0.7,
+                style: FireStyle::Flicker,
                 ..FireParams::default()
             }),
             EffectParams::Meteors(MeteorsParams {
@@ -549,7 +550,7 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
     let s = i.summary;
     assert_eq!(s.rows, 9);
     assert_eq!(s.effects, 23);
-    assert_eq!((s.exact, s.approximate, s.placeholders), (17, 6, 0));
+    assert_eq!((s.exact, s.approximate, s.placeholders), (18, 5, 0));
     assert_eq!(
         s.skipped,
         1 + 3 + 2,

@@ -13,7 +13,7 @@
 use crate::geometry::Members;
 use crate::picture::Pictures;
 use pf_sequence::{
-    CurveInputs, Effect, EffectParams, Mark, PulseSource, Sequence, TendrilMovement, TimingTrack,
+    CurveInputs, Effect, EffectParams, FireStyle, Mark, PulseSource, Sequence, TendrilMovement, TimingTrack,
 };
 use std::borrow::Cow;
 use std::sync::{Arc, OnceLock};
@@ -35,6 +35,7 @@ pub fn effect_follows_music(effect: &Effect) -> bool {
                 )
             }
             EffectParams::Shape(p) => p.fire_on_music && p.timing_track.is_none(),
+            EffectParams::Fire(p) => p.style == FireStyle::Flicker && p.grow_with_music,
             EffectParams::Pulse(p) => p.source != PulseSource::Marks,
             EffectParams::Dancer(p) => p.bass_bounce > 0.0 || effect.curves.contains_key("bassBounce"),
             _ => false,

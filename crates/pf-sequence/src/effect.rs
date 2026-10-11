@@ -1287,14 +1287,54 @@ effect_params! {
     }
 }
 
+/// How Fire makes its flames.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum FireStyle {
+    /// Heat that rises and cools from one moment to the next.
+    #[default]
+    Rolling,
+    /// New flames every frame, drawn cell by cell on the prop's grid, as xLights' Fire draws
+    /// them.
+    Flicker,
+}
+
+choices!(FireStyle { "rolling" => "Rolling", "flicker" => "Flickering (as in xLights)" });
+
+/// The edge of the prop a fire burns from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum FireLocation {
+    #[default]
+    Bottom,
+    Top,
+    Left,
+    Right,
+}
+
+choices!(FireLocation { "bottom" => "The bottom", "top" => "The top", "left" => "The left", "right" => "The right" });
+
 effect_params! {
-    /// Flames rising from the bottom of the prop.
+    /// Flames rising from one edge of the prop.
     #[derive(Copy)]
     pub struct FireParams {
-        /// How high the flames reach, as a fraction of the prop's height (0–1).
+        /// How far the flames reach, as a fraction of the prop's height (0–1).
         height: f32 = 0.8 => "height", "Height", number(0.0, 1.0, 0.01);
-        /// How often new flames flare up (0–1).
+        /// How often new flames flare up (0–1), for rolling flames.
         sparks: f32 = 0.6 => "sparks", "Sparks", number(0.0, 1.0, 0.01);
+        /// The edge the flames burn from.
+        location: FireLocation = FireLocation::Bottom => "location", "Burns from", choice;
+        /// Rolling flames, or xLights' flickering ones.
+        style: FireStyle = FireStyle::Rolling => "style", "Flames", choice, more;
+        /// Moves flickering flames' colors round the color wheel, red toward yellow, green,
+        /// and blue (0–1).
+        hue_shift: f32 = 0.0 => "hueShift", "Hue shift", number(0.0, 1.0, 0.01), more;
+        /// Times flickering flames grow taller and shrink back over the effect (0: steady).
+        growth_cycles: f32 = 0.0 => "growthCycles", "Grow and shrink", number(0.0, 20.0, 0.1, "times"), more;
+        /// Flickering flames as tall as the music is loud, instead of the height above.
+        grow_with_music: bool = false => "growWithMusic", "Grow with the music", toggle, more;
     }
 }
 

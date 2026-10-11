@@ -113,6 +113,7 @@ None of these files has a test module, so impl equals total lines.
 | `life.rs` | 132 | `effects/LifeEffect.cpp`; `ispc/LifeFunctions.ispc` | about 50% (likely) | Seeding count `W*H*density/200 + 1`, pacing, the five rule sets in order. The generation step is ordinary Game of Life. | **S** |
 | `plasma.rs` | 123 | `effects/PlasmaEffect.cpp` `Render`; `ispc/PlasmaFunctions.ispc` | about 85% | The seven-term sine sum term for term, with xLights' field names (`sin_time_5`, `cos_time_3`); the five colour schemes. xLights' own comment credits a public plasma tutorial. | **S** |
 | `garlands.rs` | 89 | `effects/GarlandsEffect.cpp` `Render`; `ispc/GarlandsFunctions.ispc` | about 90% | Spacing, direction folding, ring position step for step; four swag patterns. | **S** |
+| `fire.rs` | 387 (impl 158, with a test module) | `effects/FireEffect.cpp` (`Render`, `FirePaletteClass`), read at tag `2024.19` | about 90% | The edge row seeded `190 + rand % 10` and `100 + rand % 50` in turn, the mean of the row before with the cell straight behind counted twice, the one-in-five step of `255 * 100 / height / percent`, the 200-shade palette (hue step `0.00166666`), the hue shift stopped at 1, `10 + 90 × peak` for the music, and the four locations. Random numbers come from the effect's seed and the frame rather than `rand()`. | **S** |
 
 ### Shared render code with a ported function group (`crates/pf-render/src/`)
 

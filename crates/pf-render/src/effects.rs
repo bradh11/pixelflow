@@ -16,6 +16,7 @@ use crate::color::{Colors, Rgba, unit};
 pub use crate::color_shift::ColorShift;
 pub use crate::dancer::Dancer;
 pub use crate::fan::Fan;
+use crate::fire::Flames;
 pub use crate::garlands::Garlands;
 use crate::geometry::Members;
 use crate::geometry::Pixel;
@@ -38,8 +39,9 @@ pub use crate::vumeter::VuMeter;
 pub use crate::wipe::Wipe;
 use pf_sequence::{
     Axis, BarsMotion, BarsParams, ChaseOrder, ChaseParams, ColorWashParams, Direction, EffectParams,
-    FadeDirection, FadeParams, FireParams, Gradient, MeteorDirection, MeteorsParams, OnParams, RippleParams,
-    ShapeParams, ShimmerParams, SpiralParams, StrobeParams, TwinkleParams, WaveParams,
+    FadeDirection, FadeParams, FireLocation, FireParams, FireStyle, Gradient, MeteorDirection, MeteorsParams,
+    OnParams, RippleParams, ShapeParams, ShimmerParams, SpiralParams, StrobeParams, TwinkleParams,
+    WaveParams,
 };
 use std::f32::consts::TAU;
 use std::sync::Arc;
@@ -809,6 +811,7 @@ const FIRE_WARMUP_STEPS: u64 = FIRE_ROWS as u64 + 24;
 pub struct Fire {
     heat: Box<[[u8; FIRE_COLUMNS]; FIRE_ROWS]>,
     height: f32,
+    location: FireLocation,
 }
 
 impl Fire {
@@ -851,6 +854,7 @@ impl Fire {
         Self {
             heat,
             height: unit(p.height),
+            location: p.location,
         }
     }
 
@@ -875,11 +879,18 @@ fn heat_color(heat: u8) -> Rgba {
 impl Shade for Fire {
     #[inline]
     fn shade(&self, px: &Pixel) -> Rgba {
-        if self.height <= 0.0 || px.v > self.height {
+        // Along the edge the fire burns from, and away from it.
+        let (u, v) = match self.location {
+            FireLocation::Bottom => (px.u, px.v),
+            FireLocation::Top => (px.u, 1.0 - px.v),
+            FireLocation::Left => (px.v, px.u),
+            FireLocation::Right => (px.v, 1.0 - px.u),
+        };
+        if self.height <= 0.0 || v > self.height {
             return Rgba::CLEAR;
         }
-        let row = ((px.v / self.height) * FIRE_ROWS as f32) as usize;
-        let column = (px.u * FIRE_COLUMNS as f32) as usize;
+        let row = ((v / self.height) * FIRE_ROWS as f32) as usize;
+        let column = (u * FIRE_COLUMNS as f32) as usize;
         heat_color(self.heat[row.min(FIRE_ROWS - 1)][column.min(FIRE_COLUMNS - 1)])
     }
 }
@@ -1077,6 +1088,7 @@ pub enum Shader {
     Strobe(Strobe),
     Spiral(Spiral),
     Fire(Fire),
+    Flames(Flames),
     Meteors(Meteors),
     Ripple(Ripple),
     Shape(Shape),
@@ -1176,6 +1188,9 @@ impl Shader {
             EffectParams::Shimmer(p) => Shader::Shimmer(Shimmer::new(p, time, colors)),
             EffectParams::Strobe(p) => Shader::Strobe(Strobe::new(p, time, colors, seed)),
             EffectParams::Spiral(p) => Shader::Spiral(Spiral::new(p, time, colors, canvas)),
+            EffectParams::Fire(p) if p.style == FireStyle::Flicker => {
+                Shader::Flames(Flames::new(p, time, seed, canvas, cx))
+            }
             EffectParams::Fire(p) => Shader::Fire(Fire::new(p, time, seed)),
             EffectParams::Meteors(p) => Shader::Meteors(Meteors::new(p, time, colors, seed, canvas)),
             EffectParams::Ripple(p) => Shader::Ripple(Ripple::new(p, time, colors)),
@@ -1233,6 +1248,7 @@ impl Shader {
             Shader::Strobe(s) => each.visit(s),
             Shader::Spiral(s) => each.visit(s),
             Shader::Fire(s) => each.visit(s),
+            Shader::Flames(s) => each.visit(s),
             Shader::Meteors(s) => each.visit(s),
             Shader::Ripple(s) => each.visit(s),
             Shader::Shape(s) => each.visit(s),

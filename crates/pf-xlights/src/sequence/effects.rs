@@ -14,14 +14,14 @@ use pf_model::{BufferTransform, RenderStyle};
 use pf_sequence::{
     Axis, BarsMotion, BarsParams, Blend, ButterflyColors, ButterflyParams, ChaseParams, CirclesLook,
     CirclesParams, ColorWashParams, Curve, CurveShape, Direction, EffectParams, FaceColorSource, FaceEyes,
-    FacesParams, FanParams, FireParams, GarlandShape, GarlandsDirection, GarlandsParams, Gradient,
-    LifeParams, LifeRules, LightningParams, LinesParams, MAX_CURVE_CYCLES, MIN_CURVE_CYCLES, MeteorDirection,
-    MeteorsParams, MorphParams, OffParams, OnParams, Palette, PictureFit, PictureMovement, PictureParams,
-    PictureTiming, PinwheelParams, PinwheelShading, PinwheelStyle, PlasmaColors, PlasmaParams, Rgb,
-    RippleParams, SettingRange, ShapeObject, ShapeParams, ShimmerParams, SnowflakeShape, SnowflakesMotion,
-    SnowflakesParams, SpiralParams, StrobeParams, TendrilMovement, TendrilParams, TextCountdown,
-    TextMovement, TextOrientation, TextParams, TwinkleParams, VuMeterParams, VuMeterShape, VuMeterType,
-    WaveParams,
+    FacesParams, FanParams, FireLocation, FireParams, FireStyle, GarlandShape, GarlandsDirection,
+    GarlandsParams, Gradient, LifeParams, LifeRules, LightningParams, LinesParams, MAX_CURVE_CYCLES,
+    MIN_CURVE_CYCLES, MeteorDirection, MeteorsParams, MorphParams, OffParams, OnParams, Palette, PictureFit,
+    PictureMovement, PictureParams, PictureTiming, PinwheelParams, PinwheelShading, PinwheelStyle,
+    PlasmaColors, PlasmaParams, Rgb, RippleParams, SettingRange, ShapeObject, ShapeParams, ShimmerParams,
+    SnowflakeShape, SnowflakesMotion, SnowflakesParams, SpiralParams, StrobeParams, TendrilMovement,
+    TendrilParams, TextCountdown, TextMovement, TextOrientation, TextParams, TwinkleParams, VuMeterParams,
+    VuMeterShape, VuMeterType, WaveParams,
 };
 use std::collections::BTreeMap;
 
@@ -733,27 +733,35 @@ fn spirals(r: &Reader, n_colors: f64, duration_ms: u64) -> EffectParams {
     })
 }
 
-/// PixelFlow's Fire is a simulation of its own, not xLights' (`FireEffect::Render` builds each
-/// frame's flames afresh on the target's grid): the same kind of look, measurably different.
-fn fire(r: &Reader, diff: &mut Diff) -> EffectParams {
-    diff.add("PixelFlow's own flames: their shape and random placement differ from xLights'");
-    if r.get("Fire_HueShift", 0.0, 0.0, 100.0) > 0.0 {
-        diff.add("hue shift not applied");
-    }
-    if r.get("Fire_GrowthCycles", 0.0, 0.0, 20.0) > 0.0 || r.check("Fire_GrowWithMusic") {
-        diff.add("growing flames shown at a steady height");
-    }
-    let location = r.choice("Fire_Location", "Bottom");
-    if location != "Bottom" {
-        diff.add(format!(
-            "fire from the {} shown rising from the bottom",
-            location.to_lowercase()
-        ));
-    }
+/// xLights' Fire (`FireEffect::Render`), which PixelFlow's flickering flames draw the same way.
+/// Where each flame lands is random on both sides.
+fn fire(r: &Reader) -> EffectParams {
+    let hue_shift = r.get("Fire_HueShift", 0.0, 0.0, 100.0);
     EffectParams::Fire(FireParams {
         height: unit(r.get("Fire_Height", 50.0, 1.0, 100.0) / 100.0),
+        style: FireStyle::Flicker,
+        location: match r.choice("Fire_Location", "Bottom") {
+            "Top" => FireLocation::Top,
+            "Left" => FireLocation::Left,
+            "Right" => FireLocation::Right,
+            _ => FireLocation::Bottom,
+        },
+        hue_shift: unit(hue_shift.trunc() / 100.0),
+        growth_cycles: r.get("Fire_GrowthCycles", 0.0, 0.0, 20.0) as f32,
+        grow_with_music: r.check("Fire_GrowWithMusic"),
         ..FireParams::default()
     })
+}
+
+/// A hue-shifted fire's dim flames are both darker and see-through in xLights on a layer blended
+/// Normal, and only darker on any other, where PixelFlow's stay both.
+fn dim_flames(params: &EffectParams, curves: &BTreeMap<String, Curve>, blend: Blend, diff: &mut Diff) {
+    let EffectParams::Fire(p) = params else {
+        return;
+    };
+    if blend != Blend::Normal && (p.hue_shift > 0.0 || curves.contains_key("hueShift")) {
+        diff.add("a hue-shifted fire's dim flames are dimmer than xLights' under this layer blending");
+    }
 }
 
 fn meteors(r: &Reader, diff: &mut Diff) -> EffectParams {
@@ -1716,7 +1724,7 @@ fn effect_params(
         "shimmer" => shimmer(&r, duration_ms, diff),
         "strobe" => strobe(&r, frame, diff),
         "spirals" => spirals(&r, n_colors, duration_ms),
-        "fire" => fire(&r, diff),
+        "fire" => fire(&r),
         "meteors" => meteors(&r, diff),
         "ripple" => ripple(&r, duration_ms, diff),
         "faces" => faces(&r, diff),
@@ -2018,6 +2026,7 @@ pub fn translate(
                 }
                 on_cycles(&start, &clamped, &mut curves, &mut diff);
                 picture_curves(&start, &clamped, &mut curves, &mut diff);
+                dim_flames(&clamped, &curves, blend, &mut diff);
                 for (id, curve) in &driven {
                     let at = |value: f64| {
                         let mut at = start.clone();
@@ -3440,29 +3449,61 @@ mod tests {
     }
 
     #[test]
-    fn fire_is_pixelflows_own_and_says_so() {
-        // Even with nothing set that PixelFlow's fire lacks, its flames aren't xLights'.
-        let s = Settings::parse("E_SLIDER_Fire_Height=70");
-        let t = translate("Fire", &s, &palette(&[]), 2000, 25).unwrap();
-        assert!(matches!(&t.params, EffectParams::Fire(p) if (p.height - 0.7).abs() < 1e-6));
+    fn fire_comes_across_as_xlights_flickering_flames() {
+        // xLights' defaults: half height, from the bottom, steady.
+        let t = translate("Fire", &Settings::parse(""), &palette(&[]), 2000, 25).unwrap();
         assert_eq!(
-            t.fidelity,
+            t.params,
+            EffectParams::Fire(FireParams {
+                height: 0.5,
+                style: FireStyle::Flicker,
+                ..FireParams::default()
+            })
+        );
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        let s = Settings::parse(
+            "E_SLIDER_Fire_Height=70,E_SLIDER_Fire_HueShift=40,E_CHOICE_Fire_Location=Right,\
+             E_TEXTCTRL_Fire_GrowthCycles=3.5,E_CHECKBOX_Fire_GrowWithMusic=1",
+        );
+        let t = translate("Fire", &s, &palette(&[]), 2000, 25).unwrap();
+        assert_eq!(
+            t.params,
+            EffectParams::Fire(FireParams {
+                height: 0.7,
+                style: FireStyle::Flicker,
+                location: FireLocation::Right,
+                hue_shift: 0.4,
+                growth_cycles: 3.5,
+                grow_with_music: true,
+                ..FireParams::default()
+            })
+        );
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        // The height as a curve (slider units), and growth cycles as one (tenths).
+        let s = Settings::parse(
+            "E_VALUECURVE_Fire_Height=Active=TRUE|Id=ID_VALUECURVE_Fire_Height|Type=Ramp|Min=1.00|Max=100.00|P1=20.00|P2=80.00|RV=TRUE|,\
+             E_VALUECURVE_Fire_GrowthCycles=Active=TRUE|Id=ID_VALUECURVE_Fire_GrowthCycles|Type=Ramp|Min=0.00|Max=200.00|P1=0.00|P2=100.00|RV=TRUE|",
+        );
+        let t = translate("Fire", &s, &palette(&[]), 2000, 25).unwrap();
+        assert_eq!(t.curves["height"], Curve::ramp(0.2, 0.8));
+        assert_eq!(t.curves["growthCycles"], Curve::ramp(0.0, 10.0));
+        assert_eq!(t.fidelity, Fidelity::Exact);
+    }
+
+    #[test]
+    fn a_hue_shifted_fire_under_another_layer_blend_says_its_dim_flames_differ() {
+        let s = Settings::parse("E_SLIDER_Fire_HueShift=40,T_CHOICE_LayerMethod=Additive");
+        assert_eq!(
+            translate("Fire", &s, &palette(&[]), 2000, 25).unwrap().fidelity,
             Fidelity::Approximate(vec![
-                "PixelFlow's own flames: their shape and random placement differ from xLights'".into()
+                "a hue-shifted fire's dim flames are dimmer than xLights' under this layer blending".into()
             ])
         );
-        let s = Settings::parse("E_SLIDER_Fire_HueShift=40,E_CHOICE_Fire_Location=Top");
-        let Fidelity::Approximate(reasons) = translate("Fire", &s, &palette(&[]), 2000, 25).unwrap().fidelity
-        else {
-            panic!("approximate")
-        };
+        // Without a hue shift the two draw the same under any blend.
+        let s = Settings::parse("T_CHOICE_LayerMethod=Additive");
         assert_eq!(
-            reasons,
-            [
-                "PixelFlow's own flames: their shape and random placement differ from xLights'",
-                "hue shift not applied",
-                "fire from the top shown rising from the bottom",
-            ]
+            translate("Fire", &s, &palette(&[]), 2000, 25).unwrap().fidelity,
+            Fidelity::Exact
         );
     }
 

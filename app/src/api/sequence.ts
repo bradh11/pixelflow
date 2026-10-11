@@ -149,7 +149,18 @@ export type EffectParams =
       grow?: boolean;
       shrink?: boolean;
     }
-  | { kind: "fire"; height?: number; sparks?: number }
+  | {
+      kind: "fire";
+      height?: number;
+      sparks?: number;
+      /** The edge the flames burn from. */
+      location?: "bottom" | "top" | "left" | "right";
+      /** Rolling flames, or xLights' flickering ones. */
+      style?: "rolling" | "flicker";
+      hueShift?: number;
+      growthCycles?: number;
+      growWithMusic?: boolean;
+    }
   | { kind: "meteors"; count?: number; speed?: number; length?: number; direction?: "down" | "up" | "left" | "right" }
   | { kind: "ripple"; speed?: number; spacing?: number; thickness?: number }
   | {

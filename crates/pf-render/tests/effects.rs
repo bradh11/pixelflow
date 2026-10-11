@@ -903,6 +903,7 @@ fn hostile_settings_never_panic_or_produce_garbage() {
         EffectParams::Fire(FireParams {
             height: f32::NAN,
             sparks: 99.0,
+            ..FireParams::default()
         }),
     ];
     for p in &params {

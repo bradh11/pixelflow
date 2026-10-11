@@ -438,7 +438,7 @@ export function diffSequences(before: Sequence, after: Sequence): SequenceChange
 }
 
 function newSequence(name: string, durationMs: number): Sequence {
-  return { schemaVersion: 10, name, audio: null, durationMs, frameMs: 25, timingTracks: [], rows: [] };
+  return { schemaVersion: 11, name, audio: null, durationMs, frameMs: 25, timingTracks: [], rows: [] };
 }
 
 /** Find lyrics' steps that read the whole song, and so report how far they've got. */

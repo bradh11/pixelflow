@@ -815,6 +815,13 @@ fn frames_are_reproducible_in_any_order() {
     let show = show();
     let mut seq = Sequence::new("s", 10_000);
     let g = Target::Group(show.groups[0].id);
+    // Rolling flames, and xLights' flickering ones growing and shrinking.
+    let flicker = Effect::new(EffectKind::Fire, 0, 10_000).with_params(EffectParams::Fire(FireParams {
+        style: FireStyle::Flicker,
+        growth_cycles: 4.0,
+        hue_shift: 0.1,
+        ..Default::default()
+    }));
     seq.rows.push(row(
         g,
         vec![
@@ -822,6 +829,8 @@ fn frames_are_reproducible_in_any_order() {
             vec![Effect::new(EffectKind::Twinkle, 0, 10_000).with_palette([Rgb::BLUE])],
         ],
     ));
+    seq.rows
+        .push(row(Target::Prop(show.props[0].id), vec![vec![flicker]]));
     let mut r = renderer(&show);
     let mut forward = Vec::new();
     let mut frame = vec![0; r.frame_len()];
@@ -829,6 +838,7 @@ fn frames_are_reproducible_in_any_order() {
         r.render_frame(&seq, i, &mut frame);
         forward.push(frame.clone());
     }
+    assert!(forward.windows(2).all(|w| w[0] != w[1]), "flames move");
     let mut fresh = renderer(&show);
     for i in (0..40).rev() {
         fresh.render_frame(&seq, i, &mut frame);

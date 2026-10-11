@@ -19,8 +19,9 @@ use serde::{Deserialize, Serialize};
 /// Sing, Color Shift) and Chase's order and timing track; 8 = the Dancer effect; 9 = the Picture
 /// effect; 10 = the sequence says how its rows meet the rows before them (`rowBlending`), and
 /// Spiral has a `lean` and looks, Bars a movement, bar size, center, and looks, and On can be
-/// solid, see-through, and shimmer.
-pub const CURRENT_SCHEMA_VERSION: u32 = 10;
+/// solid, see-through, and shimmer; 11 = Fire can burn from any edge and draw xLights'
+/// flickering flames (`location`, `style`, `hueShift`, `growthCycles`, `growWithMusic`).
+pub const CURRENT_SCHEMA_VERSION: u32 = 11;
 
 fn default_frame_ms() -> u32 {
     25

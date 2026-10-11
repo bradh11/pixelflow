@@ -21,6 +21,7 @@ mod effects;
 pub mod export;
 pub mod faces;
 mod fan;
+mod fire;
 mod garlands;
 mod geometry;
 mod impact;

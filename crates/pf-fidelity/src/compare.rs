@@ -6,6 +6,7 @@
 //! what PixelFlow would write against what xLights wrote, channel for channel.
 
 use crate::layout::{ComparisonShow, comparison_show};
+use crate::look::{Grid, Look, LookStats, Scratch};
 use crate::metrics::{Limits, PIXELFLOW, Sample, Stats, XLIGHTS};
 use crate::scorecard::{
     AuditLimits, Class, Coverage, EffectScore, Gap, Label, Method, Music, OffsetError, Onset, PropScore,
@@ -16,7 +17,7 @@ use pf_model::{PropId, Show};
 use pf_render::export::{ExportError, export_fseq, export_layout};
 use pf_render::{AudioSource, Pictures, SceneGeometry};
 use pf_sequence::{Effect, EffectParams, Sequence, Target, TendrilMovement};
-use pf_xlights::sequence::{Fidelity, SequenceImport};
+use pf_xlights::sequence::{Fidelity, SequenceImport, Verdict};
 use std::collections::{BTreeMap, HashMap};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
@@ -94,6 +95,8 @@ struct PropEntry {
     /// First and last channel compared, counting from 1.
     channels: Option<(u32, u32)>,
     source: Source,
+    /// Where its pixels are on its own grid, in the show-wide list's order.
+    grid: Rc<Grid>,
 }
 
 /// One imported effect and the pixels it can be measured on.
@@ -118,7 +121,15 @@ pub struct EffectEntry {
     pub pixels: usize,
     /// Those both sides have, as places in the show-wide pixel list.
     measured: Rc<[u32]>,
+    /// Where each of those is on the target's own grid.
+    grid: Rc<Grid>,
+    /// How the importer expects it to look.
+    pub expected: Verdict,
 }
+
+/// A target's pixels: how many it has, those both sides have (as places in the show-wide pixel
+/// list), and where each of those is on the target's own grid.
+type TargetPixels = (usize, Rc<[u32]>, Rc<Grid>);
 
 /// Both renderings, open and lined up.
 pub struct Prepared {
@@ -238,25 +249,43 @@ impl Prepared {
         let pixelflow = pf_fseq::Sequence::from_reader(Cursor::new(bytes))
             .map_err(|e| FidelityError::Render(e.to_string()))?;
 
-        let (slots, props) = lay_out(&comparison, summary.channels, &reference);
+        let (slots, mut props) = lay_out(&comparison, summary.channels, &reference);
         let geometry = SceneGeometry::new(show, &comparison.map);
+        for (entry, layout) in props.iter_mut().zip(&comparison.map.props) {
+            let buffer = geometry.buffer(Target::Prop(layout.prop));
+            let mut at = vec![(0.0, 0.0); entry.pixels];
+            for (&g, px) in buffer.show_pixels().iter().zip(&buffer.pixels) {
+                if let Some(place) = (g as usize).checked_sub(entry.first).and_then(|k| at.get_mut(k)) {
+                    *place = (px.u, px.v);
+                }
+            }
+            entry.grid = Rc::new(Grid::new(&at, buffer.columns, buffer.rows));
+        }
         let labels: HashMap<_, _> = import.effects.iter().map(|e| (e.id, e)).collect();
-        let mut measured_of: HashMap<Target, (usize, Rc<[u32]>)> = HashMap::new();
+        let mut measured_of: HashMap<Target, TargetPixels> = HashMap::new();
         let mut effects = Vec::new();
         for row in &seq.rows {
-            let (pixels, measured) = measured_of
+            let (pixels, measured, grid) = measured_of
                 .entry(row.target)
                 .or_insert_with(|| {
                     let buffer = geometry.buffer(row.target);
-                    let mut measured: Vec<u32> = buffer
+                    // Each measured pixel once, with its place on the target's own grid.
+                    let mut measured: Vec<(u32, (f32, f32))> = buffer
                         .show_pixels()
                         .iter()
-                        .copied()
-                        .filter(|&g| slots.get(g as usize).is_some_and(Option::is_some))
+                        .zip(&buffer.pixels)
+                        .map(|(&g, px)| (g, (px.u, px.v)))
+                        .filter(|&(g, _)| slots.get(g as usize).is_some_and(Option::is_some))
                         .collect();
-                    measured.sort_unstable();
-                    measured.dedup();
-                    (buffer.len(), measured.into())
+                    measured.sort_by_key(|&(g, _)| g);
+                    measured.dedup_by_key(|&mut (g, _)| g);
+                    let at: Vec<(f32, f32)> = measured.iter().map(|&(_, at)| at).collect();
+                    let grid = Grid::new(&at, buffer.columns, buffer.rows);
+                    (
+                        buffer.len(),
+                        measured.iter().map(|&(g, _)| g).collect(),
+                        Rc::new(grid),
+                    )
                 })
                 .clone();
             for (layer, effect) in row
@@ -278,6 +307,7 @@ impl Prepared {
                     ),
                 };
                 let (class, class_reason, sparkles) = class_of(&kind, effect, music);
+                let expected = imported.map_or(Verdict::Close, |i| i.verdict);
                 effects.push(EffectEntry {
                     target: row.target,
                     target_name: target_name(show, row.target),
@@ -293,6 +323,8 @@ impl Prepared {
                     layer,
                     pixels,
                     measured: measured.clone(),
+                    grid: grid.clone(),
+                    expected,
                 });
             }
         }
@@ -459,10 +491,19 @@ impl Prepared {
         let mut cover = vec![0u16; count];
 
         let mut prop_stats = vec![Stats::new(frame_ms, &limits); self.props.len()];
+        let mut prop_looks: Vec<LookStats> = self
+            .props
+            .iter()
+            .map(|prop| LookStats::new(prop.grid.clone(), frame_ms, &limits))
+            .collect();
         let mut reversed = vec![0u64; self.props.len()];
         let mut unattributed = Stats::new(frame_ms, &limits);
         let mut solo = vec![Stats::new(frame_ms, &limits); self.effects.len()];
         let mut layered = vec![Stats::new(frame_ms, &limits); self.effects.len()];
+        // Each effect's look, alone and layered: summed while it plays, worked out when it ends.
+        let mut looking: Vec<Option<[LookStats; 2]>> = vec![None; self.effects.len()];
+        let mut looks: Vec<[Option<Look>; 2]> = vec![[None; 2]; self.effects.len()];
+        let mut scratch = [Scratch::default(), Scratch::default()];
         // Each effect's share of the pixel-frames it was lit on: a pixel under three effects
         // counts a third for each.
         let mut shares = vec![0f64; self.effects.len()];
@@ -487,7 +528,13 @@ impl Prepared {
 
         for frame in 0..frames {
             let at = u64::from(frame);
-            active.retain(|&i| span(&self.effects[i]).1 > at);
+            active.retain(|&i| {
+                let playing = span(&self.effects[i]).1 > at;
+                if !playing && let Some(stats) = looking[i].take() {
+                    looks[i] = stats.map(LookStats::finish);
+                }
+                playing
+            });
             let mut started = Vec::new();
             while next < starting.len() && span(&self.effects[starting[next]]).0 <= at {
                 let i = starting[next];
@@ -495,6 +542,8 @@ impl Prepared {
                 if span(&self.effects[i]).1 > at {
                     active.push(i);
                     started.push(i);
+                    let stats = || LookStats::new(self.effects[i].grid.clone(), frame_ms, &limits);
+                    looking[i] = Some([stats(), stats()]);
                 }
             }
             let Some(theirs_at) = self.reference_frame(frame) else {
@@ -564,13 +613,21 @@ impl Prepared {
             for &i in &active {
                 let first = span(&self.effects[i]).0;
                 let mut lit = [false; 2];
-                for &g in self.effects[i].measured.iter() {
+                let mut look = looking[i].as_mut();
+                for (k, &g) in self.effects[i].measured.iter().enumerate() {
                     if !live[g as usize] {
                         continue;
                     }
                     let sample = &samples[g as usize];
+                    let drawn = [colors[PIXELFLOW][g as usize], colors[XLIGHTS][g as usize]];
                     layered[i].add(sample);
                     shares[i] += 1.0 / f64::from(cover[g as usize]);
+                    if let Some([alone, all]) = &mut look {
+                        all.add(&mut scratch[1], frame, k, drawn);
+                        if cover[g as usize] == 1 {
+                            alone.add(&mut scratch[0], frame, k, drawn);
+                        }
+                    }
                     if cover[g as usize] == 1 {
                         solo[i].add(sample);
                     }
@@ -579,6 +636,10 @@ impl Prepared {
                 }
                 layered[i].end_frame();
                 solo[i].end_frame();
+                if let Some([alone, all]) = &mut look {
+                    alone.end_frame(&mut scratch[0], frame);
+                    all.end_frame(&mut scratch[1], frame);
+                }
                 if let Some(onset) = &mut onsets[i] {
                     for side in [PIXELFLOW, XLIGHTS] {
                         if lit[side] && onset[side].is_none() {
@@ -600,9 +661,12 @@ impl Prepared {
                 for g in range.clone() {
                     if self.slots[g].is_some() {
                         prop_stats[p].add(&samples[g]);
+                        let drawn = [colors[PIXELFLOW][g], colors[XLIGHTS][g]];
+                        prop_looks[p].add(&mut scratch[0], frame, g - prop.first, drawn);
                     }
                 }
                 prop_stats[p].end_frame();
+                prop_looks[p].end_frame(&mut scratch[0], frame);
                 if prop.measured == prop.pixels {
                     reversed[p] += range
                         .clone()
@@ -624,6 +688,11 @@ impl Prepared {
             unattributed.end_frame();
         }
 
+        for (stats, look) in looking.into_iter().zip(&mut looks) {
+            if let Some(stats) = stats {
+                *look = stats.map(LookStats::finish);
+            }
+        }
         let mut overall = Stats::new(frame_ms, &limits);
         for stats in &prop_stats {
             overall.merge(stats);
@@ -633,12 +702,14 @@ impl Prepared {
             .iter()
             .zip(&prop_stats)
             .zip(&reversed)
-            .map(|((prop, stats), &reversed)| PropScore {
+            .zip(prop_looks)
+            .map(|(((prop, stats), &reversed), look)| PropScore {
                 name: prop.name.clone(),
                 pixels: prop.pixels,
                 measured_pixels: prop.measured,
                 channels: prop.channels,
                 on: prop.source,
+                look: look.finish(),
                 scores: stats.scores(),
                 reversed_mae: (prop.measured == prop.pixels && stats.samples() > 0)
                     .then(|| round(reversed as f64 / stats.samples() as f64 / 3.0)),
@@ -672,6 +743,10 @@ impl Prepared {
                         xlights: o[XLIGHTS]?,
                     })
                 }),
+                expected: e.expected,
+                look_solo: looks[index][0],
+                look_layered: looks[index][1],
+                look: None,
                 solo_stats: solo[index].clone(),
                 layered_stats: layered[index].clone(),
             })
@@ -815,7 +890,7 @@ impl Prepared {
                 duration_ms: seq.duration_ms,
                 frame_ms,
                 import: self.import.summary,
-                import_notes: self.import.notes.clone(),
+                import_notes: self.import.all_notes(),
                 music: self.music,
             },
             ReferenceInfo {
@@ -831,6 +906,8 @@ impl Prepared {
                 tool: TOOL.to_string(),
                 limits,
                 audit: self.options.audit,
+                matches: crate::look::MATCHES,
+                close: crate::look::CLOSE,
                 set_aside: self.comparison.set_aside,
                 stand_in_controllers: self.comparison.stand_ins.len(),
             },
@@ -895,6 +972,7 @@ fn lay_out(
             measured: 0,
             channels: None,
             source: Source::None,
+            grid: Rc::new(Grid::new(&[], 1, 1)),
         });
         first += layout.nodes as usize;
     }

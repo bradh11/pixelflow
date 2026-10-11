@@ -96,7 +96,7 @@ Fill this in first.
 | 1.5 | A controller is added by scan | **Controllers**, **Scan network**, **Open**, then add it to the show. | [ ] | [ ] | |
 | 1.6 | A controller is added by address | **Controllers**, type its address, **Check address**. | [ ] | [ ] | |
 | 1.7 | An FPP sets up the show | Open the FPP, **Set up my show from this FPP**, and add the controllers it lists. | [ ] | [ ] | |
-| 1.8 | A sequence imports | **Sequence**, **Import from xLights…**, pick an `.xsq`. The report shows exact, approximated, and placeholder counts. | [ ] | [ ] | |
+| 1.8 | A sequence imports | **Sequence**, **Import from xLights…**, pick an `.xsq`. The report says how much of the sequence comes across the same, looks close, and looks different. | [ ] | [ ] | |
 | 1.9 | A vendor sequence maps | Import a vendor `.zip`. In the "Map … onto your props" window, **Auto-map**, fix **Not mapped** rows, **Import** the effects. | [ ] | [ ] | |
 
 ## 2. Wiring and mapping

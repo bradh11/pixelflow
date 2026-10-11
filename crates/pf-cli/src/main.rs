@@ -221,25 +221,29 @@ fn run(cli: Cli) -> Result<ExitCode> {
             };
             let (seq, s) = (&imported.sequence, &imported.summary);
             outln!(
-                "{}: {} long, {} rows, {} effects ({} exact, {} approximated, {} placeholders, {} not imported), {} timing tracks, {} marks ({} lyrics, {} not imported)",
+                "{}: {} long, {} rows, {} effects ({} come across the same, {} look close, {} look different, {} have no PixelFlow effect yet; {} not imported), {} timing tracks, {} marks ({} lyrics, {} not imported)",
                 seq.name,
                 pf_sequence::format_ms(seq.duration_ms),
                 s.rows,
                 s.effects,
-                s.exact,
-                s.approximate,
-                s.placeholders,
+                s.look.matches,
+                s.look.close,
+                s.look.different,
+                s.look.no_equivalent,
                 s.skipped,
                 s.timing_tracks,
                 s.marks,
                 s.lyric_marks,
                 s.marks_skipped
             )?;
+            if let Some(headline) = imported.headline() {
+                outln!("{headline}")?;
+            }
             match &seq.audio {
                 Some(audio) => outln!("Music: {audio}")?,
                 None => outln!("Music: none")?,
             }
-            for note in &imported.notes {
+            for note in imported.all_notes() {
                 outln!("  - {note}")?;
             }
             if let Some(path) = save {

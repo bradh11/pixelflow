@@ -68,8 +68,8 @@ Linux) and choose **Show the setup checklist**.
 **You should see:** a window titled "Imported" followed by your show's name. It lists how many
 props, pixels, controllers, wired props, and groups came across.
 
-**If it doesn't:** see [A sequence import shows many "approximate"
-notes](troubleshooting.md#a-sequence-import-shows-many-approximate-notes).
+**If it doesn't:** see [A sequence import says effects look close or
+different](troubleshooting.md#a-sequence-import-says-effects-look-close-or-different).
 
 ### A2. Read the import notes
 
@@ -79,7 +79,7 @@ that a shape or a wiring detail was approximated, and why.
 
 *Approximate* means PixelFlow drew something close to what xLights has, not an exact copy. A
 note names what was changed so you can check that prop in the layout. For how close PixelFlow
-gets, see [Measuring xLights import fidelity](fidelity.md).
+gets, see [xLights import fidelity](fidelity.md).
 
 Then choose **Save show…** to keep the show. Choosing **Later** leaves it unsaved.
 
@@ -112,13 +112,14 @@ of guessing later.
 3. Read the report that opens.
 
 **You should see:** "Imported" followed by the sequence name. The counts show rows, effects,
-timing tracks, and marks. A second line shows how many effects came in as *exact*,
-*approximated*, or *placeholder*. A placeholder is a stand-in, used where PixelFlow has no
-matching effect yet. The sequence opens on the **Sequence** screen as an unsaved sequence. Choose
+timing tracks, and marks. A line under them says how much of the sequence *comes across the
+same*, *looks close*, *looks different*, or has *no PixelFlow effect yet* (a dim stand-in is
+shown for those). The effects that differ are listed with what you would notice. The sequence
+opens on the **Sequence** screen as an unsaved sequence. Choose
 **Save** to keep it.
 
-**If it doesn't:** see [A sequence import shows many "approximate"
-notes](troubleshooting.md#a-sequence-import-shows-many-approximate-notes).
+**If it doesn't:** see [A sequence import says effects look close or
+different](troubleshooting.md#a-sequence-import-says-effects-look-close-or-different).
 
 ### A6. Map a vendor's sequence onto your props
 
@@ -364,7 +365,7 @@ want the file itself.
 
 - [Troubleshooting](troubleshooting.md) for problems with lights, colors, and networks.
 - [Real-hardware acceptance checklist](hardware-acceptance.md) to check your own setup end to end.
-- [Measuring xLights import fidelity](fidelity.md) if you brought a show from xLights.
+- [xLights import fidelity](fidelity.md) if you brought a show from xLights.
 - [Scale benchmark](benchmarks.md) for how large a show PixelFlow is built to handle.
 - [Your data: what stays on your computer](privacy-and-data-flow.md).
 

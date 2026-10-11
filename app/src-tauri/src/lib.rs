@@ -1472,11 +1472,21 @@ mod tests {
         assert_eq!(imported["snapshot"]["path"], json!(null));
         assert_eq!(imported["summary"]["rows"], 8);
         assert_eq!(imported["summary"]["placeholders"], 0);
+        // How it comes across: most effects the same, and the kinds that look close each say
+        // what a viewer would notice.
+        assert_eq!(
+            imported["summary"]["look"],
+            json!({ "matches": 17, "close": 5, "different": 0, "noEquivalent": 0 })
+        );
         assert!(
-            imported["notes"].as_array().unwrap().iter().any(|n| n
-                .as_str()
-                .unwrap()
-                .contains("font shown in PixelFlow's pixel font")),
+            imported["looks"].as_array().unwrap().iter().any(|group| {
+                group["effect"] == "Text"
+                    && group["verdict"] == "close"
+                    && group["reasons"][0]
+                        .as_str()
+                        .unwrap()
+                        .contains("font shown in PixelFlow's pixel font")
+            }),
             "{imported}"
         );
         let open = call(&webview, "get_sequence_doc", json!({})).unwrap();

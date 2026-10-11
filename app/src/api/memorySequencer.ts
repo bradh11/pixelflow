@@ -10,6 +10,7 @@ import { renderSequenceFrame } from "./memoryRender";
 import { importVendor, inspectVendor, type MemoryVendorPackage } from "./memoryVendor";
 import { MemoryVideo } from "./memoryVideo";
 import type {
+  LookGroup,
   MissingFile,
   PlaybackStatus,
   SequenceImportSummary,
@@ -481,7 +482,7 @@ export class MemorySequencer implements SequencerApi {
   calls: string[] = [];
   /** What the xLights sequence dialog returns, and what importing any .xsq produces. */
   nextXlightsSequencePath: string | null = null;
-  xlightsSequenceImport: { sequence: Sequence; summary: SequenceImportSummary; notes: string[] } | null = null;
+  xlightsSequenceImport: { sequence: Sequence; summary: SequenceImportSummary; looks?: LookGroup[]; notes: string[] } | null = null;
   /** Vendor packages "on disk", by path, and the mappings remembered for each vendor. */
   vendorPackages = new Map<string, MemoryVendorPackage>();
   savedVendorMappings = new Map<string, VendorMapping>();
@@ -1215,12 +1216,12 @@ export class MemorySequencer implements SequencerApi {
       this.savedVendorMappings.set(options.key, structuredClone(options.mapping));
       this.replace(built.sequence, null);
       this.savedRevision = this.revision - 1;
-      return { snapshot: this.snapshot(), summary: built.summary, notes: built.notes };
+      return { snapshot: this.snapshot(), summary: built.summary, looks: built.looks, notes: built.notes };
     }
     const imported = this.xlightsSequenceImport ?? fail(`Could not read ${path}: no such file`);
     this.replace(structuredClone(imported.sequence), null);
     this.savedRevision = this.revision - 1; // an import has unsaved changes
-    return { snapshot: this.snapshot(), summary: { ...imported.summary }, notes: [...imported.notes] };
+    return { snapshot: this.snapshot(), summary: structuredClone(imported.summary), looks: structuredClone(imported.looks ?? []), notes: [...imported.notes] };
   }
 
   async pickXlightsSequencePath() {

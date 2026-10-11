@@ -25,7 +25,7 @@ A modern, fast, easy-to-use application for designing and running pixel light di
 - [Your first show](docs/first-show.md): from an empty show, or an xLights show, to lights playing music.
 - [Troubleshooting](docs/troubleshooting.md): nothing lights, wrong colors, controllers not found, Send to FPP problems, and more.
 - [Real-hardware acceptance checklist](docs/hardware-acceptance.md): a checklist to fill in against real controllers.
-- [Measuring xLights import fidelity](docs/fidelity.md): how close the importer is to xLights.
+- [xLights import fidelity](docs/fidelity.md): how an imported sequence looks next to xLights, and how that is measured.
 - [Scale benchmark](docs/benchmarks.md): how large a show the engine can run.
 - [Your data: what stays on your computer](docs/privacy-and-data-flow.md): what PixelFlow sends, and when.
 - [Releasing](docs/releasing.md): building the macOS and Windows installers, signing, installing a test build, and where the app keeps its data.

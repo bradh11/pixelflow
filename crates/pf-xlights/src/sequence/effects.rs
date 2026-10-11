@@ -8,8 +8,9 @@
 //! those values (see [`param_curves`]).
 
 use super::curves::{Driven, STEPS, XlCurve};
+use super::list;
+use super::look::{ByVerdict, LookGroup, Verdict};
 use super::settings::{ParsedPalette, Settings};
-use super::{list, plural};
 use pf_model::{BufferTransform, RenderStyle};
 use pf_sequence::{
     Axis, BarsMotion, BarsParams, Blend, ButterflyColors, ButterflyParams, ChaseParams, CirclesLook,
@@ -28,11 +29,14 @@ use std::collections::BTreeMap;
 /// Brightness of a placeholder (an effect PixelFlow can't draw yet), so it reads as a stand-in.
 pub const PLACEHOLDER_LEVEL: f32 = 0.25;
 
-/// How closely the PixelFlow effect matches the xLights one.
+/// What the importer carried over of an xLights effect. How the result is expected to look is
+/// a [`Verdict`], worked out from this (see [`super::look`]).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Fidelity {
+    /// Every setting that changes its look has a PixelFlow setting.
     Exact,
-    /// What differs, in a few words each ("'Expand' direction shown as moving up").
+    /// What a viewer would see differ, in a few words each ("'Expand' direction shown as
+    /// straight movement").
     Approximate(Vec<String>),
     Placeholder,
     /// Left out: it changes other layers or drives fixtures, so a stand-in would be wrong.
@@ -322,7 +326,7 @@ fn param_curves(
         let params = match effect_params(name, &at, colors, duration_ms, frame_ms, diff) {
             Kind::Params(p) if p.kind() == kind => p,
             _ => {
-                diff.add("settings that change over the effect kept at one value");
+                diff.add("stays as it starts where xLights changes it over the effect");
                 return BTreeMap::new();
             }
         };
@@ -458,7 +462,7 @@ fn color_wash(r: &Reader, colors: &[Rgb], diff: &mut Diff) -> EffectParams {
         diff.add("shimmer not shown");
     }
     if r.check("ColorWash_CircularPalette") {
-        diff.add("circular palette not applied");
+        diff.add("the color cycle stops at its last color instead of running on into the first");
     }
     EffectParams::ColorWash(ColorWashParams {
         cycles: cycles as f32,
@@ -589,7 +593,7 @@ fn single_strand(r: &Reader, duration_ms: u64, diff: &mut Diff) -> Kind {
                 diff.add("fading tail not shown");
             }
             if r.get("Chase_Offset", 0.0, -500.0, 500.0) != 0.0 {
-                diff.add("start offset not applied");
+                diff.add("starts at the end of the prop, not part-way along");
             }
             if !r.choice("SingleStrand_TimingTrack", "").is_empty() {
                 diff.add("steps a band on each timing mark instead of chasing between marks");
@@ -640,7 +644,7 @@ fn wave(r: &Reader, diff: &mut Diff) -> EffectParams {
         diff.add("mirrored wave not shown");
     }
     if r.get("Wave_YOffset", 0.0, -250.0, 250.0) != 0.0 {
-        diff.add("vertical offset not applied");
+        diff.add("drawn across the middle of the prop, not moved up or down");
     }
     EffectParams::Wave(WaveParams {
         cycles: cycles as f32,
@@ -675,12 +679,12 @@ fn shimmer(r: &Reader, duration_ms: u64, diff: &mut Diff) -> EffectParams {
 
 fn strobe(r: &Reader, frame: f64, diff: &mut Diff) -> EffectParams {
     let frames = r.get("Strobe_Duration", 10.0, 1.0, 100.0);
-    diff.add("number of flashes approximated");
+    diff.add("about as many flashes, not exactly as many");
     if r.get("Strobe_Type", 1.0, 1.0, 4.0) > 1.0 {
         diff.add("flash shapes shown as single pixels");
     }
     if r.check("Strobe_Music") {
-        diff.add("music-driven flashes not applied");
+        diff.add("flashes don't follow the music");
     }
     EffectParams::Strobe(StrobeParams {
         // A new set of flashes every `frames` frames.
@@ -702,7 +706,7 @@ fn lightning(r: &Reader, diff: &mut Diff) -> EffectParams {
         || r.get("Lightning_TopY", 0.0, 0.0, 100.0) != 0.0
         || r.get("Lightning_BOTX", 0.0, -50.0, 50.0) != 0.0
     {
-        diff.add("start point and drift not applied");
+        diff.add("bolts start at the middle of the top and don't drift");
     }
     EffectParams::Lightning(LightningParams {
         density: 4.0,
@@ -772,7 +776,7 @@ fn dim_flames(params: &EffectParams, curves: &BTreeMap<String, Curve>, blend: Bl
 }
 
 fn meteors(r: &Reader, diff: &mut Diff) -> EffectParams {
-    diff.add("meteor count and speed approximated");
+    diff.add("about as many meteors at about the speed");
     let direction = match r.choice("Meteors_Effect", "Down") {
         "Down" => MeteorDirection::Down,
         "Up" => MeteorDirection::Up,
@@ -984,7 +988,7 @@ fn shape(r: &Reader, frame: f64, diff: &mut Diff) -> EffectParams {
     }
     let random_movement = r.check("Shapes_RandomMovement");
     if random_movement && (frame - 50.0).abs() > 0.5 {
-        diff.add("random drift speeds approximated");
+        diff.add("shapes drift at about the speed, not exactly");
     }
     EffectParams::Shape(ShapeParams {
         shape: shape_object(r.choice("Shape_ObjectToDraw", "Circle"), diff),
@@ -1091,13 +1095,13 @@ fn circles(r: &Reader, diff: &mut Diff) -> EffectParams {
     };
     let rings = matches!(look, CirclesLook::Radial | CirclesLook::RainbowRadial);
     if bubbles && matches!(look, CirclesLook::Plasma | CirclesLook::Fading) {
-        diff.add("bubbles' drift not applied to plasma or fading circles");
+        diff.add("plasma and fading circles don't drift the way bubbles do");
     }
     if r.check("Circles_Random_m") && !rings {
-        diff.add("random motion not applied");
+        diff.add("circles keep to straight paths instead of wandering");
     }
     if !rings && r.s.curve_active("E_VALUECURVE_Circles_Speed") {
-        diff.add("circles moving at a changing speed approximated");
+        diff.add("circles that speed up or slow down do so roughly");
     }
     EffectParams::Circles(CirclesParams {
         count: count(r.get("Circles_Count", 3.0, 1.0, 10.0), 1, 10),
@@ -1915,7 +1919,7 @@ fn blend(s: &Settings, diff: &mut Diff) -> Blend {
         }
     };
     if s.num_or("T_SLIDER_EffectLayerMix", 0.0) > 0.0 || s.flag("T_CHECKBOX_LayerMorph", false) {
-        diff.add("layer mix amount not applied");
+        diff.add("mixed with the layers below at full strength, not part-way");
     }
     blend
 }
@@ -1953,12 +1957,14 @@ struct Buffer {
 fn buffer(s: &Settings, diff: &mut Diff) -> Buffer {
     let name = s.text("B_CHOICE_BufferStyle", "Default");
     let style = RenderStyle::from_xlights(name).unwrap_or_else(|| {
-        diff.add(format!("'{name}' render style not applied"));
+        diff.add(format!(
+            "drawn across the whole target, not in xLights' '{name}' arrangement"
+        ));
         RenderStyle::Default
     });
     let name = s.text("B_CHOICE_BufferTransform", "None");
     let transform = BufferTransform::from_xlights(name).unwrap_or_else(|| {
-        diff.add(format!("'{name}' buffer transformation not applied"));
+        diff.add(format!("not turned or flipped the way '{name}' does"));
         BufferTransform::None
     });
     let changed = |key: &str, neutral: f64| s.num(key).is_some_and(|v| (v - neutral).abs() > 1e-6);
@@ -1967,10 +1973,10 @@ fn buffer(s: &Settings, diff: &mut Diff) -> Buffer {
         .keys()
         .any(|k| k.starts_with("B_VALUECURVE_") && k != "B_VALUECURVE_Blur" && s.curve_active(k));
     if changed("B_SLIDER_Rotation", 0.0) || changed("B_SLIDER_Zoom", 1.0) || moving {
-        diff.add("rotation or zoom not applied");
+        diff.add("not rotated or zoomed");
     }
     if !s.text("B_CUSTOM_SubBuffer", "").is_empty() {
-        diff.add("sub-buffer (part of the prop) not applied");
+        diff.add("drawn over the whole prop, not just the part xLights draws on");
     }
     // xLights reads the slider as a whole number (`GetInt`); past 15 it blurs as 15.
     let blur = s.num_or("B_SLIDER_Blur", 1.0).trunc();
@@ -2086,7 +2092,7 @@ fn palette_colors(palette: &ParsedPalette, diff: &mut Diff) -> Vec<Rgb> {
         diff.add("unreadable palette colors left out");
     }
     for extra in &palette.extras {
-        diff.add(format!("{extra} not applied"));
+        diff.add(format!("drawn without xLights' {extra}"));
     }
     // With no colors enabled xLights draws white, so say so explicitly (PixelFlow's renderer
     // also draws an empty palette white, but the timeline shows what's in the palette).
@@ -2281,99 +2287,143 @@ pub fn translate(
     )
 }
 
-/// What happened to each kind of xLights effect, for the report.
+/// What a placeholder shows, for the report.
+pub const PLACEHOLDER_LOOK: &str = "shown as a dim fill in the effect's first color";
+
+/// How each kind of xLights effect came across, for the report.
 #[derive(Debug, Default)]
 pub struct Tally {
-    /// Per xLights effect name: placeholders, and approximations by what differs.
-    by_name: BTreeMap<String, NameTally>,
+    /// Per verdict and xLights effect name: how many, for how long, and what differs.
+    groups: BTreeMap<(Verdict, String), Group>,
+    /// Effects left out, by name.
+    skipped: BTreeMap<String, usize>,
 }
 
 #[derive(Debug, Default)]
-struct NameTally {
-    placeholders: usize,
-    skipped: usize,
-    approximate: usize,
+struct Group {
+    effects: usize,
+    ms: u64,
     reasons: BTreeMap<String, usize>,
 }
 
 impl Tally {
-    pub fn record(&mut self, name: &str, fidelity: &Fidelity) {
+    /// Counts an effect `ms` long that came across as `fidelity`. Returns how it's expected to
+    /// look; `None` for one left out.
+    pub fn record(&mut self, name: &str, fidelity: &Fidelity, ms: u64) -> Option<Verdict> {
         let name = if name.is_empty() { "(unnamed)" } else { name };
-        match fidelity {
-            Fidelity::Exact => {}
-            Fidelity::Placeholder => {
-                self.by_name.entry(name.to_string()).or_default().placeholders += 1;
-            }
-            Fidelity::Skipped => {
-                self.by_name.entry(name.to_string()).or_default().skipped += 1;
-            }
-            Fidelity::Approximate(reasons) => {
-                let t = self.by_name.entry(name.to_string()).or_default();
-                t.approximate += 1;
-                for r in reasons {
-                    *t.reasons.entry(r.clone()).or_default() += 1;
-                }
-            }
+        if *fidelity == Fidelity::Skipped {
+            *self.skipped.entry(name.to_string()).or_default() += 1;
+            return None;
         }
+        let (verdict, why) = super::look::expected(name, fidelity);
+        let group = self.groups.entry((verdict, name.to_string())).or_default();
+        group.effects += 1;
+        group.ms += ms;
+        let noted: &[String] = match fidelity {
+            Fidelity::Approximate(reasons) => reasons,
+            _ => &[],
+        };
+        for reason in noted.iter().map(String::as_str).chain(why) {
+            *group.reasons.entry(reason.to_string()).or_default() += 1;
+        }
+        if verdict == Verdict::NoEquivalent {
+            group.reasons.insert(PLACEHOLDER_LOOK.to_string(), group.effects);
+        }
+        Some(verdict)
     }
 
-    /// Notes: placeholders first (most effects first), then approximations per effect.
-    pub fn notes(&self) -> Vec<String> {
-        let mut notes = Vec::new();
-        let mut placeholders: Vec<(&String, usize)> = self
-            .by_name
-            .iter()
-            .filter(|(_, t)| t.placeholders > 0)
-            .map(|(n, t)| (n, t.placeholders))
-            .collect();
-        placeholders.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
-        if !placeholders.is_empty() {
-            let names: Vec<String> = placeholders.iter().map(|(n, c)| format!("{n} ({c})")).collect();
-            let total: usize = placeholders.iter().map(|(_, c)| c).sum();
-            notes.push(format!(
-                "PixelFlow has no matching effect yet for {}, so {} shown as a dim fill in {} first color: {}.",
-                if placeholders.len() == 1 { "this xLights effect" } else { "these xLights effects" },
-                if total == 1 { "it is" } else { "they are" },
-                if total == 1 { "its" } else { "each one's" },
-                list(&names)
-            ));
+    /// Effects, and how long they run added up, by verdict.
+    pub fn counts(&self) -> (ByVerdict<usize>, ByVerdict<u64>) {
+        let (mut effects, mut ms) = (ByVerdict::default(), ByVerdict::default());
+        for ((verdict, _), group) in &self.groups {
+            effects.add(*verdict, group.effects);
+            ms.add(*verdict, group.ms);
         }
-        let skipped: Vec<String> = self
-            .by_name
+        (effects, ms)
+    }
+
+    /// The effects that don't come across the same, worst first, and within a verdict the kind
+    /// with most effects first.
+    pub fn looks(&self) -> Vec<LookGroup> {
+        let mut looks: Vec<LookGroup> = self
+            .groups
             .iter()
-            .filter(|(_, t)| t.skipped > 0)
-            .map(|(n, t)| format!("{n} ({})", t.skipped))
+            .filter(|((verdict, _), _)| *verdict != Verdict::Matches)
+            .map(|((verdict, name), group)| {
+                let mut reasons: Vec<(&String, &usize)> = group.reasons.iter().collect();
+                reasons.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+                LookGroup {
+                    verdict: *verdict,
+                    effect: name.clone(),
+                    effects: group.effects,
+                    ms: group.ms,
+                    reasons: reasons
+                        .iter()
+                        .map(|(reason, count)| {
+                            if **count == group.effects {
+                                (*reason).clone()
+                            } else {
+                                format!("{reason} ({count})")
+                            }
+                        })
+                        .collect(),
+                }
+            })
             .collect();
-        if !skipped.is_empty() {
-            notes.push(format!(
+        looks.sort_by(|a, b| {
+            b.verdict
+                .cmp(&a.verdict)
+                .then(b.effects.cmp(&a.effects))
+                .then(a.effect.cmp(&b.effect))
+        });
+        looks
+    }
+
+    /// A note on the effects left out, when there are any.
+    pub fn skipped_note(&self) -> Option<String> {
+        let skipped: Vec<String> = self.skipped.iter().map(|(n, c)| format!("{n} ({c})")).collect();
+        (!skipped.is_empty()).then(|| {
+            format!(
                 "These xLights effects change the layers below them or move fixtures, so they weren't imported (a stand-in would light the prop wrongly): {}.",
                 list(&skipped)
-            ));
-        }
-        let mut approximated: Vec<(&String, &NameTally)> =
-            self.by_name.iter().filter(|(_, t)| t.approximate > 0).collect();
-        approximated.sort_by(|a, b| b.1.approximate.cmp(&a.1.approximate).then(a.0.cmp(b.0)));
-        for (name, t) in approximated {
-            let mut reasons: Vec<(&String, &usize)> = t.reasons.iter().collect();
-            reasons.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
-            let reasons: Vec<String> = reasons
-                .iter()
-                .map(|(r, c)| {
-                    if **c == t.approximate {
-                        (*r).clone()
-                    } else {
-                        format!("{r} ({c})")
-                    }
-                })
-                .collect();
-            notes.push(format!(
-                "{name} ({}) approximated: {}.",
-                plural(t.approximate, "effect"),
-                list(&reasons)
-            ));
-        }
-        notes
+            )
+        })
     }
+}
+
+/// `looks` as sentences: the effects with no PixelFlow effect together, then one for each kind
+/// that looks different or close.
+pub fn look_notes(looks: &[LookGroup]) -> Vec<String> {
+    let mut notes = Vec::new();
+    let missing: Vec<&LookGroup> = looks
+        .iter()
+        .filter(|g| g.verdict == Verdict::NoEquivalent)
+        .collect();
+    if !missing.is_empty() {
+        let names: Vec<String> = missing
+            .iter()
+            .map(|g| format!("{} ({})", g.effect, g.effects))
+            .collect();
+        let total: usize = missing.iter().map(|g| g.effects).sum();
+        notes.push(format!(
+            "No PixelFlow effect yet for {}, so {} shown as a dim fill in {} first color: {}.",
+            if missing.len() == 1 {
+                "this xLights effect"
+            } else {
+                "these xLights effects"
+            },
+            if total == 1 { "it is" } else { "they are" },
+            if total == 1 { "its" } else { "each one's" },
+            list(&names)
+        ));
+    }
+    notes.extend(
+        looks
+            .iter()
+            .filter(|g| g.verdict != Verdict::NoEquivalent)
+            .map(LookGroup::sentence),
+    );
+    notes
 }
 
 #[cfg(test)]
@@ -2527,7 +2577,7 @@ mod tests {
             translate("On", &Settings::default(), &p, 1000, 25)
                 .unwrap()
                 .fidelity,
-            Fidelity::Approximate(vec!["chroma key not applied".into()])
+            Fidelity::Approximate(vec!["drawn without xLights' chroma key".into()])
         );
     }
 
@@ -3130,7 +3180,7 @@ mod tests {
         let Fidelity::Approximate(notes) = t.fidelity else {
             unreachable!()
         };
-        assert!(notes.contains(&"random drift speeds approximated".to_string()));
+        assert!(notes.contains(&"shapes drift at about the speed, not exactly".to_string()));
         // On a timing track, a label filter isn't applied.
         let s = Settings::parse(
             "E_CHECKBOX_Shape_FireTiming=1,E_CHOICE_Shape_FireTimingTrack=Beats,E_TEXTCTRL_Shape_FilterLabel=1",
@@ -3220,12 +3270,12 @@ mod tests {
         assert_eq!(
             look("E_CHECKBOX_Circles_Bubbles=1,E_CHECKBOX_Circles_Plasma=1").2,
             Fidelity::Approximate(vec![
-                "bubbles' drift not applied to plasma or fading circles".into()
+                "plasma and fading circles don't drift the way bubbles do".into()
             ])
         );
         assert_eq!(
             look("E_CHECKBOX_Circles_Random_m=1").2,
-            Fidelity::Approximate(vec!["random motion not applied".into()])
+            Fidelity::Approximate(vec!["circles keep to straight paths instead of wandering".into()])
         );
         let s = Settings::parse(
             "E_SLIDER_Circles_Count=5,E_SLIDER_Circles_Size=8,E_SLIDER_Circles_Speed=12,E_SLIDER_Circles_XC=-20,E_SLIDER_Circles_YC=10",
@@ -3663,7 +3713,7 @@ mod tests {
         assert_eq!(t.buffer_transform, BufferTransform::None);
         assert_eq!(
             t.fidelity,
-            Fidelity::Approximate(vec!["'Twist' buffer transformation not applied".into()])
+            Fidelity::Approximate(vec!["not turned or flipped the way 'Twist' does".into()])
         );
     }
 
@@ -3682,8 +3732,8 @@ mod tests {
             vec![
                 "'Effect 2' layer blending shown as Normal",
                 "'Wipe' transition shown as a fade",
-                "'Vertical Per Strand' render style not applied",
-                "rotation or zoom not applied",
+                "drawn across the whole target, not in xLights' 'Vertical Per Strand' arrangement",
+                "not rotated or zoomed",
             ]
         );
     }
@@ -4254,23 +4304,53 @@ mod tests {
     }
 
     #[test]
-    fn tally_notes_list_placeholders_with_counts_and_approximations_with_reasons() {
+    fn the_tally_groups_effects_by_how_they_look_and_says_what_differs() {
         let mut tally = Tally::default();
         for _ in 0..12 {
-            tally.record("Butterfly", &Fidelity::Placeholder);
+            tally.record("Butterfly", &Fidelity::Placeholder, 1000);
         }
         for _ in 0..5 {
-            tally.record("Plasma", &Fidelity::Placeholder);
+            tally.record("Plasma", &Fidelity::Placeholder, 1000);
         }
-        tally.record("Bars", &Fidelity::Approximate(vec!["a".into(), "b".into()]));
-        tally.record("Bars", &Fidelity::Approximate(vec!["a".into()]));
-        tally.record("On", &Fidelity::Exact);
+        let close = Fidelity::Approximate(vec!["a".into(), "b".into()]);
+        assert_eq!(tally.record("Bars", &close, 2000), Some(Verdict::Close));
+        tally.record("Bars", &Fidelity::Approximate(vec!["a".into()]), 500);
+        assert_eq!(tally.record("On", &Fidelity::Exact, 4000), Some(Verdict::Matches));
+        assert_eq!(tally.record("DMX", &Fidelity::Skipped, 4000), None);
+
+        let (effects, ms) = tally.counts();
         assert_eq!(
-            tally.notes(),
-            vec![
-                "PixelFlow has no matching effect yet for these xLights effects, so they are shown as a dim fill in each one's first color: Butterfly (12), Plasma (5).",
-                "Bars (2 effects) approximated: a, b (1).",
+            (
+                effects.matches,
+                effects.close,
+                effects.different,
+                effects.no_equivalent
+            ),
+            (1, 2, 0, 17)
+        );
+        assert_eq!((ms.matches, ms.close, ms.no_equivalent), (4000, 2500, 17_000));
+        // Worst first, and nothing about what matches.
+        let looks = tally.looks();
+        let listed: Vec<(Verdict, &str, usize)> = looks
+            .iter()
+            .map(|g| (g.verdict, g.effect.as_str(), g.effects))
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                (Verdict::NoEquivalent, "Butterfly", 12),
+                (Verdict::NoEquivalent, "Plasma", 5),
+                (Verdict::Close, "Bars", 2),
             ]
         );
+        assert_eq!(looks[0].reasons, [PLACEHOLDER_LOOK]);
+        assert_eq!(
+            look_notes(&looks),
+            vec![
+                "No PixelFlow effect yet for these xLights effects, so they are shown as a dim fill in each one's first color: Butterfly (12), Plasma (5).",
+                "Bars (2 effects) look close: a, b (1).",
+            ]
+        );
+        assert!(tally.skipped_note().is_some_and(|n| n.ends_with("DMX (1).")));
     }
 }

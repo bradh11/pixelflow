@@ -1,9 +1,11 @@
-//! The scorecards as markdown, for reading.
+//! The scorecards as markdown, for reading: how the import looks first, the pixel-for-pixel
+//! diagnostics last.
 
+use crate::look::{Component, Components};
 use crate::metrics::Scores;
 use crate::scorecard::{
-    AuditEntry, Basis, Class, CorpusCard, EffectScore, ExactKind, KindScore, LabelAudit, Music, Ranked,
-    Scorecard, Source,
+    AuditEntry, Basis, ByVerdict, Class, CorpusCard, EffectScore, ExactKind, Improve, KindScore, LabelAudit,
+    LabelCheck, LabelMiss, LookSummary, Music, Ranked, Scorecard, Source, Verdict,
 };
 use std::fmt::Write as _;
 
@@ -26,6 +28,10 @@ fn two(value: f64) -> String {
     format!("{value:.2}")
 }
 
+fn whole(value: f64) -> String {
+    format!("{value:.0}")
+}
+
 /// A time as m:ss.s.
 fn time(ms: u64) -> String {
     format!("{}:{:04.1}", ms / 60_000, (ms % 60_000) as f64 / 1000.0)
@@ -44,7 +50,276 @@ fn class(class: Class) -> &'static str {
     }
 }
 
-fn headline(out: &mut String, scores: &Scores, tolerance: u8) {
+fn basis(basis: Basis) -> &'static str {
+    match basis {
+        Basis::Solo => "alone",
+        Basis::Layered => "layered",
+    }
+}
+
+/// Counts by verdict, as "matches / close / different / no equivalent".
+fn counts(by: &ByVerdict<usize>) -> String {
+    format!(
+        "{} / {} / {} / {}",
+        by.matches, by.close, by.different, by.no_equivalent
+    )
+}
+
+/// The headline sentence: how much of the effect-time got each verdict.
+pub fn headline(look: &LookSummary) -> String {
+    if look.judged == 0 {
+        return "No effect could be judged.".to_string();
+    }
+    let mut parts = vec![
+        format!("{} comes across the same", pct(look.time.matches)),
+        format!("{} looks close", pct(look.time.close)),
+        format!("{} looks different", pct(look.time.different)),
+    ];
+    if look.time.no_equivalent > 0.0 {
+        parts.push(format!(
+            "{} has no PixelFlow effect yet",
+            pct(look.time.no_equivalent)
+        ));
+    }
+    parts.join(" · ")
+}
+
+fn look_summary(out: &mut String, look: &LookSummary) {
+    let _ = writeln!(out, "**{}**\n", headline(look));
+    if look.judged == 0 {
+        return;
+    }
+    let _ = writeln!(
+        out,
+        "Look score {} of 100, over {} of {} effects ({} s of effect){}.{}\n",
+        maybe(look.score, whole),
+        look.judged,
+        look.of,
+        whole(look.seconds),
+        look.as_seen.map_or_else(String::new, |seen| format!(
+            "; the picture as a whole, prop by prop, scores {}",
+            whole(seen)
+        )),
+        if look.not_judged > 0.0 {
+            format!(
+                " {} of the effect-time couldn't be judged (not measured, or measured on too little).",
+                pct(look.not_judged)
+            )
+        } else {
+            String::new()
+        }
+    );
+    let _ = writeln!(out, "| Verdict | Effect-time | By pixel-seconds | Effects |");
+    let _ = writeln!(out, "|---|---|---|---|");
+    for verdict in Verdict::ALL {
+        let _ = writeln!(
+            out,
+            "| {} | {} | {} | {} |",
+            verdict.title(),
+            pct(look.time.get(verdict)),
+            pct(look.pixels.get(verdict)),
+            look.effects.get(verdict)
+        );
+    }
+    if let Some(components) = &look.components {
+        let _ = writeln!(out, "\n| {} |", component_names().join(" | "));
+        let _ = writeln!(out, "|{}", "---|".repeat(Component::ALL.len()));
+        let _ = writeln!(out, "| {} |", component_cells(components).join(" | "));
+    }
+}
+
+fn component_names() -> Vec<String> {
+    Component::ALL
+        .iter()
+        .map(|c| {
+            let name = c.name();
+            name[..1].to_uppercase() + &name[1..]
+        })
+        .collect()
+}
+
+fn component_cells(components: &Components) -> Vec<String> {
+    Component::ALL.iter().map(|&c| two(components.get(c))).collect()
+}
+
+fn improve(out: &mut String, ranked: &[Improve]) {
+    if ranked.is_empty() {
+        let _ = writeln!(out, "None judged.");
+        return;
+    }
+    let _ = writeln!(
+        out,
+        "| # | Effect | Impact | Share | Look | Matches / close / different / no equivalent | Off | What a viewer would notice | Pixel-seconds | Judged (alone) |"
+    );
+    let _ = writeln!(out, "|---|---|---|---|---|---|---|---|---|---|");
+    for (i, r) in ranked.iter().enumerate() {
+        let _ = writeln!(
+            out,
+            "| {} | {} | {:.0} | {} | {} | {} | {} {} | {} | {:.0} | {} ({}) |",
+            i + 1,
+            cell(&r.kind),
+            r.impact,
+            pct(r.share),
+            whole(r.score),
+            counts(&r.verdicts),
+            r.weakest.name(),
+            two(r.component),
+            r.differs.as_deref().map_or_else(|| "–".to_string(), cell),
+            r.pixel_seconds,
+            r.judged,
+            r.judged_alone
+        );
+    }
+}
+
+fn kind_looks(out: &mut String, kinds: &[KindScore]) {
+    let _ = writeln!(
+        out,
+        "| Effect | Instances | Judged (alone) | Look | {} | Matches / close / different / no equivalent |",
+        component_names().join(" | ")
+    );
+    let _ = writeln!(
+        out,
+        "|---|---|---|---|{}---|",
+        "---|".repeat(Component::ALL.len())
+    );
+    let mut kinds: Vec<&KindScore> = kinds.iter().collect();
+    kinds.sort_by(|a, b| a.kind.cmp(&b.kind).then(a.class.cmp(&b.class)));
+    for k in kinds {
+        let name = if k.class == Class::NoMusic {
+            format!("{} ({})", cell(&k.kind), class(k.class))
+        } else {
+            cell(&k.kind)
+        };
+        match &k.look {
+            Some(look) => {
+                let _ = writeln!(
+                    out,
+                    "| {name} | {} | {} ({}) | {} | {} | {} |",
+                    k.instances,
+                    look.judged,
+                    look.judged_alone,
+                    whole(look.score),
+                    component_cells(&look.components).join(" | "),
+                    counts(&look.verdicts)
+                );
+            }
+            None => {
+                let _ = writeln!(
+                    out,
+                    "| {name} | {} | 0 | – | {} | – |",
+                    k.instances,
+                    vec!["–"; Component::ALL.len()].join(" | ")
+                );
+            }
+        }
+    }
+}
+
+fn misses(out: &mut String, list: &[LabelMiss]) {
+    if list.is_empty() {
+        let _ = writeln!(out, "None.");
+        return;
+    }
+    let in_corpus = list.iter().any(|m| m.sequence.is_some());
+    let _ = writeln!(
+        out,
+        "| {}Effect | On | At | Expected | Looks | Score | Off | What a viewer would notice | The importer noted |",
+        if in_corpus { "Sequence | " } else { "" }
+    );
+    let _ = writeln!(
+        out,
+        "|{}---|---|---|---|---|---|---|---|---|",
+        if in_corpus { "---|" } else { "" }
+    );
+    for m in list.iter().take(MOST_ROWS) {
+        let sequence = m
+            .sequence
+            .as_ref()
+            .map_or_else(String::new, |s| format!("{} | ", cell(s)));
+        let _ = writeln!(
+            out,
+            "| {sequence}{} | {} | {}–{} | {} | {} | {} | {} | {} | {} |",
+            cell(&m.kind),
+            cell(&m.target),
+            time(m.start_ms),
+            time(m.end_ms),
+            m.expected.title(),
+            m.measured.title(),
+            whole(m.score),
+            m.weakest.name(),
+            m.differs.as_deref().map_or_else(|| "–".to_string(), cell),
+            if m.notes.is_empty() {
+                "–".to_string()
+            } else {
+                cell(&m.notes.join("; "))
+            }
+        );
+    }
+    if list.len() > MOST_ROWS {
+        let _ = writeln!(
+            out,
+            "\n…and {} more (the JSON scorecard lists them all).",
+            list.len() - MOST_ROWS
+        );
+    }
+}
+
+fn labels(out: &mut String, check: &LabelCheck) {
+    let _ = writeln!(
+        out,
+        "{} of {} effects judged look as the importer said they would.\n",
+        check.agree, check.judged
+    );
+    let _ = writeln!(out, "### Expected to look better than they do\n");
+    let _ = writeln!(
+        out,
+        "Judged where nothing else was on their pixels: a label to correct, or an effect to fix.\n"
+    );
+    misses(out, &check.optimistic);
+    let _ = writeln!(
+        out,
+        "\n### Expected to look better than they do, judged with other effects mixed in\n"
+    );
+    let _ = writeln!(out, "The difference may belong to what they're layered with.\n");
+    misses(out, &check.optimistic_layered);
+    let _ = writeln!(out, "\n### Expected to look worse than they do\n");
+    misses(out, &check.pessimistic);
+    let _ = writeln!(out, "\n### By effect and what the importer noted\n");
+    if check.rows.is_empty() {
+        let _ = writeln!(out, "No effects.");
+        return;
+    }
+    let _ = writeln!(
+        out,
+        "Counts are matches / close / different / no equivalent. `pf-fidelity labels` holds these \
+         against the importer's table.\n"
+    );
+    let _ = writeln!(
+        out,
+        "| Effect | The importer noted | Expected | Effects | Judged | Judged alone | Look |"
+    );
+    let _ = writeln!(out, "|---|---|---|---|---|---|---|");
+    for row in &check.rows {
+        let _ = writeln!(
+            out,
+            "| {} | {} | {} | {} | {} | {} | {} |",
+            cell(&row.kind),
+            if row.notes.is_empty() {
+                "–".to_string()
+            } else {
+                cell(&row.notes.join("; "))
+            },
+            row.expected.title(),
+            row.effects,
+            counts(&row.measured),
+            counts(&row.measured_alone),
+            maybe(row.score, whole)
+        );
+    }
+}
+
+fn pixel_headline(out: &mut String, scores: &Scores, tolerance: u8) {
     let _ = writeln!(out, "| Measure | Value |");
     let _ = writeln!(out, "|---|---|");
     let _ = writeln!(out, "| Mean error per channel (0–255) | {} |", num(scores.mae));
@@ -144,13 +419,6 @@ fn kinds(out: &mut String, kinds: &[KindScore]) {
     }
 }
 
-fn basis(basis: Basis) -> &'static str {
-    match basis {
-        Basis::Solo => "alone",
-        Basis::Layered => "layered",
-    }
-}
-
 fn audit_table(out: &mut String, entries: &[AuditEntry]) {
     let in_corpus = entries.iter().any(|e| e.sequence.is_some());
     let _ = writeln!(
@@ -194,7 +462,7 @@ fn audit_table(out: &mut String, entries: &[AuditEntry]) {
 fn exact_kinds(out: &mut String, kinds: &[ExactKind]) {
     let _ = writeln!(
         out,
-        "| Effect | Compared | Labelled exact | Judged | Differ | Of those, judged alone |"
+        "| Effect | Compared | Carried over exactly | Judged | Differ | Of those, judged alone |"
     );
     let _ = writeln!(out, "|---|---|---|---|---|---|");
     for k in kinds {
@@ -212,11 +480,15 @@ fn exact_kinds(out: &mut String, kinds: &[ExactKind]) {
 }
 
 fn label_audit(out: &mut String, audit: &LabelAudit) {
-    let _ = writeln!(out, "### Labelled exact, measurably different\n");
     let _ = writeln!(
         out,
-        "Measured pixel by pixel where nothing else was on the pixels: these labels are wrong, or \
-         the effect has a bug.\n"
+        "What the importer carried over (every setting, some, or none) against the pixels. An \
+         effect can be here and still look the same.\n"
+    );
+    let _ = writeln!(out, "#### Carried over exactly, not the same pixels\n");
+    let _ = writeln!(
+        out,
+        "Measured pixel by pixel where nothing else was on the pixels.\n"
     );
     if audit.exact_but_differs.is_empty() {
         let _ = writeln!(out, "None.");
@@ -225,7 +497,7 @@ fn label_audit(out: &mut String, audit: &LabelAudit) {
     }
     let _ = writeln!(
         out,
-        "\n### Labelled exact, different, but only measured with other effects\n"
+        "\n#### Carried over exactly, not the same pixels, but only measured with other effects\n"
     );
     let _ = writeln!(
         out,
@@ -238,41 +510,32 @@ fn label_audit(out: &mut String, audit: &LabelAudit) {
     }
     let _ = writeln!(
         out,
-        "\n### Labelled exact, random by nature, showing something different\n"
+        "\n#### Carried over exactly, random by nature, a different distribution\n"
     );
     if audit.exact_but_distribution_differs.is_empty() {
         let _ = writeln!(out, "None.");
     } else {
         audit_table(out, &audit.exact_but_distribution_differs);
     }
-    let _ = writeln!(out, "\n### Labelled approximate, yet matching\n");
+    let _ = writeln!(out, "\n#### Carried over with differences, yet the same pixels\n");
     if audit.approximate_but_matches.is_empty() {
         let _ = writeln!(out, "None.");
     } else {
         audit_table(out, &audit.approximate_but_matches);
     }
-    let _ = writeln!(out, "\n### \"Exact\" labels by effect\n");
+    let _ = writeln!(out, "\n#### Effects carried over exactly, by kind\n");
     if audit.exact_kinds.is_empty() {
-        let _ = writeln!(out, "No effect was labelled exact.");
+        let _ = writeln!(out, "No effect was carried over exactly.");
     } else {
         exact_kinds(out, &audit.exact_kinds);
         if audit.exact_unjudged > 0 {
             let _ = writeln!(
                 out,
-                "\n{} labelled exact couldn't be judged (not measured, measured on too little, or \
-                 following music that wasn't read).",
+                "\n{} carried over exactly couldn't be judged (not measured, measured on too little, \
+                 or following music that wasn't read).",
                 audit.exact_unjudged
             );
         }
-    }
-}
-
-/// The error an effect is listed by: its own frames when it has them.
-fn effect_error(effect: &EffectScore) -> Option<(&Scores, &'static str)> {
-    match (&effect.solo, &effect.layered) {
-        (Some(solo), _) => Some((solo, "alone")),
-        (None, Some(layered)) => Some((layered, "layered")),
-        (None, None) => None,
     }
 }
 
@@ -284,7 +547,7 @@ pub fn sequence_markdown(card: &Scorecard) -> String {
     let _ = writeln!(o, "# Fidelity scorecard: {}\n", seq.label);
     let _ = writeln!(
         o,
-        "{} long, {} frames {} ms apart, measured against a reference of {} channels and {} frames \
+        "{} long, {} frames {} ms apart, held against xLights' own render: {} channels and {} frames \
          {} ms apart{}.\n",
         time(seq.duration_ms),
         timing.frames,
@@ -297,13 +560,23 @@ pub fn sequence_markdown(card: &Scorecard) -> String {
             .as_ref()
             .map_or_else(String::new, |p| format!(" written by {p}"))
     );
-    let _ = writeln!(o, "## Headline\n");
-    match &card.overall {
-        Some(scores) => headline(o, scores, card.method.limits.tolerance),
-        None => {
-            let _ = writeln!(o, "Nothing could be measured.");
-        }
-    }
+    let _ = writeln!(o, "## How it looks\n");
+    look_summary(o, &card.look);
+
+    let _ = writeln!(o, "\n## What to improve first\n");
+    let _ = writeln!(
+        o,
+        "Kinds of effect by what there is to gain: how far each instance's look falls short of \
+         matching, times the pixel-seconds it was lit on. \"Off\" is the part of the look that agrees \
+         least.\n"
+    );
+    improve(o, &card.improve);
+
+    let _ = writeln!(o, "\n## Every effect kind\n");
+    kind_looks(o, &card.kinds);
+
+    let _ = writeln!(o, "\n## The importer's labels\n");
+    labels(o, &card.labels);
 
     let _ = writeln!(o, "\n## Coverage\n");
     let _ = writeln!(
@@ -328,9 +601,13 @@ pub fn sequence_markdown(card: &Scorecard) -> String {
     );
     let _ = writeln!(
         o,
-        "- The importer's count: {} exact, {} approximate, {} placeholders; {} xLights effects not \
-         imported.",
-        seq.import.exact, seq.import.approximate, seq.import.placeholders, seq.import.skipped
+        "- The importer expects {} to come across the same, {} to look close, {} to look different, \
+         and has no PixelFlow effect for {}; {} xLights effects weren't imported.",
+        seq.import.look.matches,
+        seq.import.look.close,
+        seq.import.look.different,
+        seq.import.look.no_equivalent,
+        seq.import.skipped
     );
     let _ = writeln!(
         o,
@@ -359,7 +636,102 @@ pub fn sequence_markdown(card: &Scorecard) -> String {
         let _ = writeln!(o, "- {note}");
     }
 
-    let _ = writeln!(o, "\n## Timing\n");
+    let _ = writeln!(o, "\n## Effects that don't match, the most to gain first\n");
+    let mut worst: Vec<&EffectScore> = card.effects.iter().filter(|e| e.look.is_some()).collect();
+    let lost = |e: &EffectScore| e.look.as_ref().map_or(0.0, |l| (100.0 - l.score) * e.share);
+    worst.retain(|e| e.look.as_ref().is_some_and(|l| l.verdict != Verdict::Matches));
+    worst.sort_by(|a, b| lost(b).total_cmp(&lost(a)).then(a.index.cmp(&b.index)));
+    let _ = writeln!(
+        o,
+        "| # | Effect | On | At | Expected | Looks | Score | Judged | {} | What a viewer would notice | Pixel-seconds |",
+        component_names().join(" | ")
+    );
+    let _ = writeln!(
+        o,
+        "|---|---|---|---|---|---|---|---|{}---|---|",
+        "---|".repeat(Component::ALL.len())
+    );
+    for e in worst.iter().take(MOST_ROWS) {
+        let (Some(judged), Some((_, look))) = (&e.look, e.look_basis(&card.method.audit)) else {
+            continue;
+        };
+        let _ = writeln!(
+            o,
+            "| {} | {} | {} | {}–{} | {} | {} | {} | {} | {} | {} | {:.0} |",
+            e.index,
+            cell(&e.kind),
+            cell(&e.target),
+            time(e.start_ms),
+            time(e.end_ms),
+            e.expected.title(),
+            judged.verdict.title(),
+            whole(judged.score),
+            basis(judged.basis),
+            component_cells(&look.components).join(" | "),
+            judged.differs.as_deref().map_or_else(|| "–".to_string(), cell),
+            e.share
+        );
+    }
+    if worst.len() > MOST_ROWS {
+        let _ = writeln!(
+            o,
+            "\n…and {} more (the JSON scorecard lists them all).",
+            worst.len() - MOST_ROWS
+        );
+    }
+
+    let _ = writeln!(o, "\n## Props\n");
+    let _ = writeln!(
+        o,
+        "Each prop over the frames either side lit it, whatever effects were on it. \"Error \
+         reversed\" far below \"Error\" means the prop is wired the other way round.\n"
+    );
+    let _ = writeln!(
+        o,
+        "| Prop | Pixels | Measured | Channels | On | Look | Off | Error | Within | IoU | Error reversed |"
+    );
+    let _ = writeln!(o, "|---|---|---|---|---|---|---|---|---|---|---|");
+    for p in &card.props {
+        let s = p.scores.as_ref();
+        let _ = writeln!(
+            o,
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+            cell(&p.name),
+            p.pixels,
+            p.measured_pixels,
+            p.channels
+                .map_or_else(|| "–".to_string(), |(a, b)| format!("{a}–{b}")),
+            match p.on {
+                Source::Controller => "controller",
+                Source::StandIn => "stand-in",
+                Source::None => "–",
+            },
+            maybe(p.look.as_ref().map(|l| l.score), whole),
+            p.look
+                .as_ref()
+                .filter(|l| l.verdict != Verdict::Matches)
+                .map_or_else(|| "–".to_string(), |l| l.weakest.name().to_string()),
+            maybe(s.map(|s| s.mae), num),
+            maybe(s.map(|s| s.within_tolerance), pct),
+            maybe(s.map(|s| s.lit_iou), two),
+            maybe(p.reversed_mae, num),
+        );
+    }
+
+    let _ = writeln!(o, "\n## Diagnostics: pixel for pixel\n");
+    let _ = writeln!(
+        o,
+        "These compare the two renders channel by channel. They find structural bugs (a prop wired \
+         backwards, a frame of delay, layers mixed in another order); they don't say how an import \
+         looks, and a random effect scores badly here however alike it looks.\n"
+    );
+    match &card.diagnostics.overall {
+        Some(scores) => pixel_headline(o, scores, card.method.limits.tolerance),
+        None => {
+            let _ = writeln!(o, "Nothing could be measured.");
+        }
+    }
+    let _ = writeln!(o, "\n### Timing\n");
     let offsets: Vec<String> = timing
         .offsets
         .iter()
@@ -385,26 +757,28 @@ pub fn sequence_markdown(card: &Scorecard) -> String {
             deltas.join(", ")
         );
     }
-
-    let _ = writeln!(o, "\n## What to fix first\n");
+    let _ = writeln!(o, "\n### Deterministic effects by pixel error\n");
     let _ = writeln!(
         o,
-        "Deterministic effects by impact: error (each instance's own frames where it has them) \
-         times its share of the pixel-seconds it was lit on.\n"
+        "Error (each instance's own frames where it has them) times its share of the pixel-seconds \
+         it was lit on.\n"
     );
-    ranking(o, &card.ranking, "Error (0–255)");
-    let _ = writeln!(o, "\n## Stochastic effects\n");
+    ranking(o, &card.diagnostics.ranking, "Error (0–255)");
+    let _ = writeln!(o, "\n### Stochastic effects by distribution\n");
     let _ = writeln!(
         o,
-        "These place things at random, so they are compared by what they show over each {} ms \
-         (brightness, share of pixels lit, colors), not pixel by pixel.\n",
+        "These place things at random, so pixel for pixel they are compared by what they show over \
+         each {} ms (brightness, share of pixels lit, colors).\n",
         card.method.limits.window_ms
     );
-    ranking(o, &card.stochastic_ranking, "Distribution distance (0–1)");
-
-    let _ = writeln!(o, "\n## Every effect kind\n");
+    ranking(
+        o,
+        &card.diagnostics.stochastic_ranking,
+        "Distribution distance (0–1)",
+    );
+    let _ = writeln!(o, "\n### Every effect kind, pixel for pixel\n");
     kinds(o, &card.kinds);
-    if let Some(scores) = &card.unattributed {
+    if let Some(scores) = &card.diagnostics.unattributed {
         let _ = writeln!(
             o,
             "\nLit with no imported effect on the pixel: {:.0} pixel-seconds, error {}.",
@@ -412,84 +786,8 @@ pub fn sequence_markdown(card: &Scorecard) -> String {
             num(scores.mae)
         );
     }
-
-    let _ = writeln!(o, "\n## Label audit\n");
-    label_audit(o, &card.label_audit);
-
-    let _ = writeln!(o, "\n## Props\n");
-    let _ = writeln!(
-        o,
-        "| Prop | Pixels | Measured | Channels | On | Error | Within | IoU | Brightness correlation | Error reversed |"
-    );
-    let _ = writeln!(o, "|---|---|---|---|---|---|---|---|---|---|");
-    for p in &card.props {
-        let s = p.scores.as_ref();
-        let _ = writeln!(
-            o,
-            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
-            cell(&p.name),
-            p.pixels,
-            p.measured_pixels,
-            p.channels
-                .map_or_else(|| "–".to_string(), |(a, b)| format!("{a}–{b}")),
-            match p.on {
-                Source::Controller => "controller",
-                Source::StandIn => "stand-in",
-                Source::None => "–",
-            },
-            maybe(s.map(|s| s.mae), num),
-            maybe(s.map(|s| s.within_tolerance), pct),
-            maybe(s.map(|s| s.lit_iou), two),
-            maybe(s.and_then(|s| s.brightness_correlation), two),
-            maybe(p.reversed_mae, num),
-        );
-    }
-
-    let _ = writeln!(o, "\n## Effects, worst first\n");
-    let mut worst: Vec<(&EffectScore, &Scores, &str)> = card
-        .effects
-        .iter()
-        .filter_map(|e| effect_error(e).map(|(s, how)| (e, s, how)))
-        .collect();
-    worst.sort_by(|a, b| {
-        (b.1.mae * b.0.share)
-            .total_cmp(&(a.1.mae * a.0.share))
-            .then(a.0.index.cmp(&b.0.index))
-    });
-    let _ = writeln!(
-        o,
-        "| # | Effect | On | At | Label | Compared | Error | Within | IoU | Distribution | Judged | Pixel-seconds |"
-    );
-    let _ = writeln!(o, "|---|---|---|---|---|---|---|---|---|---|---|---|");
-    for (e, s, how) in worst.iter().take(MOST_ROWS) {
-        let _ = writeln!(
-            o,
-            "| {} | {} | {} | {}–{} | {} | {} | {} | {} | {} | {} | {} | {:.0} |",
-            e.index,
-            cell(&e.kind),
-            cell(&e.target),
-            time(e.start_ms),
-            time(e.end_ms),
-            format!("{:?}", e.label).to_lowercase(),
-            match &e.class_reason {
-                Some(why) => format!("{} ({why})", class(e.class)),
-                None => class(e.class).to_string(),
-            },
-            num(s.mae),
-            pct(s.within_tolerance),
-            two(s.lit_iou),
-            two(s.distribution.distance),
-            how,
-            e.share
-        );
-    }
-    if worst.len() > MOST_ROWS {
-        let _ = writeln!(
-            o,
-            "\n…and {} more (the JSON scorecard lists them all).",
-            worst.len() - MOST_ROWS
-        );
-    }
+    let _ = writeln!(o, "\n### What the importer carried over, against the pixels\n");
+    label_audit(o, &card.diagnostics.label_audit);
     out
 }
 
@@ -500,23 +798,72 @@ pub fn corpus_markdown(card: &CorpusCard) -> String {
     let _ = writeln!(o, "# Fidelity scorecard: corpus\n");
     let _ = writeln!(
         o,
-        "{} sequences compared with what xLights rendered ({}).\n",
+        "{} sequences held against what xLights rendered ({}).\n",
         card.sequences.len(),
         card.tool
     );
-    let _ = writeln!(o, "## Sequences\n");
+    let _ = writeln!(o, "## How they look\n");
+    look_summary(o, &card.look);
+    let _ = writeln!(o, "\n## Sequences\n");
     let _ = writeln!(
         o,
-        "| Sequence | Length | Effects (exact / approx. / placeholder) | Measured | Pixels measured | Error | Within | IoU | Brightness correlation | Exact differing | Best offset |"
+        "| Sequence | Length | Matches | Close | Different | No equivalent | Look | As seen | Effects judged | Not judged |"
     );
-    let _ = writeln!(o, "|---|---|---|---|---|---|---|---|---|---|---|");
+    let _ = writeln!(o, "|---|---|---|---|---|---|---|---|---|---|");
+    for s in &card.sequences {
+        let look = &s.look;
+        let _ = writeln!(
+            o,
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} of {} | {} |",
+            cell(&s.label),
+            time(s.duration_ms),
+            pct(look.time.matches),
+            pct(look.time.close),
+            pct(look.time.different),
+            pct(look.time.no_equivalent),
+            maybe(look.score, whole),
+            maybe(look.as_seen, whole),
+            look.judged,
+            look.of,
+            pct(look.not_judged)
+        );
+    }
+    if !card.failures.is_empty() {
+        let _ = writeln!(o, "\nNot compared:\n");
+        for f in &card.failures {
+            let _ = writeln!(o, "- {}: {}", f.label, f.error);
+        }
+    }
+    let _ = writeln!(o, "\n## What to improve first\n");
+    let _ = writeln!(
+        o,
+        "Kinds of effect by what there is to gain: how far each instance's look falls short of \
+         matching, times the pixel-seconds it was lit on. \"Off\" is the part of the look that agrees \
+         least.\n"
+    );
+    improve(o, &card.improve);
+    let _ = writeln!(o, "\n## Every effect kind\n");
+    kind_looks(o, &card.kinds);
+    let _ = writeln!(o, "\n## The importer's labels\n");
+    labels(o, &card.labels);
+
+    let _ = writeln!(o, "\n## Diagnostics: pixel for pixel\n");
+    let _ = writeln!(
+        o,
+        "These compare the renders channel by channel. They find structural bugs; they don't say \
+         how an import looks.\n"
+    );
+    let _ = writeln!(
+        o,
+        "| Sequence | Effects (exact / approx. / placeholder) | Measured | Pixels measured | Error | Within | IoU | Brightness correlation | Exact differing | Best offset |"
+    );
+    let _ = writeln!(o, "|---|---|---|---|---|---|---|---|---|---|");
     for s in &card.sequences {
         let scores = s.overall.as_ref();
         let _ = writeln!(
             o,
-            "| {} | {} | {} ({} / {} / {}) | {} | {} of {} | {} | {} | {} | {} | {} of {} | {:+} |",
+            "| {} | {} ({} / {} / {}) | {} | {} of {} | {} | {} | {} | {} | {} of {} | {:+} |",
             cell(&s.label),
-            time(s.duration_ms),
             s.effects,
             s.import.exact,
             s.import.approximate,
@@ -533,29 +880,17 @@ pub fn corpus_markdown(card: &CorpusCard) -> String {
             s.best_offset
         );
     }
-    if !card.failures.is_empty() {
-        let _ = writeln!(o, "\nNot compared:\n");
-        for f in &card.failures {
-            let _ = writeln!(o, "- {}: {}", f.label, f.error);
-        }
-    }
-    let _ = writeln!(o, "\n## What to fix first\n");
-    let _ = writeln!(
+    let _ = writeln!(o, "\n### Deterministic effects by pixel error\n");
+    ranking(o, &card.diagnostics.ranking, "Error (0–255)");
+    let _ = writeln!(o, "\n### Stochastic effects by distribution\n");
+    ranking(
         o,
-        "Deterministic effects by impact: error (each instance's own frames where it has them) \
-         times its share of the pixel-seconds it was lit on.\n"
+        &card.diagnostics.stochastic_ranking,
+        "Distribution distance (0–1)",
     );
-    ranking(o, &card.ranking, "Error (0–255)");
-    let _ = writeln!(o, "\n## Stochastic effects\n");
-    let _ = writeln!(
-        o,
-        "Compared by what they show over a window (brightness, share of pixels lit, colors), not \
-         pixel by pixel.\n"
-    );
-    ranking(o, &card.stochastic_ranking, "Distribution distance (0–1)");
-    let _ = writeln!(o, "\n## Every effect kind\n");
+    let _ = writeln!(o, "\n### Every effect kind, pixel for pixel\n");
     kinds(o, &card.kinds);
-    let _ = writeln!(o, "\n## Label audit\n");
-    label_audit(o, &card.label_audit);
+    let _ = writeln!(o, "\n### What the importer carried over, against the pixels\n");
+    label_audit(o, &card.diagnostics.label_audit);
     out
 }

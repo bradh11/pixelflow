@@ -7,6 +7,7 @@ import type {
   FileRole,
   FoundFile,
   ImportSummary,
+  LookGroup,
   MissingFile,
   RecentShow,
   SequenceImportSummary,
@@ -117,7 +118,7 @@ interface AppState {
   /** What the last xLights import brought in, shown until dismissed. */
   importReport: { name: string; summary: ImportSummary; notes: string[] } | null;
   /** What the last xLights sequence import brought in, shown until dismissed. */
-  sequenceImportReport: { name: string; summary: SequenceImportSummary; notes: string[] } | null;
+  sequenceImportReport: { name: string; summary: SequenceImportSummary; looks: LookGroup[]; notes: string[] } | null;
   /** A vendor's sequence being mapped onto the show's props before it's imported (the mapping
    * dialog is showing). */
   vendorImport: { path: string; inspection: VendorInspection } | null;
@@ -417,6 +418,7 @@ export const useApp = create<AppState>((set, get) => {
         sequenceImportReport: {
           name: imported.snapshot.sequence.name,
           summary: imported.summary,
+          looks: imported.looks,
           notes: imported.notes,
         },
         vendorImport: null,

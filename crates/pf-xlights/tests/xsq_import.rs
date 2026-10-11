@@ -971,3 +971,34 @@ fn pictures_are_found_where_the_sequence_says_or_by_name_in_the_show_folder() {
     };
     assert_eq!(p.file, pf_model::path_to_text(&santa));
 }
+
+#[test]
+fn every_imported_effect_is_listed_with_xlights_name_for_it_and_the_importers_label() {
+    use pf_xlights::sequence::Fidelity;
+    let i = import("effects.xsq");
+    // One record for each effect in the sequence, by its id.
+    let mut listed: Vec<_> = i.effects.iter().map(|e| e.id).collect();
+    let mut placed: Vec<_> = i.sequence.effects().map(|e| e.id).collect();
+    listed.sort();
+    placed.sort();
+    assert_eq!(listed, placed);
+    // The labels are the ones the summary counts.
+    let count = |label: fn(&Fidelity) -> bool| i.effects.iter().filter(|e| label(&e.fidelity)).count();
+    assert_eq!(count(|f| *f == Fidelity::Exact), i.summary.exact);
+    assert_eq!(
+        count(|f| matches!(f, Fidelity::Approximate(_))),
+        i.summary.approximate
+    );
+    assert_eq!(count(|f| *f == Fidelity::Placeholder), i.summary.placeholders);
+    // Roofline's On imports exactly (its row's lower layer, an Off, is read first); an
+    // approximated effect says what differs.
+    assert_eq!(i.effects[0].xlights_name, "Off");
+    let on = i.effects.iter().find(|e| e.xlights_name == "On").unwrap();
+    assert_eq!(on.fidelity, Fidelity::Exact);
+    assert_eq!(i.sequence.effect(on.id).map(|e| e.end_ms), Some(1000));
+    assert!(
+        i.effects
+            .iter()
+            .any(|e| matches!(&e.fidelity, Fidelity::Approximate(why) if !why.is_empty()))
+    );
+}

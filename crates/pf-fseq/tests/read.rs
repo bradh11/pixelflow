@@ -168,6 +168,16 @@ fn sparse_ranges_fill_the_rest_with_zeros() {
     check_all_frames(v2(16, 7, 0, 0, &ranges), 12, 7, stored);
 }
 
+#[test]
+fn the_channels_a_file_holds_are_its_ranges_or_everything() {
+    // Listed in channel order, whatever order the file gives them in.
+    let sparse = Sequence::from_reader(Cursor::new(v2(16, 2, 1, 3, &[(10, 2), (3, 4)]))).unwrap();
+    assert_eq!(sparse.stored_ranges(), [3..7, 10..12]);
+    let whole = Sequence::from_reader(Cursor::new(v2(30, 2, 1, 3, &[]))).unwrap();
+    let whole = whole.stored_ranges();
+    assert_eq!((whole.len(), whole[0].clone()), (1, 0..30));
+}
+
 /// FPP's format document's example: one range of 50 channels from channel 5000, so the header's
 /// channel count is 50 (what each frame stores), and FPP plays them on channels 5001–5050.
 #[test]

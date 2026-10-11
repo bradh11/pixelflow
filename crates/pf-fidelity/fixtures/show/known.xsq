@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Four seconds on the fidelity tests' show, every frame of which the tests can write by hand:
+     0-1 s    Strip red; Matrix blue; Porch orange
+     1-2 s    Strip green (an On with a shimmer, which PixelFlow doesn't draw: "approximate")
+     2-3 s    Strip twinkles; nothing else
+     3-4 s    everything in the group white, over the twinkles on Strip -->
+<xsequence BaseChannel="0" ChanCtrlBasic="0" ChanCtrlColor="0" FixedPointTiming="1" ModelBlending="true">
+  <head>
+    <version>2024.19</version>
+    <song>Known frames</song>
+    <sequenceTiming>50 ms</sequenceTiming>
+    <sequenceType>Animation</sequenceType>
+    <sequenceDuration>4.000</sequenceDuration>
+  </head>
+  <ColorPalettes>
+    <ColorPalette>C_BUTTON_Palette1=#FF0000,C_CHECKBOX_Palette1=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#00FF00,C_CHECKBOX_Palette1=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#0000FF,C_CHECKBOX_Palette1=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#FF8000,C_CHECKBOX_Palette1=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#FFFFFF,C_CHECKBOX_Palette1=1</ColorPalette>
+  </ColorPalettes>
+  <EffectDB>
+    <Effect></Effect>
+    <Effect>E_CHECKBOX_On_Shimmer=1</Effect>
+    <Effect>E_SLIDER_Twinkle_Count=20,E_SLIDER_Twinkle_Steps=40</Effect>
+  </EffectDB>
+  <DisplayElements>
+    <Element collapsed="0" type="model" name="Strip" visible="1"/>
+    <Element collapsed="0" type="model" name="Matrix" visible="1"/>
+    <Element collapsed="0" type="model" name="Porch" visible="1"/>
+    <Element collapsed="0" type="model" name="All" visible="1"/>
+  </DisplayElements>
+  <ElementEffects>
+    <Element type="model" name="Strip">
+      <EffectLayer>
+        <Effect ref="0" name="On" palette="0" startTime="0" endTime="1000"/>
+        <Effect ref="1" name="On" palette="1" startTime="1000" endTime="2000"/>
+        <Effect ref="2" name="Twinkle" palette="4" startTime="2000" endTime="4000"/>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="Matrix">
+      <EffectLayer>
+        <Effect ref="0" name="On" palette="2" startTime="0" endTime="2000"/>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="Porch">
+      <EffectLayer>
+        <Effect ref="0" name="On" palette="3" startTime="0" endTime="2000"/>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="All">
+      <EffectLayer>
+        <Effect ref="0" name="On" palette="4" startTime="3000" endTime="4000"/>
+      </EffectLayer>
+    </Element>
+  </ElementEffects>
+</xsequence>

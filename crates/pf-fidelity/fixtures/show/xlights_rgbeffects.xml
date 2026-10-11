@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A made-up show for the fidelity tests: Strip (channels 1-30, dimmed at its controller) and
+     Matrix (31-60) on a controller, Porch (61-90, GRB) on no controller, and Far (91-105) past the
+     end of the references the tests write. -->
+<xrgb>
+  <models type="rgb_effects">
+    <model name="Strip" DisplayAs="Single Line" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="1" parm2="10" parm3="1"
+           WorldPosX="100.0" WorldPosY="100.0" WorldPosZ="0.0" X2="300.0" Y2="0.0" Z2="0.0" StartChannel="!Main:1"
+           Controller="Main" LayoutGroup="Default" versionNumber="7">
+      <ControllerConnection Port="1" Protocol="ws2811" brightness="40" gamma="2.2"/>
+    </model>
+    <model name="Matrix" DisplayAs="Vert Matrix" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="2" parm2="5" parm3="1"
+           WorldPosX="500.0" WorldPosY="300.0" ScaleX="8.0" ScaleY="8.0" StartChannel="!Main:31"
+           Controller="Main" LayoutGroup="Default" versionNumber="7">
+      <ControllerConnection Port="2" Protocol="ws2811"/>
+    </model>
+    <model name="Porch" DisplayAs="Single Line" StringType="GRB Nodes" StartSide="B" Dir="L" parm1="1" parm2="10" parm3="1"
+           WorldPosX="100.0" WorldPosY="500.0" WorldPosZ="0.0" X2="300.0" Y2="0.0" Z2="0.0" StartChannel="61"
+           LayoutGroup="Default" versionNumber="7"/>
+    <model name="Far" DisplayAs="Single Line" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="1" parm2="5" parm3="1"
+           WorldPosX="600.0" WorldPosY="500.0" WorldPosZ="0.0" X2="150.0" Y2="0.0" Z2="0.0" StartChannel="91"
+           LayoutGroup="Default" versionNumber="7"/>
+  </models>
+  <modelGroups type="rgb_effects">
+    <modelGroup name="All" models="Strip,Matrix,Porch" layout="minimalGrid" GridSize="400" LayoutGroup="Default"/>
+  </modelGroups>
+</xrgb>

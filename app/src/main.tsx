@@ -1,7 +1,9 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { PreviewWindow, connectPreviewWindow } from "./PreviewWindow";
 import { tauriAssistant } from "./api/assistant";
+import { openBrowserPreview, openerEngine, rememberBrowserPlace, shareEngine } from "./api/browserPreview";
 import { FakeAssistant } from "./api/memoryAssistant";
 import { useAssistant } from "./state/assistant";
 import { DEMO_PHOTO, DEMO_PICTURE, DEMO_SHOW_PATH, demoDevices, demoFppFileDetails, demoFppFiles, demoFppSchedules, demoFppSoftware, demoHousePhoto, demoMissingFiles, demoPicture, demoPlayers, demoRecentShows, demoShow, demoShowDevices } from "./api/demo";
@@ -10,17 +12,29 @@ import { MemoryBackend } from "./api/memory";
 import { MemorySequencer } from "./api/memorySequencer";
 import { DEMO_VENDOR_PATH, demoVendorPackage } from "./api/memoryVendor";
 import { tauriSequencer } from "./api/sequencer";
-import { inTauri, tauriBackend } from "./api/tauri";
+import { inTauri, isPreviewWindow, tauriBackend } from "./api/tauri";
 import { useSequencer } from "./state/sequencer";
 import { useApp } from "./state/store";
 import "./styles.css";
 
+// The preview's own window (popped out) shows only the preview, and only reads from the engine.
+const preview = isPreviewWindow();
+// In a browser, a preview window uses the engine of the page that opened it.
+const shared = preview && !inTauri() ? openerEngine() : null;
+
 // Inside the desktop app, talk to the real engine. In a plain browser (UI development), use
 // the in-memory stand-in; `?demo` opens a sample show.
 if (inTauri()) {
-  void useApp.getState().connect(tauriBackend);
-  void useSequencer.getState().connect(tauriSequencer);
-  void useAssistant.getState().connect(tauriAssistant);
+  if (preview) {
+    void connectPreviewWindow(tauriBackend, tauriSequencer);
+  } else {
+    void useApp.getState().connect(tauriBackend);
+    void useSequencer.getState().connect(tauriSequencer);
+    void useAssistant.getState().connect(tauriAssistant);
+  }
+} else if (shared) {
+  void connectPreviewWindow(shared.backend, shared.sequencer);
+  window.addEventListener("pagehide", rememberBrowserPlace);
 } else {
   const demo = new URLSearchParams(location.search).has("demo");
   const backend = new MemoryBackend(demo ? demoShow() : undefined);
@@ -52,7 +66,7 @@ if (inTauri()) {
     backend.path = DEMO_SHOW_PATH;
     demoRecentShows(backend);
   }
-  void useApp.getState().connect(backend);
+  if (!preview) void useApp.getState().connect(backend);
   // A scripted stand-in assistant: no key or network. In the demo it's already set up.
   const assistant = new FakeAssistant(backend);
   if (demo) {
@@ -61,8 +75,10 @@ if (inTauri()) {
     assistant.alignDownloadMs = 4000;
     if (!useAssistant.getState().models.anthropic) useAssistant.getState().setModel("claude-opus-5-5");
   }
-  void useAssistant.getState().connect(assistant);
+  if (!preview) void useAssistant.getState().connect(assistant);
   const sequencer = new MemorySequencer(backend);
+  // The page's own address opened as the preview (nothing opened it): the stand-in engine, only looked at.
+  const connectSequencer = () => (preview ? connectPreviewWindow(backend, sequencer) : useSequencer.getState().connect(sequencer));
   assistant.sequencer = sequencer;
   // Find lyrics waits for the assistant to be set up, like the app.
   sequencer.hasAssistantKey = (provider) => assistant.keys.has(provider);
@@ -87,16 +103,18 @@ if (inTauri()) {
     sequencer.nextPicturePath = DEMO_PICTURE;
     sequencer.vendorPackages.set(DEMO_VENDOR_PATH, demoVendorPackage());
     sequencer.nextXlightsSequencePath = DEMO_VENDOR_PATH;
-    void sequencer.openSequenceDoc(DEMO_SEQUENCE_PATH).then(() => useSequencer.getState().connect(sequencer));
+    void sequencer.openSequenceDoc(DEMO_SEQUENCE_PATH).then(connectSequencer);
     // `?demo&start`: the start page, with the recent shows.
     if (!new URLSearchParams(location.search).has("start")) useApp.setState({ started: true });
   } else {
-    void useSequencer.getState().connect(sequencer);
+    void connectSequencer();
+  }
+  if (!preview) {
+    // Pop out opens a browser window on this page's engine, and closes it with this page.
+    shareEngine({ backend, sequencer });
+    backend.openWindow = openBrowserPreview;
+    window.addEventListener("pagehide", () => backend.previewWindow?.close());
   }
 }
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+createRoot(document.getElementById("root")!).render(<StrictMode>{preview ? <PreviewWindow /> : <App />}</StrictMode>);

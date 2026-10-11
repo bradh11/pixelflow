@@ -10,7 +10,9 @@ import { EffectPalette } from "../components/sequencer/EffectPalette";
 import { EffectSettings } from "../components/sequencer/EffectSettings";
 import { ExportVideoDialog } from "../components/sequencer/ExportVideoDialog";
 import { FindLyrics, LyricsSource } from "../components/sequencer/FindLyrics";
-import { SequencePreview } from "../components/sequencer/SequencePreview";
+import { PoppedOutNote } from "../components/preview/PopOut";
+import { RowOnlyToggle, SequencePreview } from "../components/sequencer/SequencePreview";
+import { useSequencePolling } from "../components/sequencer/useSequenceFrame";
 import { AddTimingTrackDialog } from "../components/sequencer/TimingDialogs";
 import { AddRowMenu, Timeline } from "../components/sequencer/Timeline";
 import { useSequenceKeys } from "../components/sequencer/useSequenceKeys";
@@ -25,9 +27,7 @@ import { saveSequenceAndShow } from "../state/saveAll";
 import { ariaKeysFor, comboLabel, hintFor } from "../lib/shortcuts";
 import { useApp } from "../state/store";
 import { useAudioProgress } from "../state/audioProgress";
-
-/** How often playback is checked while a sequence plays. */
-const POLL_MS = 50;
+import { usePreviewToggles, usePreviewWindow } from "../state/previewWindow";
 
 /** The preview's size, remembered on this computer. */
 const PANE_KEY = "pixelflow.sequencePreview";
@@ -83,23 +83,21 @@ function fitPreview(height: number, total: number): number {
 /** The screen where a show is made: effects on props, timed to music. */
 export function SequenceScreen() {
   const doc = useSequencer((s) => s.doc);
-  const status = useSequencer((s) => s.status);
-  const pollPlayback = useSequencer((s) => s.pollPlayback);
   const showRevision = useApp((s) => s.snapshot?.revision);
   const [creating, setCreating] = useState(false);
   useSequenceKeys();
+  useSequencePolling();
+  // Play/pause pressed in the preview's own window, when it's popped out.
+  usePreviewToggles(() => {
+    const s = useSequencer.getState();
+    if (s.doc) void (s.status?.state === "playing" ? s.pause() : s.play());
+  });
 
   // The sequence's problems depend on the show (props removed or added): check again when the
   // show changes, and when the screen opens.
   useEffect(() => {
     void useSequencer.getState().refreshIssues();
   }, [showRevision]);
-
-  useEffect(() => {
-    if (!status) return;
-    const timer = setInterval(() => void pollPlayback(), POLL_MS);
-    return () => clearInterval(timer);
-  }, [status !== null, pollPlayback]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Runs `action` now, or after asking when the open sequence has unsaved changes. */
   const guard = (action: () => void) => void useSequencer.getState().replaceAfterAsking(action);
@@ -155,7 +153,9 @@ function Workspace() {
     const r = resizing.current;
     return r ? fitPreview(r.from + e.clientY - r.startY, total()) : null;
   };
-  const side = arrangement.side !== null && pane.place !== "top";
+  // In its own window, the preview leaves a slim note above the timeline, whichever place it had.
+  const poppedOut = usePreviewWindow((s) => s.poppedOut);
+  const side = arrangement.side !== null && pane.place !== "top" && !poppedOut;
   const onPlace = arrangement.side ? (place: "side" | "top") => update({ ...pane, place }) : undefined;
   const palette = side ? arrangement.side!.palette : arrangement.palette;
   return (
@@ -163,7 +163,14 @@ function Workspace() {
       <EffectPalette compact={palette === "icons"} />
       <div ref={column} className="flex min-w-0 flex-1 flex-col">
         <BeatsBanner />
-        {!side && (
+        {poppedOut && (
+          <div className="shrink-0 border-b border-neutral-200 px-3 py-1.5 dark:border-neutral-800">
+            <PoppedOutNote>
+              <RowOnlyToggle />
+            </PoppedOutNote>
+          </div>
+        )}
+        {!side && !poppedOut && (
           <>
             <div ref={paneRef} className="min-h-30 shrink px-2 pt-2 pb-1" style={{ height: pane.big ? `${BIG_SHARE * 100}%` : pane.height !== null ? `${pane.height}px` : `${DEFAULT_SHARE * 100}%` }}>
               <SequencePreview doc={doc} expanded={pane.big} onExpand={(big) => update({ ...pane, big })} place="top" onPlace={onPlace} />

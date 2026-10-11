@@ -1,281 +1,147 @@
-import { AlertTriangle, Check, Music, Pause, Play, RotateCcw, Send, Square, Volume2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, Lightbulb, ListMusic, Maximize, Minimize, PictureInPicture2 } from "lucide-react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { errorMessage } from "../api/backend";
-import type { PlaybackStatus, PlayerStatus, PreviewProp, SequenceEntry, Waveform } from "../api/types";
+import type { ControllerStatus, PlaybackStatus, SequenceEntry, Waveform } from "../api/types";
 import { ChannelGrid } from "../components/ChannelGrid";
-import { LivePreview } from "../components/layout3d/LivePreview";
-import { MissingFileNotice, useMissingFile } from "../components/MissingFiles";
-import { type FppChoice, SendToFppDialog, fppChoices } from "../components/SendToFppDialog";
-import { AddSequenceButton, SequenceList } from "../components/SequenceList";
-import { WaveformView } from "../components/WaveformView";
-import { Button, EmptyState, ScreenHeader } from "../components/ui";
-import { clock, fileName, sequenceTitle, shownPath, thousands } from "../lib/format";
-import { fppFileName } from "../lib/fppNames";
+import { typing } from "../components/layout/useLayoutKeys";
+import { LivePreview, LiveViewControls } from "../components/layout3d/LivePreview";
+import { useMissingFile } from "../components/MissingFiles";
+import { MusicSection } from "../components/play/Music";
+import { OnYourFpp } from "../components/play/OnYourFpp";
+import { PlaylistDrawer } from "../components/play/PlaylistDrawer";
+import { BarButton, TransportBar } from "../components/play/TransportBar";
+import { useBusyFpps } from "../components/play/useBusyFpps";
+import { PoppedOutNote } from "../components/preview/PopOut";
+import { PreviewStage } from "../components/preview/PreviewStage";
+import { AddSequenceButton } from "../components/SequenceList";
+import { useSequenceFrame, useSequencePolling } from "../components/sequencer/useSequenceFrame";
+import { Button } from "../components/ui";
+import { plural, sequenceTitle, thousands } from "../lib/format";
+import { hintFor } from "../lib/shortcuts";
+import { useElementWidth } from "../lib/useWidth";
+import { isBusyOrAsking } from "../state/busy";
+import { usePreviewToggles, usePreviewWindow } from "../state/previewWindow";
+import { recentFor, useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
+import { useTheatre, watchDisplay } from "../state/theatre";
+import { useView3d } from "../state/view3d";
 
-/** How often playback state and the preview refresh. */
+/** How often playback state and the live preview refresh. */
 const STATUS_MS = 250;
 const FRAME_MS = 50;
-const FPP_MS = 3000;
-
-const STATE_STYLE: Record<string, string> = {
-  ok: "text-green-600 dark:text-green-400",
-  degraded: "text-amber-600 dark:text-amber-400",
-  unresolved: "text-red-600 dark:text-red-400",
-};
-
-/** FPPs found by discovery that are playing right now (they override PixelFlow's output). */
-function useBusyFpps(): {
-  busy: { address: string; name: string; status: PlayerStatus }[];
-  /** Checks the FPPs again now (after the user stops one). */
-  recheck: () => Promise<void>;
-} {
-  const backend = useApp((s) => s.backend);
-  const discovery = useApp((s) => s.discovery);
-  const [busy, setBusy] = useState<{ address: string; name: string; status: PlayerStatus }[]>([]);
-  const checkRef = useRef<() => Promise<void>>(async () => {});
-  useEffect(() => {
-    const fpps = discovery?.devices.filter((d) => d.kind === "fpp" && d.responding) ?? [];
-    if (!backend || fpps.length === 0) {
-      setBusy([]);
-      return;
-    }
-    let cancelled = false;
-    const check = async () => {
-      const results = await Promise.all(
-        fpps.map(async (d) => {
-          try {
-            return { address: d.address, name: d.name, status: await backend.fppStatus(d.address) };
-          } catch {
-            return null;
-          }
-        }),
-      );
-      if (!cancelled) setBusy(results.filter((r) => r !== null && r.status.state === "playing") as typeof busy);
-    };
-    checkRef.current = check;
-    void check();
-    const timer = setInterval(() => void check(), FPP_MS);
-    return () => {
-      cancelled = true;
-      checkRef.current = async () => {};
-      clearInterval(timer);
-    };
-  }, [backend, discovery]);
-  const recheck = useCallback(() => checkRef.current(), []);
-  return { busy, recheck };
-}
-
 /** Waveform slices to draw. */
 const WAVEFORM_SLICES = 1200;
+/** In full screen, how long the transport stays up after the pointer or a key was last used. */
+const HIDE_MS = 2500;
+/** Narrower than this, the playlist shows over the preview's edge rather than beside it. */
+const DRAWER_BESIDE_FROM = 1000;
+/** Whether the playlist was left open or closed, on this computer. */
+const DRAWER_KEY = "pixelflow.playDrawer";
 
-/** Most the lights may be moved against the music, either way (the engine allows no more). */
-const MAX_OFFSET_MS = 10_000;
-
-function describeOffset(ms: number): string {
-  if (ms === 0) return "Lights are in sync with the music";
-  return `Lights are ${Math.abs(ms)} ms ${ms > 0 ? "ahead of" : "behind"} the music`;
+function loadDrawer(): boolean | null {
+  try {
+    const saved = localStorage.getItem(DRAWER_KEY);
+    return saved === "open" ? true : saved === "closed" ? false : null;
+  } catch {
+    return null;
+  }
 }
 
-/** Shifts a sequence's lights against its music; every change is one undo step. */
-function OffsetControl({ entry }: { entry: SequenceEntry }) {
-  const apply = useApp((s) => s.apply);
-  // Quick clicks build on each other, not on what was last drawn.
-  const target = useRef(entry.offsetMs);
-  const pending = useRef(0);
-  useEffect(() => {
-    if (pending.current === 0) target.current = entry.offsetMs;
-  }, [entry.offsetMs]);
-  const set = async (offsetMs: number) => {
-    target.current = Math.max(-MAX_OFFSET_MS, Math.min(MAX_OFFSET_MS, offsetMs));
-    const latest = useApp.getState().snapshot?.show.sequences.find((s) => s.id === entry.id) ?? entry;
-    pending.current++;
-    try {
-      await apply([{ type: "updateSequence", sequence: { ...latest, offsetMs: target.current } }]);
-    } finally {
-      pending.current--;
-      if (pending.current === 0) {
-        target.current = useApp.getState().snapshot?.show.sequences.find((s) => s.id === entry.id)?.offsetMs ?? target.current;
-      }
-    }
-  };
-  return (
-    <div className="flex flex-col gap-1 text-sm" role="group" aria-label="Music alignment">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-medium text-neutral-700 dark:text-neutral-200" title="Move the lights earlier or later against the music, if they look out of step">
-          Light timing
-        </span>
-        {[-50, -10, 10, 50].map((delta) => (
-          <Button
-            key={delta}
-            aria-label={`${delta > 0 ? "+" : "−"}${Math.abs(delta)} ms: lights ${delta > 0 ? "earlier" : "later"}`}
-            title={`Lights ${Math.abs(delta)} ms ${delta > 0 ? "earlier" : "later"}`}
-            disabled={delta > 0 ? entry.offsetMs >= MAX_OFFSET_MS : entry.offsetMs <= -MAX_OFFSET_MS}
-            onClick={() => set(target.current + delta)}
-            className="tabular-nums"
-          >
-            {delta > 0 ? `+${delta}` : `−${Math.abs(delta)}`} ms
-          </Button>
-        ))}
-        {entry.offsetMs !== 0 && (
-          <Button variant="ghost" onClick={() => set(0)}>
-            Reset
-          </Button>
-        )}
-      </div>
-      <span className="text-xs text-neutral-500">{describeOffset(entry.offsetMs)}</span>
-    </div>
-  );
+function saveDrawer(open: boolean) {
+  try {
+    localStorage.setItem(DRAWER_KEY, open ? "open" : "closed");
+  } catch {
+    // Storage unavailable: it stays as it is until the screen closes.
+  }
 }
 
-/** The sequence's music file, with a way to choose or remove it. */
-function MusicRow({ entry }: { entry: SequenceEntry }) {
-  const apply = useApp((s) => s.apply);
-  const backend = useApp((s) => s.backend);
-  const choose = async () => {
-    const audio = await backend?.pickAudioPath();
-    if (audio) await apply([{ type: "updateSequence", sequence: { ...entry, audio } }]);
-  };
-  return (
-    <div className="flex items-center gap-2 text-sm">
-      <span title="Music" className="shrink-0">
-        <Music size={14} className="text-neutral-400" aria-hidden />
-      </span>
-      {entry.audio ? (
-        <>
-          <span className="truncate" title={shownPath(entry.audio)}>
-            {fileName(entry.audio)}
-          </span>
-          <Button variant="ghost" onClick={choose}>
-            Change…
-          </Button>
-          <Button variant="ghost" title="Play this sequence without music" onClick={() => apply([{ type: "updateSequence", sequence: { ...entry, audio: null } }])}>
-            Remove music
-          </Button>
-        </>
-      ) : (
-        <>
-          <span className="text-neutral-500">No music</span>
-          <Button onClick={choose}>Choose music…</Button>
-        </>
-      )}
-    </div>
-  );
-}
+/** What's picked to play: the sequence open in the editor, or one of the show's rendered ones. */
+type Pick = { kind: "doc" } | { kind: "entry"; id: string };
 
-/** Whether the show sequence's file is among the FPP's sequence files, under exactly the name it
- * would be sent as (the FPP's files are case-sensitive: other capitals are another file). */
-function isOnFpp(entry: SequenceEntry, names: string[]): boolean {
-  const name = fppFileName(fileName(entry.path).replace(/\.fseq$/i, ""), "fseq");
-  return names.includes(name);
+/**
+ * What the transport works on: the sequence open in the editor, or a rendered sequence (`entry`
+ * is null for one playing that's no longer on the playlist) with its playback, if it's loaded.
+ */
+type Now = { kind: "doc" } | { kind: "entry"; entry: SequenceEntry | null; status: PlaybackStatus | null };
+
+/** The open sequence at its playhead, and live while it plays. */
+function DocStage({ durationMs }: { durationMs: number }) {
+  const doc = useSequencer((s) => s.doc);
+  const mode = useView3d((s) => s.playMode);
+  const frame = useSequenceFrame(durationMs, doc);
+  return <PreviewStage frame={frame} mode={mode} />;
 }
 
 /**
- * Which of the show's sequences are on each FPP, with Send for the missing ones. Each FPP is read
- * once (one quick request), and again after a send or on Check again; reading changes nothing.
+ * The open sequence's transport: the same playback as the Sequence screen's (its state is the
+ * sequencer's), with looping and "Show on my lights". Its own component: the playhead changes
+ * many times a second.
  */
-function OnYourFpp({ sequences }: { sequences: SequenceEntry[] }) {
-  const backend = useApp((s) => s.backend);
-  const controllers = useApp((s) => s.snapshot?.show.controllers);
-  const devices = useApp((s) => s.discovery?.devices);
-  const fpps = useMemo(() => fppChoices(controllers, devices), [controllers, devices]);
-  const [found, setFound] = useState<Record<string, string[] | { error: string }>>({});
-  const [turn, setTurn] = useState(0);
-  const [sending, setSending] = useState<{ entry: SequenceEntry; fpp: FppChoice } | null>(null);
-  const addresses = fpps.map((f) => f.address).join(",");
-  useEffect(() => {
-    if (!backend) return;
-    let current = true;
-    for (const address of addresses ? addresses.split(",") : []) {
-      backend.fppSequenceNames(address).then(
-        (names) => current && setFound((f) => ({ ...f, [address]: names })),
-        (e) => current && setFound((f) => ({ ...f, [address]: { error: errorMessage(e) } })),
-      );
-    }
-    return () => {
-      current = false;
-    };
-  }, [backend, addresses, turn]);
-  if (fpps.length === 0 || sequences.length === 0) return null;
+function DocTransport({ onAct, children }: { onAct: (action: () => Promise<unknown>) => void; children: ReactNode }) {
+  const s = useSequencer(
+    useShallow((st) => ({
+      name: st.doc?.name ?? "",
+      durationMs: st.doc?.durationMs ?? 0,
+      frameMs: st.doc?.frameMs ?? 25,
+      playheadMs: st.playheadMs,
+      playing: st.status?.state === "playing",
+      active: st.status !== null,
+      looping: st.looping,
+      sendToControllers: st.sendToControllers,
+    })),
+  );
+  const act = useSequencer.getState;
+  const atStart = s.playheadMs === 0;
   return (
-    <section aria-label="On your FPP" className="mb-4 flex flex-col gap-3 rounded-lg border border-neutral-200 p-3 text-sm dark:border-neutral-800">
-      {fpps.map((fpp) => {
-        const names = found[fpp.address];
-        const on = Array.isArray(names) ? sequences.filter((s) => isOnFpp(s, names)).length : 0;
-        return (
-          <div key={fpp.address} className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="font-medium">
-                On {fpp.name} <span className="font-normal text-neutral-500">({fpp.address})</span>
-              </h3>
-              <Button variant="ghost" title={`Look at what's on ${fpp.name} again`} onClick={() => setTurn((t) => t + 1)}>
-                Check again
-              </Button>
-            </div>
-            {names === undefined && <p className="text-neutral-500">Checking {fpp.name}…</p>}
-            {names !== undefined && !Array.isArray(names) && (
-              <p className="text-amber-700 dark:text-amber-400">
-                Couldn't check {fpp.name}: {names.error}
-              </p>
-            )}
-            {Array.isArray(names) && (
-              <>
-                <p className="text-neutral-600 dark:text-neutral-300">
-                  {on === sequences.length
-                    ? `All ${sequences.length} sequences are on ${fpp.name}.`
-                    : `${on} of ${sequences.length} sequences are on ${fpp.name}.`}
-                </p>
-                <ul className="flex max-h-40 flex-col gap-1 overflow-auto">
-                  {sequences.map((entry) => (
-                    <li key={entry.id} aria-label={entry.name} className="flex items-center justify-between gap-2">
-                      <span className="min-w-0 truncate">{entry.name}</span>
-                      {isOnFpp(entry, names) ? (
-                        <span
-                          className="flex shrink-0 items-center gap-1 text-green-700 dark:text-green-400"
-                          title="A sequence file with this name is on the FPP. PixelFlow doesn't check that it's the same version."
-                        >
-                          <Check size={14} aria-hidden /> Same name on the FPP
-                        </span>
-                      ) : (
-                        <Button
-                          aria-label={`Send ${entry.name} to ${fpp.name}`}
-                          title={`Put ${entry.name} and its music on ${fpp.name}`}
-                          onClick={() => setSending({ entry, fpp })}
-                        >
-                          <Send size={14} /> Send…
-                        </Button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-          </div>
-        );
-      })}
-      {sending && (
-        <SendToFppDialog
-          source={{ kind: "file", path: sending.entry.path }}
-          title={sending.entry.name}
-          music={sending.entry.audio}
-          address={sending.fpp.address}
-          onClose={() => {
-            setSending(null);
-            setTurn((t) => t + 1);
-          }}
-        />
-      )}
-    </section>
+    <TransportBar
+      name={s.name}
+      playing={s.playing}
+      // Stop leaves the playhead where it is; pressed again, it goes back to the start.
+      stopLabel={s.active || atStart ? "Stop" : "Back to the start"}
+      stopDisabled={!s.active && atStart}
+      positionMs={s.playheadMs}
+      durationMs={s.durationMs}
+      stepMs={s.frameMs}
+      onToggle={() => onAct(() => (act().status?.state === "playing" ? act().pause() : act().play()))}
+      onRestart={() => onAct(() => act().seek(0))}
+      onStop={() => onAct(() => act().stop())}
+      onScrub={(ms) => void act().seek(ms)}
+      onScrubEnd={() => {}}
+      loop={{ on: s.looping, set: (on) => act().setLooping(on) }}
+      lights={{ on: s.sendToControllers, set: (on) => void act().setSendToControllers(on) }}
+    >
+      {children}
+    </TransportBar>
   );
 }
 
-/** Plays a rendered sequence (.fseq) on the controllers and shows it on the props. */
+/** A rendered sequence always goes to the controllers: whether they're all getting it. */
+function Sending({ controllers }: { controllers: ControllerStatus[] }) {
+  if (controllers.length === 0) return null;
+  const trouble = controllers.filter((c) => c.state !== "ok").length;
+  return (
+    <span
+      title={controllers.map((c) => `${c.name}: ${c.state === "ok" ? "sending" : c.state}`).join(", ")}
+      className={`ml-2 inline-flex shrink-0 items-center gap-1 text-xs ${trouble ? "text-amber-600 dark:text-amber-400" : "text-green-600 dark:text-green-400"}`}
+    >
+      <Lightbulb size={13} aria-hidden />
+      <span className="hidden @min-[760px]:inline">{trouble ? `${plural(trouble, "controller")} in trouble` : `On ${plural(controllers.length, "controller")}`}</span>
+    </span>
+  );
+}
+
+/**
+ * Show time: the lights filling the window as a sequence plays, with a transport under them and
+ * the playlist in a drawer. It plays what's being worked on (the sequence open in the editor,
+ * with the Sequence screen's own playback) or one of the show's rendered sequences (.fseq, with
+ * its music, to the controllers), and goes full screen.
+ */
 export function PlayScreen() {
   const backend = useApp((s) => s.backend);
   const snapshot = useApp((s) => s.snapshot);
   const setScreen = useApp((s) => s.setScreen);
   const [status, setStatus] = useState<PlaybackStatus | null>(null);
-  const [props, setProps] = useState<PreviewProp[]>([]);
   const [frame, setFrame] = useState<Uint8Array | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scrub, setScrub] = useState<number | null>(null);
@@ -289,46 +155,81 @@ export function PlayScreen() {
   statusRef.current = status;
   const known = snapshot?.show.controllers.some((c) => c.sequenceChannels) ?? false;
   // Controllers that get sequence data but have no strings in PixelFlow yet: shown as raw grids.
-  const unwired = (snapshot?.show.controllers ?? []).filter(
-    (c) => c.sequenceChannels && !c.ports.some((p) => p.slots.length > 0),
-  );
+  const unwired = (snapshot?.show.controllers ?? []).filter((c) => c.sequenceChannels && !c.ports.some((p) => p.slots.length > 0));
   const [raw, setRaw] = useState<Uint8Array | null>(null);
   const sequences = snapshot?.show.sequences ?? [];
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const selected = sequences.find((s) => s.id === selectedId) ?? sequences[0] ?? null;
-  const missingSequence = useMissingFile(selected ? { kind: "sequence", id: selected.id } : null);
-  const missingMusic = useMissingFile(selected?.audio ? { kind: "music", id: selected.id } : null);
   const [waveform, setWaveform] = useState<Waveform | null>(null);
   const [waveformLoading, setWaveformLoading] = useState(false);
   const [playAll, setPlayAll] = useState(false);
   const musicVolume = useApp((s) => s.musicVolume);
   const setMusicVolume = useApp((s) => s.setMusicVolume);
-  /** Status, when it belongs to the selected sequence (the transport and waveform show it). */
-  const current = status && selected && status.sequence === selected.id ? status : null;
-  /** The sequence playing, when it isn't the selected one (shown as a summary). */
-  const elsewhere = status && !current ? status : null;
-  const elsewhereName = elsewhere
-    ? (sequences.find((s) => s.id === elsewhere.sequence)?.name ?? sequenceTitle(elsewhere.path))
-    : null;
+  const theatre = useTheatre((s) => s.on);
+  const poppedOut = usePreviewWindow((s) => s.poppedOut);
+  const root = useRef<HTMLDivElement>(null);
+  const narrow = useElementWidth(root, (w) => w !== null && w < DRAWER_BESIDE_FROM);
+  useSequencePolling();
 
-  const run = useCallback(
-    async (action: () => Promise<PlaybackStatus | null | void>) => {
+  // The sequence open in the editor (only what this screen shows of it: its playhead has a
+  // component of its own).
+  const doc = useSequencer(useShallow((s) => (s.doc ? { name: s.doc.name, durationMs: s.doc.durationMs, path: s.path } : null)));
+  const docActive = useSequencer((s) => s.status !== null);
+  const recent = useSequencer((s) => s.recent);
+  const saved = recentFor(recent, snapshot?.path ?? null).mine.filter((r) => r.path !== doc?.path);
+
+  // What's picked: the user's choice while it's still there, else the open sequence, else the
+  // first rendered one.
+  const [picked, setPicked] = useState<Pick | null>(null);
+  const pickedEntry = picked?.kind === "entry" ? sequences.find((s) => s.id === picked.id) : undefined;
+  const selected: Pick | null = pickedEntry
+    ? { kind: "entry", id: pickedEntry.id }
+    : doc
+      ? { kind: "doc" }
+      : sequences[0]
+        ? { kind: "entry", id: sequences[0].id }
+        : null;
+  const selectedEntry = selected?.kind === "entry" ? (sequences.find((s) => s.id === selected.id) ?? null) : null;
+  const missingSequence = useMissingFile(selectedEntry ? { kind: "sequence", id: selectedEntry.id } : null);
+  const missingMusic = useMissingFile(selectedEntry?.audio ? { kind: "music", id: selectedEntry.id } : null);
+
+  /** A rendered sequence the engine has loaded (playing, paused, or finished). */
+  const fseq = status && !status.authored ? status : null;
+  /** Its playback, when it's the picked one's (the music's waveform follows it). */
+  const current = fseq && selectedEntry && fseq.sequence === selectedEntry.id ? fseq : null;
+  // The transport works on what's playing, else on what's picked.
+  const now: Now | null =
+    fseq && fseq.state !== "ended"
+      ? { kind: "entry", entry: sequences.find((s) => s.id === fseq.sequence) ?? null, status: fseq }
+      : doc && (docActive || selected?.kind === "doc")
+        ? { kind: "doc" }
+        : selectedEntry
+          ? { kind: "entry", entry: selectedEntry, status: current }
+          : null;
+  const nowName = now === null ? null : now.kind === "doc" ? (doc?.name ?? null) : (now.entry?.name ?? (now.status ? sequenceTitle(now.status.path) : null));
+  const nowIsDoc = now?.kind === "doc";
+
+  // The drawer is closed while a sequence is open (it's what plays), until the user says otherwise.
+  const [drawerChoice, setDrawerChoice] = useState(loadDrawer);
+  const drawerOpen = (drawerChoice ?? doc === null) && now !== null && !theatre;
+  const setDrawer = (open: boolean) => {
+    saveDrawer(open);
+    setDrawerChoice(open);
+  };
+
+  const run = useCallback(async (action: () => Promise<PlaybackStatus | null | void>) => {
+    actions.current++;
+    try {
+      const next = await action();
+      if (next !== undefined) setStatus(next);
+      setNotice(null);
+      setError(null);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
       actions.current++;
-      try {
-        const next = await action();
-        if (next !== undefined) setStatus(next);
-        setNotice(null);
-        setError(null);
-      } catch (e) {
-        setError(errorMessage(e));
-      } finally {
-        actions.current++;
-      }
-    },
-    [],
-  );
+    }
+  }, []);
 
-  // Playback state, and the props' positions whenever the show changes.
+  // Playback state, whatever started it.
   useEffect(() => {
     if (!backend) return;
     let cancelled = false;
@@ -340,8 +241,8 @@ export function PlayScreen() {
       try {
         const s = await backend.playbackStatus();
         if (cancelled || startedAt !== actions.current) return;
-        if (s === null && statusRef.current !== null) {
-          // Playback ended without the user stopping it: an edit to the show may be why.
+        if (s === null && statusRef.current !== null && !statusRef.current.authored) {
+          // A rendered sequence ended without the user stopping it: an edit to the show may be why.
           const reason = await backend.playbackStopReason().catch(() => null);
           if (cancelled || startedAt !== actions.current) return;
           setNotice(reason);
@@ -361,18 +262,10 @@ export function PlayScreen() {
     };
   }, [backend]);
 
+  // The live preview, while a rendered sequence is loaded (the open sequence draws its own).
+  const live = fseq !== null;
   useEffect(() => {
-    if (!backend) return;
-    void backend.previewProps().then(
-      (p) => setProps(p.props),
-      () => setProps([]),
-    );
-  }, [backend, snapshot?.revision]);
-
-  // The live preview, while something is loaded.
-  const active = status !== null;
-  useEffect(() => {
-    if (!backend || !active) {
+    if (!backend || !live) {
       setFrame(null);
       return;
     }
@@ -395,9 +288,9 @@ export function PlayScreen() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [backend, active]);
+  }, [backend, live]);
 
-  const wantRaw = active && unwired.length > 0;
+  const wantRaw = live && unwired.length > 0;
   useEffect(() => {
     if (!backend || !wantRaw) {
       setRaw(null);
@@ -424,8 +317,8 @@ export function PlayScreen() {
     };
   }, [backend, wantRaw]);
 
-  // The selected sequence's music, drawn once per file.
-  const audio = selected?.audio ?? null;
+  // The picked rendered sequence's music, drawn once per file.
+  const audio = selectedEntry?.audio ?? null;
   useEffect(() => {
     setWaveform(null);
     if (!backend || !audio) {
@@ -451,9 +344,9 @@ export function PlayScreen() {
     };
   }, [backend, audio]);
 
-  // Play all: when a sequence finishes (lights and music), the next one starts, and after the
-  // last, the first. The selection stays where the user put it.
-  const endedId = status?.state === "ended" && !status.error ? status.sequence : null;
+  // Play all: when a rendered sequence finishes (lights and music), the next one starts, and
+  // after the last, the first. What's picked stays where the user put it.
+  const endedId = fseq?.state === "ended" && !fseq.error ? fseq.sequence : null;
   // A sequence that had already finished when play all was turned on isn't followed by the next.
   const skipEnded = useRef<string | null>(null);
   const togglePlayAll = (on: boolean) => {
@@ -473,27 +366,70 @@ export function PlayScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [endedId, playAll]);
 
-  const playSelected = (positionMs = 0) => {
-    if (!selected) return;
-    setSelectedId(selected.id);
-    void run(() => backend!.playSequence(selected.id, positionMs));
+  /** Does something with the open sequence's playback, then reads where the engine is: it may
+   * have taken over from a rendered sequence, or let go. */
+  const docAct = (action: () => Promise<unknown>) =>
+    void run(async () => {
+      await action();
+      return backend!.playbackStatus();
+    });
+
+  /** The rendered sequence the transport is on: jumps there, or starts it from there. */
+  const seekEntry = (ms: number) => {
+    if (now?.kind !== "entry") return;
+    if (now.status) void run(() => backend!.seekPlayback(ms));
+    else if (now.entry) void run(() => backend!.playSequence(now.entry!.id, ms));
   };
 
-  const seekTo = (ms: number) => {
-    if (current) void run(() => backend!.seekPlayback(ms));
-    else playSelected(ms);
+  const stopEntry = () =>
+    run(async () => {
+      await backend!.stopPlayback();
+      setStatus(null);
+    });
+
+  /** Play or pause, whatever the transport is on (its button, Space, the preview's own window). */
+  const toggle = () => {
+    if (!now) return;
+    if (now.kind === "doc") {
+      const seq = useSequencer.getState();
+      docAct(() => (seq.status?.state === "playing" ? seq.pause() : seq.play()));
+    } else if (!now.status || now.status.state === "ended") {
+      if (now.entry) void run(() => backend!.playSequence(now.entry!.id, 0));
+    } else {
+      const playing = now.status.state === "playing";
+      void run(() => backend!.pausePlayback(playing));
+    }
   };
+  usePreviewToggles(toggle);
+
+  // Picking from the playlist plays it.
+  const pickDoc = () => {
+    setPicked({ kind: "doc" });
+    const seq = useSequencer.getState();
+    if (seq.status?.state !== "playing") docAct(() => seq.play());
+  };
+  const pickEntry = (id: string) => {
+    setPicked({ kind: "entry", id });
+    if (!(fseq && fseq.state !== "ended" && fseq.sequence === id)) void run(() => backend!.playSequence(id, 0));
+  };
+  /** Opens a saved sequence in the editor (asking first about unsaved changes to the open one)
+   * and plays it. */
+  const openSaved = (path: string) =>
+    void useSequencer.getState().replaceAfterAsking(async () => {
+      if (!(await useSequencer.getState().open(path))) return;
+      setPicked({ kind: "doc" });
+      docAct(() => useSequencer.getState().play());
+    });
 
   const scrubRef = useRef<number | null>(null);
   scrubRef.current = scrub;
-  /** Jumps to where the slider was left (pointer release, key release, or leaving the slider);
-   * when the selected sequence isn't playing, it starts playing from there. */
+  /** Jumps to where the seek bar was left; when the sequence isn't loaded, it starts playing from there. */
   const commitSeek = () => {
     const target = scrubRef.current;
     if (target === null) return;
     scrubRef.current = null;
     setScrub(null);
-    seekTo(target);
+    seekEntry(target);
   };
 
   const setVolume = (volume: number) => {
@@ -501,241 +437,327 @@ export function PlayScreen() {
     // The engine keeps the volume for whatever plays next, too.
     void run(() => backend!.setPlaybackVolume(volume));
   };
-  const volume = current?.volume ?? musicVolume;
-  /** How long the selected sequence lasts, as far as is known (its music, until it plays). */
-  const length = current?.durationMs ?? waveform?.durationMs ?? 0;
-  const position = scrub ?? current?.positionMs ?? 0;
 
-  const stop = () => run(async () => {
-    await backend!.stopPlayback();
-    setStatus(null);
-  });
+  // What the preview shows, for its own window when it's popped out.
+  useEffect(() => {
+    usePreviewWindow.getState().setPlay({ source: nowIsDoc ? "sequence" : "live", title: nowName });
+  }, [nowIsDoc, nowName]);
+
+  // Full screen ends with the screen, and when the window stops filling its display some other way.
+  useEffect(() => {
+    const stop = watchDisplay();
+    return () => {
+      stop();
+      useTheatre.getState().exit();
+    };
+  }, []);
+  const canFill = now !== null && !poppedOut;
+
+  // In full screen the transport hides itself while a sequence plays, until the pointer or a key
+  // is used again.
+  const [awake, setAwake] = useState(true);
+  useEffect(() => {
+    if (!theatre) {
+      setAwake(true);
+      return;
+    }
+    // The button that was clicked lets go of the keys: Space is play and pause again.
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const wake = () => {
+      setAwake(true);
+      clearTimeout(timer);
+      timer = setTimeout(() => setAwake(false), HIDE_MS);
+    };
+    wake();
+    const events = ["pointermove", "pointerdown", "keydown"] as const;
+    for (const name of events) window.addEventListener(name, wake);
+    return () => {
+      clearTimeout(timer);
+      for (const name of events) window.removeEventListener(name, wake);
+    };
+  }, [theatre]);
+  const docPlaying = useSequencer((s) => s.status?.state === "playing");
+  const playing = now?.kind === "doc" ? docPlaying : now?.status?.state === "playing";
+  const hidden = theatre && !awake && playing;
+
+  // The screen's keys, as on the Sequence screen: Space plays and pauses, L loops, Home and End
+  // jump; F goes full screen and Escape leaves it.
+  const keys = useRef({ toggle, canFill, now, seekEntry });
+  keys.current = { toggle, canFill, now, seekEntry };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest?.("[role=dialog], [role=menu]")) return;
+      if (useApp.getState().paletteOpen || isBusyOrAsking()) return;
+      const k = keys.current;
+      if (e.key === "Escape") {
+        if (useTheatre.getState().on) {
+          e.preventDefault();
+          useTheatre.getState().exit();
+        }
+        return;
+      }
+      // A field keeps its own keys (the seek bar has Home and End of its own).
+      if (typing(target) || target?.tagName === "INPUT") return;
+      if (e.key === " ") {
+        // Space on a focused button presses that button instead.
+        if (target?.closest?.("button, a, [role=button], [role=checkbox], [role=menuitem]")) return;
+        e.preventDefault();
+        k.toggle();
+      } else if (e.key === "f" || e.key === "F") {
+        e.preventDefault();
+        if (e.repeat) return;
+        if (useTheatre.getState().on) useTheatre.getState().exit();
+        else if (k.canFill) useTheatre.getState().enter();
+      } else if ((e.key === "l" || e.key === "L") && k.now?.kind === "doc") {
+        e.preventDefault();
+        const seq = useSequencer.getState();
+        if (!e.repeat) seq.setLooping(!seq.looping);
+      } else if ((e.key === "Home" || e.key === "End") && k.now) {
+        e.preventDefault();
+        const seq = useSequencer.getState();
+        if (k.now.kind === "doc") void seq.seek(e.key === "Home" ? 0 : (seq.doc?.durationMs ?? 0));
+        else k.seekEntry(e.key === "Home" ? 0 : (k.now.status?.durationMs ?? 0));
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const volume = current?.volume ?? musicVolume;
+  const entryStatus = now?.kind === "entry" ? now.status : null;
+  /** How long the rendered sequence on the transport lasts, as far as is known (its music, until it plays). */
+  const entryLength = entryStatus?.durationMs ?? (now?.kind === "entry" && now.entry === selectedEntry ? (waveform?.durationMs ?? 0) : 0);
+  const entryPosition = scrub ?? entryStatus?.positionMs ?? 0;
+  const unsettled = entryStatus?.controllers.filter((c) => c.state !== "ok") ?? [];
+
+  const chrome = "transition-opacity duration-300";
+  // Hidden, it comes back for the keyboard: tabbing onto one of its controls shows it.
+  const asleep = hidden ? "pointer-events-none opacity-0 has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:opacity-100" : "";
+
+  /** The bar's own buttons: how it looks, the playlist, its own window, and full screen. */
+  const buttons = (
+    <>
+      <LiveViewControls drop="up" />
+      {!theatre && (
+        <BarButton label="Playlist" hint={drawerOpen ? "Put the playlist away" : "What there is to play, each sequence's music, and what's on your FPP"} expanded={drawerOpen} onClick={() => setDrawer(!drawerOpen)}>
+          <ListMusic size={16} aria-hidden /> <span className="hidden @min-[760px]:inline">Playlist</span>
+        </BarButton>
+      )}
+      {!theatre && (
+        <BarButton
+          label={poppedOut ? "Bring the preview back" : "Pop out the preview"}
+          hint={poppedOut ? "Close the preview's own window and show it here again" : "Open the preview in its own window: the lights on another display, the controls here"}
+          pressed={poppedOut}
+          onClick={() => void (poppedOut ? usePreviewWindow.getState().bringBack() : usePreviewWindow.getState().popOut())}
+        >
+          <PictureInPicture2 size={16} aria-hidden />
+        </BarButton>
+      )}
+      {canFill && (
+        <BarButton
+          label={theatre ? "Leave full screen" : "Full screen"}
+          hint={theatre ? "Leave full screen" : "Full screen: only the lights, with these controls when you move the pointer"}
+          shortcut={hintFor(theatre ? "play-escape" : "play-fullscreen")}
+          pressed={theatre}
+          onClick={() => (theatre ? useTheatre.getState().exit() : useTheatre.getState().enter())}
+        >
+          {theatre ? <Minimize size={16} aria-hidden /> : <Maximize size={16} aria-hidden />}
+        </BarButton>
+      )}
+    </>
+  );
+
+  /** The playlist: beside the screen, or over the preview's edge in a narrow window. */
+  const drawer = drawerOpen && (
+    <PlaylistDrawer
+      floating={narrow}
+      onClose={() => setDrawer(false)}
+      open={doc ? { name: doc.name, picked: selected?.kind === "doc", playing: nowIsDoc && docActive, pick: pickDoc } : null}
+      saved={saved}
+      onOpenSaved={openSaved}
+      selectedEntry={selectedEntry?.id ?? null}
+      playingEntry={fseq?.sequence ?? null}
+      onPickEntry={pickEntry}
+      onAdded={(id) => setPicked({ kind: "entry", id })}
+      missingSequence={missingSequence}
+      playAll={playAll}
+      onPlayAll={togglePlayAll}
+    >
+      {selectedEntry && (
+        <MusicSection
+          entry={selectedEntry}
+          missing={missingMusic}
+          waveform={waveform}
+          loading={waveformLoading}
+          positionMs={current ? (scrub ?? current.positionMs) : null}
+          durationMs={current?.durationMs ?? waveform?.durationMs ?? 0}
+          volume={volume}
+          onSeek={(ms) => {
+            if (current) void run(() => backend!.seekPlayback(ms));
+            else void run(() => backend!.playSequence(selectedEntry.id, ms));
+          }}
+          onVolume={setVolume}
+        />
+      )}
+      <OnYourFpp sequences={sequences} />
+    </PlaylistDrawer>
+  );
 
   return (
-    <div className="flex h-full flex-col">
-      <ScreenHeader title="Play">
-        <AddSequenceButton onSelect={setSelectedId} />
-      </ScreenHeader>
-
-      {busyFpps.map((fpp) => (
-        <div
-          key={fpp.address}
-          role="alert"
-          aria-label="FPP is playing"
-          className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
-        >
-          <p className="flex items-start gap-2">
-            <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-            {fpp.name} is playing {fpp.status.sequence ?? fpp.status.playlist}. While it plays, it overrides PixelFlow on
-            the same controllers.
-          </p>
-          <Button
-            disabled={stopping === fpp.address}
-            onClick={async () => {
-              setStopping(fpp.address);
-              try {
-                await run(async () => backend!.fppStop(fpp.address, false));
-                await recheckFpps();
-              } finally {
-                setStopping(null);
-              }
-            }}
-          >
-            {stopping === fpp.address ? "Stopping…" : "Stop FPP"}
-          </Button>
-        </div>
-      ))}
-
-      {error && (
-        <p role="alert" className="mb-4 text-sm text-red-600 dark:text-red-400">
-          {error}
-        </p>
-      )}
-      {notice && !status && <p className="mb-4 text-sm text-amber-700 dark:text-amber-400">{notice}</p>}
-
-      <div className="flex min-h-0 flex-1 gap-6">
-        <SequenceList selected={selected?.id ?? null} playing={status?.sequence ?? null} onSelect={setSelectedId} />
-        <div className="flex min-w-0 flex-1 flex-col">
-      {!known && !status && (
-        <EmptyState title="Add your controllers first">
-          <p>
-            PixelFlow doesn't know which channels go to which controller yet. On the Controllers screen, open your FPP and add
-            the controllers it sends to.
-          </p>
-          <div className="mt-3">
-            <Button onClick={() => setScreen("devices")}>Go to Controllers</Button>
-          </div>
-        </EmptyState>
-      )}
-
-      {elsewhere && (
-        <section
-          aria-label="Now playing"
-          className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-violet-200 bg-violet-50 px-4 py-2 text-sm dark:border-violet-900 dark:bg-violet-950/30"
-        >
-          <span className="min-w-0 flex-1 truncate">
-            Now playing: <span className="font-medium">{elsewhereName}</span>
-            <span className="ml-2 text-neutral-500 tabular-nums">
-              {elsewhere.state === "ended" ? "finished" : elsewhere.state === "paused" ? "paused" : ""}{" "}
-              {clock(elsewhere.positionMs / 1000)} / {clock(elsewhere.durationMs / 1000)}
-            </span>
-          </span>
-          {elsewhere.state !== "ended" && (
-            <Button
-              aria-label={elsewhere.state === "playing" ? "Pause" : "Resume"}
-              title={elsewhere.state === "playing" ? "Pause" : "Resume"}
-              onClick={() => run(() => backend!.pausePlayback(elsewhere.state === "playing"))}
+    <div ref={root} data-play-screen data-theatre={theatre || undefined} className={`relative flex h-full min-h-0 ${hidden ? "cursor-none" : ""}`}>
+      <h1 className="sr-only">Play</h1>
+      <div className="relative flex min-w-0 flex-1 flex-col">
+        <div data-theme={theatre ? "dark" : undefined} className={`${chrome} ${theatre ? `absolute inset-x-0 top-0 z-10 ${asleep}` : "shrink-0"}`}>
+          {busyFpps.map((fpp) => (
+            <div
+              key={fpp.address}
+              role="alert"
+              aria-label="FPP is playing"
+              className="flex items-center gap-3 border-b border-amber-300 bg-amber-50 px-3 py-1.5 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
             >
-              {elsewhere.state === "playing" ? <Pause size={14} /> : <Play size={14} />}
-            </Button>
-          )}
-          <Button aria-label="Stop" title="Stop" onClick={stop}>
-            <Square size={14} />
-          </Button>
-          {elsewhere.sequence && (
-            <Button variant="ghost" onClick={() => setSelectedId(elsewhere.sequence)}>
-              Show
-            </Button>
-          )}
-          {elsewhere.error && <p className="w-full text-red-600 dark:text-red-400">{elsewhere.error}</p>}
-          {elsewhere.notes.map((note) => (
-            <p key={note} className="w-full text-amber-700 dark:text-amber-400">
-              {note}
-            </p>
-          ))}
-        </section>
-      )}
-
-      {selected && (
-        <section aria-label="Transport" className="mb-4 flex flex-col gap-3 rounded-lg border border-neutral-200 p-4 dark:border-neutral-800">
-          <div className="flex items-baseline justify-between gap-3">
-            <h2 className="truncate text-lg font-semibold">{selected.name}</h2>
-            <label className="flex shrink-0 items-center gap-2 text-sm text-neutral-600 dark:text-neutral-300">
-              <input type="checkbox" checked={playAll} onChange={(e) => togglePlayAll(e.target.checked)} />
-              Play all and repeat
-            </label>
-          </div>
-          {missingSequence && <MissingFileNotice missing={missingSequence} />}
-          <MusicRow entry={selected} />
-          {missingMusic && <MissingFileNotice missing={missingMusic} />}
-          <div className="flex items-center gap-3">
-            <Button
-              variant="primary"
-              aria-label={current?.state === "playing" ? "Pause" : "Play"}
-              title={current?.state === "playing" ? "Pause" : "Play"}
-              onClick={() =>
-                !current || current.state === "ended"
-                  ? playSelected(0)
-                  : run(() => backend!.pausePlayback(current.state === "playing"))
-              }
-            >
-              {current?.state === "playing" ? <Pause size={16} /> : <Play size={16} />}
-            </Button>
-            <Button aria-label="Restart" title="Back to the start" onClick={() => seekTo(0)}>
-              <RotateCcw size={16} />
-            </Button>
-            <Button aria-label="Stop" title="Stop" onClick={stop} disabled={!current}>
-              <Square size={16} />
-            </Button>
-            <div className="min-w-0 flex-1">
-              <WaveformView
-                waveform={waveform}
-                audio={audio}
-                loading={waveformLoading}
-                positionMs={current ? position : null}
-                durationMs={length}
-                offsetMs={selected.audio ? selected.offsetMs : 0}
-                onSeek={seekTo}
-              />
-              {/* Always here, so the keyboard can reach it; when stopped, moving it plays from there. */}
-              <input
-                type="range"
-                aria-label="Position"
-                className="mt-1 w-full accent-violet-600"
-                min={0}
-                max={length}
-                step={current?.frameMs ?? 1000}
-                disabled={length === 0}
-                value={position}
-                aria-valuetext={clock(position / 1000)}
-                onChange={(e) => setScrub(Number(e.target.value))}
-                onKeyDown={(e) => {
-                  // Dragging moves frame by frame; the keyboard jumps a second at a time.
-                  const keys: Record<string, number> = { ArrowRight: 1000, ArrowUp: 1000, ArrowLeft: -1000, ArrowDown: -1000, PageUp: 10000, PageDown: -10000 };
-                  const here = scrubRef.current ?? current?.positionMs ?? 0;
-                  const next = e.key === "Home" ? 0 : e.key === "End" ? length : e.key in keys ? here + keys[e.key] : null;
-                  if (next === null) return;
-                  e.preventDefault();
-                  scrubRef.current = Math.min(length, Math.max(0, next));
-                  setScrub(scrubRef.current);
+              <AlertTriangle size={15} className="shrink-0" aria-hidden />
+              <p className="min-w-0 flex-1">
+                {fpp.name} is playing {fpp.status.sequence ?? fpp.status.playlist}. While it plays, it overrides PixelFlow on the same controllers.
+              </p>
+              <Button
+                className="shrink-0"
+                disabled={stopping === fpp.address}
+                onClick={async () => {
+                  setStopping(fpp.address);
+                  try {
+                    await run(async () => backend!.fppStop(fpp.address, false));
+                    await recheckFpps();
+                  } finally {
+                    setStopping(null);
+                  }
                 }}
-                onPointerUp={commitSeek}
-                onKeyUp={commitSeek}
-                onBlur={commitSeek}
-              />
+              >
+                {stopping === fpp.address ? "Stopping…" : "Stop FPP"}
+              </Button>
             </div>
-            <p className="shrink-0 text-sm text-neutral-500 tabular-nums">
-              {clock(position / 1000)} / {clock(length / 1000)}
-            </p>
+          ))}
+        </div>
+
+        {now === null ? (
+          <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-6">
+            <section aria-label="Nothing to play yet" className="flex max-w-lg flex-col items-center gap-3 rounded-lg border border-dashed border-neutral-300 p-8 text-center dark:border-neutral-700">
+              <h2 className="font-medium">Nothing to play yet</h2>
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                Play shows your lights filling the window while a sequence plays. Whatever is open on the Sequence screen plays here; a sequence that's already rendered
+                (.fseq) plays on your controllers too, with its music.
+              </p>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button variant="primary" onClick={() => setScreen("sequence")}>
+                  Make a sequence
+                </Button>
+                <AddSequenceButton label="Add a rendered sequence (.fseq)" onSelect={(id) => setPicked({ kind: "entry", id })} />
+              </div>
+              {!known && (
+                <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                  PixelFlow doesn't know which channels go to which controller yet, so a rendered sequence can't reach your lights. On the Controllers screen, open your FPP
+                  and add the controllers it sends to.{" "}
+                  <button type="button" className="font-medium text-accent-600 underline dark:text-accent-400" onClick={() => setScreen("devices")}>
+                    Go to Controllers
+                  </button>
+                </p>
+              )}
+              {error && (
+                <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+                  {error}
+                </p>
+              )}
+            </section>
           </div>
-          {selected.audio && <OffsetControl entry={selected} />}
-          {selected.audio && (
-            <label className="flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-300">
-              <Volume2 size={14} />
-              <input
-                type="range"
-                aria-label="Volume"
-                className="w-40 accent-violet-600"
-                min={0}
-                max={100}
-                value={Math.round(volume * 100)}
-                onChange={(e) => setVolume(Number(e.target.value) / 100)}
-              />
-            </label>
-          )}
-          {current?.state === "ended" && !current.error && <p className="text-sm text-neutral-500">Finished. Press play to start again.</p>}
-          {current?.error && <p className="text-sm text-red-600 dark:text-red-400">{current.error}</p>}
-          {current?.notes.map((note) => (
-            <p key={note} className="text-sm text-amber-700 dark:text-amber-400">
-              {note}
-            </p>
-          ))}
-          {current && current.controllers.length > 0 && (
-            <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-              {current.controllers.map((c) => (
-                <li key={c.id}>
-                  {c.name}: <span className={STATE_STYLE[c.state]}>{c.state === "ok" ? "sending" : c.state}</span>
-                  {c.lastError && <span className="text-neutral-500"> — {c.lastError}</span>}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      )}
+        ) : (
+          <>
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              <div data-theme="dark" className={`relative min-h-0 flex-1 text-neutral-100 ${theatre ? "bg-black" : "bg-neutral-950"}`}>
+                {poppedOut ? <PoppedOutNote tall /> : nowIsDoc ? <DocStage durationMs={doc?.durationMs ?? 0} /> : <LivePreview frame={frame} />}
+              </div>
+              {fseq && unwired.length > 0 && !theatre && (
+                <div className="flex max-h-40 shrink-0 flex-col gap-3 overflow-auto border-t border-neutral-200 p-3 dark:border-neutral-800">
+                  {unwired.map((c) => (
+                    <ChannelGrid
+                      key={c.id}
+                      frame={raw}
+                      start={c.sequenceChannels!.start}
+                      count={c.sequenceChannels!.count}
+                      label={`${c.name}: ${thousands(Math.ceil(c.sequenceChannels!.count / 3))} pixels as received (import its strings to see them on your props)`}
+                    />
+                  ))}
+                </div>
+              )}
+              {/* Over the preview, not the transport under it. */}
+              {narrow && drawer}
+            </div>
 
-      {status && unwired.length > 0 && (
-        <div className="mb-4 flex flex-col gap-3">
-          {unwired.map((c) => (
-            <ChannelGrid
-              key={c.id}
-              frame={raw}
-              start={c.sequenceChannels!.start}
-              count={c.sequenceChannels!.count}
-              label={`${c.name}: ${thousands(Math.ceil(c.sequenceChannels!.count / 3))} pixels as received (import its strings to see them on your props)`}
-            />
-          ))}
-        </div>
-      )}
-
-      <OnYourFpp sequences={sequences} />
-
-      {props.length > 0 && (status || known) && (
-        <div className="min-h-64 flex-1">
-          <LivePreview props={props} frame={frame} />
-        </div>
-      )}
-        </div>
+            <div
+              data-theme={theatre ? "dark" : undefined}
+              data-hidden={hidden || undefined}
+              className={`${chrome} ${
+                theatre
+                  ? `absolute inset-x-0 bottom-0 z-10 bg-black/75 text-neutral-100 backdrop-blur-sm ${asleep}`
+                  : "shrink-0 border-t border-neutral-200 dark:border-neutral-800"
+              }`}
+            >
+              <div className="flex flex-col gap-1 px-3 text-sm empty:hidden [&>*:first-child]:pt-2">
+                {error && (
+                  <p role="alert" className="text-red-600 dark:text-red-400">
+                    {error}
+                  </p>
+                )}
+                {notice && !status && <p className="text-amber-700 dark:text-amber-400">{notice}</p>}
+                {!known && !status && !nowIsDoc && (
+                  <p className="text-amber-700 dark:text-amber-400">
+                    PixelFlow doesn't know which channels go to which controller yet. On the Controllers screen, open your FPP and add the controllers it sends to.{" "}
+                    <button type="button" className="font-medium underline" onClick={() => setScreen("devices")}>
+                      Go to Controllers
+                    </button>
+                  </p>
+                )}
+                {entryStatus?.state === "ended" && !entryStatus.error && <p className="text-neutral-500 dark:text-neutral-400">Finished. Press play to start again.</p>}
+                {entryStatus?.error && <p className="text-red-600 dark:text-red-400">{entryStatus.error}</p>}
+                {entryStatus?.notes.map((note) => (
+                  <p key={note} className="text-amber-700 dark:text-amber-400">
+                    {note}
+                  </p>
+                ))}
+                {unsettled.map((c) => (
+                  <p key={c.id} className="text-amber-700 dark:text-amber-400">
+                    {c.name}: {c.state}
+                    {c.lastError && <span className="text-neutral-500"> — {c.lastError}</span>}
+                  </p>
+                ))}
+              </div>
+              {now.kind === "doc" ? (
+                <DocTransport onAct={docAct}>{buttons}</DocTransport>
+              ) : (
+                <TransportBar
+                  name={nowName ?? ""}
+                  playing={entryStatus?.state === "playing"}
+                  stopDisabled={!entryStatus}
+                  positionMs={entryPosition}
+                  durationMs={entryLength}
+                  stepMs={entryStatus?.frameMs ?? 1000}
+                  onToggle={toggle}
+                  onRestart={() => seekEntry(0)}
+                  onStop={() => void stopEntry()}
+                  onScrub={setScrub}
+                  onScrubEnd={commitSeek}
+                  status={entryStatus && entryStatus.state !== "ended" ? <Sending controllers={entryStatus.controllers} /> : undefined}
+                >
+                  {buttons}
+                </TransportBar>
+              )}
+            </div>
+          </>
+        )}
       </div>
+
+      {!narrow && drawer}
     </div>
   );
 }

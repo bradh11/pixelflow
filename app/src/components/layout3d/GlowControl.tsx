@@ -10,9 +10,10 @@ const words = (percent: number) => (percent === 0 ? "None" : `${percent}%`);
  * preview follows it, and it's remembered on this computer), not part of the show.
  *
  * `align`: the side of the button the slider's panel lines up with. `iconOnly`: no word on the
- * button, for a narrow place.
+ * button, for a narrow place. `drop`: "up" opens the panel above the button (for a bar at the
+ * bottom of the window).
  */
-export function GlowControl({ align = "left", iconOnly = false }: { align?: "left" | "right"; iconOnly?: boolean }) {
+export function GlowControl({ align = "left", iconOnly = false, drop = "down" }: { align?: "left" | "right"; iconOnly?: boolean; drop?: "down" | "up" }) {
   const percent = useView3d((s) => Math.round(s.glow * 100));
   const setGlow = useView3d((s) => s.setGlow);
   const [open, setOpen] = useState(false);
@@ -57,9 +58,9 @@ export function GlowControl({ align = "left", iconOnly = false }: { align?: "lef
         <div
           role="dialog"
           aria-label="Glow"
-          className={`absolute top-full z-30 mt-1 w-56 rounded-lg border border-neutral-200 bg-white p-3 text-neutral-800 shadow-xl dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 ${
-            align === "right" ? "right-0" : "left-0"
-          }`}
+          className={`absolute z-30 w-56 rounded-lg border border-neutral-200 bg-white p-3 text-neutral-800 shadow-xl dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 ${
+            drop === "up" ? "bottom-full mb-1" : "top-full mt-1"
+          } ${align === "right" ? "right-0" : "left-0"}`}
         >
           <label className="flex flex-col gap-1 text-xs">
             <span className="flex justify-between text-neutral-500 dark:text-neutral-400">

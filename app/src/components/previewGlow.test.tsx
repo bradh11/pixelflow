@@ -18,7 +18,7 @@ import { useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
 import { useView3d } from "../state/view3d";
 import { DraftPreview } from "./assistant/DraftPreview";
-import { LivePreview } from "./layout3d/LivePreview";
+import { LivePreview, LiveViewControls } from "./layout3d/LivePreview";
 
 vi.mock("../lib/pixelBatches", async (original) => ({ ...(await original<typeof import("../lib/pixelBatches")>()), drawPixels: vi.fn() }));
 
@@ -63,8 +63,13 @@ const props: PreviewProp[] = [{ prop: "p1", frameOffset: 0, channelsPerPixel: 3,
 describe("the previews' glow", () => {
   it("is none on the Play screen's preview until it's turned up there", async () => {
     await useApp.getState().connect(new MemoryBackend(emptyShow("Home")));
-    const { container } = render(<LivePreview props={props} frame={LIT} />);
-    expect(lastDraw()).toEqual({ frame: LIT, glow: 0 });
+    const { container } = render(
+      <>
+        <LiveViewControls />
+        <LivePreview frame={LIT} />
+      </>,
+    );
+    await waitFor(() => expect(lastDraw()).toEqual({ frame: LIT, glow: 0 }));
     slideGlow(container, 50);
     expect(lastDraw()).toEqual({ frame: LIT, glow: 0.5 });
     expect(useView3d.getState().glow).toBe(0.5);

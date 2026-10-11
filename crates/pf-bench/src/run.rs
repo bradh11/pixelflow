@@ -32,10 +32,13 @@ const PREVIEW_POLL: Duration = Duration::from_millis(50);
 /// thread, so each pass knows exactly which frame it sent. Nothing reads them but the benchmark.
 const TRAILER: usize = 8;
 
-/// How long the player sleeps once it has dealt with the frame due at `light` milliseconds:
-/// to the next frame boundary, or [`POLL`] if that is sooner (`pf-engine`'s `run_player`).
-fn player_wait(light: u64, frame_ms: u64) -> Duration {
-    Duration::from_millis(frame_ms - light % frame_ms).min(POLL)
+/// How long the player sleeps once it has dealt with the frame due at `light` milliseconds: to
+/// the next frame boundary, less the time `spent` since it read the clock, or [`POLL`] if that
+/// is sooner (`pf-engine`'s `until_next_frame`).
+fn player_wait(light: u64, frame_ms: u64, spent: Duration) -> Duration {
+    Duration::from_millis(frame_ms - light % frame_ms)
+        .saturating_sub(spent)
+        .min(POLL)
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -249,7 +252,8 @@ pub fn run_paced(workload: &Workload, sink: SinkKind, options: Options) -> Resul
                 let mut shown = Some(0);
                 loop {
                     // The player reads its clock in whole milliseconds.
-                    let light = zero.elapsed().as_millis() as u64;
+                    let read = Instant::now();
+                    let light = (read - zero).as_millis() as u64;
                     let due = light / u64::from(frame_ms);
                     if due >= total {
                         break;
@@ -269,7 +273,7 @@ pub fn run_paced(workload: &Workload, sink: SinkKind, options: Options) -> Resul
                             lit.push(lit_percent(&lock(&raw)));
                         }
                     }
-                    std::thread::sleep(player_wait(light, u64::from(frame_ms)));
+                    std::thread::sleep(player_wait(light, u64::from(frame_ms), read.elapsed()));
                 }
                 (drawn, lit)
             })
@@ -467,10 +471,14 @@ mod tests {
 
     #[test]
     fn the_player_sleeps_to_the_next_frame_or_ten_milliseconds() {
-        assert_eq!(player_wait(0, 25), Duration::from_millis(10));
-        assert_eq!(player_wait(20, 25), Duration::from_millis(5));
-        assert_eq!(player_wait(24, 25), Duration::from_millis(1));
-        assert_eq!(player_wait(25, 25), Duration::from_millis(10));
-        assert_eq!(player_wait(49, 25), Duration::from_millis(1));
+        let ms = Duration::from_millis;
+        assert_eq!(player_wait(0, 25, ms(0)), ms(10));
+        assert_eq!(player_wait(20, 25, ms(0)), ms(5));
+        assert_eq!(player_wait(24, 25, ms(0)), ms(1));
+        assert_eq!(player_wait(25, 25, ms(0)), ms(10));
+        assert_eq!(player_wait(49, 25, ms(0)), ms(1));
+        // The time a frame took to draw comes off the wait for the next.
+        assert_eq!(player_wait(0, 25, ms(20)), ms(5));
+        assert_eq!(player_wait(0, 25, ms(30)), ms(0));
     }
 }

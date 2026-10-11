@@ -3,7 +3,7 @@
 
 use crate::devices::DeviceAccess;
 use crate::{AppState, context, pickers, preview_window, recent, sync, vendor, vocals, with_commands};
-use pf_engine::Engine;
+use pf_engine::{Edit, Engine};
 use serde_json::{Value, json};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -221,6 +221,56 @@ pub(crate) fn authored(webview: &WebviewWindow<MockRuntime>) {
         ] }),
     )
     .unwrap();
+}
+
+/// The pixel hat's strings: port 1 has "Roof Line" (150 pixels) and "Gutter" (50).
+pub(crate) fn fake_hat() -> pf_devices::testing::FakeFpp {
+    let mut doc: Value = serde_json::from_str(include_str!(
+        "../../../crates/pf-devices/fixtures/fpp-hat/api_channel_output_co-pixelStrings.json"
+    ))
+    .unwrap();
+    doc.as_object_mut().unwrap().remove("status");
+    pf_devices::testing::FakeFpp::start().with_pixel_strings(doc)
+}
+
+/// Adds the device at `host` to the show as an import would (one undo step).
+pub(crate) fn add_device(webview: &WebviewWindow<MockRuntime>, host: &str) -> Value {
+    let http = pf_devices::HttpClient::new(std::time::Duration::from_secs(5));
+    let device = pf_devices::identify(&http, host, Some(pf_devices::DeviceKind::Fpp)).unwrap();
+    let config = pf_devices::read_config(&http, &device).unwrap();
+    let plan = pf_devices::plan_import(&device, &config, &pf_model::Show::new("t"));
+    let mut edits: Vec<Edit> = plan
+        .props
+        .into_iter()
+        .map(|prop| Edit::AddProp { prop })
+        .collect();
+    edits.push(Edit::AddController {
+        controller: plan.controller,
+    });
+    call(webview, "apply_edits", json!({ "edits": edits })).unwrap()
+}
+
+/// Resizes the line prop `name` to `nodes` pixels.
+pub(crate) fn resize(
+    webview: &WebviewWindow<MockRuntime>,
+    snapshot: &Value,
+    name: &str,
+    nodes: u32,
+) -> Value {
+    let mut prop = snapshot["show"]["props"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"] == name)
+        .unwrap()
+        .clone();
+    prop["shape"]["nodes"] = json!(nodes);
+    call(
+        webview,
+        "apply_edits",
+        json!({ "edits": [{ "type": "updateProp", "prop": prop }] }),
+    )
+    .unwrap()
 }
 
 /// A 12 s, 22.05 kHz mono WAV with a click every 500 ms.

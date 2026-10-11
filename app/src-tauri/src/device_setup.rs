@@ -671,7 +671,7 @@ pub(crate) fn forget_device_setup_copy(state: State<'_, AppState>, key: String) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::{app, app_in, call};
+    use crate::testing::{add_device, app, app_in, call, fake_hat, resize};
     use serde_json::{Value, json};
     use tauri::WebviewWindow;
     use tauri::test::MockRuntime;
@@ -715,51 +715,6 @@ mod tests {
         assert!(is_device_key(&key), "{key}");
         copies.forget(&key);
         assert!(!kept.exists());
-    }
-
-    /// The pixel hat's strings: port 1 has "Roof Line" (150 pixels) and "Gutter" (50).
-    fn fake_hat() -> pf_devices::testing::FakeFpp {
-        let mut doc: Value = serde_json::from_str(include_str!(
-            "../../../crates/pf-devices/fixtures/fpp-hat/api_channel_output_co-pixelStrings.json"
-        ))
-        .unwrap();
-        doc.as_object_mut().unwrap().remove("status");
-        pf_devices::testing::FakeFpp::start().with_pixel_strings(doc)
-    }
-
-    /// Adds the device at `host` to the show as an import would (one undo step).
-    fn add_device(webview: &WebviewWindow<MockRuntime>, host: &str) -> Value {
-        let http = pf_devices::HttpClient::new(std::time::Duration::from_secs(5));
-        let device = pf_devices::identify(&http, host, Some(pf_devices::DeviceKind::Fpp)).unwrap();
-        let config = pf_devices::read_config(&http, &device).unwrap();
-        let plan = pf_devices::plan_import(&device, &config, &pf_model::Show::new("t"));
-        let mut edits: Vec<Edit> = plan
-            .props
-            .into_iter()
-            .map(|prop| Edit::AddProp { prop })
-            .collect();
-        edits.push(Edit::AddController {
-            controller: plan.controller,
-        });
-        call(webview, "apply_edits", json!({ "edits": edits })).unwrap()
-    }
-
-    /// Resizes the line prop `name` to `nodes` pixels.
-    fn resize(webview: &WebviewWindow<MockRuntime>, snapshot: &Value, name: &str, nodes: u32) -> Value {
-        let mut prop = snapshot["show"]["props"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|p| p["name"] == name)
-            .unwrap()
-            .clone();
-        prop["shape"]["nodes"] = json!(nodes);
-        call(
-            webview,
-            "apply_edits",
-            json!({ "edits": [{ "type": "updateProp", "prop": prop }] }),
-        )
-        .unwrap()
     }
 
     /// Puts back the kept copy as the dialog does: look at what it changes, then confirm those rows.

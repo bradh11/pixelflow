@@ -19,7 +19,8 @@ pub use xsq::{
 
 use crate::XlightsError;
 use crate::vendor::Mapping;
-use effects::{Fidelity, Tally};
+pub use effects::Fidelity;
+use effects::Tally;
 use pf_model::Show;
 use pf_sequence::{
     Effect, EffectId, EffectParams, Layer, MAX_DURATION_MS, MAX_EFFECTS, MAX_FRAME_MS, MAX_LAYERS_PER_ROW,
@@ -59,11 +60,24 @@ pub struct SequenceImportSummary {
     pub marks_skipped: usize,
 }
 
+/// How one xLights effect came across: the importer's own judgement of it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportedEffect {
+    /// The PixelFlow effect it became.
+    pub id: EffectId,
+    /// xLights' name for the effect ("Butterfly", "SingleStrand").
+    pub xlights_name: String,
+    pub fidelity: Fidelity,
+}
+
 /// The imported sequence and a plain-language report of anything not imported exactly.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SequenceImport {
     pub sequence: Sequence,
     pub summary: SequenceImportSummary,
+    /// Every effect imported, in the order the file gives them (one whose row or layer didn't
+    /// fit the sequence is listed too).
+    pub effects: Vec<ImportedEffect>,
     pub notes: Vec<String>,
     /// The music file named in the sequence, as written (often a path on another computer).
     pub media_file: Option<String>,
@@ -205,6 +219,7 @@ struct Builder<'a> {
     palettes: HashMap<usize, ParsedPalette>,
     tally: Tally,
     summary: SequenceImportSummary,
+    imported: Vec<ImportedEffect>,
     notes: Vec<String>,
     names_cut: usize,
     effect_drops: Drops,
@@ -406,8 +421,14 @@ impl<'a> Builder<'a> {
             Fidelity::Placeholder => self.summary.placeholders += 1,
             Fidelity::Skipped => {}
         }
+        let id = EffectId::new();
+        self.imported.push(ImportedEffect {
+            id,
+            xlights_name: name.to_string(),
+            fidelity: translated.fidelity,
+        });
         Some(Effect {
-            id: EffectId::new(),
+            id,
             start_ms,
             end_ms,
             params: translated.params,
@@ -685,6 +706,7 @@ fn build(file: &XsqFile, show: &Show, fallback_name: &str, mapping: Option<&Mapp
         palettes: HashMap::new(),
         tally: Tally::default(),
         summary: SequenceImportSummary::default(),
+        imported: Vec::new(),
         notes: Vec::new(),
         names_cut: 0,
         effect_drops: Drops::default(),
@@ -1131,6 +1153,7 @@ fn build(file: &XsqFile, show: &Show, fallback_name: &str, mapping: Option<&Mapp
     SequenceImport {
         sequence,
         summary: b.summary,
+        effects: b.imported,
         notes,
         media_file: (!media.is_empty()).then(|| media.to_string()),
     }

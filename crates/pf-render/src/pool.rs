@@ -6,17 +6,19 @@
 //! export), and a set of threads each would have them fighting over the same cores.
 //!
 //! How many threads there are never changes what's drawn, only how soon.
+//!
+//! There are few of them, on purpose. Played live, a frame is drawn every 25 ms by threads that
+//! slept in between, on cores that had gone idle, and it is done when its slowest piece is. Past
+//! a handful of threads the usual frame gets little shorter and the slowest get longer: a piece
+//! picked up by a thread that then isn't run (on a slower core, or one something else wants)
+//! holds the frame up while the others wait. Drawn flat out (an export), more threads do keep
+//! helping, and the size can be set for that. `docs/benchmarks.md` has the measurements.
 
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::sync::{Arc, OnceLock};
 
-/// Cores left alone by the shared threads: the player thread waits while a frame is drawn, but
-/// the output thread, the music, and the app's own drawing go on.
-const SPARE_CORES: usize = 2;
-
-/// Most threads the shared pool has. Past this a frame's last few tiles are all that's left to
-/// share, and waking more threads costs more than they save (see `docs/benchmarks.md`).
-const MOST_THREADS: usize = 12;
+/// Most threads the shared pool has.
+const MOST_THREADS: usize = 8;
 
 /// Sets the shared pool's size, for measuring and for ruling the threads out when something
 /// looks wrong (`1` draws everything on the caller's thread).
@@ -88,8 +90,13 @@ impl RenderPool {
     }
 }
 
-/// How many threads the shared pool has on this machine: its cores less two, at least one and at
-/// most twelve, or what `PIXELFLOW_RENDER_THREADS` says.
+/// How many threads the shared pool has on this machine: one for every four of its cores and one
+/// more (four of fifteen, three of eight, two of four), at least one and at most eight; or what
+/// `PIXELFLOW_RENDER_THREADS` says.
+///
+/// About a quarter of the cores, because the rest are not all like them (half are a second
+/// thread on the same core, or a slower kind of core), and because the output thread, the music,
+/// and the app's own drawing go on while a frame is drawn.
 pub fn default_threads() -> usize {
     let asked = std::env::var(THREADS_VARIABLE)
         .ok()
@@ -103,7 +110,9 @@ fn threads_for(cores: usize, asked: Option<usize>) -> usize {
     match asked {
         // Never more threads than cores: they would only take turns.
         Some(threads) => threads.min(cores.max(1)),
-        None => cores.saturating_sub(SPARE_CORES).clamp(1, MOST_THREADS),
+        None => (cores / 4 + 1)
+            .min(cores.saturating_sub(1))
+            .clamp(1, MOST_THREADS),
     }
 }
 
@@ -112,14 +121,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_shared_pool_leaves_two_cores_and_stops_at_twelve_threads() {
+    fn the_shared_pool_is_about_a_quarter_of_the_cores_and_never_all_of_them() {
         assert_eq!(threads_for(1, None), 1);
         assert_eq!(threads_for(2, None), 1);
         assert_eq!(threads_for(3, None), 1);
         assert_eq!(threads_for(4, None), 2);
-        assert_eq!(threads_for(8, None), 6);
-        assert_eq!(threads_for(14, None), 12);
-        assert_eq!(threads_for(64, None), 12);
+        assert_eq!(threads_for(8, None), 3);
+        assert_eq!(threads_for(12, None), 4);
+        assert_eq!(threads_for(15, None), 4);
+        assert_eq!(threads_for(16, None), 5);
+        assert_eq!(threads_for(32, None), 8);
+        assert_eq!(threads_for(64, None), 8);
     }
 
     #[test]

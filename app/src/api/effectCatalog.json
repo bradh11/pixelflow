@@ -449,7 +449,7 @@
       },
       {
         "default": 0.5,
-        "description": "Fraction of each stripe's space that is lit (0–1).",
+        "description": "Fraction of each stripe's space that is lit (0–1), plus a cell.",
         "key": "thickness",
         "label": "Thickness",
         "max": 1.0,
@@ -459,13 +459,24 @@
       },
       {
         "default": 1.0,
-        "description": "How steeply the stripes slant (0 = straight up; negative slants the other way).",
+        "description": "How many times the stripes wind round the prop from bottom to top (0 = straight up; negative winds the other way).",
         "key": "twist",
         "label": "Twist",
         "max": 10.0,
         "min": -10.0,
         "step": 0.1,
         "type": "number"
+      },
+      {
+        "default": 0.0,
+        "description": "Cells the stripes lean across from bottom to top, on top of the twist. xLights counts a spiral's rotation this way, so the same setting winds less on a wider prop.",
+        "key": "lean",
+        "label": "Lean",
+        "max": 300.0,
+        "min": -300.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "cells"
       },
       {
         "default": "forward",

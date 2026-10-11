@@ -357,25 +357,105 @@ fn strobe_flashes_a_random_set_each_flash() {
     assert_ne!(first, count(260), "the next flash picks new pixels");
 }
 
+/// A tree of 16 strings of 50 pixels, as its strings-by-pixels grid.
+const TREE: Canvas = Canvas {
+    columns: 16,
+    rows: 50,
+};
+
+/// Row `y` of a red and green spiral on the tree: 'r', 'g', or '.' for each of its 16 cells.
+fn spiral_row(p: SpiralParams, elapsed_ms: u64, y: u32) -> String {
+    let params = EffectParams::Spiral(p);
+    (0..16)
+        .map(|x| {
+            let px = at(x as f32 / 15.0, y as f32 / 49.0);
+            match rgb(shade(
+                &params,
+                time(elapsed_ms, 1000),
+                px,
+                &[Rgb::RED, Rgb::GREEN],
+                TREE,
+            )) {
+                [255, 0, 0] => 'r',
+                [0, 255, 0] => 'g',
+                _ => '.',
+            }
+        })
+        .collect()
+}
+
 #[test]
-fn spiral_stripes_rotate() {
-    let spiral = EffectParams::Spiral(SpiralParams {
+fn spirals_are_drawn_cell_by_cell_as_xlights_draws_them() {
+    // xLights' Spirals with 2 stripes, Thickness 49, Rotation 37, still: the stripes start
+    // 16 / 2 = 8 cells apart, each trunc(8 × 0.49 + 1) = 4 wide, and row y is shifted
+    // trunc(y × 37 / 50) cells: the rotation counts cells across the height, not turns, so
+    // from the bottom row to the top the stripes go 36 cells round (2.25 times).
+    let still = SpiralParams {
         count: 2,
-        speed: 0.5,
-        thickness: 0.5,
-        twist: 1.0,
+        speed: 0.0,
+        thickness: 0.49,
+        twist: 0.0,
+        lean: -37.0,
         direction: Direction::Forward,
-    });
-    let pal = [Rgb::RED, Rgb::GREEN];
-    let color = |ms: u64, u: f32, v: f32| rgb(shade(&spiral, time(ms, 10_000), at(u, v), &pal, GRID));
-    // s = (u + v - rotation) * 2: stripe 0 for s in [0, 0.5), gap [0.5, 1), stripe 1 in [1, 1.5).
-    assert_eq!(color(0, 0.1, 0.1), [255, 0, 0]);
-    assert_eq!(color(0, 0.2, 0.2), [0, 0, 0]);
-    assert_eq!(color(0, 0.3, 0.3), [0, 255, 0]);
-    // Same diagonal, same color: stripes slant.
-    assert_eq!(color(0, 0.0, 0.6), [0, 255, 0]);
-    // After 0.5 s the stripes turned a quarter (rotation 0.25).
-    assert_eq!(color(500, 0.2, 0.2), [255, 0, 0]);
+    };
+    assert_eq!(spiral_row(still, 0, 0), "rrrr....gggg....");
+    assert_eq!(
+        spiral_row(still, 0, 1),
+        "rrrr....gggg....",
+        "0.74 of a cell: not yet"
+    );
+    assert_eq!(spiral_row(still, 0, 2), ".rrrr....gggg...");
+    assert_eq!(
+        spiral_row(still, 0, 25),
+        "..rrrr....gggg..",
+        "18 cells: once round and 2"
+    );
+    assert_eq!(spiral_row(still, 0, 49), "....rrrr....gggg", "36 cells");
+    // The same setting on a group's 400-cell grid would lean the stripes a tenth of the way
+    // across; counted in turns it would wind as tightly there as on the tree.
+
+    // PixelFlow's twist counts turns, winding the other way: one turn is 16 cells here.
+    let twisted = SpiralParams {
+        twist: 1.0,
+        lean: 0.0,
+        ..still
+    };
+    let leaning = SpiralParams { lean: 16.0, ..still };
+    for y in [0, 10, 30, 49] {
+        assert_eq!(spiral_row(twisted, 0, y), spiral_row(leaning, 0, y), "row {y}");
+    }
+    assert_eq!(
+        spiral_row(twisted, 0, 25),
+        "gggg....rrrr....",
+        "half way up, half way round"
+    );
+
+    // A stripe over two cells wide loses its part cell; a narrower one keeps it. A full-width
+    // one is a cell over its share, and the next stripe covers that.
+    let wide = |thickness| spiral_row(SpiralParams { thickness, ..still }, 0, 0);
+    assert_eq!(wide(0.1), "rr......gg......", "ceil(1.8)");
+    assert_eq!(wide(0.2), "rr......gg......", "trunc(2.6)");
+    assert_eq!(
+        wide(1.0),
+        "grrrrrrrgggggggg",
+        "9 each: the second wraps onto the first"
+    );
+
+    // Turning: one turn over the effect's 20 frames. A quarter of the way (frame 5 of 0-19)
+    // the stripes have moved trunc(5 / 19 × 160) / 10 = 4.2 cells, forward or back.
+    let turning = SpiralParams {
+        speed: 1.0,
+        lean: 0.0,
+        ..still
+    };
+    assert_eq!(spiral_row(turning, 250, 0), "....rrrr....gggg");
+    let back = SpiralParams {
+        direction: Direction::Reverse,
+        ..turning
+    };
+    // Going back, cells below zero round the other way (C's cast), so the stripe that wraps
+    // sits a cell further on than the one that doesn't.
+    assert_eq!(spiral_row(back, 250, 0), "...gggg.....rrrr");
 }
 
 #[test]

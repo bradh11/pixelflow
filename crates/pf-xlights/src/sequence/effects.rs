@@ -682,13 +682,17 @@ fn spirals(r: &Reader, n_colors: f64, duration_ms: u64, diff: &mut Diff) -> Effe
         count: count(repeats * n_colors, 1, 1000),
         speed: rate(movement.abs(), duration_ms),
         thickness: unit(r.get("Spirals_Thickness", 50.0, 0.0, 100.0) / 100.0),
-        // Wraps around the prop from bottom to top. Unlike most effects, Spirals stores its
-        // slider (tenths of a wrap), not the text box.
-        twist: match r.s.num("E_SLIDER_Spirals_Rotation") {
-            Some(tenths) => tenths / 10.0,
-            None => r.s.num("E_TEXTCTRL_Spirals_Rotation").unwrap_or(2.0),
-        }
-        .clamp(-30.0, 30.0) as f32,
+        // xLights shifts each row by `y * Rotation / height` cells, Rotation being the slider's
+        // number as it is (Spirals stores its slider, not the text box, and `SpiralsEffect`
+        // reads it undivided): cells across the height, not turns. It leans the other way from
+        // PixelFlow's.
+        twist: 0.0,
+        lean: -r
+            .s
+            .num("E_SLIDER_Spirals_Rotation")
+            .or_else(|| r.s.num("E_TEXTCTRL_Spirals_Rotation"))
+            .unwrap_or(0.0)
+            .clamp(-300.0, 300.0) as f32,
         direction: direction(movement < 0.0),
     })
 }
@@ -2363,28 +2367,30 @@ mod tests {
 
     #[test]
     fn effect_settings_that_change_get_curves_through_the_translation() {
-        // Spirals' rotation (tenths of a wrap on the slider) on xLights' sine: two cycles,
-        // starting three quarters in, between -9 and 9 wraps.
+        // Spirals' rotation (cells across the height, on the slider) on xLights' sine: two
+        // cycles, starting three quarters in, between -90 and 90 cells. PixelFlow's lean counts
+        // the other way.
         let s = Settings::parse(
             "E_SLIDER_Spirals_Rotation=20,E_TEXTCTRL_Spirals_Movement=1.0,\
              E_VALUECURVE_Spirals_Rotation=Active=TRUE|Id=ID_VALUECURVE_Spirals_Rotation|Type=Sine|Min=-90.00|Max=90.00|P1=75.00|P2=90.00|P3=20.00|RV=TRUE|",
         );
         let t = translate("Spirals", &s, &palette(&[Rgb::RED]), 4000, 25).unwrap();
         assert_eq!(t.fidelity, Fidelity::Exact, "{:?}", t.fidelity);
-        let twist = &t.curves["twist"];
-        assert_eq!(twist.shape, CurveShape::Custom);
-        assert_eq!((twist.from, twist.to), (-9.0, 9.0));
+        let lean = &t.curves["lean"];
+        assert_eq!(lean.shape, CurveShape::Custom);
+        assert_eq!((lean.from, lean.to), (-90.0, 90.0));
         let EffectParams::Spiral(p) = t.params else {
             panic!("{:?}", t.params)
         };
-        assert_eq!(p.twist, -9.0, "the setting holds the curve's start");
+        assert_eq!(
+            (p.twist, p.lean),
+            (0.0, 90.0),
+            "the setting holds the curve's start"
+        );
         for time in [0.0f64, 0.1, 0.125, 0.25, 0.4, 0.5, 0.75] {
             let r = time * 2.0 * std::f64::consts::TAU + 0.75 * std::f64::consts::TAU;
-            let want = (9.0 * r.sin()) as f32;
-            assert!(
-                (twist.value_at(time as f32) - want).abs() < 0.01,
-                "{time}: {want}"
-            );
+            let want = (-90.0 * r.sin()) as f32;
+            assert!((lean.value_at(time as f32) - want).abs() < 0.1, "{time}: {want}");
         }
         assert!(t.curves.len() == 1, "nothing else changes: {:?}", t.curves.keys());
 
@@ -3211,13 +3217,13 @@ mod tests {
 
     #[test]
     fn settings_beyond_pixelflows_ranges_are_clamped_and_reported() {
-        // 25 wraps is more twist than PixelFlow's spiral allows.
-        let s = Settings::parse("E_SLIDER_Spirals_Rotation=250,E_TEXTCTRL_Spirals_Movement=1.0");
-        let t = translate("Spirals", &s, &palette(&[Rgb::RED]), 1000, 25).unwrap();
+        // 20 turns in half a second is faster than PixelFlow's spiral turns.
+        let s = Settings::parse("E_SLIDER_Spirals_Rotation=250,E_TEXTCTRL_Spirals_Movement=20.0");
+        let t = translate("Spirals", &s, &palette(&[Rgb::RED]), 500, 25).unwrap();
         let EffectParams::Spiral(p) = t.params else {
             panic!("{:?}", t.params)
         };
-        assert_eq!(p.twist, 10.0);
+        assert_eq!((p.speed, p.lean), (20.0, -250.0));
         assert_eq!(t.params.setting_problem(), None);
         assert_eq!(
             t.fidelity,

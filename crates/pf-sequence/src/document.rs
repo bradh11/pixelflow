@@ -17,7 +17,8 @@ use serde::{Deserialize, Serialize};
 /// music (`musicSparkles`, the music and timing curve shapes), the VU Meter effect, and Shape and
 /// Tendril settings that follow the music; 7 = the show effects (Impact, Wipe, Lightning, Pulse,
 /// Sing, Color Shift) and Chase's order and timing track; 8 = the Dancer effect; 9 = the Picture
-/// effect; 10 = the sequence says how its rows meet the rows before them (`rowBlending`).
+/// effect; 10 = the sequence says how its rows meet the rows before them (`rowBlending`), and
+/// Spiral has a `lean`.
 pub const CURRENT_SCHEMA_VERSION: u32 = 10;
 
 fn default_frame_ms() -> u32 {

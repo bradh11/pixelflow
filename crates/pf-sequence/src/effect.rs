@@ -1227,10 +1227,14 @@ effect_params! {
         count: u32 = 3 => "count", "Stripes", int(1, 100);
         /// Turns per second.
         speed: f32 = 0.5 => "speed", "Speed", number(0.0, 20.0, 0.05, "turns per second");
-        /// Fraction of each stripe's space that is lit (0–1).
+        /// Fraction of each stripe's space that is lit (0–1), plus a cell.
         thickness: f32 = 0.5 => "thickness", "Thickness", number(0.0, 1.0, 0.01);
-        /// How steeply the stripes slant (0 = straight up; negative slants the other way).
+        /// How many times the stripes wind round the prop from bottom to top (0 = straight up;
+        /// negative winds the other way).
         twist: f32 = 1.0 => "twist", "Twist", number(-10.0, 10.0, 0.1);
+        /// Cells the stripes lean across from bottom to top, on top of the twist. xLights counts
+        /// a spiral's rotation this way, so the same setting winds less on a wider prop.
+        lean: f32 = 0.0 => "lean", "Lean", number(-300.0, 300.0, 1.0, "cells");
         /// Which way the stripes turn.
         direction: Direction = Direction::Forward => "direction", "Direction", choice;
     }

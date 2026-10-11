@@ -28,6 +28,7 @@ pub use crate::picture::Picture;
 pub use crate::pinwheel::Pinwheel;
 pub use crate::plasma::Plasma;
 pub use crate::pulse::Pulse;
+use crate::raster::Raster;
 pub use crate::shape::Shape;
 pub use crate::sing::Sing;
 pub use crate::snowflakes::Snowflakes;
@@ -634,37 +635,52 @@ impl Shade for Strobe {
     }
 }
 
+/// Stripes winding up the target, drawn cell by cell on its grid as xLights draws Spirals
+/// (`SpiralsEffect::Render`): the stripes start a whole number of cells apart, each is its share
+/// of that plus a cell wide, and each row is shifted a whole number of cells from the one below.
 pub struct Spiral {
-    colors: Colors,
-    count: f32,
-    rotation: f32,
-    thickness: f32,
-    twist: f32,
+    raster: Raster,
 }
 
 impl Spiral {
-    pub fn new(p: &SpiralParams, time: &EffectTime, colors: Colors) -> Self {
-        let (_, rotation) = time.cycles(p.speed);
-        Self {
-            colors,
-            count: p.count.max(1) as f32,
-            rotation: flip(rotation, p.direction),
-            thickness: p.thickness,
-            twist: p.twist,
+    pub fn new(p: &SpiralParams, time: &EffectTime, colors: Colors, canvas: Canvas) -> Self {
+        let mut raster = Raster::new(canvas);
+        let (columns, rows) = (raster.width, raster.height);
+        let count = p.count.clamp(1, i32::MAX as u32) as i32;
+        let apart = columns / count;
+        let wide = f64::from(apart) * f64::from(p.thickness) + 1.0;
+        // A stripe more than two cells wide loses its part cell (xLights draws those through a
+        // loop that counts in whole cells); a narrower one keeps it.
+        let wide = if wide > 2.0 { wide.trunc() } else { wide.ceil() } as i32;
+        // Cells the stripes shift across from the bottom row to the top: xLights' Rotation.
+        let slant = -(f64::from(p.twist) * f64::from(columns) + f64::from(p.lean));
+        // xLights keeps the turn in tenths of a cell, as a whole number.
+        let cycles = f64::from(p.speed) * time.length_ms as f64 / 1000.0;
+        let way = match p.direction {
+            Direction::Forward => 1.0,
+            Direction::Reverse => -1.0,
+        };
+        let turned = (time.cycle_position(cycles) * f64::from(columns) * 10.0 * way).trunc() / 10.0;
+        for stripe in 0..count {
+            let color = Rgba::opaque(colors.get(stripe as u64));
+            for thick in 0..wide {
+                let strand = (stripe * apart + thick) % columns;
+                for y in 0..rows {
+                    let at = f64::from(strand) + turned + f64::from(y) * slant / f64::from(rows);
+                    // C's cast and remainder: toward zero, then wrapped back onto the grid.
+                    let x = (at as i64 % i64::from(columns)) as i32;
+                    raster.set(if x < 0 { x + columns } else { x }, y, color);
+                }
+            }
         }
+        Self { raster }
     }
 }
 
 impl Shade for Spiral {
     #[inline]
     fn shade(&self, px: &Pixel) -> Rgba {
-        let s = (px.u + self.twist * px.v - self.rotation) * self.count;
-        let stripe = s.floor();
-        if s - stripe < self.thickness {
-            Rgba::opaque(self.colors.get(stripe.rem_euclid(self.count) as u64))
-        } else {
-            Rgba::CLEAR
-        }
+        self.raster.at(px)
     }
 }
 
@@ -1051,7 +1067,7 @@ impl Shader {
             EffectParams::Twinkle(p) => Shader::Twinkle(Twinkle::new(p, time, colors, seed)),
             EffectParams::Shimmer(p) => Shader::Shimmer(Shimmer::new(p, time, colors)),
             EffectParams::Strobe(p) => Shader::Strobe(Strobe::new(p, time, colors, seed)),
-            EffectParams::Spiral(p) => Shader::Spiral(Spiral::new(p, time, colors)),
+            EffectParams::Spiral(p) => Shader::Spiral(Spiral::new(p, time, colors, canvas)),
             EffectParams::Fire(p) => Shader::Fire(Fire::new(p, time, seed)),
             EffectParams::Meteors(p) => Shader::Meteors(Meteors::new(p, time, colors, seed, canvas)),
             EffectParams::Ripple(p) => Shader::Ripple(Ripple::new(p, time, colors)),

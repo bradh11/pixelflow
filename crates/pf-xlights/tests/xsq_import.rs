@@ -378,11 +378,14 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
                 rate: 10.0,
                 density: 0.1
             }),
+            // Rotation 15: xLights shifts the stripes 15 cells across the height (not 1.5 turns),
+            // the other way from PixelFlow's lean.
             EffectParams::Spiral(SpiralParams {
                 count: 6,
                 speed: 1.0,
                 thickness: 0.4,
-                twist: 1.5,
+                twist: 0.0,
+                lean: -15.0,
                 direction: Direction::Reverse
             }),
             EffectParams::Fire(FireParams {

@@ -79,8 +79,7 @@ struct Status {
 
 fn read_status_xml(http: &dyn Http, host: &str) -> Result<Status, DeviceError> {
     let body = http.get(host, "/status.xml")?;
-    let doc = roxmltree::Document::parse(&body)
-        .map_err(|e| DeviceError::bad(host, "/status.xml", e.to_string()))?;
+    let doc = crate::xml::parse(&body).map_err(|e| DeviceError::bad(host, "/status.xml", e))?;
     let field = |name: &str| {
         doc.root_element()
             .children()

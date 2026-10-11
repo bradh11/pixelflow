@@ -1,7 +1,7 @@
 //! Decoding a music file to left and right samples, for telling the middle of the mix (where
 //! the voice usually sits) from its sides.
 
-use crate::decode::{FileDecoder, open_decoder};
+use crate::decode::{FileDecoder, next_sample, open_decoder};
 use crate::error::AudioError;
 use crate::progress::ReadPosition;
 use rodio::Source;
@@ -42,13 +42,13 @@ impl Iterator for StereoFrames {
     type Item = (f32, f32);
 
     fn next(&mut self) -> Option<(f32, f32)> {
-        let left = self.decoder.next()?;
+        let left = next_sample(&mut self.decoder)?;
         if self.channels == 1 {
             return Some((left, left));
         }
-        let right = self.decoder.next().unwrap_or(0.0);
+        let right = next_sample(&mut self.decoder).unwrap_or(0.0);
         for _ in 2..self.channels {
-            self.decoder.next();
+            next_sample(&mut self.decoder);
         }
         Some((left, right))
     }

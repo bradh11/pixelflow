@@ -19,7 +19,7 @@ use crate::error::DeviceError;
 use crate::fpp::{get_json, int_field, str_field};
 use crate::fpp_info::{FppFile, FppFolder, base, listing};
 use crate::fpp_player::encode_segment;
-use crate::fpp_upload::keep_both_name;
+use crate::fpp_upload::{is_music, keep_both_name};
 use crate::http::Http;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -74,6 +74,17 @@ pub fn is_plain_name(name: &str) -> bool {
         && !name.starts_with('.')
         && !name.contains("..")
         && !name.chars().any(|c| c.is_control() || "/\\:*?\"<>|".contains(c))
+}
+
+/// Whether `name` is a kind of file `folder` holds: a `.fseq` in sequences, a music file in
+/// music. The name is the FPP's to give, and the file is saved under it: nothing else (a
+/// program, say) is saved into the show's folders.
+fn belongs_in(folder: FppFolder, name: &str) -> bool {
+    match folder {
+        FppFolder::Sequences => name.to_ascii_lowercase().ends_with(".fseq"),
+        FppFolder::Music => is_music(name),
+        FppFolder::Playlists => false,
+    }
 }
 
 /// The music file's name from a sequence's `mf` header. xLights writes the path on the computer
@@ -146,7 +157,7 @@ pub fn read_sequence(http: &dyn Http, host: &str, name: &str) -> Result<RemoteSe
                 .map_err(device)?
                 .iter()
                 .map(base)
-                .filter(|f| is_plain_name(&f.name))
+                .filter(|f| is_plain_name(&f.name) && belongs_in(FppFolder::Music, &f.name))
                 .collect();
             let names: Vec<String> = files.iter().map(|f| f.name.clone()).collect();
             match_music(mf, &names).and_then(|n| files.iter().find(|f| &f.name == n).cloned())
@@ -256,6 +267,7 @@ pub fn download(
     expected: Option<u64>,
     progress: &mut dyn FnMut(u64) -> bool,
 ) -> Result<Downloaded, DownloadError> {
+    let kind = folder;
     let folder = match folder {
         FppFolder::Sequences => "sequences",
         FppFolder::Music => "music",
@@ -269,6 +281,15 @@ pub fn download(
     if !is_plain_name(name) {
         return Err(DownloadError::BadName {
             name: name.to_string(),
+        });
+    }
+    if !belongs_in(kind, name) {
+        return Err(DownloadError::Failed {
+            name: name.to_string(),
+            reason: match kind {
+                FppFolder::Sequences => "it isn't a sequence file".to_string(),
+                _ => "it isn't a music file".to_string(),
+            },
         });
     }
     static NEXT: AtomicU64 = AtomicU64::new(0);

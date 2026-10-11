@@ -1,0 +1,38 @@
+name: audit
+
+# Checks the dependencies in all three lockfiles against the RustSec and npm advisory databases.
+# The policy (what fails the check, and the list of ignored advisories with their reasons) is in
+# scripts/audit.mjs: only a High or Critical vulnerability that has a fixed version fails it.
+# Everything else is printed in the log. See docs/security/threat-model.md.
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  schedule:
+    # Mondays 06:17 UTC: advisories appear without the lockfiles changing.
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit@0.22.1
+      - name: The audit policy's own tests
+        run: node --test scripts/audit.test.mjs
+      - name: cargo audit (both workspaces) and pnpm audit --prod
+        run: node scripts/audit.mjs

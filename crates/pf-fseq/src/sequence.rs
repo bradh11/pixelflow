@@ -161,11 +161,18 @@ impl<R: Read + Seek> Sequence<R> {
             return Err(corrupt("a block is too large"));
         }
         let expected = expected as usize;
-        let mut compressed = vec![0u8; block.len as usize];
+        // The block's length is whatever the file's index says (up to 4 GB): room is made for
+        // what the file really holds there, as it's read, not for what it claims.
+        let mut compressed = Vec::new();
         self.reader.seek(SeekFrom::Start(block.offset))?;
-        self.reader
-            .read_exact(&mut compressed)
-            .map_err(|_| corrupt("the file ends inside a compressed block"))?;
+        let read = self
+            .reader
+            .by_ref()
+            .take(u64::from(block.len))
+            .read_to_end(&mut compressed);
+        if !read.is_ok_and(|n| n as u64 == u64::from(block.len)) {
+            return Err(corrupt("the file ends inside a compressed block"));
+        }
         // Decoded as a stream that stops once the block's frames are out: like FPP, a block may
         // hold more (frames past the declared count) or several zstd frames.
         let mut data = Vec::with_capacity(expected);

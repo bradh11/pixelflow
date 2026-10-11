@@ -3,7 +3,6 @@
 //! without tags is named by its file name instead ("04 - Lantern Song.mp3" is "Lantern Song").
 
 use crate::error::AudioError;
-use std::fs::File;
 use std::path::Path;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
@@ -56,11 +55,12 @@ fn take_tags(revision: &MetadataRevision, tags: &mut SongTags) {
 /// Reads a music file's tags and length. The file is only read; a file with no tags at all
 /// still gets a title from its name.
 pub fn read_tags(path: &Path) -> Result<SongTags, AudioError> {
+    crate::decode::guarded(path, || tags_of(path))
+}
+
+fn tags_of(path: &Path) -> Result<SongTags, AudioError> {
     let shown = path.display().to_string();
-    let file = File::open(path).map_err(|source| AudioError::Open {
-        path: shown.clone(),
-        source,
-    })?;
+    let file = crate::decode::open_music_file(path)?;
     let stream = MediaSourceStream::new(Box::new(file), Default::default());
     let mut hint = Hint::new();
     if let Some(extension) = path.extension().and_then(|e| e.to_str()) {
@@ -87,9 +87,7 @@ pub fn read_tags(path: &Path) -> Result<SongTags, AudioError> {
     }
     tags.duration_ms = probed.format.default_track().and_then(|track| {
         let params = &track.codec_params;
-        let frames = params.n_frames?;
-        let rate = u64::from(params.sample_rate?);
-        (rate > 0).then(|| frames * 1000 / rate)
+        crate::probe::frames_ms(params.n_frames?, u64::from(params.sample_rate?))
     });
     if tags.title.is_none() {
         tags.title = title_from_file_name(path);

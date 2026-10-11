@@ -4,12 +4,11 @@
 //! bitrate, so its frames are counted instead (read, not decoded); a file that says nothing is
 //! decoded as a last resort.
 
-use crate::decode::open_decoder;
+use crate::decode::{format_problem, guarded, open_decoder, open_music_file};
 use crate::error::AudioError;
 use crate::progress::{CountedFile, Progress, ReadPosition, reported};
 use rodio::Source;
 use serde::Serialize;
-use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use symphonia::core::codecs::{CODEC_TYPE_MP3, CodecParameters};
@@ -21,6 +20,19 @@ use symphonia::core::probe::Hint;
 
 /// How much of an MP3's start is searched for its first frame.
 const MP3_HEAD_BYTES: u64 = 256 * 1024;
+/// The longest a file's header is believed about its length: a day. A header can say anything;
+/// one that says more is taken as saying nothing, and the length is found by reading the file.
+const MAX_HEADER_MS: u64 = 24 * 60 * 60 * 1000;
+
+/// How long `frames` at `rate` Hz play, in ms: `None` when there's no rate, or the answer is
+/// longer than any music file ([`MAX_HEADER_MS`]).
+pub(crate) fn frames_ms(frames: u64, rate: u64) -> Option<u64> {
+    if rate == 0 {
+        return None;
+    }
+    let ms = u128::from(frames) * 1000 / u128::from(rate);
+    u64::try_from(ms).ok().filter(|&ms| ms <= MAX_HEADER_MS)
+}
 
 /// A music file's length and format.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -50,14 +62,17 @@ pub enum FoundBy {
 /// Finds how long the music file at `path` plays, telling `progress` how far it has got when it
 /// has to read the whole file (0–1; a header read reports nothing until the final 1).
 pub fn probe(path: &Path, progress: &dyn Fn(f32)) -> Result<AudioInfo, AudioError> {
+    guarded(path, || read_info(path, progress))
+}
+
+fn read_info(path: &Path, progress: &dyn Fn(f32)) -> Result<AudioInfo, AudioError> {
     let progress = Progress::new(progress);
     let shown = path.display().to_string();
     let decode_error = |e: SymphoniaError| AudioError::Decode {
         path: shown.clone(),
         reason: e.to_string(),
     };
-    let opened = File::open(path).and_then(CountedFile::new);
-    let (file, read) = opened.map_err(|source| AudioError::Open {
+    let (file, read) = CountedFile::new(open_music_file(path)?).map_err(|source| AudioError::Open {
         path: shown.clone(),
         source,
     })?;
@@ -86,6 +101,16 @@ pub fn probe(path: &Path, progress: &dyn Fn(f32)) -> Result<AudioInfo, AudioErro
         .to_string();
     let sample_rate = params.sample_rate.unwrap_or(0);
     let channels = params.channels.map_or(0, |c| c.count() as u16);
+    // A file that says what it is must be something that's played (one that doesn't say is
+    // decoded below, and checked then).
+    if let (Some(rate), Some(count)) = (params.sample_rate, params.channels)
+        && let Some(problem) = format_problem(rate, count.count().min(usize::from(u16::MAX)) as u16)
+    {
+        return Err(AudioError::Decode {
+            path: shown,
+            reason: problem,
+        });
+    }
     let info = |duration_ms, found_by| AudioInfo {
         duration_ms,
         sample_rate,
@@ -123,12 +148,12 @@ fn header_ms(params: &CodecParameters) -> Option<u64> {
     match params.time_base {
         Some(base) => {
             let time = base.calc_time(frames);
-            Some(time.seconds * 1000 + (time.frac * 1000.0).round() as u64)
+            time.seconds
+                .checked_mul(1000)?
+                .checked_add((time.frac * 1000.0).round() as u64)
+                .filter(|&ms| ms <= MAX_HEADER_MS)
         }
-        None => {
-            let rate = u64::from(params.sample_rate?);
-            (rate > 0).then(|| frames * 1000 / rate)
-        }
+        None => frames_ms(frames, u64::from(params.sample_rate?)),
     }
 }
 
@@ -149,7 +174,7 @@ fn count_frames(
                 // Untrimmed: the reader trims to its guessed length, which is what's being
                 // checked (and a file without the header has no delay or padding to trim).
                 if packet.track_id() == track_id {
-                    frames += packet.dur;
+                    frames = frames.saturating_add(packet.dur);
                 }
                 packets += 1;
                 if packets.is_multiple_of(256) {
@@ -162,7 +187,7 @@ fn count_frames(
             Err(_) => return None,
         }
     }
-    (rate > 0 && frames > 0).then(|| frames * 1000 / rate)
+    frames_ms(frames, rate).filter(|_| frames > 0)
 }
 
 /// Decodes the whole file: its length (ms), rate, and channel count.
@@ -171,7 +196,8 @@ fn decoded_ms(path: &Path, progress: &Progress) -> Result<(u64, u32, u16), Audio
     let rate = decoder.sample_rate().get();
     let channels = decoder.channels().get();
     let total = reported(decoder, read, progress, 1.0).count() as u64;
-    let ms = total * 1000 / (u64::from(rate) * u64::from(channels)).max(1);
+    let per_second = (u128::from(rate) * u128::from(channels)).max(1);
+    let ms = u64::try_from(u128::from(total) * 1000 / per_second).unwrap_or(u64::MAX);
     Ok((ms, rate, channels))
 }
 
@@ -180,7 +206,9 @@ fn decoded_ms(path: &Path, progress: &Progress) -> Result<(u64, u32, u16), Audio
 /// right for a constant bitrate but not a variable one.
 fn mp3_has_length_header(path: &Path) -> bool {
     let mut head = Vec::new();
-    let Ok(file) = File::open(path) else { return false };
+    let Ok(file) = open_music_file(path) else {
+        return false;
+    };
     if file.take(MP3_HEAD_BYTES).read_to_end(&mut head).is_err() {
         return false;
     }
@@ -232,6 +260,19 @@ fn layer3_side_info(header: u32) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_length_no_music_file_has_is_no_length() {
+        assert_eq!(frames_ms(44_100, 44_100), Some(1000));
+        assert_eq!(frames_ms(0, 44_100), Some(0));
+        assert_eq!(frames_ms(44_100, 0), None);
+        // A day at 8 kHz is believed; a frame count that makes it longer isn't.
+        assert_eq!(frames_ms(8_000 * 86_400, 8_000), Some(MAX_HEADER_MS));
+        assert_eq!(frames_ms(8_000 * 86_400 + 8, 8_000), None);
+        // What used to overflow.
+        assert_eq!(frames_ms(u64::MAX, 8_000), None);
+        assert_eq!(frames_ms(u64::MAX, 1), None);
+    }
 
     #[test]
     fn layer3_headers_are_told_from_noise() {

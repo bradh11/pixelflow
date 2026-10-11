@@ -528,6 +528,10 @@ pub fn stage(
         ),
         reason: e.to_string(),
     };
+    // Only an ordinary file is sent (opening a pipe would wait for whatever writes to it).
+    if !std::fs::metadata(local).map_err(local_error)?.is_file() {
+        return Err(local_error(io::Error::other("it isn't a file")));
+    }
     let mut file = File::open(local).map_err(local_error)?;
     let total = file.metadata().map_err(local_error)?.len();
     if total == 0 {

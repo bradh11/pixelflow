@@ -311,6 +311,19 @@ fn hostile_headers_fail_without_huge_allocations() {
         assert!(err.to_string().contains("too large"), "{err}");
     }
 
+    // A block whose index entry says it's 4 GB long, in a file of a few hundred bytes: room is
+    // made for what's there, and the block is reported as cut short.
+    for compression in [1u8, 2] {
+        let mut long = v2(12, 6, compression, 3, &[]);
+        long[36..40].copy_from_slice(&u32::MAX.to_le_bytes());
+        let mut seq = Sequence::from_reader(Cursor::new(long)).unwrap();
+        let err = seq.read_frame(0, &mut [0u8; 12]).unwrap_err();
+        assert!(
+            err.to_string().contains("ends inside a compressed block"),
+            "{err}"
+        );
+    }
+
     // 255 full-width ranges would claim 255x the channel space per frame.
     let ranges = vec![(0, 40); 255];
     let overlapping = v2(40, 2, 0, 0, &ranges);

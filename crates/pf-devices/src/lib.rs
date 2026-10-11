@@ -36,13 +36,14 @@ pub mod setup;
 #[cfg(feature = "test-fixtures")]
 pub mod testing;
 pub mod wled;
+mod xml;
 
 pub use config::{Destination, DeviceConfig, DeviceInput, PortConfig, StringConfig};
 pub use device::{Device, DeviceKind, FoundBy};
 pub use discover::{DiscoverOptions, Discovery, SilentPeer, discover, sweep_hosts};
 pub use error::DeviceError;
 pub use fingerprint::classify_home_page;
-pub use http::{FakeHttp, Http, HttpClient, device_url};
+pub use http::{FakeHttp, Http, HttpClient, device_url, is_host};
 pub use identify::{identify, read_config};
 pub use import::{
     FppSetupPlan, ImportPlan, MatchReason, PropMatch, SetupSkip, is_placeholder, match_props,

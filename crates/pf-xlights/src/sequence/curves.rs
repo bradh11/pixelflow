@@ -287,20 +287,24 @@ impl XlCurve {
                 wrapped,
             })
         };
-        // Wraps `y` into 0–1 when the curve wraps; true if it did.
+        // Wraps `y` into 0–1 when the curve wraps; true if it did. xLights takes 1 off (or adds
+        // 1) until it's in range; that's worked out at once here, because stepping there never
+        // ends for a number too large to change by 1 (a file can write any parameter).
         let wrap = |y: &mut f32| {
-            let mut wrapped = false;
-            if self.wrap {
-                while *y > 1.0 {
-                    *y -= 1.0;
-                    wrapped = true;
-                }
-                while *y < 0.0 {
-                    *y += 1.0;
-                    wrapped = true;
-                }
+            if !self.wrap || !y.is_finite() {
+                return false;
             }
-            wrapped
+            if *y > 1.0 {
+                // Down to just above 0, up to and including 1.
+                let part = y.rem_euclid(1.0);
+                *y = if part == 0.0 { 1.0 } else { part };
+                true
+            } else if *y < 0.0 {
+                *y = y.rem_euclid(1.0);
+                true
+            } else {
+                false
+            }
         };
         // The formula types step through the effect in `step`s (xLights adds in doubles, so the
         // last step lands just past 1 and is pulled back).
@@ -327,6 +331,10 @@ impl XlCurve {
         // xLights' own (shortened) value of 2π, so the points come out the same.
         #[allow(clippy::approx_constant)]
         const PI2: f64 = 6.283185307;
+        // How many times a Saw Tooth or Square repeats, as written in the file: at least once,
+        // and no more often than the curve has steps (more can't be drawn, and the number
+        // decides how many points are made).
+        let cycles = || (raw3 as i32).clamp(1, STEPS as i32);
         match self.kind.as_str() {
             "Flat" => {
                 push(0.0, p1 / 100.0, false);
@@ -348,7 +356,7 @@ impl XlCurve {
                 push(1.0, p1 / 100.0, false);
             }
             "Saw Tooth" => {
-                let count = (raw3 as i32).max(1);
+                let count = cycles();
                 let per = 1.0f32 / count as f32;
                 push(0.0, p1 / 100.0, false);
                 for i in 0..count {
@@ -357,7 +365,7 @@ impl XlCurve {
                 }
             }
             "Square" => {
-                let count = (raw3 as i32).max(1);
+                let count = cycles();
                 let per = 1.0f32 / (2 * count) as f32;
                 let mut low = true;
                 for i in 0..2 * count {
@@ -686,6 +694,64 @@ mod tests {
         // Between xLights' points (every 5 steps) it's a straight line.
         let (a, b, mid) = (at(&c, 5), at(&c, 10), at(&c, 7));
         assert!(close(mid, a + (b - a) * 0.4));
+    }
+
+    #[test]
+    fn a_curve_that_asks_for_billions_of_cycles_makes_no_more_points_than_it_has_steps() {
+        // P3 is how often the shape repeats; a file can write any number there.
+        for kind in ["Saw Tooth", "Square"] {
+            for cycles in ["2000000000", "1e30", "99999999999999999999"] {
+                let c = curve(&format!(
+                    "Active=TRUE|Type={kind}|Min=0|Max=10|P1=2|P2=8|P3={cycles}|RV=TRUE|"
+                ));
+                assert!(c.points().len() <= 4 * STEPS + 2, "{kind} {cycles}");
+                assert_eq!(c.values().len(), STEPS + 1, "{kind} {cycles}");
+            }
+        }
+        // As many cycles as there are steps is the most; fewer are made as written.
+        let most = curve("Active=TRUE|Type=Saw Tooth|Min=0|Max=10|P1=2|P2=8|P3=200|RV=TRUE|");
+        let over = curve("Active=TRUE|Type=Saw Tooth|Min=0|Max=10|P1=2|P2=8|P3=201|RV=TRUE|");
+        assert_eq!(most.values(), over.values());
+        let two = curve("Active=TRUE|Type=Saw Tooth|Min=0|Max=10|P1=2|P2=8|P3=2|RV=TRUE|");
+        assert_eq!(two.points().len(), 5);
+    }
+
+    #[test]
+    fn wrapping_a_huge_value_ends() {
+        // Each of these put a value far outside 0–1 into a curve that wraps: taking 1 off a
+        // number that large changes nothing, so stepping it into range never finished.
+        for text in [
+            "Active=TRUE|Type=Decaying Sine|Min=0|Max=100|P1=0|P2=50|P3=10|P4=1e30|WRAP=TRUE|",
+            "Active=TRUE|Type=Decaying Sine|Min=0|Max=100|P1=0|P2=50|P3=10|P4=-1e30|WRAP=TRUE|",
+            "Active=TRUE|Type=Parabolic Down|Min=0|Max=100|P1=2000000000|P2=50|WRAP=TRUE|",
+            "Active=TRUE|Type=Parabolic Up|Min=0|Max=100|P1=2000000000|P2=50|WRAP=TRUE|",
+        ] {
+            let values = curve(text).values();
+            assert_eq!(values.len(), STEPS + 1, "{text}");
+            assert!(
+                values
+                    .iter()
+                    .all(|(a, b)| (0.0..=100.0).contains(a) && (0.0..=100.0).contains(b)),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn wrapping_lands_where_stepping_by_one_would() {
+        // A sine that starts at its peak, raised to 1.7: it wraps to 0.7, as taking 1 off does.
+        let c = curve("Active=TRUE|Type=Sine|Min=0|Max=100|P1=25|P2=100|P3=10|P4=85|WRAP=TRUE|");
+        let peak = c.points()[0].y;
+        assert!((peak - 0.7).abs() < 1e-5, "{peak}");
+        assert!(c.points()[0].wrapped);
+        // And one that starts at its trough, lowered to -0.7: it wraps to 0.3.
+        let c = curve("Active=TRUE|Type=Sine|Min=0|Max=100|P1=75|P2=100|P3=10|P4=15|WRAP=TRUE|");
+        let trough = c.points()[0].y;
+        assert!((trough - 0.3).abs() < 1e-5, "{trough}");
+        assert!(c.points()[0].wrapped);
+        // In range: left alone.
+        let c = curve("Active=TRUE|Type=Sine|Min=0|Max=100|P1=25|P2=100|P3=10|P4=50|WRAP=TRUE|");
+        assert!((c.points()[0].y - 1.0).abs() < 1e-5 && !c.points()[0].wrapped);
     }
 
     #[test]

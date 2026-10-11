@@ -24,6 +24,8 @@ const CONTROL_TYPES: [&str; 13] = [
 
 /// Most settings read from one string (a real effect has well under 100).
 const MAX_SETTINGS: usize = 2_000;
+/// The longest name a fused key is recognized by (xLights' own are under 60 characters).
+const MAX_KEY_NAME: usize = 200;
 
 /// One effect's (or palette's) settings, keyed as written in the file (`E_SLIDER_Bars_BarCount`).
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -42,11 +44,14 @@ fn embedded_key(value: &str) -> Option<usize> {
             let rest = &value[i + 2..];
             CONTROL_TYPES.iter().any(|t| {
                 rest.strip_prefix(t).is_some_and(|name| {
-                    let end = name.find('=').unwrap_or(0);
-                    end > 0
-                        && name[..end]
-                            .bytes()
-                            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                    // A name of letters, digits, and underscores, then `=`. Only as far as a
+                    // name goes is looked at, so a long value costs no more to search.
+                    let end = name
+                        .bytes()
+                        .take(MAX_KEY_NAME + 1)
+                        .take_while(|b| b.is_ascii_alphanumeric() || *b == b'_')
+                        .count();
+                    (1..=MAX_KEY_NAME).contains(&end) && name.as_bytes().get(end) == Some(&b'=')
                 })
             })
         }
@@ -59,26 +64,27 @@ impl Settings {
     /// another key fused into it (an old xLights bug) is split back apart.
     pub fn parse(text: &str) -> Self {
         let mut map = HashMap::new();
-        let mut pending: Vec<String> = Vec::new();
+        // The rest of a token whose value had another key fused into it: read next. Nothing is
+        // copied to get there, so a string of many fused keys is read in one pass.
+        let mut fused: Option<&str> = None;
         let mut rest = text;
         loop {
-            let token = if let Some(t) = pending.pop() {
+            let token = if let Some(t) = fused.take() {
                 t
             } else if rest.is_empty() {
                 break;
             } else {
                 let (token, after) = rest.split_once(',').unwrap_or((rest, ""));
                 rest = after;
-                token.to_string()
+                token
             };
             if map.len() >= MAX_SETTINGS {
                 break;
             }
-            let (key, value) = token.split_once('=').unwrap_or((token.as_str(), ""));
-            let mut value = value.to_string();
-            if let Some(at) = embedded_key(&value) {
-                pending.push(value[at..].to_string());
-                value.truncate(at);
+            let (key, mut value) = token.split_once('=').unwrap_or((token, ""));
+            if let Some(at) = embedded_key(value) {
+                fused = Some(&value[at..]);
+                value = &value[..at];
             }
             let value = value.replace("&comma;", ",").replace("&amp;", "&");
             if !key.is_empty() {
@@ -359,6 +365,39 @@ mod tests {
         assert_eq!(s.get("T_TEXTCTRL_Fadeout"), Some("0.50"));
         assert_eq!(s.get("B_SLIDER_Blur"), Some("3"));
         assert_eq!(s.num("E_SLIDER_Speed"), Some(10.0));
+    }
+
+    #[test]
+    fn a_long_run_of_fused_keys_is_read_in_one_pass() {
+        // Two megabytes with no comma in them. Read by copying what's left at every key, the
+        // first took minutes and the second, hours; each is now a moment's work.
+        let same_key = "E_SLIDER_a=1".repeat(170_000);
+        let s = Settings::parse(&same_key);
+        assert_eq!(s.get("E_SLIDER_a"), Some("1"));
+        // Keys that never reach their `=`: nothing to split, however long.
+        let no_key = format!("E_TEXTCTRL_Text={}=", "E_SLIDER_ ".repeat(200_000));
+        let s = Settings::parse(&no_key);
+        assert!(s.get("E_TEXTCTRL_Text").is_some_and(|t| t.len() > 1_000_000));
+        // Many different fused keys: read up to the most a string may have.
+        let many: String = (0..5_000).map(|i| format!("E_SLIDER_k{i}={i}")).collect();
+        let s = Settings::parse(&many);
+        assert_eq!(s.get("E_SLIDER_k0"), Some("0"));
+        assert_eq!(s.get("E_SLIDER_k1999"), Some("1999"));
+        assert!(!s.contains("E_SLIDER_k2000"));
+    }
+
+    #[test]
+    fn a_fused_key_is_a_name_then_an_equals_sign() {
+        // The name can't be empty, hold anything but letters, digits, and underscores, or run on
+        // past what a name is.
+        assert_eq!(embedded_key("0.50B_SLIDER_Blur=3"), Some(4));
+        assert_eq!(embedded_key("0.50B_SLIDER_=3"), None);
+        assert_eq!(embedded_key("0.50B_SLIDER_Blur 2=3"), None);
+        assert_eq!(embedded_key("0.50B_SLIDER_Blur"), None);
+        let long = format!("0.50B_SLIDER_{}=3", "a".repeat(MAX_KEY_NAME + 1));
+        assert_eq!(embedded_key(&long), None);
+        let most = format!("0.50B_SLIDER_{}=3", "a".repeat(MAX_KEY_NAME));
+        assert_eq!(embedded_key(&most), Some(4));
     }
 
     #[test]

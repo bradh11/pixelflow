@@ -11,6 +11,9 @@ pub enum AudioError {
         "PixelFlow can't play {path}: it isn't a music file it knows (MP3, M4A, WAV, OGG, or FLAC), or it's damaged."
     )]
     Decode { path: String, reason: String },
+    /// The file is larger than any music file ([`crate::MAX_MUSIC_BYTES`]).
+    #[error("{path} is larger than 2 GB, which is more than PixelFlow reads as music.")]
+    TooLarge { path: String },
     /// There's no working sound output (the detail is the system's, for logs).
     #[error("No sound output is available.")]
     NoOutput(String),

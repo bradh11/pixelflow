@@ -299,6 +299,24 @@ fn cancelling_mid_upload_on_fpp_9_3_leaves_uploads_clean_with_no_false_warning()
 }
 
 #[test]
+fn only_an_ordinary_file_is_sent() {
+    let fpp = FakeFpp::start();
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("Folder.mp3");
+    std::fs::create_dir(&folder).unwrap();
+    let err =
+        fpp_upload::stage(&client(), fpp.address(), &folder, "Folder.mp3", &mut |_, _| true).unwrap_err();
+    assert_eq!(
+        err,
+        UploadError::Local {
+            name: "Folder.mp3".into(),
+            reason: "it isn't a file".into()
+        }
+    );
+    assert!(fpp.state().requests.is_empty(), "nothing was asked of the FPP");
+}
+
+#[test]
 fn a_staged_file_that_wont_be_moved_is_removed_cleanly() {
     let fpp = FakeFpp::start().with_sequence("Show.fseq", 5);
     let dir = tempfile::tempdir().unwrap();

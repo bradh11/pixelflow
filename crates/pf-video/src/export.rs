@@ -92,25 +92,51 @@ pub struct VideoSummary {
     pub notes: Vec<String>,
 }
 
+/// The widest and tallest layout photo decoded, the most pixels, and the most memory its
+/// decoder or its decoded pixels may take (the same as for a Picture effect's file).
+const MAX_PHOTO_SIDE: u32 = 16_384;
+const MAX_PHOTO_PIXELS: u64 = 64 * 1024 * 1024;
+const MAX_PHOTO_DECODE_BYTES: u64 = 512 * 1024 * 1024;
+
+/// Decodes a photo's bytes, turned the way the camera says. A file's header can claim any size
+/// in a few bytes, so the size is checked before room is made for the pixels.
+fn decode_photo(bytes: &[u8]) -> Result<image::DynamicImage, String> {
+    use image::ImageDecoder;
+    let problem = |error: image::ImageError| match error {
+        image::ImageError::Limits(_) => "it's too large".to_string(),
+        error => error.to_string(),
+    };
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_PHOTO_SIDE);
+    limits.max_image_height = Some(MAX_PHOTO_SIDE);
+    limits.max_alloc = Some(MAX_PHOTO_DECODE_BYTES);
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|e| e.to_string())?;
+    reader.limits(limits);
+    let mut decoder = reader.into_decoder().map_err(problem)?;
+    let (width, height) = decoder.dimensions();
+    if u64::from(width) * u64::from(height) > MAX_PHOTO_PIXELS
+        || decoder.total_bytes() > MAX_PHOTO_DECODE_BYTES
+    {
+        return Err("it's too large".to_string());
+    }
+    let orientation = decoder.orientation().map_err(problem)?;
+    let mut picture = image::DynamicImage::from_decoder(decoder).map_err(problem)?;
+    picture.apply_orientation(orientation);
+    Ok(picture)
+}
+
 /// The layout photo, read from its file (turned the way the camera says, as the preview shows
-/// it).
+/// it). Only a real picture file is read, and only up to the size the layout shows.
 pub fn load_photo(background: &Background) -> Result<Photo, String> {
     let path = pf_model::path_from_text(&background.path);
     let name = path
         .file_name()
         .map_or_else(|| background.path.clone(), |n| n.to_string_lossy().into_owned());
-    let read = || -> Result<image::DynamicImage, image::ImageError> {
-        use image::ImageDecoder;
-        let mut decoder = image::ImageReader::open(&path)?
-            .with_guessed_format()?
-            .into_decoder()?;
-        let orientation = decoder.orientation()?;
-        let mut picture = image::DynamicImage::from_decoder(decoder)?;
-        picture.apply_orientation(orientation);
-        Ok(picture)
-    };
-    let picture =
-        read().map_err(|e| format!("The photo {name} couldn't be read, so the video has none: {e}"))?;
+    let picture = pf_engine::read_picture_file(&path)
+        .and_then(|bytes| decode_photo(&bytes))
+        .map_err(|e| format!("The photo {name} couldn't be read, so the video has none: {e}"))?;
     Ok(Photo {
         image: picture.to_rgb8(),
         x: background.x,
@@ -813,6 +839,81 @@ mod tests {
         assert_eq!(
             (photo.x, photo.y, photo.width, photo.opacity),
             (1.0, 2.0, 3.0, 0.5)
+        );
+    }
+
+    fn photo_at(path: &Path) -> Result<Photo, String> {
+        load_photo(&Background {
+            path: path.to_string_lossy().into_owned(),
+            x: 0.0,
+            y: 0.0,
+            width: 1.0,
+            opacity: 1.0,
+        })
+    }
+
+    #[test]
+    fn a_photo_whose_header_claims_a_huge_size_is_refused_before_decoding() {
+        let dir = tempfile::tempdir().unwrap();
+        // A one-pixel GIF (35 bytes) whose screen is `width` by `height`.
+        let gif = |width: u16, height: u16| {
+            let mut gif = b"GIF89a".to_vec();
+            gif.extend(width.to_le_bytes());
+            gif.extend(height.to_le_bytes());
+            gif.extend([0x80, 0, 0, 0xFF, 0xFF, 0xFF, 0, 0, 0]);
+            gif.extend([0x2C, 0, 0, 0, 0, 1, 0, 1, 0, 0]);
+            gif.extend([2, 2, 0x44, 1, 0, 0x3B]);
+            gif
+        };
+        let small = dir.path().join("small.gif");
+        fs::write(&small, gif(4, 2)).unwrap();
+        assert_eq!(photo_at(&small).unwrap().image.dimensions(), (4, 2));
+        for (name, width, height) in [("side.gif", 65_535, 65_535), ("pixels.gif", 16_384, 8_192)] {
+            let path = dir.path().join(name);
+            fs::write(&path, gif(width, height)).unwrap();
+            let error = photo_at(&path).err().unwrap();
+            assert_eq!(
+                error,
+                format!("The photo {name} couldn't be read, so the video has none: it's too large")
+            );
+        }
+    }
+
+    #[test]
+    fn only_a_real_picture_file_is_read_as_the_photo() {
+        let dir = tempfile::tempdir().unwrap();
+        // A folder named like a photo, a file that isn't a picture, and one with another name.
+        let folder = dir.path().join("folder.png");
+        fs::create_dir(&folder).unwrap();
+        let text = dir.path().join("notes.png");
+        fs::write(&text, "not a picture").unwrap();
+        let other = dir.path().join("house.txt");
+        image::RgbImage::from_pixel(2, 2, image::Rgb([1, 2, 3]))
+            .save_with_format(&other, image::ImageFormat::Png)
+            .unwrap();
+        for path in [&folder, &text, &other] {
+            let error = photo_at(path).err().unwrap();
+            assert!(
+                error.ends_with("it isn't a GIF, PNG, JPEG, WebP, or BMP picture"),
+                "{error}"
+            );
+        }
+    }
+
+    /// A pipe named like a photo is never opened (opening one waits for a writer for ever).
+    #[cfg(unix)]
+    #[test]
+    fn a_pipe_named_like_a_photo_is_not_opened() {
+        let dir = tempfile::tempdir().unwrap();
+        let pipe = dir.path().join("pipe.png");
+        let made = std::process::Command::new("mkfifo").arg(&pipe).status();
+        if !made.is_ok_and(|status| status.success()) {
+            return;
+        }
+        let error = photo_at(&pipe).err().unwrap();
+        assert!(
+            error.ends_with("it isn't a GIF, PNG, JPEG, WebP, or BMP picture"),
+            "{error}"
         );
     }
 }

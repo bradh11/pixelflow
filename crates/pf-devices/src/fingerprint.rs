@@ -24,7 +24,7 @@ pub fn classify_home_page(body: &str) -> Option<DeviceKind> {
 /// (`<p>`). An F16V5 on firmware Bld 32 answers its home page `/` with a 404, so this is how such
 /// a board is recognized.
 pub fn is_falcon_status(body: &str) -> bool {
-    roxmltree::Document::parse(body).is_ok_and(|doc| {
+    crate::xml::parse(body).is_ok_and(|doc| {
         let root = doc.root_element();
         root.has_tag_name("response")
             && root
@@ -60,5 +60,13 @@ mod tests {
         assert!(!is_falcon_status("<status><p>130</p></status>"));
         assert!(!is_falcon_status("<html><body>Error 404</body></html>"));
         assert!(!is_falcon_status("not xml"));
+    }
+
+    #[test]
+    fn a_page_built_to_exhaust_the_parser_is_not_a_falcon() {
+        // Any web server found in a scan is asked for this page: 10 MB of nested elements (the
+        // most a device's answer is read to) must be turned away, not parsed.
+        assert!(!is_falcon_status(&"<response>".repeat(1_000_000)));
+        assert!(!is_falcon_status(&"<a>".repeat(80_000)));
     }
 }

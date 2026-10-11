@@ -1141,6 +1141,72 @@ mod tests {
     }
 
     #[test]
+    fn the_window_loads_and_runs_nothing_from_outside_the_app() {
+        // What keeps the window to the app's own code: its content security policy, no
+        // capability for a remote page, and none of Tauri's switches that loosen either.
+        let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let security = &config["app"]["security"];
+        let csp = security["csp"].as_str().expect("a content security policy");
+        let directives: std::collections::HashMap<&str, Vec<&str>> = csp
+            .split(';')
+            .filter_map(|d| {
+                let mut words = d.split_whitespace();
+                Some((words.next()?, words.collect()))
+            })
+            .collect();
+        assert_eq!(directives["default-src"], ["'self'"]);
+        // Scripts fall back to the default: the app's own files only, nothing inline or evaluated.
+        assert!(!directives.contains_key("script-src"), "{csp}");
+        // What the default doesn't cover: plugins, the base for relative addresses, and where a
+        // form may be sent.
+        assert_eq!(directives["object-src"], ["'none'"]);
+        assert_eq!(directives["base-uri"], ["'self'"]);
+        assert_eq!(directives["form-action"], ["'self'"]);
+        // No directive names an address outside the app (the IPC's own is Tauri's).
+        let local = [
+            "'self'",
+            "'none'",
+            "ipc:",
+            "http://ipc.localhost",
+            "data:",
+            "blob:",
+        ];
+        for (name, sources) in &directives {
+            for source in sources {
+                let allowed =
+                    local.contains(source) || (*name == "style-src" && *source == "'unsafe-inline'");
+                assert!(allowed, "{name} allows {source}");
+            }
+        }
+        assert!(
+            security
+                .as_object()
+                .unwrap()
+                .keys()
+                .all(|k| !k.starts_with("dangerous")),
+            "{security}"
+        );
+        assert!(
+            security.get("assetProtocol").is_none(),
+            "files reach the window through commands only"
+        );
+        assert_ne!(config["app"]["withGlobalTauri"], json!(true));
+        // No capability lets a page from elsewhere call the shell: each is for one of the app's
+        // own windows.
+        for (capability, window) in [
+            (include_str!("../capabilities/default.json"), preview_window::MAIN),
+            (
+                include_str!("../capabilities/preview.json"),
+                preview_window::LABEL,
+            ),
+        ] {
+            let capability: Value = serde_json::from_str(capability).unwrap();
+            assert!(capability.get("remote").is_none(), "{capability}");
+            assert_eq!(capability["windows"], json!([window]));
+        }
+    }
+
+    #[test]
     fn quitting_autosaves_and_stops_output() {
         let (app, webview, _dir) = app();
         let prop = json!({

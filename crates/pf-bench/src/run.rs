@@ -69,6 +69,8 @@ pub fn run_asap(workload: &Workload, sink: SinkKind, options: Options) -> Result
     let mut transport = sinks.transport()?;
     let mut controllers = Controllers::new(workload.plan(sinks.addresses()), &OutputSettings::default())?;
     let mut renderer = workload.renderer();
+    // As an export draws: every frame worth sharing out is, not only the ones a clock needs.
+    renderer.set_flat_out(true);
     let mut frame = vec![0u8; workload.map.frame_len];
     let preview = Mutex::new(vec![0u8; frame.len()]);
     let raw = Mutex::new(vec![0u8; frame.len()]);

@@ -69,6 +69,8 @@ pub fn digests(pixels: u32, seconds: u32, threads: &RenderThreads) -> Vec<Digest
     let length = seconds.max(1) + 2;
     let mut out = Vec::new();
     let mut add = |name: String, mut renderer: Renderer, seq: &Sequence| {
+        // Left to the engine, frames are shared out as an export's are: wherever it's worth it.
+        renderer.set_flat_out(true);
         threads.apply(&mut renderer);
         let per_second = u64::from(1000 / seq.frame_ms.max(1));
         let frames = frames_drawn(u64::from(seconds.max(1)) * per_second, seq.frame_count());

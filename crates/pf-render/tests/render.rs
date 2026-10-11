@@ -506,6 +506,114 @@ fn the_lowest_effect_drawn_covers_whatever_its_blend() {
     assert_eq!(pixels(&render(&show, &seq, 1500)).0, vec![[0, 0, 0]; 4]);
 }
 
+/// A group's effect on an earlier row, then prop A's effect on a later one, as each way of
+/// blending rows draws prop A.
+fn group_then_prop(blending: RowBlending, group: Effect, prop: Effect) -> Vec<[u8; 3]> {
+    let show = show();
+    let mut seq = Sequence::new("s", 1000);
+    seq.row_blending = blending;
+    seq.rows
+        .push(row(Target::Group(show.groups[0].id), vec![vec![group]]));
+    seq.rows
+        .push(row(Target::Prop(show.props[0].id), vec![vec![prop]]));
+    pixels(&render(&show, &seq, 0)).0
+}
+
+#[test]
+fn with_xlights_model_blending_a_rows_lowest_effect_mixes_with_the_rows_before_it() {
+    const BLUE: [u8; 3] = [0, 0, 255];
+    const RED: [u8; 3] = [255, 0, 0];
+    // xLights' "2 reveals 1" on the prop's only layer, over a group's wash from the row above:
+    // with Model Blending the wash is what's "below" and it shows (the prop stays blue); without
+    // it, and in PixelFlow's own way, the prop's effect is all there is on the row and it shows.
+    let mut behind = on(Rgb::RED, 0, 1000);
+    behind.blend = Blend::Behind;
+    let drawn = |blending| group_then_prop(blending, on(Rgb::BLUE, 0, 1000), behind.clone());
+    assert_eq!(drawn(RowBlending::Blend), vec![BLUE; 4]);
+    assert_eq!(drawn(RowBlending::Replace), vec![RED; 4]);
+    assert_eq!(drawn(RowBlending::Cover), vec![RED; 4]);
+    // Where the row above is dark (the chase lights the group's first quarter: two of prop A's
+    // pixels), "2 reveals 1" shows the prop's effect.
+    let drawn = |blending| group_then_prop(blending, first_pixel(Rgb::BLUE), behind.clone());
+    assert_eq!(drawn(RowBlending::Blend), vec![BLUE, BLUE, RED, RED]);
+
+    // Any blend mixes the same way: an additive effect adds to the row above.
+    let mut add = on(Rgb::new(100, 0, 0), 0, 1000);
+    add.blend = Blend::Add;
+    let drawn = |blending| group_then_prop(blending, on(Rgb::new(0, 0, 100), 0, 1000), add.clone());
+    assert_eq!(drawn(RowBlending::Blend), vec![[100, 0, 100]; 4]);
+    assert_eq!(drawn(RowBlending::Cover), vec![[100, 0, 0]; 4]);
+
+    // A row with the plain blend lets the row above show where it's clear, with Model Blending
+    // as in PixelFlow's own way; without Model Blending it writes all its pixels, lit or not.
+    let drawn = |blending| group_then_prop(blending, on(Rgb::BLUE, 0, 1000), first_pixel(Rgb::RED));
+    assert_eq!(drawn(RowBlending::Blend), vec![RED, BLUE, BLUE, BLUE]);
+    assert_eq!(drawn(RowBlending::Cover), vec![RED, BLUE, BLUE, BLUE]);
+    assert_eq!(drawn(RowBlending::Replace), vec![RED, [0; 3], [0; 3], [0; 3]]);
+}
+
+#[test]
+fn a_row_only_takes_over_its_pixels_while_it_has_an_effect_playing() {
+    // Without Model Blending xLights writes a model's pixels only on frames where one of its
+    // effects plays: before and after, the row above shows.
+    let show = show();
+    let mut seq = Sequence::new("s", 2000);
+    seq.row_blending = RowBlending::Replace;
+    seq.rows.push(row(
+        Target::Group(show.groups[0].id),
+        vec![vec![on(Rgb::BLUE, 0, 2000)]],
+    ));
+    seq.rows.push(row(
+        Target::Prop(show.props[0].id),
+        vec![vec![first_pixel(Rgb::RED)]],
+    ));
+    let (a, b) = pixels(&render(&show, &seq, 500));
+    assert_eq!(a, vec![[255, 0, 0], [0; 3], [0; 3], [0; 3]]);
+    assert_eq!(
+        b,
+        vec![[0, 0, 255, 0]; 4],
+        "the other prop keeps the group's effect"
+    );
+    assert_eq!(pixels(&render(&show, &seq, 1500)).0, vec![[0, 0, 255]; 4]);
+}
+
+#[test]
+fn without_model_blending_a_submodels_row_mixes_with_its_props_own_row() {
+    // xLights draws a model's submodels right after the model. Without Model Blending a
+    // submodel's effects mix with the model's own (by the lowest one's blend) on frames where
+    // the model has an effect playing, and replace what's there on frames where it doesn't.
+    let mut show = show();
+    let middle = pf_model::Region::nodes("Middle", vec![vec![Some(pf_model::NodeRun::new(1, 2))]]);
+    let target = Target::Region {
+        prop: show.props[0].id,
+        region: middle.id,
+    };
+    show.props[0].regions.push(middle);
+    let mut seq = Sequence::new("s", 2000);
+    seq.row_blending = RowBlending::Replace;
+    seq.rows.push(row(
+        Target::Group(show.groups[0].id),
+        vec![vec![on(Rgb::new(0, 0, 100), 0, 2000)]],
+    ));
+    seq.rows.push(row(
+        Target::Prop(show.props[0].id),
+        vec![vec![on(Rgb::new(0, 100, 0), 0, 1000)]],
+    ));
+    let mut add = on(Rgb::new(100, 0, 0), 0, 2000);
+    add.blend = Blend::Add;
+    seq.rows.push(row(target, vec![vec![add]]));
+    // While the prop's own row plays, the submodel adds to it.
+    let (a, _) = pixels(&render(&show, &seq, 500));
+    assert_eq!(a, vec![[0, 100, 0], [100, 100, 0], [100, 100, 0], [0, 100, 0]]);
+    // Once it has ended, the submodel replaces the group's effect on its pixels.
+    let (a, _) = pixels(&render(&show, &seq, 1500));
+    assert_eq!(a, vec![[0, 0, 100], [100, 0, 0], [100, 0, 0], [0, 0, 100]]);
+    // With Model Blending it always mixes with whatever is there.
+    seq.row_blending = RowBlending::Blend;
+    let (a, _) = pixels(&render(&show, &seq, 1500));
+    assert_eq!(a, vec![[0, 0, 100], [100, 0, 100], [100, 0, 100], [0, 0, 100]]);
+}
+
 #[test]
 fn blur_spreads_an_effect_over_the_targets_grid_like_xlights() {
     // A 9-pixel line is a 9 × 1 grid: Blur 4 (xLights 5) averages each pixel with two either

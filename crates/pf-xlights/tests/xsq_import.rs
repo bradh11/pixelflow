@@ -4,8 +4,8 @@ use pf_model::{Generator, Prop, ShapeSource, Show};
 use pf_sequence::{
     Axis, BarsParams, Blend, ChaseParams, ColorWashParams, Direction, Effect, EffectParams, FaceColorSource,
     FaceEyes, FacesParams, FireParams, Gradient, Mark, MeteorDirection, MeteorsParams, OnParams, Rgb,
-    RippleParams, Row, ShapeObject, ShimmerParams, SpiralParams, StrobeParams, Target, TimingKind,
-    TwinkleParams, WaveParams,
+    RippleParams, Row, RowBlending, ShapeObject, ShimmerParams, SpiralParams, StrobeParams, Target,
+    TimingKind, TwinkleParams, WaveParams,
 };
 use pf_xlights::sequence::{SequenceImport, build_sequence, parse_xsq};
 use pf_xlights::{import_folder, import_sequence_file};
@@ -207,6 +207,23 @@ fn a_fixed_track_never_exceeds_the_mark_limit() {
     assert_eq!(i.sequence.timing_tracks[0].marks.len(), pf_sequence::MAX_MARKS);
     assert_note(&i, "more timing marks than PixelFlow's limit");
     pf_sequence::check_sequence(&i.sequence).unwrap();
+}
+
+#[test]
+fn model_blending_comes_across_as_how_rows_meet() {
+    // xLights reads a file that doesn't say as Model Blending off: each model replaces what the
+    // models above it drew. New xLights sequences have it on: models mix.
+    let import = |root: &str| {
+        let xml = format!(
+            r#"<xsequence FixedPointTiming="1"{root}><head><sequenceTiming>50 ms</sequenceTiming><sequenceDuration>10</sequenceDuration></head></xsequence>"#
+        );
+        let i = build_sequence(&parse_xsq(&xml).unwrap(), &show(), "x");
+        assert_opens(&i);
+        i.sequence.row_blending
+    };
+    assert_eq!(import(r#" ModelBlending="true""#), RowBlending::Blend);
+    assert_eq!(import(r#" ModelBlending="false""#), RowBlending::Replace);
+    assert_eq!(import(""), RowBlending::Replace);
 }
 
 /// The sample show plus a prop whose name needs escaping.

@@ -595,7 +595,16 @@ export interface TimingTrack {
   marks: Mark[];
 }
 
-/** An authored sequence (`*.pfseq.json`). Later rows draw over earlier ones. */
+/**
+ * How a row meets what the rows before it drew on the same pixels. "cover": where it's lit it
+ * covers, where it's clear the earlier rows show (its lowest effect covers whatever its blend).
+ * The other two are xLights' ways, kept by imported sequences: "blend" (Model Blending on) mixes
+ * the row's lowest effect with the earlier rows by its own blend; "replace" (Model Blending off)
+ * takes over all the row's pixels, lit or not, while it has an effect playing.
+ */
+export type RowBlending = "cover" | "blend" | "replace";
+
+/** An authored sequence (`*.pfseq.json`). Rows are drawn in order. */
 export interface Sequence {
   schemaVersion: number;
   name: string;
@@ -603,6 +612,8 @@ export interface Sequence {
   durationMs: number;
   frameMs: number;
   timingTracks: TimingTrack[];
+  /** Left out when rows cover. */
+  rowBlending?: RowBlending;
   rows: Row[];
 }
 

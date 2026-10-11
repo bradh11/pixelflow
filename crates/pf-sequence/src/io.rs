@@ -30,7 +30,7 @@ type Migration = fn(Value) -> Result<Value, SequenceError>;
 
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
 const MIGRATIONS: &[Migration] = &[
-    v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9,
+    v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10,
 ];
 
 /// Version 2 only adds submodel targets, so version 1 documents are already valid.
@@ -76,6 +76,12 @@ fn v7_to_v8(doc: Value) -> Result<Value, SequenceError> {
 
 /// Version 9 only adds an effect kind (Picture), so version 8 documents are already valid.
 fn v8_to_v9(doc: Value) -> Result<Value, SequenceError> {
+    Ok(doc)
+}
+
+/// Version 10 only adds how rows meet the rows before them (`rowBlending`; they cover, as they
+/// always have, when it's missing), so version 9 documents are already valid.
+fn v9_to_v10(doc: Value) -> Result<Value, SequenceError> {
     Ok(doc)
 }
 
@@ -305,7 +311,7 @@ mod tests {
             .effects
             .push(crate::Effect::new(crate::EffectKind::Dancer, 500, 1000).with_params(dancer));
         let saved = sequence_to_json(&seq).unwrap();
-        assert!(saved.contains(r#""schemaVersion": 9"#), "{saved}");
+        assert!(saved.contains(r#""schemaVersion": 10"#), "{saved}");
         assert_eq!(sequence_from_json(&saved).unwrap(), seq);
     }
 
@@ -343,7 +349,7 @@ mod tests {
             .effects
             .push(crate::Effect::new(crate::EffectKind::Picture, 500, 1000).with_params(picture));
         let saved = sequence_to_json(&seq).unwrap();
-        assert!(saved.contains(r#""schemaVersion": 9"#), "{saved}");
+        assert!(saved.contains(r#""schemaVersion": 10"#), "{saved}");
         assert!(saved.contains(r#""file": "images/santa dancing.gif""#), "{saved}");
         assert_eq!(sequence_from_json(&saved).unwrap(), seq);
         // A new picture has no file yet and plays at its own speed; settings out of range are
@@ -370,6 +376,29 @@ mod tests {
                 ..Default::default()
             })
         );
+    }
+
+    #[test]
+    fn version_9_files_open_with_rows_that_cover_and_row_blending_round_trips() {
+        let text = r#"{ "schemaVersion": 9, "name": "x", "durationMs": 1000, "rows": [] }"#;
+        let mut seq = sequence_from_json(text).unwrap();
+        assert_eq!(seq.schema_version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(seq.row_blending, RowBlending::Cover);
+        assert_eq!(Sequence::new("x", 1000).row_blending, RowBlending::Cover);
+        let saved = sequence_to_json(&seq).unwrap();
+        assert!(
+            !saved.contains("rowBlending"),
+            "left out when rows cover: {saved}"
+        );
+        for (blending, written) in [(RowBlending::Blend, "blend"), (RowBlending::Replace, "replace")] {
+            seq.row_blending = blending;
+            let saved = sequence_to_json(&seq).unwrap();
+            assert!(
+                saved.contains(&format!(r#""rowBlending": "{written}""#)),
+                "{saved}"
+            );
+            assert_eq!(sequence_from_json(&saved).unwrap(), seq);
+        }
     }
 
     #[test]
@@ -475,7 +504,7 @@ mod tests {
             sequence_from_json(r#"{ "schemaVersion": "1", "name": "x" }"#),
             Err(SequenceError::InvalidSchemaVersion(_))
         ));
-        let err = sequence_from_json(r#"{ "schemaVersion": 10, "name": "x" }"#).unwrap_err();
+        let err = sequence_from_json(r#"{ "schemaVersion": 11, "name": "x" }"#).unwrap_err();
         assert!(err.to_string().contains("update PixelFlow"), "{err}");
         assert!(matches!(sequence_from_json("[1, 2"), Err(SequenceError::Json(_))));
     }

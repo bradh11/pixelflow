@@ -19,7 +19,9 @@ pub use curve::{
     Curve, CurveInputs, CurveShape, CurveTime, MAX_CURVE_CYCLES, MAX_CURVE_FADE, MAX_CURVE_POINTS,
     MIN_CURVE_CYCLES,
 };
-pub use document::{CURRENT_SCHEMA_VERSION, Layer, Mark, Row, Sequence, Target, TimingKind, TimingTrack};
+pub use document::{
+    CURRENT_SCHEMA_VERSION, Layer, Mark, Row, RowBlending, Sequence, Target, TimingKind, TimingTrack,
+};
 pub use effect::{
     Axis, BarsParams, Blend, ButterflyColors, ButterflyParams, ChaseOrder, ChaseParams, CirclesLook,
     CirclesParams, ColorShiftParams, ColorWashParams, CurveRange, DancerBackground, DancerCharacter,

@@ -24,8 +24,8 @@ use effects::Tally;
 use pf_model::Show;
 use pf_sequence::{
     Effect, EffectId, EffectParams, Layer, MAX_DURATION_MS, MAX_EFFECTS, MAX_FRAME_MS, MAX_LAYERS_PER_ROW,
-    MAX_MARKS, MAX_ROWS, MAX_TEXT_LEN, MAX_TIMING_TRACKS, MIN_FRAME_MS, Mark, Row, RowId, Sequence, Target,
-    TimingKind, TimingTrack, TimingTrackId,
+    MAX_MARKS, MAX_ROWS, MAX_TEXT_LEN, MAX_TIMING_TRACKS, MIN_FRAME_MS, Mark, Row, RowBlending, RowId,
+    Sequence, Target, TimingKind, TimingTrack, TimingTrackId,
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -721,6 +721,12 @@ fn build(file: &XsqFile, show: &Show, fallback_name: &str, mapping: Option<&Mapp
 
     let mut sequence = Sequence::new(fallback_name, duration_ms);
     sequence.frame_ms = frame_ms;
+    // xLights' Model Blending: each model mixes with the models above it, or replaces them.
+    sequence.row_blending = if file.model_blending {
+        RowBlending::Blend
+    } else {
+        RowBlending::Replace
+    };
     let song = unxml_safe(file.head.song.trim());
     if !song.trim().is_empty() {
         sequence.name = song.trim().to_string();

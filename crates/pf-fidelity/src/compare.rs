@@ -127,6 +127,17 @@ pub struct EffectEntry {
     pub expected: Verdict,
 }
 
+/// What of the reference isn't compared (see `Prepared::dark_runs`).
+struct LeftOut {
+    /// For each prop, the frames it's left out on.
+    frames: Vec<Vec<bool>>,
+    /// Props the reference leaves dark for long while PixelFlow lights them.
+    dark: usize,
+    /// When the file was saved part-way through rendering: the first frame it's missing light
+    /// on, and how many props were cut short.
+    cut_short: Option<(u32, usize)>,
+}
+
 /// A target's pixels: how many it has, those both sides have (as places in the show-wide pixel
 /// list), and where each of those is on the target's own grid.
 type TargetPixels = (usize, Rc<[u32]>, Rc<Grid>);
@@ -417,14 +428,27 @@ impl Prepared {
     /// `dark_run_ms` long that the reference leaves the whole prop dark while PixelFlow lights it
     /// on at least half the frames. xLights saves whatever it has rendered so far, so a file can
     /// hold black where the sequence has effects; scoring that would blame the effects.
-    fn dark_runs(&mut self) -> Result<Vec<Vec<bool>>, FidelityError> {
+    ///
+    /// A stretch that runs to the end of the file says more: xLights was still rendering that
+    /// prop when the file was saved, and what the file holds for it before it goes dark needn't
+    /// be the finished picture either. In a real show's file, two props showed their own row's
+    /// effects alone, frame for frame, for the minute before they went dark for good, where up
+    /// to then they had shown them under a group's; other props had gone dark at the start of
+    /// that minute. How far back the unfinished part goes can't be read from one prop. The
+    /// earliest moment any prop is missing light it never gets back is as far as the file
+    /// shows it, so every prop cut short is left out from that moment on.
+    fn dark_runs(&mut self) -> Result<LeftOut, FidelityError> {
         let frames = self.pixelflow.header().frames;
         let frame_ms = self.import.sequence.frame_ms.max(1);
         let lit = self.options.limits.lit;
         let needed = u64::from(self.options.limits.dark_run_ms).div_ceil(u64::from(frame_ms));
         let mut left_out = vec![vec![false; frames as usize]; self.props.len()];
         if self.options.limits.dark_run_ms == 0 {
-            return Ok(left_out);
+            return Ok(LeftOut {
+                frames: left_out,
+                dark: 0,
+                cut_short: None,
+            });
         }
         let count = self.slots.len();
         let (mut ours, mut theirs) = (vec![[0u8; 3]; count], vec![[0u8; 3]; count]);
@@ -462,12 +486,39 @@ impl Prepared {
                 start = end;
             }
         }
-        Ok(left_out)
+        let dark = left_out.iter().filter(|frames| frames.contains(&true)).count();
+        // The props dark to the end of the file, each with the first frame of that last stretch
+        // PixelFlow lights it on: the first light the file doesn't have.
+        let last = (0..frames as usize)
+            .rev()
+            .find(|&f| seen.first().is_some_and(|prop| prop[f].0));
+        let cut: Vec<(usize, usize)> = (0..self.props.len())
+            .filter_map(|p| {
+                let last = last.filter(|&f| left_out[p][f])?;
+                let start = (0..last).rev().find(|&f| !left_out[p][f]).map_or(0, |f| f + 1);
+                Some((p, (start..=last).find(|&f| seen[p][f].1)?))
+            })
+            .collect();
+        let first = cut.iter().map(|&(_, missing)| missing).min();
+        if let (Some(first), Some(last)) = (first, last) {
+            for &(p, _) in &cut {
+                left_out[p][first..=last].fill(true);
+            }
+        }
+        Ok(LeftOut {
+            frames: left_out,
+            dark,
+            cut_short: first.map(|first| (first as u32, cut.len())),
+        })
     }
 
     /// Measures every frame and fills in the scorecard.
     pub fn score(&mut self) -> Result<Scorecard, FidelityError> {
-        let left_out = self.dark_runs()?;
+        let LeftOut {
+            frames: left_out,
+            dark: dark_props,
+            cut_short,
+        } = self.dark_runs()?;
         let limits = self.options.limits;
         let seq = &self.import.sequence;
         let frame_ms = seq.frame_ms.max(1);
@@ -849,19 +900,34 @@ impl Prepared {
                 "The reference is shorter: {missing} of {frames} frames have nothing to compare with."
             ));
         }
+        let share = format!("{:.0}% of what could be measured", left_out_share * 100.0);
         if !gaps.is_empty() {
             notes.push(format!(
-                "The reference is dark for {} s or more on {} props while PixelFlow lights them, {} of \
-                 what could be measured: xLights saves a file with whatever it has rendered so far, so \
-                 these stretches look unrendered and are left out.",
+                "The reference is dark for {} s or more on {dark_props} props while PixelFlow lights \
+                 them{}: xLights saves a file with whatever it has rendered so far, so these stretches \
+                 look unrendered and are left out.",
                 limits.dark_run_ms / 1000,
-                {
-                    let mut names: Vec<&str> = gaps.iter().map(|g| g.prop.as_str()).collect();
-                    names.sort_unstable();
-                    names.dedup();
-                    names.len()
+                if cut_short.is_none() {
+                    format!(", {share}")
+                } else {
+                    String::new()
                 },
-                format_args!("{:.0}%", left_out_share * 100.0),
+            ));
+        }
+        if let Some((first, props)) = cut_short {
+            notes.push(format!(
+                "The reference was cut short: {} dark to its end while PixelFlow lights {}, from {} at \
+                 the earliest. xLights was still rendering there when it saved the file, and what it \
+                 holds from that moment on may be some of a prop's rows without the rest, so {} left \
+                 out from then. In all, {share} is left out.",
+                if props == 1 {
+                    "1 prop is".to_string()
+                } else {
+                    format!("{props} props are")
+                },
+                if props == 1 { "it" } else { "them" },
+                pf_sequence::format_ms(u64::from(first) * u64::from(frame_ms)),
+                if props == 1 { "it is" } else { "all of them are" },
             ));
         }
         // xLights rounds a file's channels up to a multiple of four.

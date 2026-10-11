@@ -149,8 +149,8 @@ pub struct ReferenceInfo {
     pub producer: Option<String>,
     /// It holds only some channel ranges.
     pub sparse: bool,
-    /// Where it is dark for so long, with PixelFlow lit, that it looks unrendered: left out of
-    /// every score.
+    /// Where it is dark for so long, with PixelFlow lit, that it looks unrendered, and where
+    /// a prop that ends that way had been cut short already: left out of every score.
     pub left_out: Vec<Gap>,
     /// Those stretches as a share of everything that could otherwise be measured.
     pub left_out_share: f64,

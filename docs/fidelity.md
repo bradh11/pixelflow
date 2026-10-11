@@ -90,7 +90,7 @@ what the pictures showed. Some of what settled them:
 | A wash on a group of outline props, one of them in another color | error 40 | 57 | Close |
 | Fire over a group of outline props where xLights lights one of them blue and little else | error 98 | 47 | Different |
 | Fireworks drawn as steady twinkles, where xLights is dark between bursts | error 26 | 22 | Different |
-| Snow on a tree that PixelFlow also washes blue and xLights leaves dark | error 94 | 5 | Different |
+| Snow on a tree that PixelFlow also washes blue and the reference leaves dark (the file turned out to be unfinished there) | error 94 | 5 | Different |
 | A shader shown as a dim fill | error 57–108 | 13–40 | No equivalent |
 
 ## The method
@@ -199,7 +199,9 @@ the look score on made-up pairs of renders (`crates/pf-fidelity/src/look.rs`).
 - **It doesn't hear.** An effect a beat late against the music shows only as a rhythm out of
   step with xLights' render, never against the song.
 - **Layered effects share a look.** Where several effects are on a pixel the difference can't be
-  split between them.
+  split between them. And an effect under others can differ on every prop it has and still be
+  judged a match, when the picture the others make is most of what is there: read the props'
+  looks (`props[].look`) beside the effects'.
 - **Short effects are judged on little.** Under half a second there are few frames to read a
   speed or a rhythm from; the score allows for it, and says less.
 - **Random effects move the numbers.** Each import seeds them anew: a share of a sequence that
@@ -208,9 +210,17 @@ the look score on made-up pairs of renders (`crates/pf-fidelity/src/look.rs`).
   sparse one, leaves props out; `coverage` names them.
 - **A reference can be unrendered, or stale.** xLights saves a file with whatever it has rendered
   so far. A prop the reference leaves dark for 20 seconds or more while PixelFlow lights it is
-  left out (`reference.leftOut`; `--dark-run-ms 0` scores everything); a shorter gap, or content
-  from an older version of the sequence or the layout, can't be told from a wrong render and
-  scores as different.
+  left out (`reference.leftOut`; `--dark-run-ms 0` scores everything). Props it leaves dark that
+  way to the end of the file were still being rendered when it was saved, and before they go
+  dark the file can hold some of their rows without the rest: they are all left out from the
+  first moment any of them is missing light, and the scorecard's notes say the reference was cut
+  short, and from when. What can't be told from a wrong render, and scores as different: a
+  shorter gap, and a prop that stays lit with frames from an older version of the sequence or
+  the layout. A file isn't rendered afresh each time it's saved: one in this corpus holds what
+  look like frames from before a prop joined a group, and light from effects the sequence no
+  longer has. When an effect matches up to some moment and not after it, with its rows set the
+  same on both sides, suspect the file: render the sequence again in xLights (Render All, then
+  save) before changing the import.
 - **Effects the importer skips aren't seen.** A pixel xLights lights from an effect that wasn't
   imported counts against whatever was imported there.
 - **Red, green, and blue only.** An RGBW prop's white channel isn't compared.
@@ -218,20 +228,59 @@ the look score on made-up pairs of renders (`crates/pf-fidelity/src/look.rs`).
 ## What it found
 
 Seven sequences of one real show (about 6,200 pixels, 341 imported effects), October 2026. One
-has no effects. Of the rest, 247 effects could be judged (77% of the effect-time):
+has no effects. Of the rest, 242 effects could be judged (75% of the effect-time):
 
 | Sequence | Matches | Close | Different | No equivalent | Look | As seen |
 |---|---|---|---|---|---|---|
-| A | 87% | 4% | 8% | – | 91 | 96 |
-| B | 43% | 57% | 1% | – | 83 | 93 |
-| C | 100% | – | – | – | 99 | 99 |
-| D | 100% | – | – | – | 100 | 91 |
-| E | 100% | – | – | – | 95 | 94 |
-| G | 53% | – | 17% | 30% | 65 | 72 |
-| All | 86% | 4% | 8% | 2% | 90 | 93 |
+| A | 94% | 2% | 5% | – | 95 | 96 |
+| B | 72% | 28% | 1% | – | 87 | 94 |
+| C | 100% | – | – | – | 99 | 98 |
+| D | 100% | – | – | – | 100 | 99 |
+| E | 100% | – | – | – | 94 | 93 |
+| G | 53% | – | 17% | 30% | 65 | 71 |
+| All | 91% | 2% | 5% | 2% | 93 | 93 |
 
+That is one run of five. The shares move with the random effects, which each import seeds anew.
 B is mostly fire and circles under short flashes, and two ten-second stretches of it sit near
-the line: its share that matches was 43%, 57%, and 72% in three runs.
+the line: its share that matches was 72% in three runs and 43% in two. A has one cellular
+automaton nine minutes long that matched in four runs and was close in the fifth, which alone
+took A from 94% to 76%. Hold a change against several runs before and after, effect by effect.
+
+The first scorecards of this corpus (A at 87%, 4%, and 8%; D as seen at 91) are what the two
+findings below changed.
+
+**A reference that wasn't finished.** Most of what looked different in sequence A was the file,
+not the import. xLights saved it part-way through rendering: seventeen of its props go dark in
+the middle of an effect and stay dark for the five minutes to the end, five at 4:02.8, ten at
+4:05.2, and two at 5:05.9. For the minute before those two go dark they show their own row's
+effects with nothing of the layout-wide group's over them: a mean error of 4 to 24 a channel
+against their row drawn alone, 14 to 91 against the whole sequence. Up to 4:02 the same two
+props show the group's effects over their own: 9 to 12 against the whole sequence, 32 to 67
+against the row alone. The rows are set the same on both sides of 4:02, so no way of laying
+rows over one another draws both, and the four minutes that are whole are the ones PixelFlow
+matches. This was the stretch the first scorecards ranked first, a group's wash over its props'
+own snow and circles (eight effects at looks of 5 to 52). Those props are now left out from
+4:02.8 (see Limits), and the wash matches on the props that have it.
+
+Three props that stay lit to the end hold frames from other versions of the show. One, an arch,
+follows a smaller group's row alone for the first three minutes, dark whenever that row has no
+effect while the layout-wide group it belongs to plays on, and takes that group's effects only
+from about 3:20, as a prop would that was rendered before it joined the group. That is the prop
+lit in another color under the smaller group's wash. All three carry light the sequence has no
+effect for: a white line for twelve seconds near the start, a blue wash for fourteen seconds
+from 4:50, red where the sequence has blue near the end. What still scores as different in A,
+5% of its time, is on these three props after 4:02, and none of it is known to be the import's
+doing. A fresh render of the sequence in xLights would say.
+
+**A difference no effect's verdict showed.** A Twinkle set to strobe was drawn as PixelFlow's
+soft twinkle. In xLights' frames it is a few pixels flashing: at count 20 and steps 98, 0.35%
+of the pixels are lit in any one frame, each at full brightness and for that frame alone, at
+random. PixelFlow lit some forty times as many, as white specks over every prop of the effect's
+group wherever the rows over it were dark or dim. The effect itself was judged a match, at a
+look of 100: it has no pixels to itself, and the picture the other rows make matched. The
+props said otherwise: ten outline props looked 61 to 84. A strobing twinkle is now imported as
+a Strobe with a flash a frame, those props look 89 to 100, and sequence D as seen went from 91
+to 99.
 
 **Where the look and the pixels disagree.** Ranked by pixel error, the kinds to fix were Shader,
 Fan, Color Wash, Spirals, Plasma, Bars, and Butterfly. By look, Spirals, Plasma, Bars, and
@@ -243,19 +292,19 @@ is: PixelFlow twinkles steadily where xLights is dark between bursts.
 
 **What to improve, by look:**
 
-- *Mappings to check.* One 15-second stretch of sequence A is most of what looks different: a
-  wash on the group that spans the layout shows on props where xLights shows only those props'
-  own snow and circles (how that group's row meets the rows under it). A smaller group of
-  outline props lights one of them in another color, or lights it where xLights leaves it dark,
-  under three kinds of effect (how that group's effects are laid over its props). Under other
-  effects, a Pinwheel changed less from frame to frame, and a two-second Shockwave stood still
-  where xLights' moved.
+- *Mappings to check.* Few, and small. A half-second On with sparkles that follow the music
+  flashes about two thirds as often (sequence B). A Spirals that grows and shrinks on a group of
+  outline props starts a turn up to a quarter of a second early on two of them (sequence D,
+  looks of 89 and 90). Under other effects, a Pinwheel changed less from frame to frame. A strobing
+  twinkle's share of the pixels is measured at one count and one number of steps, and taken to
+  rise with the first and fall with the second; the older way of drawing twinkles hasn't been
+  measured strobing and is still shown as soft twinkles.
 - *What PixelFlow can't show yet.* Shader (ten effects, the largest item by far), Fireworks,
   and Text in the sequence's own font. A Tendril that wanders at random shows less of itself
   and pulses at other moments.
 
-No mapping was changed on the strength of these runs: none of the differences was a sign or a
-scale that the score could confirm on an effect with pixels to itself.
+How rows are laid over one another was not changed: where the references are whole, rows that
+blend as the sequence says match them, a group's row over its props' own rows included.
 
 ## Before the look score
 

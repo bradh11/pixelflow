@@ -21,6 +21,9 @@ a legal question, and the author of this inventory is not a lawyer. See
   (`XmlSerializer/*`, `utils/VectorMath`, `SettingsMap`, `AudioManager.cpp`, `LogarithmicScale`,
   the import-mapping dialog, and the layout background drawing). Rows that depend on those rest
   on PixelFlow's comments and say so.
+- Line counts are as they stood at that reading, apart from Pinwheel's, which were brought up
+  to date when it was rebuilt (see "Rebuilt from a description of its behaviour"). The renderer's
+  multi-threaded drawing, added since, is PixelFlow's own and is not in the totals.
 - Line counts are of the file as it stands. "Impl" leaves out the file's own `#[cfg(test)]`
   module. The share of a mixed file that follows the source is an estimate from reading, not a
   measured diff.
@@ -48,9 +51,9 @@ description.
 
 | Category | Files | Where |
 |---|---|---|
-| Direct port (the whole file, or most of it) | 34 | 16 effects in `pf-render`; 7 files in `pf-xlights` (model geometry and value curves); 10 shape generators in `pf-geometry`; `app/src/lib/geometry.ts` |
+| Direct port (the whole file, or most of it) | 33 | 15 effects in `pf-render`; 7 files in `pf-xlights` (model geometry and value curves); 10 shape generators in `pf-geometry`; `app/src/lib/geometry.ts` |
 | Mixed: a direct-port function group inside an otherwise independent file | 12 | 10 in `pf-render` (text, raster, blur, color, geometry, styles, sparkles, effects, adjust, picture/resample); `pf-xlights/src/geometry.rs`; `pf-sequence/src/curve.rs` |
-| Behaviour-matching | 28 | effect default tables, the model-to-shape converter, the mouth-shape table, controller tables, and smaller pieces |
+| Behaviour-matching | 29 | effect default tables, the model-to-shape converter, the mouth-shape table, controller tables, Pinwheel (rebuilt from a description of its behaviour), and smaller pieces |
 | Format reading only | 27 | the rest of the xLights importer, the FPP REST client, the `.fseq` reader |
 | Independent | the rest | including the engine, output, audio analysis, the assistant, camera mapping, video export, the desktop shell, and nearly all of the UI |
 
@@ -58,7 +61,7 @@ Approximate implementation lines by category, for the crates with the most:
 
 | Crate | Impl lines | Direct port | Behaviour-matching | Format reading | Independent |
 |---|---|---|---|---|---|
-| `pf-render` (45 files) | about 15,000 | about 5,200 | about 400 | 0 | about 9,400 |
+| `pf-render` (45 files) | about 15,500 | about 5,000 | about 600 | 0 | about 9,900 |
 | `pf-xlights`, `pf-sequence`, `pf-model` (53 files) | about 23,100 | about 3,400 | about 5,800 | about 5,600 | about 8,300 |
 | `pf-geometry` (17 files) | about 1,620 | about 900 | about 330 | 0 | about 400 |
 | `app/src/lib/geometry.ts` | 691 | 691 | | | |
@@ -68,15 +71,17 @@ roughly 9,000 to 10,000 of those, and are concentrated in three places: the effe
 xLights effect's name, the model geometry (where each pixel of an imported prop sits), and value
 curves.
 
-**The renderer.** About 35% of `pf-render`'s implementation lines follow xLights source. Sixteen
-effects (Plasma, Morph, Tendril, Snowflakes, Garlands, Circles, Fan, Butterfly, Pinwheel, Life,
+**The renderer.** About a third of `pf-render`'s implementation lines follow xLights source. Fifteen
+effects (Plasma, Morph, Tendril, Snowflakes, Garlands, Circles, Fan, Butterfly, Life,
 Lines, Shape, VU Meter, Shockwave, Fill, and Fire's flickering flames) are ports of the xLights
 effect of the same name: 80 to 95% of each
 file, except Circles and Life, where about half is ported and the rest is PixelFlow's own
 arrangement of xLights' constants or the ordinary algorithm. So are the pieces every layer passes through: line and circle drawing, blur, the xLights layer
 blend modes and HSV conversion, sparkles, a layer's color adjustments, submodel and group buffer
 layout, and Text's movement.
-The remaining 65% is PixelFlow's own: the render pipeline, the picture loader, the closed-form
+Pinwheel was a sixteenth until it was rebuilt from a description of its behaviour; it is now
+listed under behaviour-matching.
+The rest is PixelFlow's own: the render pipeline, the picture loader, the closed-form
 effects in `effects.rs` (On, Color Wash, Fade, Chase, Bars, Wave, Twinkle, Shimmer, Strobe,
 Spiral, Meteors, Ripple, and Fire's rolling flames), and Wipe, Impact, Pulse, Sing, Color Shift,
 Lightning, Dancer, and
@@ -196,6 +201,7 @@ of the same name does.
 
 | PixelFlow file | Lines (impl) | Source it draws on | What was taken | Clean-room |
 |---|---|---|---|---|
+| `crates/pf-render/src/pinwheel.rs` | 975 (750) | A written description of what the effect shows ([../dev/effect-specs/pinwheel.md](../dev/effect-specs/pinwheel.md)), drawn up from the earlier port of `effects/PinwheelEffect.cpp` and `ispc/PinwheelFunctions.ispc`; and frames xLights itself rendered | About 200 lines carry what an import relies on: where the first arm points and which way arms are numbered in each style, 20 degrees a second for each unit of speed, which palette colour each arm takes, what an arm length of 100 reaches, and, for the older "spokes" style, where xLights' light falls as measured in its frames (whole-degree rays, marks half a cell apart, shading by ray). No code, formula, or structure was carried over: directions are whole-number steps of a turn, each pixel is answered from its own place, and nothing is drawn into a buffer. See "Rebuilt from a description of its behaviour". | done |
 | `crates/pf-xlights/src/sequence/effects.rs` | 3,564 (2,158) | The static defaults, ranges, and divisors in `effects/*Effect.cpp`; each effect's `adjustSettings` | A translator PixelFlow organised itself. The setting key names are format. The per-key defaults, ranges, divisors, and slider-to-behaviour conversions are more than format: 136 of 138 numeric defaults and 92 of 93 ranges compared are identical to the `.cpp` statics. About 137 numeric keys, 41 choice keys with their value lists, 61 checkbox keys, 18 divisors, for 31 effects. | **M** |
 | `crates/pf-sequence/src/effect.rs` | 2,884 (2,754) | The same statics | About 1,070 lines: the settings (defaults and ranges) of 14 effects mirror xLights', as do the choice lists (44 VU Meter types, 18 VU shapes, 15 Shape objects, 10 tendril movements) and the names of 16 blend modes. The other effects' settings, and the file's structure, are PixelFlow's. | **M** |
 | `crates/pf-xlights/src/shapes.rs` | 2,690 (1,262) | The model files listed above | Converts an xLights model's attributes to PixelFlow shape settings, keeping a result only if it lands on the ported geometry. No coordinate tables. About 100 lines are near-verbatim fragments (the arch layer loop, star inflation); it also carries about 71 attribute names with their defaults. | **M** to **L** |
@@ -292,13 +298,45 @@ named, the desktop shell (`app/src-tauri`), and the UI apart from the files name
 | VU Meter | **L** | About 45 meter types and 20 shapes to specify from behaviour. |
 | Shape, Tendril | **L** each | Twelve shape drawers (tree, cross, and present outlines redrawn, so no longer pixel-identical); ten tendril movements. |
 | Morph | **M** to **L** | Head, tail, stagger, and palette rules are not documented publicly. |
-| Snowflakes, Pinwheel, Butterfly, Fan, Circles | **M** each | |
+| Snowflakes, Butterfly, Fan, Circles | **M** each | Pinwheel, of the same size, took under a day this way, most of it measuring: see below. |
 | Plasma, Garlands, Life, Lines | **S** each | Public techniques or small effects. |
 | Value curves (`curves.rs`, and 130 lines of `curve.rs`) | **M** | Each curve type's maths as a written rule. The file keys are format and stay. |
 | Effect settings: `sequence/effects.rs` and the 14 mirrored tables in `pf-sequence` | **M** | Re-collect about 240 defaults and ranges from the xLights effect panels or saved sequences rather than the source; saved PixelFlow sequences may need migrating. |
 | Group and submodel buffers: `styles.rs`, `pf-render/src/geometry.rs`; Text movement | **M** each | Rounding and scaling rules are asserted by tests and need characterising. |
 | Drawing, blur, blend, HSV, sparkles | **S** each | Textbook algorithms plus a few xLights-specific rules. |
 | Mouth-shape table, `shape_marks`, Faces, Picture placement, Falcon tables, the rest | **S** each | |
+
+### Rebuilt from a description of its behaviour
+
+Pinwheel was the first effect taken through this, in October 2026, as a trial of the method.
+
+1. **Described.** The old `pinwheel.rs` (about 80% a direct port, 269 lines) was read and what it
+   shows was written down: each setting's visible meaning, motion, colour, geometry, edge cases,
+   25 properties a test can measure, and a list of blemishes that came from how it was computed
+   and were not to be copied. No code, formula, constant other than the settings' ranges and
+   defaults, variable name, or order of computation went into the description. It is kept at
+   [../dev/effect-specs/pinwheel.md](../dev/effect-specs/pinwheel.md).
+2. **Cleared.** The old file, its three tests, and its row in this inventory (which quoted its
+   arithmetic) were removed on the branch before any new code was written.
+3. **Built.** The new file was written from the description and from frames xLights rendered for
+   real sequences, without the old file, its history, or xLights' source being consulted. Its
+   tests are the description's properties.
+4. **Judged.** By how an import looks against xLights' frames ([../fidelity.md](../fidelity.md))
+   and by its cost ([../benchmarks.md](../benchmarks.md)); then drawn side by side with the old
+   file on about 4,600 settings to catch conventions the description might have got wrong.
+
+What it showed about the method: the description, written from reading, was wrong in three places
+that only xLights' frames or the side-by-side drawing revealed (where the centre settings put the
+centre, how shading falls on the rays of the older style, and that a twisted arm there must light
+every cell it passes through), and xLights' own arm turned out a degree wider than its setting
+says, which now lives in the import rather than the effect. Reading is not enough; the frames
+have to be measured.
+
+What this inventory does and doesn't say about the result: the new file is organised
+independently and shares no code with the old one or with xLights, and it is listed as
+behaviour-matching, not independent, because the conventions it keeps reached it by way of a
+description drawn up from the port. Whether that makes it free of xLights' licence is the same
+legal question as for every other row, and this inventory doesn't answer it.
 
 Attribute names, setting keys, choice strings, value-curve keys, phoneme names, and the values
 xLights assumes when a key is missing from a file are needed to read its files at all, however

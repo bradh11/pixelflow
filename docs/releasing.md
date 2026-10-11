@@ -324,15 +324,39 @@ So before an upgrade that raises a schema version (the release notes should say 
 
 ## What has and hasn't been tried
 
-Tried, by running the workflow on its branch without a tag:
+Tried in October 2026, by running the workflow on its own branch without a tag (version 0.1.0,
+no signing secrets):
 
-- the version check, with and without a tag to compare;
-- the macOS and Windows builds with no signing secrets, their checks, the checksums, and the
-  artifacts.
+- **The version check.** With no tag it printed `0.1.0`. With `v9.9.9` it stopped before
+  building: "The tag is v9.9.9, but the files say 0.1.0 (which would be the tag v0.1.0). Set
+  the version first: node scripts/version.mjs set 9.9.9".
+- **The macOS build**, in about 22 minutes: `PixelFlow_0.1.0_universal.dmg`, 44 MB. The app
+  inside holds both processors (`x86_64 arm64`), says version 0.1.0, carries the notices file
+  byte for byte and the Local Network sentence, and is signed ad hoc with a signature that
+  verifies. Notarising was skipped, as it should be with no secrets.
+- **The Windows build**, in about 20 minutes: `PixelFlow_0.1.0_x64-setup.exe`, 15 MB, and
+  `PixelFlow_0.1.0_x64_en-US.msi`, 22 MB. The setup program holds the notices file. Both are
+  unsigned.
+- **The summary and the artifacts:** `SHA256SUMS`, the notices, and a summary that said
+  "macOS: unsigned. Windows: unsigned. THIS IS NOT A FULLY SIGNED BUILD."
+- **CI on Windows:** the engine's and the desktop shell's lints and tests run there on every
+  pull request, beside Linux and macOS.
 
 Not tried, because each needs something only the owner has or may do:
 
-- signing and notarising on macOS, and signing on Windows (no certificates);
-- the tag path: the check that a tag is on `main`, and making the draft release;
-- installing and opening the built installers, and every question under
-  [First launch](#first-launch-what-each-system-asks): no built app was opened.
+- **Signing and notarising** on macOS, and signing on Windows: there are no certificates. The
+  steps follow Tauri's documented way of signing, and the workflow fails if a build that was
+  to be signed has no valid signature, but none of it has run.
+- **The tag path:** the check that a tag is on `main`, and making the draft release. No tag was
+  pushed and no release, draft or otherwise, was made.
+- **The installers themselves.** None was installed or opened, so nothing under
+  [Installing an unsigned build](#installing-an-unsigned-build) or
+  [First launch](#first-launch-what-each-system-asks) was seen happen: those sections describe
+  what each system does with an app that does what PixelFlow's code does. The oldest macOS and
+  Windows versions the app runs on are not known either (the app declares macOS 10.13).
+- **Encoding speed on Intel.** The video export's H.264 encoder uses its faster assembly code
+  on Intel processors only when NASM is installed where it is built, and its plain code
+  otherwise; either way the build succeeds. Whether the build computers had NASM was not
+  checked, so the Windows app and the Intel half of the macOS app may have either. Worth
+  settling one way (install NASM in the release build, or switch the assembly off) and timing
+  an export.

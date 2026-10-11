@@ -3,7 +3,8 @@
 //! The decoders are other people's code reading whatever a file says, and a music file's path
 //! can come from a sequence someone else made. A decoder that panics on a file made to trip it
 //! up is a file that can't be read, nothing worse; so is sound whose header says something no
-//! music file does.
+//! music file does. And only an ordinary file is ever opened as music: a pipe or a device named
+//! in a sequence could otherwise be read for ever.
 
 use crate::error::AudioError;
 use crate::progress::{CountedFile, ReadPosition};
@@ -23,6 +24,31 @@ const MAX_CHANNELS: u16 = 8;
 
 /// A decoder reading a music file, keeping count of how far into the file it has read.
 pub(crate) type FileDecoder = Decoder<BufReader<CountedFile>>;
+
+fn open_error(path: &Path, source: std::io::Error) -> AudioError {
+    AudioError::Open {
+        path: path.display().to_string(),
+        source,
+    }
+}
+
+/// Opens the music file at `path` for reading. Only an ordinary file is opened, never a pipe or
+/// a device: those can be read (or waited on) for ever.
+pub fn open_music_file(path: &Path) -> Result<File, AudioError> {
+    let not_a_file = || std::io::Error::new(std::io::ErrorKind::InvalidInput, "not a file");
+    // Looked at before opening: opening a pipe waits for whatever writes to it.
+    let named = std::fs::metadata(path).map_err(|e| open_error(path, e))?;
+    if !named.is_file() {
+        return Err(open_error(path, not_a_file()));
+    }
+    let file = File::open(path).map_err(|e| open_error(path, e))?;
+    // And again once open, so it's this file the check was made on.
+    let opened = file.metadata().map_err(|e| open_error(path, e))?;
+    if !opened.is_file() {
+        return Err(open_error(path, not_a_file()));
+    }
+    Ok(file)
+}
 
 /// Why sound at `rate` Hz in `channels` channels isn't read, or `None` when it is.
 pub(crate) fn format_problem(rate: u32, channels: u16) -> Option<String> {
@@ -51,11 +77,7 @@ pub(crate) fn guarded<T>(path: &Path, work: impl FnOnce() -> Result<T, AudioErro
 /// only go forwards) and find an M4A's index at the end of the file.
 pub(crate) fn open_decoder(path: &Path) -> Result<(FileDecoder, ReadPosition), AudioError> {
     let shown = path.display().to_string();
-    let opened = File::open(path).and_then(CountedFile::new);
-    let (file, position) = opened.map_err(|source| AudioError::Open {
-        path: shown.clone(),
-        source,
-    })?;
+    let (file, position) = CountedFile::new(open_music_file(path)?).map_err(|e| open_error(path, e))?;
     let len = file.len();
     let decode_error = |reason: String| AudioError::Decode {
         path: shown.clone(),
@@ -149,6 +171,38 @@ mod tests {
         assert_eq!(format_problem(48_000, 8), None);
         assert_eq!(format_problem(48_000, 9).as_deref(), Some("9 channels"));
         assert_eq!(format_problem(48_000, 0).as_deref(), Some("0 channels"));
+    }
+
+    #[test]
+    fn only_an_ordinary_file_is_opened_as_music() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("folder.mp3");
+        std::fs::create_dir(&folder).unwrap();
+        let message = open_music_file(&folder).unwrap_err().to_string();
+        assert!(
+            message.starts_with("PixelFlow couldn't open the music file"),
+            "{message}"
+        );
+        let gone = open_music_file(&dir.path().join("gone.mp3"))
+            .unwrap_err()
+            .to_string();
+        assert!(gone.starts_with("PixelFlow can't find the music file"), "{gone}");
+        let song = dir.path().join("song.wav");
+        std::fs::write(&song, wav(44_100, 2, 10)).unwrap();
+        assert!(open_music_file(&song).is_ok());
+    }
+
+    /// Reading a device named as music would never end.
+    #[cfg(unix)]
+    #[test]
+    fn a_device_is_not_opened_as_music() {
+        let device = Path::new("/dev/zero");
+        let message = open_music_file(device).unwrap_err().to_string();
+        assert!(
+            message.starts_with("PixelFlow couldn't open the music file"),
+            "{message}"
+        );
+        assert!(open_decoder(device).is_err());
     }
 
     #[test]

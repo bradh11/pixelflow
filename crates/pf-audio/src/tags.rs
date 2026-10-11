@@ -3,7 +3,6 @@
 //! without tags is named by its file name instead ("04 - Lantern Song.mp3" is "Lantern Song").
 
 use crate::error::AudioError;
-use std::fs::File;
 use std::path::Path;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
@@ -61,10 +60,7 @@ pub fn read_tags(path: &Path) -> Result<SongTags, AudioError> {
 
 fn tags_of(path: &Path) -> Result<SongTags, AudioError> {
     let shown = path.display().to_string();
-    let file = File::open(path).map_err(|source| AudioError::Open {
-        path: shown.clone(),
-        source,
-    })?;
+    let file = crate::decode::open_music_file(path)?;
     let stream = MediaSourceStream::new(Box::new(file), Default::default());
     let mut hint = Hint::new();
     if let Some(extension) = path.extension().and_then(|e| e.to_str()) {

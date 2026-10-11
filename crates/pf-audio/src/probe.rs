@@ -4,12 +4,11 @@
 //! bitrate, so its frames are counted instead (read, not decoded); a file that says nothing is
 //! decoded as a last resort.
 
-use crate::decode::{format_problem, guarded, open_decoder};
+use crate::decode::{format_problem, guarded, open_decoder, open_music_file};
 use crate::error::AudioError;
 use crate::progress::{CountedFile, Progress, ReadPosition, reported};
 use rodio::Source;
 use serde::Serialize;
-use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use symphonia::core::codecs::{CODEC_TYPE_MP3, CodecParameters};
@@ -60,8 +59,7 @@ fn read_info(path: &Path, progress: &dyn Fn(f32)) -> Result<AudioInfo, AudioErro
         path: shown.clone(),
         reason: e.to_string(),
     };
-    let opened = File::open(path).and_then(CountedFile::new);
-    let (file, read) = opened.map_err(|source| AudioError::Open {
+    let (file, read) = CountedFile::new(open_music_file(path)?).map_err(|source| AudioError::Open {
         path: shown.clone(),
         source,
     })?;
@@ -194,7 +192,9 @@ fn decoded_ms(path: &Path, progress: &Progress) -> Result<(u64, u32, u16), Audio
 /// right for a constant bitrate but not a variable one.
 fn mp3_has_length_header(path: &Path) -> bool {
     let mut head = Vec::new();
-    let Ok(file) = File::open(path) else { return false };
+    let Ok(file) = open_music_file(path) else {
+        return false;
+    };
     if file.take(MP3_HEAD_BYTES).read_to_end(&mut head).is_err() {
         return false;
     }

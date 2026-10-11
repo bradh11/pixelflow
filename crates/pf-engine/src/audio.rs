@@ -81,7 +81,8 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 /// The music file's contents as a hash (hex).
 fn content_hash(path: &Path) -> Option<String> {
-    let mut file = fs::File::open(path).ok()?;
+    // Only an ordinary file: a device named as music would be read for ever.
+    let mut file = pf_audio::open_music_file(path).ok()?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; 1 << 16];
     loop {
@@ -308,6 +309,16 @@ mod tests {
         // Music that can't be read still ends.
         assert!(tracks.track(&junk, 25).is_none());
         assert_eq!(lock(&seen).last().map(|(_, f)| *f), Some(1.0));
+    }
+
+    /// A device named as the music is never read (hashing it would never end).
+    #[cfg(unix)]
+    #[test]
+    fn a_device_named_as_music_has_no_track() {
+        let tracks = Arc::new(AudioTracks::default());
+        let device = Path::new("/dev/zero");
+        assert!(tracks.track(device, 25).is_none());
+        assert!(!tracks.source(device, 25).has_music());
     }
 
     #[test]

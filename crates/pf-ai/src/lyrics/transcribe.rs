@@ -209,7 +209,16 @@ pub fn uploads_for(
     if let Some(mime) = mime_for(path)
         && size <= MAX_FILE_BYTES as u64
     {
-        let bytes = std::fs::read(path).map_err(|_| "PixelFlow couldn't read the song file.".to_string())?;
+        let unreadable = || "PixelFlow couldn't read the song file.".to_string();
+        let mut bytes = Vec::new();
+        pf_audio::open_music_file(path)
+            .map_err(|_| unreadable())?
+            .take(MAX_FILE_BYTES as u64 + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| unreadable())?;
+        if bytes.len() > MAX_FILE_BYTES {
+            return Err(unreadable());
+        }
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -430,6 +439,20 @@ mod tests {
             [(0, 780 * second), (780 * second, 1000 * second)]
         );
         assert_eq!(part_bounds(10, 100, &[]), [(0, 10)]);
+    }
+
+    #[test]
+    fn only_an_ordinary_file_is_sent_as_the_song() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("folder.mp3");
+        std::fs::create_dir(&folder).unwrap();
+        assert!(uploads_for(&folder, &[], &|| false, &|_| {}).is_err());
+        assert_eq!(super::super::cache::file_hash(&folder, &|| false), None);
+        #[cfg(unix)]
+        assert_eq!(
+            super::super::cache::file_hash(Path::new("/dev/zero"), &|| false),
+            None
+        );
     }
 
     #[test]

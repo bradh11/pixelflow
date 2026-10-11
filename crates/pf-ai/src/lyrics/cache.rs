@@ -15,7 +15,8 @@ use std::path::{Path, PathBuf};
 
 /// The SHA-256 of a file's bytes, in hex, giving up when `stop` says so.
 pub fn file_hash(path: &Path, stop: &dyn Fn() -> bool) -> Option<String> {
-    let mut file = std::fs::File::open(path).ok()?;
+    // Only an ordinary file: a device named as the song would be read for ever.
+    let mut file = pf_audio::open_music_file(path).ok()?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; 1 << 16];
     loop {

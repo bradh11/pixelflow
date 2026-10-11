@@ -46,7 +46,8 @@ fn find_audio_near(sequence: &Path, media: Option<&str>, home: Option<&Path>) ->
         } else {
             folder.join(exact)
         };
-        if exact.is_file() {
+        // The sequence names any path it likes: only a music file there is its music.
+        if is_audio(&exact) && exact.is_file() {
             return Some(exact);
         }
     }
@@ -104,9 +105,10 @@ fn find_audio_near(sequence: &Path, media: Option<&str>, home: Option<&Path>) ->
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_default();
-            if media_name
-                .as_deref()
-                .is_some_and(|m| m.eq_ignore_ascii_case(&name))
+            if is_audio(&file)
+                && media_name
+                    .as_deref()
+                    .is_some_and(|m| m.eq_ignore_ascii_case(&name))
             {
                 return Some(file);
             }
@@ -163,6 +165,24 @@ mod tests {
         let near = dir.path().join("show/Song.M4A");
         touch(&near);
         assert_eq!(find_audio(&sequence, None), Some(near));
+    }
+
+    #[test]
+    fn a_file_that_isnt_music_is_never_a_sequences_music() {
+        // A sequence can name any path as its music: one that isn't a music file is passed
+        // over, where it is and by name, and the search carries on.
+        let dir = tempfile::tempdir().unwrap();
+        let sequence = dir.path().join("show/Song.fseq");
+        touch(&sequence);
+        let notes = dir.path().join("elsewhere/notes.txt");
+        touch(&notes);
+        touch(&dir.path().join("show/notes.txt"));
+        let named = notes.to_string_lossy().into_owned();
+        assert_eq!(find_audio(&sequence, Some(&named)), None);
+        assert_eq!(find_audio(&sequence, Some("../elsewhere/notes.txt")), None);
+        let song = dir.path().join("show/Song.mp3");
+        touch(&song);
+        assert_eq!(find_audio(&sequence, Some(&named)), Some(song));
     }
 
     #[test]

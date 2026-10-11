@@ -749,7 +749,7 @@ fn dancers_are_looked_up_and_placed_like_any_effect() {
     // The lookup gives every setting with its choices, in a few short lines' worth.
     let (listed, is_error) = results_in(&provider, 1).remove(0);
     assert!(!is_error, "{listed}");
-    assert!(listed.len() < 3_600, "{} bytes", listed.len());
+    assert!(listed.len() < 4_000, "{} bytes", listed.len());
     let catalog: Value = serde_json::from_str(&listed).unwrap();
     assert_eq!(catalog.as_array().map(Vec::len), Some(1));
     assert_eq!(catalog[0]["kind"], "dancer");
@@ -1417,7 +1417,7 @@ fn pictures_are_listed_looked_up_and_placed_like_any_effect() {
     // The lookup gives every setting with its choices, in a few short lines' worth.
     let (listed, is_error) = &read[2];
     assert!(!is_error, "{listed}");
-    assert!(listed.len() < 3_600, "{} bytes", listed.len());
+    assert!(listed.len() < 4_000, "{} bytes", listed.len());
     let catalog: Value = serde_json::from_str(listed).unwrap();
     assert_eq!(catalog.as_array().map(Vec::len), Some(1));
     assert_eq!(catalog[0]["kind"], "picture");
@@ -1442,7 +1442,8 @@ fn pictures_are_listed_looked_up_and_placed_like_any_effect() {
             "blackLevel",
             "startFrame",
             "pixelOffsets",
-            "tint"
+            "tint",
+            "resize"
         ]
     );
     assert_eq!(

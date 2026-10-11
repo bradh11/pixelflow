@@ -21,6 +21,7 @@ import {
   type LucideIcon,
   MicVocal,
   Orbit,
+  PaintBucket,
   PersonStanding,
   Rainbow,
   Ribbon,
@@ -29,6 +30,7 @@ import {
   Sparkles,
   Sprout,
   SwatchBook,
+  Target,
   Sunrise,
   Tornado,
   Type,
@@ -82,6 +84,8 @@ export const EFFECT_ICONS: Record<EffectKind, LucideIcon> = {
   colorShift: SwatchBook,
   dancer: PersonStanding,
   picture: ImageIcon,
+  shockwave: Target,
+  fill: PaintBucket,
 };
 
 /** Drags this far (screen pixels) before a press on the palette becomes a drag. */

@@ -183,6 +183,21 @@ function shade(effect: Effect, ms: number, px: Px, seed: number, tracks: TimingT
       const s = (r - el * num(p, "speed", 0.5)) / spacing;
       return frac(s) * spacing < num(p, "thickness", 0.12) ? [get(-Math.floor(s)), 1] : [[0, 0, 0], 0];
     }
+    case "shockwave": {
+      // One ring a cycle from the start radius to the end, sizes in percent of the prop.
+      const at = frac(t * Math.max(1, num(p, "cycles", 1)));
+      const r = Math.hypot(px.u - num(p, "centerX", 50) / 100, px.v - num(p, "centerY", 50) / 100) * 200;
+      const middle = num(p, "startRadius", 1) + (num(p, "endRadius", 100) - num(p, "startRadius", 1)) * at;
+      const half = Math.max(1, (num(p, "startWidth", 5) + (num(p, "endWidth", 10) - num(p, "startWidth", 5)) * at) / 2);
+      const off = Math.abs(r - middle);
+      return off <= half ? [ramp(at), p.blendEdges === false ? 1 : 1 - off / half] : [[0, 0, 0], 0];
+    }
+    case "fill": {
+      const sideways = p.direction === "left" || p.direction === "right";
+      const from = sideways ? px.u : px.v;
+      const along = p.direction === "down" || p.direction === "left" ? 1 - from : from;
+      return along <= num(p, "position", 100) / 100 ? [p.colorByTime ? ramp(t) : ramp(along), 1] : [[0, 0, 0], 0];
+    }
     case "shape": {
       // Rings growing from random places, each fading over its life.
       const life = Math.max(0.01, num(p, "lifetime", 5) / 100);

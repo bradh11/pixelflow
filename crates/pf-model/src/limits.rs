@@ -1,6 +1,6 @@
 //! Size limits that keep tiny show files from forcing huge allocations.
 
-use crate::{Generator, IssueCode, ShapeSource, Show};
+use crate::{Generator, IssueCode, OwnLayout, ShapeSource, Show};
 
 /// Most pixels a single prop may have.
 pub const MAX_PROP_NODES: u32 = 1_000_000;
@@ -128,6 +128,19 @@ pub(crate) fn check_limits(show: &Show) -> Vec<LimitProblem> {
                     prop.name
                 ),
                 "Reduce the size, or split it into smaller props.",
+            );
+        }
+        if let OwnLayout::Cells { columns, rows, cells } = &prop.own_layout
+            && (*columns > MAX_PROP_NODES || *rows > MAX_PROP_NODES || cells.len() > MAX_PROP_NODES as usize)
+        {
+            push(
+                IssueCode::LimitExceeded,
+                format!(
+                    "The prop '{}' lays its pixels out for effects on a grid of {columns} by {rows} with {} cells, but PixelFlow supports at most {MAX_PROP_NODES} of each.",
+                    prop.name,
+                    cells.len()
+                ),
+                "Import the prop again, or delete it.",
             );
         }
     }

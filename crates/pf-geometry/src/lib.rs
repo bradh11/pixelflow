@@ -56,10 +56,10 @@ pub struct OwnGrid {
 }
 
 /// The grid of its own that `generator`'s shape is drawn on. `None` for the shapes drawn where
-/// their pixels sit: lines and poly lines (xLights runs their buffer from the first point drawn
-/// to the last, whichever end is wired first, which a PixelFlow line doesn't record), icicles
-/// (the same goes for them), stars and wreaths (whose xLights buffer is a picture of the shape),
-/// cubes, and matrices (which the renderer lays out itself).
+/// their pixels sit: lines, poly lines and icicles (xLights runs their buffer from the first
+/// point drawn to the last, whichever end is wired first, which the shape doesn't record; an
+/// imported one keeps it as the prop's own layout), stars and wreaths (whose xLights buffer is a
+/// picture of the shape), cubes, and matrices (which the renderer lays out itself).
 pub fn own_grid(generator: &Generator) -> Option<OwnGrid> {
     let grid = match *generator {
         Generator::Tree {

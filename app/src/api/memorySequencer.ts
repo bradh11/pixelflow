@@ -103,6 +103,16 @@ function sungMarks(words: Mark[]): { syllables: Mark[]; phonemes: Mark[] } {
   return { syllables, phonemes };
 }
 
+/** The settings every effect has that can change over it, with their ranges (as `Effect::curve_range`). */
+const EFFECT_WIDE_CURVES: Record<string, { min: number; max: number }> = {
+  sparkles: { min: 0, max: 200 },
+  blur: { min: 0, max: 14 },
+  hueAdjust: { min: -1, max: 1 },
+  saturationAdjust: { min: -1, max: 1 },
+  valueAdjust: { min: -1, max: 1 },
+  brightness: { min: 0, max: 4 },
+};
+
 /** Characters in a name or label (the engine's MAX_TEXT_LEN). */
 const MAX_TEXT_LEN = 4096;
 
@@ -140,7 +150,7 @@ export function settingProblem(doc: Sequence): string | null {
         }
         for (const [key, curve] of Object.entries(effect.curves ?? {})) {
           const setting = info.settings.find((s) => s.key === key);
-          const range = key === "sparkles" ? { min: 0, max: 200 } : key === "blur" ? { min: 0, max: 14 } : setting?.type === "number" || setting?.type === "int" ? setting : null;
+          const range = EFFECT_WIDE_CURVES[key] ?? (setting?.type === "number" || setting?.type === "int" ? setting : null);
           if (!range) return `The ${info.label} effect at ${formatMs(effect.startMs)} has a setting PixelFlow can't use: '${key}' can't change over the effect.`;
           for (const v of [curve.from, curve.to]) {
             if (!Number.isFinite(v) || v < range.min || v > range.max) {
@@ -187,6 +197,11 @@ export function applySequenceEdit(doc: Sequence, edit: SequenceEdit) {
   switch (edit.type) {
     case "updateInfo":
       Object.assign(doc, { name: edit.name, audio: edit.audio, durationMs: edit.durationMs, frameMs: edit.frameMs });
+      return;
+    case "setRowBlending":
+      // Left out when rows cover, as in the file.
+      if (edit.rowBlending === "cover") delete doc.rowBlending;
+      else doc.rowBlending = edit.rowBlending;
       return;
     case "addRow": {
       if (doc.rows.some((r) => r.id === edit.row.id)) fail("A row with that id already exists.");
@@ -422,9 +437,10 @@ export function diffSequences(before: Sequence, after: Sequence): SequenceChange
     before.name !== after.name ||
     before.audio !== after.audio ||
     before.durationMs !== after.durationMs ||
-    before.frameMs !== after.frameMs
+    before.frameMs !== after.frameMs ||
+    (before.rowBlending ?? "cover") !== (after.rowBlending ?? "cover")
   ) {
-    changes.info = { name: after.name, audio: after.audio, durationMs: after.durationMs, frameMs: after.frameMs };
+    changes.info = { name: after.name, audio: after.audio, durationMs: after.durationMs, frameMs: after.frameMs, rowBlending: after.rowBlending ?? "cover" };
   }
   const rows = listChanges(before.rows, after.rows);
   changes.rows = rows.changed;
@@ -438,7 +454,7 @@ export function diffSequences(before: Sequence, after: Sequence): SequenceChange
 }
 
 function newSequence(name: string, durationMs: number): Sequence {
-  return { schemaVersion: 10, name, audio: null, durationMs, frameMs: 25, timingTracks: [], rows: [] };
+  return { schemaVersion: 11, name, audio: null, durationMs, frameMs: 25, timingTracks: [], rows: [] };
 }
 
 /** Find lyrics' steps that read the whole song, and so report how far they've got. */

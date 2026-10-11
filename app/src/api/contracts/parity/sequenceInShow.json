@@ -8,7 +8,7 @@
     "sequenceIssuesNow": null,
     "sequenceNow": null,
     "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 0 },
-    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 12, "sequences": [], "settings": { "frameRate": 40 } },
+    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 13, "sequences": [], "settings": { "frameRate": 40 } },
     "summaryNow": { "controllers": 0, "pixels": 0, "props": 0, "universes": 0 }
   },
   "steps": [
@@ -19,7 +19,7 @@
       "reply": {},
       "sequence": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 1 },
       "sequenceIssuesNow": [],
-      "sequenceNow": { "audio": "/fixture/music/Song.mp3", "durationMs": 1000, "frameMs": 25, "name": "Song", "rows": [], "schemaVersion": 10, "timingTracks": [] },
+      "sequenceNow": { "audio": "/fixture/music/Song.mp3", "durationMs": 1000, "frameMs": 25, "name": "Song", "rows": [], "schemaVersion": 11, "timingTracks": [] },
       "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 0 }
     },
     {
@@ -28,7 +28,7 @@
       "reply": {},
       "sequence": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 1 },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 },
-      "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 12, "sequences": [{ "audio": "/fixture/music/Song.mp3", "id": "00000000-0000-4000-a000-000000000001", "name": "Song", "offsetMs": 0, "path": "/fixture/sequences/Song.fseq" }], "settings": { "frameRate": 40 } }
+      "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 13, "sequences": [{ "audio": "/fixture/music/Song.mp3", "id": "00000000-0000-4000-a000-000000000001", "name": "Song", "offsetMs": 0, "path": "/fixture/sequences/Song.fseq" }], "settings": { "frameRate": 40 } }
     },
     { "args": { "path": "/fixture/sequences/Song.fseq" }, "command": "add_sequence_doc_to_show", "reply": {}, "sequence": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 1 }, "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 } },
     {
@@ -43,7 +43,7 @@
         "groups": [],
         "name": "Untitled Show",
         "props": [],
-        "schemaVersion": 12,
+        "schemaVersion": 13,
         "sequences": [{ "audio": "/fixture/music/Song.mp3", "id": "00000000-0000-4000-a000-000000000001", "name": "Song", "offsetMs": 0, "path": "/fixture/sequences/Song.fseq" }, { "audio": "/fixture/music/Song.mp3", "id": "00000000-0000-4000-a000-000000000002", "name": "Song (2)", "offsetMs": 0, "path": "/fixture/sequences/Song again.fseq" }],
         "settings": { "frameRate": 40 }
       }
@@ -51,9 +51,9 @@
     {
       "args": { "edits": [{ "audio": null, "durationMs": 1000, "frameMs": 25, "name": "  ", "type": "updateInfo" }] },
       "command": "edit_sequence",
-      "reply": { "changed": true, "changes": { "info": { "audio": null, "durationMs": 1000, "frameMs": 25, "name": "  " } } },
+      "reply": { "changed": true, "changes": { "info": { "audio": null, "durationMs": 1000, "frameMs": 25, "name": "  ", "rowBlending": "cover" } } },
       "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
-      "sequenceNow": { "audio": null, "durationMs": 1000, "frameMs": 25, "name": "  ", "rows": [], "schemaVersion": 10, "timingTracks": [] },
+      "sequenceNow": { "audio": null, "durationMs": 1000, "frameMs": 25, "name": "  ", "rows": [], "schemaVersion": 11, "timingTracks": [] },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 }
     },
     {
@@ -68,7 +68,7 @@
         "groups": [],
         "name": "Untitled Show",
         "props": [],
-        "schemaVersion": 12,
+        "schemaVersion": 13,
         "sequences": [
           { "audio": "/fixture/music/Song.mp3", "id": "00000000-0000-4000-a000-000000000001", "name": "Song", "offsetMs": 0, "path": "/fixture/sequences/Song.fseq" },
           { "audio": "/fixture/music/Song.mp3", "id": "00000000-0000-4000-a000-000000000002", "name": "Song (2)", "offsetMs": 0, "path": "/fixture/sequences/Song again.fseq" },
@@ -89,7 +89,7 @@
         "groups": [],
         "name": "Untitled Show",
         "props": [],
-        "schemaVersion": 12,
+        "schemaVersion": 13,
         "sequences": [
           { "audio": null, "id": "00000000-0000-4000-a000-000000000001", "name": "Song", "offsetMs": 0, "path": "/fixture/sequences/Song.fseq" },
           { "audio": "/fixture/music/Song.mp3", "id": "00000000-0000-4000-a000-000000000002", "name": "Song (2)", "offsetMs": 0, "path": "/fixture/sequences/Song again.fseq" },
@@ -110,7 +110,7 @@
         "groups": [],
         "name": "Untitled Show",
         "props": [],
-        "schemaVersion": 12,
+        "schemaVersion": 13,
         "sequences": [
           { "audio": "/fixture/music/Song.mp3", "id": "00000000-0000-4000-a000-000000000001", "name": "Song", "offsetMs": 0, "path": "/fixture/sequences/Song.fseq" },
           { "audio": "/fixture/music/Song.mp3", "id": "00000000-0000-4000-a000-000000000002", "name": "Song (2)", "offsetMs": 0, "path": "/fixture/sequences/Song again.fseq" },
@@ -131,7 +131,7 @@
         "groups": [],
         "name": "Untitled Show",
         "props": [],
-        "schemaVersion": 12,
+        "schemaVersion": 13,
         "sequences": [{ "audio": "/fixture/music/Song.mp3", "id": "00000000-0000-4000-a000-000000000001", "name": "Song", "offsetMs": 0, "path": "/fixture/sequences/Song.fseq" }, { "audio": "/fixture/music/Song.mp3", "id": "00000000-0000-4000-a000-000000000002", "name": "Song (2)", "offsetMs": 0, "path": "/fixture/sequences/Song again.fseq" }],
         "settings": { "frameRate": 40 }
       }

@@ -136,6 +136,11 @@ fn every_shape() -> Vec<Value> {
     let mut measured = strip(17, "Bush", 2);
     measured["shape"] = json!({ "source": "measured", "provenance": "cameraMap",
         "points": [point(0.0, 0.0), point(0.5, 0.25)] });
+    // Layouts of their own for effects, as an import gives a line and a custom model.
+    measured["ownLayout"] = json!({ "kind": "strand", "reversed": true });
+    let cube = props.iter_mut().find(|p| p["name"] == "Cube").unwrap();
+    cube["ownLayout"] =
+        json!({ "kind": "cells", "columns": 2, "rows": 2, "cells": [[0, 0], [1, 0], [0, 1], [1, 1]] });
     props.push(measured);
     // Submodels of each kind, and a color order with a white channel.
     props[3]["colorOrder"] = json!("RGBW");

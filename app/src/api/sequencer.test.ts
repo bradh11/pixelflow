@@ -34,8 +34,8 @@ describe("sequence helpers", () => {
     expect(effect.id).toMatch(/^[0-9a-f-]{36}$/);
     const row = newRow({ group: "g1" });
     expect(row.layers).toEqual([{ effects: [] }]);
-    expect(EFFECT_KINDS).toHaveLength(36);
-    expect(new Set(EFFECT_KINDS.map((k) => k.kind)).size).toBe(36);
+    expect(EFFECT_KINDS).toHaveLength(38);
+    expect(new Set(EFFECT_KINDS.map((k) => k.kind)).size).toBe(38);
   });
 });
 
@@ -65,7 +65,7 @@ describe("applySequenceChanges", () => {
     const reordered = applySequenceChanges(next, {
       ...noChanges(),
       rowOrder: [second.id, first.id],
-      info: { name: "t", audio: "a.mp3", durationMs: 5, frameMs: 50 },
+      info: { name: "t", audio: "a.mp3", durationMs: 5, frameMs: 50, rowBlending: "cover" },
     });
     expect(reordered.rows.map((r) => r.id)).toEqual([second.id, first.id]);
     expect(reordered).toMatchObject({ name: "t", audio: "a.mp3", durationMs: 5, frameMs: 50 });

@@ -156,6 +156,11 @@ fn sequence_replies() {
     decorated["sparkleColor"] = json!("#ffcc00");
     decorated["musicSparkles"] = json!(true);
     decorated["blur"] = json!(3);
+    decorated["hueAdjust"] = json!(0.25);
+    decorated["saturationAdjust"] = json!(-0.5);
+    decorated["valueAdjust"] = json!(0.1);
+    decorated["brightness"] = json!(1.5);
+    decorated["contrast"] = json!(0.2);
     decorated["renderStyle"] = json!("perPreview");
     decorated["bufferTransform"] = json!("rotateCw90");
     decorated["params"]["timingTrack"] = json!(track_id(1));

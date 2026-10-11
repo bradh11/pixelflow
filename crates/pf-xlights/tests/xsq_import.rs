@@ -1,11 +1,14 @@
 //! Importing hand-written xLights sequences onto the sample show.
 
-use pf_model::{Generator, Group, GroupMember, Prop, Provenance, ShapeSource, Show, Vec3};
+use pf_model::{
+    CubeStart, CubeStyle, Generator, Group, GroupMember, OwnLayout, Prop, Provenance, ShapeSource, Show,
+    StrandStyle, Vec3,
+};
 use pf_sequence::{
     Axis, BarsMotion, BarsParams, Blend, ChaseParams, ColorWashParams, Direction, Effect, EffectParams,
-    FaceColorSource, FaceEyes, FacesParams, FireParams, Gradient, Mark, MeteorDirection, MeteorsParams,
-    OnParams, Rgb, RippleParams, Row, RowBlending, ShapeObject, ShimmerParams, SpiralParams, StrobeParams,
-    Target, TimingKind, TwinkleParams, WaveParams,
+    FaceColorSource, FaceEyes, FacesParams, FireParams, FireStyle, Gradient, Mark, MeteorDirection,
+    MeteorsParams, OnParams, Rgb, RippleParams, Row, RowBlending, ShapeObject, ShimmerParams, SpiralParams,
+    StrobeParams, Target, TimingKind, TwinkleParams, WaveParams,
 };
 use pf_xlights::sequence::{Fidelity, SequenceImport, build_sequence, parse_xsq};
 use pf_xlights::{import_folder, import_sequence_file};
@@ -296,6 +299,51 @@ fn an_effect_on_a_prop_xlights_lays_out_its_own_way_is_an_approximation() {
         &i,
         "Bars (2 effects) approximated: drawn on the prop as it looks from the front",
     );
+
+    // Imported with the layout xLights draws on (one row along the wiring), they match.
+    for prop in &mut show.props {
+        prop.own_layout = OwnLayout::Strand { reversed: false };
+    }
+    let i = build_sequence(&parse_xsq(&xml).unwrap(), &show, "x");
+    assert_eq!((i.summary.exact, i.summary.approximate), (6, 0));
+}
+
+#[test]
+fn an_effect_on_a_cube_is_an_approximation() {
+    // xLights draws on a cube with its layers side by side; PixelFlow as it looks from the
+    // front, where they overlap. One layer deep, the two are the same.
+    let cube = |name: &str, depth: u32| {
+        Prop::new(
+            name,
+            ShapeSource::Generator(Generator::Cube {
+                width: 4,
+                height: 4,
+                depth,
+                spacing: 0.1,
+                start: CubeStart::FrontBottomLeft,
+                style: CubeStyle::VerticalFrontBack,
+                strand_style: StrandStyle::ZigZag,
+                strand_per_layer: false,
+            }),
+        )
+    };
+    let mut show = Show::new("Cubes");
+    show.props = vec![cube("Deep", 3), cube("Flat", 1)];
+    let bars = r#"<EffectLayer><Effect name="Bars" startTime="0" endTime="1000">E_CHOICE_Bars_Direction=Left</Effect></EffectLayer>"#;
+    let xml = format!(
+        r#"<xsequence FixedPointTiming="1"><head><sequenceTiming>50 ms</sequenceTiming><sequenceDuration>2</sequenceDuration></head>
+        <ElementEffects>
+          <Element type="model" name="Deep">{bars}</Element>
+          <Element type="model" name="Flat">{bars}</Element>
+        </ElementEffects></xsequence>"#
+    );
+    let i = build_sequence(&parse_xsq(&xml).unwrap(), &show, "x");
+    assert_opens(&i);
+    assert_eq!((i.summary.exact, i.summary.approximate), (1, 1));
+    assert_note(
+        &i,
+        "Bars (1 effect) approximated: drawn on the cube as it looks from the front, where xLights lays its layers side by side",
+    );
 }
 
 #[test]
@@ -391,7 +439,11 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
             gradient: Gradient::None
         })
     );
-    assert_eq!(wash.palette.colors, vec![Rgb::new(128, 64, 0)], "50% brightness");
+    assert_eq!(
+        (wash.palette.colors.clone(), wash.brightness),
+        (vec![Rgb::new(255, 128, 0)], 0.5),
+        "50% brightness"
+    );
 
     // Two palettes of three bars, with no gaps, moving a palette's length (half the prop) in
     // each of the 4 cycles over 2 s.
@@ -491,6 +543,7 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
             }),
             EffectParams::Fire(FireParams {
                 height: 0.7,
+                style: FireStyle::Flicker,
                 ..FireParams::default()
             }),
             EffectParams::Meteors(MeteorsParams {
@@ -549,7 +602,7 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
     let s = i.summary;
     assert_eq!(s.rows, 9);
     assert_eq!(s.effects, 23);
-    assert_eq!((s.exact, s.approximate, s.placeholders), (17, 6, 0));
+    assert_eq!((s.exact, s.approximate, s.placeholders), (18, 5, 0));
     assert_eq!(
         s.skipped,
         1 + 3 + 2,
@@ -558,7 +611,7 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
 
     assert_note(
         &i,
-        "Text (1 effect) approximated: 'default' font shown in PixelFlow's pixel font.",
+        "Text (1 effect) approximated: 'default' font shown in PixelFlow's pixel font, 10 pixels high",
     );
     assert_note(
         &i,
@@ -1080,17 +1133,20 @@ fn pictures_are_found_where_the_sequence_says_or_by_name_in_the_show_folder() {
         &i,
         "Couldn't find a picture near the sequence (gone.gif); choose it in the Picture effects' settings.",
     );
-    // They're real Picture effects, not dim stand-ins: approximate only for being resized.
+    // They're real Picture effects, not dim stand-ins, resized the way the xLights that saved
+    // the sequence (2025.01) resized them.
     assert_eq!(
         (i.summary.placeholders, i.summary.approximate, i.summary.exact),
-        (0, 6, 0),
+        (0, 0, 6),
         "{:#?}",
         i.notes
     );
-    assert_note(
-        &i,
-        "Pictures (6 effects) approximated: resized by blending its pixels, where xLights takes the nearest one.",
+    assert!(
+        pictures
+            .iter()
+            .all(|p| p.resize == pf_sequence::PictureResize::XlightsMixed)
     );
+    assert!(!has_note(&i, "Pictures ("), "{:#?}", i.notes);
     assert!(!has_note(&i, "no matching effect"));
 
     // Without the layout to say where the show folder ends, the folders just above are tried.

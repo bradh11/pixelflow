@@ -664,6 +664,13 @@ fn sequence(before: &Sequence, after: &Sequence, show: &Show, out: &mut Vec<Chan
             before.frame_ms, after.frame_ms
         ));
     }
+    if before.row_blending != after.row_blending {
+        details.push(format!(
+            "rows: {} → {}",
+            show_value(&json(&before.row_blending)),
+            show_value(&json(&after.row_blending))
+        ));
+    }
     if !details.is_empty() {
         out.push(Change {
             section: Section::Sequence,
@@ -1154,6 +1161,21 @@ mod tests {
         assert_eq!(d.changes[1].section, Section::Group);
         assert_eq!(d.changes[2].name, "Playlist order");
         assert_eq!(d.changes[2].details, ["Two, One"]);
+    }
+
+    #[test]
+    fn a_change_to_how_rows_meet_is_listed() {
+        let show = Show::new("Show");
+        let before = Sequence::new("Song", 60_000);
+        let mut after = before.clone();
+        after.row_blending = pf_sequence::RowBlending::Blend;
+        let d = diff(&show, &show, Some((&before, &after)));
+        assert_eq!(d.changes.len(), 1);
+        assert_eq!(
+            (d.changes[0].section, d.changes[0].action),
+            (Section::Sequence, Action::Changed)
+        );
+        assert_eq!(d.changes[0].details, ["rows: \"cover\" → \"blend\""]);
     }
 
     #[test]

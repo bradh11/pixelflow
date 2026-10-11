@@ -885,6 +885,7 @@
             "durationMs": 60000,
             "frameMs": 50
           },
+          { "type": "setRowBlending", "rowBlending": "blend" },
           {
             "type": "addRow",
             "row": {

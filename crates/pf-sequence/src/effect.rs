@@ -197,6 +197,30 @@ pub struct Effect {
     // [`crate::MAX_BLUR`].
     #[serde(default)]
     pub blur: u32,
+    /// Turns its colors round the color wheel: -1 to 1.
+    // The five color adjustments are xLights' (its color panel's Hue, Saturation, and Value
+    // adjustments, Brightness, and Contrast), applied to what the effect drew as xLights applies
+    // them: hue, saturation, and value before the sparkles, brightness and contrast after, all
+    // before the effect fades and mixes with the layers below (see pf-render's `adjust`). A full
+    // turn of hue is 1; saturation and value are added to and stop at their ends. Their notes
+    // are short so the AI tools' schema stays small.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub hue_adjust: f32,
+    /// Added to saturation: -1 to 1.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub saturation_adjust: f32,
+    /// Added to lightness: -1 to 1.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub value_adjust: f32,
+    /// 1 as drawn; 0 to 4.
+    // Up to [`crate::MAX_BRIGHTNESS`].
+    #[serde(default = "one", skip_serializing_if = "is_one")]
+    pub brightness: f32,
+    /// -1 to 1.
+    // Above 0 it darkens the darker colors (value under a half) and brightens the brighter
+    // ones; below 0, the other way.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub contrast: f32,
     /// How the target's pixels are laid out for the effect (the target's own layout by default).
     #[serde(default, skip_serializing_if = "is_default")]
     #[cfg_attr(feature = "schema", schemars(description = ""))]
@@ -205,8 +229,9 @@ pub struct Effect {
     #[serde(default, skip_serializing_if = "is_default")]
     #[cfg_attr(feature = "schema", schemars(description = ""))]
     pub buffer_transform: BufferTransform,
-    /// Settings that change over the effect, by key (a `params` number setting, `sparkles`, or
-    /// `blur`); each takes the place of that setting's value while the effect plays.
+    /// Settings that change over the effect, by key (a `params` number setting, `sparkles`,
+    /// `blur`, `brightness`, or an `…Adjust`).
+    // Each takes the place of that setting's value while the effect plays.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub curves: BTreeMap<String, Curve>,
 }
@@ -214,6 +239,68 @@ pub struct Effect {
 fn white() -> Rgb {
     Rgb::WHITE
 }
+
+fn one() -> f32 {
+    1.0
+}
+
+fn is_zero(value: &f32) -> bool {
+    *value == 0.0
+}
+
+fn is_one(value: &f32) -> bool {
+    *value == 1.0
+}
+
+/// An effect-wide number setting that isn't a whole number: its key in files, the name people
+/// see, its range, and its value when left alone.
+struct Adjustment {
+    key: &'static str,
+    label: &'static str,
+    min: f32,
+    max: f32,
+    neutral: f32,
+}
+
+/// The color adjustments every effect has, in the order they're listed. All but the last can
+/// change over the effect.
+const ADJUSTMENTS: [Adjustment; 5] = [
+    Adjustment {
+        key: "hueAdjust",
+        label: "Hue shift",
+        min: -1.0,
+        max: 1.0,
+        neutral: 0.0,
+    },
+    Adjustment {
+        key: "saturationAdjust",
+        label: "Saturation shift",
+        min: -1.0,
+        max: 1.0,
+        neutral: 0.0,
+    },
+    Adjustment {
+        key: "valueAdjust",
+        label: "Lightness shift",
+        min: -1.0,
+        max: 1.0,
+        neutral: 0.0,
+    },
+    Adjustment {
+        key: "brightness",
+        label: "Brightness",
+        min: 0.0,
+        max: crate::MAX_BRIGHTNESS,
+        neutral: 1.0,
+    },
+    Adjustment {
+        key: "contrast",
+        label: "Contrast",
+        min: -1.0,
+        max: 1.0,
+        neutral: 0.0,
+    },
+];
 
 fn is_default<T: Default + PartialEq>(value: &T) -> bool {
     *value == T::default()
@@ -247,14 +334,37 @@ impl Effect {
             sparkle_color: Rgb::WHITE,
             music_sparkles: false,
             blur: 0,
+            hue_adjust: 0.0,
+            saturation_adjust: 0.0,
+            value_adjust: 0.0,
+            brightness: 1.0,
+            contrast: 0.0,
             render_style: RenderStyle::Default,
             buffer_transform: BufferTransform::None,
             curves: BTreeMap::new(),
         }
     }
 
+    /// The effect-wide settings a curve can change besides `sparkles` and `blur`: the color
+    /// adjustments but contrast (which xLights holds steady too).
+    pub const ADJUSTMENT_CURVES: [&'static str; 4] =
+        ["hueAdjust", "saturationAdjust", "valueAdjust", "brightness"];
+
+    /// The color adjustment `key`, where it's kept.
+    fn adjustment(&mut self, key: &str) -> Option<&mut f32> {
+        Some(match key {
+            "hueAdjust" => &mut self.hue_adjust,
+            "saturationAdjust" => &mut self.saturation_adjust,
+            "valueAdjust" => &mut self.value_adjust,
+            "brightness" => &mut self.brightness,
+            "contrast" => &mut self.contrast,
+            _ => return None,
+        })
+    }
+
     /// The range of the number setting `key` a curve can change on an effect of `kind`: one of
-    /// the kind's number settings, `sparkles`, or `blur`. `None` for any other key.
+    /// the kind's number settings, `sparkles`, `blur`, or a color adjustment but contrast.
+    /// `None` for any other key.
     pub fn curve_range(kind: EffectKind, key: &str) -> Option<CurveRange> {
         let whole = |max: u32| CurveRange {
             min: 0.0,
@@ -265,6 +375,13 @@ impl Effect {
             "sparkles" => return Some(whole(crate::MAX_SPARKLES)),
             "blur" => return Some(whole(crate::MAX_BLUR)),
             _ => {}
+        }
+        if Self::ADJUSTMENT_CURVES.contains(&key) {
+            return ADJUSTMENTS.iter().find(|a| a.key == key).map(|a| CurveRange {
+                min: a.min,
+                max: a.max,
+                whole: false,
+            });
         }
         match kind.settings().iter().find(|s| s.key == key)?.range {
             SettingRange::Number { min, max, .. } => Some(CurveRange {
@@ -281,13 +398,22 @@ impl Effect {
         }
     }
 
-    /// Pulls the settings every effect has into range: sparkles, blur, and curves (see
-    /// [`EffectParams::sanitize`] for the kind's own). Curves on settings the kind doesn't have
-    /// are dropped.
+    /// Pulls the settings every effect has into range: sparkles, blur, the color adjustments, and
+    /// curves (see [`EffectParams::sanitize`] for the kind's own). Curves on settings the kind
+    /// doesn't have are dropped.
     pub fn sanitize(&mut self) {
         self.params.sanitize();
         self.sparkles = self.sparkles.min(crate::MAX_SPARKLES);
         self.blur = self.blur.min(crate::MAX_BLUR);
+        for a in &ADJUSTMENTS {
+            if let Some(value) = self.adjustment(a.key) {
+                *value = if value.is_nan() {
+                    a.neutral
+                } else {
+                    value.clamp(a.min, a.max)
+                };
+            }
+        }
         let kind = self.kind();
         self.curves
             .retain(|key, curve| match Self::curve_range(kind, key) {
@@ -337,6 +463,11 @@ impl Effect {
             sparkle_color: self.sparkle_color,
             music_sparkles: self.music_sparkles,
             blur: self.blur,
+            hue_adjust: self.hue_adjust,
+            saturation_adjust: self.saturation_adjust,
+            value_adjust: self.value_adjust,
+            brightness: self.brightness,
+            contrast: self.contrast,
             render_style: self.render_style,
             buffer_transform: self.buffer_transform,
             curves: BTreeMap::new(),
@@ -347,6 +478,11 @@ impl Effect {
             match key.as_str() {
                 "sparkles" => now.sparkles = (value.round() as u32).min(crate::MAX_SPARKLES),
                 "blur" => now.blur = (value.round() as u32).min(crate::MAX_BLUR),
+                key if Self::ADJUSTMENT_CURVES.contains(&key) => {
+                    if let Some(setting) = now.adjustment(key) {
+                        *setting = value;
+                    }
+                }
                 _ => {
                     now.params.set_number(key, value);
                 }
@@ -375,6 +511,23 @@ impl Effect {
         if self.blur > crate::MAX_BLUR {
             return Some(format!("Blur is {}; use 0 to {}", self.blur, crate::MAX_BLUR));
         }
+        for (a, value) in ADJUSTMENTS.iter().zip([
+            self.hue_adjust,
+            self.saturation_adjust,
+            self.value_adjust,
+            self.brightness,
+            self.contrast,
+        ]) {
+            if !value.is_finite() {
+                return Some(format!(
+                    "{} isn't a usable number; use {} to {}",
+                    a.label, a.min, a.max
+                ));
+            }
+            if !(a.min..=a.max).contains(&value) {
+                return Some(format!("{} is {value}; use {} to {}", a.label, a.min, a.max));
+            }
+        }
         let kind = self.kind();
         for (key, curve) in &self.curves {
             let Some(range) = Self::curve_range(kind, key) else {
@@ -387,6 +540,9 @@ impl Effect {
                 let label = match key.as_str() {
                     "sparkles" => "Sparkles",
                     "blur" => "Blur",
+                    key if Self::ADJUSTMENT_CURVES.contains(&key) => {
+                        ADJUSTMENTS.iter().find(|a| a.key == key).map_or("A", |a| a.label)
+                    }
                     _ => kind
                         .settings()
                         .iter()
@@ -470,10 +626,12 @@ pub enum EffectKind {
     ColorShift,
     Dancer,
     Picture,
+    Shockwave,
+    Fill,
 }
 
 impl EffectKind {
-    pub const ALL: [EffectKind; 37] = [
+    pub const ALL: [EffectKind; 39] = [
         EffectKind::On,
         EffectKind::Off,
         EffectKind::ColorWash,
@@ -511,6 +669,8 @@ impl EffectKind {
         EffectKind::ColorShift,
         EffectKind::Dancer,
         EffectKind::Picture,
+        EffectKind::Shockwave,
+        EffectKind::Fill,
     ];
 
     /// The name people see.
@@ -553,6 +713,8 @@ impl EffectKind {
             EffectKind::ColorShift => "Color Shift",
             EffectKind::Dancer => "Dancer",
             EffectKind::Picture => "Picture",
+            EffectKind::Shockwave => "Shockwave",
+            EffectKind::Fill => "Fill",
         }
     }
 
@@ -612,6 +774,10 @@ impl EffectKind {
             EffectKind::Picture => {
                 "Your own picture or animated GIF, fitted to the prop: still, scrolling, or zooming; for matrices."
             }
+            EffectKind::Shockwave => {
+                "One ring bursting out from a point, widening and changing color as it goes."
+            }
+            EffectKind::Fill => "Color filling the prop from one side, the palette spread along the way.",
         }
     }
 
@@ -655,6 +821,8 @@ impl EffectKind {
             EffectKind::ColorShift => ColorShiftParams::SETTINGS,
             EffectKind::Dancer => DancerParams::SETTINGS,
             EffectKind::Picture => PictureParams::SETTINGS,
+            EffectKind::Shockwave => ShockwaveParams::SETTINGS,
+            EffectKind::Fill => FillParams::SETTINGS,
         }
     }
 }
@@ -702,6 +870,8 @@ pub enum EffectParams {
     ColorShift(ColorShiftParams),
     Dancer(DancerParams),
     Picture(PictureParams),
+    Shockwave(ShockwaveParams),
+    Fill(FillParams),
 }
 
 impl EffectParams {
@@ -744,6 +914,8 @@ impl EffectParams {
             EffectParams::ColorShift(_) => EffectKind::ColorShift,
             EffectParams::Dancer(_) => EffectKind::Dancer,
             EffectParams::Picture(_) => EffectKind::Picture,
+            EffectParams::Shockwave(_) => EffectKind::Shockwave,
+            EffectParams::Fill(_) => EffectKind::Fill,
         }
     }
 
@@ -787,6 +959,8 @@ impl EffectParams {
             EffectKind::ColorShift => EffectParams::ColorShift(ColorShiftParams::default()),
             EffectKind::Dancer => EffectParams::Dancer(DancerParams::default()),
             EffectKind::Picture => EffectParams::Picture(PictureParams::default()),
+            EffectKind::Shockwave => EffectParams::Shockwave(ShockwaveParams::default()),
+            EffectKind::Fill => EffectParams::Fill(FillParams::default()),
         }
     }
 
@@ -831,6 +1005,8 @@ impl EffectParams {
             EffectParams::ColorShift(p) => p.sanitize(),
             EffectParams::Dancer(p) => p.sanitize(),
             EffectParams::Picture(p) => p.sanitize(),
+            EffectParams::Shockwave(p) => p.sanitize(),
+            EffectParams::Fill(p) => p.sanitize(),
         }
     }
 
@@ -881,6 +1057,8 @@ impl EffectParams {
             EffectParams::ColorShift(p) => p.number(key),
             EffectParams::Dancer(p) => p.number(key),
             EffectParams::Picture(p) => p.number(key),
+            EffectParams::Shockwave(p) => p.number(key),
+            EffectParams::Fill(p) => p.number(key),
         }
     }
 
@@ -925,6 +1103,8 @@ impl EffectParams {
             EffectParams::ColorShift(p) => p.set_number(key, value),
             EffectParams::Dancer(p) => p.set_number(key, value),
             EffectParams::Picture(p) => p.set_number(key, value),
+            EffectParams::Shockwave(p) => p.set_number(key, value),
+            EffectParams::Fill(p) => p.set_number(key, value),
         }
     }
 
@@ -968,6 +1148,8 @@ impl EffectParams {
             EffectParams::ColorShift(p) => p.setting_problem(),
             EffectParams::Dancer(p) => p.setting_problem(),
             EffectParams::Picture(p) => p.setting_problem(),
+            EffectParams::Shockwave(p) => p.setting_problem(),
+            EffectParams::Fill(p) => p.setting_problem(),
         };
         found.map(|(spec, why)| format!("{} {why}", spec.label))
     }
@@ -1287,14 +1469,54 @@ effect_params! {
     }
 }
 
+/// How Fire makes its flames.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum FireStyle {
+    /// Heat that rises and cools from one moment to the next.
+    #[default]
+    Rolling,
+    /// New flames every frame, drawn cell by cell on the prop's grid, as xLights' Fire draws
+    /// them.
+    Flicker,
+}
+
+choices!(FireStyle { "rolling" => "Rolling", "flicker" => "Flickering (as in xLights)" });
+
+/// The edge of the prop a fire burns from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum FireLocation {
+    #[default]
+    Bottom,
+    Top,
+    Left,
+    Right,
+}
+
+choices!(FireLocation { "bottom" => "The bottom", "top" => "The top", "left" => "The left", "right" => "The right" });
+
 effect_params! {
-    /// Flames rising from the bottom of the prop.
+    /// Flames rising from one edge of the prop.
     #[derive(Copy)]
     pub struct FireParams {
-        /// How high the flames reach, as a fraction of the prop's height (0–1).
+        /// How far the flames reach, as a fraction of the prop's height (0–1).
         height: f32 = 0.8 => "height", "Height", number(0.0, 1.0, 0.01);
-        /// How often new flames flare up (0–1).
+        /// How often new flames flare up (0–1), for rolling flames.
         sparks: f32 = 0.6 => "sparks", "Sparks", number(0.0, 1.0, 0.01);
+        /// The edge the flames burn from.
+        location: FireLocation = FireLocation::Bottom => "location", "Burns from", choice;
+        /// Rolling flames, or xLights' flickering ones.
+        style: FireStyle = FireStyle::Rolling => "style", "Flames", choice, more;
+        /// Moves flickering flames' colors round the color wheel, red toward yellow, green,
+        /// and blue (0–1).
+        hue_shift: f32 = 0.0 => "hueShift", "Hue shift", number(0.0, 1.0, 0.01), more;
+        /// Times flickering flames grow taller and shrink back over the effect (0: steady).
+        growth_cycles: f32 = 0.0 => "growthCycles", "Grow and shrink", number(0.0, 20.0, 0.1, "times"), more;
+        /// Flickering flames as tall as the music is loud, instead of the height above.
+        grow_with_music: bool = false => "growWithMusic", "Grow with the music", toggle, more;
     }
 }
 
@@ -1323,6 +1545,74 @@ effect_params! {
         spacing: f32 = 0.4 => "spacing", "Spacing", number(0.01, 4.0, 0.01);
         /// Ring thickness (center-to-corner = 1).
         thickness: f32 = 0.12 => "thickness", "Thickness", number(0.01, 1.0, 0.01);
+    }
+}
+
+effect_params! {
+    /// One ring growing from a point, its width changing as it goes, its color running through
+    /// the palette: xLights' Shockwave, drawn cell by cell on the prop's grid.
+    #[derive(Copy)]
+    pub struct ShockwaveParams {
+        /// Where the ring is centered across the prop: 0 is the left edge, 100 the right.
+        center_x: f32 = 50.0 => "centerX", "Center, across", number(0.0, 100.0, 1.0, "%");
+        /// Where the ring is centered up the prop: 0 is the bottom, 100 the top.
+        center_y: f32 = 50.0 => "centerY", "Center, up", number(0.0, 100.0, 1.0, "%");
+        /// The ring's radius at the start.
+        start_radius: f32 = 1.0 => "startRadius", "Start radius", number(0.0, 750.0, 1.0);
+        /// The ring's radius at the end.
+        end_radius: f32 = 100.0 => "endRadius", "End radius", number(0.0, 750.0, 1.0);
+        /// How wide the ring is at the start.
+        start_width: f32 = 5.0 => "startWidth", "Start width", number(0.0, 255.0, 1.0);
+        /// How wide the ring is at the end.
+        end_width: f32 = 10.0 => "endWidth", "End width", number(0.0, 255.0, 1.0);
+        /// Rings over the effect, one after another.
+        cycles: u32 = 1 => "cycles", "Rings", int(1, 100);
+        /// Speeds the ring up as it goes (above 0) or slows it down (below).
+        acceleration: f32 = 0.0 => "acceleration", "Acceleration", number(-10.0, 10.0, 1.0), more;
+        /// The ring fades out toward both its edges.
+        blend_edges: bool = true => "blendEdges", "Soft edges", toggle, more;
+        /// Sizes are percent of the prop's longer side (a radius of 100 reaches its ends).
+        /// Otherwise they count cells of the prop's grid, as xLights' older sequences do.
+        scale: bool = true => "scale", "Sizes in percent of the prop", toggle, more;
+    }
+}
+
+/// Which way a Fill goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum FillDirection {
+    #[default]
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+choices!(FillDirection { "up" => "Up", "down" => "Down", "left" => "Left", "right" => "Right" });
+
+effect_params! {
+    /// The prop filled from one side up to a position, the palette spread along the way:
+    /// xLights' Fill. Give the position a curve to fill the prop over the effect.
+    #[derive(Copy)]
+    pub struct FillParams {
+        /// How far the fill reaches: 0 is nothing, 100 the whole prop.
+        position: f32 = 100.0 => "position", "Position", number(0.0, 100.0, 1.0, "%");
+        /// The side the fill grows toward.
+        direction: FillDirection = FillDirection::Up => "direction", "Direction", choice;
+        /// With "Color by time": lines of cells in each band of color (0: one color).
+        band_size: f32 = 0.0 => "bandSize", "Band size", number(0.0, 250.0, 1.0, "cells");
+        /// With "Color by time" and a band size: dark lines of cells between the bands.
+        skip_size: f32 = 0.0 => "skipSize", "Gap size", number(0.0, 250.0, 1.0, "cells");
+        /// How far in from its side the fill starts.
+        offset: f32 = 0.0 => "offset", "Offset", number(0.0, 100.0, 1.0);
+        /// The offset counts lines of cells; otherwise it's a percent of the prop.
+        offset_in_cells: bool = true => "offsetInCells", "Offset in cells", toggle, more;
+        /// A fill that started part way in carries on round from the other side.
+        wrap: bool = true => "wrap", "Wrap around", toggle, more;
+        /// The whole fill takes the palette color for the moment in the effect (or bands of the
+        /// palette colors), instead of spreading the palette along the fill.
+        color_by_time: bool = false => "colorByTime", "Color by time", toggle, more;
     }
 }
 
@@ -2762,6 +3052,28 @@ choices!(PictureTurn {
     "left" => "Quarter turn left",
 });
 
+/// Which of a Picture's pixels a cell takes when it's resized.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum PictureResize {
+    /// PixelFlow's own: smoothed, or crisp.
+    #[default]
+    Own,
+    /// As xLights before 2024.16: the pixel at each cell's corner (a shrink by a whole number
+    /// averages each block).
+    XlightsNearest,
+    /// As xLights 2024.16 to 2025.05: shrinking mixes the four pixels round each cell's place;
+    /// enlarging takes the pixel at its corner.
+    XlightsMixed,
+}
+
+choices!(PictureResize {
+    "own" => "Smooth, or crisp",
+    "xlightsNearest" => "As xLights before 2024.16",
+    "xlightsMixed" => "As xLights 2024.16 to 2025.05",
+});
+
 effect_params! {
     /// A picture or animated GIF from a file, drawn on the prop's grid a cell per pixel. Clear
     /// parts of the picture let the layers below show.
@@ -2800,6 +3112,8 @@ effect_params! {
         pixel_offsets: bool = false => "pixelOffsets", "Offsets in pixels", toggle, more;
         /// Tints the picture with the first palette color.
         tint: bool = false => "tint", "Tint with the palette", toggle, more;
+        /// Resized as an older xLights resized it, for a sequence imported from that version.
+        resize: PictureResize = PictureResize::Own => "resize", "Resized", choice, more;
     }
 }
 
@@ -2915,6 +3229,120 @@ mod tests {
         let json = serde_json::to_value(&e).unwrap();
         assert_eq!(json["musicSparkles"], true);
         assert!(serde_json::to_value(Effect::new(EffectKind::On, 0, 1)).unwrap()["musicSparkles"].is_null());
+    }
+
+    #[test]
+    fn color_adjustments_are_left_out_when_neutral_and_kept_in_range() {
+        let plain = Effect::new(EffectKind::On, 0, 1000);
+        assert_eq!(
+            (
+                plain.hue_adjust,
+                plain.saturation_adjust,
+                plain.value_adjust,
+                plain.brightness,
+                plain.contrast
+            ),
+            (0.0, 0.0, 0.0, 1.0, 0.0)
+        );
+        let json = serde_json::to_value(&plain).unwrap();
+        for key in [
+            "hueAdjust",
+            "saturationAdjust",
+            "valueAdjust",
+            "brightness",
+            "contrast",
+        ] {
+            assert!(json[key].is_null(), "{key} is left out of the file");
+        }
+        // An effect written before them reads back neutral.
+        let read: Effect = serde_json::from_value(json).unwrap();
+        assert_eq!(read, plain);
+        let mut e = plain.clone();
+        (e.hue_adjust, e.brightness, e.contrast) = (-0.25, 2.5, 0.13);
+        let json = serde_json::to_value(&e).unwrap();
+        assert_eq!(json["hueAdjust"], -0.25);
+        assert_eq!(json["brightness"], 2.5);
+        assert!(json["valueAdjust"].is_null());
+        assert_eq!(serde_json::from_value::<Effect>(json).unwrap(), e);
+        assert_eq!(e.setting_problem(), None);
+        // Out of range: said plainly, and pulled back in when a file opens.
+        (e.hue_adjust, e.brightness, e.value_adjust) = (3.0, 9.0, f32::NAN);
+        assert_eq!(
+            e.setting_problem().as_deref(),
+            Some("Hue shift is 3; use -1 to 1")
+        );
+        e.sanitize();
+        assert_eq!(
+            (e.hue_adjust, e.brightness, e.value_adjust),
+            (1.0, crate::MAX_BRIGHTNESS, 0.0)
+        );
+        assert_eq!(e.setting_problem(), None);
+    }
+
+    #[test]
+    fn color_adjustments_can_change_over_the_effect_all_but_contrast() {
+        let mut e = Effect::new(EffectKind::On, 1000, 3000);
+        e.curves.insert("hueAdjust".into(), Curve::ramp(-1.0, 1.0));
+        e.curves.insert("saturationAdjust".into(), Curve::ramp(0.0, -1.0));
+        e.curves.insert("valueAdjust".into(), Curve::ramp(0.5, 0.0));
+        e.curves.insert("brightness".into(), Curve::ramp(1.0, 3.0));
+        assert_eq!(e.setting_problem(), None);
+        let now = e.at(1500);
+        assert_eq!(
+            (
+                now.hue_adjust,
+                now.saturation_adjust,
+                now.value_adjust,
+                now.brightness
+            ),
+            (-0.5, -0.25, 0.375, 1.5)
+        );
+        e.sanitize();
+        assert_eq!(e.curves.len(), 4, "curves on the adjustments are kept");
+        e.curves.insert("contrast".into(), Curve::ramp(0.0, 1.0));
+        assert!(
+            e.setting_problem()
+                .is_some_and(|p| p.contains("'contrast' can't change over the effect"))
+        );
+        e.sanitize();
+        assert!(!e.curves.contains_key("contrast"));
+        assert_eq!(
+            Effect::curve_range(EffectKind::Off, "brightness"),
+            Some(CurveRange {
+                min: 0.0,
+                max: crate::MAX_BRIGHTNESS,
+                whole: false
+            })
+        );
+        // A curve past the range says which setting.
+        e.curves.insert("brightness".into(), Curve::ramp(1.0, 30.0));
+        assert!(
+            e.setting_problem()
+                .is_some_and(|p| p.starts_with("Brightness's curve"))
+        );
+    }
+
+    #[test]
+    fn no_kinds_setting_shares_a_key_with_a_setting_every_effect_has() {
+        // A curve finds its setting by key alone, so the two kinds of key must not collide.
+        let shared = [
+            "sparkles",
+            "blur",
+            "hueAdjust",
+            "saturationAdjust",
+            "valueAdjust",
+            "brightness",
+            "contrast",
+        ];
+        for kind in EffectKind::ALL {
+            for spec in kind.settings() {
+                assert!(
+                    !shared.contains(&spec.key),
+                    "{kind:?} has a '{}' setting",
+                    spec.key
+                );
+            }
+        }
     }
 
     #[test]

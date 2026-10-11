@@ -250,6 +250,11 @@ export interface RegionRef {
   region: Uuid;
 }
 
+/** How effects on a prop itself lay its pixels out, when not as its shape does (an import sets it). */
+export type OwnLayout =
+  | { kind: "strand"; reversed?: boolean }
+  | { kind: "cells"; columns: number; rows: number; cells: [number, number][] };
+
 export interface Prop {
   id: Uuid;
   name: string;
@@ -258,6 +263,7 @@ export interface Prop {
   colorOrder: ColorOrder;
   regions: Region[];
   tags: string[];
+  ownLayout?: OwnLayout;
 }
 
 /** A group member: a whole prop (its id) or one of a prop's submodels. */

@@ -46,6 +46,19 @@ pub struct Geometry {
     /// Node channels count from the very first channel (0-based, absolute) instead of from the
     /// model's start channel. xLights does this for a tree with a "first strand" set.
     pub absolute_channels: bool,
+    /// The model's own render buffer, for the model types it's worked out for (Single Line,
+    /// Poly Line, Icicles and Custom).
+    pub buffer: Option<Buffer>,
+}
+
+/// A model's own render buffer (xLights' "Default" render style): the grid an effect on the
+/// model by itself is drawn on, and the cell each node takes its color from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Buffer {
+    pub columns: u32,
+    pub rows: u32,
+    /// Each node's column (from the left) and row (from the bottom), in [`Geometry::nodes`] order.
+    pub cells: Vec<[u32; 2]>,
 }
 
 /// Most lights (or strings) imported for one model; larger models are skipped with a note.
@@ -121,11 +134,23 @@ type V3 = [f64; 3];
 struct RawNode {
     chan: i64,
     pts: Vec<V3>,
+    /// Its cell in the model's own render buffer (`bufX`, `bufY` of its first light), for the
+    /// generators that set [`Ctx::buffer`].
+    cell: Option<[i64; 2]>,
 }
 
 impl RawNode {
     fn new(chan: i64, pts: Vec<V3>) -> Self {
-        RawNode { chan, pts }
+        RawNode {
+            chan,
+            pts,
+            cell: None,
+        }
+    }
+
+    fn at(mut self, column: i64, row: i64) -> Self {
+        self.cell = Some([column, row]);
+        self
     }
 }
 
@@ -232,7 +257,7 @@ fn row_at_position(cx: &Ctx, n: i64, chan: impl Fn(i64) -> i64) -> Raw {
 fn finish(mut cx: Ctx, raw: Raw) -> Geometry {
     let mut bad_pos = false;
     let mut bad_chan = false;
-    let mut nodes: Vec<XNode> = raw
+    let mut nodes: Vec<(XNode, Option<[i64; 2]>)> = raw
         .nodes
         .into_iter()
         .map(|n| {
@@ -256,7 +281,7 @@ fn finish(mut cx: Ctx, raw: Raw) -> Geometry {
                 bad_chan = true;
                 n.chan.clamp(0, i64::from(u32::MAX)) as u32
             };
-            XNode { channel, points }
+            (XNode { channel, points }, n.cell)
         })
         .collect();
     if bad_pos {
@@ -265,7 +290,9 @@ fn finish(mut cx: Ctx, raw: Raw) -> Geometry {
     if bad_chan {
         cx.note("some channel numbers fell outside the model and were clamped");
     }
-    nodes.sort_by_key(|n| n.channel);
+    nodes.sort_by_key(|n| n.0.channel);
+    let (nodes, cells): (Vec<XNode>, Vec<Option<[i64; 2]>>) = nodes.into_iter().unzip();
+    let buffer = cx.buffer.and_then(|size| buffer(size, &cells));
     let cpn = cx.cpn.clamp(1, 255);
     let channels = if nodes.is_empty() && cx.capped {
         match cx.capped_block {
@@ -294,7 +321,23 @@ fn finish(mut cx: Ctx, raw: Raw) -> Geometry {
         },
         channels_unknown: cx.unknown,
         absolute_channels: cx.absolute,
+        buffer,
     }
+}
+
+/// The model's own buffer of `columns` by `rows` with a cell for every node. `None` when a node
+/// has no cell, or one outside the buffer (xLights leaves such a node dark).
+fn buffer([columns, rows]: [i64; 2], cells: &[Option<[i64; 2]>]) -> Option<Buffer> {
+    let (columns, rows) = (u32::try_from(columns).ok()?, u32::try_from(rows).ok()?);
+    let cells = cells
+        .iter()
+        .map(|cell| {
+            let [column, row] = (*cell)?;
+            let (column, row) = (u32::try_from(column).ok()?, u32::try_from(row).ok()?);
+            (column < columns && row < rows).then_some([column, row])
+        })
+        .collect::<Option<Vec<_>>>()?;
+    (!cells.is_empty()).then_some(Buffer { columns, rows, cells })
 }
 
 /// Per-model reading context: attribute access with xLights' read rules, the string type's
@@ -324,6 +367,9 @@ struct Ctx<'a> {
     absolute: bool,
     /// Leave out the tilt xLights' 2D view gives trees, spheres and cubes (see [`upright_positions`]).
     upright: bool,
+    /// The size (columns, rows) of the model's own render buffer (`SetBufferSize`), from the
+    /// generators that give each node its cell.
+    buffer: Option<[i64; 2]>,
 }
 
 impl<'a> Ctx<'a> {
@@ -348,6 +394,7 @@ impl<'a> Ctx<'a> {
             unknown: None,
             absolute: false,
             upright: false,
+            buffer: None,
         }
     }
 

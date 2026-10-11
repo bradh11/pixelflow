@@ -8,7 +8,7 @@
     "sequenceIssuesNow": null,
     "sequenceNow": null,
     "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 0 },
-    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 12, "sequences": [], "settings": { "frameRate": 40 } },
+    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 13, "sequences": [], "settings": { "frameRate": 40 } },
     "summaryNow": { "controllers": 0, "pixels": 0, "props": 0, "universes": 0 }
   },
   "steps": [
@@ -34,7 +34,7 @@
           { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 4, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
           { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000002", "name": "Fence", "regions": [], "shape": { "length": 3.0, "nodes": 4, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
         ],
-        "schemaVersion": 12,
+        "schemaVersion": 13,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
@@ -52,7 +52,7 @@
         "frameMs": 25,
         "name": "Song",
         "rows": [{ "id": "44444444-0000-4000-8000-000000000001", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000001" } }, { "id": "44444444-0000-4000-8000-000000000002", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000002" } }],
-        "schemaVersion": 10,
+        "schemaVersion": 11,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -108,7 +108,7 @@
         "frameMs": 25,
         "name": "Song",
         "rows": [{ "id": "44444444-0000-4000-8000-000000000001", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000001" } }, { "id": "44444444-0000-4000-8000-000000000002", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000002" } }],
-        "schemaVersion": 10,
+        "schemaVersion": 11,
         "timingTracks": [{ "id": "66666666-0000-4000-8000-000000000003", "kind": "custom", "marks": [{ "endMs": 2000, "label": "go", "startMs": 1000 }], "name": "Cues" }, { "id": "66666666-0000-4000-8000-000000000001", "kind": "beats", "marks": [{ "endMs": 500, "label": "1", "startMs": 0 }], "name": "Beats" }]
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -133,7 +133,7 @@
         "frameMs": 25,
         "name": "Song",
         "rows": [{ "id": "44444444-0000-4000-8000-000000000001", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000001" } }, { "id": "44444444-0000-4000-8000-000000000002", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000002" } }],
-        "schemaVersion": 10,
+        "schemaVersion": 11,
         "timingTracks": [{ "id": "66666666-0000-4000-8000-000000000001", "kind": "beats", "marks": [{ "endMs": 500, "label": "1", "startMs": 0 }], "name": "Beats" }, { "id": "66666666-0000-4000-8000-000000000002", "kind": "lyrics", "marks": [], "name": "Lyrics" }, { "id": "66666666-0000-4000-8000-000000000003", "kind": "custom", "marks": [], "name": "Cues" }]
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -149,7 +149,7 @@
         "frameMs": 25,
         "name": "Song",
         "rows": [{ "id": "44444444-0000-4000-8000-000000000001", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000001" } }, { "id": "44444444-0000-4000-8000-000000000002", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000002" } }],
-        "schemaVersion": 10,
+        "schemaVersion": 11,
         "timingTracks": [{ "id": "66666666-0000-4000-8000-000000000002", "kind": "lyrics", "marks": [], "name": "Lyrics" }, { "id": "66666666-0000-4000-8000-000000000003", "kind": "custom", "marks": [], "name": "Cues" }, { "id": "66666666-0000-4000-8000-000000000001", "kind": "beats", "marks": [{ "endMs": 500, "label": "1", "startMs": 0 }], "name": "Beats" }]
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }

@@ -26,22 +26,23 @@ pub use effect::{
     Axis, BarsMotion, BarsParams, Blend, ButterflyColors, ButterflyParams, ChaseOrder, ChaseParams,
     CirclesLook, CirclesParams, ColorShiftParams, ColorWashParams, CurveRange, DancerBackground,
     DancerCharacter, DancerMove, DancerParams, DancerSpeed, Direction, Effect, EffectKind, EffectParams,
-    FaceColorSource, FaceEyes, FacesParams, FadeDirection, FadeParams, FanParams, FireParams, GarlandShape,
-    GarlandsDirection, GarlandsParams, Gradient, HitColor, ImpactDecay, ImpactParams, LifeParams, LifeRules,
-    LightningParams, LinesParams, MeteorDirection, MeteorsParams, MorphParams, OffParams, OnParams, Palette,
-    PictureFit, PictureMovement, PictureParams, PictureTiming, PictureTurn, PinwheelParams, PinwheelShading,
-    PinwheelStyle, PlasmaColors, PlasmaParams, PulseParams, PulseShape, PulseSource, RippleParams,
-    ShapeObject, ShapeParams, ShiftEase, ShimmerParams, SingMode, SingParams, SnowflakeShape,
-    SnowflakesMotion, SnowflakesParams, SpiralParams, StrobeParams, Sweep, TendrilMovement, TendrilParams,
-    TextCountdown, TextMovement, TextOrientation, TextParams, TwinkleParams, VuMeterParams, VuMeterShape,
-    VuMeterType, WaveParams, WipeMode, WipeParams,
+    FaceColorSource, FaceEyes, FacesParams, FadeDirection, FadeParams, FanParams, FillDirection, FillParams,
+    FireLocation, FireParams, FireStyle, GarlandShape, GarlandsDirection, GarlandsParams, Gradient, HitColor,
+    ImpactDecay, ImpactParams, LifeParams, LifeRules, LightningParams, LinesParams, MeteorDirection,
+    MeteorsParams, MorphParams, OffParams, OnParams, Palette, PictureFit, PictureMovement, PictureParams,
+    PictureResize, PictureTiming, PictureTurn, PinwheelParams, PinwheelShading, PinwheelStyle, PlasmaColors,
+    PlasmaParams, PulseParams, PulseShape, PulseSource, RippleParams, ShapeObject, ShapeParams, ShiftEase,
+    ShimmerParams, ShockwaveParams, SingMode, SingParams, SnowflakeShape, SnowflakesMotion, SnowflakesParams,
+    SpiralParams, StrobeParams, Sweep, TendrilMovement, TendrilParams, TextCountdown, TextMovement,
+    TextOrientation, TextParams, TwinkleParams, VuMeterParams, VuMeterShape, VuMeterType, WaveParams,
+    WipeMode, WipeParams,
 };
 pub use ids::{EffectId, RowId, TimingTrackId};
 pub use io::{SequenceError, check_sequence, sequence_from_json, sequence_to_json};
 pub use limits::{
-    MAX_BLUR, MAX_DURATION_MS, MAX_EFFECTS, MAX_FRAME_MS, MAX_LAYERS_PER_ROW, MAX_MARKS, MAX_PALETTE_COLORS,
-    MAX_ROWS, MAX_SEQUENCE_BYTES, MAX_SPARKLES, MAX_TEXT_LEN, MAX_TIMING_TRACKS, MIN_FRAME_MS,
-    limit_problems,
+    MAX_BLUR, MAX_BRIGHTNESS, MAX_DURATION_MS, MAX_EFFECTS, MAX_FRAME_MS, MAX_LAYERS_PER_ROW, MAX_MARKS,
+    MAX_PALETTE_COLORS, MAX_ROWS, MAX_SEQUENCE_BYTES, MAX_SPARKLES, MAX_TEXT_LEN, MAX_TIMING_TRACKS,
+    MIN_FRAME_MS, limit_problems,
 };
 pub use pf_model::Rgb;
 pub use settings::{

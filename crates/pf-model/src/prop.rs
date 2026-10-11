@@ -6,6 +6,77 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
+/// How a prop's pixels are laid out for an effect drawn on the prop itself, when that isn't the
+/// way its shape lays them out.
+// xLights draws on a model's own buffer, which for a single line or a poly line is one row from
+// the first point drawn to the last, and for a custom model its grid of cells; an import keeps
+// that here. A layout whose cells don't fit the prop's pixels any more is passed over, and the
+// prop is laid out as its shape is.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(
+    feature = "schema",
+    schemars(description = "How effects on it alone lay out its pixels.")
+)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum OwnLayout {
+    /// The shape's own way: on its grid when it has one (a matrix, a tree's strings), else where
+    /// its pixels sit seen from the front.
+    #[cfg_attr(feature = "schema", schemars(description = "As its shape does."))]
+    #[default]
+    Shape,
+    /// One row with a cell for every pixel in wiring order (`reversed`: the last pixel first),
+    /// whichever way the prop runs in the layout.
+    #[cfg_attr(
+        feature = "schema",
+        schemars(description = "One row along the wiring (`reversed`: last pixel first).")
+    )]
+    Strand {
+        #[serde(default, skip_serializing_if = "is_false")]
+        reversed: bool,
+    },
+    /// A grid of `columns` by `rows` with each pixel in the cell given for it: `[column from the
+    /// left, row from the bottom]`, in wiring order.
+    #[cfg_attr(
+        feature = "schema",
+        schemars(description = "A grid; `cells` has each pixel as `[column, row up]`.")
+    )]
+    Cells {
+        columns: u32,
+        rows: u32,
+        cells: Vec<[u32; 2]>,
+    },
+}
+
+impl OwnLayout {
+    fn is_shape(&self) -> bool {
+        *self == OwnLayout::Shape
+    }
+
+    /// The grid this lays `nodes` pixels on, and each pixel's cell (`[column, row from the
+    /// bottom]`, in wiring order). `None` when the shape lays them out, and for cells that
+    /// aren't one a pixel, inside the grid.
+    pub fn grid(&self, nodes: u32) -> Option<(u32, u32, Vec<[u32; 2]>)> {
+        match self {
+            OwnLayout::Shape => None,
+            OwnLayout::Strand { reversed } => {
+                let cells = (0..nodes).map(|n| [if *reversed { nodes - 1 - n } else { n }, 0]);
+                (nodes > 0).then(|| (nodes, 1, cells.collect()))
+            }
+            OwnLayout::Cells { columns, rows, cells } => {
+                let fits = cells.len() == nodes as usize
+                    && nodes > 0
+                    && cells.iter().all(|&[c, r]| c < *columns && r < *rows);
+                fits.then(|| (*columns, *rows, cells.clone()))
+            }
+        }
+    }
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
+}
+
 /// A physical light element: an arch, a matrix, a tree, etc.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -22,6 +93,10 @@ pub struct Prop {
     pub regions: Vec<Region>,
     #[serde(default)]
     pub tags: Vec<String>,
+    /// How effects on the prop itself lay its pixels out, when not as its shape does.
+    #[serde(default, skip_serializing_if = "OwnLayout::is_shape")]
+    #[cfg_attr(feature = "schema", schemars(description = ""))]
+    pub own_layout: OwnLayout,
 }
 
 impl Prop {
@@ -35,6 +110,7 @@ impl Prop {
             color_order: ColorOrder::default(),
             regions: Vec::new(),
             tags: Vec::new(),
+            own_layout: OwnLayout::Shape,
         }
     }
 
@@ -167,5 +243,74 @@ mod tests {
         assert_eq!(prop.color_order, ColorOrder::Rgb);
         assert_eq!(prop.transform, Transform::default());
         assert!(prop.regions.is_empty());
+        assert_eq!(prop.own_layout, OwnLayout::Shape);
+    }
+
+    #[test]
+    fn a_layout_of_its_own_is_saved_only_when_the_prop_has_one() {
+        let line = Generator::Line {
+            nodes: 4,
+            length: 3.0,
+        };
+        let mut prop = Prop::new("Line", ShapeSource::Generator(line));
+        let saved = serde_json::to_value(&prop).unwrap();
+        assert!(saved.get("ownLayout").is_none(), "{saved}");
+
+        prop.own_layout = OwnLayout::Strand { reversed: false };
+        let saved = serde_json::to_value(&prop).unwrap();
+        assert_eq!(saved["ownLayout"], serde_json::json!({ "kind": "strand" }));
+        assert_eq!(serde_json::from_value::<Prop>(saved).unwrap(), prop);
+
+        prop.own_layout = OwnLayout::Strand { reversed: true };
+        let saved = serde_json::to_value(&prop).unwrap();
+        assert_eq!(
+            saved["ownLayout"],
+            serde_json::json!({ "kind": "strand", "reversed": true })
+        );
+        assert_eq!(serde_json::from_value::<Prop>(saved).unwrap(), prop);
+
+        prop.own_layout = OwnLayout::Cells {
+            columns: 3,
+            rows: 2,
+            cells: vec![[0, 0], [2, 0], [2, 1], [0, 1]],
+        };
+        let saved = serde_json::to_value(&prop).unwrap();
+        assert_eq!(
+            saved["ownLayout"],
+            serde_json::json!({ "kind": "cells", "columns": 3, "rows": 2, "cells": [[0, 0], [2, 0], [2, 1], [0, 1]] })
+        );
+        assert_eq!(serde_json::from_value::<Prop>(saved).unwrap(), prop);
+    }
+
+    #[test]
+    fn a_strand_is_one_row_along_the_wiring_from_either_end() {
+        assert_eq!(OwnLayout::Shape.grid(3), None);
+        assert_eq!(
+            OwnLayout::Strand { reversed: false }.grid(3),
+            Some((3, 1, vec![[0, 0], [1, 0], [2, 0]]))
+        );
+        assert_eq!(
+            OwnLayout::Strand { reversed: true }.grid(3),
+            Some((3, 1, vec![[2, 0], [1, 0], [0, 0]]))
+        );
+        assert_eq!(OwnLayout::Strand { reversed: true }.grid(0), None);
+    }
+
+    #[test]
+    fn cells_that_no_longer_fit_the_pixels_are_passed_over() {
+        let cells = |cells: Vec<[u32; 2]>| OwnLayout::Cells {
+            columns: 2,
+            rows: 2,
+            cells,
+        };
+        let fits = cells(vec![[0, 0], [1, 1], [1, 1]]);
+        assert_eq!(fits.grid(3), Some((2, 2, vec![[0, 0], [1, 1], [1, 1]])));
+        // The prop has gained or lost a pixel since.
+        assert_eq!(fits.grid(4), None);
+        assert_eq!(fits.grid(2), None);
+        // A cell outside the grid.
+        assert_eq!(cells(vec![[0, 0], [2, 0]]).grid(2), None);
+        assert_eq!(cells(vec![[0, 0], [0, 2]]).grid(2), None);
+        assert_eq!(cells(Vec::new()).grid(0), None);
     }
 }

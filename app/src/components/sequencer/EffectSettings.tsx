@@ -10,6 +10,7 @@ import { useContext } from "react";
 import {
   BLUR,
   BlendOptions,
+  COLOR_ADJUSTMENTS,
   type Change,
   ColorList,
   ColorPicker,
@@ -166,7 +167,7 @@ function Settings({ doc }: { doc: Sequence }) {
         </div>
       </Section>
 
-      <More id="effect-settings" label="More: mixing, render style, sparkles, blur, and timing">
+      <More id="effect-settings" label="More: mixing, render style, sparkles, blur, color, and timing">
         <div className="flex flex-col gap-2.5">
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-neutral-600 dark:text-neutral-400">With the layers below</span>
@@ -253,6 +254,24 @@ function Settings({ doc }: { doc: Sequence }) {
             onChange={(v, gesture) => change((x) => ({ ...x, blur: v as number }), gesture)}
             animate={animate("blur")}
           />
+          <More
+            key={`${id}:color`}
+            id="effect-color"
+            label="Color: hue, saturation, lightness, brightness, contrast"
+            forceOpen={COLOR_ADJUSTMENTS.some((a) => (effect[a.key] ?? a.default) !== a.default || effect.curves?.[a.key] !== undefined)}
+          >
+            <div className="flex flex-col gap-2.5">
+              {COLOR_ADJUSTMENTS.map((a) => (
+                <NumberSetting
+                  key={`${id}:${a.key}`}
+                  setting={a}
+                  value={effect[a.key] ?? a.default}
+                  onChange={(v, gesture) => change((x) => ({ ...x, [a.key]: v === a.default ? undefined : (v as number) }), gesture)}
+                  animate={a.curve ? animate(a.key) : undefined}
+                />
+              ))}
+            </div>
+          </More>
           <h4 className="mt-1 text-xs font-semibold tracking-wide text-neutral-500 uppercase">Timing</h4>
           <div className="grid grid-cols-2 gap-2">
             <MsField

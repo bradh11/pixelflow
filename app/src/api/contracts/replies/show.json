@@ -19,7 +19,7 @@
         "groups": [],
         "name": "Untitled Show",
         "props": [],
-        "schemaVersion": 12,
+        "schemaVersion": 13,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
@@ -173,7 +173,7 @@
             }
           }
         ],
-        "schemaVersion": 12,
+        "schemaVersion": 13,
         "sequences": [
           {
             "audio": "/fixture/Show/music/Carol.mp3",
@@ -345,7 +345,7 @@
               }
             }
           ],
-          "schemaVersion": 12,
+          "schemaVersion": 13,
           "sequences": [
             {
               "audio": "/fixture/Show/moved/Carol.mp3",
@@ -1333,6 +1333,12 @@
             "colorOrder": "RGB",
             "id": "11111111-0000-4000-8000-000000000016",
             "name": "Cube",
+            "ownLayout": {
+              "cells": [[0, 0], [1, 0], [0, 1], [1, 1]],
+              "columns": 2,
+              "kind": "cells",
+              "rows": 2
+            },
             "regions": [],
             "shape": {
               "depth": 1,
@@ -1357,6 +1363,7 @@
             "colorOrder": "RGB",
             "id": "11111111-0000-4000-8000-000000000017",
             "name": "Bush",
+            "ownLayout": { "kind": "strand", "reversed": true },
             "regions": [],
             "shape": {
               "points": [{ "x": 0.0, "y": 0.0, "z": 0.0 }, { "x": 0.5, "y": 0.25, "z": 0.0 }],
@@ -1371,7 +1378,7 @@
             }
           }
         ],
-        "schemaVersion": 12,
+        "schemaVersion": 13,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },

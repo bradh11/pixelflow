@@ -18,7 +18,7 @@ use pf_devices::testing::{FALCON, FPP};
 const WIDE: usize = 400;
 
 /// The files of `parity/`, one per scenario.
-const SCENARIOS: [&str; 17] = [
+const SCENARIOS: [&str; 18] = [
     "showEdits",
     "showSaving",
     "showRejectedEdits",
@@ -35,6 +35,7 @@ const SCENARIOS: [&str; 17] = [
     "sequenceRows",
     "sequenceSaving",
     "sequenceTracks",
+    "sequenceRowBlending",
     "sequenceInShow",
 ];
 
@@ -795,6 +796,26 @@ fn timing_tracks_are_edited_like_rows() {
     scenario(
         "sequenceTracks",
         "Timing tracks are added, moved, renamed, replaced, and removed; undo puts them back in order.",
+        &[],
+        steps,
+    );
+}
+
+#[test]
+fn how_rows_meet_the_rows_above_is_an_edit_like_any_other() {
+    let blending = |how: &str| sequence_edits(json!([{ "type": "setRowBlending", "rowBlending": how }]));
+    let mut steps = two_rows();
+    steps.extend([
+        blending("blend"),
+        blending("blend"),
+        blending("replace"),
+        plain("undo_sequence"),
+        plain("undo_sequence"),
+        plain("redo_sequence"),
+    ]);
+    scenario(
+        "sequenceRowBlending",
+        "How rows meet the rows above them is set, set again to the same, and undone.",
         &[],
         steps,
     );

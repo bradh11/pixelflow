@@ -100,7 +100,7 @@ fn union_members() {
         every!(pf_sequence::EffectKind: On, Off, ColorWash, Fade, Chase, Bars, Wave, Twinkle, Shimmer, Strobe, Spiral,
             Fire, Meteors, Ripple, Shape, Fan, Morph, Circles, Pinwheel, Snowflakes, Plasma, Butterfly, Garlands,
             Lines, Life, Tendril, Text, Faces, VuMeter, Impact, Wipe, Lightning, Pulse, Sing, ColorShift, Dancer,
-            Picture),
+            Picture, Shockwave, Fill),
     );
     all(
         "sequence.Blend",
@@ -353,6 +353,18 @@ fn union_members() {
         .flat_map(|p| p["regions"].as_array().unwrap().clone())
         .collect();
     fixtures.all_of("types.Region", Some("kind"), &Value::Array(regions));
+    // A prop laid out as its shape is says nothing; the window sees the other two.
+    assert_every_variant(
+        "prop's own layout",
+        3,
+        shapes.iter().map(|p| match p.own_layout {
+            pf_model::OwnLayout::Shape => 0,
+            pf_model::OwnLayout::Strand { .. } => 1,
+            pf_model::OwnLayout::Cells { .. } => 2,
+        }),
+    );
+    let layouts: Vec<Value> = props.iter().filter_map(|p| p.get("ownLayout").cloned()).collect();
+    fixtures.all_of("types.OwnLayout", Some("kind"), &Value::Array(layouts));
     let controllers: Vec<pf_model::Controller> =
         serde_json::from_value(full["show"]["controllers"].clone()).unwrap();
     assert_every_variant(

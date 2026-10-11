@@ -398,8 +398,13 @@ pub(super) fn poly_line(cx: &mut Ctx) -> Raw {
         cx.note("some poly line lights could not be placed exactly");
     }
     let xf = poly_point(cx, &all, max_h as f64);
+    // `SetBufferSize(maxH, SingleNode ? 1 : width + 1)`.
+    cx.buffer = Some([if single { 1 } else { width + 1 }, max_h]);
     Raw {
-        nodes: nodes.into_iter().map(|n| RawNode::new(n.chan, n.pts)).collect(),
+        nodes: nodes
+            .into_iter()
+            .map(|n| RawNode::new(n.chan, n.pts).at(n.buf0.0, n.buf0.1))
+            .collect(),
         xf,
     }
 }

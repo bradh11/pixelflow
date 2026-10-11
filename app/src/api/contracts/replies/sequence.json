@@ -37,7 +37,7 @@
             }
           }
         ],
-        "schemaVersion": 10,
+        "schemaVersion": 11,
         "timingTracks": []
       }
     }
@@ -306,7 +306,16 @@
               "fadeOutMs": 0,
               "id": "55555555-0000-4000-8000-000000000012",
               "palette": { "colors": ["#ff0000", "#00ff00"] },
-              "params": { "height": 0.8, "kind": "fire", "sparks": 0.6 },
+              "params": {
+                "growWithMusic": false,
+                "growthCycles": 0.0,
+                "height": 0.8,
+                "hueShift": 0.0,
+                "kind": "fire",
+                "location": "bottom",
+                "sparks": 0.6,
+                "style": "rolling"
+              },
               "sparkleColor": "#ffffff",
               "sparkles": 0,
               "startMs": 11000
@@ -984,6 +993,7 @@
                 "movement": "none",
                 "pixelOffsets": false,
                 "playSpeed": 1.0,
+                "resize": "own",
                 "scale": 100.0,
                 "startFrame": 1,
                 "timing": "loop",
@@ -998,6 +1008,64 @@
               "startMs": 36000
             },
             "index": 36,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 38000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000038",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "acceleration": 0.0,
+                "blendEdges": true,
+                "centerX": 50.0,
+                "centerY": 50.0,
+                "cycles": 1,
+                "endRadius": 100.0,
+                "endWidth": 10.0,
+                "kind": "shockwave",
+                "scale": true,
+                "startRadius": 1.0,
+                "startWidth": 5.0
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 37000
+            },
+            "index": 37,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 39000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000039",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "bandSize": 0.0,
+                "colorByTime": false,
+                "direction": "up",
+                "kind": "fill",
+                "offset": 0.0,
+                "offsetInCells": true,
+                "position": 100.0,
+                "skipSize": 0.0,
+                "wrap": true
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 38000
+            },
+            "index": 38,
             "layer": 0,
             "row": "44444444-0000-4000-8000-000000000001"
           }
@@ -1129,7 +1197,9 @@
                   {
                     "blend": "add",
                     "blur": 3,
+                    "brightness": 1.5,
                     "bufferTransform": "rotateCw90",
+                    "contrast": 0.2,
                     "curves": {
                       "blur": {
                         "fade": 3.0,
@@ -1157,6 +1227,7 @@
                     "endMs": 4000,
                     "fadeInMs": 250,
                     "fadeOutMs": 500,
+                    "hueAdjust": 0.25,
                     "id": "55555555-0000-4000-8000-000000000100",
                     "musicSparkles": true,
                     "palette": { "colors": ["#ff0000", "#00ff00"] },
@@ -1171,9 +1242,11 @@
                       "width": 0.2
                     },
                     "renderStyle": "perPreview",
+                    "saturationAdjust": -0.5,
                     "sparkleColor": "#ffcc00",
                     "sparkles": 50,
-                    "startMs": 0
+                    "startMs": 0,
+                    "valueAdjust": 0.1
                   }
                 ]
               }
@@ -1278,7 +1351,13 @@
             "row": "44444444-0000-4000-8000-000000000001"
           }
         ],
-        "info": { "audio": "/fixture/Song.wav", "durationMs": 45000, "frameMs": 50, "name": "Song (remix)" },
+        "info": {
+          "audio": "/fixture/Song.wav",
+          "durationMs": 45000,
+          "frameMs": 50,
+          "name": "Song (remix)",
+          "rowBlending": "cover"
+        },
         "removedEffects": ["55555555-0000-4000-8000-000000000002"],
         "removedRows": ["44444444-0000-4000-8000-000000000003"],
         "removedTimingTracks": ["66666666-0000-4000-8000-000000000003"],
@@ -1402,7 +1481,9 @@
                   {
                     "blend": "add",
                     "blur": 3,
+                    "brightness": 1.5,
                     "bufferTransform": "rotateCw90",
+                    "contrast": 0.2,
                     "curves": {
                       "blur": {
                         "fade": 3.0,
@@ -1430,6 +1511,7 @@
                     "endMs": 4000,
                     "fadeInMs": 250,
                     "fadeOutMs": 500,
+                    "hueAdjust": 0.25,
                     "id": "55555555-0000-4000-8000-000000000100",
                     "musicSparkles": true,
                     "palette": { "colors": ["#ff0000", "#00ff00"] },
@@ -1444,9 +1526,11 @@
                       "width": 0.2
                     },
                     "renderStyle": "perPreview",
+                    "saturationAdjust": -0.5,
                     "sparkleColor": "#ffcc00",
                     "sparkles": 50,
-                    "startMs": 0
+                    "startMs": 0,
+                    "valueAdjust": 0.1
                   }
                 ]
               }
@@ -1454,7 +1538,7 @@
             "target": { "group": "22222222-0000-4000-8000-000000000001" }
           }
         ],
-        "schemaVersion": 10,
+        "schemaVersion": 11,
         "timingTracks": [
           {
             "id": "66666666-0000-4000-8000-000000000002",
@@ -1682,7 +1766,9 @@
                   {
                     "blend": "add",
                     "blur": 3,
+                    "brightness": 1.5,
                     "bufferTransform": "rotateCw90",
+                    "contrast": 0.2,
                     "curves": {
                       "blur": {
                         "fade": 3.0,
@@ -1710,6 +1796,7 @@
                     "endMs": 4000,
                     "fadeInMs": 250,
                     "fadeOutMs": 500,
+                    "hueAdjust": 0.25,
                     "id": "55555555-0000-4000-8000-000000000100",
                     "musicSparkles": true,
                     "palette": { "colors": ["#ff0000", "#00ff00"] },
@@ -1724,9 +1811,11 @@
                       "width": 0.2
                     },
                     "renderStyle": "perPreview",
+                    "saturationAdjust": -0.5,
                     "sparkleColor": "#ffcc00",
                     "sparkles": 50,
-                    "startMs": 0
+                    "startMs": 0,
+                    "valueAdjust": 0.1
                   }
                 ]
               }
@@ -1734,7 +1823,7 @@
             "target": { "group": "22222222-0000-4000-8000-000000000001" }
           }
         ],
-        "schemaVersion": 10,
+        "schemaVersion": 11,
         "timingTracks": [
           {
             "id": "66666666-0000-4000-8000-000000000002",

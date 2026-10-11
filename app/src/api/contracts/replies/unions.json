@@ -167,7 +167,9 @@
       "sing",
       "colorShift",
       "dancer",
-      "picture"
+      "picture",
+      "shockwave",
+      "fill"
     ]
   },
   {
@@ -755,6 +757,16 @@
     ]
   },
   {
+    "allOf": "types.OwnLayout",
+    "name": "every types.OwnLayout",
+    "tag": "kind",
+    "ts": "(types.OwnLayout)[]",
+    "value": [
+      { "cells": [[0, 0], [1, 0], [0, 1], [1, 1]], "columns": 2, "kind": "cells", "rows": 2 },
+      { "kind": "strand", "reversed": true }
+    ]
+  },
+  {
     "allOf": "types.Protocol",
     "name": "every types.Protocol",
     "tag": "type",
@@ -857,7 +869,16 @@
         "thickness": 0.5,
         "twist": 1.0
       },
-      { "height": 0.8, "kind": "fire", "sparks": 0.6 },
+      {
+        "growWithMusic": false,
+        "growthCycles": 0.0,
+        "height": 0.8,
+        "hueShift": 0.0,
+        "kind": "fire",
+        "location": "bottom",
+        "sparks": 0.6,
+        "style": "rolling"
+      },
       { "count": 5, "direction": "down", "kind": "meteors", "length": 0.25, "speed": 1.0 },
       { "kind": "ripple", "spacing": 0.4, "speed": 0.5, "thickness": 0.12 },
       {
@@ -1084,6 +1105,7 @@
         "movement": "none",
         "pixelOffsets": false,
         "playSpeed": 1.0,
+        "resize": "own",
         "scale": 100.0,
         "startFrame": 1,
         "timing": "loop",
@@ -1092,6 +1114,30 @@
         "wrap": false,
         "xOffset": 0.0,
         "yOffset": 0.0
+      },
+      {
+        "acceleration": 0.0,
+        "blendEdges": true,
+        "centerX": 50.0,
+        "centerY": 50.0,
+        "cycles": 1,
+        "endRadius": 100.0,
+        "endWidth": 10.0,
+        "kind": "shockwave",
+        "scale": true,
+        "startRadius": 1.0,
+        "startWidth": 5.0
+      },
+      {
+        "bandSize": 0.0,
+        "colorByTime": false,
+        "direction": "up",
+        "kind": "fill",
+        "offset": 0.0,
+        "offsetInCells": true,
+        "position": 100.0,
+        "skipSize": 0.0,
+        "wrap": true
       }
     ]
   },

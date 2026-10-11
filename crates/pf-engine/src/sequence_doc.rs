@@ -6,8 +6,8 @@ use crate::error::EngineError;
 use crate::persist::write_atomic;
 use pf_model::Show;
 use pf_sequence::{
-    Effect, EffectId, EffectParams, MAX_SEQUENCE_BYTES, Mark, Row, RowId, Sequence, SequenceIssue,
-    TimingKind, TimingTrack, TimingTrackId,
+    Effect, EffectId, EffectParams, MAX_SEQUENCE_BYTES, Mark, Row, RowBlending, RowId, Sequence,
+    SequenceIssue, TimingKind, TimingTrack, TimingTrackId,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -30,6 +30,10 @@ pub enum SequenceEdit {
         audio: Option<String>,
         duration_ms: u64,
         frame_ms: u32,
+    },
+    /// Sets how each row meets the rows before it.
+    SetRowBlending {
+        row_blending: RowBlending,
     },
     /// Adds a row at `index` (or at the end).
     AddRow {
@@ -300,6 +304,7 @@ impl SequenceEdit {
                 doc.duration_ms = *duration_ms;
                 doc.frame_ms = *frame_ms;
             }
+            SequenceEdit::SetRowBlending { row_blending } => doc.row_blending = *row_blending,
             SequenceEdit::AddRow { row, index } => {
                 if doc.row(row.id).is_some() {
                     return Err(EngineError::DuplicateId { kind: "row" });
@@ -615,7 +620,7 @@ pub struct SequenceEditResult {
     pub show_revision: u64,
 }
 
-/// The sequence's name, music, length, and frame time.
+/// The sequence's name, music, length, frame time, and how its rows meet the rows before them.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SequenceInfo {
@@ -623,6 +628,7 @@ pub struct SequenceInfo {
     pub audio: Option<String>,
     pub duration_ms: u64,
     pub frame_ms: u32,
+    pub row_blending: RowBlending,
 }
 
 impl SequenceInfo {
@@ -632,6 +638,7 @@ impl SequenceInfo {
             audio: doc.audio.clone(),
             duration_ms: doc.duration_ms,
             frame_ms: doc.frame_ms,
+            row_blending: doc.row_blending,
         }
     }
 }
@@ -647,7 +654,7 @@ pub struct PlacedEffect {
 }
 
 /// What an edit, undo, or redo changed. To bring a copy of the document up to date, in order:
-/// 1. `info` (when set) replaces the name, music, length, and frame time;
+/// 1. `info` (when set) replaces the name, music, length, frame time, and how rows meet;
 /// 2. drop `removedRows`; replace each of `rows` by id (or append it); then, when `rowOrder` is
 ///    set, sort the rows into that order;
 /// 3. take `removedEffects` and every effect in `effects` out of wherever they are; then insert
@@ -864,6 +871,7 @@ impl Parts {
             doc.audio = info.audio;
             doc.duration_ms = info.duration_ms;
             doc.frame_ms = info.frame_ms;
+            doc.row_blending = info.row_blending;
         }
         self.rows.restore(&mut doc.rows);
         self.tracks.restore(&mut doc.timing_tracks);
@@ -953,7 +961,7 @@ fn row_of_effect(doc: &Sequence, id: EffectId) -> Option<RowId> {
 fn touch(edit: &SequenceEdit, doc: &Sequence, parts: &mut Parts, touched: &mut Touched) {
     let rows = &doc.rows;
     match edit {
-        SequenceEdit::UpdateInfo { .. } => parts.capture_info(doc),
+        SequenceEdit::UpdateInfo { .. } | SequenceEdit::SetRowBlending { .. } => parts.capture_info(doc),
         SequenceEdit::AddRow { row, .. } => {
             parts.rows.capture(rows, row.id);
             parts.rows.capture_order(rows);
@@ -1713,6 +1721,7 @@ mod tests {
             doc.audio = info.audio.clone();
             doc.duration_ms = info.duration_ms;
             doc.frame_ms = info.frame_ms;
+            doc.row_blending = info.row_blending;
         }
         doc.rows.retain(|r| !c.removed_rows.contains(&r.id));
         for row in &c.rows {
@@ -1825,6 +1834,9 @@ mod tests {
                 audio: None,
                 duration_ms: 20_000,
                 frame_ms: 50,
+            }],
+            vec![SequenceEdit::SetRowBlending {
+                row_blending: RowBlending::Blend,
             }],
             vec![SequenceEdit::RemoveTimingTrack { id: track_id }],
             vec![SequenceEdit::RemoveRow { id: first }],

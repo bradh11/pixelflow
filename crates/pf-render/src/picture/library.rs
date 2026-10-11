@@ -17,7 +17,7 @@
 //! changed), it draws the frames it has of the same file, so the picture doesn't blink out.
 
 use super::decode::{Decoded, Look, MAX_LEVEL, decode};
-use super::resample::{Bitmap, resize, turned};
+use super::resample::{Bitmap, Resize, resize, turned};
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -60,8 +60,12 @@ pub(crate) enum Need {
 
 impl Want {
     /// How many times a picture `native` pixels in size can be halved and still be at least the
-    /// size it's drawn.
+    /// size it's drawn. Not at all when it's resized as an xLights version resized it: the
+    /// pixels that picked are the picture's own (it's still halved to fit the memory it may take).
     pub fn level(&self, native: (u32, u32)) -> u8 {
+        if self.look.resize.needs_full_size() {
+            return 0;
+        }
         let across = f64::from(self.columns.max(1)) / f64::from(native.0.max(1));
         let down = f64::from(self.rows.max(1)) / f64::from(native.1.max(1));
         let scale = match self.need {
@@ -102,7 +106,7 @@ pub(crate) struct Drawn {
     pub height: u32,
     /// Quarter turns to the right.
     pub quarters: u8,
-    pub crisp: bool,
+    pub resize: Resize,
 }
 
 /// Things kept within a budget of bytes: the least recently used go first.
@@ -520,7 +524,7 @@ impl Pictures {
         } else {
             (at.width, at.height)
         };
-        let bitmap = Arc::new(turned(resize(source, width, height, at.crisp), at.quarters));
+        let bitmap = Arc::new(turned(resize(source, width, height, at.resize), at.quarters));
         let bytes = bitmap.bytes();
         lock(&library.state).drawn.put(key, Arc::clone(&bitmap), bytes);
         Some(bitmap)

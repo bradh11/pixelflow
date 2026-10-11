@@ -307,6 +307,7 @@
               "colorOrder": "RGB",
               "id": "00000000-0000-4000-a000-000000000002",
               "name": "Roofline",
+              "ownLayout": { "kind": "strand" },
               "regions": [],
               "shape": { "length": 10.0, "nodes": 100, "source": "generator", "type": "line" },
               "tags": [],
@@ -453,6 +454,12 @@
               "colorOrder": "RGB",
               "id": "00000000-0000-4000-a000-000000000007",
               "name": "Porch Star",
+              "ownLayout": {
+                "cells": [[1, 4], [0, 3], [2, 3], [1, 2], [3, 2], [2, 1], [3, 0]],
+                "columns": 5,
+                "kind": "cells",
+                "rows": 5
+              },
               "regions": [
                 {
                   "buffer": "default",
@@ -504,7 +511,7 @@
               }
             }
           ],
-          "schemaVersion": 12,
+          "schemaVersion": 13,
           "sequences": [],
           "settings": { "frameRate": 40 }
         },
@@ -522,11 +529,10 @@
         "These xLights models aren't in the show, so their effects weren't imported: Santa's Sleigh & Reindeer (1 effect), Garage Door (2 effects).",
         "These xLights effects change the layers below them or move fixtures, so they weren't imported (a stand-in would light the prop wrongly): Adjust (1).",
         "Bars (1 effect) approximated: 'Wipe' transition shown as a fade.",
-        "Fire (1 effect) approximated: PixelFlow's own flames: their shape and random placement differ from xLights'.",
         "Marquee (1 effect) approximated: shown as a chase along the pixels.",
         "Meteors (1 effect) approximated: meteor count and speed approximated.",
         "Strobe (1 effect) approximated: number of flashes approximated.",
-        "Text (1 effect) approximated: 'default' font shown in PixelFlow's pixel font.",
+        "Text (1 effect) approximated: 'default' font shown in PixelFlow's pixel font, 10 pixels high where xLights uses the computer's own text size.",
         "1 model in the sequence isn't in the show; it had no effects, so nothing was lost.",
         "These submodels aren't in the show, so their effects weren't imported: Mega Tree/Star (2 effects).",
         "PixelFlow doesn't import effects on strands or single nodes yet; these weren't imported: Mega Tree (1 effect).",
@@ -605,13 +611,14 @@
                     {
                       "blend": "normal",
                       "blur": 0,
+                      "brightness": 0.5,
                       "endMs": 3000,
                       "fadeInMs": 0,
                       "fadeOutMs": 0,
                       "id": "00000000-0000-4000-a000-000000000023",
-                      "palette": { "colors": ["#804000"] },
+                      "palette": { "colors": ["#ff8000"] },
                       "params": { "cycles": 1.0, "gradient": "none", "kind": "colorWash" },
-                      "sparkleColor": "#808080",
+                      "sparkleColor": "#ffffff",
                       "sparkles": 0,
                       "startMs": 1000
                     }
@@ -849,7 +856,16 @@
                       "fadeOutMs": 0,
                       "id": "00000000-0000-4000-a000-000000000038",
                       "palette": { "colors": ["#ff0000"] },
-                      "params": { "height": 0.7, "kind": "fire", "sparks": 0.6 },
+                      "params": {
+                        "growWithMusic": false,
+                        "growthCycles": 0.0,
+                        "height": 0.7,
+                        "hueShift": 0.0,
+                        "kind": "fire",
+                        "location": "bottom",
+                        "sparks": 0.6,
+                        "style": "flicker"
+                      },
                       "sparkleColor": "#ffffff",
                       "sparkles": 0,
                       "startMs": 9000
@@ -1070,14 +1086,14 @@
               "target": { "group": "00000000-0000-4000-a000-000000000009" }
             }
           ],
-          "schemaVersion": 10,
+          "schemaVersion": 11,
           "timingTracks": []
         }
       },
       "summary": {
-        "approximate": 6,
+        "approximate": 5,
         "effects": 22,
-        "exact": 16,
+        "exact": 17,
         "lyricMarks": 0,
         "marks": 0,
         "marksSkipped": 0,
@@ -1352,7 +1368,6 @@
       "notes": [
         "These xLights models weren't mapped to anything, so their effects weren't imported: Mega Tree (6 effects), Santa's Sleigh & Reindeer (1 effect), Garage Door (2 effects).",
         "Bars (1 effect) approximated: 'Wipe' transition shown as a fade.",
-        "Fire (1 effect) approximated: PixelFlow's own flames: their shape and random placement differ from xLights'.",
         "Marquee (1 effect) approximated: shown as a chase along the pixels.",
         "Meteors (1 effect) approximated: meteor count and speed approximated.",
         "Strobe (1 effect) approximated: number of flashes approximated.",
@@ -1373,14 +1388,14 @@
           "name": "Effects",
           "rowBlending": "blend",
           "rows": [],
-          "schemaVersion": 10,
+          "schemaVersion": 11,
           "timingTracks": []
         }
       },
       "summary": {
-        "approximate": 5,
+        "approximate": 4,
         "effects": 18,
-        "exact": 13,
+        "exact": 14,
         "lyricMarks": 0,
         "marks": 0,
         "marksSkipped": 0,

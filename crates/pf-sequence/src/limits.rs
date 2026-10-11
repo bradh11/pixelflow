@@ -27,6 +27,8 @@ pub const MAX_PALETTE_COLORS: usize = 32;
 pub const MAX_SPARKLES: u32 = 200;
 /// The most an effect's blur goes (xLights' Blur 15).
 pub const MAX_BLUR: u32 = 14;
+/// The brightest an effect's brightness setting makes it (xLights' Brightness 400%).
+pub const MAX_BRIGHTNESS: f32 = 4.0;
 /// Characters in a name, label, or file path.
 pub const MAX_TEXT_LEN: usize = 4_096;
 

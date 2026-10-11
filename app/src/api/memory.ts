@@ -1613,7 +1613,7 @@ export interface PreviewWindowHandle {
 
 export function emptyShow(name: string): Show {
   return {
-    schemaVersion: 12,
+    schemaVersion: 13,
     name,
     settings: { frameRate: 40 },
     props: [],

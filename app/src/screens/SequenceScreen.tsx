@@ -10,6 +10,7 @@ import { EffectPalette } from "../components/sequencer/EffectPalette";
 import { EffectSettings } from "../components/sequencer/EffectSettings";
 import { ExportVideoDialog } from "../components/sequencer/ExportVideoDialog";
 import { FindLyrics, LyricsSource } from "../components/sequencer/FindLyrics";
+import { SequenceSettings } from "../components/sequencer/SequenceSettings";
 import { PoppedOutNote } from "../components/preview/PopOut";
 import { RowOnlyToggle, SequencePreview } from "../components/sequencer/SequencePreview";
 import { useSequencePolling } from "../components/sequencer/useSequenceFrame";
@@ -405,6 +406,7 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
           <span className="mx-1 max-w-48 truncate font-medium" title={s.path ? shownPath(s.path) : undefined}>
             {s.name}
           </span>
+          <SequenceSettings />
           {s.dirty && <UnsavedBadge doc="sequence" />}
           <span className="mx-1 h-5 w-px bg-neutral-200 dark:bg-neutral-800" />
           <ToolButton label={s.playing ? "Pause" : "Play"} shortcut={ariaKeysFor("seq-play")} onClick={() => void (s.playing ? act().pause() : act().play())}>

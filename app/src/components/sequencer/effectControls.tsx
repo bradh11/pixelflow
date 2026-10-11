@@ -84,6 +84,21 @@ export const BLUR: Extract<EffectSetting, { type: "int" }> = {
   default: 0,
 };
 
+/** A color adjustment's key on an effect. */
+export type ColorAdjustment = "hueAdjust" | "saturationAdjust" | "valueAdjust" | "brightness" | "contrast";
+
+/**
+ * The color adjustments every effect has, applied to what it drew: edited like the catalog's
+ * number settings. All but contrast can change over the effect.
+ */
+export const COLOR_ADJUSTMENTS: (Extract<EffectSetting, { type: "number" }> & { key: ColorAdjustment; curve: boolean })[] = [
+  { key: "hueAdjust", label: "Hue shift", description: "Turns every color the effect draws round the color wheel: 1 is a full turn.", type: "number", min: -1, max: 1, step: 0.01, default: 0, curve: true },
+  { key: "saturationAdjust", label: "Saturation shift", description: "Makes the effect's colors more vivid, or (below 0) greyer.", type: "number", min: -1, max: 1, step: 0.01, default: 0, curve: true },
+  { key: "valueAdjust", label: "Lightness shift", description: "Makes the effect's colors lighter, or (below 0) darker.", type: "number", min: -1, max: 1, step: 0.01, default: 0, curve: true },
+  { key: "brightness", label: "Brightness", description: "How bright the effect is, sparkles included: 1 is as drawn, 0 dark, up to 4.", type: "number", min: 0, max: 4, step: 0.01, default: 1, curve: true },
+  { key: "contrast", label: "Contrast", description: "Darkens the effect's darker colors and brightens its brighter ones (below 0: the other way).", type: "number", min: -1, max: 1, step: 0.01, default: 0, curve: false },
+];
+
 export const MAX_COLORS = 32;
 
 export const FIELD = "rounded-md border border-neutral-300 bg-white px-2 py-1 text-sm dark:border-neutral-700 dark:bg-neutral-950";

@@ -10,6 +10,7 @@
 //! seeking and export always give the same picture. [`export`]
 //! writes a sequence as an FPP `.fseq` file.
 
+mod adjust;
 pub mod audio;
 mod blur;
 mod butterfly;
@@ -21,6 +22,8 @@ mod effects;
 pub mod export;
 pub mod faces;
 mod fan;
+mod fill;
+mod fire;
 mod garlands;
 mod geometry;
 mod impact;
@@ -35,6 +38,7 @@ mod pulse;
 mod raster;
 mod render;
 mod shape;
+mod shockwave;
 mod sim;
 mod sing;
 mod snowflakes;

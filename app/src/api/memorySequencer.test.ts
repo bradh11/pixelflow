@@ -56,6 +56,35 @@ describe("MemorySequencer", () => {
     }
   });
 
+  it("sets how rows meet the rows before them, through undo and redo", async () => {
+    const { seq } = await authored();
+    let copy = structuredClone(seq.doc!);
+    const blend = (): SequenceEdit[] => [{ type: "setRowBlending", rowBlending: "blend" }];
+    const reply = await seq.editSequence(blend());
+    expect(reply.changed).toBe(true);
+    expect(seq.doc!.rowBlending).toBe("blend");
+    copy = applySequenceChanges(copy, reply.changes);
+    expect(copy).toEqual(seq.doc);
+    // Already set: nothing changes, and there's no second step to undo.
+    expect((await seq.editSequence(blend())).changed).toBe(false);
+    copy = applySequenceChanges(copy, (await seq.undoSequence()).changes);
+    expect(copy).not.toHaveProperty("rowBlending");
+    expect(copy).toEqual(seq.doc);
+    expect(seq.doc!.rows).toHaveLength(1);
+    copy = applySequenceChanges(copy, (await seq.redoSequence()).changes);
+    expect(copy.rowBlending).toBe("blend");
+    expect(copy).toEqual(seq.doc);
+  });
+
+  it("leaves rowBlending out of a sequence whose rows cover, as the file does", async () => {
+    const { seq } = await authored();
+    await seq.editSequence([{ type: "setRowBlending", rowBlending: "replace" }]);
+    await seq.editSequence([{ type: "setRowBlending", rowBlending: "cover" }]);
+    expect(seq.doc).not.toHaveProperty("rowBlending");
+    await seq.saveSequenceDocAs("/shows/song.pfseq.json");
+    expect(seq.files.get("/shows/song.pfseq.json")).not.toHaveProperty("rowBlending");
+  });
+
   it("merges edits with the same gesture id into one undo step", async () => {
     const { seq, effect } = await authored();
     const move = (startMs: number, gesture?: string) =>
@@ -95,7 +124,7 @@ describe("MemorySequencer", () => {
   it("serves the engine's effect catalog and builds default settings from it", async () => {
     const seq = new MemorySequencer();
     const catalog = await seq.effectCatalog();
-    expect(catalog.map((e) => e.kind)).toHaveLength(37);
+    expect(catalog.map((e) => e.kind)).toHaveLength(39);
     const chase = catalog.find((e) => e.kind === "chase")!;
     expect(chase.settings.find((s) => s.key === "speed")).toMatchObject({ type: "number", min: 0, max: 50, default: 1 });
     expect(defaultParams(chase)).toEqual({

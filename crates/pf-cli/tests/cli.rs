@@ -358,11 +358,13 @@ fn an_xlights_sequence_imports_onto_a_show_and_saves_as_a_sequence_file() {
     std::fs::remove_file(&saved).ok();
     assert!(output.status.success(), "{text}");
     assert!(
-        text.contains("Effects: 0:20.000 long, 8 rows, 22 effects (16 exact, 6 approximated, 0 placeholders"),
+        text.contains("Effects: 0:20.000 long, 8 rows, 22 effects (17 exact, 5 approximated, 0 placeholders"),
         "{text}"
     );
     assert!(
-        text.contains("Text (1 effect) approximated: 'default' font shown in PixelFlow's pixel font."),
+        text.contains(
+            "Text (1 effect) approximated: 'default' font shown in PixelFlow's pixel font, 10 pixels high"
+        ),
         "{text}"
     );
     assert!(text.contains("Saved"), "{text}");
@@ -420,11 +422,11 @@ fn a_sequence_auto_maps_and_its_mapping_saves_as_an_xmap_that_imports_the_same()
     assert!(written.starts_with("false\n"), "{written}");
     // The same effects come in either way.
     assert!(
-        text.contains("8 rows, 22 effects (16 exact, 6 approximated"),
+        text.contains("8 rows, 22 effects (17 exact, 5 approximated"),
         "{text}"
     );
     assert!(
-        text_again.contains("8 rows, 22 effects (16 exact, 6 approximated"),
+        text_again.contains("8 rows, 22 effects (17 exact, 5 approximated"),
         "{text_again}"
     );
 }

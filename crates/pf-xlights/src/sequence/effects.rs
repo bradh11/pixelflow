@@ -14,14 +14,14 @@ use pf_model::{BufferTransform, RenderStyle};
 use pf_sequence::{
     Axis, BarsMotion, BarsParams, Blend, ButterflyColors, ButterflyParams, ChaseParams, CirclesLook,
     CirclesParams, ColorWashParams, Curve, CurveShape, Direction, EffectParams, FaceColorSource, FaceEyes,
-    FacesParams, FanParams, FireParams, GarlandShape, GarlandsDirection, GarlandsParams, Gradient,
-    LifeParams, LifeRules, LightningParams, LinesParams, MAX_CURVE_CYCLES, MIN_CURVE_CYCLES, MeteorDirection,
-    MeteorsParams, MorphParams, OffParams, OnParams, Palette, PictureFit, PictureMovement, PictureParams,
-    PictureTiming, PinwheelParams, PinwheelShading, PinwheelStyle, PlasmaColors, PlasmaParams, Rgb,
-    RippleParams, SettingRange, ShapeObject, ShapeParams, ShimmerParams, SnowflakeShape, SnowflakesMotion,
-    SnowflakesParams, SpiralParams, StrobeParams, TendrilMovement, TendrilParams, TextCountdown,
-    TextMovement, TextOrientation, TextParams, TwinkleParams, VuMeterParams, VuMeterShape, VuMeterType,
-    WaveParams,
+    FacesParams, FanParams, FillDirection, FillParams, FireLocation, FireParams, FireStyle, GarlandShape,
+    GarlandsDirection, GarlandsParams, Gradient, LifeParams, LifeRules, LightningParams, LinesParams,
+    MAX_CURVE_CYCLES, MIN_CURVE_CYCLES, MeteorDirection, MeteorsParams, MorphParams, OffParams, OnParams,
+    Palette, PictureFit, PictureMovement, PictureParams, PictureResize, PictureTiming, PinwheelParams,
+    PinwheelShading, PinwheelStyle, PlasmaColors, PlasmaParams, Rgb, RippleParams, SettingRange, ShapeObject,
+    ShapeParams, ShimmerParams, ShockwaveParams, SnowflakeShape, SnowflakesMotion, SnowflakesParams,
+    SpiralParams, StrobeParams, TendrilMovement, TendrilParams, TextCountdown, TextMovement, TextOrientation,
+    TextParams, TwinkleParams, VuMeterParams, VuMeterShape, VuMeterType, WaveParams,
 };
 use std::collections::BTreeMap;
 
@@ -52,6 +52,13 @@ pub struct Translated {
     pub music_sparkles: bool,
     /// PixelFlow's blur (xLights' Blur minus one).
     pub blur: u32,
+    /// The color panel's hue, saturation, and value shifts (−1 to 1), brightness (1 = as drawn),
+    /// and contrast.
+    pub hue_adjust: f32,
+    pub saturation_adjust: f32,
+    pub value_adjust: f32,
+    pub brightness: f32,
+    pub contrast: f32,
     pub render_style: RenderStyle,
     pub buffer_transform: BufferTransform,
     /// Settings that change over the effect, by PixelFlow setting key.
@@ -733,27 +740,35 @@ fn spirals(r: &Reader, n_colors: f64, duration_ms: u64) -> EffectParams {
     })
 }
 
-/// PixelFlow's Fire is a simulation of its own, not xLights' (`FireEffect::Render` builds each
-/// frame's flames afresh on the target's grid): the same kind of look, measurably different.
-fn fire(r: &Reader, diff: &mut Diff) -> EffectParams {
-    diff.add("PixelFlow's own flames: their shape and random placement differ from xLights'");
-    if r.get("Fire_HueShift", 0.0, 0.0, 100.0) > 0.0 {
-        diff.add("hue shift not applied");
-    }
-    if r.get("Fire_GrowthCycles", 0.0, 0.0, 20.0) > 0.0 || r.check("Fire_GrowWithMusic") {
-        diff.add("growing flames shown at a steady height");
-    }
-    let location = r.choice("Fire_Location", "Bottom");
-    if location != "Bottom" {
-        diff.add(format!(
-            "fire from the {} shown rising from the bottom",
-            location.to_lowercase()
-        ));
-    }
+/// xLights' Fire (`FireEffect::Render`), which PixelFlow's flickering flames draw the same way.
+/// Where each flame lands is random on both sides.
+fn fire(r: &Reader) -> EffectParams {
+    let hue_shift = r.get("Fire_HueShift", 0.0, 0.0, 100.0);
     EffectParams::Fire(FireParams {
         height: unit(r.get("Fire_Height", 50.0, 1.0, 100.0) / 100.0),
+        style: FireStyle::Flicker,
+        location: match r.choice("Fire_Location", "Bottom") {
+            "Top" => FireLocation::Top,
+            "Left" => FireLocation::Left,
+            "Right" => FireLocation::Right,
+            _ => FireLocation::Bottom,
+        },
+        hue_shift: unit(hue_shift.trunc() / 100.0),
+        growth_cycles: r.get("Fire_GrowthCycles", 0.0, 0.0, 20.0) as f32,
+        grow_with_music: r.check("Fire_GrowWithMusic"),
         ..FireParams::default()
     })
+}
+
+/// A hue-shifted fire's dim flames are both darker and see-through in xLights on a layer blended
+/// Normal, and only darker on any other, where PixelFlow's stay both.
+fn dim_flames(params: &EffectParams, curves: &BTreeMap<String, Curve>, blend: Blend, diff: &mut Diff) {
+    let EffectParams::Fire(p) = params else {
+        return;
+    };
+    if blend != Blend::Normal && (p.hue_shift > 0.0 || curves.contains_key("hueShift")) {
+        diff.add("a hue-shifted fire's dim flames are dimmer than xLights' under this layer blending");
+    }
 }
 
 fn meteors(r: &Reader, diff: &mut Diff) -> EffectParams {
@@ -820,6 +835,54 @@ fn ripple(r: &Reader, duration_ms: u64, diff: &mut Diff) -> EffectParams {
     })
 }
 
+/// xLights' Shockwave (`ShockwaveEffect::Render`), which PixelFlow's Shockwave draws the same
+/// way. A setting xLights leaves out of the file has the value its panel starts with.
+fn shockwave(r: &Reader, diff: &mut Diff) -> EffectParams {
+    let cycles = r.get("Shockwave_Cycles", 1.0, 1.0, 100.0);
+    // xLights reads its value curves at the ring's place in its own cycle; PixelFlow's curves
+    // run once over the effect.
+    let moving =
+        r.s.keys()
+            .any(|k| k.starts_with("E_VALUECURVE_Shockwave_") && r.s.curve_active(k));
+    if cycles >= 2.0 && moving {
+        diff.add("settings that change over each ring change once over the effect");
+    }
+    if !r.choice("Shockwave_TimingTrack", "").is_empty() {
+        diff.add("rings fired by a timing track shown one after another over the effect");
+    }
+    EffectParams::Shockwave(ShockwaveParams {
+        center_x: r.get("Shockwave_CenterX", 50.0, 0.0, 100.0) as f32,
+        center_y: r.get("Shockwave_CenterY", 50.0, 0.0, 100.0) as f32,
+        start_radius: r.get("Shockwave_Start_Radius", 1.0, 0.0, 750.0) as f32,
+        end_radius: r.get("Shockwave_End_Radius", 10.0, 0.0, 750.0) as f32,
+        start_width: r.get("Shockwave_Start_Width", 5.0, 0.0, 255.0) as f32,
+        end_width: r.get("Shockwave_End_Width", 10.0, 0.0, 255.0) as f32,
+        cycles: count(cycles, 1, 100),
+        acceleration: r.get("Shockwave_Accel", 0.0, -10.0, 10.0) as f32,
+        blend_edges: r.check_or("Shockwave_Blend_Edges", true),
+        scale: r.check_or("Shockwave_Scale", true),
+    })
+}
+
+/// xLights' Fill (`FillEffect::Render`), which PixelFlow's Fill draws the same way.
+fn fill(r: &Reader) -> EffectParams {
+    EffectParams::Fill(FillParams {
+        position: r.get("Fill_Position", 100.0, 0.0, 100.0) as f32,
+        direction: match r.choice("Fill_Direction", "Up") {
+            "Down" => FillDirection::Down,
+            "Left" => FillDirection::Left,
+            "Right" => FillDirection::Right,
+            _ => FillDirection::Up,
+        },
+        band_size: r.get("Fill_Band_Size", 0.0, 0.0, 250.0) as f32,
+        skip_size: r.get("Fill_Skip_Size", 0.0, 0.0, 250.0) as f32,
+        offset: r.get("Fill_Offset", 0.0, 0.0, 100.0) as f32,
+        offset_in_cells: r.check_or("Fill_Offset_In_Pixels", true),
+        wrap: r.check_or("Fill_Wrap", true),
+        color_by_time: r.check("Fill_Color_Time"),
+    })
+}
+
 /// True when the xLights version `version` ("2024.19") is older than `than` ("2025.04"), as
 /// xLights' `IsVersionOlder` compares them. An unreadable version counts as current.
 fn version_older(than: &str, version: &str) -> bool {
@@ -830,12 +893,47 @@ fn version_older(than: &str, version: &str) -> bool {
     }
 }
 
+/// A note for [`pictures`] of how the xLights that saved the sequence resized a picture. Not a
+/// setting of xLights' own.
+const PICTURES_RESIZED: &str = "PIXELFLOW_Pictures_Resized";
+
 /// Settings xLights changes when it opens a file saved by an older version (each effect's
-/// `adjustSettings`), so the effect looks as it does in xLights today.
+/// `adjustSettings`), so the effect looks as it does in xLights today. A picture is the
+/// exception: xLights has resized pictures four ways, and an old sequence keeps the way of the
+/// version that saved it, which is the one its lights were last seen with.
 pub fn adjust_for_version(name: &str, s: &mut Settings, version: &str) {
     match effect_key(name).as_str() {
+        // xLights resized with `wxImage::Rescale` until 2026.04, and what that does changed with
+        // the wxWidgets it was built on: the nearest pixel until 2024.16; then four pixels mixed
+        // when shrinking, with the nearest pixel still for enlarging (taken from each cell's
+        // middle from 2025.04); from 2025.06 a box average. Since 2026.04 it filters.
+        "pictures" => {
+            let how = if version_older("2024.16", version) {
+                "nearest"
+            } else if version_older("2025.04", version) {
+                "mixed"
+            } else if version_older("2025.06", version) {
+                "mixed, middle"
+            } else {
+                return;
+            };
+            s.set(PICTURES_RESIZED, how.into());
+        }
         // Fan radii became a share of the prop in 2025.04; older fans keep them in pixels.
         "fan" if version_older("2025.04", version) => s.set("E_CHECKBOX_Fan_Scale", "0".into()),
+        // So did a Shockwave's sizes.
+        "shockwave" if version_older("2025.04", version) => {
+            s.set("E_CHECKBOX_Shockwave_Scale", "0".into());
+        }
+        // The first Fills were colored by time (until 2016.41) and always wrapped (until 2016.53).
+        "fill" => {
+            if version_older("2016.41", version) {
+                s.set("E_CHECKBOX_Fill_Color_Time", "1".into());
+            }
+            if version_older("2016.53", version) {
+                s.set("E_CHECKBOX_Fill_Wrap", "1".into());
+            }
+        }
         // Pinwheels from before the new render method (2026.06) keep the old one.
         "pinwheel" if version_older("2026.06", version) && !s.contains("E_CHOICE_Pinwheel_Style") => {
             s.set("E_CHOICE_Pinwheel_Style", "Old Render Method".into());
@@ -1357,7 +1455,8 @@ fn font_height(xl_font: &str, os_font: &str) -> Option<f64> {
 }
 
 /// Text (xLights' `TextEffect`), in PixelFlow's pixel font at about the font's size (10 pixels
-/// when the font doesn't say).
+/// when the font doesn't say, where xLights takes the size of the computer's own text: 13 on a
+/// Mac).
 fn text(r: &Reader, diff: &mut Diff) -> EffectParams {
     let words = r.s.text("E_TEXTCTRL_Text", "");
     if words.is_empty()
@@ -1376,8 +1475,20 @@ fn text(r: &Reader, diff: &mut Diff) -> EffectParams {
     } else {
         os_font.split('\'').nth(1).unwrap_or("default")
     };
-    diff.add(format!("'{font}' font shown in PixelFlow's pixel font"));
-    let size = font_height(xl_font, os_font).unwrap_or(10.0);
+    let size = font_height(xl_font, os_font);
+    diff.add(match size {
+        Some(_) => format!("'{font}' font shown in PixelFlow's pixel font"),
+        None => format!(
+            "'{font}' font shown in PixelFlow's pixel font, 10 pixels high where xLights uses the \
+             computer's own text size"
+        ),
+    });
+    let size = size.unwrap_or(10.0);
+    // The pixel font has the printable ASCII characters; xLights draws the rest (emoji too)
+    // with the computer's fonts.
+    if words.chars().any(|c| !matches!(c, ' '..='~' | '\n')) {
+        diff.add("characters PixelFlow's pixel font doesn't have (accents, emoji) shown as boxes");
+    }
     use TextMovement as M;
     let movement = match r.choice("Text_Dir", "none") {
         "none" => M::None,
@@ -1581,13 +1692,27 @@ fn pictures(r: &Reader, duration_ms: u64, diff: &mut Diff) -> EffectParams {
         PictureFit::Actual => r.get("Pictures_StartScale", 100.0, 0.0, 1000.0),
         _ => 100.0,
     };
-    // xLights resizes by taking the nearest pixel (`wxImage::Rescale` as it calls it); PixelFlow
-    // blends them, so a resized picture's pixels aren't the same ones.
+    // Which pixels a resized picture takes depends on the xLights that saved the sequence (see
+    // `adjust_for_version`). PixelFlow has the two oldest ways; for the rest it averages.
+    let (resize, differs) = match r.s.text(PICTURES_RESIZED, "") {
+        "nearest" => (PictureResize::XlightsNearest, None),
+        "mixed" => (PictureResize::XlightsMixed, None),
+        "mixed, middle" => (
+            PictureResize::XlightsMixed,
+            Some(
+                "enlarged from each cell's corner pixel, where xLights 2025.04 and 2025.05 took its middle one",
+            ),
+        ),
+        _ => (
+            PictureResize::Own,
+            Some("resized by averaging its pixels, where xLights uses another filter"),
+        ),
+    };
     let resized = fit != PictureFit::Actual
         || scale != 100.0
         || r.get("Pictures_EndScale", 100.0, 0.0, 1000.0) != 100.0;
-    if resized {
-        diff.add("resized by blending its pixels, where xLights takes the nearest one");
+    if let (true, Some(differs)) = (resized, differs) {
+        diff.add(differs);
     }
     // A scrolling picture's offset up is taken downward by xLights.
     let up = r.get("PicturesYC", 0.0, -100.0, 100.0);
@@ -1629,6 +1754,7 @@ fn pictures(r: &Reader, duration_ms: u64, diff: &mut Diff) -> EffectParams {
         // xLights' level is red + green + blue (0-765); PixelFlow's a share of full white.
         black_level: (r.get("Pictures_TransparentBlack", 0.0, 0.0, 765.0) / 7.65) as f32,
         pixel_offsets: r.check("Pictures_PixelOffsets"),
+        resize,
         ..PictureParams::default()
     })
 }
@@ -1716,7 +1842,7 @@ fn effect_params(
         "shimmer" => shimmer(&r, duration_ms, diff),
         "strobe" => strobe(&r, frame, diff),
         "spirals" => spirals(&r, n_colors, duration_ms),
-        "fire" => fire(&r, diff),
+        "fire" => fire(&r),
         "meteors" => meteors(&r, diff),
         "ripple" => ripple(&r, duration_ms, diff),
         "faces" => faces(&r, diff),
@@ -1735,12 +1861,13 @@ fn effect_params(
         "text" => text(&r, diff),
         "vumeter" => vu_meter(&r, diff),
         "pictures" => pictures(&r, duration_ms, diff),
+        "shockwave" => shockwave(&r, diff),
+        "fill" => fill(&r),
         // No direct equivalent: the closest PixelFlow effect, with its default settings.
         "fireworks" => closest("twinkles", EffectParams::Twinkle(TwinkleParams::default())),
         "snowstorm" => closest("falling meteors", EffectParams::Meteors(MeteorsParams::default())),
-        "shockwave" => closest("a ripple", EffectParams::Ripple(RippleParams::default())),
         "galaxy" => closest("a spiral", EffectParams::Spiral(SpiralParams::default())),
-        "fill" | "curtain" => closest("moving bars", EffectParams::Bars(BarsParams::default())),
+        "curtain" => closest("moving bars", EffectParams::Bars(BarsParams::default())),
         "lightning" => lightning(&r, diff),
         "adjust" | "warp" | "duplicate" | "dmx" | "servo" | "movinghead" => return Kind::Skip,
         _ => return Kind::Placeholder,
@@ -1875,26 +2002,82 @@ fn sparkles_curve(palette: &ParsedPalette, diff: &mut Diff) -> Option<(u32, Opti
     Some((start as u32, curve, track))
 }
 
-/// The palette's sparkles and their color (dimmed by the palette's brightness, as xLights applies
-/// brightness after sparkles).
-fn sparkles(palette: &ParsedPalette) -> (u32, Rgb) {
-    let c = palette.sparkle_color;
-    let scale = brightness_scale(palette);
-    let f = |v: u8| (f64::from(v) * scale).round() as u8;
-    (palette.sparkles, Rgb::new(f(c.r), f(c.g), f(c.b)))
+/// The color panel's adjustments in PixelFlow's terms: the hue, saturation, and value shifts and
+/// the contrast as fractions, the brightness as a factor.
+struct Adjustments {
+    hue: f32,
+    saturation: f32,
+    value: f32,
+    brightness: f32,
+    contrast: f32,
 }
 
-/// The palette's brightness as a factor (0–1; above 100% counts as 100%).
-fn brightness_scale(palette: &ParsedPalette) -> f64 {
+/// The palette's color adjustments (`PixelBufferClass::SetLayerSettings` reads the sliders as
+/// whole percents), each at its value at the start, with a curve in `curves` where its value
+/// curve changes it over the effect (the brightness curve's values are whole percents too).
+fn adjustments(
+    palette: &ParsedPalette,
+    curves: &mut BTreeMap<String, Curve>,
+    curve_tracks: &mut Vec<(String, String)>,
+    diff: &mut Diff,
+) -> Adjustments {
+    let shift = |percent: f64| (percent / 100.0).clamp(-1.0, 1.0) as f32;
+    let factor =
+        |percent: f64| (percent.trunc() / 100.0).clamp(0.0, f64::from(pf_sequence::MAX_BRIGHTNESS)) as f32;
     let brightness = if palette.brightness.is_finite() {
-        palette.brightness.max(0.0)
+        palette.brightness
     } else {
         100.0
     };
-    (brightness / 100.0).min(1.0)
+    let mut adjust = Adjustments {
+        hue: shift(palette.hue_adjust),
+        saturation: shift(palette.saturation_adjust),
+        value: shift(palette.value_adjust),
+        brightness: factor(brightness),
+        contrast: shift(palette.contrast),
+    };
+    // A setting's value curve, over the range xLights gives it: `setting` starts where it does.
+    let mut follow = |key: &str,
+                      text: &Option<String>,
+                      setting: &mut f32,
+                      (least, most): (f32, f32),
+                      convert: &dyn Fn(f64) -> f32| {
+        let Some(curve) = text.as_deref().and_then(|t| XlCurve::parse_in(t, least, most)) else {
+            return;
+        };
+        let (start, curve, track) = setting_curve(&curve, convert, diff);
+        *setting = start;
+        curves.extend(curve.map(|c| (key.to_string(), c)));
+        curve_tracks.extend(track.map(|t| (key.to_string(), t)));
+    };
+    const SHIFT: (f32, f32) = (-100.0, 100.0);
+    follow("hueAdjust", &palette.hue_curve, &mut adjust.hue, SHIFT, &shift);
+    follow(
+        "saturationAdjust",
+        &palette.saturation_curve,
+        &mut adjust.saturation,
+        SHIFT,
+        &shift,
+    );
+    follow(
+        "valueAdjust",
+        &palette.value_curve,
+        &mut adjust.value,
+        SHIFT,
+        &shift,
+    );
+    follow(
+        "brightness",
+        &palette.brightness_curve,
+        &mut adjust.brightness,
+        (0.0, 400.0),
+        &factor,
+    );
+    adjust
 }
 
-/// Palette colors with the palette's brightness applied (xLights' `C_SLIDER_Brightness`).
+/// The palette's colors, as they are: its brightness and other adjustments are the effect's own
+/// settings (see [`adjustments`]).
 fn palette_colors(palette: &ParsedPalette, diff: &mut Diff) -> Vec<Rgb> {
     if palette.color_curves > 0 {
         diff.add("color curves shown as their first color");
@@ -1905,10 +2088,6 @@ fn palette_colors(palette: &ParsedPalette, diff: &mut Diff) -> Vec<Rgb> {
     for extra in &palette.extras {
         diff.add(format!("{extra} not applied"));
     }
-    if palette.brightness.is_finite() && palette.brightness > 100.0 {
-        diff.add("brightness above 100% shown at 100%");
-    }
-    let scale = brightness_scale(palette);
     // With no colors enabled xLights draws white, so say so explicitly (PixelFlow's renderer
     // also draws an empty palette white, but the timeline shows what's in the palette).
     let colors: &[Rgb] = if palette.colors.is_empty() {
@@ -1919,30 +2098,8 @@ fn palette_colors(palette: &ParsedPalette, diff: &mut Diff) -> Vec<Rgb> {
     colors
         .iter()
         .take(pf_sequence::MAX_PALETTE_COLORS)
-        .map(|c| {
-            let f = |v: u8| (f64::from(v) * scale).round() as u8;
-            Rgb::new(f(c.r), f(c.g), f(c.b))
-        })
+        .copied()
         .collect()
-}
-
-/// A picture has its own colors, so the palette's brightness (which xLights applies to every
-/// effect) can't dim them the way it dims other effects' palette colors: the picture is tinted
-/// with a grey that dim instead. At full brightness it's left alone.
-fn dimmed_picture(
-    params: EffectParams,
-    colors: Vec<Rgb>,
-    palette: &ParsedPalette,
-) -> (EffectParams, Vec<Rgb>) {
-    let scale = brightness_scale(palette);
-    match params {
-        EffectParams::Picture(mut p) if scale < 1.0 => {
-            p.tint = true;
-            let level = (255.0 * scale).round() as u8;
-            (EffectParams::Picture(p), vec![Rgb::new(level, level, level)])
-        }
-        other => (other, colors),
-    }
 }
 
 /// Translates one xLights effect lasting `duration_ms` in a sequence with `frame_ms` frames.
@@ -1956,7 +2113,7 @@ pub fn translate(
 ) -> Option<Translated> {
     let mut diff = Diff(Vec::new());
     let colors = palette_colors(palette, &mut diff);
-    let (mut sparkles, sparkle_color) = sparkles(palette);
+    let (mut sparkles, sparkle_color) = (palette.sparkles, palette.sparkle_color);
     // xLights' music sparkles: the count times the music's peak (nothing to follow without any).
     let music_sparkles = palette.music_sparkles && palette.sparkles > 0;
     let blend = blend(s, &mut diff);
@@ -1978,6 +2135,7 @@ pub fn translate(
         curves.extend(curve.map(|c| ("blur".to_string(), c)));
         curve_tracks.extend(track.map(|t| ("blur".to_string(), t)));
     }
+    let adjust = adjustments(palette, &mut curves, &mut curve_tracks, &mut diff);
     // Settings that change over the effect start at their first value; music and timing-track
     // ones at their middle (where they sit without the music or the track), and get curves that
     // follow them (see `follow`).
@@ -2018,6 +2176,7 @@ pub fn translate(
                 }
                 on_cycles(&start, &clamped, &mut curves, &mut diff);
                 picture_curves(&start, &clamped, &mut curves, &mut diff);
+                dim_flames(&clamped, &curves, blend, &mut diff);
                 for (id, curve) in &driven {
                     let at = |value: f64| {
                         let mut at = start.clone();
@@ -2066,7 +2225,6 @@ pub fn translate(
                         curve_tracks.extend(track.map(|t| (spec.key.to_string(), t)));
                     }
                 }
-                let (clamped, colors) = dimmed_picture(clamped, colors, palette);
                 Translated {
                     params: clamped,
                     palette: Palette::new(colors),
@@ -2077,6 +2235,11 @@ pub fn translate(
                     sparkle_color,
                     music_sparkles,
                     blur,
+                    hue_adjust: adjust.hue,
+                    saturation_adjust: adjust.saturation,
+                    value_adjust: adjust.value,
+                    brightness: adjust.brightness,
+                    contrast: adjust.contrast,
                     render_style,
                     buffer_transform,
                     curves,
@@ -2103,6 +2266,11 @@ pub fn translate(
                 sparkle_color,
                 music_sparkles,
                 blur,
+                hue_adjust: adjust.hue,
+                saturation_adjust: adjust.saturation,
+                value_adjust: adjust.value,
+                brightness: adjust.brightness,
+                contrast: adjust.contrast,
                 render_style,
                 buffer_transform,
                 curves,
@@ -2298,8 +2466,69 @@ mod tests {
             (250, 1000),
             "fades fit in the effect"
         );
-        assert_eq!(t.palette.colors, vec![Rgb::new(100, 50, 25)]);
+        // The palette keeps its colors; its brightness is the effect's.
+        assert_eq!(t.palette.colors, vec![Rgb::new(200, 100, 50)]);
+        assert_eq!(t.brightness, 0.5);
         assert_eq!(t.fidelity, Fidelity::Exact);
+    }
+
+    #[test]
+    fn the_color_panels_adjustments_translate_exactly_with_their_curves() {
+        let mut p = palette(&[Rgb::RED]);
+        p.hue_adjust = -25.0;
+        p.saturation_adjust = 10.0;
+        p.value_adjust = -5.0;
+        p.contrast = 13.0;
+        p.brightness = 250.9;
+        let t = translate("On", &Settings::default(), &p, 1000, 25).unwrap();
+        assert_eq!(
+            (
+                t.hue_adjust,
+                t.saturation_adjust,
+                t.value_adjust,
+                t.contrast,
+                t.brightness
+            ),
+            (-0.25, 0.1, -0.05, 0.13, 2.5),
+            "whole percents, and brightness can go past 100%"
+        );
+        assert!(t.curves.is_empty());
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        let plain = translate("On", &Settings::default(), &palette(&[Rgb::RED]), 1000, 25).unwrap();
+        assert_eq!(
+            (
+                plain.hue_adjust,
+                plain.saturation_adjust,
+                plain.value_adjust,
+                plain.contrast,
+                plain.brightness
+            ),
+            (0.0, 0.0, 0.0, 0.0, 1.0)
+        );
+        // Value curves: the shifts as fractions, the brightness in whole percents.
+        let mut p = palette(&[Rgb::RED]);
+        p.hue_curve = Some("Active=TRUE|Id=ID_VALUECURVE_Color_HueAdjust|Type=Ramp|Min=-100.00|Max=100.00|P1=-50.00|P2=75.00|RV=TRUE|".into());
+        p.value_curve = Some("Active=TRUE|Id=ID_VALUECURVE_Color_ValueAdjust|Type=Ramp|Min=-100.00|Max=100.00|P1=0.00|P2=-34.00|RV=TRUE|".into());
+        p.brightness_curve = Some("Active=TRUE|Id=ID_VALUECURVE_Brightness|Type=Ramp|Min=0.00|Max=400.00|P1=100.00|P2=300.00|RV=TRUE|".into());
+        let t = translate("On", &Settings::default(), &p, 1000, 25).unwrap();
+        assert_eq!(t.curves["hueAdjust"], Curve::ramp(-0.5, 0.75));
+        assert_eq!(t.curves["valueAdjust"], Curve::ramp(0.0, -0.34));
+        assert_eq!((t.hue_adjust, t.value_adjust, t.brightness), (-0.5, 0.0, 1.0));
+        let Some(brightness) = t.curves.get("brightness") else {
+            panic!("a brightness curve")
+        };
+        assert_eq!((brightness.value_at(0.0), brightness.value_at(1.0)), (1.0, 3.0));
+        assert!(!t.curves.contains_key("saturationAdjust"));
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        // What PixelFlow doesn't apply still says so.
+        let mut p = palette(&[Rgb::RED]);
+        p.extras = vec!["chroma key"];
+        assert_eq!(
+            translate("On", &Settings::default(), &p, 1000, 25)
+                .unwrap()
+                .fidelity,
+            Fidelity::Approximate(vec!["chroma key not applied".into()])
+        );
     }
 
     #[test]
@@ -2366,9 +2595,9 @@ mod tests {
         assert_eq!(t.fidelity, Fidelity::Exact);
         assert_eq!((t.sparkles, t.blur), (54, 7));
         assert_eq!(
-            t.sparkle_color,
-            Rgb::new(100, 50, 0),
-            "dimmed by the palette's brightness"
+            (t.sparkle_color, t.brightness),
+            (Rgb::new(200, 100, 0), 0.5),
+            "the effect's brightness dims its sparkles as it's drawn"
         );
         let plain = translate(
             "Color Wash",
@@ -3385,6 +3614,26 @@ mod tests {
                 "countdown 'to date 's'' shown as the text itself".into(),
             ])
         );
+        // A system font that doesn't give its size is drawn at the size of the computer's own
+        // text in xLights, and characters outside the pixel font are boxes here.
+        let s = Settings::parse(
+            "E_CHOICE_Text_Font=Use OS Fonts,E_FONTPICKER_Text_Font=bold 'arial narrow' utf-8,\
+             E_TEXTCTRL_Text=No\u{eb}l \u{2744}",
+        );
+        let t = translate("Text", &s, &palette(&[Rgb::RED]), 4000, 50).unwrap();
+        let EffectParams::Text(p) = &t.params else {
+            unreachable!()
+        };
+        assert_eq!(p.size, 10);
+        assert_eq!(
+            t.fidelity,
+            Fidelity::Approximate(vec![
+                "'arial narrow' font shown in PixelFlow's pixel font, 10 pixels high where xLights uses the \
+                 computer's own text size"
+                    .into(),
+                "characters PixelFlow's pixel font doesn't have (accents, emoji) shown as boxes".into(),
+            ])
+        );
     }
 
     #[test]
@@ -3440,30 +3689,180 @@ mod tests {
     }
 
     #[test]
-    fn fire_is_pixelflows_own_and_says_so() {
-        // Even with nothing set that PixelFlow's fire lacks, its flames aren't xLights'.
-        let s = Settings::parse("E_SLIDER_Fire_Height=70");
-        let t = translate("Fire", &s, &palette(&[]), 2000, 25).unwrap();
-        assert!(matches!(&t.params, EffectParams::Fire(p) if (p.height - 0.7).abs() < 1e-6));
+    fn fire_comes_across_as_xlights_flickering_flames() {
+        // xLights' defaults: half height, from the bottom, steady.
+        let t = translate("Fire", &Settings::parse(""), &palette(&[]), 2000, 25).unwrap();
         assert_eq!(
-            t.fidelity,
+            t.params,
+            EffectParams::Fire(FireParams {
+                height: 0.5,
+                style: FireStyle::Flicker,
+                ..FireParams::default()
+            })
+        );
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        let s = Settings::parse(
+            "E_SLIDER_Fire_Height=70,E_SLIDER_Fire_HueShift=40,E_CHOICE_Fire_Location=Right,\
+             E_TEXTCTRL_Fire_GrowthCycles=3.5,E_CHECKBOX_Fire_GrowWithMusic=1",
+        );
+        let t = translate("Fire", &s, &palette(&[]), 2000, 25).unwrap();
+        assert_eq!(
+            t.params,
+            EffectParams::Fire(FireParams {
+                height: 0.7,
+                style: FireStyle::Flicker,
+                location: FireLocation::Right,
+                hue_shift: 0.4,
+                growth_cycles: 3.5,
+                grow_with_music: true,
+                ..FireParams::default()
+            })
+        );
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        // The height as a curve (slider units), and growth cycles as one (tenths).
+        let s = Settings::parse(
+            "E_VALUECURVE_Fire_Height=Active=TRUE|Id=ID_VALUECURVE_Fire_Height|Type=Ramp|Min=1.00|Max=100.00|P1=20.00|P2=80.00|RV=TRUE|,\
+             E_VALUECURVE_Fire_GrowthCycles=Active=TRUE|Id=ID_VALUECURVE_Fire_GrowthCycles|Type=Ramp|Min=0.00|Max=200.00|P1=0.00|P2=100.00|RV=TRUE|",
+        );
+        let t = translate("Fire", &s, &palette(&[]), 2000, 25).unwrap();
+        assert_eq!(t.curves["height"], Curve::ramp(0.2, 0.8));
+        assert_eq!(t.curves["growthCycles"], Curve::ramp(0.0, 10.0));
+        assert_eq!(t.fidelity, Fidelity::Exact);
+    }
+
+    #[test]
+    fn a_hue_shifted_fire_under_another_layer_blend_says_its_dim_flames_differ() {
+        let s = Settings::parse("E_SLIDER_Fire_HueShift=40,T_CHOICE_LayerMethod=Additive");
+        assert_eq!(
+            translate("Fire", &s, &palette(&[]), 2000, 25).unwrap().fidelity,
             Fidelity::Approximate(vec![
-                "PixelFlow's own flames: their shape and random placement differ from xLights'".into()
+                "a hue-shifted fire's dim flames are dimmer than xLights' under this layer blending".into()
             ])
         );
-        let s = Settings::parse("E_SLIDER_Fire_HueShift=40,E_CHOICE_Fire_Location=Top");
-        let Fidelity::Approximate(reasons) = translate("Fire", &s, &palette(&[]), 2000, 25).unwrap().fidelity
-        else {
-            panic!("approximate")
-        };
+        // Without a hue shift the two draw the same under any blend.
+        let s = Settings::parse("T_CHOICE_LayerMethod=Additive");
         assert_eq!(
-            reasons,
-            [
-                "PixelFlow's own flames: their shape and random placement differ from xLights'",
-                "hue shift not applied",
-                "fire from the top shown rising from the bottom",
-            ]
+            translate("Fire", &s, &palette(&[]), 2000, 25).unwrap().fidelity,
+            Fidelity::Exact
         );
+    }
+
+    #[test]
+    fn shockwaves_translate_exactly_and_old_ones_keep_their_sizes_in_cells() {
+        // What xLights' panel starts with, for settings the file leaves out.
+        let t = translate("Shockwave", &Settings::parse(""), &palette(&[]), 2000, 25).unwrap();
+        assert_eq!(
+            t.params,
+            EffectParams::Shockwave(ShockwaveParams {
+                center_x: 50.0,
+                center_y: 50.0,
+                start_radius: 1.0,
+                end_radius: 10.0,
+                start_width: 5.0,
+                end_width: 10.0,
+                cycles: 1,
+                acceleration: 0.0,
+                blend_edges: true,
+                scale: true,
+            })
+        );
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        // A file from before 2025.04 measures in cells, whatever it says.
+        let text = "E_CHECKBOX_Shockwave_Blend_Edges=0,E_SLIDER_Shockwave_Accel=-7,\
+                    E_SLIDER_Shockwave_CenterX=25,E_SLIDER_Shockwave_CenterY=75,\
+                    E_SLIDER_Shockwave_End_Radius=170,E_SLIDER_Shockwave_End_Width=118,\
+                    E_SLIDER_Shockwave_Start_Radius=3,E_SLIDER_Shockwave_Start_Width=7,\
+                    E_SLIDER_Shockwave_Cycles=4,E_CHECKBOX_Shockwave_Scale=1";
+        let expected = ShockwaveParams {
+            center_x: 25.0,
+            center_y: 75.0,
+            start_radius: 3.0,
+            end_radius: 170.0,
+            start_width: 7.0,
+            end_width: 118.0,
+            cycles: 4,
+            acceleration: -7.0,
+            blend_edges: false,
+            scale: false,
+        };
+        for (version, scale) in [("2024.19", false), ("2025.04", true)] {
+            let mut s = Settings::parse(text);
+            adjust_for_version("Shockwave", &mut s, version);
+            let t = translate("Shockwave", &s, &palette(&[]), 2000, 25).unwrap();
+            assert_eq!(
+                t.params,
+                EffectParams::Shockwave(ShockwaveParams { scale, ..expected }),
+                "{version}"
+            );
+            assert_eq!(t.fidelity, Fidelity::Exact);
+        }
+        // A radius that changes gets a curve; with several rings xLights restarts it each ring.
+        let curve = "E_VALUECURVE_Shockwave_End_Radius=Active=TRUE|Id=ID_VALUECURVE_Shockwave_End_Radius|Type=Ramp|Min=0.00|Max=750.00|P1=10.00|P2=20.00|RV=TRUE|";
+        let t = translate("Shockwave", &Settings::parse(curve), &palette(&[]), 2000, 25).unwrap();
+        assert_eq!(t.curves["endRadius"], Curve::ramp(10.0, 20.0));
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        let s = Settings::parse(&format!("{curve},E_SLIDER_Shockwave_Cycles=3"));
+        assert_eq!(
+            translate("Shockwave", &s, &palette(&[]), 2000, 25)
+                .unwrap()
+                .fidelity,
+            Fidelity::Approximate(vec![
+                "settings that change over each ring change once over the effect".into()
+            ])
+        );
+    }
+
+    #[test]
+    fn fills_translate_exactly_with_their_first_versions_rules() {
+        let t = translate("Fill", &Settings::parse(""), &palette(&[]), 2000, 25).unwrap();
+        assert_eq!(
+            t.params,
+            EffectParams::Fill(FillParams {
+                position: 100.0,
+                direction: FillDirection::Up,
+                band_size: 0.0,
+                skip_size: 0.0,
+                offset: 0.0,
+                offset_in_cells: true,
+                wrap: true,
+                color_by_time: false,
+            })
+        );
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        let text = "E_CHECKBOX_Fill_Color_Time=0,E_CHECKBOX_Fill_Offset_In_Pixels=0,E_CHECKBOX_Fill_Wrap=0,\
+                    E_CHOICE_Fill_Direction=Left,E_SLIDER_Fill_Band_Size=216,E_SLIDER_Fill_Offset=79,\
+                    E_SLIDER_Fill_Position=40,E_SLIDER_Fill_Skip_Size=218";
+        let t = translate("Fill", &Settings::parse(text), &palette(&[]), 2000, 25).unwrap();
+        let expected = FillParams {
+            position: 40.0,
+            direction: FillDirection::Left,
+            band_size: 216.0,
+            skip_size: 218.0,
+            offset: 79.0,
+            offset_in_cells: false,
+            wrap: false,
+            color_by_time: false,
+        };
+        assert_eq!(t.params, EffectParams::Fill(expected));
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        // Fills from before 2016.41 were colored by time, and before 2016.53 always wrapped.
+        for (version, color_by_time, wrap) in [("2016.40", true, true), ("2016.52", false, true)] {
+            let mut s = Settings::parse(text);
+            adjust_for_version("Fill", &mut s, version);
+            assert_eq!(
+                translate("Fill", &s, &palette(&[]), 2000, 25).unwrap().params,
+                EffectParams::Fill(FillParams {
+                    color_by_time,
+                    wrap,
+                    ..expected
+                }),
+                "{version}"
+            );
+        }
+        // The position usually has a curve: that's what makes the fill move.
+        let curve = "E_VALUECURVE_Fill_Position=Active=TRUE|Id=ID_VALUECURVE_Fill_Position|Type=Ramp|Min=0.00|Max=100.00|P1=0.00|P2=100.00|RV=TRUE|";
+        let t = translate("Fill", &Settings::parse(curve), &palette(&[]), 2000, 25).unwrap();
+        assert_eq!(t.curves["position"], Curve::ramp(0.0, 100.0));
     }
 
     #[test]
@@ -3566,10 +3965,10 @@ mod tests {
             r"E_TEXTCTRL_Pictures_Filename=C:\Users\me\xlights\Images\santa dancing.gif,E_CHOICE_Scaling=Scale Keep Aspect Ratio,E_CHOICE_Pictures_Direction=left,E_TEXTCTRL_Pictures_Speed=2,E_SLIDER_PicturesXC=10,E_SLIDER_PicturesYC=-20,E_CHECKBOX_Pictures_WrapX=1,E_CHECKBOX_LoopGIF=1,E_TEXTCTRL_Pictures_FrameRateAdj=1.5,E_CHECKBOX_Pictures_TransparentBlack=1,E_TEXTCTRL_Pictures_TransparentBlack=153",
             10_000,
         );
-        // Everything comes across; only the resizing isn't xLights' (it takes the nearest pixel).
+        // Everything comes across; only the resizing isn't today's xLights'.
         assert_eq!(
             notes(&t),
-            ["resized by blending its pixels, where xLights takes the nearest one"]
+            ["resized by averaging its pixels, where xLights uses another filter"]
         );
         assert!(
             (p.black_level - 20.0).abs() < 1e-4,
@@ -3599,16 +3998,15 @@ mod tests {
             }
         );
         assert!(t.curves.is_empty());
-        // The palette's brightness dims a picture as a grey tint; its colors don't color it.
+        // The palette's brightness dims a picture as the effect's own; its colors don't color it.
         let mut dim = palette(&[Rgb::RED, Rgb::BLUE]);
         dim.brightness = 40.0;
         let t = translate("Pictures", &Settings::default(), &dim, 1000, 25).unwrap();
         let EffectParams::Picture(p) = &t.params else {
             panic!("{:?}", t.params)
         };
-        assert!(p.tint);
-        assert_eq!(t.palette.colors, vec![Rgb::new(102, 102, 102)]);
-        assert_eq!(t.fidelity, Fidelity::Exact);
+        assert!(!p.tint);
+        assert_eq!(t.brightness, 0.4);
         // Nothing set: no file yet, pixel for pixel, still, its animation spread over the effect.
         let (p, t) = picture("", 4_000);
         assert_eq!(
@@ -3647,7 +4045,7 @@ mod tests {
         );
         assert_eq!(
             notes(&t),
-            ["resized by blending its pixels, where xLights takes the nearest one"]
+            ["resized by averaging its pixels, where xLights uses another filter"]
         );
         let (older, _) = picture("E_FILEPICKERCTRL_Pictures_Filename= star.bmp ", 1000);
         assert_eq!(older.file, "star.bmp");
@@ -3666,6 +4064,51 @@ mod tests {
                 "wrapping across not shown on a picture that isn't moving across",
                 BEYOND_RANGE
             ]
+        );
+    }
+
+    #[test]
+    fn a_picture_is_resized_the_way_the_xlights_that_saved_it_resized() {
+        let text = "E_TEXTCTRL_Pictures_Filename=star.png,E_CHOICE_Scaling=Scale To Fit";
+        let from = |version: &str| {
+            let mut s = Settings::parse(text);
+            adjust_for_version("Pictures", &mut s, version);
+            let t = translate("Pictures", &s, &palette(&[]), 1000, 25).unwrap();
+            let EffectParams::Picture(p) = &t.params else {
+                panic!("{:?}", t.params)
+            };
+            (p.resize, notes(&t))
+        };
+        let none: Vec<String> = Vec::new();
+        // The nearest pixel until 2024.16; then four mixed when shrinking.
+        assert_eq!(from("2023.20"), (PictureResize::XlightsNearest, none.clone()));
+        assert_eq!(from("2024.15"), (PictureResize::XlightsNearest, none.clone()));
+        assert_eq!(from("2024.16"), (PictureResize::XlightsMixed, none.clone()));
+        assert_eq!(from("2025.03"), (PictureResize::XlightsMixed, none.clone()));
+        // Two releases enlarged from each cell's middle instead.
+        assert_eq!(
+            from("2025.05"),
+            (
+                PictureResize::XlightsMixed,
+                vec![
+                    "enlarged from each cell's corner pixel, where xLights 2025.04 and 2025.05 took its middle one"
+                        .to_string()
+                ]
+            )
+        );
+        // Since then xLights averages or filters, which PixelFlow's own averaging only comes near.
+        let averaged = vec!["resized by averaging its pixels, where xLights uses another filter".to_string()];
+        assert_eq!(from("2025.06"), (PictureResize::Own, averaged.clone()));
+        assert_eq!(from("2026.12"), (PictureResize::Own, averaged.clone()));
+        assert_eq!(from("not a version"), (PictureResize::Own, averaged));
+        // A picture shown at its own size isn't resized, whatever the version.
+        let mut s = Settings::parse("E_TEXTCTRL_Pictures_Filename=star.png,E_CHOICE_Scaling=No Scaling");
+        adjust_for_version("Pictures", &mut s, "2026.12");
+        assert_eq!(
+            translate("Pictures", &s, &palette(&[]), 1000, 25)
+                .unwrap()
+                .fidelity,
+            Fidelity::Exact
         );
     }
 
@@ -3767,7 +4210,7 @@ mod tests {
         assert_eq!(t.curves["scale"], Curve::ramp(50.0, 200.0));
         assert_eq!(
             notes(&t),
-            ["resized by blending its pixels, where xLights takes the nearest one"]
+            ["resized by averaging its pixels, where xLights uses another filter"]
         );
         // At its own size the whole time, nothing is resized.
         let (_, t) = picture("E_CHOICE_Scaling=No Scaling", 4_000);

@@ -360,6 +360,63 @@ fn enlarging_blends_unless_pixels_are_kept_crisp() {
 }
 
 #[test]
+fn a_picture_can_be_resized_the_way_an_older_xlights_resized_it() {
+    // A row of 201 reds, each its own level, with one white pixel in the middle.
+    let ramp = |x: u32, _: u32| match x {
+        100 => WHITE,
+        _ => [x as u8, 0, 0, 255],
+    };
+    let two = |x: u32, _: u32| if x == 0 { BLACK } else { [200, 200, 200, 255] };
+    let (pictures, _) = library(vec![("ramp.png", png(201, 1, ramp)), ("two.png", png(2, 1, two))]);
+    let as_xlights = |file: &str, resize| PictureParams {
+        fit: PictureFit::Stretch,
+        crisp: false,
+        resize,
+        ..of(file)
+    };
+    // From 2024.16: shrunk to 5 cells, each sits on one of the picture's own pixels (0, 50, 100,
+    // 150, 200), read from the picture at its full size, not from one already averaged down.
+    let mixed = draw(
+        &pictures,
+        &as_xlights("ramp.png", PictureResize::XlightsMixed),
+        (5, 1),
+        0,
+    );
+    assert_eq!(
+        mixed.rows()[0],
+        vec![
+            [0, 0, 0, 255],
+            [50, 0, 0, 255],
+            WHITE,
+            [150, 0, 0, 255],
+            [200, 0, 0, 255]
+        ]
+    );
+    // Before it: the pixel at each cell's corner (0, 40, 80, 120, 160), so the white one is missed.
+    let nearest = draw(
+        &pictures,
+        &as_xlights("ramp.png", PictureResize::XlightsNearest),
+        (5, 1),
+        0,
+    );
+    assert_eq!(
+        nearest.rows()[0],
+        (0..5u8).map(|i| [i * 40, 0, 0, 255]).collect::<Vec<_>>()
+    );
+    // PixelFlow's own averages the 40 pixels under each cell, the white one among them.
+    let own = draw(&pictures, &as_xlights("ramp.png", PictureResize::Own), (5, 1), 0);
+    assert!(own.at(2, 0)[1] > 0 && own.at(2, 0)[1] < 20, "{:?}", own.at(2, 0));
+    // Enlarged, both take the corner pixel, where crisp takes the one at each cell's middle.
+    for resize in [PictureResize::XlightsMixed, PictureResize::XlightsNearest] {
+        assert_eq!(
+            draw(&pictures, &as_xlights("two.png", resize), (5, 1), 0).rows()[0],
+            vec![BLACK, BLACK, BLACK, [200, 200, 200, 255], [200, 200, 200, 255]],
+            "{resize:?}"
+        );
+    }
+}
+
+#[test]
 fn an_animation_shows_the_frame_for_the_time_by_its_own_frame_times() {
     // Red for 100 ms, green for 300, blue for 50.
     let (pictures, _) = library(vec![(

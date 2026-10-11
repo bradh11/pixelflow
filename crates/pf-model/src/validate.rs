@@ -647,7 +647,7 @@ mod tests {
     #[test]
     fn each_structural_problem_is_reported() {
         type Mutate = fn(&mut Show);
-        let cases: [(IssueCode, Mutate); 71] = [
+        let cases: [(IssueCode, Mutate); 72] = [
             (IssueCode::InvalidFrameRate, |s| s.settings.frame_rate = 5),
             (IssueCode::DuplicateId, |s| {
                 let dup = s.props[0].clone();
@@ -714,6 +714,15 @@ mod tests {
             }),
             (IssueCode::LimitExceeded, |s| {
                 s.props.push(line("Huge", crate::MAX_PROP_NODES + 1))
+            }),
+            (IssueCode::LimitExceeded, |s| {
+                let mut p = line("Wide grid", 2);
+                p.own_layout = crate::OwnLayout::Cells {
+                    columns: crate::MAX_PROP_NODES + 1,
+                    rows: 1,
+                    cells: vec![[0, 0], [1, 0]],
+                };
+                s.props.push(p)
             }),
             (IssueCode::InvalidShape, |s| {
                 s.props.push(poly("Too bendy", crate::MAX_POLY_VERTICES + 1, 0))

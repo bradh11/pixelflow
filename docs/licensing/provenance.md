@@ -48,8 +48,8 @@ description.
 
 | Category | Files | Where |
 |---|---|---|
-| Direct port (the whole file, or most of it) | 31 | 13 effects in `pf-render`; 7 files in `pf-xlights` (model geometry and value curves); 10 shape generators in `pf-geometry`; `app/src/lib/geometry.ts` |
-| Mixed: a direct-port function group inside an otherwise independent file | 10 | 8 in `pf-render` (text, raster, blur, color, geometry, styles, sparkles, effects); `pf-xlights/src/geometry.rs`; `pf-sequence/src/curve.rs` |
+| Direct port (the whole file, or most of it) | 34 | 16 effects in `pf-render`; 7 files in `pf-xlights` (model geometry and value curves); 10 shape generators in `pf-geometry`; `app/src/lib/geometry.ts` |
+| Mixed: a direct-port function group inside an otherwise independent file | 12 | 10 in `pf-render` (text, raster, blur, color, geometry, styles, sparkles, effects, adjust, picture/resample); `pf-xlights/src/geometry.rs`; `pf-sequence/src/curve.rs` |
 | Behaviour-matching | 28 | effect default tables, the model-to-shape converter, the mouth-shape table, controller tables, and smaller pieces |
 | Format reading only | 27 | the rest of the xLights importer, the FPP REST client, the `.fseq` reader |
 | Independent | the rest | including the engine, output, audio analysis, the assistant, camera mapping, video export, the desktop shell, and nearly all of the UI |
@@ -58,7 +58,7 @@ Approximate implementation lines by category, for the crates with the most:
 
 | Crate | Impl lines | Direct port | Behaviour-matching | Format reading | Independent |
 |---|---|---|---|---|---|
-| `pf-render` (41 files) | about 14,200 | about 4,800 | about 400 | 0 | about 9,000 |
+| `pf-render` (45 files) | about 15,000 | about 5,200 | about 400 | 0 | about 9,400 |
 | `pf-xlights`, `pf-sequence`, `pf-model` (53 files) | about 23,100 | about 3,400 | about 5,800 | about 5,600 | about 8,300 |
 | `pf-geometry` (17 files) | about 1,620 | about 900 | about 330 | 0 | about 400 |
 | `app/src/lib/geometry.ts` | 691 | 691 | | | |
@@ -68,15 +68,18 @@ roughly 9,000 to 10,000 of those, and are concentrated in three places: the effe
 xLights effect's name, the model geometry (where each pixel of an imported prop sits), and value
 curves.
 
-**The renderer.** About 37% of `pf-render`'s implementation lines follow xLights source. Thirteen
+**The renderer.** About 35% of `pf-render`'s implementation lines follow xLights source. Sixteen
 effects (Plasma, Morph, Tendril, Snowflakes, Garlands, Circles, Fan, Butterfly, Pinwheel, Life,
-Lines, Shape, VU Meter) are ports of the xLights effect of the same name: 80 to 95% of each
+Lines, Shape, VU Meter, Shockwave, Fill, and Fire's flickering flames) are ports of the xLights
+effect of the same name: 80 to 95% of each
 file, except Circles and Life, where about half is ported and the rest is PixelFlow's own
 arrangement of xLights' constants or the ordinary algorithm. So are the pieces every layer passes through: line and circle drawing, blur, the xLights layer
-blend modes and HSV conversion, sparkles, submodel and group buffer layout, and Text's movement.
-The remaining 63% is PixelFlow's own: the render pipeline, the picture loader, the closed-form
+blend modes and HSV conversion, sparkles, a layer's color adjustments, submodel and group buffer
+layout, and Text's movement.
+The remaining 65% is PixelFlow's own: the render pipeline, the picture loader, the closed-form
 effects in `effects.rs` (On, Color Wash, Fade, Chase, Bars, Wave, Twinkle, Shimmer, Strobe,
-Spiral, Meteors, Ripple, Fire), and Wipe, Impact, Pulse, Sing, Color Shift, Lightning, Dancer, and
+Spiral, Meteors, Ripple, and Fire's rolling flames), and Wipe, Impact, Pulse, Sing, Color Shift,
+Lightning, Dancer, and
 Picture.
 
 **Tests.** No unit test compares against frames rendered by xLights, and there are no golden
@@ -96,7 +99,7 @@ PixelFlow's shapes to land within 0.002 of the ported geometry.
 
 ### Effects (`crates/pf-render/src/`)
 
-None of these files has a test module, so impl equals total lines.
+Except where a row says so, these files have no test module, so impl equals total lines.
 
 | PixelFlow file | Lines | xLights source followed | Share following it | What matches | Clean-room |
 |---|---|---|---|---|---|
@@ -113,6 +116,9 @@ None of these files has a test module, so impl equals total lines.
 | `life.rs` | 132 | `effects/LifeEffect.cpp`; `ispc/LifeFunctions.ispc` | about 50% (likely) | Seeding count `W*H*density/200 + 1`, pacing, the five rule sets in order. The generation step is ordinary Game of Life. | **S** |
 | `plasma.rs` | 123 | `effects/PlasmaEffect.cpp` `Render`; `ispc/PlasmaFunctions.ispc` | about 85% | The seven-term sine sum term for term, with xLights' field names (`sin_time_5`, `cos_time_3`); the five colour schemes. xLights' own comment credits a public plasma tutorial. | **S** |
 | `garlands.rs` | 89 | `effects/GarlandsEffect.cpp` `Render`; `ispc/GarlandsFunctions.ispc` | about 90% | Spacing, direction folding, ring position step for step; four swag patterns. | **S** |
+| `shockwave.rs` | 236 (impl 75, with a test module) | `effects/ShockwaveEffect.cpp` `Render`, read at tag `2024.19` (defaults from `master`) | about 90% | Radius and width worked out in the same order (`/ 200` and `/ 100` when scaled, the 0.25 least half-width), the whole-cell center `x * width / 100`, the palette blend by position, and the `255 × (1 − off / half)` edge fade. | **S** |
+| `fill.rs` | 315 (impl 116, with a test module) | `effects/FillEffect.cpp` (`Render`, `UpdateFillColor`, `GetColorFromPosition`), read at tag `2024.19` | about 90% | The four directions' loops with their targets in xLights' arithmetic (truncated), the offset as cells or `(size − 1) × offset / 100`, the palette position `line / (size + offset − 1)`, and the band and gap counter. One loop serves each pair of directions. | **S** |
+| `fire.rs` | 382 (impl 158, with a test module) | `effects/FireEffect.cpp` (`Render`, `FirePaletteClass`), read at tag `2024.19` | about 90% | The edge row seeded `190 + rand % 10` and `100 + rand % 50` in turn, the mean of the row before with the cell straight behind counted twice, the one-in-five step of `255 * 100 / height / percent`, the 200-shade palette (hue step `0.00166666`), the hue shift stopped at 1, `10 + 90 × peak` for the music, and the four locations. Random numbers come from the effect's seed and the frame rather than `rand()`. | **S** |
 
 ### Shared render code with a ported function group (`crates/pf-render/src/`)
 
@@ -125,6 +131,8 @@ None of these files has a test module, so impl equals total lines.
 | `raster.rs` | 340 (269) | `render/RenderBuffer.cpp` (`SetPixel`, `DrawLine`, `DrawThickLine`, `DrawCircle`, `DrawFadingCircle`) | about 150 | The gap-filling thick line case for case, the eight-point circle, and the `> width` wrap quirk (asserted by a test). The underlying algorithms are textbook. | **S** |
 | `blur.rs` | 577 (420) | `render/PixelBuffer.cpp` (`boxesForGauss`, `gaussBlur_4`, `Blur`) | about 130 | The box-size table and the thresholds that pick a blur. The box passes are organised differently. | **S** |
 | `effects.rs` | 1,169 (1,169) | `RenderBuffer.cpp` `calcAccel`, `GetEffectTimeIntervalPosition`; `ShapeEffect.cpp` music trigger | about 63 | Three small helpers. The effects themselves are closed-form and PixelFlow's (see the note on what was compared, below). | **S** |
+| `picture/resample.rs` | 458 (279) | wxWidgets `src/common/image.cpp` (`wxImage::Scale`, `ResampleNearest`, `ResampleBilinear`, `ShrinkBy`), read at tags `xlights_2024.06` to `xlights_2026.02` of xLights' wxWidgets (wxWindows Library Licence 3.1); xLights `effects/PicturesEffect.cpp` | about 45 | The two oldest ways xLights resized a picture: the `(old << 16) / new` stride from the corner, and the `(old − 1) / (new − 1)` placing with the two nearest pixels mixed, colour and alpha each on its own; which applies when (shrinking, a whole-number shrink). PixelFlow's own averaging and the rest of the file are independent. | **S** |
+| `adjust.rs` | 247 (98) | `render/PixelBuffer.cpp` (`GetMixedColor`, `LayerInfo::calculateNodeOutputParams`), read at tag `2024.19` | about 60 | The order (hue, saturation, and value before the sparkles; brightness and contrast after), the hue wrap and the clamps, contrast's split at a value of 0.5 after brightness, and an unlit pixel counting as black on a layer that isn't blended Normal. | **S** |
 | `sparkles.rs` | 119 (60) | `LayerBlendingFunctions.ispc` `ApplySparkles`; `PixelBuffer.cpp` | about 25 | `% (208 - count)`, the brightness steps 0.53 / 0.75 / 1.0, phase `% 10000`. | **S** |
 
 Not every xLights counterpart of the `effects.rs` effects was opened. On, Color Wash, Shimmer,
@@ -138,13 +146,13 @@ importer's stated purpose.
 
 | PixelFlow file | Lines | xLights source followed | Share | Tables carried over | Clean-room |
 |---|---|---|---|---|---|
-| `geometry/poly.rs` | 703 | `models/PolyLineModel.cpp`, `MultiPointModel.cpp`, `Shapes.cpp` (`BezierCurveCubic3D`), `PolyPointScreenLocation.cpp` | 85 to 90% | 25-step curves, corner offsets | **M** |
+| `geometry/poly.rs` | 708 | `models/PolyLineModel.cpp`, `MultiPointModel.cpp`, `Shapes.cpp` (`BezierCurveCubic3D`), `PolyPointScreenLocation.cpp` | 85 to 90% | 25-step curves, corner offsets; each node's cell in the model's own render buffer (`bufX`, `bufY`, `SetBufferSize`) | **M** |
 | `geometry/grid.rs` | 655 | `MatrixModel.cpp`, `TreeModel.cpp`, `SphereModel.cpp`, `CubeModel.cpp` | about 95% | Cube orientation table (48 rows of 4), identical row for row; tree and sphere constants | **M** |
 | `geometry/radial.rs` | 589 | `CircleModel.cpp`, `WreathModel.cpp`, `StarModel.cpp`, `SpinnerModel.cpp`, `WindowFrameModel.cpp` | about 95% | Window-frame start and index tables; star start rules | **M** |
-| `geometry/lines.rs` | 486 | `SingleLineModel.cpp`, `ChannelBlockModel.cpp`, `ArchesModel.cpp`, `CandyCaneModel.cpp`, `IciclesModel.cpp` | about 95% | Cane proportions, drop pattern default | **M** |
+| `geometry/lines.rs` | 498 | `SingleLineModel.cpp`, `ChannelBlockModel.cpp`, `ArchesModel.cpp`, `CandyCaneModel.cpp`, `IciclesModel.cpp` | about 95% | Cane proportions, drop pattern default; a single line's and an icicle run's render-buffer cells | **M** |
 | `geometry/xform.rs` | 273 | `BoxedScreenLocation.cpp`, `TwoPointScreenLocation.cpp`, `ThreePointScreenLocation.cpp`, `PolyPointScreenLocation.cpp` | about 170 lines | Matrix order, the `3.14159` literal, the 0.001 nudge | **S** |
-| `geometry/custom.rs` | 181 | `CustomModel.cpp` (`InitCustomMatrix`, `SetStringStartChannels`) | about 95 lines (likely); the rest is format reading | none | **S** |
-| `geometry.rs` | 685 | `Model.cpp` (`GetNodeChannelCount`, `CalcChannelsPerString`, `SetStringStartChannels`, `ComputeStringStartNode`), `Model.h` | about 190 lines; the rest is PixelFlow's harness | String-type to channel-count rules | **S** |
+| `geometry/custom.rs` | 206 | `CustomModel.cpp` (`InitCustomMatrix`, `SetStringStartChannels`, `ParseCustomModel`, `ParseCompressed`), read at tag `2024.19` | about 110 lines (likely); the rest is format reading | The render-buffer cell `layer * width + col`, `height - row - 1`, on the grid the cell data spans | **S** |
+| `geometry.rs` | 732 | `Model.cpp` (`GetNodeChannelCount`, `CalcChannelsPerString`, `SetStringStartChannels`, `ComputeStringStartNode`), `Model.h` | about 190 lines; the rest is PixelFlow's harness | String-type to channel-count rules | **S** |
 
 As a set these are **L**: reproducing node order and position exactly is the goal, so a
 clean-room version needs positions exported from xLights for every model type and option, not

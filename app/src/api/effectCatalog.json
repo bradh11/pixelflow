@@ -630,7 +630,7 @@
     "settings": [
       {
         "default": 0.8,
-        "description": "How high the flames reach, as a fraction of the prop's height (0–1).",
+        "description": "How far the flames reach, as a fraction of the prop's height (0–1).",
         "key": "height",
         "label": "Height",
         "max": 1.0,
@@ -640,13 +640,87 @@
       },
       {
         "default": 0.6,
-        "description": "How often new flames flare up (0–1).",
+        "description": "How often new flames flare up (0–1), for rolling flames.",
         "key": "sparks",
         "label": "Sparks",
         "max": 1.0,
         "min": 0.0,
         "step": 0.01,
         "type": "number"
+      },
+      {
+        "default": "bottom",
+        "description": "The edge the flames burn from.",
+        "key": "location",
+        "label": "Burns from",
+        "options": [
+          {
+            "label": "The bottom",
+            "value": "bottom"
+          },
+          {
+            "label": "The top",
+            "value": "top"
+          },
+          {
+            "label": "The left",
+            "value": "left"
+          },
+          {
+            "label": "The right",
+            "value": "right"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": "rolling",
+        "description": "Rolling flames, or xLights' flickering ones.",
+        "key": "style",
+        "label": "Flames",
+        "more": true,
+        "options": [
+          {
+            "label": "Rolling",
+            "value": "rolling"
+          },
+          {
+            "label": "Flickering (as in xLights)",
+            "value": "flicker"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": 0.0,
+        "description": "Moves flickering flames' colors round the color wheel, red toward yellow, green, and blue (0–1).",
+        "key": "hueShift",
+        "label": "Hue shift",
+        "max": 1.0,
+        "min": 0.0,
+        "more": true,
+        "step": 0.01,
+        "type": "number"
+      },
+      {
+        "default": 0.0,
+        "description": "Times flickering flames grow taller and shrink back over the effect (0: steady).",
+        "key": "growthCycles",
+        "label": "Grow and shrink",
+        "max": 20.0,
+        "min": 0.0,
+        "more": true,
+        "step": 0.1,
+        "type": "number",
+        "unit": "times"
+      },
+      {
+        "default": false,
+        "description": "Flickering flames as tall as the music is loud, instead of the height above.",
+        "key": "growWithMusic",
+        "label": "Grow with the music",
+        "more": true,
+        "type": "bool"
       }
     ]
   },
@@ -3932,6 +4006,233 @@
         "description": "Tints the picture with the first palette color.",
         "key": "tint",
         "label": "Tint with the palette",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": "own",
+        "description": "Resized as an older xLights resized it, for a sequence imported from that version.",
+        "key": "resize",
+        "label": "Resized",
+        "more": true,
+        "options": [
+          {
+            "label": "Smooth, or crisp",
+            "value": "own"
+          },
+          {
+            "label": "As xLights before 2024.16",
+            "value": "xlightsNearest"
+          },
+          {
+            "label": "As xLights 2024.16 to 2025.05",
+            "value": "xlightsMixed"
+          }
+        ],
+        "type": "choice"
+      }
+    ]
+  },
+  {
+    "description": "One ring bursting out from a point, widening and changing color as it goes.",
+    "kind": "shockwave",
+    "label": "Shockwave",
+    "settings": [
+      {
+        "default": 50.0,
+        "description": "Where the ring is centered across the prop: 0 is the left edge, 100 the right.",
+        "key": "centerX",
+        "label": "Center, across",
+        "max": 100.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 50.0,
+        "description": "Where the ring is centered up the prop: 0 is the bottom, 100 the top.",
+        "key": "centerY",
+        "label": "Center, up",
+        "max": 100.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 1.0,
+        "description": "The ring's radius at the start.",
+        "key": "startRadius",
+        "label": "Start radius",
+        "max": 750.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": 100.0,
+        "description": "The ring's radius at the end.",
+        "key": "endRadius",
+        "label": "End radius",
+        "max": 750.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": 5.0,
+        "description": "How wide the ring is at the start.",
+        "key": "startWidth",
+        "label": "Start width",
+        "max": 255.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": 10.0,
+        "description": "How wide the ring is at the end.",
+        "key": "endWidth",
+        "label": "End width",
+        "max": 255.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": 1,
+        "description": "Rings over the effect, one after another.",
+        "key": "cycles",
+        "label": "Rings",
+        "max": 100,
+        "min": 1,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 0.0,
+        "description": "Speeds the ring up as it goes (above 0) or slows it down (below).",
+        "key": "acceleration",
+        "label": "Acceleration",
+        "max": 10.0,
+        "min": -10.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": true,
+        "description": "The ring fades out toward both its edges.",
+        "key": "blendEdges",
+        "label": "Soft edges",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": true,
+        "description": "Sizes are percent of the prop's longer side (a radius of 100 reaches its ends). Otherwise they count cells of the prop's grid, as xLights' older sequences do.",
+        "key": "scale",
+        "label": "Sizes in percent of the prop",
+        "more": true,
+        "type": "bool"
+      }
+    ]
+  },
+  {
+    "description": "Color filling the prop from one side, the palette spread along the way.",
+    "kind": "fill",
+    "label": "Fill",
+    "settings": [
+      {
+        "default": 100.0,
+        "description": "How far the fill reaches: 0 is nothing, 100 the whole prop.",
+        "key": "position",
+        "label": "Position",
+        "max": 100.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": "up",
+        "description": "The side the fill grows toward.",
+        "key": "direction",
+        "label": "Direction",
+        "options": [
+          {
+            "label": "Up",
+            "value": "up"
+          },
+          {
+            "label": "Down",
+            "value": "down"
+          },
+          {
+            "label": "Left",
+            "value": "left"
+          },
+          {
+            "label": "Right",
+            "value": "right"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": 0.0,
+        "description": "With \"Color by time\": lines of cells in each band of color (0: one color).",
+        "key": "bandSize",
+        "label": "Band size",
+        "max": 250.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "cells"
+      },
+      {
+        "default": 0.0,
+        "description": "With \"Color by time\" and a band size: dark lines of cells between the bands.",
+        "key": "skipSize",
+        "label": "Gap size",
+        "max": 250.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "cells"
+      },
+      {
+        "default": 0.0,
+        "description": "How far in from its side the fill starts.",
+        "key": "offset",
+        "label": "Offset",
+        "max": 100.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": true,
+        "description": "The offset counts lines of cells; otherwise it's a percent of the prop.",
+        "key": "offsetInCells",
+        "label": "Offset in cells",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": true,
+        "description": "A fill that started part way in carries on round from the other side.",
+        "key": "wrap",
+        "label": "Wrap around",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": false,
+        "description": "The whole fill takes the palette color for the moment in the effect (or bands of the palette colors), instead of spreading the palette along the fill.",
+        "key": "colorByTime",
+        "label": "Color by time",
         "more": true,
         "type": "bool"
       }

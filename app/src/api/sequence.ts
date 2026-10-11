@@ -43,7 +43,9 @@ export type EffectKind =
   | "sing"
   | "colorShift"
   | "dancer"
-  | "picture";
+  | "picture"
+  | "shockwave"
+  | "fill";
 
 export type Gradient = "none" | "horizontal" | "vertical";
 /** What the Shape effect draws. */
@@ -149,7 +151,18 @@ export type EffectParams =
       grow?: boolean;
       shrink?: boolean;
     }
-  | { kind: "fire"; height?: number; sparks?: number }
+  | {
+      kind: "fire";
+      height?: number;
+      sparks?: number;
+      /** The edge the flames burn from. */
+      location?: "bottom" | "top" | "left" | "right";
+      /** Rolling flames, or xLights' flickering ones. */
+      style?: "rolling" | "flicker";
+      hueShift?: number;
+      growthCycles?: number;
+      growWithMusic?: boolean;
+    }
   | { kind: "meteors"; count?: number; speed?: number; length?: number; direction?: "down" | "up" | "left" | "right" }
   | { kind: "ripple"; speed?: number; spacing?: number; thickness?: number }
   | {
@@ -423,6 +436,34 @@ export type EffectParams =
       startFrame?: number;
       pixelOffsets?: boolean;
       tint?: boolean;
+      /** Which pixels it takes when resized: PixelFlow's own way, or an older xLights'. */
+      resize?: "own" | "xlightsNearest" | "xlightsMixed";
+    }
+  | {
+      kind: "shockwave";
+      centerX?: number;
+      centerY?: number;
+      startRadius?: number;
+      endRadius?: number;
+      startWidth?: number;
+      endWidth?: number;
+      cycles?: number;
+      acceleration?: number;
+      blendEdges?: boolean;
+      /** Sizes in percent of the prop's longer side rather than cells of its grid. */
+      scale?: boolean;
+    }
+  | {
+      kind: "fill";
+      /** How far the fill reaches, 0–100. */
+      position?: number;
+      direction?: "up" | "down" | "left" | "right";
+      bandSize?: number;
+      skipSize?: number;
+      offset?: number;
+      offsetInCells?: boolean;
+      wrap?: boolean;
+      colorByTime?: boolean;
     };
 
 /** Who a Dancer is (see `DancerCharacter` in crates/pf-sequence/src/effect.rs). */
@@ -587,12 +628,22 @@ export interface Effect {
   musicSparkles?: boolean;
   /** Softening, 0 (none, when missing) to 14. */
   blur?: number;
+  /** Turns the colors it draws round the color wheel, -1 to 1 (0 when missing). */
+  hueAdjust?: number;
+  /** Added to the saturation of the colors it draws, -1 to 1 (0 when missing). */
+  saturationAdjust?: number;
+  /** Added to the lightness of the colors it draws, -1 to 1 (0 when missing). */
+  valueAdjust?: number;
+  /** Its brightness: 1 (when missing) as drawn, 0 to 4. */
+  brightness?: number;
+  /** Its contrast, -1 to 1 (0 when missing). */
+  contrast?: number;
   /** How the target's pixels are laid out for the effect (its own layout when missing). */
   renderStyle?: RenderStyle;
   /** Turns or flips that layout (as it is when missing). */
   bufferTransform?: BufferTransform;
-  /** Settings that change over the effect, by key (a `params` number setting, `sparkles`, or
-   * `blur`); none when missing. */
+  /** Settings that change over the effect, by key (a `params` number setting, `sparkles`,
+   * `blur`, `brightness`, or one of the three `…Adjust`); none when missing. */
   curves?: Record<string, Curve>;
 }
 
@@ -682,12 +733,13 @@ export interface SequenceSnapshot {
   issues: SequenceIssue[];
 }
 
-/** The sequence's name, music, length, and frame time. */
+/** The sequence's name, music, length, frame time, and how its rows meet the rows before them. */
 export interface SequenceInfo {
   name: string;
   audio: string | null;
   durationMs: number;
   frameMs: number;
+  rowBlending: RowBlending;
 }
 
 /** An effect and where it now sits: `index` within `layer` of row `row`. */
@@ -765,7 +817,13 @@ function upsert<T extends { id: Uuid }>(items: T[], updates: T[]): T[] {
 /** `doc` with `changes` applied (a new object; `doc` is left as it was). */
 export function applySequenceChanges(doc: Sequence, changes: SequenceChanges): Sequence {
   const next: Sequence = { ...doc };
-  if (changes.info) Object.assign(next, changes.info);
+  if (changes.info) {
+    const { rowBlending, ...info } = changes.info;
+    Object.assign(next, info);
+    // Left out when rows cover, as in the file.
+    if (rowBlending === "cover") delete next.rowBlending;
+    else next.rowBlending = rowBlending;
+  }
   let rows = upsert(
     doc.rows.filter((r) => !changes.removedRows.includes(r.id)),
     changes.rows,
@@ -858,6 +916,7 @@ export interface ExportProgress {
 /** One change to the open sequence; a batch is one undo step. */
 export type SequenceEdit =
   | { type: "updateInfo"; name: string; audio: string | null; durationMs: number; frameMs: number }
+  | { type: "setRowBlending"; rowBlending: RowBlending }
   | { type: "addRow"; row: Row; index?: number }
   | { type: "removeRow"; id: Uuid }
   | { type: "moveRow"; id: Uuid; index: number }
@@ -1075,6 +1134,8 @@ export const EFFECT_KINDS: { kind: EffectKind; label: string }[] = [
   { kind: "colorShift", label: "Color Shift" },
   { kind: "dancer", label: "Dancer" },
   { kind: "picture", label: "Picture" },
+  { kind: "shockwave", label: "Shockwave" },
+  { kind: "fill", label: "Fill" },
 ];
 
 /** A new effect of `kind` (engine-default settings, white) from `startMs` to `endMs`. */

@@ -22,8 +22,10 @@ use std::path::Path;
 /// and trees (several arches in a row, layers, start positions, spirals and more ways to wire a
 /// tree), so they can match xLights'; 11 = an sACN universe can carry any number of channels from
 /// 1 to 512, not just 510 or 512; 12 = groups have a `layout` and `gridSize` saying how effects
-/// lay out their pixels, and the show an optional `layoutArea`.
-pub const CURRENT_SCHEMA_VERSION: u32 = 12;
+/// lay out their pixels, and the show an optional `layoutArea`; 13 = a prop can say how effects
+/// on it lay its own pixels out (`ownLayout`: one row along the wiring, or a cell for each
+/// pixel), as an xLights line, poly line, or custom model does.
+pub const CURRENT_SCHEMA_VERSION: u32 = 13;
 
 /// Show-wide settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

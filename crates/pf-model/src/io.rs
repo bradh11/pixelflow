@@ -31,7 +31,7 @@ type Migration = fn(Value) -> Result<Value, ModelError>;
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
 const MIGRATIONS: &[Migration] = &[
     v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11,
-    v11_to_v12,
+    v11_to_v12, v12_to_v13,
 ];
 
 /// Version 2 only adds the `falcon` adapter value, so version 1 documents are already valid.
@@ -131,6 +131,12 @@ fn v11_to_v12(mut doc: Value) -> Result<Value, ModelError> {
                 .or_insert_with(|| Value::from(crate::DEFAULT_GRID_SIZE));
         }
     }
+    Ok(doc)
+}
+
+/// Version 13 only adds a prop's `ownLayout` (laid out as its shape is when missing, as every
+/// prop was), so version 12 documents are already valid.
+fn v12_to_v13(doc: Value) -> Result<Value, ModelError> {
     Ok(doc)
 }
 
@@ -270,22 +276,22 @@ mod tests {
     }
 
     #[test]
-    fn version_7_to_11_files_open_unchanged_and_save_as_version_12() {
+    fn version_7_to_12_files_open_unchanged_and_save_as_version_13() {
         // A show with no new prop shapes, saved now, then labelled as written by older versions:
         // 7 (full paths), 8 (relative paths and `savedIn`) and 9 (new prop shapes, none used here).
         let mut show = sample_show();
         show.sequences
             .push(crate::SequenceEntry::new("Medley", "Medley.fseq"));
         let text = show_file_to_json(&show, Some("/Shows/Haas")).unwrap();
-        assert!(text.contains("\"schemaVersion\": 12"), "written as version 12");
-        for version in [7, 8, 9, 10, 11, 12] {
-            let old = text.replace("\"schemaVersion\": 12", &format!("\"schemaVersion\": {version}"));
+        assert!(text.contains("\"schemaVersion\": 13"), "written as version 13");
+        for version in [7, 8, 9, 10, 11, 12, 13] {
+            let old = text.replace("\"schemaVersion\": 13", &format!("\"schemaVersion\": {version}"));
             let (read, saved_in) = show_file_from_json(&old).unwrap();
             assert_eq!(read, show, "version {version} reads as it was");
-            assert_eq!(read.schema_version, 12);
+            assert_eq!(read.schema_version, 13);
             assert_eq!(saved_in.as_deref(), Some("/Shows/Haas"), "version {version}");
             let saved: Value = serde_json::from_str(&show_to_json(&read).unwrap()).unwrap();
-            assert_eq!(saved["schemaVersion"], 12);
+            assert_eq!(saved["schemaVersion"], 13);
         }
     }
 

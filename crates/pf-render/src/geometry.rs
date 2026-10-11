@@ -24,7 +24,9 @@
 //! canes and a spinner's arms a column each; a circle's rings a row each; a window frame the
 //! outside of a matrix; a custom shape its own cells. "Per Preview" lays any of them out where
 //! their pixels sit. Lines, poly lines, icicles, stars, wreaths, and cubes still draw where
-//! their pixels sit.
+//! their pixels sit, unless the prop has a layout of its own (`Prop::own_layout`), which comes
+//! before any of this: an imported line or poly line is one row along its wiring, as xLights
+//! draws on it whichever way it runs, and an imported custom model keeps its cells.
 
 use pf_geometry::OwnGrid;
 use pf_mapping::ChannelMap;
@@ -169,8 +171,9 @@ pub(crate) struct PropGeometry {
     pub points: Vec<[f32; 2]>,
     /// How many of `points` came from the shape; the rest are padding (see [`SceneGeometry::new`]).
     pub real: usize,
-    /// The grid of its own the prop is drawn on: its shape's (a tree's strings by the pixels up
-    /// them), or the one its pixels fill when they fill one and it stands upright in the layout.
+    /// The grid of its own the prop is drawn on: the one it was given (`Prop::own_layout`), its
+    /// shape's (a tree's strings by the pixels up them), or the one its pixels fill when they
+    /// fill one and it stands upright in the layout.
     pub grid: Option<OwnGrid>,
     /// The prop's submodels and faces.
     pub regions: Vec<Region>,
@@ -375,11 +378,15 @@ impl SceneGeometry {
             // count toward the bounding box (it would stretch it to the origin); those pixels
             // draw at the middle of the box.
             let real = points.len();
-            let grid = match &prop.shape {
-                ShapeSource::Generator(shape) => pf_geometry::own_grid(shape),
-                ShapeSource::Measured { .. } => None,
-            }
-            .or_else(|| filled_grid(&pf_geometry::local_positions(&prop.shape), &points));
+            // A layout of its own (an imported line's, or a custom model's cells) comes first.
+            let own = u32::try_from(nodes).ok().and_then(|n| prop.own_layout.grid(n));
+            let grid = own
+                .map(|(columns, rows, cells)| OwnGrid { columns, rows, cells })
+                .or_else(|| match &prop.shape {
+                    ShapeSource::Generator(shape) => pf_geometry::own_grid(shape),
+                    ShapeSource::Measured { .. } => None,
+                })
+                .or_else(|| filled_grid(&pf_geometry::local_positions(&prop.shape), &points));
             points.resize(nodes, [0.0, 0.0]);
             index.entry(layout.prop).or_insert(props.len());
             props.push(PropGeometry {
@@ -958,6 +965,49 @@ mod tests {
         show.props[0].transform.rotation_deg = Vec3::ZERO;
         show.props[0].transform.scale = Vec3::new(-2.6, 5.7, 1.0);
         assert_eq!(geometry(&show).props[0].grid, None, "mirrored");
+    }
+
+    #[test]
+    fn a_prop_with_a_layout_of_its_own_draws_on_it_whichever_way_it_runs() {
+        // A line standing on end: where its pixels sit it's one column, bottom to top.
+        let mut show = Show::new("t");
+        let mut post = line("Post", 4, 0.0);
+        post.transform.rotation_deg = Vec3::new(0.0, 0.0, 90.0);
+        show.props.push(post);
+        let id = show.props[0].id;
+        let buffer = geometry(&show).buffer(Target::Prop(id));
+        assert_eq!((buffer.columns, buffer.rows), (1, 4));
+
+        // As a strand it's one row, first pixel to last, as xLights draws on a single line.
+        let us = |show: &Show| -> Vec<f32> {
+            let buffer = geometry(show).buffer(Target::Prop(id));
+            assert_eq!((buffer.columns, buffer.rows), (4, 1));
+            assert!(buffer.pixels.iter().all(|p| p.v == 0.5 && p.count == 4));
+            buffer.pixels.iter().map(|p| p.u * 3.0).collect()
+        };
+        show.props[0].own_layout = pf_model::OwnLayout::Strand { reversed: false };
+        assert_eq!(us(&show), vec![0.0, 1.0, 2.0, 3.0]);
+        show.props[0].own_layout = pf_model::OwnLayout::Strand { reversed: true };
+        assert_eq!(us(&show), vec![3.0, 2.0, 1.0, 0.0]);
+
+        // Cells of its own: a 3 × 2 grid with pixels sharing a cell and a cell left empty.
+        show.props[0].own_layout = pf_model::OwnLayout::Cells {
+            columns: 3,
+            rows: 2,
+            cells: vec![[0, 0], [2, 0], [2, 1], [2, 1]],
+        };
+        let buffer = geometry(&show).buffer(Target::Prop(id));
+        assert_eq!((buffer.columns, buffer.rows), (3, 2));
+        let cells: Vec<(f32, f32)> = buffer.pixels.iter().map(|p| (p.u * 2.0, p.v)).collect();
+        assert_eq!(cells, vec![(0.0, 0.0), (2.0, 0.0), (2.0, 1.0), (2.0, 1.0)]);
+        assert_eq!(buffer.global, vec![0, 1, 2, 3]);
+
+        // Cells that don't fit its pixels any more are passed over: it draws where it sits.
+        if let ShapeSource::Generator(Generator::Line { nodes, .. }) = &mut show.props[0].shape {
+            *nodes = 5;
+        }
+        let buffer = geometry(&show).buffer(Target::Prop(id));
+        assert_eq!((buffer.columns, buffer.rows, buffer.len()), (1, 5, 5));
     }
 
     #[test]

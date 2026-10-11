@@ -34,7 +34,7 @@ pub use paths::{
     display_text, file_name_of, is_full_path_text, path_from_text, path_to_text, relative_text, resolve_text,
 };
 pub use primitives::{ColorOrder, Transform, Vec3};
-pub use prop::{Group, GroupMember, Prop};
+pub use prop::{Group, GroupMember, OwnLayout, Prop};
 pub use region::{
     BufferStyle, FaceColors, FaceDefinition, LineLayout, NodeRange, NodeRun, Phoneme, Region, RegionKind,
     RegionRef, SubmodelLine, format_line, parse_line,

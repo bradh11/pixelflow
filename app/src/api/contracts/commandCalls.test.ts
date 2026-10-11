@@ -516,7 +516,7 @@ describe("the calls the window makes to the shell", () => {
     const heard = (a: { api: string; event: string }, b: { api: string; event: string }) => a.api === b.api && a.event === b.event;
     const recording = { calls: recorder.calls, listens: recorder.listens.filter((l, i, all) => all.findIndex((other) => heard(l, other)) === i) };
     expect(recording.calls.length).toBeGreaterThan(200);
-    expect(staleFile("commandCalls.json", recording, "PIXELFLOW_UPDATE_CONTRACTS=1 npx vitest run src/api/contracts")).toBeNull();
+    expect(staleFile("commandCalls.json", recording, "`PIXELFLOW_UPDATE_CONTRACTS=1 npx vitest run src/api/contracts` in app, then `cargo test --locked -- contracts` in app/src-tauri")).toBeNull();
   });
 
   it("carry only what can be written down", () => {

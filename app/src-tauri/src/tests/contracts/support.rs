@@ -51,7 +51,7 @@ pub(crate) fn check_file(relative: &str, value: &Value, line: usize) {
     };
     panic!(
         "app/src/api/contracts/{relative} is out of date (line {}: the file has `{}`, the shell now gives `{}`). \
-         Run `{UPDATE}=1 cargo test --locked contracts parity` in app/src-tauri, then `npx vitest run src/api/contracts` in app, and commit the result.",
+         Run `{UPDATE}=1 cargo test --locked -- contracts parity` in app/src-tauri, then `npx vitest run src/api/contracts` in app, and commit the result.",
         line + 1,
         show(&saved),
         show(&text),

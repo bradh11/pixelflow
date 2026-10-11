@@ -70,7 +70,8 @@ export function pretty(value: unknown): string {
 
 /**
  * Compares `value` with the committed file `relative`, or rewrites the file when UPDATE is set.
- * Returns what to tell the developer when it's stale (null when it's up to date).
+ * Returns what to tell the developer when it's stale (null when it's up to date); `regenerate`
+ * says what to run, and where.
  */
 export function staleFile(relative: string, value: unknown, regenerate: string): string | null {
   const text = pretty(value);
@@ -79,7 +80,7 @@ export function staleFile(relative: string, value: unknown, regenerate: string):
   if (saved === text) return null;
   const [old, now] = [saved.split("\n"), text.split("\n")];
   const line = now.findIndex((l, i) => l !== old[i]);
-  return `app/src/api/contracts/${relative} is out of date (line ${line + 1}: the file has \`${(old[line] ?? "(the file ends)").trim()}\`, the window now gives \`${now[line].trim()}\`). Run \`${regenerate}\` and commit the result.`;
+  return `app/src/api/contracts/${relative} is out of date (line ${line + 1}: the file has \`${(old[line] ?? "(the file ends)").trim()}\`, the window now gives \`${now[line].trim()}\`). Run ${regenerate}, and commit the result.`;
 }
 
 /** A value and the type that must accept it, as a TypeScript type expression over MODULES. */

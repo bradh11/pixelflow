@@ -1,0 +1,186 @@
+{
+  "about": "Sequences on the show's playlist are added, moved, changed, and removed.",
+  "devices": [],
+  "start": {
+    "channelMapNow": { "controllers": [], "frameLen": 0, "props": [] },
+    "issuesNow": [],
+    "sequence": null,
+    "sequenceIssuesNow": null,
+    "sequenceNow": null,
+    "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 0 },
+    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 12, "sequences": [], "settings": { "frameRate": 40 } },
+    "summaryNow": { "controllers": 0, "pixels": 0, "props": 0, "universes": 0 }
+  },
+  "steps": [
+    {
+      "args": {
+        "edits": [
+          { "sequence": { "audio": "/fixture/music/Carol.mp3", "id": "77777777-0000-4000-8000-000000000001", "name": "Carol", "offsetMs": 0, "path": "/fixture/sequences/Carol.fseq" }, "type": "addSequence" },
+          { "sequence": { "audio": "/fixture/music/Wizards.mp3", "id": "77777777-0000-4000-8000-000000000002", "name": "Wizards", "offsetMs": 0, "path": "/fixture/sequences/Wizards.fseq" }, "type": "addSequence" },
+          { "sequence": { "audio": "/fixture/music/Medley.mp3", "id": "77777777-0000-4000-8000-000000000003", "name": "Medley", "offsetMs": 0, "path": "/fixture/sequences/Medley.fseq" }, "type": "addSequence" }
+        ]
+      },
+      "command": "apply_edits",
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 },
+      "showNow": {
+        "background": null,
+        "controllers": [],
+        "groups": [],
+        "name": "Untitled Show",
+        "props": [],
+        "schemaVersion": 12,
+        "sequences": [
+          { "audio": "/fixture/music/Carol.mp3", "id": "77777777-0000-4000-8000-000000000001", "name": "Carol", "offsetMs": 0, "path": "/fixture/sequences/Carol.fseq" },
+          { "audio": "/fixture/music/Wizards.mp3", "id": "77777777-0000-4000-8000-000000000002", "name": "Wizards", "offsetMs": 0, "path": "/fixture/sequences/Wizards.fseq" },
+          { "audio": "/fixture/music/Medley.mp3", "id": "77777777-0000-4000-8000-000000000003", "name": "Medley", "offsetMs": 0, "path": "/fixture/sequences/Medley.fseq" }
+        ],
+        "settings": { "frameRate": 40 }
+      }
+    },
+    {
+      "args": { "edits": [{ "id": "77777777-0000-4000-8000-000000000001", "index": 99, "type": "moveSequence" }] },
+      "command": "apply_edits",
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "showNow": {
+        "background": null,
+        "controllers": [],
+        "groups": [],
+        "name": "Untitled Show",
+        "props": [],
+        "schemaVersion": 12,
+        "sequences": [
+          { "audio": "/fixture/music/Wizards.mp3", "id": "77777777-0000-4000-8000-000000000002", "name": "Wizards", "offsetMs": 0, "path": "/fixture/sequences/Wizards.fseq" },
+          { "audio": "/fixture/music/Medley.mp3", "id": "77777777-0000-4000-8000-000000000003", "name": "Medley", "offsetMs": 0, "path": "/fixture/sequences/Medley.fseq" },
+          { "audio": "/fixture/music/Carol.mp3", "id": "77777777-0000-4000-8000-000000000001", "name": "Carol", "offsetMs": 0, "path": "/fixture/sequences/Carol.fseq" }
+        ],
+        "settings": { "frameRate": 40 }
+      }
+    },
+    {
+      "args": { "edits": [{ "id": "77777777-0000-4000-8000-000000000003", "index": 0, "type": "moveSequence" }] },
+      "command": "apply_edits",
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 3 },
+      "showNow": {
+        "background": null,
+        "controllers": [],
+        "groups": [],
+        "name": "Untitled Show",
+        "props": [],
+        "schemaVersion": 12,
+        "sequences": [
+          { "audio": "/fixture/music/Medley.mp3", "id": "77777777-0000-4000-8000-000000000003", "name": "Medley", "offsetMs": 0, "path": "/fixture/sequences/Medley.fseq" },
+          { "audio": "/fixture/music/Wizards.mp3", "id": "77777777-0000-4000-8000-000000000002", "name": "Wizards", "offsetMs": 0, "path": "/fixture/sequences/Wizards.fseq" },
+          { "audio": "/fixture/music/Carol.mp3", "id": "77777777-0000-4000-8000-000000000001", "name": "Carol", "offsetMs": 0, "path": "/fixture/sequences/Carol.fseq" }
+        ],
+        "settings": { "frameRate": 40 }
+      }
+    },
+    {
+      "args": { "edits": [{ "sequence": { "audio": null, "id": "77777777-0000-4000-8000-000000000002", "name": "Wizards", "offsetMs": -120, "path": "/fixture/sequences/Wizards.fseq" }, "type": "updateSequence" }] },
+      "command": "apply_edits",
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 4 },
+      "showNow": {
+        "background": null,
+        "controllers": [],
+        "groups": [],
+        "name": "Untitled Show",
+        "props": [],
+        "schemaVersion": 12,
+        "sequences": [
+          { "audio": "/fixture/music/Medley.mp3", "id": "77777777-0000-4000-8000-000000000003", "name": "Medley", "offsetMs": 0, "path": "/fixture/sequences/Medley.fseq" },
+          { "audio": null, "id": "77777777-0000-4000-8000-000000000002", "name": "Wizards", "offsetMs": -120, "path": "/fixture/sequences/Wizards.fseq" },
+          { "audio": "/fixture/music/Carol.mp3", "id": "77777777-0000-4000-8000-000000000001", "name": "Carol", "offsetMs": 0, "path": "/fixture/sequences/Carol.fseq" }
+        ],
+        "settings": { "frameRate": 40 }
+      }
+    },
+    {
+      "args": { "edits": [{ "id": "77777777-0000-4000-8000-000000000003", "type": "removeSequence" }] },
+      "command": "apply_edits",
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 5 },
+      "showNow": {
+        "background": null,
+        "controllers": [],
+        "groups": [],
+        "name": "Untitled Show",
+        "props": [],
+        "schemaVersion": 12,
+        "sequences": [{ "audio": null, "id": "77777777-0000-4000-8000-000000000002", "name": "Wizards", "offsetMs": -120, "path": "/fixture/sequences/Wizards.fseq" }, { "audio": "/fixture/music/Carol.mp3", "id": "77777777-0000-4000-8000-000000000001", "name": "Carol", "offsetMs": 0, "path": "/fixture/sequences/Carol.fseq" }],
+        "settings": { "frameRate": 40 }
+      }
+    },
+    {
+      "args": {},
+      "command": "undo",
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": true, "canUndo": true, "dirty": true, "path": null, "revision": 6 },
+      "showNow": {
+        "background": null,
+        "controllers": [],
+        "groups": [],
+        "name": "Untitled Show",
+        "props": [],
+        "schemaVersion": 12,
+        "sequences": [
+          { "audio": "/fixture/music/Medley.mp3", "id": "77777777-0000-4000-8000-000000000003", "name": "Medley", "offsetMs": 0, "path": "/fixture/sequences/Medley.fseq" },
+          { "audio": null, "id": "77777777-0000-4000-8000-000000000002", "name": "Wizards", "offsetMs": -120, "path": "/fixture/sequences/Wizards.fseq" },
+          { "audio": "/fixture/music/Carol.mp3", "id": "77777777-0000-4000-8000-000000000001", "name": "Carol", "offsetMs": 0, "path": "/fixture/sequences/Carol.fseq" }
+        ],
+        "settings": { "frameRate": 40 }
+      }
+    },
+    {
+      "args": {},
+      "command": "undo",
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": true, "canUndo": true, "dirty": true, "path": null, "revision": 7 },
+      "showNow": {
+        "background": null,
+        "controllers": [],
+        "groups": [],
+        "name": "Untitled Show",
+        "props": [],
+        "schemaVersion": 12,
+        "sequences": [
+          { "audio": "/fixture/music/Medley.mp3", "id": "77777777-0000-4000-8000-000000000003", "name": "Medley", "offsetMs": 0, "path": "/fixture/sequences/Medley.fseq" },
+          { "audio": "/fixture/music/Wizards.mp3", "id": "77777777-0000-4000-8000-000000000002", "name": "Wizards", "offsetMs": 0, "path": "/fixture/sequences/Wizards.fseq" },
+          { "audio": "/fixture/music/Carol.mp3", "id": "77777777-0000-4000-8000-000000000001", "name": "Carol", "offsetMs": 0, "path": "/fixture/sequences/Carol.fseq" }
+        ],
+        "settings": { "frameRate": 40 }
+      }
+    },
+    {
+      "args": {},
+      "command": "redo",
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": true, "canUndo": true, "dirty": true, "path": null, "revision": 8 },
+      "showNow": {
+        "background": null,
+        "controllers": [],
+        "groups": [],
+        "name": "Untitled Show",
+        "props": [],
+        "schemaVersion": 12,
+        "sequences": [
+          { "audio": "/fixture/music/Medley.mp3", "id": "77777777-0000-4000-8000-000000000003", "name": "Medley", "offsetMs": 0, "path": "/fixture/sequences/Medley.fseq" },
+          { "audio": null, "id": "77777777-0000-4000-8000-000000000002", "name": "Wizards", "offsetMs": -120, "path": "/fixture/sequences/Wizards.fseq" },
+          { "audio": "/fixture/music/Carol.mp3", "id": "77777777-0000-4000-8000-000000000001", "name": "Carol", "offsetMs": 0, "path": "/fixture/sequences/Carol.fseq" }
+        ],
+        "settings": { "frameRate": 40 }
+      }
+    }
+  ]
+}

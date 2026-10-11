@@ -396,6 +396,7 @@ mod tests {
     use tauri::webview::InvokeRequest;
 
     mod contracts;
+    mod parity;
 
     #[test]
     fn edits_from_the_ui_round_trip_through_the_engine() {

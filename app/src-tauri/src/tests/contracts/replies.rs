@@ -3,7 +3,10 @@
 //! Values no command can be made to give here (a controller that doesn't resolve, a download's
 //! progress) are built from the shell's own types instead, and say so.
 
-use super::support::{Fixtures, Shell, check_no_strays, declared_events, heard, pin, wire};
+use super::support::{
+    Fixtures, Shell, bench, check_no_strays, controller, declared_events, heard, pin, port, prop, prop_id,
+    slot, strip, wire,
+};
 use super::*;
 
 mod assistant_replies;
@@ -37,30 +40,6 @@ fn no_reply_fixture_is_left_over() {
 
 /// What a fake device's address reads as in the fixtures (its port changes every run).
 const DEVICE: &str = "192.0.2.50";
-
-fn prop_id(n: u32) -> String {
-    format!("11111111-0000-4000-8000-{n:012}")
-}
-
-fn prop(n: u32, name: &str, shape: Value) -> Value {
-    let mut shape = shape;
-    shape["source"] = json!("generator");
-    json!({
-        "id": prop_id(n),
-        "name": name,
-        "shape": shape,
-        "transform": { "position": { "x": n, "y": 0, "z": 0 }, "rotationDeg": { "x": 0, "y": 0, "z": 0 },
-                       "scale": { "x": 1, "y": 1, "z": 1 } },
-        "colorOrder": "RGB",
-        "regions": [],
-        "tags": [],
-    })
-}
-
-/// A straight strip of `nodes` pixels.
-fn strip(n: u32, name: &str, nodes: u32) -> Value {
-    prop(n, name, json!({ "type": "line", "nodes": nodes, "length": 3 }))
-}
 
 /// A prop of every shape a show can hold, small enough to read.
 fn every_shape() -> Vec<Value> {
@@ -213,39 +192,6 @@ fn assert_every_variant(what: &str, count: usize, indexes: impl IntoIterator<Ite
         (0..count).collect::<Vec<_>>(),
         "not every {what} has an example"
     );
-}
-
-fn controller(n: u32, name: &str, address: &str, protocol: Value, ports: Value) -> Value {
-    json!({
-        "id": format!("33333333-0000-4000-8000-{n:012}"),
-        "name": name,
-        "address": address,
-        "adapter": "generic",
-        "protocol": protocol,
-        "ports": ports,
-        "sequenceChannels": null,
-    })
-}
-
-fn slot(prop: u32) -> Value {
-    json!({ "prop": prop_id(prop), "segment": null, "nullPixels": 0, "reverse": false, "brightness": null,
-            "gamma": null, "smartReceiver": null })
-}
-
-fn port(number: u32, slots: Value) -> Value {
-    json!({ "number": number, "maxPixels": null, "brightness": 100, "gamma": 1, "slots": slots })
-}
-
-/// A controller on this computer (nothing leaves it), wired to props `wired` on port 1.
-fn bench(n: u32, wired: &[u32]) -> Value {
-    let slots: Vec<Value> = wired.iter().map(|p| slot(*p)).collect();
-    controller(
-        n,
-        "Bench",
-        "127.0.0.1:9",
-        json!({ "type": "ddp" }),
-        json!([port(1, json!(slots))]),
-    )
 }
 
 /// A show with every shape, groups, a controller of each protocol, and wiring with every

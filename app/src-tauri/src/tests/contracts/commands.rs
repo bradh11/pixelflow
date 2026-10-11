@@ -11,7 +11,7 @@
 //! - **inside each argument**: a field the window sends in an object must be one the Rust type
 //!   reads (serde drops unknown fields without a word).
 
-use super::support::{FIXTURE_DIR, Shell, contracts_dir, declared_events, shell_sources, without_tests};
+use super::support::{Shell, contracts_dir, declared_events, in_dir, shell_sources, without_tests};
 use super::*;
 use serde::de::DeserializeOwned;
 use std::collections::{BTreeMap, BTreeSet};
@@ -365,15 +365,7 @@ const RECORDED_ADDRESS: &str = "192.0.2.10";
 /// replaced by `device`'s: nothing a call does can then land outside the test's own folder, or
 /// reach past this computer.
 fn at_home(value: &Value, dir: &Path, device: &str) -> Value {
-    match value {
-        Value::String(text) if text.starts_with(FIXTURE_DIR) => {
-            let below = text[FIXTURE_DIR.len()..].trim_start_matches('/');
-            json!(pf_model::path_to_text(
-                &below
-                    .split('/')
-                    .fold(dir.to_path_buf(), |path, part| path.join(part))
-            ))
-        }
+    match in_dir(value, dir) {
         Value::String(text) if text == RECORDED_ADDRESS => json!(device),
         Value::Array(items) => Value::Array(items.iter().map(|v| at_home(v, dir, device)).collect()),
         Value::Object(map) => Value::Object(
@@ -381,7 +373,7 @@ fn at_home(value: &Value, dir: &Path, device: &str) -> Value {
                 .map(|(k, v)| (k.clone(), at_home(v, dir, device)))
                 .collect(),
         ),
-        other => other.clone(),
+        other => other,
     }
 }
 

@@ -19,10 +19,10 @@ pub(crate) fn contracts_dir() -> PathBuf {
 }
 
 /// Compares `value` with the committed file `relative` (under [`contracts_dir`]), or rewrites
-/// the file when [`UPDATE`] is set.
-pub(crate) fn check_file(relative: &str, value: &Value) {
+/// the file when [`UPDATE`] is set. `line` is the longest line an array or object is kept on.
+pub(crate) fn check_file(relative: &str, value: &Value, line: usize) {
     let path = contracts_dir().join(relative);
-    let text = pretty(&sorted(value.clone())) + "\n";
+    let text = pretty(&sorted(value.clone()), line) + "\n";
     // A checkout may have turned the line ends into CRLF.
     let read = || {
         std::fs::read_to_string(&path)
@@ -58,14 +58,15 @@ pub(crate) fn check_file(relative: &str, value: &Value) {
     );
 }
 
-/// The longest line an array or object is kept on.
-const LINE: usize = 110;
+/// The longest line an array or object is kept on, unless a file asks for another.
+pub(crate) const LINE: usize = 110;
 
-/// JSON with a member per line, except that an array or object that fits on one line stays on
-/// one: fixtures a person can read, and diffs that show what changed.
-pub(crate) fn pretty(value: &Value) -> String {
+/// JSON with a member per line, except that an array or object that fits on one line (of at
+/// most `line` characters) stays on one: fixtures a person can read, and diffs that show what
+/// changed.
+pub(crate) fn pretty(value: &Value, line: usize) -> String {
     let mut out = String::new();
-    write_value(value, 0, 0, &mut out);
+    write_value(value, 0, 0, line, &mut out);
     out
 }
 
@@ -86,27 +87,27 @@ fn flat(value: &Value) -> String {
 }
 
 /// Writes `value` at `indent`, after `lead` characters already on its line.
-fn write_value(value: &Value, indent: usize, lead: usize, out: &mut String) {
+fn write_value(value: &Value, indent: usize, lead: usize, line: usize, out: &mut String) {
     let one_line = flat(value);
     let pad = |n: usize, out: &mut String| out.push_str(&" ".repeat(n));
     match value {
-        Value::Array(items) if indent + lead + one_line.len() > LINE => {
+        Value::Array(items) if indent + lead + one_line.len() > line => {
             out.push_str("[\n");
             for (i, item) in items.iter().enumerate() {
                 pad(indent + 2, out);
-                write_value(item, indent + 2, 0, out);
+                write_value(item, indent + 2, 0, line, out);
                 out.push_str(if i + 1 < items.len() { ",\n" } else { "\n" });
             }
             pad(indent, out);
             out.push(']');
         }
-        Value::Object(map) if indent + lead + one_line.len() > LINE => {
+        Value::Object(map) if indent + lead + one_line.len() > line => {
             out.push_str("{\n");
             for (i, (key, item)) in map.iter().enumerate() {
                 pad(indent + 2, out);
                 let key = format!("{}: ", Value::from(key.as_str()));
                 out.push_str(&key);
-                write_value(item, indent + 2, key.len(), out);
+                write_value(item, indent + 2, key.len(), line, out);
                 out.push_str(if i + 1 < map.len() { ",\n" } else { "\n" });
             }
             pad(indent, out);
@@ -371,7 +372,7 @@ impl Fixtures {
     /// Checks the committed file (see [`check_file`]).
     pub(crate) fn finish(mut self) {
         let entries = self.stable.value(Value::Array(std::mem::take(&mut self.entries)));
-        check_file(&format!("replies/{}.json", self.file), &entries);
+        check_file(&format!("replies/{}.json", self.file), &entries, LINE);
     }
 }
 
@@ -520,6 +521,82 @@ pub(crate) fn declared_events() -> Vec<String> {
         .collect();
     assert!(events.len() > 5, "{events:?}");
     events.into_iter().collect()
+}
+
+/// `value` with every path under [`FIXTURE_DIR`] moved into `dir`: what a scripted call names
+/// then lands in the test's own folder.
+pub(crate) fn in_dir(value: &Value, dir: &Path) -> Value {
+    match value {
+        Value::String(text) if text.starts_with(FIXTURE_DIR) => {
+            let below = text[FIXTURE_DIR.len()..].trim_start_matches('/');
+            let path = below
+                .split('/')
+                .fold(dir.to_path_buf(), |path, part| path.join(part));
+            json!(pf_model::path_to_text(&path))
+        }
+        Value::Array(items) => Value::Array(items.iter().map(|v| in_dir(v, dir)).collect()),
+        Value::Object(map) => Value::Object(map.iter().map(|(k, v)| (k.clone(), in_dir(v, dir))).collect()),
+        other => other.clone(),
+    }
+}
+
+// Pieces of a show as the window's own edits carry them, with ids the tests choose.
+
+pub(crate) fn prop_id(n: u32) -> String {
+    format!("11111111-0000-4000-8000-{n:012}")
+}
+
+pub(crate) fn prop(n: u32, name: &str, shape: Value) -> Value {
+    let mut shape = shape;
+    shape["source"] = json!("generator");
+    json!({
+        "id": prop_id(n),
+        "name": name,
+        "shape": shape,
+        "transform": { "position": { "x": n, "y": 0, "z": 0 }, "rotationDeg": { "x": 0, "y": 0, "z": 0 },
+                       "scale": { "x": 1, "y": 1, "z": 1 } },
+        "colorOrder": "RGB",
+        "regions": [],
+        "tags": [],
+    })
+}
+
+/// A straight strip of `nodes` pixels.
+pub(crate) fn strip(n: u32, name: &str, nodes: u32) -> Value {
+    prop(n, name, json!({ "type": "line", "nodes": nodes, "length": 3 }))
+}
+
+pub(crate) fn controller(n: u32, name: &str, address: &str, protocol: Value, ports: Value) -> Value {
+    json!({
+        "id": format!("33333333-0000-4000-8000-{n:012}"),
+        "name": name,
+        "address": address,
+        "adapter": "generic",
+        "protocol": protocol,
+        "ports": ports,
+        "sequenceChannels": null,
+    })
+}
+
+pub(crate) fn slot(prop: u32) -> Value {
+    json!({ "prop": prop_id(prop), "segment": null, "nullPixels": 0, "reverse": false, "brightness": null,
+            "gamma": null, "smartReceiver": null })
+}
+
+pub(crate) fn port(number: u32, slots: Value) -> Value {
+    json!({ "number": number, "maxPixels": null, "brightness": 100, "gamma": 1, "slots": slots })
+}
+
+/// A controller on this computer (nothing leaves it), wired to props `wired` on port 1.
+pub(crate) fn bench(n: u32, wired: &[u32]) -> Value {
+    let slots: Vec<Value> = wired.iter().map(|p| slot(*p)).collect();
+    controller(
+        n,
+        "Bench",
+        "127.0.0.1:9",
+        json!({ "type": "ddp" }),
+        json!([port(1, json!(slots))]),
+    )
 }
 
 /// A value as the window receives it: through JSON text.

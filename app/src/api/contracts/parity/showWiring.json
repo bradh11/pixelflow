@@ -1,0 +1,593 @@
+{
+  "about": "Props wired to ports become controller channels and sACN universes, numbered round the ones that are pinned.",
+  "devices": [],
+  "start": {
+    "channelMapNow": { "controllers": [], "frameLen": 0, "props": [] },
+    "issuesNow": [],
+    "sequence": null,
+    "sequenceIssuesNow": null,
+    "sequenceNow": null,
+    "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 0 },
+    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 12, "sequences": [], "settings": { "frameRate": 40 } },
+    "summaryNow": { "controllers": 0, "pixels": 0, "props": 0, "universes": 0 }
+  },
+  "steps": [
+    {
+      "args": {
+        "edits": [
+          { "prop": { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3, "nodes": 50, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1, "y": 0, "z": 0 }, "rotationDeg": { "x": 0, "y": 0, "z": 0 }, "scale": { "x": 1, "y": 1, "z": 1 } } }, "type": "addProp" },
+          { "prop": { "colorOrder": "RGBW", "id": "11111111-0000-4000-8000-000000000002", "name": "Eaves", "regions": [], "shape": { "length": 3, "nodes": 100, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2, "y": 0, "z": 0 }, "rotationDeg": { "x": 0, "y": 0, "z": 0 }, "scale": { "x": 1, "y": 1, "z": 1 } } }, "type": "addProp" },
+          { "prop": { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000003", "name": "Fence", "regions": [], "shape": { "length": 3, "nodes": 40, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 3, "y": 0, "z": 0 }, "rotationDeg": { "x": 0, "y": 0, "z": 0 }, "scale": { "x": 1, "y": 1, "z": 1 } } }, "type": "addProp" },
+          { "prop": { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000004", "name": "Door", "regions": [], "shape": { "length": 3, "nodes": 10, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 4, "y": 0, "z": 0 }, "rotationDeg": { "x": 0, "y": 0, "z": 0 }, "scale": { "x": 1, "y": 1, "z": 1 } } }, "type": "addProp" },
+          { "prop": { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000005", "name": "Spare", "regions": [], "shape": { "length": 3, "nodes": 5, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 5, "y": 0, "z": 0 }, "rotationDeg": { "x": 0, "y": 0, "z": 0 }, "scale": { "x": 1, "y": 1, "z": 1 } } }, "type": "addProp" },
+          {
+            "controller": {
+              "adapter": "generic",
+              "address": "192.0.2.10",
+              "id": "33333333-0000-4000-8000-000000000001",
+              "name": "Porch",
+              "ports": [
+                {
+                  "brightness": 100,
+                  "gamma": 1,
+                  "maxPixels": null,
+                  "number": 1,
+                  "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false, "segment": null, "smartReceiver": null }, { "brightness": 50, "gamma": 2.0, "nullPixels": 2, "prop": "11111111-0000-4000-8000-000000000002", "reverse": true, "segment": { "end": 60, "start": 0 }, "smartReceiver": null }]
+                },
+                { "brightness": 100, "gamma": 1, "maxPixels": null, "number": 2, "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false, "segment": { "end": 100, "start": 60 }, "smartReceiver": null }] }
+              ],
+              "protocol": { "allowPixelStraddle": false, "multicast": false, "startUniverse": null, "type": "sacn", "universeSize": 510 },
+              "sequenceChannels": null
+            },
+            "type": "addController"
+          },
+          {
+            "controller": {
+              "adapter": "generic",
+              "address": "192.0.2.11",
+              "id": "33333333-0000-4000-8000-000000000002",
+              "name": "Garage",
+              "ports": [{ "brightness": 100, "gamma": 1, "maxPixels": null, "number": 1, "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000003", "reverse": false, "segment": null, "smartReceiver": null }] }],
+              "protocol": { "allowPixelStraddle": true, "multicast": false, "startUniverse": 1, "type": "sacn", "universeSize": 100 },
+              "sequenceChannels": null
+            },
+            "type": "addController"
+          },
+          {
+            "controller": {
+              "adapter": "generic",
+              "address": "192.0.2.12",
+              "id": "33333333-0000-4000-8000-000000000003",
+              "name": "Shed",
+              "ports": [{ "brightness": 100, "gamma": 1, "maxPixels": null, "number": 1, "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000004", "reverse": false, "segment": null, "smartReceiver": null }] }],
+              "protocol": { "type": "ddp" },
+              "sequenceChannels": null
+            },
+            "type": "addController"
+          }
+        ]
+      },
+      "channelMapNow": {
+        "controllers": [
+          {
+            "addressing": { "multicast": false, "type": "sacn", "universes": [{ "controllerChannel": 0, "len": 510, "universe": 3 }, { "controllerChannel": 510, "len": 48, "universe": 4 }] },
+            "channelCount": 558,
+            "controller": "33333333-0000-4000-8000-000000000001",
+            "spans": [
+              { "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 0, "frameOffset": 0, "gamma": 1.0, "pixels": 50, "port": 1, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false },
+              { "brightness": 50, "channelsPerPixel": 4, "colorOrder": "RGBW", "controllerChannel": 158, "frameOffset": 150, "gamma": 2.0, "pixels": 60, "port": 1, "prop": "11111111-0000-4000-8000-000000000002", "reverse": true },
+              { "brightness": 100, "channelsPerPixel": 4, "colorOrder": "RGBW", "controllerChannel": 398, "frameOffset": 390, "gamma": 1.0, "pixels": 40, "port": 2, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false }
+            ]
+          },
+          {
+            "addressing": { "multicast": false, "type": "sacn", "universes": [{ "controllerChannel": 0, "len": 100, "universe": 1 }, { "controllerChannel": 100, "len": 20, "universe": 2 }] },
+            "channelCount": 120,
+            "controller": "33333333-0000-4000-8000-000000000002",
+            "spans": [{ "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 0, "frameOffset": 550, "gamma": 1.0, "pixels": 40, "port": 1, "prop": "11111111-0000-4000-8000-000000000003", "reverse": false }]
+          },
+          { "addressing": { "type": "ddp" }, "channelCount": 30, "controller": "33333333-0000-4000-8000-000000000003", "spans": [{ "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 0, "frameOffset": 670, "gamma": 1.0, "pixels": 10, "port": 1, "prop": "11111111-0000-4000-8000-000000000004", "reverse": false }] }
+        ],
+        "frameLen": 715,
+        "props": [
+          { "channelsPerPixel": 3, "frameOffset": 0, "nodes": 50, "prop": "11111111-0000-4000-8000-000000000001" },
+          { "channelsPerPixel": 4, "frameOffset": 150, "nodes": 100, "prop": "11111111-0000-4000-8000-000000000002" },
+          { "channelsPerPixel": 3, "frameOffset": 550, "nodes": 40, "prop": "11111111-0000-4000-8000-000000000003" },
+          { "channelsPerPixel": 3, "frameOffset": 670, "nodes": 10, "prop": "11111111-0000-4000-8000-000000000004" },
+          { "channelsPerPixel": 3, "frameOffset": 700, "nodes": 5, "prop": "11111111-0000-4000-8000-000000000005" }
+        ]
+      },
+      "command": "apply_edits",
+      "issuesNow": [{ "code": "unassignedNodes", "fix": "Drag the prop onto a controller port.", "message": "The prop 'Spare' is not wired to any controller port.", "severity": "warning" }],
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 },
+      "showNow": {
+        "background": null,
+        "controllers": [
+          {
+            "adapter": "generic",
+            "address": "192.0.2.10",
+            "id": "33333333-0000-4000-8000-000000000001",
+            "name": "Porch",
+            "ports": [
+              {
+                "brightness": 100,
+                "gamma": 1.0,
+                "maxPixels": null,
+                "number": 1,
+                "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false, "segment": null, "smartReceiver": null }, { "brightness": 50, "gamma": 2.0, "nullPixels": 2, "prop": "11111111-0000-4000-8000-000000000002", "reverse": true, "segment": { "end": 60, "start": 0 }, "smartReceiver": null }]
+              },
+              { "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 2, "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false, "segment": { "end": 100, "start": 60 }, "smartReceiver": null }] }
+            ],
+            "protocol": { "allowPixelStraddle": false, "multicast": false, "startUniverse": null, "type": "sacn", "universeSize": 510 },
+            "sequenceChannels": null
+          },
+          {
+            "adapter": "generic",
+            "address": "192.0.2.11",
+            "id": "33333333-0000-4000-8000-000000000002",
+            "name": "Garage",
+            "ports": [{ "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 1, "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000003", "reverse": false, "segment": null, "smartReceiver": null }] }],
+            "protocol": { "allowPixelStraddle": true, "multicast": false, "startUniverse": 1, "type": "sacn", "universeSize": 100 },
+            "sequenceChannels": null
+          },
+          {
+            "adapter": "generic",
+            "address": "192.0.2.12",
+            "id": "33333333-0000-4000-8000-000000000003",
+            "name": "Shed",
+            "ports": [{ "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 1, "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000004", "reverse": false, "segment": null, "smartReceiver": null }] }],
+            "protocol": { "type": "ddp" },
+            "sequenceChannels": null
+          }
+        ],
+        "groups": [],
+        "name": "Untitled Show",
+        "props": [
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 50, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGBW", "id": "11111111-0000-4000-8000-000000000002", "name": "Eaves", "regions": [], "shape": { "length": 3.0, "nodes": 100, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000003", "name": "Fence", "regions": [], "shape": { "length": 3.0, "nodes": 40, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 3.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000004", "name": "Door", "regions": [], "shape": { "length": 3.0, "nodes": 10, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 4.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000005", "name": "Spare", "regions": [], "shape": { "length": 3.0, "nodes": 5, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 5.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
+        ],
+        "schemaVersion": 12,
+        "sequences": [],
+        "settings": { "frameRate": 40 }
+      },
+      "summaryNow": { "controllers": 3, "pixels": 205, "props": 5, "universes": 4 }
+    },
+    {
+      "args": {
+        "edits": [
+          {
+            "controller": {
+              "adapter": "generic",
+              "address": "192.0.2.10",
+              "id": "33333333-0000-4000-8000-000000000001",
+              "name": "Porch",
+              "ports": [
+                {
+                  "brightness": 100,
+                  "gamma": 1,
+                  "maxPixels": null,
+                  "number": 1,
+                  "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false, "segment": null, "smartReceiver": null }, { "brightness": 50, "gamma": 2.0, "nullPixels": 2, "prop": "11111111-0000-4000-8000-000000000002", "reverse": true, "segment": { "end": 60, "start": 0 }, "smartReceiver": null }]
+                },
+                { "brightness": 100, "gamma": 1, "maxPixels": null, "number": 2, "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false, "segment": { "end": 100, "start": 60 }, "smartReceiver": null }] }
+              ],
+              "protocol": { "allowPixelStraddle": false, "multicast": false, "startUniverse": null, "type": "sacn", "universeSize": 30 },
+              "sequenceChannels": null
+            },
+            "type": "updateController"
+          }
+        ]
+      },
+      "channelMapNow": {
+        "controllers": [
+          {
+            "addressing": {
+              "multicast": false,
+              "type": "sacn",
+              "universes": [
+                { "controllerChannel": 0, "len": 30, "universe": 3 },
+                { "controllerChannel": 30, "len": 30, "universe": 4 },
+                { "controllerChannel": 60, "len": 30, "universe": 5 },
+                { "controllerChannel": 90, "len": 30, "universe": 6 },
+                { "controllerChannel": 120, "len": 30, "universe": 7 },
+                { "controllerChannel": 150, "len": 28, "universe": 8 },
+                { "controllerChannel": 178, "len": 28, "universe": 9 },
+                { "controllerChannel": 206, "len": 28, "universe": 10 },
+                { "controllerChannel": 234, "len": 28, "universe": 11 },
+                { "controllerChannel": 262, "len": 28, "universe": 12 },
+                { "controllerChannel": 290, "len": 28, "universe": 13 },
+                { "controllerChannel": 318, "len": 28, "universe": 14 },
+                { "controllerChannel": 346, "len": 28, "universe": 15 },
+                { "controllerChannel": 374, "len": 28, "universe": 16 },
+                { "controllerChannel": 402, "len": 28, "universe": 17 },
+                { "controllerChannel": 430, "len": 28, "universe": 18 },
+                { "controllerChannel": 458, "len": 28, "universe": 19 },
+                { "controllerChannel": 486, "len": 28, "universe": 20 },
+                { "controllerChannel": 514, "len": 28, "universe": 21 },
+                { "controllerChannel": 542, "len": 16, "universe": 22 }
+              ]
+            },
+            "channelCount": 558,
+            "controller": "33333333-0000-4000-8000-000000000001",
+            "spans": [
+              { "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 0, "frameOffset": 0, "gamma": 1.0, "pixels": 50, "port": 1, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false },
+              { "brightness": 50, "channelsPerPixel": 4, "colorOrder": "RGBW", "controllerChannel": 158, "frameOffset": 150, "gamma": 2.0, "pixels": 60, "port": 1, "prop": "11111111-0000-4000-8000-000000000002", "reverse": true },
+              { "brightness": 100, "channelsPerPixel": 4, "colorOrder": "RGBW", "controllerChannel": 398, "frameOffset": 390, "gamma": 1.0, "pixels": 40, "port": 2, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false }
+            ]
+          },
+          {
+            "addressing": { "multicast": false, "type": "sacn", "universes": [{ "controllerChannel": 0, "len": 100, "universe": 1 }, { "controllerChannel": 100, "len": 20, "universe": 2 }] },
+            "channelCount": 120,
+            "controller": "33333333-0000-4000-8000-000000000002",
+            "spans": [{ "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 0, "frameOffset": 550, "gamma": 1.0, "pixels": 40, "port": 1, "prop": "11111111-0000-4000-8000-000000000003", "reverse": false }]
+          },
+          { "addressing": { "type": "ddp" }, "channelCount": 30, "controller": "33333333-0000-4000-8000-000000000003", "spans": [{ "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 0, "frameOffset": 670, "gamma": 1.0, "pixels": 10, "port": 1, "prop": "11111111-0000-4000-8000-000000000004", "reverse": false }] }
+        ],
+        "frameLen": 715,
+        "props": [
+          { "channelsPerPixel": 3, "frameOffset": 0, "nodes": 50, "prop": "11111111-0000-4000-8000-000000000001" },
+          { "channelsPerPixel": 4, "frameOffset": 150, "nodes": 100, "prop": "11111111-0000-4000-8000-000000000002" },
+          { "channelsPerPixel": 3, "frameOffset": 550, "nodes": 40, "prop": "11111111-0000-4000-8000-000000000003" },
+          { "channelsPerPixel": 3, "frameOffset": 670, "nodes": 10, "prop": "11111111-0000-4000-8000-000000000004" },
+          { "channelsPerPixel": 3, "frameOffset": 700, "nodes": 5, "prop": "11111111-0000-4000-8000-000000000005" }
+        ]
+      },
+      "command": "apply_edits",
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "showNow": {
+        "background": null,
+        "controllers": [
+          {
+            "adapter": "generic",
+            "address": "192.0.2.10",
+            "id": "33333333-0000-4000-8000-000000000001",
+            "name": "Porch",
+            "ports": [
+              {
+                "brightness": 100,
+                "gamma": 1.0,
+                "maxPixels": null,
+                "number": 1,
+                "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false, "segment": null, "smartReceiver": null }, { "brightness": 50, "gamma": 2.0, "nullPixels": 2, "prop": "11111111-0000-4000-8000-000000000002", "reverse": true, "segment": { "end": 60, "start": 0 }, "smartReceiver": null }]
+              },
+              { "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 2, "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false, "segment": { "end": 100, "start": 60 }, "smartReceiver": null }] }
+            ],
+            "protocol": { "allowPixelStraddle": false, "multicast": false, "startUniverse": null, "type": "sacn", "universeSize": 30 },
+            "sequenceChannels": null
+          },
+          {
+            "adapter": "generic",
+            "address": "192.0.2.11",
+            "id": "33333333-0000-4000-8000-000000000002",
+            "name": "Garage",
+            "ports": [{ "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 1, "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000003", "reverse": false, "segment": null, "smartReceiver": null }] }],
+            "protocol": { "allowPixelStraddle": true, "multicast": false, "startUniverse": 1, "type": "sacn", "universeSize": 100 },
+            "sequenceChannels": null
+          },
+          {
+            "adapter": "generic",
+            "address": "192.0.2.12",
+            "id": "33333333-0000-4000-8000-000000000003",
+            "name": "Shed",
+            "ports": [{ "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 1, "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000004", "reverse": false, "segment": null, "smartReceiver": null }] }],
+            "protocol": { "type": "ddp" },
+            "sequenceChannels": null
+          }
+        ],
+        "groups": [],
+        "name": "Untitled Show",
+        "props": [
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 50, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGBW", "id": "11111111-0000-4000-8000-000000000002", "name": "Eaves", "regions": [], "shape": { "length": 3.0, "nodes": 100, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000003", "name": "Fence", "regions": [], "shape": { "length": 3.0, "nodes": 40, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 3.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000004", "name": "Door", "regions": [], "shape": { "length": 3.0, "nodes": 10, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 4.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000005", "name": "Spare", "regions": [], "shape": { "length": 3.0, "nodes": 5, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 5.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
+        ],
+        "schemaVersion": 12,
+        "sequences": [],
+        "settings": { "frameRate": 40 }
+      },
+      "summaryNow": { "controllers": 3, "pixels": 205, "props": 5, "universes": 22 }
+    },
+    {
+      "args": {
+        "edits": [
+          {
+            "controller": {
+              "adapter": "generic",
+              "address": "192.0.2.10",
+              "id": "33333333-0000-4000-8000-000000000001",
+              "name": "Porch",
+              "ports": [
+                {
+                  "brightness": 100,
+                  "gamma": 1,
+                  "maxPixels": null,
+                  "number": 1,
+                  "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false, "segment": null, "smartReceiver": null }, { "brightness": 50, "gamma": 2.0, "nullPixels": 2, "prop": "11111111-0000-4000-8000-000000000002", "reverse": true, "segment": { "end": 60, "start": 0 }, "smartReceiver": null }]
+                },
+                { "brightness": 100, "gamma": 1, "maxPixels": null, "number": 2, "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false, "segment": { "end": 100, "start": 60 }, "smartReceiver": null }] }
+              ],
+              "protocol": { "type": "ddp" },
+              "sequenceChannels": null
+            },
+            "type": "updateController"
+          }
+        ]
+      },
+      "channelMapNow": {
+        "controllers": [
+          {
+            "addressing": { "type": "ddp" },
+            "channelCount": 558,
+            "controller": "33333333-0000-4000-8000-000000000001",
+            "spans": [
+              { "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 0, "frameOffset": 0, "gamma": 1.0, "pixels": 50, "port": 1, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false },
+              { "brightness": 50, "channelsPerPixel": 4, "colorOrder": "RGBW", "controllerChannel": 158, "frameOffset": 150, "gamma": 2.0, "pixels": 60, "port": 1, "prop": "11111111-0000-4000-8000-000000000002", "reverse": true },
+              { "brightness": 100, "channelsPerPixel": 4, "colorOrder": "RGBW", "controllerChannel": 398, "frameOffset": 390, "gamma": 1.0, "pixels": 40, "port": 2, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false }
+            ]
+          },
+          {
+            "addressing": { "multicast": false, "type": "sacn", "universes": [{ "controllerChannel": 0, "len": 100, "universe": 1 }, { "controllerChannel": 100, "len": 20, "universe": 2 }] },
+            "channelCount": 120,
+            "controller": "33333333-0000-4000-8000-000000000002",
+            "spans": [{ "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 0, "frameOffset": 550, "gamma": 1.0, "pixels": 40, "port": 1, "prop": "11111111-0000-4000-8000-000000000003", "reverse": false }]
+          },
+          { "addressing": { "type": "ddp" }, "channelCount": 30, "controller": "33333333-0000-4000-8000-000000000003", "spans": [{ "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 0, "frameOffset": 670, "gamma": 1.0, "pixels": 10, "port": 1, "prop": "11111111-0000-4000-8000-000000000004", "reverse": false }] }
+        ],
+        "frameLen": 715,
+        "props": [
+          { "channelsPerPixel": 3, "frameOffset": 0, "nodes": 50, "prop": "11111111-0000-4000-8000-000000000001" },
+          { "channelsPerPixel": 4, "frameOffset": 150, "nodes": 100, "prop": "11111111-0000-4000-8000-000000000002" },
+          { "channelsPerPixel": 3, "frameOffset": 550, "nodes": 40, "prop": "11111111-0000-4000-8000-000000000003" },
+          { "channelsPerPixel": 3, "frameOffset": 670, "nodes": 10, "prop": "11111111-0000-4000-8000-000000000004" },
+          { "channelsPerPixel": 3, "frameOffset": 700, "nodes": 5, "prop": "11111111-0000-4000-8000-000000000005" }
+        ]
+      },
+      "command": "apply_edits",
+      "issuesNow": [
+        { "code": "unassignedNodes", "fix": "Drag the prop onto a controller port.", "message": "The prop 'Spare' is not wired to any controller port.", "severity": "warning" },
+        { "code": "mixedPixelTypes", "fix": "Wire the RGBW props to a controller of their own, or send this controller sACN.", "message": "'Porch' gets both RGB and RGBW props over DDP, which sends one pixel type for everything, so controllers like WLED will show some of them in the wrong colors.", "severity": "warning" }
+      ],
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 3 },
+      "showNow": {
+        "background": null,
+        "controllers": [
+          {
+            "adapter": "generic",
+            "address": "192.0.2.10",
+            "id": "33333333-0000-4000-8000-000000000001",
+            "name": "Porch",
+            "ports": [
+              {
+                "brightness": 100,
+                "gamma": 1.0,
+                "maxPixels": null,
+                "number": 1,
+                "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false, "segment": null, "smartReceiver": null }, { "brightness": 50, "gamma": 2.0, "nullPixels": 2, "prop": "11111111-0000-4000-8000-000000000002", "reverse": true, "segment": { "end": 60, "start": 0 }, "smartReceiver": null }]
+              },
+              { "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 2, "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false, "segment": { "end": 100, "start": 60 }, "smartReceiver": null }] }
+            ],
+            "protocol": { "type": "ddp" },
+            "sequenceChannels": null
+          },
+          {
+            "adapter": "generic",
+            "address": "192.0.2.11",
+            "id": "33333333-0000-4000-8000-000000000002",
+            "name": "Garage",
+            "ports": [{ "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 1, "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000003", "reverse": false, "segment": null, "smartReceiver": null }] }],
+            "protocol": { "allowPixelStraddle": true, "multicast": false, "startUniverse": 1, "type": "sacn", "universeSize": 100 },
+            "sequenceChannels": null
+          },
+          {
+            "adapter": "generic",
+            "address": "192.0.2.12",
+            "id": "33333333-0000-4000-8000-000000000003",
+            "name": "Shed",
+            "ports": [{ "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 1, "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000004", "reverse": false, "segment": null, "smartReceiver": null }] }],
+            "protocol": { "type": "ddp" },
+            "sequenceChannels": null
+          }
+        ],
+        "groups": [],
+        "name": "Untitled Show",
+        "props": [
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 50, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGBW", "id": "11111111-0000-4000-8000-000000000002", "name": "Eaves", "regions": [], "shape": { "length": 3.0, "nodes": 100, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000003", "name": "Fence", "regions": [], "shape": { "length": 3.0, "nodes": 40, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 3.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000004", "name": "Door", "regions": [], "shape": { "length": 3.0, "nodes": 10, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 4.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000005", "name": "Spare", "regions": [], "shape": { "length": 3.0, "nodes": 5, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 5.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
+        ],
+        "schemaVersion": 12,
+        "sequences": [],
+        "settings": { "frameRate": 40 }
+      },
+      "summaryNow": { "controllers": 3, "pixels": 205, "props": 5, "universes": 2 }
+    },
+    {
+      "args": { "edits": [{ "id": "11111111-0000-4000-8000-000000000001", "type": "removeProp" }] },
+      "channelMapNow": {
+        "controllers": [
+          {
+            "addressing": { "type": "ddp" },
+            "channelCount": 408,
+            "controller": "33333333-0000-4000-8000-000000000001",
+            "spans": [
+              { "brightness": 50, "channelsPerPixel": 4, "colorOrder": "RGBW", "controllerChannel": 8, "frameOffset": 0, "gamma": 2.0, "pixels": 60, "port": 1, "prop": "11111111-0000-4000-8000-000000000002", "reverse": true },
+              { "brightness": 100, "channelsPerPixel": 4, "colorOrder": "RGBW", "controllerChannel": 248, "frameOffset": 240, "gamma": 1.0, "pixels": 40, "port": 2, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false }
+            ]
+          },
+          {
+            "addressing": { "multicast": false, "type": "sacn", "universes": [{ "controllerChannel": 0, "len": 100, "universe": 1 }, { "controllerChannel": 100, "len": 20, "universe": 2 }] },
+            "channelCount": 120,
+            "controller": "33333333-0000-4000-8000-000000000002",
+            "spans": [{ "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 0, "frameOffset": 400, "gamma": 1.0, "pixels": 40, "port": 1, "prop": "11111111-0000-4000-8000-000000000003", "reverse": false }]
+          },
+          { "addressing": { "type": "ddp" }, "channelCount": 30, "controller": "33333333-0000-4000-8000-000000000003", "spans": [{ "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 0, "frameOffset": 520, "gamma": 1.0, "pixels": 10, "port": 1, "prop": "11111111-0000-4000-8000-000000000004", "reverse": false }] }
+        ],
+        "frameLen": 565,
+        "props": [
+          { "channelsPerPixel": 4, "frameOffset": 0, "nodes": 100, "prop": "11111111-0000-4000-8000-000000000002" },
+          { "channelsPerPixel": 3, "frameOffset": 400, "nodes": 40, "prop": "11111111-0000-4000-8000-000000000003" },
+          { "channelsPerPixel": 3, "frameOffset": 520, "nodes": 10, "prop": "11111111-0000-4000-8000-000000000004" },
+          { "channelsPerPixel": 3, "frameOffset": 550, "nodes": 5, "prop": "11111111-0000-4000-8000-000000000005" }
+        ]
+      },
+      "command": "apply_edits",
+      "issuesNow": [{ "code": "unassignedNodes", "fix": "Drag the prop onto a controller port.", "message": "The prop 'Spare' is not wired to any controller port.", "severity": "warning" }],
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 4 },
+      "showNow": {
+        "background": null,
+        "controllers": [
+          {
+            "adapter": "generic",
+            "address": "192.0.2.10",
+            "id": "33333333-0000-4000-8000-000000000001",
+            "name": "Porch",
+            "ports": [
+              { "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 1, "slots": [{ "brightness": 50, "gamma": 2.0, "nullPixels": 2, "prop": "11111111-0000-4000-8000-000000000002", "reverse": true, "segment": { "end": 60, "start": 0 }, "smartReceiver": null }] },
+              { "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 2, "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false, "segment": { "end": 100, "start": 60 }, "smartReceiver": null }] }
+            ],
+            "protocol": { "type": "ddp" },
+            "sequenceChannels": null
+          },
+          {
+            "adapter": "generic",
+            "address": "192.0.2.11",
+            "id": "33333333-0000-4000-8000-000000000002",
+            "name": "Garage",
+            "ports": [{ "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 1, "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000003", "reverse": false, "segment": null, "smartReceiver": null }] }],
+            "protocol": { "allowPixelStraddle": true, "multicast": false, "startUniverse": 1, "type": "sacn", "universeSize": 100 },
+            "sequenceChannels": null
+          },
+          {
+            "adapter": "generic",
+            "address": "192.0.2.12",
+            "id": "33333333-0000-4000-8000-000000000003",
+            "name": "Shed",
+            "ports": [{ "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 1, "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000004", "reverse": false, "segment": null, "smartReceiver": null }] }],
+            "protocol": { "type": "ddp" },
+            "sequenceChannels": null
+          }
+        ],
+        "groups": [],
+        "name": "Untitled Show",
+        "props": [
+          { "colorOrder": "RGBW", "id": "11111111-0000-4000-8000-000000000002", "name": "Eaves", "regions": [], "shape": { "length": 3.0, "nodes": 100, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000003", "name": "Fence", "regions": [], "shape": { "length": 3.0, "nodes": 40, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 3.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000004", "name": "Door", "regions": [], "shape": { "length": 3.0, "nodes": 10, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 4.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000005", "name": "Spare", "regions": [], "shape": { "length": 3.0, "nodes": 5, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 5.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
+        ],
+        "schemaVersion": 12,
+        "sequences": [],
+        "settings": { "frameRate": 40 }
+      },
+      "summaryNow": { "controllers": 3, "pixels": 155, "props": 4, "universes": 2 }
+    },
+    {
+      "args": {},
+      "channelMapNow": {
+        "controllers": [
+          {
+            "addressing": { "type": "ddp" },
+            "channelCount": 558,
+            "controller": "33333333-0000-4000-8000-000000000001",
+            "spans": [
+              { "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 0, "frameOffset": 0, "gamma": 1.0, "pixels": 50, "port": 1, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false },
+              { "brightness": 50, "channelsPerPixel": 4, "colorOrder": "RGBW", "controllerChannel": 158, "frameOffset": 150, "gamma": 2.0, "pixels": 60, "port": 1, "prop": "11111111-0000-4000-8000-000000000002", "reverse": true },
+              { "brightness": 100, "channelsPerPixel": 4, "colorOrder": "RGBW", "controllerChannel": 398, "frameOffset": 390, "gamma": 1.0, "pixels": 40, "port": 2, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false }
+            ]
+          },
+          {
+            "addressing": { "multicast": false, "type": "sacn", "universes": [{ "controllerChannel": 0, "len": 100, "universe": 1 }, { "controllerChannel": 100, "len": 20, "universe": 2 }] },
+            "channelCount": 120,
+            "controller": "33333333-0000-4000-8000-000000000002",
+            "spans": [{ "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 0, "frameOffset": 550, "gamma": 1.0, "pixels": 40, "port": 1, "prop": "11111111-0000-4000-8000-000000000003", "reverse": false }]
+          },
+          { "addressing": { "type": "ddp" }, "channelCount": 30, "controller": "33333333-0000-4000-8000-000000000003", "spans": [{ "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 0, "frameOffset": 670, "gamma": 1.0, "pixels": 10, "port": 1, "prop": "11111111-0000-4000-8000-000000000004", "reverse": false }] }
+        ],
+        "frameLen": 715,
+        "props": [
+          { "channelsPerPixel": 3, "frameOffset": 0, "nodes": 50, "prop": "11111111-0000-4000-8000-000000000001" },
+          { "channelsPerPixel": 4, "frameOffset": 150, "nodes": 100, "prop": "11111111-0000-4000-8000-000000000002" },
+          { "channelsPerPixel": 3, "frameOffset": 550, "nodes": 40, "prop": "11111111-0000-4000-8000-000000000003" },
+          { "channelsPerPixel": 3, "frameOffset": 670, "nodes": 10, "prop": "11111111-0000-4000-8000-000000000004" },
+          { "channelsPerPixel": 3, "frameOffset": 700, "nodes": 5, "prop": "11111111-0000-4000-8000-000000000005" }
+        ]
+      },
+      "command": "undo",
+      "issuesNow": [
+        { "code": "unassignedNodes", "fix": "Drag the prop onto a controller port.", "message": "The prop 'Spare' is not wired to any controller port.", "severity": "warning" },
+        { "code": "mixedPixelTypes", "fix": "Wire the RGBW props to a controller of their own, or send this controller sACN.", "message": "'Porch' gets both RGB and RGBW props over DDP, which sends one pixel type for everything, so controllers like WLED will show some of them in the wrong colors.", "severity": "warning" }
+      ],
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": true, "canUndo": true, "dirty": true, "path": null, "revision": 5 },
+      "showNow": {
+        "background": null,
+        "controllers": [
+          {
+            "adapter": "generic",
+            "address": "192.0.2.10",
+            "id": "33333333-0000-4000-8000-000000000001",
+            "name": "Porch",
+            "ports": [
+              {
+                "brightness": 100,
+                "gamma": 1.0,
+                "maxPixels": null,
+                "number": 1,
+                "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false, "segment": null, "smartReceiver": null }, { "brightness": 50, "gamma": 2.0, "nullPixels": 2, "prop": "11111111-0000-4000-8000-000000000002", "reverse": true, "segment": { "end": 60, "start": 0 }, "smartReceiver": null }]
+              },
+              { "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 2, "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false, "segment": { "end": 100, "start": 60 }, "smartReceiver": null }] }
+            ],
+            "protocol": { "type": "ddp" },
+            "sequenceChannels": null
+          },
+          {
+            "adapter": "generic",
+            "address": "192.0.2.11",
+            "id": "33333333-0000-4000-8000-000000000002",
+            "name": "Garage",
+            "ports": [{ "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 1, "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000003", "reverse": false, "segment": null, "smartReceiver": null }] }],
+            "protocol": { "allowPixelStraddle": true, "multicast": false, "startUniverse": 1, "type": "sacn", "universeSize": 100 },
+            "sequenceChannels": null
+          },
+          {
+            "adapter": "generic",
+            "address": "192.0.2.12",
+            "id": "33333333-0000-4000-8000-000000000003",
+            "name": "Shed",
+            "ports": [{ "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 1, "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000004", "reverse": false, "segment": null, "smartReceiver": null }] }],
+            "protocol": { "type": "ddp" },
+            "sequenceChannels": null
+          }
+        ],
+        "groups": [],
+        "name": "Untitled Show",
+        "props": [
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 50, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGBW", "id": "11111111-0000-4000-8000-000000000002", "name": "Eaves", "regions": [], "shape": { "length": 3.0, "nodes": 100, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000003", "name": "Fence", "regions": [], "shape": { "length": 3.0, "nodes": 40, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 3.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000004", "name": "Door", "regions": [], "shape": { "length": 3.0, "nodes": 10, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 4.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000005", "name": "Spare", "regions": [], "shape": { "length": 3.0, "nodes": 5, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 5.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
+        ],
+        "schemaVersion": 12,
+        "sequences": [],
+        "settings": { "frameRate": 40 }
+      },
+      "summaryNow": { "controllers": 3, "pixels": 205, "props": 5, "universes": 2 }
+    }
+  ]
+}

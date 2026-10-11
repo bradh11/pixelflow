@@ -1,16 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PreviewProp } from "../api/types";
-import { type DotImage, FAINT, FINE_FROM, drawPixels, dotShapes, dotSize, packColor, pixelSpacing, pixelsAllRound, stampPixels } from "./pixelBatches";
+import { type DotImage, FAINT, FINE_FROM, drawPixels, dotShapes, dotSize, packColor, pixelRoom, pixelSpacing, pixelsAllRound, stampPixels } from "./pixelBatches";
 
 const COLORS = { unlit: "rgba(200, 200, 200, 0.5)", selected: "#a78bfa", dark: "rgba(80, 80, 80, 0.5)" };
 const SIZE = { width: 100, height: 100 };
 // Screen = world × 10, with world (0, 0) in the middle of the screen pixel at (50, 50).
 const VIEW = { cx: -0.05, cy: 0.05, zoom: 10 };
+// Close up: screen = world × 100, with world (0, 0) in the middle of the same screen pixel.
+const CLOSE = { cx: -0.005, cy: 0.005, zoom: 100 };
 const NONE: ReadonlySet<string> = new Set();
 
 const prop = (id: string, points: number[], frameOffset = 0): PreviewProp => ({ prop: id, frameOffset, channelsPerPixel: 3, points });
 /** Pixels in a row from world (`x`, `y`), `step` apart. */
 const row = (count: number, step: number, x = 0, y = 0) => Array.from({ length: count }, (_, i) => [x + i * step, y]).flat();
+
+/** Pixels in rows of `columns` from world (0, 0), `dx` apart along a row and `dy` between rows, wired row by row. */
+const grid = (columns: number, rows: number, dx: number, dy: number, x = 0, y = 0) => Array.from({ length: columns * rows }, (_, i) => [x + (i % columns) * dx, y + Math.floor(i / columns) * dy]).flat();
 
 const blank = (ratio = 1): DotImage => ({ pixels: new Int32Array(100 * ratio * 100 * ratio), width: 100 * ratio, height: 100 * ratio });
 /** The image pixel at (x, y) as red, green, blue and how solid it is. */
@@ -20,9 +25,9 @@ const at = (image: DotImage, x: number, y: number) => {
 };
 const solid = (image: DotImage, x: number, y: number) => at(image, x, y)[3];
 /** Stamps props into a fresh image, with dots up to `radius` screen pixels. */
-function stamped(props: PreviewProp[], frame: Uint8Array | null, { radius = 2.5, ratio = 1, selected = NONE, colors = COLORS as typeof COLORS | Omit<typeof COLORS, "dark"> } = {}) {
+function stamped(props: PreviewProp[], frame: Uint8Array | null, { radius = 2.5, ratio = 1, selected = NONE, colors = COLORS as typeof COLORS | Omit<typeof COLORS, "dark">, view = VIEW } = {}) {
   const image = blank(ratio);
-  const box = stampPixels(image, props, frame, VIEW, SIZE, selected, colors, radius, ratio);
+  const box = stampPixels(image, props, frame, view, SIZE, selected, colors, radius, ratio);
   return { image, box };
 }
 
@@ -54,13 +59,33 @@ describe("how far apart a prop's pixels are", () => {
   });
 
   it("comes with whether the pixels have neighbors on every side", () => {
-    const grid = (columns: number, rows: number, dx: number, dy: number) => Array.from({ length: columns * rows }, (_, i) => [(i % columns) * dx, Math.floor(i / columns) * dy]).flat();
     expect(pixelsAllRound(grid(10, 10, 0.3, 0.3))).toBe(true);
     expect(pixelsAllRound(grid(16, 8, 0.3, 0.4))).toBe(true);
     expect(pixelsAllRound(row(40, 0.5))).toBe(false);
     // Rows far apart beside the step along them: each is a string of its own.
     expect(pixelsAllRound(grid(12, 20, 0.2, 1))).toBe(false);
     expect(pixelsAllRound([4, 2])).toBe(false);
+  });
+
+  it("comes with how much room the pixels have to their side", () => {
+    // Along a string there's nothing to the side, however it bends.
+    expect(pixelRoom(row(40, 0.05))).toBe(Infinity);
+    const arch = Array.from({ length: 80 }, (_, i) => [Math.cos((i / 79) * Math.PI), Math.sin((i / 79) * Math.PI)]).flat();
+    expect(pixelRoom(arch)).toBe(Infinity);
+    // Across a matrix it's the way to the next row, whichever way it's wired.
+    expect(pixelRoom(grid(20, 8, 0.05, 0.2))).toBeCloseTo(0.2);
+    const upColumns: number[] = [];
+    for (let column = 0; column < 20; column++) for (let up = 0; up < 8; up++) upColumns.push(column * 0.05, up * 0.2);
+    expect(pixelRoom(upColumns)).toBeCloseTo(0.2);
+    expect(pixelRoom(grid(10, 10, 0.3, 0.3))).toBeCloseTo(0.3);
+    // Two strings side by side are in each other's way; far enough apart, they aren't.
+    expect(pixelRoom([...row(40, 0.05), ...row(40, 0.05, 0, 0.3)])).toBeCloseTo(0.3);
+    expect(pixelRoom([...row(40, 0.05), ...row(40, 0.05, 0, 0.8)])).toBe(Infinity);
+    // The corners of a window frame don't crowd its sides.
+    const side = (x: number, y: number, dx: number, dy: number) => Array.from({ length: 50 }, (_, i) => [x + dx * i * 0.028, y + dy * i * 0.028]).flat();
+    const frame = [...side(0, 0, 0, 1), ...side(0, 1.4, 1, 0), ...side(1.4, 1.4, 0, -1), ...side(1.4, 0, -1, 0)];
+    expect(pixelRoom(frame)).toBeGreaterThan(0.15);
+    expect(pixelRoom([4, 2])).toBe(Infinity);
   });
 
   it("is measured once for a set of points", () => {
@@ -150,21 +175,53 @@ describe("stamping pixels as dots", () => {
     expect(reds).toEqual(Array.from({ length: 30 }, (_, i) => 100 + i));
   });
 
-  it("sizes dots from how far apart a prop's own pixels are, so neighbors never touch", () => {
-    // The same view and the same largest dot: pixels 4, 6 and 30 screen pixels apart.
-    const props = [prop("dense", row(5, 0.4, 0, 2)), prop("matrix", row(5, 0.6, 0, 1)), prop("string", row(2, 3))];
-    const { image } = stamped(props, new Uint8Array(36).fill(255), { radius: 4 });
+  it("sizes a matrix's dots from how far apart its pixels are, so neighbors never touch", () => {
+    // The same view and the same largest dot: pixels 4 and 6 screen pixels apart, and one all alone.
+    const props = [prop("dense", grid(5, 5, 0.4, 0.4, -4)), prop("matrix", grid(5, 5, 0.6, 0.6)), prop("alone", [3, 3])];
+    const { image } = stamped(props, new Uint8Array(75).fill(255), { radius: 4 });
     const across = (y: number, from: number, to: number) => Array.from({ length: to - from }, (_, i) => (solid(image, from + i, y) > 0 ? "#" : ".")).join("");
     // Three across; four, and eight (each with its soft edge showing on either side): always with clear between.
-    expect(across(30, 47, 64)).toBe("..###.###.###.###");
-    expect(across(40, 46, 66)).toBe("..#####.#####.#####.");
-    expect(across(50, 44, 58)).toBe("..#########...");
+    expect(across(50, 7, 24)).toBe("..###.###.###.###");
+    expect(across(50, 46, 66)).toBe("..#####.#####.#####.");
+    expect(across(20, 74, 88)).toBe("..#########...");
+  });
+
+  it("draws a string's pixels at the view's weight, however close together they are", () => {
+    // The same view (its dot 8 across): strings with pixels 30, 10, 4 and 2 screen pixels apart.
+    const strings = [0.3, 0.1, 0.04, 0.02].map((step, i) => prop(`string ${i}`, row(Math.round(0.6 / step) + 1, step, -0.4, 0.3 - 0.2 * i)));
+    const { image } = stamped(strings, new Uint8Array(93).fill(255), { radius: 4, view: CLOSE });
+    /** How much of the column of the image through (x, y) is covered, in device pixels. */
+    const weight = (x: number, y: number) => {
+      let sum = 0;
+      for (let dy = -6; dy <= 6; dy++) sum += solid(image, x, y + dy);
+      return sum / 255;
+    };
+    // Whole dots where they stand apart; where they run together, a line most of a dot wide,
+    // which weighs about what a row of whole dots does. It never thins as the pixels get closer.
+    expect([20, 40, 60, 80].map((y) => Math.round(weight(10, y) * 10) / 10)).toEqual([8, 7, 6, 6]);
+    // Pixels 2 apart make an even line; 4 apart, a row of beads that touch.
+    for (let x = 10; x <= 70; x++) expect(weight(x, 80)).toBeGreaterThan(5.5);
+    expect(weight(12, 60)).toBeLessThan(5);
+    expect(weight(12, 60)).toBeGreaterThan(4);
+    expect(weight(25, 20)).toBe(0);
+  });
+
+  it("draws the rows of a matrix as thick as the room between them allows", () => {
+    // Pixels 2 screen pixels apart along a row, rows 7 apart: a dot 5 across leaves the rows
+    // clear of each other.
+    const { image } = stamped([prop("matrix", grid(12, 4, 0.02, 0.07))], new Uint8Array(144).fill(255), { radius: 4, view: CLOSE });
+    for (let x = 51; x < 72; x++) {
+      expect([49, 50, 51].map((y) => solid(image, x, y))).toEqual([255, 255, 255]);
+      expect(Math.min(solid(image, x, 48), solid(image, x, 52))).toBeGreaterThan(128);
+      expect([solid(image, x, 46), solid(image, x, 47), solid(image, x, 53)]).toEqual([0, 0, 0]);
+      expect(solid(image, x, 43)).toBe(255);
+    }
   });
 
   it("draws every dot of a size the same shape, wherever its pixel falls across a device pixel", () => {
     // Three across: small enough to sit on whole device pixels.
     const offsets = [0, 0.013, 0.027, 0.041];
-    const { image } = stamped(offsets.map((dx, i) => prop(`p${i}`, row(2, 0.5, dx - 4, i - 2))), new Uint8Array(24).fill(255), { radius: 4 });
+    const { image } = stamped(offsets.map((dx, i) => prop(`p${i}`, row(2, 0.5, dx - 4, i - 2))), new Uint8Array(24).fill(255), { radius: 1.5 });
     const shape = (x: number, y: number) => [-2, -1, 0, 1, 2].flatMap((dy) => [-2, -1, 0, 1, 2].map((dx) => solid(image, x + dx, y + dy)));
     const first = shape(10, 70);
     expect(first.filter((v) => v > 0)).toHaveLength(9);
@@ -286,29 +343,61 @@ describe("stamping pixels as dots", () => {
 });
 
 describe("stamping pixels too close together for dots of their own", () => {
-  // Two screen pixels apart: closer than the smallest dot and a gap.
-  const string = (colors: number[][]) => ({ props: [prop("string", row(colors.length, 0.2, -1))], frame: new Uint8Array(colors.flat()) });
+  // Close up, two screen pixels apart, each between two device pixels: (41, 50.5), (43, 50.5) and so on.
+  const string = (colors: number[][]) => ({ props: [prop("string", row(colors.length, 0.02, -0.095))], frame: new Uint8Array(colors.flat()) });
+  const close = { view: CLOSE };
   const RED = [255, 0, 0];
   const BLUE = [0, 0, 255];
   const OFF = [0, 0, 0];
 
-  it("draws the smallest dot around each: a string comes out an even line with no gaps", () => {
+  it("runs a string's dots together into an even line with no gaps", () => {
     const { props, frame } = string(Array.from({ length: 10 }, () => RED));
-    const { image, box } = stamped(props, frame);
-    for (let x = 40; x < 60; x++) expect([solid(image, x, 49), at(image, x, 50), at(image, x, 51), solid(image, x, 52)]).toEqual([0, [255, 0, 0, 255], [255, 0, 0, 255], 0]);
-    expect(box).toEqual({ x0: 40, y0: 50, x1: 60, y1: 52 });
+    // The view's dot is 5 across: the line is 4, solid for 3 with a soft edge above and below.
+    const { image, box } = stamped(props, frame, close);
+    for (let x = 40; x < 60; x++) {
+      expect([49, 50, 51].map((y) => at(image, x, y))).toEqual([RED, RED, RED].map((c) => [...c, 255]));
+      for (const y of [48, 52]) expect(solid(image, x, y) > 0 && solid(image, x, y) < 255).toBe(true);
+      expect([solid(image, x, 47), solid(image, x, 53)]).toEqual([0, 0]);
+    }
+    expect([solid(image, 39, 50), solid(image, 60, 50)]).toEqual([255, 255]);
+    expect([solid(image, 38, 50), solid(image, 61, 50)]).toEqual([0, 0]);
+    expect(box).toEqual({ x0: 39, y0: 48, x1: 62, y1: 53 });
   });
 
   it("shows at each place the pixel nearest to it, whatever the wiring order", () => {
     const colors = [RED, BLUE, RED, RED, BLUE, OFF, BLUE, RED, OFF, RED];
     const { props, frame } = string(colors);
-    const { image } = stamped(props, frame);
+    const { image } = stamped(props, frame, close);
     // Every pixel keeps the two screen pixels around it: none is hidden or bitten into, lit or not.
     const expected = colors.map((c) => (c === OFF ? [80, 80, 80, 128] : [...c, 255]));
-    colors.forEach((_, i) => expect([at(image, 40 + 2 * i, 50), at(image, 41 + 2 * i, 50), at(image, 40 + 2 * i, 51)]).toEqual([expected[i], expected[i], expected[i]]));
+    colors.forEach((_, i) => expect([at(image, 40 + 2 * i, 50), at(image, 41 + 2 * i, 50), at(image, 40 + 2 * i, 49), at(image, 41 + 2 * i, 51)]).toEqual([expected[i], expected[i], expected[i], expected[i]]));
     // Wired the other way, the picture is the same.
-    const backwards = stamped([prop("string", row(10, -0.2, 0.8))], new Uint8Array([...colors].reverse().flat())).image;
+    const backwards = stamped([prop("string", row(10, -0.02, 0.085))], new Uint8Array([...colors].reverse().flat()), close).image;
     expect(Array.from(backwards.pixels)).toEqual(Array.from(image.pixels));
+  });
+
+  it("keeps a lit string whole where one that isn't crosses it, whichever is drawn first", () => {
+    const flat = prop("flat", row(21, 0.02, -0.195, 0), 0);
+    const upright = prop("upright", Array.from({ length: 21 }, (_, i) => [0, -0.195 + i * 0.02]).flat(), 63);
+    const lit = (which: "flat" | "upright") => {
+      const frame = new Uint8Array(126);
+      frame.fill(200, which === "flat" ? 0 : 63, which === "flat" ? 63 : 126);
+      return frame;
+    };
+    for (const props of [
+      [flat, upright],
+      [upright, flat],
+    ]) {
+      // The flat one lit: unbroken through the crossing, with the other showing above and below it.
+      const across = stamped(props, lit("flat"), close).image;
+      for (let x = 32; x < 70; x++) expect([49, 50, 51].map((y) => at(across, x, y))).toEqual(Array.from({ length: 3 }, () => [200, 200, 200, 255]));
+      expect(at(across, 50, 40)).toEqual([80, 80, 80, 128]);
+      expect(at(across, 50, 60)).toEqual([80, 80, 80, 128]);
+      // The upright one lit: the same the other way.
+      const down = stamped(props, lit("upright"), close).image;
+      for (let y = 32; y < 70; y++) expect([49, 50, 51].map((x) => at(down, x, y))).toEqual(Array.from({ length: 3 }, () => [200, 200, 200, 255]));
+      expect(at(down, 40, 50)).toEqual([80, 80, 80, 128]);
+    }
   });
 
   it("merges pixels closer together than a screen pixel into one light with their average color", () => {
@@ -366,9 +455,9 @@ describe("stamping pixels too close together for dots of their own", () => {
 
   it("leaves no trace behind for the next image", () => {
     const { props, frame } = string(Array.from({ length: 10 }, () => RED));
-    const first = stamped(props, frame).image;
+    const first = stamped(props, frame, close).image;
     stamped([prop("pile", row(100, 0.0005, -0.02))], new Uint8Array(300).fill(9));
-    expect(Array.from(stamped(props, frame).image.pixels)).toEqual(Array.from(first.pixels));
+    expect(Array.from(stamped(props, frame, close).image.pixels)).toEqual(Array.from(first.pixels));
   });
 });
 

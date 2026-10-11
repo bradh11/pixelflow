@@ -1,27 +1,30 @@
 // Drawing every pixel of the layout as its own crisp dot, fast enough for big shows.
 //
-// A dot is sized from how far apart its prop's pixels are on screen, so it never reaches its
-// neighbors: a matrix gets dots with gaps between them, a sparse string larger ones, up to the
-// size the view asks for. Every dot is drawn in exactly its color in the frame. Pixels that are
-// off (or not selected) are drawn first and lit (or selected) ones over them, so what's on top
-// never depends on a pixel's color or its place in the wiring.
+// A dot only has to shrink where it has neighbors to run into, so it's sized from how far apart
+// its prop's pixels are on screen (measured once for each set of points): a matrix gets dots
+// with gaps between them, a sparse string the view's whole dot. Every dot is drawn in exactly its
+// color in the frame. Pixels that are off (or not selected) are drawn first and lit (or selected)
+// ones over them, so what's on top never depends on a pixel's color or its place in the wiring.
 //
-// Dots can't shrink forever: under a couple of screen pixels a light is too thin to see. A prop
-// whose pixels are closer together than the smallest dot is drawn with that dot around every
-// pixel, and where those dots overlap each place shows the pixel nearest to it: a dense string
-// comes out as a thin even line, a dense matrix as a picture with no gaps, each cut cleanly
-// between one pixel's color and the next. Pixels closer together than a screen pixel are merged
-// first, into one light with their average color: a fair picture of their brightness that stays
-// steady as the view changes size.
+// Along a string the only neighbors are the next pixels on the wire: there's nothing to its
+// side. So where a prop's pixels are too close along the wire for dots of their own, they run
+// together instead of shrinking: every pixel gets a dot as wide as the room to its side allows
+// (most of the view's dot, for a string), and where those dots overlap each place shows the
+// pixel nearest to it. A dense outline comes out as an even line of the weight a sparse string's
+// dots have, the rows of a matrix as bars with the gaps between them kept, a dense matrix as a
+// picture with no gaps, each cut cleanly between one pixel's color and the next. Where two
+// props' dots meet, the nearer pixel shows too, but a lit one always over one that isn't.
+// Pixels closer together than a screen pixel are merged first, into one light with their average
+// color: a fair picture of their brightness that stays steady as the view changes size.
 //
 // The dots are stamped straight into an image, which is drawn in one go: thousands of fills, or
 // one fill per color, are far slower, and an image costs the same however many colors it holds.
 
 import type { PreviewProp } from "../api/types";
 import type { Size, View } from "./layoutMath";
-import { type HaloPlan, type PixelBox, coreDim, drawHalos, planHalos } from "./pixelGlow";
+import { DOT_RADIUS, type HaloPlan, type PixelBox, coreDim, drawHalos, planHalos } from "./pixelGlow";
 
-export { DOT_RADIUS } from "./pixelGlow";
+export { DOT_RADIUS };
 
 /** The colors used when a pixel isn't showing a lit color of its own. */
 export interface PixelColors {
@@ -52,6 +55,18 @@ const PLACES = 4;
 export const FAINT = 64;
 /** How many of a prop's pixels are measured to find how far apart they are. */
 const SAMPLES = 256;
+/**
+ * How far to a pixel's side is looked at for other pixels, in layout units (five of a pixel's
+ * own dots): farther off than that, nothing is in the way of a dot at any zoom worth drawing.
+ * The squares pixels are sorted into are no smaller than a `REACH_SQUARES`th of it.
+ */
+const REACH = 10 * DOT_RADIUS;
+const REACH_SQUARES = 5;
+/**
+ * A pixel is to another's side, not along its line, when the way to it is more than this off
+ * the line to that pixel's nearest neighbor (as a cosine: about 37°).
+ */
+const SIDEWAYS = 0.8;
 
 const packed = new Map<string, number>();
 
@@ -78,13 +93,17 @@ export function packColor(css: string): number {
   return found;
 }
 
-/** How a prop's pixels are spread out: how far apart they are, and whether they have neighbors on every side. */
+/**
+ * How a prop's pixels are spread out: how far apart they are, how far they are from the pixels
+ * to their side, and whether they have neighbors on every side.
+ */
 interface Spread {
   spacing: number;
+  across: number;
   allRound: boolean;
 }
 
-const ALONE: Spread = { spacing: Infinity, allRound: false };
+const ALONE: Spread = { spacing: Infinity, across: Infinity, allRound: false };
 const spreads = new WeakMap<object, Spread>();
 
 /** How a prop's pixels are spread out, measured once for each set of points. */
@@ -103,6 +122,15 @@ function spreadOf(points: ArrayLike<number>): Spread {
  * Infinity for a prop with no two pixels apart.
  */
 export const pixelSpacing = (points: ArrayLike<number>): number => spreadOf(points).spacing;
+
+/**
+ * How much room a prop's pixels have to their side, in layout units: the distance from a pixel
+ * to the nearest one that isn't along the line to its nearest neighbor (more than `SIDEWAYS`
+ * off it, either way), that a quarter of them are within. Along a string there's nothing to the
+ * side, and it's Infinity; so it is when the nearest is more than `REACH` away. Across a matrix
+ * it's the way between its rows.
+ */
+export const pixelRoom = (points: ArrayLike<number>): number => spreadOf(points).across;
 
 /**
  * Whether a prop's pixels have neighbors on every side, as a matrix's do and a string's don't:
@@ -142,9 +170,10 @@ function measureSpread(points: ArrayLike<number>): Spread {
   }
   const [w, h] = [maxX - minX, maxY - minY];
   // Every pixel goes in a grid of squares, so a pixel's neighbors are found in the squares
-  // around it. A square is as wide as the step along the wiring, unless the wiring jumps about:
-  // then a few pixels wide, going by how many pixels share the prop's box.
-  const cell = Math.min(step, 4 * Math.max(Math.sqrt((w * h) / n), Math.max(w, h) / n));
+  // around it. A square is as wide as the step along the wiring, unless the wiring jumps about
+  // (then a few pixels wide, going by how many pixels share the prop's box), and wide enough
+  // that a few squares each way reach as far as a pixel's side is looked at.
+  const cell = Math.max(REACH / REACH_SQUARES, Math.min(step, 4 * Math.max(Math.sqrt((w * h) / n), Math.max(w, h) / n)));
   let buckets = 1;
   while (buckets < 2 * n) buckets <<= 1;
   const bucketOf = (x: number, y: number) => (Math.imul(x, 73856093) ^ Math.imul(y, 19349663)) & (buckets - 1);
@@ -158,46 +187,75 @@ function measureSpread(points: ArrayLike<number>): Spread {
   for (let i = 0; i < n; i++) inBucket[filled[bucketOf(column(i), row(i))]++] = i;
 
   const same = step * 1e-3;
-  /** Calls `each` with how far pixel `i` is from every other pixel in its own square and those within `reach` squares of it. */
-  const around = (i: number, reach: number, each: (d: number) => void) => {
+  /**
+   * Calls `each` with every other pixel in the squares `ring` squares out from pixel `i`'s own
+   * (its own for 0), and how far from it each is.
+   */
+  const around = (i: number, ring: number, each: (d: number, j: number) => void) => {
     const [cx, cy] = [column(i), row(i)];
-    for (let dy = -reach; dy <= reach; dy++) {
-      for (let dx = -reach; dx <= reach; dx++) {
+    for (let dy = -ring; dy <= ring; dy++) {
+      const edge = dy === -ring || dy === ring;
+      for (let dx = -ring; dx <= ring; dx += edge || ring === 0 ? 1 : 2 * ring) {
         const b = bucketOf(cx + dx, cy + dy);
         for (let at = starts[b]; at < starts[b + 1]; at++) {
           const j = inBucket[at];
           // Other squares can share the bucket.
           if (column(j) !== cx + dx || row(j) !== cy + dy) continue;
           const d = between(i, j);
-          if (d > same) each(d);
+          if (d > same) each(d, j);
         }
       }
     }
   };
+
   const nearest: number[] = [];
+  const sideways: number[] = [];
   for (let k = 0; k < picks; k++) {
-    let best = Infinity;
-    around(pick(k), 1, (d) => {
-      if (d < best) best = d;
-    });
-    if (best === Infinity) best = toNext(pick(k));
-    if (best > 0) nearest.push(best);
+    const i = pick(k);
+    let [best, toward] = [Infinity, -1];
+    for (let ring = 0; ring <= 1; ring++) {
+      around(i, ring, (d, j) => {
+        if (d < best) [best, toward] = [d, j];
+      });
+    }
+    if (toward < 0) {
+      if (toNext(i) > 0) nearest.push(toNext(i));
+      continue;
+    }
+    nearest.push(best);
+    // The nearest pixel that isn't along the line to that one, looking a ring of squares
+    // farther out until nothing nearer can be left to find.
+    const [ux, uy] = [(points[2 * toward] - points[2 * i]) / best, (points[2 * toward + 1] - points[2 * i + 1]) / best];
+    let side = Infinity;
+    for (let ring = 0; ring <= REACH_SQUARES && side > (ring - 1) * cell; ring++) {
+      around(i, ring, (d, j) => {
+        if (d >= side) return;
+        const lined = Math.abs((points[2 * j] - points[2 * i]) * ux + (points[2 * j + 1] - points[2 * i + 1]) * uy) / d;
+        if (lined < SIDEWAYS) side = d;
+      });
+    }
+    if (side <= REACH) sideways.push(side);
   }
   if (nearest.length === 0) return ALONE;
   nearest.sort((a, b) => a - b);
   const spacing = nearest[nearest.length >> 2];
+  sideways.sort((a, b) => a - b);
+  // A quarter of the pixels looked at, not of those with something to their side.
+  const across = sideways.length > picks >> 2 ? sideways[picks >> 2] : Infinity;
 
   // Far enough to find every pixel within one and a half times the spacing (a few squares at most).
   const reach = Math.min(3, Math.ceil((spacing * 1.5) / cell));
   let surrounded = 0;
   for (let k = 0; k < picks; k++) {
     let near = 0;
-    around(pick(k), reach, (d) => {
-      if (d <= spacing * 1.5) near++;
-    });
+    for (let ring = 0; ring <= reach; ring++) {
+      around(pick(k), ring, (d) => {
+        if (d <= spacing * 1.5) near++;
+      });
+    }
     if (near >= 4) surrounded++;
   }
-  return { spacing, allRound: surrounded * 2 > picks };
+  return { spacing, across, allRound: surrounded * 2 > picks };
 }
 
 /** How much room a dot `size` device pixels wide takes up: a dot placed finely spreads its soft edge over one more. */
@@ -347,10 +405,13 @@ function stampDot(pixels: Int32Array, width: number, height: number, x0: number,
 }
 
 /**
- * Stamps one dot of a crowded prop: only where no dot stamped so far is nearer. `nearest` says
- * how near the dot shown at each image pixel is (0 for none).
+ * Stamps one dot of a crowded prop: only where no dot stamped so far is nearer. `nearest` says,
+ * for each image pixel, whose dot is shown there and how near it is (0 for none): the dot's
+ * `tag` times 256, plus how far the pixel is from its middle (see `DotShape`). A tag is a prop's
+ * number (up to 127) times two, plus one for a lit (or selected) pixel's dot. Between two props,
+ * a lit pixel's dot stays over one that isn't, whichever is nearer.
  */
-function claimDot(pixels: Int32Array, nearest: Uint8Array, width: number, height: number, x0: number, y0: number, shape: DotShape, color: number) {
+function claimDot(pixels: Int32Array, nearest: Uint16Array, width: number, height: number, x0: number, y0: number, shape: DotShape, color: number, tag: number) {
   const { side, cover, apart } = shape;
   const left = Math.max(0, x0);
   const right = Math.min(width, x0 + side);
@@ -358,14 +419,26 @@ function claimDot(pixels: Int32Array, nearest: Uint8Array, width: number, height
   const bottom = Math.min(height, y0 + side);
   const rgb = color & 0xffffff;
   const alpha = color >>> 24;
+  const mine = tag << 8;
   for (let y = top; y < bottom; y++) {
     let k = (y - y0) * side + left - x0;
     for (let at = y * width + left, end = y * width + right; at < end; at++, k++) {
       const covered = cover ? cover[k] : 255;
       if (covered === 0) continue;
       const shown = nearest[at];
-      if (shown !== 0 && shown <= apart[k]) continue;
-      nearest[at] = apart[k];
+      if (shown !== 0) {
+        const other = (shown >>> 8) ^ tag;
+        if (other > 1 && (other & 1) !== 0) {
+          if ((tag & 1) === 0) continue;
+          // Over another prop's unlit dot, a soft edge lets it show through.
+          if (covered < 255) {
+            nearest[at] = mine | apart[k];
+            blend(pixels, at, rgb, ((covered * alpha + 127) / 255) | 0);
+            continue;
+          }
+        } else if ((shown & 255) <= apart[k]) continue;
+      }
+      nearest[at] = mine | apart[k];
       pixels[at] = covered === 255 ? color : (((covered * alpha + 127) / 255) << 24) | rgb;
     }
   }
@@ -378,13 +451,21 @@ export interface DotImage {
   height: number;
 }
 
-// Kept between frames, for the props whose pixels are too close together for dots of their own.
-// `nearest` says, for every image pixel, how near the dot shown there is (0 for none). `mergedAt`
-// says, for every screen pixel, which merged light is there (0 for none), and `merged` holds the
-// merged lights: for each, its screen pixel, the sums of its lights' red, green and blue, of how
-// solid they are and of where they are (x, y), how many they are, and whether any is of a prop
-// whose pixels have neighbors on every side (1 or 0).
-let nearest = new Uint8Array(0);
+// Kept between frames. `sizes` and `ways` say how each prop is drawn this frame: how wide its
+// dots are (device pixels), and whether they stand apart, run together (crowded), or are merged
+// first. For the props whose dots run together, `nearest` says for every image pixel whose dot
+// is shown there and how near it is (see `claimDot`). `mergedAt` says, for every screen pixel,
+// which merged light is there (0 for none), and `merged` holds the merged lights: for each, its
+// screen pixel, the sums of its lights' red, green and blue, of how solid they are and of where
+// they are (x, y), how many they are, and how it's stamped: the widest dot any of its lights is
+// drawn with times 4, plus 2 when any is of a prop whose pixels have neighbors on every side,
+// plus 1 when any is lit (or selected).
+let sizes = new Uint16Array(0);
+let ways = new Uint8Array(0);
+const APART = 0;
+const CROWDED = 1;
+const MERGED_FIRST = 2;
+let nearest = new Uint16Array(0);
 let mergedAt = new Int32Array(0);
 let merged = new Float64Array(0);
 const MERGED = 9;
@@ -392,11 +473,12 @@ const MERGED = 9;
 /**
  * Stamps the props' pixels into `image`, a picture of the canvas `ratio` device pixels to a
  * screen pixel: their colors in `frame` while something plays, otherwise the unlit or selected
- * color. `radius` (screen pixels) is the largest a dot is drawn; a prop whose pixels are closer
- * together gets smaller ones (see `dotSize`), and one whose pixels are too close for the
- * smallest is drawn with that dot around every pixel, each place showing the pixel nearest to
- * it. With `halos`, lit dots are drawn dimmer by what their own glow adds back (see
- * pixelGlow.ts). Returns the box of the image it drew in, or null when nothing was drawn.
+ * color. `radius` (screen pixels) is the largest a dot is drawn. A prop's dots are no bigger than
+ * leaves them clear of its pixels to their side (see `dotSize`). Where its pixels are too close
+ * along the wire for that, they run together: every pixel gets a dot, as wide as the room to its
+ * side allows, and each place shows the pixel nearest to it. With `halos`, lit dots are drawn
+ * dimmer by what their own glow adds back (see pixelGlow.ts). Returns the box of the image it
+ * drew in, or null when nothing was drawn.
  */
 export function stampPixels(
   image: DotImage,
@@ -414,6 +496,9 @@ export function stampPixels(
   const screenPixel = Math.max(1, Math.round(ratio));
   const largest = Math.max(1, Math.round(2 * radius * ratio));
   const smallest = Math.min(largest, Math.max(1, Math.round(SMALLEST * ratio)));
+  // A line of pixels run together is this wide at most: one as wide as the view's whole dot
+  // would weigh more than a row of those dots standing apart.
+  const widestLine = Math.max(smallest, Math.round(largest * FILL));
   const [halfW, halfH, zoom, cx, cy] = [size.width / 2, size.height / 2, view.zoom, view.cx, view.cy];
   const box = { x0: width, y0: height, x1: 0, y1: 0 };
   const grow = (x0: number, y0: number, side: number) => {
@@ -432,10 +517,27 @@ export function stampPixels(
   const unlit = packColor(colors.unlit);
   const picked = packColor(colors.selected);
   const dimOf = (dot: number) => (halos ? coreDim(halos.step, (halos.radius * 2 * ratio) / dot) : 1);
-  /** How far apart a prop's pixels are, in device pixels. */
-  const pitchOf = (p: PreviewProp) => pixelSpacing(p.points) * zoom * ratio;
-  /** Whether a prop's pixels are too close together for the smallest dots to stay apart. */
-  const crowded = (p: PreviewProp) => pitchOf(p) < footprint(smallest) + 1;
+
+  // How each prop is drawn: its dots as big as its pixels' room along the wire allows, but no
+  // thinner than the line they make where they run together.
+  if (sizes.length < props.length) {
+    sizes = new Uint16Array(props.length);
+    ways = new Uint8Array(props.length);
+  }
+  let anyCrowded = false;
+  let anyMerged = false;
+  for (let n = 0; n < props.length; n++) {
+    const spread = spreadOf(props[n].points);
+    // A hair more than it is, as in `dotSize`.
+    const along = spread.spacing * zoom * ratio + 1e-6;
+    // Nothing found to a pixel's side means nothing within `REACH`: that much room is sure.
+    const line = Math.min(dotSize(Math.min(spread.across, REACH) * zoom * ratio, smallest, largest), widestLine);
+    const dot = Math.max(dotSize(along, smallest, largest), line);
+    sizes[n] = dot;
+    ways[n] = along < screenPixel ? MERGED_FIRST : along < footprint(dot) + 1 ? CROWDED : APART;
+    if (ways[n] !== APART) anyCrowded = true;
+    if (ways[n] === MERGED_FIRST) anyMerged = true;
+  }
 
   /** A lit pixel's color in the image: its own, or over the dot of a pixel that's off when it's faint. */
   const lit = (r: number, g: number, b: number, dim: number): number => {
@@ -455,9 +557,8 @@ export function stampPixels(
   };
 
   /** Stamps a prop's dots, each apart from the next: the lit (or selected) ones when `over`, otherwise the rest. */
-  const stampProp = (p: PreviewProp, over: boolean) => {
+  const stampProp = (p: PreviewProp, dot: number, over: boolean) => {
     const pts = p.points;
-    const dot = dotSize(pitchOf(p), smallest, largest);
     const fine = dot >= FINE_FROM;
     const places = dotShapes(dot, fine);
     const side = places[0].side;
@@ -486,26 +587,32 @@ export function stampPixels(
   };
 
   /**
-   * Stamps a crowded prop: the smallest dot around every pixel, lit or not, each place showing
-   * the pixel nearest to it. Where a prop's pixels have neighbors on every side and its dots
-   * overlap, each is its whole square: round ones would leave the corners between four of them
-   * half covered.
+   * Stamps a crowded prop, the `number`th: a dot around every pixel, lit or not, each place
+   * showing the pixel nearest to it. Where a prop's pixels have neighbors on every side and its
+   * dots overlap, each is its whole square: round ones would leave the corners between four of
+   * them half covered.
    */
-  const stampCrowded = (p: PreviewProp) => {
+  const stampCrowded = (p: PreviewProp, dot: number, number: number) => {
     const pts = p.points;
-    const square = pixelsAllRound(pts) && pitchOf(p) <= smallest;
-    const fine = !square && smallest >= FINE_FROM;
-    const places = square ? squareShape(smallest) : dotShapes(smallest, fine);
+    const square = pixelsAllRound(pts) && pixelSpacing(pts) * zoom * ratio <= dot;
+    const fine = !square && dot >= FINE_FROM;
+    const places = square ? squareShape(dot) : dotShapes(dot, fine);
     const side = places[0].side;
-    const half = smallest / 2;
-    const dim = dimOf(smallest);
+    const half = dot / 2;
+    const dim = dimOf(dot);
     const fixed = frame ? dark : selected.has(p.prop) ? picked : unlit;
+    // 0 is the merged lights' number.
+    const fixedTag = ((1 + (number % 127)) << 1) | (!frame && selected.has(p.prop) ? 1 : 0);
     for (let i = 0, o = p.frameOffset; i + 1 < pts.length; i += 2, o += p.channelsPerPixel) {
       let color = fixed;
-      if (frame && o + 2 < frame.length && (frame[o] | frame[o + 1] | frame[o + 2]) !== 0) color = lit(frame[o], frame[o + 1], frame[o + 2], dim);
+      let tag = fixedTag;
+      if (frame && o + 2 < frame.length && (frame[o] | frame[o + 1] | frame[o + 2]) !== 0) {
+        color = lit(frame[o], frame[o + 1], frame[o + 2], dim);
+        tag |= 1;
+      }
       placeDot((halfW + (pts[i] - cx) * zoom) * ratio - half, (halfH - (pts[i + 1] - cy) * zoom) * ratio - half, fine);
       if (placedX >= width || placedY >= height || placedX + side <= 0 || placedY + side <= 0) continue;
-      claimDot(pixels, nearest, width, height, placedX, placedY, places[placedShape], color);
+      claimDot(pixels, nearest, width, height, placedX, placedY, places[placedShape], color, tag);
       grow(placedX, placedY, side);
     }
   };
@@ -519,7 +626,7 @@ export function stampPixels(
    * Adds the pixels of a prop that are closer together than a screen pixel to the merged lights:
    * those in the same screen pixel become one, in the middle of them, their colors averaged.
    */
-  const mergeProp = (p: PreviewProp) => {
+  const mergeProp = (p: PreviewProp, dot: number) => {
     const pts = p.points;
     const room = (lights + (pts.length >> 1) + 1) * MERGED;
     if (merged.length < room) {
@@ -527,14 +634,14 @@ export function stampPixels(
       longer.set(merged.subarray(0, (lights + 1) * MERGED));
       merged = longer;
     }
-    const dim = dimOf(smallest);
+    const dim = dimOf(dot);
     const fixed = frame ? 0 : selected.has(p.prop) ? picked : unlit;
     const fixedSolid = (fixed >>> 24) / 255;
-    const allRound = pixelsAllRound(pts);
+    const stamping = dot * 4 + (pixelsAllRound(pts) ? 2 : 0) + (!frame && selected.has(p.prop) ? 1 : 0);
     for (let i = 0, o = p.frameOffset; i + 1 < pts.length; i += 2, o += p.channelsPerPixel) {
       const x = (halfW + (pts[i] - cx) * zoom) * ratio;
       const y = (halfH - (pts[i + 1] - cy) * zoom) * ratio;
-      if (x <= -smallest || y <= -smallest || x >= width + smallest || y >= height + smallest) continue;
+      if (x <= -dot || y <= -dot || x >= width + dot || y >= height + dot) continue;
       // A pixel just off the image still reaches into it: it's a light of its own.
       const inside = x >= 0 && y >= 0 && x < width && y < height;
       const pixel = inside ? Math.floor(y / screenPixel) * across + Math.floor(x / screenPixel) : -1;
@@ -548,27 +655,30 @@ export function stampPixels(
       merged[at + 5] += x;
       merged[at + 6] += y;
       merged[at + 7]++;
-      if (allRound) merged[at + 8] = 1;
+      // The widest of its lights' dots, and whichever of them is all round or selected.
+      const was = merged[at + 8];
+      if (was !== stamping) merged[at + 8] = (Math.max(was >> 2, dot) << 2) | ((was | stamping) & 3);
       if (!frame) {
         merged[at + 1] += (fixed & 255) * fixedSolid;
         merged[at + 2] += ((fixed >> 8) & 255) * fixedSolid;
         merged[at + 3] += ((fixed >> 16) & 255) * fixedSolid;
         merged[at + 4] += fixedSolid;
-      } else if (o + 2 < frame.length) {
+      } else if (o + 2 < frame.length && (frame[o] | frame[o + 1] | frame[o + 2]) !== 0) {
         merged[at + 1] += frame[o] * dim;
         merged[at + 2] += frame[o + 1] * dim;
         merged[at + 3] += frame[o + 2] * dim;
         merged[at + 4] += Math.min(1, Math.max(frame[o], frame[o + 1], frame[o + 2]) / FAINT);
+        merged[at + 8] |= 1;
       }
     }
   };
 
-  /** Stamps the merged lights as crowded pixels are, each on whole device pixels. */
+  /** Stamps the merged lights as crowded pixels are, each on whole device pixels: together they count as one prop. */
   const stampMerged = () => {
     for (let at = MERGED; at <= lights * MERGED; at += MERGED) if (merged[at] >= 0) mergedAt[merged[at]] = 0;
-    const round = dotShapes(smallest)[0];
-    const square = squareShape(smallest)[0];
-    const half = smallest / 2;
+    // The shape last stamped, and which it was: most merged lights are stamped alike.
+    let shape = dotShapes(smallest)[0];
+    let shaped = -1;
     for (let at = MERGED; at <= lights * MERGED; at += MERGED) {
       const count = merged[at + 7];
       // What isn't light is the dot of a pixel that's off, showing through.
@@ -582,27 +692,33 @@ export function stampPixels(
         const blue = Math.min(255, Math.round((merged[at + 3] + through * darkB) * share));
         color = (Math.round(solid * 255) << 24) | (blue << 16) | (green << 8) | red;
       }
-      const x0 = Math.round(merged[at + 5] / count - half);
-      const y0 = Math.round(merged[at + 6] / count - half);
-      if (x0 >= width || y0 >= height || x0 + smallest <= 0 || y0 + smallest <= 0) continue;
-      claimDot(pixels, nearest, width, height, x0, y0, merged[at + 8] ? square : round, color);
-      grow(x0, y0, smallest);
+      const stamping = merged[at + 8];
+      const dot = stamping >> 2;
+      const x0 = Math.round(merged[at + 5] / count - dot / 2);
+      const y0 = Math.round(merged[at + 6] / count - dot / 2);
+      if (x0 >= width || y0 >= height || x0 + dot <= 0 || y0 + dot <= 0) continue;
+      if (stamping >> 1 !== shaped) {
+        shaped = stamping >> 1;
+        shape = (stamping & 2 ? squareShape(dot) : dotShapes(dot))[0];
+      }
+      claimDot(pixels, nearest, width, height, x0, y0, shape, color, stamping & 1);
+      grow(x0, y0, dot);
     }
   };
 
   // Crowded props go under everything: what's stamped over them covers them by the usual rules.
-  if (props.some(crowded)) {
-    if (nearest.length < width * height) nearest = new Uint8Array(width * height);
-    if (props.some((p) => pitchOf(p) < screenPixel)) {
+  if (anyCrowded) {
+    if (nearest.length < width * height) nearest = new Uint16Array(width * height);
+    if (anyMerged) {
       if (mergedAt.length < across * down) mergedAt = new Int32Array(across * down);
-      for (const p of props) if (pitchOf(p) < screenPixel) mergeProp(p);
+      for (let n = 0; n < props.length; n++) if (ways[n] === MERGED_FIRST) mergeProp(props[n], sizes[n]);
       stampMerged();
     }
-    for (const p of props) if (crowded(p) && pitchOf(p) >= screenPixel) stampCrowded(p);
+    for (let n = 0; n < props.length; n++) if (ways[n] === CROWDED) stampCrowded(props[n], sizes[n], n + 1);
     for (let y = Math.max(0, box.y0); y < Math.min(height, box.y1); y++) nearest.fill(0, y * width + Math.max(0, box.x0), y * width + Math.min(width, box.x1));
   }
-  for (const p of props) if (!crowded(p)) stampProp(p, false);
-  for (const p of props) if (!crowded(p)) stampProp(p, true);
+  for (let n = 0; n < props.length; n++) if (ways[n] === APART) stampProp(props[n], sizes[n], false);
+  for (let n = 0; n < props.length; n++) if (ways[n] === APART) stampProp(props[n], sizes[n], true);
   if (box.x0 >= box.x1) return null;
   return { x0: Math.max(0, box.x0), y0: Math.max(0, box.y0), x1: Math.min(width, box.x1), y1: Math.min(height, box.y1) };
 }

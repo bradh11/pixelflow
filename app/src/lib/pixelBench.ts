@@ -4,8 +4,9 @@
 // - Stamping only, in Node: `PIXELFLOW_BENCH=1 pnpm vitest run src/lib/pixelBatches.bench.test.ts --reporter=verbose`
 // - Real drawing, in a browser: start `pnpm dev`, open the app, and in the console run
 //   `(await import("/src/lib/pixelBench.ts")).runSizesBench()` for shows of 5,000, 50,000 and
-//   200,000 pixels fitted to the canvas, `.runCanvasBench()` for 50,000 at a fixed zoom, or
-//   `.runGlowBench()` for a 15,000-pixel show with every pixel lit, at no glow, half and full.
+//   200,000 pixels fitted to the canvas (matrices; give it `syntheticStrings` for dense strings),
+//   `.runCanvasBench()` for 50,000 at a fixed zoom, or `.runGlowBench()` for a 15,000-pixel show
+//   with every pixel lit, at no glow, half and full.
 
 import type { PreviewProp } from "../api/types";
 import { type Size, type View, boxOfPoints, fitView, unionBox } from "./layoutMath";
@@ -32,6 +33,27 @@ export function syntheticShow(pixels = 50_000, perProp = 1_000) {
     [0, 120, 240].forEach((o, c) => (frame[i * 3 + c] = Math.round(127 + 127 * Math.cos(((hue - o) * Math.PI) / 180))));
   }
   return { props, frame, view, size };
+}
+
+/**
+ * A wall of dense strings, as a house's outlines are: pixels 0.018 apart along rows 0.6 apart,
+ * as many rows as give the whole the shape of the canvas. With the same rainbow frame.
+ */
+export function syntheticStrings(pixels = 50_000) {
+  const size: Size = { width: 1200, height: 700 };
+  const [step, gap] = [0.018, 0.6];
+  const rows = Math.max(1, Math.round(Math.sqrt((pixels * step * size.height) / (gap * size.width))));
+  const perProp = Math.ceil(pixels / rows);
+  const props: PreviewProp[] = [];
+  for (let r = 0; r < rows; r++) {
+    const points = new Float32Array(perProp * 2);
+    for (let i = 0; i < perProp; i++) {
+      points[i * 2] = i * step;
+      points[i * 2 + 1] = r * gap;
+    }
+    props.push({ prop: `string-${r}`, frameOffset: r * perProp * 3, channelsPerPixel: 3, points });
+  }
+  return { props, frame: syntheticShow(rows * perProp, rows * perProp).frame, view: fitView(unionBox(props.map((p) => boxOfPoints(p.points))), size, 16), size };
 }
 
 /** One fill per pixel with a new color string each: how the canvas used to draw lit pixels. */
@@ -102,12 +124,13 @@ export function runCanvasBench(runs = 15) {
 /**
  * Times a whole frame as the previews draw it (no glow), for shows of several sizes, each fitted
  * to the canvas as a preview fits it: every pixel lit in the rainbow, one pixel in eight lit (the
- * rest off), and nothing playing.
+ * rest off), and nothing playing. `show` makes the show: matrices (`syntheticShow`) unless given,
+ * or `syntheticStrings`.
  */
-export function runSizesBench(runs = 15, sizes = [5_000, 50_000, 200_000]) {
+export function runSizesBench(runs = 15, sizes = [5_000, 50_000, 200_000], show: (pixels: number) => { props: PreviewProp[]; frame: Uint8Array; size: Size } = syntheticShow) {
   const result: Record<string, Record<string, number>> = {};
   for (const pixels of sizes) {
-    const { props, frame, size } = syntheticShow(pixels);
+    const { props, frame, size } = show(pixels);
     const view = fitView(unionBox(props.map((p) => boxOfPoints(p.points))), size, 16);
     const sparse = frame.map((v, i) => (Math.floor(i / 3) % 8 === 0 ? v : 0));
     const row: Record<string, number> = { zoom: Math.round(view.zoom * 10) / 10 };

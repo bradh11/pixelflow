@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "preview",
+  "description": "The preview's own window (popped out): no core or plugin permissions at all. The shell makes it, and lets it call only the few app commands it draws with (see preview_window.rs).",
+  "windows": ["preview"],
+  "permissions": []
+}

@@ -350,9 +350,16 @@ fn work(cli: &Cli) -> Result<()> {
     } else {
         one(cli)?
     };
-    if let Some(path) = &cli.json {
-        std::fs::write(path, report.json()).with_context(|| format!("couldn't write {}", path.display()))?;
-    }
+    let report: Report = match &cli.json {
+        Some(path) => {
+            let text = report.json();
+            std::fs::write(path, &text).with_context(|| format!("couldn't write {}", path.display()))?;
+            // Printed as the file will print with `--render`: a number read back from it can
+            // differ from the one measured in its last place, and round the other way.
+            serde_json::from_str(&text).context("the report just written couldn't be read back")?
+        }
+        None => report,
+    };
     let markdown = report.markdown();
     if let Some(path) = &cli.markdown {
         std::fs::write(path, &markdown).with_context(|| format!("couldn't write {}", path.display()))?;

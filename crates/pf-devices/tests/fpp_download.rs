@@ -128,6 +128,35 @@ fn streams_a_file_whole_with_progress_and_places_it() {
 }
 
 #[test]
+fn a_file_that_runs_on_past_its_listed_size_is_stopped_and_leaves_nothing() {
+    // The FPP's listing said 1,000 bytes; what it sends is far more (a device that keeps sending
+    // would otherwise fill the disk).
+    let data = pattern(3_000_000);
+    let fpp = FakeFpp::start().with_music_file("Song.mp3", &data);
+    let dir = tempfile::tempdir().unwrap();
+    let mut most_seen = 0;
+    let err = fpp_download::download(
+        &client(),
+        fpp.address(),
+        FppFolder::Music,
+        "Song.mp3",
+        dir.path(),
+        Some(1_000),
+        &mut |done| {
+            most_seen = done;
+            true
+        },
+    )
+    .unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Couldn't download Song.mp3 from the FPP: it sent more than the size it gave for the file. Nothing was saved."
+    );
+    assert!(most_seen <= 1_001, "{most_seen} bytes were taken");
+    assert_eq!(files_in(dir.path()), Vec::<String>::new());
+}
+
+#[test]
 fn a_download_not_placed_leaves_nothing() {
     let fpp = FakeFpp::start().with_music_file("Song.mp3", &pattern(5000));
     let dir = tempfile::tempdir().unwrap();

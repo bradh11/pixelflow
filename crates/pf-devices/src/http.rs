@@ -35,8 +35,9 @@ pub trait Http: Send + Sync {
 
     /// Streams the body of `GET path` into `sink` (a file download), returning how many bytes
     /// were written; never holds the body in memory whole. `expected` is the file's size, when
-    /// known: a big file is given longer to arrive. A body that ends short of the size the
-    /// device announced is an error.
+    /// known: a big file is given longer to arrive, and no more than that is taken. A body that
+    /// ends short of the size the device announced, or runs on past the file's size, is an
+    /// error.
     fn get_to(
         &self,
         host: &str,
@@ -237,10 +238,10 @@ impl Http for HttpClient {
         expected: Option<u64>,
     ) -> Result<u64, DeviceError> {
         let url = request_url(host, path)?;
+        // The device says how large the file is; it's believed up to the largest download.
+        let most = expected.map_or(MAX_DOWNLOAD_BYTES, |e| e.min(MAX_DOWNLOAD_BYTES));
         // At least two minutes for the whole body, and enough for the file at 64 KiB/s.
-        let budget = Duration::from_secs(120).max(Duration::from_secs(
-            expected.unwrap_or(0) / DOWNLOAD_FLOOR_BYTES_PER_SEC,
-        ));
+        let budget = Duration::from_secs(120).max(Duration::from_secs(most / DOWNLOAD_FLOOR_BYTES_PER_SEC));
         let response = self
             .agent
             .get(&url)
@@ -280,7 +281,15 @@ impl Http for HttpClient {
                 "it stopped sending partway through".to_string()
             },
         };
-        let written = std::io::copy(&mut response.body_mut().as_reader(), sink).map_err(stopped)?;
+        // One byte past the most that's taken shows a body that runs on; nothing after it is
+        // read, so a device can't fill the disk by sending without end.
+        let mut body = response.body_mut().as_reader().take(most.saturating_add(1));
+        let written = std::io::copy(&mut body, sink).map_err(stopped)?;
+        if written > most {
+            return Err(DeviceError::Message(
+                "it sent more than the size it gave for the file".to_string(),
+            ));
+        }
         if announced.is_some_and(|n| n != written) {
             return Err(DeviceError::Unreachable {
                 address: host.to_string(),
@@ -298,6 +307,9 @@ impl Http for HttpClient {
 
 /// The slowest a download is allowed to be before it's given up on (64 KiB/s).
 const DOWNLOAD_FLOOR_BYTES_PER_SEC: u64 = 64 * 1024;
+/// The largest file downloaded from a device (64 GB: more than any sequence), whatever size the
+/// device gives for it, and the most taken when it gives none.
+const MAX_DOWNLOAD_BYTES: u64 = 64 * 1024 * 1024 * 1024;
 
 /// Recorded responses for tests. Unknown requests fail as unreachable; every request is logged
 /// so tests can assert which endpoints were (and were not) touched.

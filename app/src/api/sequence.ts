@@ -43,7 +43,9 @@ export type EffectKind =
   | "sing"
   | "colorShift"
   | "dancer"
-  | "picture";
+  | "picture"
+  | "shockwave"
+  | "fill";
 
 export type Gradient = "none" | "horizontal" | "vertical";
 /** What the Shape effect draws. */
@@ -434,6 +436,32 @@ export type EffectParams =
       startFrame?: number;
       pixelOffsets?: boolean;
       tint?: boolean;
+    }
+  | {
+      kind: "shockwave";
+      centerX?: number;
+      centerY?: number;
+      startRadius?: number;
+      endRadius?: number;
+      startWidth?: number;
+      endWidth?: number;
+      cycles?: number;
+      acceleration?: number;
+      blendEdges?: boolean;
+      /** Sizes in percent of the prop's longer side rather than cells of its grid. */
+      scale?: boolean;
+    }
+  | {
+      kind: "fill";
+      /** How far the fill reaches, 0–100. */
+      position?: number;
+      direction?: "up" | "down" | "left" | "right";
+      bandSize?: number;
+      skipSize?: number;
+      offset?: number;
+      offsetInCells?: boolean;
+      wrap?: boolean;
+      colorByTime?: boolean;
     };
 
 /** Who a Dancer is (see `DancerCharacter` in crates/pf-sequence/src/effect.rs). */
@@ -1086,6 +1114,8 @@ export const EFFECT_KINDS: { kind: EffectKind; label: string }[] = [
   { kind: "colorShift", label: "Color Shift" },
   { kind: "dancer", label: "Dancer" },
   { kind: "picture", label: "Picture" },
+  { kind: "shockwave", label: "Shockwave" },
+  { kind: "fill", label: "Fill" },
 ];
 
 /** A new effect of `kind` (engine-default settings, white) from `startMs` to `endMs`. */

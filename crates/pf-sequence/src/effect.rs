@@ -470,10 +470,12 @@ pub enum EffectKind {
     ColorShift,
     Dancer,
     Picture,
+    Shockwave,
+    Fill,
 }
 
 impl EffectKind {
-    pub const ALL: [EffectKind; 37] = [
+    pub const ALL: [EffectKind; 39] = [
         EffectKind::On,
         EffectKind::Off,
         EffectKind::ColorWash,
@@ -511,6 +513,8 @@ impl EffectKind {
         EffectKind::ColorShift,
         EffectKind::Dancer,
         EffectKind::Picture,
+        EffectKind::Shockwave,
+        EffectKind::Fill,
     ];
 
     /// The name people see.
@@ -553,6 +557,8 @@ impl EffectKind {
             EffectKind::ColorShift => "Color Shift",
             EffectKind::Dancer => "Dancer",
             EffectKind::Picture => "Picture",
+            EffectKind::Shockwave => "Shockwave",
+            EffectKind::Fill => "Fill",
         }
     }
 
@@ -612,6 +618,10 @@ impl EffectKind {
             EffectKind::Picture => {
                 "Your own picture or animated GIF, fitted to the prop: still, scrolling, or zooming; for matrices."
             }
+            EffectKind::Shockwave => {
+                "One ring bursting out from a point, widening and changing color as it goes."
+            }
+            EffectKind::Fill => "Color filling the prop from one side, the palette spread along the way.",
         }
     }
 
@@ -655,6 +665,8 @@ impl EffectKind {
             EffectKind::ColorShift => ColorShiftParams::SETTINGS,
             EffectKind::Dancer => DancerParams::SETTINGS,
             EffectKind::Picture => PictureParams::SETTINGS,
+            EffectKind::Shockwave => ShockwaveParams::SETTINGS,
+            EffectKind::Fill => FillParams::SETTINGS,
         }
     }
 }
@@ -702,6 +714,8 @@ pub enum EffectParams {
     ColorShift(ColorShiftParams),
     Dancer(DancerParams),
     Picture(PictureParams),
+    Shockwave(ShockwaveParams),
+    Fill(FillParams),
 }
 
 impl EffectParams {
@@ -744,6 +758,8 @@ impl EffectParams {
             EffectParams::ColorShift(_) => EffectKind::ColorShift,
             EffectParams::Dancer(_) => EffectKind::Dancer,
             EffectParams::Picture(_) => EffectKind::Picture,
+            EffectParams::Shockwave(_) => EffectKind::Shockwave,
+            EffectParams::Fill(_) => EffectKind::Fill,
         }
     }
 
@@ -787,6 +803,8 @@ impl EffectParams {
             EffectKind::ColorShift => EffectParams::ColorShift(ColorShiftParams::default()),
             EffectKind::Dancer => EffectParams::Dancer(DancerParams::default()),
             EffectKind::Picture => EffectParams::Picture(PictureParams::default()),
+            EffectKind::Shockwave => EffectParams::Shockwave(ShockwaveParams::default()),
+            EffectKind::Fill => EffectParams::Fill(FillParams::default()),
         }
     }
 
@@ -831,6 +849,8 @@ impl EffectParams {
             EffectParams::ColorShift(p) => p.sanitize(),
             EffectParams::Dancer(p) => p.sanitize(),
             EffectParams::Picture(p) => p.sanitize(),
+            EffectParams::Shockwave(p) => p.sanitize(),
+            EffectParams::Fill(p) => p.sanitize(),
         }
     }
 
@@ -881,6 +901,8 @@ impl EffectParams {
             EffectParams::ColorShift(p) => p.number(key),
             EffectParams::Dancer(p) => p.number(key),
             EffectParams::Picture(p) => p.number(key),
+            EffectParams::Shockwave(p) => p.number(key),
+            EffectParams::Fill(p) => p.number(key),
         }
     }
 
@@ -925,6 +947,8 @@ impl EffectParams {
             EffectParams::ColorShift(p) => p.set_number(key, value),
             EffectParams::Dancer(p) => p.set_number(key, value),
             EffectParams::Picture(p) => p.set_number(key, value),
+            EffectParams::Shockwave(p) => p.set_number(key, value),
+            EffectParams::Fill(p) => p.set_number(key, value),
         }
     }
 
@@ -968,6 +992,8 @@ impl EffectParams {
             EffectParams::ColorShift(p) => p.setting_problem(),
             EffectParams::Dancer(p) => p.setting_problem(),
             EffectParams::Picture(p) => p.setting_problem(),
+            EffectParams::Shockwave(p) => p.setting_problem(),
+            EffectParams::Fill(p) => p.setting_problem(),
         };
         found.map(|(spec, why)| format!("{} {why}", spec.label))
     }
@@ -1363,6 +1389,74 @@ effect_params! {
         spacing: f32 = 0.4 => "spacing", "Spacing", number(0.01, 4.0, 0.01);
         /// Ring thickness (center-to-corner = 1).
         thickness: f32 = 0.12 => "thickness", "Thickness", number(0.01, 1.0, 0.01);
+    }
+}
+
+effect_params! {
+    /// One ring growing from a point, its width changing as it goes, its color running through
+    /// the palette: xLights' Shockwave, drawn cell by cell on the prop's grid.
+    #[derive(Copy)]
+    pub struct ShockwaveParams {
+        /// Where the ring is centered across the prop: 0 is the left edge, 100 the right.
+        center_x: f32 = 50.0 => "centerX", "Center, across", number(0.0, 100.0, 1.0, "%");
+        /// Where the ring is centered up the prop: 0 is the bottom, 100 the top.
+        center_y: f32 = 50.0 => "centerY", "Center, up", number(0.0, 100.0, 1.0, "%");
+        /// The ring's radius at the start.
+        start_radius: f32 = 1.0 => "startRadius", "Start radius", number(0.0, 750.0, 1.0);
+        /// The ring's radius at the end.
+        end_radius: f32 = 100.0 => "endRadius", "End radius", number(0.0, 750.0, 1.0);
+        /// How wide the ring is at the start.
+        start_width: f32 = 5.0 => "startWidth", "Start width", number(0.0, 255.0, 1.0);
+        /// How wide the ring is at the end.
+        end_width: f32 = 10.0 => "endWidth", "End width", number(0.0, 255.0, 1.0);
+        /// Rings over the effect, one after another.
+        cycles: u32 = 1 => "cycles", "Rings", int(1, 100);
+        /// Speeds the ring up as it goes (above 0) or slows it down (below).
+        acceleration: f32 = 0.0 => "acceleration", "Acceleration", number(-10.0, 10.0, 1.0), more;
+        /// The ring fades out toward both its edges.
+        blend_edges: bool = true => "blendEdges", "Soft edges", toggle, more;
+        /// Sizes are percent of the prop's longer side (a radius of 100 reaches its ends).
+        /// Otherwise they count cells of the prop's grid, as xLights' older sequences do.
+        scale: bool = true => "scale", "Sizes in percent of the prop", toggle, more;
+    }
+}
+
+/// Which way a Fill goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum FillDirection {
+    #[default]
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+choices!(FillDirection { "up" => "Up", "down" => "Down", "left" => "Left", "right" => "Right" });
+
+effect_params! {
+    /// The prop filled from one side up to a position, the palette spread along the way:
+    /// xLights' Fill. Give the position a curve to fill the prop over the effect.
+    #[derive(Copy)]
+    pub struct FillParams {
+        /// How far the fill reaches: 0 is nothing, 100 the whole prop.
+        position: f32 = 100.0 => "position", "Position", number(0.0, 100.0, 1.0, "%");
+        /// The side the fill grows toward.
+        direction: FillDirection = FillDirection::Up => "direction", "Direction", choice;
+        /// With "Color by time": lines of cells in each band of color (0: one color).
+        band_size: f32 = 0.0 => "bandSize", "Band size", number(0.0, 250.0, 1.0, "cells");
+        /// With "Color by time" and a band size: dark lines of cells between the bands.
+        skip_size: f32 = 0.0 => "skipSize", "Gap size", number(0.0, 250.0, 1.0, "cells");
+        /// How far in from its side the fill starts.
+        offset: f32 = 0.0 => "offset", "Offset", number(0.0, 100.0, 1.0);
+        /// The offset counts lines of cells; otherwise it's a percent of the prop.
+        offset_in_cells: bool = true => "offsetInCells", "Offset in cells", toggle, more;
+        /// A fill that started part way in carries on round from the other side.
+        wrap: bool = true => "wrap", "Wrap around", toggle, more;
+        /// The whole fill takes the palette color for the moment in the effect (or bands of the
+        /// palette colors), instead of spreading the palette along the fill.
+        color_by_time: bool = false => "colorByTime", "Color by time", toggle, more;
     }
 }
 

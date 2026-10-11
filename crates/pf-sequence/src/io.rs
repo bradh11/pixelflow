@@ -89,7 +89,8 @@ fn v9_to_v10(doc: Value) -> Result<Value, SequenceError> {
 
 /// Version 11 only adds effect settings with defaults for when they're missing (Fire's
 /// `location`, `style`, `hueShift`, `growthCycles`, and `growWithMusic`: rolling flames from the
-/// bottom, as before), so version 10 documents are already valid.
+/// bottom, as before) and effect kinds (Shockwave, Fill), so version 10 documents are already
+/// valid.
 fn v10_to_v11(doc: Value) -> Result<Value, SequenceError> {
     Ok(doc)
 }

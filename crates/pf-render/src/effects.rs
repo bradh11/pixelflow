@@ -16,6 +16,7 @@ use crate::color::{Colors, Rgba, unit};
 pub use crate::color_shift::ColorShift;
 pub use crate::dancer::Dancer;
 pub use crate::fan::Fan;
+use crate::fill::Fill;
 use crate::fire::Flames;
 pub use crate::garlands::Garlands;
 use crate::geometry::Members;
@@ -31,6 +32,7 @@ pub use crate::plasma::Plasma;
 pub use crate::pulse::Pulse;
 use crate::raster::{Raster, cell_of, grid_size};
 pub use crate::shape::Shape;
+use crate::shockwave::Shockwave;
 pub use crate::sing::Sing;
 pub use crate::snowflakes::Snowflakes;
 pub use crate::tendril::Tendril;
@@ -1114,6 +1116,8 @@ pub enum Shader {
     ColorShift(ColorShift),
     Dancer(Dancer),
     Picture(Picture),
+    Shockwave(Shockwave),
+    Fill(Fill),
 }
 
 /// When a Shape fires its shapes (ms from the effect's start, while it plays): at each mark on its
@@ -1229,6 +1233,8 @@ impl Shader {
             EffectParams::ColorShift(p) => Shader::ColorShift(ColorShift::new(p, time, colors, canvas)),
             EffectParams::Dancer(p) => Shader::Dancer(Dancer::new(p, time, colors, canvas, cx)),
             EffectParams::Picture(p) => Shader::Picture(Picture::new(p, time, colors, canvas, cx)),
+            EffectParams::Shockwave(p) => Shader::Shockwave(Shockwave::new(p, time, colors, canvas)),
+            EffectParams::Fill(p) => Shader::Fill(Fill::new(p, time, colors, canvas)),
         }
     }
 
@@ -1274,6 +1280,8 @@ impl Shader {
             Shader::ColorShift(s) => each.visit(s),
             Shader::Dancer(s) => each.visit(s),
             Shader::Picture(s) => each.visit(s),
+            Shader::Shockwave(s) => each.visit(s),
+            Shader::Fill(s) => each.visit(s),
         }
     }
 }

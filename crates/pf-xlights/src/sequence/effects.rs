@@ -14,14 +14,14 @@ use pf_model::{BufferTransform, RenderStyle};
 use pf_sequence::{
     Axis, BarsMotion, BarsParams, Blend, ButterflyColors, ButterflyParams, ChaseParams, CirclesLook,
     CirclesParams, ColorWashParams, Curve, CurveShape, Direction, EffectParams, FaceColorSource, FaceEyes,
-    FacesParams, FanParams, FireLocation, FireParams, FireStyle, GarlandShape, GarlandsDirection,
-    GarlandsParams, Gradient, LifeParams, LifeRules, LightningParams, LinesParams, MAX_CURVE_CYCLES,
-    MIN_CURVE_CYCLES, MeteorDirection, MeteorsParams, MorphParams, OffParams, OnParams, Palette, PictureFit,
-    PictureMovement, PictureParams, PictureTiming, PinwheelParams, PinwheelShading, PinwheelStyle,
-    PlasmaColors, PlasmaParams, Rgb, RippleParams, SettingRange, ShapeObject, ShapeParams, ShimmerParams,
-    SnowflakeShape, SnowflakesMotion, SnowflakesParams, SpiralParams, StrobeParams, TendrilMovement,
-    TendrilParams, TextCountdown, TextMovement, TextOrientation, TextParams, TwinkleParams, VuMeterParams,
-    VuMeterShape, VuMeterType, WaveParams,
+    FacesParams, FanParams, FillDirection, FillParams, FireLocation, FireParams, FireStyle, GarlandShape,
+    GarlandsDirection, GarlandsParams, Gradient, LifeParams, LifeRules, LightningParams, LinesParams,
+    MAX_CURVE_CYCLES, MIN_CURVE_CYCLES, MeteorDirection, MeteorsParams, MorphParams, OffParams, OnParams,
+    Palette, PictureFit, PictureMovement, PictureParams, PictureTiming, PinwheelParams, PinwheelShading,
+    PinwheelStyle, PlasmaColors, PlasmaParams, Rgb, RippleParams, SettingRange, ShapeObject, ShapeParams,
+    ShimmerParams, ShockwaveParams, SnowflakeShape, SnowflakesMotion, SnowflakesParams, SpiralParams,
+    StrobeParams, TendrilMovement, TendrilParams, TextCountdown, TextMovement, TextOrientation, TextParams,
+    TwinkleParams, VuMeterParams, VuMeterShape, VuMeterType, WaveParams,
 };
 use std::collections::BTreeMap;
 
@@ -828,6 +828,54 @@ fn ripple(r: &Reader, duration_ms: u64, diff: &mut Diff) -> EffectParams {
     })
 }
 
+/// xLights' Shockwave (`ShockwaveEffect::Render`), which PixelFlow's Shockwave draws the same
+/// way. A setting xLights leaves out of the file has the value its panel starts with.
+fn shockwave(r: &Reader, diff: &mut Diff) -> EffectParams {
+    let cycles = r.get("Shockwave_Cycles", 1.0, 1.0, 100.0);
+    // xLights reads its value curves at the ring's place in its own cycle; PixelFlow's curves
+    // run once over the effect.
+    let moving =
+        r.s.keys()
+            .any(|k| k.starts_with("E_VALUECURVE_Shockwave_") && r.s.curve_active(k));
+    if cycles >= 2.0 && moving {
+        diff.add("settings that change over each ring change once over the effect");
+    }
+    if !r.choice("Shockwave_TimingTrack", "").is_empty() {
+        diff.add("rings fired by a timing track shown one after another over the effect");
+    }
+    EffectParams::Shockwave(ShockwaveParams {
+        center_x: r.get("Shockwave_CenterX", 50.0, 0.0, 100.0) as f32,
+        center_y: r.get("Shockwave_CenterY", 50.0, 0.0, 100.0) as f32,
+        start_radius: r.get("Shockwave_Start_Radius", 1.0, 0.0, 750.0) as f32,
+        end_radius: r.get("Shockwave_End_Radius", 10.0, 0.0, 750.0) as f32,
+        start_width: r.get("Shockwave_Start_Width", 5.0, 0.0, 255.0) as f32,
+        end_width: r.get("Shockwave_End_Width", 10.0, 0.0, 255.0) as f32,
+        cycles: count(cycles, 1, 100),
+        acceleration: r.get("Shockwave_Accel", 0.0, -10.0, 10.0) as f32,
+        blend_edges: r.check_or("Shockwave_Blend_Edges", true),
+        scale: r.check_or("Shockwave_Scale", true),
+    })
+}
+
+/// xLights' Fill (`FillEffect::Render`), which PixelFlow's Fill draws the same way.
+fn fill(r: &Reader) -> EffectParams {
+    EffectParams::Fill(FillParams {
+        position: r.get("Fill_Position", 100.0, 0.0, 100.0) as f32,
+        direction: match r.choice("Fill_Direction", "Up") {
+            "Down" => FillDirection::Down,
+            "Left" => FillDirection::Left,
+            "Right" => FillDirection::Right,
+            _ => FillDirection::Up,
+        },
+        band_size: r.get("Fill_Band_Size", 0.0, 0.0, 250.0) as f32,
+        skip_size: r.get("Fill_Skip_Size", 0.0, 0.0, 250.0) as f32,
+        offset: r.get("Fill_Offset", 0.0, 0.0, 100.0) as f32,
+        offset_in_cells: r.check_or("Fill_Offset_In_Pixels", true),
+        wrap: r.check_or("Fill_Wrap", true),
+        color_by_time: r.check("Fill_Color_Time"),
+    })
+}
+
 /// True when the xLights version `version` ("2024.19") is older than `than` ("2025.04"), as
 /// xLights' `IsVersionOlder` compares them. An unreadable version counts as current.
 fn version_older(than: &str, version: &str) -> bool {
@@ -844,6 +892,19 @@ pub fn adjust_for_version(name: &str, s: &mut Settings, version: &str) {
     match effect_key(name).as_str() {
         // Fan radii became a share of the prop in 2025.04; older fans keep them in pixels.
         "fan" if version_older("2025.04", version) => s.set("E_CHECKBOX_Fan_Scale", "0".into()),
+        // So did a Shockwave's sizes.
+        "shockwave" if version_older("2025.04", version) => {
+            s.set("E_CHECKBOX_Shockwave_Scale", "0".into());
+        }
+        // The first Fills were colored by time (until 2016.41) and always wrapped (until 2016.53).
+        "fill" => {
+            if version_older("2016.41", version) {
+                s.set("E_CHECKBOX_Fill_Color_Time", "1".into());
+            }
+            if version_older("2016.53", version) {
+                s.set("E_CHECKBOX_Fill_Wrap", "1".into());
+            }
+        }
         // Pinwheels from before the new render method (2026.06) keep the old one.
         "pinwheel" if version_older("2026.06", version) && !s.contains("E_CHOICE_Pinwheel_Style") => {
             s.set("E_CHOICE_Pinwheel_Style", "Old Render Method".into());
@@ -1743,12 +1804,13 @@ fn effect_params(
         "text" => text(&r, diff),
         "vumeter" => vu_meter(&r, diff),
         "pictures" => pictures(&r, duration_ms, diff),
+        "shockwave" => shockwave(&r, diff),
+        "fill" => fill(&r),
         // No direct equivalent: the closest PixelFlow effect, with its default settings.
         "fireworks" => closest("twinkles", EffectParams::Twinkle(TwinkleParams::default())),
         "snowstorm" => closest("falling meteors", EffectParams::Meteors(MeteorsParams::default())),
-        "shockwave" => closest("a ripple", EffectParams::Ripple(RippleParams::default())),
         "galaxy" => closest("a spiral", EffectParams::Spiral(SpiralParams::default())),
-        "fill" | "curtain" => closest("moving bars", EffectParams::Bars(BarsParams::default())),
+        "curtain" => closest("moving bars", EffectParams::Bars(BarsParams::default())),
         "lightning" => lightning(&r, diff),
         "adjust" | "warp" | "duplicate" | "dmx" | "servo" | "movinghead" => return Kind::Skip,
         _ => return Kind::Placeholder,
@@ -3505,6 +3567,124 @@ mod tests {
             translate("Fire", &s, &palette(&[]), 2000, 25).unwrap().fidelity,
             Fidelity::Exact
         );
+    }
+
+    #[test]
+    fn shockwaves_translate_exactly_and_old_ones_keep_their_sizes_in_cells() {
+        // What xLights' panel starts with, for settings the file leaves out.
+        let t = translate("Shockwave", &Settings::parse(""), &palette(&[]), 2000, 25).unwrap();
+        assert_eq!(
+            t.params,
+            EffectParams::Shockwave(ShockwaveParams {
+                center_x: 50.0,
+                center_y: 50.0,
+                start_radius: 1.0,
+                end_radius: 10.0,
+                start_width: 5.0,
+                end_width: 10.0,
+                cycles: 1,
+                acceleration: 0.0,
+                blend_edges: true,
+                scale: true,
+            })
+        );
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        // A file from before 2025.04 measures in cells, whatever it says.
+        let text = "E_CHECKBOX_Shockwave_Blend_Edges=0,E_SLIDER_Shockwave_Accel=-7,\
+                    E_SLIDER_Shockwave_CenterX=25,E_SLIDER_Shockwave_CenterY=75,\
+                    E_SLIDER_Shockwave_End_Radius=170,E_SLIDER_Shockwave_End_Width=118,\
+                    E_SLIDER_Shockwave_Start_Radius=3,E_SLIDER_Shockwave_Start_Width=7,\
+                    E_SLIDER_Shockwave_Cycles=4,E_CHECKBOX_Shockwave_Scale=1";
+        let expected = ShockwaveParams {
+            center_x: 25.0,
+            center_y: 75.0,
+            start_radius: 3.0,
+            end_radius: 170.0,
+            start_width: 7.0,
+            end_width: 118.0,
+            cycles: 4,
+            acceleration: -7.0,
+            blend_edges: false,
+            scale: false,
+        };
+        for (version, scale) in [("2024.19", false), ("2025.04", true)] {
+            let mut s = Settings::parse(text);
+            adjust_for_version("Shockwave", &mut s, version);
+            let t = translate("Shockwave", &s, &palette(&[]), 2000, 25).unwrap();
+            assert_eq!(
+                t.params,
+                EffectParams::Shockwave(ShockwaveParams { scale, ..expected }),
+                "{version}"
+            );
+            assert_eq!(t.fidelity, Fidelity::Exact);
+        }
+        // A radius that changes gets a curve; with several rings xLights restarts it each ring.
+        let curve = "E_VALUECURVE_Shockwave_End_Radius=Active=TRUE|Id=ID_VALUECURVE_Shockwave_End_Radius|Type=Ramp|Min=0.00|Max=750.00|P1=10.00|P2=20.00|RV=TRUE|";
+        let t = translate("Shockwave", &Settings::parse(curve), &palette(&[]), 2000, 25).unwrap();
+        assert_eq!(t.curves["endRadius"], Curve::ramp(10.0, 20.0));
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        let s = Settings::parse(&format!("{curve},E_SLIDER_Shockwave_Cycles=3"));
+        assert_eq!(
+            translate("Shockwave", &s, &palette(&[]), 2000, 25)
+                .unwrap()
+                .fidelity,
+            Fidelity::Approximate(vec![
+                "settings that change over each ring change once over the effect".into()
+            ])
+        );
+    }
+
+    #[test]
+    fn fills_translate_exactly_with_their_first_versions_rules() {
+        let t = translate("Fill", &Settings::parse(""), &palette(&[]), 2000, 25).unwrap();
+        assert_eq!(
+            t.params,
+            EffectParams::Fill(FillParams {
+                position: 100.0,
+                direction: FillDirection::Up,
+                band_size: 0.0,
+                skip_size: 0.0,
+                offset: 0.0,
+                offset_in_cells: true,
+                wrap: true,
+                color_by_time: false,
+            })
+        );
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        let text = "E_CHECKBOX_Fill_Color_Time=0,E_CHECKBOX_Fill_Offset_In_Pixels=0,E_CHECKBOX_Fill_Wrap=0,\
+                    E_CHOICE_Fill_Direction=Left,E_SLIDER_Fill_Band_Size=216,E_SLIDER_Fill_Offset=79,\
+                    E_SLIDER_Fill_Position=40,E_SLIDER_Fill_Skip_Size=218";
+        let t = translate("Fill", &Settings::parse(text), &palette(&[]), 2000, 25).unwrap();
+        let expected = FillParams {
+            position: 40.0,
+            direction: FillDirection::Left,
+            band_size: 216.0,
+            skip_size: 218.0,
+            offset: 79.0,
+            offset_in_cells: false,
+            wrap: false,
+            color_by_time: false,
+        };
+        assert_eq!(t.params, EffectParams::Fill(expected));
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        // Fills from before 2016.41 were colored by time, and before 2016.53 always wrapped.
+        for (version, color_by_time, wrap) in [("2016.40", true, true), ("2016.52", false, true)] {
+            let mut s = Settings::parse(text);
+            adjust_for_version("Fill", &mut s, version);
+            assert_eq!(
+                translate("Fill", &s, &palette(&[]), 2000, 25).unwrap().params,
+                EffectParams::Fill(FillParams {
+                    color_by_time,
+                    wrap,
+                    ..expected
+                }),
+                "{version}"
+            );
+        }
+        // The position usually has a curve: that's what makes the fill move.
+        let curve = "E_VALUECURVE_Fill_Position=Active=TRUE|Id=ID_VALUECURVE_Fill_Position|Type=Ramp|Min=0.00|Max=100.00|P1=0.00|P2=100.00|RV=TRUE|";
+        let t = translate("Fill", &Settings::parse(curve), &palette(&[]), 2000, 25).unwrap();
+        assert_eq!(t.curves["position"], Curve::ramp(0.0, 100.0));
     }
 
     #[test]

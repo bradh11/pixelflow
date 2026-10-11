@@ -10,7 +10,7 @@ use pf_sequence::{
     MeteorsParams, OnParams, Rgb, RippleParams, Row, RowBlending, ShapeObject, ShimmerParams, SpiralParams,
     StrobeParams, Target, TimingKind, TwinkleParams, WaveParams,
 };
-use pf_xlights::sequence::{Fidelity, SequenceImport, build_sequence, parse_xsq};
+use pf_xlights::sequence::{Fidelity, SequenceImport, Verdict, build_sequence, parse_xsq};
 use pf_xlights::{import_folder, import_sequence_file};
 use std::path::{Path, PathBuf};
 
@@ -32,8 +32,9 @@ fn import(name: &str) -> SequenceImport {
     import_sequence_file(&fixture(name), &show(), |_, _| None).unwrap()
 }
 
+/// Whether the import says `text`, of how its effects look or of anything else.
 fn has_note(import: &SequenceImport, text: &str) -> bool {
-    import.notes.iter().any(|n| n.contains(text))
+    import.all_notes().iter().any(|n| n.contains(text))
 }
 
 #[track_caller]
@@ -41,7 +42,7 @@ fn assert_note(import: &SequenceImport, text: &str) {
     assert!(
         has_note(import, text),
         "no note containing {text:?} in {:#?}",
-        import.notes
+        import.all_notes()
     );
 }
 
@@ -230,7 +231,7 @@ fn model_blending_comes_across_as_how_rows_meet() {
 }
 
 #[test]
-fn an_effect_on_a_prop_xlights_lays_out_its_own_way_is_an_approximation() {
+fn an_effect_on_a_prop_xlights_lays_out_its_own_way_looks_close() {
     // xLights draws an effect on a line along its pixels, whichever way the line runs, and on a
     // poly line or a custom model by how it's strung. PixelFlow draws on those as they look
     // from the front: the same for a line running across, not for the rest.
@@ -297,7 +298,7 @@ fn an_effect_on_a_prop_xlights_lays_out_its_own_way_is_an_approximation() {
     assert_eq!((i.summary.exact, i.summary.approximate), (4, 2));
     assert_note(
         &i,
-        "Bars (2 effects) approximated: drawn on the prop as it looks from the front",
+        "Bars (2 effects) look close: drawn on the prop as it looks from the front",
     );
 
     // Imported with the layout xLights draws on (one row along the wiring), they match.
@@ -309,7 +310,7 @@ fn an_effect_on_a_prop_xlights_lays_out_its_own_way_is_an_approximation() {
 }
 
 #[test]
-fn an_effect_on_a_cube_is_an_approximation() {
+fn an_effect_on_a_cube_looks_close() {
     // xLights draws on a cube with its layers side by side; PixelFlow as it looks from the
     // front, where they overlap. One layer deep, the two are the same.
     let cube = |name: &str, depth: u32| {
@@ -342,12 +343,12 @@ fn an_effect_on_a_cube_is_an_approximation() {
     assert_eq!((i.summary.exact, i.summary.approximate), (1, 1));
     assert_note(
         &i,
-        "Bars (1 effect) approximated: drawn on the cube as it looks from the front, where xLights lays its layers side by side",
+        "Bars (1 effect) looks close: drawn on the cube as it looks from the front, where xLights lays its layers side by side",
     );
 }
 
 #[test]
-fn canvas_mode_is_an_approximation_above_the_bottom_layer() {
+fn canvas_mode_looks_close_above_the_bottom_layer() {
     // xLights draws the layers below into a canvas effect before the effect itself. On a row's
     // bottom layer there are none, and the effect is like any other.
     let on = r#"<Effect name="On" startTime="0" endTime="1000">T_CHECKBOX_Canvas=1</Effect>"#;
@@ -363,7 +364,7 @@ fn canvas_mode_is_an_approximation_above_the_bottom_layer() {
     assert_eq!((i.summary.exact, i.summary.approximate), (2, 1));
     assert_note(
         &i,
-        "On (1 effect) approximated: canvas mode not applied: the layers below aren't drawn into the effect.",
+        "On (1 effect) looks close: the layers below aren't blurred, faded, or blended along with it (xLights' canvas mode).",
     );
 }
 
@@ -608,10 +609,50 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
         1 + 3 + 2,
         "Adjust, effects on a missing submodel and a node, Garage Door"
     );
+    // What people are told: how the effects are expected to look. The 18 carried over whole
+    // come across the same; the five with something noted look close.
+    assert_eq!(
+        (
+            s.look.matches,
+            s.look.close,
+            s.look.different,
+            s.look.no_equivalent
+        ),
+        (18, 5, 0, 0)
+    );
+    let length: u64 = i.sequence.effects().map(|e| e.end_ms - e.start_ms).sum();
+    assert_eq!(s.look_ms.matches + s.look_ms.close, length);
+    assert!(s.look_ms.close > 0 && s.look_ms.different + s.look_ms.no_equivalent == 0);
+    // Only what differs is listed, each kind with what a viewer would notice; the rest of the
+    // notes are about what wasn't imported.
+    let listed: Vec<(Verdict, &str, usize)> = i
+        .looks
+        .iter()
+        .map(|g| (g.verdict, g.effect.as_str(), g.effects))
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            (Verdict::Close, "Bars", 1),
+            (Verdict::Close, "Marquee", 1),
+            (Verdict::Close, "Meteors", 1),
+            (Verdict::Close, "Strobe", 1),
+            (Verdict::Close, "Text", 1),
+        ]
+    );
+    assert_eq!(i.looks[0].reasons, ["'Wipe' transition shown as a fade"]);
+    assert_eq!(i.looks.iter().map(|g| g.ms).sum::<u64>(), s.look_ms.close);
+    assert!(
+        i.notes.iter().all(|n| !n.contains("looks close")),
+        "{:#?}",
+        i.notes
+    );
+    assert_eq!(i.all_notes().len(), i.looks.len() + i.notes.len());
+    assert!(i.effects.iter().all(|e| e.verdict <= Verdict::Close));
 
     assert_note(
         &i,
-        "Text (1 effect) approximated: 'default' font shown in PixelFlow's pixel font, 10 pixels high",
+        "Text (1 effect) looks close: 'default' font shown in PixelFlow's pixel font, 10 pixels high",
     );
     assert_note(
         &i,
@@ -620,18 +661,18 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
     // The bars moving left come across whole; the 'expand' ones only for their transition.
     assert_note(
         &i,
-        "Bars (1 effect) approximated: 'Wipe' transition shown as a fade",
+        "Bars (1 effect) looks close: 'Wipe' transition shown as a fade",
     );
     assert!(
         !has_note(&i, "layer blending"),
         "every layer method in the sample translates: {:#?}",
         i.notes
     );
-    assert!(!has_note(&i, "kept at one value"), "{:#?}", i.notes);
+    assert!(!has_note(&i, "stays as it starts"), "{:#?}", i.notes);
     assert!(!has_note(&i, "Butterfly"), "{:#?}", i.notes);
     assert_note(
         &i,
-        "Meteors (1 effect) approximated: meteor count and speed approximated.",
+        "Meteors (1 effect) looks close: about as many meteors at about the speed.",
     );
     assert_note(
         &i,
@@ -964,7 +1005,7 @@ fn vu_meters_and_curves_find_their_timing_tracks() {
     assert_eq!(vu(1).timing_track, None);
     assert_note(
         &i,
-        "VU Meter (1 effect) approximated: its timing track isn't in the sequence",
+        "VU Meter (1 effect) looks different: its timing track isn't in the sequence, so it shows nothing",
     );
     let spectrogram = vu(2);
     assert_eq!(
@@ -1147,7 +1188,7 @@ fn pictures_are_found_where_the_sequence_says_or_by_name_in_the_show_folder() {
             .all(|p| p.resize == pf_sequence::PictureResize::XlightsMixed)
     );
     assert!(!has_note(&i, "Pictures ("), "{:#?}", i.notes);
-    assert!(!has_note(&i, "no matching effect"));
+    assert!(!has_note(&i, "No PixelFlow effect yet"));
 
     // Without the layout to say where the show folder ends, the folders just above are tried.
     std::fs::remove_file(xlights.join("xlights_rgbeffects.xml")).unwrap();

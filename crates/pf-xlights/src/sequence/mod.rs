@@ -3,11 +3,13 @@
 //! Effects land on rows targeting the show's props and groups by name (the names the layout
 //! import keeps), timing tracks come across with their marks, and each xLights effect becomes the
 //! PixelFlow effect closest to it, with its settings translated where there's a clear
-//! equivalent. Nothing is approximated or left out silently: the report counts what came in
-//! exactly, what was approximated (and how), and what was shown as a placeholder.
+//! equivalent. Nothing differs or is left out silently: the report says how much of the
+//! sequence comes across looking the same, what looks close or different (and how), and what
+//! PixelFlow has no effect for yet.
 
 mod curves;
 mod effects;
+pub mod look;
 mod settings;
 mod xsq;
 
@@ -21,6 +23,7 @@ use crate::XlightsError;
 use crate::vendor::Mapping;
 pub use effects::Fidelity;
 use effects::Tally;
+pub use look::{ByVerdict, LookGroup, Verdict};
 use pf_model::{Generator, RenderStyle, ShapeSource, Show};
 use pf_sequence::{
     ChaseOrder, Effect, EffectId, EffectParams, Gradient, Layer, MAX_DURATION_MS, MAX_EFFECTS, MAX_FRAME_MS,
@@ -49,6 +52,12 @@ pub struct SequenceImportSummary {
     pub approximate: usize,
     /// No PixelFlow equivalent yet: kept as a dim fill in the effect's first color.
     pub placeholders: usize,
+    /// The imported effects by how they're expected to look next to xLights. This, not the three
+    /// counts above, is what people are shown.
+    pub look: ByVerdict<usize>,
+    /// How long those effects run, added up, in milliseconds: what "82% of this sequence comes
+    /// across the same" is a share of.
+    pub look_ms: ByVerdict<u64>,
     /// xLights effects not imported (models or submodels not in the show, strands and nodes,
     /// outside the sequence, limits). Timing marks are counted in `marks_skipped`.
     pub skipped: usize,
@@ -68,9 +77,12 @@ pub struct ImportedEffect {
     /// xLights' name for the effect ("Butterfly", "SingleStrand").
     pub xlights_name: String,
     pub fidelity: Fidelity,
+    /// How it's expected to look next to xLights.
+    pub verdict: Verdict,
 }
 
-/// The imported sequence and a plain-language report of anything not imported exactly.
+/// The imported sequence and a plain-language report of anything that doesn't come across the
+/// same.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SequenceImport {
     pub sequence: Sequence,
@@ -78,9 +90,33 @@ pub struct SequenceImport {
     /// Every effect imported, in the order the file gives them (one whose row or layer didn't
     /// fit the sequence is listed too).
     pub effects: Vec<ImportedEffect>,
+    /// The kinds of effect that look close, look different, or have no PixelFlow effect yet,
+    /// with what a viewer would notice; worst first.
+    pub looks: Vec<LookGroup>,
+    /// Everything else worth saying: what wasn't imported, and why.
     pub notes: Vec<String>,
     /// The music file named in the sequence, as written (often a path on another computer).
     pub media_file: Option<String>,
+}
+
+impl SequenceImport {
+    /// One line on how the sequence comes across ("82% of this sequence comes across the same ·
+    /// 12% looks close"); `None` when no effect was imported.
+    pub fn headline(&self) -> Option<String> {
+        look::headline(&self.summary.look_ms)
+    }
+
+    /// `looks` as sentences, for a report in plain text.
+    pub fn look_notes(&self) -> Vec<String> {
+        effects::look_notes(&self.looks)
+    }
+
+    /// Every note, the ones about how effects look first.
+    pub fn all_notes(&self) -> Vec<String> {
+        let mut notes = self.look_notes();
+        notes.extend(self.notes.iter().cloned());
+        notes
+    }
 }
 
 /// `items` joined with commas, cut short after [`MAX_LISTED`].
@@ -394,7 +430,7 @@ impl<'a> Builder<'a> {
         let frame_ms = self.clock.frame_ms as u32;
         let Some(mut translated) = effects::translate(name, &settings, &palette, end_ms - start_ms, frame_ms)
         else {
-            self.tally.record(name, &Fidelity::Skipped);
+            self.tally.record(name, &Fidelity::Skipped, end_ms - start_ms);
             self.summary.skipped += 1;
             return None;
         };
@@ -464,7 +500,8 @@ impl<'a> Builder<'a> {
         {
             translated.fidelity = with_note(
                 translated.fidelity,
-                "canvas mode not applied: the layers below aren't drawn into the effect".into(),
+                "the layers below aren't blurred, faded, or blended along with it (xLights' canvas mode)"
+                    .into(),
             );
         }
         if let Some(note) = layout
@@ -487,7 +524,10 @@ impl<'a> Builder<'a> {
                 );
             }
         }
-        self.tally.record(name, &translated.fidelity);
+        let verdict = self
+            .tally
+            .record(name, &translated.fidelity, end_ms - start_ms)
+            .unwrap_or(Verdict::NoEquivalent);
         self.summary.effects += 1;
         match translated.fidelity {
             Fidelity::Exact => self.summary.exact += 1,
@@ -500,6 +540,7 @@ impl<'a> Builder<'a> {
             id,
             xlights_name: name.to_string(),
             fidelity: translated.fidelity,
+            verdict,
         });
         Some(Effect {
             id,
@@ -1088,8 +1129,8 @@ fn build(file: &XsqFile, show: &Show, fallback_name: &str, mapping: Option<&Mapp
     b.summary.rows = sequence.rows.len();
 
     // Notes, most important first.
-    let tally_notes = b.tally.notes();
-    b.notes.splice(0..0, tally_notes);
+    (b.summary.look, b.summary.look_ms) = b.tally.counts();
+    b.notes.splice(0..0, b.tally.skipped_note());
     if !unmatched.is_empty() {
         b.notes.insert(
             0,
@@ -1244,6 +1285,7 @@ fn build(file: &XsqFile, show: &Show, fallback_name: &str, mapping: Option<&Mapp
         sequence,
         summary: b.summary,
         effects: b.imported,
+        looks: b.tally.looks(),
         notes,
         media_file: (!media.is_empty()).then(|| media.to_string()),
     }

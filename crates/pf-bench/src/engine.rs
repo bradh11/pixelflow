@@ -25,16 +25,15 @@ use std::time::Duration;
 /// How often the watcher asks the engine which frame is showing.
 const WATCH: Duration = Duration::from_micros(100);
 
-/// Plays the workload's sequence in the engine for `options.seconds` and reports what could be
-/// seen of it.
+/// Plays the workload's sequence in the engine for `options.seconds` (after the warm-up) and
+/// reports what could be seen of it.
 pub fn run_engine(workload: &Workload, sink: SinkKind, options: Options) -> Result<RunResult> {
     let load = load_average();
     let frame_ms = u64::from(workload.frame_ms());
-    let total_ms = u64::from(options.seconds) * 1000;
-    let warm_ms =
-        (u64::from(options.warmup_seconds) * 1000).clamp(frame_ms, total_ms.saturating_sub(frame_ms));
+    let warm_ms = (u64::from(options.warmup_seconds) * 1000).max(frame_ms);
+    let total_ms = warm_ms + u64::from(options.seconds).max(1) * 1000;
     if total_ms > workload.sequence.sequence.duration_ms {
-        bail!("the engine plays a sequence once: ask for at most its length");
+        bail!("the engine plays a sequence once: ask for less than its length, warm-up included");
     }
 
     let sinks = Sinks::open(sink, workload.show.show.controllers.len())?;

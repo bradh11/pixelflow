@@ -377,9 +377,8 @@ impl Maker {
         effect
     }
 
-    /// Makes one of the effect's settings change over it: its speed (or the nearest thing it
-    /// has), and now and then its sparkles with the music.
-    pub(crate) fn curve(&self, effect: &mut Effect, dice: u64) {
+    /// Makes the effect's speed (or the nearest thing it has) rise and fall over it.
+    pub(crate) fn speed_curve(effect: &mut Effect) {
         let kind = effect.kind();
         let found = ["speed", "rate", "cycles", "height"].into_iter().find_map(|key| {
             let now = effect.params.number(key)?;
@@ -392,6 +391,12 @@ impl Maker {
                 .curves
                 .insert(key.to_string(), Curve::shaped(CurveShape::Sine, low, high, 2.0));
         }
+    }
+
+    /// Makes one of the effect's settings change over it: its speed, and now and then its
+    /// sparkles with the music.
+    fn curve(&self, effect: &mut Effect, dice: u64) {
+        Self::speed_curve(effect);
         if (dice >> 44).is_multiple_of(3) {
             effect
                 .curves

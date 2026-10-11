@@ -63,10 +63,10 @@ struct Cli {
     /// Where the packets go.
     #[arg(long, value_enum, default_value = "null")]
     sink: SinkKind,
-    /// Seconds of the sequence to play, warm-up included.
+    /// Seconds of the sequence to measure.
     #[arg(long, default_value_t = 60)]
     seconds: u32,
-    /// The first seconds, reported apart and left out of everything else.
+    /// Seconds to play first, reported apart and left out of everything else.
     #[arg(long, default_value_t = 2)]
     warmup_seconds: u32,
     /// How long the synthetic sequence is (a longer run plays it again from the top).

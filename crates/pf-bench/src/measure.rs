@@ -37,9 +37,9 @@ impl Mode {
 /// How a run is measured.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Options {
-    /// How much of the sequence plays, warm-up included.
+    /// How many seconds of the sequence are measured.
     pub seconds: u32,
-    /// The first seconds, reported apart and left out of everything else.
+    /// How many seconds play first, reported apart and left out of everything else.
     pub warmup_seconds: u32,
     /// How often the output thread sends in a paced run (`None`: as live playback does).
     pub send_hz: Option<u16>,
@@ -52,6 +52,8 @@ pub struct Stages {
     pub render: Spread,
     /// Playback's copies of each frame for the app's preview.
     pub preview: Spread,
+    /// Render and preview together: what the player thread does for one frame.
+    pub player: Spread,
     pub map: Spread,
     pub packetize: Spread,
     pub send: Spread,
@@ -114,6 +116,9 @@ pub struct Resources {
     pub process_threads: Option<usize>,
     pub allocations_per_frame: Option<f64>,
     pub allocated_kb_per_frame: Option<f64>,
+    /// Flat out only: the allocations made drawing a frame, and those made sending it.
+    pub render_allocations_per_frame: Option<f64>,
+    pub output_allocations_per_pass: Option<f64>,
     /// The most the heap held at once, setup and warm-up included.
     pub peak_heap_mb: Option<f64>,
 }
@@ -174,7 +179,8 @@ pub struct Verdict {
     pub pass: bool,
     /// No frame was dropped.
     pub sustained: bool,
-    /// The work done for a frame fits the frame period at the 99th percentile.
+    /// At the 99th percentile the work fits the frame period: the whole frame flat out; in real
+    /// time, the player's work for a frame and the output thread's pass, each on its own thread.
     pub within_budget: bool,
     /// Frames are drawn and handed over before the next is due, at the 99th percentile (`None`:
     /// not timed).
@@ -301,6 +307,8 @@ impl Window {
             process_threads: threads(),
             allocations_per_frame: allocated.map(|(a, b)| per_frame(b.allocations - a.allocations)),
             allocated_kb_per_frame: allocated.map(|(a, b)| per_frame(b.bytes - a.bytes) / 1024.0),
+            render_allocations_per_frame: None,
+            output_allocations_per_pass: None,
             peak_heap_mb: counted_now.map(|c| c.peak_live as f64 / f64::from(1 << 20)),
         };
         let packets = sent_now.packets - self.sent.packets;

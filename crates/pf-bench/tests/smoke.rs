@@ -94,8 +94,7 @@ fn in_real_time_every_frame_is_accounted_for() {
     for sink in SinkKind::ALL {
         let result = run(&workload(Variant::Typical), Mode::Paced, sink, SECOND).unwrap();
         check(&result);
-        // The first frame is drawn before the clock starts, so it is never measured.
-        assert_eq!(result.frames.due, 39);
+        assert_eq!(result.frames.due, 40);
         assert_eq!(result.send_hz, Some(80));
         let pacing = result.pacing.expect("a paced run keeps time");
         assert_eq!(pacing.latency.count as u64, result.frames.sent);
@@ -111,7 +110,7 @@ fn the_engine_itself_plays_the_same_show_and_sequence() {
     let workload = workload(Variant::WorstCase).without_media();
     let result = run(&workload, Mode::Engine, SinkKind::Null, SECOND).unwrap();
     check(&result);
-    assert_eq!((result.mode, result.frames.due), (Mode::Engine, 39));
+    assert_eq!((result.mode, result.frames.due), (Mode::Engine, 40));
     assert!(result.pacing.expect("frames were watched").shown.count > 0);
     assert!(result.notes.iter().any(|n| n.contains("engine itself")));
 }

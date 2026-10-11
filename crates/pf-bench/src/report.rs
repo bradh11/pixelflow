@@ -263,6 +263,7 @@ impl Report {
                 .map_or("?".to_string(), |c| format!("{c:.2}"))
         };
         let megabytes = |mb: Option<f64>| mb.map_or("?".to_string(), |mb| format!("{mb:.0} MB"));
+        let whole = |n: Option<f64>| n.map_or("?".to_string(), |n| format!("{n:.0}"));
 
         let paced = of(Mode::Paced);
         let rows = paced
@@ -273,7 +274,8 @@ impl Report {
                 row.extend([
                     format!("{:.2}", r.fps),
                     format!("{} of {}", r.frames.dropped, r.frames.due),
-                    quartet(&r.stages.frame),
+                    quartet(&r.stages.player),
+                    quartet(&r.stages.output_pass),
                     quartet(&p.shown),
                     format!("{} ({:.1}%)", r.frames.late, percent(r.frames.late, r.frames.due)),
                     quartet(&p.latency),
@@ -291,7 +293,8 @@ impl Report {
             "Sink",
             "FPS",
             "Dropped",
-            "Frame work ms (p50 / p95 / p99 / max)",
+            "Player: one frame, ms (p50 / p95 / p99 / max)",
+            "Output: one pass, ms (p50 / p95 / p99 / max)",
             "Handed over after due, ms (p50 / p95 / p99 / max)",
             "Late",
             "On the wire after due, ms (p50 / p95 / p99 / max)",
@@ -313,7 +316,6 @@ impl Report {
                     pair(&r.stages.map),
                     pair(&r.stages.packetize),
                     quartet(&r.stages.send),
-                    quartet(&r.stages.output_pass),
                     format!("{:.1} of {}", p.passes_per_second, r.send_hz.unwrap_or(0)),
                     p.late_passes.to_string(),
                     quartet(&p.start_delay),
@@ -331,7 +333,6 @@ impl Report {
             "Map (p50 / p99)",
             "Packetize (p50 / p99)",
             "Send (p50 / p95 / p99 / max)",
-            "Output pass (p50 / p95 / p99 / max)",
             "Passes a second",
             "Late passes",
             "Draw starts after due (p50 / p95 / p99 / max)",
@@ -353,6 +354,8 @@ impl Report {
                     quartet(&r.stages.frame),
                     format!("{} of {}", r.frames.late, r.frames.due),
                     cores(r),
+                    whole(r.resources.render_allocations_per_frame),
+                    whole(r.resources.output_allocations_per_pass),
                 ]);
                 row
             })
@@ -370,6 +373,8 @@ impl Report {
             "Whole frame (p50 / p95 / p99 / max)",
             "Frames over 25 ms",
             "CPU cores",
+            "Allocations drawing a frame",
+            "Allocations sending it",
         ];
         table(out, "Flat out: each stage, in milliseconds", &headers, rows);
 
@@ -493,6 +498,7 @@ fn effect_tables(out: &mut String, b: &Breakdown) {
         thousands(b.pixels),
         millis(b.empty_frame_ms)
     );
+    let count = |n: Option<f64>| n.map_or("?".to_string(), |n| format!("{n:.0}"));
     let mut kinds = b.kinds.clone();
     kinds.sort_by(|x, y| y.on_props_ms.total_cmp(&x.on_props_ms));
     let rows = kinds
@@ -502,6 +508,8 @@ fn effect_tables(out: &mut String, b: &Breakdown) {
                 k.kind.clone(),
                 millis(k.on_props_ms),
                 format!("{:.1}", k.on_props_ns),
+                count(k.on_props_allocations),
+                count(k.on_props_kb),
                 millis(k.on_house_ms),
                 format!("{:.1}", k.on_house_ns),
             ]
@@ -511,6 +519,8 @@ fn effect_tables(out: &mut String, b: &Breakdown) {
         "Effect",
         "On every prop, ms a frame",
         "ns a pixel",
+        "Allocations a frame",
+        "KB allocated a frame",
         "On the whole-house group, ms a frame",
         "ns a pixel",
     ];
@@ -567,12 +577,14 @@ fn effect_tables(out: &mut String, b: &Breakdown) {
         table(out, &title, &headers, rows);
         let _ = writeln!(
             out,
-            "Prop rows alone take {} ms a frame and group rows alone {} ms. Of the whole sequence's time, blur accounts for {} ms a frame, sparkles for {} ms, and curves for {} ms (what the sequence saves without them).\n",
+            "Prop rows alone take {} ms a frame and group rows alone {} ms. Of the whole sequence's time, blur accounts for {} ms a frame, sparkles for {} ms, and curves on other settings for {} ms (what the sequence saves without them). Drawing it allocates {} times a frame, {} KB in all.\n",
             millis(s.prop_rows_ms),
             millis(s.group_rows_ms),
             millis(s.blur_ms),
             millis(s.sparkles_ms),
             millis(s.curves_ms),
+            count(s.allocations),
+            count(s.kb),
         );
     }
 }

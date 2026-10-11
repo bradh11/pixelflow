@@ -7,6 +7,7 @@
 //! thread reads the preview frame as often as the app does. `--mode engine` plays the same
 //! sequence in the engine itself, to check the two agree.
 
+use crate::alloc::counted;
 use crate::measure::{
     Frames, Mode, Options, Pacing, RunResult, Sinks, Stages, Verdict, Warmup, Window, lit_percent,
 };
@@ -15,7 +16,7 @@ use crate::show::tier_label;
 use crate::sink::SinkKind;
 use crate::stats::{Spread, deviation, ms};
 use crate::system::load_average;
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use pf_frame::{FrameWriter, frame_buffers};
 use pf_output::{FrameClock, OutputSettings};
 use pf_render::Renderer;
@@ -56,8 +57,8 @@ pub fn run_asap(workload: &Workload, sink: SinkKind, options: Options) -> Result
     let seq = &workload.sequence.sequence;
     let frame_ms = workload.frame_ms();
     let per_second = u64::from(1000 / frame_ms);
-    let total = u64::from(options.seconds) * per_second;
-    let warm = (u64::from(options.warmup_seconds) * per_second).min(total.saturating_sub(1));
+    let warm = u64::from(options.warmup_seconds) * per_second;
+    let total = warm + u64::from(options.seconds).max(1) * per_second;
     let sequence_frames = seq.frame_count().max(1);
 
     let sinks = Sinks::open(sink, workload.show.show.controllers.len())?;
@@ -70,22 +71,30 @@ pub fn run_asap(workload: &Workload, sink: SinkKind, options: Options) -> Result
 
     let mut timings: [Vec<f64>; 6] = std::array::from_fn(|_| Vec::with_capacity(total as usize));
     let (mut warmup, mut lit) = (Vec::with_capacity(warm as usize), Vec::new());
+    // Allocations made drawing frames, and made sending them.
+    let (mut drawing, mut sending) = (0u64, 0u64);
     let mut window = None;
     for index in 0..total {
         if index == warm {
             window = Some(Window::open(&sinks));
         }
+        let before = counted();
         let started = Instant::now();
         renderer.render_frame(seq, index % sequence_frames, &mut frame);
         let rendered = Instant::now();
         lock(&preview).copy_from_slice(&frame);
         lock(&raw).copy_from_slice(&frame);
         let shown = Instant::now();
+        let between = counted();
         let pass = controllers.send(&frame, &mut transport);
         let whole = started.elapsed();
         if index < warm {
             warmup.push(ms(whole));
             continue;
+        }
+        if let (Some(before), Some(between), Some(after)) = (before, between, counted()) {
+            drawing += between.allocations - before.allocations;
+            sending += after.allocations - between.allocations;
         }
         let stages = [
             rendered - started,
@@ -104,11 +113,17 @@ pub fn run_asap(workload: &Workload, sink: SinkKind, options: Options) -> Result
     }
     let measured = total - warm;
     let window = window.context("nothing was measured: the run is all warm-up")?;
-    let (resources, network) = window.close(measured, 1, &sinks);
+    let (mut resources, network) = window.close(measured, 1, &sinks);
+    if counted().is_some() {
+        resources.render_allocations_per_frame = Some(drawing as f64 / measured as f64);
+        resources.output_allocations_per_pass = Some(sending as f64 / measured as f64);
+    }
     let [render, shown, map, packetize, send, whole] = timings.each_ref().map(|t| Spread::of(t));
-    let passes: Vec<f64> = (0..measured as usize)
-        .map(|i| timings[2][i] + timings[3][i] + timings[4][i])
-        .collect();
+    let sum = |stages: &[usize]| -> Vec<f64> {
+        (0..measured as usize)
+            .map(|i| stages.iter().map(|&s| timings[s][i]).sum())
+            .collect()
+    };
     let fps = measured as f64 / resources.wall_seconds;
     let budget = f64::from(frame_ms);
     let within_budget = whole.p99 <= budget;
@@ -133,10 +148,11 @@ pub fn run_asap(workload: &Workload, sink: SinkKind, options: Options) -> Result
         stages: Stages {
             render,
             preview: shown,
+            player: Spread::of(&sum(&[0, 1])),
             map,
             packetize,
             send,
-            output_pass: Spread::of(&passes),
+            output_pass: Spread::of(&sum(&[2, 3, 4])),
             frame: whole,
         },
         pacing: None,
@@ -192,11 +208,9 @@ pub fn run_paced(workload: &Workload, sink: SinkKind, options: Options) -> Resul
     let frame_ms = workload.frame_ms();
     let step = Duration::from_millis(u64::from(frame_ms));
     let per_second = u64::from(1000 / frame_ms);
-    let total = u64::from(options.seconds) * per_second;
-    if total < 2 {
-        bail!("a real-time run needs at least two frames");
-    }
-    let warm = (u64::from(options.warmup_seconds) * per_second).clamp(1, total - 1);
+    // The first frame is drawn before the clock starts, so the warm-up is never shorter than it.
+    let warm = (u64::from(options.warmup_seconds) * per_second).max(1);
+    let total = warm + u64::from(options.seconds).max(1) * per_second;
     let sequence_frames = seq.frame_count().max(1);
     let send_hz = options.send_hz.unwrap_or_else(|| engine_send_rate(frame_ms));
 
@@ -327,9 +341,11 @@ pub fn run_paced(workload: &Workload, sink: SinkKind, options: Options) -> Resul
     let (mut latency, mut work, mut finished) = (Vec::new(), Vec::new(), Vec::new());
     let (mut render, mut copies, mut start_delay, mut shown) =
         (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let mut player = Vec::new();
     for frame in drawn.iter().filter(|d| d.index >= warm) {
         render.push(ms(frame.render));
         copies.push(ms(frame.preview));
+        player.push(ms(frame.render + frame.preview));
         start_delay.push(since_due(frame.started, frame.index));
         shown.push(since_due(frame.shown, frame.index));
         if let Some((done, cost)) = first_sent[frame.index as usize] {
@@ -347,6 +363,7 @@ pub fn run_paced(workload: &Workload, sink: SinkKind, options: Options) -> Resul
     let stages = Stages {
         render: Spread::of(&render),
         preview: Spread::of(&copies),
+        player: Spread::of(&player),
         map: stage(|p| p.map),
         packetize: stage(|p| p.packetize),
         send: stage(|p| p.send),
@@ -373,14 +390,16 @@ pub fn run_paced(workload: &Workload, sink: SinkKind, options: Options) -> Resul
     let fps = frames.sent as f64 / resources.wall_seconds;
     let period = 1000.0 / f64::from(send_hz);
     let sustained = frames.dropped == 0;
-    let within_budget = stages.frame.p99 <= budget && stages.output_pass.p99 <= period;
+    // Each thread has the frame period for its part: a pass that overruns the output thread's
+    // own, shorter period only delays the next pass, and every frame still goes out.
+    let within_budget = stages.player.p99 <= budget && stages.output_pass.p99 <= budget;
     let on_time = sustained && pacing.shown.p99 <= budget;
     let clean = network.clean();
     let mut summary = format!(
-        "{fps:.1} frames a second, {} of {} dropped; at the 99th percentile a frame's work takes {:.1} ms of {budget:.0} and an output pass {:.1} ms of {period:.1}; frames are handed over {:.1} ms after due ({} late) and on the wire {:.1} ms after due",
+        "{fps:.1} frames a second, {} of {} dropped; at the 99th percentile the player takes {:.1} ms of {budget:.0} to draw a frame and the output thread {:.1} ms for a pass (it makes one every {period:.1}); frames are handed over {:.1} ms after due ({} late) and on the wire {:.1} ms after due",
         frames.dropped,
         frames.due,
-        stages.frame.p99,
+        stages.player.p99,
         stages.output_pass.p99,
         pacing.shown.p99,
         frames.late,

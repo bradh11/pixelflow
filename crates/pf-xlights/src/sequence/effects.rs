@@ -655,13 +655,37 @@ fn wave(r: &Reader, diff: &mut Diff) -> EffectParams {
     })
 }
 
+/// The share of the pixels a strobing twinkle lights in any one frame, as a multiple of its
+/// count (a share of the pixels) over its steps (frames): see [`twinkle`].
+const STROBING_TWINKLE_SHARE: f64 = 1.72;
+
+/// How far over one flash a frame a strobing twinkle's flashes come, so that every frame falls
+/// just inside a flash of its own and never, by rounding, at the end of the one before (which
+/// has gone dark by then). Small enough that four hours of the fastest frames stay inside.
+const OVER_A_FRAME: f64 = 2e-7;
+
 fn twinkle(r: &Reader, frame: f64, diff: &mut Diff) -> EffectParams {
     let steps = r.get("Twinkle_Steps", 30.0, 2.0, 400.0);
+    let count = r.get("Twinkle_Count", 3.0, 2.0, 100.0) / 100.0;
     if r.check("Twinkle_Strobe") {
+        // What xLights shows, measured on frames it rendered (its newer way of drawing
+        // twinkles, count 20, steps 98, 50 ms frames, on the pixels nothing else lit): no pixel
+        // fades up or down. In any one frame 0.35% of them are lit (593 flashes in 168,724
+        // pixel-frames), each at full brightness and for that frame alone, and when a pixel
+        // flashes is chance (how many times each flashed in 330 frames follows the Poisson
+        // distribution for that rate). That is PixelFlow's Strobe with a flash a frame. The
+        // share is taken to rise with the count and fall with the steps, as a soft twinkle's
+        // does.
+        if r.choice("Twinkle_Style", "") == "New Render Method" {
+            return EffectParams::Strobe(StrobeParams {
+                rate: (1000.0 / frame * (1.0 + OVER_A_FRAME)) as f32,
+                density: unit(STROBING_TWINKLE_SHARE * count / steps),
+            });
+        }
         diff.add("strobing twinkles shown as soft twinkles");
     }
     EffectParams::Twinkle(TwinkleParams {
-        density: unit(r.get("Twinkle_Count", 3.0, 2.0, 100.0) / 100.0),
+        density: unit(count),
         // One twinkle (up and down) takes `steps` frames.
         rate: (1000.0 / (steps * frame)) as f32,
     })
@@ -4086,6 +4110,111 @@ mod tests {
         let curve = "E_VALUECURVE_Fill_Position=Active=TRUE|Id=ID_VALUECURVE_Fill_Position|Type=Ramp|Min=0.00|Max=100.00|P1=0.00|P2=100.00|RV=TRUE|";
         let t = translate("Fill", &Settings::parse(curve), &palette(&[]), 2000, 25).unwrap();
         assert_eq!(t.curves["position"], Curve::ramp(0.0, 100.0));
+    }
+
+    /// Draws `params` on a grid of 2,000 pixels for 400 frames `frame_ms` apart, and says what
+    /// share of the pixels was lit in a frame and what share of those was still lit in the
+    /// next. Every lit pixel has to be at full brightness.
+    fn flashes(params: &EffectParams, frame_ms: u32) -> (f64, f64) {
+        use pf_render::{Canvas, Colors, EffectTime, Pixel, Shade, Shader};
+        let canvas = Canvas {
+            columns: 50,
+            rows: 40,
+        };
+        let (pixels, frames) = (canvas.columns * canvas.rows, 400u64);
+        let frame_of = |frame: u64| -> Vec<bool> {
+            let at = 1000 + frame * u64::from(frame_ms);
+            let time =
+                EffectTime::within(1000, 1000 + frames * u64::from(frame_ms), at).with_frame_ms(frame_ms);
+            let shader = Shader::new(params, &time, Colors::new(&[Rgb::WHITE]), 7, canvas);
+            (0..pixels)
+                .map(|index| {
+                    let color = shader.shade(&Pixel {
+                        u: (index % canvas.columns) as f32 / (canvas.columns - 1) as f32,
+                        v: (index / canvas.columns) as f32 / (canvas.rows - 1) as f32,
+                        index,
+                        count: pixels,
+                    });
+                    assert!(color.a == 0.0 || color.to_rgb8() == [255; 3], "{color:?}");
+                    color.a > 0.0
+                })
+                .collect()
+        };
+        let (mut lit, mut stayed) = (0u64, 0u64);
+        let mut before = frame_of(0);
+        for frame in 1..=frames {
+            let now = frame_of(frame);
+            lit += before.iter().filter(|&&on| on).count() as u64;
+            stayed += before.iter().zip(&now).filter(|&(&a, &b)| a && b).count() as u64;
+            before = now;
+        }
+        (
+            lit as f64 / (frames * u64::from(pixels)) as f64,
+            stayed as f64 / lit.max(1) as f64,
+        )
+    }
+
+    #[test]
+    fn a_strobing_twinkle_is_a_few_pixels_flashing_for_a_frame_each() {
+        // Measured on frames xLights rendered (count 20, steps 98, 50 ms frames, a group of
+        // 4,910 pixels): of the pixels nothing else lit, 0.35% were lit in any one frame, each
+        // for that frame alone and at full brightness, and when a pixel flashed was a matter
+        // of chance. A soft twinkle of the same count lights some forty times as many.
+        let strobing = |count: u32, steps: u32| {
+            Settings::parse(&format!(
+                "E_CHECKBOX_Twinkle_Strobe=1,E_CHOICE_Twinkle_Style=New Render Method,\
+                 E_SLIDER_Twinkle_Count={count},E_SLIDER_Twinkle_Steps={steps}"
+            ))
+        };
+        for frame_ms in [50, 25, 20, 33] {
+            let t = translate(
+                "Twinkle",
+                &strobing(20, 98),
+                &palette(&[Rgb::WHITE]),
+                30_000,
+                frame_ms,
+            )
+            .unwrap();
+            assert_eq!(t.fidelity, Fidelity::Exact, "{frame_ms} ms");
+            let (lit, stayed) = flashes(&t.params, frame_ms);
+            assert!(
+                (0.0031..0.0039).contains(&lit),
+                "{frame_ms} ms: {lit} of the pixels lit in a frame"
+            );
+            assert!(
+                stayed < 0.02,
+                "{frame_ms} ms: {stayed} of them still lit a frame later"
+            );
+        }
+        // More of them with a higher count, fewer when a twinkle takes more steps.
+        let share = |count, steps| {
+            let t = translate(
+                "Twinkle",
+                &strobing(count, steps),
+                &palette(&[Rgb::WHITE]),
+                30_000,
+                50,
+            )
+            .unwrap();
+            flashes(&t.params, 50).0
+        };
+        let (twice, half) = (share(40, 98), share(20, 196));
+        assert!((0.0062..0.0078).contains(&twice), "{twice}");
+        assert!((0.0014..0.0021).contains(&half), "{half}");
+        // The older way of drawing twinkles hasn't been measured strobing: it keeps its note.
+        let old = Settings::parse(
+            "E_CHECKBOX_Twinkle_Strobe=1,E_CHOICE_Twinkle_Style=Old Render Method,E_SLIDER_Twinkle_Count=20",
+        );
+        let t = translate("Twinkle", &old, &palette(&[Rgb::WHITE]), 30_000, 50).unwrap();
+        assert!(matches!(t.params, EffectParams::Twinkle(_)), "{:?}", t.params);
+        assert_eq!(
+            t.fidelity,
+            Fidelity::Approximate(vec!["strobing twinkles shown as soft twinkles".into()])
+        );
+        // And a twinkle that doesn't strobe is the soft twinkle it was.
+        let soft = Settings::parse("E_CHOICE_Twinkle_Style=New Render Method,E_SLIDER_Twinkle_Count=20");
+        let t = translate("Twinkle", &soft, &palette(&[Rgb::WHITE]), 30_000, 50).unwrap();
+        assert!(matches!(t.params, EffectParams::Twinkle(p) if (p.density - 0.2).abs() < 1e-6));
     }
 
     #[test]

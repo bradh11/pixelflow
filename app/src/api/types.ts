@@ -1267,6 +1267,17 @@ export type MenuAction =
   | { action: "undo" }
   | { action: "redo" };
 
+/** Which of the app's two windows is asking: the main one, or the preview's own (popped out). */
+export type PreviewSide = "main" | "preview";
+
+/** What a window gets back from the other through `Backend.previewLink`. */
+export interface PreviewLinked {
+  /** The other window's latest note; null when it has left none. */
+  theirs: unknown;
+  /** Whether the preview's own window is open. */
+  open: boolean;
+}
+
 /** What a file dialog is for; the shell picks its filters, title, and starting folder. */
 export type PickKind =
   | "show"

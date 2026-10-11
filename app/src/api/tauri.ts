@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Backend } from "./backend";
 import { whileFileDialog } from "./fileDialogs";
 import { decodePreview, decodePreview3d } from "./previewBytes";
+import { inTauri } from "./runtime";
 import type { AudioInfo, AudioProgress, FppDownloadProgress, FppDownloadResult, FppSendProgress, FppSendResult, MenuAction, PickKind } from "./types";
 
 /** The event the shell sends when a File menu item is chosen in the menu bar. */
@@ -151,6 +152,14 @@ export const tauriBackend: Backend = {
       if (!allow()) event.preventDefault();
     }),
   closeWindow: () => getCurrentWindow().destroy(),
+  // The shell makes the window: this one has no permission to.
+  openPreviewWindow: async () => {
+    await invoke("open_preview_window");
+    return true;
+  },
+  closePreviewWindow: () => invoke("close_preview_window"),
+  // The shell tells the two windows apart itself.
+  previewLink: (_side, note) => invoke("preview_link", note === undefined ? {} : { note }),
   listRecentShows: () => invoke("list_recent_shows"),
   forgetRecentShow: (path) => invoke("forget_recent_show", { path }),
   clearRecentShows: () => invoke("clear_recent_shows"),
@@ -159,7 +168,14 @@ export const tauriBackend: Backend = {
   onMenu: (handler) => listen<MenuAction>(MENU_EVENT, (event) => handler(event.payload)),
 };
 
-/** True when running inside the Tauri shell (not a plain browser). */
-export function inTauri(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+// Where the app runs is asked without loading this file's Tauri APIs (see runtime.ts).
+export { inTauri };
+
+/**
+ * True in the preview's own window (see state/previewWindow.ts): the page was opened with
+ * `?window=preview`, or is in the desktop app's window labelled "preview".
+ */
+export function isPreviewWindow(search = typeof location === "undefined" ? "" : location.search): boolean {
+  if (new URLSearchParams(search).get("window") === "preview") return true;
+  return inTauri() && getCurrentWindow().label === "preview";
 }

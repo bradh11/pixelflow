@@ -48,8 +48,10 @@ import type {
   MissingFile,
   OutputStatus,
   PatternSpec,
+  PreviewLinked,
   PreviewSet,
   PreviewSet3d,
+  PreviewSide,
   RecentShow,
   Show,
   ShowSnapshot,
@@ -1450,6 +1452,51 @@ export class MemoryBackend implements Backend {
     this.calls.push("closeWindow");
   }
 
+  /**
+   * Opens a browser window for the preview (the app sets this when it runs in a browser; null
+   * from it: the browser blocked the pop-up). Left unset, as in tests, a window is only pretended.
+   */
+  openWindow: (() => PreviewWindowHandle | null) | null = null;
+  /** The preview's own window, once opened. */
+  previewWindow: PreviewWindowHandle | null = null;
+  private previewNotes: Record<PreviewSide, unknown> = { main: null, preview: null };
+
+  private previewIsOpen(): boolean {
+    return this.previewWindow !== null && !this.previewWindow.closed;
+  }
+
+  async openPreviewWindow() {
+    this.calls.push("openPreviewWindow");
+    if (this.previewIsOpen()) {
+      this.previewWindow!.focus?.();
+      return true;
+    }
+    this.previewWindow = this.openWindow
+      ? this.openWindow()
+      : {
+          closed: false,
+          close() {
+            this.closed = true;
+          },
+        };
+    return this.previewWindow !== null;
+  }
+
+  async closePreviewWindow() {
+    this.calls.push("closePreviewWindow");
+    this.previewWindow?.close();
+    this.previewWindow = null;
+  }
+
+  /** Like the shell: each window's note is kept for the other, and the preview window's is
+   * forgotten once it has closed. */
+  async previewLink(side: PreviewSide, note?: unknown): Promise<PreviewLinked> {
+    const open = this.previewIsOpen();
+    if (!open) this.previewNotes.preview = null;
+    if (note !== undefined && (side === "main" || open)) this.previewNotes[side] = note;
+    return { theirs: this.previewNotes[side === "main" ? "preview" : "main"], open };
+  }
+
   async pickSavePath(_defaultName?: string) {
     return this.nextSavePath;
   }
@@ -1548,6 +1595,13 @@ export function layoutThumbnail(show: Show): string | null {
     }
   }
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}"><path d="${dots}" fill="none" stroke="#fcd34d" stroke-width="4" stroke-linecap="round"/></svg>`;
+}
+
+/** What the in-memory backend needs of the preview's own window (a browser window has it all). */
+export interface PreviewWindowHandle {
+  closed: boolean;
+  close(): void;
+  focus?(): void;
 }
 
 export function emptyShow(name: string): Show {

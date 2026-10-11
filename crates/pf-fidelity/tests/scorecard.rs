@@ -8,10 +8,11 @@
 
 use pf_fidelity::compare::{Options, Request, compare};
 use pf_fidelity::corpus::{self, Manifest};
+use pf_fidelity::look::Component;
 use pf_fidelity::metrics::Limits;
-use pf_fidelity::report::{corpus_markdown, sequence_markdown};
-use pf_fidelity::scorecard::{Basis, Class, EffectScore, Label, Scorecard, Source};
-use pf_fidelity::{FidelityError, strips};
+use pf_fidelity::report::{corpus_markdown, headline, sequence_markdown};
+use pf_fidelity::scorecard::{Basis, Class, EffectScore, Label, Scorecard, Source, Verdict};
+use pf_fidelity::{FidelityError, labels, strips};
 use pf_fseq::{FseqWriter, WriteOptions};
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -36,6 +37,8 @@ struct Reference {
     step_ms: u32,
     /// How bright xLights drew Matrix's blue (PixelFlow draws 255).
     matrix_blue: u8,
+    /// Far red for the first two seconds (for [`STAND_IN`], whose only effect is on Far).
+    far_red: bool,
     /// Frames late everything is.
     late: i64,
 }
@@ -47,6 +50,7 @@ impl Default for Reference {
             frames: 80,
             step_ms: 50,
             matrix_blue: 255,
+            far_red: false,
             late: 0,
         }
     }
@@ -78,6 +82,9 @@ impl Reference {
             }
             3000..4000 => fill(0..90, [255; 3]),
             _ => {}
+        }
+        if self.far_red && (0..2000).contains(&t_ms) {
+            fill(90..105, [255, 0, 0]);
         }
         frame
     }
@@ -168,7 +175,7 @@ fn a_reference_that_matches_scores_perfectly_and_coverage_says_what_was_measured
         assert_eq!(scores.brightness_correlation, None, "{}: steady", prop.name);
     }
     assert!(card.props[3].scores.is_none());
-    assert!(card.overall.is_some());
+    assert!(card.diagnostics.overall.is_some());
     for (kind, target, start, seconds) in [
         ("On", "Strip", 0, 10.0),
         ("On", "Strip", 1000, 10.0),
@@ -198,7 +205,7 @@ fn a_reference_that_matches_scores_perfectly_and_coverage_says_what_was_measured
         (80, 80, 0)
     );
     assert_eq!(card.timing.best_offset, 0);
-    assert!(card.label_audit.exact_but_differs.is_empty());
+    assert!(card.diagnostics.label_audit.exact_but_differs.is_empty());
     assert!(card.reference.left_out.is_empty());
     assert!(card.notes.is_empty(), "{:#?}", card.notes);
 }
@@ -210,12 +217,13 @@ fn a_twinkle_wont_match_pixel_for_pixel_and_isnt_asked_to() {
     assert_eq!(twinkle.class, Class::Stochastic);
     assert!(twinkle.class_reason.as_deref().unwrap().contains("random"));
     // Ranked with the stochastic effects, by its distribution; never among the deterministic.
-    assert!(card.ranking.iter().all(|r| r.kind != "Twinkle"));
-    assert_eq!(card.stochastic_ranking[0].kind, "Twinkle");
+    assert!(card.diagnostics.ranking.iter().all(|r| r.kind != "Twinkle"));
+    assert_eq!(card.diagnostics.stochastic_ranking[0].kind, "Twinkle");
     let solo = twinkle.solo.unwrap();
     assert!((0.0..=1.0).contains(&solo.distribution.distance), "{solo:?}");
     assert!(
-        card.label_audit
+        card.diagnostics
+            .label_audit
             .exact_but_differs
             .iter()
             .all(|e| e.kind != "Twinkle")
@@ -241,7 +249,7 @@ fn error_is_attributed_to_the_effects_on_the_pixel_alone_and_layered() {
     // Under the white PixelFlow and xLights both show white: no error from the layered part.
     assert_eq!(white.layered.unwrap().mae, 0.0);
     // Nothing was lit where no effect was.
-    assert!(card.unattributed.is_none());
+    assert!(card.diagnostics.unattributed.is_none());
 
     let on = card.kinds.iter().find(|k| k.kind == "On").unwrap();
     assert_eq!(
@@ -268,7 +276,7 @@ fn the_label_audit_names_exact_effects_that_differ_and_approximate_ones_that_mat
     assert_eq!(solo.hue_difference, Some(0.0));
     assert_eq!((solo.level.pixelflow, solo.level.xlights), (255.0, 200.0));
 
-    let audit = &card.label_audit;
+    let audit = &card.diagnostics.label_audit;
     let named: Vec<(&str, &str, u64, Basis)> = audit
         .exact_but_differs
         .iter()
@@ -280,12 +288,12 @@ fn the_label_audit_names_exact_effects_that_differ_and_approximate_ones_that_mat
     let on = audit.exact_kinds.iter().find(|k| k.kind == "On").unwrap();
     assert_eq!((on.exact, on.judged, on.differ, on.differ_alone), (4, 4, 1, 1));
 
-    // The green On has a layer mix amount PixelFlow doesn't apply, so the importer calls it
-    // approximate; the reference shows it as PixelFlow draws it, so it matches.
+    // The green On has a layer mix amount PixelFlow doesn't apply, so the importer notes a
+    // difference; the reference shows it as PixelFlow draws it, so it matches.
     let green = effect(&card, "On", "Strip", 1000);
     assert_eq!(green.label, Label::Approximate);
     assert!(
-        green.notes.iter().any(|n| n.contains("layer mix")),
+        green.notes.iter().any(|n| n.contains("part-way")),
         "{:?}",
         green.notes
     );
@@ -294,13 +302,13 @@ fn the_label_audit_names_exact_effects_that_differ_and_approximate_ones_that_mat
 
     // What to fix first: the only deterministic kind with any error, by error times
     // pixel-seconds (18.33 on Matrix's 20).
-    let first = &card.ranking[0];
+    let first = &card.diagnostics.ranking[0];
     assert_eq!((first.kind.as_str(), first.share), ("On", 1.0));
     assert!((first.impact - 18.3333 * 20.0).abs() < 0.01, "{first:?}");
     assert!((first.error - 18.3333 * 20.0 / 85.0).abs() < 0.001, "{first:?}");
 
     let summary = sequence_markdown(&card);
-    assert!(summary.contains("### Labelled exact, measurably different"));
+    assert!(summary.contains("#### Carried over exactly, not the same pixels"));
     assert!(
         summary.contains("| On | Matrix | 0:00.0–0:02.0 | 18.3 | 0% | 1.00 |"),
         "{summary}"
@@ -377,8 +385,9 @@ fn a_short_or_narrow_reference_is_measured_as_far_as_it_goes() {
     assert_eq!(effect(&card, "On", "Matrix", 0).solo.unwrap().pixel_seconds, 20.0);
     assert_eq!((card.coverage.effects, card.coverage.effects_measured), (6, 4));
     // An effect with nothing measured isn't judged: the group's On is labelled exact.
-    assert!(card.label_audit.exact_unjudged >= 1);
+    assert!(card.diagnostics.label_audit.exact_unjudged >= 1);
     let on = card
+        .diagnostics
         .label_audit
         .exact_kinds
         .iter()
@@ -510,7 +519,7 @@ fn a_prop_the_reference_leaves_dark_for_long_is_left_out_as_unrendered() {
     // Scored as it stands, the blue On is the worst effect there is, and its label is blamed.
     let card = with_run(0);
     assert_eq!(effect(&card, "On", "Matrix", 0).solo.unwrap().mae, 85.0);
-    assert_eq!(card.label_audit.exact_but_differs.len(), 1);
+    assert_eq!(card.diagnostics.label_audit.exact_but_differs.len(), 1);
     assert!(card.reference.left_out.is_empty());
     // Two seconds isn't long enough to call unrendered by default...
     assert!(score(unrendered).reference.left_out.is_empty());
@@ -525,7 +534,7 @@ fn a_prop_the_reference_leaves_dark_for_long_is_left_out_as_unrendered() {
     // (Strip is dark too between twinkles, but never for a second.)
     assert_eq!(gaps, [("Matrix", 0, 3000)]);
     assert!(effect(&card, "On", "Matrix", 0).layered.is_none());
-    assert!(card.label_audit.exact_but_differs.is_empty());
+    assert!(card.diagnostics.label_audit.exact_but_differs.is_empty());
     assert!(
         card.notes.iter().any(|n| n.contains("unrendered")),
         "{:#?}",
@@ -589,9 +598,10 @@ fn a_manifest_runs_every_sequence_and_keeps_going_past_one_it_cant_compare() {
     // Both sequences' effects, kind by kind, and both sequences' audits, each entry named.
     let on = card.kinds.iter().find(|k| k.kind == "On").unwrap();
     assert_eq!((on.instances, on.labels.exact), (10, 8));
-    assert_eq!(card.ranking[0].kind, "On");
-    assert!((card.ranking[0].impact - 2.0 * 18.3333 * 20.0).abs() < 0.01);
+    assert_eq!(card.diagnostics.ranking[0].kind, "On");
+    assert!((card.diagnostics.ranking[0].impact - 2.0 * 18.3333 * 20.0).abs() < 0.01);
     let named: Vec<Option<&str>> = card
+        .diagnostics
         .label_audit
         .exact_but_differs
         .iter()
@@ -619,7 +629,34 @@ fn a_manifest_runs_every_sequence_and_keeps_going_past_one_it_cant_compare() {
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(out.join("corpus.json")).unwrap()).unwrap();
     assert_eq!(json["sequences"][0]["label"], "sequence A");
-    assert_eq!(json["labelAudit"]["exactButDiffers"][0]["kind"], "On");
+    // Both sequences' looks together, and each one's own.
+    assert_eq!((card.look.judged, card.look.of), (12, 12));
+    assert_eq!(card.look.effects.matches, 10);
+    assert_eq!(card.sequences[1].look.effects.matches, 5);
+    assert_eq!(json["look"]["time"]["matches"], 0.7778);
+    assert_eq!(json["improve"][0]["kind"], "Twinkle");
+    // The importer's table held against it: plain Ons match, as the table says; the made-up
+    // twinkles don't, twice over, which is enough to say the table is wrong about them.
+    let checked =
+        labels::check(&labels::read(&std::fs::read_to_string(out.join("corpus.json")).unwrap()).unwrap());
+    let said = |kind: &str, noted: bool| {
+        let row = checked
+            .iter()
+            .find(|c| c.row.kind == kind && c.row.notes.is_empty() != noted)
+            .unwrap();
+        (row.table, row.earned, row.disagrees())
+    };
+    assert_eq!(
+        said("On", false),
+        (Verdict::Matches, Some(Verdict::Matches), false)
+    );
+    assert_eq!(said("On", true), (Verdict::Close, Some(Verdict::Matches), true));
+    let (table, earned, disagrees) = said("Twinkle", false);
+    assert!(table == Verdict::Matches && earned != Some(Verdict::Matches) && disagrees);
+    assert_eq!(
+        json["diagnostics"]["labelAudit"]["exactButDiffers"][0]["kind"],
+        "On"
+    );
     let summary = corpus_markdown(card);
     assert!(
         summary.contains("| sequence A |") && summary.contains("- sequence B: "),
@@ -639,7 +676,7 @@ fn a_manifest_runs_every_sequence_and_keeps_going_past_one_it_cant_compare() {
 fn a_scorecard_is_json_with_every_effect_and_its_importers_label() {
     let card = score(Reference::default());
     let json = serde_json::to_value(&card).unwrap();
-    assert_eq!(json["schema"], 1);
+    assert_eq!(json["schema"], 2);
     assert_eq!(json["sequence"]["import"]["effects"], 6);
     assert_eq!(json["coverage"]["pixelsMeasured"], 35);
     let effects = json["effects"].as_array().unwrap();
@@ -655,7 +692,19 @@ fn a_scorecard_is_json_with_every_effect_and_its_importers_label() {
         )
     );
     assert_eq!((&green["startMs"], &green["endMs"]), (&1000.into(), &2000.into()));
-    assert!(green["notes"][0].as_str().unwrap().contains("layer mix"));
+    assert!(green["notes"][0].as_str().unwrap().contains("part-way"));
+    // How the importer expected it to look, and how it was judged to.
+    assert_eq!(
+        (&green["expected"], &green["look"]["verdict"]),
+        (&"close".into(), &"matches".into())
+    );
+    assert_eq!(green["look"]["basis"], "solo");
+    assert_eq!(green["lookSolo"]["components"]["color"], 1.0);
+    assert_eq!(json["look"]["effects"]["matches"], 5);
+    assert_eq!(
+        (&json["method"]["matches"], &json["method"]["close"]),
+        (&85.0.into(), &55.0.into())
+    );
     assert_eq!(green["solo"]["mae"], 0.0);
     assert_eq!(green["solo"]["pixelSeconds"], 10.0);
     assert!(json["method"]["limits"]["tolerance"].is_number());
@@ -695,4 +744,207 @@ fn frames_can_be_drawn_side_by_side() {
         ([0.0, 0.0, 255.0], [0.0, 0.0, 200.0])
     );
     assert_eq!(levels[0].error, 55.0 / 3.0);
+}
+
+#[test]
+fn the_headline_is_how_much_of_the_sequence_looks_the_same() {
+    let card = score(Reference::default());
+    let look = &card.look;
+    assert_eq!((look.judged, look.of, look.not_judged), (6, 6, 0.0));
+    // The five Ons are as xLights drew them: seven of the nine seconds of effect.
+    for on in card.effects.iter().filter(|e| e.kind == "On") {
+        let judged = on.look.as_ref().unwrap();
+        assert_eq!(
+            (judged.verdict, judged.basis, judged.differs.as_deref()),
+            (Verdict::Matches, Basis::Solo, None),
+            "On on {} at {}",
+            on.target,
+            on.start_ms
+        );
+        assert!(judged.score > 99.0, "{judged:?}");
+    }
+    assert_eq!((look.effects.matches, look.effects.no_equivalent), (5, 0));
+    assert_eq!(look.time.matches, 0.7778);
+    assert!(
+        headline(look).starts_with("78% comes across the same · "),
+        "{}",
+        headline(look)
+    );
+    // The made-up twinkles slide along the strip where PixelFlow's come and go at random: that
+    // isn't the same look, and the scorecard says what a viewer would notice.
+    let twinkle = effect(&card, "Twinkle", "Strip", 2000).look.as_ref().unwrap();
+    assert_ne!(twinkle.verdict, Verdict::Matches, "{twinkle:?}");
+    assert!(twinkle.score < 70.0 && twinkle.differs.is_some(), "{twinkle:?}");
+    assert!(look.score.is_some_and(|s| s > 70.0 && s < 95.0), "{look:?}");
+
+    // What to improve first: the twinkles are all there is to gain.
+    let kinds: Vec<&str> = card.improve.iter().map(|i| i.kind.as_str()).collect();
+    assert_eq!(kinds, ["Twinkle", "On"]);
+    assert!(card.improve[0].share > 0.99 && card.improve[0].judged_alone == 1);
+    assert_eq!(card.improve[1].verdicts.matches, 5);
+
+    // The picture as a whole, prop by prop: Matrix and Porch never twinkle, and Far is never lit.
+    for prop in &card.props[1..3] {
+        let seen = prop.look.unwrap();
+        assert_eq!(seen.verdict, Verdict::Matches, "{}", prop.name);
+        assert!(seen.score > 99.0, "{}: {seen:?}", prop.name);
+    }
+    assert!(card.props[3].look.is_none());
+    assert!(look.as_seen.is_some_and(|s| s > 50.0 && s < 100.0), "{look:?}");
+
+    // The summary leads with the look and ends with the pixels.
+    let summary = sequence_markdown(&card);
+    let at = |heading: &str| summary.find(heading).unwrap_or_else(|| panic!("no {heading}"));
+    assert!(at("## How it looks") < at("## What to improve first"));
+    assert!(at("## What to improve first") < at("## Diagnostics: pixel for pixel"));
+    assert!(summary.contains("**78% comes across the same · "), "{summary}");
+}
+
+#[test]
+fn a_dimmer_render_is_judged_by_how_it_looks_not_by_its_pixels() {
+    // xLights drew Matrix's blue at 200 where PixelFlow draws 255: a fifth dimmer. Pixel for
+    // pixel that is a difference; nobody watching would see one.
+    let card = score(Reference {
+        matrix_blue: 200,
+        ..Reference::default()
+    });
+    let blue = effect(&card, "On", "Matrix", 0);
+    assert_eq!(blue.look.as_ref().unwrap().verdict, Verdict::Matches);
+    assert_eq!(card.diagnostics.label_audit.exact_but_differs.len(), 1);
+    assert!(card.labels.optimistic.iter().all(|m| m.kind != "On"));
+
+    // At 100 it is well under half as bright, which shows: close, and the brightness is why.
+    let card = score(Reference {
+        matrix_blue: 100,
+        ..Reference::default()
+    });
+    let blue = effect(&card, "On", "Matrix", 0);
+    let judged = blue.look.as_ref().unwrap();
+    assert_eq!(
+        (judged.verdict, judged.weakest, judged.basis),
+        (Verdict::Close, Component::Brightness, Basis::Solo)
+    );
+    assert_eq!(judged.differs.as_deref(), Some("brighter (2.5× as bright)"));
+    let seen = blue.look_solo.unwrap().seen;
+    assert_eq!((seen.level.pixelflow, seen.level.xlights), (1.0, 0.3922));
+    // Nothing else about it differs.
+    let parts = blue.look_solo.unwrap().components;
+    assert_eq!(
+        (parts.coverage, parts.color, parts.pattern, parts.motion),
+        (1.0, 1.0, 1.0, 1.0)
+    );
+    assert_eq!(card.look.effects.close, 1);
+
+    let on = card.improve.iter().find(|i| i.kind == "On").unwrap();
+    assert_eq!(
+        (on.weakest, on.differs.as_deref()),
+        (Component::Brightness, Some("brighter (2.5× as bright)"))
+    );
+    assert_eq!((on.verdicts.matches, on.verdicts.close), (4, 1));
+
+    // The importer expected it to match: it is listed, judged alone.
+    let labels = &card.labels;
+    let optimistic: Vec<(&str, &str, Verdict, Verdict)> = labels
+        .optimistic
+        .iter()
+        .filter(|m| m.kind == "On")
+        .map(|m| (m.kind.as_str(), m.target.as_str(), m.expected, m.measured))
+        .collect();
+    assert_eq!(optimistic, [("On", "Matrix", Verdict::Matches, Verdict::Close)]);
+    assert!(labels.optimistic_layered.is_empty());
+    // And the green On, which it expected to look close for its layer mix amount, matches.
+    let pessimistic: Vec<(&str, Verdict, Verdict)> = labels
+        .pessimistic
+        .iter()
+        .map(|m| (m.target.as_str(), m.expected, m.measured))
+        .collect();
+    assert_eq!(pessimistic, [("Strip", Verdict::Close, Verdict::Matches)]);
+    let plain = labels
+        .rows
+        .iter()
+        .find(|r| r.kind == "On" && r.notes.is_empty())
+        .unwrap();
+    assert_eq!(
+        (
+            plain.expected,
+            plain.effects,
+            plain.measured.matches,
+            plain.measured.close
+        ),
+        (Verdict::Matches, 4, 3, 1)
+    );
+    assert_eq!((plain.judged(), plain.earned()), (4, Some(Verdict::Matches)));
+    assert_eq!((labels.judged, labels.agree), (6, 3));
+
+    let summary = sequence_markdown(&card);
+    assert!(
+        summary.contains("| On | Matrix | 0:00.0–0:02.0 | Matches | Close | 71 | brightness | brighter (2.5× as bright) | – |"),
+        "{summary}"
+    );
+}
+
+/// Two seconds on the tests' show with one effect PixelFlow has no effect for: a Shader on Far,
+/// in red.
+const STAND_IN: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
+<xsequence BaseChannel="0" ChanCtrlBasic="0" ChanCtrlColor="0" FixedPointTiming="1" ModelBlending="true">
+  <head>
+    <version>2024.19</version>
+    <song>Stand-in</song>
+    <sequenceTiming>50 ms</sequenceTiming>
+    <sequenceType>Animation</sequenceType>
+    <sequenceDuration>2.000</sequenceDuration>
+  </head>
+  <ColorPalettes>
+    <ColorPalette>C_BUTTON_Palette1=#FF0000,C_CHECKBOX_Palette1=1</ColorPalette>
+  </ColorPalettes>
+  <EffectDB>
+    <Effect></Effect>
+  </EffectDB>
+  <DisplayElements>
+    <Element collapsed="0" type="model" name="Far" visible="1"/>
+  </DisplayElements>
+  <ElementEffects>
+    <Element type="model" name="Far">
+      <EffectLayer>
+        <Effect ref="0" name="Shader" palette="0" startTime="0" endTime="2000"/>
+      </EffectLayer>
+    </Element>
+  </ElementEffects>
+</xsequence>
+"##;
+
+#[test]
+fn an_effect_pixelflow_has_no_effect_for_has_no_equivalent_whatever_it_scores() {
+    // A Shader on Far, which PixelFlow shows as a dim fill in its first color; xLights drew red.
+    let dir = TempDir::new().unwrap();
+    let fseq = Reference {
+        far_red: true,
+        ..Reference::default()
+    }
+    .write(&dir);
+    let sequence = dir.path().join("stand-in.xsq");
+    std::fs::write(&sequence, STAND_IN).unwrap();
+    let request = Request {
+        show: &show(),
+        xsq: &sequence,
+        fseq: &fseq,
+    };
+    let card = compare(request, Options::default()).unwrap();
+    let shader = effect(&card, "Shader", "Far", 0);
+    assert_eq!(
+        (shader.label, shader.expected),
+        (Label::Placeholder, Verdict::NoEquivalent)
+    );
+    let judged = shader.look.as_ref().unwrap();
+    assert_eq!(judged.verdict, Verdict::NoEquivalent);
+    // It is the right color on the right pixels, a quarter as bright.
+    assert_eq!(judged.weakest, Component::Brightness);
+    assert!(judged.score > 50.0, "{judged:?}");
+    assert_eq!(card.look.effects.no_equivalent, 1);
+    assert_eq!((card.look.time.no_equivalent, card.look.time.matches), (1.0, 0.0));
+    assert_eq!(
+        headline(&card.look),
+        "0% comes across the same · 0% looks close · 0% looks different · 100% has no PixelFlow effect yet"
+    );
+    assert_eq!((card.labels.judged, card.labels.agree), (1, 1));
 }

@@ -20,6 +20,15 @@ A modern, fast, easy-to-use application for designing and running pixel light di
 | M3 | Sequencer: timeline, effects, audio analysis (beats/sections), lyric-to-prop mapping, AI-generated sequences |
 | M4 | Rendering and `.fseq` export, FPP playback integration |
 
+## Documentation
+
+- [Your first show](docs/first-show.md): from an empty show, or an xLights show, to lights playing music.
+- [Troubleshooting](docs/troubleshooting.md): nothing lights, wrong colors, controllers not found, Send to FPP problems, and more.
+- [Real-hardware acceptance checklist](docs/hardware-acceptance.md): a checklist to fill in against real controllers.
+- [Measuring xLights import fidelity](docs/fidelity.md): how close the importer is to xLights.
+- [Scale benchmark](docs/benchmarks.md): how large a show the engine can run.
+- [Your data: what stays on your computer](docs/privacy-and-data-flow.md): what PixelFlow sends, and when.
+
 ## Stack
 
 - **Engine:** Rust (headless, real-time output)

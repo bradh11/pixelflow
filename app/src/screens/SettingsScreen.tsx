@@ -8,6 +8,7 @@ import { hintFor } from "../lib/shortcuts";
 import { useAssistant } from "../state/assistant";
 import { GRID_SIZES, useLayoutEditor } from "../state/layoutEditor";
 import { useSequencer } from "../state/sequencer";
+import { LIGHT_TIMING, PREVIEW_SYNC } from "../lib/labels";
 import { useShortcutSheet } from "../state/shortcutSheet";
 import { type ThemeChoice, useApp } from "../state/store";
 
@@ -100,10 +101,12 @@ export function SettingsScreen() {
           checked={looping}
           onChange={(on) => useSequencer.getState().setLooping(on)}
         />
-        <p className="text-xs text-neutral-500">Each sequence's audio offset is set beside it on the Play screen.</p>
+        <p className="text-xs text-neutral-500">
+          {LIGHT_TIMING} for each sequence is set beside it on the Play screen (Playlist, then Music). It is separate from {PREVIEW_SYNC} below.
+        </p>
       </Section>
 
-      <Section title="Preview sync" description="Line the app's preview up with what you hear on this computer.">
+      <Section title={PREVIEW_SYNC} description="Line the app's preview up with what you hear on this computer.">
         <PreviewSyncSettings />
       </Section>
 

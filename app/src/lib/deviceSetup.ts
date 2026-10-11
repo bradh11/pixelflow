@@ -1,5 +1,5 @@
 // A controller's setup side by side with the show's, for the in-memory backend: the same rows
-// crates/pf-devices/src/setup.rs gives the desktop app ("Compare with this device" and "Send
+// crates/pf-devices/src/setup.rs gives the desktop app ("Compare with this controller" and "Send
 // setup to this device…"), and taking a device's differences into the show.
 
 import type { Change, ChangeKind, ColorOrder, Controller, DeviceConfig, DeviceKind, PortSlot, Prop, PropMatch, Show, UseProps } from "../api/types";
@@ -308,7 +308,7 @@ function cannotTake(show: Show, controller: Controller, ours: Setup, change: Cha
   return null;
 }
 
-/** "Compare with this device": show (before) → device (after). */
+/** "Compare with this controller": show (before) → device (after). */
 export function compareSetup(show: Show, controller: Controller, kind: DeviceKind, config: DeviceConfig): { changes: Change[]; notes: string[] } {
   const ours = showSetup(show, controller, oneStringPerPort(kind));
   const theirs = deviceSetup(config);

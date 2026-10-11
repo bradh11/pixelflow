@@ -2,6 +2,7 @@ import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import type { ControllerCheck, Destination, Device, PlayerStatus } from "../../api/types";
 import { describeWarning } from "../../lib/fppHealth";
 import { Dot, Section } from "./Section";
+import { WEB_PAGE_ANSWERING, WEB_PAGE_NOT_ANSWERING } from "../../lib/labels";
 
 /**
  * Problems the FPP reports, in plain words with what to do, and whether each controller it sends
@@ -66,7 +67,7 @@ export function FppHealth({
                 </span>
                 <span className="flex shrink-0 items-center gap-1.5 text-xs">
                   <Dot tone={!check ? "idle" : check.answering ? "ok" : "bad"} />
-                  {!check ? "Checking…" : check.answering ? "Answering" : "Not answering"}
+                  {!check ? "Checking…" : check.answering ? WEB_PAGE_ANSWERING : WEB_PAGE_NOT_ANSWERING}
                 </span>
               </li>
             );

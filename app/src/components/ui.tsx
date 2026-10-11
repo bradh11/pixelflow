@@ -56,7 +56,8 @@ export function moreOpen(id: string): boolean {
   return loadMore()[id] === true;
 }
 
-function saveMore(id: string, open: boolean) {
+/** Leaves the "More" disclosure called `id` open (or closed) for its next showing. */
+export function setMoreOpen(id: string, open: boolean) {
   try {
     localStorage.setItem(MORE_KEY, JSON.stringify({ ...loadMore(), [id]: open }));
   } catch {
@@ -79,7 +80,7 @@ export function More({ id, label = "More", forceOpen = false, children }: { id: 
         aria-expanded={open}
         aria-controls={region}
         onClick={() => {
-          saveMore(id, !open);
+          setMoreOpen(id, !open);
           setOpen(!open);
         }}
         className="flex items-center gap-1 rounded text-xs font-medium text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"

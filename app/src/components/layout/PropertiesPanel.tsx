@@ -31,6 +31,7 @@ import { CustomGridSection } from "./CustomGridSection";
 import { isPoly } from "../../lib/polylineMath";
 import { SHAPE_FIELDS, type ShapeField, fieldValue, parseNumbers, withField } from "./shapeFields";
 import { MissingFileNotice, useMissingFile } from "../MissingFiles";
+import { COLOR_ORDER_SECTION } from "../ColorOrderPointer";
 import { Button, Input, More, Select } from "../ui";
 import { hintFor } from "../../lib/shortcuts";
 
@@ -352,7 +353,7 @@ function OnePropPanel({ prop, points }: { prop: Prop; points: ArrayLike<number> 
           {showTurn && <NumberField label="Turn (Y°)" hint="Turned to face left or right (around Y)" value={t.rotationDeg.y} onCommit={(turn) => setTransform({ turn })} />}
         </div>
         {!(showZ && showTilt && showTurn) && <p className="mt-1 text-xs text-neutral-500">Depth, tilt, and turn are in the 3D view (V).</p>}
-        <More id="layout-prop" label="More: color order and scale">
+        <More id={COLOR_ORDER_SECTION} label="More: color order and scale">
           <label className="flex flex-col gap-1 text-xs">
             <span className="text-neutral-500 dark:text-neutral-400">Color order</span>
             <Select

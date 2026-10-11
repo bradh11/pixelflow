@@ -1,6 +1,7 @@
 import { Lightbulb, Pause, Play, Repeat, RotateCcw, Square } from "lucide-react";
 import { type ReactNode, useRef } from "react";
 import { clock } from "../../lib/format";
+import { SHOW_ON_LIGHTS, SHOW_ON_LIGHTS_HINT } from "../../lib/labels";
 import { hintFor } from "../../lib/shortcuts";
 
 /** A button on the Play screen's bar: `label` names it (and is its tooltip, or `hint` when that says more). */
@@ -166,12 +167,12 @@ export function TransportBar({
         )}
         {lights && (
           <BarButton
-            label="Show it on my lights"
-            hint="When on, playing here also sends each frame to your controllers live, so your real lights show the sequence. When off, it plays only in the preview."
+            label={SHOW_ON_LIGHTS}
+            hint={SHOW_ON_LIGHTS_HINT}
             pressed={lights.on}
             onClick={() => lights.set(!lights.on)}
           >
-            <Lightbulb size={16} aria-hidden /> <span className="hidden @min-[760px]:inline">Show on my lights</span>
+            <Lightbulb size={16} aria-hidden /> <span className="hidden @min-[760px]:inline">{SHOW_ON_LIGHTS}</span>
           </BarButton>
         )}
         <h2 className="ml-2 min-w-0 truncate text-sm font-semibold" title={name}>

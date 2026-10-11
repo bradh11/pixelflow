@@ -54,18 +54,37 @@ type SimKey = (EffectId, BufferKey, usize);
 /// The whole of a buffer (rather than one of its parts).
 const WHOLE: usize = usize::MAX;
 
-/// A frame with fewer pixels to draw than this (counting a pixel once for each effect on it) is
-/// drawn on the caller's thread: it takes about half a millisecond there, and handing it to the
-/// shared threads takes as long as they'd save. Measured in `docs/benchmarks.md`.
+/// Drawn flat out, a frame with fewer pixels to draw than this (counting a pixel once for each
+/// effect on it) is drawn on the caller's thread: it takes a millisecond at most there, and
+/// sharing it out among the shared threads saves a part of that for several times the work.
+/// Measured in `docs/benchmarks.md`.
 const SHARE_FROM: usize = 60_000;
+
+/// Played by a clock, a frame with fewer pixels to draw than this is drawn on the caller's
+/// thread: one thread has it done in half a frame's time or less, and a frame shared out is done
+/// only when the slowest of several threads is. On a machine busy with other work that is later
+/// than one thread, and now and then much later (`docs/benchmarks.md`, "Played by a clock").
+const SHARE_LIVE_FROM: usize = 1_000_000;
 
 /// Which threads a renderer draws on.
 #[derive(Debug, Clone)]
 enum Threads {
-    /// The shared pool, for frames with enough to draw.
-    Shared,
+    /// The shared pool, for frames with at least this many pixels to draw.
+    Shared(usize),
     /// Always these (none: the caller's thread).
     Own(Option<Arc<RenderPool>>),
+}
+
+impl Threads {
+    /// The threads a frame with `work` pixels to draw is shared out among (none: it's drawn on
+    /// the caller's).
+    fn of(&self, work: usize) -> Option<Arc<RenderPool>> {
+        match self {
+            Self::Shared(from) if work >= *from => RenderPool::shared(),
+            Self::Shared(_) => None,
+            Self::Own(pool) => pool.clone(),
+        }
+    }
 }
 
 /// A target's buffer in one render style, and where its pixels fall among the tiles.
@@ -144,14 +163,25 @@ impl Renderer {
             pictures: Pictures::none(),
             plan: Plan::default(),
             space: Workspace::default(),
-            threads: Threads::Shared,
+            threads: Threads::Shared(SHARE_LIVE_FROM),
             times: FrameTimes::default(),
+        }
+    }
+
+    /// Says whether frames are wanted as soon as they can be had (an export) rather than by a
+    /// clock (playback, which a renderer is made for). Flat out, every frame worth the handing
+    /// over is shared out among [`RenderPool::shared`]'s threads; by a clock, only a frame one
+    /// thread wouldn't have ready in time. The frames are the same either way. A renderer given
+    /// threads of its own ([`Renderer::set_pool`]) keeps to them.
+    pub fn set_flat_out(&mut self, flat_out: bool) {
+        if let Threads::Shared(from) = &mut self.threads {
+            *from = if flat_out { SHARE_FROM } else { SHARE_LIVE_FROM };
         }
     }
 
     /// Draws every frame on `pool`'s threads from now on, however little there is to draw, or
     /// on the caller's thread alone (`None`). For tests and measurements: left alone, a renderer
-    /// shares [`RenderPool::shared`] and keeps small frames on the caller's thread. The frames
+    /// shares [`RenderPool::shared`] and keeps light frames on the caller's thread. The frames
     /// are the same either way.
     pub fn set_pool(&mut self, pool: Option<Arc<RenderPool>>) {
         self.threads = Threads::Own(pool);
@@ -281,11 +311,7 @@ impl Renderer {
         let started = Instant::now();
         self.plan(seq, t_ms, &cx);
         let planned = started.elapsed();
-        let pool = match &self.threads {
-            Threads::Shared if self.plan.work >= SHARE_FROM => RenderPool::shared(),
-            Threads::Shared => None,
-            Threads::Own(pool) => pool.clone(),
-        };
+        let pool = self.threads.of(self.plan.work);
         let scene = Scene {
             geometry: &self.geometry,
             tiles: &self.tiles,

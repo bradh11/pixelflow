@@ -1279,3 +1279,36 @@ fn a_frame_shorter_than_the_shows_is_written_as_far_as_it_goes() {
         }
     }
 }
+
+#[test]
+fn a_frame_one_thread_has_ready_in_time_is_shared_out_only_when_drawn_flat_out() {
+    // 100,000 pixels with one effect on them: a few milliseconds' drawing for one thread.
+    let show = big_show(100);
+    let map = pf_mapping::map_show(&show).0;
+    let seq = one_effect(Target::Group(show.groups[0].id), EffectKind::On);
+    let mut renderer = Renderer::new(&show, &map);
+    let mut by_the_clock = vec![0; renderer.frame_len()];
+    renderer.render_frame(&seq, 0, &mut by_the_clock);
+    assert_eq!(renderer.frame_times().threads, 1, "played by a clock");
+
+    // However many threads this machine shares frames out among (one, on a small machine).
+    let shared = pf_render::RenderPool::shared().map_or(1, |pool| pool.threads());
+    renderer.set_flat_out(true);
+    let mut flat_out = vec![0; renderer.frame_len()];
+    renderer.render_frame(&seq, 0, &mut flat_out);
+    assert_eq!(renderer.frame_times().threads, shared, "flat out");
+    assert_eq!(flat_out, by_the_clock);
+    renderer.set_flat_out(false);
+    renderer.render_frame(&seq, 0, &mut flat_out);
+    assert_eq!(renderer.frame_times().threads, 1, "by a clock again");
+
+    // A frame that isn't worth handing over stays where it is, flat out or not.
+    let small = big_show(10);
+    let map = pf_mapping::map_show(&small).0;
+    let seq = one_effect(Target::Group(small.groups[0].id), EffectKind::On);
+    let mut renderer = Renderer::new(&small, &map);
+    renderer.set_flat_out(true);
+    let mut frame = vec![0; renderer.frame_len()];
+    renderer.render_frame(&seq, 0, &mut frame);
+    assert_eq!(renderer.frame_times().threads, 1, "10,000 pixels, flat out");
+}

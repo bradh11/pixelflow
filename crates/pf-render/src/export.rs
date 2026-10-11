@@ -221,6 +221,8 @@ pub fn export_fseq<W: Write + Seek>(
 
     let plan = pf_output::build_offline_plan(show, map);
     let mut renderer = Renderer::new(show, map);
+    // Nothing waits on a clock here: every frame worth sharing out is.
+    renderer.set_flat_out(true);
     renderer.set_audio(audio.clone());
     renderer.set_pictures(pictures.waiting());
     let mut show_frame = vec![0u8; renderer.frame_len()];

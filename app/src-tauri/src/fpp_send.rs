@@ -1228,8 +1228,14 @@ mod tests {
         let file = from_file(Path::new("/shows/A.fseq"));
         let err = resolve_music(&file, Some(PathArg("Song.mp3".into())), || panic!("not asked")).unwrap_err();
         assert!(err.contains("can't find the music Song.mp3"), "{err}");
-        let full = resolve_music(&file, Some(PathArg("/m/Song.mp3".into())), || None).unwrap();
-        assert_eq!(full.unwrap().0, PathBuf::from("/m/Song.mp3"));
+        // A full path as this system writes one: on Windows, one with a drive.
+        let song = if cfg!(windows) {
+            "C:\\m\\Song.mp3"
+        } else {
+            "/m/Song.mp3"
+        };
+        let full = resolve_music(&file, Some(PathArg(song.into())), || None).unwrap();
+        assert_eq!(full.unwrap().0, PathBuf::from(song));
     }
 
     /// What the Send dialog asks for: the open sequence as `name`.fseq with `music`, on a new

@@ -79,7 +79,11 @@ jobs:
           cache-on-failure: true
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      # The UI's tests run in a simulated browser, which is the same on every system, so one
+      # system runs them. (On the slower Windows runners, the ones that wait a fixed time fail
+      # now and then.)
       - run: pnpm test
+        if: runner.os == 'macOS'
       # The shell is built and checked even when a UI test failed (it only needs the built UI).
       - run: pnpm build
         if: ${{ !cancelled() }}

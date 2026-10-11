@@ -6,6 +6,7 @@
 
 mod assistant;
 mod camera_map;
+mod commands;
 mod device_setup;
 mod devices;
 mod files;
@@ -32,6 +33,7 @@ mod video;
 mod vocals;
 mod xlights;
 
+use commands::with_commands;
 use devices::DeviceAccess;
 use pf_engine::{
     Edit, Engine, EngineError, HistoryEntry, OutputStatus, PatternSpec, ShowSnapshot, TargetSpec,
@@ -275,181 +277,6 @@ async fn stop_output(state: State<'_, AppState>) -> Reply<OutputStatus> {
 #[tauri::command]
 async fn output_status(state: State<'_, AppState>) -> Reply<OutputStatus> {
     Ok(state.engine().output_status())
-}
-
-/// Registers every command the UI can call. The main window may call any of them; the
-/// preview's window only the few it draws with (see `preview_window`), and is refused the rest
-/// here, before a command runs.
-fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
-    let commands = handler::<R>(tauri::generate_handler![
-        get_snapshot,
-        apply_edits,
-        undo,
-        redo,
-        new_show,
-        open_sample_show,
-        open_show,
-        save_show,
-        save_show_as,
-        list_history,
-        restore_history,
-        start_output,
-        stop_output,
-        output_status,
-        camera_map::camera_map_target,
-        camera_map::camera_map_sync,
-        camera_map::camera_map_decode,
-        camera_map::camera_map_plan,
-        devices::discover_devices,
-        devices::inspect_device,
-        devices::import_device,
-        devices::import_fpp_destination,
-        devices::fpp_status,
-        devices::check_controllers,
-        devices::fpp_sequences,
-        devices::fpp_start,
-        devices::fpp_stop,
-        devices::fpp_files,
-        devices::fpp_schedule,
-        devices::fpp_software,
-        devices::fpp_setup_plan,
-        devices::fpp_set_up_show,
-        devices::open_device_page,
-        device_setup::compare_device,
-        device_setup::take_from_device_setup,
-        device_setup::plan_device_setup,
-        device_setup::send_device_setup,
-        device_setup::restore_device_setup,
-        device_setup::forget_device_setup_copy,
-        device_setup::plan_device_restore,
-        fpp_send::fpp_send_plan,
-        fpp_send::fpp_send,
-        fpp_send::cancel_fpp_send,
-        fpp_send::fpp_sequence_names,
-        fpp_download::fpp_download_plan,
-        fpp_download::fpp_download,
-        fpp_download::cancel_fpp_download,
-        playback::start_playback,
-        playback::pause_playback,
-        playback::seek_playback,
-        playback::stop_playback,
-        playback::playback_status,
-        playback::playback_stop_reason,
-        playback::live_frame,
-        playback::sequence_frame,
-        playback::add_sequence,
-        playback::play_sequence,
-        playback::set_playback_volume,
-        playback::set_playback_speed,
-        sync::sync_click_start,
-        sync::sync_click_position,
-        sync::sync_click_stop,
-        vocals::vocal_lane,
-        playback::audio_waveform,
-        playback::probe_audio,
-        sequencer::new_sequence_doc,
-        sequencer::sequence_recoveries,
-        sequencer::recover_sequence,
-        sequencer::discard_sequence_recovery,
-        sequencer::open_sequence_doc,
-        sequencer::save_sequence_doc,
-        sequencer::save_sequence_doc_as,
-        sequencer::close_sequence_doc,
-        sequencer::get_sequence_doc,
-        sequencer::edit_sequence,
-        sequencer::effect_catalog,
-        sequencer::cancel_sequence_export,
-        sequencer::undo_sequence,
-        sequencer::redo_sequence,
-        sequencer::sequence_doc_frame,
-        sequencer::play_sequence_doc,
-        sequencer::set_sequence_doc_output,
-        sequencer::set_sequence_doc_loop,
-        sequencer::add_sequence_doc_to_show,
-        sequencer::sequence_export_layout,
-        sequencer::export_sequence_doc,
-        video::video_export_choices,
-        video::export_video,
-        video::cancel_video_export,
-        sequencer::analyze_audio,
-        sequencer::detect_beats,
-        sequencer::import_timing_file,
-        sequencer::export_timing_track,
-        xlights::import_xlights,
-        xlights::import_xlights_sequence,
-        vendor::inspect_xlights_sequence,
-        vendor::read_xmap,
-        vendor::write_xmap,
-        layout::preview_props,
-        layout::preview_props_3d,
-        layout::pick_image,
-        layout::read_image,
-        house::pick_house_model,
-        house::read_house_model,
-        assistant::ai_key_storage,
-        assistant::set_api_key,
-        assistant::use_api_key_for_session,
-        assistant::has_api_key,
-        assistant::api_key_location,
-        assistant::delete_api_key,
-        assistant::list_ai_models,
-        assistant::ai_send,
-        assistant::ai_stop,
-        assistant::ai_new_chat,
-        assistant::ai_apply,
-        assistant::ai_discard,
-        assistant::ai_preview,
-        assistant::ai_preview_frame,
-        assistant::ai_sync,
-        lyrics::lyrics_gate,
-        lyrics::find_lyrics,
-        lyrics::choose_lyrics,
-        lyrics::cancel_lyrics,
-        lyrics::syllables_from_words,
-        lyrics::nudge_lyrics,
-        lyrics::retime_lyrics,
-        lyrics::alignment_models,
-        lyrics::download_alignment_models,
-        lyrics::cancel_alignment_download,
-        lyrics::remove_alignment_models,
-        files::check_files,
-        files::find_missing_files,
-        files::locate_file,
-        files::sequence_music_missing,
-        files::find_sequence_music,
-        files::locate_sequence_music,
-        pictures::pick_picture,
-        pictures::read_picture,
-        pictures::list_pictures,
-        pictures::check_sequence_pictures,
-        pictures::find_sequence_pictures,
-        pictures::locate_sequence_picture,
-        pickers::pick_path,
-        recent::list_recent_shows,
-        recent::forget_recent_show,
-        recent::clear_recent_shows,
-        recent::locate_recent_show,
-        preview_window::open_preview_window,
-        preview_window::close_preview_window,
-        preview_window::preview_link,
-        preview_window::set_fullscreen,
-        preview_window::is_fullscreen,
-    ]);
-    builder.invoke_handler(move |invoke| {
-        let window = invoke.message.webview_ref().label();
-        if !preview_window::may_call(window, invoke.message.command()) {
-            invoke.resolver.reject(preview_window::REFUSED);
-            return true;
-        }
-        commands(invoke)
-    })
-}
-
-/// Gives the generated command handler its type, so it can be called from another closure.
-fn handler<R: tauri::Runtime>(
-    commands: impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static,
-) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
-    commands
 }
 
 /// The app's compiled configuration and permissions (expanded once, shared with tests).

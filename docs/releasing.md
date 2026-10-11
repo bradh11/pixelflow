@@ -327,10 +327,10 @@ So before an upgrade that raises a schema version (the release notes should say 
 Tried in October 2026, by running the workflow on its own branch without a tag (version 0.1.0,
 no signing secrets):
 
-- **The version check.** With no tag it printed `0.1.0`. With `v9.9.9` it stopped before
-  building: "The tag is v9.9.9, but the files say 0.1.0 (which would be the tag v0.1.0). Set
-  the version first: node scripts/version.mjs set 9.9.9".
-- **The macOS build**, in about 22 minutes: `PixelFlow_0.1.0_universal.dmg`, 44 MB. The app
+- **The version check.** With no tag, and with `v0.1.0` in the tag box, it went on to build.
+  With `v9.9.9` it stopped before building: "The tag is v9.9.9, but the files say 0.1.0 (which
+  would be the tag v0.1.0). Set the version first: node scripts/version.mjs set 9.9.9".
+- **The macOS build**, in 16 to 22 minutes: `PixelFlow_0.1.0_universal.dmg`, 44 MB. The app
   inside holds both processors (`x86_64 arm64`), says version 0.1.0, carries the notices file
   byte for byte and the Local Network sentence, and is signed ad hoc with a signature that
   verifies. Notarising was skipped, as it should be with no secrets.
@@ -354,6 +354,9 @@ Not tried, because each needs something only the owner has or may do:
   [First launch](#first-launch-what-each-system-asks) was seen happen: those sections describe
   what each system does with an app that does what PixelFlow's code does. The oldest macOS and
   Windows versions the app runs on are not known either (the app declares macOS 10.13).
+- **Byte-for-byte sameness.** The build starts from locked dependencies and a pinned
+  toolchain, but whether two runs of one commit give identical installers was not checked
+  (timestamps and signatures usually prevent it). `SHA256SUMS` identifies one run's files.
 - **Encoding speed on Intel.** The video export's H.264 encoder uses its faster assembly code
   on Intel processors only when NASM is installed where it is built, and its plain code
   otherwise; either way the build succeeds. Whether the build computers had NASM was not

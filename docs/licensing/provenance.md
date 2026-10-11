@@ -50,7 +50,7 @@ description.
 |---|---|---|
 | Direct port (the whole file, or most of it) | 31 | 13 effects in `pf-render`; 7 files in `pf-xlights` (model geometry and value curves); 10 shape generators in `pf-geometry`; `app/src/lib/geometry.ts` |
 | Mixed: a direct-port function group inside an otherwise independent file | 10 | 8 in `pf-render` (text, raster, blur, color, geometry, styles, sparkles, effects); `pf-xlights/src/geometry.rs`; `pf-sequence/src/curve.rs` |
-| Behaviour-matching | 27 | effect default tables, the model-to-shape converter, the mouth-shape table, controller tables, and smaller pieces |
+| Behaviour-matching | 28 | effect default tables, the model-to-shape converter, the mouth-shape table, controller tables, and smaller pieces |
 | Format reading only | 27 | the rest of the xLights importer, the FPP REST client, the `.fseq` reader |
 | Independent | the rest | including the engine, output, audio analysis, the assistant, camera mapping, video export, the desktop shell, and nearly all of the UI |
 
@@ -204,6 +204,7 @@ of the same name does.
 | `crates/pf-devices/src/wled.rs` | 158 (146) | WLED `wled00/const.h` (not read) | Bus type and colour-order codes. Likely. | **S** |
 | `crates/pf-devices/src/fingerprint.rs` | 64 (37) | xLights' Falcon detection (not found in the files read) | Four page markers. | **S** |
 | `crates/pf-devices/src/fake_fpp.rs`, `fake_wled.rs` | 1,001 and 171 | FPP's PHP and `PixelString.cpp`, WLED's `cfg.cpp` (not read) | Test doubles (the `test-fixtures` feature; not in the app) modelled on upstream behaviour. | **S** to **M** |
+| `crates/pf-devices/src/fpp_upload.rs` | 975 (878) | FPP's `MoveFile()` (not read) | The list of 9 music file types FPP files as music. The rest is the FPP upload protocol (format reading) and PixelFlow's own staging; the 4 MB chunk size is PixelFlow's. | **S** |
 | `crates/pf-fseq/src/writer.rs` | 306 (273) | FPP's fseq writer (not read) | First block of 10 frames at level -10; 4-byte header padding. Likely. | **S** |
 | `app/src/api/effectCatalog.json` | 3,803 | Generated from `pf-sequence` | The same settings tables, as data for the UI. | with `effect.rs` |
 | `app/src/lib/controllerKinds.ts` | 57 | `falcon.xcontroller`, `Falcon.cpp` | Port limits 1,024 and 704. | **S** |
@@ -220,9 +221,23 @@ and layouts, not algorithms.
 | xLights show and sequence files | `crates/pf-xlights/src/`: `import.rs`, `layout.rs`, `model.rs`, `networks.rs`, `submodels.rs`, `background.rs`, `timing.rs`, `lib.rs`, `sequence/mod.rs`, `sequence/settings.rs`, `sequence/xsq.rs`, `vendor/mod.rs`, `vendor/xmap.rs` | `xlights_rgbeffects.xml`, `xlights_networks.xml`, `.xsq`, `.xtiming`, `.xmap`, vendor packages. `submodels.rs` also matches about 110 lines of `SubModel.cpp`'s parse rules, and `background.rs` about 60 lines of placement. |
 | Vocabulary | `crates/pf-model/src/render_style.rs`, `region.rs` | 17 render style names, 14 group layouts, 8 buffer transforms (with their 8 one-line formulas), submodel line syntax, 10 phoneme names. |
 | Lyric tracks | `crates/pf-ai/src/lyrics/tracks.rs` | The phrase, word, and phoneme track layout, so tracks export to `.xtiming`. |
-| FPP | `crates/pf-devices/src/`: `fpp.rs`, `fpp_upload.rs`, `fpp_info.rs`, `fpp_download.rs`, `fpp_software.rs`, `fpp_player.rs`, `discover.rs` | FPP's REST endpoints and JSON fields. |
+| FPP and controller web pages | `crates/pf-devices/src/`: `fpp.rs`, `fpp_info.rs`, `fpp_download.rs`, `fpp_software.rs`, `fpp_player.rs`, `discover.rs`, `identify.rs` | FPP's REST endpoints and JSON fields; which pages identify a controller. `fpp.rs` also carries one rule from FPP's `DDP.cpp` (which DDP type starts at channel 0). |
 | `.fseq` | `crates/pf-fseq/src/header.rs`, `sequence.rs` | The FSEQ v2 layout, from FPP's published format description. |
 | UI | `app/src/lib/fppHealth.ts`, `app/src/components/sequencer/effectControls.tsx` | A pattern for FPP's warning text; help text naming xLights layer methods. |
+
+### `pf-devices`, file by file
+
+No file in `pf-devices` is a port. Its 25 files divide as follows.
+
+| Category | Files | Which |
+|---|---|---|
+| Direct port | 0 | |
+| Behaviour-matching, with tables or constants from source | 8 | `falcon.rs`, `adapter.rs`, `fpp_ping.rs`, `fingerprint.rs`, `wled.rs`, `fpp_upload.rs`, and the test doubles `fake_fpp.rs` and `fake_wled.rs` |
+| Format and protocol reading only | 7 | `fpp.rs`, `fpp_info.rs`, `fpp_download.rs`, `fpp_software.rs`, `fpp_player.rs`, `discover.rs`, `identify.rs` |
+| Independent | 10 | `config.rs`, `device.rs`, `error.rs`, `http.rs`, `import.rs`, `lib.rs`, `reach.rs`, `setup.rs`, `testing.rs`, `xml.rs` |
+
+The independent files were checked for citations of other projects' source and found to have
+none; they were not all read line by line.
 
 ## Independent
 
@@ -253,7 +268,7 @@ named, the desktop shell (`app/src-tauri`), and the UI apart from the files name
 | WLED codes | `pf-devices/src/wled.rs` | WLED `const.h`, per PixelFlow's comments | WLED's repository is under EUPL 1.2. |
 | 5 by 7 pixel font | `pf-render/src/text.rs`, `FONT` (95 glyphs) | Not stated; the file calls it "the classic 5 x 7 one" | Not from xLights. The table resembles one that circulates widely in display libraries; its origin and terms were not established. |
 | Fire constants | `pf-render/src/effects.rs`, `Fire` | Not stated | The cooling and spark constants resemble the FastLED "Fire2012" demo (MIT). Not verified; the code's structure is PixelFlow's. |
-| Device fixtures | `crates/pf-devices/fixtures/` | Per its README: `fpp/` and `falcon/` recorded from the owner's own devices with addresses, MAC, and serial removed; `fpp-hat/` and `wled/` synthetic; `falcon/synthetic/` built from the sample replies quoted in comments in `Falcon.cpp` (about 1.2 KB); `fpp/github_releases.json` a trimmed public release list | Tests only. Not checked for leftover personal data. |
+| Device fixtures | `crates/pf-devices/fixtures/` | Per its README: `fpp/` and `falcon/` recorded from the owner's own devices with addresses, MAC, and serial removed; `fpp-hat/` and `wled/` synthetic; `falcon/synthetic/` built from the sample replies quoted in comments in `Falcon.cpp` (about 1.2 KB); `fpp/github_releases.json` a trimmed public release list | Tests only. They hold no credentials, but they still carry details of the owner's own show: prop names, a sequence name ("Christmas Medley 2017"), and a controller name whose suffix may derive from a MAC address. Scrubbing those is optional and is the owner's call; the fixtures were not changed. |
 | FPP oracle | `scripts/fseq-fpp-oracle.sh` | Fetches FPP's `src/fseq` when run, into a scratch directory | Nothing from FPP is copied into the repository. The script holds a 45-line harness written against FPP's `FSEQFile` API. |
 
 ## What a clean-room rewrite would involve

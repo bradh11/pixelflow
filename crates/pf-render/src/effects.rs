@@ -230,15 +230,29 @@ pub struct On {
     colors: Colors,
     gradient: Gradient,
     level: f32,
+    solid: bool,
+    /// How much it covers at full brightness.
+    cover: f32,
+    /// The palette color it shows (the second on a shimmer's odd frames).
+    color: u64,
+    /// A shimmer's odd frame with no second color: nothing is drawn.
+    dark: bool,
 }
 
 impl On {
     pub fn new(p: &OnParams, time: &EffectTime, colors: Colors) -> Self {
         let (start, end) = (unit(p.start_level), unit(p.end_level));
+        // The ramp is counted in frames and reaches the end level on the last one, as xLights' is.
+        let level = start + (end - start) * time.cycle_position(1.0) as f32;
+        let odd = p.shimmer && time.frame() % 2 == 1;
         Self {
-            colors,
             gradient: p.gradient,
-            level: start + (end - start) * time.t_norm,
+            level,
+            solid: p.solid,
+            cover: 1.0 - unit(p.transparency),
+            color: u64::from(odd),
+            dark: odd && colors.len() < 2,
+            colors,
         }
     }
 }
@@ -246,11 +260,23 @@ impl On {
 impl Shade for On {
     #[inline]
     fn shade(&self, px: &Pixel) -> Rgba {
+        if self.dark {
+            return Rgba::CLEAR;
+        }
         let c = match gradient_position(px, self.gradient) {
-            None => self.colors.get(0),
+            None => self.colors.get(self.color),
             Some(x) => self.colors.ramp(x),
         };
-        Rgba::with_alpha(c, self.level)
+        if self.solid {
+            Rgba::new(
+                c[0] * self.level,
+                c[1] * self.level,
+                c[2] * self.level,
+                self.cover,
+            )
+        } else {
+            Rgba::with_alpha(c, self.level * self.cover)
+        }
     }
 }
 

@@ -1097,6 +1097,13 @@ effect_params! {
         start_level: f32 = 1.0 => "startLevel", "Start brightness", number(0.0, 1.0, 0.01);
         /// Brightness at the end of the effect (0–1).
         end_level: f32 = 1.0 => "endLevel", "End brightness", number(0.0, 1.0, 0.01);
+        /// A dimmed color still hides what's below it, as xLights' On does. Otherwise the
+        /// dimmer it is, the more of what's below shows through.
+        solid: bool = false => "solid", "Dim without showing through", toggle, more;
+        /// How much of what's below shows through whatever the brightness (0–1).
+        transparency: f32 = 0.0 => "transparency", "Transparency", number(0.0, 1.0, 0.01), more;
+        /// Every other frame is the second palette color, or dark with only one color.
+        shimmer: bool = false => "shimmer", "Shimmer", toggle, more;
     }
 }
 

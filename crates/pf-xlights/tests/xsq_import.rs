@@ -282,7 +282,9 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
         EffectParams::On(OnParams {
             gradient: Gradient::None,
             start_level: 1.0,
-            end_level: 0.0
+            end_level: 0.0,
+            solid: true,
+            ..OnParams::default()
         })
     );
     // The disabled green is left out of the palette.

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Four seconds on the fidelity tests' show, every frame of which the tests can write by hand:
      0-1 s    Strip red; Matrix blue; Porch orange
-     1-2 s    Strip green (an On with a shimmer, which PixelFlow doesn't draw: "approximate")
+     1-2 s    Strip green (an On with a layer mix amount, which PixelFlow doesn't apply: "approximate")
      2-3 s    Strip twinkles; nothing else
      3-4 s    everything in the group white, over the twinkles on Strip -->
 <xsequence BaseChannel="0" ChanCtrlBasic="0" ChanCtrlColor="0" FixedPointTiming="1" ModelBlending="true">
@@ -21,7 +21,7 @@
   </ColorPalettes>
   <EffectDB>
     <Effect></Effect>
-    <Effect>E_CHECKBOX_On_Shimmer=1</Effect>
+    <Effect>T_SLIDER_EffectLayerMix=50</Effect>
     <Effect>E_SLIDER_Twinkle_Count=20,E_SLIDER_Twinkle_Steps=40</Effect>
   </EffectDB>
   <DisplayElements>

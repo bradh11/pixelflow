@@ -91,7 +91,16 @@ export type Blend =
 
 /** Settings for each kind of effect; missing settings take the engine's defaults. */
 export type EffectParams =
-  | { kind: "on"; gradient?: Gradient; startLevel?: number; endLevel?: number }
+  | {
+      kind: "on";
+      gradient?: Gradient;
+      startLevel?: number;
+      endLevel?: number;
+      /** A dimmed color still hides what's below it. */
+      solid?: boolean;
+      transparency?: number;
+      shimmer?: boolean;
+    }
   | { kind: "off" }
   | { kind: "colorWash"; cycles?: number; gradient?: Gradient }
   | { kind: "fade"; direction?: "in" | "out" }

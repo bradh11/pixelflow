@@ -91,14 +91,47 @@ fn on_is_solid_or_a_palette_ramp_with_a_level_ramp() {
         end_level: 0.0,
         ..OnParams::default()
     });
-    assert_eq!(
-        shade(&dimming, time(250, 1000), strip(0), &[Rgb::WHITE], STRIP).a,
-        0.75
-    );
-    assert_eq!(
-        rgb(shade(&dimming, time(500, 1000), strip(0), &[Rgb::WHITE], STRIP)),
-        [128; 3]
-    );
+    // The ramp is counted in frames, as xLights counts it: over 5 frames (0-4) it is a quarter
+    // of the way on frame 1 and at the end level on the last frame.
+    let white = |p: &EffectParams, ms: u64| shade(p, time(ms, 250), strip(0), &[Rgb::WHITE], STRIP);
+    assert_eq!(white(&dimming, 50).a, 0.75);
+    assert_eq!(rgb(white(&dimming, 100)), [128; 3]);
+    assert_eq!(white(&dimming, 200).a, 0.0);
+    // Dimmed, it lets what's below show through; solid (xLights' On), the color itself dims
+    // and still covers.
+    let c = white(&dimming, 50);
+    assert_eq!(([c.r, c.g, c.b], c.a), ([1.0; 3], 0.75));
+    let solid = EffectParams::On(OnParams {
+        start_level: 1.0,
+        end_level: 0.0,
+        solid: true,
+        ..OnParams::default()
+    });
+    let c = white(&solid, 50);
+    assert_eq!(([c.r, c.g, c.b], c.a), ([0.75; 3], 1.0));
+    assert_eq!(white(&solid, 200), Rgba::BLACK, "black, not clear");
+    // Transparency is how much shows through whatever the brightness.
+    let sheer = EffectParams::On(OnParams {
+        start_level: 0.5,
+        end_level: 0.5,
+        solid: true,
+        transparency: 0.25,
+        ..OnParams::default()
+    });
+    let c = white(&sheer, 0);
+    assert_eq!(([c.r, c.g, c.b], c.a), ([0.5; 3], 0.75));
+
+    // Shimmer: every other frame the second palette color, or nothing when there's only one.
+    let shimmer = EffectParams::On(OnParams {
+        shimmer: true,
+        ..OnParams::default()
+    });
+    let frame = |ms: u64, palette: &[Rgb]| shade(&shimmer, time(ms, 1000), strip(0), palette, STRIP);
+    assert_eq!(rgb(frame(0, &[Rgb::RED, Rgb::BLUE])), [255, 0, 0]);
+    assert_eq!(rgb(frame(50, &[Rgb::RED, Rgb::BLUE])), [0, 0, 255]);
+    assert_eq!(rgb(frame(100, &[Rgb::RED, Rgb::BLUE])), [255, 0, 0]);
+    assert_eq!(frame(50, &[Rgb::RED]), Rgba::CLEAR);
+    assert_eq!(rgb(frame(100, &[Rgb::RED])), [255, 0, 0]);
 }
 
 #[test]

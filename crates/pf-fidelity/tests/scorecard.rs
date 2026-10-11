@@ -280,12 +280,12 @@ fn the_label_audit_names_exact_effects_that_differ_and_approximate_ones_that_mat
     let on = audit.exact_kinds.iter().find(|k| k.kind == "On").unwrap();
     assert_eq!((on.exact, on.judged, on.differ, on.differ_alone), (4, 4, 1, 1));
 
-    // The green On has a shimmer PixelFlow doesn't draw, so the importer calls it approximate;
-    // the reference shows it steady, so it matches.
+    // The green On has a layer mix amount PixelFlow doesn't apply, so the importer calls it
+    // approximate; the reference shows it as PixelFlow draws it, so it matches.
     let green = effect(&card, "On", "Strip", 1000);
     assert_eq!(green.label, Label::Approximate);
     assert!(
-        green.notes.iter().any(|n| n.contains("shimmer")),
+        green.notes.iter().any(|n| n.contains("layer mix")),
         "{:?}",
         green.notes
     );
@@ -655,7 +655,7 @@ fn a_scorecard_is_json_with_every_effect_and_its_importers_label() {
         )
     );
     assert_eq!((&green["startMs"], &green["endMs"]), (&1000.into(), &2000.into()));
-    assert!(green["notes"][0].as_str().unwrap().contains("shimmer"));
+    assert!(green["notes"][0].as_str().unwrap().contains("layer mix"));
     assert_eq!(green["solo"]["mae"], 0.0);
     assert_eq!(green["solo"]["pixelSeconds"], 10.0);
     assert!(json["method"]["limits"]["tolerance"].is_number());

@@ -423,19 +423,19 @@ fn effect_key(name: &str) -> String {
         .to_lowercase()
 }
 
-fn on(r: &Reader, diff: &mut Diff) -> EffectParams {
+/// xLights' On (`OnEffect::Render`): the color dimmed to its level and still solid, see-through
+/// only by its transparency, and with shimmer on, every other frame the second color (or
+/// nothing).
+fn on(r: &Reader) -> EffectParams {
     let start = r.get("Eff_On_Start", 100.0, 0.0, 100.0);
     let end = r.get("Eff_On_End", 100.0, 0.0, 100.0);
-    if r.check("On_Shimmer") {
-        diff.add("shimmer not shown");
-    }
-    if r.get("On_Transparency", 0.0, 0.0, 100.0) > 0.0 {
-        diff.add("transparency not applied");
-    }
     EffectParams::On(OnParams {
         gradient: Gradient::None,
         start_level: unit(start / 100.0),
         end_level: unit(end / 100.0),
+        solid: true,
+        transparency: unit(r.get("On_Transparency", 0.0, 0.0, 100.0) / 100.0),
+        shimmer: r.check("On_Shimmer"),
     })
 }
 
@@ -1694,7 +1694,7 @@ fn effect_params(
         params
     };
     Kind::Params(match effect_key(name).as_str() {
-        "on" => on(&r, diff),
+        "on" => on(&r),
         "off" => EffectParams::Off(OffParams {}),
         "colorwash" => color_wash(&r, colors, diff),
         "bars" => bars(&r, n_colors, duration_ms, diff),
@@ -2082,6 +2082,7 @@ pub fn translate(
                     gradient: Gradient::None,
                     start_level: PLACEHOLDER_LEVEL,
                     end_level: PLACEHOLDER_LEVEL,
+                    ..OnParams::default()
                 }),
                 palette: Palette::new(colors.first().copied().map_or_else(Vec::new, |c| vec![c])),
                 blend,
@@ -2258,6 +2259,7 @@ mod tests {
                 gradient: Gradient::None,
                 start_level: PLACEHOLDER_LEVEL,
                 end_level: PLACEHOLDER_LEVEL,
+                ..OnParams::default()
             })
         );
     }
@@ -2681,6 +2683,35 @@ mod tests {
                 .curves
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn on_comes_across_solid_with_its_shimmer_and_transparency() {
+        // xLights' On dims its color and still covers what's below; only its transparency
+        // lets that through.
+        let s = Settings::parse(
+            "E_TEXTCTRL_Eff_On_Start=80,E_TEXTCTRL_Eff_On_End=20,E_CHECKBOX_On_Shimmer=1,E_TEXTCTRL_On_Transparency=30",
+        );
+        let t = translate("On", &s, &palette(&[Rgb::RED, Rgb::BLUE]), 1000, 50).unwrap();
+        assert_eq!(
+            t.params,
+            EffectParams::On(OnParams {
+                gradient: Gradient::None,
+                start_level: 0.8,
+                end_level: 0.2,
+                solid: true,
+                transparency: 0.3,
+                shimmer: true,
+            })
+        );
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        // A transparency that follows the music becomes a curve that does.
+        let s = Settings::parse(
+            "E_VALUECURVE_On_Transparency=Active=TRUE|Id=ID_VALUECURVE_On_Transparency|Type=Music|Min=0.00|Max=100.00|P2=100.00|RV=TRUE|",
+        );
+        let t = translate("On", &s, &palette(&[Rgb::RED]), 1000, 50).unwrap();
+        assert_eq!(t.curves["transparency"], Curve::music(0.0, 1.0, 0.0, false));
+        assert_eq!(t.fidelity, Fidelity::Exact);
     }
 
     #[test]

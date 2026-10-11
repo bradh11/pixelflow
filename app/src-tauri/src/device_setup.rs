@@ -108,8 +108,20 @@ pub(crate) struct RestorePoints {
     cache: Mutex<HashMap<String, Option<RestorePoint>>>,
 }
 
+/// Whether `key` is a key a device has ([`DeviceIdentity::key`]): its kind, then its id in hex.
+/// A key names a file, and one comes back from the window to forget a copy, so anything else
+/// (a path, say) names no file at all.
+fn is_device_key(key: &str) -> bool {
+    key.split_once('-').is_some_and(|(kind, id)| {
+        matches!(kind, "fpp" | "falcon" | "wled") && id.bytes().all(|b| b.is_ascii_hexdigit())
+    })
+}
+
 impl RestorePoints {
     fn file(&self, key: &str) -> Option<PathBuf> {
+        if !is_device_key(key) {
+            return None;
+        }
         Some(self.dir.as_ref()?.join(format!("{key}.json")))
     }
 
@@ -148,6 +160,9 @@ impl RestorePoints {
     }
 
     fn forget(&self, key: &str) {
+        if !is_device_key(key) {
+            return;
+        }
         if let Some(file) = self.file(key) {
             let _ = std::fs::remove_file(file);
         }
@@ -651,4 +666,50 @@ pub(crate) async fn restore_device_setup(
 #[tauri::command]
 pub(crate) fn forget_device_setup_copy(state: State<'_, AppState>, key: String) {
     state.devices.setup.copies.forget(&key);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn forgetting_a_copy_removes_only_a_devices_own_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let copies_dir = dir.path().join("device-setups");
+        std::fs::create_dir(&copies_dir).unwrap();
+        let copies = RestorePoints {
+            dir: Some(copies_dir.clone()),
+            ..RestorePoints::default()
+        };
+        let key = DeviceIdentity {
+            kind: DeviceKind::Wled,
+            id: "aa:bb:cc".into(),
+            name: "Porch".into(),
+        }
+        .key();
+        let kept = copies_dir.join(format!("{key}.json"));
+        std::fs::write(&kept, "{}").unwrap();
+        // Files a key from the window must never reach: beside the folder, and anywhere at all.
+        let beside = dir.path().join("show.pixelflow.json");
+        std::fs::write(&beside, "{}").unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
+        let far = elsewhere.path().join("other.json");
+        std::fs::write(&far, "{}").unwrap();
+        for key in [
+            "../show.pixelflow".to_string(),
+            far.with_extension("").to_string_lossy().into_owned(),
+            "wled-../../show.pixelflow".to_string(),
+            "wled-zz".to_string(),
+            "printer-aa".to_string(),
+            String::new(),
+        ] {
+            assert!(!is_device_key(&key), "{key}");
+            copies.forget(&key);
+        }
+        assert!(beside.exists() && far.exists() && kept.exists());
+        // The device's own key removes its copy.
+        assert!(is_device_key(&key), "{key}");
+        copies.forget(&key);
+        assert!(!kept.exists());
+    }
 }

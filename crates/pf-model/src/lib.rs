@@ -9,6 +9,7 @@ mod ids;
 mod io;
 mod issue;
 mod limits;
+mod network_paths;
 mod paths;
 mod primitives;
 mod prop;
@@ -29,6 +30,10 @@ pub use limits::{
     MAX_ICICLE_DROP_LIGHTS, MAX_ICICLE_DROPS, MAX_NULL_PIXELS, MAX_POLY_VERTICES, MAX_PROP_NODES,
     MAX_REGION_ENTRIES, MAX_REGIONS_PER_PROP, MAX_SEQUENCE_OFFSET_MS, MAX_SHAPE_LAYERS, MAX_SHOW_PIXELS,
     MAX_SPINNER_ARMS, MAX_SPINNER_HOLLOW, MAX_SPIRAL_TURNS, MAX_STAR_POINTS, shape_problem,
+};
+pub use network_paths::{
+    is_network_path_text, is_refused_network_path, network_path_refusal, network_path_refusal_of,
+    trust_network_folder, trust_network_folder_of,
 };
 pub use paths::{
     display_text, file_name_of, is_full_path_text, path_from_text, path_to_text, relative_text, resolve_text,

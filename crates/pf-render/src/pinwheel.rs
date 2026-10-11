@@ -294,24 +294,40 @@ impl Wedges {
     /// on the pixel's other side.
     #[inline]
     fn shown(&self, wheel: &Pinwheel, f: f32, r: f32) -> (f32, bool) {
-        let (off, side) = if f < 0.0 { (-f, 0) } else { (f, 1) };
-        // A sector's width here in cells, measured square across an arm (a twisted arm leans,
-        // so it is narrower across than along the circle).
-        let across = if self.lean == 0.0 {
+        if self.clear(wheel, f, r) {
+            return (0.0, false);
+        }
+        self.covered(wheel, f, r)
+    }
+
+    /// A sector's width in cells, `r` cells from the center, measured square across an arm (a
+    /// twisted arm leans, so it is narrower across than along the circle).
+    #[inline]
+    fn across(&self, wheel: &Pinwheel, r: f32) -> f32 {
+        if self.lean == 0.0 {
             r * wheel.sector
         } else {
             let lean = r * self.lean;
             r * wheel.sector / (1.0 + lean * lean).sqrt()
-        };
-        // Most pixels are well clear of every arm: more than the widest soft band outside the
-        // nearest arm and the line it is kept at, with the next arm further off still. (The
-        // sums below would say so too; this saves them.)
-        if (off - wheel.half) * across >= SOFT / 2.0
+        }
+    }
+
+    /// Whether the pixel is well clear of every arm, as most are: more than the widest soft
+    /// band outside the nearest arm and the line it is kept at, with the next arm further off
+    /// still. [`Self::covered`] would find nothing there too; this saves its sums.
+    #[inline]
+    fn clear(&self, wheel: &Pinwheel, f: f32, r: f32) -> bool {
+        let (off, across) = (f.abs(), self.across(wheel, r));
+        (off - wheel.half) * across >= SOFT / 2.0
             && (off * across).min(r) >= HALF_LINE + SOFT / 2.0
             && self.gap * across >= SOFT
-        {
-            return (0.0, false);
-        }
+    }
+
+    /// [`Self::shown`], worked out in full.
+    #[inline]
+    fn covered(&self, wheel: &Pinwheel, f: f32, r: f32) -> (f32, bool) {
+        let (off, side) = if f < 0.0 { (-f, 0) } else { (f, 1) };
+        let across = self.across(wheel, r);
         let width = 2.0 * wheel.half * across;
         let sharp = sharpness(width.max(2.0 * HALF_LINE));
 
@@ -383,15 +399,27 @@ impl Rays {
     /// the arm on the pixel's other side.
     #[inline]
     fn shown(&self, wheel: &Pinwheel, direction: u32, f: f32, r: f32) -> (f32, bool) {
-        // The nearest arm's center line, in degrees counterclockwise of the pixel. Most pixels
-        // are well clear of every direction it lights (and of the center, where every arm
-        // starts): more than a ray's reach and the widest soft band away. (The sums below would
-        // say so too; this saves them.)
-        let center = -f * self.sector;
-        let clear = (center.abs() - self.lit_half - RAY_TIE) * RADIANS_PER_DEGREE * r;
-        if clear.min(r) >= HALF_LINE + SOFT / 2.0 {
+        if self.clear(f, r) {
             return (0.0, false);
         }
+        self.covered(wheel, direction, f, r)
+    }
+
+    /// Whether the pixel is well clear of every direction the nearest arm lights (and of the
+    /// center, where every arm starts), as most are: more than a ray's reach and the widest
+    /// soft band away. [`Self::covered`] would find nothing there too; this saves its sums.
+    #[inline]
+    fn clear(&self, f: f32, r: f32) -> bool {
+        let center = -f * self.sector;
+        let away = (center.abs() - self.lit_half - RAY_TIE) * RADIANS_PER_DEGREE * r;
+        away.min(r) >= HALF_LINE + SOFT / 2.0
+    }
+
+    /// [`Self::shown`], worked out in full.
+    #[inline]
+    fn covered(&self, wheel: &Pinwheel, direction: u32, f: f32, r: f32) -> (f32, bool) {
+        // The nearest arm's center line, in degrees counterclockwise of the pixel.
+        let center = -f * self.sector;
         // How far counterclockwise of its nearest ray the pixel is (-0.5 to 0.5 degrees): the
         // fraction of its direction counted in degrees.
         let beside = ((u64::from(direction) * 360) as u32 as i32) as f32 * STEP;
@@ -507,15 +535,28 @@ fn place(at: f32) -> f32 {
     if at.is_finite() { at } else { 0.0 }
 }
 
-impl Shade for Pinwheel {
+/// Where a pixel is on the wheel.
+struct Spot {
+    /// Cells from the center.
+    r: f32,
+    /// Its direction from the center, in steps counterclockwise from pointing right.
+    direction: u32,
+    /// The nearest arm's place round the wheel, counting counterclockwise from the first arm.
+    nearest: usize,
+    /// How far counterclockwise of that arm's center line it sits (-0.5 to 0.5 of a sector).
+    f: f32,
+}
+
+impl Pinwheel {
+    /// Where a pixel is on the wheel; `None` beyond where anything is lit.
     #[inline]
-    fn shade(&self, px: &Pixel) -> Rgba {
+    fn spot(&self, px: &Pixel) -> Option<Spot> {
         // Where the pixel is from the center, in cells.
         let x = (place(px.u) - self.center[0]) * self.cells[0];
         let y = (place(px.v) - self.center[1]) * self.cells[1];
         let squared = x * x + y * y;
         if squared >= self.reach_squared {
-            return Rgba::CLEAR;
+            return None;
         }
         let r = squared.sqrt();
 
@@ -545,13 +586,31 @@ impl Shade for Pinwheel {
 
         // Its place on the wheel standing still with straight arms, in sectors (32 bits of
         // whole sectors above 32 bits of fraction): the nearest arm, and how far
-        // counterclockwise of that arm's center line it sits (-0.5 to 0.5 of a sector).
+        // counterclockwise of that arm's center line it sits.
         let curled = (r * self.curl) as i64 as u32;
         let on_wheel = direction.wrapping_sub(self.first).wrapping_sub(curled);
         let sectors = u64::from(on_wheel) * self.arms;
-        let nearest = ((sectors + u64::from(HALF_TURN)) >> 32) as usize;
-        let f = (sectors as u32 as i32) as f32 * STEP;
+        Some(Spot {
+            r,
+            direction,
+            nearest: ((sectors + u64::from(HALF_TURN)) >> 32) as usize,
+            f: (sectors as u32 as i32) as f32 * STEP,
+        })
+    }
+}
 
+impl Shade for Pinwheel {
+    #[inline]
+    fn shade(&self, px: &Pixel) -> Rgba {
+        let Some(Spot {
+            r,
+            direction,
+            nearest,
+            f,
+        }) = self.spot(px)
+        else {
+            return Rgba::CLEAR;
+        };
         // How much of the wheel shows at the pixel, and whether more of that is the arm on the
         // pixel's other side than the nearest one: the arm showing more gives the color.
         let (shown, neighbor) = match &self.drawn {
@@ -568,5 +627,234 @@ impl Shade for Pinwheel {
             (true, false) => nearest + 2,
         };
         Rgba::with_alpha(self.colors[place % PLACES], alpha)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pf_sequence::Rgb;
+
+    /// Whether the shortcut answers for the pixel at this spot, and what the sums give there.
+    fn both_ways(wheel: &Pinwheel, spot: &Spot) -> (bool, (f32, bool)) {
+        match &wheel.drawn {
+            Drawn::Wedges(w) => (w.clear(wheel, spot.f, spot.r), w.covered(wheel, spot.f, spot.r)),
+            Drawn::Rays(rays) => (
+                rays.clear(spot.f, spot.r),
+                rays.covered(wheel, spot.direction, spot.f, spot.r),
+            ),
+        }
+    }
+
+    fn pixel(u: f64, v: f64) -> Pixel {
+        Pixel {
+            u: u as f32,
+            v: v as f32,
+            index: 0,
+            count: 1,
+        }
+    }
+
+    /// What was tried, to show the sweep reached every case.
+    #[derive(Default)]
+    struct Tried {
+        /// Pixels the shortcut answered for, and pixels the sums found nothing at without it.
+        skipped: usize,
+        unlit_in_full: usize,
+        lit: usize,
+        /// Places found where the shortcut starts or stops answering, each tried on both sides.
+        cut_offs: usize,
+    }
+
+    /// One pixel: wherever the shortcut answers, the sums must find nothing, exactly; and what
+    /// the wheel shows must be what the sums give.
+    fn try_pixel(wheel: &Pinwheel, px: &Pixel, tried: &mut Tried, what: &dyn Fn() -> String) -> Option<bool> {
+        let spot = wheel.spot(px)?;
+        let (clear, full) = both_ways(wheel, &spot);
+        if clear {
+            assert_eq!(
+                (full.0.to_bits(), full.1),
+                (0.0f32.to_bits(), false),
+                "{}: the shortcut answers at ({}, {}) where the sums give {full:?}",
+                what(),
+                px.u,
+                px.v
+            );
+            tried.skipped += 1;
+        } else if full.0 <= 0.0 {
+            tried.unlit_in_full += 1;
+        } else {
+            tried.lit += 1;
+        }
+        let shown = match &wheel.drawn {
+            Drawn::Wedges(w) => w.shown(wheel, spot.f, spot.r),
+            Drawn::Rays(rays) => rays.shown(wheel, spot.direction, spot.f, spot.r),
+        };
+        assert_eq!(
+            (shown.0.to_bits(), shown.1),
+            (full.0.to_bits(), full.1),
+            "{}",
+            what()
+        );
+        Some(clear)
+    }
+
+    /// Pixels along a path (`at` gives the place for 0 to 1 along it): a spread of them, and
+    /// wherever the shortcut starts or stops answering between two of those, the two nearest
+    /// places either side of that cut-off that can be told apart, and a few a little further off.
+    fn try_path(
+        wheel: &Pinwheel,
+        at: &dyn Fn(f64) -> (f64, f64),
+        tried: &mut Tried,
+        what: &dyn Fn() -> String,
+    ) {
+        const STEPS: usize = 96;
+        let try_at = |t: f64, tried: &mut Tried| {
+            let (u, v) = at(t);
+            try_pixel(wheel, &pixel(u, v), tried, what)
+        };
+        let mut last: Option<(f64, bool)> = None;
+        for step in 0..=STEPS {
+            let t = step as f64 / STEPS as f64;
+            let Some(clear) = try_at(t, tried) else {
+                last = None;
+                continue;
+            };
+            if let Some((before, was)) = last
+                && was != clear
+            {
+                // Close in on the cut-off between the two.
+                let (mut a, mut b) = (before, t);
+                for _ in 0..60 {
+                    let middle = (a + b) / 2.0;
+                    match try_at(middle, tried) {
+                        Some(here) if here == was => a = middle,
+                        _ => b = middle,
+                    }
+                }
+                tried.cut_offs += 1;
+                for nudge in [0.0, 1e-9, 1e-7, 1e-5, 1e-3] {
+                    try_at(a - nudge, tried);
+                    try_at(b + nudge, tried);
+                }
+            }
+            last = Some((t, clear));
+        }
+    }
+
+    /// The shortcut for pixels clear of every arm changes nothing: over wheels of every kind, on
+    /// buffers from one pixel to hundreds of cells, at pixels on the grid, between its cells, and
+    /// right at the shortcut's cut-off on both sides, the wheel shows bit for bit what the sums
+    /// alone give.
+    #[test]
+    fn the_shortcut_for_pixels_clear_of_every_arm_changes_nothing() {
+        let buffers = [(1, 1), (3, 3), (41, 1), (1, 41), (9, 5), (101, 101), (400, 178)];
+        let placed = [
+            (100.0, 0.0, 0.0, 0.0, 0u64),
+            (37.0, 25.0, -60.0, 77.7, 1350),
+            (400.0, -100.0, 100.0, 359.5, 86_400_000),
+        ];
+        let mut tried = [Tried::default(), Tried::default()];
+        for (which, style) in [PinwheelStyle::Smooth, PinwheelStyle::Spokes]
+            .into_iter()
+            .enumerate()
+        {
+            for arms in [1, 2, 3, 4, 7, 12, 20] {
+                for thickness in [0.0, 0.5, 1.0, 5.0, 25.0, 50.0, 90.0, 99.9, 100.0] {
+                    for twist in [0.0, 30.0, -360.0, 360.0] {
+                        for shading in [PinwheelShading::Flat, PinwheelShading::Sweep] {
+                            for (columns, rows) in buffers {
+                                for (arm_size, center_x, center_y, offset, elapsed_ms) in placed {
+                                    let p = PinwheelParams {
+                                        arms,
+                                        arm_size,
+                                        twist,
+                                        thickness,
+                                        speed: 7.0,
+                                        counterclockwise: arms % 2 == 0,
+                                        shading,
+                                        offset,
+                                        center_x,
+                                        center_y,
+                                        style,
+                                    };
+                                    let what = || format!("{p:?} on {columns} by {rows} at {elapsed_ms} ms");
+                                    let time = EffectTime::within(0, 90_000_000, elapsed_ms);
+                                    let canvas = Canvas { columns, rows };
+                                    let wheel = Pinwheel::new(&p, &time, Colors::new(&[Rgb::WHITE]), canvas);
+                                    let tried = &mut tried[which];
+                                    // Pixels on the grid (every one, or a spread of a large one).
+                                    let stride = (columns * rows / 300).max(1) as usize;
+                                    for k in (0..columns * rows).step_by(stride) {
+                                        let (x, y) = (k % columns, k / columns);
+                                        let along = |i: u32, n: u32| {
+                                            if n > 1 {
+                                                f64::from(i) / f64::from(n - 1)
+                                            } else {
+                                                0.5
+                                            }
+                                        };
+                                        try_pixel(
+                                            &wheel,
+                                            &pixel(along(x, columns), along(y, rows)),
+                                            tried,
+                                            &what,
+                                        );
+                                    }
+                                    // Straight lines over the buffer and a little past its edges,
+                                    // at places that fall between cells.
+                                    let (cu, cv) = (f64::from(wheel.center[0]), f64::from(wheel.center[1]));
+                                    for k in 0..4 {
+                                        let lean = f64::from(k) * 0.37 - 0.5;
+                                        try_path(
+                                            &wheel,
+                                            &|t| (t * 1.2 - 0.1, cv + lean * (t - 0.4)),
+                                            tried,
+                                            &what,
+                                        );
+                                        try_path(
+                                            &wheel,
+                                            &|t| (cu + lean * (t - 0.6), t * 1.2 - 0.1),
+                                            tried,
+                                            &what,
+                                        );
+                                    }
+                                    // Rings about the center, near it and out to where the arms end.
+                                    if columns > 1 && rows > 1 {
+                                        let (across, up) = (f64::from(columns - 1), f64::from(rows - 1));
+                                        for r in [
+                                            0.7,
+                                            1.9,
+                                            6.3,
+                                            0.31 * f64::from(wheel.length),
+                                            0.97 * f64::from(wheel.length),
+                                        ] {
+                                            let ring = |t: f64| {
+                                                let (sin, cos) = (t * std::f64::consts::TAU).sin_cos();
+                                                (cu + r * cos / across, cv + r * sin / up)
+                                            };
+                                            try_path(&wheel, &ring, tried, &what);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for (style, tried) in ["smooth", "spokes"].into_iter().zip(&tried) {
+            assert!(
+                tried.skipped > 100_000
+                    && tried.unlit_in_full > 10_000
+                    && tried.lit > 100_000
+                    && tried.cut_offs > 10_000,
+                "{style}: {} skipped, {} unlit in full, {} lit, {} cut-offs",
+                tried.skipped,
+                tried.unlit_in_full,
+                tried.lit,
+                tried.cut_offs
+            );
+        }
     }
 }

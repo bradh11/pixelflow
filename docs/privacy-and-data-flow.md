@@ -88,6 +88,15 @@ A show file holds its controllers' addresses. If you open a show someone else ma
 addresses in it are theirs. PixelFlow will check and, when you press Play or Send, send to those
 addresses. Look at the controller list before you send anything from a show you didn't make.
 
+A show or a sequence also names its files: music, a photo, pictures. If one of those names is a
+place on a network share (`\\server\share\…`), PixelFlow does not look there on the file's say-so.
+On Windows, even looking at such a place signs in to that server, and a file from someone else
+could name a server of theirs. The file is listed with the missing ones, with a sentence saying
+it is on a network share. Once you choose a file in that folder yourself (Locate…, or any Open
+dialog), PixelFlow reads the rest of that folder for as long as the app stays open. If you keep
+your own music on a network share, giving the share a drive letter in Windows avoids the
+question altogether.
+
 ## The assistant (AI)
 
 The assistant does nothing, and sends nothing, until you add your own key from Anthropic or

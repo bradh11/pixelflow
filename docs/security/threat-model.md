@@ -95,7 +95,7 @@ user has to take first.
 | 11 | Medium | Sample rate and length taken from the header unchecked (memory inflation) | **Fixed** `7011d16` |
 | 12 | Medium | A device or pipe named as music was read for ever | **Fixed** `9769625` |
 | 13 | Medium | A download from an FPP had no byte limit | **Fixed** `846db72` |
-| 14 | Medium (Windows) | Paths written inside files are used as written: a network path is contacted when the file opens | Recommendation R1 |
+| 14 | Medium (Windows) | Paths written inside files are used as written: a network path is contacted when the file opens | **Fixed** `3eceed8`, `5802179`, `564006b` (the network-path rule of R1; the rest of R1 stands) |
 | 15 | Medium (Windows), Low elsewhere | The assistant can put file paths and controller addresses in a proposal | Recommendation R2 |
 | 16 | Medium | xLights layout import: no limit on the work across models | Recommendation R6 |
 | 17 | Medium | `.xsq` and vendor import: unlimited element counts feeding slow scans | Recommendation R6 |
@@ -189,9 +189,9 @@ of real use, and each is one constant if it needs raising:
 Also changed: a sequence's music is only found automatically if its name ends in a music
 extension PixelFlow plays, and an FPP download must be a `.fseq` or one of FPP's music types.
 
-### 4.3 Medium, not fixed
+### 4.3 Medium, not fixed when reviewed
 
-#### 14. Paths written inside files are used as written
+#### 14. Paths written inside files are used as written (network paths fixed since)
 
 - A show stores its files' paths; a full path "is left as it is"
   (`crates/pf-model/src/paths.rs:158`), `\\server\share` counts as full (`paths.rs:120`), and
@@ -208,8 +208,41 @@ extension PixelFlow plays, and an FPP download must be a `.fseq` or one of FPP's
   pictures real pictures, music real audio. Where those bytes can go: to the window (which
   cannot send them on), into an exported video, into `<show>/images/` as a copy, or, after the
   clicks in finding 26, to an FPP or the AI provider.
-- **Not fixed** because refusing network paths changes behaviour for people who keep media on a
-  NAS. See R1.
+- **Fixed** (after the review, when Windows builds began): a network share path
+  (`\\server\share\…`, also written `//server/share/…`) or a Windows device path (`\\?\…`,
+  `\\.\…`, `\??\…`) that came out of a file is never looked at, unless the user chose something
+  in the same folder, or a folder above it, in a file dialog this session.
+  - **The rule** is one function on the path's text, `network_path_refusal`
+    (`crates/pf-model/src/network_paths.rs`), so it is the same on every system. The folders
+    chosen from are kept for the session only, and only the file dialogs
+    (`app/src-tauri/src/pickers.rs`, `pick`) and the recent-shows list (shows the user opened
+    or saved before, `recent.rs`) add to them. A path with `..` in it is never inside a chosen
+    folder. A drive letter mapped to a share is an ordinary path.
+  - **Where it is asked:** the check of a show's files when it opens and afterwards
+    (`crates/pf-engine/src/files.rs`, `exists`), the folder a show says it was saved in
+    (`persist.rs`), a sequence's music (`MusicCheck`, `Engine::sequence_music`), playback of a
+    show's sequence and its music (`playback.rs`), Picture effect files (`pictures.rs`), the
+    photo and pictures an xLights show names (`crates/pf-xlights/src/background.rs`, `find`),
+    the photo in a video export (`crates/pf-video/src/export.rs`), and every path the window
+    hands the shell (`app/src-tauri/src/lib.rs`, `window_path` and `PathArg`), which covers a
+    path the assistant put in a proposal (finding 15) once it is applied.
+  - **What the user sees:** the file is listed with the missing ones, with a sentence naming it:
+    "Song.mp3 is on a network share (\\nas\music). PixelFlow opens files from a network folder
+    only after you choose a file in that folder yourself." Locate… (or any dialog) in that
+    folder lets the rest of the folder be found. People who keep media on a NAS choose from it
+    once per session, or map the share to a drive letter.
+  - **Tests**, on every system: `crates/pf-model/src/network_paths.rs`,
+    `crates/pf-engine/tests/network_paths.rs`,
+    `music_a_show_names_on_a_network_share_is_never_opened` (`tests/playback.rs`),
+    `a_photo_written_as_a_network_path_is_not_looked_at_there` (pf-xlights),
+    `a_photo_on_a_network_share_the_user_did_not_choose_from_is_not_read` (pf-video), and two
+    in the shell (`lib.rs`). They name a file that is really there by a spelling that reads as a
+    network or device path and still reaches it (a second leading `/` on Unix, `\\?\` on
+    Windows), and check it goes unfound until its folder is chosen from.
+  - **Left:** the rest of R1 (marking files outside the show's folder, asking before copying a
+    picture in from elsewhere). A full path on a local disk is still looked for as written.
+    That the Windows sign-in attempt really is gone was not observed on a network: the tests
+    show the path is never handed to the system.
 
 #### 15. The assistant can put paths and addresses in a proposal
 
@@ -223,6 +256,8 @@ extension PixelFlow plays, and an FPP download must be a `.fseq` or one of FPP's
   it and the user applied the proposal, reach finding 14 (a network path on Windows) or aim a
   controller at an outside address. It needs both a misled model and an Apply click on a card
   that says what it does. See R2.
+- Since the fix for finding 14, a network path that arrives this way is refused like one from a
+  file: it was not chosen in a dialog. The controller address half of this finding stands.
 
 #### 16, 17. Importers with no limit on total work
 
@@ -439,7 +474,7 @@ require. Internet traffic is HTTPS (rustls, Mozilla's root list, certificates ch
 | `api.openai.com` or `api.anthropic.com` | HTTPS | The conversation, the tool definitions, and whatever the model asks the tools for (see below); the key as a header | Sending a chat message; opening AI settings (model list) | A key the user entered |
 | `api.openai.com` (audio) | HTTPS | The song: the file as it is if under 25 MB, else mono 16 kHz WAV parts; its file name; the language; a hint of title, artist, and first line | "Find lyrics" with an OpenAI key | The user's separate agreement to send audio |
 | `huggingface.co` and its CDN | HTTPS | A request for one file | "Download" in lyric alignment settings | A confirmation; the file's SHA-256 is pinned (`crates/pf-align/src/store.rs:142`) |
-| On Windows, a server named in a file's path | SMB, by the OS | A sign-in attempt | Opening a file that names a network path | None (finding 14) |
+| On Windows, a server the user chose a file on | SMB, by the OS | A sign-in attempt | Choosing a file on a network share in a dialog; after that, opening files that name paths in the same folder | The choice in the dialog. A server only a file names is never contacted (finding 14) |
 
 **What the model can see**, when it asks: the show's name and frame rate; props (names, shapes,
 positions, wiring); groups; controllers with their addresses; the playlist with file paths; the
@@ -506,7 +541,8 @@ Worth saying, because most of the review confirmed careful work.
 Each is a change in behaviour or a larger piece of work, so none was made. In rough order of
 value.
 
-**R1. Paths from files (finding 14).** Treat a path read from a file as a claim, not an
+**R1. Paths from files (finding 14).** The network-path rule below is done, on every system
+(see finding 14); the other points stand. Treat a path read from a file as a claim, not an
 instruction.
 - A path inside the show's folder (or the folder an import came from): use it as now.
 - A full path elsewhere on a local disk: look for it as now, and mark the file as "outside the
@@ -599,7 +635,10 @@ to newer bindings. Neither PixelFlow nor the GTK crates it links use `VariantStr
 
 ## 13. Not verified
 
-- Anything on Windows: network paths, reserved file names, how memory is committed.
+- On Windows: CI now builds and tests the engine and the desktop shell there, so the tests'
+  claims hold on Windows too. Still not verified: a network path really contacting nothing (no
+  test has a share to watch), reserved file names, how memory is committed, the Credential
+  Manager with a real key, and a built installer.
 - A real webview: the content policy change, and how the webview copes with very large images
   or models.
 - Real devices: which GET endpoints FPP, Falcon, and WLED firmware change state on; what a real

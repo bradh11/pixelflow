@@ -75,6 +75,14 @@ async function setup(show: Show, delayMs = 0, Engine: typeof MemoryBackend = Mem
 
 const canvas = () => screen.getByRole("application", { name: "Layout canvas" });
 
+/** What a made-up canvas context needs for the props' dots, which are stamped into an image: its canvas, and images. */
+const stampable = (): Record<string | symbol, unknown> => ({
+  get canvas() {
+    return canvas();
+  },
+  createImageData: (w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4) }),
+});
+
 function screenAt(world: Pt): Pt {
   return toScreen(useLayoutEditor.getState().view!, SIZE, world);
 }
@@ -1346,7 +1354,7 @@ describe("LayoutScreen", () => {
   it("keeps drawing after mounting twice in strict mode", async () => {
     // A context that only counts fills of the whole canvas (one per drawn frame).
     let frames = 0;
-    const context = new Proxy({} as Record<string | symbol, unknown>, {
+    const context = new Proxy(stampable(), {
       get: (target, key) => {
         if (key in target) return target[key];
         if (key === "fillRect") return (_x: number, _y: number, w: number) => w === SIZE.width && frames++;
@@ -1892,7 +1900,7 @@ describe("LayoutScreen", () => {
     async function recordText() {
       const texts: string[] = [];
       const strokes: string[] = [];
-      const context = new Proxy({} as Record<string | symbol, unknown>, {
+      const context = new Proxy(stampable(), {
         get: (target, key) => {
           if (key in target) return target[key];
           if (key === "fillText") return (text: string) => texts.push(text);

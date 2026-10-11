@@ -1,7 +1,7 @@
 import { type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { Port, PreviewProp, Show } from "../../api/types";
 import { type Box, type Pt, type Size, type View, backgroundBox, boxOfPoints, fitView, hitTest, toScreen, toWorld, unionBox } from "../../lib/layoutMath";
-import { batchPixels, drawBatches } from "../../lib/pixelBatches";
+import { drawPixels } from "../../lib/pixelBatches";
 import { type PortRef, findPort, wiringPath } from "../../lib/wiringMath";
 import { useWiring } from "../../state/wiring";
 import { useBackgroundImage } from "../layout/useLayoutData";
@@ -82,7 +82,7 @@ function drawLayout(canvas: HTMLCanvasElement, size: Size, view: View, props: Pr
     ctx.globalAlpha = 1;
   }
   const radius = Math.min(3, Math.max(1, view.zoom * 0.04));
-  drawBatches(ctx, batchPixels(props, null, view, size, NONE, PIXELS, radius), radius, window.devicePixelRatio || 1);
+  drawPixels(ctx, props, null, view, size, NONE, PIXELS, radius, window.devicePixelRatio || 1);
 }
 
 /**
@@ -109,7 +109,7 @@ function drawPath(canvas: HTMLCanvasElement, size: Size, view: View, props: Prev
   }
   if (!port) return;
   const lit = props.filter((p) => onPort.has(p.prop));
-  drawBatches(ctx, batchPixels(lit, null, view, size, onPort, PIXELS, radius), radius, window.devicePixelRatio || 1);
+  drawPixels(ctx, lit, null, view, size, onPort, PIXELS, radius, window.devicePixelRatio || 1);
   const path = wiringPath(port, props);
   if (!path.start || !path.firstPixel) return;
 

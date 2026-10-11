@@ -49,7 +49,7 @@ import {
   resizeView,
   type Rect,
 } from "../../lib/layoutMath";
-import { DOT_RADIUS, batchPixels, drawBatches, drawPixels } from "../../lib/pixelBatches";
+import { DOT_RADIUS, drawPixels } from "../../lib/pixelBatches";
 import { updateEdits } from "../../lib/layoutEdits";
 import {
   type LineEnd,
@@ -479,7 +479,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     const radius = Math.min(4.5, Math.max(1.3, view.zoom * DOT_RADIUS));
     drawPixels(ctx, props, frame.current, view, s, selected, PIXEL_COLORS, radius, ratio, useView3d.getState().glow);
 
-    // A submodel or face picked in the properties panel, drawn over its prop a little bigger.
+    // A submodel or face picked in the properties panel, drawn over its prop: a little bigger, where its pixels have the room.
     const hl = editor.highlight;
     const hlProp = hl && latest.current.show.props.find((p) => p.id === hl.prop);
     const hlRegion = hl && hlProp?.regions.find((r) => r.id === hl.region);
@@ -487,7 +487,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     if (hl && hlProp && hlRegion && hlPoints) {
       const { points, rgb } = highlightPixels(hlRegion, nodeCount(hlProp.shape), hlPoints, hl.phoneme);
       const big = radius * 1.4;
-      drawBatches(ctx, batchPixels([{ prop: hl.region, frameOffset: 0, channelsPerPixel: 3, points }], rgb, view, s, new Set(), PIXEL_COLORS, big), big, ratio);
+      drawPixels(ctx, [{ prop: hl.region, frameOffset: 0, channelsPerPixel: 3, points }], rgb, view, s, new Set(), PIXEL_COLORS, big, ratio);
     }
 
     const d = drag.current;
@@ -495,8 +495,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
       const draft = draftProp(d);
       if (draft) {
         const pts = frontView(draft);
-        const outline = batchPixels([{ prop: draft.id, frameOffset: 0, channelsPerPixel: 3, points: pts }], null, view, s, new Set([draft.id]), PIXEL_COLORS, radius);
-        drawBatches(ctx, outline, radius, ratio);
+        drawPixels(ctx, [{ prop: draft.id, frameOffset: 0, channelsPerPixel: 3, points: pts }], null, view, s, new Set([draft.id]), PIXEL_COLORS, radius, ratio);
       }
       const [a, b] = [at(d.from), at(d.to)];
       strokeWithHalo(ctx, 1, [5, 4], () => {
@@ -544,8 +543,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
       const points = next ? [...drawing.points, next.at] : drawing.points;
       const draft = finishDraft({ points }, newProp("polyLine", latest.current.show));
       if (draft) {
-        const outline = batchPixels([{ prop: draft.id, frameOffset: 0, channelsPerPixel: 3, points: frontView(draft) }], null, view, s, new Set([draft.id]), PIXEL_COLORS, radius);
-        drawBatches(ctx, outline, radius, ratio);
+        drawPixels(ctx, [{ prop: draft.id, frameOffset: 0, channelsPerPixel: 3, points: frontView(draft) }], null, view, s, new Set([draft.id]), PIXEL_COLORS, radius, ratio);
       }
       strokeWithHalo(ctx, 1, [5, 4], () => {
         ctx.beginPath();

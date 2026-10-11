@@ -4008,6 +4008,28 @@
         "label": "Tint with the palette",
         "more": true,
         "type": "bool"
+      },
+      {
+        "default": "own",
+        "description": "Resized as an older xLights resized it, for a sequence imported from that version.",
+        "key": "resize",
+        "label": "Resized",
+        "more": true,
+        "options": [
+          {
+            "label": "Smooth, or crisp",
+            "value": "own"
+          },
+          {
+            "label": "As xLights before 2024.16",
+            "value": "xlightsNearest"
+          },
+          {
+            "label": "As xLights 2024.16 to 2025.05",
+            "value": "xlightsMixed"
+          }
+        ],
+        "type": "choice"
       }
     ]
   },

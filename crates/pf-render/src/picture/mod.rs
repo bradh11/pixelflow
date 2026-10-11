@@ -27,8 +27,8 @@ use crate::geometry::Pixel;
 use crate::raster::{cell_of, grid_size};
 use decode::Look;
 use library::{Drawn, Need, Want};
-use pf_sequence::{PictureFit, PictureMovement, PictureParams, PictureTiming, PictureTurn};
-use resample::Bitmap;
+use pf_sequence::{PictureFit, PictureMovement, PictureParams, PictureResize, PictureTiming, PictureTurn};
+use resample::{Bitmap, Resize};
 use std::sync::Arc;
 
 /// The most cells a picture is drawn at (a larger one is drawn smaller).
@@ -79,6 +79,29 @@ fn fitted(fit: PictureFit, native: (f64, f64), grid: (f64, f64)) -> (f64, f64) {
     }
 }
 
+/// [`fitted`] as xLights works a kept shape out (`PicturesEffect::Render`): the scale in single
+/// precision, and each side cut down to whole cells.
+fn fitted_as_xlights(fit: PictureFit, native: (f64, f64), grid: (f64, f64)) -> (f64, f64) {
+    let (across, down) = ((grid.0 / native.0) as f32, (grid.1 / native.1) as f32);
+    let scale = match fit {
+        PictureFit::Fit => across.min(down),
+        PictureFit::Fill => across.max(down),
+        PictureFit::Stretch | PictureFit::Actual => return fitted(fit, native, grid),
+    };
+    let side = |cells: f64| f64::from((cells as f32 * scale).trunc());
+    (side(native.0), side(native.1))
+}
+
+/// How the effect's picture is resized.
+fn resize_of(p: &PictureParams) -> Resize {
+    match p.resize {
+        PictureResize::Own if p.crisp => Resize::Crisp,
+        PictureResize::Own => Resize::Smooth,
+        PictureResize::XlightsNearest => Resize::Corner,
+        PictureResize::XlightsMixed => Resize::Mixed,
+    }
+}
+
 /// What the effect wants of its picture on a target's grid (see `library.rs`), and how the
 /// picture is turned: quarter turns to the right, and whether that lays it on its side.
 pub(crate) fn wanted(p: &PictureParams, canvas: Canvas) -> (Want, u8, bool) {
@@ -106,7 +129,7 @@ pub(crate) fn wanted(p: &PictureParams, canvas: Canvas) -> (Want, u8, bool) {
         },
         doublings: scale.max(1.0).log2().ceil() as u8,
         look: Look {
-            crisp: p.crisp,
+            resize: resize_of(p),
             // Of full white, as red + green + blue.
             black: p
                 .black_transparent
@@ -171,7 +194,11 @@ impl Picture {
             PictureMovement::ZoomOut => 1.0 - time.cycle_position(1.0),
             _ => 1.0,
         };
-        let (mut w, mut h) = fitted(p.fit, native, (f64::from(width), f64::from(height)));
+        let grid = (f64::from(width), f64::from(height));
+        let (mut w, mut h) = match p.resize {
+            PictureResize::Own => fitted(p.fit, native, grid),
+            _ => fitted_as_xlights(p.fit, native, grid),
+        };
         w *= scale * zoom;
         h *= scale * zoom;
         if w * h > MAX_DRAWN_CELLS {
@@ -199,7 +226,7 @@ impl Picture {
             width: w as u32,
             height: h as u32,
             quarters,
-            crisp: p.crisp,
+            resize: resize_of(p),
         };
         let Some(bitmap) = pictures.drawn(&frames, at) else {
             return Self::NOTHING;
@@ -394,5 +421,32 @@ mod tests {
         assert_eq!(fitted(PictureFit::Fit, (4.0, 4.0), grid), (32.0, 32.0));
         assert_eq!(fitted(PictureFit::Fit, (640.0, 32.0), grid), (64.0, 3.2));
         assert_eq!(fitted(PictureFit::Fill, (640.0, 32.0), grid), (640.0, 32.0));
+    }
+
+    #[test]
+    fn xlights_cuts_a_kept_shape_down_to_whole_cells() {
+        // A 300 × 200 picture on 64 × 30: the scale is 0.15, which makes it 45 × 30. On 64 × 31
+        // it is 46.5 × 31, which xLights cuts to 46 where PixelFlow's own rounds to 47.
+        let fit = |grid| fitted_as_xlights(PictureFit::Fit, (300.0, 200.0), grid);
+        assert_eq!(fit((64.0, 30.0)), (45.0, 30.0));
+        assert_eq!(fit((64.0, 31.0)), (46.0, 31.0));
+        assert_eq!(
+            fitted(PictureFit::Fit, (300.0, 200.0), (64.0, 31.0)),
+            (46.5, 31.0)
+        );
+        // Covering the grid: 64 across, and 42 (of 42.67) down.
+        assert_eq!(
+            fitted_as_xlights(PictureFit::Fill, (300.0, 200.0), (64.0, 31.0)),
+            (64.0, 42.0)
+        );
+        // Stretched, or at its own size, there's nothing to cut.
+        assert_eq!(
+            fitted_as_xlights(PictureFit::Stretch, (300.0, 200.0), (64.0, 31.0)),
+            (64.0, 31.0)
+        );
+        assert_eq!(
+            fitted_as_xlights(PictureFit::Actual, (300.0, 200.0), (64.0, 31.0)),
+            (300.0, 200.0)
+        );
     }
 }

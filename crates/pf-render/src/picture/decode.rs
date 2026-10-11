@@ -8,7 +8,7 @@
 //! about the size of the prop it's drawn on, and two hundred frames of a large GIF would
 //! otherwise take hundreds of megabytes. Each halving is a `level`.
 
-use super::resample::{Bitmap, clear_black, resize};
+use super::resample::{Bitmap, Resize, clear_black, resize};
 use image::{AnimationDecoder, ImageDecoder, ImageFormat};
 use std::io::Cursor;
 
@@ -28,8 +28,9 @@ const DEFAULT_DELAY_MS: u32 = 100;
 /// How frames are treated as they're read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub(crate) struct Look {
-    /// Shrunk by taking the nearest pixel instead of averaging.
-    pub crisp: bool,
+    /// How they're resized to the size they're drawn at (see [`Resize::on_reading`] for how
+    /// they're shrunk here).
+    pub resize: Resize,
     /// Pixels no brighter than this (red + green + blue) are made clear.
     pub black: Option<u16>,
 }
@@ -113,7 +114,7 @@ impl Collected {
             .push(if (frame.width, frame.height) == (width, height) {
                 frame
             } else {
-                resize(&frame, width, height, self.look.crisp)
+                resize(&frame, width, height, self.look.resize.on_reading())
             });
         self.delays.push(delay_ms);
         while self.bytes() > self.budget && self.level < MAX_LEVEL {
@@ -127,7 +128,7 @@ impl Collected {
             }
             self.level += 1;
             for frame in &mut self.frames {
-                *frame = resize(frame, width, height, self.look.crisp);
+                *frame = resize(frame, width, height, self.look.resize.on_reading());
             }
         }
     }

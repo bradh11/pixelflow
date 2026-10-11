@@ -3052,6 +3052,28 @@ choices!(PictureTurn {
     "left" => "Quarter turn left",
 });
 
+/// Which of a Picture's pixels a cell takes when it's resized.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum PictureResize {
+    /// PixelFlow's own: smoothed, or crisp.
+    #[default]
+    Own,
+    /// As xLights before 2024.16: the pixel at each cell's corner (a shrink by a whole number
+    /// averages each block).
+    XlightsNearest,
+    /// As xLights 2024.16 to 2025.05: shrinking mixes the four pixels round each cell's place;
+    /// enlarging takes the pixel at its corner.
+    XlightsMixed,
+}
+
+choices!(PictureResize {
+    "own" => "Smooth, or crisp",
+    "xlightsNearest" => "As xLights before 2024.16",
+    "xlightsMixed" => "As xLights 2024.16 to 2025.05",
+});
+
 effect_params! {
     /// A picture or animated GIF from a file, drawn on the prop's grid a cell per pixel. Clear
     /// parts of the picture let the layers below show.
@@ -3090,6 +3112,8 @@ effect_params! {
         pixel_offsets: bool = false => "pixelOffsets", "Offsets in pixels", toggle, more;
         /// Tints the picture with the first palette color.
         tint: bool = false => "tint", "Tint with the palette", toggle, more;
+        /// Resized as an older xLights resized it, for a sequence imported from that version.
+        resize: PictureResize = PictureResize::Own => "resize", "Resized", choice, more;
     }
 }
 

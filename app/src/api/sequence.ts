@@ -436,6 +436,8 @@ export type EffectParams =
       startFrame?: number;
       pixelOffsets?: boolean;
       tint?: boolean;
+      /** Which pixels it takes when resized: PixelFlow's own way, or an older xLights'. */
+      resize?: "own" | "xlightsNearest" | "xlightsMixed";
     }
   | {
       kind: "shockwave";

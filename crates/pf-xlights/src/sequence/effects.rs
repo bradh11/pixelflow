@@ -17,11 +17,11 @@ use pf_sequence::{
     FacesParams, FanParams, FillDirection, FillParams, FireLocation, FireParams, FireStyle, GarlandShape,
     GarlandsDirection, GarlandsParams, Gradient, LifeParams, LifeRules, LightningParams, LinesParams,
     MAX_CURVE_CYCLES, MIN_CURVE_CYCLES, MeteorDirection, MeteorsParams, MorphParams, OffParams, OnParams,
-    Palette, PictureFit, PictureMovement, PictureParams, PictureTiming, PinwheelParams, PinwheelShading,
-    PinwheelStyle, PlasmaColors, PlasmaParams, Rgb, RippleParams, SettingRange, ShapeObject, ShapeParams,
-    ShimmerParams, ShockwaveParams, SnowflakeShape, SnowflakesMotion, SnowflakesParams, SpiralParams,
-    StrobeParams, TendrilMovement, TendrilParams, TextCountdown, TextMovement, TextOrientation, TextParams,
-    TwinkleParams, VuMeterParams, VuMeterShape, VuMeterType, WaveParams,
+    Palette, PictureFit, PictureMovement, PictureParams, PictureResize, PictureTiming, PinwheelParams,
+    PinwheelShading, PinwheelStyle, PlasmaColors, PlasmaParams, Rgb, RippleParams, SettingRange, ShapeObject,
+    ShapeParams, ShimmerParams, ShockwaveParams, SnowflakeShape, SnowflakesMotion, SnowflakesParams,
+    SpiralParams, StrobeParams, TendrilMovement, TendrilParams, TextCountdown, TextMovement, TextOrientation,
+    TextParams, TwinkleParams, VuMeterParams, VuMeterShape, VuMeterType, WaveParams,
 };
 use std::collections::BTreeMap;
 
@@ -893,10 +893,32 @@ fn version_older(than: &str, version: &str) -> bool {
     }
 }
 
+/// A note for [`pictures`] of how the xLights that saved the sequence resized a picture. Not a
+/// setting of xLights' own.
+const PICTURES_RESIZED: &str = "PIXELFLOW_Pictures_Resized";
+
 /// Settings xLights changes when it opens a file saved by an older version (each effect's
-/// `adjustSettings`), so the effect looks as it does in xLights today.
+/// `adjustSettings`), so the effect looks as it does in xLights today. A picture is the
+/// exception: xLights has resized pictures four ways, and an old sequence keeps the way of the
+/// version that saved it, which is the one its lights were last seen with.
 pub fn adjust_for_version(name: &str, s: &mut Settings, version: &str) {
     match effect_key(name).as_str() {
+        // xLights resized with `wxImage::Rescale` until 2026.04, and what that does changed with
+        // the wxWidgets it was built on: the nearest pixel until 2024.16; then four pixels mixed
+        // when shrinking, with the nearest pixel still for enlarging (taken from each cell's
+        // middle from 2025.04); from 2025.06 a box average. Since 2026.04 it filters.
+        "pictures" => {
+            let how = if version_older("2024.16", version) {
+                "nearest"
+            } else if version_older("2025.04", version) {
+                "mixed"
+            } else if version_older("2025.06", version) {
+                "mixed, middle"
+            } else {
+                return;
+            };
+            s.set(PICTURES_RESIZED, how.into());
+        }
         // Fan radii became a share of the prop in 2025.04; older fans keep them in pixels.
         "fan" if version_older("2025.04", version) => s.set("E_CHECKBOX_Fan_Scale", "0".into()),
         // So did a Shockwave's sizes.
@@ -1657,13 +1679,27 @@ fn pictures(r: &Reader, duration_ms: u64, diff: &mut Diff) -> EffectParams {
         PictureFit::Actual => r.get("Pictures_StartScale", 100.0, 0.0, 1000.0),
         _ => 100.0,
     };
-    // xLights resizes by taking the nearest pixel (`wxImage::Rescale` as it calls it); PixelFlow
-    // blends them, so a resized picture's pixels aren't the same ones.
+    // Which pixels a resized picture takes depends on the xLights that saved the sequence (see
+    // `adjust_for_version`). PixelFlow has the two oldest ways; for the rest it averages.
+    let (resize, differs) = match r.s.text(PICTURES_RESIZED, "") {
+        "nearest" => (PictureResize::XlightsNearest, None),
+        "mixed" => (PictureResize::XlightsMixed, None),
+        "mixed, middle" => (
+            PictureResize::XlightsMixed,
+            Some(
+                "enlarged from each cell's corner pixel, where xLights 2025.04 and 2025.05 took its middle one",
+            ),
+        ),
+        _ => (
+            PictureResize::Own,
+            Some("resized by averaging its pixels, where xLights uses another filter"),
+        ),
+    };
     let resized = fit != PictureFit::Actual
         || scale != 100.0
         || r.get("Pictures_EndScale", 100.0, 0.0, 1000.0) != 100.0;
-    if resized {
-        diff.add("resized by blending its pixels, where xLights takes the nearest one");
+    if let (true, Some(differs)) = (resized, differs) {
+        diff.add(differs);
     }
     // A scrolling picture's offset up is taken downward by xLights.
     let up = r.get("PicturesYC", 0.0, -100.0, 100.0);
@@ -1705,6 +1741,7 @@ fn pictures(r: &Reader, duration_ms: u64, diff: &mut Diff) -> EffectParams {
         // xLights' level is red + green + blue (0-765); PixelFlow's a share of full white.
         black_level: (r.get("Pictures_TransparentBlack", 0.0, 0.0, 765.0) / 7.65) as f32,
         pixel_offsets: r.check("Pictures_PixelOffsets"),
+        resize,
         ..PictureParams::default()
     })
 }
@@ -3895,10 +3932,10 @@ mod tests {
             r"E_TEXTCTRL_Pictures_Filename=C:\Users\me\xlights\Images\santa dancing.gif,E_CHOICE_Scaling=Scale Keep Aspect Ratio,E_CHOICE_Pictures_Direction=left,E_TEXTCTRL_Pictures_Speed=2,E_SLIDER_PicturesXC=10,E_SLIDER_PicturesYC=-20,E_CHECKBOX_Pictures_WrapX=1,E_CHECKBOX_LoopGIF=1,E_TEXTCTRL_Pictures_FrameRateAdj=1.5,E_CHECKBOX_Pictures_TransparentBlack=1,E_TEXTCTRL_Pictures_TransparentBlack=153",
             10_000,
         );
-        // Everything comes across; only the resizing isn't xLights' (it takes the nearest pixel).
+        // Everything comes across; only the resizing isn't today's xLights'.
         assert_eq!(
             notes(&t),
-            ["resized by blending its pixels, where xLights takes the nearest one"]
+            ["resized by averaging its pixels, where xLights uses another filter"]
         );
         assert!(
             (p.black_level - 20.0).abs() < 1e-4,
@@ -3975,7 +4012,7 @@ mod tests {
         );
         assert_eq!(
             notes(&t),
-            ["resized by blending its pixels, where xLights takes the nearest one"]
+            ["resized by averaging its pixels, where xLights uses another filter"]
         );
         let (older, _) = picture("E_FILEPICKERCTRL_Pictures_Filename= star.bmp ", 1000);
         assert_eq!(older.file, "star.bmp");
@@ -3994,6 +4031,51 @@ mod tests {
                 "wrapping across not shown on a picture that isn't moving across",
                 BEYOND_RANGE
             ]
+        );
+    }
+
+    #[test]
+    fn a_picture_is_resized_the_way_the_xlights_that_saved_it_resized() {
+        let text = "E_TEXTCTRL_Pictures_Filename=star.png,E_CHOICE_Scaling=Scale To Fit";
+        let from = |version: &str| {
+            let mut s = Settings::parse(text);
+            adjust_for_version("Pictures", &mut s, version);
+            let t = translate("Pictures", &s, &palette(&[]), 1000, 25).unwrap();
+            let EffectParams::Picture(p) = &t.params else {
+                panic!("{:?}", t.params)
+            };
+            (p.resize, notes(&t))
+        };
+        let none: Vec<String> = Vec::new();
+        // The nearest pixel until 2024.16; then four mixed when shrinking.
+        assert_eq!(from("2023.20"), (PictureResize::XlightsNearest, none.clone()));
+        assert_eq!(from("2024.15"), (PictureResize::XlightsNearest, none.clone()));
+        assert_eq!(from("2024.16"), (PictureResize::XlightsMixed, none.clone()));
+        assert_eq!(from("2025.03"), (PictureResize::XlightsMixed, none.clone()));
+        // Two releases enlarged from each cell's middle instead.
+        assert_eq!(
+            from("2025.05"),
+            (
+                PictureResize::XlightsMixed,
+                vec![
+                    "enlarged from each cell's corner pixel, where xLights 2025.04 and 2025.05 took its middle one"
+                        .to_string()
+                ]
+            )
+        );
+        // Since then xLights averages or filters, which PixelFlow's own averaging only comes near.
+        let averaged = vec!["resized by averaging its pixels, where xLights uses another filter".to_string()];
+        assert_eq!(from("2025.06"), (PictureResize::Own, averaged.clone()));
+        assert_eq!(from("2026.12"), (PictureResize::Own, averaged.clone()));
+        assert_eq!(from("not a version"), (PictureResize::Own, averaged));
+        // A picture shown at its own size isn't resized, whatever the version.
+        let mut s = Settings::parse("E_TEXTCTRL_Pictures_Filename=star.png,E_CHOICE_Scaling=No Scaling");
+        adjust_for_version("Pictures", &mut s, "2026.12");
+        assert_eq!(
+            translate("Pictures", &s, &palette(&[]), 1000, 25)
+                .unwrap()
+                .fidelity,
+            Fidelity::Exact
         );
     }
 
@@ -4095,7 +4177,7 @@ mod tests {
         assert_eq!(t.curves["scale"], Curve::ramp(50.0, 200.0));
         assert_eq!(
             notes(&t),
-            ["resized by blending its pixels, where xLights takes the nearest one"]
+            ["resized by averaging its pixels, where xLights uses another filter"]
         );
         // At its own size the whole time, nothing is resized.
         let (_, t) = picture("E_CHOICE_Scaling=No Scaling", 4_000);

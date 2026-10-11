@@ -1085,17 +1085,20 @@ fn pictures_are_found_where_the_sequence_says_or_by_name_in_the_show_folder() {
         &i,
         "Couldn't find a picture near the sequence (gone.gif); choose it in the Picture effects' settings.",
     );
-    // They're real Picture effects, not dim stand-ins: approximate only for being resized.
+    // They're real Picture effects, not dim stand-ins, resized the way the xLights that saved
+    // the sequence (2025.01) resized them.
     assert_eq!(
         (i.summary.placeholders, i.summary.approximate, i.summary.exact),
-        (0, 6, 0),
+        (0, 0, 6),
         "{:#?}",
         i.notes
     );
-    assert_note(
-        &i,
-        "Pictures (6 effects) approximated: resized by blending its pixels, where xLights takes the nearest one.",
+    assert!(
+        pictures
+            .iter()
+            .all(|p| p.resize == pf_sequence::PictureResize::XlightsMixed)
     );
+    assert!(!has_note(&i, "Pictures ("), "{:#?}", i.notes);
     assert!(!has_note(&i, "no matching effect"));
 
     // Without the layout to say where the show folder ends, the folders just above are tried.

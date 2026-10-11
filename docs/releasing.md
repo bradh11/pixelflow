@@ -135,6 +135,11 @@ Without signing, the installers work but each system warns people off them (see
 repository secrets (**Settings**, **Secrets and variables**, **Actions**); nothing else changes.
 The workflow never prints a secret, and none is ever committed.
 
+Repository secrets can be read by any workflow run from a branch of this repository, so by
+anyone who may push one. To narrow that, GitHub can keep secrets in an *environment* that needs
+a named person's approval before a job may use them; the build job would then name that
+environment. That is not set up.
+
 ### macOS
 
 What it takes: membership of the Apple Developer Program (US$99 a year), and from it a
@@ -239,7 +244,8 @@ see [what has and hasn't been tried](#what-has-and-hasnt-been-tried).
 
 ### macOS
 
-- **Local Network.** The first time PixelFlow looks for controllers (Find my controllers) or
+- **Local Network.** The first time PixelFlow looks for controllers (**Find my controllers**,
+  or **Scan network** on the Controllers screen) or
   talks to one (checking it, test output, playing, Send to FPP), macOS asks whether PixelFlow
   may find and connect to devices on the local network. The question carries PixelFlow's own
   sentence: "PixelFlow finds the light controllers on your network and sends them light data."
@@ -255,7 +261,8 @@ see [what has and hasn't been tried](#what-has-and-hasnt-been-tried).
 
 ### Windows
 
-- **Firewall.** The first time you choose Find my controllers, PixelFlow listens for answers
+- **Firewall.** The first time you look for controllers (**Find my controllers**, or **Scan
+  network** on the Controllers screen), PixelFlow listens for answers
   from FPP devices (UDP port 32320) and for the network's own device announcements (mDNS, UDP
   5353), and Windows Defender Firewall asks whether to allow it. **Allow it on private
   networks.** Refused, PixelFlow still finds controllers by trying addresses near your own, and

@@ -68,8 +68,8 @@ Linux) and choose **Show the setup checklist**.
 **You should see:** a window titled "Imported" followed by your show's name. It lists how many
 props, pixels, controllers, wired props, and groups came across.
 
-**If it doesn't:** see [A sequence import shows many "approximate"
-notes](troubleshooting.md#a-sequence-import-shows-many-approximate-notes).
+**If it doesn't:** see [A sequence import says effects look close or
+different](troubleshooting.md#a-sequence-import-says-effects-look-close-or-different).
 
 ### A2. Read the import notes
 
@@ -118,8 +118,8 @@ shown for those). The effects that differ are listed with what you would notice.
 opens on the **Sequence** screen as an unsaved sequence. Choose
 **Save** to keep it.
 
-**If it doesn't:** see [A sequence import shows many "approximate"
-notes](troubleshooting.md#a-sequence-import-shows-many-approximate-notes).
+**If it doesn't:** see [A sequence import says effects look close or
+different](troubleshooting.md#a-sequence-import-says-effects-look-close-or-different).
 
 ### A6. Map a vendor's sequence onto your props
 

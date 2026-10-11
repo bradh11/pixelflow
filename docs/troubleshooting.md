@@ -18,7 +18,7 @@ an FPP and choose **Open FPP's web page**.
 - [Send to FPP fails](#send-to-fpp-fails)
 - [Lights lag the music, or the preview looks late](#lights-lag-the-music-or-the-preview-looks-late)
 - [Brightness is too high or low](#brightness-is-too-high-or-low)
-- [A sequence import shows many "approximate" notes](#a-sequence-import-shows-many-approximate-notes)
+- [A sequence import says effects look close or different](#a-sequence-import-says-effects-look-close-or-different)
 - [Lyrics are wrong or in the wrong language](#lyrics-are-wrong-or-in-the-wrong-language)
 - [The app is slow with a big show](#the-app-is-slow-with-a-big-show)
 
@@ -152,8 +152,8 @@ Likely causes, in order:
    real prop. **Camera mapping** on **Test** finds where each pixel really is by filming the
    lights.
 6. **Imported from xLights.** Read the import notes for the prop. Some wiring details are
-   approximated. See [A sequence import shows many "approximate"
-   notes](#a-sequence-import-shows-many-approximate-notes).
+   approximated. See [A sequence import says effects look close or
+   different](#a-sequence-import-says-effects-look-close-or-different).
 
 ## The controller is not found or "not answering"
 
@@ -279,7 +279,7 @@ There are three separate timings. Fix the one that matches what you see.
 5. **Power.** Lights that look dim or yellow when many pixels are white can be short of power.
    Check your supply.
 
-## A sequence import shows many "approximate" notes
+## A sequence import says effects look close or different
 
 Importing an xLights sequence translates each effect to the closest PixelFlow effect. The report
 says how much of the sequence *comes across the same*, how much *looks close* or *looks

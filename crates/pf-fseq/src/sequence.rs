@@ -71,6 +71,22 @@ impl<R: Read + Seek> Sequence<R> {
         &self.layout.header
     }
 
+    /// The channels the file holds data for (0-based, in channel order): the whole channel
+    /// space, or a sparse file's ranges. Every other channel reads as 0.
+    pub fn stored_ranges(&self) -> Vec<std::ops::Range<u32>> {
+        if self.layout.ranges.is_empty() {
+            return std::iter::once(0..self.layout.header.channels).collect();
+        }
+        let mut ranges: Vec<_> = self
+            .layout
+            .ranges
+            .iter()
+            .map(|r| r.start..r.start + r.count)
+            .collect();
+        ranges.sort_by_key(|r| r.start);
+        ranges
+    }
+
     /// Fills `out` (exactly `header().channels` bytes) with frame `frame`'s channel data.
     /// Channels outside a sparse file's ranges are set to 0.
     pub fn read_frame(&mut self, frame: u32, out: &mut [u8]) -> Result<(), FseqError> {

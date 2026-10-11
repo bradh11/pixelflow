@@ -36,7 +36,8 @@ pub trait AudioClock {
     /// Jumps to `position`. The clock reads that position from then on, even before a slow
     /// sound device has followed (playback relies on it to place the lights at once).
     fn seek(&mut self, position: Duration);
-    /// Where playback is now.
+    /// Where playback is now. Only a jump takes it back: lights following a clock that slipped
+    /// back by itself would show a frame again.
     fn position(&self) -> Duration;
     /// 0.0 (silent) to 1.0 (full).
     fn set_volume(&mut self, volume: f32);

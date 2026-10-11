@@ -164,8 +164,14 @@ impl Layout {
 }
 
 pub struct Pinwheel {
-    /// The center, across and up the target (0–1).
+    /// The pixel position the center settings name, across and up the target (0–1).
     center: [f32; 2],
+    /// How many cells beyond that position the center is. The settings place the center by the
+    /// target's whole extent, from its left (bottom) edge at -100 to its right (top) edge at
+    /// 100, and a target of `n` cells is `n` cells from edge to edge; pixel positions run from
+    /// the middle of its first cell to the middle of its last, `n - 1` cells. The two agree in
+    /// the middle of the target and part evenly either way, to half a cell at its edges.
+    beyond: [f32; 2],
     /// What a full step across or up the target is in cells: its columns and rows, less one.
     cells: [f32; 2],
     /// Where the arms end, in cells from the center.
@@ -239,8 +245,12 @@ impl Pinwheel {
             *slot = colors.get(arm + 1);
         }
 
+        // How far the center is from the middle, as a share of the target's extent.
+        let moved = [p.center_x / 200.0, p.center_y / 200.0];
+
         Self {
-            center: [0.5 + p.center_x / 200.0, 0.5 + p.center_y / 200.0],
+            center: [0.5 + moved[0], 0.5 + moved[1]],
+            beyond: moved,
             cells: [(columns - 1) as f32, (rows - 1) as f32],
             length: reach,
             reach_squared: if reach > 0.0 {
@@ -656,8 +666,8 @@ impl Pinwheel {
     #[inline]
     fn spot(&self, px: &Pixel) -> Option<Spot> {
         // Where the pixel is from the center, in cells.
-        let x = (place(px.u) - self.center[0]) * self.cells[0];
-        let y = (place(px.v) - self.center[1]) * self.cells[1];
+        let x = (place(px.u) - self.center[0]) * self.cells[0] - self.beyond[0];
+        let y = (place(px.v) - self.center[1]) * self.cells[1] - self.beyond[1];
         let squared = x * x + y * y;
         if squared >= self.reach_squared {
             return None;

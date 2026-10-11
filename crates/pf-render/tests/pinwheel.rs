@@ -145,8 +145,8 @@ impl Frame {
             ),
             canvas,
             center: (
-                0.5 + f64::from(p.center_x) / 200.0,
-                0.5 + f64::from(p.center_y) / 200.0,
+                center_of(p.center_x, canvas.columns),
+                center_of(p.center_y, canvas.rows),
             ),
         }
     }
@@ -218,6 +218,18 @@ impl Frame {
             .flat_map(|y| (0..columns).map(move |x| (x, y)))
             .map(|(x, y)| ((f64::from(x) - cx).hypot(f64::from(y) - cy), self.pixel(x, y)))
             .collect()
+    }
+}
+
+/// Where a center setting puts the wheel's center along a side of `cells` cells, as a pixel
+/// position: the setting runs over the side's whole extent, from one edge of the buffer at -100
+/// to the other at 100, half a cell beyond the first and last pixels' own places.
+fn center_of(setting: f32, cells: u32) -> f64 {
+    let share = 0.5 + f64::from(setting) / 200.0;
+    if cells > 1 {
+        (share * f64::from(cells) - 0.5) / f64::from(cells - 1)
+    } else {
+        0.5
     }
 }
 
@@ -1729,7 +1741,8 @@ fn goal_fractions_are_honoured() {
         "the arms end {end} cells out"
     );
 
-    // Center 12.7 puts the center 6.35 cells right of the middle.
+    // Center 12.7 puts the center 12.7% of the way from the middle to the right edge: 6.41 of
+    // the 50.5 cells there are, and -3.3 puts it 1.67 cells below the middle.
     let p = PinwheelParams {
         thickness: 100.0,
         arm_size: 20.0,
@@ -1749,9 +1762,67 @@ fn goal_fractions_are_honoured() {
     }
     let (across, up) = (across / light, up / light);
     assert!(
-        (across - 56.35).abs() <= 0.05 && (up - 48.35).abs() <= 0.05,
+        (across - 56.4135).abs() <= 0.05 && (up - 48.3335).abs() <= 0.05,
         "({across}, {up})"
     );
+}
+
+/// The center settings run over the buffer's whole extent, edge to edge, as xLights' picture
+/// has them: on a buffer of `n` columns a setting of `c` puts the center `n * (0.5 + c / 200)`
+/// cells from the left edge, which is half a cell less than that from the first column's own
+/// place. (A wheel a quarter of the way from the middle to the right edge of a 400-column
+/// buffer is centered on the line between columns 249 and 250.)
+#[test]
+fn goal_the_center_is_placed_by_the_buffers_whole_extent() {
+    let buffers = [
+        RIG,
+        Canvas {
+            columns: 100,
+            rows: 60,
+        },
+        Canvas {
+            columns: 400,
+            rows: 178,
+        },
+    ];
+    for style in STYLES {
+        for canvas in buffers {
+            for (center_x, center_y) in [(0.0, 0.0), (25.0, 0.0), (50.0, -50.0), (-61.5, 33.3)] {
+                // A disc 10 cells in radius, all of it on the buffer.
+                let p = PinwheelParams {
+                    arms: 1,
+                    thickness: 100.0,
+                    arm_size: 100.0,
+                    center_x,
+                    center_y,
+                    style,
+                    ..defaults()
+                };
+                let arm_size = (1000.0 / arm_length(&p, canvas)) as f32;
+                let frame = Frame::new(PinwheelParams { arm_size, ..p }, &ONE, canvas, 0);
+                let (mut light, mut across, mut up) = (0.0, 0.0, 0.0);
+                for y in 0..canvas.rows {
+                    for x in 0..canvas.columns {
+                        let a = f64::from(frame.pixel(x, y).a);
+                        light += a;
+                        across += a * f64::from(x);
+                        up += a * f64::from(y);
+                    }
+                }
+                assert!(light > 250.0, "a disc of {light} pixels");
+                let (across, up) = (across / light, up / light);
+                let want = (
+                    f64::from(canvas.columns) * (0.5 + f64::from(center_x) / 200.0) - 0.5,
+                    f64::from(canvas.rows) * (0.5 + f64::from(center_y) / 200.0) - 0.5,
+                );
+                assert!(
+                    (across - want.0).abs() <= 0.05 && (up - want.1).abs() <= 0.05,
+                    "{style:?} on {canvas:?} at ({center_x}, {center_y}): the disc is about \
+                     ({across}, {up}), not {want:?}"
+                );
+            }
+        }
+    }
 }
 
 /// Arms are evenly spaced, and as wide as each other, for every count, to a fraction of a degree.

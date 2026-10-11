@@ -840,6 +840,11 @@ impl Fire {
                     } else {
                         u32::from(heat[0][x])
                     };
+                    // A cell with nothing rising into it stays cold whatever it would have cooled
+                    // by, and above the flames (and early on, from a cold grid) that's most cells.
+                    if rising == 0 {
+                        continue;
+                    }
                     let cool = (hash(seed, step, (y * FIRE_COLUMNS + x) as u64) % u64::from(cooling)) as u32;
                     next[y][x] = rising.saturating_sub(cool).min(255) as u8;
                 }

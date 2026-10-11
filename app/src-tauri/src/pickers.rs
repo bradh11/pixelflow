@@ -12,6 +12,9 @@
 //! - **Paths come back without loss**: as path text (see `pf_model::path_to_text`), which the
 //!   commands read back with `path_from_text`. Paths that went through the window's own
 //!   dialog API came back as JavaScript strings, losing bytes that aren't UTF-8.
+//! - **Choosing here is what lets a network folder be read**: a path on a network share that a
+//!   show or sequence names is only looked at once the user has chosen something in its folder
+//!   in one of these dialogs this session (see `pf_model::network_path_refusal`).
 //!
 //! How long each dialog takes is logged at debug level (`PIXELFLOW_LOG=debug`).
 
@@ -481,6 +484,12 @@ pub(crate) async fn pick<R: tauri::Runtime>(
         if path.is_some() { "chosen" } else { "cancelled" }
     );
     if let Some(path) = &path {
+        // A network folder the user chose from may be read for the rest of the session; one a
+        // file only names may not (see `pf_model::network_path_refusal`).
+        match mode {
+            Mode::Folder => pf_model::trust_network_folder(path),
+            Mode::Open | Mode::Save => pf_model::trust_network_folder_of(path),
+        }
         let folder = path.parent().filter(|p| !p.as_os_str().is_empty());
         if let Some(folder) = folder {
             state.last_folders.set(spec.key, folder);

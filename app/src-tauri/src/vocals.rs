@@ -76,7 +76,7 @@ pub(crate) async fn vocal_lane<R: Runtime>(
     path: String,
 ) -> Reply<Arc<VocalLane>> {
     let report = reporter(&app, AudioTask::Vocals, &path);
-    let file = pf_model::path_from_text(&path);
+    let file = crate::window_path(&path)?;
     let meta_path = file.clone();
     let meta = tauri::async_runtime::spawn_blocking(move || std::fs::metadata(&meta_path))
         .await

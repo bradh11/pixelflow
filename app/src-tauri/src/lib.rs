@@ -92,11 +92,15 @@ impl AppState {
     /// restored, or imported). Files named only by an edit from the window never become
     /// readable this way: the allowlist lives here, not in the show the window can change.
     fn trust_files_of(&self, show: &Show) {
-        if let Some(background) = &show.background {
-            self.photos.add(pf_model::path_from_text(&background.path));
+        // One on a network share the user hasn't chosen from stays unreadable (see
+        // `pf_model::network_path_refusal`).
+        let readable =
+            |path: &str| (!pf_model::is_refused_network_path(path)).then(|| pf_model::path_from_text(path));
+        if let Some(photo) = show.background.as_ref().and_then(|b| readable(&b.path)) {
+            self.photos.add(photo);
         }
-        if let Some(model) = &show.house_model {
-            self.models.add(pf_model::path_from_text(&model.path));
+        if let Some(model) = show.house_model.as_ref().and_then(|m| readable(&m.path)) {
+            self.models.add(model);
         }
     }
 
@@ -110,14 +114,27 @@ impl AppState {
 type Reply<T> = Result<T, String>;
 
 /// A path from the window, as path text (see `pf_model::path_to_text`), read back without
-/// losing anything: the dialogs hand the window paths this way.
+/// losing anything: the dialogs hand the window paths this way. The window also passes back
+/// paths it read out of a show or a sequence, so a network or device path is taken only from a
+/// folder the user chose from in a dialog this session (see [`window_path`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PathArg(PathBuf);
 
 impl<'de> serde::Deserialize<'de> for PathArg {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let text = String::deserialize(deserializer)?;
-        Ok(Self(pf_model::path_from_text(&text)))
+        window_path(&text).map(Self).map_err(serde::de::Error::custom)
+    }
+}
+
+/// The path the window named as `text`, to look at. A network share or device path that a file
+/// named, rather than one in a folder the user chose from in a dialog this session, is refused
+/// with a sentence naming the file: on Windows, looking at one signs in to its server (see
+/// `pf_model::network_path_refusal`).
+fn window_path(text: &str) -> Reply<PathBuf> {
+    match pf_model::network_path_refusal(text) {
+        Some(refusal) => Err(refusal),
+        None => Ok(pf_model::path_from_text(text)),
     }
 }
 
@@ -1254,7 +1271,12 @@ mod tests {
     fn imports_an_xlights_show_folder_as_a_new_unsaved_show() {
         let (_app, webview, dir) = app();
         let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../crates/pf-xlights/fixtures/sample-show");
+            .join("..")
+            .join("..")
+            .join("crates")
+            .join("pf-xlights")
+            .join("fixtures")
+            .join("sample-show");
         let imported = call(&webview, "import_xlights", json!({ "folder": folder })).unwrap();
         assert_eq!(imported["snapshot"]["show"]["name"], "sample-show");
         assert_eq!(imported["snapshot"]["dirty"], true);
@@ -1286,8 +1308,12 @@ mod tests {
     #[test]
     fn a_vendor_package_maps_onto_the_show_and_its_mapping_and_music_are_kept() {
         let (_app, webview, dir) = app();
-        let fixtures =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/pf-xlights/fixtures");
+        let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("crates")
+            .join("pf-xlights")
+            .join("fixtures");
         call(
             &webview,
             "import_xlights",
@@ -1300,11 +1326,11 @@ mod tests {
             &[
                 (
                     "Vendor/xlights_rgbeffects.xml",
-                    &std::fs::read(fixtures.join("sample-show/xlights_rgbeffects.xml")).unwrap(),
+                    &std::fs::read(fixtures.join("sample-show").join("xlights_rgbeffects.xml")).unwrap(),
                 ),
                 (
                     "Vendor/Sequences/effects.xsq",
-                    &std::fs::read(fixtures.join("sequences/effects.xsq")).unwrap(),
+                    &std::fs::read(fixtures.join("sequences").join("effects.xsq")).unwrap(),
                 ),
                 ("Vendor/Music/effects.mp3", b"ID3 not really a song"),
             ],
@@ -1382,7 +1408,7 @@ mod tests {
             pf_model::path_to_text(&house.join("music"))
         );
         let imported = import(None);
-        let music = house.join("music/effects.mp3");
+        let music = house.join("music").join("effects.mp3");
         assert_eq!(
             imported["snapshot"]["sequence"]["audio"],
             pf_model::path_to_text(&music)
@@ -1423,8 +1449,12 @@ mod tests {
     #[test]
     fn imports_an_xlights_sequence_onto_the_open_show_as_an_unsaved_sequence() {
         let (app, webview, dir) = app();
-        let fixtures =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/pf-xlights/fixtures");
+        let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("crates")
+            .join("pf-xlights")
+            .join("fixtures");
         call(
             &webview,
             "import_xlights",
@@ -1434,7 +1464,7 @@ mod tests {
         let imported = call(
             &webview,
             "import_xlights_sequence",
-            json!({ "path": fixtures.join("sequences/effects.xsq") }),
+            json!({ "path": fixtures.join("sequences").join("effects.xsq") }),
         )
         .unwrap();
         assert_eq!(imported["snapshot"]["sequence"]["name"], "Effects");
@@ -2215,7 +2245,11 @@ mod tests {
         assert_eq!(catalog[4]["settings"][0]["max"], 50.0);
         // The browser stand-in (app/src/api/effectCatalog.json) is a copy of this table; it must
         // not drift. Run with PIXELFLOW_UPDATE_CATALOG=1 to rewrite it.
-        let copy = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/api/effectCatalog.json");
+        let copy = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("src")
+            .join("api")
+            .join("effectCatalog.json");
         let text = serde_json::to_string_pretty(&catalog).unwrap() + "\n";
         if std::env::var_os("PIXELFLOW_UPDATE_CATALOG").is_some() {
             std::fs::write(&copy, &text).unwrap();
@@ -2318,7 +2352,11 @@ mod tests {
         // app/src/api/timingEditCases.json is also run against the in-memory sequencer, so the
         // browser demo and the UI tests edit timing tracks exactly as the engine does.
         let (_app, webview, _dir) = app();
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/api/timingEditCases.json");
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("src")
+            .join("api")
+            .join("timingEditCases.json");
         let cases: Vec<Value> = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
         assert!(cases.len() > 10);
         for case in cases {
@@ -2513,10 +2551,10 @@ mod tests {
     /// A show saved in `dir/Show` with its photo in `dir/Show/photos` and a model outside it.
     fn show_with_files(dir: &std::path::Path) -> (PathBuf, PathBuf, PathBuf) {
         let root = dir.join("Show");
-        let photo = root.join("photos/house.png");
+        let photo = root.join("photos").join("house.png");
         std::fs::create_dir_all(photo.parent().unwrap()).unwrap();
         std::fs::write(&photo, PNG).unwrap();
-        let model = dir.join("Models/house.obj");
+        let model = dir.join("Models").join("house.obj");
         std::fs::create_dir_all(model.parent().unwrap()).unwrap();
         std::fs::write(&model, b"v 0 0 0\n").unwrap();
         let show = root.join("show.pixelflow.json");
@@ -2551,7 +2589,7 @@ mod tests {
             json!({ "path": moved.join("show.pixelflow.json") }),
         )
         .unwrap();
-        let photo = moved.join("photos/house.png");
+        let photo = moved.join("photos").join("house.png");
         assert_eq!(
             snapshot["show"]["background"]["path"],
             json!(photo.to_str().unwrap())
@@ -2569,7 +2607,7 @@ mod tests {
         let (show, photo, model) = show_with_files(dir.path());
         call(&webview, "open_show", json!({ "path": show })).unwrap();
         // The photo moved within the show's folder; the model is gone (a copy sits outside).
-        let moved = show.parent().unwrap().join("pictures/house.png");
+        let moved = show.parent().unwrap().join("pictures").join("house.png");
         std::fs::create_dir_all(moved.parent().unwrap()).unwrap();
         std::fs::rename(&photo, &moved).unwrap();
         std::fs::remove_file(&model).unwrap();
@@ -2659,10 +2697,10 @@ mod tests {
     #[test]
     fn a_sequences_missing_music_is_found_again() {
         let (_app, webview, dir) = app();
-        let music = dir.path().join("Seq/Music/Carol.wav");
+        let music = dir.path().join("Seq").join("Music").join("Carol.wav");
         std::fs::create_dir_all(music.parent().unwrap()).unwrap();
         write_wav(&music);
-        let file = dir.path().join("Seq/Carol.pfseq.json");
+        let file = dir.path().join("Seq").join("Carol.pfseq.json");
         call(
             &webview,
             "new_sequence_doc",
@@ -2674,7 +2712,7 @@ mod tests {
             call(&webview, "sequence_music_missing", json!({})).unwrap(),
             Value::Null
         );
-        let moved = dir.path().join("Seq/Audio/Carol.wav");
+        let moved = dir.path().join("Seq").join("Audio").join("Carol.wav");
         std::fs::create_dir_all(moved.parent().unwrap()).unwrap();
         std::fs::rename(&music, &moved).unwrap();
         let missing = call(&webview, "sequence_music_missing", json!({})).unwrap();
@@ -2757,10 +2795,10 @@ mod tests {
     fn a_picture_is_read_only_from_the_shows_images_folder_or_once_chosen() {
         let (app, webview, dir) = app();
         let show = show_with_a_picture_effect(&webview, dir.path(), "images/santa.gif");
-        let inside = show.join("images/santa.gif");
+        let inside = show.join("images").join("santa.gif");
         std::fs::create_dir_all(inside.parent().unwrap()).unwrap();
         std::fs::write(&inside, RED_GIF).unwrap();
-        std::fs::write(show.join("images/notes.txt"), "not a picture").unwrap();
+        std::fs::write(show.join("images").join("notes.txt"), "not a picture").unwrap();
         std::fs::write(show.join("secret.gif"), RED_GIF).unwrap();
         let outside = dir.path().join("outside.gif");
         std::fs::write(&outside, RED_GIF).unwrap();
@@ -2828,13 +2866,16 @@ mod tests {
         // It's in the show's folder under its old name: found, copied into images, and the
         // effect pointed at it, as one undo step.
         std::fs::create_dir_all(show.join("Assets")).unwrap();
-        std::fs::write(show.join("Assets/star.gif"), RED_GIF).unwrap();
+        std::fs::write(show.join("Assets").join("star.gif"), RED_GIF).unwrap();
         let found = call(&webview, "find_sequence_pictures", json!({})).unwrap();
         assert_eq!(found["found"], json!(["star.gif"]));
         assert_eq!(found["result"]["changed"], true);
         assert_eq!((&found["missing"], &found["issues"]), (&json!([]), &json!([])));
         assert_eq!(found["gaveUp"], false);
-        assert_eq!(std::fs::read(show.join("images/star.gif")).unwrap(), RED_GIF);
+        assert_eq!(
+            std::fs::read(show.join("images").join("star.gif")).unwrap(),
+            RED_GIF
+        );
         let open = call(&webview, "get_sequence_doc", json!({})).unwrap();
         assert_eq!(
             open["sequence"]["rows"][0]["layers"][0]["effects"][0]["params"]["file"],
@@ -2854,8 +2895,12 @@ mod tests {
     #[test]
     fn an_imported_xlights_sequences_pictures_become_the_shows_own() {
         let (_app, webview, dir) = app();
-        let fixtures =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/pf-xlights/fixtures");
+        let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("crates")
+            .join("pf-xlights")
+            .join("fixtures");
         call(
             &webview,
             "import_xlights",
@@ -2866,7 +2911,7 @@ mod tests {
         let xlights = dir.path().join("xlights");
         std::fs::create_dir_all(xlights.join("Images")).unwrap();
         std::fs::write(xlights.join("xlights_rgbeffects.xml"), "<xrgb/>").unwrap();
-        std::fs::write(xlights.join("Images/santa dancing.gif"), RED_GIF).unwrap();
+        std::fs::write(xlights.join("Images").join("santa dancing.gif"), RED_GIF).unwrap();
         let xsq = xlights.join("santa.xsq");
         std::fs::write(
             &xsq,
@@ -2896,7 +2941,7 @@ mod tests {
         assert_eq!(imported["summary"]["placeholders"], 0);
         assert_eq!(
             file_of(&imported),
-            json!(xlights.join("Images/santa dancing.gif"))
+            json!(xlights.join("Images").join("santa dancing.gif"))
         );
         assert!(
             imported["notes"][0]
@@ -2919,7 +2964,7 @@ mod tests {
         let imported = call(&webview, "import_xlights_sequence", json!({ "path": xsq })).unwrap();
         assert_eq!(file_of(&imported), "images/santa dancing.gif");
         assert_eq!(
-            std::fs::read(show.join("images/santa dancing.gif")).unwrap(),
+            std::fs::read(show.join("images").join("santa dancing.gif")).unwrap(),
             RED_GIF
         );
         assert!(
@@ -3161,12 +3206,17 @@ mod tests {
         let state = app.state::<AppState>();
         let folders = |kind| pickers::starting_folders(app.handle(), &state, kind, None);
         let xlights = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../crates/pf-xlights/fixtures/sample-show");
+            .join("..")
+            .join("..")
+            .join("crates")
+            .join("pf-xlights")
+            .join("fixtures")
+            .join("sample-show");
         call(&webview, "import_xlights", json!({ "folder": xlights })).unwrap();
         assert_eq!(folders(PickKind::ShowSave).first(), Some(&xlights));
         // Only for saving the show.
         assert_ne!(folders(PickKind::Music).first(), Some(&xlights));
-        let saved = dir.path().join("Shows/house.pixelflow.json");
+        let saved = dir.path().join("Shows").join("house.pixelflow.json");
         std::fs::create_dir_all(saved.parent().unwrap()).unwrap();
         call(&webview, "save_show_as", json!({ "path": saved })).unwrap();
         assert!(!folders(PickKind::ShowSave).contains(&xlights));
@@ -3193,14 +3243,99 @@ mod tests {
     }
 
     #[test]
+    fn a_network_path_from_the_window_is_refused_until_the_user_chooses_from_its_folder() {
+        let refusal = "Lights.fseq is on a network share (\\\\attacker\\drop). PixelFlow opens files from a \
+                       network folder only after you choose a file in that folder yourself.";
+        assert_eq!(
+            window_path("\\\\attacker\\drop\\Lights.fseq").unwrap_err(),
+            refusal
+        );
+        assert_eq!(window_path("//attacker/drop/Lights.fseq").unwrap_err(), refusal);
+        let read = serde_json::from_value::<PathArg>(json!("\\\\attacker\\drop\\Lights.fseq"));
+        assert_eq!(read.unwrap_err().to_string(), refusal);
+        assert!(window_path("\\\\.\\pipe\\Lights.fseq").is_err());
+        assert!(window_path("\\\\?\\UNC\\attacker\\drop\\Lights.fseq").is_err());
+        // An ordinary path is taken as it is, a drive letter mapped to a share included.
+        assert_eq!(
+            window_path("Z:\\Music\\Lights.mp3").unwrap(),
+            PathBuf::from("Z:\\Music\\Lights.mp3")
+        );
+        // What the dialogs do for a file the user chooses: its folder may then be read.
+        pf_model::trust_network_folder_of(Path::new("\\\\window-nas\\Shows\\show.pixelflow.json"));
+        let chosen: PathArg =
+            serde_json::from_value(json!("\\\\window-nas\\Shows\\Music\\Lights.mp3")).unwrap();
+        assert_eq!(&*chosen, Path::new("\\\\window-nas\\Shows\\Music\\Lights.mp3"));
+        assert!(window_path("\\\\window-nas\\Other\\Lights.mp3").is_err());
+    }
+
+    #[test]
+    fn a_shows_photo_on_a_network_share_is_not_read_for_the_window() {
+        let (_app, webview, dir) = app();
+        let (show, photo, model) = show_with_files(dir.path());
+        // The show names its photo and model, which are there, by spellings that read as network
+        // or device paths: a second leading `/` on Unix, the `\\?\` prefix on Windows.
+        let on_network = |path: &Path| {
+            let text = pf_model::path_to_text(path);
+            if cfg!(windows) {
+                format!("\\\\?\\{text}")
+            } else {
+                format!("/{text}")
+            }
+        };
+        // Kept outside the show's folder, where a full path stays a full path.
+        let away = dir.path().join("Away").join("house.png");
+        std::fs::create_dir_all(away.parent().unwrap()).unwrap();
+        std::fs::rename(&photo, &away).unwrap();
+        let (photo, model) = (on_network(&away), on_network(&model));
+        let mut file: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&show).unwrap()).unwrap();
+        file["background"]["path"] = json!(photo);
+        file["houseModel"]["path"] = json!(model);
+        std::fs::write(&show, file.to_string()).unwrap();
+
+        let snapshot = call(&webview, "open_show", json!({ "path": show })).unwrap();
+        let missing = snapshot["missingFiles"].as_array().unwrap();
+        assert_eq!(missing.len(), 2, "{missing:?}");
+        assert_eq!(
+            missing[0]["message"],
+            json!(pf_model::network_path_refusal(&photo).unwrap())
+        );
+        // The window asks for them anyway: neither is read, and a waveform isn't either.
+        for (command, path) in [
+            ("read_image", &photo),
+            ("read_house_model", &model),
+            ("probe_audio", &photo),
+            ("audio_waveform", &photo),
+            ("analyze_audio", &photo),
+            ("open_sequence_doc", &photo),
+        ] {
+            let args = json!({ "path": path, "slices": 10 });
+            assert!(call_raw(&webview, command, args).is_err(), "{command}");
+        }
+        assert_eq!(
+            call(&webview, "probe_audio", json!({ "path": photo })).unwrap_err(),
+            json!(pf_model::network_path_refusal(&photo).unwrap())
+        );
+
+        // Chosen in a dialog (which trusts the folder), then opened again: the photo is read.
+        pf_model::trust_network_folder_of(&pf_model::path_from_text(&photo));
+        let snapshot = call(&webview, "open_show", json!({ "path": show })).unwrap();
+        assert_eq!(snapshot["missingFiles"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            call_raw(&webview, "read_image", json!({ "path": photo })).unwrap(),
+            PNG
+        );
+    }
+
+    #[test]
     fn a_show_file_moved_alone_finds_its_photo_where_it_was_saved_and_may_show_it() {
         let (_app, webview, dir) = app();
         let (show, photo, _) = show_with_files(dir.path());
-        let alone = dir.path().join("Elsewhere/show.pixelflow.json");
+        let alone = dir.path().join("Elsewhere").join("show.pixelflow.json");
         std::fs::create_dir_all(alone.parent().unwrap()).unwrap();
         std::fs::rename(&show, &alone).unwrap();
         // The photo also moved, within the folder the show was saved in.
-        let moved = show.parent().unwrap().join("pictures/house.png");
+        let moved = show.parent().unwrap().join("pictures").join("house.png");
         std::fs::create_dir_all(moved.parent().unwrap()).unwrap();
         std::fs::rename(&photo, &moved).unwrap();
         let snapshot = call(&webview, "open_show", json!({ "path": alone })).unwrap();

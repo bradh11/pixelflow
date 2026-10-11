@@ -561,6 +561,38 @@
           }
         ],
         "type": "choice"
+      },
+      {
+        "default": false,
+        "description": "Each stripe fades away across its width (xLights' \"3D\").",
+        "key": "shaded",
+        "label": "Fade each stripe",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": false,
+        "description": "Every stripe takes the palette blended down the prop, first color at the top (xLights' \"Blend\").",
+        "key": "gradient",
+        "label": "Blend colors down the prop",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": false,
+        "description": "The stripes widen to fill the space between them over each turn.",
+        "key": "grow",
+        "label": "Grow",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": false,
+        "description": "The stripes start filling the space between them and narrow over each turn (with Grow: they widen for half a turn, then narrow).",
+        "key": "shrink",
+        "label": "Shrink",
+        "more": true,
+        "type": "bool"
       }
     ]
   },

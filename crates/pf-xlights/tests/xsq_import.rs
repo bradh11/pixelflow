@@ -391,7 +391,8 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
                 thickness: 0.4,
                 twist: 0.0,
                 lean: -15.0,
-                direction: Direction::Reverse
+                direction: Direction::Reverse,
+                ..SpiralParams::default()
             }),
             EffectParams::Fire(FireParams {
                 height: 0.7,

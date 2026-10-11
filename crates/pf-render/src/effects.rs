@@ -694,30 +694,64 @@ impl Spiral {
     pub fn new(p: &SpiralParams, time: &EffectTime, colors: Colors, canvas: Canvas) -> Self {
         let mut raster = Raster::new(canvas);
         let (columns, rows) = (raster.width, raster.height);
-        let count = p.count.clamp(1, i32::MAX as u32) as i32;
+        let count = p.count.clamp(1, 100) as i32;
         let apart = columns / count;
-        let wide = f64::from(apart) * f64::from(p.thickness) + 1.0;
-        // A stripe more than two cells wide loses its part cell (xLights draws those through a
-        // loop that counts in whole cells); a narrower one keeps it.
-        let wide = if wide > 2.0 { wide.trunc() } else { wide.ceil() } as i32;
+        // xLights counts the thickness in whole percent, which lands a stripe's width on a whole
+        // cell where a fraction of 1 would fall just short of it.
+        let percent = (f64::from(p.thickness.clamp(0.0, 1.0)) * 1e6).round() / 1e4;
+        let mut wide = f64::from(apart) * percent / 100.0 + 1.0;
+        let cycles = f64::from(p.speed) * time.length_ms as f64 / 1000.0;
+        let position = time.cycle_position(cycles);
+        // Growing and shrinking: by whole cells of the space the stripes leave between them.
+        let room = f64::from(apart) - wide;
+        wide += match (p.grow, p.shrink) {
+            (true, true) if position <= 0.5 => room * (position * 2.0),
+            (true, true) => room * ((1.0 - position) * 2.0),
+            (true, false) => room * position,
+            (false, true) => room * (1.0 - position),
+            (false, false) => 0.0,
+        }
+        .trunc();
+        // A plain stripe more than two cells wide loses its part cell (xLights draws those
+        // through a loop that counts in whole cells); a narrower or blended one keeps it.
+        let cells = if wide > 2.0 && !p.gradient {
+            wide.trunc()
+        } else {
+            wide.ceil()
+        } as i32;
         // Cells the stripes shift across from the bottom row to the top: xLights' Rotation.
         let slant = -(f64::from(p.twist) * f64::from(columns) + f64::from(p.lean));
         // xLights keeps the turn in tenths of a cell, as a whole number.
-        let cycles = f64::from(p.speed) * time.length_ms as f64 / 1000.0;
         let way = match p.direction {
             Direction::Forward => 1.0,
             Direction::Reverse => -1.0,
         };
-        let turned = (time.cycle_position(cycles) * f64::from(columns) * 10.0 * way).trunc() / 10.0;
+        let turned = (position * f64::from(columns) * 10.0 * way).trunc() / 10.0;
+        // Blended: each row's color, the palette from the top row down.
+        let down: Vec<[f32; 3]> = if p.gradient {
+            (0..rows)
+                .map(|y| colors.ramp((rows - y - 1) as f32 / rows as f32))
+                .collect()
+        } else {
+            Vec::new()
+        };
         for stripe in 0..count {
-            let color = Rgba::opaque(colors.get(stripe as u64));
-            for thick in 0..wide {
+            let own = colors.get(stripe as u64);
+            for thick in 0..cells {
                 let strand = (stripe * apart + thick) % columns;
+                // Shaded: fading across the stripe, from the side it leans toward.
+                let cover = match p.shaded {
+                    true if slant < 0.0 => f64::from(thick + 1) / wide,
+                    true => (wide - f64::from(thick)) / wide,
+                    false => 1.0,
+                }
+                .clamp(0.0, 1.0) as f32;
                 for y in 0..rows {
                     let at = f64::from(strand) + turned + f64::from(y) * slant / f64::from(rows);
                     // C's cast and remainder: toward zero, then wrapped back onto the grid.
                     let x = (at as i64 % i64::from(columns)) as i32;
-                    raster.set(if x < 0 { x + columns } else { x }, y, color);
+                    let [r, g, b] = down.get(y as usize).copied().unwrap_or(own);
+                    raster.set(if x < 0 { x + columns } else { x }, y, Rgba::new(r, g, b, cover));
                 }
             }
         }

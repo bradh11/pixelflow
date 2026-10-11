@@ -1267,6 +1267,16 @@ effect_params! {
         lean: f32 = 0.0 => "lean", "Lean", number(-300.0, 300.0, 1.0, "cells");
         /// Which way the stripes turn.
         direction: Direction = Direction::Forward => "direction", "Direction", choice;
+        /// Each stripe fades away across its width (xLights' "3D").
+        shaded: bool = false => "shaded", "Fade each stripe", toggle, more;
+        /// Every stripe takes the palette blended down the prop, first color at the top
+        /// (xLights' "Blend").
+        gradient: bool = false => "gradient", "Blend colors down the prop", toggle, more;
+        /// The stripes widen to fill the space between them over each turn.
+        grow: bool = false => "grow", "Grow", toggle, more;
+        /// The stripes start filling the space between them and narrow over each turn (with
+        /// Grow: they widen for half a turn, then narrow).
+        shrink: bool = false => "shrink", "Shrink", toggle, more;
     }
 }
 

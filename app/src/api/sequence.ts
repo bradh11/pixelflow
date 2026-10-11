@@ -126,7 +126,20 @@ export type EffectParams =
   | { kind: "twinkle"; density?: number; rate?: number }
   | { kind: "shimmer"; rate?: number; duty?: number }
   | { kind: "strobe"; rate?: number; density?: number }
-  | { kind: "spiral"; count?: number; speed?: number; thickness?: number; twist?: number; lean?: number; direction?: Direction }
+  | {
+      kind: "spiral";
+      count?: number;
+      speed?: number;
+      thickness?: number;
+      twist?: number;
+      lean?: number;
+      direction?: Direction;
+      shaded?: boolean;
+      /** Every stripe takes the palette blended down the prop. */
+      gradient?: boolean;
+      grow?: boolean;
+      shrink?: boolean;
+    }
   | { kind: "fire"; height?: number; sparks?: number }
   | { kind: "meteors"; count?: number; speed?: number; length?: number; direction?: "down" | "up" | "left" | "right" }
   | { kind: "ripple"; speed?: number; spacing?: number; thickness?: number }

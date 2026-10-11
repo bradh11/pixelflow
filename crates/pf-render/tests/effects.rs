@@ -510,23 +510,26 @@ const TREE: Canvas = Canvas {
     rows: 50,
 };
 
-/// Row `y` of a red and green spiral on the tree: 'r', 'g', or '.' for each of its 16 cells.
-fn spiral_row(p: SpiralParams, elapsed_ms: u64, y: u32) -> String {
+/// Row `y` of a red and green spiral on the tree, `elapsed_ms` into a 1 s effect (20 frames):
+/// the color of each of its 16 cells.
+fn spiral_cells(p: SpiralParams, elapsed_ms: u64, y: u32) -> Vec<Rgba> {
     let params = EffectParams::Spiral(p);
     (0..16)
         .map(|x| {
             let px = at(x as f32 / 15.0, y as f32 / 49.0);
-            match rgb(shade(
-                &params,
-                time(elapsed_ms, 1000),
-                px,
-                &[Rgb::RED, Rgb::GREEN],
-                TREE,
-            )) {
-                [255, 0, 0] => 'r',
-                [0, 255, 0] => 'g',
-                _ => '.',
-            }
+            shade(&params, time(elapsed_ms, 1000), px, &[Rgb::RED, Rgb::GREEN], TREE)
+        })
+        .collect()
+}
+
+/// [`spiral_cells`] as 'r', 'g', or '.' for each cell.
+fn spiral_row(p: SpiralParams, elapsed_ms: u64, y: u32) -> String {
+    spiral_cells(p, elapsed_ms, y)
+        .iter()
+        .map(|c| match rgb(*c) {
+            [255, 0, 0] => 'r',
+            [0, 255, 0] => 'g',
+            _ => '.',
         })
         .collect()
 }
@@ -544,6 +547,7 @@ fn spirals_are_drawn_cell_by_cell_as_xlights_draws_them() {
         twist: 0.0,
         lean: -37.0,
         direction: Direction::Forward,
+        ..SpiralParams::default()
     };
     assert_eq!(spiral_row(still, 0, 0), "rrrr....gggg....");
     assert_eq!(
@@ -603,6 +607,99 @@ fn spirals_are_drawn_cell_by_cell_as_xlights_draws_them() {
     // Going back, cells below zero round the other way (C's cast), so the stripe that wraps
     // sits a cell further on than the one that doesn't.
     assert_eq!(spiral_row(back, 250, 0), "...gggg.....rrrr");
+
+    // The width is counted in whole percent: 70% of 10 cells is 7 and a cell, not a hair
+    // under 8 that loses its part cell.
+    let one = EffectParams::Spiral(SpiralParams {
+        count: 1,
+        thickness: 0.7,
+        ..still
+    });
+    let lit = (0..10)
+        .filter(|&x| shade(&one, time(0, 1000), at(x as f32 / 9.0, 0.0), &[Rgb::RED], GRID).a > 0.0)
+        .count();
+    assert_eq!(lit, 8);
+}
+
+#[test]
+fn spirals_take_xlights_3d_blend_grow_and_shrink() {
+    // 2 stripes 8 cells apart, 8 × 49 / 100 + 1 = 4.92 cells wide.
+    let still = SpiralParams {
+        count: 2,
+        speed: 0.0,
+        thickness: 0.49,
+        twist: 0.0,
+        lean: -37.0,
+        direction: Direction::Forward,
+        ..SpiralParams::default()
+    };
+    let cover = |p: SpiralParams| -> Vec<f32> { spiral_cells(p, 0, 0).iter().take(5).map(|c| c.a).collect() };
+    let near = |got: Vec<f32>, want: [f64; 5]| {
+        for (g, w) in got.iter().zip(want) {
+            assert!((f64::from(*g) - w).abs() < 1e-6, "{got:?} {want:?}");
+        }
+    };
+    // "3D": each cell of a stripe covers the share of the width from it on, so the stripe
+    // fades across; leaning the other way it fades the other way (a cell's share and up).
+    let shaded = SpiralParams {
+        shaded: true,
+        ..still
+    };
+    near(cover(shaded), [1.0, 3.92 / 4.92, 2.92 / 4.92, 1.92 / 4.92, 0.0]);
+    let other_way = SpiralParams { lean: 37.0, ..shaded };
+    near(
+        cover(other_way),
+        [1.0 / 4.92, 2.0 / 4.92, 3.0 / 4.92, 4.0 / 4.92, 0.0],
+    );
+    assert_eq!(
+        spiral_cells(shaded, 0, 0)[1].to_rgb8(),
+        [(255.0f64 * 3.92 / 4.92).round() as u8, 0, 0],
+        "the color itself stays whole"
+    );
+
+    // "Blend": every stripe takes the palette from the top row (red) down to the bottom
+    // (49/50 of the way to green), and keeps its part cell: 5 wide.
+    let blended = SpiralParams {
+        gradient: true,
+        ..still
+    };
+    let row = |y: u32| -> Vec<[u8; 3]> {
+        spiral_cells(blended, 0, y)
+            .iter()
+            .filter(|c| c.a > 0.0)
+            .map(|c| rgb(*c))
+            .collect()
+    };
+    assert_eq!(row(49), vec![[255, 0, 0]; 10]);
+    assert_eq!(row(0), vec![[5, 250, 0]; 10]);
+
+    // Grow: stripes a cell wide take up whole cells of the 7 between them as the turn goes,
+    // trunc(7 × 5/19) = 1 more at frame 5 and all 7 at the last. Shrink runs it backward.
+    let thin = SpiralParams {
+        thickness: 0.0,
+        speed: 1.0,
+        lean: 0.0,
+        ..still
+    };
+    assert_eq!(spiral_row(thin, 250, 0), "....r.......g...");
+    let growing = SpiralParams { grow: true, ..thin };
+    assert_eq!(spiral_row(growing, 250, 0), "....rr......gg..");
+    assert_eq!(spiral_row(growing, 950, 0), "rrrrrrrrgggggggg");
+    let shrinking = SpiralParams { shrink: true, ..thin };
+    assert_eq!(spiral_row(shrinking, 0, 0), "rrrrrrrrgggggggg");
+    assert_eq!(spiral_row(shrinking, 950, 0), "r.......g.......");
+    // Both: out for the first half of the turn, back for the second. Frame 9 is 9/19 of the
+    // way, trunc(7 × 18/19) = 6 more, and the last frame none.
+    let both = SpiralParams {
+        grow: true,
+        shrink: true,
+        ..thin
+    };
+    assert_eq!(
+        spiral_cells(both, 450, 0).iter().filter(|c| c.a > 0.0).count(),
+        14
+    );
+    assert_eq!(spiral_row(both, 950, 0), "r.......g.......");
 }
 
 #[test]

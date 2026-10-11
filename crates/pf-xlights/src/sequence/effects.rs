@@ -706,15 +706,9 @@ fn lightning(r: &Reader, diff: &mut Diff) -> EffectParams {
     })
 }
 
-fn spirals(r: &Reader, n_colors: f64, duration_ms: u64, diff: &mut Diff) -> EffectParams {
+fn spirals(r: &Reader, n_colors: f64, duration_ms: u64) -> EffectParams {
     let repeats = r.get("Spirals_Count", 1.0, 1.0, 5.0);
     let movement = r.get("Spirals_Movement", 1.0, -20.0, 20.0);
-    if r.check("Spirals_Blend") || r.check("Spirals_3D") {
-        diff.add("blended or 3D look not shown");
-    }
-    if r.check("Spirals_Grow") || r.check("Spirals_Shrink") {
-        diff.add("growing or shrinking arms not shown");
-    }
     EffectParams::Spiral(SpiralParams {
         // One arm per palette color, repeated.
         count: count(repeats * n_colors, 1, 1000),
@@ -732,6 +726,10 @@ fn spirals(r: &Reader, n_colors: f64, duration_ms: u64, diff: &mut Diff) -> Effe
             .unwrap_or(0.0)
             .clamp(-300.0, 300.0) as f32,
         direction: direction(movement < 0.0),
+        shaded: r.check("Spirals_3D"),
+        gradient: r.check("Spirals_Blend"),
+        grow: r.check("Spirals_Grow"),
+        shrink: r.check("Spirals_Shrink"),
     })
 }
 
@@ -1706,7 +1704,7 @@ fn effect_params(
         "twinkle" => twinkle(&r, frame, diff),
         "shimmer" => shimmer(&r, duration_ms, diff),
         "strobe" => strobe(&r, frame, diff),
-        "spirals" => spirals(&r, n_colors, duration_ms, diff),
+        "spirals" => spirals(&r, n_colors, duration_ms),
         "fire" => fire(&r, diff),
         "meteors" => meteors(&r, diff),
         "ripple" => ripple(&r, duration_ms, diff),
@@ -2465,6 +2463,39 @@ mod tests {
         );
         let t = translate("Bars", &s, &palette(&[Rgb::RED]), 2000, 25).unwrap();
         assert_eq!(t.curves["center"], Curve::ramp(-100.0, 100.0));
+        assert_eq!(t.fidelity, Fidelity::Exact);
+    }
+
+    #[test]
+    fn spirals_come_across_with_their_looks() {
+        let s = Settings::parse(
+            "E_CHECKBOX_Spirals_3D=1,E_CHECKBOX_Spirals_Blend=1,E_CHECKBOX_Spirals_Grow=1,\
+             E_SLIDER_Spirals_Count=1,E_SLIDER_Spirals_Rotation=20,E_SLIDER_Spirals_Thickness=50,\
+             E_TEXTCTRL_Spirals_Movement=1.0",
+        );
+        let t = translate(
+            "Spirals",
+            &s,
+            &palette(&[Rgb::RED, Rgb::GREEN, Rgb::BLUE]),
+            5000,
+            50,
+        )
+        .unwrap();
+        assert_eq!(
+            t.params,
+            EffectParams::Spiral(SpiralParams {
+                count: 3,
+                speed: 0.2,
+                thickness: 0.5,
+                twist: 0.0,
+                lean: -20.0,
+                direction: Direction::Forward,
+                shaded: true,
+                gradient: true,
+                grow: true,
+                shrink: false,
+            })
+        );
         assert_eq!(t.fidelity, Fidelity::Exact);
     }
 

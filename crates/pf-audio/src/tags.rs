@@ -87,9 +87,7 @@ fn tags_of(path: &Path) -> Result<SongTags, AudioError> {
     }
     tags.duration_ms = probed.format.default_track().and_then(|track| {
         let params = &track.codec_params;
-        let frames = params.n_frames?;
-        let rate = u64::from(params.sample_rate?);
-        (rate > 0).then(|| frames * 1000 / rate)
+        crate::probe::frames_ms(params.n_frames?, u64::from(params.sample_rate?))
     });
     if tags.title.is_none() {
         tags.title = title_from_file_name(path);

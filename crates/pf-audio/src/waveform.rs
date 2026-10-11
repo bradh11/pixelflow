@@ -54,7 +54,8 @@ fn peaks_of(path: &Path, slices: usize, progress: &dyn Fn(f32)) -> Result<Wavefo
     if count > 0 {
         blocks.push(peak);
     }
-    let duration_ms = total * 1000 / (rate * channels).max(1);
+    let per_second = (u128::from(rate) * u128::from(channels)).max(1);
+    let duration_ms = u64::try_from(u128::from(total) * 1000 / per_second).unwrap_or(u64::MAX);
     let slices = slices.max(1);
     let peaks = (0..slices)
         .map(|i| {

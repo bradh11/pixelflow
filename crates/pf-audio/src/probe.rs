@@ -20,6 +20,19 @@ use symphonia::core::probe::Hint;
 
 /// How much of an MP3's start is searched for its first frame.
 const MP3_HEAD_BYTES: u64 = 256 * 1024;
+/// The longest a file's header is believed about its length: a day. A header can say anything;
+/// one that says more is taken as saying nothing, and the length is found by reading the file.
+const MAX_HEADER_MS: u64 = 24 * 60 * 60 * 1000;
+
+/// How long `frames` at `rate` Hz play, in ms: `None` when there's no rate, or the answer is
+/// longer than any music file ([`MAX_HEADER_MS`]).
+pub(crate) fn frames_ms(frames: u64, rate: u64) -> Option<u64> {
+    if rate == 0 {
+        return None;
+    }
+    let ms = u128::from(frames) * 1000 / u128::from(rate);
+    u64::try_from(ms).ok().filter(|&ms| ms <= MAX_HEADER_MS)
+}
 
 /// A music file's length and format.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -135,12 +148,12 @@ fn header_ms(params: &CodecParameters) -> Option<u64> {
     match params.time_base {
         Some(base) => {
             let time = base.calc_time(frames);
-            Some(time.seconds * 1000 + (time.frac * 1000.0).round() as u64)
+            time.seconds
+                .checked_mul(1000)?
+                .checked_add((time.frac * 1000.0).round() as u64)
+                .filter(|&ms| ms <= MAX_HEADER_MS)
         }
-        None => {
-            let rate = u64::from(params.sample_rate?);
-            (rate > 0).then(|| frames * 1000 / rate)
-        }
+        None => frames_ms(frames, u64::from(params.sample_rate?)),
     }
 }
 
@@ -161,7 +174,7 @@ fn count_frames(
                 // Untrimmed: the reader trims to its guessed length, which is what's being
                 // checked (and a file without the header has no delay or padding to trim).
                 if packet.track_id() == track_id {
-                    frames += packet.dur;
+                    frames = frames.saturating_add(packet.dur);
                 }
                 packets += 1;
                 if packets.is_multiple_of(256) {
@@ -174,7 +187,7 @@ fn count_frames(
             Err(_) => return None,
         }
     }
-    (rate > 0 && frames > 0).then(|| frames * 1000 / rate)
+    frames_ms(frames, rate).filter(|_| frames > 0)
 }
 
 /// Decodes the whole file: its length (ms), rate, and channel count.
@@ -183,7 +196,8 @@ fn decoded_ms(path: &Path, progress: &Progress) -> Result<(u64, u32, u16), Audio
     let rate = decoder.sample_rate().get();
     let channels = decoder.channels().get();
     let total = reported(decoder, read, progress, 1.0).count() as u64;
-    let ms = total * 1000 / (u64::from(rate) * u64::from(channels)).max(1);
+    let per_second = (u128::from(rate) * u128::from(channels)).max(1);
+    let ms = u64::try_from(u128::from(total) * 1000 / per_second).unwrap_or(u64::MAX);
     Ok((ms, rate, channels))
 }
 
@@ -246,6 +260,19 @@ fn layer3_side_info(header: u32) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_length_no_music_file_has_is_no_length() {
+        assert_eq!(frames_ms(44_100, 44_100), Some(1000));
+        assert_eq!(frames_ms(0, 44_100), Some(0));
+        assert_eq!(frames_ms(44_100, 0), None);
+        // A day at 8 kHz is believed; a frame count that makes it longer isn't.
+        assert_eq!(frames_ms(8_000 * 86_400, 8_000), Some(MAX_HEADER_MS));
+        assert_eq!(frames_ms(8_000 * 86_400 + 8, 8_000), None);
+        // What used to overflow.
+        assert_eq!(frames_ms(u64::MAX, 8_000), None);
+        assert_eq!(frames_ms(u64::MAX, 1), None);
+    }
 
     #[test]
     fn layer3_headers_are_told_from_noise() {

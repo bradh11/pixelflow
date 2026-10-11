@@ -1,7 +1,7 @@
 //! Music files made to trip their decoders up: each is a file that can't be read, reported as
 //! one, whichever way it's asked for.
 
-use pf_audio::{AudioError, MonoSamples, MusicPlayer, StereoFrames, probe, read_tags, waveform};
+use pf_audio::{AudioError, FoundBy, MonoSamples, MusicPlayer, StereoFrames, probe, read_tags, waveform};
 use std::path::Path;
 
 /// A 16-bit PCM WAV file: `frames` of silence at `rate` Hz in `channels` channels.
@@ -33,6 +33,22 @@ fn every_reader(path: &Path) -> Vec<(&'static str, Option<AudioError>)> {
         ("stereo", StereoFrames::open(path).err()),
         ("playing", MusicPlayer::open(path).err()),
     ]
+}
+
+#[test]
+fn a_header_that_claims_days_of_sound_is_not_believed() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("long.wav");
+    // A second of sound at 8 kHz, in a file whose header says it holds 4 GB of it: 74 hours.
+    write_wav(&path, 8_000, 1, 8_000);
+    let mut bytes = std::fs::read(&path).unwrap();
+    bytes[4..8].copy_from_slice(&0xFFFF_FFF8u32.to_le_bytes());
+    bytes[40..44].copy_from_slice(&0xFFFF_FFD0u32.to_le_bytes());
+    std::fs::write(&path, bytes).unwrap();
+    // The length is found by reading the file, and is the second that's there.
+    let info = probe(&path, &|_| {}).unwrap();
+    assert_eq!((info.duration_ms, info.found_by), (1000, FoundBy::Decoding));
+    assert_eq!(read_tags(&path).unwrap().duration_ms, None);
 }
 
 #[test]

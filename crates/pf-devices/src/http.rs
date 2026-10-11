@@ -70,6 +70,30 @@ pub fn device_url(host: &str, path: &str) -> String {
     }
 }
 
+/// True when `host` is only an address: an IP address or a hostname, with an optional port.
+/// Controller addresses come from show files and from other devices, and go into a URL as they
+/// are, so one that could add a path, a query, or a user name to that URL (`/`, `?`, `#`, `@`,
+/// `%`, a space) isn't an address.
+pub fn is_host(host: &str) -> bool {
+    !host.is_empty()
+        && host.len() <= 255
+        && host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ':' | '[' | ']'))
+}
+
+/// [`device_url`] for a request about to be made: refused unless `host` is only an address.
+fn request_url(host: &str, path: &str) -> Result<String, DeviceError> {
+    if is_host(host) {
+        Ok(device_url(host, path))
+    } else {
+        Err(DeviceError::Unreachable {
+            address: host.to_string(),
+            reason: "that isn't a controller address".to_string(),
+        })
+    }
+}
+
 /// A short, plain reason for a failed request (no library error text).
 fn plain_reason(error: &ureq::Error) -> String {
     match error {
@@ -166,12 +190,12 @@ impl HttpClient {
 
 impl Http for HttpClient {
     fn get(&self, host: &str, path: &str) -> Result<String, DeviceError> {
-        let url = device_url(host, path);
+        let url = request_url(host, path)?;
         Self::finish(host, path, self.agent.get(&url).call())
     }
 
     fn post_json(&self, host: &str, path: &str, body: &str) -> Result<String, DeviceError> {
-        let url = device_url(host, path);
+        let url = request_url(host, path)?;
         let response = self
             .agent
             .post(&url)
@@ -189,7 +213,7 @@ impl Http for HttpClient {
         body: &mut dyn Read,
         length: u64,
     ) -> Result<String, DeviceError> {
-        let url = device_url(host, path);
+        let url = request_url(host, path)?;
         let mut request = match method {
             "PATCH" => self.agent.patch(&url),
             "PUT" => self.agent.put(&url),
@@ -212,7 +236,7 @@ impl Http for HttpClient {
         sink: &mut dyn Write,
         expected: Option<u64>,
     ) -> Result<u64, DeviceError> {
-        let url = device_url(host, path);
+        let url = request_url(host, path)?;
         // At least two minutes for the whole body, and enough for the file at 64 KiB/s.
         let budget = Duration::from_secs(120).max(Duration::from_secs(
             expected.unwrap_or(0) / DOWNLOAD_FLOOR_BYTES_PER_SEC,
@@ -267,7 +291,7 @@ impl Http for HttpClient {
     }
 
     fn delete(&self, host: &str, path: &str) -> Result<String, DeviceError> {
-        let url = device_url(host, path);
+        let url = request_url(host, path)?;
         Self::finish(host, path, self.agent.delete(&url).call())
     }
 }
@@ -422,6 +446,75 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn only_plain_addresses_are_hosts() {
+        for host in [
+            "192.0.2.10",
+            "192.0.2.10:8080",
+            "fpp.local",
+            "wled_porch.local:80",
+            "FPP-Tree",
+            "fe80::1",
+            "[fe80::1]:8080",
+        ] {
+            assert!(is_host(host), "{host}");
+        }
+        for host in [
+            "",
+            "fpp.local/api/system/reboot?x=",
+            "192.0.2.10/admin",
+            "192.0.2.10?x=1",
+            "192.0.2.10#x",
+            "user:secret@192.0.2.10",
+            "192.0.2.10 ",
+            "fpp.local\\share",
+            "fpp%2elocal",
+            "fpp.local\r\nHost: other",
+        ] {
+            assert!(!is_host(host), "{host:?}");
+        }
+        assert!(!is_host(&"a".repeat(256)));
+    }
+
+    #[test]
+    fn an_address_that_carries_a_path_is_refused_before_anything_is_sent() {
+        // The address a show file names goes into the URL: one with a path of its own would turn
+        // a read of `/api/sequence` into a request for whatever the file's author chose.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let client = HttpClient::new(Duration::from_millis(500));
+        let uploads = HttpClient::for_uploads_with(Duration::from_millis(500), Duration::from_millis(500));
+        for host in [
+            format!("127.0.0.1:{port}/api/system/reboot?x="),
+            format!("user:secret@127.0.0.1:{port}"),
+            format!("127.0.0.1:{port}#x"),
+        ] {
+            let refused = |result: Result<String, DeviceError>| {
+                assert_eq!(
+                    result.unwrap_err().to_string(),
+                    format!("Could not reach {host}: that isn't a controller address")
+                );
+            };
+            refused(client.get(&host, "/api/sequence"));
+            refused(client.post_json(&host, "/api/command", "{}"));
+            refused(client.delete(&host, "/api/file/uploads/x"));
+            refused(uploads.send_body("PATCH", &host, "/api/file/uploads", &[], &mut &b"x"[..], 1));
+            let mut sink = Vec::new();
+            assert!(
+                uploads
+                    .get_to(&host, "/api/file/music/x", &mut sink, None)
+                    .is_err()
+            );
+            assert!(sink.is_empty());
+        }
+        // Nothing connected.
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
     }
 
     #[test]

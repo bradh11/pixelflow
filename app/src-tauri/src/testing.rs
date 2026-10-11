@@ -163,6 +163,27 @@ pub(crate) fn files_under(dir: &std::path::Path) -> Vec<String> {
     found
 }
 
+/// The steps a transfer's progress `events` went through, in order, each with the percents it
+/// reported. A step's percent is reported when it changes, so it must only ever go up.
+pub(crate) fn steps_of(events: &[Value]) -> Vec<(String, Vec<u64>)> {
+    let mut steps: Vec<(String, Vec<u64>)> = Vec::new();
+    for event in events {
+        let step = event["step"].as_str().unwrap();
+        let percent = event["percent"].as_u64().unwrap();
+        match steps.last_mut() {
+            Some((name, percents)) if name == step => {
+                assert!(
+                    percents.last() < Some(&percent),
+                    "{step}: {percents:?} then {percent}"
+                );
+                percents.push(percent);
+            }
+            _ => steps.push((step.to_string(), vec![percent])),
+        }
+    }
+    steps
+}
+
 /// A strip wired to a controller and a new 2 s sequence with one red effect on it.
 pub(crate) fn authored(webview: &WebviewWindow<MockRuntime>) {
     let prop = json!({

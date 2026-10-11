@@ -97,6 +97,9 @@ struct Cli {
     /// Print the show and its sequences, and run nothing.
     #[arg(long)]
     describe: bool,
+    /// Print a report saved with `--json` as Markdown again, and run nothing.
+    #[arg(long, value_name = "FILE")]
+    render: Option<PathBuf>,
     /// Write the results as JSON here.
     #[arg(long)]
     json: Option<PathBuf>,
@@ -262,7 +265,11 @@ fn work(cli: &Cli) -> Result<()> {
             "This is an unoptimized build: its timings say nothing about PixelFlow. Use `cargo run --release -p pf-bench`."
         );
     }
-    let report = if cli.describe {
+    let report = if let Some(saved) = &cli.render {
+        let text =
+            std::fs::read_to_string(saved).with_context(|| format!("couldn't read {}", saved.display()))?;
+        serde_json::from_str(&text).with_context(|| format!("{} isn't a saved report", saved.display()))?
+    } else if cli.describe {
         let mut report = Report::new();
         let tiers = if cli.all { &cli.tiers[..] } else { &[cli.tier][..] };
         for &tier in tiers {

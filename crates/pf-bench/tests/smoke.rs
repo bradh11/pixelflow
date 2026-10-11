@@ -179,6 +179,18 @@ fn the_program_runs_and_writes_its_report_both_ways() {
         assert!(written.contains(heading), "no {heading:?} in:\n{written}");
     }
 
+    // A saved report prints as it did the first time.
+    let out = Command::new(env!("CARGO_BIN_EXE_pf-bench"))
+        .arg("--render")
+        .arg(&json)
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim_end(),
+        written.trim_end()
+    );
+
     // Describing a tier runs nothing.
     let out = Command::new(env!("CARGO_BIN_EXE_pf-bench"))
         .args(["--tier", "2000", "--describe", "--sequence-seconds", "2"])

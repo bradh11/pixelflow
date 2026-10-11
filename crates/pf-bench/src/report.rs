@@ -385,8 +385,15 @@ impl Report {
             .iter()
             .map(|r| {
                 let (n, res) = (&r.network, &r.resources);
-                let count =
-                    |n: Option<f64>, digits: usize| n.map_or("?".to_string(), |n| format!("{n:.digits$}"));
+                let count = |n: Option<f64>| n.map_or("-".to_string(), |n| format!("{n:.0}"));
+                // The engine's frames can't be timed or read from outside.
+                let seen = |text: String| {
+                    if r.mode == Mode::Engine {
+                        "-".to_string()
+                    } else {
+                        text
+                    }
+                };
                 vec![
                     r.tier.clone(),
                     r.variant.label().to_string(),
@@ -403,11 +410,11 @@ impl Report {
                     ),
                     megabytes(res.peak_rss_mb),
                     megabytes(res.peak_heap_mb),
-                    count(res.allocations_per_frame, 0),
-                    count(res.allocated_kb_per_frame, 0),
-                    format!("{:.1}", r.warmup.first_frame),
-                    format!("{:.1} / {:.1}", r.warmup.mean, r.warmup.max),
-                    format!("{:.0}%", r.lit_percent),
+                    count(res.allocations_per_frame),
+                    count(res.allocated_kb_per_frame),
+                    seen(format!("{:.1}", r.warmup.first_frame)),
+                    seen(format!("{:.1} / {:.1}", r.warmup.mean, r.warmup.max)),
+                    seen(format!("{:.0}%", r.lit_percent)),
                     r.load_average.map_or("?".to_string(), |l| format!("{l:.1}")),
                 ]
             })

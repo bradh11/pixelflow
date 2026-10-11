@@ -36,6 +36,7 @@ pub mod setup;
 #[cfg(feature = "test-fixtures")]
 pub mod testing;
 pub mod wled;
+mod xml;
 
 pub use config::{Destination, DeviceConfig, DeviceInput, PortConfig, StringConfig};
 pub use device::{Device, DeviceKind, FoundBy};

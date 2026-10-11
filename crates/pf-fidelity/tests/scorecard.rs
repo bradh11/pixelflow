@@ -1,0 +1,698 @@
+//! Scoring a made-up show against references written here by hand: every frame is known, so
+//! every number in the scorecard can be checked.
+//!
+//! The show (`fixtures/show`) has Strip on channels 1–30 and Matrix on 31–60 of a controller,
+//! Porch (GRB) on 61–90 with no controller, and Far on 91–105. Its sequence (`known.xsq`, 50 ms
+//! frames): Strip red for a second, then green, then twinkling; Matrix blue and Porch orange for
+//! two seconds; and everything in the group white for the last second.
+
+use pf_fidelity::compare::{Options, Request, compare};
+use pf_fidelity::corpus::{self, Manifest};
+use pf_fidelity::metrics::Limits;
+use pf_fidelity::report::{corpus_markdown, sequence_markdown};
+use pf_fidelity::scorecard::{Basis, Class, EffectScore, Label, Scorecard, Source};
+use pf_fidelity::{FidelityError, strips};
+use pf_fseq::{FseqWriter, WriteOptions};
+use std::fs::File;
+use std::path::{Path, PathBuf};
+use tempfile::TempDir;
+
+/// Channels the whole layout uses.
+const LAYOUT_CHANNELS: usize = 105;
+
+fn show() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/show")
+}
+
+fn xsq() -> PathBuf {
+    show().join("known.xsq")
+}
+
+/// A reference as xLights might have rendered the sequence.
+#[derive(Debug, Clone, Copy)]
+struct Reference {
+    channels: usize,
+    frames: u32,
+    step_ms: u32,
+    /// How bright xLights drew Matrix's blue (PixelFlow draws 255).
+    matrix_blue: u8,
+    /// Frames late everything is.
+    late: i64,
+}
+
+impl Default for Reference {
+    fn default() -> Self {
+        Self {
+            channels: LAYOUT_CHANNELS,
+            frames: 80,
+            step_ms: 50,
+            matrix_blue: 255,
+            late: 0,
+        }
+    }
+}
+
+impl Reference {
+    /// Every channel of the layout at `t_ms`.
+    fn at(&self, t_ms: i64) -> Vec<u8> {
+        let mut frame = vec![0u8; LAYOUT_CHANNELS];
+        let mut fill = |channels: std::ops::Range<usize>, color: [u8; 3]| {
+            for pixel in frame[channels].chunks_mut(3) {
+                pixel.copy_from_slice(&color);
+            }
+        };
+        match t_ms {
+            0..2000 => {
+                fill(0..30, if t_ms < 1000 { [255, 0, 0] } else { [0, 255, 0] });
+                fill(30..60, [0, 0, self.matrix_blue]);
+                // Orange (255, 128, 0) as a GRB prop's channels carry it.
+                fill(60..90, [128, 255, 0]);
+            }
+            // Twinkles: a quarter of Strip's pixels white, moving along.
+            2000..3000 => {
+                for pixel in 0..10 {
+                    if (t_ms / 50 + pixel * 3) % 4 == 0 {
+                        fill(pixel as usize * 3..pixel as usize * 3 + 3, [255; 3]);
+                    }
+                }
+            }
+            3000..4000 => fill(0..90, [255; 3]),
+            _ => {}
+        }
+        frame
+    }
+
+    /// Writes the reference into `dir`.
+    fn write(&self, dir: &TempDir) -> PathBuf {
+        let path = dir.path().join("known.fseq");
+        let options = WriteOptions::new(self.channels as u32, self.frames, self.step_ms);
+        let mut writer = FseqWriter::new(File::create(&path).unwrap(), options).unwrap();
+        for frame in 0..i64::from(self.frames) {
+            let all = self.at((frame - self.late) * i64::from(self.step_ms));
+            writer.write_frame(&all[..self.channels]).unwrap();
+        }
+        writer.finish().unwrap();
+        path
+    }
+}
+
+fn score_with(reference: Reference, options: Options) -> Scorecard {
+    let dir = TempDir::new().unwrap();
+    let fseq = reference.write(&dir);
+    let request = Request {
+        show: &show(),
+        xsq: &xsq(),
+        fseq: &fseq,
+    };
+    compare(request, options).unwrap()
+}
+
+fn score(reference: Reference) -> Scorecard {
+    score_with(reference, Options::default())
+}
+
+/// The effect of `kind` on `target` starting at `start_ms`.
+fn effect<'a>(card: &'a Scorecard, kind: &str, target: &str, start_ms: u64) -> &'a EffectScore {
+    card.effects
+        .iter()
+        .find(|e| e.kind == kind && e.target == target && e.start_ms == start_ms)
+        .unwrap_or_else(|| panic!("no {kind} on {target} at {start_ms}"))
+}
+
+#[test]
+fn a_reference_that_matches_scores_perfectly_and_coverage_says_what_was_measured() {
+    let card = score(Reference::default());
+    let coverage = &card.coverage;
+    assert_eq!((coverage.props, coverage.props_measured), (4, 4));
+    assert_eq!((coverage.pixels, coverage.pixels_measured), (35, 35));
+    // Strip and Matrix are on the controller; Porch and Far, on none, have stand-ins.
+    assert_eq!(
+        (coverage.pixels_on_controllers, coverage.pixels_on_stand_ins),
+        (20, 15)
+    );
+    assert!(coverage.unmeasured_props.is_empty());
+    assert_eq!((coverage.effects, coverage.effects_measured), (6, 6));
+    let on: Vec<_> = card
+        .props
+        .iter()
+        .map(|p| (p.name.as_str(), p.on, p.channels))
+        .collect();
+    assert_eq!(
+        on,
+        [
+            ("Strip", Source::Controller, Some((1, 30))),
+            ("Matrix", Source::Controller, Some((31, 60))),
+            ("Porch", Source::StandIn, Some((61, 90))),
+            ("Far", Source::StandIn, Some((91, 105))),
+        ]
+    );
+    // Strip is at 40% brightness and gamma 2.2 on its controller: xLights' file holds what it
+    // rendered before those, so they're set aside and Strip still matches.
+    let aside = card.method.set_aside;
+    assert_eq!((aside.brightness, aside.gamma, aside.reverse), (1, 1, 0));
+
+    // Matrix and Porch never twinkle: every frame of theirs matches. Far is never lit.
+    for prop in &card.props[1..3] {
+        let scores = prop.scores.unwrap();
+        assert_eq!(
+            (
+                scores.mae,
+                scores.within_tolerance,
+                scores.lit_iou,
+                scores.pixel_seconds
+            ),
+            (0.0, 1.0, 1.0, 30.0),
+            "{}",
+            prop.name
+        );
+        assert_eq!(scores.brightness_correlation, None, "{}: steady", prop.name);
+    }
+    assert!(card.props[3].scores.is_none());
+    assert!(card.overall.is_some());
+    for (kind, target, start, seconds) in [
+        ("On", "Strip", 0, 10.0),
+        ("On", "Strip", 1000, 10.0),
+        ("On", "Matrix", 0, 20.0),
+        // A GRB prop: its channels are read back in its own order.
+        ("On", "Porch", 0, 20.0),
+    ] {
+        let solo = effect(&card, kind, target, start).solo.unwrap();
+        assert_eq!(
+            (
+                solo.pixel_seconds,
+                solo.mae,
+                solo.rmse,
+                solo.within_tolerance,
+                solo.lit_iou
+            ),
+            (seconds, 0.0, 0.0, 1.0, 1.0),
+            "{kind} on {target} at {start}"
+        );
+    }
+    assert_eq!(
+        (
+            card.timing.frames,
+            card.timing.frames_compared,
+            card.timing.frames_missing
+        ),
+        (80, 80, 0)
+    );
+    assert_eq!(card.timing.best_offset, 0);
+    assert!(card.label_audit.exact_but_differs.is_empty());
+    assert!(card.reference.left_out.is_empty());
+    assert!(card.notes.is_empty(), "{:#?}", card.notes);
+}
+
+#[test]
+fn a_twinkle_wont_match_pixel_for_pixel_and_isnt_asked_to() {
+    let card = score(Reference::default());
+    let twinkle = effect(&card, "Twinkle", "Strip", 2000);
+    assert_eq!(twinkle.class, Class::Stochastic);
+    assert!(twinkle.class_reason.as_deref().unwrap().contains("random"));
+    // Ranked with the stochastic effects, by its distribution; never among the deterministic.
+    assert!(card.ranking.iter().all(|r| r.kind != "Twinkle"));
+    assert_eq!(card.stochastic_ranking[0].kind, "Twinkle");
+    let solo = twinkle.solo.unwrap();
+    assert!((0.0..=1.0).contains(&solo.distribution.distance), "{solo:?}");
+    assert!(
+        card.label_audit
+            .exact_but_differs
+            .iter()
+            .all(|e| e.kind != "Twinkle")
+    );
+}
+
+#[test]
+fn error_is_attributed_to_the_effects_on_the_pixel_alone_and_layered() {
+    let card = score(Reference::default());
+    // The group's white is alone on Matrix and Porch (20 pixels for a second) and over the
+    // twinkles on Strip (10 more): half of each of those pixels counts as its share.
+    let white = effect(&card, "On", "All", 3000);
+    assert_eq!((white.pixels, white.measured_pixels, white.layer), (30, 30, 0));
+    assert_eq!(white.solo.unwrap().pixel_seconds, 20.0);
+    assert_eq!(white.layered.unwrap().pixel_seconds, 30.0);
+    assert_eq!(white.share, 25.0);
+    assert_eq!(white.basis(&card.method.audit).unwrap().0, Basis::Solo);
+    // The twinkles are alone for their first second, under the white for their second.
+    let twinkle = effect(&card, "Twinkle", "Strip", 2000);
+    assert_eq!(twinkle.solo.unwrap().pixel_seconds, 10.0);
+    assert_eq!(twinkle.layered.unwrap().pixel_seconds, 20.0);
+    assert_eq!(twinkle.share, 15.0);
+    // Under the white PixelFlow and xLights both show white: no error from the layered part.
+    assert_eq!(white.layered.unwrap().mae, 0.0);
+    // Nothing was lit where no effect was.
+    assert!(card.unattributed.is_none());
+
+    let on = card.kinds.iter().find(|k| k.kind == "On").unwrap();
+    assert_eq!(
+        (on.instances, on.measured, on.class),
+        (5, 5, Class::Deterministic)
+    );
+    assert_eq!((on.labels.exact, on.labels.approximate), (4, 1));
+    assert_eq!(on.pixel_seconds, 10.0 + 10.0 + 20.0 + 20.0 + 25.0);
+}
+
+#[test]
+fn the_label_audit_names_exact_effects_that_differ_and_approximate_ones_that_match() {
+    // xLights drew Matrix's blue at 200 where PixelFlow draws 255.
+    let card = score(Reference {
+        matrix_blue: 200,
+        ..Reference::default()
+    });
+    let blue = effect(&card, "On", "Matrix", 0);
+    assert_eq!(blue.label, Label::Exact);
+    let solo = blue.solo.unwrap();
+    // One channel of three is 55 off, on every pixel.
+    assert_eq!((solo.mae, solo.rmse), (18.3333, 31.7543));
+    assert_eq!((solo.within_tolerance, solo.lit_iou), (0.0, 1.0));
+    assert_eq!(solo.hue_difference, Some(0.0));
+    assert_eq!((solo.level.pixelflow, solo.level.xlights), (255.0, 200.0));
+
+    let audit = &card.label_audit;
+    let named: Vec<(&str, &str, u64, Basis)> = audit
+        .exact_but_differs
+        .iter()
+        .map(|e| (e.kind.as_str(), e.target.as_str(), e.start_ms, e.basis))
+        .collect();
+    assert_eq!(named, [("On", "Matrix", 0, Basis::Solo)]);
+    assert_eq!(audit.exact_but_differs[0].index, blue.index);
+    assert!(audit.exact_but_differs_layered.is_empty());
+    let on = audit.exact_kinds.iter().find(|k| k.kind == "On").unwrap();
+    assert_eq!((on.exact, on.judged, on.differ, on.differ_alone), (4, 4, 1, 1));
+
+    // The green On has a shimmer PixelFlow doesn't draw, so the importer calls it approximate;
+    // the reference shows it steady, so it matches.
+    let green = effect(&card, "On", "Strip", 1000);
+    assert_eq!(green.label, Label::Approximate);
+    assert!(
+        green.notes.iter().any(|n| n.contains("shimmer")),
+        "{:?}",
+        green.notes
+    );
+    let matching: Vec<usize> = audit.approximate_but_matches.iter().map(|e| e.index).collect();
+    assert!(matching.contains(&green.index), "{matching:?}");
+
+    // What to fix first: the only deterministic kind with any error, by error times
+    // pixel-seconds (18.33 on Matrix's 20).
+    let first = &card.ranking[0];
+    assert_eq!((first.kind.as_str(), first.share), ("On", 1.0));
+    assert!((first.impact - 18.3333 * 20.0).abs() < 0.01, "{first:?}");
+    assert!((first.error - 18.3333 * 20.0 / 85.0).abs() < 0.001, "{first:?}");
+
+    let summary = sequence_markdown(&card);
+    assert!(summary.contains("### Labelled exact, measurably different"));
+    assert!(
+        summary.contains("| On | Matrix | 0:00.0–0:02.0 | 18.3 | 0% | 1.00 |"),
+        "{summary}"
+    );
+}
+
+#[test]
+fn frames_are_lined_up_by_time_and_a_late_reference_shows_in_the_timing_check() {
+    // The same picture at 25 ms a frame: every PixelFlow frame has its moment's frame.
+    let card = score(Reference {
+        frames: 160,
+        step_ms: 25,
+        ..Reference::default()
+    });
+    assert_eq!((card.timing.frame_ms, card.timing.reference_step_ms), (50, 25));
+    assert_eq!((card.timing.frames_compared, card.timing.frames_missing), (80, 0));
+    assert_eq!(effect(&card, "On", "Strip", 1000).solo.unwrap().mae, 0.0);
+    assert!(
+        card.notes.iter().any(|n| n.contains("25 ms")),
+        "{:#?}",
+        card.notes
+    );
+
+    // Everything one frame late: each effect is wrong on its first frame, and the timing check
+    // finds the offset that isn't.
+    let late = Reference {
+        late: 1,
+        ..Reference::default()
+    };
+    let card = score(late);
+    assert_eq!(card.timing.best_offset, 1);
+    let red = effect(&card, "On", "Strip", 0);
+    assert!(red.solo.unwrap().mae > 0.0);
+    assert_eq!(
+        red.onset.map(|o| (o.pixelflow, o.xlights)),
+        Some((0, 1)),
+        "xLights lights it a frame later"
+    );
+    assert_eq!(
+        card.timing.onset_deltas.get(&1),
+        Some(&3),
+        "{:?}",
+        card.timing.onset_deltas
+    );
+    // Measured at that offset it matches again.
+    let card = score_with(
+        late,
+        Options {
+            frame_offset: 1,
+            ..Options::default()
+        },
+    );
+    assert_eq!(effect(&card, "On", "Strip", 0).solo.unwrap().mae, 0.0);
+    assert_eq!((card.timing.frame_offset, card.timing.best_offset), (1, 1));
+}
+
+#[test]
+fn a_short_or_narrow_reference_is_measured_as_far_as_it_goes() {
+    // Two seconds of four: the rest has nothing to compare with.
+    let card = score(Reference {
+        frames: 40,
+        ..Reference::default()
+    });
+    assert_eq!(
+        (card.timing.frames_compared, card.timing.frames_missing),
+        (40, 40)
+    );
+    assert!(
+        card.notes.iter().any(|n| n.contains("40 of 80 frames")),
+        "{:#?}",
+        card.notes
+    );
+    assert!(effect(&card, "On", "All", 3000).layered.is_none());
+    assert_eq!(effect(&card, "On", "Matrix", 0).solo.unwrap().pixel_seconds, 20.0);
+    assert_eq!((card.coverage.effects, card.coverage.effects_measured), (6, 4));
+    // An effect with nothing measured isn't judged: the group's On is labelled exact.
+    assert!(card.label_audit.exact_unjudged >= 1);
+    let on = card
+        .label_audit
+        .exact_kinds
+        .iter()
+        .find(|k| k.kind == "On")
+        .unwrap();
+    assert_eq!((on.exact, on.judged, on.differ), (4, 3, 0));
+
+    // Only the controller's 60 channels: Porch has none in the reference either.
+    let card = score(Reference {
+        channels: 60,
+        ..Reference::default()
+    });
+    assert_eq!(card.coverage.unmeasured_props, ["Porch", "Far"]);
+    assert_eq!(card.coverage.pixels_measured, 20);
+    assert!(effect(&card, "On", "Porch", 0).layered.is_none());
+    assert_eq!(effect(&card, "On", "All", 3000).measured_pixels, 20);
+    assert!(
+        card.notes
+            .iter()
+            .any(|n| n.contains("60 channels") && n.contains("105")),
+        "{:#?}",
+        card.notes
+    );
+    assert_eq!(effect(&card, "On", "Matrix", 0).solo.unwrap().mae, 0.0);
+}
+
+#[test]
+fn a_reference_that_isnt_there_or_isnt_a_sequence_is_an_error_not_a_panic() {
+    let dir = TempDir::new().unwrap();
+    let missing = dir.path().join("nothing.fseq");
+    let request = |fseq: &Path| {
+        compare(
+            Request {
+                show: &show(),
+                xsq: &xsq(),
+                fseq,
+            },
+            Options::default(),
+        )
+    };
+    let err = request(&missing).unwrap_err();
+    assert!(matches!(err, FidelityError::Reference { .. }), "{err}");
+    assert!(err.to_string().contains("nothing.fseq"), "{err}");
+
+    let junk = dir.path().join("junk.fseq");
+    std::fs::write(&junk, b"not a sequence").unwrap();
+    assert!(matches!(
+        request(&junk).unwrap_err(),
+        FidelityError::Reference { .. }
+    ));
+
+    let fseq = Reference::default().write(&dir);
+    let err = compare(
+        Request {
+            show: dir.path(),
+            xsq: &xsq(),
+            fseq: &fseq,
+        },
+        Options::default(),
+    )
+    .unwrap_err();
+    assert!(matches!(err, FidelityError::NotAShowFolder(_)), "{err}");
+}
+
+/// An uncompressed version 2 file holding only `range` (first channel, count) of the reference.
+fn sparse(reference: Reference, range: (usize, usize), dir: &TempDir) -> PathBuf {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"PSEQ");
+    bytes.extend_from_slice(&40u16.to_le_bytes()); // where the frames start
+    bytes.extend_from_slice(&[0, 2]); // version 2.0
+    bytes.extend_from_slice(&40u16.to_le_bytes()); // no variable headers
+    bytes.extend_from_slice(&(range.1 as u32).to_le_bytes()); // channels stored per frame
+    bytes.extend_from_slice(&reference.frames.to_le_bytes());
+    bytes.push(reference.step_ms as u8);
+    bytes.extend_from_slice(&[0, 0, 0, 1, 0]); // flags, uncompressed, no blocks, one range
+    bytes.extend_from_slice(&[0; 8]);
+    bytes.extend_from_slice(&(range.0 as u32).to_le_bytes()[..3]);
+    bytes.extend_from_slice(&(range.1 as u32).to_le_bytes()[..3]);
+    bytes.extend_from_slice(&[0; 2]);
+    for frame in 0..i64::from(reference.frames) {
+        let all = reference.at(frame * i64::from(reference.step_ms));
+        bytes.extend_from_slice(&all[range.0..range.0 + range.1]);
+    }
+    let path = dir.path().join("sparse.fseq");
+    std::fs::write(&path, bytes).unwrap();
+    path
+}
+
+#[test]
+fn a_sparse_reference_is_measured_only_where_it_holds_channels() {
+    let dir = TempDir::new().unwrap();
+    // Matrix's channels only (31–60).
+    let fseq = sparse(Reference::default(), (30, 30), &dir);
+    let card = compare(
+        Request {
+            show: &show(),
+            xsq: &xsq(),
+            fseq: &fseq,
+        },
+        Options::default(),
+    )
+    .unwrap();
+    assert!(card.reference.sparse);
+    assert_eq!(card.coverage.unmeasured_props, ["Strip", "Porch", "Far"]);
+    assert_eq!(card.coverage.pixels_measured, 10);
+    assert_eq!(effect(&card, "On", "Matrix", 0).solo.unwrap().mae, 0.0);
+    assert!(effect(&card, "On", "Strip", 0).layered.is_none());
+}
+
+#[test]
+fn a_prop_the_reference_leaves_dark_for_long_is_left_out_as_unrendered() {
+    // xLights saved the file before it had rendered Matrix's blue: black for two seconds.
+    let unrendered = Reference {
+        matrix_blue: 0,
+        ..Reference::default()
+    };
+    let with_run = |dark_run_ms| {
+        score_with(
+            unrendered,
+            Options {
+                limits: Limits {
+                    dark_run_ms,
+                    ..Limits::default()
+                },
+                ..Options::default()
+            },
+        )
+    };
+    // Scored as it stands, the blue On is the worst effect there is, and its label is blamed.
+    let card = with_run(0);
+    assert_eq!(effect(&card, "On", "Matrix", 0).solo.unwrap().mae, 85.0);
+    assert_eq!(card.label_audit.exact_but_differs.len(), 1);
+    assert!(card.reference.left_out.is_empty());
+    // Two seconds isn't long enough to call unrendered by default...
+    assert!(score(unrendered).reference.left_out.is_empty());
+    // ...but with the line at one second it is: Matrix is left out for those two seconds.
+    let card = with_run(1000);
+    let gaps: Vec<(&str, u64, u64)> = card
+        .reference
+        .left_out
+        .iter()
+        .map(|g| (g.prop.as_str(), g.start_ms, g.end_ms))
+        .collect();
+    // (Strip is dark too between twinkles, but never for a second.)
+    assert_eq!(gaps, [("Matrix", 0, 3000)]);
+    assert!(effect(&card, "On", "Matrix", 0).layered.is_none());
+    assert!(card.label_audit.exact_but_differs.is_empty());
+    assert!(
+        card.notes.iter().any(|n| n.contains("unrendered")),
+        "{:#?}",
+        card.notes
+    );
+    assert!(card.reference.left_out_share > 0.0);
+    // Matrix still counts where the reference has it: under the group's white.
+    assert_eq!(
+        effect(&card, "On", "All", 3000).layered.unwrap().pixel_seconds,
+        30.0
+    );
+}
+
+#[test]
+fn a_manifest_runs_every_sequence_and_keeps_going_past_one_it_cant_compare() {
+    let dir = TempDir::new().unwrap();
+    let good = Reference {
+        matrix_blue: 200,
+        ..Reference::default()
+    }
+    .write(&dir);
+    let manifest = dir.path().join("corpus.json");
+    let text = serde_json::json!({
+        "sequences": [
+            { "label": "sequence A", "show": show(), "xsq": xsq(), "fseq": "known.fseq" },
+            { "label": "sequence B", "show": show(), "xsq": xsq(), "fseq": "gone.fseq" },
+            { "show": show(), "xsq": xsq(), "fseq": good, "frameOffset": 0 },
+        ]
+    });
+    std::fs::write(&manifest, text.to_string()).unwrap();
+    let manifest = Manifest::read(&manifest).unwrap();
+    // A path in the manifest starts from the manifest's folder.
+    assert_eq!(manifest.sequences[0].fseq, good);
+
+    let mut heard = Vec::new();
+    let run = corpus::run(&manifest, &Options::default(), |label, result| {
+        heard.push((label.to_string(), result.is_ok()));
+    });
+    assert_eq!(
+        heard,
+        [
+            ("sequence A".to_string(), true),
+            ("sequence B".to_string(), false),
+            ("known".to_string(), true)
+        ]
+    );
+    let card = &run.card;
+    assert_eq!(card.sequences.len(), 2);
+    // Four Ons and the twinkles are labelled exact; the blue On differs, and so do the made-up
+    // twinkles' distribution from PixelFlow's.
+    assert_eq!(
+        (card.sequences[0].exact_judged, card.sequences[0].exact_differ),
+        (5, 2)
+    );
+    assert_eq!(card.failures.len(), 1);
+    assert!(
+        card.failures[0].error.contains("gone.fseq"),
+        "{:?}",
+        card.failures
+    );
+    // Both sequences' effects, kind by kind, and both sequences' audits, each entry named.
+    let on = card.kinds.iter().find(|k| k.kind == "On").unwrap();
+    assert_eq!((on.instances, on.labels.exact), (10, 8));
+    assert_eq!(card.ranking[0].kind, "On");
+    assert!((card.ranking[0].impact - 2.0 * 18.3333 * 20.0).abs() < 0.01);
+    let named: Vec<Option<&str>> = card
+        .label_audit
+        .exact_but_differs
+        .iter()
+        .map(|e| e.sequence.as_deref())
+        .collect();
+    assert_eq!(named, [Some("sequence A"), Some("known")]);
+
+    let out = dir.path().join("reports");
+    let written = corpus::write_run(&out, &run).unwrap();
+    let names: Vec<String> = written
+        .iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "01-sequence-a.json",
+            "01-sequence-a.md",
+            "02-known.json",
+            "02-known.md",
+            "corpus.json",
+            "corpus.md"
+        ]
+    );
+    let json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(out.join("corpus.json")).unwrap()).unwrap();
+    assert_eq!(json["sequences"][0]["label"], "sequence A");
+    assert_eq!(json["labelAudit"]["exactButDiffers"][0]["kind"], "On");
+    let summary = corpus_markdown(card);
+    assert!(
+        summary.contains("| sequence A |") && summary.contains("- sequence B: "),
+        "{summary}"
+    );
+
+    // A manifest that isn't one says so.
+    let bad = dir.path().join("bad.json");
+    std::fs::write(&bad, "{ \"sequences\": [ { \"show\": 1 } ] }").unwrap();
+    assert!(matches!(
+        Manifest::read(&bad).unwrap_err(),
+        FidelityError::Manifest { .. }
+    ));
+}
+
+#[test]
+fn a_scorecard_is_json_with_every_effect_and_its_importers_label() {
+    let card = score(Reference::default());
+    let json = serde_json::to_value(&card).unwrap();
+    assert_eq!(json["schema"], 1);
+    assert_eq!(json["sequence"]["import"]["effects"], 6);
+    assert_eq!(json["coverage"]["pixelsMeasured"], 35);
+    let effects = json["effects"].as_array().unwrap();
+    assert_eq!(effects.len(), 6);
+    let green = &effects[1];
+    assert_eq!(
+        (&green["kind"], &green["target"], &green["label"], &green["class"]),
+        (
+            &"On".into(),
+            &"Strip".into(),
+            &"approximate".into(),
+            &"deterministic".into()
+        )
+    );
+    assert_eq!((&green["startMs"], &green["endMs"]), (&1000.into(), &2000.into()));
+    assert!(green["notes"][0].as_str().unwrap().contains("shimmer"));
+    assert_eq!(green["solo"]["mae"], 0.0);
+    assert_eq!(green["solo"]["pixelSeconds"], 10.0);
+    assert!(json["method"]["limits"]["tolerance"].is_number());
+}
+
+#[test]
+fn frames_can_be_drawn_side_by_side() {
+    let dir = TempDir::new().unwrap();
+    let fseq = Reference {
+        matrix_blue: 200,
+        ..Reference::default()
+    }
+    .write(&dir);
+    let request = Request {
+        show: &show(),
+        xsq: &xsq(),
+        fseq: &fseq,
+    };
+    let mut prepared = pf_fidelity::Prepared::open(request, Options::default()).unwrap();
+    let matrix = strips::find_target(prepared.show(), "Matrix").unwrap();
+    assert!(strips::find_target(prepared.show(), "All").is_some());
+    assert!(strips::find_target(prepared.show(), "Nothing").is_none());
+    // The blue On is effect 3 (after Strip's three): two frames of it, a pixel per light.
+    let frames = strips::effect_frames(&prepared, 3, 2).unwrap();
+    assert_eq!(frames, [0, 39]);
+    let image = strips::draw(&mut prepared, matrix, &frames, 1).unwrap();
+    // Two frames of a 2×5 matrix, xLights' above PixelFlow's, with gaps between.
+    assert_eq!(
+        (image.width(), image.height()),
+        (4 + 2 * (2 + 4), 4 + 2 * (5 + 4))
+    );
+    assert_eq!(image.get_pixel(4, 4).0, [0, 0, 200], "xLights' blue");
+    assert_eq!(image.get_pixel(4, 13).0, [0, 0, 255], "PixelFlow's");
+    let levels = strips::levels(&mut prepared, matrix, &frames).unwrap();
+    assert_eq!(
+        (levels[0].pixelflow, levels[0].xlights),
+        ([0.0, 0.0, 255.0], [0.0, 0.0, 200.0])
+    );
+    assert_eq!(levels[0].error, 55.0 / 3.0);
+}

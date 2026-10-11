@@ -5,7 +5,7 @@ SHELL_CRATE := app/src-tauri
 SHOW ?= examples/shows/demo.pixelflow.json
 
 .DEFAULT_GOAL := help
-.PHONY: help setup run ui test test-rust test-app lint fmt build cli-validate cli-map discover clean
+.PHONY: help setup run ui test test-rust test-app lint fmt build licenses audit cli-validate cli-map discover clean
 
 help: ## List the available commands
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -44,6 +44,13 @@ fmt: ## Format all Rust code
 
 build: $(APP)/node_modules ## Build an installable app (output in app/src-tauri/target/release/bundle)
 	cd $(APP) && pnpm tauri build
+
+licenses: $(APP)/node_modules ## Rewrite the dependency licence inventory and the notices the app bundles (after a lockfile changes)
+	node scripts/licenses.mjs
+
+audit: ## Check dependencies against the advisory databases (needs cargo-audit; same as CI)
+	node --test scripts/audit.test.mjs
+	node scripts/audit.mjs
 
 cli-validate: ## Check a show file: make cli-validate SHOW=path/to/show.pixelflow.json
 	cargo run -q -p pf-cli -- validate $(SHOW)

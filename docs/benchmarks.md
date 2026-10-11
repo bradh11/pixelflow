@@ -236,8 +236,9 @@ period. A flat-out run has no clock to keep; its frames are "late" when they too
 
 ## Baseline
 
-Measured on 11 October 2026 at commit `086b228` with the command above (`--all --engine-check --effects
---calm 5`), 60 seconds a run after 2 of warm-up.
+Measured on 11 October 2026 with the command above (`--all --engine-check --effects --calm 5`),
+60 seconds a run after 2 of warm-up, on `develop` as of `86417f4` plus this benchmark and the
+[player fix](#one-fix-made-here) it led to.
 
 |  |  |
 | --- | --- |

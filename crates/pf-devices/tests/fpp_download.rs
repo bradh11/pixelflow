@@ -157,6 +157,40 @@ fn a_file_that_runs_on_past_its_listed_size_is_stopped_and_leaves_nothing() {
 }
 
 #[test]
+fn only_sequences_and_music_are_downloaded() {
+    // The FPP names its files, and a download is saved under the name it gives: only a
+    // sequence from the sequences folder, and only music from the music folder.
+    let fpp = FakeFpp::start()
+        .with_music_file("Song.mp3.exe", &pattern(100))
+        .with_sequence_file("Show.sh", &pattern(100));
+    let dir = tempfile::tempdir().unwrap();
+    for (folder, name, why) in [
+        (FppFolder::Music, "Song.mp3.exe", "it isn't a music file"),
+        (FppFolder::Sequences, "Show.sh", "it isn't a sequence file"),
+    ] {
+        let err = fpp_download::download(
+            &client(),
+            fpp.address(),
+            folder,
+            name,
+            dir.path(),
+            None,
+            &mut |_| true,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err,
+            DownloadError::Failed {
+                name: name.into(),
+                reason: why.into()
+            }
+        );
+    }
+    assert!(fpp.state().requests.is_empty(), "neither was asked for");
+    assert_eq!(files_in(dir.path()), Vec::<String>::new());
+}
+
+#[test]
 fn a_download_not_placed_leaves_nothing() {
     let fpp = FakeFpp::start().with_music_file("Song.mp3", &pattern(5000));
     let dir = tempfile::tempdir().unwrap();

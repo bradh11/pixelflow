@@ -3,15 +3,15 @@
 //! A sequence is timed to a made-up song at 120 beats a minute (see [`synthetic_audio`]), in
 //! four-second phrases. There are two:
 //!
-//! - **typical**: every prop has a row of effects suited to it, with gaps; about a third of the
-//!   rows have two to four layers; each group has a row that plays part of the time; some effects
-//!   have fades, sparkles, blur, or a setting that changes over the effect.
+//! - **typical**: every prop has a row of effects suited to it, with gaps; a third to a half of
+//!   the rows have two to four layers; each group has a row that plays part of the time; some
+//!   effects have fades, sparkles, blur, or a setting that changes over the effect.
 //! - **worst case**: every prop row has four layers of heavy effects for the whole sequence, with
 //!   sparkles, blur, and curves, and every group row two more on top.
 //!
 //! Both use the same sixteen kinds of effect ([`KINDS`]): cheap ones (On, Color Wash), drawn ones
 //! (Plasma, Butterfly, Fire, Text, Picture, Dancer), ones that follow the music (VU Meter, Pulse),
-//! and the rest between.
+//! and the rest between. The worst case leaves out On.
 
 use crate::show::{Category, GroupKind, SyntheticShow, fixed_id};
 use pf_render::{AudioSource, AudioTrack, Pictures};
@@ -506,7 +506,7 @@ pub fn synthetic_sequence(show: &SyntheticShow, variant: Variant, seconds: u32) 
         let layers = if worst {
             4
         } else {
-            // About a third of the rows are layered.
+            // Thirty-five rows in a hundred are layered, give or take the dice.
             match roll(row_n, 0, 1) % 100 {
                 0..65 => 1,
                 65..85 => 2,

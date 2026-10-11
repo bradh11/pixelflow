@@ -134,6 +134,9 @@ fn one(cli: &Cli) -> Result<Report> {
     } else {
         workload
     };
+    if let Some(limit) = cli.calm {
+        wait_for_calm(limit);
+    }
     let mode = match cli.mode {
         What::Asap => Mode::Asap,
         What::Paced => Mode::Paced,
@@ -147,9 +150,6 @@ fn one(cli: &Cli) -> Result<Report> {
         }
     };
     describe(cli.tier, cli.sequence_seconds, &[cli.variant], &mut report)?;
-    if let Some(limit) = cli.calm {
-        wait_for_calm(limit);
-    }
     let options = Options {
         seconds: cli.seconds,
         warmup_seconds: cli.warmup_seconds,
@@ -218,8 +218,7 @@ fn all(cli: &Cli) -> Result<Report> {
             };
             for &mode in modes {
                 for sink in SinkKind::ALL {
-                    // The engine check plays without the music or the picture, so it gets a
-                    // paced run made the same way to compare with; one sink is enough for both.
+                    // The engine check is of the player, whatever it sends into: once is enough.
                     if mode == What::Engine && sink == SinkKind::Loopback {
                         continue;
                     }

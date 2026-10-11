@@ -391,7 +391,11 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
             gradient: Gradient::None
         })
     );
-    assert_eq!(wash.palette.colors, vec![Rgb::new(128, 64, 0)], "50% brightness");
+    assert_eq!(
+        (wash.palette.colors.clone(), wash.brightness),
+        (vec![Rgb::new(255, 128, 0)], 0.5),
+        "50% brightness"
+    );
 
     // Two palettes of three bars, with no gaps, moving a palette's length (half the prop) in
     // each of the 4 cycles over 2 s.

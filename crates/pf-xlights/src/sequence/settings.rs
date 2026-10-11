@@ -248,6 +248,18 @@ pub struct ParsedPalette {
     pub unreadable: usize,
     /// The palette's brightness (`C_SLIDER_Brightness`, percent, 100 when missing).
     pub brightness: f64,
+    /// The hue, saturation, and value shifts (`C_SLIDER_Color_HueAdjust` and the like, percent,
+    /// 0 when missing), and the contrast (`C_SLIDER_Contrast`).
+    pub hue_adjust: f64,
+    pub saturation_adjust: f64,
+    pub value_adjust: f64,
+    pub contrast: f64,
+    /// The value curves on the brightness and the three shifts (`C_VALUECURVE_Brightness`,
+    /// `C_VALUECURVE_Color_HueAdjust`, and the like), when active.
+    pub brightness_curve: Option<String>,
+    pub hue_curve: Option<String>,
+    pub saturation_curve: Option<String>,
+    pub value_curve: Option<String>,
     /// Sparkles (`C_SLIDER_SparkleFrequency`, 0 = none, up to 200).
     pub sparkles: u32,
     /// The sparkles' color (`C_COLOURPICKERCTRL_SparklesColour`, white when missing).
@@ -256,11 +268,12 @@ pub struct ParsedPalette {
     pub music_sparkles: bool,
     /// The sparkles' value curve (`C_VALUECURVE_SparkleFrequency`), when active.
     pub sparkles_curve: Option<String>,
-    /// Other color settings PixelFlow can't apply (hue/saturation/value shifts, sparkles...).
+    /// Other color settings PixelFlow can't apply (a chroma key, leveled brightness).
     pub extras: Vec<&'static str>,
 }
 
-/// No colors, at full brightness, without sparkles (their color white, xLights' default).
+/// No colors, at full brightness with nothing shifted, without sparkles (their color white,
+/// xLights' default).
 impl Default for ParsedPalette {
     fn default() -> Self {
         Self {
@@ -268,6 +281,14 @@ impl Default for ParsedPalette {
             color_curves: 0,
             unreadable: 0,
             brightness: 100.0,
+            hue_adjust: 0.0,
+            saturation_adjust: 0.0,
+            value_adjust: 0.0,
+            contrast: 0.0,
+            brightness_curve: None,
+            hue_curve: None,
+            saturation_curve: None,
+            value_curve: None,
             sparkles: 0,
             sparkle_color: Rgb::WHITE,
             music_sparkles: false,
@@ -277,37 +298,44 @@ impl Default for ParsedPalette {
     }
 }
 
-/// Color settings that change how an effect looks, with the name people know them by.
-const COLOR_EXTRAS: [(&str, &str, f64); 6] = [
-    ("C_SLIDER_Color_HueAdjust", "hue shift", 0.0),
-    ("C_SLIDER_Color_SaturationAdjust", "saturation shift", 0.0),
-    ("C_SLIDER_Color_ValueAdjust", "brightness shift", 0.0),
-    ("C_SLIDER_Contrast", "contrast", 0.0),
-    ("C_SLIDER_Color_HueShift", "hue shift", 0.0),
-    ("C_SLIDER_Saturation", "saturation", 0.0),
+/// Color settings xLights applies that PixelFlow doesn't (checkboxes), with the name people know
+/// them by.
+const COLOR_EXTRAS: [(&str, &str); 2] = [
+    ("C_CHECKBOX_Chroma", "chroma key"),
+    ("C_CHECKBOXBRIGHTNESSLEVEL", "leveled brightness"),
 ];
 
 /// Reads a palette string (`C_BUTTON_Palette1=#FF0000,C_CHECKBOX_Palette1=1,...`): the colors
 /// whose checkbox is on, in order. Missing palettes have no colors.
 pub fn parse_palette(text: &str) -> ParsedPalette {
     let settings = Settings::parse(text);
+    // xLights reads the sliders as whole numbers (`GetInt`).
+    let whole = |key: &str, default: f64| settings.num(key).map_or(default, f64::trunc);
+    let curve = |key: &str| {
+        settings
+            .curve_active(key)
+            .then(|| settings.get(key).map(str::to_string))
+            .flatten()
+    };
     let mut palette = ParsedPalette {
         brightness: settings.num_or("C_SLIDER_Brightness", 100.0),
-        // xLights reads the slider as a whole number (`GetInt`).
+        hue_adjust: whole("C_SLIDER_Color_HueAdjust", 0.0),
+        saturation_adjust: whole("C_SLIDER_Color_SaturationAdjust", 0.0),
+        value_adjust: whole("C_SLIDER_Color_ValueAdjust", 0.0),
+        contrast: whole("C_SLIDER_Contrast", 0.0),
+        brightness_curve: curve("C_VALUECURVE_Brightness"),
+        hue_curve: curve("C_VALUECURVE_Color_HueAdjust"),
+        saturation_curve: curve("C_VALUECURVE_Color_SaturationAdjust"),
+        value_curve: curve("C_VALUECURVE_Color_ValueAdjust"),
         sparkles: settings.num("C_SLIDER_SparkleFrequency").map_or(0, |v| {
             v.trunc().clamp(0.0, f64::from(pf_sequence::MAX_SPARKLES)) as u32
         }),
         sparkle_color: parse_color(settings.text("C_COLOURPICKERCTRL_SparklesColour", "#FFFFFF"))
             .unwrap_or(Rgb::WHITE),
         music_sparkles: settings.flag("C_CHECKBOX_MusicSparkles", false),
+        sparkles_curve: curve("C_VALUECURVE_SparkleFrequency"),
         ..ParsedPalette::default()
     };
-    if settings.curve_active("C_VALUECURVE_SparkleFrequency") {
-        palette.sparkles_curve = settings.get("C_VALUECURVE_SparkleFrequency").map(str::to_string);
-    }
-    if settings.curve_active("C_VALUECURVE_Brightness") {
-        palette.extras.push("brightness curve");
-    }
     for n in 1..=8 {
         if !settings.flag(&format!("C_CHECKBOX_Palette{n}"), false) {
             continue;
@@ -332,10 +360,8 @@ pub fn parse_palette(text: &str) -> ParsedPalette {
             }
         }
     }
-    for (key, label, neutral) in COLOR_EXTRAS {
-        let changed = settings.num(key).is_some_and(|v| (v - neutral).abs() > 1e-6)
-            || settings.curve_active(&key.replace("SLIDER", "VALUECURVE"));
-        if changed && !palette.extras.contains(&label) {
+    for (key, label) in COLOR_EXTRAS {
+        if settings.flag(key, false) {
             palette.extras.push(label);
         }
     }
@@ -454,13 +480,48 @@ mod tests {
     fn color_curves_use_their_first_color_and_extras_are_named() {
         let p = parse_palette(
             "C_BUTTON_Palette1=Active=TRUE|Id=ID_BUTTON_Palette1|Values=x=0.000^c=#ff8000;x=1.000^c=#0000ff|,\
-             C_CHECKBOX_Palette1=1,C_SLIDER_SparkleFrequency=20,C_SLIDER_Color_HueAdjust=0,C_SLIDER_Contrast=5",
+             C_CHECKBOX_Palette1=1,C_SLIDER_SparkleFrequency=20,C_CHECKBOX_Chroma=1,C_CHECKBOXBRIGHTNESSLEVEL=1",
         );
         assert_eq!(p.colors, vec![Rgb::new(255, 128, 0)]);
         assert_eq!(p.color_curves, 1);
-        assert_eq!(p.extras, vec!["contrast"]);
+        assert_eq!(p.extras, vec!["chroma key", "leveled brightness"]);
         assert_eq!(parse_palette("").colors, vec![]);
         assert_eq!(parse_palette("").brightness, 100.0);
+    }
+
+    #[test]
+    fn color_adjustments_are_read_as_whole_numbers_with_their_curves() {
+        let p = parse_palette(
+            "C_SLIDER_Color_HueAdjust=-25,C_SLIDER_Color_SaturationAdjust=10.9,C_SLIDER_Color_ValueAdjust=-5,\
+             C_SLIDER_Contrast=13,C_SLIDER_Brightness=250,\
+             C_VALUECURVE_Color_HueAdjust=Active=TRUE|Type=Sine|,C_VALUECURVE_Brightness=Active=FALSE|",
+        );
+        assert_eq!(
+            (
+                p.hue_adjust,
+                p.saturation_adjust,
+                p.value_adjust,
+                p.contrast,
+                p.brightness
+            ),
+            (-25.0, 10.0, -5.0, 13.0, 250.0)
+        );
+        assert_eq!(p.hue_curve.as_deref(), Some("Active=TRUE|Type=Sine|"));
+        assert_eq!(
+            (&p.brightness_curve, &p.saturation_curve, &p.value_curve),
+            (&None, &None, &None)
+        );
+        assert!(p.extras.is_empty());
+        let none = parse_palette("");
+        assert_eq!(
+            (
+                none.hue_adjust,
+                none.saturation_adjust,
+                none.value_adjust,
+                none.contrast
+            ),
+            (0.0, 0.0, 0.0, 0.0)
+        );
     }
 
     #[test]

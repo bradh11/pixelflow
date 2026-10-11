@@ -355,6 +355,23 @@ describe("sequence screen", () => {
     fireEvent.change(blur, { target: { value: "7" } });
     fireEvent.pointerUp(blur);
     await waitFor(() => expect(find().blur).toBe(7));
+    // The color adjustments, folded away until asked for; one left as drawn isn't written.
+    expect(within(panel).queryByRole("slider", { name: "Brightness" })).not.toBeInTheDocument();
+    await user.click(within(panel).getByRole("button", { name: /^Color: hue/ }));
+    const brightness = within(panel).getByRole("slider", { name: "Brightness" });
+    fireEvent.change(brightness, { target: { value: "0.5" } });
+    fireEvent.pointerUp(brightness);
+    await waitFor(() => expect(find().brightness).toBe(0.5));
+    const hue = within(panel).getByRole("slider", { name: "Hue shift" });
+    fireEvent.change(hue, { target: { value: "-0.25" } });
+    fireEvent.pointerUp(hue);
+    await waitFor(() => expect(find().hueAdjust).toBe(-0.25));
+    fireEvent.change(hue, { target: { value: "0" } });
+    fireEvent.pointerUp(hue);
+    await waitFor(() => expect(find().hueAdjust).toBeUndefined());
+    // Contrast holds one value; the others can change over the effect.
+    expect(within(panel).getByRole("button", { name: "Change Hue shift over the effect" })).toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: "Change Contrast over the effect" })).not.toBeInTheDocument();
     // How the prop's lights are laid out: a prop has only its own styles, not a group's.
     const style = within(panel).getByRole("combobox", { name: "Render style" });
     expect(within(style).getAllByRole("option").map((o) => o.textContent)).toEqual(["Its own layout", "Where the lights are", "One line", "All as one light"]);

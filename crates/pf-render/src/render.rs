@@ -1,5 +1,6 @@
 //! Drawing a whole sequence frame into the show frame.
 
+use crate::adjust::Adjust;
 use crate::audio::{Audio, AudioSource, AudioTrack, RenderContext};
 use crate::blur::Grid;
 use crate::color::{Acc, Colors, Rgba, to_u8, write_pixel};
@@ -429,8 +430,8 @@ struct Draw<'a> {
 }
 
 impl Draw<'_> {
-    /// Draws the effect: shaded (on the grid and blurred, when it has blur), sparkled, faded, and
-    /// mixed with the layers below. `shader` is given when the renderer had to work it out
+    /// Draws the effect: shaded (on the grid and blurred, when it has blur), its colors adjusted
+    /// around its sparkles, faded, and mixed with the layers below. `shader` is given when the renderer had to work it out
     /// (Faces).
     fn run(self, shader: Option<&Shader>) {
         let effect = self.effect;
@@ -469,6 +470,7 @@ impl Draw<'_> {
             time.elapsed_ms / u64::from(self.frame_ms.max(1)),
         );
         let halves = Halves::new(self.blend, self.canvas);
+        let adjust = Adjust::new(effect, self.blend);
         let Some(grid) = self.grid else {
             shader.with(Fill {
                 buffer: self.buffer,
@@ -476,6 +478,7 @@ impl Draw<'_> {
                 blend: self.blend,
                 fade,
                 sparkles,
+                adjust,
                 halves,
             });
             return;
@@ -499,8 +502,14 @@ impl Draw<'_> {
         let pixels = self.buffer.pixels.iter().zip(&grid.cell_of);
         for ((px, &cell), acc) in pixels.zip(self.acc.iter_mut()) {
             let mut color = self.cells[cell as usize];
+            if let Some(a) = &adjust {
+                color = a.shift(color);
+            }
             if let Some(s) = &sparkles {
                 color = s.apply(color, px.index);
+            }
+            if let Some(a) = &adjust {
+                color = a.level(color);
             }
             acc.blend(color, self.blend, fade, halves.first(px));
         }
@@ -542,18 +551,29 @@ struct Fill<'a> {
     blend: Blend,
     fade: f32,
     sparkles: Option<Sparkles>,
+    adjust: Option<Adjust>,
     halves: Halves,
 }
 
 impl ShaderVisitor<()> for Fill<'_> {
     #[inline]
     fn visit<S: Shade>(self, shader: &S) {
+        let Some(adjust) = self.adjust else {
+            for (px, acc) in self.buffer.pixels.iter().zip(self.acc.iter_mut()) {
+                let mut color: Rgba = shader.shade(px);
+                if let Some(s) = &self.sparkles {
+                    color = s.apply(color, px.index);
+                }
+                acc.blend(color, self.blend, self.fade, self.halves.first(px));
+            }
+            return;
+        };
         for (px, acc) in self.buffer.pixels.iter().zip(self.acc.iter_mut()) {
-            let mut color: Rgba = shader.shade(px);
+            let mut color = adjust.shift(shader.shade(px));
             if let Some(s) = &self.sparkles {
                 color = s.apply(color, px.index);
             }
-            acc.blend(color, self.blend, self.fade, self.halves.first(px));
+            acc.blend(adjust.level(color), self.blend, self.fade, self.halves.first(px));
         }
     }
 }

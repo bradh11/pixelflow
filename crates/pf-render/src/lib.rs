@@ -10,6 +10,7 @@
 //! seeking and export always give the same picture. [`export`]
 //! writes a sequence as an FPP `.fseq` file.
 
+mod adjust;
 pub mod audio;
 mod blur;
 mod butterfly;

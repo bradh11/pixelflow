@@ -128,6 +128,7 @@ None of these files has a test module, so impl equals total lines.
 | `raster.rs` | 340 (269) | `render/RenderBuffer.cpp` (`SetPixel`, `DrawLine`, `DrawThickLine`, `DrawCircle`, `DrawFadingCircle`) | about 150 | The gap-filling thick line case for case, the eight-point circle, and the `> width` wrap quirk (asserted by a test). The underlying algorithms are textbook. | **S** |
 | `blur.rs` | 577 (420) | `render/PixelBuffer.cpp` (`boxesForGauss`, `gaussBlur_4`, `Blur`) | about 130 | The box-size table and the thresholds that pick a blur. The box passes are organised differently. | **S** |
 | `effects.rs` | 1,169 (1,169) | `RenderBuffer.cpp` `calcAccel`, `GetEffectTimeIntervalPosition`; `ShapeEffect.cpp` music trigger | about 63 | Three small helpers. The effects themselves are closed-form and PixelFlow's (see the note on what was compared, below). | **S** |
+| `adjust.rs` | 247 (98) | `render/PixelBuffer.cpp` (`GetMixedColor`, `LayerInfo::calculateNodeOutputParams`), read at tag `2024.19` | about 60 | The order (hue, saturation, and value before the sparkles; brightness and contrast after), the hue wrap and the clamps, contrast's split at a value of 0.5 after brightness, and an unlit pixel counting as black on a layer that isn't blended Normal. | **S** |
 | `sparkles.rs` | 119 (60) | `LayerBlendingFunctions.ispc` `ApplySparkles`; `PixelBuffer.cpp` | about 25 | `% (208 - count)`, the brightness steps 0.53 / 0.75 / 1.0, phase `% 10000`. | **S** |
 
 Not every xLights counterpart of the `effects.rs` effects was opened. On, Color Wash, Shimmer,

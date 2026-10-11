@@ -103,6 +103,16 @@ function sungMarks(words: Mark[]): { syllables: Mark[]; phonemes: Mark[] } {
   return { syllables, phonemes };
 }
 
+/** The settings every effect has that can change over it, with their ranges (as `Effect::curve_range`). */
+const EFFECT_WIDE_CURVES: Record<string, { min: number; max: number }> = {
+  sparkles: { min: 0, max: 200 },
+  blur: { min: 0, max: 14 },
+  hueAdjust: { min: -1, max: 1 },
+  saturationAdjust: { min: -1, max: 1 },
+  valueAdjust: { min: -1, max: 1 },
+  brightness: { min: 0, max: 4 },
+};
+
 /** Characters in a name or label (the engine's MAX_TEXT_LEN). */
 const MAX_TEXT_LEN = 4096;
 
@@ -140,7 +150,7 @@ export function settingProblem(doc: Sequence): string | null {
         }
         for (const [key, curve] of Object.entries(effect.curves ?? {})) {
           const setting = info.settings.find((s) => s.key === key);
-          const range = key === "sparkles" ? { min: 0, max: 200 } : key === "blur" ? { min: 0, max: 14 } : setting?.type === "number" || setting?.type === "int" ? setting : null;
+          const range = EFFECT_WIDE_CURVES[key] ?? (setting?.type === "number" || setting?.type === "int" ? setting : null);
           if (!range) return `The ${info.label} effect at ${formatMs(effect.startMs)} has a setting PixelFlow can't use: '${key}' can't change over the effect.`;
           for (const v of [curve.from, curve.to]) {
             if (!Number.isFinite(v) || v < range.min || v > range.max) {

@@ -626,12 +626,22 @@ export interface Effect {
   musicSparkles?: boolean;
   /** Softening, 0 (none, when missing) to 14. */
   blur?: number;
+  /** Turns the colors it draws round the color wheel, -1 to 1 (0 when missing). */
+  hueAdjust?: number;
+  /** Added to the saturation of the colors it draws, -1 to 1 (0 when missing). */
+  saturationAdjust?: number;
+  /** Added to the lightness of the colors it draws, -1 to 1 (0 when missing). */
+  valueAdjust?: number;
+  /** Its brightness: 1 (when missing) as drawn, 0 to 4. */
+  brightness?: number;
+  /** Its contrast, -1 to 1 (0 when missing). */
+  contrast?: number;
   /** How the target's pixels are laid out for the effect (its own layout when missing). */
   renderStyle?: RenderStyle;
   /** Turns or flips that layout (as it is when missing). */
   bufferTransform?: BufferTransform;
-  /** Settings that change over the effect, by key (a `params` number setting, `sparkles`, or
-   * `blur`); none when missing. */
+  /** Settings that change over the effect, by key (a `params` number setting, `sparkles`,
+   * `blur`, `brightness`, or one of the three `…Adjust`); none when missing. */
   curves?: Record<string, Curve>;
 }
 

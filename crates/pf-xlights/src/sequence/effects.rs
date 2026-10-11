@@ -52,6 +52,13 @@ pub struct Translated {
     pub music_sparkles: bool,
     /// PixelFlow's blur (xLights' Blur minus one).
     pub blur: u32,
+    /// The color panel's hue, saturation, and value shifts (−1 to 1), brightness (1 = as drawn),
+    /// and contrast.
+    pub hue_adjust: f32,
+    pub saturation_adjust: f32,
+    pub value_adjust: f32,
+    pub brightness: f32,
+    pub contrast: f32,
     pub render_style: RenderStyle,
     pub buffer_transform: BufferTransform,
     /// Settings that change over the effect, by PixelFlow setting key.
@@ -1945,26 +1952,82 @@ fn sparkles_curve(palette: &ParsedPalette, diff: &mut Diff) -> Option<(u32, Opti
     Some((start as u32, curve, track))
 }
 
-/// The palette's sparkles and their color (dimmed by the palette's brightness, as xLights applies
-/// brightness after sparkles).
-fn sparkles(palette: &ParsedPalette) -> (u32, Rgb) {
-    let c = palette.sparkle_color;
-    let scale = brightness_scale(palette);
-    let f = |v: u8| (f64::from(v) * scale).round() as u8;
-    (palette.sparkles, Rgb::new(f(c.r), f(c.g), f(c.b)))
+/// The color panel's adjustments in PixelFlow's terms: the hue, saturation, and value shifts and
+/// the contrast as fractions, the brightness as a factor.
+struct Adjustments {
+    hue: f32,
+    saturation: f32,
+    value: f32,
+    brightness: f32,
+    contrast: f32,
 }
 
-/// The palette's brightness as a factor (0–1; above 100% counts as 100%).
-fn brightness_scale(palette: &ParsedPalette) -> f64 {
+/// The palette's color adjustments (`PixelBufferClass::SetLayerSettings` reads the sliders as
+/// whole percents), each at its value at the start, with a curve in `curves` where its value
+/// curve changes it over the effect (the brightness curve's values are whole percents too).
+fn adjustments(
+    palette: &ParsedPalette,
+    curves: &mut BTreeMap<String, Curve>,
+    curve_tracks: &mut Vec<(String, String)>,
+    diff: &mut Diff,
+) -> Adjustments {
+    let shift = |percent: f64| (percent / 100.0).clamp(-1.0, 1.0) as f32;
+    let factor =
+        |percent: f64| (percent.trunc() / 100.0).clamp(0.0, f64::from(pf_sequence::MAX_BRIGHTNESS)) as f32;
     let brightness = if palette.brightness.is_finite() {
-        palette.brightness.max(0.0)
+        palette.brightness
     } else {
         100.0
     };
-    (brightness / 100.0).min(1.0)
+    let mut adjust = Adjustments {
+        hue: shift(palette.hue_adjust),
+        saturation: shift(palette.saturation_adjust),
+        value: shift(palette.value_adjust),
+        brightness: factor(brightness),
+        contrast: shift(palette.contrast),
+    };
+    // A setting's value curve, over the range xLights gives it: `setting` starts where it does.
+    let mut follow = |key: &str,
+                      text: &Option<String>,
+                      setting: &mut f32,
+                      (least, most): (f32, f32),
+                      convert: &dyn Fn(f64) -> f32| {
+        let Some(curve) = text.as_deref().and_then(|t| XlCurve::parse_in(t, least, most)) else {
+            return;
+        };
+        let (start, curve, track) = setting_curve(&curve, convert, diff);
+        *setting = start;
+        curves.extend(curve.map(|c| (key.to_string(), c)));
+        curve_tracks.extend(track.map(|t| (key.to_string(), t)));
+    };
+    const SHIFT: (f32, f32) = (-100.0, 100.0);
+    follow("hueAdjust", &palette.hue_curve, &mut adjust.hue, SHIFT, &shift);
+    follow(
+        "saturationAdjust",
+        &palette.saturation_curve,
+        &mut adjust.saturation,
+        SHIFT,
+        &shift,
+    );
+    follow(
+        "valueAdjust",
+        &palette.value_curve,
+        &mut adjust.value,
+        SHIFT,
+        &shift,
+    );
+    follow(
+        "brightness",
+        &palette.brightness_curve,
+        &mut adjust.brightness,
+        (0.0, 400.0),
+        &factor,
+    );
+    adjust
 }
 
-/// Palette colors with the palette's brightness applied (xLights' `C_SLIDER_Brightness`).
+/// The palette's colors, as they are: its brightness and other adjustments are the effect's own
+/// settings (see [`adjustments`]).
 fn palette_colors(palette: &ParsedPalette, diff: &mut Diff) -> Vec<Rgb> {
     if palette.color_curves > 0 {
         diff.add("color curves shown as their first color");
@@ -1975,10 +2038,6 @@ fn palette_colors(palette: &ParsedPalette, diff: &mut Diff) -> Vec<Rgb> {
     for extra in &palette.extras {
         diff.add(format!("{extra} not applied"));
     }
-    if palette.brightness.is_finite() && palette.brightness > 100.0 {
-        diff.add("brightness above 100% shown at 100%");
-    }
-    let scale = brightness_scale(palette);
     // With no colors enabled xLights draws white, so say so explicitly (PixelFlow's renderer
     // also draws an empty palette white, but the timeline shows what's in the palette).
     let colors: &[Rgb] = if palette.colors.is_empty() {
@@ -1989,30 +2048,8 @@ fn palette_colors(palette: &ParsedPalette, diff: &mut Diff) -> Vec<Rgb> {
     colors
         .iter()
         .take(pf_sequence::MAX_PALETTE_COLORS)
-        .map(|c| {
-            let f = |v: u8| (f64::from(v) * scale).round() as u8;
-            Rgb::new(f(c.r), f(c.g), f(c.b))
-        })
+        .copied()
         .collect()
-}
-
-/// A picture has its own colors, so the palette's brightness (which xLights applies to every
-/// effect) can't dim them the way it dims other effects' palette colors: the picture is tinted
-/// with a grey that dim instead. At full brightness it's left alone.
-fn dimmed_picture(
-    params: EffectParams,
-    colors: Vec<Rgb>,
-    palette: &ParsedPalette,
-) -> (EffectParams, Vec<Rgb>) {
-    let scale = brightness_scale(palette);
-    match params {
-        EffectParams::Picture(mut p) if scale < 1.0 => {
-            p.tint = true;
-            let level = (255.0 * scale).round() as u8;
-            (EffectParams::Picture(p), vec![Rgb::new(level, level, level)])
-        }
-        other => (other, colors),
-    }
 }
 
 /// Translates one xLights effect lasting `duration_ms` in a sequence with `frame_ms` frames.
@@ -2026,7 +2063,7 @@ pub fn translate(
 ) -> Option<Translated> {
     let mut diff = Diff(Vec::new());
     let colors = palette_colors(palette, &mut diff);
-    let (mut sparkles, sparkle_color) = sparkles(palette);
+    let (mut sparkles, sparkle_color) = (palette.sparkles, palette.sparkle_color);
     // xLights' music sparkles: the count times the music's peak (nothing to follow without any).
     let music_sparkles = palette.music_sparkles && palette.sparkles > 0;
     let blend = blend(s, &mut diff);
@@ -2048,6 +2085,7 @@ pub fn translate(
         curves.extend(curve.map(|c| ("blur".to_string(), c)));
         curve_tracks.extend(track.map(|t| ("blur".to_string(), t)));
     }
+    let adjust = adjustments(palette, &mut curves, &mut curve_tracks, &mut diff);
     // Settings that change over the effect start at their first value; music and timing-track
     // ones at their middle (where they sit without the music or the track), and get curves that
     // follow them (see `follow`).
@@ -2137,7 +2175,6 @@ pub fn translate(
                         curve_tracks.extend(track.map(|t| (spec.key.to_string(), t)));
                     }
                 }
-                let (clamped, colors) = dimmed_picture(clamped, colors, palette);
                 Translated {
                     params: clamped,
                     palette: Palette::new(colors),
@@ -2148,6 +2185,11 @@ pub fn translate(
                     sparkle_color,
                     music_sparkles,
                     blur,
+                    hue_adjust: adjust.hue,
+                    saturation_adjust: adjust.saturation,
+                    value_adjust: adjust.value,
+                    brightness: adjust.brightness,
+                    contrast: adjust.contrast,
                     render_style,
                     buffer_transform,
                     curves,
@@ -2174,6 +2216,11 @@ pub fn translate(
                 sparkle_color,
                 music_sparkles,
                 blur,
+                hue_adjust: adjust.hue,
+                saturation_adjust: adjust.saturation,
+                value_adjust: adjust.value,
+                brightness: adjust.brightness,
+                contrast: adjust.contrast,
                 render_style,
                 buffer_transform,
                 curves,
@@ -2369,8 +2416,69 @@ mod tests {
             (250, 1000),
             "fades fit in the effect"
         );
-        assert_eq!(t.palette.colors, vec![Rgb::new(100, 50, 25)]);
+        // The palette keeps its colors; its brightness is the effect's.
+        assert_eq!(t.palette.colors, vec![Rgb::new(200, 100, 50)]);
+        assert_eq!(t.brightness, 0.5);
         assert_eq!(t.fidelity, Fidelity::Exact);
+    }
+
+    #[test]
+    fn the_color_panels_adjustments_translate_exactly_with_their_curves() {
+        let mut p = palette(&[Rgb::RED]);
+        p.hue_adjust = -25.0;
+        p.saturation_adjust = 10.0;
+        p.value_adjust = -5.0;
+        p.contrast = 13.0;
+        p.brightness = 250.9;
+        let t = translate("On", &Settings::default(), &p, 1000, 25).unwrap();
+        assert_eq!(
+            (
+                t.hue_adjust,
+                t.saturation_adjust,
+                t.value_adjust,
+                t.contrast,
+                t.brightness
+            ),
+            (-0.25, 0.1, -0.05, 0.13, 2.5),
+            "whole percents, and brightness can go past 100%"
+        );
+        assert!(t.curves.is_empty());
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        let plain = translate("On", &Settings::default(), &palette(&[Rgb::RED]), 1000, 25).unwrap();
+        assert_eq!(
+            (
+                plain.hue_adjust,
+                plain.saturation_adjust,
+                plain.value_adjust,
+                plain.contrast,
+                plain.brightness
+            ),
+            (0.0, 0.0, 0.0, 0.0, 1.0)
+        );
+        // Value curves: the shifts as fractions, the brightness in whole percents.
+        let mut p = palette(&[Rgb::RED]);
+        p.hue_curve = Some("Active=TRUE|Id=ID_VALUECURVE_Color_HueAdjust|Type=Ramp|Min=-100.00|Max=100.00|P1=-50.00|P2=75.00|RV=TRUE|".into());
+        p.value_curve = Some("Active=TRUE|Id=ID_VALUECURVE_Color_ValueAdjust|Type=Ramp|Min=-100.00|Max=100.00|P1=0.00|P2=-34.00|RV=TRUE|".into());
+        p.brightness_curve = Some("Active=TRUE|Id=ID_VALUECURVE_Brightness|Type=Ramp|Min=0.00|Max=400.00|P1=100.00|P2=300.00|RV=TRUE|".into());
+        let t = translate("On", &Settings::default(), &p, 1000, 25).unwrap();
+        assert_eq!(t.curves["hueAdjust"], Curve::ramp(-0.5, 0.75));
+        assert_eq!(t.curves["valueAdjust"], Curve::ramp(0.0, -0.34));
+        assert_eq!((t.hue_adjust, t.value_adjust, t.brightness), (-0.5, 0.0, 1.0));
+        let Some(brightness) = t.curves.get("brightness") else {
+            panic!("a brightness curve")
+        };
+        assert_eq!((brightness.value_at(0.0), brightness.value_at(1.0)), (1.0, 3.0));
+        assert!(!t.curves.contains_key("saturationAdjust"));
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        // What PixelFlow doesn't apply still says so.
+        let mut p = palette(&[Rgb::RED]);
+        p.extras = vec!["chroma key"];
+        assert_eq!(
+            translate("On", &Settings::default(), &p, 1000, 25)
+                .unwrap()
+                .fidelity,
+            Fidelity::Approximate(vec!["chroma key not applied".into()])
+        );
     }
 
     #[test]
@@ -2437,9 +2545,9 @@ mod tests {
         assert_eq!(t.fidelity, Fidelity::Exact);
         assert_eq!((t.sparkles, t.blur), (54, 7));
         assert_eq!(
-            t.sparkle_color,
-            Rgb::new(100, 50, 0),
-            "dimmed by the palette's brightness"
+            (t.sparkle_color, t.brightness),
+            (Rgb::new(200, 100, 0), 0.5),
+            "the effect's brightness dims its sparkles as it's drawn"
         );
         let plain = translate(
             "Color Wash",
@@ -3820,16 +3928,15 @@ mod tests {
             }
         );
         assert!(t.curves.is_empty());
-        // The palette's brightness dims a picture as a grey tint; its colors don't color it.
+        // The palette's brightness dims a picture as the effect's own; its colors don't color it.
         let mut dim = palette(&[Rgb::RED, Rgb::BLUE]);
         dim.brightness = 40.0;
         let t = translate("Pictures", &Settings::default(), &dim, 1000, 25).unwrap();
         let EffectParams::Picture(p) = &t.params else {
             panic!("{:?}", t.params)
         };
-        assert!(p.tint);
-        assert_eq!(t.palette.colors, vec![Rgb::new(102, 102, 102)]);
-        assert_eq!(t.fidelity, Fidelity::Exact);
+        assert!(!p.tint);
+        assert_eq!(t.brightness, 0.4);
         // Nothing set: no file yet, pixel for pixel, still, its animation spread over the effect.
         let (p, t) = picture("", 4_000);
         assert_eq!(

@@ -197,6 +197,30 @@ pub struct Effect {
     // [`crate::MAX_BLUR`].
     #[serde(default)]
     pub blur: u32,
+    /// Turns its colors round the color wheel: -1 to 1.
+    // The five color adjustments are xLights' (its color panel's Hue, Saturation, and Value
+    // adjustments, Brightness, and Contrast), applied to what the effect drew as xLights applies
+    // them: hue, saturation, and value before the sparkles, brightness and contrast after, all
+    // before the effect fades and mixes with the layers below (see pf-render's `adjust`). A full
+    // turn of hue is 1; saturation and value are added to and stop at their ends. Their notes
+    // are short so the AI tools' schema stays small.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub hue_adjust: f32,
+    /// Added to saturation: -1 to 1.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub saturation_adjust: f32,
+    /// Added to lightness: -1 to 1.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub value_adjust: f32,
+    /// 1 as drawn; 0 to 4.
+    // Up to [`crate::MAX_BRIGHTNESS`].
+    #[serde(default = "one", skip_serializing_if = "is_one")]
+    pub brightness: f32,
+    /// -1 to 1.
+    // Above 0 it darkens the darker colors (value under a half) and brightens the brighter
+    // ones; below 0, the other way.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub contrast: f32,
     /// How the target's pixels are laid out for the effect (the target's own layout by default).
     #[serde(default, skip_serializing_if = "is_default")]
     #[cfg_attr(feature = "schema", schemars(description = ""))]
@@ -205,8 +229,9 @@ pub struct Effect {
     #[serde(default, skip_serializing_if = "is_default")]
     #[cfg_attr(feature = "schema", schemars(description = ""))]
     pub buffer_transform: BufferTransform,
-    /// Settings that change over the effect, by key (a `params` number setting, `sparkles`, or
-    /// `blur`); each takes the place of that setting's value while the effect plays.
+    /// Settings that change over the effect, by key (a `params` number setting, `sparkles`,
+    /// `blur`, `brightness`, or an `…Adjust`).
+    // Each takes the place of that setting's value while the effect plays.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub curves: BTreeMap<String, Curve>,
 }
@@ -214,6 +239,68 @@ pub struct Effect {
 fn white() -> Rgb {
     Rgb::WHITE
 }
+
+fn one() -> f32 {
+    1.0
+}
+
+fn is_zero(value: &f32) -> bool {
+    *value == 0.0
+}
+
+fn is_one(value: &f32) -> bool {
+    *value == 1.0
+}
+
+/// An effect-wide number setting that isn't a whole number: its key in files, the name people
+/// see, its range, and its value when left alone.
+struct Adjustment {
+    key: &'static str,
+    label: &'static str,
+    min: f32,
+    max: f32,
+    neutral: f32,
+}
+
+/// The color adjustments every effect has, in the order they're listed. All but the last can
+/// change over the effect.
+const ADJUSTMENTS: [Adjustment; 5] = [
+    Adjustment {
+        key: "hueAdjust",
+        label: "Hue shift",
+        min: -1.0,
+        max: 1.0,
+        neutral: 0.0,
+    },
+    Adjustment {
+        key: "saturationAdjust",
+        label: "Saturation shift",
+        min: -1.0,
+        max: 1.0,
+        neutral: 0.0,
+    },
+    Adjustment {
+        key: "valueAdjust",
+        label: "Lightness shift",
+        min: -1.0,
+        max: 1.0,
+        neutral: 0.0,
+    },
+    Adjustment {
+        key: "brightness",
+        label: "Brightness",
+        min: 0.0,
+        max: crate::MAX_BRIGHTNESS,
+        neutral: 1.0,
+    },
+    Adjustment {
+        key: "contrast",
+        label: "Contrast",
+        min: -1.0,
+        max: 1.0,
+        neutral: 0.0,
+    },
+];
 
 fn is_default<T: Default + PartialEq>(value: &T) -> bool {
     *value == T::default()
@@ -247,14 +334,37 @@ impl Effect {
             sparkle_color: Rgb::WHITE,
             music_sparkles: false,
             blur: 0,
+            hue_adjust: 0.0,
+            saturation_adjust: 0.0,
+            value_adjust: 0.0,
+            brightness: 1.0,
+            contrast: 0.0,
             render_style: RenderStyle::Default,
             buffer_transform: BufferTransform::None,
             curves: BTreeMap::new(),
         }
     }
 
+    /// The effect-wide settings a curve can change besides `sparkles` and `blur`: the color
+    /// adjustments but contrast (which xLights holds steady too).
+    pub const ADJUSTMENT_CURVES: [&'static str; 4] =
+        ["hueAdjust", "saturationAdjust", "valueAdjust", "brightness"];
+
+    /// The color adjustment `key`, where it's kept.
+    fn adjustment(&mut self, key: &str) -> Option<&mut f32> {
+        Some(match key {
+            "hueAdjust" => &mut self.hue_adjust,
+            "saturationAdjust" => &mut self.saturation_adjust,
+            "valueAdjust" => &mut self.value_adjust,
+            "brightness" => &mut self.brightness,
+            "contrast" => &mut self.contrast,
+            _ => return None,
+        })
+    }
+
     /// The range of the number setting `key` a curve can change on an effect of `kind`: one of
-    /// the kind's number settings, `sparkles`, or `blur`. `None` for any other key.
+    /// the kind's number settings, `sparkles`, `blur`, or a color adjustment but contrast.
+    /// `None` for any other key.
     pub fn curve_range(kind: EffectKind, key: &str) -> Option<CurveRange> {
         let whole = |max: u32| CurveRange {
             min: 0.0,
@@ -265,6 +375,13 @@ impl Effect {
             "sparkles" => return Some(whole(crate::MAX_SPARKLES)),
             "blur" => return Some(whole(crate::MAX_BLUR)),
             _ => {}
+        }
+        if Self::ADJUSTMENT_CURVES.contains(&key) {
+            return ADJUSTMENTS.iter().find(|a| a.key == key).map(|a| CurveRange {
+                min: a.min,
+                max: a.max,
+                whole: false,
+            });
         }
         match kind.settings().iter().find(|s| s.key == key)?.range {
             SettingRange::Number { min, max, .. } => Some(CurveRange {
@@ -281,13 +398,22 @@ impl Effect {
         }
     }
 
-    /// Pulls the settings every effect has into range: sparkles, blur, and curves (see
-    /// [`EffectParams::sanitize`] for the kind's own). Curves on settings the kind doesn't have
-    /// are dropped.
+    /// Pulls the settings every effect has into range: sparkles, blur, the color adjustments, and
+    /// curves (see [`EffectParams::sanitize`] for the kind's own). Curves on settings the kind
+    /// doesn't have are dropped.
     pub fn sanitize(&mut self) {
         self.params.sanitize();
         self.sparkles = self.sparkles.min(crate::MAX_SPARKLES);
         self.blur = self.blur.min(crate::MAX_BLUR);
+        for a in &ADJUSTMENTS {
+            if let Some(value) = self.adjustment(a.key) {
+                *value = if value.is_nan() {
+                    a.neutral
+                } else {
+                    value.clamp(a.min, a.max)
+                };
+            }
+        }
         let kind = self.kind();
         self.curves
             .retain(|key, curve| match Self::curve_range(kind, key) {
@@ -337,6 +463,11 @@ impl Effect {
             sparkle_color: self.sparkle_color,
             music_sparkles: self.music_sparkles,
             blur: self.blur,
+            hue_adjust: self.hue_adjust,
+            saturation_adjust: self.saturation_adjust,
+            value_adjust: self.value_adjust,
+            brightness: self.brightness,
+            contrast: self.contrast,
             render_style: self.render_style,
             buffer_transform: self.buffer_transform,
             curves: BTreeMap::new(),
@@ -347,6 +478,11 @@ impl Effect {
             match key.as_str() {
                 "sparkles" => now.sparkles = (value.round() as u32).min(crate::MAX_SPARKLES),
                 "blur" => now.blur = (value.round() as u32).min(crate::MAX_BLUR),
+                key if Self::ADJUSTMENT_CURVES.contains(&key) => {
+                    if let Some(setting) = now.adjustment(key) {
+                        *setting = value;
+                    }
+                }
                 _ => {
                     now.params.set_number(key, value);
                 }
@@ -375,6 +511,23 @@ impl Effect {
         if self.blur > crate::MAX_BLUR {
             return Some(format!("Blur is {}; use 0 to {}", self.blur, crate::MAX_BLUR));
         }
+        for (a, value) in ADJUSTMENTS.iter().zip([
+            self.hue_adjust,
+            self.saturation_adjust,
+            self.value_adjust,
+            self.brightness,
+            self.contrast,
+        ]) {
+            if !value.is_finite() {
+                return Some(format!(
+                    "{} isn't a usable number; use {} to {}",
+                    a.label, a.min, a.max
+                ));
+            }
+            if !(a.min..=a.max).contains(&value) {
+                return Some(format!("{} is {value}; use {} to {}", a.label, a.min, a.max));
+            }
+        }
         let kind = self.kind();
         for (key, curve) in &self.curves {
             let Some(range) = Self::curve_range(kind, key) else {
@@ -387,6 +540,9 @@ impl Effect {
                 let label = match key.as_str() {
                     "sparkles" => "Sparkles",
                     "blur" => "Blur",
+                    key if Self::ADJUSTMENT_CURVES.contains(&key) => {
+                        ADJUSTMENTS.iter().find(|a| a.key == key).map_or("A", |a| a.label)
+                    }
                     _ => kind
                         .settings()
                         .iter()
@@ -3049,6 +3205,120 @@ mod tests {
         let json = serde_json::to_value(&e).unwrap();
         assert_eq!(json["musicSparkles"], true);
         assert!(serde_json::to_value(Effect::new(EffectKind::On, 0, 1)).unwrap()["musicSparkles"].is_null());
+    }
+
+    #[test]
+    fn color_adjustments_are_left_out_when_neutral_and_kept_in_range() {
+        let plain = Effect::new(EffectKind::On, 0, 1000);
+        assert_eq!(
+            (
+                plain.hue_adjust,
+                plain.saturation_adjust,
+                plain.value_adjust,
+                plain.brightness,
+                plain.contrast
+            ),
+            (0.0, 0.0, 0.0, 1.0, 0.0)
+        );
+        let json = serde_json::to_value(&plain).unwrap();
+        for key in [
+            "hueAdjust",
+            "saturationAdjust",
+            "valueAdjust",
+            "brightness",
+            "contrast",
+        ] {
+            assert!(json[key].is_null(), "{key} is left out of the file");
+        }
+        // An effect written before them reads back neutral.
+        let read: Effect = serde_json::from_value(json).unwrap();
+        assert_eq!(read, plain);
+        let mut e = plain.clone();
+        (e.hue_adjust, e.brightness, e.contrast) = (-0.25, 2.5, 0.13);
+        let json = serde_json::to_value(&e).unwrap();
+        assert_eq!(json["hueAdjust"], -0.25);
+        assert_eq!(json["brightness"], 2.5);
+        assert!(json["valueAdjust"].is_null());
+        assert_eq!(serde_json::from_value::<Effect>(json).unwrap(), e);
+        assert_eq!(e.setting_problem(), None);
+        // Out of range: said plainly, and pulled back in when a file opens.
+        (e.hue_adjust, e.brightness, e.value_adjust) = (3.0, 9.0, f32::NAN);
+        assert_eq!(
+            e.setting_problem().as_deref(),
+            Some("Hue shift is 3; use -1 to 1")
+        );
+        e.sanitize();
+        assert_eq!(
+            (e.hue_adjust, e.brightness, e.value_adjust),
+            (1.0, crate::MAX_BRIGHTNESS, 0.0)
+        );
+        assert_eq!(e.setting_problem(), None);
+    }
+
+    #[test]
+    fn color_adjustments_can_change_over_the_effect_all_but_contrast() {
+        let mut e = Effect::new(EffectKind::On, 1000, 3000);
+        e.curves.insert("hueAdjust".into(), Curve::ramp(-1.0, 1.0));
+        e.curves.insert("saturationAdjust".into(), Curve::ramp(0.0, -1.0));
+        e.curves.insert("valueAdjust".into(), Curve::ramp(0.5, 0.0));
+        e.curves.insert("brightness".into(), Curve::ramp(1.0, 3.0));
+        assert_eq!(e.setting_problem(), None);
+        let now = e.at(1500);
+        assert_eq!(
+            (
+                now.hue_adjust,
+                now.saturation_adjust,
+                now.value_adjust,
+                now.brightness
+            ),
+            (-0.5, -0.25, 0.375, 1.5)
+        );
+        e.sanitize();
+        assert_eq!(e.curves.len(), 4, "curves on the adjustments are kept");
+        e.curves.insert("contrast".into(), Curve::ramp(0.0, 1.0));
+        assert!(
+            e.setting_problem()
+                .is_some_and(|p| p.contains("'contrast' can't change over the effect"))
+        );
+        e.sanitize();
+        assert!(!e.curves.contains_key("contrast"));
+        assert_eq!(
+            Effect::curve_range(EffectKind::Off, "brightness"),
+            Some(CurveRange {
+                min: 0.0,
+                max: crate::MAX_BRIGHTNESS,
+                whole: false
+            })
+        );
+        // A curve past the range says which setting.
+        e.curves.insert("brightness".into(), Curve::ramp(1.0, 30.0));
+        assert!(
+            e.setting_problem()
+                .is_some_and(|p| p.starts_with("Brightness's curve"))
+        );
+    }
+
+    #[test]
+    fn no_kinds_setting_shares_a_key_with_a_setting_every_effect_has() {
+        // A curve finds its setting by key alone, so the two kinds of key must not collide.
+        let shared = [
+            "sparkles",
+            "blur",
+            "hueAdjust",
+            "saturationAdjust",
+            "valueAdjust",
+            "brightness",
+            "contrast",
+        ];
+        for kind in EffectKind::ALL {
+            for spec in kind.settings() {
+                assert!(
+                    !shared.contains(&spec.key),
+                    "{kind:?} has a '{}' setting",
+                    spec.key
+                );
+            }
+        }
     }
 
     #[test]

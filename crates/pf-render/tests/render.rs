@@ -718,6 +718,56 @@ fn sparkles_are_the_same_every_render_and_cover_about_5_in_208_minus_the_setting
 }
 
 #[test]
+fn color_adjustments_shift_what_an_effect_drew_and_dim_its_sparkles_too() {
+    let mut show = Show::new("t");
+    show.props.push(line("Line", 2000, 0.0));
+    let target = Target::Prop(show.props[0].id);
+    let mut seq = Sequence::new("s", 10_000);
+    seq.rows.push(row(target, vec![vec![on(Rgb::RED, 0, 10_000)]]));
+    let frame = |change: &dyn Fn(&mut Effect)| {
+        let mut seq = seq.clone();
+        change(&mut seq.rows[0].layers[0].effects[0]);
+        render(&show, &seq, 1000)
+    };
+    let all = |frame: &[u8], color: [u8; 3]| frame.chunks(3).all(|p| p == color);
+    assert!(all(&frame(&|_| {}), [255, 0, 0]));
+    // A third of a turn round the color wheel; a curve takes the place of the setting (a tenth
+    // of the way from -0.4 to 4/15 is a third of a turn back).
+    assert!(all(&frame(&|e| e.hue_adjust = 1.0 / 3.0), [0, 255, 0]));
+    assert!(all(
+        &frame(&|e| {
+            e.hue_adjust = 1.0 / 3.0;
+            e.curves.insert("hueAdjust".into(), Curve::ramp(-0.4, 4.0 / 15.0));
+        }),
+        [0, 0, 255]
+    ));
+    assert!(all(&frame(&|e| e.saturation_adjust = -0.5), [255, 128, 128]));
+    assert!(all(&frame(&|e| e.value_adjust = -0.5), [128, 0, 0]));
+    assert!(all(&frame(&|e| e.brightness = 0.5), [128, 0, 0]));
+    // Half brightness with a contrast of 0.2: value 0.5, from the middle up, gains a fifth.
+    assert!(all(
+        &frame(&|e| (e.brightness, e.contrast) = (0.5, 0.2)),
+        [153, 0, 0]
+    ));
+    // The sparkles are drawn after the hue turns (they stay white) and before the brightness
+    // (they dim with the effect).
+    let sparkled = frame(&|e| {
+        e.sparkles = 150;
+        e.hue_adjust = 1.0 / 3.0;
+        e.brightness = 0.5;
+    });
+    assert!(sparkled.chunks(3).any(|p| p == [128, 128, 128]), "a full sparkle");
+    assert!(sparkled.chunks(3).any(|p| p == [0, 128, 0]), "the effect");
+    assert!(
+        sparkled
+            .chunks(3)
+            .all(|p| p[1] == 128 || p[1] < 128 && p[0] == p[2] && p[0] < 128),
+        "nothing brighter than half: {:?}",
+        sparkled.chunks(3).find(|p| p[1] > 128)
+    );
+}
+
+#[test]
 fn fades_scale_the_effect_and_later_rows_cover_earlier_ones() {
     let show = show();
     let a = Target::Prop(show.props[0].id);

@@ -10,12 +10,11 @@ use pf_bench::run::run;
 use pf_bench::sequence::{DEFAULT_SECONDS, Variant, synthetic_sequence};
 use pf_bench::show::{TIERS, parse_tier, synthetic_show, tier_label};
 use pf_bench::sink::SinkKind;
-use pf_bench::system::optimized;
+use pf_bench::system::{load_average, optimized};
 use pf_output::OutputSettings;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
-#[cfg(feature = "count-allocations")]
 #[global_allocator]
 static ALLOCATOR: pf_bench::alloc::Counting = pf_bench::alloc::Counting;
 
@@ -91,6 +90,10 @@ struct Cli {
     /// With `--all`: also play each tier in the engine itself.
     #[arg(long)]
     engine_check: bool,
+    /// Before each run, wait (up to two minutes) for the machine's one-minute load average to
+    /// fall below this, so the run doesn't share the machine with something else.
+    #[arg(long)]
+    calm: Option<f64>,
     /// Print the show and its sequences, and run nothing.
     #[arg(long)]
     describe: bool,
@@ -141,6 +144,9 @@ fn one(cli: &Cli) -> Result<Report> {
         }
     };
     describe(cli.tier, cli.sequence_seconds, &[cli.variant], &mut report)?;
+    if let Some(limit) = cli.calm {
+        wait_for_calm(limit);
+    }
     let options = Options {
         seconds: cli.seconds,
         warmup_seconds: cli.warmup_seconds,
@@ -150,6 +156,21 @@ fn one(cli: &Cli) -> Result<Report> {
     said(&format!("{}: {}", verdict(&result), result.verdict.summary));
     report.runs.push(result);
     Ok(report)
+}
+
+/// Waits until the machine's one-minute load average is under `limit`, or two minutes.
+fn wait_for_calm(limit: f64) {
+    for waited in 0..24 {
+        match load_average() {
+            Some(load) if load >= limit => {
+                if waited == 0 {
+                    eprintln!("  waiting for the machine to go quiet (its load average is {load:.1})");
+                }
+                std::thread::sleep(std::time::Duration::from_secs(5));
+            }
+            _ => return,
+        }
+    }
 }
 
 /// Runs this program again with `args`, and reads the report it writes.
@@ -173,7 +194,7 @@ fn child(args: &[String], scratch: &Path) -> Result<Report> {
 fn all(cli: &Cli) -> Result<Report> {
     let scratch = std::env::temp_dir().join(format!("pf-bench-{}.json", std::process::id()));
     let mut report = Report::new();
-    let common = [
+    let mut common = vec![
         "--seconds".to_string(),
         cli.seconds.to_string(),
         "--warmup-seconds".to_string(),
@@ -181,6 +202,9 @@ fn all(cli: &Cli) -> Result<Report> {
         "--sequence-seconds".to_string(),
         cli.sequence_seconds.to_string(),
     ];
+    if let Some(limit) = cli.calm {
+        common.extend(["--calm".to_string(), limit.to_string()]);
+    }
     let mut runs: Vec<Vec<String>> = Vec::new();
     for &tier in &cli.tiers {
         for variant in Variant::ALL {

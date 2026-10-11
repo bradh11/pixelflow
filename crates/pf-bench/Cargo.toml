@@ -10,12 +10,6 @@ publish.workspace = true
 name = "pf-bench"
 path = "src/main.rs"
 
-[features]
-default = ["count-allocations"]
-# Counts the benchmark binary's heap allocations (a few atomic adds per allocation). Turn it off
-# to check that counting doesn't change the timings: `--no-default-features`.
-count-allocations = []
-
 [dependencies]
 pf-model.workspace = true
 pf-mapping.workspace = true

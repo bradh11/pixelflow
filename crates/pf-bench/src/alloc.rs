@@ -72,7 +72,7 @@ pub struct Counted {
 }
 
 /// The counters now, or `None` when nothing is counting (the allocator isn't installed, as in
-/// tests and builds without the `count-allocations` feature).
+/// the library's own tests).
 pub fn counted() -> Option<Counted> {
     let allocations = ALLOCATIONS.load(Ordering::Relaxed);
     (allocations > 0).then(|| Counted {

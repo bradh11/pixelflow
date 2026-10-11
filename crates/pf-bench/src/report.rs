@@ -459,6 +459,14 @@ impl Report {
             "Peak RSS",
         ];
         table(out, "The engine itself, watched from outside", &headers, rows);
+
+        let mut notes: Vec<&String> = self.runs.iter().flat_map(|r| &r.notes).collect();
+        notes.sort();
+        notes.dedup();
+        for note in notes {
+            let _ = writeln!(out, "- {note}");
+        }
+        out.push('\n');
     }
 }
 

@@ -263,9 +263,9 @@ fn show_replies() {
 
     // A small show, saved, with a sequence open and files that aren't where it says.
     let entry = json!({ "id": "77777777-0000-4000-8000-000000000001", "name": "Carol",
-        "path": root.join("sequences/Carol.fseq"), "audio": root.join("music/Carol.mp3"), "offsetMs": -40 });
+        "path": root.join("sequences").join("Carol.fseq"), "audio": root.join("music").join("Carol.mp3"), "offsetMs": -40 });
     let silent = json!({ "id": "77777777-0000-4000-8000-000000000002", "name": "Silent",
-        "path": root.join("sequences/Silent.fseq"), "audio": null, "offsetMs": 0 });
+        "path": root.join("sequences").join("Silent.fseq"), "audio": null, "offsetMs": 0 });
     shell.ok(
         "apply_edits",
         json!({ "edits": [
@@ -274,9 +274,9 @@ fn show_replies() {
             { "type": "addController", "controller": bench(1, &[1]) },
             { "type": "addSequence", "sequence": entry },
             { "type": "addSequence", "sequence": silent },
-            { "type": "setBackground", "background": { "path": root.join("photos/house.png"), "x": -10, "y": 8,
+            { "type": "setBackground", "background": { "path": root.join("photos").join("house.png"), "x": -10, "y": 8,
                 "width": 20, "opacity": 0.6 } },
-            { "type": "setHouseModel", "houseModel": { "path": root.join("models/house.glb"),
+            { "type": "setHouseModel", "houseModel": { "path": root.join("models").join("house.glb"),
                 "position": { "x": 0, "y": 0, "z": -3 }, "rotationDeg": { "x": 0, "y": 90, "z": 0 }, "scale": 1.5, "opacity": 0.8 } },
         ] }),
     );

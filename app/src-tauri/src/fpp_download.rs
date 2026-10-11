@@ -443,7 +443,7 @@ mod tests {
         let fpp = fpp();
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("music")).unwrap();
-        std::fs::write(dir.path().join("music/Wizards.mp3"), b"mine").unwrap();
+        std::fs::write(dir.path().join("music").join("Wizards.mp3"), b"mine").unwrap();
         let remote = fpp_download::read_sequence(&client(), fpp.address(), "Wizards.fseq").unwrap();
         let plan = plan(&remote, dir.path(), 1462);
         assert_eq!(plan.sequence.name, "Wizards.fseq");
@@ -490,18 +490,18 @@ mod tests {
         .unwrap();
         assert_eq!(
             result.sequence_path,
-            path_to_text(&dir.path().join("sequences/Wizards.fseq"))
+            path_to_text(&dir.path().join("sequences").join("Wizards.fseq"))
         );
         assert_eq!(
             result.music_path,
-            Some(path_to_text(&dir.path().join("music/Wizards.mp3")))
+            Some(path_to_text(&dir.path().join("music").join("Wizards.mp3")))
         );
         assert_eq!(
-            std::fs::read(dir.path().join("sequences/Wizards.fseq")).unwrap(),
+            std::fs::read(dir.path().join("sequences").join("Wizards.fseq")).unwrap(),
             pattern(200_000, 1)
         );
         assert_eq!(
-            std::fs::read(dir.path().join("music/Wizards.mp3")).unwrap(),
+            std::fs::read(dir.path().join("music").join("Wizards.mp3")).unwrap(),
             pattern(50_000, 2)
         );
         assert_eq!(
@@ -529,7 +529,7 @@ mod tests {
     fn a_name_clash_is_replaced_kept_both_or_left_alone() {
         let fpp = fpp();
         let dir = tempfile::tempdir().unwrap();
-        let seq = dir.path().join("sequences/Wizards.fseq");
+        let seq = dir.path().join("sequences").join("Wizards.fseq");
         std::fs::create_dir_all(seq.parent().unwrap()).unwrap();
         std::fs::write(&seq, b"mine").unwrap();
 
@@ -548,7 +548,7 @@ mod tests {
         let result = run(&fpp, dir.path(), &keep).unwrap();
         assert_eq!(
             result.sequence_path,
-            path_to_text(&dir.path().join("sequences/Wizards (2).fseq"))
+            path_to_text(&dir.path().join("sequences").join("Wizards (2).fseq"))
         );
         assert_eq!(std::fs::read(&seq).unwrap(), b"mine");
 

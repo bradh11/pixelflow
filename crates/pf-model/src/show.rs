@@ -436,14 +436,27 @@ mod tests {
         }
     }
 
+    /// The text of `folder` with `parts` below it, joined the way this system joins paths: a
+    /// path read back in full is joined that way (with `\` on Windows).
+    fn below(folder: &str, parts: &[&str]) -> String {
+        let mut path = std::path::PathBuf::from(folder);
+        path.extend(parts);
+        crate::path_to_text(&path)
+    }
+
     fn show_with_files() -> Show {
         let mut show = Show::new("Files");
-        let mut medley = SequenceEntry::new("Medley", "/Shows/Haas/Christmas Medley 2017.fseq");
-        medley.audio = Some("/Shows/Haas/MP3 Music/Christmas Medley 2017.mp3".into());
+        let mut medley = SequenceEntry::new("Medley", below("/Shows/Haas", &["Christmas Medley 2017.fseq"]));
+        medley.audio = Some(below("/Shows/Haas", &["MP3 Music", "Christmas Medley 2017.mp3"]));
         show.sequences.push(medley);
         show.sequences
             .push(SequenceEntry::new("Elsewhere", "/Volumes/USB/Wizards.fseq"));
-        show.background = Some(Background::new("/Shows/Haas/photos/house.jpg", 0.0, 0.0, 10.0));
+        show.background = Some(Background::new(
+            below("/Shows/Haas", &["photos", "house.jpg"]),
+            0.0,
+            0.0,
+            10.0,
+        ));
         show.house_model = Some(HouseModel::new("/Users/me/Models/house.glb"));
         show
     }
@@ -471,18 +484,19 @@ mod tests {
         // The folder moved: the relative files follow it, the others stay put.
         let mut moved = stored.clone();
         moved.resolve_paths(Path::new("/Users/me/Shows/Haas"));
+        let to = "/Users/me/Shows/Haas";
         assert_eq!(
             moved.sequences[0].path,
-            "/Users/me/Shows/Haas/Christmas Medley 2017.fseq"
+            below(to, &["Christmas Medley 2017.fseq"])
         );
         assert_eq!(
-            moved.sequences[0].audio.as_deref(),
-            Some("/Users/me/Shows/Haas/MP3 Music/Christmas Medley 2017.mp3")
+            moved.sequences[0].audio,
+            Some(below(to, &["MP3 Music", "Christmas Medley 2017.mp3"]))
         );
         assert_eq!(moved.sequences[1].path, "/Volumes/USB/Wizards.fseq");
         assert_eq!(
             moved.background.as_ref().unwrap().path,
-            "/Users/me/Shows/Haas/photos/house.jpg"
+            below(to, &["photos", "house.jpg"])
         );
 
         let mut same = stored;

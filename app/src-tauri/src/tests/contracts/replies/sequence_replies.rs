@@ -358,7 +358,7 @@ fn sequence_file_replies() {
     );
 
     // The sequence's music moves to another folder of the show.
-    let music = folder.join("Music/Carol.wav");
+    let music = folder.join("Music").join("Carol.wav");
     write_wav_ms(&music, 500);
     shell.ok(
         "new_sequence_doc",
@@ -374,7 +374,7 @@ fn sequence_file_replies() {
         &shell.ok("sequence_music_missing", json!({})),
     );
     std::fs::create_dir_all(folder.join("Audio")).unwrap();
-    std::fs::rename(&music, folder.join("Audio/Carol.wav")).unwrap();
+    std::fs::rename(&music, folder.join("Audio").join("Carol.wav")).unwrap();
     let missing = shell.ok("sequence_music_missing", json!({}));
     assert_eq!(missing["file"], json!({ "kind": "sequenceDocMusic" }));
     fixtures.reply(
@@ -413,7 +413,7 @@ fn sequence_file_replies() {
         &checked,
     );
     std::fs::create_dir_all(folder.join("Assets")).unwrap();
-    std::fs::write(folder.join("Assets/star.gif"), RED_GIF).unwrap();
+    std::fs::write(folder.join("Assets").join("star.gif"), RED_GIF).unwrap();
     let relinked = shell.ok("find_sequence_pictures", json!({}));
     assert_eq!(relinked["found"], json!(["star.gif"]));
     fixtures.reply("a picture found again", "sequencer.PicturesRelinked", &relinked);
@@ -447,7 +447,12 @@ fn sequence_file_replies() {
 }
 
 fn xlights_fixtures() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/pf-xlights/fixtures")
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("crates")
+        .join("pf-xlights")
+        .join("fixtures")
 }
 
 #[test]
@@ -470,7 +475,7 @@ fn xlights_replies() {
     );
     let sequence = shell.ok(
         "import_xlights_sequence",
-        json!({ "path": from.join("sequences/effects.xsq") }),
+        json!({ "path": from.join("sequences").join("effects.xsq") }),
     );
     assert!(sequence["summary"]["effects"].as_u64().unwrap() > 0);
     fixtures.reply(
@@ -486,11 +491,11 @@ fn xlights_replies() {
         &[
             (
                 "Vendor/xlights_rgbeffects.xml",
-                &std::fs::read(from.join("sample-show/xlights_rgbeffects.xml")).unwrap(),
+                &std::fs::read(from.join("sample-show").join("xlights_rgbeffects.xml")).unwrap(),
             ),
             (
                 "Vendor/Sequences/effects.xsq",
-                &std::fs::read(from.join("sequences/effects.xsq")).unwrap(),
+                &std::fs::read(from.join("sequences").join("effects.xsq")).unwrap(),
             ),
             ("Vendor/Music/effects.mp3", b"ID3 not really a song"),
         ],

@@ -3,8 +3,8 @@
 What PixelFlow's third-party dependencies say their licences are, for the three places
 dependencies come from:
 
-- **(a)** the engine workspace at the repo root (`Cargo.toml`, `Cargo.lock`): the `pf-*` crates
-  and the `pf-cli` tool;
+- **(a)** the engine workspace at the repo root (`Cargo.toml`, `Cargo.lock`): the `pf-*` crates,
+  the `pf-cli` tool, and the `pf-bench` benchmark;
 - **(b)** the desktop app (`app/src-tauri/Cargo.toml` and its own `Cargo.lock`), which links the
   engine crates plus Tauri: this is what an installer contains;
 - **(c)** the app's UI (`app/package.json`, `app/pnpm-lock.yaml`), production dependencies only:
@@ -122,9 +122,9 @@ Code and data taken from xLights and other projects' **source** are a different 
   Tailwind's compiler, the test libraries. They run on the build machine and are not distributed.
   Their licences matter to whoever builds PixelFlow, not to whoever receives it.
 - **Tests only:** `proptest`, `tempfile`, and similar. Not distributed.
-- **(a) versus (b):** an installer contains (b) and (c). (a) adds what only `pf-cli` uses (`clap`
-  and its helpers); it matters if the command-line tool is ever distributed on its own, which
-  would need its own notices.
+- **(a) versus (b):** an installer contains (b) and (c). (a) adds what only `pf-cli` and
+  `pf-bench` use (`clap` and its helpers); it matters if a command-line tool is ever distributed
+  on its own, which would need its own notices.
 
 <!-- BEGIN GENERATED (scripts/licenses.mjs): do not edit below this line by hand -->
 
@@ -140,7 +140,7 @@ Code and data taken from xLights and other projects' **source** are a different 
 
 ## PixelFlow's own packages
 
-None of PixelFlow's 22 own packages states a licence (no `license` or `license-file` in any manifest).
+None of PixelFlow's 23 own packages states a licence (no `license` or `license-file` in any manifest).
 
 ## (a) Engine workspace: shipped packages by licence
 

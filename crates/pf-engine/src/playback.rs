@@ -753,7 +753,8 @@ fn run_player(
             }
             light = light_for(time.now_ms(), offset);
         }
-        lock(control).reading = Some((light, Instant::now()));
+        let read = Instant::now();
+        lock(control).reading = Some((light, read));
         let due = light / step_ms;
         // An edited sequence or show redraws the current frame, even while paused.
         let changed = frames.source.changed();
@@ -787,9 +788,18 @@ fn run_player(
             shown = Some(due);
         }
         // Wake at the next frame boundary (or sooner, to notice pause/seek/stop).
-        let until_next = step_ms - light % step_ms;
-        std::thread::sleep(Duration::from_millis(until_next).min(POLL));
+        std::thread::sleep(until_next_frame(light, step_ms, read.elapsed()));
     }
+}
+
+/// How long the player sleeps once it has dealt with the frame due at `light` ms: to the next
+/// frame boundary, less the time `spent` since `light` was read, and never longer than [`POLL`].
+/// Drawing a large frame takes most of a frame's time; sleeping that time over again would
+/// start every frame after it late, and skip frames long before drawing them took too long.
+fn until_next_frame(light: u64, step_ms: u64, spent: Duration) -> Duration {
+    Duration::from_millis(step_ms - light % step_ms)
+        .saturating_sub(spent)
+        .min(POLL)
 }
 
 /// How often the output sends: twice the sequence's rate, so every frame goes out at least once
@@ -1487,6 +1497,22 @@ mod tests {
             raw_ddp_offsets: false,
         });
         c
+    }
+
+    #[test]
+    fn the_player_wakes_for_the_next_frame_however_long_the_last_took_to_draw() {
+        let ms = Duration::from_millis;
+        // Nothing drawn: to the boundary, or as long as it may sleep before looking again.
+        assert_eq!(until_next_frame(0, 25, ms(0)), POLL);
+        assert_eq!(until_next_frame(20, 25, ms(0)), ms(5));
+        assert_eq!(until_next_frame(49, 25, ms(0)), ms(1));
+        // A frame that took 20 ms to draw leaves 5 ms of its 25.
+        assert_eq!(until_next_frame(0, 25, ms(20)), ms(5));
+        assert_eq!(until_next_frame(3, 25, ms(20)), ms(2));
+        assert_eq!(until_next_frame(0, 25, ms(8)), POLL);
+        // One that took all its time, or more, is followed at once.
+        assert_eq!(until_next_frame(0, 25, ms(25)), Duration::ZERO);
+        assert_eq!(until_next_frame(10, 25, ms(40)), Duration::ZERO);
     }
 
     #[test]

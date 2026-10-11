@@ -327,6 +327,9 @@ describe("every control has a name, and icon-only buttons have tooltips", { time
     await user.click(screen.getByRole("button", { name: "Add row" }));
     found.push(...problems("add a row"));
     await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Sequence settings" }));
+    found.push(...problems("sequence settings"));
+    await user.keyboard("{Escape}");
     await user.click(screen.getByRole("button", { name: "New sequence" }));
     found.push(...problems("new sequence dialog"));
     await user.click(within(screen.getByRole("dialog", { name: "New sequence" })).getByRole("button", { name: "Cancel" }));

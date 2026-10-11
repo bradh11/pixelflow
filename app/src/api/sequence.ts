@@ -733,12 +733,13 @@ export interface SequenceSnapshot {
   issues: SequenceIssue[];
 }
 
-/** The sequence's name, music, length, and frame time. */
+/** The sequence's name, music, length, frame time, and how its rows meet the rows before them. */
 export interface SequenceInfo {
   name: string;
   audio: string | null;
   durationMs: number;
   frameMs: number;
+  rowBlending: RowBlending;
 }
 
 /** An effect and where it now sits: `index` within `layer` of row `row`. */
@@ -816,7 +817,13 @@ function upsert<T extends { id: Uuid }>(items: T[], updates: T[]): T[] {
 /** `doc` with `changes` applied (a new object; `doc` is left as it was). */
 export function applySequenceChanges(doc: Sequence, changes: SequenceChanges): Sequence {
   const next: Sequence = { ...doc };
-  if (changes.info) Object.assign(next, changes.info);
+  if (changes.info) {
+    const { rowBlending, ...info } = changes.info;
+    Object.assign(next, info);
+    // Left out when rows cover, as in the file.
+    if (rowBlending === "cover") delete next.rowBlending;
+    else next.rowBlending = rowBlending;
+  }
   let rows = upsert(
     doc.rows.filter((r) => !changes.removedRows.includes(r.id)),
     changes.rows,
@@ -909,6 +916,7 @@ export interface ExportProgress {
 /** One change to the open sequence; a batch is one undo step. */
 export type SequenceEdit =
   | { type: "updateInfo"; name: string; audio: string | null; durationMs: number; frameMs: number }
+  | { type: "setRowBlending"; rowBlending: RowBlending }
   | { type: "addRow"; row: Row; index?: number }
   | { type: "removeRow"; id: Uuid }
   | { type: "moveRow"; id: Uuid; index: number }

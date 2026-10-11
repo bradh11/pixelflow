@@ -5,7 +5,7 @@ use pf_audio::AudioClock;
 use pf_engine::{ClockFactory, Edit, Engine, EngineError, SequenceEdit};
 use pf_model::{Controller, Generator, Port, PortSlot, Prop, Protocol, ShapeSource};
 use pf_output::{Recorded, RecordingTransport, Transport};
-use pf_sequence::{Effect, EffectKind, Rgb, Row, Target};
+use pf_sequence::{Blend, Effect, EffectKind, Rgb, Row, RowBlending, Target};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -145,6 +145,97 @@ fn edits_undo_redo_and_files() {
         issues[0].message.contains("isn't in the show anymore"),
         "{issues:?}"
     );
+}
+
+#[test]
+fn how_rows_meet_is_set_as_one_undo_step_and_drawn_at_once() {
+    let (mut engine, _recorded, _dir) = engine();
+    let first = new_doc(&mut engine, 1000);
+    // A second row on the strip, whose effect adds blue to what's below it.
+    let second = Row::new(Target::Prop(engine.show().props[0].id));
+    let mut blue = on(Rgb::BLUE, 0, 1000);
+    blue.blend = Blend::Add;
+    engine
+        .edit_sequence(vec![
+            SequenceEdit::AddEffect {
+                row: first,
+                layer: 0,
+                effect: on(Rgb::RED, 0, 1000),
+            },
+            SequenceEdit::AddRow {
+                row: second.clone(),
+                index: None,
+            },
+            SequenceEdit::AddEffect {
+                row: second.id,
+                layer: 0,
+                effect: blue,
+            },
+        ])
+        .unwrap();
+    assert_eq!(
+        engine.sequence_doc_frame(500).unwrap(),
+        solid([0, 0, 255]),
+        "the later row covers the earlier one"
+    );
+
+    let blend = || {
+        vec![SequenceEdit::SetRowBlending {
+            row_blending: RowBlending::Blend,
+        }]
+    };
+    let reply = engine.edit_sequence(blend()).unwrap();
+    assert!(reply.changed && reply.dirty);
+    assert_eq!(reply.changes.info.unwrap().row_blending, RowBlending::Blend);
+    assert_eq!(
+        engine.sequence_doc_frame(500).unwrap(),
+        solid([255, 0, 255]),
+        "the later row adds to the earlier one"
+    );
+    assert!(!engine.edit_sequence(blend()).unwrap().changed, "already set");
+
+    let reply = engine.undo_sequence().unwrap();
+    assert_eq!(reply.changes.info.unwrap().row_blending, RowBlending::Cover);
+    assert_eq!(engine.sequence_doc_frame(500).unwrap(), solid([0, 0, 255]));
+    assert_eq!(
+        engine.sequence_doc().unwrap().sequence.rows.len(),
+        2,
+        "only that step is undone"
+    );
+    engine.redo_sequence().unwrap();
+    assert_eq!(
+        engine.sequence_doc().unwrap().sequence.row_blending,
+        RowBlending::Blend
+    );
+}
+
+#[test]
+fn how_rows_meet_is_saved_with_the_sequence_and_left_out_when_they_cover() {
+    let (mut engine, _recorded, dir) = engine();
+    new_doc(&mut engine, 1000);
+    let path = dir.path().join("song.pfseq.json");
+    let saved_as = |engine: &mut Engine, row_blending| {
+        engine
+            .edit_sequence(vec![SequenceEdit::SetRowBlending { row_blending }])
+            .unwrap();
+        engine.save_sequence_doc_as(&path).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        json.get("rowBlending").cloned()
+    };
+    assert_eq!(saved_as(&mut engine, RowBlending::Blend), Some("blend".into()));
+    let opened = engine.open_sequence_doc(&path).unwrap();
+    assert_eq!(opened.sequence.row_blending, RowBlending::Blend);
+    assert_eq!(saved_as(&mut engine, RowBlending::Cover), None);
+}
+
+#[test]
+fn the_edit_that_sets_how_rows_meet_is_camel_case_json() {
+    let edit = SequenceEdit::SetRowBlending {
+        row_blending: RowBlending::Replace,
+    };
+    let json = serde_json::json!({ "type": "setRowBlending", "rowBlending": "replace" });
+    assert_eq!(serde_json::to_value(&edit).unwrap(), json);
+    assert_eq!(serde_json::from_value::<SequenceEdit>(json).unwrap(), edit);
 }
 
 #[test]

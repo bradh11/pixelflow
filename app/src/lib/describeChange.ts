@@ -172,6 +172,8 @@ export function describeSequenceEdits(edits: SequenceEdit[], doc: Sequence, labe
       return `Copy marks to ${track(one.to)}`;
     case "updateInfo":
       return "Change the sequence's details";
+    case "setRowBlending":
+      return "Change how rows overlap";
     default:
       return "Change the sequence";
   }

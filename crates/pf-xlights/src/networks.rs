@@ -79,12 +79,20 @@ fn number(node: Node<'_, '_>, key: &str) -> u32 {
         .map_or(0, |v| v.min(f64::from(u32::MAX)) as u32)
 }
 
-/// Reads every controller in file order and assigns absolute channels.
+/// The most outputs (universes) read from one file, across all its controllers: as many as
+/// sACN has universe numbers. One short `<network>` line can ask for thousands (its
+/// `NumUniverses`), so without a limit on the whole file a small file asks for gigabytes.
+const MAX_OUTPUTS: usize = 64_000;
+
+/// Reads every controller in file order and assigns absolute channels. Outputs past
+/// [`MAX_OUTPUTS`] are left out.
 pub fn parse_networks(xml: &str) -> Result<Vec<XController>, XlightsError> {
     let xml = crate::xml::without_bare_doctype(xml);
     let doc = crate::xml::parse(&xml).map_err(|e| XlightsError::BadFile("xlights_networks.xml", e))?;
     let root = doc.root_element();
     let mut controllers = Vec::new();
+    // How many more outputs the file may have.
+    let mut room = MAX_OUTPUTS;
     let mut next = 1u32;
     let mut add_output = |universe: u32, channels: u32| {
         let output = XOutput {
@@ -119,10 +127,12 @@ pub fn parse_networks(xml: &str) -> Result<Vec<XController>, XlightsError> {
                     "" => "",
                     ip => ip,
                 };
-                let outputs = networks
+                let outputs: Vec<XOutput> = networks
                     .iter()
+                    .take(room)
                     .map(|n| add_output(number(*n, "BaudRate"), number(*n, "MaxChannels")))
                     .collect();
+                room -= outputs.len();
                 let defaults = (attr(child, "FullxLightsControl") == "TRUE").then(|| OutputDefaults {
                     brightness: attr(child, "DefaultBrightnessUnderFullControl")
                         .parse::<f64>()
@@ -162,9 +172,11 @@ pub fn parse_networks(xml: &str) -> Result<Vec<XController>, XlightsError> {
                             .last()
                             .is_some_and(|o| o.universe.checked_add(1) == Some(universe))
                 });
-                let outputs: Vec<XOutput> = (0..count.min(64_000))
+                let wanted = usize::try_from(count).unwrap_or(usize::MAX).min(room);
+                let outputs: Vec<XOutput> = (0..wanted as u32)
                     .map(|i| add_output(universe.saturating_add(i), channels))
                     .collect();
+                room -= outputs.len();
                 if joins {
                     controllers.last_mut().expect("checked").outputs.extend(outputs);
                 } else {
@@ -257,6 +269,26 @@ mod tests {
             ("Porch", 3)
         );
         assert_eq!(controllers[1].start(), 1531);
+    }
+
+    #[test]
+    fn a_file_has_no_more_outputs_than_there_are_universes() {
+        // Ten thousand short lines, each asking for as many universes as one line may: 640
+        // million outputs (7 GB) if each were taken at its word.
+        let line = r#"<network NetworkType="E131" ComPort="192.0.2.5" BaudRate="1" MaxChannels="510" NumUniverses="64000"/>"#;
+        let xml = format!("<Networks>{}</Networks>", line.repeat(10_000));
+        let controllers = parse_networks(&xml).unwrap();
+        let outputs: usize = controllers.iter().map(|c| c.outputs.len()).sum();
+        assert_eq!(outputs, MAX_OUTPUTS);
+        // The limit is on the file, whichever way its outputs are written.
+        let modern = format!(
+            r#"<Networks><Controller Name="A" Type="Ethernet" IP="192.0.2.9" Protocol="E131">{}</Controller>{line}</Networks>"#,
+            r#"<network NetworkType="E131" ComPort="192.0.2.9" BaudRate="1" MaxChannels="510"/>"#
+                .repeat(63_999)
+        );
+        let controllers = parse_networks(&modern).unwrap();
+        let counts: Vec<usize> = controllers.iter().map(|c| c.outputs.len()).collect();
+        assert_eq!(counts, [63_999, 1]);
     }
 
     #[test]

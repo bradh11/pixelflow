@@ -6,6 +6,7 @@ use crate::pipeline::Wiring;
 use crate::sequence::SequenceSummary;
 use crate::show::{Category, Composition, tier_label};
 use crate::stats::Spread;
+use crate::sync::SyncResult;
 use crate::system::Machine;
 use serde::{Deserialize, Serialize};
 use std::fmt::Write as _;
@@ -44,6 +45,10 @@ pub struct Report {
     pub sequences: Vec<SequenceInfo>,
     pub runs: Vec<RunResult>,
     pub effects: Vec<Breakdown>,
+    /// How closely the engine's lights kept to the music (reports made before there were such
+    /// runs have none).
+    #[serde(default)]
+    pub syncs: Vec<SyncResult>,
 }
 
 /// `seconds` since 1970 as `2026-10-10 21:30 UTC`.
@@ -80,6 +85,7 @@ impl Report {
             sequences: Vec::new(),
             runs: Vec::new(),
             effects: Vec::new(),
+            syncs: Vec::new(),
         }
     }
 
@@ -99,6 +105,7 @@ impl Report {
         }
         self.runs.extend(other.runs);
         self.effects.extend(other.effects);
+        self.syncs.extend(other.syncs);
     }
 
     pub fn json(&self) -> String {
@@ -112,10 +119,114 @@ impl Report {
         self.machine_table(&mut out);
         self.show_tables(&mut out);
         self.run_tables(&mut out);
+        self.sync_tables(&mut out);
         for breakdown in &self.effects {
             effect_tables(&mut out, breakdown);
         }
         out
+    }
+
+    /// How closely the lights kept to the music in each sync run.
+    fn sync_tables(&self, out: &mut String) {
+        let load = |s: &SyncResult| match s.load_threads {
+            0 => "none".to_string(),
+            n => format!("{n} busy threads"),
+        };
+        let average = |load: Option<f64>| load.map_or("?".to_string(), |l| format!("{l:.1}"));
+        let run = |s: &SyncResult| {
+            vec![
+                s.tier.clone(),
+                s.variant.label().to_string(),
+                load(s),
+                format!("{} s", s.seconds),
+            ]
+        };
+        let rows = self
+            .syncs
+            .iter()
+            .map(|s| {
+                let mut row = run(s);
+                row.extend([
+                    quartet(&s.began),
+                    quartet(&s.sent),
+                    format!("{:+.2} ± {:.2}", s.drift_per_minute, s.drift_uncertainty),
+                    format!("{} → {}", average(s.load_before), average(s.load_after)),
+                    if s.verdict.pass {
+                        "yes".to_string()
+                    } else {
+                        "NO".to_string()
+                    },
+                ]);
+                row
+            })
+            .collect();
+        let headers = [
+            "Tier",
+            "Sequence",
+            "Added load",
+            "Measured",
+            "Began p50 / p95 / p99 / max (ms)",
+            "Sent p50 / p95 / p99 / max (ms)",
+            "Drift (ms/min)",
+            "Load average, before → after",
+            "In step",
+        ];
+        table(out, "Lights against the music", &headers, rows);
+
+        let recovery = |s: &Spread| match s.count {
+            0 => "none".to_string(),
+            n => format!("{} / {} ({n})", millis(s.p50), millis(s.max)),
+        };
+        let rows = self
+            .syncs
+            .iter()
+            .map(|s| {
+                let mut row = run(s);
+                let f = &s.frames;
+                row.extend([
+                    f.due.to_string(),
+                    f.missed.to_string(),
+                    f.repeated.to_string(),
+                    f.in_flight.to_string(),
+                    recovery(&s.seek_recovery),
+                    recovery(&s.loop_recovery),
+                    recovery(&s.loop_late),
+                ]);
+                row
+            })
+            .collect();
+        let headers = [
+            "Tier",
+            "Sequence",
+            "Added load",
+            "Measured",
+            "Frames due",
+            "Missed",
+            "Sent again",
+            "In flight at a jump",
+            "Jump to wire p50 / max ms (jumps)",
+            "New round to wire p50 / max ms (rounds)",
+            "Round late p50 / max ms (rounds)",
+        ];
+        table(out, "Frames, jumps, and rounds of the loop", &headers, rows);
+
+        for s in &self.syncs {
+            let verdict = if s.verdict.pass { "in step" } else { "out of step" };
+            let _ = writeln!(
+                out,
+                "- {} {} (added load: {}): {verdict}. {}",
+                s.tier,
+                s.variant.label(),
+                load(s),
+                s.verdict.summary
+            );
+            for note in &s.notes {
+                let _ = writeln!(out, "  - {note}");
+            }
+        }
+        if !self.syncs.is_empty() {
+            out.push('\n');
+        }
     }
 
     fn machine_table(&self, out: &mut String) {

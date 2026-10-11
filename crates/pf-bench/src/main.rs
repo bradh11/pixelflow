@@ -10,6 +10,7 @@ use pf_bench::run::run;
 use pf_bench::sequence::{DEFAULT_SECONDS, Variant, synthetic_sequence};
 use pf_bench::show::{TIERS, parse_tier, synthetic_show, tier_label};
 use pf_bench::sink::SinkKind;
+use pf_bench::sync::{SyncOptions, run_sync};
 use pf_bench::system::{load_average, optimized};
 use pf_output::OutputSettings;
 use std::path::{Path, PathBuf};
@@ -29,6 +30,9 @@ enum What {
     Engine,
     /// No run: which effects the render time goes on.
     Effects,
+    /// In real time in the engine itself, on a loop with jumps: how closely the lights keep to
+    /// the music.
+    Sync,
 }
 
 impl What {
@@ -38,6 +42,7 @@ impl What {
             What::Paced => "paced",
             What::Engine => "engine",
             What::Effects => "effects",
+            What::Sync => "sync",
         }
     }
 }
@@ -77,6 +82,12 @@ struct Cli {
     /// Leave out the music and the picture, as the engine check has to (to compare with it).
     #[arg(long)]
     without_media: bool,
+    /// In a sync run: threads that do nothing but keep a core busy each while it plays.
+    #[arg(long, default_value_t = 0)]
+    load_threads: usize,
+    /// In a sync run: seconds between the benchmark's own jumps about the sequence (0: none).
+    #[arg(long, default_value_t = 20)]
+    seek_seconds: u32,
     /// Run the whole matrix: every tier, both sequences, flat out and paced, both sinks. Each
     /// run is a process of its own, so one can't warm up or fill memory for the next.
     #[arg(long)]
@@ -129,7 +140,7 @@ fn one(cli: &Cli) -> Result<Report> {
     let mut report = Report::new();
     let said = |what: &str| eprintln!("  {what}");
     let workload = Workload::new(cli.tier, cli.variant, cli.sequence_seconds)?;
-    let workload = if cli.without_media || cli.mode == What::Engine {
+    let workload = if cli.without_media || matches!(cli.mode, What::Engine | What::Sync) {
         workload.without_media()
     } else {
         workload
@@ -146,6 +157,24 @@ fn one(cli: &Cli) -> Result<Report> {
             report
                 .effects
                 .push(breakdown(&workload, cli.seconds, ALONE_SECONDS, &said));
+            return Ok(report);
+        }
+        What::Sync => {
+            describe(cli.tier, cli.sequence_seconds, &[cli.variant], &mut report)?;
+            let options = SyncOptions {
+                seconds: cli.seconds,
+                warmup_seconds: cli.warmup_seconds,
+                load_threads: cli.load_threads,
+                seek_seconds: cli.seek_seconds,
+            };
+            let result = run_sync(&workload, cli.sink, options)?;
+            let verdict = if result.verdict.pass {
+                "IN STEP"
+            } else {
+                "OUT OF STEP"
+            };
+            said(&format!("{verdict}: {}", result.verdict.summary));
+            report.syncs.push(result);
             return Ok(report);
         }
     };

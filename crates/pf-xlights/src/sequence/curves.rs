@@ -287,20 +287,24 @@ impl XlCurve {
                 wrapped,
             })
         };
-        // Wraps `y` into 0–1 when the curve wraps; true if it did.
+        // Wraps `y` into 0–1 when the curve wraps; true if it did. xLights takes 1 off (or adds
+        // 1) until it's in range; that's worked out at once here, because stepping there never
+        // ends for a number too large to change by 1 (a file can write any parameter).
         let wrap = |y: &mut f32| {
-            let mut wrapped = false;
-            if self.wrap {
-                while *y > 1.0 {
-                    *y -= 1.0;
-                    wrapped = true;
-                }
-                while *y < 0.0 {
-                    *y += 1.0;
-                    wrapped = true;
-                }
+            if !self.wrap || !y.is_finite() {
+                return false;
             }
-            wrapped
+            if *y > 1.0 {
+                // Down to just above 0, up to and including 1.
+                let part = y.rem_euclid(1.0);
+                *y = if part == 0.0 { 1.0 } else { part };
+                true
+            } else if *y < 0.0 {
+                *y = y.rem_euclid(1.0);
+                true
+            } else {
+                false
+            }
         };
         // The formula types step through the effect in `step`s (xLights adds in doubles, so the
         // last step lands just past 1 and is pulled back).
@@ -710,6 +714,44 @@ mod tests {
         assert_eq!(most.values(), over.values());
         let two = curve("Active=TRUE|Type=Saw Tooth|Min=0|Max=10|P1=2|P2=8|P3=2|RV=TRUE|");
         assert_eq!(two.points().len(), 5);
+    }
+
+    #[test]
+    fn wrapping_a_huge_value_ends() {
+        // Each of these put a value far outside 0–1 into a curve that wraps: taking 1 off a
+        // number that large changes nothing, so stepping it into range never finished.
+        for text in [
+            "Active=TRUE|Type=Decaying Sine|Min=0|Max=100|P1=0|P2=50|P3=10|P4=1e30|WRAP=TRUE|",
+            "Active=TRUE|Type=Decaying Sine|Min=0|Max=100|P1=0|P2=50|P3=10|P4=-1e30|WRAP=TRUE|",
+            "Active=TRUE|Type=Parabolic Down|Min=0|Max=100|P1=2000000000|P2=50|WRAP=TRUE|",
+            "Active=TRUE|Type=Parabolic Up|Min=0|Max=100|P1=2000000000|P2=50|WRAP=TRUE|",
+        ] {
+            let values = curve(text).values();
+            assert_eq!(values.len(), STEPS + 1, "{text}");
+            assert!(
+                values
+                    .iter()
+                    .all(|(a, b)| (0.0..=100.0).contains(a) && (0.0..=100.0).contains(b)),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn wrapping_lands_where_stepping_by_one_would() {
+        // A sine that starts at its peak, raised to 1.7: it wraps to 0.7, as taking 1 off does.
+        let c = curve("Active=TRUE|Type=Sine|Min=0|Max=100|P1=25|P2=100|P3=10|P4=85|WRAP=TRUE|");
+        let peak = c.points()[0].y;
+        assert!((peak - 0.7).abs() < 1e-5, "{peak}");
+        assert!(c.points()[0].wrapped);
+        // And one that starts at its trough, lowered to -0.7: it wraps to 0.3.
+        let c = curve("Active=TRUE|Type=Sine|Min=0|Max=100|P1=75|P2=100|P3=10|P4=15|WRAP=TRUE|");
+        let trough = c.points()[0].y;
+        assert!((trough - 0.3).abs() < 1e-5, "{trough}");
+        assert!(c.points()[0].wrapped);
+        // In range: left alone.
+        let c = curve("Active=TRUE|Type=Sine|Min=0|Max=100|P1=25|P2=100|P3=10|P4=50|WRAP=TRUE|");
+        assert!((c.points()[0].y - 1.0).abs() < 1e-5 && !c.points()[0].wrapped);
     }
 
     #[test]

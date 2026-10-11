@@ -19,6 +19,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -35,7 +36,7 @@ jobs:
       - name: Lint
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test
-        run: cargo test --workspace --locked
+        run: cargo test --workspace --locked --no-fail-fast
 
   # The UI and the desktop shell, on the two systems the app ships for.
   app:
@@ -45,6 +46,7 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: app
@@ -78,4 +80,4 @@ jobs:
         run: cargo clippy --all-targets --locked -- -D warnings
       - name: Desktop shell test
         working-directory: app/src-tauri
-        run: cargo test --locked
+        run: cargo test --locked --no-fail-fast

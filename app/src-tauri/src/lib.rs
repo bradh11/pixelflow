@@ -3185,6 +3185,9 @@ mod tests {
             use std::os::unix::ffi::OsStrExt;
             assert_eq!(arg.as_os_str().as_bytes(), b"/shows/Caf\xe9.json");
         }
+        // Only Unix paths can hold such a byte: elsewhere it reads as the mark for one.
+        #[cfg(not(unix))]
+        assert_eq!(&*arg, Path::new("/shows/Caf\u{FFFD}.json"));
         let plain: PathArg = serde_json::from_value(json!("/shows/House.json")).unwrap();
         assert_eq!(&*plain, Path::new("/shows/House.json"));
     }

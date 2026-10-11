@@ -61,7 +61,9 @@ pub(crate) fn action_for(id: &str, recent: &RecentShows) -> Option<MenuAction> {
     })
 }
 
-/// The menu bar (macOS), with the recent shows as they are now.
+/// The menu bar (macOS), with the recent shows as they are now. Windows and Linux have no menu
+/// bar (the window's own show menu does the same there), so this is never called on them.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) fn build<R: Runtime>(app: &AppHandle<R>, recent: &RecentShows) -> tauri::Result<Menu<R>> {
     let item =
         |id: &str, text: &str, accelerator: Option<&str>| MenuItem::with_id(app, id, text, true, accelerator);

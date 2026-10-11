@@ -46,6 +46,9 @@ oxideav-aac = "0.1.7"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 # Writing test GIFs frame by frame (the `image` crate's own GIF reader and writer).
 gif = "0.14.2"
+# The threads frames are drawn on (work stealing; MIT OR Apache-2.0). Already in the tree by way
+# of tract.
+rayon = "1.12.0"
 pf-model = { path = "crates/pf-model" }
 pf-geometry = { path = "crates/pf-geometry" }
 pf-mapping = { path = "crates/pf-mapping" }

@@ -8,7 +8,10 @@
 //!   effects left in, and drawn again without its blur, its sparkles, or its curves, and with
 //!   only its prop rows or only its group rows.
 //!
-//! Every time is the mean time to draw a frame, less the time an empty frame takes.
+//! Every time is the mean time to draw a frame, less the time an empty frame takes. It is the
+//! work an effect takes that's wanted, so the benchmark draws these on one thread unless it's
+//! told how many: on several, a time says how well the work was shared out as much as how much
+//! of it there was.
 
 use crate::alloc::counted;
 use crate::pipeline::Workload;

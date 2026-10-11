@@ -603,20 +603,27 @@ impl FrameSource for RenderedFrames {
             .pending
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
+        let mut laid_out = true;
         if let Some(doc) = pending.doc.take() {
             self.doc = doc;
+            laid_out = false;
         }
         if let Some(audio) = pending.audio.take() {
             self.audio = audio;
         }
         if let Some(renderer) = pending.renderer.take() {
             self.renderer = renderer;
+            laid_out = false;
         }
         if !self.renderer.audio().same(&self.audio) {
             self.renderer.set_audio(self.audio.clone());
         }
         if !self.renderer.pictures().same(&self.updates.pictures) {
             self.renderer.set_pictures(self.updates.pictures.clone());
+        }
+        // What an edit added is laid out now, between frames, not when playing reaches it.
+        if !laid_out {
+            self.renderer.lay_out_ahead(&self.doc);
         }
         true
     }
@@ -625,6 +632,7 @@ impl FrameSource for RenderedFrames {
         self.renderer = renderer.unwrap_or_else(|| Renderer::new(&show, &map));
         self.renderer.set_audio(self.audio.clone());
         self.renderer.set_pictures(self.updates.pictures.clone());
+        self.renderer.lay_out_ahead(&self.doc);
     }
 }
 
@@ -1091,6 +1099,9 @@ impl PlaybackSession {
         let mut renderer = Renderer::new(show, map);
         renderer.set_audio(audio.clone());
         renderer.set_pictures(pictures);
+        // Every buffer the sequence draws on is built before it plays, so no frame stops to
+        // build one.
+        renderer.lay_out_ahead(&doc);
         let source = RenderedFrames {
             doc,
             renderer,

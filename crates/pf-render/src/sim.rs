@@ -20,6 +20,7 @@ use crate::vumeter::{Meter, VuMeter};
 use pf_sequence::{Effect, EffectParams, SnowflakesMotion, TimingTrackId};
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 /// Whether an effect with these settings is worked out frame by frame.
 pub(crate) fn simulated(params: &EffectParams) -> bool {
@@ -187,10 +188,50 @@ struct Kept {
     used: bool,
 }
 
+/// Room for one effect's state. Each has a lock of its own, so a frame's effects can be moved on
+/// at the same time, each by whichever thread makes it ready.
+#[derive(Debug, Default)]
+struct Slot {
+    kept: Mutex<Option<Kept>>,
+    /// Asked for by an effect of the frame being rendered.
+    reserved: bool,
+}
+
+impl Clone for Slot {
+    fn clone(&self) -> Self {
+        Self {
+            kept: Mutex::new(lock(&self.kept).clone()),
+            reserved: self.reserved,
+        }
+    }
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Whether settings of this kind may be worked out frame by frame, whatever the effect's curves
+/// make of them (curves change numbers, never the kind). The other kinds never are, so the
+/// renderer needn't ask about them.
+pub(crate) fn may_be_simulated(params: &EffectParams) -> bool {
+    matches!(
+        params,
+        EffectParams::Snowflakes(_)
+            | EffectParams::Lines(_)
+            | EffectParams::Life(_)
+            | EffectParams::Tendril(_)
+            | EffectParams::VuMeter(_)
+    )
+}
+
 /// The renderer's frame-by-frame effects, by effect and the buffer they draw on (`K`).
+///
+/// A frame uses it in three steps: [`Sims::reserve`] for each effect it's about to draw (one
+/// after another), [`Sims::shader`] for each of those (in any order, from any thread), and
+/// [`Sims::sweep`] once they're all drawn.
 #[derive(Debug, Clone)]
 pub(crate) struct Sims<K> {
-    kept: HashMap<K, Kept>,
+    kept: HashMap<K, Slot>,
 }
 
 impl<K> Default for Sims<K> {
@@ -200,13 +241,21 @@ impl<K> Default for Sims<K> {
 }
 
 impl<K: Hash + Eq> Sims<K> {
+    /// Makes room for the state of an effect the frame being rendered draws. False when another
+    /// of the frame's effects already has `key`: the two share their state, and what each finds
+    /// there depends on which asks first, so they must ask in the order they're drawn.
+    pub fn reserve(&mut self, key: K) -> bool {
+        let slot = self.kept.entry(key).or_default();
+        !std::mem::replace(&mut slot.reserved, true)
+    }
+
     /// `effect` (as written, curves and all) at `time` on `canvas`: its state moved on from
     /// where it was kept, or worked out from its first frame when it was kept for another effect,
     /// grid, frame time, music, marks, or a later frame. `None` for an effect that isn't worked out
-    /// frame by frame.
+    /// frame by frame, and for a `key` no room was made for.
     pub fn shader(
-        &mut self,
-        key: K,
+        &self,
+        key: &K,
         effect: &Effect,
         time: &EffectTime,
         canvas: Canvas,
@@ -227,37 +276,27 @@ impl<K: Hash + Eq> Sims<K> {
         };
         let frame = time.frame();
         let around = surroundings(effect, world);
-        let kept = match self.kept.entry(key) {
-            std::collections::hash_map::Entry::Occupied(slot) => {
-                let kept = slot.into_mut();
-                let usable = kept.stepped <= frame + 1
-                    && kept.canvas == canvas
-                    && kept.frame_ms == frame_ms
-                    && kept.world == around
-                    && kept.effect == *effect;
-                if !usable {
-                    *kept = Kept {
-                        effect: effect.clone(),
-                        canvas,
-                        frame_ms,
-                        world: around,
-                        stepped: 0,
-                        sim: Sim::start(&first, &cx)?,
-                        used: false,
-                    };
-                }
-                kept
-            }
-            std::collections::hash_map::Entry::Vacant(slot) => slot.insert(Kept {
+        let mut slot = lock(&self.kept.get(key)?.kept);
+        let usable = slot.as_ref().is_some_and(|kept| {
+            kept.stepped <= frame + 1
+                && kept.canvas == canvas
+                && kept.frame_ms == frame_ms
+                && kept.world == around
+                && kept.effect == *effect
+        });
+        if !usable {
+            let sim = Sim::start(&first, &cx)?;
+            *slot = Some(Kept {
                 effect: effect.clone(),
                 canvas,
                 frame_ms,
                 world: around,
                 stepped: 0,
-                sim: Sim::start(&first, &cx)?,
+                sim,
                 used: false,
-            }),
-        };
+            });
+        }
+        let kept = slot.as_mut()?;
         while kept.stepped <= frame {
             let at = world.effect_at(effect, effect.start_ms + kept.stepped * u64::from(frame_ms));
             kept.sim.step(&at.params.sanitized(), kept.stepped, &cx, world);
@@ -270,7 +309,53 @@ impl<K: Hash + Eq> Sims<K> {
 
     /// Forgets the effects not drawn since the last sweep.
     pub fn sweep(&mut self) {
-        self.kept
-            .retain(|_, kept| std::mem::replace(&mut kept.used, false));
+        self.kept.retain(|_, slot| {
+            slot.reserved = false;
+            let kept = slot.kept.get_mut().unwrap_or_else(PoisonError::into_inner);
+            kept.as_mut()
+                .is_some_and(|kept| std::mem::replace(&mut kept.used, false))
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pf_sequence::EffectKind;
+
+    #[test]
+    fn state_is_kept_for_the_effects_room_was_made_for_and_drawn() {
+        let life = Effect::new(EffectKind::Life, 0, 4_000);
+        let time = EffectTime::within(0, 4_000, 500).with_frame_ms(50);
+        let canvas = Canvas { columns: 8, rows: 8 };
+        let world = RenderContext::default();
+        let mut sims: Sims<u32> = Sims::default();
+        assert!(
+            sims.shader(&7, &life, &time, canvas, &world).is_none(),
+            "no room was made"
+        );
+        assert!(sims.reserve(7));
+        assert!(!sims.reserve(7), "taken for this frame");
+        assert!(sims.shader(&7, &life, &time, canvas, &world).is_some());
+        // An effect that isn't worked out frame by frame keeps nothing.
+        assert!(sims.reserve(8));
+        let on = Effect::new(EffectKind::On, 0, 4_000);
+        assert!(sims.shader(&8, &on, &time, canvas, &world).is_none());
+        sims.sweep();
+        assert_eq!(sims.kept.len(), 1);
+        // The next frame can take it again, and a frame that doesn't draw it forgets it.
+        assert!(sims.reserve(7));
+        sims.sweep();
+        assert!(sims.kept.is_empty());
+    }
+
+    #[test]
+    fn every_kind_worked_out_frame_by_frame_is_one_the_renderer_asks_about() {
+        for kind in EffectKind::ALL {
+            let params = Effect::new(kind, 0, 1_000).params;
+            if simulated(&params.sanitized()) {
+                assert!(may_be_simulated(&params), "{kind:?}");
+            }
+        }
     }
 }

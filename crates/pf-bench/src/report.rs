@@ -494,6 +494,39 @@ impl Report {
         let rows = self
             .runs
             .iter()
+            .filter_map(|r| {
+                let d = r.stages.drawing?;
+                Some(vec![
+                    r.tier.clone(),
+                    r.variant.label().to_string(),
+                    r.mode.label().to_string(),
+                    r.sink.label().to_string(),
+                    d.threads.to_string(),
+                    pair(&d.plan),
+                    pair(&d.ready),
+                    pair(&d.blur),
+                    pair(&d.tiles),
+                    pair(&r.stages.render),
+                ])
+            })
+            .collect();
+        let headers = [
+            "Tier",
+            "Sequence",
+            "Mode",
+            "Sink",
+            "Threads drawing",
+            "Plan (p50 / p99)",
+            "Make ready (p50 / p99)",
+            "Blurs in turn (p50 / p99)",
+            "Tiles (p50 / p99)",
+            "Render (p50 / p99)",
+        ];
+        table(out, "Rendering, step by step, in milliseconds", &headers, rows);
+
+        let rows = self
+            .runs
+            .iter()
             .map(|r| {
                 let (n, res) = (&r.network, &r.resources);
                 let count = |n: Option<f64>| n.map_or("-".to_string(), |n| format!("{n:.0}"));

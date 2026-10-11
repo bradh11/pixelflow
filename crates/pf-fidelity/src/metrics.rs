@@ -29,6 +29,8 @@ pub struct Limits {
     pub window_ms: u32,
     /// A prop the reference leaves dark for at least this long (milliseconds) while PixelFlow
     /// lights it most of that time is taken as not rendered there, and left out (0: never).
+    /// Props it leaves dark that way to the end of the file are left out from the moment the
+    /// first of them is missing light: the file was saved before they were rendered.
     pub dark_run_ms: u32,
 }
 

@@ -41,6 +41,9 @@ struct Reference {
     far_red: bool,
     /// Frames late everything is.
     late: i64,
+    /// Saved while xLights was still rendering: the group's white over the last second was never
+    /// drawn, and Strip's own twinkles only as far as three and a half seconds.
+    cut_short: bool,
 }
 
 impl Default for Reference {
@@ -52,6 +55,7 @@ impl Default for Reference {
             matrix_blue: 255,
             far_red: false,
             late: 0,
+            cut_short: false,
         }
     }
 }
@@ -72,15 +76,15 @@ impl Reference {
                 // Orange (255, 128, 0) as a GRB prop's channels carry it.
                 fill(60..90, [128, 255, 0]);
             }
+            3000..4000 if !self.cut_short => fill(0..90, [255; 3]),
             // Twinkles: a quarter of Strip's pixels white, moving along.
-            2000..3000 => {
+            2000..3500 => {
                 for pixel in 0..10 {
                     if (t_ms / 50 + pixel * 3) % 4 == 0 {
                         fill(pixel as usize * 3..pixel as usize * 3 + 3, [255; 3]);
                     }
                 }
             }
-            3000..4000 => fill(0..90, [255; 3]),
             _ => {}
         }
         if self.far_red && (0..2000).contains(&t_ms) {
@@ -546,6 +550,81 @@ fn a_prop_the_reference_leaves_dark_for_long_is_left_out_as_unrendered() {
         effect(&card, "On", "All", 3000).layered.unwrap().pixel_seconds,
         30.0
     );
+}
+
+#[test]
+fn props_a_render_was_cut_short_on_are_left_out_from_where_the_first_went_dark() {
+    // xLights saved the file while it was still rendering. The group's white, the last thing in
+    // the sequence, never got drawn, and each prop's own row only so far: Matrix and Porch are
+    // dark from where their rows end, and Strip twinkles on, as its own row has it, for half a
+    // second into the white before it goes dark as well.
+    let unfinished = Reference {
+        cut_short: true,
+        ..Reference::default()
+    };
+    let with_run = |dark_run_ms| {
+        score_with(
+            unfinished,
+            Options {
+                limits: Limits {
+                    dark_run_ms,
+                    ..Limits::default()
+                },
+                ..Options::default()
+            },
+        )
+    };
+    // Scored as it stands, every prop is held against a white the file was never given.
+    let card = with_run(0);
+    assert!(card.reference.left_out.is_empty());
+    let white = effect(&card, "On", "All", 3000);
+    assert_eq!(white.layered.unwrap().pixel_seconds, 30.0);
+    assert_ne!(white.look.as_ref().unwrap().verdict, Verdict::Matches);
+    // All three are dark to the end of the file while PixelFlow lights them, Matrix and Porch
+    // from the third second. The render wasn't finished on any of them from there, so Strip's
+    // half second of twinkles under the white, lit though it is, is left out with the rest.
+    let card = with_run(400);
+    let gaps: Vec<(&str, u64, u64)> = card
+        .reference
+        .left_out
+        .iter()
+        .map(|g| (g.prop.as_str(), g.start_ms, g.end_ms))
+        .collect();
+    assert_eq!(
+        gaps,
+        [
+            ("Strip", 3000, 4000),
+            ("Matrix", 2000, 4000),
+            ("Porch", 2000, 4000)
+        ]
+    );
+    assert!(effect(&card, "On", "All", 3000).layered.is_none());
+    // Strip's twinkles are judged on the second they had to themselves.
+    let twinkle = effect(&card, "Twinkle", "Strip", 2000);
+    assert_eq!(twinkle.layered.unwrap().pixel_seconds, 10.0);
+    assert!(
+        card.notes.iter().any(|n| n.contains("cut short")),
+        "{:#?}",
+        card.notes
+    );
+    // A prop that is dark for a while and lit again wasn't cut short: where the reference left
+    // Matrix's blue unrendered, the group's white is there at the end, and nothing more is left
+    // out than the dark stretch itself.
+    let card = score_with(
+        Reference {
+            matrix_blue: 0,
+            ..Reference::default()
+        },
+        Options {
+            limits: Limits {
+                dark_run_ms: 1000,
+                ..Limits::default()
+            },
+            ..Options::default()
+        },
+    );
+    assert_eq!(card.reference.left_out.len(), 1);
+    assert!(!card.notes.iter().any(|n| n.contains("cut short")));
 }
 
 #[test]

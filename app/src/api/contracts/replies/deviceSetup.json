@@ -1,0 +1,242 @@
+[
+  {
+    "name": "a device that matches the show",
+    "ts": "types.DeviceComparison",
+    "value": {
+      "changes": [],
+      "controllerName": "FakeFPP",
+      "device": {
+        "address": "192.0.2.50",
+        "firmware": "FPP 9.3",
+        "foundBy": [],
+        "kind": "fpp",
+        "mode": "player",
+        "model": "Pi 4",
+        "name": "FakeFPP"
+      },
+      "notes": []
+    }
+  },
+  {
+    "name": "nothing to send",
+    "ts": "types.SendPlan",
+    "value": {
+      "busy": null,
+      "canSend": false,
+      "changes": [],
+      "controllerName": "FakeFPP",
+      "device": {
+        "address": "192.0.2.50",
+        "firmware": "FPP 9.3",
+        "foundBy": [],
+        "kind": "fpp",
+        "mode": "player",
+        "model": "Pi 4",
+        "name": "FakeFPP"
+      },
+      "notes": [],
+      "problems": [],
+      "reason": "The controller already matches your show.",
+      "restorePoint": null
+    }
+  },
+  {
+    "name": "a device that differs from the show",
+    "ts": "types.DeviceComparison",
+    "value": {
+      "changes": [
+        {
+          "after": "60",
+          "before": "50",
+          "canTake": true,
+          "id": "port1/string2/pixels",
+          "kind": "pixels",
+          "port": 1,
+          "subject": "String 2 · Gutter",
+          "warning": null,
+          "what": "Pixels",
+          "whyNot": null
+        }
+      ],
+      "controllerName": "FakeFPP",
+      "device": {
+        "address": "192.0.2.50",
+        "firmware": "FPP 9.3",
+        "foundBy": [],
+        "kind": "fpp",
+        "mode": "player",
+        "model": "Pi 4",
+        "name": "FakeFPP"
+      },
+      "notes": []
+    }
+  },
+  {
+    "name": "what sending the show's setup would change, on a busy FPP",
+    "ts": "types.SendPlan",
+    "value": {
+      "busy": "This FPP is playing Carol.fseq. Its lights may flicker or go dark while the new setup is saved.",
+      "canSend": true,
+      "changes": [
+        {
+          "after": "30",
+          "before": "60",
+          "canTake": true,
+          "id": "port1/string2/pixels",
+          "kind": "pixels",
+          "port": 1,
+          "subject": "String 2 · Gutter",
+          "warning": "30 pixels fewer: the last 30 on this string go dark.",
+          "what": "Pixels",
+          "whyNot": null
+        }
+      ],
+      "controllerName": "FakeFPP",
+      "device": {
+        "address": "192.0.2.50",
+        "firmware": "FPP 9.3",
+        "foundBy": [],
+        "kind": "fpp",
+        "mode": "player",
+        "model": "Pi 4",
+        "name": "FakeFPP"
+      },
+      "notes": [],
+      "problems": [],
+      "reason": null,
+      "restorePoint": null
+    }
+  },
+  {
+    "name": "a setup that was sent",
+    "ts": "types.SendReport",
+    "value": {
+      "canRestore": true,
+      "message": "Saved, and reading it back, the FPP's pixel outputs match your show. The lights use them once FPP's player (fppd) restarts: restart it from the FPP's own page, then check its warnings.",
+      "mismatches": [],
+      "notes": [],
+      "status": "sent"
+    }
+  },
+  {
+    "name": "a setup the FPP wouldn't load, with a kept copy to put back",
+    "ts": "types.SendPlan",
+    "value": {
+      "busy": "This FPP is playing Carol.fseq. Its lights may flicker or go dark while the new setup is saved.",
+      "canSend": false,
+      "changes": [
+        {
+          "after": "2,000",
+          "before": "30",
+          "canTake": true,
+          "id": "port1/string2/pixels",
+          "kind": "pixels",
+          "port": 1,
+          "subject": "String 2 · Gutter",
+          "warning": null,
+          "what": "Pixels",
+          "whyNot": null
+        }
+      ],
+      "controllerName": "FakeFPP",
+      "device": {
+        "address": "192.0.2.50",
+        "firmware": "FPP 9.3",
+        "foundBy": [],
+        "kind": "fpp",
+        "mode": "player",
+        "model": "Pi 4",
+        "name": "FakeFPP"
+      },
+      "notes": [],
+      "problems": [
+        "Port 1 string 2 (Gutter): an FPP string drives at most 1,600 pixels, and this one would have 2,000. Split it across strings or ports."
+      ],
+      "reason": "PixelFlow won't send this until the problems below are fixed.",
+      "restorePoint": {
+        "address": "192.0.2.50",
+        "deviceName": "FakeFPP",
+        "key": "fpp-4d312d46414b452d30303031",
+        "takenAtMs": 1700000000000
+      }
+    }
+  },
+  {
+    "name": "a setup that didn't take",
+    "ts": "types.SendReport",
+    "value": {
+      "canRestore": true,
+      "message": "Sent, but reading it back, the controller's setup doesn't match your show.",
+      "mismatches": [
+        {
+          "after": "20",
+          "before": "30",
+          "canTake": true,
+          "id": "port1/string2/pixels",
+          "kind": "pixels",
+          "port": 1,
+          "subject": "String 2 · Gutter",
+          "warning": "10 pixels fewer: the last 10 on this string go dark.",
+          "what": "Pixels",
+          "whyNot": null
+        },
+        {
+          "after": "read back differently",
+          "before": "as sent",
+          "canTake": false,
+          "id": "readBack",
+          "kind": "setting",
+          "port": null,
+          "subject": "",
+          "warning": null,
+          "what": "Pixel string outputs",
+          "whyNot": null
+        }
+      ],
+      "notes": [],
+      "status": "mismatch"
+    }
+  },
+  {
+    "name": "what putting the kept setup back would change",
+    "ts": "types.RestorePlan",
+    "value": {
+      "canRestore": true,
+      "changes": [
+        {
+          "after": "60",
+          "before": "30",
+          "canTake": true,
+          "id": "port1/string2/pixels",
+          "kind": "pixels",
+          "port": 1,
+          "subject": "String 2 · Gutter",
+          "warning": null,
+          "what": "Pixels",
+          "whyNot": null
+        }
+      ],
+      "copy": {
+        "address": "192.0.2.50",
+        "deviceName": "FakeFPP",
+        "key": "fpp-4d312d46414b452d30303031",
+        "takenAtMs": 1700000000000
+      },
+      "device": {
+        "address": "192.0.2.50",
+        "firmware": "FPP 9.3",
+        "foundBy": [],
+        "kind": "fpp",
+        "mode": "player",
+        "model": "Pi 4",
+        "name": "FakeFPP"
+      },
+      "reason": null
+    }
+  },
+  {
+    "name": "a setup put back",
+    "ts": "types.RestoreReport",
+    "value": { "message": "The previous setup is back on the controller.", "restored": true }
+  }
+]

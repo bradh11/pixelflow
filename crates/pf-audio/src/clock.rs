@@ -1,7 +1,31 @@
 //! Clocks that sequence playback follows: the music itself ([`crate::MusicPlayer`]), or a silent
 //! stopwatch.
 
+use std::fmt::Debug;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+/// Where playback reads the time and what it waits on: the machine's own clock ([`WallTime`]), or
+/// one a test moves by hand, so that playback's timing can be checked without waiting for it.
+pub trait TimeSource: Debug + Send + Sync {
+    fn now(&self) -> Instant;
+    /// Waits for `duration`.
+    fn sleep(&self, duration: Duration);
+}
+
+/// The machine's own clock.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WallTime;
+
+impl TimeSource for WallTime {
+    fn now(&self) -> Instant {
+        Instant::now()
+    }
+
+    fn sleep(&self, duration: Duration) {
+        std::thread::sleep(duration);
+    }
+}
 
 /// Something with a play position: lights follow it so they stay in step with the music.
 pub trait AudioClock {
@@ -9,8 +33,11 @@ pub trait AudioClock {
     fn start(&mut self, position: Duration);
     fn pause(&mut self);
     fn resume(&mut self);
+    /// Jumps to `position`. The clock reads that position from then on, even before a slow
+    /// sound device has followed (playback relies on it to place the lights at once).
     fn seek(&mut self, position: Duration);
-    /// Where playback is now.
+    /// Where playback is now. Only a jump takes it back: lights following a clock that slipped
+    /// back by itself would show a frame again.
     fn position(&self) -> Duration;
     /// 0.0 (silent) to 1.0 (full).
     fn set_volume(&mut self, volume: f32);
@@ -35,14 +62,21 @@ pub struct SilentClock {
     /// When it started running; `None` while paused.
     since: Option<Instant>,
     speed: f64,
+    time: Arc<dyn TimeSource>,
 }
 
 impl SilentClock {
     pub fn new() -> Self {
+        Self::on(Arc::new(WallTime))
+    }
+
+    /// A stopwatch that reads `time` instead of the machine's clock.
+    pub fn on(time: Arc<dyn TimeSource>) -> Self {
         Self {
             base: Duration::ZERO,
             since: None,
             speed: 1.0,
+            time,
         }
     }
 }
@@ -56,7 +90,7 @@ impl Default for SilentClock {
 impl AudioClock for SilentClock {
     fn start(&mut self, position: Duration) {
         self.base = position;
-        self.since = Some(Instant::now());
+        self.since = Some(self.time.now());
     }
 
     fn pause(&mut self) {
@@ -66,22 +100,22 @@ impl AudioClock for SilentClock {
 
     fn resume(&mut self) {
         if self.since.is_none() {
-            self.since = Some(Instant::now());
+            self.since = Some(self.time.now());
         }
     }
 
     fn seek(&mut self, position: Duration) {
         self.base = position;
         if self.since.is_some() {
-            self.since = Some(Instant::now());
+            self.since = Some(self.time.now());
         }
     }
 
     fn position(&self) -> Duration {
         self.base
-            + self
-                .since
-                .map_or(Duration::ZERO, |s| s.elapsed().mul_f64(self.speed))
+            + self.since.map_or(Duration::ZERO, |s| {
+                self.time.now().saturating_duration_since(s).mul_f64(self.speed)
+            })
     }
 
     fn set_volume(&mut self, _volume: f32) {}
@@ -94,7 +128,7 @@ impl AudioClock for SilentClock {
         };
         self.base = self.position();
         if self.since.is_some() {
-            self.since = Some(Instant::now());
+            self.since = Some(self.time.now());
         }
         self.speed = speed;
     }
@@ -140,5 +174,46 @@ mod tests {
         clock.set_speed(1.0);
         std::thread::sleep(Duration::from_millis(30));
         assert!(clock.position() >= slowed + Duration::from_millis(30));
+    }
+
+    /// A time that only moves when something sleeps on it.
+    #[derive(Debug)]
+    struct HandTime {
+        origin: Instant,
+        passed: std::sync::Mutex<Duration>,
+    }
+
+    impl TimeSource for HandTime {
+        fn now(&self) -> Instant {
+            self.origin + *self.passed.lock().unwrap()
+        }
+
+        fn sleep(&self, duration: Duration) {
+            *self.passed.lock().unwrap() += duration;
+        }
+    }
+
+    #[test]
+    fn a_silent_clock_on_another_time_reads_only_that_time() {
+        let ms = Duration::from_millis;
+        let time = Arc::new(HandTime {
+            origin: Instant::now(),
+            passed: Default::default(),
+        });
+        let mut clock = SilentClock::on(time.clone());
+        clock.start(ms(5000));
+        time.sleep(ms(30));
+        assert_eq!(clock.position(), ms(5030));
+        clock.pause();
+        time.sleep(ms(1000));
+        assert_eq!(clock.position(), ms(5030));
+        clock.seek(ms(60_000));
+        clock.resume();
+        clock.set_speed(0.5);
+        time.sleep(ms(100));
+        assert_eq!(clock.position(), ms(60_050));
+        // Time passing on the machine's own clock doesn't count.
+        std::thread::sleep(ms(5));
+        assert_eq!(clock.position(), ms(60_050));
     }
 }

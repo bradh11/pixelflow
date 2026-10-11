@@ -1,0 +1,457 @@
+{
+  "about": "The demo show built into the app: the same props, channels, and universes on both sides.",
+  "devices": [],
+  "start": {
+    "channelMapNow": { "controllers": [], "frameLen": 0, "props": [] },
+    "issuesNow": [],
+    "sequence": null,
+    "sequenceIssuesNow": null,
+    "sequenceNow": null,
+    "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 0 },
+    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 12, "sequences": [], "settings": { "frameRate": 40 } },
+    "summaryNow": { "controllers": 0, "pixels": 0, "props": 0, "universes": 0 }
+  },
+  "steps": [
+    {
+      "args": {},
+      "channelMapNow": {
+        "controllers": [
+          {
+            "addressing": {
+              "multicast": false,
+              "type": "sacn",
+              "universes": [
+                { "controllerChannel": 0, "len": 510, "universe": 1 },
+                { "controllerChannel": 510, "len": 510, "universe": 2 },
+                { "controllerChannel": 1020, "len": 510, "universe": 3 },
+                { "controllerChannel": 1530, "len": 510, "universe": 4 },
+                { "controllerChannel": 2040, "len": 510, "universe": 5 },
+                { "controllerChannel": 2550, "len": 510, "universe": 6 },
+                { "controllerChannel": 3060, "len": 510, "universe": 7 },
+                { "controllerChannel": 3570, "len": 510, "universe": 8 },
+                { "controllerChannel": 4080, "len": 6, "universe": 9 }
+              ]
+            },
+            "channelCount": 4086,
+            "controller": "00000000-0000-4000-8000-000000000010",
+            "spans": [
+              { "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 0, "frameOffset": 0, "gamma": 1.0, "pixels": 50, "port": 1, "prop": "00000000-0000-4000-8000-000000000001", "reverse": false },
+              { "brightness": 100, "channelsPerPixel": 3, "colorOrder": "GRB", "controllerChannel": 150, "frameOffset": 2550, "gamma": 1.0, "pixels": 512, "port": 1, "prop": "00000000-0000-4000-8000-000000000006", "reverse": false },
+              { "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 1686, "frameOffset": 150, "gamma": 1.0, "pixels": 800, "port": 2, "prop": "00000000-0000-4000-8000-000000000005", "reverse": false }
+            ]
+          },
+          { "addressing": { "type": "ddp" }, "channelCount": 0, "controller": "00000000-0000-4000-8000-000000000011", "spans": [] }
+        ],
+        "frameLen": 4386,
+        "props": [
+          { "channelsPerPixel": 3, "frameOffset": 0, "nodes": 50, "prop": "00000000-0000-4000-8000-000000000001" },
+          { "channelsPerPixel": 3, "frameOffset": 150, "nodes": 800, "prop": "00000000-0000-4000-8000-000000000005" },
+          { "channelsPerPixel": 3, "frameOffset": 2550, "nodes": 512, "prop": "00000000-0000-4000-8000-000000000006" },
+          { "channelsPerPixel": 3, "frameOffset": 4086, "nodes": 100, "prop": "00000000-0000-4000-8000-000000000009" }
+        ]
+      },
+      "command": "open_sample_show",
+      "issuesNow": [{ "code": "unassignedNodes", "fix": "Drag the prop onto a controller port.", "message": "The prop 'Porch Star' is not wired to any controller port.", "severity": "warning" }],
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 1 },
+      "showNow": {
+        "background": null,
+        "controllers": [
+          {
+            "adapter": "generic",
+            "address": "192.168.1.50",
+            "id": "00000000-0000-4000-8000-000000000010",
+            "name": "Main FPP",
+            "ports": [
+              {
+                "brightness": 100,
+                "gamma": 1.0,
+                "maxPixels": null,
+                "number": 1,
+                "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "00000000-0000-4000-8000-000000000001", "reverse": false, "segment": null, "smartReceiver": null }, { "brightness": null, "gamma": null, "nullPixels": 0, "prop": "00000000-0000-4000-8000-000000000006", "reverse": false, "segment": null, "smartReceiver": null }]
+              },
+              { "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 2, "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "00000000-0000-4000-8000-000000000005", "reverse": false, "segment": null, "smartReceiver": null }] },
+              { "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 3, "slots": [] },
+              { "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 4, "slots": [] }
+            ],
+            "protocol": { "allowPixelStraddle": false, "multicast": false, "startUniverse": null, "type": "sacn", "universeSize": 510 },
+            "sequenceChannels": { "count": 4800, "start": 1 }
+          },
+          { "adapter": "generic", "address": "192.168.1.60", "id": "00000000-0000-4000-8000-000000000011", "name": "Porch WLED", "ports": [{ "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 1, "slots": [] }], "protocol": { "type": "ddp" }, "sequenceChannels": null }
+        ],
+        "groups": [],
+        "name": "Demo House",
+        "props": [
+          {
+            "colorOrder": "RGB",
+            "id": "00000000-0000-4000-8000-000000000001",
+            "name": "Garage Arch",
+            "regions": [
+              { "buffer": "default", "id": "00000000-0000-4000-8000-000000000002", "kind": "nodes", "layout": "horizontal", "lines": [[{ "first": 0, "last": 24 }]], "name": "Left half" },
+              { "buffer": "default", "id": "00000000-0000-4000-8000-000000000003", "kind": "nodes", "layout": "horizontal", "lines": [[{ "first": 49, "last": 25 }]], "name": "Right half" },
+              { "buffer": "stackedStrands", "id": "00000000-0000-4000-8000-000000000004", "kind": "nodes", "layout": "horizontal", "lines": [[{ "first": 0, "last": 5 }], [{ "first": 49, "last": 44 }]], "name": "Ends" }
+            ],
+            "shape": { "arc": 180.0, "arches": 1, "gap": 0.0, "height": 2.0, "hollow": 70, "nodes": 50, "skewDeg": 0.0, "source": "generator", "startInside": false, "startRight": false, "type": "arch", "width": 4.0, "zigZag": false },
+            "tags": [],
+            "transform": { "position": { "x": -6.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "00000000-0000-4000-8000-000000000005",
+            "name": "Mega Tree",
+            "regions": [],
+            "shape": { "alternateNodes": false, "baseRadius": 1.5, "degrees": 360.0, "height": 5.0, "nodesPerString": 50, "serpentine": true, "source": "generator", "spiralRotations": 0.0, "start": "bottomLeft", "startAngle": 0.0, "strandsPerString": 0, "strings": 16, "style": "round", "topRadius": 0.1, "type": "tree" },
+            "tags": [],
+            "transform": { "position": { "x": 8.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } }
+          },
+          {
+            "colorOrder": "GRB",
+            "id": "00000000-0000-4000-8000-000000000006",
+            "name": "Window Matrix",
+            "regions": [
+              { "id": "00000000-0000-4000-8000-000000000007", "kind": "subBuffer", "name": "Top half", "x1": 0.0, "x2": 100.0, "y1": 50.0, "y2": 100.0 },
+              {
+                "colors": { "eyesClosed": "#3cb4ff", "eyesOpen": "#3cb4ff", "mouths": { "AI": "#ff2d2d", "E": "#ff2d2d", "ETC": "#ff2d2d", "FV": "#ff2d2d", "L": "#ff2d2d", "MBP": "#ff2d2d", "O": "#ff2d2d", "REST": "#ff2d2d", "U": "#ff2d2d", "WQ": "#ff2d2d" }, "outline": "#1fbf4f" },
+                "eyesClosed": [{ "end": 376, "start": 373 }, { "end": 363, "start": 360 }],
+                "eyesOpen": [{ "end": 331, "start": 328 }, { "end": 376, "start": 373 }, { "end": 395, "start": 392 }, { "end": 344, "start": 341 }, { "end": 363, "start": 360 }, { "end": 408, "start": 405 }],
+                "id": "00000000-0000-4000-8000-000000000008",
+                "kind": "face",
+                "mouths": {
+                  "AI": [{ "end": 85, "start": 75 }, { "end": 117, "start": 107 }, { "end": 149, "start": 139 }, { "end": 181, "start": 171 }, { "end": 213, "start": 203 }],
+                  "E": [{ "end": 119, "start": 105 }, { "end": 151, "start": 137 }, { "end": 183, "start": 169 }],
+                  "ETC": [{ "end": 116, "start": 108 }, { "end": 148, "start": 140 }, { "end": 180, "start": 172 }],
+                  "FV": [{ "end": 148, "start": 140 }, { "end": 180, "start": 172 }],
+                  "L": [{ "end": 116, "start": 108 }, { "end": 148, "start": 140 }, { "end": 180, "start": 172 }, { "end": 212, "start": 204 }],
+                  "MBP": [{ "end": 150, "start": 138 }],
+                  "O": [{ "end": 51, "start": 45 }, { "end": 83, "start": 77 }, { "end": 115, "start": 109 }, { "end": 147, "start": 141 }, { "end": 179, "start": 173 }, { "end": 211, "start": 205 }, { "end": 243, "start": 237 }],
+                  "REST": [{ "end": 148, "start": 140 }],
+                  "U": [{ "end": 114, "start": 110 }, { "end": 146, "start": 142 }, { "end": 178, "start": 174 }],
+                  "WQ": [{ "end": 82, "start": 78 }, { "end": 114, "start": 110 }, { "end": 146, "start": 142 }, { "end": 178, "start": 174 }, { "end": 210, "start": 206 }]
+                },
+                "name": "Singer",
+                "outline": [
+                  { "end": 32, "start": 0 },
+                  { "end": 512, "start": 480 },
+                  { "end": 64, "start": 63 },
+                  { "end": 33, "start": 32 },
+                  { "end": 65, "start": 64 },
+                  { "end": 96, "start": 95 },
+                  { "end": 128, "start": 127 },
+                  { "end": 97, "start": 96 },
+                  { "end": 129, "start": 128 },
+                  { "end": 160, "start": 159 },
+                  { "end": 192, "start": 191 },
+                  { "end": 161, "start": 160 },
+                  { "end": 193, "start": 192 },
+                  { "end": 224, "start": 223 },
+                  { "end": 256, "start": 255 },
+                  { "end": 225, "start": 224 },
+                  { "end": 257, "start": 256 },
+                  { "end": 288, "start": 287 },
+                  { "end": 320, "start": 319 },
+                  { "end": 289, "start": 288 },
+                  { "end": 321, "start": 320 },
+                  { "end": 352, "start": 351 },
+                  { "end": 384, "start": 383 },
+                  { "end": 353, "start": 352 },
+                  { "end": 385, "start": 384 },
+                  { "end": 416, "start": 415 },
+                  { "end": 448, "start": 447 },
+                  { "end": 417, "start": 416 },
+                  { "end": 449, "start": 448 },
+                  { "end": 480, "start": 479 }
+                ]
+              }
+            ],
+            "shape": { "columns": 32, "height": 2.0, "rows": 16, "source": "generator", "type": "matrix", "width": 4.0, "wiring": { "orientation": "horizontal", "serpentine": true, "start": "bottomLeft" } },
+            "tags": [],
+            "transform": { "position": { "x": 0.5, "y": 3.8, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "00000000-0000-4000-8000-000000000009",
+            "name": "Porch Star",
+            "regions": [],
+            "shape": { "counterClockwise": false, "innerPercent": 50, "innerRadius": 0.4, "nodes": 100, "outerRadius": 1.0, "points": 5, "source": "generator", "start": "top", "startInside": false, "type": "star" },
+            "tags": [],
+            "transform": { "position": { "x": -3.0, "y": 8.2, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } }
+          }
+        ],
+        "schemaVersion": 12,
+        "sequences": [],
+        "settings": { "frameRate": 40 }
+      },
+      "summaryNow": { "controllers": 2, "pixels": 1462, "props": 4, "universes": 9 }
+    },
+    {
+      "args": { "edits": [{ "name": "My House", "type": "renameShow" }] },
+      "command": "apply_edits",
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "showNow": {
+        "background": null,
+        "controllers": [
+          {
+            "adapter": "generic",
+            "address": "192.168.1.50",
+            "id": "00000000-0000-4000-8000-000000000010",
+            "name": "Main FPP",
+            "ports": [
+              {
+                "brightness": 100,
+                "gamma": 1.0,
+                "maxPixels": null,
+                "number": 1,
+                "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "00000000-0000-4000-8000-000000000001", "reverse": false, "segment": null, "smartReceiver": null }, { "brightness": null, "gamma": null, "nullPixels": 0, "prop": "00000000-0000-4000-8000-000000000006", "reverse": false, "segment": null, "smartReceiver": null }]
+              },
+              { "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 2, "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "00000000-0000-4000-8000-000000000005", "reverse": false, "segment": null, "smartReceiver": null }] },
+              { "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 3, "slots": [] },
+              { "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 4, "slots": [] }
+            ],
+            "protocol": { "allowPixelStraddle": false, "multicast": false, "startUniverse": null, "type": "sacn", "universeSize": 510 },
+            "sequenceChannels": { "count": 4800, "start": 1 }
+          },
+          { "adapter": "generic", "address": "192.168.1.60", "id": "00000000-0000-4000-8000-000000000011", "name": "Porch WLED", "ports": [{ "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 1, "slots": [] }], "protocol": { "type": "ddp" }, "sequenceChannels": null }
+        ],
+        "groups": [],
+        "name": "My House",
+        "props": [
+          {
+            "colorOrder": "RGB",
+            "id": "00000000-0000-4000-8000-000000000001",
+            "name": "Garage Arch",
+            "regions": [
+              { "buffer": "default", "id": "00000000-0000-4000-8000-000000000002", "kind": "nodes", "layout": "horizontal", "lines": [[{ "first": 0, "last": 24 }]], "name": "Left half" },
+              { "buffer": "default", "id": "00000000-0000-4000-8000-000000000003", "kind": "nodes", "layout": "horizontal", "lines": [[{ "first": 49, "last": 25 }]], "name": "Right half" },
+              { "buffer": "stackedStrands", "id": "00000000-0000-4000-8000-000000000004", "kind": "nodes", "layout": "horizontal", "lines": [[{ "first": 0, "last": 5 }], [{ "first": 49, "last": 44 }]], "name": "Ends" }
+            ],
+            "shape": { "arc": 180.0, "arches": 1, "gap": 0.0, "height": 2.0, "hollow": 70, "nodes": 50, "skewDeg": 0.0, "source": "generator", "startInside": false, "startRight": false, "type": "arch", "width": 4.0, "zigZag": false },
+            "tags": [],
+            "transform": { "position": { "x": -6.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "00000000-0000-4000-8000-000000000005",
+            "name": "Mega Tree",
+            "regions": [],
+            "shape": { "alternateNodes": false, "baseRadius": 1.5, "degrees": 360.0, "height": 5.0, "nodesPerString": 50, "serpentine": true, "source": "generator", "spiralRotations": 0.0, "start": "bottomLeft", "startAngle": 0.0, "strandsPerString": 0, "strings": 16, "style": "round", "topRadius": 0.1, "type": "tree" },
+            "tags": [],
+            "transform": { "position": { "x": 8.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } }
+          },
+          {
+            "colorOrder": "GRB",
+            "id": "00000000-0000-4000-8000-000000000006",
+            "name": "Window Matrix",
+            "regions": [
+              { "id": "00000000-0000-4000-8000-000000000007", "kind": "subBuffer", "name": "Top half", "x1": 0.0, "x2": 100.0, "y1": 50.0, "y2": 100.0 },
+              {
+                "colors": { "eyesClosed": "#3cb4ff", "eyesOpen": "#3cb4ff", "mouths": { "AI": "#ff2d2d", "E": "#ff2d2d", "ETC": "#ff2d2d", "FV": "#ff2d2d", "L": "#ff2d2d", "MBP": "#ff2d2d", "O": "#ff2d2d", "REST": "#ff2d2d", "U": "#ff2d2d", "WQ": "#ff2d2d" }, "outline": "#1fbf4f" },
+                "eyesClosed": [{ "end": 376, "start": 373 }, { "end": 363, "start": 360 }],
+                "eyesOpen": [{ "end": 331, "start": 328 }, { "end": 376, "start": 373 }, { "end": 395, "start": 392 }, { "end": 344, "start": 341 }, { "end": 363, "start": 360 }, { "end": 408, "start": 405 }],
+                "id": "00000000-0000-4000-8000-000000000008",
+                "kind": "face",
+                "mouths": {
+                  "AI": [{ "end": 85, "start": 75 }, { "end": 117, "start": 107 }, { "end": 149, "start": 139 }, { "end": 181, "start": 171 }, { "end": 213, "start": 203 }],
+                  "E": [{ "end": 119, "start": 105 }, { "end": 151, "start": 137 }, { "end": 183, "start": 169 }],
+                  "ETC": [{ "end": 116, "start": 108 }, { "end": 148, "start": 140 }, { "end": 180, "start": 172 }],
+                  "FV": [{ "end": 148, "start": 140 }, { "end": 180, "start": 172 }],
+                  "L": [{ "end": 116, "start": 108 }, { "end": 148, "start": 140 }, { "end": 180, "start": 172 }, { "end": 212, "start": 204 }],
+                  "MBP": [{ "end": 150, "start": 138 }],
+                  "O": [{ "end": 51, "start": 45 }, { "end": 83, "start": 77 }, { "end": 115, "start": 109 }, { "end": 147, "start": 141 }, { "end": 179, "start": 173 }, { "end": 211, "start": 205 }, { "end": 243, "start": 237 }],
+                  "REST": [{ "end": 148, "start": 140 }],
+                  "U": [{ "end": 114, "start": 110 }, { "end": 146, "start": 142 }, { "end": 178, "start": 174 }],
+                  "WQ": [{ "end": 82, "start": 78 }, { "end": 114, "start": 110 }, { "end": 146, "start": 142 }, { "end": 178, "start": 174 }, { "end": 210, "start": 206 }]
+                },
+                "name": "Singer",
+                "outline": [
+                  { "end": 32, "start": 0 },
+                  { "end": 512, "start": 480 },
+                  { "end": 64, "start": 63 },
+                  { "end": 33, "start": 32 },
+                  { "end": 65, "start": 64 },
+                  { "end": 96, "start": 95 },
+                  { "end": 128, "start": 127 },
+                  { "end": 97, "start": 96 },
+                  { "end": 129, "start": 128 },
+                  { "end": 160, "start": 159 },
+                  { "end": 192, "start": 191 },
+                  { "end": 161, "start": 160 },
+                  { "end": 193, "start": 192 },
+                  { "end": 224, "start": 223 },
+                  { "end": 256, "start": 255 },
+                  { "end": 225, "start": 224 },
+                  { "end": 257, "start": 256 },
+                  { "end": 288, "start": 287 },
+                  { "end": 320, "start": 319 },
+                  { "end": 289, "start": 288 },
+                  { "end": 321, "start": 320 },
+                  { "end": 352, "start": 351 },
+                  { "end": 384, "start": 383 },
+                  { "end": 353, "start": 352 },
+                  { "end": 385, "start": 384 },
+                  { "end": 416, "start": 415 },
+                  { "end": 448, "start": 447 },
+                  { "end": 417, "start": 416 },
+                  { "end": 449, "start": 448 },
+                  { "end": 480, "start": 479 }
+                ]
+              }
+            ],
+            "shape": { "columns": 32, "height": 2.0, "rows": 16, "source": "generator", "type": "matrix", "width": 4.0, "wiring": { "orientation": "horizontal", "serpentine": true, "start": "bottomLeft" } },
+            "tags": [],
+            "transform": { "position": { "x": 0.5, "y": 3.8, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "00000000-0000-4000-8000-000000000009",
+            "name": "Porch Star",
+            "regions": [],
+            "shape": { "counterClockwise": false, "innerPercent": 50, "innerRadius": 0.4, "nodes": 100, "outerRadius": 1.0, "points": 5, "source": "generator", "start": "top", "startInside": false, "type": "star" },
+            "tags": [],
+            "transform": { "position": { "x": -3.0, "y": 8.2, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } }
+          }
+        ],
+        "schemaVersion": 12,
+        "sequences": [],
+        "settings": { "frameRate": 40 }
+      }
+    },
+    {
+      "args": {},
+      "command": "undo",
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": true, "canUndo": false, "dirty": true, "path": null, "revision": 3 },
+      "showNow": {
+        "background": null,
+        "controllers": [
+          {
+            "adapter": "generic",
+            "address": "192.168.1.50",
+            "id": "00000000-0000-4000-8000-000000000010",
+            "name": "Main FPP",
+            "ports": [
+              {
+                "brightness": 100,
+                "gamma": 1.0,
+                "maxPixels": null,
+                "number": 1,
+                "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "00000000-0000-4000-8000-000000000001", "reverse": false, "segment": null, "smartReceiver": null }, { "brightness": null, "gamma": null, "nullPixels": 0, "prop": "00000000-0000-4000-8000-000000000006", "reverse": false, "segment": null, "smartReceiver": null }]
+              },
+              { "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 2, "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "00000000-0000-4000-8000-000000000005", "reverse": false, "segment": null, "smartReceiver": null }] },
+              { "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 3, "slots": [] },
+              { "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 4, "slots": [] }
+            ],
+            "protocol": { "allowPixelStraddle": false, "multicast": false, "startUniverse": null, "type": "sacn", "universeSize": 510 },
+            "sequenceChannels": { "count": 4800, "start": 1 }
+          },
+          { "adapter": "generic", "address": "192.168.1.60", "id": "00000000-0000-4000-8000-000000000011", "name": "Porch WLED", "ports": [{ "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 1, "slots": [] }], "protocol": { "type": "ddp" }, "sequenceChannels": null }
+        ],
+        "groups": [],
+        "name": "Demo House",
+        "props": [
+          {
+            "colorOrder": "RGB",
+            "id": "00000000-0000-4000-8000-000000000001",
+            "name": "Garage Arch",
+            "regions": [
+              { "buffer": "default", "id": "00000000-0000-4000-8000-000000000002", "kind": "nodes", "layout": "horizontal", "lines": [[{ "first": 0, "last": 24 }]], "name": "Left half" },
+              { "buffer": "default", "id": "00000000-0000-4000-8000-000000000003", "kind": "nodes", "layout": "horizontal", "lines": [[{ "first": 49, "last": 25 }]], "name": "Right half" },
+              { "buffer": "stackedStrands", "id": "00000000-0000-4000-8000-000000000004", "kind": "nodes", "layout": "horizontal", "lines": [[{ "first": 0, "last": 5 }], [{ "first": 49, "last": 44 }]], "name": "Ends" }
+            ],
+            "shape": { "arc": 180.0, "arches": 1, "gap": 0.0, "height": 2.0, "hollow": 70, "nodes": 50, "skewDeg": 0.0, "source": "generator", "startInside": false, "startRight": false, "type": "arch", "width": 4.0, "zigZag": false },
+            "tags": [],
+            "transform": { "position": { "x": -6.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "00000000-0000-4000-8000-000000000005",
+            "name": "Mega Tree",
+            "regions": [],
+            "shape": { "alternateNodes": false, "baseRadius": 1.5, "degrees": 360.0, "height": 5.0, "nodesPerString": 50, "serpentine": true, "source": "generator", "spiralRotations": 0.0, "start": "bottomLeft", "startAngle": 0.0, "strandsPerString": 0, "strings": 16, "style": "round", "topRadius": 0.1, "type": "tree" },
+            "tags": [],
+            "transform": { "position": { "x": 8.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } }
+          },
+          {
+            "colorOrder": "GRB",
+            "id": "00000000-0000-4000-8000-000000000006",
+            "name": "Window Matrix",
+            "regions": [
+              { "id": "00000000-0000-4000-8000-000000000007", "kind": "subBuffer", "name": "Top half", "x1": 0.0, "x2": 100.0, "y1": 50.0, "y2": 100.0 },
+              {
+                "colors": { "eyesClosed": "#3cb4ff", "eyesOpen": "#3cb4ff", "mouths": { "AI": "#ff2d2d", "E": "#ff2d2d", "ETC": "#ff2d2d", "FV": "#ff2d2d", "L": "#ff2d2d", "MBP": "#ff2d2d", "O": "#ff2d2d", "REST": "#ff2d2d", "U": "#ff2d2d", "WQ": "#ff2d2d" }, "outline": "#1fbf4f" },
+                "eyesClosed": [{ "end": 376, "start": 373 }, { "end": 363, "start": 360 }],
+                "eyesOpen": [{ "end": 331, "start": 328 }, { "end": 376, "start": 373 }, { "end": 395, "start": 392 }, { "end": 344, "start": 341 }, { "end": 363, "start": 360 }, { "end": 408, "start": 405 }],
+                "id": "00000000-0000-4000-8000-000000000008",
+                "kind": "face",
+                "mouths": {
+                  "AI": [{ "end": 85, "start": 75 }, { "end": 117, "start": 107 }, { "end": 149, "start": 139 }, { "end": 181, "start": 171 }, { "end": 213, "start": 203 }],
+                  "E": [{ "end": 119, "start": 105 }, { "end": 151, "start": 137 }, { "end": 183, "start": 169 }],
+                  "ETC": [{ "end": 116, "start": 108 }, { "end": 148, "start": 140 }, { "end": 180, "start": 172 }],
+                  "FV": [{ "end": 148, "start": 140 }, { "end": 180, "start": 172 }],
+                  "L": [{ "end": 116, "start": 108 }, { "end": 148, "start": 140 }, { "end": 180, "start": 172 }, { "end": 212, "start": 204 }],
+                  "MBP": [{ "end": 150, "start": 138 }],
+                  "O": [{ "end": 51, "start": 45 }, { "end": 83, "start": 77 }, { "end": 115, "start": 109 }, { "end": 147, "start": 141 }, { "end": 179, "start": 173 }, { "end": 211, "start": 205 }, { "end": 243, "start": 237 }],
+                  "REST": [{ "end": 148, "start": 140 }],
+                  "U": [{ "end": 114, "start": 110 }, { "end": 146, "start": 142 }, { "end": 178, "start": 174 }],
+                  "WQ": [{ "end": 82, "start": 78 }, { "end": 114, "start": 110 }, { "end": 146, "start": 142 }, { "end": 178, "start": 174 }, { "end": 210, "start": 206 }]
+                },
+                "name": "Singer",
+                "outline": [
+                  { "end": 32, "start": 0 },
+                  { "end": 512, "start": 480 },
+                  { "end": 64, "start": 63 },
+                  { "end": 33, "start": 32 },
+                  { "end": 65, "start": 64 },
+                  { "end": 96, "start": 95 },
+                  { "end": 128, "start": 127 },
+                  { "end": 97, "start": 96 },
+                  { "end": 129, "start": 128 },
+                  { "end": 160, "start": 159 },
+                  { "end": 192, "start": 191 },
+                  { "end": 161, "start": 160 },
+                  { "end": 193, "start": 192 },
+                  { "end": 224, "start": 223 },
+                  { "end": 256, "start": 255 },
+                  { "end": 225, "start": 224 },
+                  { "end": 257, "start": 256 },
+                  { "end": 288, "start": 287 },
+                  { "end": 320, "start": 319 },
+                  { "end": 289, "start": 288 },
+                  { "end": 321, "start": 320 },
+                  { "end": 352, "start": 351 },
+                  { "end": 384, "start": 383 },
+                  { "end": 353, "start": 352 },
+                  { "end": 385, "start": 384 },
+                  { "end": 416, "start": 415 },
+                  { "end": 448, "start": 447 },
+                  { "end": 417, "start": 416 },
+                  { "end": 449, "start": 448 },
+                  { "end": 480, "start": 479 }
+                ]
+              }
+            ],
+            "shape": { "columns": 32, "height": 2.0, "rows": 16, "source": "generator", "type": "matrix", "width": 4.0, "wiring": { "orientation": "horizontal", "serpentine": true, "start": "bottomLeft" } },
+            "tags": [],
+            "transform": { "position": { "x": 0.5, "y": 3.8, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "00000000-0000-4000-8000-000000000009",
+            "name": "Porch Star",
+            "regions": [],
+            "shape": { "counterClockwise": false, "innerPercent": 50, "innerRadius": 0.4, "nodes": 100, "outerRadius": 1.0, "points": 5, "source": "generator", "start": "top", "startInside": false, "type": "star" },
+            "tags": [],
+            "transform": { "position": { "x": -3.0, "y": 8.2, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } }
+          }
+        ],
+        "schemaVersion": 12,
+        "sequences": [],
+        "settings": { "frameRate": 40 }
+      }
+    },
+    { "args": {}, "command": "undo", "reply": {}, "sequence": null, "show": { "canRedo": true, "canUndo": false, "dirty": true, "path": null, "revision": 3 } }
+  ]
+}

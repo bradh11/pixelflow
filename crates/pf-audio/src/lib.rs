@@ -15,7 +15,7 @@ mod tags;
 mod wav;
 mod waveform;
 
-pub use clock::{AudioClock, SilentClock};
+pub use clock::{AudioClock, SilentClock, TimeSource, WallTime};
 pub use decode::{MAX_MUSIC_BYTES, open_music_file};
 pub use error::AudioError;
 pub use find::find_audio;

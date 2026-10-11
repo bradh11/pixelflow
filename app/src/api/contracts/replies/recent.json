@@ -1,0 +1,28 @@
+[
+  {
+    "name": "recent shows, one of them gone",
+    "ts": "types.RecentShow[]",
+    "value": [
+      {
+        "controllers": 0,
+        "name": "Shed",
+        "openedAt": 1700000000000,
+        "path": "/fixture/Shed.pixelflow.json",
+        "pixels": 0,
+        "props": 0,
+        "status": "missing",
+        "thumbnail": null
+      },
+      {
+        "controllers": 1,
+        "name": "House",
+        "openedAt": 1700000000000,
+        "path": "/fixture/House.pixelflow.json",
+        "pixels": 50,
+        "props": 1,
+        "status": "here",
+        "thumbnail": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 320 200\"><path d=\"M12 100h0M18 100h0M24 100h0M30 100h0M36 100h0M42 100h0M48 100h0M54 100h0M60 100h0M66 100h0M72 100h0M78 100h0M84 100h0M91 100h0M97 100h0M103 100h0M109 100h0M115 100h0M121 100h0M127 100h0M133 100h0M139 100h0M145 100h0M151 100h0M157 100h0M163 100h0M169 100h0M175 100h0M181 100h0M187 100h0M193 100h0M199 100h0M205 100h0M211 100h0M217 100h0M223 100h0M229 100h0M236 100h0M242 100h0M248 100h0M254 100h0M260 100h0M266 100h0M272 100h0M278 100h0M284 100h0M290 100h0M296 100h0M302 100h0M308 100h0\" fill=\"none\" stroke=\"#fcd34d\" stroke-width=\"4\" stroke-linecap=\"round\"/></svg>"
+      }
+    ]
+  }
+]

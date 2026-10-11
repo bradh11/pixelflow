@@ -435,16 +435,14 @@ pub(crate) async fn ai_preview_frame(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::devices::DeviceAccess;
-    use crate::{context, with_commands};
+    use crate::context;
+    use crate::testing::request;
     use pf_ai::MemoryStore;
     use pf_ai::http::RetryPolicy;
     use pf_ai::testing::{FAKE_KEY, FakeTransport, Reply};
-    use pf_engine::Engine;
     use serde_json::{Value, json};
-    use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponseBody};
-    use tauri::test::{INVOKE_KEY, MockRuntime, get_ipc_response, mock_builder};
-    use tauri::webview::InvokeRequest;
+    use tauri::ipc::InvokeResponseBody;
+    use tauri::test::MockRuntime;
     use tauri::{App, Listener, Manager, WebviewWindow, WebviewWindowBuilder};
 
     struct TestApp {
@@ -461,9 +459,6 @@ mod tests {
     /// network.
     fn app_with(store: MemoryStore) -> TestApp {
         let dir = tempfile::tempdir().unwrap();
-        let (transport, _) = pf_output::RecordingTransport::new();
-        let engine = Engine::new(dir.path())
-            .with_transport(move || Ok(Box::new(transport.clone()) as Box<dyn pf_output::Transport>));
         let anthropic = Arc::new(FakeTransport::default());
         let openai = Arc::new(FakeTransport::default());
         let lrclib = Arc::new(FakeTransport::default());
@@ -474,25 +469,7 @@ mod tests {
             ),
             openai: Arc::new(pf_ai::openai::OpenAi::new(openai).with_retry(RetryPolicy::immediate())),
         };
-        let app = with_commands(mock_builder())
-            .manage(AppState {
-                engine: Mutex::new(engine),
-                devices: DeviceAccess::fake(pf_devices::testing::network()),
-                waveforms: Mutex::default(),
-                photos: Default::default(),
-                models: Default::default(),
-                export_cancels: Default::default(),
-                send_cancels: Default::default(),
-                download_cancels: Default::default(),
-                download_folders: Default::default(),
-                checking_files: Default::default(),
-                recent: Arc::new(crate::recent::RecentShows::in_memory()),
-                last_folders: crate::pickers::LastFolders::new(None),
-                dialog: Default::default(),
-                imported_from: Mutex::default(),
-                vendor_mappings: Arc::new(crate::vendor::SavedMappings::new(None)),
-                preview: crate::preview_window::PreviewState::new(None),
-            })
+        let app = crate::testing::builder(dir.path())
             .manage(AiState::new(KeyVault::new(Box::new(store)), providers))
             .manage(
                 crate::lyrics::LyricsState::new(
@@ -524,28 +501,9 @@ mod tests {
         }
     }
 
-    fn request(
-        webview: &WebviewWindow<MockRuntime>,
-        cmd: &str,
-        args: Value,
-    ) -> Result<InvokeResponseBody, Value> {
-        get_ipc_response(
-            webview,
-            InvokeRequest {
-                cmd: cmd.into(),
-                callback: CallbackFn(0),
-                error: CallbackFn(1),
-                url: webview.url().unwrap(),
-                body: InvokeBody::Json(args),
-                headers: Default::default(),
-                invoke_key: INVOKE_KEY.to_string(),
-            },
-        )
-    }
-
     /// Calls a command like the window does. No reply may ever contain the key.
     fn call(t: &TestApp, cmd: &str, args: Value) -> Result<Value, Value> {
-        let reply = request(&t.webview, cmd, args).map(|body| body.deserialize::<Value>().unwrap());
+        let reply = crate::testing::call(&t.webview, cmd, args);
         let shown = format!("{reply:?}");
         assert!(!shown.contains(FAKE_KEY), "{cmd} returned the key: {shown}");
         reply

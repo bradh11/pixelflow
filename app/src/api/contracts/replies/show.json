@@ -1,0 +1,1381 @@
+[
+  {
+    "name": "a new show",
+    "ts": "types.ShowSnapshot",
+    "value": {
+      "canRedo": false,
+      "canUndo": false,
+      "channelMap": { "controllers": [], "frameLen": 0, "props": [] },
+      "dirty": false,
+      "filesChecked": true,
+      "issues": [],
+      "missingFiles": [],
+      "path": null,
+      "revision": 0,
+      "sequenceRevision": null,
+      "show": {
+        "background": null,
+        "controllers": [],
+        "groups": [],
+        "name": "Untitled Show",
+        "props": [],
+        "schemaVersion": 12,
+        "sequences": [],
+        "settings": { "frameRate": 40 }
+      },
+      "summary": { "controllers": 0, "pixels": 0, "props": 0, "universes": 0 }
+    }
+  },
+  {
+    "name": "a saved show whose files have moved, with a sequence open",
+    "ts": "types.ShowSnapshot",
+    "value": {
+      "canRedo": false,
+      "canUndo": true,
+      "channelMap": {
+        "controllers": [
+          {
+            "addressing": { "type": "ddp" },
+            "channelCount": 12,
+            "controller": "33333333-0000-4000-8000-000000000001",
+            "spans": [
+              {
+                "brightness": 100,
+                "channelsPerPixel": 3,
+                "colorOrder": "RGB",
+                "controllerChannel": 0,
+                "frameOffset": 0,
+                "gamma": 1.0,
+                "pixels": 4,
+                "port": 1,
+                "prop": "11111111-0000-4000-8000-000000000001",
+                "reverse": false
+              }
+            ]
+          }
+        ],
+        "frameLen": 12,
+        "props": [
+          {
+            "channelsPerPixel": 3,
+            "frameOffset": 0,
+            "nodes": 4,
+            "prop": "11111111-0000-4000-8000-000000000001"
+          }
+        ]
+      },
+      "dirty": false,
+      "filesChecked": true,
+      "issues": [],
+      "missingFiles": [
+        {
+          "file": { "id": "77777777-0000-4000-8000-000000000001", "kind": "sequence" },
+          "message": "Carol.fseq isn't where it was.",
+          "name": "Carol.fseq",
+          "owner": "Sequence file for Carol",
+          "path": "/fixture/Show/sequences/Carol.fseq",
+          "wasAt": "/fixture/Show/sequences/Carol.fseq"
+        },
+        {
+          "file": { "id": "77777777-0000-4000-8000-000000000001", "kind": "music" },
+          "message": "Carol.mp3 isn't where it was.",
+          "name": "Carol.mp3",
+          "owner": "Music for Carol",
+          "path": "/fixture/Show/music/Carol.mp3",
+          "wasAt": "/fixture/Show/music/Carol.mp3"
+        },
+        {
+          "file": { "id": "77777777-0000-4000-8000-000000000002", "kind": "sequence" },
+          "message": "Silent.fseq isn't where it was.",
+          "name": "Silent.fseq",
+          "owner": "Sequence file for Silent",
+          "path": "/fixture/Show/sequences/Silent.fseq",
+          "wasAt": "/fixture/Show/sequences/Silent.fseq"
+        },
+        {
+          "file": { "kind": "photo" },
+          "message": "house.png isn't where it was.",
+          "name": "house.png",
+          "owner": "Background photo",
+          "path": "/fixture/Show/photos/house.png",
+          "wasAt": "/fixture/Show/photos/house.png"
+        },
+        {
+          "file": { "kind": "houseModel" },
+          "message": "house.glb isn't where it was.",
+          "name": "house.glb",
+          "owner": "House model",
+          "path": "/fixture/Show/models/house.glb",
+          "wasAt": "/fixture/Show/models/house.glb"
+        }
+      ],
+      "path": "/fixture/Show/House.pixelflow.json",
+      "revision": 1,
+      "sequenceRevision": 1,
+      "show": {
+        "background": {
+          "opacity": 0.6,
+          "path": "/fixture/Show/photos/house.png",
+          "width": 20.0,
+          "x": -10.0,
+          "y": 8.0
+        },
+        "controllers": [
+          {
+            "adapter": "generic",
+            "address": "127.0.0.1:9",
+            "id": "33333333-0000-4000-8000-000000000001",
+            "name": "Bench",
+            "ports": [
+              {
+                "brightness": 100,
+                "gamma": 1.0,
+                "maxPixels": null,
+                "number": 1,
+                "slots": [
+                  {
+                    "brightness": null,
+                    "gamma": null,
+                    "nullPixels": 0,
+                    "prop": "11111111-0000-4000-8000-000000000001",
+                    "reverse": false,
+                    "segment": null,
+                    "smartReceiver": null
+                  }
+                ]
+              }
+            ],
+            "protocol": { "type": "ddp" },
+            "sequenceChannels": null
+          }
+        ],
+        "groups": [],
+        "houseModel": {
+          "opacity": 0.8,
+          "path": "/fixture/Show/models/house.glb",
+          "position": { "x": 0.0, "y": 0.0, "z": -3.0 },
+          "rotationDeg": { "x": 0.0, "y": 90.0, "z": 0.0 },
+          "scale": 1.5
+        },
+        "name": "House",
+        "props": [
+          {
+            "colorOrder": "RGB",
+            "id": "11111111-0000-4000-8000-000000000001",
+            "name": "Gutter",
+            "regions": [],
+            "shape": { "length": 3.0, "nodes": 4, "source": "generator", "type": "line" },
+            "tags": [],
+            "transform": {
+              "position": { "x": 1.0, "y": 0.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          }
+        ],
+        "schemaVersion": 12,
+        "sequences": [
+          {
+            "audio": "/fixture/Show/music/Carol.mp3",
+            "id": "77777777-0000-4000-8000-000000000001",
+            "name": "Carol",
+            "offsetMs": -40,
+            "path": "/fixture/Show/sequences/Carol.fseq"
+          },
+          {
+            "audio": null,
+            "id": "77777777-0000-4000-8000-000000000002",
+            "name": "Silent",
+            "offsetMs": 0,
+            "path": "/fixture/Show/sequences/Silent.fseq"
+          }
+        ],
+        "settings": { "frameRate": 40 }
+      },
+      "summary": { "controllers": 1, "pixels": 4, "props": 1, "universes": 0 }
+    }
+  },
+  {
+    "name": "files found again, and the ones still missing",
+    "ts": "types.FilesFound",
+    "value": {
+      "found": [
+        {
+          "also": ["/fixture/Show/other/Carol.mp3"],
+          "file": { "id": "77777777-0000-4000-8000-000000000001", "kind": "music" },
+          "from": "/fixture/Show/music/Carol.mp3",
+          "name": "Carol.mp3",
+          "to": "/fixture/Show/moved/Carol.mp3"
+        }
+      ],
+      "gaveUp": false,
+      "snapshot": {
+        "canRedo": false,
+        "canUndo": true,
+        "channelMap": {
+          "controllers": [
+            {
+              "addressing": { "type": "ddp" },
+              "channelCount": 12,
+              "controller": "33333333-0000-4000-8000-000000000001",
+              "spans": [
+                {
+                  "brightness": 100,
+                  "channelsPerPixel": 3,
+                  "colorOrder": "RGB",
+                  "controllerChannel": 0,
+                  "frameOffset": 0,
+                  "gamma": 1.0,
+                  "pixels": 4,
+                  "port": 1,
+                  "prop": "11111111-0000-4000-8000-000000000001",
+                  "reverse": false
+                }
+              ]
+            }
+          ],
+          "frameLen": 12,
+          "props": [
+            {
+              "channelsPerPixel": 3,
+              "frameOffset": 0,
+              "nodes": 4,
+              "prop": "11111111-0000-4000-8000-000000000001"
+            }
+          ]
+        },
+        "dirty": true,
+        "filesChecked": true,
+        "issues": [],
+        "missingFiles": [
+          {
+            "file": { "id": "77777777-0000-4000-8000-000000000001", "kind": "sequence" },
+            "message": "Carol.fseq isn't where it was.",
+            "name": "Carol.fseq",
+            "owner": "Sequence file for Carol",
+            "path": "/fixture/Show/sequences/Carol.fseq",
+            "wasAt": "/fixture/Show/sequences/Carol.fseq"
+          },
+          {
+            "file": { "id": "77777777-0000-4000-8000-000000000002", "kind": "sequence" },
+            "message": "Silent.fseq isn't where it was.",
+            "name": "Silent.fseq",
+            "owner": "Sequence file for Silent",
+            "path": "/fixture/Show/sequences/Silent.fseq",
+            "wasAt": "/fixture/Show/sequences/Silent.fseq"
+          },
+          {
+            "file": { "kind": "photo" },
+            "message": "house.png isn't where it was.",
+            "name": "house.png",
+            "owner": "Background photo",
+            "path": "/fixture/Show/photos/house.png",
+            "wasAt": "/fixture/Show/photos/house.png"
+          },
+          {
+            "file": { "kind": "houseModel" },
+            "message": "house.glb isn't where it was.",
+            "name": "house.glb",
+            "owner": "House model",
+            "path": "/fixture/Show/models/house.glb",
+            "wasAt": "/fixture/Show/models/house.glb"
+          }
+        ],
+        "path": "/fixture/Show/House.pixelflow.json",
+        "revision": 2,
+        "sequenceRevision": 1,
+        "show": {
+          "background": {
+            "opacity": 0.6,
+            "path": "/fixture/Show/photos/house.png",
+            "width": 20.0,
+            "x": -10.0,
+            "y": 8.0
+          },
+          "controllers": [
+            {
+              "adapter": "generic",
+              "address": "127.0.0.1:9",
+              "id": "33333333-0000-4000-8000-000000000001",
+              "name": "Bench",
+              "ports": [
+                {
+                  "brightness": 100,
+                  "gamma": 1.0,
+                  "maxPixels": null,
+                  "number": 1,
+                  "slots": [
+                    {
+                      "brightness": null,
+                      "gamma": null,
+                      "nullPixels": 0,
+                      "prop": "11111111-0000-4000-8000-000000000001",
+                      "reverse": false,
+                      "segment": null,
+                      "smartReceiver": null
+                    }
+                  ]
+                }
+              ],
+              "protocol": { "type": "ddp" },
+              "sequenceChannels": null
+            }
+          ],
+          "groups": [],
+          "houseModel": {
+            "opacity": 0.8,
+            "path": "/fixture/Show/models/house.glb",
+            "position": { "x": 0.0, "y": 0.0, "z": -3.0 },
+            "rotationDeg": { "x": 0.0, "y": 90.0, "z": 0.0 },
+            "scale": 1.5
+          },
+          "name": "House",
+          "props": [
+            {
+              "colorOrder": "RGB",
+              "id": "11111111-0000-4000-8000-000000000001",
+              "name": "Gutter",
+              "regions": [],
+              "shape": { "length": 3.0, "nodes": 4, "source": "generator", "type": "line" },
+              "tags": [],
+              "transform": {
+                "position": { "x": 1.0, "y": 0.0, "z": 0.0 },
+                "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+                "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+              }
+            }
+          ],
+          "schemaVersion": 12,
+          "sequences": [
+            {
+              "audio": "/fixture/Show/moved/Carol.mp3",
+              "id": "77777777-0000-4000-8000-000000000001",
+              "name": "Carol",
+              "offsetMs": -40,
+              "path": "/fixture/Show/sequences/Carol.fseq"
+            },
+            {
+              "audio": null,
+              "id": "77777777-0000-4000-8000-000000000002",
+              "name": "Silent",
+              "offsetMs": 0,
+              "path": "/fixture/Show/sequences/Silent.fseq"
+            }
+          ],
+          "settings": { "frameRate": 40 }
+        },
+        "summary": { "controllers": 1, "pixels": 4, "props": 1, "universes": 0 }
+      },
+      "stillMissing": [
+        {
+          "file": { "id": "77777777-0000-4000-8000-000000000001", "kind": "sequence" },
+          "message": "Carol.fseq isn't where it was.",
+          "name": "Carol.fseq",
+          "owner": "Sequence file for Carol",
+          "path": "/fixture/Show/sequences/Carol.fseq",
+          "wasAt": "/fixture/Show/sequences/Carol.fseq"
+        },
+        {
+          "file": { "id": "77777777-0000-4000-8000-000000000002", "kind": "sequence" },
+          "message": "Silent.fseq isn't where it was.",
+          "name": "Silent.fseq",
+          "owner": "Sequence file for Silent",
+          "path": "/fixture/Show/sequences/Silent.fseq",
+          "wasAt": "/fixture/Show/sequences/Silent.fseq"
+        },
+        {
+          "file": { "kind": "photo" },
+          "message": "house.png isn't where it was.",
+          "name": "house.png",
+          "owner": "Background photo",
+          "path": "/fixture/Show/photos/house.png",
+          "wasAt": "/fixture/Show/photos/house.png"
+        },
+        {
+          "file": { "kind": "houseModel" },
+          "message": "house.glb isn't where it was.",
+          "name": "house.glb",
+          "owner": "House model",
+          "path": "/fixture/Show/models/house.glb",
+          "wasAt": "/fixture/Show/models/house.glb"
+        }
+      ]
+    }
+  },
+  {
+    "name": "autosaved versions",
+    "ts": "types.HistoryEntry[]",
+    "value": [{ "id": "1700000000000.pixelflow.json", "savedAtMs": 1700000000000, "sizeBytes": 2048 }]
+  },
+  {
+    "name": "no test pattern running",
+    "ts": "types.OutputStatus",
+    "value": {
+      "achievedFps": 0.0,
+      "controllers": [],
+      "frames": 0,
+      "generation": 0,
+      "lateFrames": 0,
+      "pattern": null,
+      "running": false,
+      "stopReason": null,
+      "target": null
+    }
+  },
+  {
+    "name": "a test pattern running",
+    "ts": "types.OutputStatus",
+    "value": {
+      "achievedFps": 39.5,
+      "controllers": [
+        {
+          "id": "33333333-0000-4000-8000-000000000001",
+          "lastError": null,
+          "name": "Bench",
+          "packetsSent": 120,
+          "sendErrors": 0,
+          "state": "ok"
+        }
+      ],
+      "frames": 120,
+      "generation": 1,
+      "lateFrames": 1,
+      "pattern": { "color": "ff8000", "kind": "chase" },
+      "running": true,
+      "stopReason": null,
+      "target": { "id": "11111111-0000-4000-8000-000000000001", "type": "prop" }
+    }
+  },
+  {
+    "name": "a test pattern whose controller can't be reached (built)",
+    "ts": "types.OutputStatus",
+    "value": {
+      "achievedFps": 40.0,
+      "controllers": [
+        {
+          "id": "33333333-0000-4000-8000-000000000001",
+          "lastError": "no address found for porch.local",
+          "name": "Bench",
+          "packetsSent": 0,
+          "sendErrors": 3,
+          "state": "unresolved"
+        }
+      ],
+      "frames": 120,
+      "generation": 1,
+      "lateFrames": 0,
+      "pattern": { "color": "ff8000", "kind": "chase" },
+      "running": true,
+      "stopReason": null,
+      "target": { "id": "11111111-0000-4000-8000-000000000001", "type": "prop" }
+    }
+  },
+  {
+    "name": "a test pattern that stopped by itself",
+    "ts": "types.OutputStatus",
+    "value": {
+      "achievedFps": 0.0,
+      "controllers": [],
+      "frames": 0,
+      "generation": 1,
+      "lateFrames": 0,
+      "pattern": null,
+      "running": false,
+      "stopReason": "Output stopped because the target no longer has any pixels.",
+      "target": null
+    }
+  },
+  {
+    "name": "the preview link while the preview is in the main window",
+    "ts": "types.PreviewLinked",
+    "value": { "open": false, "theirs": null }
+  },
+  {
+    "name": "the preview link from the preview's own window",
+    "ts": "types.PreviewLinked",
+    "value": { "open": true, "theirs": { "positionMs": 500 } }
+  },
+  {
+    "name": "a show of every shape, with its problems",
+    "ts": "types.ShowSnapshot",
+    "value": {
+      "canRedo": false,
+      "canUndo": true,
+      "channelMap": {
+        "controllers": [
+          {
+            "addressing": {
+              "multicast": true,
+              "type": "sacn",
+              "universes": [
+                { "controllerChannel": 0, "len": 9, "universe": 1 },
+                { "controllerChannel": 9, "len": 9, "universe": 2 },
+                { "controllerChannel": 18, "len": 9, "universe": 3 },
+                { "controllerChannel": 27, "len": 6, "universe": 4 }
+              ]
+            },
+            "channelCount": 33,
+            "controller": "33333333-0000-4000-8000-000000000001",
+            "spans": [
+              {
+                "brightness": 90,
+                "channelsPerPixel": 3,
+                "colorOrder": "RGB",
+                "controllerChannel": 0,
+                "frameOffset": 0,
+                "gamma": 2.2,
+                "pixels": 4,
+                "port": 1,
+                "prop": "11111111-0000-4000-8000-000000000001",
+                "reverse": false
+              },
+              {
+                "brightness": 80,
+                "channelsPerPixel": 3,
+                "colorOrder": "RGB",
+                "controllerChannel": 15,
+                "frameOffset": 12,
+                "gamma": 2.2,
+                "pixels": 3,
+                "port": 1,
+                "prop": "11111111-0000-4000-8000-000000000002",
+                "reverse": true
+              },
+              {
+                "brightness": 90,
+                "channelsPerPixel": 3,
+                "colorOrder": "RGB",
+                "controllerChannel": 24,
+                "frameOffset": 21,
+                "gamma": 2.2,
+                "pixels": 3,
+                "port": 1,
+                "prop": "11111111-0000-4000-8000-000000000002",
+                "reverse": false
+              }
+            ]
+          },
+          {
+            "addressing": { "type": "ddp" },
+            "channelCount": 42,
+            "controller": "33333333-0000-4000-8000-000000000002",
+            "spans": [
+              {
+                "brightness": 100,
+                "channelsPerPixel": 3,
+                "colorOrder": "RGB",
+                "controllerChannel": 0,
+                "frameOffset": 30,
+                "gamma": 1.0,
+                "pixels": 6,
+                "port": 1,
+                "prop": "11111111-0000-4000-8000-000000000003",
+                "reverse": false
+              },
+              {
+                "brightness": 100,
+                "channelsPerPixel": 4,
+                "colorOrder": "RGBW",
+                "controllerChannel": 18,
+                "frameOffset": 48,
+                "gamma": 1.0,
+                "pixels": 6,
+                "port": 1,
+                "prop": "11111111-0000-4000-8000-000000000004",
+                "reverse": false
+              }
+            ]
+          },
+          {
+            "addressing": { "type": "ddp" },
+            "channelCount": 0,
+            "controller": "33333333-0000-4000-8000-000000000003",
+            "spans": []
+          },
+          {
+            "addressing": { "multicast": false, "type": "sacn", "universes": [] },
+            "channelCount": 0,
+            "controller": "33333333-0000-4000-8000-000000000004",
+            "spans": []
+          }
+        ],
+        "frameLen": 276,
+        "props": [
+          {
+            "channelsPerPixel": 3,
+            "frameOffset": 0,
+            "nodes": 4,
+            "prop": "11111111-0000-4000-8000-000000000001"
+          },
+          {
+            "channelsPerPixel": 3,
+            "frameOffset": 12,
+            "nodes": 6,
+            "prop": "11111111-0000-4000-8000-000000000002"
+          },
+          {
+            "channelsPerPixel": 3,
+            "frameOffset": 30,
+            "nodes": 6,
+            "prop": "11111111-0000-4000-8000-000000000003"
+          },
+          {
+            "channelsPerPixel": 4,
+            "frameOffset": 48,
+            "nodes": 6,
+            "prop": "11111111-0000-4000-8000-000000000004"
+          },
+          {
+            "channelsPerPixel": 3,
+            "frameOffset": 72,
+            "nodes": 6,
+            "prop": "11111111-0000-4000-8000-000000000005"
+          },
+          {
+            "channelsPerPixel": 3,
+            "frameOffset": 90,
+            "nodes": 10,
+            "prop": "11111111-0000-4000-8000-000000000006"
+          },
+          {
+            "channelsPerPixel": 3,
+            "frameOffset": 120,
+            "nodes": 3,
+            "prop": "11111111-0000-4000-8000-000000000007"
+          },
+          {
+            "channelsPerPixel": 3,
+            "frameOffset": 129,
+            "nodes": 4,
+            "prop": "11111111-0000-4000-8000-000000000008"
+          },
+          {
+            "channelsPerPixel": 3,
+            "frameOffset": 141,
+            "nodes": 3,
+            "prop": "11111111-0000-4000-8000-000000000009"
+          },
+          {
+            "channelsPerPixel": 3,
+            "frameOffset": 150,
+            "nodes": 6,
+            "prop": "11111111-0000-4000-8000-000000000010"
+          },
+          {
+            "channelsPerPixel": 3,
+            "frameOffset": 168,
+            "nodes": 6,
+            "prop": "11111111-0000-4000-8000-000000000011"
+          },
+          {
+            "channelsPerPixel": 3,
+            "frameOffset": 186,
+            "nodes": 6,
+            "prop": "11111111-0000-4000-8000-000000000012"
+          },
+          {
+            "channelsPerPixel": 3,
+            "frameOffset": 204,
+            "nodes": 6,
+            "prop": "11111111-0000-4000-8000-000000000013"
+          },
+          {
+            "channelsPerPixel": 3,
+            "frameOffset": 222,
+            "nodes": 6,
+            "prop": "11111111-0000-4000-8000-000000000014"
+          },
+          {
+            "channelsPerPixel": 3,
+            "frameOffset": 240,
+            "nodes": 6,
+            "prop": "11111111-0000-4000-8000-000000000015"
+          },
+          {
+            "channelsPerPixel": 3,
+            "frameOffset": 258,
+            "nodes": 4,
+            "prop": "11111111-0000-4000-8000-000000000016"
+          },
+          {
+            "channelsPerPixel": 3,
+            "frameOffset": 270,
+            "nodes": 2,
+            "prop": "11111111-0000-4000-8000-000000000017"
+          }
+        ]
+      },
+      "dirty": true,
+      "filesChecked": true,
+      "issues": [
+        {
+          "code": "missingAddress",
+          "fix": "Enter the controller's IP address on the Wiring screen.",
+          "message": "The controller 'Unset' has no IP address, so nothing is sent to it.",
+          "severity": "warning"
+        },
+        {
+          "code": "unassignedNodes",
+          "fix": "Drag the prop onto a controller port.",
+          "message": "The prop 'Tree' is not wired to any controller port.",
+          "severity": "warning"
+        },
+        {
+          "code": "unassignedNodes",
+          "fix": "Drag the prop onto a controller port.",
+          "message": "The prop 'Star' is not wired to any controller port.",
+          "severity": "warning"
+        },
+        {
+          "code": "unassignedNodes",
+          "fix": "Drag the prop onto a controller port.",
+          "message": "The prop 'Custom' is not wired to any controller port.",
+          "severity": "warning"
+        },
+        {
+          "code": "unassignedNodes",
+          "fix": "Drag the prop onto a controller port.",
+          "message": "The prop 'Roof' is not wired to any controller port.",
+          "severity": "warning"
+        },
+        {
+          "code": "unassignedNodes",
+          "fix": "Drag the prop onto a controller port.",
+          "message": "The prop 'Roof spread' is not wired to any controller port.",
+          "severity": "warning"
+        },
+        {
+          "code": "unassignedNodes",
+          "fix": "Drag the prop onto a controller port.",
+          "message": "The prop 'Canes' is not wired to any controller port.",
+          "severity": "warning"
+        },
+        {
+          "code": "unassignedNodes",
+          "fix": "Drag the prop onto a controller port.",
+          "message": "The prop 'Icicles' is not wired to any controller port.",
+          "severity": "warning"
+        },
+        {
+          "code": "unassignedNodes",
+          "fix": "Drag the prop onto a controller port.",
+          "message": "The prop 'Window' is not wired to any controller port.",
+          "severity": "warning"
+        },
+        {
+          "code": "unassignedNodes",
+          "fix": "Drag the prop onto a controller port.",
+          "message": "The prop 'Wreath' is not wired to any controller port.",
+          "severity": "warning"
+        },
+        {
+          "code": "unassignedNodes",
+          "fix": "Drag the prop onto a controller port.",
+          "message": "The prop 'Spinner' is not wired to any controller port.",
+          "severity": "warning"
+        },
+        {
+          "code": "unassignedNodes",
+          "fix": "Drag the prop onto a controller port.",
+          "message": "The prop 'Sphere' is not wired to any controller port.",
+          "severity": "warning"
+        },
+        {
+          "code": "unassignedNodes",
+          "fix": "Drag the prop onto a controller port.",
+          "message": "The prop 'Cube' is not wired to any controller port.",
+          "severity": "warning"
+        },
+        {
+          "code": "unassignedNodes",
+          "fix": "Drag the prop onto a controller port.",
+          "message": "The prop 'Bush' is not wired to any controller port.",
+          "severity": "warning"
+        },
+        {
+          "code": "mixedPixelTypes",
+          "fix": "Wire the RGBW props to a controller of their own, or send this controller sACN.",
+          "message": "'Player' gets both RGB and RGBW props over DDP, which sends one pixel type for everything, so controllers like WLED will show some of them in the wrong colors.",
+          "severity": "warning"
+        }
+      ],
+      "missingFiles": [],
+      "path": null,
+      "revision": 6,
+      "sequenceRevision": 1,
+      "show": {
+        "background": null,
+        "controllers": [
+          {
+            "adapter": "generic",
+            "address": "192.0.2.10",
+            "id": "33333333-0000-4000-8000-000000000001",
+            "name": "Porch",
+            "ports": [
+              {
+                "brightness": 90,
+                "gamma": 2.2,
+                "maxPixels": 680,
+                "number": 1,
+                "slots": [
+                  {
+                    "brightness": null,
+                    "gamma": null,
+                    "nullPixels": 0,
+                    "prop": "11111111-0000-4000-8000-000000000001",
+                    "reverse": false,
+                    "segment": null,
+                    "smartReceiver": null
+                  },
+                  {
+                    "brightness": 80,
+                    "controllerColorOrder": "GRB",
+                    "gamma": 2.2,
+                    "nullPixels": 1,
+                    "prop": "11111111-0000-4000-8000-000000000002",
+                    "reverse": true,
+                    "segment": { "end": 3, "start": 0 },
+                    "smartReceiver": 1
+                  },
+                  {
+                    "brightness": null,
+                    "gamma": null,
+                    "nullPixels": 0,
+                    "prop": "11111111-0000-4000-8000-000000000002",
+                    "reverse": false,
+                    "segment": { "end": 6, "start": 3 },
+                    "smartReceiver": null
+                  }
+                ]
+              },
+              { "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 2, "slots": [] }
+            ],
+            "protocol": {
+              "allowPixelStraddle": false,
+              "multicast": true,
+              "startUniverse": 1,
+              "type": "sacn",
+              "universeSize": 9
+            },
+            "sequenceChannels": null
+          },
+          {
+            "adapter": "fpp",
+            "address": "192.0.2.11",
+            "id": "33333333-0000-4000-8000-000000000002",
+            "name": "Player",
+            "ports": [
+              {
+                "brightness": 100,
+                "gamma": 1.0,
+                "maxPixels": null,
+                "number": 1,
+                "slots": [
+                  {
+                    "brightness": null,
+                    "gamma": null,
+                    "nullPixels": 0,
+                    "prop": "11111111-0000-4000-8000-000000000003",
+                    "reverse": false,
+                    "segment": null,
+                    "smartReceiver": null
+                  },
+                  {
+                    "brightness": null,
+                    "gamma": null,
+                    "nullPixels": 0,
+                    "prop": "11111111-0000-4000-8000-000000000004",
+                    "reverse": false,
+                    "segment": null,
+                    "smartReceiver": null
+                  }
+                ]
+              }
+            ],
+            "protocol": { "type": "ddp" },
+            "sequenceChannels": { "count": 42, "rawDdpOffsets": true, "start": 1 }
+          },
+          {
+            "adapter": "generic",
+            "address": "192.0.2.12",
+            "id": "33333333-0000-4000-8000-000000000003",
+            "name": "Spare",
+            "ports": [],
+            "protocol": { "type": "ddp" },
+            "sequenceChannels": { "count": 6, "start": 43 }
+          },
+          {
+            "adapter": "generic",
+            "address": "",
+            "id": "33333333-0000-4000-8000-000000000004",
+            "name": "Unset",
+            "ports": [],
+            "protocol": {
+              "allowPixelStraddle": true,
+              "multicast": false,
+              "startUniverse": null,
+              "type": "sacn",
+              "universeSize": 510
+            },
+            "sequenceChannels": null
+          }
+        ],
+        "groups": [
+          {
+            "gridSize": 200,
+            "id": "22222222-0000-4000-8000-000000000001",
+            "layout": "horizontalPerModel",
+            "members": [
+              "11111111-0000-4000-8000-000000000001",
+              {
+                "prop": "11111111-0000-4000-8000-000000000004",
+                "region": "88888888-0000-4000-8000-000000000001"
+              }
+            ],
+            "name": "Roofline"
+          },
+          {
+            "gridSize": 400,
+            "id": "22222222-0000-4000-8000-000000000002",
+            "layout": "minimalGrid",
+            "members": [],
+            "name": "Empty"
+          }
+        ],
+        "name": "Every shape",
+        "props": [
+          {
+            "colorOrder": "RGB",
+            "id": "11111111-0000-4000-8000-000000000001",
+            "name": "Line",
+            "regions": [],
+            "shape": { "length": 3.0, "nodes": 4, "source": "generator", "type": "line" },
+            "tags": [],
+            "transform": {
+              "position": { "x": 1.0, "y": 0.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "11111111-0000-4000-8000-000000000002",
+            "name": "Arch",
+            "regions": [],
+            "shape": {
+              "arc": 180.0,
+              "arches": 1,
+              "gap": 0.0,
+              "height": 1.0,
+              "hollow": 70,
+              "layers": [2, 4],
+              "nodes": 6,
+              "skewDeg": 0.0,
+              "source": "generator",
+              "startInside": false,
+              "startRight": false,
+              "type": "arch",
+              "width": 2.0,
+              "zigZag": false
+            },
+            "tags": [],
+            "transform": {
+              "position": { "x": 2.0, "y": 0.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "11111111-0000-4000-8000-000000000003",
+            "name": "Circle",
+            "regions": [],
+            "shape": {
+              "counterClockwise": false,
+              "innerPercent": 50,
+              "layers": [2, 4],
+              "nodes": 6,
+              "radius": 1.0,
+              "source": "generator",
+              "startAtBottom": false,
+              "startInside": false,
+              "type": "circle"
+            },
+            "tags": [],
+            "transform": {
+              "position": { "x": 3.0, "y": 0.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGBW",
+            "id": "11111111-0000-4000-8000-000000000004",
+            "name": "Matrix",
+            "regions": [
+              {
+                "buffer": "keepXY",
+                "id": "88888888-0000-4000-8000-000000000001",
+                "kind": "nodes",
+                "layout": "horizontal",
+                "lines": [[{ "first": 0, "last": 1 }, null, { "first": 5, "last": 4 }]],
+                "name": "Top row"
+              },
+              {
+                "id": "88888888-0000-4000-8000-000000000002",
+                "kind": "subBuffer",
+                "name": "Left half",
+                "x1": 0.0,
+                "x2": 50.0,
+                "y1": 0.0,
+                "y2": 100.0
+              },
+              {
+                "colors": {
+                  "eyesClosed": "#0000ff",
+                  "eyesOpen": "#00ff00",
+                  "mouths": { "AI": "#ff0000" },
+                  "outline": "#ffffff"
+                },
+                "eyesClosed": [{ "end": 6, "start": 5 }],
+                "eyesOpen": [{ "end": 5, "start": 4 }],
+                "id": "88888888-0000-4000-8000-000000000003",
+                "kind": "face",
+                "mouths": { "AI": [{ "end": 2, "start": 0 }], "REST": [{ "end": 3, "start": 2 }] },
+                "name": "Singer",
+                "outline": []
+              },
+              {
+                "eyesClosed": [],
+                "eyesOpen": [],
+                "id": "88888888-0000-4000-8000-000000000004",
+                "kind": "face",
+                "mouths": {},
+                "name": "Plain face",
+                "outline": [{ "end": 6, "start": 0 }]
+              }
+            ],
+            "shape": {
+              "columns": 3,
+              "height": 2.0,
+              "rows": 2,
+              "source": "generator",
+              "type": "matrix",
+              "width": 3.0,
+              "wiring": { "orientation": "vertical", "serpentine": true, "start": "topLeft" }
+            },
+            "tags": ["roof"],
+            "transform": {
+              "position": { "x": 4.0, "y": 0.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "11111111-0000-4000-8000-000000000005",
+            "name": "Tree",
+            "regions": [],
+            "shape": {
+              "alternateNodes": false,
+              "baseRadius": 1.0,
+              "degrees": 360.0,
+              "height": 2.0,
+              "nodesPerString": 3,
+              "serpentine": false,
+              "source": "generator",
+              "spiralRotations": 0.0,
+              "start": "bottomLeft",
+              "startAngle": 0.0,
+              "strandsPerString": 0,
+              "strings": 2,
+              "style": "round",
+              "topRadius": 0.1,
+              "type": "tree"
+            },
+            "tags": [],
+            "transform": {
+              "position": { "x": 5.0, "y": 0.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "11111111-0000-4000-8000-000000000006",
+            "name": "Star",
+            "regions": [],
+            "shape": {
+              "counterClockwise": false,
+              "innerPercent": 50,
+              "innerRadius": 0.5,
+              "layers": [5, 5],
+              "nodes": 10,
+              "outerRadius": 1.0,
+              "points": 5,
+              "source": "generator",
+              "start": "top",
+              "startInside": false,
+              "type": "star"
+            },
+            "tags": [],
+            "transform": {
+              "position": { "x": 6.0, "y": 0.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "11111111-0000-4000-8000-000000000007",
+            "name": "Custom",
+            "regions": [],
+            "shape": {
+              "cells": [1, 0, 2, 3],
+              "columns": 2,
+              "rows": 2,
+              "source": "generator",
+              "type": "customGrid"
+            },
+            "tags": [],
+            "transform": {
+              "position": { "x": 7.0, "y": 0.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "11111111-0000-4000-8000-000000000008",
+            "name": "Roof",
+            "regions": [],
+            "shape": {
+              "segments": [
+                { "curve": [{ "x": 0.2, "y": 0.6, "z": 0.0 }, { "x": 0.6, "y": 1.0, "z": 0.0 }], "nodes": 2 },
+                { "nodes": 2 }
+              ],
+              "source": "generator",
+              "type": "polyLine",
+              "vertices": [
+                { "x": 0.0, "y": 0.0, "z": 0.0 },
+                { "x": 1.0, "y": 1.0, "z": 0.0 },
+                { "x": 2.0, "y": 0.0, "z": 0.0 }
+              ]
+            },
+            "tags": [],
+            "transform": {
+              "position": { "x": 8.0, "y": 0.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "11111111-0000-4000-8000-000000000009",
+            "name": "Roof spread",
+            "regions": [],
+            "shape": {
+              "segments": [{ "nodes": 0 }],
+              "source": "generator",
+              "spreadNodes": 3,
+              "type": "polyLine",
+              "vertices": [{ "x": 0.0, "y": 0.0, "z": 0.0 }, { "x": 1.0, "y": 0.0, "z": 0.0 }]
+            },
+            "tags": [],
+            "transform": {
+              "position": { "x": 9.0, "y": 0.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "11111111-0000-4000-8000-000000000010",
+            "name": "Canes",
+            "regions": [],
+            "shape": {
+              "alternateNodes": false,
+              "caneHeight": 1.0,
+              "canes": 2,
+              "height": 1.0,
+              "nodesPerCane": 3,
+              "reverse": false,
+              "skewDeg": 0.0,
+              "source": "generator",
+              "startRight": false,
+              "sticks": false,
+              "type": "candyCanes",
+              "width": 2.0
+            },
+            "tags": [],
+            "transform": {
+              "position": { "x": 10.0, "y": 0.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "11111111-0000-4000-8000-000000000011",
+            "name": "Icicles",
+            "regions": [],
+            "shape": {
+              "alternateNodes": false,
+              "dropHeight": 1.0,
+              "drops": [1, 2, 3],
+              "lightsPerString": 6,
+              "source": "generator",
+              "strings": 1,
+              "type": "icicles",
+              "width": 2.0
+            },
+            "tags": [],
+            "transform": {
+              "position": { "x": 11.0, "y": 0.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "11111111-0000-4000-8000-000000000012",
+            "name": "Window",
+            "regions": [],
+            "shape": {
+              "bottom": 2,
+              "counterClockwise": false,
+              "height": 1.0,
+              "sides": 1,
+              "source": "generator",
+              "start": "bottomLeft",
+              "top": 2,
+              "type": "windowFrame",
+              "width": 1.0
+            },
+            "tags": [],
+            "transform": {
+              "position": { "x": 12.0, "y": 0.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "11111111-0000-4000-8000-000000000013",
+            "name": "Wreath",
+            "regions": [],
+            "shape": {
+              "counterClockwise": false,
+              "nodes": 6,
+              "radius": 1.0,
+              "source": "generator",
+              "startAtBottom": false,
+              "type": "wreath"
+            },
+            "tags": [],
+            "transform": {
+              "position": { "x": 13.0, "y": 0.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "11111111-0000-4000-8000-000000000014",
+            "name": "Spinner",
+            "regions": [],
+            "shape": {
+              "alternate": false,
+              "arc": 360.0,
+              "arms": 2,
+              "clockwise": true,
+              "fromCenter": true,
+              "hollow": 20,
+              "nodesPerArm": 3,
+              "radius": 1.0,
+              "source": "generator",
+              "startAngle": 0.0,
+              "type": "spinner",
+              "zigZag": false
+            },
+            "tags": [],
+            "transform": {
+              "position": { "x": 14.0, "y": 0.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "11111111-0000-4000-8000-000000000015",
+            "name": "Sphere",
+            "regions": [],
+            "shape": {
+              "columns": 3,
+              "degrees": 360.0,
+              "endLatitude": 86.0,
+              "radius": 1.0,
+              "rows": 2,
+              "source": "generator",
+              "start": "bottomLeft",
+              "startLatitude": -86.0,
+              "strandStyle": "zigZag",
+              "type": "sphere"
+            },
+            "tags": [],
+            "transform": {
+              "position": { "x": 15.0, "y": 0.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "11111111-0000-4000-8000-000000000016",
+            "name": "Cube",
+            "regions": [],
+            "shape": {
+              "depth": 1,
+              "height": 2,
+              "source": "generator",
+              "spacing": 0.5,
+              "start": "frontBottomLeft",
+              "strandPerLayer": false,
+              "strandStyle": "zigZag",
+              "style": "verticalFrontBack",
+              "type": "cube",
+              "width": 2
+            },
+            "tags": [],
+            "transform": {
+              "position": { "x": 16.0, "y": 0.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "11111111-0000-4000-8000-000000000017",
+            "name": "Bush",
+            "regions": [],
+            "shape": {
+              "points": [{ "x": 0.0, "y": 0.0, "z": 0.0 }, { "x": 0.5, "y": 0.25, "z": 0.0 }],
+              "provenance": "cameraMap",
+              "source": "measured"
+            },
+            "tags": [],
+            "transform": {
+              "position": { "x": 17.0, "y": 0.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          }
+        ],
+        "schemaVersion": 12,
+        "sequences": [],
+        "settings": { "frameRate": 40 }
+      },
+      "summary": { "controllers": 4, "pixels": 90, "props": 17, "universes": 4 }
+    }
+  }
+]

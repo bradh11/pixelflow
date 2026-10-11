@@ -1,0 +1,1656 @@
+[
+  {
+    "name": "an xLights show folder imported",
+    "ts": "types.XlightsImported",
+    "value": {
+      "notes": [
+        "xLights draws trees, spheres and cubes with a slight tilt in its 2D view; PixelFlow shows their real shape: Mega Tree.",
+        "PixelFlow doesn't support picture faces yet, so these weren't imported: Pictures (on Window Matrix).",
+        "PixelFlow doesn't import states yet, so these weren't imported: Lights (on Window Matrix)."
+      ],
+      "snapshot": {
+        "canRedo": false,
+        "canUndo": false,
+        "channelMap": {
+          "controllers": [
+            {
+              "addressing": { "type": "ddp" },
+              "channelCount": 2190,
+              "controller": "00000000-0000-4000-a000-000000000001",
+              "spans": [
+                {
+                  "brightness": 100,
+                  "channelsPerPixel": 3,
+                  "colorOrder": "RGB",
+                  "controllerChannel": 0,
+                  "frameOffset": 0,
+                  "gamma": 1.0,
+                  "pixels": 100,
+                  "port": 1,
+                  "prop": "00000000-0000-4000-a000-000000000002",
+                  "reverse": false
+                },
+                {
+                  "brightness": 100,
+                  "channelsPerPixel": 3,
+                  "colorOrder": "GRB",
+                  "controllerChannel": 300,
+                  "frameOffset": 300,
+                  "gamma": 1.0,
+                  "pixels": 150,
+                  "port": 2,
+                  "prop": "00000000-0000-4000-a000-000000000003",
+                  "reverse": false
+                },
+                {
+                  "brightness": 100,
+                  "channelsPerPixel": 3,
+                  "colorOrder": "RGB",
+                  "controllerChannel": 750,
+                  "frameOffset": 750,
+                  "gamma": 1.0,
+                  "pixels": 400,
+                  "port": 5,
+                  "prop": "00000000-0000-4000-a000-000000000004",
+                  "reverse": false
+                },
+                {
+                  "brightness": 100,
+                  "channelsPerPixel": 3,
+                  "colorOrder": "RGB",
+                  "controllerChannel": 1950,
+                  "frameOffset": 1950,
+                  "gamma": 1.0,
+                  "pixels": 80,
+                  "port": 13,
+                  "prop": "00000000-0000-4000-a000-000000000005",
+                  "reverse": false
+                }
+              ]
+            },
+            {
+              "addressing": {
+                "multicast": false,
+                "type": "sacn",
+                "universes": [{ "controllerChannel": 0, "len": 129, "universe": 20 }]
+              },
+              "channelCount": 129,
+              "controller": "00000000-0000-4000-a000-000000000006",
+              "spans": [
+                {
+                  "brightness": 100,
+                  "channelsPerPixel": 3,
+                  "colorOrder": "RGB",
+                  "controllerChannel": 0,
+                  "frameOffset": 2190,
+                  "gamma": 1.0,
+                  "pixels": 7,
+                  "port": 1,
+                  "prop": "00000000-0000-4000-a000-000000000007",
+                  "reverse": false
+                },
+                {
+                  "brightness": 100,
+                  "channelsPerPixel": 3,
+                  "colorOrder": "RGB",
+                  "controllerChannel": 21,
+                  "frameOffset": 2211,
+                  "gamma": 1.0,
+                  "pixels": 36,
+                  "port": 1,
+                  "prop": "00000000-0000-4000-a000-000000000008",
+                  "reverse": false
+                }
+              ]
+            }
+          ],
+          "frameLen": 2319,
+          "props": [
+            {
+              "channelsPerPixel": 3,
+              "frameOffset": 0,
+              "nodes": 100,
+              "prop": "00000000-0000-4000-a000-000000000002"
+            },
+            {
+              "channelsPerPixel": 3,
+              "frameOffset": 300,
+              "nodes": 150,
+              "prop": "00000000-0000-4000-a000-000000000003"
+            },
+            {
+              "channelsPerPixel": 3,
+              "frameOffset": 750,
+              "nodes": 400,
+              "prop": "00000000-0000-4000-a000-000000000004"
+            },
+            {
+              "channelsPerPixel": 3,
+              "frameOffset": 1950,
+              "nodes": 80,
+              "prop": "00000000-0000-4000-a000-000000000005"
+            },
+            {
+              "channelsPerPixel": 3,
+              "frameOffset": 2190,
+              "nodes": 7,
+              "prop": "00000000-0000-4000-a000-000000000007"
+            },
+            {
+              "channelsPerPixel": 3,
+              "frameOffset": 2211,
+              "nodes": 36,
+              "prop": "00000000-0000-4000-a000-000000000008"
+            }
+          ]
+        },
+        "dirty": true,
+        "filesChecked": true,
+        "issues": [],
+        "missingFiles": [],
+        "path": null,
+        "revision": 2,
+        "sequenceRevision": null,
+        "show": {
+          "background": null,
+          "controllers": [
+            {
+              "adapter": "generic",
+              "address": "192.0.2.20",
+              "id": "00000000-0000-4000-a000-000000000001",
+              "name": "Falcon_F16V5_B9F5",
+              "ports": [
+                {
+                  "brightness": 100,
+                  "gamma": 1.0,
+                  "maxPixels": null,
+                  "number": 1,
+                  "slots": [
+                    {
+                      "brightness": null,
+                      "gamma": null,
+                      "nullPixels": 0,
+                      "prop": "00000000-0000-4000-a000-000000000002",
+                      "reverse": false,
+                      "segment": null,
+                      "smartReceiver": null
+                    }
+                  ]
+                },
+                {
+                  "brightness": 100,
+                  "gamma": 1.0,
+                  "maxPixels": null,
+                  "number": 2,
+                  "slots": [
+                    {
+                      "brightness": null,
+                      "gamma": null,
+                      "nullPixels": 0,
+                      "prop": "00000000-0000-4000-a000-000000000003",
+                      "reverse": false,
+                      "segment": null,
+                      "smartReceiver": null
+                    }
+                  ]
+                },
+                {
+                  "brightness": 100,
+                  "gamma": 1.0,
+                  "maxPixels": null,
+                  "number": 5,
+                  "slots": [
+                    {
+                      "brightness": null,
+                      "gamma": null,
+                      "nullPixels": 0,
+                      "prop": "00000000-0000-4000-a000-000000000004",
+                      "reverse": false,
+                      "segment": null,
+                      "smartReceiver": null
+                    }
+                  ]
+                },
+                {
+                  "brightness": 100,
+                  "gamma": 1.0,
+                  "maxPixels": null,
+                  "number": 13,
+                  "slots": [
+                    {
+                      "brightness": null,
+                      "gamma": null,
+                      "nullPixels": 0,
+                      "prop": "00000000-0000-4000-a000-000000000005",
+                      "reverse": false,
+                      "segment": null,
+                      "smartReceiver": null
+                    }
+                  ]
+                }
+              ],
+              "protocol": { "type": "ddp" },
+              "sequenceChannels": { "count": 2400, "start": 1 }
+            },
+            {
+              "adapter": "generic",
+              "address": "192.0.2.30",
+              "id": "00000000-0000-4000-a000-000000000006",
+              "name": "Porch",
+              "ports": [
+                {
+                  "brightness": 100,
+                  "gamma": 1.0,
+                  "maxPixels": null,
+                  "number": 1,
+                  "slots": [
+                    {
+                      "brightness": null,
+                      "gamma": null,
+                      "nullPixels": 0,
+                      "prop": "00000000-0000-4000-a000-000000000007",
+                      "reverse": false,
+                      "segment": null,
+                      "smartReceiver": null
+                    },
+                    {
+                      "brightness": null,
+                      "gamma": null,
+                      "nullPixels": 0,
+                      "prop": "00000000-0000-4000-a000-000000000008",
+                      "reverse": false,
+                      "segment": null,
+                      "smartReceiver": null
+                    }
+                  ]
+                }
+              ],
+              "protocol": {
+                "allowPixelStraddle": true,
+                "multicast": false,
+                "startUniverse": 20,
+                "type": "sacn",
+                "universeSize": 510
+              },
+              "sequenceChannels": { "count": 510, "start": 2401 }
+            }
+          ],
+          "groups": [
+            {
+              "gridSize": 400,
+              "id": "00000000-0000-4000-a000-000000000009",
+              "layout": "minimalGrid",
+              "members": ["00000000-0000-4000-a000-000000000002", "00000000-0000-4000-a000-000000000003"],
+              "name": "Outline"
+            },
+            {
+              "gridSize": 400,
+              "id": "00000000-0000-4000-a000-000000000010",
+              "layout": "minimalGrid",
+              "members": [
+                "00000000-0000-4000-a000-000000000002",
+                "00000000-0000-4000-a000-000000000003",
+                {
+                  "prop": "00000000-0000-4000-a000-000000000007",
+                  "region": "00000000-0000-4000-a000-000000000011"
+                },
+                "00000000-0000-4000-a000-000000000004",
+                "00000000-0000-4000-a000-000000000005"
+              ],
+              "name": "Everything"
+            }
+          ],
+          "layoutArea": { "height": 7.2, "width": 12.799999 },
+          "name": "sample-show",
+          "props": [
+            {
+              "colorOrder": "RGB",
+              "id": "00000000-0000-4000-a000-000000000002",
+              "name": "Roofline",
+              "regions": [],
+              "shape": { "length": 10.0, "nodes": 100, "source": "generator", "type": "line" },
+              "tags": [],
+              "transform": {
+                "position": { "x": 6.0, "y": 6.0, "z": 0.0 },
+                "rotationDeg": { "x": 0.0, "y": -0.0, "z": 0.0 },
+                "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+              }
+            },
+            {
+              "colorOrder": "GRB",
+              "id": "00000000-0000-4000-a000-000000000003",
+              "name": "Arches",
+              "regions": [
+                {
+                  "buffer": "default",
+                  "id": "00000000-0000-4000-a000-000000000012",
+                  "kind": "nodes",
+                  "layout": "horizontal",
+                  "lines": [[{ "first": 0, "last": 49 }]],
+                  "name": "Arch 1"
+                },
+                {
+                  "buffer": "stackedStrands",
+                  "id": "00000000-0000-4000-a000-000000000013",
+                  "kind": "nodes",
+                  "layout": "vertical",
+                  "lines": [
+                    [{ "first": 19, "last": 29 }],
+                    [{ "first": 69, "last": 79 }],
+                    [{ "first": 119, "last": 129 }]
+                  ],
+                  "name": "Tops"
+                },
+                {
+                  "buffer": "keepXY",
+                  "id": "00000000-0000-4000-a000-000000000014",
+                  "kind": "nodes",
+                  "layout": "horizontal",
+                  "lines": [
+                    [{ "first": 0, "last": 4 }, { "first": 45, "last": 49 }],
+                    [{ "first": 100, "last": 104 }, null, { "first": 149, "last": 145 }]
+                  ],
+                  "name": "Ends"
+                }
+              ],
+              "shape": {
+                "arc": 180.0,
+                "arches": 3,
+                "gap": 0.020202,
+                "height": 1.010101,
+                "hollow": 70,
+                "nodes": 50,
+                "skewDeg": 0.0,
+                "source": "generator",
+                "startInside": false,
+                "startRight": false,
+                "type": "arch",
+                "width": 1.979798,
+                "zigZag": false
+              },
+              "tags": [],
+              "transform": {
+                "position": { "x": 4.510101, "y": 1.0, "z": 0.0 },
+                "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+                "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+              }
+            },
+            {
+              "colorOrder": "RGB",
+              "id": "00000000-0000-4000-a000-000000000004",
+              "name": "Mega Tree",
+              "regions": [],
+              "shape": {
+                "alternateNodes": false,
+                "baseRadius": 0.416667,
+                "degrees": 360.0,
+                "height": 1.5,
+                "nodesPerString": 50,
+                "serpentine": false,
+                "source": "generator",
+                "spiralRotations": 0.0,
+                "start": "bottomLeft",
+                "startAngle": -177.0,
+                "strandsPerString": 0,
+                "strings": 8,
+                "style": "round",
+                "topRadius": 0.069444,
+                "type": "tree"
+              },
+              "tags": [],
+              "transform": {
+                "position": { "x": 9.0, "y": 1.5, "z": 0.0 },
+                "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+                "scale": { "x": 4.0, "y": 2.0, "z": 4.0 }
+              }
+            },
+            {
+              "colorOrder": "RGB",
+              "id": "00000000-0000-4000-a000-000000000005",
+              "name": "Window Matrix",
+              "regions": [
+                {
+                  "id": "00000000-0000-4000-a000-000000000015",
+                  "kind": "subBuffer",
+                  "name": "Top Half",
+                  "x1": 0.0,
+                  "x2": 100.0,
+                  "y1": 50.0,
+                  "y2": 100.0
+                },
+                {
+                  "colors": { "eyesOpen": "#00ff00", "mouths": { "AI": "#ff0000" }, "outline": "#ffff00" },
+                  "eyesClosed": [{ "end": 63, "start": 62 }, { "end": 78, "start": 77 }],
+                  "eyesOpen": [{ "end": 62, "start": 60 }, { "end": 80, "start": 78 }],
+                  "id": "00000000-0000-4000-a000-000000000016",
+                  "kind": "face",
+                  "mouths": {
+                    "AI": [{ "end": 4, "start": 0 }],
+                    "O": [{ "end": 8, "start": 4 }],
+                    "REST": [{ "end": 10, "start": 8 }]
+                  },
+                  "name": "Singer",
+                  "outline": [{ "end": 40, "start": 20 }]
+                }
+              ],
+              "shape": {
+                "columns": 4,
+                "height": 1.52,
+                "rows": 20,
+                "source": "generator",
+                "type": "matrix",
+                "width": 0.24,
+                "wiring": { "orientation": "vertical", "serpentine": false, "start": "bottomLeft" }
+              },
+              "tags": [],
+              "transform": {
+                "position": { "x": 3.96, "y": 3.46, "z": 0.0 },
+                "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+                "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+              }
+            },
+            {
+              "colorOrder": "RGB",
+              "id": "00000000-0000-4000-a000-000000000007",
+              "name": "Porch Star",
+              "regions": [
+                {
+                  "buffer": "default",
+                  "id": "00000000-0000-4000-a000-000000000011",
+                  "kind": "nodes",
+                  "layout": "horizontal",
+                  "lines": [[{ "first": 3, "last": 3 }]],
+                  "name": "Center"
+                }
+              ],
+              "shape": {
+                "cells": [0, 1, 0, 0, 2, 0, 3, 0, 0, 4, 0, 5, 0, 0, 6, 0, 0, 0, 0, 7],
+                "columns": 4,
+                "rows": 5,
+                "source": "generator",
+                "type": "customGrid"
+              },
+              "tags": [],
+              "transform": {
+                "position": { "x": 7.0, "y": 2.0, "z": 0.0 },
+                "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+                "scale": { "x": 0.1, "y": 0.1, "z": 0.1 }
+              }
+            },
+            {
+              "colorOrder": "RGB",
+              "id": "00000000-0000-4000-a000-000000000008",
+              "name": "Candy Canes",
+              "regions": [],
+              "shape": {
+                "alternateNodes": false,
+                "caneHeight": 1.0,
+                "canes": 2,
+                "height": 1.0,
+                "nodesPerCane": 18,
+                "reverse": false,
+                "skewDeg": 0.0,
+                "source": "generator",
+                "startRight": false,
+                "sticks": false,
+                "type": "candyCanes",
+                "width": 1.2
+              },
+              "tags": [],
+              "transform": {
+                "position": { "x": 3.6, "y": 0.8, "z": 0.0 },
+                "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+                "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+              }
+            }
+          ],
+          "schemaVersion": 12,
+          "sequences": [],
+          "settings": { "frameRate": 40 }
+        },
+        "summary": { "controllers": 2, "pixels": 773, "props": 6, "universes": 1 }
+      },
+      "summary": { "controllers": 2, "groups": 2, "pixels": 773, "props": 6, "wired": 6 }
+    }
+  },
+  {
+    "name": "an xLights sequence imported onto the show",
+    "ts": "types.XlightsSequenceImported",
+    "value": {
+      "notes": [
+        "Couldn't find the music (effects.mp3) near the sequence; choose it in the sequence's settings.",
+        "These xLights models aren't in the show, so their effects weren't imported: Santa's Sleigh & Reindeer (1 effect), Garage Door (2 effects).",
+        "These xLights effects change the layers below them or move fixtures, so they weren't imported (a stand-in would light the prop wrongly): Adjust (1).",
+        "Bars (1 effect) approximated: 'Wipe' transition shown as a fade.",
+        "Fire (1 effect) approximated: PixelFlow's own flames: their shape and random placement differ from xLights'.",
+        "Marquee (1 effect) approximated: shown as a chase along the pixels.",
+        "Meteors (1 effect) approximated: meteor count and speed approximated.",
+        "Strobe (1 effect) approximated: number of flashes approximated.",
+        "Text (1 effect) approximated: 'default' font shown in PixelFlow's pixel font.",
+        "1 model in the sequence isn't in the show; it had no effects, so nothing was lost.",
+        "These submodels aren't in the show, so their effects weren't imported: Mega Tree/Star (2 effects).",
+        "PixelFlow doesn't import effects on strands or single nodes yet; these weren't imported: Mega Tree (1 effect).",
+        "1 effect is xLights' Random effect (xLights doesn't load it either), so it was left out."
+      ],
+      "snapshot": {
+        "canRedo": false,
+        "canUndo": false,
+        "dirty": true,
+        "issues": [
+          {
+            "effect": "00000000-0000-4000-a000-000000000017",
+            "message": "The Faces effect at 0:01.000 on 'Mega Tree' (layer 1) has no timing track, so the mouth stays at rest.",
+            "row": "00000000-0000-4000-a000-000000000018",
+            "severity": "warning"
+          },
+          {
+            "effect": "00000000-0000-4000-a000-000000000019",
+            "message": "The Faces effect at 0:02.000 on 'Mega Tree' (layer 1) has no timing track, so the mouth stays at rest.",
+            "row": "00000000-0000-4000-a000-000000000018",
+            "severity": "warning"
+          }
+        ],
+        "path": null,
+        "revision": 1,
+        "sequence": {
+          "audio": null,
+          "durationMs": 20000,
+          "frameMs": 25,
+          "name": "Effects",
+          "rowBlending": "blend",
+          "rows": [
+            {
+              "id": "00000000-0000-4000-a000-000000000020",
+              "layers": [
+                {
+                  "effects": [
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 500,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "00000000-0000-4000-a000-000000000021",
+                      "palette": { "colors": ["#ffffff"] },
+                      "params": { "kind": "off" },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 0
+                    }
+                  ]
+                },
+                {
+                  "effects": [
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 1000,
+                      "fadeInMs": 500,
+                      "fadeOutMs": 0,
+                      "id": "00000000-0000-4000-a000-000000000022",
+                      "palette": { "colors": ["#ff0000", "#0000ff", "#ffffff"] },
+                      "params": {
+                        "endLevel": 0.0,
+                        "gradient": "none",
+                        "kind": "on",
+                        "shimmer": false,
+                        "solid": true,
+                        "startLevel": 1.0,
+                        "transparency": 0.0
+                      },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 0
+                    },
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 3000,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "00000000-0000-4000-a000-000000000023",
+                      "palette": { "colors": ["#804000"] },
+                      "params": { "cycles": 1.0, "gradient": "none", "kind": "colorWash" },
+                      "sparkleColor": "#808080",
+                      "sparkles": 0,
+                      "startMs": 1000
+                    }
+                  ]
+                }
+              ],
+              "target": { "prop": "00000000-0000-4000-a000-000000000002" }
+            },
+            {
+              "id": "00000000-0000-4000-a000-000000000024",
+              "layers": [
+                {
+                  "effects": [
+                    {
+                      "blend": "add",
+                      "blur": 0,
+                      "endMs": 2000,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "00000000-0000-4000-a000-000000000025",
+                      "palette": { "colors": ["#ff0000", "#0000ff", "#ffffff"] },
+                      "params": {
+                        "axis": "horizontal",
+                        "center": 0.0,
+                        "count": 6,
+                        "direction": "reverse",
+                        "fill": 1.0,
+                        "gradient": false,
+                        "highlight": false,
+                        "kind": "bars",
+                        "motion": "slide",
+                        "shaded": false,
+                        "speed": 1.0
+                      },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 0
+                    }
+                  ]
+                }
+              ],
+              "target": { "prop": "00000000-0000-4000-a000-000000000003" }
+            },
+            {
+              "id": "00000000-0000-4000-a000-000000000026",
+              "layers": [
+                {
+                  "effects": [
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 1000,
+                      "fadeInMs": 500,
+                      "fadeOutMs": 0,
+                      "id": "00000000-0000-4000-a000-000000000027",
+                      "palette": { "colors": ["#ff0000"] },
+                      "params": {
+                        "endLevel": 0.0,
+                        "gradient": "none",
+                        "kind": "on",
+                        "shimmer": false,
+                        "solid": true,
+                        "startLevel": 1.0,
+                        "transparency": 0.0
+                      },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 0
+                    }
+                  ]
+                }
+              ],
+              "target": {
+                "region": {
+                  "prop": "00000000-0000-4000-a000-000000000003",
+                  "region": "00000000-0000-4000-a000-000000000012"
+                }
+              }
+            },
+            {
+              "id": "00000000-0000-4000-a000-000000000028",
+              "layers": [
+                {
+                  "effects": [
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 2000,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "00000000-0000-4000-a000-000000000029",
+                      "palette": { "colors": ["#ff0000"] },
+                      "params": { "cycles": 1.0, "gradient": "none", "kind": "colorWash" },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 0
+                    }
+                  ]
+                },
+                { "effects": [] }
+              ],
+              "target": {
+                "region": {
+                  "prop": "00000000-0000-4000-a000-000000000003",
+                  "region": "00000000-0000-4000-a000-000000000013"
+                }
+              }
+            },
+            {
+              "id": "00000000-0000-4000-a000-000000000030",
+              "layers": [
+                {
+                  "effects": [
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 1000,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "00000000-0000-4000-a000-000000000031",
+                      "palette": { "colors": ["#ff0000"] },
+                      "params": {
+                        "bands": 2,
+                        "bounce": true,
+                        "direction": "reverse",
+                        "kind": "chase",
+                        "order": "wiring",
+                        "speed": 3.0,
+                        "timingTrack": null,
+                        "width": 0.4
+                      },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 0
+                    }
+                  ]
+                }
+              ],
+              "target": { "prop": "00000000-0000-4000-a000-000000000008" }
+            },
+            {
+              "id": "00000000-0000-4000-a000-000000000032",
+              "layers": [
+                {
+                  "effects": [
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 2000,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "00000000-0000-4000-a000-000000000033",
+                      "palette": { "colors": ["#ff0000"] },
+                      "params": {
+                        "cycles": 2.0,
+                        "direction": "forward",
+                        "height": 0.8,
+                        "kind": "wave",
+                        "speed": 1.0,
+                        "thickness": 0.1
+                      },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 0
+                    },
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 4000,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "00000000-0000-4000-a000-000000000034",
+                      "palette": { "colors": ["#ff0000"] },
+                      "params": { "density": 0.2, "kind": "twinkle", "rate": 1.0 },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 2000
+                    },
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 6000,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "00000000-0000-4000-a000-000000000035",
+                      "palette": { "colors": ["#ff0000"] },
+                      "params": { "duty": 0.25, "kind": "shimmer", "rate": 5.0 },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 4000
+                    },
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 7000,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "00000000-0000-4000-a000-000000000036",
+                      "palette": { "colors": ["#ff0000"] },
+                      "params": { "density": 0.1, "kind": "strobe", "rate": 10.0 },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 6000
+                    },
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 9000,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "00000000-0000-4000-a000-000000000037",
+                      "palette": { "colors": ["#ff0000", "#0000ff", "#ffffff"] },
+                      "params": {
+                        "count": 6,
+                        "direction": "reverse",
+                        "gradient": false,
+                        "grow": false,
+                        "kind": "spiral",
+                        "lean": -15.0,
+                        "shaded": false,
+                        "shrink": false,
+                        "speed": 1.0,
+                        "thickness": 0.4,
+                        "twist": 0.0
+                      },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 7000
+                    },
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 10000,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "00000000-0000-4000-a000-000000000038",
+                      "palette": { "colors": ["#ff0000"] },
+                      "params": { "height": 0.7, "kind": "fire", "sparks": 0.6 },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 9000
+                    },
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 12000,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "00000000-0000-4000-a000-000000000039",
+                      "palette": { "colors": ["#ff0000", "#0000ff", "#ffffff"] },
+                      "params": {
+                        "count": 8,
+                        "direction": "up",
+                        "kind": "meteors",
+                        "length": 0.4,
+                        "speed": 2.0
+                      },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 10000
+                    },
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 14000,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "00000000-0000-4000-a000-000000000040",
+                      "palette": { "colors": ["#ff0000"] },
+                      "params": { "kind": "ripple", "spacing": 0.25, "speed": 1.0, "thickness": 0.12 },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 12000
+                    },
+                    {
+                      "blend": "average",
+                      "blur": 0,
+                      "endMs": 16000,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 1000,
+                      "id": "00000000-0000-4000-a000-000000000041",
+                      "palette": { "colors": ["#ff0000"] },
+                      "params": {
+                        "axis": "vertical",
+                        "center": 0.0,
+                        "count": 1,
+                        "direction": "forward",
+                        "fill": 1.0,
+                        "gradient": false,
+                        "highlight": false,
+                        "kind": "bars",
+                        "motion": "split",
+                        "shaded": false,
+                        "speed": 0.0
+                      },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 14000
+                    },
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 17000,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "00000000-0000-4000-a000-000000000042",
+                      "palette": { "colors": ["#ff0000"] },
+                      "params": {
+                        "bands": 10,
+                        "bounce": false,
+                        "direction": "forward",
+                        "kind": "chase",
+                        "order": "wiring",
+                        "speed": 1.0,
+                        "timingTrack": null,
+                        "width": 0.5
+                      },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 16000
+                    }
+                  ]
+                }
+              ],
+              "target": { "prop": "00000000-0000-4000-a000-000000000005" }
+            },
+            {
+              "id": "00000000-0000-4000-a000-000000000018",
+              "layers": [
+                {
+                  "effects": [
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 1000,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "00000000-0000-4000-a000-000000000043",
+                      "palette": { "colors": ["#ff0000", "#0000ff", "#ffffff"] },
+                      "params": {
+                        "chunks": 1,
+                        "colors": "rainbow",
+                        "direction": "forward",
+                        "kind": "butterfly",
+                        "pattern": 1,
+                        "skip": 2,
+                        "speed": 10.0
+                      },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 0
+                    },
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 2000,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "00000000-0000-4000-a000-000000000017",
+                      "palette": { "colors": ["#ff0000"] },
+                      "params": {
+                        "colors": "face",
+                        "eyes": "auto",
+                        "face": "",
+                        "kind": "faces",
+                        "outline": false,
+                        "timingTrack": null
+                      },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 1000
+                    },
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 3000,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "00000000-0000-4000-a000-000000000019",
+                      "palette": { "colors": ["#ff0000"] },
+                      "params": {
+                        "colors": "face",
+                        "eyes": "auto",
+                        "face": "",
+                        "kind": "faces",
+                        "outline": false,
+                        "timingTrack": null
+                      },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 2000
+                    },
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 4000,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "00000000-0000-4000-a000-000000000044",
+                      "palette": { "colors": ["#ff0000", "#0000ff", "#ffffff"] },
+                      "params": {
+                        "colorPerWord": false,
+                        "countdown": "none",
+                        "endX": 0.0,
+                        "endY": 0.0,
+                        "kind": "text",
+                        "movement": "none",
+                        "noRepeat": false,
+                        "orientation": "across",
+                        "pixelOffsets": false,
+                        "size": 10,
+                        "speed": 10,
+                        "startX": 0.0,
+                        "startY": 0.0,
+                        "text": "",
+                        "toCenter": false
+                      },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 3000
+                    }
+                  ]
+                }
+              ],
+              "target": { "prop": "00000000-0000-4000-a000-000000000004" }
+            },
+            {
+              "id": "00000000-0000-4000-a000-000000000045",
+              "layers": [
+                {
+                  "effects": [
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 1000,
+                      "fadeInMs": 500,
+                      "fadeOutMs": 0,
+                      "id": "00000000-0000-4000-a000-000000000046",
+                      "palette": { "colors": ["#ff0000"] },
+                      "params": {
+                        "endLevel": 0.0,
+                        "gradient": "none",
+                        "kind": "on",
+                        "shimmer": false,
+                        "solid": true,
+                        "startLevel": 1.0,
+                        "transparency": 0.0
+                      },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 0
+                    }
+                  ]
+                }
+              ],
+              "target": { "group": "00000000-0000-4000-a000-000000000009" }
+            }
+          ],
+          "schemaVersion": 10,
+          "timingTracks": []
+        }
+      },
+      "summary": {
+        "approximate": 6,
+        "effects": 22,
+        "exact": 16,
+        "lyricMarks": 0,
+        "marks": 0,
+        "marksSkipped": 0,
+        "placeholders": 0,
+        "rows": 8,
+        "skipped": 7,
+        "timingTracks": 0
+      }
+    }
+  },
+  {
+    "name": "a vendor package looked into, the show not saved yet",
+    "ts": "types.VendorInspection",
+    "value": {
+      "allExact": false,
+      "hasLayout": true,
+      "items": [
+        {
+          "displayAs": "Single Line",
+          "effects": 3,
+          "kind": "model",
+          "label": "Roofline",
+          "name": "Roofline",
+          "parent": null,
+          "pixels": 100,
+          "type": "line"
+        },
+        {
+          "displayAs": "Arches",
+          "effects": 1,
+          "kind": "model",
+          "label": "Arches",
+          "name": "Arches",
+          "parent": null,
+          "pixels": 150,
+          "type": "arch"
+        },
+        {
+          "displayAs": null,
+          "effects": 1,
+          "kind": "submodel",
+          "label": "Arch 1",
+          "name": "Arches/Arch 1",
+          "parent": "Arches",
+          "pixels": 0,
+          "type": "arch"
+        },
+        {
+          "displayAs": null,
+          "effects": 1,
+          "kind": "submodel",
+          "label": "Tops",
+          "name": "Arches/Tops",
+          "parent": "Arches",
+          "pixels": 0,
+          "type": "arch"
+        },
+        {
+          "displayAs": "Candy Canes",
+          "effects": 1,
+          "kind": "model",
+          "label": "Candy Canes",
+          "name": "Candy Canes",
+          "parent": null,
+          "pixels": 36,
+          "type": "canes"
+        },
+        {
+          "displayAs": "Vert Matrix",
+          "effects": 10,
+          "kind": "model",
+          "label": "Window Matrix",
+          "name": "Window Matrix",
+          "parent": null,
+          "pixels": 80,
+          "type": "matrix"
+        },
+        {
+          "displayAs": "Tree 360",
+          "effects": 6,
+          "kind": "model",
+          "label": "Mega Tree",
+          "name": "Mega Tree",
+          "parent": null,
+          "pixels": 400,
+          "type": "tree"
+        },
+        {
+          "displayAs": null,
+          "effects": 2,
+          "kind": "submodel",
+          "label": "Star",
+          "name": "Mega Tree/Star",
+          "parent": "Mega Tree",
+          "pixels": 0,
+          "type": "star"
+        },
+        {
+          "displayAs": "ModelGroup",
+          "effects": 1,
+          "kind": "group",
+          "label": "Outline",
+          "name": "Outline",
+          "parent": null,
+          "pixels": 250,
+          "type": "arch"
+        },
+        {
+          "displayAs": null,
+          "effects": 1,
+          "kind": "model",
+          "label": "Santa's Sleigh & Reindeer",
+          "name": "Santa&apos;s Sleigh &amp; Reindeer",
+          "parent": null,
+          "pixels": 0,
+          "type": "other"
+        },
+        {
+          "displayAs": null,
+          "effects": 2,
+          "kind": "model",
+          "label": "Garage Door",
+          "name": "Garage Door",
+          "parent": null,
+          "pixels": 0,
+          "type": "other"
+        }
+      ],
+      "key": "layout:c44cab78c268ebfc",
+      "mapping": {
+        "items": {
+          "Arches": ["Arches"],
+          "Arches/Arch 1": ["Arches/Arch 1"],
+          "Arches/Tops": ["Arches/Tops"],
+          "Candy Canes": ["Candy Canes"],
+          "Mega Tree": ["Mega Tree"],
+          "Outline": ["Outline"],
+          "Roofline": ["Roofline"],
+          "Window Matrix": ["Window Matrix"]
+        }
+      },
+      "music": "effects.mp3",
+      "musicFolder": null,
+      "sequence": "Vendor/Sequences/effects.xsq",
+      "sequences": ["Vendor/Sequences/effects.xsq"],
+      "song": "Effects",
+      "suggestions": [
+        { "confidence": 1.0, "item": "Roofline", "reason": "exact", "targets": ["Roofline"] },
+        { "confidence": 1.0, "item": "Arches", "reason": "exact", "targets": ["Arches"] },
+        { "confidence": 1.0, "item": "Arches/Arch 1", "reason": "exact", "targets": ["Arches/Arch 1"] },
+        { "confidence": 1.0, "item": "Arches/Tops", "reason": "exact", "targets": ["Arches/Tops"] },
+        { "confidence": 1.0, "item": "Candy Canes", "reason": "exact", "targets": ["Candy Canes"] },
+        { "confidence": 1.0, "item": "Window Matrix", "reason": "exact", "targets": ["Window Matrix"] },
+        { "confidence": 1.0, "item": "Mega Tree", "reason": "exact", "targets": ["Mega Tree"] },
+        { "confidence": 0.0, "item": "Mega Tree/Star", "reason": "none", "targets": [] },
+        { "confidence": 1.0, "item": "Outline", "reason": "exact", "targets": ["Outline"] },
+        { "confidence": 0.0, "item": "Santa&apos;s Sleigh &amp; Reindeer", "reason": "none", "targets": [] },
+        { "confidence": 0.0, "item": "Garage Door", "reason": "none", "targets": [] }
+      ],
+      "targets": [
+        {
+          "kind": "group",
+          "label": "Outline",
+          "name": "Outline",
+          "parent": null,
+          "pixels": 250,
+          "type": "arch"
+        },
+        {
+          "kind": "group",
+          "label": "Everything",
+          "name": "Everything",
+          "parent": null,
+          "pixels": 737,
+          "type": "tree"
+        },
+        {
+          "kind": "model",
+          "label": "Roofline",
+          "name": "Roofline",
+          "parent": null,
+          "pixels": 100,
+          "type": "line"
+        },
+        {
+          "kind": "model",
+          "label": "Arches",
+          "name": "Arches",
+          "parent": null,
+          "pixels": 150,
+          "type": "arch"
+        },
+        {
+          "kind": "submodel",
+          "label": "Arch 1",
+          "name": "Arches/Arch 1",
+          "parent": "Arches",
+          "pixels": 0,
+          "type": "arch"
+        },
+        {
+          "kind": "submodel",
+          "label": "Tops",
+          "name": "Arches/Tops",
+          "parent": "Arches",
+          "pixels": 0,
+          "type": "arch"
+        },
+        {
+          "kind": "submodel",
+          "label": "Ends",
+          "name": "Arches/Ends",
+          "parent": "Arches",
+          "pixels": 0,
+          "type": "arch"
+        },
+        {
+          "kind": "model",
+          "label": "Mega Tree",
+          "name": "Mega Tree",
+          "parent": null,
+          "pixels": 400,
+          "type": "tree"
+        },
+        {
+          "kind": "model",
+          "label": "Window Matrix",
+          "name": "Window Matrix",
+          "parent": null,
+          "pixels": 80,
+          "type": "matrix"
+        },
+        {
+          "kind": "submodel",
+          "label": "Top Half",
+          "name": "Window Matrix/Top Half",
+          "parent": "Window Matrix",
+          "pixels": 0,
+          "type": "matrix"
+        },
+        {
+          "kind": "model",
+          "label": "Porch Star",
+          "name": "Porch Star",
+          "parent": null,
+          "pixels": 7,
+          "type": "star"
+        },
+        {
+          "kind": "submodel",
+          "label": "Center",
+          "name": "Porch Star/Center",
+          "parent": "Porch Star",
+          "pixels": 0,
+          "type": "star"
+        },
+        {
+          "kind": "model",
+          "label": "Candy Canes",
+          "name": "Candy Canes",
+          "parent": null,
+          "pixels": 36,
+          "type": "canes"
+        }
+      ]
+    }
+  },
+  {
+    "name": "a vendor sequence imported with a mapping (its rows left out here)",
+    "ts": "types.XlightsSequenceImported",
+    "value": {
+      "notes": [
+        "These xLights models weren't mapped to anything, so their effects weren't imported: Mega Tree (6 effects), Santa's Sleigh & Reindeer (1 effect), Garage Door (2 effects).",
+        "Bars (1 effect) approximated: 'Wipe' transition shown as a fade.",
+        "Fire (1 effect) approximated: PixelFlow's own flames: their shape and random placement differ from xLights'.",
+        "Marquee (1 effect) approximated: shown as a chase along the pixels.",
+        "Meteors (1 effect) approximated: meteor count and speed approximated.",
+        "Strobe (1 effect) approximated: number of flashes approximated.",
+        "These submodels and strands weren't mapped to anything, so their effects weren't imported: Mega Tree/Star (2 effects).",
+        "PixelFlow doesn't import effects on single nodes yet; these weren't imported: Mega Tree (1 effect)."
+      ],
+      "snapshot": {
+        "canRedo": false,
+        "canUndo": false,
+        "dirty": true,
+        "issues": [],
+        "path": null,
+        "revision": 2,
+        "sequence": {
+          "audio": "/fixture/House/music/effects.mp3",
+          "durationMs": 20000,
+          "frameMs": 25,
+          "name": "Effects",
+          "rowBlending": "blend",
+          "rows": [],
+          "schemaVersion": 10,
+          "timingTracks": []
+        }
+      },
+      "summary": {
+        "approximate": 5,
+        "effects": 18,
+        "exact": 13,
+        "lyricMarks": 0,
+        "marks": 0,
+        "marksSkipped": 0,
+        "placeholders": 0,
+        "rows": 7,
+        "skipped": 12,
+        "timingTracks": 0
+      }
+    }
+  },
+  {
+    "name": "the package again: the mapping remembered, the show saved",
+    "ts": "types.VendorInspection",
+    "value": {
+      "allExact": false,
+      "hasLayout": true,
+      "items": [
+        {
+          "displayAs": "Single Line",
+          "effects": 3,
+          "kind": "model",
+          "label": "Roofline",
+          "name": "Roofline",
+          "parent": null,
+          "pixels": 100,
+          "type": "line"
+        },
+        {
+          "displayAs": "Arches",
+          "effects": 1,
+          "kind": "model",
+          "label": "Arches",
+          "name": "Arches",
+          "parent": null,
+          "pixels": 150,
+          "type": "arch"
+        },
+        {
+          "displayAs": null,
+          "effects": 1,
+          "kind": "submodel",
+          "label": "Arch 1",
+          "name": "Arches/Arch 1",
+          "parent": "Arches",
+          "pixels": 0,
+          "type": "arch"
+        },
+        {
+          "displayAs": null,
+          "effects": 1,
+          "kind": "submodel",
+          "label": "Tops",
+          "name": "Arches/Tops",
+          "parent": "Arches",
+          "pixels": 0,
+          "type": "arch"
+        },
+        {
+          "displayAs": "Candy Canes",
+          "effects": 1,
+          "kind": "model",
+          "label": "Candy Canes",
+          "name": "Candy Canes",
+          "parent": null,
+          "pixels": 36,
+          "type": "canes"
+        },
+        {
+          "displayAs": "Vert Matrix",
+          "effects": 10,
+          "kind": "model",
+          "label": "Window Matrix",
+          "name": "Window Matrix",
+          "parent": null,
+          "pixels": 80,
+          "type": "matrix"
+        },
+        {
+          "displayAs": "Tree 360",
+          "effects": 6,
+          "kind": "model",
+          "label": "Mega Tree",
+          "name": "Mega Tree",
+          "parent": null,
+          "pixels": 400,
+          "type": "tree"
+        },
+        {
+          "displayAs": null,
+          "effects": 2,
+          "kind": "submodel",
+          "label": "Star",
+          "name": "Mega Tree/Star",
+          "parent": "Mega Tree",
+          "pixels": 0,
+          "type": "star"
+        },
+        {
+          "displayAs": "ModelGroup",
+          "effects": 1,
+          "kind": "group",
+          "label": "Outline",
+          "name": "Outline",
+          "parent": null,
+          "pixels": 250,
+          "type": "arch"
+        },
+        {
+          "displayAs": null,
+          "effects": 1,
+          "kind": "model",
+          "label": "Santa's Sleigh & Reindeer",
+          "name": "Santa&apos;s Sleigh &amp; Reindeer",
+          "parent": null,
+          "pixels": 0,
+          "type": "other"
+        },
+        {
+          "displayAs": null,
+          "effects": 2,
+          "kind": "model",
+          "label": "Garage Door",
+          "name": "Garage Door",
+          "parent": null,
+          "pixels": 0,
+          "type": "other"
+        }
+      ],
+      "key": "layout:c44cab78c268ebfc",
+      "mapping": {
+        "items": {
+          "Arches": ["Arches"],
+          "Arches/Arch 1": ["Arches/Arch 1"],
+          "Arches/Tops": ["Arches/Tops"],
+          "Candy Canes": ["Candy Canes"],
+          "Mega Tree": [],
+          "Outline": ["Outline"],
+          "Roofline": ["Roofline"],
+          "Window Matrix": ["Window Matrix"]
+        }
+      },
+      "music": "effects.mp3",
+      "musicFolder": "/fixture/House/music",
+      "sequence": "Vendor/Sequences/effects.xsq",
+      "sequences": ["Vendor/Sequences/effects.xsq"],
+      "song": "Effects",
+      "suggestions": [
+        { "confidence": 1.0, "item": "Roofline", "reason": "saved", "targets": ["Roofline"] },
+        { "confidence": 1.0, "item": "Arches", "reason": "saved", "targets": ["Arches"] },
+        { "confidence": 1.0, "item": "Arches/Arch 1", "reason": "saved", "targets": ["Arches/Arch 1"] },
+        { "confidence": 1.0, "item": "Arches/Tops", "reason": "saved", "targets": ["Arches/Tops"] },
+        { "confidence": 1.0, "item": "Candy Canes", "reason": "saved", "targets": ["Candy Canes"] },
+        { "confidence": 1.0, "item": "Window Matrix", "reason": "saved", "targets": ["Window Matrix"] },
+        { "confidence": 1.0, "item": "Mega Tree", "reason": "saved", "targets": [] },
+        { "confidence": 0.0, "item": "Mega Tree/Star", "reason": "none", "targets": [] },
+        { "confidence": 1.0, "item": "Outline", "reason": "saved", "targets": ["Outline"] },
+        { "confidence": 0.0, "item": "Santa&apos;s Sleigh &amp; Reindeer", "reason": "none", "targets": [] },
+        { "confidence": 0.0, "item": "Garage Door", "reason": "none", "targets": [] }
+      ],
+      "targets": [
+        {
+          "kind": "group",
+          "label": "Outline",
+          "name": "Outline",
+          "parent": null,
+          "pixels": 250,
+          "type": "arch"
+        },
+        {
+          "kind": "group",
+          "label": "Everything",
+          "name": "Everything",
+          "parent": null,
+          "pixels": 737,
+          "type": "tree"
+        },
+        {
+          "kind": "model",
+          "label": "Roofline",
+          "name": "Roofline",
+          "parent": null,
+          "pixels": 100,
+          "type": "line"
+        },
+        {
+          "kind": "model",
+          "label": "Arches",
+          "name": "Arches",
+          "parent": null,
+          "pixels": 150,
+          "type": "arch"
+        },
+        {
+          "kind": "submodel",
+          "label": "Arch 1",
+          "name": "Arches/Arch 1",
+          "parent": "Arches",
+          "pixels": 0,
+          "type": "arch"
+        },
+        {
+          "kind": "submodel",
+          "label": "Tops",
+          "name": "Arches/Tops",
+          "parent": "Arches",
+          "pixels": 0,
+          "type": "arch"
+        },
+        {
+          "kind": "submodel",
+          "label": "Ends",
+          "name": "Arches/Ends",
+          "parent": "Arches",
+          "pixels": 0,
+          "type": "arch"
+        },
+        {
+          "kind": "model",
+          "label": "Mega Tree",
+          "name": "Mega Tree",
+          "parent": null,
+          "pixels": 400,
+          "type": "tree"
+        },
+        {
+          "kind": "model",
+          "label": "Window Matrix",
+          "name": "Window Matrix",
+          "parent": null,
+          "pixels": 80,
+          "type": "matrix"
+        },
+        {
+          "kind": "submodel",
+          "label": "Top Half",
+          "name": "Window Matrix/Top Half",
+          "parent": "Window Matrix",
+          "pixels": 0,
+          "type": "matrix"
+        },
+        {
+          "kind": "model",
+          "label": "Porch Star",
+          "name": "Porch Star",
+          "parent": null,
+          "pixels": 7,
+          "type": "star"
+        },
+        {
+          "kind": "submodel",
+          "label": "Center",
+          "name": "Porch Star/Center",
+          "parent": "Porch Star",
+          "pixels": 0,
+          "type": "star"
+        },
+        {
+          "kind": "model",
+          "label": "Candy Canes",
+          "name": "Candy Canes",
+          "parent": null,
+          "pixels": 36,
+          "type": "canes"
+        }
+      ]
+    }
+  },
+  {
+    "name": "an xLights mapping file read",
+    "ts": "types.XmapRead",
+    "value": { "mapping": { "items": { "Mega Tree": ["Pillars", "Tree"] } }, "nodesSkipped": 0 }
+  }
+]

@@ -467,3 +467,60 @@ pub(crate) fn add_detected_tracks(
         .collect();
     engine.replace_timing_tracks(tracks).map_err(message)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::testing::{app, authored, call, call_at, files_under, heard};
+    use serde_json::{Value, json};
+
+    #[test]
+    fn an_export_stopped_by_its_command_writes_nothing_and_the_next_one_runs() {
+        let (app, webview, dir) = app();
+        authored(&webview);
+        let folder = dir.path().join("exports");
+        std::fs::create_dir(&folder).unwrap();
+        let path = folder.join("Song.fseq");
+        let shown = path.display().to_string();
+        let events = heard(&app, "sequence-export-progress");
+
+        // Nothing is exporting: a cancel does nothing, now or to the export after it.
+        call(&webview, "cancel_sequence_export", json!({})).unwrap();
+
+        // Cancelled as its first report arrives: the export stops before its next frame.
+        call_at(
+            &app,
+            &webview,
+            "sequence-export-progress",
+            |_| true,
+            "cancel_sequence_export",
+        );
+        let error = call(&webview, "export_sequence_doc", json!({ "path": path })).unwrap_err();
+        assert_eq!(error, "The export was cancelled.");
+        let sent = std::mem::take(&mut *events.lock().unwrap());
+        assert_eq!(sent.len(), 1, "{sent:?}");
+        assert_eq!(
+            (&sent[0]["path"], &sent[0]["frames"]),
+            (&json!(shown), &json!(80))
+        );
+        assert!(sent[0]["percent"].as_u64().unwrap() < 100, "{sent:?}");
+        assert_eq!(files_under(&folder), Vec::<String>::new());
+
+        // That cancel is spent: the next export runs to its end, reporting all the way.
+        let summary = call(&webview, "export_sequence_doc", json!({ "path": path })).unwrap();
+        assert_eq!(summary["frames"], 80);
+        let sent = events.lock().unwrap().clone();
+        let keys = |event: &Value| -> Vec<String> { event.as_object().unwrap().keys().cloned().collect() };
+        assert!(
+            sent.iter()
+                .all(|e| keys(e) == ["frames", "framesDone", "path", "percent"]),
+            "{sent:?}"
+        );
+        let done: Vec<u64> = sent.iter().map(|e| e["framesDone"].as_u64().unwrap()).collect();
+        assert!(done.windows(2).all(|pair| pair[0] < pair[1]), "{done:?}");
+        assert_eq!(
+            sent.last().unwrap(),
+            &json!({ "path": shown, "framesDone": 80, "frames": 80, "percent": 100 })
+        );
+        assert_eq!(files_under(&folder), ["Song.fseq"]);
+    }
+}

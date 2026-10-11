@@ -9,6 +9,7 @@ use pf_bench::report::{CAVEAT, Report};
 use pf_bench::run::run;
 use pf_bench::sequence::{KINDS, Variant};
 use pf_bench::sink::SinkKind;
+use pf_bench::sync::{SyncOptions, run_sync};
 use std::process::Command;
 
 /// Large enough for a matrix on a DDP controller of its own beside the sACN strings.
@@ -113,6 +114,70 @@ fn the_engine_itself_plays_the_same_show_and_sequence() {
     assert_eq!((result.mode, result.frames.due), (Mode::Engine, 40));
     assert!(result.pacing.expect("frames were watched").shown.count > 0);
     assert!(result.notes.iter().any(|n| n.contains("engine itself")));
+}
+
+#[test]
+fn the_lights_are_timed_against_the_music_in_the_engine() {
+    // Three seconds of sequence on a loop, played for four: once round and into the next.
+    let workload = Workload::new(PIXELS, Variant::Typical, 3)
+        .unwrap()
+        .without_media();
+    let options = SyncOptions {
+        seconds: 4,
+        warmup_seconds: 0,
+        load_threads: 1,
+        seek_seconds: 0,
+    };
+    let result = run_sync(&workload, SinkKind::Null, options).unwrap();
+    assert_eq!((result.pixels, result.frame_ms, result.send_hz), (PIXELS, 25, 80));
+    assert_eq!((result.sequence_seconds, result.load_threads), (3, 1));
+    // Every frame that went out was read off its marker and is accounted for.
+    let frames = result.frames;
+    assert!(frames.sent > 0 && frames.sent + frames.missed == frames.due);
+    assert_eq!(result.sent.count as u64, frames.sent);
+    assert!(result.began.count > 0 && result.began.p50 >= 0.0);
+    assert!(result.sent.p50 >= 0.0);
+    // The music was taken back to its top with the lights.
+    assert!(result.loop_late.count >= 1 && result.loop_late.p50 >= 0.0);
+    assert_eq!(result.seek_recovery.count, 0);
+    assert!(result.notes.is_empty(), "{:?}", result.notes);
+    assert!(!result.verdict.summary.is_empty());
+    // A sequence too short to jump about in is refused when jumps are asked for.
+    let jumping = SyncOptions {
+        seek_seconds: 1,
+        ..options
+    };
+    assert!(run_sync(&workload, SinkKind::Null, jumping).is_err());
+}
+
+#[test]
+fn a_sync_run_is_reported_both_ways() {
+    let dir = tempfile::tempdir().unwrap();
+    let json = dir.path().join("sync.json");
+    let out = Command::new(env!("CARGO_BIN_EXE_pf-bench"))
+        .args(["--tier", "2000", "--mode", "sync", "--sink", "loopback"])
+        .args(["--seconds", "1", "--warmup-seconds", "0"])
+        .args(["--sequence-seconds", "3", "--seek-seconds", "0"])
+        .arg("--json")
+        .arg(&json)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let report: Report = serde_json::from_str(&std::fs::read_to_string(&json).unwrap()).unwrap();
+    assert_eq!((report.syncs.len(), report.runs.len()), (1, 0));
+    assert!(report.syncs[0].frames.sent > 0);
+    let printed = String::from_utf8_lossy(&out.stdout);
+    for heading in [
+        "## Lights against the music",
+        "## Frames, jumps, and rounds of the loop",
+    ] {
+        assert!(printed.contains(heading), "no {heading:?} in:\n{printed}");
+    }
+    // A report saved before there were sync runs still reads.
+    let mut old: serde_json::Value = serde_json::to_value(&report).unwrap();
+    old.as_object_mut().unwrap().remove("syncs");
+    let old: Report = serde_json::from_value(old).unwrap();
+    assert!(old.syncs.is_empty());
 }
 
 #[test]

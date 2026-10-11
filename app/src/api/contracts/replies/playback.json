@@ -1,0 +1,267 @@
+[
+  {
+    "name": "one of the show's sequences playing with its music",
+    "ts": "types.PlaybackStatus",
+    "value": {
+      "authored": false,
+      "controllers": [
+        {
+          "id": "33333333-0000-4000-8000-000000000001",
+          "lastError": null,
+          "name": "Bench",
+          "packetsSent": 8,
+          "sendErrors": 0,
+          "state": "ok"
+        }
+      ],
+      "durationMs": 60000,
+      "error": null,
+      "frameMs": 25,
+      "looping": false,
+      "music": "/fixture/show.wav",
+      "notes": [],
+      "nowMs": 10,
+      "offsetMs": 0,
+      "path": "/fixture/show.fseq",
+      "positionMs": 0,
+      "sequence": "00000000-0000-4000-a000-000000000001",
+      "speed": 1.0,
+      "state": "playing",
+      "volume": 1.0
+    }
+  },
+  {
+    "name": "paused, quieter and at half speed",
+    "ts": "types.PlaybackStatus",
+    "value": {
+      "authored": false,
+      "controllers": [
+        {
+          "id": "33333333-0000-4000-8000-000000000001",
+          "lastError": null,
+          "name": "Bench",
+          "packetsSent": 8,
+          "sendErrors": 0,
+          "state": "ok"
+        }
+      ],
+      "durationMs": 60000,
+      "error": null,
+      "frameMs": 25,
+      "looping": false,
+      "music": "/fixture/show.wav",
+      "notes": [],
+      "nowMs": 510,
+      "offsetMs": 0,
+      "path": "/fixture/show.fseq",
+      "positionMs": 500,
+      "sequence": "00000000-0000-4000-a000-000000000001",
+      "speed": 0.5,
+      "state": "paused",
+      "volume": 0.5
+    }
+  },
+  {
+    "name": "a sequence file that has played to its end",
+    "ts": "types.PlaybackStatus",
+    "value": {
+      "authored": false,
+      "controllers": [
+        {
+          "id": "33333333-0000-4000-8000-000000000001",
+          "lastError": null,
+          "name": "Bench",
+          "packetsSent": 8,
+          "sendErrors": 0,
+          "state": "ok"
+        }
+      ],
+      "durationMs": 60000,
+      "error": null,
+      "frameMs": 25,
+      "looping": false,
+      "music": null,
+      "notes": [],
+      "nowMs": 60000,
+      "offsetMs": 0,
+      "path": "/fixture/show.fseq",
+      "positionMs": 60000,
+      "sequence": null,
+      "speed": 1.0,
+      "state": "ended",
+      "volume": 0.5
+    }
+  },
+  {
+    "name": "playback a damaged file stopped (built)",
+    "ts": "types.PlaybackStatus",
+    "value": {
+      "authored": false,
+      "controllers": [
+        {
+          "id": "33333333-0000-4000-8000-000000000001",
+          "lastError": "the network is unreachable",
+          "name": "Bench",
+          "packetsSent": 8,
+          "sendErrors": 2,
+          "state": "degraded"
+        }
+      ],
+      "durationMs": 60000,
+      "error": "show.fseq ends before its last frame.",
+      "frameMs": 25,
+      "looping": false,
+      "music": null,
+      "notes": ["Porch was left out: it has no sequence channels yet."],
+      "nowMs": 60000,
+      "offsetMs": 0,
+      "path": "/fixture/show.fseq",
+      "positionMs": 60000,
+      "sequence": null,
+      "speed": 1.0,
+      "state": "ended",
+      "volume": 0.5
+    }
+  },
+  {
+    "name": "the open sequence playing, round and round",
+    "ts": "types.PlaybackStatus",
+    "value": {
+      "authored": true,
+      "controllers": [
+        {
+          "id": "33333333-0000-4000-8000-000000000001",
+          "lastError": null,
+          "name": "Bench",
+          "packetsSent": 8,
+          "sendErrors": 0,
+          "state": "ok"
+        }
+      ],
+      "durationMs": 60000,
+      "error": null,
+      "frameMs": 25,
+      "looping": true,
+      "music": null,
+      "notes": [],
+      "nowMs": 10,
+      "offsetMs": 0,
+      "path": "",
+      "positionMs": 0,
+      "sequence": null,
+      "speed": 1.0,
+      "state": "playing",
+      "volume": 0.5
+    }
+  },
+  {
+    "name": "why an edit stopped playback",
+    "ts": "string | null",
+    "value": "Playback stopped because no controller has sequence channels anymore."
+  },
+  { "name": "nothing stopped playback", "ts": "string | null", "value": null },
+  { "name": "nothing is playing", "ts": "types.PlaybackStatus | null", "value": null },
+  {
+    "name": "a music file's length and format",
+    "ts": "types.AudioInfo",
+    "value": {
+      "channels": 1,
+      "codec": "pcm_s16le",
+      "durationMs": 1000,
+      "foundBy": "header",
+      "sampleRate": 8000
+    }
+  },
+  {
+    "name": "a silent song's loudness",
+    "ts": "types.Waveform",
+    "value": { "durationMs": 1000, "peaks": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] }
+  },
+  {
+    "name": "a song's loudness (built)",
+    "ts": "types.Waveform",
+    "value": { "durationMs": 1000, "peaks": [0.0, 0.25, 0.5, 1.0] }
+  },
+  {
+    "name": "a song's lead vocal (built)",
+    "ts": "types.VocalLane",
+    "value": { "hopMs": 5.0, "levels": [0, 128, 255], "offsetMs": 2.5, "onsets": [90, 100, 300, 500] }
+  },
+  {
+    "name": "the sync click, on a silent stopwatch",
+    "ts": "types.SyncClick",
+    "value": { "bufferFrames": null, "intervalMs": 500, "outputLatencyMs": null, "sampleRate": null }
+  },
+  {
+    "name": "the sync click on a sound output (built)",
+    "ts": "types.SyncClick",
+    "value": { "bufferFrames": 512, "intervalMs": 500, "outputLatencyMs": 10.7, "sampleRate": 48000 }
+  },
+  { "name": "where the sync click is when it isn't playing", "ts": "number | null", "value": null },
+  {
+    "name": "what beat detection finds in a song (built)",
+    "ts": "sequence.Analysis",
+    "value": {
+      "barDrums": [
+        { "crash": 1, "hat": 8, "kick": 4, "snare": 2 },
+        { "crash": 0, "hat": 0, "kick": 0, "snare": 0 }
+      ],
+      "barEnergy": [
+        { "high": 0.75, "low": 0.25, "mid": 0.5, "overall": 0.5 },
+        { "high": 0.0, "low": 0.0, "mid": 0.0, "overall": 0.0 }
+      ],
+      "bars": [0, 2000],
+      "beats": [0, 500, 1000, 1500, 2000, 2500, 3000, 3500],
+      "confidence": { "downbeat": 0.5, "sections": 0.25, "tempo": 0.75 },
+      "drums": [{ "drum": "crash", "strength": 1.0, "timeMs": 2000 }],
+      "durationMs": 4000,
+      "events": [
+        { "kind": "drop", "strength": 1.0, "timeMs": 2000 },
+        { "durationMs": 1000, "kind": "build", "strength": 0.5, "timeMs": 3000 }
+      ],
+      "moments": [
+        { "importance": 0.75, "kind": "drop", "strength": 1.0, "suggest": "burst", "timeMs": 2000 },
+        {
+          "endMs": 4000,
+          "importance": 0.5,
+          "kind": "key_change",
+          "label": "C→D",
+          "strength": 0.5,
+          "suggest": "color-shift",
+          "timeMs": 3000
+        }
+      ],
+      "onsets": [0, 250, 500],
+      "sections": [
+        {
+          "confidence": 0.5,
+          "endMs": 4000,
+          "energy": 0.75,
+          "group": "A",
+          "label": "Chorus",
+          "level": "high",
+          "startMs": 0
+        }
+      ],
+      "tempoBpm": 120.0
+    }
+  },
+  {
+    "name": "what beat detection finds in silence (built)",
+    "ts": "sequence.Analysis",
+    "value": {
+      "barDrums": [],
+      "barEnergy": [],
+      "bars": [],
+      "beats": [],
+      "confidence": { "downbeat": 0.0, "sections": 0.0, "tempo": 0.0 },
+      "drums": [],
+      "durationMs": 500,
+      "events": [],
+      "moments": [],
+      "onsets": [],
+      "sections": [],
+      "tempoBpm": null
+    }
+  }
+]

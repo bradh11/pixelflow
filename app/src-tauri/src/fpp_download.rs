@@ -362,8 +362,10 @@ pub(crate) async fn cancel_fpp_download(state: State<'_, AppState>) -> Reply<()>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::{app, call, call_at, heard, steps_of};
     use pf_devices::HttpClient;
     use pf_devices::testing::FakeFpp;
+    use serde_json::{Value, json};
     use std::time::Duration;
 
     fn client() -> HttpClient {
@@ -615,5 +617,90 @@ mod tests {
             fpp.state().requests
         );
         assert_eq!(tree(dir.path()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_download_command_reports_both_files_and_stopped_keeps_nothing() {
+        let fpp = fpp();
+        let (app, webview, dir) = app();
+        // A saved show: what's downloaded goes into its folder.
+        let folder = dir.path().join("My Show");
+        std::fs::create_dir_all(&folder).unwrap();
+        call(
+            &webview,
+            "save_show_as",
+            json!({ "path": folder.join("My Show.pixelflow.json") }),
+        )
+        .unwrap();
+        let before = tree(&folder);
+        let events = heard(&app, "fpp-download-progress");
+        let download = || {
+            call(
+                &webview,
+                "fpp_download",
+                json!({ "address": fpp.address(), "request": {
+                    "sequence": "Wizards.fseq", "music": "Wizards.mp3", "downloadId": 9 } }),
+            )
+        };
+
+        // Nothing is downloading: a cancel does nothing, now or to the download after it.
+        call(&webview, "cancel_fpp_download", json!({})).unwrap();
+
+        // Cancelled as the sequence's first bytes are reported: nothing is kept, not even a
+        // hidden part of it.
+        call_at(
+            &app,
+            &webview,
+            "fpp-download-progress",
+            |_| true,
+            "cancel_fpp_download",
+        );
+        assert_eq!(
+            download().unwrap_err(),
+            "The download was cancelled. Nothing was saved."
+        );
+        let sent = std::mem::take(&mut *events.lock().unwrap());
+        assert_eq!(sent.len(), 1, "{sent:?}");
+        assert_eq!(
+            (&sent[0]["step"], &sent[0]["total"]),
+            (&json!("sequence"), &json!(200_000))
+        );
+        assert_eq!(tree(&folder), before);
+
+        // That cancel is spent: the next download saves both files, reporting each to its end.
+        let saved = download().unwrap();
+        let mut after = before.clone();
+        after.extend([
+            "music/Wizards.mp3".to_string(),
+            "sequences/Wizards.fseq".to_string(),
+        ]);
+        after.sort();
+        assert_eq!(tree(&folder), after);
+        assert_eq!(
+            saved["musicPath"],
+            json!(folder.join("music").join("Wizards.mp3").display().to_string())
+        );
+        let sent = events.lock().unwrap().clone();
+        let keys = |event: &Value| -> Vec<String> { event.as_object().unwrap().keys().cloned().collect() };
+        assert!(
+            sent.iter().all(
+                |e| keys(e) == ["done", "downloadId", "percent", "step", "total"] && e["downloadId"] == 9
+            ),
+            "{sent:?}"
+        );
+        let steps = steps_of(&sent);
+        let names: Vec<&str> = steps.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, ["sequence", "music"]);
+        let last_of = |step: &str| sent.iter().rev().find(|e| e["step"] == step).unwrap().clone();
+        assert_eq!(
+            last_of("sequence"),
+            json!({ "downloadId": 9, "step": "sequence", "percent": 100, "done": 200_000, "total": 200_000 })
+        );
+        assert_eq!(
+            last_of("music"),
+            json!({ "downloadId": 9, "step": "music", "percent": 100, "done": 50_000, "total": 50_000 })
+        );
+        // Only ever read from.
+        assert_eq!(fpp.state().writes(), Vec::<String>::new());
     }
 }

@@ -1,0 +1,981 @@
+[
+  {
+    "name": "a credential store",
+    "ts": "assistant.KeyStorage",
+    "value": { "available": true, "name": "Keychain" }
+  },
+  { "name": "no key yet", "ts": "boolean", "value": false },
+  { "name": "no key, so nowhere it's kept", "ts": "assistant.KeyLocation | null", "value": null },
+  {
+    "name": "a turn without a key",
+    "rejectedBy": "ai_send",
+    "ts": "{ message: string; details: string | null }",
+    "value": { "details": null, "message": "Add your Anthropic API key in Settings → AI first." }
+  },
+  { "name": "a key saved", "ts": "assistant.KeyLocation", "value": "keychain" },
+  { "name": "a key kept for the session", "ts": "assistant.KeyLocation", "value": "session" },
+  { "name": "where a key is kept", "ts": "assistant.KeyLocation | null", "value": "session" },
+  {
+    "name": "no credential store",
+    "ts": "assistant.KeyStorage",
+    "value": { "available": false, "name": "Keychain" }
+  },
+  {
+    "name": "a provider's models",
+    "ts": "assistant.ModelInfo[]",
+    "value": [
+      { "id": "claude-opus-5-5", "name": "Claude Opus 5.5", "recommended": true },
+      { "id": "claude-haiku-5", "name": "Claude Haiku 5", "recommended": false }
+    ]
+  },
+  {
+    "name": "a provider that refused the key",
+    "rejectedBy": "list_ai_models",
+    "ts": "{ message: string; details: string | null }",
+    "value": {
+      "details": "HTTP 401 authentication_error: invalid x-api-key",
+      "message": "Anthropic didn't accept your API key. It may be mistyped or revoked: paste it again in Settings → AI."
+    }
+  },
+  {
+    "name": "a reply that asks for a song",
+    "ts": "assistant.TurnReply",
+    "value": {
+      "chooseSong": true,
+      "proposal": null,
+      "text": "You don't have a sequence open yet.\n\nPick a song and I'll build it."
+    }
+  },
+  {
+    "name": "a reply with a change to the show to review",
+    "ts": "assistant.TurnReply",
+    "value": {
+      "chooseSong": false,
+      "proposal": {
+        "changedProps": ["11111111-0000-4000-8000-000000000002"],
+        "changesSequence": false,
+        "changesShow": true,
+        "cues": null,
+        "diff": {
+          "changes": [
+            {
+              "action": "changed",
+              "details": ["name: \"Untitled Show\" → \"Christmas\""],
+              "id": null,
+              "name": "Christmas",
+              "section": "show",
+              "warnings": []
+            },
+            {
+              "action": "added",
+              "details": ["kind: tree", "pixels: 100", "position: x 2, y 0, z 0"],
+              "id": "11111111-0000-4000-8000-000000000002",
+              "name": "Mega Tree",
+              "section": "prop",
+              "warnings": []
+            }
+          ]
+        },
+        "id": "00000000-0000-4000-a000-000000000001",
+        "lockedEdges": 0,
+        "review": null,
+        "sections": [],
+        "summary": "Renames the show and adds a tree.",
+        "timeline": null
+      },
+      "text": "Adding a tree.\n\nTake a look."
+    }
+  },
+  { "name": "nothing replaced the show, so the proposal stands", "ts": "boolean", "value": false },
+  {
+    "name": "a show proposal applied",
+    "ts": "assistant.Applied",
+    "value": {
+      "sequence": null,
+      "snapshot": {
+        "canRedo": false,
+        "canUndo": true,
+        "channelMap": {
+          "controllers": [],
+          "frameLen": 312,
+          "props": [
+            {
+              "channelsPerPixel": 3,
+              "frameOffset": 0,
+              "nodes": 4,
+              "prop": "11111111-0000-4000-8000-000000000001"
+            },
+            {
+              "channelsPerPixel": 3,
+              "frameOffset": 12,
+              "nodes": 100,
+              "prop": "11111111-0000-4000-8000-000000000002"
+            }
+          ]
+        },
+        "dirty": true,
+        "filesChecked": true,
+        "issues": [
+          {
+            "code": "unassignedNodes",
+            "fix": "Drag the prop onto a controller port.",
+            "message": "The prop 'Strip' is not wired to any controller port.",
+            "severity": "warning"
+          },
+          {
+            "code": "unassignedNodes",
+            "fix": "Drag the prop onto a controller port.",
+            "message": "The prop 'Mega Tree' is not wired to any controller port.",
+            "severity": "warning"
+          }
+        ],
+        "missingFiles": [],
+        "path": null,
+        "revision": 2,
+        "sequenceRevision": null,
+        "show": {
+          "background": null,
+          "controllers": [],
+          "groups": [],
+          "name": "Christmas",
+          "props": [
+            {
+              "colorOrder": "RGB",
+              "id": "11111111-0000-4000-8000-000000000001",
+              "name": "Strip",
+              "regions": [],
+              "shape": { "length": 3.0, "nodes": 4, "source": "generator", "type": "line" },
+              "tags": [],
+              "transform": {
+                "position": { "x": 1.0, "y": 0.0, "z": 0.0 },
+                "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+                "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+              }
+            },
+            {
+              "colorOrder": "RGB",
+              "id": "11111111-0000-4000-8000-000000000002",
+              "name": "Mega Tree",
+              "regions": [],
+              "shape": {
+                "alternateNodes": false,
+                "baseRadius": 1.0,
+                "degrees": 360.0,
+                "height": 3.0,
+                "nodesPerString": 25,
+                "serpentine": false,
+                "source": "generator",
+                "spiralRotations": 0.0,
+                "start": "bottomLeft",
+                "startAngle": 0.0,
+                "strandsPerString": 0,
+                "strings": 4,
+                "style": "round",
+                "topRadius": 0.1,
+                "type": "tree"
+              },
+              "tags": [],
+              "transform": {
+                "position": { "x": 2.0, "y": 0.0, "z": 0.0 },
+                "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+                "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+              }
+            }
+          ],
+          "schemaVersion": 12,
+          "sequences": [],
+          "settings": { "frameRate": 40 }
+        },
+        "summary": { "controllers": 0, "pixels": 104, "props": 2, "universes": 0 }
+      }
+    }
+  },
+  {
+    "name": "a reply with a change to the sequence to review",
+    "ts": "assistant.TurnReply",
+    "value": {
+      "chooseSong": false,
+      "proposal": {
+        "changedProps": [],
+        "changesSequence": true,
+        "changesShow": false,
+        "cues": null,
+        "diff": {
+          "changes": [
+            {
+              "action": "added",
+              "details": [],
+              "id": "00000000-0000-4000-a000-000000000002",
+              "name": "Twinkle on Strip at 0:00.000–0:02.000",
+              "section": "effect",
+              "warnings": []
+            }
+          ]
+        },
+        "id": "00000000-0000-4000-a000-000000000003",
+        "lockedEdges": 0,
+        "review": { "items": [], "line": "Review: 100/100 · flashes safe", "score": 100 },
+        "sections": [
+          {
+            "added": 1,
+            "changed": 0,
+            "endMs": 4000,
+            "kinds": ["Twinkle"],
+            "label": "Whole sequence",
+            "removed": 0,
+            "rows": 1,
+            "startMs": 0
+          }
+        ],
+        "summary": "Twinkles the strip.",
+        "timeline": {
+          "durationMs": 4000,
+          "moreRows": 0,
+          "rows": [{ "effects": [{ "color": "#ff0000", "endMs": 2000, "startMs": 0 }], "name": "Strip" }],
+          "sections": [{ "endMs": 4000, "label": "Whole sequence", "startMs": 0 }]
+        }
+      },
+      "text": "Here it is."
+    }
+  },
+  {
+    "name": "a sequence proposal applied",
+    "ts": "assistant.Applied",
+    "value": {
+      "sequence": {
+        "canRedo": false,
+        "canUndo": true,
+        "changed": true,
+        "changes": {
+          "effects": [
+            {
+              "effect": {
+                "blend": "normal",
+                "blur": 0,
+                "endMs": 2000,
+                "fadeInMs": 0,
+                "fadeOutMs": 0,
+                "id": "00000000-0000-4000-a000-000000000002",
+                "palette": { "colors": ["#ff0000"] },
+                "params": { "density": 0.3, "kind": "twinkle", "rate": 1.0 },
+                "sparkleColor": "#ffffff",
+                "sparkles": 0,
+                "startMs": 0
+              },
+              "index": 0,
+              "layer": 0,
+              "row": "44444444-0000-4000-8000-000000000001"
+            }
+          ],
+          "info": null,
+          "removedEffects": [],
+          "removedRows": [],
+          "removedTimingTracks": [],
+          "rowOrder": null,
+          "rows": [],
+          "timingTracks": [],
+          "trackOrder": null
+        },
+        "dirty": true,
+        "issues": [],
+        "revision": 2,
+        "showRevision": 2
+      },
+      "snapshot": null
+    }
+  },
+  {
+    "name": "a proposal with cues, a review, and a warning (built)",
+    "ts": "assistant.ProposalView",
+    "value": {
+      "changedProps": ["11111111-0000-4000-8000-000000000001"],
+      "changesSequence": true,
+      "changesShow": true,
+      "cues": "Staged 2 cues: 1 hit, 1 word pop.",
+      "diff": {
+        "changes": [
+          {
+            "action": "changed",
+            "details": ["address: \"192.0.2.10\" → \"192.0.2.99\""],
+            "id": "33333333-0000-4000-8000-000000000001",
+            "name": "Porch",
+            "section": "controller",
+            "warnings": ["This changes where light data is sent."]
+          }
+        ]
+      },
+      "id": "proposal-1",
+      "lockedEdges": 4,
+      "review": {
+        "items": ["0:02.000 nothing marks the drop"],
+        "line": "Review: 92/100 · all 12 top moments emphasised · flashes safe",
+        "score": 92
+      },
+      "sections": [
+        {
+          "added": 2,
+          "changed": 1,
+          "endMs": 2000,
+          "kinds": ["Twinkle"],
+          "label": "Chorus",
+          "removed": 1,
+          "rows": 1,
+          "startMs": 0
+        }
+      ],
+      "summary": "Stages the chorus.",
+      "timeline": {
+        "durationMs": 4000,
+        "moreRows": 3,
+        "rows": [{ "effects": [{ "color": "#ff0000", "endMs": 2000, "startMs": 0 }], "name": "Strip" }],
+        "sections": [{ "endMs": 2000, "label": "Chorus", "startMs": 0 }]
+      }
+    }
+  },
+  {
+    "allOf": "assistant.ChatEvent",
+    "name": "every assistant.ChatEvent",
+    "tag": "kind",
+    "ts": "(assistant.ChatEvent)[]",
+    "value": [
+      { "kind": "text", "text": "Adding a tree." },
+      { "kind": "activity", "label": "Looking at your props" },
+      { "kind": "retrying", "seconds": 4 },
+      {
+        "kind": "proposal",
+        "proposal": {
+          "changedProps": ["11111111-0000-4000-8000-000000000001"],
+          "changesSequence": true,
+          "changesShow": true,
+          "cues": "Staged 2 cues: 1 hit, 1 word pop.",
+          "diff": {
+            "changes": [
+              {
+                "action": "changed",
+                "details": ["address: \"192.0.2.10\" → \"192.0.2.99\""],
+                "id": "33333333-0000-4000-8000-000000000001",
+                "name": "Porch",
+                "section": "controller",
+                "warnings": ["This changes where light data is sent."]
+              }
+            ]
+          },
+          "id": "proposal-1",
+          "lockedEdges": 4,
+          "review": {
+            "items": ["0:02.000 nothing marks the drop"],
+            "line": "Review: 92/100 · all 12 top moments emphasised · flashes safe",
+            "score": 92
+          },
+          "sections": [
+            {
+              "added": 2,
+              "changed": 1,
+              "endMs": 2000,
+              "kinds": ["Twinkle"],
+              "label": "Chorus",
+              "removed": 1,
+              "rows": 1,
+              "startMs": 0
+            }
+          ],
+          "summary": "Stages the chorus.",
+          "timeline": {
+            "durationMs": 4000,
+            "moreRows": 3,
+            "rows": [{ "effects": [{ "color": "#ff0000", "endMs": 2000, "startMs": 0 }], "name": "Strip" }],
+            "sections": [{ "endMs": 2000, "label": "Chorus", "startMs": 0 }]
+          }
+        }
+      },
+      { "kind": "chooseSong" }
+    ]
+  },
+  {
+    "name": "lyrics need the assistant set up",
+    "ts": "sequencer.LyricsGate",
+    "value": {
+      "ready": false,
+      "reason": "Finding lyrics needs the assistant: set it up in Settings → AI.",
+      "recognizer": false
+    }
+  },
+  {
+    "name": "lyrics with a key that can't hear the song",
+    "ts": "sequencer.LyricsGate",
+    "value": { "ready": true, "reason": null, "recognizer": false }
+  },
+  {
+    "name": "lyrics with a key that can hear the song",
+    "ts": "sequencer.LyricsGate",
+    "value": { "ready": true, "reason": null, "recognizer": true }
+  },
+  {
+    "name": "published lyrics found",
+    "ts": "sequencer.LyricsFound",
+    "value": {
+      "candidates": [
+        {
+          "artist": "Lantern Band",
+          "durationS": 4.0,
+          "id": 1,
+          "language": null,
+          "synced": true,
+          "title": "Lantern Song"
+        },
+        {
+          "artist": "Lantern Band",
+          "durationS": 4.5,
+          "id": 2,
+          "language": null,
+          "synced": false,
+          "title": "Lantern Song (Live)"
+        }
+      ],
+      "chosen": 1,
+      "lines": 2,
+      "notes": [],
+      "pasted": false,
+      "result": {
+        "canRedo": false,
+        "canUndo": true,
+        "changed": true,
+        "changes": {
+          "effects": [],
+          "info": null,
+          "removedEffects": [],
+          "removedRows": [],
+          "removedTimingTracks": [],
+          "rowOrder": null,
+          "rows": [],
+          "timingTracks": [
+            {
+              "id": "00000000-0000-4000-a000-000000000004",
+              "kind": "lyrics",
+              "marks": [
+                { "endMs": 2000, "label": "Paper lanterns glowing", "startMs": 500 },
+                { "endMs": 3500, "label": "Snowy rooftops shine", "startMs": 2000 }
+              ],
+              "name": "Lyrics"
+            },
+            {
+              "id": "00000000-0000-4000-a000-000000000005",
+              "kind": "words",
+              "marks": [
+                { "endMs": 1000, "label": "Paper", "startMs": 500 },
+                { "endMs": 1500, "label": "lanterns", "startMs": 1000 },
+                { "endMs": 2000, "label": "glowing", "startMs": 1500 },
+                { "endMs": 2600, "label": "Snowy", "startMs": 2000 },
+                { "endMs": 3200, "label": "rooftops", "startMs": 2600 },
+                { "endMs": 3500, "label": "shine", "startMs": 3200 }
+              ],
+              "name": "Lyrics (words)"
+            },
+            {
+              "id": "00000000-0000-4000-a000-000000000006",
+              "kind": "custom",
+              "marks": [
+                { "endMs": 810, "label": "Pa", "startMs": 500 },
+                { "endMs": 1000, "label": "per", "startMs": 810 },
+                { "endMs": 1251, "label": "lan", "startMs": 1000 },
+                { "endMs": 1500, "label": "terns", "startMs": 1251 },
+                { "endMs": 1840, "label": "glow", "startMs": 1500 },
+                { "endMs": 2000, "label": "ing", "startMs": 1840 },
+                { "endMs": 2373, "label": "Snow", "startMs": 2000 },
+                { "endMs": 2600, "label": "y", "startMs": 2373 },
+                { "endMs": 2888, "label": "roof", "startMs": 2600 },
+                { "endMs": 3200, "label": "tops", "startMs": 2888 },
+                { "endMs": 3500, "label": "shine", "startMs": 3200 }
+              ],
+              "name": "Lyrics (syllables)"
+            },
+            {
+              "id": "00000000-0000-4000-a000-000000000007",
+              "kind": "phonemes",
+              "marks": [
+                { "endMs": 550, "label": "MBP", "startMs": 500 },
+                { "endMs": 810, "label": "E", "startMs": 550 },
+                { "endMs": 860, "label": "MBP", "startMs": 810 },
+                { "endMs": 1000, "label": "E", "startMs": 860 },
+                { "endMs": 1101, "label": "L", "startMs": 1000 },
+                { "endMs": 1201, "label": "AI", "startMs": 1101 },
+                { "endMs": 1251, "label": "etc", "startMs": 1201 },
+                { "endMs": 1301, "label": "etc", "startMs": 1251 },
+                { "endMs": 1450, "label": "E", "startMs": 1301 },
+                { "endMs": 1500, "label": "etc", "startMs": 1450 },
+                { "endMs": 1550, "label": "etc", "startMs": 1500 },
+                { "endMs": 1695, "label": "L", "startMs": 1550 },
+                { "endMs": 1840, "label": "O", "startMs": 1695 },
+                { "endMs": 1950, "label": "AI", "startMs": 1840 },
+                { "endMs": 2000, "label": "etc", "startMs": 1950 },
+                { "endMs": 2050, "label": "etc", "startMs": 2000 },
+                { "endMs": 2373, "label": "O", "startMs": 2050 },
+                { "endMs": 2600, "label": "E", "startMs": 2373 },
+                { "endMs": 2650, "label": "etc", "startMs": 2600 },
+                { "endMs": 2769, "label": "U", "startMs": 2650 },
+                { "endMs": 2888, "label": "FV", "startMs": 2769 },
+                { "endMs": 2938, "label": "etc", "startMs": 2888 },
+                { "endMs": 3100, "label": "AI", "startMs": 2938 },
+                { "endMs": 3150, "label": "MBP", "startMs": 3100 },
+                { "endMs": 3200, "label": "etc", "startMs": 3150 },
+                { "endMs": 3250, "label": "etc", "startMs": 3200 },
+                { "endMs": 3450, "label": "AI", "startMs": 3250 },
+                { "endMs": 3500, "label": "etc", "startMs": 3450 }
+              ],
+              "name": "Lyrics (phonemes)"
+            },
+            {
+              "id": "00000000-0000-4000-a000-000000000008",
+              "kind": "custom",
+              "marks": [{ "endMs": 3500, "label": "Vocals", "startMs": 500 }],
+              "name": "Vocals"
+            }
+          ],
+          "trackOrder": [
+            "00000000-0000-4000-a000-000000000004",
+            "00000000-0000-4000-a000-000000000005",
+            "00000000-0000-4000-a000-000000000006",
+            "00000000-0000-4000-a000-000000000007",
+            "00000000-0000-4000-a000-000000000008"
+          ]
+        },
+        "dirty": true,
+        "issues": [],
+        "revision": 3,
+        "showRevision": 2
+      },
+      "source": "Lyrics: Lantern Band — Lantern Song (LRCLIB) · line timing: LRCLIB",
+      "summary": "Lyrics and line timing from LRCLIB; words are spread over each line.",
+      "timingNote": null,
+      "unsureWords": 6,
+      "words": 6
+    }
+  },
+  {
+    "name": "lyrics found and heard",
+    "ts": "sequencer.LyricsFound",
+    "value": {
+      "candidates": [
+        {
+          "artist": "Lantern Band",
+          "durationS": 4.0,
+          "id": 1,
+          "language": null,
+          "synced": true,
+          "title": "Lantern Song"
+        },
+        {
+          "artist": "Lantern Band",
+          "durationS": 4.5,
+          "id": 2,
+          "language": null,
+          "synced": false,
+          "title": "Lantern Song (Live)"
+        }
+      ],
+      "chosen": 1,
+      "lines": 2,
+      "notes": [],
+      "pasted": false,
+      "result": {
+        "canRedo": false,
+        "canUndo": true,
+        "changed": true,
+        "changes": {
+          "effects": [],
+          "info": null,
+          "removedEffects": [],
+          "removedRows": [],
+          "removedTimingTracks": [],
+          "rowOrder": null,
+          "rows": [],
+          "timingTracks": [
+            {
+              "id": "00000000-0000-4000-a000-000000000004",
+              "kind": "lyrics",
+              "marks": [
+                { "endMs": 1900, "label": "Paper lanterns glowing", "startMs": 600 },
+                { "endMs": 3500, "label": "Snowy rooftops shine", "startMs": 2000 }
+              ],
+              "name": "Lyrics"
+            },
+            {
+              "id": "00000000-0000-4000-a000-000000000005",
+              "kind": "words",
+              "marks": [
+                { "endMs": 900, "label": "Paper", "startMs": 600 },
+                { "endMs": 1400, "label": "lanterns", "startMs": 900 },
+                { "endMs": 1900, "label": "glowing", "startMs": 1400 },
+                { "endMs": 2600, "label": "Snowy", "startMs": 2000 },
+                { "endMs": 3200, "label": "rooftops", "startMs": 2600 },
+                { "endMs": 3500, "label": "shine", "startMs": 3200 }
+              ],
+              "name": "Lyrics (words)"
+            },
+            {
+              "id": "00000000-0000-4000-a000-000000000006",
+              "kind": "custom",
+              "marks": [
+                { "endMs": 786, "label": "Pa", "startMs": 600 },
+                { "endMs": 900, "label": "per", "startMs": 786 },
+                { "endMs": 1151, "label": "lan", "startMs": 900 },
+                { "endMs": 1400, "label": "terns", "startMs": 1151 },
+                { "endMs": 1740, "label": "glow", "startMs": 1400 },
+                { "endMs": 1900, "label": "ing", "startMs": 1740 },
+                { "endMs": 2373, "label": "Snow", "startMs": 2000 },
+                { "endMs": 2600, "label": "y", "startMs": 2373 },
+                { "endMs": 2888, "label": "roof", "startMs": 2600 },
+                { "endMs": 3200, "label": "tops", "startMs": 2888 },
+                { "endMs": 3500, "label": "shine", "startMs": 3200 }
+              ],
+              "name": "Lyrics (syllables)"
+            },
+            {
+              "id": "00000000-0000-4000-a000-000000000007",
+              "kind": "phonemes",
+              "marks": [
+                { "endMs": 650, "label": "MBP", "startMs": 600 },
+                { "endMs": 786, "label": "E", "startMs": 650 },
+                { "endMs": 836, "label": "MBP", "startMs": 786 },
+                { "endMs": 900, "label": "E", "startMs": 836 },
+                { "endMs": 1001, "label": "L", "startMs": 900 },
+                { "endMs": 1101, "label": "AI", "startMs": 1001 },
+                { "endMs": 1151, "label": "etc", "startMs": 1101 },
+                { "endMs": 1201, "label": "etc", "startMs": 1151 },
+                { "endMs": 1350, "label": "E", "startMs": 1201 },
+                { "endMs": 1400, "label": "etc", "startMs": 1350 },
+                { "endMs": 1450, "label": "etc", "startMs": 1400 },
+                { "endMs": 1595, "label": "L", "startMs": 1450 },
+                { "endMs": 1740, "label": "O", "startMs": 1595 },
+                { "endMs": 1850, "label": "AI", "startMs": 1740 },
+                { "endMs": 1900, "label": "etc", "startMs": 1850 },
+                { "endMs": 2050, "label": "etc", "startMs": 2000 },
+                { "endMs": 2373, "label": "O", "startMs": 2050 },
+                { "endMs": 2600, "label": "E", "startMs": 2373 },
+                { "endMs": 2650, "label": "etc", "startMs": 2600 },
+                { "endMs": 2769, "label": "U", "startMs": 2650 },
+                { "endMs": 2888, "label": "FV", "startMs": 2769 },
+                { "endMs": 2938, "label": "etc", "startMs": 2888 },
+                { "endMs": 3100, "label": "AI", "startMs": 2938 },
+                { "endMs": 3150, "label": "MBP", "startMs": 3100 },
+                { "endMs": 3200, "label": "etc", "startMs": 3150 },
+                { "endMs": 3250, "label": "etc", "startMs": 3200 },
+                { "endMs": 3450, "label": "AI", "startMs": 3250 },
+                { "endMs": 3500, "label": "etc", "startMs": 3450 }
+              ],
+              "name": "Lyrics (phonemes)"
+            },
+            {
+              "id": "00000000-0000-4000-a000-000000000008",
+              "kind": "custom",
+              "marks": [{ "endMs": 3500, "label": "Vocals", "startMs": 600 }],
+              "name": "Vocals"
+            }
+          ],
+          "trackOrder": null
+        },
+        "dirty": true,
+        "issues": [],
+        "revision": 4,
+        "showRevision": 2
+      },
+      "source": "Lyrics: Lantern Band — Lantern Song (LRCLIB) · word timing: OpenAI",
+      "summary": "Lyrics from LRCLIB, word timing from OpenAI.",
+      "timingNote": null,
+      "unsureWords": 3,
+      "words": 6
+    }
+  },
+  {
+    "name": "pasted lyrics lined up instead",
+    "ts": "sequencer.LyricsFound",
+    "value": {
+      "candidates": [
+        {
+          "artist": "Lantern Band",
+          "durationS": 4.0,
+          "id": 1,
+          "language": null,
+          "synced": true,
+          "title": "Lantern Song"
+        },
+        {
+          "artist": "Lantern Band",
+          "durationS": 4.5,
+          "id": 2,
+          "language": null,
+          "synced": false,
+          "title": "Lantern Song (Live)"
+        }
+      ],
+      "chosen": null,
+      "lines": 1,
+      "notes": [],
+      "pasted": true,
+      "result": {
+        "canRedo": false,
+        "canUndo": true,
+        "changed": true,
+        "changes": {
+          "effects": [],
+          "info": null,
+          "removedEffects": [],
+          "removedRows": [],
+          "removedTimingTracks": [],
+          "rowOrder": null,
+          "rows": [],
+          "timingTracks": [
+            {
+              "id": "00000000-0000-4000-a000-000000000004",
+              "kind": "lyrics",
+              "marks": [{ "endMs": 1900, "label": "Paper lanterns glowing", "startMs": 600 }],
+              "name": "Lyrics"
+            },
+            {
+              "id": "00000000-0000-4000-a000-000000000005",
+              "kind": "words",
+              "marks": [
+                { "endMs": 900, "label": "Paper", "startMs": 600 },
+                { "endMs": 1400, "label": "lanterns", "startMs": 900 },
+                { "endMs": 1900, "label": "glowing", "startMs": 1400 }
+              ],
+              "name": "Lyrics (words)"
+            },
+            {
+              "id": "00000000-0000-4000-a000-000000000006",
+              "kind": "custom",
+              "marks": [
+                { "endMs": 786, "label": "Pa", "startMs": 600 },
+                { "endMs": 900, "label": "per", "startMs": 786 },
+                { "endMs": 1151, "label": "lan", "startMs": 900 },
+                { "endMs": 1400, "label": "terns", "startMs": 1151 },
+                { "endMs": 1740, "label": "glow", "startMs": 1400 },
+                { "endMs": 1900, "label": "ing", "startMs": 1740 }
+              ],
+              "name": "Lyrics (syllables)"
+            },
+            {
+              "id": "00000000-0000-4000-a000-000000000007",
+              "kind": "phonemes",
+              "marks": [
+                { "endMs": 650, "label": "MBP", "startMs": 600 },
+                { "endMs": 786, "label": "E", "startMs": 650 },
+                { "endMs": 836, "label": "MBP", "startMs": 786 },
+                { "endMs": 900, "label": "E", "startMs": 836 },
+                { "endMs": 1001, "label": "L", "startMs": 900 },
+                { "endMs": 1101, "label": "AI", "startMs": 1001 },
+                { "endMs": 1151, "label": "etc", "startMs": 1101 },
+                { "endMs": 1201, "label": "etc", "startMs": 1151 },
+                { "endMs": 1350, "label": "E", "startMs": 1201 },
+                { "endMs": 1400, "label": "etc", "startMs": 1350 },
+                { "endMs": 1450, "label": "etc", "startMs": 1400 },
+                { "endMs": 1595, "label": "L", "startMs": 1450 },
+                { "endMs": 1740, "label": "O", "startMs": 1595 },
+                { "endMs": 1850, "label": "AI", "startMs": 1740 },
+                { "endMs": 1900, "label": "etc", "startMs": 1850 }
+              ],
+              "name": "Lyrics (phonemes)"
+            },
+            {
+              "id": "00000000-0000-4000-a000-000000000008",
+              "kind": "custom",
+              "marks": [{ "endMs": 1900, "label": "Vocals", "startMs": 600 }],
+              "name": "Vocals"
+            }
+          ],
+          "trackOrder": null
+        },
+        "dirty": true,
+        "issues": [],
+        "revision": 5,
+        "showRevision": 2
+      },
+      "source": "Lyrics: pasted · word timing: OpenAI",
+      "summary": "Your pasted lyrics, word timing from OpenAI.",
+      "timingNote": null,
+      "unsureWords": 0,
+      "words": 3
+    }
+  },
+  {
+    "name": "another of the published lyrics chosen",
+    "ts": "sequencer.LyricsFound",
+    "value": {
+      "candidates": [
+        {
+          "artist": "Lantern Band",
+          "durationS": 4.0,
+          "id": 1,
+          "language": null,
+          "synced": true,
+          "title": "Lantern Song"
+        },
+        {
+          "artist": "Lantern Band",
+          "durationS": 4.5,
+          "id": 2,
+          "language": null,
+          "synced": false,
+          "title": "Lantern Song (Live)"
+        }
+      ],
+      "chosen": 2,
+      "lines": 2,
+      "notes": [],
+      "pasted": false,
+      "result": {
+        "canRedo": false,
+        "canUndo": true,
+        "changed": true,
+        "changes": {
+          "effects": [],
+          "info": null,
+          "removedEffects": [],
+          "removedRows": [],
+          "removedTimingTracks": [],
+          "rowOrder": null,
+          "rows": [],
+          "timingTracks": [
+            {
+              "id": "00000000-0000-4000-a000-000000000004",
+              "kind": "lyrics",
+              "marks": [
+                { "endMs": 1900, "label": "Paper lanterns glowing", "startMs": 600 },
+                { "endMs": 4000, "label": "Snowy rooftops shining", "startMs": 1900 }
+              ],
+              "name": "Lyrics"
+            },
+            {
+              "id": "00000000-0000-4000-a000-000000000005",
+              "kind": "words",
+              "marks": [
+                { "endMs": 900, "label": "Paper", "startMs": 600 },
+                { "endMs": 1400, "label": "lanterns", "startMs": 900 },
+                { "endMs": 1900, "label": "glowing", "startMs": 1400 },
+                { "endMs": 2600, "label": "Snowy", "startMs": 1900 },
+                { "endMs": 3300, "label": "rooftops", "startMs": 2600 },
+                { "endMs": 4000, "label": "shining", "startMs": 3300 }
+              ],
+              "name": "Lyrics (words)"
+            },
+            {
+              "id": "00000000-0000-4000-a000-000000000006",
+              "kind": "custom",
+              "marks": [
+                { "endMs": 786, "label": "Pa", "startMs": 600 },
+                { "endMs": 900, "label": "per", "startMs": 786 },
+                { "endMs": 1151, "label": "lan", "startMs": 900 },
+                { "endMs": 1400, "label": "terns", "startMs": 1151 },
+                { "endMs": 1740, "label": "glow", "startMs": 1400 },
+                { "endMs": 1900, "label": "ing", "startMs": 1740 },
+                { "endMs": 2335, "label": "Snow", "startMs": 1900 },
+                { "endMs": 2600, "label": "y", "startMs": 2335 },
+                { "endMs": 2936, "label": "roof", "startMs": 2600 },
+                { "endMs": 3300, "label": "tops", "startMs": 2936 },
+                { "endMs": 3743, "label": "shi", "startMs": 3300 },
+                { "endMs": 4000, "label": "ning", "startMs": 3743 }
+              ],
+              "name": "Lyrics (syllables)"
+            },
+            {
+              "id": "00000000-0000-4000-a000-000000000007",
+              "kind": "phonemes",
+              "marks": [
+                { "endMs": 650, "label": "MBP", "startMs": 600 },
+                { "endMs": 786, "label": "E", "startMs": 650 },
+                { "endMs": 836, "label": "MBP", "startMs": 786 },
+                { "endMs": 900, "label": "E", "startMs": 836 },
+                { "endMs": 1001, "label": "L", "startMs": 900 },
+                { "endMs": 1101, "label": "AI", "startMs": 1001 },
+                { "endMs": 1151, "label": "etc", "startMs": 1101 },
+                { "endMs": 1201, "label": "etc", "startMs": 1151 },
+                { "endMs": 1350, "label": "E", "startMs": 1201 },
+                { "endMs": 1400, "label": "etc", "startMs": 1350 },
+                { "endMs": 1450, "label": "etc", "startMs": 1400 },
+                { "endMs": 1595, "label": "L", "startMs": 1450 },
+                { "endMs": 1740, "label": "O", "startMs": 1595 },
+                { "endMs": 1850, "label": "AI", "startMs": 1740 },
+                { "endMs": 1900, "label": "etc", "startMs": 1850 },
+                { "endMs": 1950, "label": "etc", "startMs": 1900 },
+                { "endMs": 2335, "label": "O", "startMs": 1950 },
+                { "endMs": 2600, "label": "E", "startMs": 2335 },
+                { "endMs": 2650, "label": "etc", "startMs": 2600 },
+                { "endMs": 2793, "label": "U", "startMs": 2650 },
+                { "endMs": 2936, "label": "FV", "startMs": 2793 },
+                { "endMs": 2986, "label": "etc", "startMs": 2936 },
+                { "endMs": 3200, "label": "AI", "startMs": 2986 },
+                { "endMs": 3250, "label": "MBP", "startMs": 3200 },
+                { "endMs": 3300, "label": "etc", "startMs": 3250 },
+                { "endMs": 3350, "label": "etc", "startMs": 3300 },
+                { "endMs": 3743, "label": "AI", "startMs": 3350 },
+                { "endMs": 3793, "label": "etc", "startMs": 3743 },
+                { "endMs": 3950, "label": "AI", "startMs": 3793 },
+                { "endMs": 4000, "label": "etc", "startMs": 3950 }
+              ],
+              "name": "Lyrics (phonemes)"
+            },
+            {
+              "id": "00000000-0000-4000-a000-000000000008",
+              "kind": "custom",
+              "marks": [{ "endMs": 4000, "label": "Vocals", "startMs": 600 }],
+              "name": "Vocals"
+            }
+          ],
+          "trackOrder": null
+        },
+        "dirty": true,
+        "issues": [],
+        "revision": 6,
+        "showRevision": 2
+      },
+      "source": "Lyrics: Lantern Band — Lantern Song (Live) (LRCLIB) · word timing: OpenAI",
+      "summary": "Lyrics from LRCLIB, word timing from OpenAI.",
+      "timingNote": null,
+      "unsureWords": 3,
+      "words": 6
+    }
+  },
+  {
+    "name": "the words locked onto the vocals again",
+    "ts": "sequencer.LyricsRetimed",
+    "value": {
+      "note": "The words already sit where the vocals start.",
+      "result": {
+        "canRedo": false,
+        "canUndo": true,
+        "changed": false,
+        "changes": {
+          "effects": [],
+          "info": null,
+          "removedEffects": [],
+          "removedRows": [],
+          "removedTimingTracks": [],
+          "rowOrder": null,
+          "rows": [],
+          "timingTracks": [],
+          "trackOrder": null
+        },
+        "dirty": true,
+        "issues": [],
+        "revision": 6,
+        "showRevision": 2
+      }
+    }
+  },
+  {
+    "name": "the alignment model, not downloaded",
+    "ts": "assistant.AlignModels",
+    "value": {
+      "available": true,
+      "bytes": 189118943,
+      "downloading": false,
+      "installed": false,
+      "licence": "Apache-2.0",
+      "name": "wav2vec2-base-960h (English letters)",
+      "source": "https://huggingface.co/onnx-community/wav2vec2-base-960h-ONNX",
+      "urls": [
+        "https://huggingface.co/onnx-community/wav2vec2-base-960h-ONNX/resolve/729c1a6730fb549c20a1c73a3d3f96f11020225e/onnx/model_fp16.onnx"
+      ]
+    }
+  }
+]

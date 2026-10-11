@@ -1,0 +1,74 @@
+[
+  {
+    "name": "saving a show that has no file yet",
+    "rejectedBy": "save_show",
+    "ts": "string",
+    "value": "This show has not been saved yet. Choose where to save it."
+  },
+  {
+    "name": "an edit to a prop that's gone",
+    "rejectedBy": "apply_edits",
+    "ts": "string",
+    "value": "There is no prop with that id."
+  },
+  {
+    "name": "a test pattern with nothing to light",
+    "rejectedBy": "start_output",
+    "ts": "string",
+    "value": "The chosen target has no pixels to light. Wire props to it first."
+  },
+  {
+    "name": "an edit with no sequence open",
+    "rejectedBy": "edit_sequence",
+    "ts": "string",
+    "value": "No sequence is open. Create or open one first."
+  },
+  {
+    "name": "a version that isn't there",
+    "rejectedBy": "restore_history",
+    "ts": "string",
+    "value": "There is no saved version with that id."
+  },
+  {
+    "name": "a controller that doesn't answer",
+    "rejectedBy": "inspect_device",
+    "ts": "string",
+    "value": "Could not reach 192.0.2.99: no response"
+  },
+  {
+    "name": "a search before the show is saved",
+    "rejectedBy": "find_missing_files",
+    "ts": "string",
+    "value": "Save the show first, so PixelFlow knows which folder to look in. Or use Locate… to choose the file."
+  },
+  {
+    "name": "a photo the user never picked",
+    "rejectedBy": "read_image",
+    "ts": "string",
+    "value": "PixelFlow can only show a photo you picked. Choose it with Choose photo… or Replace…"
+  },
+  {
+    "name": "a universe size the engine can't hold",
+    "rejectedBy": "apply_edits",
+    "ts": "string",
+    "value": "invalid args `edits` for command `apply_edits`: A universe carries 1 to 512 channels, so 600 channels per universe won't work."
+  },
+  {
+    "name": "an effect that ends before it starts",
+    "rejectedBy": "edit_sequence",
+    "ts": "string",
+    "value": "An effect must end after it starts."
+  },
+  {
+    "name": "saving a sequence that has no file yet",
+    "rejectedBy": "save_sequence_doc",
+    "ts": "string",
+    "value": "This sequence has not been saved yet. Choose where to save it."
+  },
+  {
+    "name": "the preview's window asking to change the show",
+    "rejectedBy": "new_show",
+    "ts": "string",
+    "value": "This window can't do that."
+  }
+]

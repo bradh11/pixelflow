@@ -5,11 +5,12 @@ use crate::devices::DeviceAccess;
 use crate::{AppState, context, pickers, preview_window, recent, sync, vendor, vocals, with_commands};
 use pf_engine::Engine;
 use serde_json::{Value, json};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponseBody};
 use tauri::test::{INVOKE_KEY, MockRuntime, get_ipc_response, mock_builder};
 use tauri::webview::InvokeRequest;
-use tauri::{App, WebviewWindow, WebviewWindowBuilder};
+use tauri::{App, Listener, WebviewWindow, WebviewWindowBuilder};
 
 pub(crate) fn app() -> (App<MockRuntime>, WebviewWindow<MockRuntime>, tempfile::TempDir) {
     app_in(tempfile::tempdir().unwrap())
@@ -107,6 +108,58 @@ pub(crate) fn call_raw(
         InvokeResponseBody::Raw(bytes) => Ok(bytes.to_vec()),
         other => panic!("expected raw bytes, got {other:?}"),
     }
+}
+
+/// What the app sends as `event` from now on: every payload, in order.
+pub(crate) fn heard(app: &App<MockRuntime>, event: &str) -> Arc<Mutex<Vec<Value>>> {
+    let events: Arc<Mutex<Vec<Value>>> = Default::default();
+    let seen = Arc::clone(&events);
+    app.listen_any(event, move |event| {
+        seen.lock()
+            .unwrap()
+            .push(serde_json::from_str(event.payload()).unwrap());
+    });
+    events
+}
+
+/// Calls `command` (one that takes nothing) the next time the app sends `event` with a payload
+/// `at` accepts, once. The call is made from the thread sending the event, so the work that
+/// reported it only goes on once the command has answered: a cancel lands at a known point.
+pub(crate) fn call_at(
+    app: &App<MockRuntime>,
+    webview: &WebviewWindow<MockRuntime>,
+    event: &str,
+    at: impl Fn(&Value) -> bool + Send + 'static,
+    command: &'static str,
+) {
+    let webview = webview.clone();
+    let waiting = AtomicBool::new(true);
+    app.listen_any(event, move |event| {
+        let payload: Value = serde_json::from_str(event.payload()).unwrap();
+        if at(&payload) && waiting.swap(false, Ordering::AcqRel) {
+            call(&webview, command, json!({})).unwrap();
+        }
+    });
+}
+
+/// Every file under `dir`, relative to it, hidden ones included (folders themselves aren't
+/// listed).
+pub(crate) fn files_under(dir: &std::path::Path) -> Vec<String> {
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if entry.path().is_dir() {
+            found.extend(
+                files_under(&entry.path())
+                    .into_iter()
+                    .map(|below| format!("{name}/{below}")),
+            );
+        } else {
+            found.push(name);
+        }
+    }
+    found.sort();
+    found
 }
 
 /// A strip wired to a controller and a new 2 s sequence with one red effect on it.

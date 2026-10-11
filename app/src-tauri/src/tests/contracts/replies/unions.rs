@@ -219,6 +219,10 @@ fn union_members() {
         "types.VendorMatchReason",
         every!(pf_xlights::vendor::MatchReason: Saved, Exact, Alias, Name, Type, Size, None),
     );
+    all(
+        "types.LookVerdict",
+        every!(pf_xlights::sequence::Verdict: Matches, Close, Different, NoEquivalent),
+    );
 
     // The assistant.
     all(

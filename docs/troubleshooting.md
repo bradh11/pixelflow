@@ -282,17 +282,18 @@ There are three separate timings. Fix the one that matches what you see.
 ## A sequence import shows many "approximate" notes
 
 Importing an xLights sequence translates each effect to the closest PixelFlow effect. The report
-counts them as *exact*, *approximated*, and *placeholder*, and lists notes under "These weren't
-imported exactly:".
+says how much of the sequence *comes across the same*, how much *looks close* or *looks
+different*, and how much has *no PixelFlow effect yet*. Under that it lists the effects that
+differ, with what you would notice.
 
-1. **Approximate isn't broken.** It means PixelFlow's version isn't identical to xLights'
-   version. The look may differ. The notes say what changed.
+1. **Close isn't broken.** It means the same idea with a difference you could notice, such as a
+   shape or a speed. The report says what.
 2. **Preview it.** Play the sequence and compare it to xLights. Many differences are small.
-3. **Placeholders** are stand-ins for effects PixelFlow has no match for yet.
+3. **No PixelFlow effect yet** means a dim stand-in is shown where PixelFlow has no match.
 4. **Prop shapes.** For a show import, notes say which props were approximated, such as a model
    whose shape could only be estimated. Check those props on **Layout**.
-5. **How close is it?** See [Measuring xLights import fidelity](fidelity.md) for what the
-   importer gets exactly right, what it approximates, and what is known to differ.
+5. **How close is it?** See [xLights import fidelity](fidelity.md) for how the look of an
+   import is measured, and what is known to differ.
 6. **Many notes about the same effect.** One kind of effect is often the cause. Replace it by hand,
    or ask the assistant.
 7. **Vendor sequences.** If many effects are missing, check the mapping in the "Map … onto your

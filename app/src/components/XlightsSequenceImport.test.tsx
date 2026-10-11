@@ -29,13 +29,21 @@ function sequencer(): MemorySequencer {
       exact: 600,
       approximate: 200,
       placeholders: 40,
+      look: { matches: 600, close: 180, different: 20, noEquivalent: 40 },
+      lookMs: { matches: 2_460_000, close: 360_000, different: 60_000, noEquivalent: 120_000 },
       skipped: 5,
       timingTracks: 3,
       marks: 1234,
       lyricMarks: 300,
       marksSkipped: 2,
     },
-    notes: ["PixelFlow has no matching effect yet for this xLights effect: Faces (40)."],
+    looks: [
+      { verdict: "noEquivalent", effect: "Shader", effects: 40, ms: 120_000, reasons: ["shown as a dim fill in the effect's first color"] },
+      { verdict: "different", effect: "Fireworks", effects: 20, ms: 60_000, reasons: ["shown as twinkles"] },
+      { verdict: "close", effect: "Bars", effects: 120, ms: 240_000, reasons: ["'Expand' direction shown as straight movement", "fading tail not shown (12)"] },
+      { verdict: "close", effect: "Text", effects: 60, ms: 120_000, reasons: ["'Arial' font shown in PixelFlow's pixel font"] },
+    ],
+    notes: ["These xLights models aren't in the show, so their effects weren't imported: Garage Door (5 effects)."],
   };
   return sequencer;
 }
@@ -66,11 +74,27 @@ describe("xLights sequence import", () => {
     expect(seq.calls).toContain("importXlightsSequence:/Shows/Carol.xsq");
     const report = await screen.findByRole("dialog", { name: "Imported Carol of the Bells" });
     expect(
-      within(report).getByText(/12 rows · 840 effects · 3 timing tracks · 1,234 marks \(2 not imported\)/),
+      within(report).getByText(/12 rows · 840 effects \(5 not imported\) · 3 timing tracks · 1,234 marks \(2 not imported\)/),
     ).toBeInTheDocument();
     expect(within(report).getByText(/It's open on the Sequence screen as an unsaved sequence/)).toBeInTheDocument();
-    expect(within(report).getByText(/600 exact · 200 approximated · 40 placeholders · 5 not imported/)).toBeInTheDocument();
-    expect(within(report).getByText(/Faces \(40\)/)).toBeInTheDocument();
+    // The headline is how the sequence looks, by how long its effects run; nothing about what
+    // the importer did or didn't carry over.
+    expect(
+      within(report).getByText("82% of this sequence comes across the same · 12% looks close · 2% looks different · 4% has no PixelFlow effect yet"),
+    ).toBeInTheDocument();
+    expect(report).not.toHaveTextContent(/exact|approximat|placeholder/i);
+    // What differs is grouped by how it looks, worst first, each kind with what a viewer would notice.
+    const sections = within(report).getAllByRole("region");
+    expect(sections.map((s) => s.getAttribute("aria-label"))).toEqual(["No PixelFlow effect yet", "Looks different", "Looks close"]);
+    expect(sections[0]).toHaveTextContent("No PixelFlow effect yet40 effects");
+    expect(sections[0]).toHaveTextContent("Shader (40): shown as a dim fill in the effect's first color");
+    expect(sections[1]).toHaveTextContent("Fireworks (20): shown as twinkles");
+    expect(sections[2]).toHaveTextContent("Looks close180 effects");
+    expect(sections[2]).toHaveTextContent("Bars (120): 'Expand' direction shown as straight movement; fading tail not shown (12)");
+    expect(sections[2]).toHaveTextContent("Text (60): 'Arial' font shown in PixelFlow's pixel font");
+    // What wasn't imported comes after, apart.
+    expect(within(report).getByText("Also:")).toBeInTheDocument();
+    expect(within(report).getByText(/Garage Door \(5 effects\)/)).toBeInTheDocument();
     const open = await seq.getSequenceDoc();
     expect(open).toMatchObject({ path: null, dirty: true, canUndo: false, sequence: { name: "Carol of the Bells" } });
     // Open in the timeline's state, on the Sequence screen.

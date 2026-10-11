@@ -1310,15 +1310,46 @@ export interface XlightsImported {
   notes: string[];
 }
 
+/** How an imported effect looks next to the xLights original: a viewer wouldn't tell them apart
+ * at show distance; the same idea with differences they could notice; a different look; or no
+ * PixelFlow effect for it yet (shown as a stand-in). */
+export type LookVerdict = "matches" | "close" | "different" | "noEquivalent";
+
+/** A number for each verdict. */
+export interface ByVerdict {
+  matches: number;
+  close: number;
+  different: number;
+  noEquivalent: number;
+}
+
+/** The effects of one kind that don't come across the same, and what a viewer would notice. */
+export interface LookGroup {
+  verdict: LookVerdict;
+  /** xLights' name for the effect. */
+  effect: string;
+  effects: number;
+  /** How long those effects run, added up. */
+  ms: number;
+  /** What differs, in a few words each; one that holds for only some of them says how many. */
+  reasons: string[];
+}
+
 /** Counts from importing an xLights sequence. */
 export interface SequenceImportSummary {
   rows: number;
   /** Effects imported: exact + approximate + placeholders. */
   effects: number;
+  /** The importer's own bookkeeping of what it carried over; people are shown `look`. */
   exact: number;
   approximate: number;
   /** No PixelFlow equivalent yet: a dim fill in the effect's first color. */
   placeholders: number;
+  /** The imported effects by how they're expected to look next to xLights. */
+  look: ByVerdict;
+  /** How long those effects run, added up: what "82% of this sequence comes across the same"
+   * is a share of. */
+  lookMs: ByVerdict;
   /** xLights effects not imported (models not in the show, submodels, limits). */
   skipped: number;
   timingTracks: number;
@@ -1328,10 +1359,12 @@ export interface SequenceImportSummary {
   marksSkipped: number;
 }
 
-/** The sequence an xLights sequence import opened, with a report of anything not imported exactly. */
+/** The sequence an xLights sequence import opened; the kinds of effect that don't come across
+ * looking the same (worst first); and notes on what wasn't imported. */
 export interface XlightsSequenceImported {
   snapshot: SequenceSnapshot;
   summary: SequenceImportSummary;
+  looks: LookGroup[];
   notes: string[];
 }
 

@@ -438,6 +438,12 @@
     "value": ["saved", "exact", "alias", "name", "type", "size", "none"]
   },
   {
+    "allOf": "types.LookVerdict",
+    "name": "every types.LookVerdict",
+    "ts": "(types.LookVerdict)[]",
+    "value": ["matches", "close", "different", "noEquivalent"]
+  },
+  {
     "allOf": "assistant.DiffSection",
     "name": "every assistant.DiffSection",
     "ts": "(assistant.DiffSection)[]",

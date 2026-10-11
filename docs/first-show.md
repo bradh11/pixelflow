@@ -112,9 +112,10 @@ of guessing later.
 3. Read the report that opens.
 
 **You should see:** "Imported" followed by the sequence name. The counts show rows, effects,
-timing tracks, and marks. A second line shows how many effects came in as *exact*,
-*approximated*, or *placeholder*. A placeholder is a stand-in, used where PixelFlow has no
-matching effect yet. The sequence opens on the **Sequence** screen as an unsaved sequence. Choose
+timing tracks, and marks. A line under them says how much of the sequence *comes across the
+same*, *looks close*, *looks different*, or has *no PixelFlow effect yet* (a dim stand-in is
+shown for those). The effects that differ are listed with what you would notice. The sequence
+opens on the **Sequence** screen as an unsaved sequence. Choose
 **Save** to keep it.
 
 **If it doesn't:** see [A sequence import shows many "approximate"

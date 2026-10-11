@@ -28,6 +28,7 @@ A modern, fast, easy-to-use application for designing and running pixel light di
 - [Measuring xLights import fidelity](docs/fidelity.md): how close the importer is to xLights.
 - [Scale benchmark](docs/benchmarks.md): how large a show the engine can run.
 - [Your data: what stays on your computer](docs/privacy-and-data-flow.md): what PixelFlow sends, and when.
+- [Releasing](docs/releasing.md): building the macOS and Windows installers, signing, installing a test build, and where the app keeps its data.
 
 ## Stack
 

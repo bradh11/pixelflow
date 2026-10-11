@@ -18,8 +18,10 @@
 
 ## Releases
 
-1. Open a PR from `develop` to `main`.
-2. After merging, tag `main` with a semantic version (`vX.Y.Z`) and publish a GitHub Release with notes.
+1. Set the version (`make bump VERSION=X.Y.Z`) and open a PR from `develop` to `main`.
+2. After merging, tag `main` with that version (`vX.Y.Z`). The release workflow builds the installers and drafts a GitHub Release; read it over and publish it.
+
+The whole procedure, what must be true first (a licence, above all), and how signing is set up are in [docs/releasing.md](docs/releasing.md).
 
 ## Commit messages
 

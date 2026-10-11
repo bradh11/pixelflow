@@ -8,7 +8,7 @@
     "sequenceIssuesNow": null,
     "sequenceNow": null,
     "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 0 },
-    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 12, "sequences": [], "settings": { "frameRate": 40 } },
+    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 13, "sequences": [], "settings": { "frameRate": 40 } },
     "summaryNow": { "controllers": 0, "pixels": 0, "props": 0, "universes": 0 }
   },
   "steps": [
@@ -34,7 +34,7 @@
           { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 4, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
           { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000002", "name": "Fence", "regions": [], "shape": { "length": 3.0, "nodes": 4, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
         ],
-        "schemaVersion": 12,
+        "schemaVersion": 13,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
@@ -52,7 +52,7 @@
         "frameMs": 25,
         "name": "Song",
         "rows": [{ "id": "44444444-0000-4000-8000-000000000001", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000001" } }, { "id": "44444444-0000-4000-8000-000000000002", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000002" } }],
-        "schemaVersion": 10,
+        "schemaVersion": 11,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -79,7 +79,23 @@
                     { "blend": "normal", "blur": 0, "endMs": 2000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000002", "palette": { "colors": ["#ffffff"] }, "params": { "bands": 1, "bounce": false, "direction": "forward", "kind": "chase", "order": "wiring", "speed": 1.0, "timingTrack": null, "width": 0.2 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 1000 }
                   ]
                 },
-                { "effects": [{ "blend": "normal", "blur": 0, "endMs": 2000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000003", "palette": { "colors": ["#ffffff"] }, "params": { "height": 0.8, "kind": "fire", "sparks": 0.6 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 0 }] }
+                {
+                  "effects": [
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 2000,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "55555555-0000-4000-8000-000000000003",
+                      "palette": { "colors": ["#ffffff"] },
+                      "params": { "growWithMusic": false, "growthCycles": 0.0, "height": 0.8, "hueShift": 0.0, "kind": "fire", "location": "bottom", "sparks": 0.6, "style": "rolling" },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 0
+                    }
+                  ]
+                }
               ],
               "target": { "prop": "11111111-0000-4000-8000-000000000001" }
             }
@@ -161,7 +177,23 @@
                     { "blend": "normal", "blur": 0, "endMs": 3000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000002", "palette": { "colors": ["#ffffff"] }, "params": { "bands": 1, "bounce": true, "direction": "forward", "kind": "chase", "order": "wiring", "speed": 4.0, "timingTrack": null, "width": 0.2 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 2000 }
                   ]
                 },
-                { "effects": [{ "blend": "normal", "blur": 0, "endMs": 500, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000003", "palette": { "colors": ["#ffffff"] }, "params": { "height": 0.8, "kind": "fire", "sparks": 0.6 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 0 }] }
+                {
+                  "effects": [
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 500,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "55555555-0000-4000-8000-000000000003",
+                      "palette": { "colors": ["#ffffff"] },
+                      "params": { "growWithMusic": false, "growthCycles": 0.0, "height": 0.8, "hueShift": 0.0, "kind": "fire", "location": "bottom", "sparks": 0.6, "style": "rolling" },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 0
+                    }
+                  ]
+                }
               ],
               "target": { "prop": "11111111-0000-4000-8000-000000000002" }
             },
@@ -201,7 +233,7 @@
     {
       "args": { "edits": [{ "audio": null, "durationMs": 30000, "frameMs": 50, "name": "Carol", "type": "updateInfo" }] },
       "command": "edit_sequence",
-      "reply": { "changed": true, "changes": { "info": { "audio": null, "durationMs": 30000, "frameMs": 50, "name": "Carol" } } },
+      "reply": { "changed": true, "changes": { "info": { "audio": null, "durationMs": 30000, "frameMs": 50, "name": "Carol", "rowBlending": "cover" } } },
       "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 9 },
       "sequenceNow": {
         "audio": null,
@@ -227,12 +259,12 @@
             "target": { "prop": "11111111-0000-4000-8000-000000000002" }
           }
         ],
-        "schemaVersion": 10,
+        "schemaVersion": 11,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
     },
-    { "args": {}, "command": "undo_sequence", "reply": { "changed": true, "changes": { "info": { "audio": null, "durationMs": 20000, "frameMs": 25, "name": "Song" } } }, "sequence": { "canRedo": true, "canUndo": true, "dirty": true, "path": null, "revision": 10 }, "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 } },
+    { "args": {}, "command": "undo_sequence", "reply": { "changed": true, "changes": { "info": { "audio": null, "durationMs": 20000, "frameMs": 25, "name": "Song", "rowBlending": "cover" } } }, "sequence": { "canRedo": true, "canUndo": true, "dirty": true, "path": null, "revision": 10 }, "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 } },
     {
       "args": {},
       "command": "undo_sequence",
@@ -248,7 +280,23 @@
                     { "blend": "normal", "blur": 0, "endMs": 3000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000002", "palette": { "colors": ["#ffffff"] }, "params": { "bands": 1, "bounce": true, "direction": "forward", "kind": "chase", "order": "wiring", "speed": 4.0, "timingTrack": null, "width": 0.2 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 2000 }
                   ]
                 },
-                { "effects": [{ "blend": "normal", "blur": 0, "endMs": 500, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000003", "palette": { "colors": ["#ffffff"] }, "params": { "height": 0.8, "kind": "fire", "sparks": 0.6 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 0 }] }
+                {
+                  "effects": [
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 500,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "55555555-0000-4000-8000-000000000003",
+                      "palette": { "colors": ["#ffffff"] },
+                      "params": { "growWithMusic": false, "growthCycles": 0.0, "height": 0.8, "hueShift": 0.0, "kind": "fire", "location": "bottom", "sparks": 0.6, "style": "rolling" },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 0
+                    }
+                  ]
+                }
               ],
               "target": { "prop": "11111111-0000-4000-8000-000000000002" }
             }
@@ -299,12 +347,16 @@
                   { "blend": "normal", "blur": 0, "endMs": 3000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000002", "palette": { "colors": ["#ffffff"] }, "params": { "bands": 1, "bounce": true, "direction": "forward", "kind": "chase", "order": "wiring", "speed": 4.0, "timingTrack": null, "width": 0.2 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 2000 }
                 ]
               },
-              { "effects": [{ "blend": "normal", "blur": 0, "endMs": 500, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000003", "palette": { "colors": ["#ffffff"] }, "params": { "height": 0.8, "kind": "fire", "sparks": 0.6 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 0 }] }
+              {
+                "effects": [
+                  { "blend": "normal", "blur": 0, "endMs": 500, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000003", "palette": { "colors": ["#ffffff"] }, "params": { "growWithMusic": false, "growthCycles": 0.0, "height": 0.8, "hueShift": 0.0, "kind": "fire", "location": "bottom", "sparks": 0.6, "style": "rolling" }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 0 }
+                ]
+              }
             ],
             "target": { "prop": "11111111-0000-4000-8000-000000000002" }
           }
         ],
-        "schemaVersion": 10,
+        "schemaVersion": 11,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -344,12 +396,16 @@
                   { "blend": "normal", "blur": 0, "endMs": 3000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000002", "palette": { "colors": ["#ffffff"] }, "params": { "bands": 1, "bounce": true, "direction": "forward", "kind": "chase", "order": "wiring", "speed": 4.0, "timingTrack": null, "width": 0.2 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 2000 }
                 ]
               },
-              { "effects": [{ "blend": "normal", "blur": 0, "endMs": 500, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000003", "palette": { "colors": ["#ffffff"] }, "params": { "height": 0.8, "kind": "fire", "sparks": 0.6 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 0 }] }
+              {
+                "effects": [
+                  { "blend": "normal", "blur": 0, "endMs": 500, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000003", "palette": { "colors": ["#ffffff"] }, "params": { "growWithMusic": false, "growthCycles": 0.0, "height": 0.8, "hueShift": 0.0, "kind": "fire", "location": "bottom", "sparks": 0.6, "style": "rolling" }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 0 }
+                ]
+              }
             ],
             "target": { "prop": "11111111-0000-4000-8000-000000000002" }
           }
         ],
-        "schemaVersion": 10,
+        "schemaVersion": 11,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -383,12 +439,16 @@
                   { "blend": "normal", "blur": 0, "endMs": 3000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000002", "palette": { "colors": ["#ffffff"] }, "params": { "bands": 1, "bounce": true, "direction": "forward", "kind": "chase", "order": "wiring", "speed": 4.0, "timingTrack": null, "width": 0.2 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 2000 }
                 ]
               },
-              { "effects": [{ "blend": "normal", "blur": 0, "endMs": 500, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000003", "palette": { "colors": ["#ffffff"] }, "params": { "height": 0.8, "kind": "fire", "sparks": 0.6 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 0 }] }
+              {
+                "effects": [
+                  { "blend": "normal", "blur": 0, "endMs": 500, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000003", "palette": { "colors": ["#ffffff"] }, "params": { "growWithMusic": false, "growthCycles": 0.0, "height": 0.8, "hueShift": 0.0, "kind": "fire", "location": "bottom", "sparks": 0.6, "style": "rolling" }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 0 }
+                ]
+              }
             ],
             "target": { "prop": "11111111-0000-4000-8000-000000000002" }
           }
         ],
-        "schemaVersion": 10,
+        "schemaVersion": 11,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -444,7 +504,23 @@
               "id": "44444444-0000-4000-8000-000000000001",
               "layers": [
                 { "effects": [{ "blend": "normal", "blur": 0, "endMs": 900, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000001", "palette": { "colors": ["#ffffff"] }, "params": { "endLevel": 1.0, "gradient": "none", "kind": "on", "shimmer": false, "solid": false, "startLevel": 1.0, "transparency": 0.0 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 100 }] },
-                { "effects": [{ "blend": "normal", "blur": 0, "endMs": 2000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000003", "palette": { "colors": ["#ffffff"] }, "params": { "height": 0.8, "kind": "fire", "sparks": 0.6 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 0 }] }
+                {
+                  "effects": [
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 2000,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "55555555-0000-4000-8000-000000000003",
+                      "palette": { "colors": ["#ffffff"] },
+                      "params": { "growWithMusic": false, "growthCycles": 0.0, "height": 0.8, "hueShift": 0.0, "kind": "fire", "location": "bottom", "sparks": 0.6, "style": "rolling" },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 0
+                    }
+                  ]
+                }
               ],
               "target": { "prop": "11111111-0000-4000-8000-000000000001" }
             },
@@ -481,7 +557,23 @@
                     { "blend": "normal", "blur": 0, "endMs": 2000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000002", "palette": { "colors": ["#ffffff"] }, "params": { "bands": 1, "bounce": true, "direction": "forward", "kind": "chase", "order": "wiring", "speed": 4.0, "timingTrack": null, "width": 0.2 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 1000 }
                   ]
                 },
-                { "effects": [{ "blend": "normal", "blur": 0, "endMs": 2000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000003", "palette": { "colors": ["#ffffff"] }, "params": { "height": 0.8, "kind": "fire", "sparks": 0.6 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 0 }] }
+                {
+                  "effects": [
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 2000,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "55555555-0000-4000-8000-000000000003",
+                      "palette": { "colors": ["#ffffff"] },
+                      "params": { "growWithMusic": false, "growthCycles": 0.0, "height": 0.8, "hueShift": 0.0, "kind": "fire", "location": "bottom", "sparks": 0.6, "style": "rolling" },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 0
+                    }
+                  ]
+                }
               ],
               "target": { "prop": "11111111-0000-4000-8000-000000000001" }
             },
@@ -508,7 +600,23 @@
                     { "blend": "normal", "blur": 0, "endMs": 2000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000002", "palette": { "colors": ["#ffffff"] }, "params": { "bands": 1, "bounce": false, "direction": "forward", "kind": "chase", "order": "wiring", "speed": 1.0, "timingTrack": null, "width": 0.2 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 1000 }
                   ]
                 },
-                { "effects": [{ "blend": "normal", "blur": 0, "endMs": 2000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000003", "palette": { "colors": ["#ffffff"] }, "params": { "height": 0.8, "kind": "fire", "sparks": 0.6 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 0 }] }
+                {
+                  "effects": [
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 2000,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "55555555-0000-4000-8000-000000000003",
+                      "palette": { "colors": ["#ffffff"] },
+                      "params": { "growWithMusic": false, "growthCycles": 0.0, "height": 0.8, "hueShift": 0.0, "kind": "fire", "location": "bottom", "sparks": 0.6, "style": "rolling" },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 0
+                    }
+                  ]
+                }
               ],
               "target": { "prop": "11111111-0000-4000-8000-000000000001" }
             }
@@ -534,7 +642,23 @@
                     { "blend": "normal", "blur": 0, "endMs": 2000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000002", "palette": { "colors": ["#ffffff"] }, "params": { "bands": 1, "bounce": false, "direction": "forward", "kind": "chase", "order": "wiring", "speed": 1.0, "timingTrack": null, "width": 0.2 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 1000 }
                   ]
                 },
-                { "effects": [{ "blend": "normal", "blur": 0, "endMs": 2000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000003", "palette": { "colors": ["#ffffff"] }, "params": { "height": 0.8, "kind": "fire", "sparks": 0.6 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 0 }] }
+                {
+                  "effects": [
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 2000,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "55555555-0000-4000-8000-000000000003",
+                      "palette": { "colors": ["#ffffff"] },
+                      "params": { "growWithMusic": false, "growthCycles": 0.0, "height": 0.8, "hueShift": 0.0, "kind": "fire", "location": "bottom", "sparks": 0.6, "style": "rolling" },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 0
+                    }
+                  ]
+                }
               ],
               "target": { "prop": "11111111-0000-4000-8000-000000000001" }
             }
@@ -562,7 +686,7 @@
         "frameMs": 25,
         "name": "Song",
         "rows": [{ "id": "44444444-0000-4000-8000-000000000001", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000001" } }, { "id": "44444444-0000-4000-8000-000000000002", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000002" } }],
-        "schemaVersion": 10,
+        "schemaVersion": 11,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -583,7 +707,23 @@
                     { "blend": "normal", "blur": 0, "endMs": 2000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000002", "palette": { "colors": ["#ffffff"] }, "params": { "bands": 1, "bounce": false, "direction": "forward", "kind": "chase", "order": "wiring", "speed": 1.0, "timingTrack": null, "width": 0.2 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 1000 }
                   ]
                 },
-                { "effects": [{ "blend": "normal", "blur": 0, "endMs": 2000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000003", "palette": { "colors": ["#ffffff"] }, "params": { "height": 0.8, "kind": "fire", "sparks": 0.6 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 0 }] }
+                {
+                  "effects": [
+                    {
+                      "blend": "normal",
+                      "blur": 0,
+                      "endMs": 2000,
+                      "fadeInMs": 0,
+                      "fadeOutMs": 0,
+                      "id": "55555555-0000-4000-8000-000000000003",
+                      "palette": { "colors": ["#ffffff"] },
+                      "params": { "growWithMusic": false, "growthCycles": 0.0, "height": 0.8, "hueShift": 0.0, "kind": "fire", "location": "bottom", "sparks": 0.6, "style": "rolling" },
+                      "sparkleColor": "#ffffff",
+                      "sparkles": 0,
+                      "startMs": 0
+                    }
+                  ]
+                }
               ],
               "target": { "prop": "11111111-0000-4000-8000-000000000001" }
             }
@@ -606,13 +746,17 @@
                   { "blend": "normal", "blur": 0, "endMs": 2000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000002", "palette": { "colors": ["#ffffff"] }, "params": { "bands": 1, "bounce": false, "direction": "forward", "kind": "chase", "order": "wiring", "speed": 1.0, "timingTrack": null, "width": 0.2 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 1000 }
                 ]
               },
-              { "effects": [{ "blend": "normal", "blur": 0, "endMs": 2000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000003", "palette": { "colors": ["#ffffff"] }, "params": { "height": 0.8, "kind": "fire", "sparks": 0.6 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 0 }] }
+              {
+                "effects": [
+                  { "blend": "normal", "blur": 0, "endMs": 2000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000003", "palette": { "colors": ["#ffffff"] }, "params": { "growWithMusic": false, "growthCycles": 0.0, "height": 0.8, "hueShift": 0.0, "kind": "fire", "location": "bottom", "sparks": 0.6, "style": "rolling" }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 0 }
+                ]
+              }
             ],
             "target": { "prop": "11111111-0000-4000-8000-000000000001" }
           },
           { "id": "44444444-0000-4000-8000-000000000002", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000002" } }
         ],
-        "schemaVersion": 10,
+        "schemaVersion": 11,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }

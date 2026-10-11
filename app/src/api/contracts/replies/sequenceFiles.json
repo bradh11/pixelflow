@@ -34,7 +34,8 @@
             "audio": "/fixture/Show/Audio/Carol.wav",
             "durationMs": 2000,
             "frameMs": 25,
-            "name": "Carol"
+            "name": "Carol",
+            "rowBlending": "cover"
           },
           "removedEffects": [],
           "removedRows": [],
@@ -114,6 +115,7 @@
                   "movement": "none",
                   "pixelOffsets": false,
                   "playSpeed": 1.0,
+                  "resize": "own",
                   "scale": 100.0,
                   "startFrame": 1,
                   "timing": "loop",

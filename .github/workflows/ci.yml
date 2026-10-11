@@ -4,13 +4,21 @@ on:
   push:
     branches: [main, develop]
   pull_request:
+  # Lets a branch be checked on all three systems before it has a pull request.
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  # The engine crates. Formatting does not depend on the system, so only Linux checks it.
   rust:
-    runs-on: ubuntu-latest
+    name: rust (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -19,15 +27,24 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - name: Install sound headers (for music playback)
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
       - name: Format
+        if: runner.os == 'Linux'
         run: cargo fmt --all --check
       - name: Lint
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test
         run: cargo test --workspace --locked
+
+  # The UI and the desktop shell, on the two systems the app ships for.
   app:
-    runs-on: macos-latest
+    name: app (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: app
@@ -52,9 +69,13 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
-      - name: Desktop shell
+      - name: Desktop shell format
+        if: runner.os == 'macOS'
         working-directory: app/src-tauri
-        run: |
-          cargo fmt --check
-          cargo clippy --all-targets --locked -- -D warnings
-          cargo test --locked
+        run: cargo fmt --check
+      - name: Desktop shell lint
+        working-directory: app/src-tauri
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Desktop shell test
+        working-directory: app/src-tauri
+        run: cargo test --locked

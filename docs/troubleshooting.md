@@ -33,9 +33,10 @@ way.
 3. Under **Pattern**, pick **Chase** and choose **Start**.
 4. Compare what the lights do with what **Sends to** and the table below it say.
 
-Under **Sends to**, each controller shows **Answering** or "Not answering — check it's powered
-on and on the same network as this computer". **Answering** only means something replied to a
-quick check of the controller's web port. It does not prove the light data arrives.
+Under **Sends to**, each controller shows **Web page answering** or "Web page not answering — check it's
+powered on and on the same network as this computer". **Web page answering** only means something
+replied to a quick check of the controller's web page. It does not prove the light data arrives
+(the screen says so too).
 
 In the table, **State** tells you how sending is going:
 
@@ -61,7 +62,7 @@ Check these in order.
    error", "2 warnings"). Choose it to see the list. Messages to look for include "The controller
    'name' has no IP address, so nothing is sent to it." and ones about an address PixelFlow
    can't use. Fix the address on **Wiring**: choose **Edit** on the controller's card.
-3. **The controller isn't reachable.** Under **Sends to**, it shows "Not answering". See [The
+3. **The controller isn't reachable.** Under **Sends to**, it shows "Web page not answering". See [The
    controller is not found or "not answering"](#the-controller-is-not-found-or-not-answering).
 4. **The wrong protocol.** The controller's card on **Wiring** has a **Protocol** setting: **DDP**
    or **sACN (E1.31)**. It must match what your controller listens for. Many controllers and FPP
@@ -89,7 +90,8 @@ example, red shows as green.
    you see instead. The Test screen also has red, green, blue, and white buttons beside
    **Color** for the patterns that use one color.
 2. On **Layout**, select the prop. In the **Properties** panel, open **More: color order and
-   scale** and change **Color order**. The choices are RGB, RBG, GRB, GBR, BRG, BGR, RGBW, and
+   scale** and change **Color order**. (The Wiring and Test screens each have a note with a link
+   to it; from Test, with one prop as the **Target**, the link selects that prop for you.) The choices are RGB, RBG, GRB, GBR, BRG, BGR, RGBW, and
    GRBW. Run the test again.
 3. Common cases: a string that shows red as green and green as red is probably GRB. Choose the
    order that makes the test show red, then green, then blue.
@@ -126,7 +128,7 @@ Likely causes, in order:
    faulty. Use **Pixel walk** on **Test** to light one pixel at a time and find where it stops.
 6. **The controller's own port settings.** The controller has its own pixel count per port. If it
    is lower than your string, the extra pixels never light. Check your controller's own page. To
-   read a controller's current setup into PixelFlow, use **Compare with this device** on
+   read a controller's current setup into PixelFlow, use **Compare with this controller** on
    **Controllers**.
 7. **A wiring problem listed on Wiring.** A red box headed "N things to fix" lists problems.
    Examples: a prop wired more than once, a slot that uses more pixels than the prop has, or two
@@ -169,7 +171,7 @@ PixelFlow looks for controllers on your network. It cannot find ones it can't re
 4. **Your computer's firewall or privacy settings.** The empty list says: "If your computer asks
    whether PixelFlow may accept incoming connections, allow it so controllers can answer." On a
    Mac, also open System Settings, then Privacy & Security, then Local Network, and make sure
-   PixelFlow is allowed. Without it, PixelFlow can't talk to devices on your network. Check the
+   PixelFlow is allowed. Without it, PixelFlow can't talk to controllers on your network. Check the
    wording on your version of macOS. On Windows, allow PixelFlow when the firewall asks.
 5. **A password.** A controller that asks for a password can't be read. PixelFlow lists it as
    "asks for a password, so PixelFlow can't read it". For an FPP, turn off its UI and API password
@@ -182,7 +184,7 @@ PixelFlow looks for controllers on your network. It cannot find ones it can't re
 8. **IPv6.** PixelFlow sends to controllers over IPv4 only. An address that is IPv6 produces an
    error that says so.
 
-On **Test**, the "Not answering" note under **Sends to** has the same meaning. Choose **Check
+On **Test**, the "Web page not answering" note under **Sends to** has the same meaning. Choose **Check
 again** after you fix something.
 
 ## FPP is playing and overriding PixelFlow
@@ -243,17 +245,18 @@ There are three separate timings. Fix the one that matches what you see.
    and slide **Preview offset** until the square flashes exactly on the click. Or choose **Tap
    along** and press Space or T on every click you hear. PixelFlow suggests an offset, which you
    accept with the **Use** button. **Preview sync** moves only the preview and the timeline's
-   playhead on this computer. It does not change the lights, **Send to FPP**, or exports.
+   playhead on this computer. It does not change the lights, **Light timing**, **Send to FPP**,
+   or exports.
    Bluetooth speakers and headphones usually need the most.
 2. **The real lights are early or late against the music from PixelFlow's Play screen.** On **Play**,
-   choose **Playlist**. Under **Music**, find **Light timing**. Use the **−50 ms**, **−10 ms**,
+   choose **Playlist**. Under **Music**, find **Light timing** ("Move the lights earlier or later against the music"). Use the **−50 ms**, **−10 ms**,
    **+10 ms**, and **+50 ms** buttons to move the lights earlier or later. A plus value moves
-   the lights earlier. **Reset** puts it back. This applies to a rendered (`.fseq`) sequence
-   playing from the Playlist. Settings notes this as "Each sequence's audio offset is set beside
-   it on the Play screen."
+   the lights earlier. **Reset** puts it back. This applies to one rendered (`.fseq`) sequence at a time, in
+   the preview and on your controllers when it plays from PixelFlow. Settings points here: "Light
+   timing for each sequence is set beside it on the Play screen (Playlist, then Music)."
 3. **The lights are wrong on the FPP itself.** After **Send to FPP**, the FPP plays the file
-   and its music on its own. I could not find that **Light timing** is applied to the exported
-   file, so don't assume it carries over. Check the timing on the FPP. If it is off, it may come
+   and its music on its own. **Light timing** is not saved into the exported file or **Send to
+   FPP** (the app only applies it while it plays), so it doesn't carry over. Check the timing on the FPP. If it is off, it may come
    from the FPP's audio output (a USB sound card or HDMI adds delay). Check your controller's
    own page.
 4. **The effects are off against the beats.** Use **Detect beats** and **Snap** on

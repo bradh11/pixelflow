@@ -1,0 +1,206 @@
+[
+  {
+    "event": "menu",
+    "name": "the menu's newShow",
+    "ts": "types.MenuAction",
+    "value": { "action": "newShow" }
+  },
+  {
+    "event": "menu",
+    "name": "the menu's openShow",
+    "ts": "types.MenuAction",
+    "value": { "action": "openShow" }
+  },
+  {
+    "event": "menu",
+    "name": "the menu's openRecent",
+    "ts": "types.MenuAction",
+    "value": { "action": "openRecent", "path": "/fixture/House.pixelflow.json" }
+  },
+  {
+    "event": "menu",
+    "name": "the menu's clearRecent",
+    "ts": "types.MenuAction",
+    "value": { "action": "clearRecent" }
+  },
+  { "event": "menu", "name": "the menu's save", "ts": "types.MenuAction", "value": { "action": "save" } },
+  { "event": "menu", "name": "the menu's saveAs", "ts": "types.MenuAction", "value": { "action": "saveAs" } },
+  { "event": "menu", "name": "the menu's undo", "ts": "types.MenuAction", "value": { "action": "undo" } },
+  { "event": "menu", "name": "the menu's redo", "ts": "types.MenuAction", "value": { "action": "redo" } },
+  {
+    "event": "menu",
+    "name": "the menu's closeShow",
+    "ts": "types.MenuAction",
+    "value": { "action": "closeShow" }
+  },
+  {
+    "event": "audio-progress",
+    "name": "a waveform's first step",
+    "ts": "types.AudioProgress",
+    "value": {
+      "fraction": 0.5,
+      "path": "/fixture/Song.wav",
+      "stage": "Reading the music",
+      "task": "waveform"
+    }
+  },
+  {
+    "event": "audio-progress",
+    "name": "a waveform's last step",
+    "ts": "types.AudioProgress",
+    "value": {
+      "fraction": 1.0,
+      "path": "/fixture/Song.wav",
+      "stage": "Reading the music",
+      "task": "waveform"
+    }
+  },
+  {
+    "event": "sequence-export-progress",
+    "name": "an export part way",
+    "ts": "sequence.ExportProgress",
+    "value": { "frames": 80, "framesDone": 41, "path": "/fixture/Song.fseq", "percent": 51 }
+  },
+  {
+    "event": "sequence-export-progress",
+    "name": "an export's last frame",
+    "ts": "sequence.ExportProgress",
+    "value": { "frames": 80, "framesDone": 80, "path": "/fixture/Song.fseq", "percent": 100 }
+  },
+  {
+    "event": "video-export-progress",
+    "name": "a video export, rendering frames (built)",
+    "ts": "video.VideoProgress",
+    "value": {
+      "fraction": 0.5,
+      "label": "Rendering frames",
+      "path": "/fixture/Song.mp4",
+      "stage": "rendering"
+    }
+  },
+  {
+    "event": "video-export-progress",
+    "name": "a video export, encoding the sound (built)",
+    "ts": "video.VideoProgress",
+    "value": {
+      "fraction": null,
+      "label": "Encoding the sound",
+      "path": "/fixture/Song.mp4",
+      "stage": "sound"
+    }
+  },
+  {
+    "event": "video-export-progress",
+    "name": "a video export, writing the mp4 (built)",
+    "ts": "video.VideoProgress",
+    "value": { "fraction": 1.0, "label": "Writing the MP4", "path": "/fixture/Song.mp4", "stage": "writing" }
+  },
+  {
+    "event": "fpp-send-progress",
+    "name": "a send's export step",
+    "ts": "types.FppSendProgress",
+    "value": { "done": 80, "percent": 100, "sendId": 7, "step": "export", "total": 80 }
+  },
+  {
+    "event": "fpp-send-progress",
+    "name": "a send's sequence step",
+    "ts": "types.FppSendProgress",
+    "value": { "done": 285, "percent": 100, "sendId": 7, "step": "sequence", "total": 285 }
+  },
+  {
+    "event": "fpp-send-progress",
+    "name": "a send's music step",
+    "ts": "types.FppSendProgress",
+    "value": { "done": 16, "percent": 100, "sendId": 7, "step": "music", "total": 16 }
+  },
+  {
+    "event": "fpp-send-progress",
+    "name": "a send's commit step",
+    "ts": "types.FppSendProgress",
+    "value": { "done": 0, "percent": 0, "sendId": 7, "step": "commit", "total": 1 }
+  },
+  {
+    "event": "fpp-send-progress",
+    "name": "a send's playlist step",
+    "ts": "types.FppSendProgress",
+    "value": { "done": 1, "percent": 100, "sendId": 7, "step": "playlist", "total": 1 }
+  },
+  {
+    "event": "fpp-download-progress",
+    "name": "a download's sequence step",
+    "ts": "types.FppDownloadProgress",
+    "value": { "done": 268, "downloadId": 9, "percent": 100, "step": "sequence", "total": 268 }
+  },
+  {
+    "event": "fpp-download-progress",
+    "name": "a download's music step",
+    "ts": "types.FppDownloadProgress",
+    "value": { "done": 21, "downloadId": 9, "percent": 100, "step": "music", "total": 21 }
+  },
+  { "event": "pictures-arrived", "name": "a picture arrived", "ts": "null", "value": null },
+  {
+    "event": "align-models-progress",
+    "name": "the alignment model part way down (built)",
+    "ts": "assistant.ModelsProgress",
+    "value": { "received": 1048576, "total": 189118943 }
+  },
+  {
+    "event": "assistant-event",
+    "name": "a chat turn's text",
+    "ts": "{ turn: number; event: assistant.ChatEvent }",
+    "value": { "event": { "kind": "text", "text": "Renaming it." }, "turn": 1 }
+  },
+  {
+    "event": "assistant-event",
+    "name": "a chat turn's activity",
+    "ts": "{ turn: number; event: assistant.ChatEvent }",
+    "value": { "event": { "kind": "activity", "label": "Drafting: rename show" }, "turn": 1 }
+  },
+  {
+    "event": "assistant-event",
+    "name": "a chat turn's proposal",
+    "ts": "{ turn: number; event: assistant.ChatEvent }",
+    "value": {
+      "event": {
+        "kind": "proposal",
+        "proposal": {
+          "changedProps": [],
+          "changesSequence": false,
+          "changesShow": true,
+          "cues": null,
+          "diff": {
+            "changes": [
+              {
+                "action": "changed",
+                "details": ["name: \"Untitled Show\" → \"Christmas\""],
+                "id": null,
+                "name": "Christmas",
+                "section": "show",
+                "warnings": []
+              }
+            ]
+          },
+          "id": "00000000-0000-4000-a000-000000000001",
+          "lockedEdges": 0,
+          "review": null,
+          "sections": [],
+          "summary": "Renames the show.",
+          "timeline": null
+        }
+      },
+      "turn": 1
+    }
+  },
+  {
+    "event": "lyrics-progress",
+    "name": "Find lyrics starting a step",
+    "ts": "{ label: string; fraction: number | null }",
+    "value": { "fraction": null, "label": "Reading the song" }
+  },
+  {
+    "event": "lyrics-progress",
+    "name": "Find lyrics part way through a song (built)",
+    "ts": "{ label: string; fraction: number | null }",
+    "value": { "fraction": 0.5, "label": "Lining up the words" }
+  }
+]

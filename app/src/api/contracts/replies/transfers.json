@@ -1,0 +1,110 @@
+[
+  {
+    "name": "what sending the open sequence would do",
+    "ts": "types.FppSendPlan",
+    "value": {
+      "freeBytes": 8589934592,
+      "layoutWarnings": [
+        "This sequence has 12 channels but the FPP sends 6,147. Lights past channel 12 will stay dark.",
+        "Bench (127.0.0.1:9): the FPP doesn't send to it, so it won't light up."
+      ],
+      "music": { "exists": true, "fppName": "song.mp3", "keepBothName": "Song (2).mp3", "name": "Song.mp3" },
+      "newPlaylistName": "Song",
+      "playlists": ["Main"],
+      "sequence": { "exists": false, "fppName": null, "keepBothName": "Song (2).fseq", "name": "Song.fseq" }
+    }
+  },
+  {
+    "name": "a sequence sent, on a new playlist",
+    "ts": "types.FppSendResult",
+    "value": {
+      "musicName": "song.mp3",
+      "notes": [],
+      "playName": "Song",
+      "playlist": "Song",
+      "sequenceName": "Song.fseq"
+    }
+  },
+  {
+    "name": "what sending a sequence file without music would do",
+    "ts": "types.FppSendPlan",
+    "value": {
+      "freeBytes": 8589934307,
+      "layoutWarnings": [
+        "This sequence has 6 channels but the FPP sends 6,147. Lights past channel 6 will stay dark."
+      ],
+      "music": null,
+      "newPlaylistName": "show",
+      "playlists": ["Main", "Song"],
+      "sequence": { "exists": false, "fppName": null, "keepBothName": "show (2).fseq", "name": "show.fseq" }
+    }
+  },
+  {
+    "name": "a sequence file sent by itself",
+    "ts": "types.FppSendResult",
+    "value": {
+      "musicName": null,
+      "notes": [],
+      "playName": "show.fseq",
+      "playlist": null,
+      "sequenceName": "show.fseq"
+    }
+  },
+  {
+    "name": "what downloading a sequence with its music would save",
+    "ts": "types.FppDownloadPlan",
+    "value": {
+      "channelWarning": "This sequence uses 6,147 channels; your show has 12. Its preview won't light the right props until your layout matches.",
+      "channels": 6147,
+      "folder": "/fixture/Downloads",
+      "missingMusic": null,
+      "music": {
+        "exists": false,
+        "folder": "/fixture/Downloads/music",
+        "keepBothName": "Medley (2).mp3",
+        "name": "Medley.mp3",
+        "sizeBytes": 21
+      },
+      "sequence": {
+        "exists": false,
+        "folder": "/fixture/Downloads/sequences",
+        "keepBothName": "Medley (2).fseq",
+        "name": "Medley.fseq",
+        "sizeBytes": 268
+      },
+      "showChannels": 12
+    }
+  },
+  {
+    "name": "a sequence downloaded with its music",
+    "ts": "types.FppDownloadResult",
+    "value": {
+      "musicPath": "/fixture/Downloads/music/Medley.mp3",
+      "sequencePath": "/fixture/Downloads/sequences/Medley.fseq"
+    }
+  },
+  {
+    "name": "a download whose music the FPP doesn't have, over a file that's there",
+    "ts": "types.FppDownloadPlan",
+    "value": {
+      "channelWarning": "This sequence uses 6,147 channels; your show has 12. Its preview won't light the right props until your layout matches.",
+      "channels": 6147,
+      "folder": "/fixture/Downloads",
+      "missingMusic": "Gone.mp3",
+      "music": null,
+      "sequence": {
+        "exists": true,
+        "folder": "/fixture/Downloads/sequences",
+        "keepBothName": "Quiet (2).fseq",
+        "name": "Quiet.fseq",
+        "sizeBytes": 268
+      },
+      "showChannels": 12
+    }
+  },
+  {
+    "name": "a sequence downloaded beside the one that was there",
+    "ts": "types.FppDownloadResult",
+    "value": { "musicPath": null, "sequencePath": "/fixture/Downloads/sequences/Quiet (2).fseq" }
+  }
+]

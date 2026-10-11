@@ -1,0 +1,172 @@
+[
+  { "name": "the sequence's music is where it says", "ts": "types.MissingFile | null", "value": null },
+  {
+    "name": "the sequence's music has moved",
+    "ts": "types.MissingFile | null",
+    "value": {
+      "file": { "kind": "sequenceDocMusic" },
+      "message": "Carol.wav isn't where it was.",
+      "name": "Carol.wav",
+      "owner": "Music for Carol",
+      "path": "/fixture/Show/Music/Carol.wav",
+      "wasAt": "/fixture/Show/Music/Carol.wav"
+    }
+  },
+  {
+    "name": "the sequence's music found again",
+    "ts": "sequencer.MusicFound",
+    "value": {
+      "found": {
+        "also": [],
+        "file": { "kind": "sequenceDocMusic" },
+        "from": "/fixture/Show/Music/Carol.wav",
+        "name": "Carol.wav",
+        "to": "/fixture/Show/Audio/Carol.wav"
+      },
+      "gaveUp": false,
+      "result": {
+        "canRedo": false,
+        "canUndo": true,
+        "changed": true,
+        "changes": {
+          "effects": [],
+          "info": {
+            "audio": "/fixture/Show/Audio/Carol.wav",
+            "durationMs": 2000,
+            "frameMs": 25,
+            "name": "Carol"
+          },
+          "removedEffects": [],
+          "removedRows": [],
+          "removedTimingTracks": [],
+          "rowOrder": null,
+          "rows": [],
+          "timingTracks": [],
+          "trackOrder": null
+        },
+        "dirty": true,
+        "issues": [],
+        "revision": 2,
+        "showRevision": 1
+      }
+    }
+  },
+  {
+    "name": "nothing to find",
+    "ts": "sequencer.MusicFound",
+    "value": { "found": null, "gaveUp": false, "result": null }
+  },
+  {
+    "name": "a picture that can't be drawn",
+    "ts": "sequencer.PicturesChecked",
+    "value": {
+      "issues": [
+        {
+          "effect": "55555555-0000-4000-8000-000000000001",
+          "message": "The Picture effect at 0:00.000 shows nothing: star.gif isn't where it was. Find it again, or choose another in its settings.",
+          "row": "44444444-0000-4000-8000-000000000001",
+          "severity": "warning"
+        }
+      ],
+      "missing": [
+        {
+          "file": { "kind": "picture" },
+          "message": "star.gif isn't where it was.",
+          "name": "star.gif",
+          "owner": "Picture effect at 0:00.000",
+          "path": "C:\\Users\\someone\\xlights\\Images\\star.gif",
+          "wasAt": "C:\\Users\\someone\\xlights\\Images\\star.gif"
+        }
+      ]
+    }
+  },
+  {
+    "name": "a picture found again",
+    "ts": "sequencer.PicturesRelinked",
+    "value": {
+      "found": ["star.gif"],
+      "gaveUp": false,
+      "issues": [],
+      "missing": [],
+      "result": {
+        "canRedo": false,
+        "canUndo": true,
+        "changed": true,
+        "changes": {
+          "effects": [
+            {
+              "effect": {
+                "blend": "normal",
+                "blur": 0,
+                "endMs": 2000,
+                "fadeInMs": 0,
+                "fadeOutMs": 0,
+                "id": "55555555-0000-4000-8000-000000000001",
+                "palette": { "colors": ["#ff0000", "#00ff00"] },
+                "params": {
+                  "blackLevel": 0.0,
+                  "blackTransparent": false,
+                  "crisp": false,
+                  "file": "images/star.gif",
+                  "fit": "fit",
+                  "kind": "picture",
+                  "moveSpeed": 0.25,
+                  "movement": "none",
+                  "pixelOffsets": false,
+                  "playSpeed": 1.0,
+                  "scale": 100.0,
+                  "startFrame": 1,
+                  "timing": "loop",
+                  "tint": false,
+                  "turn": "none",
+                  "wrap": false,
+                  "xOffset": 0.0,
+                  "yOffset": 0.0
+                },
+                "sparkleColor": "#ffffff",
+                "sparkles": 0,
+                "startMs": 0
+              },
+              "index": 0,
+              "layer": 0,
+              "row": "44444444-0000-4000-8000-000000000001"
+            }
+          ],
+          "info": null,
+          "removedEffects": [],
+          "removedRows": [],
+          "removedTimingTracks": [],
+          "rowOrder": null,
+          "rows": [],
+          "timingTracks": [],
+          "trackOrder": null
+        },
+        "dirty": true,
+        "issues": [],
+        "revision": 4,
+        "showRevision": 1
+      }
+    }
+  },
+  { "name": "the show's pictures", "ts": "string[]", "value": ["images/star.gif"] },
+  {
+    "name": "a search for pictures that gave up (built)",
+    "ts": "sequencer.PicturesRelinked",
+    "value": {
+      "found": [],
+      "gaveUp": true,
+      "issues": [],
+      "missing": [
+        {
+          "file": { "kind": "picture" },
+          "message": "star.gif isn't where it was.",
+          "name": "star.gif",
+          "owner": "Picture effect at 0:00.000",
+          "path": "C:\\Users\\someone\\xlights\\Images\\star.gif",
+          "wasAt": "C:\\Users\\someone\\xlights\\Images\\star.gif"
+        }
+      ],
+      "result": null
+    }
+  }
+]

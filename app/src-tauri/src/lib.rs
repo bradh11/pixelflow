@@ -395,6 +395,8 @@ mod tests {
     use tauri::test::{INVOKE_KEY, MockRuntime, get_ipc_response};
     use tauri::webview::InvokeRequest;
 
+    mod contracts;
+
     #[test]
     fn edits_from_the_ui_round_trip_through_the_engine() {
         let (_app, webview, _dir) = app();

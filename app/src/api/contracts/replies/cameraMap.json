@@ -1,0 +1,129 @@
+[
+  {
+    "name": "what a capture covers",
+    "ts": "types.CameraMapTargetInfo",
+    "value": {
+      "pixels": 4,
+      "props": [
+        { "covered": 4, "name": "Roof Line", "nodes": 4, "prop": "11111111-0000-4000-8000-000000000001" }
+      ],
+      "seconds": 7.0
+    }
+  },
+  {
+    "name": "where the sequence starts in a video",
+    "ts": "types.CameraMapSync",
+    "value": {
+      "score": 1.0,
+      "start": 0.975,
+      "windows": [
+        [1.075, 1.375],
+        [1.575, 1.875],
+        [2.075, 2.375],
+        [2.575, 2.875],
+        [3.075, 3.375],
+        [3.575, 3.875],
+        [4.075, 4.375],
+        [4.575, 4.875],
+        [5.075, 5.375],
+        [5.575, 5.875],
+        [6.075, 6.375],
+        [6.575, 6.875],
+        [7.075, 7.375],
+        [7.575, 7.875]
+      ]
+    }
+  },
+  {
+    "name": "the pixels found in a capture",
+    "ts": "types.DecodedCapture",
+    "value": {
+      "duplicates": [
+        {
+          "brightness": 76.666664,
+          "confidence": 0.796637,
+          "index": 0,
+          "seen": [0, 1, 2],
+          "x": 9.0,
+          "y": 13.0
+        }
+      ],
+      "height": 16,
+      "pixels": [
+        { "brightness": 76.666664, "confidence": 0.796637, "index": 0, "seen": [0, 1, 2], "x": 9.0, "y": 8.0 },
+        {
+          "brightness": 76.666664,
+          "confidence": 0.796637,
+          "index": 1,
+          "seen": [0, 1, 2],
+          "x": 19.0,
+          "y": 8.0
+        },
+        {
+          "brightness": 76.666664,
+          "confidence": 0.796637,
+          "index": 3,
+          "seen": [0, 1, 2],
+          "x": 39.0,
+          "y": 8.0
+        }
+      ],
+      "unreadable": [],
+      "width": 48
+    }
+  },
+  {
+    "name": "a capture lined up with the layout",
+    "ts": "types.CameraMapPlan",
+    "value": {
+      "plan": {
+        "alignment": { "angle": 0.0, "scale": 0.1, "tx": -1.4, "ty": 0.8 },
+        "alignmentError": 0.0,
+        "anomalies": [
+          { "kind": "missing", "prop": 0, "ranges": [[2, 2]] },
+          { "kind": "duplicate", "node": 0, "prop": 0, "x": 9.0, "y": 13.0 }
+        ],
+        "props": [
+          {
+            "fit": { "error": 0.0, "fits": true, "rotationDeg": 0.0, "scale": 1.0, "tx": -0.0, "ty": 0.0 },
+            "found": 3,
+            "measured": [true, true, false, true],
+            "nodes": 4,
+            "points": [[-0.5, 0.0], [0.5, 0.0], [1.5, 0.0], [2.5, 0.0]]
+          }
+        ]
+      },
+      "props": [
+        { "covered": 4, "name": "Roof Line", "nodes": 4, "prop": "11111111-0000-4000-8000-000000000001" }
+      ]
+    }
+  },
+  {
+    "allOf": "types.CameraMapAnomaly",
+    "name": "every types.CameraMapAnomaly",
+    "tag": "kind",
+    "ts": "(types.CameraMapAnomaly)[]",
+    "value": [
+      { "kind": "missing", "prop": 0, "ranges": [[2, 2]] },
+      { "kind": "duplicate", "node": 0, "prop": 0, "x": 9.0, "y": 13.0 },
+      { "kind": "reversed", "prop": 0 },
+      { "kind": "jump", "node": 3, "prop": 0 },
+      { "configured": "RGB", "kind": "colorOrder", "prop": 0, "suggested": "GRB" },
+      { "count": 2, "kind": "unreadable" }
+    ]
+  },
+  {
+    "name": "a capture with a reflection and a stray light (built)",
+    "ts": "types.DecodedCapture",
+    "value": {
+      "duplicates": [{ "brightness": 80.0, "confidence": 0.5, "index": 0, "seen": null, "x": 9.0, "y": 13.0 }],
+      "height": 16,
+      "pixels": [
+        { "brightness": 220.0, "confidence": 0.9, "index": 0, "seen": [0, 1, 2], "x": 9.0, "y": 8.0 },
+        { "brightness": 90.0, "confidence": 0.4, "index": 1, "seen": null, "x": 19.0, "y": 8.0 }
+      ],
+      "unreadable": [{ "brightness": 60.0, "x": 40.0, "y": 3.0 }],
+      "width": 48
+    }
+  }
+]

@@ -1,0 +1,1098 @@
+[
+  {
+    "name": "controllers found",
+    "ts": "types.Discovery",
+    "value": {
+      "devices": [
+        {
+          "address": "192.0.2.10",
+          "firmware": "FPP 9.3-4-g97360ca2",
+          "foundBy": ["manual"],
+          "kind": "fpp",
+          "mode": "player",
+          "model": "Pi 3 Model B+",
+          "name": "FPP"
+        },
+        {
+          "address": "192.0.2.20",
+          "firmware": "F16V5 Bld 32",
+          "foundBy": ["fppPeer"],
+          "kind": "falcon",
+          "mode": null,
+          "model": "F16v5",
+          "name": "Falcon_F16V5_B9F5"
+        },
+        {
+          "address": "192.0.2.40",
+          "firmware": "WLED 0.15.0",
+          "foundBy": ["manual"],
+          "kind": "wled",
+          "mode": null,
+          "model": "WLED (esp32)",
+          "name": "Porch WLED"
+        }
+      ],
+      "locked": [],
+      "silent": []
+    }
+  },
+  {
+    "name": "controllers that didn't answer, or asked for a password (built)",
+    "ts": "types.Discovery",
+    "value": {
+      "devices": [],
+      "locked": ["192.0.2.78"],
+      "silent": [{ "address": "192.0.2.77", "description": "Garage", "listedBy": "FPP" }]
+    }
+  },
+  {
+    "name": "a Falcon, looked at before importing",
+    "ts": "types.DeviceDetails",
+    "value": {
+      "config": {
+        "destinations": [],
+        "input": { "type": "ddp" },
+        "notes": [],
+        "ports": [
+          {
+            "maxPixels": 1024,
+            "number": 1,
+            "strings": [
+              {
+                "brightness": 40,
+                "colorOrder": "RGB",
+                "gamma": 1.0,
+                "name": "Pillar Right",
+                "nullPixels": 0,
+                "pixels": 600,
+                "reverse": false,
+                "smartReceiver": null
+              }
+            ]
+          },
+          {
+            "maxPixels": 1024,
+            "number": 2,
+            "strings": [
+              {
+                "brightness": 40,
+                "colorOrder": "RGB",
+                "gamma": 1.0,
+                "name": "Pillar Left",
+                "nullPixels": 0,
+                "pixels": 600,
+                "reverse": false,
+                "smartReceiver": null
+              }
+            ]
+          },
+          {
+            "maxPixels": 1024,
+            "number": 3,
+            "strings": [
+              {
+                "brightness": 40,
+                "colorOrder": "RGB",
+                "gamma": 1.0,
+                "name": "Door Frame Front",
+                "nullPixels": 0,
+                "pixels": 340,
+                "reverse": false,
+                "smartReceiver": null
+              }
+            ]
+          },
+          {
+            "maxPixels": 1024,
+            "number": 4,
+            "strings": [
+              {
+                "brightness": 40,
+                "colorOrder": "RGB",
+                "gamma": 1.0,
+                "name": "Roof Door",
+                "nullPixels": 0,
+                "pixels": 238,
+                "reverse": false,
+                "smartReceiver": null
+              }
+            ]
+          },
+          {
+            "maxPixels": 1024,
+            "number": 6,
+            "strings": [
+              {
+                "brightness": 40,
+                "colorOrder": "RGB",
+                "gamma": 1.0,
+                "name": "Door Arch",
+                "nullPixels": 0,
+                "pixels": 271,
+                "reverse": false,
+                "smartReceiver": null
+              }
+            ]
+          }
+        ]
+      },
+      "device": {
+        "address": "192.0.2.20",
+        "firmware": "F16V5 Bld 32",
+        "foundBy": [],
+        "kind": "falcon",
+        "mode": null,
+        "model": "F16v5",
+        "name": "Falcon_F16V5_B9F5"
+      },
+      "plan": {
+        "alreadyInShow": false,
+        "canImport": true,
+        "controller": {
+          "adapter": "falcon",
+          "address": "192.0.2.20",
+          "id": "00000000-0000-4000-a000-000000000001",
+          "name": "Falcon_F16V5_B9F5",
+          "ports": [
+            {
+              "brightness": 100,
+              "gamma": 1.0,
+              "maxPixels": 1024,
+              "number": 1,
+              "slots": [
+                {
+                  "brightness": null,
+                  "controllerColorOrder": "RGB",
+                  "gamma": null,
+                  "nullPixels": 0,
+                  "prop": "00000000-0000-4000-a000-000000000002",
+                  "reverse": false,
+                  "segment": null,
+                  "smartReceiver": null
+                }
+              ]
+            },
+            {
+              "brightness": 100,
+              "gamma": 1.0,
+              "maxPixels": 1024,
+              "number": 2,
+              "slots": [
+                {
+                  "brightness": null,
+                  "controllerColorOrder": "RGB",
+                  "gamma": null,
+                  "nullPixels": 0,
+                  "prop": "00000000-0000-4000-a000-000000000003",
+                  "reverse": false,
+                  "segment": null,
+                  "smartReceiver": null
+                }
+              ]
+            },
+            {
+              "brightness": 100,
+              "gamma": 1.0,
+              "maxPixels": 1024,
+              "number": 3,
+              "slots": [
+                {
+                  "brightness": null,
+                  "controllerColorOrder": "RGB",
+                  "gamma": null,
+                  "nullPixels": 0,
+                  "prop": "00000000-0000-4000-a000-000000000004",
+                  "reverse": false,
+                  "segment": null,
+                  "smartReceiver": null
+                }
+              ]
+            },
+            {
+              "brightness": 100,
+              "gamma": 1.0,
+              "maxPixels": 1024,
+              "number": 4,
+              "slots": [
+                {
+                  "brightness": null,
+                  "controllerColorOrder": "RGB",
+                  "gamma": null,
+                  "nullPixels": 0,
+                  "prop": "00000000-0000-4000-a000-000000000005",
+                  "reverse": false,
+                  "segment": null,
+                  "smartReceiver": null
+                }
+              ]
+            },
+            {
+              "brightness": 100,
+              "gamma": 1.0,
+              "maxPixels": 1024,
+              "number": 6,
+              "slots": [
+                {
+                  "brightness": null,
+                  "controllerColorOrder": "RGB",
+                  "gamma": null,
+                  "nullPixels": 0,
+                  "prop": "00000000-0000-4000-a000-000000000006",
+                  "reverse": false,
+                  "segment": null,
+                  "smartReceiver": null
+                }
+              ]
+            }
+          ],
+          "protocol": { "type": "ddp" },
+          "sequenceChannels": null
+        },
+        "notes": [
+          "The controller applies its own settings (Port 1 \"Pillar Right\": 40% brightness; Port 2 \"Pillar Left\": 40% brightness; Port 3 \"Door Frame Front\": 40% brightness; Port 4 \"Roof Door\": 40% brightness; Port 6 \"Door Arch\": 40% brightness), so PixelFlow sends unadjusted data."
+        ],
+        "props": [
+          {
+            "colorOrder": "RGB",
+            "id": "00000000-0000-4000-a000-000000000002",
+            "name": "Pillar Right",
+            "regions": [],
+            "shape": { "length": 30.0, "nodes": 600, "source": "generator", "type": "line" },
+            "tags": [],
+            "transform": {
+              "position": { "x": 0.0, "y": -0.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "00000000-0000-4000-a000-000000000003",
+            "name": "Pillar Left",
+            "regions": [],
+            "shape": { "length": 30.0, "nodes": 600, "source": "generator", "type": "line" },
+            "tags": [],
+            "transform": {
+              "position": { "x": 0.0, "y": -0.5, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "00000000-0000-4000-a000-000000000004",
+            "name": "Door Frame Front",
+            "regions": [],
+            "shape": { "length": 17.0, "nodes": 340, "source": "generator", "type": "line" },
+            "tags": [],
+            "transform": {
+              "position": { "x": 0.0, "y": -1.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "00000000-0000-4000-a000-000000000005",
+            "name": "Roof Door",
+            "regions": [],
+            "shape": { "length": 11.900001, "nodes": 238, "source": "generator", "type": "line" },
+            "tags": [],
+            "transform": {
+              "position": { "x": 0.0, "y": -1.5, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "00000000-0000-4000-a000-000000000006",
+            "name": "Door Arch",
+            "regions": [],
+            "shape": { "length": 13.55, "nodes": 271, "source": "generator", "type": "line" },
+            "tags": [],
+            "transform": {
+              "position": { "x": 0.0, "y": -2.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          }
+        ],
+        "suggested": {}
+      }
+    }
+  },
+  {
+    "name": "an FPP that only sends to others, looked at before importing",
+    "ts": "types.DeviceDetails",
+    "value": {
+      "config": {
+        "destinations": [
+          {
+            "address": "192.0.2.20",
+            "channels": 6147,
+            "ddpRaw": true,
+            "description": "Falcon_F16V5_B9F5",
+            "protocol": "DDP",
+            "startChannel": 1,
+            "startUniverse": null,
+            "unevenUniverses": false,
+            "universeSize": null
+          }
+        ],
+        "input": { "type": "ddp" },
+        "notes": [
+          "This FPP has no light outputs of its own: it passes its sequence on to the controllers it sends to."
+        ],
+        "ports": []
+      },
+      "device": {
+        "address": "192.0.2.10",
+        "firmware": "FPP 9.3-4-g97360ca2",
+        "foundBy": [],
+        "kind": "fpp",
+        "mode": "player",
+        "model": "Pi 3 Model B+",
+        "name": "FPP"
+      },
+      "plan": {
+        "alreadyInShow": false,
+        "canImport": false,
+        "controller": {
+          "adapter": "fpp",
+          "address": "192.0.2.10",
+          "id": "00000000-0000-4000-a000-000000000007",
+          "name": "FPP",
+          "ports": [],
+          "protocol": { "type": "ddp" },
+          "sequenceChannels": null
+        },
+        "notes": [
+          "This FPP has no light outputs of its own: it passes its sequence on to the controllers it sends to."
+        ],
+        "props": [],
+        "suggested": {}
+      }
+    }
+  },
+  {
+    "name": "a WLED, looked at before importing",
+    "ts": "types.DeviceDetails",
+    "value": {
+      "config": {
+        "destinations": [],
+        "input": { "type": "ddp" },
+        "notes": [],
+        "ports": [
+          {
+            "maxPixels": null,
+            "number": 1,
+            "strings": [
+              {
+                "brightness": 100,
+                "colorOrder": "GRB",
+                "gamma": 1.0,
+                "name": null,
+                "nullPixels": 1,
+                "pixels": 60,
+                "reverse": false,
+                "smartReceiver": null
+              }
+            ]
+          },
+          {
+            "maxPixels": null,
+            "number": 2,
+            "strings": [
+              {
+                "brightness": 100,
+                "colorOrder": "RGBW",
+                "gamma": 1.0,
+                "name": null,
+                "nullPixels": 0,
+                "pixels": 60,
+                "reverse": true,
+                "smartReceiver": null
+              }
+            ]
+          }
+        ]
+      },
+      "device": {
+        "address": "192.0.2.40",
+        "firmware": "WLED 0.15.0",
+        "foundBy": [],
+        "kind": "wled",
+        "mode": null,
+        "model": "WLED (esp32)",
+        "name": "Porch WLED"
+      },
+      "plan": {
+        "alreadyInShow": false,
+        "canImport": true,
+        "controller": {
+          "adapter": "wled",
+          "address": "192.0.2.40",
+          "id": "00000000-0000-4000-a000-000000000008",
+          "name": "Porch WLED",
+          "ports": [
+            {
+              "brightness": 100,
+              "gamma": 1.0,
+              "maxPixels": null,
+              "number": 1,
+              "slots": [
+                {
+                  "brightness": null,
+                  "controllerColorOrder": "GRB",
+                  "gamma": null,
+                  "nullPixels": 0,
+                  "prop": "00000000-0000-4000-a000-000000000009",
+                  "reverse": false,
+                  "segment": null,
+                  "smartReceiver": null
+                }
+              ]
+            },
+            {
+              "brightness": 100,
+              "gamma": 1.0,
+              "maxPixels": null,
+              "number": 2,
+              "slots": [
+                {
+                  "brightness": null,
+                  "controllerColorOrder": "RGBW",
+                  "gamma": null,
+                  "nullPixels": 0,
+                  "prop": "00000000-0000-4000-a000-000000000010",
+                  "reverse": false,
+                  "segment": null,
+                  "smartReceiver": null
+                }
+              ]
+            }
+          ],
+          "protocol": { "type": "ddp" },
+          "sequenceChannels": null
+        },
+        "notes": [
+          "The controller skips its own null pixels (Port 1 \"Porch WLED Port 1\": 1), so PixelFlow won't send data for them.",
+          "The controller applies its own settings (Port 2 \"Porch WLED Port 2\": reversed), so PixelFlow sends unadjusted data."
+        ],
+        "props": [
+          {
+            "colorOrder": "RGB",
+            "id": "00000000-0000-4000-a000-000000000009",
+            "name": "Porch WLED Port 1",
+            "regions": [],
+            "shape": { "length": 3.0, "nodes": 60, "source": "generator", "type": "line" },
+            "tags": [],
+            "transform": {
+              "position": { "x": 0.0, "y": -0.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGBW",
+            "id": "00000000-0000-4000-a000-000000000010",
+            "name": "Porch WLED Port 2",
+            "regions": [],
+            "shape": { "length": 3.0, "nodes": 60, "source": "generator", "type": "line" },
+            "tags": [],
+            "transform": {
+              "position": { "x": 0.0, "y": -0.5, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          }
+        ],
+        "suggested": {}
+      }
+    }
+  },
+  {
+    "allOf": "types.DeviceInput",
+    "name": "every types.DeviceInput",
+    "tag": "type",
+    "ts": "(types.DeviceInput)[]",
+    "value": [
+      { "type": "ddp" },
+      { "channelsPerUniverse": 510, "startUniverse": 1, "type": "sacn", "universeCount": 4 },
+      { "description": "Art-Net", "type": "unsupported" }
+    ]
+  },
+  {
+    "name": "a Falcon with a prop of the show suggested for a string",
+    "ts": "types.DeviceDetails",
+    "value": {
+      "config": {
+        "destinations": [],
+        "input": { "type": "ddp" },
+        "notes": [],
+        "ports": [
+          {
+            "maxPixels": 1024,
+            "number": 1,
+            "strings": [
+              {
+                "brightness": 40,
+                "colorOrder": "RGB",
+                "gamma": 1.0,
+                "name": "Pillar Right",
+                "nullPixels": 0,
+                "pixels": 600,
+                "reverse": false,
+                "smartReceiver": null
+              }
+            ]
+          },
+          {
+            "maxPixels": 1024,
+            "number": 2,
+            "strings": [
+              {
+                "brightness": 40,
+                "colorOrder": "RGB",
+                "gamma": 1.0,
+                "name": "Pillar Left",
+                "nullPixels": 0,
+                "pixels": 600,
+                "reverse": false,
+                "smartReceiver": null
+              }
+            ]
+          },
+          {
+            "maxPixels": 1024,
+            "number": 3,
+            "strings": [
+              {
+                "brightness": 40,
+                "colorOrder": "RGB",
+                "gamma": 1.0,
+                "name": "Door Frame Front",
+                "nullPixels": 0,
+                "pixels": 340,
+                "reverse": false,
+                "smartReceiver": null
+              }
+            ]
+          },
+          {
+            "maxPixels": 1024,
+            "number": 4,
+            "strings": [
+              {
+                "brightness": 40,
+                "colorOrder": "RGB",
+                "gamma": 1.0,
+                "name": "Roof Door",
+                "nullPixels": 0,
+                "pixels": 238,
+                "reverse": false,
+                "smartReceiver": null
+              }
+            ]
+          },
+          {
+            "maxPixels": 1024,
+            "number": 6,
+            "strings": [
+              {
+                "brightness": 40,
+                "colorOrder": "RGB",
+                "gamma": 1.0,
+                "name": "Door Arch",
+                "nullPixels": 0,
+                "pixels": 271,
+                "reverse": false,
+                "smartReceiver": null
+              }
+            ]
+          }
+        ]
+      },
+      "device": {
+        "address": "192.0.2.20",
+        "firmware": "F16V5 Bld 32",
+        "foundBy": [],
+        "kind": "falcon",
+        "mode": null,
+        "model": "F16v5",
+        "name": "Falcon_F16V5_B9F5"
+      },
+      "plan": {
+        "alreadyInShow": false,
+        "canImport": true,
+        "controller": {
+          "adapter": "falcon",
+          "address": "192.0.2.20",
+          "id": "00000000-0000-4000-a000-000000000011",
+          "name": "Falcon_F16V5_B9F5",
+          "ports": [
+            {
+              "brightness": 100,
+              "gamma": 1.0,
+              "maxPixels": 1024,
+              "number": 1,
+              "slots": [
+                {
+                  "brightness": null,
+                  "controllerColorOrder": "RGB",
+                  "gamma": null,
+                  "nullPixels": 0,
+                  "prop": "00000000-0000-4000-a000-000000000012",
+                  "reverse": false,
+                  "segment": null,
+                  "smartReceiver": null
+                }
+              ]
+            },
+            {
+              "brightness": 100,
+              "gamma": 1.0,
+              "maxPixels": 1024,
+              "number": 2,
+              "slots": [
+                {
+                  "brightness": null,
+                  "controllerColorOrder": "RGB",
+                  "gamma": null,
+                  "nullPixels": 0,
+                  "prop": "00000000-0000-4000-a000-000000000013",
+                  "reverse": false,
+                  "segment": null,
+                  "smartReceiver": null
+                }
+              ]
+            },
+            {
+              "brightness": 100,
+              "gamma": 1.0,
+              "maxPixels": 1024,
+              "number": 3,
+              "slots": [
+                {
+                  "brightness": null,
+                  "controllerColorOrder": "RGB",
+                  "gamma": null,
+                  "nullPixels": 0,
+                  "prop": "00000000-0000-4000-a000-000000000014",
+                  "reverse": false,
+                  "segment": null,
+                  "smartReceiver": null
+                }
+              ]
+            },
+            {
+              "brightness": 100,
+              "gamma": 1.0,
+              "maxPixels": 1024,
+              "number": 4,
+              "slots": [
+                {
+                  "brightness": null,
+                  "controllerColorOrder": "RGB",
+                  "gamma": null,
+                  "nullPixels": 0,
+                  "prop": "00000000-0000-4000-a000-000000000015",
+                  "reverse": false,
+                  "segment": null,
+                  "smartReceiver": null
+                }
+              ]
+            },
+            {
+              "brightness": 100,
+              "gamma": 1.0,
+              "maxPixels": 1024,
+              "number": 6,
+              "slots": [
+                {
+                  "brightness": null,
+                  "controllerColorOrder": "RGB",
+                  "gamma": null,
+                  "nullPixels": 0,
+                  "prop": "00000000-0000-4000-a000-000000000016",
+                  "reverse": false,
+                  "segment": null,
+                  "smartReceiver": null
+                }
+              ]
+            }
+          ],
+          "protocol": { "type": "ddp" },
+          "sequenceChannels": null
+        },
+        "notes": [
+          "The controller applies its own settings (Port 1 \"Pillar Right 2\": 40% brightness; Port 2 \"Pillar Left\": 40% brightness; Port 3 \"Door Frame Front\": 40% brightness; Port 4 \"Roof Door\": 40% brightness; Port 6 \"Door Arch\": 40% brightness), so PixelFlow sends unadjusted data."
+        ],
+        "props": [
+          {
+            "colorOrder": "RGB",
+            "id": "00000000-0000-4000-a000-000000000012",
+            "name": "Pillar Right 2",
+            "regions": [],
+            "shape": { "length": 30.0, "nodes": 600, "source": "generator", "type": "line" },
+            "tags": [],
+            "transform": {
+              "position": { "x": 0.0, "y": -0.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "00000000-0000-4000-a000-000000000013",
+            "name": "Pillar Left",
+            "regions": [],
+            "shape": { "length": 30.0, "nodes": 600, "source": "generator", "type": "line" },
+            "tags": [],
+            "transform": {
+              "position": { "x": 0.0, "y": -0.5, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "00000000-0000-4000-a000-000000000014",
+            "name": "Door Frame Front",
+            "regions": [],
+            "shape": { "length": 17.0, "nodes": 340, "source": "generator", "type": "line" },
+            "tags": [],
+            "transform": {
+              "position": { "x": 0.0, "y": -1.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "00000000-0000-4000-a000-000000000015",
+            "name": "Roof Door",
+            "regions": [],
+            "shape": { "length": 11.900001, "nodes": 238, "source": "generator", "type": "line" },
+            "tags": [],
+            "transform": {
+              "position": { "x": 0.0, "y": -1.5, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "00000000-0000-4000-a000-000000000016",
+            "name": "Door Arch",
+            "regions": [],
+            "shape": { "length": 13.55, "nodes": 271, "source": "generator", "type": "line" },
+            "tags": [],
+            "transform": {
+              "position": { "x": 0.0, "y": -2.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          }
+        ],
+        "suggested": {
+          "port1/string1": { "prop": "11111111-0000-4000-8000-000000000001", "reason": "sameNameOtherSize" }
+        }
+      }
+    }
+  },
+  {
+    "name": "which controllers answer",
+    "ts": "types.ControllerCheck[]",
+    "value": [
+      { "address": "192.0.2.10", "answering": true, "onLocalNetwork": true },
+      { "address": "192.0.2.11", "answering": false, "onLocalNetwork": true },
+      { "address": "192.168.1.50", "answering": false, "onLocalNetwork": false },
+      { "address": "porch.local", "answering": false, "onLocalNetwork": null }
+    ]
+  },
+  {
+    "name": "an FPP playing",
+    "ts": "types.PlayerStatus",
+    "value": {
+      "nextPlaylist": "Christmas Medley 2017.fseq",
+      "nextStart": "Mon Oct  5 @ 06:48 PM - (Everyday)",
+      "playlist": "Christmas Medley 2017.fseq",
+      "secondsElapsed": 109,
+      "secondsRemaining": 456,
+      "sequence": "Christmas Medley 2017.fseq",
+      "state": "playing",
+      "warnings": ["Cannot Ping DDP Channel Data Target 192.0.2.20 Falcon_F16V5_B9F5"]
+    }
+  },
+  {
+    "name": "an FPP waiting for its schedule, with a warning (built)",
+    "ts": "types.PlayerStatus",
+    "value": {
+      "nextPlaylist": "Evening",
+      "nextStart": "Sunday @ 17:00:00",
+      "playlist": null,
+      "secondsElapsed": 0,
+      "secondsRemaining": 0,
+      "sequence": null,
+      "state": "idle",
+      "warnings": ["Could not reach 192.0.2.20"]
+    }
+  },
+  {
+    "name": "an FPP's sequences",
+    "ts": "types.FppSequence[]",
+    "value": [{ "channels": 6148, "frames": 11332, "name": "Christmas Medley 2017", "stepMs": 50 }]
+  },
+  { "name": "an FPP's sequence file names", "ts": "string[]", "value": ["Christmas Medley 2017.fseq"] },
+  {
+    "name": "an FPP's sequences folder",
+    "ts": "types.FppFile[]",
+    "value": [
+      {
+        "channels": 6147,
+        "durationMs": 60000,
+        "items": null,
+        "modified": "2026-10-06 18:05",
+        "name": "Show.fseq",
+        "sizeBytes": 1000
+      }
+    ]
+  },
+  {
+    "name": "an FPP's music folder",
+    "ts": "types.FppFile[]",
+    "value": [
+      {
+        "channels": null,
+        "durationMs": null,
+        "items": null,
+        "modified": "2026-10-06 18:05",
+        "name": "Show.mp3",
+        "sizeBytes": 500
+      }
+    ]
+  },
+  {
+    "name": "an FPP's playlists folder",
+    "ts": "types.FppFile[]",
+    "value": [
+      {
+        "channels": null,
+        "durationMs": null,
+        "items": 0,
+        "modified": "2026-10-06 18:05",
+        "name": "Main",
+        "sizeBytes": 147
+      }
+    ]
+  },
+  {
+    "name": "an FPP's schedule",
+    "ts": "types.ScheduleEntry[]",
+    "value": [
+      {
+        "day": 7,
+        "enabled": true,
+        "endDate": "2026-12-31",
+        "endOffset": 0,
+        "endTime": "22:00:00",
+        "kind": "playlist",
+        "name": "Main",
+        "repeat": 1,
+        "startDate": "2026-12-01",
+        "startOffset": 0,
+        "startTime": "17:00:00",
+        "stopType": 0
+      },
+      {
+        "day": 0,
+        "enabled": false,
+        "endDate": "",
+        "endOffset": 0,
+        "endTime": "23:00:00",
+        "kind": "sequence",
+        "name": "Show",
+        "repeat": 0,
+        "startDate": "",
+        "startOffset": -15,
+        "startTime": "SunSet",
+        "stopType": 1
+      },
+      {
+        "day": 8,
+        "enabled": true,
+        "endDate": "",
+        "endOffset": 0,
+        "endTime": "08:00:00",
+        "kind": "command",
+        "name": "Volume Set",
+        "repeat": 0,
+        "startDate": "",
+        "startOffset": 0,
+        "startTime": "08:00:00",
+        "stopType": 0
+      }
+    ]
+  },
+  {
+    "name": "an FPP with a newer release to offer",
+    "ts": "types.FppSoftware",
+    "value": {
+      "bits": 32,
+      "checked": true,
+      "imagePrefix": "Pi-",
+      "osBuild": "v2025-11",
+      "osRelease": "Raspbian GNU/Linux 12 (bookworm)",
+      "platform": "Pi 4",
+      "update": { "file": "Pi-10.2_2026-10.fppos", "major": true, "prefix": "Pi-", "version": "10.2" },
+      "version": "9.3"
+    }
+  },
+  {
+    "name": "an FPP whose release list couldn't be read (built)",
+    "ts": "types.FppSoftware",
+    "value": {
+      "bits": null,
+      "checked": false,
+      "imagePrefix": null,
+      "osBuild": "v2026-10",
+      "osRelease": "Debian 13",
+      "platform": "Raspberry Pi",
+      "update": null,
+      "version": "10.2"
+    }
+  },
+  {
+    "name": "what setting up from an FPP would add",
+    "ts": "types.FppSetupPlan",
+    "value": {
+      "controllers": [
+        {
+          "adapter": "generic",
+          "address": "192.0.2.20",
+          "id": "00000000-0000-4000-a000-000000000017",
+          "name": "Falcon_F16V5_B9F5",
+          "ports": [],
+          "protocol": { "type": "ddp" },
+          "sequenceChannels": { "count": 6147, "rawDdpOffsets": true, "start": 1 }
+        }
+      ],
+      "notes": [],
+      "own": null,
+      "skipped": []
+    }
+  },
+  {
+    "name": "setting up from an FPP with strings of its own (built)",
+    "ts": "types.FppSetupPlan",
+    "value": {
+      "controllers": [
+        {
+          "adapter": "generic",
+          "address": "192.0.2.20",
+          "id": "00000000-0000-4000-a000-000000000018",
+          "name": "Falcon_F16V5_B9F5",
+          "ports": [],
+          "protocol": { "type": "ddp" },
+          "sequenceChannels": { "count": 6147, "rawDdpOffsets": true, "start": 1 }
+        }
+      ],
+      "notes": [],
+      "own": {
+        "alreadyInShow": false,
+        "canImport": true,
+        "controller": {
+          "adapter": "fpp",
+          "address": "192.0.2.51",
+          "id": "00000000-0000-4000-a000-000000000019",
+          "name": "FakeFPP",
+          "ports": [
+            {
+              "brightness": 100,
+              "gamma": 1.0,
+              "maxPixels": null,
+              "number": 1,
+              "slots": [
+                {
+                  "brightness": null,
+                  "controllerColorOrder": "RGB",
+                  "gamma": null,
+                  "nullPixels": 0,
+                  "prop": "00000000-0000-4000-a000-000000000020",
+                  "reverse": false,
+                  "segment": null,
+                  "smartReceiver": null
+                },
+                {
+                  "brightness": null,
+                  "controllerColorOrder": "GRB",
+                  "gamma": null,
+                  "nullPixels": 0,
+                  "prop": "00000000-0000-4000-a000-000000000021",
+                  "reverse": false,
+                  "segment": null,
+                  "smartReceiver": null
+                }
+              ]
+            }
+          ],
+          "protocol": { "type": "ddp" },
+          "sequenceChannels": null
+        },
+        "notes": [
+          "If a playlist or sequence is running on this FPP, it overrides PixelFlow's live output; stop it while using PixelFlow.",
+          "The controller skips its own null pixels (Port 1 \"Roof Line\": 1), so PixelFlow won't send data for them.",
+          "The controller applies its own settings (Port 1 \"Gutter\": reversed, 50% brightness, gamma 2.2), so PixelFlow sends unadjusted data."
+        ],
+        "props": [
+          {
+            "colorOrder": "RGB",
+            "id": "00000000-0000-4000-a000-000000000020",
+            "name": "Roof Line",
+            "regions": [],
+            "shape": { "length": 7.5, "nodes": 150, "source": "generator", "type": "line" },
+            "tags": [],
+            "transform": {
+              "position": { "x": 0.0, "y": -0.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          },
+          {
+            "colorOrder": "RGB",
+            "id": "00000000-0000-4000-a000-000000000021",
+            "name": "Gutter",
+            "regions": [],
+            "shape": { "length": 2.5, "nodes": 50, "source": "generator", "type": "line" },
+            "tags": [],
+            "transform": {
+              "position": { "x": 0.0, "y": -0.5, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
+          }
+        ],
+        "suggested": {}
+      },
+      "skipped": []
+    }
+  },
+  {
+    "name": "setting up from an FPP whose targets are in the show",
+    "ts": "types.FppSetupPlan",
+    "value": {
+      "controllers": [],
+      "notes": [],
+      "own": null,
+      "skipped": [
+        {
+          "address": "192.0.2.20",
+          "name": "Falcon_F16V5_B9F5",
+          "reason": "Already in your show as Falcon_F16V5_B9F5."
+        }
+      ]
+    }
+  }
+]

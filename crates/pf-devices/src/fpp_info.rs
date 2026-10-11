@@ -73,15 +73,16 @@ fn play_time_ms(text: &str) -> Option<u64> {
         let part = part.trim();
         let (number, unit) = part.split_at(part.find(|c: char| !c.is_ascii_digit())?);
         let n: u64 = number.parse().ok()?;
-        total += n * match unit {
+        let seconds = n.checked_mul(match unit {
             "h" => 3600,
             "m" => 60,
             "s" => 1,
             _ => return None,
-        };
+        })?;
+        total = total.checked_add(seconds)?;
         any = true;
     }
-    any.then_some(total * 1000)
+    total.checked_mul(1000).filter(|_| any)
 }
 
 fn size_of(file: &Value) -> Option<u64> {
@@ -132,7 +133,7 @@ pub fn sequences(http: &dyn Http, host: &str) -> Result<Vec<FppFile>, DeviceErro
             ) {
                 let number = |key| u64::try_from(int_field(&meta, key)).unwrap_or(0);
                 let (frames, step) = (number("NumFrames"), number("StepTime"));
-                file.duration_ms = (frames > 0 && step > 0).then_some(frames * step);
+                file.duration_ms = frames.checked_mul(step).filter(|&ms| ms > 0);
                 file.channels = u32::try_from(number("ChannelCount")).ok().filter(|&c| c > 0);
             }
             file
@@ -324,5 +325,9 @@ mod tests {
         assert_eq!(play_time_ms("01h:02m:03s"), Some(3_723_000));
         assert_eq!(play_time_ms("Unknown"), None);
         assert_eq!(play_time_ms(""), None);
+        // Numbers too large to be a play time are no play time (they used to overflow).
+        assert_eq!(play_time_ms("18446744073709551615h:00m:00s"), None);
+        assert_eq!(play_time_ms("18446744073709551615m:01s"), None);
+        assert_eq!(play_time_ms("18446744073709552s"), None);
     }
 }

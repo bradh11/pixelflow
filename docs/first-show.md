@@ -79,7 +79,7 @@ that a shape or a wiring detail was approximated, and why.
 
 *Approximate* means PixelFlow drew something close to what xLights has, not an exact copy. A
 note names what was changed so you can check that prop in the layout. For how close PixelFlow
-gets, see [Measuring xLights import fidelity](fidelity.md).
+gets, see [xLights import fidelity](fidelity.md).
 
 Then choose **Save show…** to keep the show. Choosing **Later** leaves it unsaved.
 
@@ -365,7 +365,7 @@ want the file itself.
 
 - [Troubleshooting](troubleshooting.md) for problems with lights, colors, and networks.
 - [Real-hardware acceptance checklist](hardware-acceptance.md) to check your own setup end to end.
-- [Measuring xLights import fidelity](fidelity.md) if you brought a show from xLights.
+- [xLights import fidelity](fidelity.md) if you brought a show from xLights.
 - [Scale benchmark](benchmarks.md) for how large a show PixelFlow is built to handle.
 - [Your data: what stays on your computer](privacy-and-data-flow.md).
 

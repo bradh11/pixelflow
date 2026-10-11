@@ -1,9 +1,17 @@
-# Measuring xLights import fidelity
+# xLights import fidelity
 
-The `.xsq` importer labels every effect *exact*, *approximate*, or *placeholder* by its own
-judgement. `pf-fidelity` checks that judgement against the only thing that can: the frames xLights
-itself rendered. Given an xLights show folder, a sequence, and the `.fseq` xLights saved for that
-sequence, it renders the sequence in PixelFlow and compares the two channel by channel.
+**Fidelity is how an imported sequence looks.** Someone who made a show in xLights and imports it
+into PixelFlow wants the same show: the right props lit, in the right colors, moving the same way
+at the same speed, to the same rhythm. That is all fidelity means here.
+
+It does not mean the same pixels. Two renders of falling snow never light the same pixels, in
+xLights or anywhere else, and nobody watching can tell. And it does not mean building an effect
+the way xLights builds it: PixelFlow is free to draw an effect its own way, and a faster or
+simpler way is better, as long as the result looks the same.
+
+`pf-fidelity` measures this. Given an xLights show folder, a sequence, and the `.fseq` xLights
+saved for that sequence, it renders the sequence in PixelFlow and compares the two renders by
+how they look. It works from the two renders alone and knows nothing of how either was made.
 
 ```sh
 # One sequence: prints the scorecard, or writes <label>.json and <label>.md with --out.
@@ -14,10 +22,76 @@ cargo run --release -p pf-fidelity -- score \
 cargo run --release -p pf-fidelity -- corpus path/to/corpus.json --out reports/
 PF_FIDELITY_CORPUS=path/to/corpus.json cargo run --release -p pf-fidelity -- corpus --out reports/
 
-# Frames side by side (xLights' above, PixelFlow's below) for looking into a difference.
+# The importer's table of expected looks, held against a scorecard.
+cargo run --release -p pf-fidelity -- labels reports/corpus.json
+
+# Frames side by side (xLights' above, PixelFlow's below), to see a difference for yourself.
 cargo run --release -p pf-fidelity -- strips --show … --xsq … --fseq … \
   --effect 12 --target Matrix --frames 10 --levels --out strips/
 ```
+
+## The verdicts
+
+Every effect gets one of four, and so does every line of an import's report:
+
+| Verdict | Means | In the import report |
+|---|---|---|
+| **Matches** | A viewer wouldn't tell the two apart at show distance. | "comes across the same" |
+| **Close** | The same idea, with differences a viewer could notice. | "looks close: slower than in xLights" |
+| **Different** | It reads as a different look. | "looks different: shown as twinkles" |
+| **No equivalent** | PixelFlow has no effect for it yet; a dim stand-in is shown. | "no PixelFlow effect yet" |
+
+## The look score
+
+An effect's look has six parts. Each is scored from 0 (nothing alike) to 1 (alike), on the
+target's own grid: a matrix's columns and rows, a tree's strings and the pixels up them, a line's
+pixels in a row, a group's layout.
+
+| Part | Asks | How |
+|---|---|---|
+| **Coverage** | Is as much of the prop lit, all the way through? | The share of pixels lit, as a curve over time (smoothed over half a second): how much of the two curves is the same. |
+| **Brightness** | Is it as bright, and does it rise and fall the same? | The same for mean brightness. Half as bright halves it; so does a fade the other render doesn't have. |
+| **Color** | Are they the same colors, in the same shares? | Second by second, each render's light sorted into hue bins 15° wide and one for white, weighted by brightness. Light in the same bin matches; a hue up to 45° off matches in part; white matches only white. |
+| **Pattern** | Is the light in the same places, with the same fineness? | The layout: the picture on a grid of at most 8 by 8, relative to its own brightness, the better of as it is and moved one cell. Times the texture: how alike cells are that are 1, 2, … 16 cells apart, which is the spacing of stripes and the size of dots. |
+| **Motion** | Does it move the same way, as fast, and change as much? | The move that best lays each row and column of the picture on itself a moment later gives a direction and a speed (opposite scores 0, half speed a half). And the share of the light that changes from frame to frame. The lesser of the two. |
+| **Rhythm** | Does it pulse in step, and flash as often? | The brightness with its slow curve taken off, the two held against each other a frame either way (a strobe at another rate, or out of step, scores low). And how often dark pixels light up. The lesser of the two. |
+
+Three things keep the score honest.
+
+**People notice ratios.** Each part is how much of the two renders is the same, passed through
+one curve: a fifth off passes for the same (0.97), half off is half alike (0.5), three quarters
+off has next to nothing in common (0.11).
+
+**A render isn't asked to be more like the other than it is like itself.** The pixels are split
+in two at random. What the two halves of one render disagree on (which pixels twinkle, where the
+snow is) is chance, and is taken off before the renders are compared. A layout that doesn't hold
+still within one render (blobs coming and going) isn't asked to be where the other render has it.
+A speed is only as sure as its readings agree. This is why random effects need no special case:
+the same density, colors, and rate from another seed matches.
+
+**One thing badly wrong reads as a different look.** The composite, 0–100, is 70% the weighted
+mean of the parts and 30% the weakest part. The weights: color 0.25 and pattern 0.20, because
+they are what a viewer names first ("the red spiral"); coverage, brightness, and motion 0.15
+each; rhythm 0.10, because a rhythm that is off nearly always shows in brightness or motion too.
+
+A score of 85 or more **matches**, 55 or more is **close**, and under 55 is **different**. A
+placeholder has **no equivalent** whatever it scores. The lines were drawn by looking: frames
+side by side (`strips`) for a spread of effects, and the verdicts moved until they agreed with
+what the pictures showed. Some of what settled them:
+
+| What was on the lights | Pixel for pixel | Look | Verdict |
+|---|---|---|---|
+| A cellular automaton alone on a row of small props for nine minutes: the same sparse dots in other places | error 84 of 255, lit agreement 0.69 | 94 | Matches |
+| Plasma on two thin outline props: the same mottling, the blobs elsewhere | error 48 | 100 | Matches |
+| Twinkles covering a tree with text over them | error 63, lit agreement 0.48 | 99 | Matches |
+| Fire alone on a group that spans the layout: flames on the same props in the same colors | error 7 | 99 | Matches |
+| A fill rising up a matrix with sparkles | error 10 | 100 | Matches |
+| A tendril wandering two outline props: the same colors, less of it lit, pulsing at other moments | error 52 | 63 | Close |
+| A wash on a group of outline props, one of them in another color | error 40 | 57 | Close |
+| Fire over a group of outline props where xLights lights one of them blue and little else | error 98 | 47 | Different |
+| Fireworks drawn as steady twinkles, where xLights is dark between bursts | error 26 | 22 | Different |
+| Snow on a tree that PixelFlow also washes blue and xLights leaves dark | error 94 | 5 | Different |
+| A shader shown as a dim fill | error 57–108 | 13–40 | No equivalent |
 
 ## The method
 
@@ -26,67 +100,81 @@ cargo run --release -p pf-fidelity -- strips --show … --xsq … --fseq … \
    - *Controller-side settings are set aside.* A model's brightness, gamma, and "reverse" on its
      controller connection are carried out by the controller; xLights' file holds what it rendered
      before them. PixelFlow's export applies them, so the comparison puts every port at full
-     brightness, gamma 1, unreversed. Each prop's own color order stays: xLights writes its
-     channels in that order too. The scorecard says how many props this touched.
+     brightness, gamma 1, unreversed. Each prop's own color order stays.
    - *Props with no controller get a stand-in.* xLights renders every model, including those on no
-     controller PixelFlow imports. Each of those gets a stand-in controller over exactly its
-     xLights channels, so it is exported, and measured, where xLights put it.
-2. **Import the sequence** (`pf_xlights::import_sequence_file`). The import now lists every effect
-   with xLights' name for it and the importer's label (`SequenceImport::effects`).
+     controller PixelFlow imports. Each gets a stand-in controller over exactly its xLights
+     channels, so it is exported, and measured, where xLights put it.
+2. **Import the sequence** (`pf_xlights::import_sequence_file`). The import lists every effect
+   with xLights' name for it and the verdict the importer expects (`SequenceImport::effects`).
 3. **Render with the real renderer through the real export**: `pf_render::export::export_fseq`,
-   into memory. What is compared is the file PixelFlow would write. The music is read when it can
-   be found, so effects that follow it are drawn as they would be.
+   into memory. The music is read when it can be found, so effects that follow it are drawn as
+   they would be.
 4. **Line the frames up by time**: PixelFlow's frame at `t` against the reference's frame at `t`
-   (`--frame-offset` moves that, for trying out a timing difference).
-5. **Compare** every pixel both files hold, reading each prop's channels back in its color order.
-
-## The scores
-
-For any set of pixel-frames (a prop's, an effect's, a kind's):
-
-| Score | Meaning |
-|---|---|
-| `mae`, `rmse` | Mean absolute and root-mean-square error per channel, 0–255. |
-| `withinTolerance` | Share of pixels within ±16 on every channel. |
-| `litIou` | "Is the right thing lit": pixels both light over pixels either lights. |
-| `brightnessCorrelation` | How the two brightnesses rise and fall together over time (−1 to 1). |
-| `hueDifference` | Mean degrees between the hues where both are lit and colored. |
-| `distribution` | Per one-second window: difference in mean brightness, in share of pixels lit, and between the color histograms (each 0–1), and their mean. |
-| `pixelSeconds` | How much was measured. |
-
-**Attribution.** Each pixel-frame is added to every effect lit on it at that moment. An effect has
-two sets of scores: `solo`, from the pixel-frames where it was the only effect (the clean signal),
-and `layered`, from all of them. Its `share` counts a pixel under three effects as a third, so
-stacked effects don't each claim the whole pixel. Pixels lit where no imported effect is go to
-`unattributed`.
-
-**Stochastic effects** (Twinkle, Snowflakes, Fire, Meteors, Circles, Shape, Lines, Life,
-Lightning, Strobe, … and anything that is mostly sparkles) place things at random, so no two
-renders light the same pixels. They are marked `stochastic`, judged by their `distribution`
-distance, and ranked apart. A deterministic effect with a few sparkles stays deterministic; the
-audit allows it the share of pixels its sparkles can change.
-
-**What to fix first.** Kinds are ranked by impact: error × pixel-seconds, summed over instances,
-each instance judged alone where it has pixels of its own. "Measured alone" says how much of a
-kind's footprint that is; a low share means the error was mostly measured with other effects mixed
-in and may be theirs.
-
-**The label audit** lists, effect by effect:
-- *labelled exact, measurably different* when judged alone: the label is wrong or the effect has a
-  bug;
-- *labelled exact, different, but only measured with other effects*: suspects, not convictions;
-- *labelled exact, random by nature, showing something different* (by distribution);
-- *labelled approximate, yet matching*.
-
-The limits are in the scorecard (`method`) and are the defaults of `Limits` and `AuditLimits`.
+   (`--frame-offset` moves that).
+5. **Look at every effect twice**: on the pixel-frames where it was the only effect (`lookSolo`),
+   and on all of them, whatever else was on (`lookLayered`). It is judged alone when at least a
+   tenth of what it was lit on had nothing else on it; otherwise layered. A layered look is the
+   look of the picture there, which several effects share: trust "alone", and treat "layered" as
+   a hint.
+6. **Look at every prop** over the frames either side lit it, whatever effects were on it
+   (`props[].look`). The mean over the props, by pixel-seconds, is the sequence's `asSeen`:
+   the look of the whole picture, with no question of which effect to blame.
 
 ## Reading a scorecard
 
-Start with `coverage` and `notes`: how many props, pixels, effects, and frames were measured, and
-anything odd about the reference. Then `timing`: the whole-show error with xLights' frames moved
-by −2…+2 frames should be lowest at 0, and effects starting on dark pixels should first light
-them on the same frame on both sides. Only then the ranking and the audit. `props[].reversedMae`
-far below `props[].scores.mae` means a prop is wired the other way round.
+**How it looks** comes first: the share of effect-time (each judged effect's length, added up)
+that matches, is close, is different, or has no equivalent, the same by pixel-seconds, the look
+score, and its six parts. "Not judged" is effect-time that couldn't be measured.
+
+**What to improve first** ranks the kinds of effect by what there is to gain: how far each
+instance falls short of matching, times the pixel-seconds it was lit on. A look that matches
+adds nothing, however long it runs. "Off" names the part that agrees least and what a viewer
+would notice ("motion: moves the opposite way", "brightness: dimmer (0.6× as bright)"). That is
+the pointer to the fix:
+
+- **A mapping to correct**: the PixelFlow effect can show this look, and the importer set it up
+  wrongly. A direction reversed, a speed off by a factor, colors in another order, a count.
+  These are cheap, and worth doing first.
+- **Something PixelFlow's effect can't do yet**: a shape, a movement, or a setting it has no
+  equivalent for. Add the setting to PixelFlow's effect, drawn PixelFlow's way.
+
+"Judged (alone)" says how many instances the ranking rests on and how many of those had pixels
+to themselves. Few alone means the difference may belong to what the kind is layered with.
+
+**The importer's labels** holds each effect's expected verdict against the one it earned:
+effects expected to look better than they do (judged alone, then judged layered), effects
+expected to look worse, and a table by kind and by what the importer noted.
+
+**Diagnostics: pixel for pixel** is the rest: mean error per channel, the share of pixels within
+±16, lit agreement, brightness correlation, hue difference, and the window-by-window
+distributions, per sequence, per kind, per effect, and per prop. They don't say how an import
+looks: a random effect scores badly however alike it looks, and a pattern that is right but a
+pixel over scores as wrong. They find structural bugs, which is what they are kept for:
+
+- `timing`: the whole-show error with xLights' frames moved by −2…+2 frames should be lowest at
+  0, and effects starting on dark pixels should first light them on the same frame on both sides.
+- `props[].reversedMae` far below `props[].scores.mae`: a prop wired the other way round.
+- An effect that matches alone and not layered: the way rows or layers are mixed.
+
+## The importer's labels
+
+An import can't measure anything: there is no xLights render to hold it against. It labels each
+effect from what it carried over and a table (`pf_xlights::sequence::look::TABLE`):
+
+- An effect whose every setting has a PixelFlow setting is expected to **match**.
+- One with a difference noted is expected to look **close**, and the note says what a viewer
+  would notice ("fading tail not shown"), not which setting wasn't applied.
+- The table names the exceptions: an xLights effect, a condition (always, or a note containing
+  some text), and the verdict. The worst row that applies wins.
+- A placeholder has **no equivalent**.
+
+The rule and the rows marked measured come from scorecards. `pf-fidelity labels` holds the table
+against one: for each kind of effect and each set of notes, what most of its effects earned,
+those judged alone when there are any. A row that disagrees on two or more effects judged alone
+fails the command. Then either the table gets a row, or the effect gets fixed. Rows for looks no
+measured sequence has are judged from what the note says a viewer would see, by the same
+yardstick: the wrong colors, nothing moving where xLights moves, or light on another part of the
+prop is a different look; a shape, a direction, or a speed that is off is close.
 
 ## Adding sequences
 
@@ -99,209 +187,85 @@ A manifest lists what to compare; paths are relative to the manifest's folder:
 ```
 
 `show` must be the layout xLights rendered the `.fseq` on. If the layout has changed since, use
-the copy xLights kept in the show folder's `Backup/<date>` from that time: a channel count that
-doesn't match the layout is noted in the scorecard, and moved props will not match at all. Real
-shows and their reports stay out of the repository; keep the manifest and its output elsewhere.
-CI runs the same code on a made-up show with references the tests write by hand
-(`crates/pf-fidelity/tests`).
+the copy xLights kept in the show folder's `Backup/<date>` from that time. Real shows and their
+reports stay out of the repository; keep the manifest and its output elsewhere. CI runs the same
+code on a made-up show with references the tests write by hand (`crates/pf-fidelity/tests`), and
+the look score on made-up pairs of renders (`crates/pf-fidelity/src/look.rs`).
 
 ## Limits
 
+- **It can't read.** Text in other lettering that fills the same space the same way looks the
+  same to it. The importer's label for Text says "close" regardless.
+- **It doesn't hear.** An effect a beat late against the music shows only as a rhythm out of
+  step with xLights' render, never against the song.
+- **Layered effects share a look.** Where several effects are on a pixel the difference can't be
+  split between them.
+- **Short effects are judged on little.** Under half a second there are few frames to read a
+  speed or a rhythm from; the score allows for it, and says less.
+- **Random effects move the numbers.** Each import seeds them anew: a share of a sequence that
+  sits near a line can fall on either side from run to run.
 - **Only what has channels in both files is measured.** A reference with fewer channels, or a
   sparse one, leaves props out; `coverage` names them.
-- **A reference can be unrendered.** xLights saves a file with whatever it has rendered so far.
-  A prop the reference leaves dark for 20 seconds or more while PixelFlow lights it is taken as
-  unrendered there and left out (`reference.leftOut`; `--dark-run-ms 0` scores everything). A
-  reference rendered from an *older version* of the sequence can't be told apart from a wrong
-  render.
-- **Layered effects share blame.** Where several effects are on a pixel the difference can't be
-  split between them; trust `solo`, and treat `layered` as a hint.
-- **Effects the importer skips aren't seen.** A pixel that xLights lights from an effect that
-  wasn't imported counts against whatever was imported there (or is `unattributed`).
-- **Stochastic effects are compared loosely**, and each import gives effects new ids, which seed
-  their randomness: their numbers move a little from run to run.
+- **A reference can be unrendered, or stale.** xLights saves a file with whatever it has rendered
+  so far. A prop the reference leaves dark for 20 seconds or more while PixelFlow lights it is
+  left out (`reference.leftOut`; `--dark-run-ms 0` scores everything); a shorter gap, or content
+  from an older version of the sequence or the layout, can't be told from a wrong render and
+  scores as different.
+- **Effects the importer skips aren't seen.** A pixel xLights lights from an effect that wasn't
+  imported counts against whatever was imported there.
 - **Red, green, and blue only.** An RGBW prop's white channel isn't compared.
 
-## What the first run found
+## What it found
 
-Seven sequences of one real show (about 6,200 pixels; 341 imported effects, 215 of them labelled
-exact) were scored in October 2026. Every prop could be measured, two thirds of the pixels through
-stand-ins. One reference was unrendered for 39% of its pixel-time and one had no effects.
+Seven sequences of one real show (about 6,200 pixels, 341 imported effects), October 2026. One
+has no effects. Of the rest, 247 effects could be judged (77% of the effect-time):
 
-- No timing offset: whole-show error is lowest at 0 frames in every sequence that has
-  deterministic content.
-- Effects measured alone are often close: Morph, Butterfly, Pinwheel, Pictures, On, and Plasma all
-  score under 12 per channel with nothing else on their pixels.
-- The largest difference looked into is not in an effect but in how rows are put together. With
-  xLights' Model Blending on (it was, in every sequence), a row's bottom layer mixes with what
-  earlier rows drew, by its own layer method; PixelFlow lets a row's bottom layer cover whatever
-  its method. Where this was checked frame by frame, a group's "2 reveals 1" wash that xLights
-  keeps behind a prop's own effect shows in front of it in PixelFlow. How much of the layered
-  error this explains hasn't been measured; effects that match alone and miss when layered
-  (Plasma, Pinwheel, On) point the same way.
-- Effects on a single non-matrix prop draw on its front view, where xLights uses the model's own
-  buffer (a 360° tree's strands by nodes), so a spiral that winds round the tree in xLights is a
-  diagonal across it in PixelFlow.
-- Of the 215 "exact" labels, 154 could be judged; 8 differ when judged alone (the tree spiral, a
-  wash's fade, a plasma, a fan, a morph, and three pictures), 73 only with other effects mixed in,
-  and 30 stochastic ones by their distribution.
+| Sequence | Matches | Close | Different | No equivalent | Look | As seen |
+|---|---|---|---|---|---|---|
+| A | 87% | 4% | 8% | – | 91 | 96 |
+| B | 43% | 57% | 1% | – | 83 | 93 |
+| C | 100% | – | – | – | 99 | 99 |
+| D | 100% | – | – | – | 100 | 91 |
+| E | 100% | – | – | – | 95 | 94 |
+| G | 53% | – | 17% | 30% | 65 | 72 |
+| All | 86% | 4% | 8% | 2% | 90 | 93 |
 
-## What the first round of fixes changed
+B is mostly fire and circles under short flashes, and two ten-second stretches of it sit near
+the line: its share that matches was 43%, 57%, and 72% in three runs.
 
-The same seven sequences, scored again after the fixes below (error per channel, share of pixels
-within tolerance, lit agreement):
+**Where the look and the pixels disagree.** Ranked by pixel error, the kinds to fix were Shader,
+Fan, Color Wash, Spirals, Plasma, Bars, and Butterfly. By look, Spirals, Plasma, Bars, and
+Butterfly have nothing to fix: every instance matches (their error is a pattern a pixel over, or
+a plasma's blobs in other places). The cellular automaton, the twinkles, and the fire that pixel
+error called the worst of the random effects match too. Going the other way, Fireworks has a
+small pixel error, because both renders are mostly dark, and is the plainest difference there
+is: PixelFlow twinkles steadily where xLights is dark between bursts.
 
-| Sequence | Before | After |
-|---|---|---|
-| A | 57.8, 43%, 0.78 | 26.2, 68%, 0.92 |
-| B | 70.0, 25%, 0.86 | 55.0, 43%, 0.87 |
-| C | 26.9, 63%, 0.89 | 29.0, 63%, 0.88 |
-| D | 77.8, 28%, 0.81 | 22.0, 77%, 0.91 |
-| E | 62.2, 17%, 0.48 | 62.1, 17%, 0.48 |
-| G | 56.9, 33%, 0.75 | 28.1, 56%, 0.91 |
+**What to improve, by look:**
 
-What xLights does, as read from its source (2024.19) and checked against the references:
+- *Mappings to check.* One 15-second stretch of sequence A is most of what looks different: a
+  wash on the group that spans the layout shows on props where xLights shows only those props'
+  own snow and circles (how that group's row meets the rows under it). A smaller group of
+  outline props lights one of them in another color, or lights it where xLights leaves it dark,
+  under three kinds of effect (how that group's effects are laid over its props). Under other
+  effects, a Pinwheel changed less from frame to frame, and a two-second Shockwave stood still
+  where xLights' moved.
+- *What PixelFlow can't show yet.* Shader (ten effects, the largest item by far), Fireworks,
+  and Text in the sequence's own font. A Tendril that wanders at random shows less of itself
+  and pulses at other moments.
 
-- **Rows.** Rows render top to bottom of the sequence. With Model Blending on, what the rows so
-  far have put on a model's pixels becomes one more layer under the row, and the row's lowest
-  effect mixes with it by its own layer method. With it off, a row writes all its pixels, lit or
-  not, whenever it has an effect playing. A sequence now says which (`rowBlending`); an import
-  sets it, and a sequence made in PixelFlow keeps PixelFlow's rule (a later row covers where it's
-  lit).
-- **Fades** are counted in frames (the first frame of a fade-in is already one step up, the last
-  frame of a fade-out is dark), are transparency only under the Normal layer method, and are
-  brightness under every other.
-- **A model's own buffer.** Trees, arches, candy canes, circles, window frames, spinners,
-  spheres, and custom models draw on the grid xLights gives them (a tree's strings by the pixels
-  up them), and so do their groups under the per-model render styles.
-- **A group left of or below the layout's origin** is measured out to the origin by xLights'
-  "minimal grid", which changes its scale.
-- **Spirals** are drawn cell by cell: stripes a whole number of cells apart, rotation counted in
-  cells across the height rather than turns, with 3D, Blend, Grow, and Shrink.
-- **Bars** are drawn cell by cell: bars of whole cells, 'expand' and 'compress' mirrored about
-  the center, 'Alternate' a bar at a time, with 3D, highlight, and gradient.
-- **On** dims its color and stays solid; only its transparency lets what's below through. With
-  shimmer it draws every other frame.
-- **An exported file** holds the sequence's whole frames, not one more for a part frame.
+No mapping was changed on the strength of these runs: none of the differences was a sign or a
+scale that the score could confirm on an effect with pixels to itself.
 
-The label audit, over all seven: 230 effects are now labelled exact (215 before), 101 approximate
-(116), 10 placeholders. Of 168 exact ones that could be judged, 6 differ when judged alone, 63
-only with other effects mixed in, and 20 stochastic ones by their distribution (8, 73, and 30 of
-154 before). Fire, resized pictures, canvas mode above a row's bottom layer, and effects on a
-line that runs up and down, a poly line, or a measured model are now imported as approximations,
-each with its reason.
+## Before the look score
 
-What the remaining differences are:
-
-- **The references themselves.** The six "exact" effects that still differ alone all belong to
-  one group that spans the layout, and are alone only on three props whose pixel counts differ
-  between this layout and an older one: the reference holds other content there (a plain wash
-  is another color), while the same effects match on every other prop. One long reference is
-  also only partly rendered in its second half. A second pass should start from references
-  rendered on the layout as it is now.
-- **Effects that share pixels with a random or approximated one** can't be told apart from it.
-  Most of the 63 are of this kind: a wash under random shapes, a flash under fire.
-- **Fire** is the largest effect still drawn differently: PixelFlow's is a simulation of its
-  own, where xLights builds each frame's flames afresh on the target's grid.
-- **Shader** effects are placeholders; **Shockwave** and **Fill** are shown as the nearest
-  PixelFlow effect; a layer's hue, saturation, and brightness shifts aren't applied.
-- **Lines, poly lines, and measured models** still draw on their front view when an effect is on
-  the prop alone. A line needs to keep the direction it was drawn in, and an imported model the
-  buffer cell xLights gives each pixel, for those to match.
-- **Pictures** are resized by blending; xLights takes the nearest pixel.
-
-## What the second round of fixes changed
-
-The same sequences once more (error per channel, share of pixels within tolerance, lit
-agreement):
-
-| Sequence | After round one | After round two |
-|---|---|---|
-| A | 26.2, 68%, 0.92 | 22.6, 74%, 0.92 |
-| B | 55.0, 43%, 0.87 | 29.7, 64%, 0.94 |
-| C | 29.0, 63%, 0.88 | 20.1, 79%, 0.89 |
-| D | 22.0, 77%, 0.91 | 14.4, 84%, 0.95 |
-| E | 62.1, 17%, 0.48 | 62.9, 17%, 0.48 |
-| G | 28.1, 56%, 0.91 | 26.6, 61%, 0.91 |
-
-B, C, and E are mostly random effects (fire, twinkles, circles, snowflakes), which each import
-seeds anew: their numbers move from run to run with nothing changed, B's by about one either
-way.
-
-What xLights does, as read from its source (2024.19, and the wxWidgets it was built on):
-
-- **Fire** keeps a grid of heat between frames but writes all of it again every frame, so a
-  frame depends only on its own random numbers. The row at the edge the fire grows from is
-  seeded bright; each row after it is the mean of the cells behind it, flaring up a step one
-  time in five and cooling a step the rest. PixelFlow's Fire has this as a second style,
-  flickering flames from any edge, which an import uses; its own rolling flames stay the
-  default. Alone on its pixels, Fire's error fell from 63.2 to 7.0 per channel (39% to 85%
-  within tolerance), and the distance between the two brightness distributions from 0.47 to
-  0.02.
-- **Shockwave** and **Fill** are effects of their own, drawn cell by cell as xLights draws them.
-  Fill alone went from 106.7 to 0.0; Shockwave, which is nearly always layered here, from 50.7
-  to 13.8 where it is.
-- **A layer's color adjustments**: hue, saturation, and value shifts, brightness, and contrast,
-  each of which can follow a value curve. xLights applies the three shifts before the sparkles
-  and brightness and contrast after. A pixel the effect left unlit counts as black, and can be
-  lit by a value shift, only on a layer that isn't blended Normal. Every PixelFlow effect has
-  them now; left alone they change nothing.
-- **Pictures.** "xLights takes the nearest pixel", above, held only before 2024.16. xLights has
-  resized a picture five ways: the nearest pixel counting from the corner (before 2024.16); the
-  two nearest pixels mixed when shrinking, the nearest when enlarging (2024.16 to 2025.03, from
-  the middle of the cell in 2025.04 and 2025.05); an average of the pixels covered (2025.06 to
-  2026.03); and a filter chosen by the effect (2026.04 on). An import resizes a sequence's
-  pictures the way the version that saved it did, for the first three; a later one keeps
-  PixelFlow's averaging and is labelled approximate. Pictures alone went from 6.9 to 0.7 (81%
-  to 100% within tolerance).
-- **A line's own buffer** is one row along its nodes in the order they were made, whichever way
-  the line runs in the layout and whichever end is wired first. A poly line's and an icicle
-  run's is a column for each drop, hanging from the top row. A custom model's is the whole grid
-  it was drawn on, at the size the model says, with its layers side by side. An imported prop
-  keeps that layout (`ownLayout` in the show file). Nothing in these sequences draws on such a
-  prop alone, so their scores don't show it; the unit tests hold it to xLights' arithmetic.
-- **Text** in a system font is drawn by the computer's own text engine, at a pixel height equal
-  to the font's point size, or the size of the computer's own text when the font names none (13
-  on a Mac). Sequence E's text names no size, is in a font PixelFlow can't ship, and has color
-  emoji in it; stacked top to bottom, xLights spaces every character by the height of the last
-  one it measured, an emoji's. None of that can be reproduced with a font of PixelFlow's own,
-  bundled or not, so none was bundled. E's low score isn't the text in any case: a lit
-  agreement of 0.48 is what two unrelated random fields lit two thirds of the time give, and
-  the text lies over a twinkle that covers every pixel.
-
-A sequence's settings now show how its rows meet the rows above them (cover, blend, or replace),
-which an import sets and which could not be seen or changed before.
-
-The label audit, over all the sequences: 321 effects are labelled exact (230 after round
-one), 10 approximate (101), 10 placeholders. Of 228 exact ones that could be judged,
-10 differ when judged alone, 83 only with other effects mixed in, and 13
-stochastic ones by their distribution (6, 63, and 20 of 168). The ones that differ alone are
-all effects on the one group that spans the layout, in sequence A, where they are alone only
-on the props whose reference holds other content (see round one); more of that group's effects
-are labelled exact now, so more are counted. Looking for labels that claimed too much found
-two: an effect on a cube more than one layer deep (xLights lays the layers side by side;
-PixelFlow draws the cube from the front), and Text's label, which now also says when the size
-is a guess and when characters are drawn as boxes.
-
-What still differs:
-
-- **The references.** Sequence A's is unrendered for much of its second half, which is where
-  its effects with color-adjustment curves are, and three props hold content from an older
-  layout. Fresh references, rendered on the layout as it is now, would settle more than any
-  further fix.
-- **Text**, for the reasons above.
-- **Shader** effects are placeholders. Fireworks, Snowstorm, Galaxy, and Curtain are still
-  shown as the nearest PixelFlow effect (one Fireworks in these sequences).
-- **Canvas mode** above a row's bottom layer, a square **Wave**, and strobing **Twinkle** are
-  approximations, labelled as such.
-- **Pictures** in a sequence saved by xLights 2025.06 or later.
-- **Cubes, stars, and wreaths** draw where their pixels sit, not on xLights' buffer for them,
-  and so does a single-color custom model. A poly line's "Line Segments" render style isn't
-  imported. A prop imported before this round has no layout of its own until its show is
-  imported again.
-
-Speed: the 100,000-pixel benchmark (`pf-bench --tier 100k --seconds 20 --mode asap --sink null`)
-drew a frame in 3.59 ms before the round (the median; 4.43 at the 99th percentile) and 2.49 ms
-after it (2.82). The machine was busier for the first run, which got 0.85 of a core where the
-second got a whole one, so read that as no slower, not as faster. A frame's allocations are
-unchanged at 120. The six sequences score in 24 seconds (36 before, on a first run).
+Two earlier rounds worked from pixel agreement. They made rows blend the way the sequence says,
+counted fades in frames, gave trees, arches, lines, and custom models grids of their own, added a
+flickering style to Fire, gave Shockwave and Fill effects of their own, added color adjustments
+to every effect, and resized pictures the way the sequence expects. Mean error per channel fell
+from 57.8, 70.0, 26.9, 77.8, and 56.9 (sequences A, B, C, D, and G) to 22.6, 29.7, 20.1, 14.4,
+and 26.6. Those numbers are still in every scorecard's diagnostics. What they can't say is
+whether a change was worth making: several of those fixes moved pixels a viewer never saw
+differ. From here on, a change to how an import is drawn is judged by the look score, and a way
+of drawing an effect is chosen because it looks right and runs well, not because xLights draws
+it so.

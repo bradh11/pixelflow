@@ -1,5 +1,5 @@
-//! Pinwheel, Snowflakes, Plasma, Butterfly, Garlands, Lines, Life, Tendril, and Text, drawn as
-//! xLights draws them on the target's grid.
+//! Snowflakes, Plasma, Butterfly, Garlands, Lines, Life, Tendril, and Text, drawn as xLights
+//! draws them on the target's grid. (Pinwheel is PixelFlow's own: see `tests/pinwheel.rs`.)
 
 use pf_render::{Canvas, Colors, EffectTime, Pixel, Rgba, Shade, Shader};
 use pf_sequence::*;
@@ -50,140 +50,6 @@ fn lit_count(cells: &[Rgba]) -> usize {
 /// The 8-bit colors shown, for comparing frames.
 fn shown(cells: &[Rgba]) -> Vec<[u8; 3]> {
     cells.iter().map(|c| c.to_rgb8()).collect()
-}
-
-// ---------------------------------------------------------------------------------------------
-// Pinwheel
-
-fn pinwheel(p: PinwheelParams) -> EffectParams {
-    EffectParams::Pinwheel(p)
-}
-
-#[test]
-fn a_pinwheel_arm_points_down_at_the_start_and_turns_with_speed() {
-    let still = pinwheel(PinwheelParams {
-        arms: 1,
-        speed: 0.0,
-        ..Default::default()
-    });
-    let cells = draw(&still, time(0, 10_000));
-    // xLights' new method starts the first arm at 270 degrees: straight down from the center.
-    assert!(at(&cells, 15, 5).a > 0.0, "below the center");
-    assert_eq!(at(&cells, 15, 25).a, 0.0, "nothing above it");
-    assert_eq!(
-        at(&cells, 15, 5).to_rgb8(),
-        [0, 255, 0],
-        "arms take the palette's colors from the second on"
-    );
-    assert_eq!(
-        shown(&cells),
-        shown(&draw(&still, time(3000, 10_000))),
-        "no speed, no turning"
-    );
-
-    let turning = pinwheel(PinwheelParams {
-        arms: 1,
-        speed: 10.0,
-        ..Default::default()
-    });
-    // 10 turns it 200 degrees a second: 90 degrees in 450 ms, counterclockwise from down to the
-    // right.
-    let later = draw(&turning, time(450, 10_000));
-    assert!(
-        at(&later, 25, 15).a > 0.0 && at(&later, 15, 5).a == 0.0,
-        "pointing right"
-    );
-    let cw = pinwheel(PinwheelParams {
-        counterclockwise: false,
-        ..match turning {
-            EffectParams::Pinwheel(p) => p,
-            _ => unreachable!(),
-        }
-    });
-    let later = draw(&cw, time(450, 10_000));
-    assert!(at(&later, 5, 15).a > 0.0, "clockwise: pointing left");
-}
-
-#[test]
-fn pinwheel_arms_thickness_and_shading() {
-    let thin = draw(&pinwheel(PinwheelParams::default()), time(0, 1000));
-    let thick = draw(
-        &pinwheel(PinwheelParams {
-            thickness: 50.0,
-            ..Default::default()
-        }),
-        time(0, 1000),
-    );
-    assert!(
-        lit_count(&thick) > 3 * lit_count(&thin),
-        "{} vs {}",
-        lit_count(&thick),
-        lit_count(&thin)
-    );
-    // Three arms in the second, third, and first colors.
-    let colors: std::collections::BTreeSet<[u8; 3]> =
-        thick.iter().filter(|c| c.a > 0.0).map(|c| c.to_rgb8()).collect();
-    assert_eq!(colors.len(), 3);
-    // Shaded arms are partly see-through across their width; flat ones aren't.
-    assert!(thick.iter().all(|c| c.a == 0.0 || c.a == 1.0));
-    let raised = draw(
-        &pinwheel(PinwheelParams {
-            thickness: 50.0,
-            shading: PinwheelShading::Raised,
-            ..Default::default()
-        }),
-        time(0, 1000),
-    );
-    assert!(raised.iter().any(|c| c.a > 0.0 && c.a < 0.9));
-    // Twist bends the arms; the center moves with center X.
-    let twisted = draw(
-        &pinwheel(PinwheelParams {
-            thickness: 50.0,
-            twist: 180.0,
-            ..Default::default()
-        }),
-        time(0, 1000),
-    );
-    assert_ne!(shown(&twisted), shown(&thick));
-    let moved = draw(
-        &pinwheel(PinwheelParams {
-            arms: 1,
-            center_x: 100.0,
-            speed: 0.0,
-            ..Default::default()
-        }),
-        time(0, 1000),
-    );
-    assert!(
-        at(&moved, 30, 5).a > 0.0 && at(&moved, 15, 5).a == 0.0,
-        "center at the right edge"
-    );
-}
-
-#[test]
-fn pinwheel_spokes_start_pointing_right() {
-    let spokes = pinwheel(PinwheelParams {
-        arms: 1,
-        speed: 0.0,
-        style: PinwheelStyle::Spokes,
-        thickness: 10.0,
-        shading: PinwheelShading::Sweep,
-        ..Default::default()
-    });
-    let cells = draw(&spokes, time(0, 1000));
-    assert!(at(&cells, 25, 15).a > 0.0, "the old method starts at 0 degrees");
-    assert_eq!(at(&cells, 5, 15).a, 0.0);
-    assert!(
-        cells.iter().any(|c| c.a > 0.0 && c.a < 1.0),
-        "swept spokes fade across the arm"
-    );
-    // Long arms reach past the grid without drawing outside it.
-    let long = pinwheel(PinwheelParams {
-        arm_size: 400.0,
-        style: PinwheelStyle::Spokes,
-        ..Default::default()
-    });
-    assert!(lit_count(&draw(&long, time(5000, 10_000))) > 0);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -736,7 +602,7 @@ fn text_stacks_and_counts_down() {
 fn hostile_settings_never_panic() {
     let tiny = Canvas { columns: 1, rows: 1 };
     let all = [
-        pinwheel(PinwheelParams {
+        EffectParams::Pinwheel(PinwheelParams {
             arms: 20,
             arm_size: 400.0,
             twist: -360.0,

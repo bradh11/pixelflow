@@ -31,6 +31,8 @@ import type {
   FppSendResult,
   SendSource,
   PlayerStatus,
+  PreviewLinked,
+  PreviewSide,
   Discovery,
   Edit,
   FileRole,
@@ -259,6 +261,19 @@ export interface Backend {
   onCloseRequested(allow: () => boolean): Promise<() => void>;
   /** Closes the window for good, without asking again. */
   closeWindow(): Promise<void>;
+  /**
+   * Opens the preview in a window of its own, or brings that window to the front. False when it
+   * couldn't be opened (a browser that blocks pop-ups).
+   */
+  openPreviewWindow(): Promise<boolean>;
+  /** Closes the preview's own window. */
+  closePreviewWindow(): Promise<void>;
+  /**
+   * How the main window and the preview's own window keep in step: leaves `note` for the other
+   * window (when given) and resolves with the other's latest, and whether the preview's window
+   * is open. `side` is the window asking (the desktop app goes by the window itself, not this).
+   */
+  previewLink(side: PreviewSide, note?: unknown): Promise<PreviewLinked>;
   /**
    * Shows opened or saved lately, newest first, each saying whether its file is still there.
    * Only opening, saving, and restoring a show put it on the list.

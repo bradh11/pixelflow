@@ -237,10 +237,19 @@ describe("every control has a name, and icon-only buttons have tooltips", { time
     await user.keyboard("{Escape}");
 
     go("play");
+    found.push(...problems("play, with the open sequence"));
     backend.nextSequencePath = "/Shows/Medley.fseq";
+    await user.click(screen.getByRole("button", { name: "Playlist" }));
     await user.click(screen.getByRole("button", { name: "Add sequence" }));
-    await screen.findByRole("region", { name: "Transport" });
-    found.push(...problems("play, with a sequence"));
+    await screen.findByRole("region", { name: "Music" });
+    found.push(...problems("play, with the playlist open on a rendered sequence"));
+    await user.click(screen.getByRole("button", { name: "Pop out the preview" }));
+    await screen.findByText("Preview is in its own window");
+    found.push(...problems("play, with the preview in its own window"));
+    await user.click(screen.getByRole("button", { name: "Bring it back" }));
+    await user.click(screen.getByRole("button", { name: "Full screen" }));
+    found.push(...problems("play, full screen"));
+    await user.keyboard("{Escape}");
 
     go("sequence");
     await user.click(screen.getByRole("button", { name: "Beats menu" }));

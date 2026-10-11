@@ -20,6 +20,7 @@ import { useModalFocus } from "./components/useModalFocus";
 import { useShortcuts } from "./components/useShortcuts";
 import { requestWindowClose } from "./state/busy";
 import { runMenuAction } from "./state/menuActions";
+import { usePreviewLink } from "./state/previewWindow";
 import { systemTheme, useApp } from "./state/store";
 
 export function App() {
@@ -28,6 +29,7 @@ export function App() {
   const backend = useApp((s) => s.backend);
   useShortcuts();
   useModalFocus();
+  usePreviewLink();
   // Closing the window with unsaved work asks first.
   useEffect(() => {
     if (!backend) return;

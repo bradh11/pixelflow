@@ -118,15 +118,17 @@ describe("missing files", () => {
     backend.missingPaths.add(FSEQ);
     await useApp.getState().connect(backend);
     await user.click(screen.getByRole("button", { name: "Play" }));
-    const list = screen.getByRole("complementary", { name: "Sequences" });
-    expect(within(list).getByLabelText("A file isn't where it was")).toBeInTheDocument();
-    const transport = screen.getByRole("region", { name: "Transport" });
-    expect(within(transport).getByRole("group", { name: "Christmas Medley 2017.fseq isn't where it was." })).toBeInTheDocument();
-    const song = within(transport).getByRole("group", { name: "Christmas Medley 2017.mp3 isn't where it was." });
+    // In the playlist drawer: the sequence's file with the playlist, its song with its music.
+    const drawer = screen.getByRole("complementary", { name: "Playlist" });
+    const playlist = within(drawer).getByRole("region", { name: "Playlist" });
+    expect(within(playlist).getByLabelText("A file isn't where it was")).toBeInTheDocument();
+    expect(within(playlist).getByRole("group", { name: "Christmas Medley 2017.fseq isn't where it was." })).toBeInTheDocument();
+    const music = within(drawer).getByRole("region", { name: "Music" });
+    const song = within(music).getByRole("group", { name: "Christmas Medley 2017.mp3 isn't where it was." });
     expect(song).toHaveTextContent("It was in /Shows/Haas 2024/MP3 Music.");
     await user.click(within(song).getByRole("button", { name: "Find Christmas Medley 2017.mp3 again" }));
     await screen.findByRole("dialog", { name: "Found 1 file" });
-    expect(within(transport).queryByRole("group", { name: /mp3 isn't where it was/ })).not.toBeInTheDocument();
+    expect(within(music).queryByRole("group", { name: /mp3 isn't where it was/ })).not.toBeInTheDocument();
   });
 
   it("shows a missing photo in the layout's photo panel", async () => {

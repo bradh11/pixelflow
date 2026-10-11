@@ -491,6 +491,7 @@ mod tests {
                 dialog: Default::default(),
                 imported_from: Mutex::default(),
                 vendor_mappings: Arc::new(crate::vendor::SavedMappings::new(None)),
+                preview: crate::preview_window::PreviewState::new(None),
             })
             .manage(AiState::new(KeyVault::new(Box::new(store)), providers))
             .manage(

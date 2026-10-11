@@ -11,6 +11,7 @@ import { FALLBACK_ASPECT, imageAspect, useBackgroundImage, usePreviewProps, useP
 import { useLayoutKeys } from "../components/layout/useLayoutKeys";
 import { Layout3dView } from "../components/layout3d/Layout3dView";
 import { useLayout3dKeys } from "../components/layout3d/useLayout3dKeys";
+import { PreviewWindowToggle } from "../components/preview/PopOut";
 import { Button, IconButton, ScreenHeader } from "../components/ui";
 import { useElementWidth } from "../lib/useWidth";
 import { boxOfPoints, defaultBackground, unionBox } from "../lib/layoutMath";
@@ -134,6 +135,7 @@ export function LayoutScreen() {
           />
         }
       >
+        <PreviewWindowToggle />
         <AddPropMenu preview={preview.props} />
       </ScreenHeader>
       <div ref={row} data-layout-row className="relative flex min-h-0 flex-1 gap-3">

@@ -196,6 +196,10 @@ pub(crate) fn refresh_recent<R: Runtime>(app: &AppHandle<R>, recent: &RecentShow
 /// Hands a chosen menu item to the window.
 pub(crate) fn on_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
     let id = event.id().as_ref();
+    // Close Window with the preview's window in front closes that one: nothing to ask about.
+    if id == CLOSE_WINDOW && crate::preview_window::close_if_in_front(app) {
+        return;
+    }
     if id == CLOSE_WINDOW || id == QUIT {
         // Asks about unsaved work first, like the window's close button; the app quits when
         // its last window has closed.

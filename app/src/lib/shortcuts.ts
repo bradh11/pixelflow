@@ -1,12 +1,12 @@
 // Every keyboard shortcut in the app, in one place. The shortcut sheet (?) is built from this
 // list, and tooltips, menus and the command palette read their key hints from it, so what they
 // say can't drift from each other. The key handlers themselves live with their screens
-// (useShortcuts, useLayoutKeys, useLayout3dKeys, useSequenceKeys); a test checks that each one
+// (useShortcuts, useLayoutKeys, useLayout3dKeys, useSequenceKeys, usePlayKeys); a test checks that each one
 // listed here does what it says.
 
-export type ShortcutGroup = "Everywhere" | "Layout" | "Layout in 3D" | "Wiring" | "Sequence";
+export type ShortcutGroup = "Everywhere" | "Layout" | "Layout in 3D" | "Wiring" | "Sequence" | "Play";
 
-export const SHORTCUT_GROUPS: ShortcutGroup[] = ["Everywhere", "Layout", "Layout in 3D", "Wiring", "Sequence"];
+export const SHORTCUT_GROUPS: ShortcutGroup[] = ["Everywhere", "Layout", "Layout in 3D", "Wiring", "Sequence", "Play"];
 
 export interface Shortcut {
   id: string;
@@ -69,6 +69,12 @@ export const SHORTCUTS = [
   { id: "seq-escape", group: "Sequence", keys: "Escape", label: "Clear the selection" },
   { id: "seq-tap", group: "Sequence", keys: "T", label: "Tap a timing mark in at the playhead" },
   { id: "seq-loop", group: "Sequence", keys: "L", label: "Loop playback on or off" },
+  // Play
+  { id: "play-toggle", group: "Play", keys: "Space", label: "Play or pause" },
+  { id: "play-loop", group: "Play", keys: "L", label: "Loop the open sequence, or stop looping it" },
+  { id: "play-ends", group: "Play", keys: "Home End", label: "Jump to the start or the end" },
+  { id: "play-fullscreen", group: "Play", keys: "F", label: "Full screen: only the lights" },
+  { id: "play-escape", group: "Play", keys: "Escape", label: "Leave full screen" },
 ] as const satisfies readonly Shortcut[];
 
 export type ShortcutId = (typeof SHORTCUTS)[number]["id"];

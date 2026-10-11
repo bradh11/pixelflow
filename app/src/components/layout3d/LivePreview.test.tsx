@@ -5,7 +5,7 @@ import { MemoryBackend, emptyShow } from "../../api/memory";
 import { newProp } from "../../lib/shows";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { useApp } from "../../state/store";
-import { LivePreview } from "./LivePreview";
+import { LivePreview, LiveViewControls } from "./LivePreview";
 import type { Scene3d } from "./scene";
 
 const fake = vi.hoisted(() => ({ colors: [] as { rgb: number[]; lit: boolean }[], gizmo: [] as unknown[] }));
@@ -51,19 +51,25 @@ describe("the live preview", () => {
     show.props = [line];
     await useApp.getState().connect(new MemoryBackend(show));
     useLayoutEditor.getState().select([line.id]);
-    const props = [{ prop: line.id, frameOffset: 0, channelsPerPixel: 3, points: [0, 0, 1, 0] }];
     const user = userEvent.setup();
-    const { rerender } = render(<LivePreview props={props} frame={null} />);
-    expect(screen.getByRole("img", { name: "Preview" })).toBeInTheDocument();
+    /** The Play screen's preview, with the controls its bar has. */
+    const live = (frame: Uint8Array | null) => (
+      <>
+        <LiveViewControls />
+        <LivePreview frame={frame} />
+      </>
+    );
+    const { rerender } = render(live(null));
+    expect(screen.getByRole("img", { name: "Preview of the lights" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "3D" }));
     expect(screen.getByRole("application", { name: "3D preview" })).toBeInTheDocument();
     expect(localStorage.getItem("pixelflow.playMode")).toBe("3d");
     await waitFor(() => expect(fake.colors.at(-1)?.lit).toBe(false));
-    rerender(<LivePreview props={props} frame={new Uint8Array([9, 8, 7, 6, 5, 4])} />);
+    rerender(live(new Uint8Array([9, 8, 7, 6, 5, 4])));
     await waitFor(() => expect(fake.colors.at(-1)).toEqual({ rgb: [9, 8, 7, 6, 5, 4], lit: true }));
     // Look only: no gizmo, even with a prop selected in the editor.
     expect(fake.gizmo.every((g) => g === null)).toBe(true);
     await user.click(screen.getByRole("button", { name: "2D" }));
-    expect(screen.getByRole("img", { name: "Preview" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Preview of the lights" })).toBeInTheDocument();
   });
 });

@@ -85,18 +85,46 @@ can check its power and network cable.
 
 ### Play a sequence
 
-PixelFlow plays rendered xLights/FPP sequences (`.fseq`) straight to your controllers and shows
-them on screen:
+**Play** is the show-time view: your lights filling the window while a sequence plays, with a
+transport under them (play, pause, back to the start, stop, a seek bar, 2D or 3D, and glow).
+
+- **What you're working on plays there.** A sequence open on the **Sequence** screen shows on
+  Play ready to go. It's the same playback as the Sequence screen's, so play, pause, and the
+  position stay in step between the two. **Show on my lights** sends it to your controllers as
+  it plays; off, it plays only on screen.
+- **Full screen** (or F) puts everything else away, leaving the lights and a transport that
+  hides itself while a sequence plays. Escape brings the app back.
+- **Playlist** opens a drawer with everything there is to play: the open sequence, the
+  sequences saved with this show, and the show's rendered ones. Picking one plays it. Each
+  rendered sequence's music, its volume, and the lights' timing against it are there too, and
+  so is what's on your FPP.
+
+PixelFlow also plays rendered xLights/FPP sequences (`.fseq`) straight to your controllers:
 
 1. On **Devices**, open your FPP and choose **Add to show** next to each controller it sends to.
    This tells PixelFlow which sequence channels belong to each controller, and it works even
    while a controller is offline.
-2. On **Play**, choose **Open sequence…** and pick the `.fseq`. You get play, pause, seek, and
-   stop. Props you've imported light up in the preview. A controller whose strings aren't
-   imported yet shows the channels it receives as a grid.
+2. On **Play**, open the **Playlist** and choose **Add sequence**, then pick the `.fseq`.
+   PixelFlow finds its music next to it. Props you've imported light up in the preview. A
+   controller whose strings aren't imported yet shows the channels it receives as a grid.
 
 If an FPP is playing at the same time, its output overrides PixelFlow's. The Play screen warns
 you about this and can stop the FPP for you.
+
+### Put the preview in its own window
+
+**Pop out the preview** (on the Sequence screen's preview, on Play's transport, and as
+**Preview window** on the Layout screen's tool bar) opens the preview in a window of its own, so
+the main window's room goes to the timeline and controls, or the lights go to another display.
+Drag it there and use its **Full screen** button (or F) to fill that display.
+
+The window shows what the screen in front would: the open sequence at the playhead on Sequence
+and Play, and the lights live (a rendered sequence playing, a test pattern) on Layout and the
+other screens. On Layout the canvas stays as it is, since it's the editor; the window is a
+second, look-only view, so you can edit in 2D and watch in 3D. It only looks: 2D or 3D and glow
+can be changed there, and play or pause asked for, but nothing else. Close it, or choose
+**Bring it back**, and the preview returns to where it was. PixelFlow remembers that it was
+popped out, and where its window was.
 
 ### Control an FPP
 

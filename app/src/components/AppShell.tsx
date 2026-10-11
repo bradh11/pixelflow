@@ -33,6 +33,7 @@ import { hintFor } from "../lib/shortcuts";
 import { useWindowBand } from "../lib/useWidth";
 import { Button, UnsavedBadge } from "./ui";
 import { redoTarget, saveFocused, undoFocused } from "../state/menuActions";
+import { useTheatre } from "../state/theatre";
 import { nextLabels, useUndoLabels } from "../state/undoLabels";
 
 function IconButton({
@@ -361,7 +362,9 @@ function AssistantButton() {
   );
 }
 
-const WORK_SCREENS = new Set(["layout", "wiring", "play"]);
+const WORK_SCREENS = new Set(["layout", "wiring"]);
+/** Screens that fill the room themselves, edge to edge. */
+const FULL_SCREENS = new Set(["sequence", "play"]);
 
 export function AppShell() {
   const screen = useApp((s) => s.screen);
@@ -369,19 +372,21 @@ export function AppShell() {
   // In a narrow window the assistant floats over the screen rather than squeezing it; on a laptop
   // it takes a narrower column (and the sidebar folds to icons).
   const band = useWindowBand();
+  // Full screen on Play: everything but the screen itself is put away.
+  const theatre = useTheatre((s) => s.on) && screen === "play";
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <TopBar />
-      <MissingFilesBanner />
+      {!theatre && <TopBar />}
+      {!theatre && <MissingFilesBanner />}
       <div className="relative flex min-h-0 flex-1">
-        <Sidebar />
+        {!theatre && <Sidebar />}
         {/* Work screens give the room to their canvas or list; overview screens get more air. */}
-        <main className={`min-w-0 flex-1 ${screen === "sequence" ? "overflow-hidden" : WORK_SCREENS.has(screen) ? "overflow-auto p-4" : "overflow-auto p-6"}`}>
+        <main className={`min-w-0 flex-1 ${FULL_SCREENS.has(screen) ? "overflow-hidden" : WORK_SCREENS.has(screen) ? "overflow-auto p-4" : "overflow-auto p-6"}`}>
           <CurrentScreen />
         </main>
-        {assistantOpen && <AssistantPanel overlay={band === "narrow"} compact={band !== "wide"} />}
+        {!theatre && assistantOpen && <AssistantPanel overlay={band === "narrow"} compact={band !== "wide"} />}
       </div>
-      <StatusBar />
+      {!theatre && <StatusBar />}
     </div>
   );
 }

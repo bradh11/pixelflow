@@ -19,6 +19,7 @@ mod menu;
 mod pickers;
 mod pictures;
 mod playback;
+mod preview_window;
 mod probes;
 mod progress;
 mod recent;
@@ -73,6 +74,8 @@ struct AppState {
     imported_from: Mutex<Option<(u64, PathBuf)>>,
     /// The vendor mappings used last (see `vendor`).
     vendor_mappings: Arc<vendor::SavedMappings>,
+    /// The preview's own window, when it's popped out (see `preview_window`).
+    preview: preview_window::PreviewState,
 }
 
 impl AppState {
@@ -272,9 +275,11 @@ async fn output_status(state: State<'_, AppState>) -> Reply<OutputStatus> {
     Ok(state.engine().output_status())
 }
 
-/// Registers every command the UI can call.
+/// Registers every command the UI can call. The main window may call any of them; the
+/// preview's window only the few it draws with (see `preview_window`), and is refused the rest
+/// here, before a command runs.
 fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
-    builder.invoke_handler(tauri::generate_handler![
+    let commands = handler::<R>(tauri::generate_handler![
         get_snapshot,
         apply_edits,
         undo,
@@ -422,7 +427,27 @@ fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         recent::forget_recent_show,
         recent::clear_recent_shows,
         recent::locate_recent_show,
-    ])
+        preview_window::open_preview_window,
+        preview_window::close_preview_window,
+        preview_window::preview_link,
+        preview_window::set_fullscreen,
+        preview_window::is_fullscreen,
+    ]);
+    builder.invoke_handler(move |invoke| {
+        let window = invoke.message.webview_ref().label();
+        if !preview_window::may_call(window, invoke.message.command()) {
+            invoke.resolver.reject(preview_window::REFUSED);
+            return true;
+        }
+        commands(invoke)
+    })
+}
+
+/// Gives the generated command handler its type, so it can be called from another closure.
+fn handler<R: tauri::Runtime>(
+    commands: impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static,
+) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
+    commands
 }
 
 /// The app's compiled configuration and permissions (expanded once, shared with tests).
@@ -461,7 +486,8 @@ pub fn run() {
                 last_folders: pickers::LastFolders::new(config_dir.clone()),
                 dialog: Default::default(),
                 imported_from: Mutex::default(),
-                vendor_mappings: Arc::new(vendor::SavedMappings::new(config_dir)),
+                vendor_mappings: Arc::new(vendor::SavedMappings::new(config_dir.clone())),
+                preview: preview_window::PreviewState::new(config_dir),
             });
             // macOS has a menu bar either way: this one has the show's File menu.
             #[cfg(target_os = "macos")]
@@ -490,7 +516,8 @@ pub fn run() {
 }
 
 /// The app's own events: an exit asked for while there's unsaved work waits for the window to
-/// ask about it, and quitting keeps unsaved work and blacks out the lights.
+/// ask about it, the preview's own window closes with the main one, and quitting keeps unsaved
+/// work and blacks out the lights.
 fn on_run_event<R: Runtime>(app: &AppHandle<R>, event: tauri::RunEvent) {
     match event {
         tauri::RunEvent::ExitRequested { code, api, .. } if exit_must_wait(app, code) => {
@@ -501,6 +528,11 @@ fn on_run_event<R: Runtime>(app: &AppHandle<R>, event: tauri::RunEvent) {
                 let _ = window.close();
             }
         }
+        tauri::RunEvent::WindowEvent {
+            label,
+            event: tauri::WindowEvent::Destroyed,
+            ..
+        } => preview_window::window_gone(app, &label),
         tauri::RunEvent::Exit => {
             if let Some(state) = app.try_state::<AppState>() {
                 shut_down(&state);
@@ -593,6 +625,7 @@ mod tests {
                 dialog: Default::default(),
                 imported_from: Mutex::default(),
                 vendor_mappings: Arc::new(vendor::SavedMappings::new(Some(dir.join("config")))),
+                preview: preview_window::PreviewState::new(Some(dir.join("config"))),
             })
             .manage(sync::SyncState::with_opener(Arc::new(|_| {
                 Ok((
@@ -1017,6 +1050,94 @@ mod tests {
             permissions.iter().all(|p| !p.starts_with("dialog:")),
             "{permissions:?}"
         );
+    }
+
+    #[test]
+    fn the_preview_window_gets_no_permissions_and_none_of_the_main_windows() {
+        let main: Value = serde_json::from_str(include_str!("../capabilities/default.json")).unwrap();
+        assert_eq!(main["windows"], json!([preview_window::MAIN]));
+        let preview: Value = serde_json::from_str(include_str!("../capabilities/preview.json")).unwrap();
+        assert_eq!(preview["windows"], json!([preview_window::LABEL]));
+        assert_eq!(preview["permissions"], json!([]));
+    }
+
+    #[test]
+    fn the_preview_pops_out_into_its_own_window_which_only_reads_what_it_draws() {
+        let (app, main, _dir) = app();
+        call(&main, "open_preview_window", json!({})).unwrap();
+        let preview = app
+            .get_webview_window(preview_window::LABEL)
+            .expect("the preview's window");
+        // The app's own page, told to draw only the preview.
+        assert_eq!(preview.url().unwrap().query(), Some("window=preview"));
+        // Asked for again, it's the same window brought to the front.
+        call(&main, "open_preview_window", json!({})).unwrap();
+        assert_eq!(app.webview_windows().len(), 2);
+
+        // It reads what it draws…
+        assert_eq!(call(&preview, "playback_status", json!({})), Ok(Value::Null));
+        assert_eq!(
+            call(&preview, "get_snapshot", json!({})).unwrap()["show"]["name"],
+            "Untitled Show"
+        );
+        assert_eq!(call_raw(&preview, "live_frame", json!({})), Ok(vec![]));
+        // …and is refused everything else, before it runs.
+        for (cmd, args) in [
+            (
+                "apply_edits",
+                json!({ "edits": [{ "type": "renameShow", "name": "Changed" }] }),
+            ),
+            ("new_show", json!({ "name": "Changed" })),
+            ("stop_playback", json!({})),
+            ("pause_playback", json!({ "paused": true })),
+            ("open_preview_window", json!({})),
+            ("close_preview_window", json!({})),
+            ("pick_path", json!({ "kind": "show" })),
+        ] {
+            assert_eq!(
+                call(&preview, cmd, args),
+                Err(json!(preview_window::REFUSED)),
+                "{cmd}"
+            );
+        }
+        let snapshot = call(&main, "get_snapshot", json!({})).unwrap();
+        assert_eq!(snapshot["show"]["name"], "Untitled Show");
+        assert_eq!(snapshot["dirty"], false);
+
+        // Each window leaves a note and reads the other's; whose is whose goes by the window.
+        let linked = call(&main, "preview_link", json!({ "note": { "source": "live" } })).unwrap();
+        assert_eq!(linked, json!({ "theirs": null, "open": true }));
+        let linked = call(&preview, "preview_link", json!({ "note": { "toggles": 1 } })).unwrap();
+        assert_eq!(linked["theirs"], json!({ "source": "live" }));
+        assert_eq!(
+            call(&main, "preview_link", json!({})).unwrap()["theirs"],
+            json!({ "toggles": 1 })
+        );
+
+        // Either window fills its own display.
+        assert_eq!(
+            call(&preview, "set_fullscreen", json!({ "on": true })),
+            Ok(Value::Null)
+        );
+        assert_eq!(call(&main, "is_fullscreen", json!({})), Ok(json!(false)));
+
+        // Brought back: the window closes, and what it said goes with it.
+        call(&main, "close_preview_window", json!({})).unwrap();
+        assert_eq!(
+            call(&main, "preview_link", json!({})).unwrap(),
+            json!({ "theirs": null, "open": false })
+        );
+    }
+
+    #[test]
+    fn the_preview_window_closes_with_the_main_one() {
+        let (app, main, _dir) = app();
+        call(&main, "open_preview_window", json!({})).unwrap();
+        // Its own going leaves nothing more to close.
+        preview_window::window_gone(app.handle(), preview_window::LABEL);
+        assert_eq!(call(&main, "preview_link", json!({})).unwrap()["open"], true);
+        preview_window::window_gone(app.handle(), preview_window::MAIN);
+        assert_eq!(call(&main, "preview_link", json!({})).unwrap()["open"], false);
     }
 
     #[test]

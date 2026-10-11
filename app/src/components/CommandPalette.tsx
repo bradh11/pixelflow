@@ -6,6 +6,7 @@ import { PROP_KINDS } from "../lib/shows";
 import { addPropInView } from "../state/addProp";
 import { useAssistant } from "../state/assistant";
 import { saveFocused, undoFocused } from "../state/menuActions";
+import { usePreviewWindow } from "../state/previewWindow";
 import { useSequencer } from "../state/sequencer";
 import { useShortcutSheet } from "../state/shortcutSheet";
 import { useView3d } from "../state/view3d";
@@ -27,6 +28,7 @@ export function CommandPalette() {
   const state = useApp();
   const sequenceHasMusic = useSequencer((s) => Boolean(s.doc?.audio));
   const in3d = useView3d((s) => s.mode === "3d");
+  const poppedOut = usePreviewWindow((s) => s.poppedOut);
 
   useEffect(() => {
     if (!open) return;
@@ -108,6 +110,9 @@ export function CommandPalette() {
       },
     },
     { id: "stop-output", label: "Stop live output (test pattern or playback to the lights)", run: () => state.backend?.stopOutput() },
+    poppedOut
+      ? { id: "preview-window", label: "Bring the preview back (close its own window)", run: () => usePreviewWindow.getState().bringBack() }
+      : { id: "preview-window", label: "Pop out the preview (its own window)", run: () => usePreviewWindow.getState().popOut() },
     {
       id: "layout-mode",
       label: in3d ? "Layout: switch to the 2D view" : "Layout: switch to the 3D view",

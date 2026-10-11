@@ -1,39 +1,28 @@
-import type { PreviewProp } from "../../api/types";
-import { useApp } from "../../state/store";
-import { showViewKey, useView3d } from "../../state/view3d";
-import { PreviewCanvas } from "../PreviewCanvas";
-import { useBackgroundImage, usePreviewProps3d } from "../layout/useLayoutData";
+import { useView3d } from "../../state/view3d";
+import { PreviewStage } from "../preview/PreviewStage";
 import { GlowControl } from "./GlowControl";
-import { Layout3dView } from "./Layout3dView";
 import { ModeSwitch } from "./ModeSwitch";
 
 /**
- * The props in their live colors, flat (front view) or in 3D, with a switch between the two
- * (remembered) and the viewer's glow. The 3D view is look-only here and shares the Layout
- * screen's camera for the show.
+ * The props in their live colors, flat (front view) or in 3D as the Play screen was last left.
+ * The 3D view is look-only here and shares the Layout screen's camera for the show.
  */
-export function LivePreview({ props, frame }: { props: PreviewProp[]; frame: Uint8Array | null }) {
-  const snapshot = useApp((s) => s.snapshot);
+export function LivePreview({ frame }: { frame: Uint8Array | null }) {
+  const mode = useView3d((s) => s.playMode);
+  return <PreviewStage frame={frame} mode={mode} label="Preview of the lights" />;
+}
+
+/**
+ * How the Play screen's preview looks: the viewer's glow, and the switch between 2D and 3D
+ * (remembered). `drop`: which way the glow's panel opens.
+ */
+export function LiveViewControls({ drop = "down" }: { drop?: "down" | "up" }) {
   const mode = useView3d((s) => s.playMode);
   const setMode = useView3d((s) => s.setPlayMode);
-  const glow = useView3d((s) => s.glow);
-  const in3d = mode === "3d";
-  const preview3d = usePreviewProps3d(in3d);
-  const photo = useBackgroundImage(in3d ? snapshot?.show.background?.path : null);
-  if (!snapshot) return null;
   return (
-    <div className="flex h-full min-h-64 flex-col gap-2">
-      <div className="flex items-center justify-end gap-1">
-        <GlowControl align="right" />
-        <ModeSwitch mode={mode} onChange={setMode} />
-      </div>
-      <div className="relative min-h-64 flex-1">
-        {in3d ? (
-          <Layout3dView preview={preview3d} show={snapshot.show} photo={photo} storageKey={showViewKey(snapshot.path, snapshot.show.name)} frame={frame} />
-        ) : (
-          <PreviewCanvas props={props} frame={frame} glow={glow} />
-        )}
-      </div>
-    </div>
+    <span className="inline-flex shrink-0 items-center gap-1">
+      <GlowControl align="right" drop={drop} iconOnly />
+      <ModeSwitch mode={mode} onChange={setMode} />
+    </span>
   );
 }

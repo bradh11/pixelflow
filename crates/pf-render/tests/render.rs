@@ -727,11 +727,25 @@ fn fades_scale_the_effect_and_later_rows_cover_earlier_ones() {
     let mut seq = Sequence::new("s", 5000);
     seq.rows.push(row(a, vec![vec![fading]]));
     let red_at = |seq: &Sequence, t: u64| pixels(&render(&show, seq, t)).0[0][0];
-    assert_eq!(red_at(&seq, 1000), 0);
-    assert_eq!(red_at(&seq, 1200), 128);
+    // Stepped as xLights steps a fade, here over 16 frames in and 8 out: the first frame is one
+    // step up already, and the last frame is dark.
+    assert_eq!(red_at(&seq, 1000), 16, "1/16");
+    assert_eq!(red_at(&seq, 1200), 143, "9/16");
+    assert_eq!(red_at(&seq, 1375), 255, "16/16");
     assert_eq!(red_at(&seq, 1500), 255);
-    assert_eq!(red_at(&seq, 1900), 128);
+    assert_eq!(red_at(&seq, 1900), 96, "3/8");
+    assert_eq!(red_at(&seq, 1975), 0, "its last frame");
     assert_eq!(red_at(&seq, 2000), 0, "ended");
+    // Where a fade-in and a fade-out overlap, the effect shows their average; a fade shorter
+    // than a frame is no fade.
+    let mut short = on(Rgb::WHITE, 0, 200);
+    (short.fade_in_ms, short.fade_out_ms) = (200, 100);
+    let mut seq = Sequence::new("s", 5000);
+    seq.rows.push(row(a, vec![vec![short]]));
+    assert_eq!(red_at(&seq, 50), 96, "3/8 in");
+    assert_eq!(red_at(&seq, 125), 159, "6/8 in and 2/4 out");
+    seq.rows[0].layers[0].effects[0].fade_in_ms = 20;
+    assert_eq!(red_at(&seq, 0), 255);
 
     // A later row covers an earlier one on the same pixels: the group row draws over prop A's row.
     let mut seq = Sequence::new("s", 5000);
@@ -747,6 +761,36 @@ fn fades_scale_the_effect_and_later_rows_cover_earlier_ones() {
     let (a_pixels, b_pixels) = pixels(&render(&show, &seq, 0));
     assert_eq!(a_pixels[0], [128, 0, 128], "half-covered red");
     assert_eq!(b_pixels[0], [0, 0, 128, 0]);
+}
+
+#[test]
+fn a_fade_is_transparency_under_the_plain_blend_and_brightness_under_the_others() {
+    // As xLights mixes a fading layer (`PixelBufferClass::mixColors`): "Normal" scales the
+    // layer's alpha, so what's below shows through; every other method dims the layer's color
+    // and then mixes as usual.
+    let show = show();
+    let a = Target::Prop(show.props[0].id);
+    let half_faded = |blend: Blend| {
+        let mut top = on(Rgb::BLUE, 0, 1000);
+        // 8 frames to fade in: half way up on the fourth.
+        (top.fade_in_ms, top.blend) = (200, blend);
+        let mut seq = Sequence::new("s", 1000);
+        seq.rows
+            .push(row(a, vec![vec![on(Rgb::RED, 0, 1000)], vec![top]]));
+        pixels(&render(&show, &seq, 75)).0[0]
+    };
+    assert_eq!(half_faded(Blend::Normal), [128, 0, 128], "half see-through");
+    assert_eq!(half_faded(Blend::Add), [255, 0, 128], "half as bright, added");
+    assert_eq!(
+        half_faded(Blend::Over),
+        [0, 0, 128],
+        "half as bright, and it still covers"
+    );
+    assert_eq!(
+        half_faded(Blend::Behind),
+        [255, 0, 0],
+        "what's below is lit, so it shows"
+    );
 }
 
 #[test]

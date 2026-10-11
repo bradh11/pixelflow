@@ -388,18 +388,26 @@ fn canvas_of(buffer: &PixelBuffer) -> Canvas {
     }
 }
 
-/// How much of the effect shows at `t_ms`, from its fade-in and fade-out.
-pub(crate) fn fade_level(effect: &Effect, t_ms: u64) -> f32 {
-    let mut level = 1.0f32;
-    if effect.fade_in_ms > 0 {
-        let since = t_ms.saturating_sub(effect.start_ms) as f32;
-        level = level.min(since / effect.fade_in_ms as f32);
+/// How much of the effect shows at `t_ms`, from its fade-in and fade-out, stepped frame by frame
+/// as xLights steps them (`PixelBufferClass::HandleLayerTransitions`): a fade lasts a whole
+/// number of frames; fading in, the effect's first frame is already one step up; fading out,
+/// its last frame is dark; and where the two overlap, it shows their average.
+pub(crate) fn fade_level(effect: &Effect, t_ms: u64, frame_ms: u32) -> f32 {
+    let frame = u64::from(frame_ms.max(1));
+    let (fade_in, fade_out) = (
+        u64::from(effect.fade_in_ms) / frame,
+        u64::from(effect.fade_out_ms) / frame,
+    );
+    let at = t_ms / frame;
+    let since = at.saturating_sub(effect.start_ms / frame);
+    let left = (effect.end_ms.saturating_sub(1) / frame).saturating_sub(at);
+    let fading_in = (since < fade_in).then(|| (since + 1) as f32 / fade_in as f32);
+    let fading_out = (left < fade_out).then(|| left as f32 / fade_out as f32);
+    match (fading_in, fading_out) {
+        (Some(up), Some(down)) => (up + down) / 2.0,
+        (Some(level), None) | (None, Some(level)) => level,
+        (None, None) => 1.0,
     }
-    if effect.fade_out_ms > 0 {
-        let left = effect.end_ms.saturating_sub(t_ms) as f32;
-        level = level.min(left / effect.fade_out_ms as f32);
-    }
-    level.clamp(0.0, 1.0)
 }
 
 /// One effect being drawn onto a row.
@@ -426,7 +434,7 @@ impl Draw<'_> {
     /// (Faces).
     fn run(self, shader: Option<&Shader>) {
         let effect = self.effect;
-        let fade = fade_level(effect, self.t_ms);
+        let fade = fade_level(effect, self.t_ms, self.frame_ms);
         // A fully faded effect changes nothing, except under the blends that black out what's
         // below where the effect is unlit.
         if fade <= 0.0

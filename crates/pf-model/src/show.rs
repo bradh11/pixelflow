@@ -109,6 +109,10 @@ fn default_opacity() -> f32 {
     1.0
 }
 
+/// The farthest from the layout's origin a background photo may sit, and the widest it may be,
+/// in layout units: far beyond any real display, and small enough that placing it stays sound.
+const BACKGROUND_REACH: f32 = 1_000_000.0;
+
 impl Background {
     /// A photo at `path` with its top-left corner at (`x`, `y`), `width` units wide, at full
     /// strength.
@@ -130,8 +134,14 @@ impl Background {
         if !(self.x.is_finite() && self.y.is_finite()) {
             return Some("The background photo's position must be a number.".into());
         }
+        if self.x.abs() > BACKGROUND_REACH || self.y.abs() > BACKGROUND_REACH {
+            return Some("The background photo is too far from the layout to show.".into());
+        }
         if !(self.width.is_finite() && self.width > 0.0) {
             return Some("The background photo must be wider than zero.".into());
+        }
+        if self.width > BACKGROUND_REACH {
+            return Some("The background photo is too wide to show.".into());
         }
         if !(0.0..=1.0).contains(&self.opacity) {
             return Some("The background photo's strength must be between 0% and 100%.".into());
@@ -395,7 +405,29 @@ mod tests {
                 },
                 "between 0% and 100%",
             ),
+            (
+                Background {
+                    width: 1e12,
+                    ..ok.clone()
+                },
+                "too wide",
+            ),
+            (
+                Background {
+                    y: -2e6,
+                    ..ok.clone()
+                },
+                "too far",
+            ),
         ];
+        // As far and as wide as is allowed.
+        let edge = Background {
+            x: -1e6,
+            y: 1e6,
+            width: 1e6,
+            ..ok.clone()
+        };
+        assert_eq!(edge.problem(), None);
         for (background, expected) in cases {
             let problem = background.problem().expect("a problem");
             assert!(problem.contains(expected), "{problem}");

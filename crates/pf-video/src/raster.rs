@@ -270,7 +270,11 @@ impl Scene {
         let (left, top) = self.to_picture(b.min_x, b.max_y);
         let (right, bottom) = self.to_picture(b.max_x, b.min_y);
         let (pw, ph) = ((right - left).round(), (bottom - top).round());
-        if pw < 1.0 || ph < 1.0 {
+        // The photo is part of what the picture is fitted to, so it's never larger than the
+        // picture, unless where the show puts it makes no sense (not a number, or so wide the
+        // zoom can't shrink it to fit). Such a photo is left out, not scaled up to that size.
+        let drawable = |size: f32, picture: usize| size >= 1.0 && size <= 4.0 * picture as f32;
+        if !(drawable(pw, w) && drawable(ph, h)) {
             return rgb;
         }
         let resized = image::imageops::resize(
@@ -549,6 +553,35 @@ mod tests {
         // Without the photo, the display is just the one pixel.
         let bare = Scene::new(&props, None, &LOOK).unwrap();
         assert_eq!(bare.to_picture(0.0, 0.0), (160.0, 90.0));
+    }
+
+    #[test]
+    fn a_photo_placed_where_it_makes_no_sense_is_left_out() {
+        // A show file can say anything for the photo's place: none of these may be scaled up to
+        // the size they ask for (a width of a million million units is a million million pixels
+        // at the zoom's floor).
+        let props = [prop(&[0.0, 0.0], 0)];
+        for (x, y, width) in [
+            (0.0, 0.0, 1e12),
+            (0.0, 0.0, f32::INFINITY),
+            (0.0, 0.0, f32::NAN),
+            (f32::NAN, 0.0, 20.0),
+            (0.0, f32::INFINITY, 20.0),
+        ] {
+            let photo = Photo {
+                image: image::RgbImage::from_pixel(40, 20, image::Rgb([255, 255, 255])),
+                x,
+                y,
+                width,
+                opacity: 1.0,
+            };
+            let scene = Scene::new(&props, Some(&photo), &LOOK).unwrap();
+            let mut canvas = Canvas::new(1, 1);
+            scene.draw(&[0, 0, 0], &mut canvas);
+            // No white anywhere: only the letterbox, the night sky, and the unlit dot.
+            let brightest = canvas.rgb.iter().max().copied().unwrap_or(0);
+            assert!(brightest < 100, "({x}, {y}, {width}): {brightest}");
+        }
     }
 
     #[test]

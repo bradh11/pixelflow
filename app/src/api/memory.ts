@@ -1727,7 +1727,9 @@ function applyEdit(show: Show, edit: Edit): void {
       if (bg) {
         if (!bg.path.trim()) throw new Error("Choose a photo file for the background.");
         if (!Number.isFinite(bg.x) || !Number.isFinite(bg.y)) throw new Error("The background photo's position must be a number.");
+        if (Math.abs(bg.x) > 1e6 || Math.abs(bg.y) > 1e6) throw new Error("The background photo is too far from the layout to show.");
         if (!Number.isFinite(bg.width) || bg.width <= 0) throw new Error("The background photo must be wider than zero.");
+        if (bg.width > 1e6) throw new Error("The background photo is too wide to show.");
         if (!(bg.opacity >= 0 && bg.opacity <= 1)) throw new Error("The background photo's strength must be between 0% and 100%.");
       }
       show.background = bg ? structuredClone(bg) : null;

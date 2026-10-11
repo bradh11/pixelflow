@@ -2,10 +2,10 @@
 
 use pf_model::{Generator, Prop, ShapeSource, Show};
 use pf_sequence::{
-    Axis, BarsParams, Blend, ChaseParams, ColorWashParams, Direction, Effect, EffectParams, FaceColorSource,
-    FaceEyes, FacesParams, FireParams, Gradient, Mark, MeteorDirection, MeteorsParams, OnParams, Rgb,
-    RippleParams, Row, RowBlending, ShapeObject, ShimmerParams, SpiralParams, StrobeParams, Target,
-    TimingKind, TwinkleParams, WaveParams,
+    Axis, BarsMotion, BarsParams, Blend, ChaseParams, ColorWashParams, Direction, Effect, EffectParams,
+    FaceColorSource, FaceEyes, FacesParams, FireParams, Gradient, Mark, MeteorDirection, MeteorsParams,
+    OnParams, Rgb, RippleParams, Row, RowBlending, ShapeObject, ShimmerParams, SpiralParams, StrobeParams,
+    Target, TimingKind, TwinkleParams, WaveParams,
 };
 use pf_xlights::sequence::{SequenceImport, build_sequence, parse_xsq};
 use pf_xlights::{import_folder, import_sequence_file};
@@ -298,14 +298,19 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
     );
     assert_eq!(wash.palette.colors, vec![Rgb::new(128, 64, 0)], "50% brightness");
 
+    // Two palettes of three bars, with no gaps, moving a palette's length (half the prop) in
+    // each of the 4 cycles over 2 s.
     let bars = &row(&i, &show, "Arches").layers[0].effects[0];
     assert_eq!(
         bars.params,
         EffectParams::Bars(BarsParams {
             count: 6,
-            speed: 2.0,
+            speed: 1.0,
             axis: Axis::Horizontal,
-            direction: Direction::Reverse
+            direction: Direction::Reverse,
+            motion: BarsMotion::Slide,
+            fill: 1.0,
+            ..BarsParams::default()
         })
     );
     assert_eq!(bars.blend, Blend::Add);
@@ -414,6 +419,8 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
         expand.params,
         EffectParams::Bars(BarsParams {
             axis: Axis::Vertical,
+            direction: Direction::Forward,
+            motion: BarsMotion::Split,
             speed: 0.0,
             ..
         })
@@ -446,7 +453,7 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
     let s = i.summary;
     assert_eq!(s.rows, 9);
     assert_eq!(s.effects, 23);
-    assert_eq!((s.exact, s.approximate, s.placeholders), (17, 6, 0));
+    assert_eq!((s.exact, s.approximate, s.placeholders), (18, 5, 0));
     assert_eq!(
         s.skipped,
         1 + 3 + 2,
@@ -461,13 +468,16 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
         &i,
         "weren't imported (a stand-in would light the prop wrongly): Adjust (1).",
     );
-    assert_note(&i, "Bars (2 effects) approximated: bars have gaps between them, ");
+    // The bars moving left come across whole; the 'expand' ones only for their transition.
+    assert_note(
+        &i,
+        "Bars (1 effect) approximated: 'Wipe' transition shown as a fade",
+    );
     assert!(
         !has_note(&i, "layer blending"),
         "every layer method in the sample translates: {:#?}",
         i.notes
     );
-    assert_note(&i, "'Wipe' transition shown as a fade (1)");
     assert!(!has_note(&i, "kept at one value"), "{:#?}", i.notes);
     assert!(!has_note(&i, "Butterfly"), "{:#?}", i.notes);
     assert_note(

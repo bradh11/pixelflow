@@ -28,7 +28,7 @@ pub use crate::picture::Picture;
 pub use crate::pinwheel::Pinwheel;
 pub use crate::plasma::Plasma;
 pub use crate::pulse::Pulse;
-use crate::raster::Raster;
+use crate::raster::{Raster, cell_of, grid_size};
 pub use crate::shape::Shape;
 pub use crate::sing::Sing;
 pub use crate::snowflakes::Snowflakes;
@@ -37,9 +37,9 @@ pub use crate::text::Text;
 pub use crate::vumeter::VuMeter;
 pub use crate::wipe::Wipe;
 use pf_sequence::{
-    Axis, BarsParams, ChaseOrder, ChaseParams, ColorWashParams, Direction, EffectParams, FadeDirection,
-    FadeParams, FireParams, Gradient, MeteorDirection, MeteorsParams, OnParams, RippleParams, ShapeParams,
-    ShimmerParams, SpiralParams, StrobeParams, TwinkleParams, WaveParams,
+    Axis, BarsMotion, BarsParams, ChaseOrder, ChaseParams, ColorWashParams, Direction, EffectParams,
+    FadeDirection, FadeParams, FireParams, Gradient, MeteorDirection, MeteorsParams, OnParams, RippleParams,
+    ShapeParams, ShimmerParams, SpiralParams, StrobeParams, TwinkleParams, WaveParams,
 };
 use std::f32::consts::TAU;
 use std::sync::Arc;
@@ -458,23 +458,78 @@ impl Shade for Chase {
     }
 }
 
+/// xLights' `BarsEffect::Render`: the palette's colors in bars of whole cells along one axis of
+/// the target's grid, every line of cells across it one color.
 pub struct Bars {
-    colors: Colors,
     axis: Axis,
-    direction: Direction,
-    offset: f32,
-    count: f32,
+    columns: i32,
+    rows: i32,
+    /// The color of each line of cells along the axis.
+    lines: Vec<Rgba>,
 }
 
 impl Bars {
-    pub fn new(p: &BarsParams, time: &EffectTime, colors: Colors) -> Self {
-        let (_, offset) = time.cycles(p.speed);
+    pub fn new(p: &BarsParams, time: &EffectTime, colors: Colors, canvas: Canvas) -> Self {
+        let (columns, rows) = grid_size(canvas);
+        let size = match p.axis {
+            Axis::Horizontal => columns,
+            Axis::Vertical => rows,
+        };
+        let count = p.count.clamp(1, 100) as i32;
+        let shades = colors.len() as i32;
+        // A bar is whole cells, enough that `count` of them reach across; the palette fills a block.
+        let bar = (size + count - 1) / count;
+        let block = shades * bar;
+        // `speed` is prop lengths a second: a block a cycle, or (a bar at a time) the whole prop.
+        let lengths = f64::from(p.speed) * time.length_ms as f64 / 1000.0;
+        let moved = match p.motion {
+            BarsMotion::Step => (time.cycle_position(lengths) * f64::from(count)).floor() as i32 * bar,
+            BarsMotion::Slide | BarsMotion::Split => {
+                let at = time.cycle_position(lengths * f64::from(count) / f64::from(shades));
+                (at * f64::from(block)) as i32
+            }
+        };
+        let center = (f64::from(size) * (100.0 + f64::from(p.center.clamp(-100.0, 100.0))) / 200.0) as i32;
+        let lit = (f64::from(p.fill) * f64::from(bar)).ceil() as i32;
+        let forward = p.direction == Direction::Forward;
+        let line = |at: i32| {
+            // The step of xLights' loop (from two sizes below the grid to two above) that draws
+            // this line: straight, flipped (bars going up or right), or mirrored about the center.
+            let from = match p.motion {
+                BarsMotion::Split if at == center || forward == (at < center) => at,
+                BarsMotion::Split => 2 * center - at,
+                BarsMotion::Slide | BarsMotion::Step if forward => size - 1 - at,
+                BarsMotion::Slide | BarsMotion::Step => at,
+            };
+            if from >= 2 * size {
+                return Rgba::CLEAR;
+            }
+            let n = size + from + moved;
+            let within = n.rem_euclid(bar);
+            if within >= lit {
+                return Rgba::CLEAR;
+            }
+            let index = (n.rem_euclid(block) / bar) as u64;
+            let mut color = colors.get(index);
+            if p.gradient {
+                let (next, by) = (colors.get(index + 1), within as f32 / bar as f32);
+                color = [0, 1, 2].map(|c| color[c] + (next[c] - color[c]) * by);
+            }
+            if p.highlight && within == 0 {
+                color = [1.0; 3];
+            }
+            let cover = if p.shaded {
+                (bar - within - 1) as f32 / bar as f32
+            } else {
+                1.0
+            };
+            Rgba::new(color[0], color[1], color[2], cover)
+        };
         Self {
-            colors,
             axis: p.axis,
-            direction: p.direction,
-            offset,
-            count: p.count.max(1) as f32,
+            columns,
+            rows,
+            lines: (0..size).map(line).collect(),
         }
     }
 }
@@ -482,18 +537,11 @@ impl Bars {
 impl Shade for Bars {
     #[inline]
     fn shade(&self, px: &Pixel) -> Rgba {
-        let x = match self.axis {
-            Axis::Horizontal => px.u,
-            Axis::Vertical => px.v,
-        };
-        // Bars move toward higher x (right or up) going forward.
-        let s = (flip(x, self.direction) - self.offset) * self.count;
-        let bar = s.floor();
-        if s - bar < 0.5 {
-            Rgba::opaque(self.colors.get(bar.rem_euclid(self.count) as u64))
-        } else {
-            Rgba::CLEAR
-        }
+        let (x, y) = cell_of(px, self.columns, self.rows);
+        self.lines[match self.axis {
+            Axis::Horizontal => x,
+            Axis::Vertical => y,
+        } as usize]
     }
 }
 
@@ -1062,7 +1110,7 @@ impl Shader {
             EffectParams::ColorWash(p) => Shader::ColorWash(ColorWash::new(p, time, colors)),
             EffectParams::Fade(p) => Shader::Fade(Fade::new(p, time, colors)),
             EffectParams::Chase(p) => Shader::Chase(Chase::in_context(p, time, colors, canvas, cx)),
-            EffectParams::Bars(p) => Shader::Bars(Bars::new(p, time, colors)),
+            EffectParams::Bars(p) => Shader::Bars(Bars::new(p, time, colors, canvas)),
             EffectParams::Wave(p) => Shader::Wave(Wave::new(p, time, colors)),
             EffectParams::Twinkle(p) => Shader::Twinkle(Twinkle::new(p, time, colors, seed)),
             EffectParams::Shimmer(p) => Shader::Shimmer(Shimmer::new(p, time, colors)),

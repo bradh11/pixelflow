@@ -80,8 +80,9 @@ fn v8_to_v9(doc: Value) -> Result<Value, SequenceError> {
 }
 
 /// Version 10 only adds how rows meet the rows before them (`rowBlending`; they cover, as they
-/// always have, when it's missing) and effect settings that leave an effect as it was when
-/// they're missing (Spiral's `lean`), so version 9 documents are already valid.
+/// always have, when it's missing) and effect settings with defaults for when they're missing
+/// (Spiral's `lean`; Bars' `motion`, `fill`, `center`, and looks), so version 9 documents are
+/// already valid.
 fn v9_to_v10(doc: Value) -> Result<Value, SequenceError> {
     Ok(doc)
 }

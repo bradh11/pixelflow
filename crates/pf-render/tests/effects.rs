@@ -215,38 +215,185 @@ fn chase_moves_bands_along_the_wiring() {
     assert_eq!(shade(&marquee, time(0, 4000), strip(3), &pal, STRIP), Rgba::CLEAR);
 }
 
-#[test]
-fn bars_slide_along_the_chosen_axis() {
-    let bars = EffectParams::Bars(BarsParams {
-        count: 2,
-        speed: 0.25,
-        axis: Axis::Vertical,
-        direction: Direction::Forward,
-    });
-    let pal = [Rgb::RED, Rgb::GREEN];
-    let color = |ms: u64, v: f32| rgb(shade(&bars, time(ms, 10_000), at(0.3, v), &pal, GRID));
-    // Bars of half a slot: v in [0, 0.25) red, [0.5, 0.75) green.
-    assert_eq!(color(0, 0.1), [255, 0, 0]);
-    assert_eq!(color(0, 0.3), [0, 0, 0]);
-    assert_eq!(color(0, 0.6), [0, 255, 0]);
-    // After 1 s the bars moved up a quarter.
-    assert_eq!(color(1000, 0.3), [255, 0, 0]);
-    assert_eq!(color(1000, 0.1), [0, 0, 0]);
+/// Red and green bars on a grid 12 cells long their way and 4 across, `elapsed_ms` into a 1 s
+/// effect (20 frames): the color of each line of cells, from the bottom or the left.
+fn bars_colors(p: BarsParams, elapsed_ms: u64) -> Vec<Rgba> {
+    let params = EffectParams::Bars(p);
+    (0..12)
+        .map(|line| {
+            let along = line as f32 / 11.0;
+            let (px, canvas) = match p.axis {
+                Axis::Vertical => (at(0.4, along), Canvas { columns: 4, rows: 12 }),
+                Axis::Horizontal => (at(along, 0.4), Canvas { columns: 12, rows: 4 }),
+            };
+            shade(
+                &params,
+                time(elapsed_ms, 1000),
+                px,
+                &[Rgb::RED, Rgb::GREEN],
+                canvas,
+            )
+        })
+        .collect()
+}
 
-    let across = EffectParams::Bars(BarsParams {
-        count: 2,
+/// [`bars_colors`] as 'r', 'g', 'w' (white), or '.' (clear) for each line of cells.
+fn bars_line(p: BarsParams, elapsed_ms: u64) -> String {
+    bars_colors(p, elapsed_ms)
+        .iter()
+        .map(|c| match [c.r, c.g, c.b].map(|v| (v * 255.0).round() as u8) {
+            _ if c.a <= 0.0 => '.',
+            [255, 0, 0] => 'r',
+            [0, 255, 0] => 'g',
+            [255, 255, 255] => 'w',
+            _ => '?',
+        })
+        .collect()
+}
+
+#[test]
+fn bars_are_drawn_cell_by_cell_as_xlights_draws_them() {
+    // xLights' Bars with the palette twice over (4 bars) and no gaps: each bar is
+    // ceil(12 / 4) = 3 cells, and the palette a block of 6. Bars going down count cells up
+    // from the bottom; bars going up count down from the top, so the colors run the other way.
+    let down = BarsParams {
+        count: 4,
         speed: 0.0,
-        axis: Axis::Horizontal,
+        axis: Axis::Vertical,
+        direction: Direction::Reverse,
+        motion: BarsMotion::Slide,
+        fill: 1.0,
+        ..BarsParams::default()
+    };
+    let up = BarsParams {
         direction: Direction::Forward,
-    });
+        ..down
+    };
+    assert_eq!(bars_line(down, 0), "rrrgggrrrggg");
+    assert_eq!(bars_line(up, 0), "gggrrrgggrrr");
+    // Bars that don't divide the grid are the next whole size: 5 bars of ceil(12 / 5) = 3.
+    assert_eq!(bars_line(BarsParams { count: 5, ..down }, 0), "rrrgggrrrggg");
+    // Across the prop they count from the left going left, from the right going right.
+    let left = BarsParams {
+        axis: Axis::Horizontal,
+        ..down
+    };
+    assert_eq!(bars_line(left, 0), "rrrgggrrrggg");
+
+    // Moving: a block a cycle. At a prop's length a second that's 2 cycles over the second,
+    // 10 frames each, and xLights counts the last frame of a cycle as its end: frame 4 is 4/9
+    // of the way, trunc(4/9 × 6) = 2 cells; frame 9 is a whole block on (the same as none),
+    // and frame 10 starts again.
+    let moving_up = BarsParams { speed: 1.0, ..up };
+    assert_eq!(bars_line(moving_up, 200), "rrgggrrrgggr", "2 cells up");
+    assert_eq!(bars_line(moving_up, 450), bars_line(up, 0));
+    assert_eq!(bars_line(moving_up, 500), bars_line(up, 0));
+    let moving_down = BarsParams { speed: 1.0, ..down };
+    assert_eq!(bars_line(moving_down, 200), "rgggrrrgggrr", "2 cells down");
+
+    // 'expand': drawn like bars going down from the center's line (cell 6 of 12) and below,
+    // mirrored above it, so they move apart. 'compress': drawn from the center up, mirrored
+    // below, so they close in.
+    let expand = BarsParams {
+        motion: BarsMotion::Split,
+        direction: Direction::Forward,
+        ..down
+    };
+    let compress = BarsParams {
+        direction: Direction::Reverse,
+        ..expand
+    };
+    assert_eq!(bars_line(expand, 0), "rrrgggrgggrr");
+    assert_eq!(bars_line(compress, 0), "rgggrrrrrggg");
     assert_eq!(
-        rgb(shade(&across, time(0, 1000), at(0.6, 0.0), &pal, GRID)),
-        [0, 255, 0]
+        bars_line(BarsParams { speed: 1.0, ..expand }, 200),
+        "rgggrrrrrggg",
+        "2 cells out from the center"
     );
     assert_eq!(
-        rgb(shade(&across, time(0, 1000), at(0.3, 0.0), &pal, GRID)),
-        [0, 0, 0]
+        bars_line(
+            BarsParams {
+                speed: 1.0,
+                ..compress
+            },
+            200
+        ),
+        "rrrgggrgggrr",
+        "2 cells in toward it"
     );
+    // The center moves: 50% is cell trunc(12 × 150 / 200) = 9.
+    assert_eq!(
+        bars_line(
+            BarsParams {
+                center: 50.0,
+                ..expand
+            },
+            0
+        ),
+        "rrrgggrrrgrr"
+    );
+
+    // 'Alternate': a whole bar at a time, the prop's length (4 bars) a cycle. At a prop's
+    // length a second, frame 4 of 0-19 is floor(4/19 × 4) = 0 bars on; frame 5 is 1.
+    let stepping = BarsParams {
+        motion: BarsMotion::Step,
+        speed: 1.0,
+        ..up
+    };
+    assert_eq!(bars_line(stepping, 200), "gggrrrgggrrr");
+    assert_eq!(bars_line(stepping, 250), "rrrgggrrrggg");
+}
+
+#[test]
+fn bars_take_xlights_3d_highlight_and_gradient_looks_and_pixelflows_gaps() {
+    let down = BarsParams {
+        count: 4,
+        speed: 0.0,
+        axis: Axis::Vertical,
+        direction: Direction::Reverse,
+        motion: BarsMotion::Slide,
+        fill: 1.0,
+        ..BarsParams::default()
+    };
+    // "3D": each 3-cell bar covers 2/3, 1/3, then nothing, from the edge it leads with (never
+    // fully: xLights takes a cell off the count).
+    let shaded = bars_colors(BarsParams { shaded: true, ..down }, 0);
+    let cover: Vec<f32> = shaded.iter().take(4).map(|c| c.a).collect();
+    assert_eq!(cover, [2.0 / 3.0, 1.0 / 3.0, 0.0, 2.0 / 3.0]);
+    assert_eq!([shaded[0].r, shaded[0].g], [1.0, 0.0], "the color stays whole");
+    // Going up, the leading edge is the bar's top.
+    let up = BarsParams {
+        direction: Direction::Forward,
+        shaded: true,
+        ..down
+    };
+    let cover: Vec<f32> = bars_colors(up, 0).iter().take(3).map(|c| c.a).collect();
+    assert_eq!(cover, [0.0, 1.0 / 3.0, 2.0 / 3.0]);
+
+    // Highlight: each bar's leading line is white.
+    let highlight = BarsParams {
+        highlight: true,
+        ..down
+    };
+    assert_eq!(bars_line(highlight, 0), "wrrwggwrrwgg");
+
+    // Gradient: each bar blends into the next color, a third of the way per cell.
+    let gradient = bars_colors(
+        BarsParams {
+            gradient: true,
+            ..down
+        },
+        0,
+    );
+    let rgb8: Vec<[u8; 3]> = gradient.iter().take(5).map(|c| rgb(*c)).collect();
+    assert_eq!(
+        rgb8,
+        [[255, 0, 0], [170, 85, 0], [85, 170, 0], [0, 255, 0], [85, 170, 0]]
+    );
+
+    // PixelFlow's own bars leave part of each dark: half of 3 cells lights 2.
+    assert_eq!(bars_line(BarsParams { fill: 0.5, ..down }, 0), "rr.gg.rr.gg.");
+    assert_eq!(bars_line(BarsParams { fill: 0.0, ..down }, 0), "............");
 }
 
 #[test]
@@ -583,6 +730,13 @@ fn hostile_settings_never_panic_or_produce_garbage() {
         EffectParams::Bars(BarsParams {
             count: 0,
             speed: f32::MAX,
+            ..BarsParams::default()
+        }),
+        EffectParams::Bars(BarsParams {
+            count: u32::MAX,
+            motion: BarsMotion::Split,
+            fill: f32::NAN,
+            center: f32::INFINITY,
             ..BarsParams::default()
         }),
         EffectParams::Wave(WaveParams {

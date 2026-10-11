@@ -1013,6 +1013,23 @@ pub enum Axis {
 
 choices!(Axis { "horizontal" => "Across", "vertical" => "Up and down" });
 
+/// How bars move.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum BarsMotion {
+    /// All one way.
+    #[default]
+    Slide,
+    /// Apart from the center, mirrored about it (reversed: in to the center). xLights' "expand"
+    /// and "compress".
+    Split,
+    /// One way, a whole bar at a time (xLights' "Alternate").
+    Step,
+}
+
+choices!(BarsMotion { "slide" => "Slide", "split" => "From the center", "step" => "A bar at a time" });
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
@@ -1155,7 +1172,8 @@ effect_params! {
 }
 
 effect_params! {
-    /// Stripes in the palette colors sliding across or up the prop.
+    /// Stripes in the palette colors sliding across or up the prop, drawn on its grid as xLights
+    /// draws them: each bar a whole number of cells, enough of them that `count` fill the prop.
     #[derive(Copy)]
     pub struct BarsParams {
         /// Bars visible at once.
@@ -1164,8 +1182,20 @@ effect_params! {
         speed: f32 = 0.5 => "speed", "Speed", number(0.0, 20.0, 0.05, "per second");
         /// Bars sliding across or up and down.
         axis: Axis = Axis::Vertical => "axis", "Axis", choice;
-        /// Which way the bars slide.
+        /// Which way the bars slide: forward is right or up, or apart from the center.
         direction: Direction = Direction::Forward => "direction", "Direction", choice;
+        /// All one way, mirrored about the center, or a bar at a time.
+        motion: BarsMotion = BarsMotion::Slide => "motion", "Movement", choice;
+        /// How much of each bar is lit (0–1); the rest is a gap. xLights' bars have no gaps.
+        fill: f32 = 0.5 => "fill", "Bar size", number(0.0, 1.0, 0.05);
+        /// Where bars moving from the center meet: 0 is the middle, ±100 the edges.
+        center: f32 = 0.0 => "center", "Center", number(-100.0, 100.0, 1.0, "%"), more;
+        /// Each bar fades away along its length (xLights' "3D").
+        shaded: bool = false => "shaded", "Fade each bar", toggle, more;
+        /// Each bar's first line of cells is white.
+        highlight: bool = false => "highlight", "Highlight", toggle, more;
+        /// Each bar blends into the next color along its length.
+        gradient: bool = false => "gradient", "Gradient", toggle, more;
     }
 }
 

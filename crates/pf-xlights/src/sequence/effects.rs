@@ -12,13 +12,13 @@ use super::settings::{ParsedPalette, Settings};
 use super::{list, plural};
 use pf_model::{BufferTransform, RenderStyle};
 use pf_sequence::{
-    Axis, BarsParams, Blend, ButterflyColors, ButterflyParams, ChaseParams, CirclesLook, CirclesParams,
-    ColorWashParams, Curve, CurveShape, Direction, EffectParams, FaceColorSource, FaceEyes, FacesParams,
-    FanParams, FireParams, GarlandShape, GarlandsDirection, GarlandsParams, Gradient, LifeParams, LifeRules,
-    LightningParams, LinesParams, MAX_CURVE_CYCLES, MIN_CURVE_CYCLES, MeteorDirection, MeteorsParams,
-    MorphParams, OffParams, OnParams, Palette, PictureFit, PictureMovement, PictureParams, PictureTiming,
-    PinwheelParams, PinwheelShading, PinwheelStyle, PlasmaColors, PlasmaParams, Rgb, RippleParams,
-    SettingRange, ShapeObject, ShapeParams, ShimmerParams, SnowflakeShape, SnowflakesMotion,
+    Axis, BarsMotion, BarsParams, Blend, ButterflyColors, ButterflyParams, ChaseParams, CirclesLook,
+    CirclesParams, ColorWashParams, Curve, CurveShape, Direction, EffectParams, FaceColorSource, FaceEyes,
+    FacesParams, FanParams, FireParams, GarlandShape, GarlandsDirection, GarlandsParams, Gradient,
+    LifeParams, LifeRules, LightningParams, LinesParams, MAX_CURVE_CYCLES, MIN_CURVE_CYCLES, MeteorDirection,
+    MeteorsParams, MorphParams, OffParams, OnParams, Palette, PictureFit, PictureMovement, PictureParams,
+    PictureTiming, PinwheelParams, PinwheelShading, PinwheelStyle, PlasmaColors, PlasmaParams, Rgb,
+    RippleParams, SettingRange, ShapeObject, ShapeParams, ShimmerParams, SnowflakeShape, SnowflakesMotion,
     SnowflakesParams, SpiralParams, StrobeParams, TendrilMovement, TendrilParams, TextCountdown,
     TextMovement, TextOrientation, TextParams, TwinkleParams, VuMeterParams, VuMeterShape, VuMeterType,
     WaveParams,
@@ -459,46 +459,84 @@ fn color_wash(r: &Reader, colors: &[Rgb], diff: &mut Diff) -> EffectParams {
     })
 }
 
+/// xLights' Bars (`BarsEffect::Render`), which PixelFlow's Bars draws the same way: the palette
+/// `repeats` times over in bars with no gaps, moving a palette's length each cycle (a bar at a
+/// time: the whole prop's).
 fn bars(r: &Reader, n_colors: f64, duration_ms: u64, diff: &mut Diff) -> EffectParams {
+    use BarsMotion::{Slide, Split, Step};
     let repeats = r.get("Bars_BarCount", 1.0, 1.0, 5.0);
     let cycles = r.get("Bars_Cycles", 1.0, 0.0, 30.0);
-    diff.add("bars have gaps between them");
-    let (axis, reverse, moving) = match r.choice("Bars_Direction", "up") {
-        "up" => (Axis::Vertical, false, true),
-        "down" => (Axis::Vertical, true, true),
-        "Right" => (Axis::Horizontal, false, true),
-        "Left" => (Axis::Horizontal, true, true),
+    let center = r.get("Bars_Center", 0.0, -100.0, 100.0);
+    let center_moves = r.s.curve_active("E_VALUECURVE_Bars_Center");
+    let way = r.choice("Bars_Direction", "up");
+    let (axis, reverse, motion, moving) = match way {
+        "up" => (Axis::Vertical, false, Slide, true),
+        "down" => (Axis::Vertical, true, Slide, true),
+        "Right" => (Axis::Horizontal, false, Slide, true),
+        "Left" => (Axis::Horizontal, true, Slide, true),
+        "expand" => (Axis::Vertical, false, Split, true),
+        "compress" => (Axis::Vertical, true, Split, true),
+        "H-expand" => (Axis::Horizontal, false, Split, true),
+        "H-compress" => (Axis::Horizontal, true, Split, true),
+        "Alternate Up" => (Axis::Vertical, false, Step, true),
+        "Alternate Down" => (Axis::Vertical, true, Step, true),
+        "Alternate Right" => (Axis::Horizontal, false, Step, true),
+        "Alternate Left" => (Axis::Horizontal, true, Step, true),
+        // Bars that stand still, set along the prop by the center.
+        "Custom Horz" | "Custom Vert" => {
+            if center != 0.0 || center_moves {
+                diff.add(format!(
+                    "'{way}' bars not moved along the prop by the center setting"
+                ));
+            }
+            let axis = if way == "Custom Horz" {
+                Axis::Horizontal
+            } else {
+                Axis::Vertical
+            };
+            (axis, false, Slide, false)
+        }
         other => {
+            // "Custom": the closest of up, down, left, and right to the angle.
             diff.add(format!("'{other}' direction shown as straight movement"));
-            match other {
-                "expand" | "Alternate Up" => (Axis::Vertical, false, true),
-                "compress" | "Alternate Down" => (Axis::Vertical, true, true),
-                "H-expand" | "Alternate Right" => (Axis::Horizontal, false, true),
-                "H-compress" | "Alternate Left" => (Axis::Horizontal, true, true),
-                "Custom Horz" => (Axis::Horizontal, false, false),
-                "Custom Vert" => (Axis::Vertical, false, false),
-                _ => {
-                    // "Custom": the closest of up, down, left, and right to the angle.
-                    let angle = r.get("Bars_Angle", 90.0, -180.0, 180.0);
-                    if angle.abs() <= 45.0 {
-                        (Axis::Horizontal, false, true)
-                    } else if angle.abs() >= 135.0 {
-                        (Axis::Horizontal, true, true)
-                    } else {
-                        (Axis::Vertical, angle < 0.0, true)
-                    }
-                }
+            let angle = r.get("Bars_Angle", 90.0, -180.0, 180.0);
+            if angle.abs() <= 45.0 {
+                (Axis::Horizontal, false, Slide, true)
+            } else if angle.abs() >= 135.0 {
+                (Axis::Horizontal, true, Slide, true)
+            } else {
+                (Axis::Vertical, angle < 0.0, Slide, true)
             }
         }
     };
-    if r.check("Bars_Highlight") || r.check("Bars_3D") || r.check("Bars_Gradient") {
-        diff.add("highlight, 3D, or gradient look not shown");
+    // xLights reads a center that changes by where the bars are in their cycle, not the effect.
+    if motion == Split && center_moves && (cycles - 1.0).abs() > 1e-6 {
+        diff.add("a center that changes follows the effect, not each cycle of the bars");
+    }
+    let highlight = r.check("Bars_Highlight");
+    if highlight && r.check("Bars_UseFirstColorForHighlight") && n_colors > 1.0 {
+        diff.add("highlight in the palette's first color shown white, with that color as a bar");
+    }
+    // On a layer that isn't Normal, xLights takes the color out of an up-and-down bar's highlight
+    // rather than making it white.
+    if highlight && axis == Axis::Vertical && r.s.text("T_CHOICE_LayerMethod", "Normal") != "Normal" {
+        diff.add("highlight shown white rather than the bar's color greyed");
     }
     EffectParams::Bars(BarsParams {
         count: count(repeats * n_colors, 1, 1000),
-        speed: if moving { rate(cycles, duration_ms) } else { 0.0 },
+        speed: match motion {
+            _ if !moving => 0.0,
+            Step => rate(cycles, duration_ms),
+            Slide | Split => rate(cycles / repeats, duration_ms),
+        },
         axis,
         direction: direction(reverse),
+        motion,
+        fill: 1.0,
+        center: if motion == Split { center as f32 } else { 0.0 },
+        shaded: r.check("Bars_3D"),
+        highlight,
+        gradient: r.check("Bars_Gradient"),
     })
 }
 
@@ -2414,12 +2452,125 @@ mod tests {
             [10.0, 10.0, 40.0, 40.0, 10.0, 40.0]
         );
 
-        // Curves on settings PixelFlow doesn't use change nothing.
+        // Curves on settings that do nothing change nothing: bars going one way have no center.
         let s = Settings::parse(
             "E_VALUECURVE_Bars_Center=Active=TRUE|Type=Ramp|Min=-100.00|Max=100.00|P1=-100.00|P2=100.00|RV=TRUE|",
         );
         let t = translate("Bars", &s, &palette(&[Rgb::RED]), 2000, 25).unwrap();
         assert!(t.curves.is_empty());
+        // Bars from the center follow it.
+        let s = Settings::parse(
+            "E_CHOICE_Bars_Direction=expand,\
+             E_VALUECURVE_Bars_Center=Active=TRUE|Type=Ramp|Min=-100.00|Max=100.00|P1=-100.00|P2=100.00|RV=TRUE|",
+        );
+        let t = translate("Bars", &s, &palette(&[Rgb::RED]), 2000, 25).unwrap();
+        assert_eq!(t.curves["center"], Curve::ramp(-100.0, 100.0));
+        assert_eq!(t.fidelity, Fidelity::Exact);
+    }
+
+    #[test]
+    fn bars_come_across_with_their_movement_and_looks() {
+        let bars = |settings: &str| {
+            let t = translate(
+                "Bars",
+                &Settings::parse(settings),
+                &palette(&[Rgb::RED, Rgb::GREEN]),
+                4000,
+                50,
+            )
+            .unwrap();
+            match t.params {
+                EffectParams::Bars(p) => (p, t.fidelity),
+                other => panic!("{other:?}"),
+            }
+        };
+        // xLights' defaults: one palette of bars with no gaps, going up a palette's length (the
+        // whole prop) once over the effect.
+        let (p, fidelity) = bars("");
+        assert_eq!(
+            p,
+            BarsParams {
+                count: 2,
+                speed: 0.25,
+                axis: Axis::Vertical,
+                direction: Direction::Forward,
+                motion: BarsMotion::Slide,
+                fill: 1.0,
+                center: 0.0,
+                shaded: false,
+                highlight: false,
+                gradient: false,
+            }
+        );
+        assert_eq!(fidelity, Fidelity::Exact);
+
+        // Three palettes: each of the 6 cycles moves a third of the prop. 'compress' closes in on
+        // the center; the looks come along.
+        let (p, fidelity) = bars(
+            "E_CHOICE_Bars_Direction=H-compress,E_SLIDER_Bars_BarCount=3,E_TEXTCTRL_Bars_Cycles=6.0,\
+             E_TEXTCTRL_Bars_Center=57,E_CHECKBOX_Bars_3D=1,E_CHECKBOX_Bars_Gradient=1,E_CHECKBOX_Bars_Highlight=1",
+        );
+        assert_eq!(
+            p,
+            BarsParams {
+                count: 6,
+                speed: 0.5,
+                axis: Axis::Horizontal,
+                direction: Direction::Reverse,
+                motion: BarsMotion::Split,
+                fill: 1.0,
+                center: 57.0,
+                shaded: true,
+                highlight: true,
+                gradient: true,
+            }
+        );
+        assert_eq!(fidelity, Fidelity::Exact);
+        let (p, _) = bars("E_CHOICE_Bars_Direction=expand");
+        assert_eq!(
+            (p.axis, p.direction, p.motion),
+            (Axis::Vertical, Direction::Forward, BarsMotion::Split)
+        );
+
+        // A bar at a time crosses the whole prop each cycle, however many palettes there are.
+        let (p, fidelity) = bars(
+            "E_CHOICE_Bars_Direction=Alternate Left,E_SLIDER_Bars_BarCount=3,E_TEXTCTRL_Bars_Cycles=6.0",
+        );
+        assert_eq!(
+            (p.axis, p.direction, p.motion, p.speed),
+            (Axis::Horizontal, Direction::Reverse, BarsMotion::Step, 1.5)
+        );
+        assert_eq!(fidelity, Fidelity::Exact);
+
+        // 'Custom Horz' bars stand still where the center puts them: whole only in the middle.
+        let (p, fidelity) = bars("E_CHOICE_Bars_Direction=Custom Horz,E_TEXTCTRL_Bars_Cycles=6.0");
+        assert_eq!(
+            (p.axis, p.direction, p.motion, p.speed),
+            (Axis::Horizontal, Direction::Forward, BarsMotion::Slide, 0.0)
+        );
+        assert_eq!(fidelity, Fidelity::Exact);
+        let approximate = |settings: &str, note: &str| match bars(settings).1 {
+            Fidelity::Approximate(notes) => assert_eq!(notes, [note], "{settings}"),
+            other => panic!("{settings}: {other:?}"),
+        };
+        approximate(
+            "E_CHOICE_Bars_Direction=Custom Vert,E_TEXTCTRL_Bars_Center=20",
+            "'Custom Vert' bars not moved along the prop by the center setting",
+        );
+        // What PixelFlow's bars don't do is said.
+        approximate(
+            "E_CHECKBOX_Bars_Highlight=1,E_CHECKBOX_Bars_UseFirstColorForHighlight=1",
+            "highlight in the palette's first color shown white, with that color as a bar",
+        );
+        approximate(
+            "E_CHECKBOX_Bars_Highlight=1,T_CHOICE_LayerMethod=Additive",
+            "highlight shown white rather than the bar's color greyed",
+        );
+        approximate(
+            "E_CHOICE_Bars_Direction=compress,E_TEXTCTRL_Bars_Cycles=2.0,\
+             E_VALUECURVE_Bars_Center=Active=TRUE|Type=Ramp|Min=-100.00|Max=100.00|P1=-100.00|P2=100.00|RV=TRUE|",
+            "a center that changes follows the effect, not each cycle of the bars",
+        );
     }
 
     #[test]

@@ -107,7 +107,21 @@ export type EffectParams =
       /** Steps on this track's marks instead of moving at the speed. */
       timingTrack?: Uuid | null;
     }
-  | { kind: "bars"; count?: number; speed?: number; axis?: Axis; direction?: Direction }
+  | {
+      kind: "bars";
+      count?: number;
+      speed?: number;
+      axis?: Axis;
+      direction?: Direction;
+      /** All one way, mirrored about the center, or a bar at a time. */
+      motion?: "slide" | "split" | "step";
+      /** How much of each bar is lit (0–1). */
+      fill?: number;
+      center?: number;
+      shaded?: boolean;
+      highlight?: boolean;
+      gradient?: boolean;
+    }
   | { kind: "wave"; cycles?: number; speed?: number; height?: number; thickness?: number; direction?: Direction }
   | { kind: "twinkle"; density?: number; rate?: number }
   | { kind: "shimmer"; rate?: number; duty?: number }

@@ -255,7 +255,7 @@
       },
       {
         "default": "forward",
-        "description": "Which way the bars slide.",
+        "description": "Which way the bars slide: forward is right or up, or apart from the center.",
         "key": "direction",
         "label": "Direction",
         "options": [
@@ -269,6 +269,73 @@
           }
         ],
         "type": "choice"
+      },
+      {
+        "default": "slide",
+        "description": "All one way, mirrored about the center, or a bar at a time.",
+        "key": "motion",
+        "label": "Movement",
+        "options": [
+          {
+            "label": "Slide",
+            "value": "slide"
+          },
+          {
+            "label": "From the center",
+            "value": "split"
+          },
+          {
+            "label": "A bar at a time",
+            "value": "step"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": 0.5,
+        "description": "How much of each bar is lit (0–1); the rest is a gap. xLights' bars have no gaps.",
+        "key": "fill",
+        "label": "Bar size",
+        "max": 1.0,
+        "min": 0.0,
+        "step": 0.05,
+        "type": "number"
+      },
+      {
+        "default": 0.0,
+        "description": "Where bars moving from the center meet: 0 is the middle, ±100 the edges.",
+        "key": "center",
+        "label": "Center",
+        "max": 100.0,
+        "min": -100.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": false,
+        "description": "Each bar fades away along its length (xLights' \"3D\").",
+        "key": "shaded",
+        "label": "Fade each bar",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": false,
+        "description": "Each bar's first line of cells is white.",
+        "key": "highlight",
+        "label": "Highlight",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": false,
+        "description": "Each bar blends into the next color along its length.",
+        "key": "gradient",
+        "label": "Gradient",
+        "more": true,
+        "type": "bool"
       }
     ]
   },

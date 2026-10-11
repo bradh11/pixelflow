@@ -277,7 +277,8 @@ impl Report {
                     quartet(&r.stages.player),
                     quartet(&r.stages.output_pass),
                     quartet(&p.shown),
-                    format!("{} ({:.1}%)", r.frames.late, percent(r.frames.late, r.frames.due)),
+                    r.frames.late.to_string(),
+                    format!("{:.2}%", r.verdict.on_time_percent),
                     quartet(&p.latency),
                     format!("{:.2}", p.jitter),
                     cores(r),
@@ -297,6 +298,7 @@ impl Report {
             "Output: one pass, ms (p50 / p95 / p99 / max)",
             "Handed over after due, ms (p50 / p95 / p99 / max)",
             "Late",
+            "On time",
             "On the wire after due, ms (p50 / p95 / p99 / max)",
             "Jitter ms",
             "CPU cores",
@@ -439,10 +441,12 @@ impl Report {
                 row.extend([
                     format!("{:.2}", r.fps),
                     format!("{} of {}", r.frames.dropped, r.frames.due),
+                    r.frames.late.to_string(),
                     quartet(&p.shown),
                     format!("{:.1} of {}", p.passes_per_second, r.send_hz.unwrap_or(0)),
                     cores(r),
                     megabytes(r.resources.peak_rss_mb),
+                    verdict(r),
                 ]);
                 row
             })
@@ -453,10 +457,12 @@ impl Report {
             "Sink",
             "FPS",
             "Dropped",
+            "Late",
             "Drawn and handed over after due, ms (p50 / p95 / p99 / max)",
             "Passes a second",
             "CPU cores",
             "Peak RSS",
+            "40 FPS",
         ];
         table(out, "The engine itself, watched from outside", &headers, rows);
 
@@ -479,23 +485,20 @@ impl Default for Report {
 /// A run's verdict in a word or two.
 pub fn verdict(run: &RunResult) -> String {
     let v = &run.verdict;
-    match (v.pass, v.on_time) {
-        (true, Some(false)) => "PASS, late".to_string(),
-        (true, _) => "PASS".to_string(),
-        (false, _) => {
-            let mut why = Vec::new();
-            if !v.sustained {
-                why.push("frames dropped");
-            }
-            if !v.within_budget {
-                why.push("over budget");
-            }
-            if !v.clean {
-                why.push("packets dropped");
-            }
-            format!("FAIL: {}", why.join(", "))
-        }
+    if v.pass {
+        return "PASS".to_string();
     }
+    let mut why = Vec::new();
+    if !v.sustained {
+        why.push("frames late or dropped");
+    }
+    if !v.within_budget {
+        why.push("over budget");
+    }
+    if !v.clean {
+        why.push("packets dropped");
+    }
+    format!("FAIL: {}", why.join(", "))
 }
 
 fn effect_tables(out: &mut String, b: &Breakdown) {
@@ -634,10 +637,6 @@ fn quartet(s: &Spread) -> String {
 
 fn pair(s: &Spread) -> String {
     format!("{} / {}", millis(s.p50), millis(s.p99))
-}
-
-fn percent(part: u64, whole: u64) -> f64 {
-    100.0 * part as f64 / whole.max(1) as f64
 }
 
 /// 200000 as "200,000".

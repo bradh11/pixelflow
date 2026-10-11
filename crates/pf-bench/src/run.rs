@@ -132,6 +132,17 @@ pub fn run_asap(workload: &Workload, sink: SinkKind, options: Options) -> Result
     let within_budget = whole.p99 <= budget;
     // Flat out, a loopback socket's buffer fills: that says nothing about the pipeline.
     let clean = network.send_failures == 0 && network.refused == 0;
+    let frames = Frames {
+        due: measured,
+        sent: measured,
+        dropped: 0,
+        late: timings[5].iter().filter(|&&t| t > budget).count() as u64,
+    };
+    let summary = format!(
+        "{fps:.0} frames a second flat out; a frame takes {:.1} ms at the 99th percentile, {} the {budget:.0} ms period",
+        whole.p99,
+        if within_budget { "inside" } else { "over" },
+    );
     Ok(RunResult {
         tier: tier_label(workload.show.pixels()),
         pixels: workload.show.pixels(),
@@ -141,12 +152,8 @@ pub fn run_asap(workload: &Workload, sink: SinkKind, options: Options) -> Result
         frame_ms,
         send_hz: None,
         wiring: controllers.wiring(),
-        frames: Frames {
-            due: measured,
-            sent: measured,
-            dropped: 0,
-            late: timings[5].iter().filter(|&&t| t > budget).count() as u64,
-        },
+        verdict: Verdict::of(&frames, within_budget, clean, summary),
+        frames,
         fps,
         stages: Stages {
             render,
@@ -164,18 +171,6 @@ pub fn run_asap(workload: &Workload, sink: SinkKind, options: Options) -> Result
         warmup: Warmup::of(&warmup),
         resources,
         network,
-        verdict: Verdict {
-            pass: within_budget && clean,
-            sustained: fps >= 1000.0 / budget,
-            within_budget,
-            on_time: None,
-            clean,
-            summary: format!(
-                "{fps:.0} frames a second flat out; a frame takes {:.1} ms at the 99th percentile, {} the {budget:.0} ms period",
-                whole.p99,
-                if within_budget { "inside" } else { "over" },
-            ),
-        },
         load_average: load,
         setup: workload.setup,
         notes: Vec::new(),
@@ -393,20 +388,19 @@ pub fn run_paced(workload: &Workload, sink: SinkKind, options: Options) -> Resul
     };
     let fps = frames.sent as f64 / resources.wall_seconds;
     let period = 1000.0 / f64::from(send_hz);
-    let sustained = frames.dropped == 0;
     // Each thread has the frame period for its part: a pass that overruns the output thread's
     // own, shorter period only delays the next pass, and every frame still goes out.
     let within_budget = stages.player.p99 <= budget && stages.output_pass.p99 <= budget;
-    let on_time = sustained && pacing.shown.p99 <= budget;
     let clean = network.clean();
     let mut summary = format!(
-        "{fps:.1} frames a second, {} of {} dropped; at the 99th percentile the player takes {:.1} ms of {budget:.0} to draw a frame and the output thread {:.1} ms for a pass (it makes one every {period:.1}); frames are handed over {:.1} ms after due ({} late) and on the wire {:.1} ms after due",
+        "{fps:.1} frames a second, {:.1}% of frames on time ({} dropped and {} late of {}); at the 99th percentile the player takes {:.1} ms of {budget:.0} to draw a frame and the output thread {:.1} ms for a pass (it makes one every {period:.1}); frames are handed over {:.1} ms after due and on the wire {:.1} ms after due",
+        frames.on_time_percent(),
         frames.dropped,
+        frames.late,
         frames.due,
         stages.player.p99,
         stages.output_pass.p99,
         pacing.shown.p99,
-        frames.late,
         pacing.latency.p99,
     );
     if !clean {
@@ -442,14 +436,7 @@ pub fn run_paced(workload: &Workload, sink: SinkKind, options: Options) -> Resul
         warmup: Warmup::of(&warmup),
         resources,
         network,
-        verdict: Verdict {
-            pass: sustained && within_budget && clean,
-            sustained,
-            within_budget,
-            on_time: Some(on_time),
-            clean,
-            summary,
-        },
+        verdict: Verdict::of(&frames, within_budget, clean, summary),
         load_average: load,
         setup: workload.setup,
         notes: Vec::new(),

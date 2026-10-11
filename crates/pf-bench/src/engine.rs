@@ -108,9 +108,16 @@ pub fn run_engine(workload: &Workload, sink: SinkKind, options: Options) -> Resu
         ..Pacing::default()
     };
     let fps = frames.sent as f64 / resources.wall_seconds;
-    let sustained = frames.dropped == 0;
-    let within_budget = pacing.shown.p99 <= budget;
-    let clean = network.clean();
+    let summary = format!(
+        "{fps:.1} frames a second, {:.1}% of frames on time ({} dropped and {} late of {}); drawn and handed over {:.0} ms after due at the 99th percentile; {:.0} output passes a second",
+        frames.on_time_percent(),
+        frames.dropped,
+        frames.late,
+        frames.due,
+        pacing.shown.p99,
+        pacing.passes_per_second,
+    );
+    let verdict = Verdict::of(&frames, pacing.shown.p99 <= budget, network.clean(), summary);
     Ok(RunResult {
         tier: tier_label(workload.show.pixels()),
         pixels: workload.show.pixels(),
@@ -132,17 +139,7 @@ pub fn run_engine(workload: &Workload, sink: SinkKind, options: Options) -> Resu
         },
         resources,
         network,
-        verdict: Verdict {
-            pass: sustained && within_budget && clean,
-            sustained,
-            within_budget,
-            on_time: None,
-            clean,
-            summary: format!(
-                "{fps:.1} frames a second, {} of {} dropped; drawn and handed over {:.0} ms after due at the 99th percentile; {:.0} output passes a second",
-                frames.dropped, frames.due, pacing.shown.p99, pacing.passes_per_second,
-            ),
-        },
+        verdict,
         load_average: load,
         setup: workload.setup,
         notes,

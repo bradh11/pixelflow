@@ -101,7 +101,7 @@ fn in_real_time_every_frame_is_accounted_for() {
         assert!(pacing.shown.count as u64 >= result.frames.sent);
         assert!(result.frames.late <= result.frames.due);
         assert!(result.stages.output_pass.count > 0 && result.preview_poll.count > 0);
-        assert!(result.verdict.on_time.is_some());
+        assert!((0.0..=100.0).contains(&result.verdict.on_time_percent));
     }
 }
 

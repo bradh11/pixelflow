@@ -79,6 +79,14 @@ pub struct Frames {
     pub late: u64,
 }
 
+impl Frames {
+    /// Frames neither dropped nor late, in percent of the frames due.
+    pub fn on_time_percent(&self) -> f64 {
+        let on_time = self.due.saturating_sub(self.dropped + self.late);
+        100.0 * on_time as f64 / self.due.max(1) as f64
+    }
+}
+
 /// How well a real-time run kept time, in milliseconds.
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -171,23 +179,42 @@ impl Warmup {
     }
 }
 
+/// The share of a run's frames that must be on time for it to have held its frame rate, in
+/// percent: the 99th percentile, as for every other budget.
+pub const ON_TIME_PERCENT: f64 = 99.0;
+
 /// Whether a run held the sequence's frame rate.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Verdict {
     /// Sustained, within budget, and clean.
     pub pass: bool,
-    /// No frame was dropped.
+    /// Frames neither dropped nor late, in percent of the frames due.
+    pub on_time_percent: f64,
+    /// At least [`ON_TIME_PERCENT`] of the frames were on time.
     pub sustained: bool,
     /// At the 99th percentile the work fits the frame period: the whole frame flat out; in real
     /// time, the player's work for a frame and the output thread's pass, each on its own thread.
     pub within_budget: bool,
-    /// Frames are drawn and handed over before the next is due, at the 99th percentile (`None`:
-    /// not timed).
-    pub on_time: Option<bool>,
     /// No packet was dropped or refused on the way out.
     pub clean: bool,
     pub summary: String,
+}
+
+impl Verdict {
+    /// The verdict on a run with these `frames`, saying `summary`.
+    pub(crate) fn of(frames: &Frames, within_budget: bool, clean: bool, summary: String) -> Self {
+        let on_time_percent = frames.on_time_percent();
+        let sustained = on_time_percent >= ON_TIME_PERCENT;
+        Self {
+            pass: sustained && within_budget && clean,
+            on_time_percent,
+            sustained,
+            within_budget,
+            clean,
+            summary,
+        }
+    }
 }
 
 /// Everything measured in one run.
@@ -335,6 +362,28 @@ impl Window {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_run_passes_with_99_frames_in_100_on_time_within_budget_and_nothing_lost() {
+        let frames = |dropped, late| Frames {
+            due: 2400,
+            sent: 2400 - dropped,
+            dropped,
+            late,
+        };
+        let verdict = |frames: Frames, within_budget, clean| {
+            let v = Verdict::of(&frames, within_budget, clean, String::new());
+            (v.pass, v.sustained)
+        };
+        assert_eq!(frames(3, 3).on_time_percent(), 99.75);
+        assert_eq!(verdict(frames(0, 0), true, true), (true, true));
+        // One frame in a hundred may be dropped or late, and no more.
+        assert_eq!(verdict(frames(4, 20), true, true), (true, true));
+        assert_eq!(verdict(frames(5, 20), true, true), (false, false));
+        // On time, but a thread over its budget or packets lost on the way out.
+        assert_eq!(verdict(frames(0, 0), false, true), (false, true));
+        assert_eq!(verdict(frames(0, 0), true, false), (false, true));
+    }
 
     #[test]
     fn a_frame_is_as_lit_as_its_channels_that_arent_zero() {

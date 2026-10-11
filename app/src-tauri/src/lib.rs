@@ -58,6 +58,8 @@ struct AppState {
     models: house::PickedModels,
     /// Bumped by `cancel_sequence_export`: an export started before the bump stops.
     export_cancels: std::sync::atomic::AtomicU64,
+    /// Bumped by `cancel_video_export`: a video export started before the bump stops.
+    video_cancels: std::sync::atomic::AtomicU64,
     /// Bumped by `cancel_fpp_send`: a send to an FPP started before the bump stops.
     send_cancels: std::sync::atomic::AtomicU64,
     /// Bumped by `cancel_fpp_download`: a download from an FPP started before the bump stops.
@@ -287,6 +289,7 @@ pub fn run() {
                 photos: Default::default(),
                 models: Default::default(),
                 export_cancels: Default::default(),
+                video_cancels: Default::default(),
                 send_cancels: Default::default(),
                 download_cancels: Default::default(),
                 download_folders: Default::default(),

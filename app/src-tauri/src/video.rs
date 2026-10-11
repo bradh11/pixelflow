@@ -10,13 +10,10 @@ use std::path::Path;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
-use tauri::{AppHandle, Emitter, Runtime, State};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
 /// The event a video export sends as it goes (see [`VideoProgress`]).
 pub(crate) const VIDEO_PROGRESS_EVENT: &str = "video-export-progress";
-
-/// Bumped by `cancel_video_export`: an export started before the bump stops.
-static CANCELS: AtomicU64 = AtomicU64::new(0);
 
 /// The ffmpeg found on this computer, looked for once.
 fn ffmpeg() -> Option<Ffmpeg> {
@@ -106,9 +103,10 @@ pub(crate) async fn export_video<R: Runtime>(
             return Err("ffmpeg isn't installed any more. Export with the built-in encoder instead.".into());
         }
     }
-    let started = CANCELS.load(Ordering::Acquire);
+    let started = state.video_cancels.load(Ordering::Acquire);
     tauri::async_runtime::spawn_blocking(move || {
-        let result = run_video_export(&job, &options, &path, &CANCELS, started, |progress| {
+        let cancels = &app.state::<AppState>().video_cancels;
+        let result = run_video_export(&job, &options, &path, cancels, started, |progress| {
             // A window that's gone can't show progress; the export carries on.
             let _ = app.emit(VIDEO_PROGRESS_EVENT, progress);
         });
@@ -130,8 +128,8 @@ pub(crate) async fn export_video<R: Runtime>(
 
 /// Cancels the video exports running now.
 #[tauri::command]
-pub(crate) async fn cancel_video_export() -> Reply<()> {
-    CANCELS.fetch_add(1, Ordering::AcqRel);
+pub(crate) async fn cancel_video_export(state: State<'_, AppState>) -> Reply<()> {
+    state.video_cancels.fetch_add(1, Ordering::AcqRel);
     Ok(())
 }
 
@@ -327,5 +325,67 @@ mod tests {
             (request.start_ms, request.end_ms, request.pixel_size),
             (1500, None, 1.5)
         );
+    }
+
+    #[test]
+    fn the_export_command_reports_each_stage_and_stops_when_cancelled() {
+        use crate::testing::{app, authored, call, call_at, files_under, heard};
+        use serde_json::json;
+        let (app, webview, dir) = app();
+        authored(&webview);
+        let folder = dir.path().join("videos");
+        std::fs::create_dir(&folder).unwrap();
+        let path = folder.join("Song.mp4");
+        let shown = path.display().to_string();
+        // Half a second, with the built-in encoder: no ffmpeg is looked for or run.
+        let request = json!({ "width": 1280, "height": 720, "fps": 30, "startMs": 0, "endMs": 500,
+            "photo": false, "pixelSize": 1.0, "glow": 0.0, "ffmpeg": false });
+        let export = || {
+            call(
+                &webview,
+                "export_video",
+                json!({ "path": path, "request": request }),
+            )
+        };
+        let events = heard(&app, "video-export-progress");
+        let started =
+            json!({ "path": shown, "stage": "rendering", "label": "Rendering frames", "fraction": 0.0 });
+
+        // Nothing is exporting: a cancel does nothing, now or to the export after it.
+        call(&webview, "cancel_video_export", json!({})).unwrap();
+
+        // Cancelled as a report of frames drawn arrives: the export stops at that frame.
+        call_at(
+            &app,
+            &webview,
+            "video-export-progress",
+            |progress| progress["fraction"].as_f64().is_some_and(|f| f > 0.0),
+            "cancel_video_export",
+        );
+        assert_eq!(export().unwrap_err(), "The export was cancelled.");
+        let sent = std::mem::take(&mut *events.lock().unwrap());
+        assert_eq!(sent[0], started);
+        assert!(
+            sent.len() >= 2 && sent.iter().all(|e| e["stage"] == "rendering"),
+            "{sent:?}"
+        );
+        assert_eq!(files_under(&folder), Vec::<String>::new());
+
+        // That cancel is spent: the next export runs through every stage and writes the file.
+        let summary = export().unwrap();
+        assert_eq!(
+            (&summary["frames"], &summary["height"]),
+            (&json!(15), &json!(720))
+        );
+        let sent = events.lock().unwrap().clone();
+        assert_eq!(sent[0], started);
+        assert_eq!(
+            sent.last().unwrap(),
+            &json!({ "path": shown, "stage": "writing", "label": "Writing the MP4", "fraction": 1.0 })
+        );
+        let mut stages: Vec<&str> = sent.iter().map(|e| e["stage"].as_str().unwrap()).collect();
+        stages.dedup();
+        assert_eq!(stages, ["rendering", "writing"]);
+        assert_eq!(files_under(&folder), ["Song.mp4"]);
     }
 }

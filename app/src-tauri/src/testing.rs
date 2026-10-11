@@ -53,6 +53,7 @@ pub(crate) fn builder(dir: &std::path::Path) -> tauri::Builder<MockRuntime> {
             photos: Default::default(),
             models: Default::default(),
             export_cancels: Default::default(),
+            video_cancels: Default::default(),
             send_cancels: Default::default(),
             download_cancels: Default::default(),
             download_folders: Default::default(),

@@ -38,7 +38,7 @@ const NUMBER = `${CELL} text-right tabular-nums`;
 
 /** Reads a device's configuration and shows exactly what importing it would add. (An FPP has a
  * page of its own: see FppDevicePage.) When the controller is already in the show, `onCompare`
- * (Compare with this device) is the main way on, rather than adding another copy. */
+ * (Compare with this controller) is the main way on, rather than adding another copy. */
 export function ImportDialog({
   address,
   onClose,
@@ -191,7 +191,7 @@ export function ImportDialog({
                 <p className="flex items-start gap-2 text-amber-700 dark:text-amber-400">
                   <AlertTriangle size={16} className="mt-0.5 shrink-0" />
                   {compare
-                    ? "A controller at this address is already in your show. Compare with this device to update it; Add another copy adds a second one."
+                    ? "A controller at this address is already in your show. Compare with this controller to update it; Add another copy adds a second one."
                     : "A controller at this address is already in your show. Importing adds another copy."}
                 </p>
               )}
@@ -223,7 +223,7 @@ export function ImportDialog({
                 Add another copy
               </Button>
               <Button variant="primary" onClick={compare}>
-                Compare with this device
+                Compare with this controller
               </Button>
             </>
           ) : (

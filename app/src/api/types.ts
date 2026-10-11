@@ -822,7 +822,7 @@ export interface Change {
   whyNot: string | null;
 }
 
-/** "Compare with this device": show (before) → device (after). Changes nothing. */
+/** "Compare with this controller": show (before) → device (after). Changes nothing. */
 export interface DeviceComparison {
   device: Device;
   controllerName: string;
@@ -830,7 +830,7 @@ export interface DeviceComparison {
   notes: string[];
 }
 
-/** "Send setup to this device…": device (before) → show (after). Changes nothing yet. */
+/** "Send setup to this controller…": device (before) → show (after). Changes nothing yet. */
 export interface SendPlan {
   device: Device;
   controllerName: string;

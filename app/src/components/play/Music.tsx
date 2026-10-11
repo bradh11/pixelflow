@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import type { MissingFile, SequenceEntry, Waveform } from "../../api/types";
 import { fileName, shownPath } from "../../lib/format";
 import { useApp } from "../../state/store";
+import { LIGHT_TIMING, LIGHT_TIMING_HINT, LIGHT_TIMING_SCOPE } from "../../lib/labels";
 import { MissingFileNotice } from "../MissingFiles";
 import { Button } from "../ui";
 import { WaveformView } from "../WaveformView";
@@ -39,10 +40,11 @@ function OffsetControl({ entry }: { entry: SequenceEntry }) {
     }
   };
   return (
-    <div className="flex flex-col gap-1.5 text-sm" role="group" aria-label="Music alignment">
-      <span className="font-medium text-neutral-700 dark:text-neutral-200" title="Move the lights earlier or later against the music, if they look out of step">
-        Light timing
+    <div className="flex flex-col gap-1.5 text-sm" role="group" aria-label={LIGHT_TIMING}>
+      <span className="font-medium text-neutral-700 dark:text-neutral-200" title={`${LIGHT_TIMING_HINT} ${LIGHT_TIMING_SCOPE}`}>
+        {LIGHT_TIMING}
       </span>
+      <p className="text-xs text-neutral-500">{LIGHT_TIMING_HINT}</p>
       <div className="grid grid-cols-4 gap-1.5">
         {[-50, -10, 10, 50].map((delta) => (
           <Button

@@ -30,7 +30,7 @@ type PutBack =
   | { kind: "done"; result: RestoreReport };
 
 /**
- * "Send setup to this device…": shows, port by port, what sending the show's setup would change
+ * "Send setup to this controller…": shows, port by port, what sending the show's setup would change
  * on the controller, and sends it only when the user clicks Send. A copy of the controller's
  * setup from before PixelFlow first changed it is kept until it's put back or forgotten. Put back
  * first shows what it will change on the device answering now, and writes only when confirmed.

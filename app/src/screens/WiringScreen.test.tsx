@@ -85,6 +85,13 @@ const handle = (label: string, n = 0) => screen.getAllByRole("button", { name: `
 const propItem = (name: string) => within(screen.getByRole("complementary", { name: "Props" })).getByRole("button", { name: new RegExp(`^${name},`) });
 
 describe("wiring screen", () => {
+  it("says where a prop's color order is set, and goes to Layout", async () => {
+    const user = await setup();
+    expect(screen.getByText(/A prop's color order is set on Layout/)).toHaveTextContent("More: color order and scale");
+    await user.click(screen.getByRole("button", { name: /Go to Layout/ }));
+    expect(useApp.getState().screen).toBe("layout");
+  });
+
   it("lists unwired props first, counts them, and finds props by name", async () => {
     const user = await setup();
     expect(screen.getByTestId("unwired-count")).toHaveTextContent("1 prop isn't wired yet");

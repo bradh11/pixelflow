@@ -38,11 +38,11 @@ see [Troubleshooting](troubleshooting.md).
   … Its lights may flicker or go dark while the new setup is saved." Stop the show first, send
   the setup, then start the show again.
 - **Nothing changes on a controller until you click.** Every dialog shows what will change
-  before it writes. This includes **Send setup to this device…**, **Send to FPP…**, and **Play**
+  before it writes. This includes **Send setup to this controller…**, **Send to FPP…**, and **Play**
   and **Stop** on an FPP.
 - **What Send setup changes.** It writes only pixel-output settings, and what the controller
   receives. It never writes Wi-Fi or network settings. At the time of writing it supports FPP and
-  WLED. A Falcon controller is read only, so for a Falcon, set up its pixel ports on its own page.
+  WLED. A Falcon controller is read only: its **Send setup** button is off, with the reason shown on hover, so set up a Falcon's pixel ports on its own page.
   The dialog subtitle says: "Only its outputs change; network settings are never touched."
 - **What happens after Send setup.** The dialog reads the setup back and reports whether the
   controller now matches your show. For an FPP, the new outputs are used after the FPP's player
@@ -53,7 +53,7 @@ see [Troubleshooting](troubleshooting.md).
   replaces the setup from before PixelFlow first changed it. It stays across restarts until you
   put it back or choose **Forget this copy**.
   1. Open the controller's **Send setup** dialog and choose **Put back the previous setup…**.
-  2. PixelFlow reads the device at that address. It refuses to put the copy on a different device.
+  2. PixelFlow reads the controller at that address. It refuses to put the copy on a different controller.
   3. The dialog lists what Put back will change. Choose **Put back on** the controller's name to
      write it, or **Don't put it back** to leave it.
 - **Keep a manual backup too.** Before your first Send setup on a controller you care about, save a
@@ -123,14 +123,14 @@ Do these one port at a time. Use **Test** with the port as the **Target**.
 
 | # | Check | How | Pass | Fail | Notes |
 |---|---|---|---|---|---|
-| 3.1 | The controller shows Answering | **Test**, under **Sends to**. | [ ] | [ ] | |
+| 3.1 | The controller shows Web page answering | **Test**, under **Sends to**. This checks only the controller's web page, not that light data arrives. | [ ] | [ ] | |
 | 3.2 | A test pattern lights the lights | **Start** a **Solid color** on one port. | [ ] | [ ] | |
 | 3.3 | The pattern runs at a steady rate | The table shows `ok`, a rising **Packets** count, and **Errors** at 0. | [ ] | [ ] | |
 | 3.4 | Changing the color is live | While running, change **Color**. The lights change without a restart. | [ ] | [ ] | |
 | 3.5 | The whole show lights | **Whole show**, **Chase**. | [ ] | [ ] | |
 | 3.6 | Stop blacks out | **Stop**. The lights go dark. | [ ] | [ ] | |
 | 3.7 | A sequence plays on the lights | **Play**, turn on **Show on my lights**, and play a sequence. The lights follow the preview. | [ ] | [ ] | |
-| 3.8 | Music plays with the lights | The sound matches the lights. Note any lag, in milliseconds if you can. | [ ] | [ ] | |
+| 3.8 | Music plays with the lights | The sound matches the lights. Note any lag, in milliseconds if you can. If the lights are early or late, try **Light timing** (Play, Playlist, Music). | [ ] | [ ] | |
 | 3.9 | Pause and resume | Pause, then play. The lights and the music stay together. | [ ] | [ ] | |
 | 3.10 | Seek | Move the seek bar. The lights jump to the right place. | [ ] | [ ] | |
 | 3.11 | Stopping a sequence blacks out | **Stop**. The lights go dark. | [ ] | [ ] | |
@@ -154,7 +154,7 @@ Do these one port at a time. Use **Test** with the port as the **Target**.
 | 4.12 | Restart works | Play it again from the start. It matches the first run. | [ ] | [ ] | |
 | 4.13 | Blackout at the end | When the sequence ends, the lights go dark (or whatever your FPP is set to do). Check the FPP's own page for its end-of-show setting. | [ ] | [ ] | |
 | 4.14 | Replace works | Send the same sequence again and choose **Replace it**. The new version plays. | [ ] | [ ] | |
-| 4.15 | Send setup shows the changes first | Open **Send setup to this device…**. The dialog lists changes port by port. Close it without sending, unless this is a planned test. | [ ] | [ ] | |
+| 4.15 | Send setup shows the changes first | Open **Send setup to this controller…**. The dialog lists changes port by port. Close it without sending, unless this is a planned test. | [ ] | [ ] | |
 | 4.16 | Send setup and Put back | On a test controller, send the setup. Check the lights. Then **Put back the previous setup…**. The controller returns to how it was. | [ ] | [ ] | |
 
 ## 5. Long run
@@ -177,7 +177,7 @@ Do these one port at a time. Use **Test** with the port as the **Target**.
 |---|---|---|---|---|---|
 | 6.1 | Unplug the network cable during a test | The table shows `degraded` or errors. The lights hold or go dark. PixelFlow doesn't freeze. | [ ] | [ ] | |
 | 6.2 | Plug it back in | Output resumes without restarting the test. | [ ] | [ ] | |
-| 6.3 | Controller power off, then on | PixelFlow's **Sends to** goes to "Not answering", then **Answering** after **Check again**. | [ ] | [ ] | |
+| 6.3 | Controller power off, then on | PixelFlow's **Sends to** goes to "Web page not answering", then **Web page answering** after **Check again**. | [ ] | [ ] | |
 | 6.4 | Reboot the FPP while idle | After it is back, it is listed again and the files are still on it. | [ ] | [ ] | |
 | 6.5 | Reboot the FPP during playback | After it is back, the playlist behaves as your FPP's schedule says. Note what it did. | [ ] | [ ] | |
 | 6.6 | Send to FPP while the cable is pulled | The window gives a clear message, such as "The FPP at … stopped answering during the upload." Nothing is left half-sent, or the message names what is. | [ ] | [ ] | |

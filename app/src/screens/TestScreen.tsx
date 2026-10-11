@@ -2,8 +2,10 @@ import { Camera, Play, RefreshCw, Square } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { errorMessage } from "../api/backend";
 import type { ControllerCheck, OutputStatus, PatternKind, TargetSpec } from "../api/types";
+import { ColorOrderPointer } from "../components/ColorOrderPointer";
 import { Button, Card, EmptyState, Field, Input, PageHeader, Select } from "../components/ui";
 import { thousands } from "../lib/format";
+import { WEB_PAGE_ANSWERING, WEB_PAGE_HINT, WEB_PAGE_NOT_ANSWERING } from "../lib/labels";
 import { type TestDestination, describeUse, isDemoShow, sendingSummary, testDestinations } from "../lib/testTargets";
 import { currentSetupKey, useSetup } from "../state/setup";
 import { useApp } from "../state/store";
@@ -36,7 +38,7 @@ const STATE_STYLE: Record<string, string> = {
   unresolved: "text-red-600 dark:text-red-400",
 };
 
-const NOT_ANSWERING = "Not answering — check it's powered on and on the same network as this computer";
+const NOT_ANSWERING = `${WEB_PAGE_NOT_ANSWERING} — check it's powered on and on the same network as this computer`;
 
 /** Whether each listed controller answers: looked at again whenever `when` changes (the target, or Check again). */
 function useReachability(addresses: string[], when: string): Map<string, ControllerCheck> | null {
@@ -87,12 +89,13 @@ function SendsTo({ destinations, checks, onCheckAgain }: { destinations: TestDes
               <span
                 className={`text-xs ${state === "answering" ? "text-green-700 dark:text-green-400" : state === "silent" ? "text-amber-700 dark:text-amber-400" : "text-neutral-500"}`}
               >
-                {state === "answering" ? "Answering" : state === "silent" ? NOT_ANSWERING : "Checking…"}
+                {state === "answering" ? WEB_PAGE_ANSWERING : state === "silent" ? NOT_ANSWERING : "Checking…"}
               </span>
             </li>
           );
         })}
       </ul>
+      <p className="mt-1 text-xs text-neutral-500">{WEB_PAGE_HINT}</p>
     </section>
   );
 }
@@ -352,6 +355,7 @@ export function TestScreen() {
             ) : (
               <SendsTo destinations={destinations} checks={checks} onCheckAgain={() => setAgain((n) => n + 1)} />
             )}
+            <ColorOrderPointer className="mt-2" propId={targetSpec.type === "prop" ? targetSpec.id : undefined} />
             {elsewhere && (
               <p className="mt-2 flex flex-wrap items-center gap-2 text-xs text-neutral-600 dark:text-neutral-400">
                 This show's controllers aren't on your network. Add your own on the Controllers screen.

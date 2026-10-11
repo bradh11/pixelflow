@@ -76,7 +76,9 @@ to choose the network interface. Output stops with a blackout frame when the run
 ### Find your controllers
 
 PixelFlow finds FPP, Falcon, and WLED controllers on your network and reads their pixel
-setup so you can add them to a show. It only reads — nothing on a controller is changed.
+setup so you can add them to a show. Finding and reading change nothing on a controller. The
+app only writes to one when you choose **Send setup to this controller…** (FPP and WLED; Falcon
+controllers are read-only), and it shows what will change first.
 
 ```sh
 make discover                                    # or: cargo run -p pf-cli -- discover
@@ -84,7 +86,8 @@ cargo run -p pf-cli -- discover --host 10.0.0.50  # also check an address direct
 cargo run -p pf-cli -- device 10.0.0.50           # one controller's setup and what importing adds
 ```
 
-In the app, use **Discover my devices** on the welcome screen or the **Devices** screen.
+In the app, use **Find my controllers** on the welcome screen or **Scan network** on the
+**Controllers** screen.
 
 Discovery listens for FPP's MultiSync ping and mDNS, checks the web page of every address on
 the /24 around each of your private network addresses, and asks each FPP which controllers it sends to. If a firewall
@@ -99,20 +102,21 @@ transport under them (play, pause, back to the start, stop, a seek bar, 2D or 3D
 
 - **What you're working on plays there.** A sequence open on the **Sequence** screen shows on
   Play ready to go. It's the same playback as the Sequence screen's, so play, pause, and the
-  position stay in step between the two. **Show on my lights** sends it to your controllers as
-  it plays; off, it plays only on screen.
+  position stay in step between the two. **Show on my lights** (the same toggle on Sequence)
+  sends it to your controllers as it plays; off, it plays only on screen.
 - **Full screen** (or F) puts everything else away, leaving the lights and a transport that
   hides itself while a sequence plays. Escape brings the app back.
 - **Playlist** opens a drawer with everything there is to play: the open sequence, the
   sequences saved with this show, and the show's rendered ones. Picking one plays it. Each
-  rendered sequence's music, its volume, and the lights' timing against it are there too, and
-  so is what's on your FPP.
+  rendered sequence's music, its volume, and its **Light timing** (move the lights earlier or
+  later against the music) are there too, and so is what's on your FPP. **Light timing** is
+  per sequence; **Preview sync** in Settings is separate and moves only the on-screen preview.
 
 PixelFlow also plays rendered xLights/FPP sequences (`.fseq`) straight to your controllers:
 
-1. On **Devices**, open your FPP and choose **Add to show** next to each controller it sends to.
-   This tells PixelFlow which sequence channels belong to each controller, and it works even
-   while a controller is offline.
+1. On **Controllers**, open your FPP and choose **Set up my show from this FPP**, then
+   **Add N controllers** (N is how many it lists). This tells PixelFlow which sequence channels
+   belong to each controller, and it works even while a controller is offline.
 2. On **Play**, open the **Playlist** and choose **Add sequence**, then pick the `.fseq`.
    PixelFlow finds its music next to it. Props you've imported light up in the preview. A
    controller whose strings aren't imported yet shows the channels it receives as a grid.
@@ -137,10 +141,10 @@ popped out, and where its window was.
 
 ### Control an FPP
 
-On **Devices**, open an FPP to see what it's playing, how long is left, and what's scheduled next.
+On **Controllers**, open an FPP to see what it's playing, how long is left, and what's scheduled next.
 **Stop now**, **Stop after this**, and **Play** (for a sequence stored on the FPP) change what the
 FPP is doing, and they only run when you click them. Everything else PixelFlow does with your
-controllers only reads.
+controllers only reads, apart from **Send setup**, which asks first.
 
 ### Run the desktop app
 

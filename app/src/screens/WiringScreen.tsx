@@ -1,3 +1,4 @@
+import { ColorOrderPointer } from "../components/ColorOrderPointer";
 import { AlertTriangle, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePreviewProps } from "../components/layout/useLayoutData";
@@ -214,6 +215,7 @@ export function WiringScreen() {
                 </ul>
               </div>
             )}
+            {controllers.length > 0 && <ColorOrderPointer />}
             {controllers.length === 0 && !adding ? (
               <EmptyState title="No controllers yet">
                 <p>Add your controller, then drag props onto its ports.</p>

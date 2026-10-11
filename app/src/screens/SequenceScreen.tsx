@@ -19,6 +19,7 @@ import { AddRowMenu, Timeline } from "../components/sequencer/Timeline";
 import { useSequenceKeys } from "../components/sequencer/useSequenceKeys";
 import { Button, EmptyState, Input, UnsavedBadge } from "../components/ui";
 import { ago, fileName, shownPath } from "../lib/format";
+import { SHOW_ON_LIGHTS, SHOW_ON_LIGHTS_HINT } from "../lib/labels";
 import { formatTime } from "../lib/timelineMath";
 import { MAX_ROWS, type Sequence, rowsForShow } from "../api/sequence";
 import { sequenceArrangement, sidePreview } from "../lib/sequenceLayout";
@@ -441,12 +442,12 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
             <Magnet size={16} /> <span className="hidden @min-[760px]:inline">Snap</span>
           </ToolButton>
           <ToolButton
-            label="Show it on my lights while editing"
-            hint="When on, playing here also sends each frame to your controllers live, so your real lights show the sequence as you edit. When off, it plays only in the preview."
+            label={SHOW_ON_LIGHTS}
+            hint={SHOW_ON_LIGHTS_HINT}
             pressed={s.sendToControllers}
             onClick={() => void act().setSendToControllers(!s.sendToControllers)}
           >
-            <Lightbulb size={16} /> <span className="hidden lg:inline">Show on my lights</span>
+            <Lightbulb size={16} /> <span className="hidden lg:inline">{SHOW_ON_LIGHTS}</span>
           </ToolButton>
           <SequenceIssues />
           <ExportControls />

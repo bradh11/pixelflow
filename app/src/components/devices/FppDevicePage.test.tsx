@@ -93,7 +93,7 @@ describe("an FPP's page", () => {
     expect(within(health).queryByText(/Cannot Ping/)).not.toBeInTheDocument();
     const target = within(await within(health).findByRole("list", { name: "Output targets" })).getByRole("listitem");
     expect(target).toHaveTextContent("Falcon_F16V5_B9F5");
-    expect(await within(target).findByText("Not answering")).toBeInTheDocument();
+    expect(await within(target).findByText("Web page not answering")).toBeInTheDocument();
   });
 
   it("marks a target that answers, and says all's well when nothing is reported", async () => {
@@ -102,7 +102,7 @@ describe("an FPP's page", () => {
       b.fppPlayers[FPP].status.warnings = [];
     });
     const health = region("Health");
-    expect(await within(health).findByText("Answering")).toBeInTheDocument();
+    expect(await within(health).findByText("Web page answering")).toBeInTheDocument();
     expect(await within(health).findByText("No problems reported.")).toBeInTheDocument();
   });
 

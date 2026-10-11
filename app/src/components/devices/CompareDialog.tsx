@@ -16,7 +16,7 @@ const pixelsOf = (text: string) => Number.parseInt(text.replace(/,/g, ""), 10) |
 const orderOf = (text: string) => (text.match(/, (RGBW|GRBW|RGB|RBG|GRB|GBR|BRG|BGR)$/)?.[1] as ColorOrder | undefined) ?? null;
 
 /**
- * "Compare with this device": reads the controller and lists where it differs from the show.
+ * "Compare with this controller": reads the controller and lists where it differs from the show.
  * The user picks which differences to take into the show (one undo step). The controller itself
  * isn't changed.
  */

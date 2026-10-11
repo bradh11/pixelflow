@@ -11,7 +11,7 @@ see [Troubleshooting](troubleshooting.md).
 - **Pixel:** one light on a string. A prop is made of pixels.
 - **Controller:** the box that powers the strings and tells each pixel what color to be. It can
   be an FPP (a Raspberry Pi or BeagleBone running Falcon Player), a Falcon board, or a WLED
-  device.
+  controller.
 - **Port:** one socket on the controller where a string plugs in. Ports are numbered on the
   controller. PixelFlow uses the same numbers.
 - **DDP and sACN:** two ways of sending light data over your network. Use **DDP** if you aren't
@@ -166,7 +166,8 @@ You can scan for it or add it by address.
 2. Choose **Scan network**. It takes a few seconds.
 3. Choose **Open** on your controller's row.
    - For a Falcon or WLED controller, a window shows its ports and strings. Choose **Add to
-     show**.
+     show**. (A Falcon is read-only: PixelFlow reads its setup but can't send one, so **Send
+     setup** is off for it.)
    - For an FPP, a page opens. Its **Outputs → your show** section lists the controllers the FPP
      sends to. Choose **Set up my show from this FPP**, review what it will add, and choose the
      button that adds the controllers.
@@ -231,12 +232,14 @@ over its limit shows a red message with the number of pixels over.
 4. Look at the real lights. A block of lit pixels should run along the string from the first pixel
    to the last.
 5. Try **Red / green / blue / white**. Each color shows for one second. If red shows as another
-   color, the color order is wrong.
+   color, the color order is wrong. The test screen and **Wiring** both point to where to fix it:
+   **Layout**, select the prop, then **More: color order and scale**.
 6. Try **Pixel walk** to light one pixel at a time, and **Identify (blink)** to find which prop
    or port a target is.
 7. Choose **Stop**. Output stops with a blackout.
 
-**You should see:** under **Sends to**, each controller with "Answering" beside it. Below that, a
+**You should see:** under **Sends to**, each controller with "Web page answering" beside it. That
+checks only the controller's web page, not that light data is arriving. Below that, a
 row for each controller with its **State**, **Packets**, and **Errors**.
 
 **If it doesn't:** see [Nothing lights](troubleshooting.md#nothing-lights). If colors are wrong,
@@ -252,6 +255,10 @@ see [Wrong colors](troubleshooting.md#wrong-colors-color-order).
 **You should see:** a timeline with your song's waveform and a row for each prop or group.
 
 Choose **Save** often. The **Sequence** screen offers back any unsaved sequence from last time.
+
+Beside the sequence's name, **Sequence settings** (the small sliders button) holds how the rows
+combine where they light the same pixels (**Cover**, **Blend with the rows above**, or
+**Replace**), plus the sequence's music and frame time.
 
 ### B7. Detect beats
 
@@ -303,8 +310,8 @@ the preview looks late](troubleshooting.md#lights-lag-the-music-or-the-preview-l
 
 You can play a sequence on your real lights from this computer.
 
-1. On **Sequence** or **Play**, turn on **Show on my lights** (also named "Show it on my lights
-   while editing" on **Sequence**). With it off, the sequence plays only on screen.
+1. On **Sequence** or **Play**, turn on **Show on my lights** (the same toggle on both screens).
+   With it off, the sequence plays only on screen.
 2. Press Space to play, and watch the real lights.
 3. On **Play**, choose **Playlist** for the sequences you can play. **Full screen** (or F) gives
    you just the lights. Esc brings the app back.

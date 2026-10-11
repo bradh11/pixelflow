@@ -86,7 +86,7 @@ function DeviceRow({
               Update available
             </span>
           )}
-          {inShow && device.responding && <SetupButtons compact name={device.name} onCompare={onCompare} onSend={onSend} />}
+          {inShow && device.responding && <SetupButtons compact name={device.name} onCompare={onCompare} onSend={onSend} readOnlyFalcon={device.kind === "falcon"} />}
         </span>
       </td>
       <td className="w-px pr-6 whitespace-nowrap">

@@ -651,7 +651,7 @@ describe("sequence screen", () => {
     await user.keyboard(" ");
     await waitFor(() => expect(backend.calls).toContain("playAuthored@0"));
     expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Show it on my lights while editing" }));
+    await user.click(screen.getByRole("button", { name: "Show on my lights" }));
     expect(seq.calls).toContain("setSequenceDocOutput:true");
     await user.click(screen.getByRole("button", { name: "Stop" }));
     await waitFor(() => expect(useSequencer.getState().status).toBeNull());
@@ -659,7 +659,7 @@ describe("sequence screen", () => {
 
   it("says what the live toggle does: it lights the real lights", async () => {
     await openScreen();
-    const toggle = screen.getByRole("button", { name: "Show it on my lights while editing" });
+    const toggle = screen.getByRole("button", { name: "Show on my lights" });
     expect(toggle).toHaveAttribute("aria-pressed", "false");
     expect(toggle).toHaveTextContent("Show on my lights");
     expect(toggle.getAttribute("title")).toMatch(/sends each frame to your controllers live/);

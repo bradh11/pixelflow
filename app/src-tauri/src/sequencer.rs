@@ -68,9 +68,15 @@ pub(crate) async fn discard_sequence_recovery(state: State<'_, AppState>, id: St
     Ok(())
 }
 
+/// Opens the sequence at `path`. The window only ever asks for one the user chose in a dialog
+/// or one on its own list of recent sequences (opened or saved here before); no show or
+/// sequence names a sequence to open. So a sequence kept on a network share opens, and its
+/// folder counts as chosen from: the music beside it may be read (see
+/// `pf_model::network_path_refusal`).
 #[tauri::command]
 pub(crate) async fn open_sequence_doc(state: State<'_, AppState>, path: String) -> Reply<SequenceSnapshot> {
-    let path = crate::window_path(&path)?;
+    let path = pf_model::path_from_text(&path);
+    pf_model::trust_network_folder_of(&path);
     state.engine().open_sequence_doc(&path).map_err(message)
 }
 

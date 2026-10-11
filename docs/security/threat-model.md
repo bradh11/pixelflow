@@ -214,10 +214,12 @@ extension PixelFlow plays, and an FPP download must be a `.fseq` or one of FPP's
   in the same folder, or a folder above it, in a file dialog this session.
   - **The rule** is one function on the path's text, `network_path_refusal`
     (`crates/pf-model/src/network_paths.rs`), so it is the same on every system. The folders
-    chosen from are kept for the session only, and only the file dialogs
-    (`app/src-tauri/src/pickers.rs`, `pick`) and the recent-shows list (shows the user opened
-    or saved before, `recent.rs`) add to them. A path with `..` in it is never inside a chosen
-    folder. A drive letter mapped to a share is an ordinary path.
+    chosen from are kept for the session only. Three things add to them: the file dialogs
+    (`app/src-tauri/src/pickers.rs`, `pick`), the recent-shows list (shows the user opened or
+    saved before, `recent.rs`), and opening a sequence (`sequencer.rs`, `open_sequence_doc`:
+    the window asks for one only from a dialog or its own list of recent sequences, and no file
+    names a sequence to open). A path with `..` in it is never inside a chosen folder. A drive
+    letter mapped to a share is an ordinary path.
   - **Where it is asked:** the check of a show's files when it opens and afterwards
     (`crates/pf-engine/src/files.rs`, `exists`), the folder a show says it was saved in
     (`persist.rs`), a sequence's music (`MusicCheck`, `Engine::sequence_music`), playback of a

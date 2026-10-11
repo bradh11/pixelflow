@@ -3307,7 +3307,6 @@ mod tests {
             ("probe_audio", &photo),
             ("audio_waveform", &photo),
             ("analyze_audio", &photo),
-            ("open_sequence_doc", &photo),
         ] {
             let args = json!({ "path": path, "slices": 10 });
             assert!(call_raw(&webview, command, args).is_err(), "{command}");
@@ -3324,6 +3323,45 @@ mod tests {
         assert_eq!(
             call_raw(&webview, "read_image", json!({ "path": photo })).unwrap(),
             PNG
+        );
+    }
+
+    #[test]
+    fn a_sequence_the_user_opens_from_a_network_share_opens_with_the_music_beside_it() {
+        let (_app, webview, dir) = app();
+        let music = dir.path().join("Seq").join("Music").join("Carol.wav");
+        std::fs::create_dir_all(music.parent().unwrap()).unwrap();
+        write_wav(&music);
+        let file = dir.path().join("Seq").join("Carol.pfseq.json");
+        call(
+            &webview,
+            "new_sequence_doc",
+            json!({ "name": "Carol", "durationMs": 1000, "audio": music }),
+        )
+        .unwrap();
+        call(&webview, "save_sequence_doc_as", json!({ "path": file })).unwrap();
+        call(
+            &webview,
+            "new_sequence_doc",
+            json!({ "name": "Other", "durationMs": 1000 }),
+        )
+        .unwrap();
+
+        // The same file by a spelling that reads as a network or device path: a second leading
+        // `/` on Unix, the `\\?\` prefix on Windows. The window asks for it as it would one from
+        // its recent sequences: it opens, and the music beside it is found, not refused.
+        let text = pf_model::path_to_text(&file);
+        let on_network = if cfg!(windows) {
+            format!("\\\\?\\{text}")
+        } else {
+            format!("/{text}")
+        };
+        assert!(pf_model::is_network_path_text(&on_network));
+        let opened = call(&webview, "open_sequence_doc", json!({ "path": on_network })).unwrap();
+        assert_eq!(opened["sequence"]["name"], "Carol");
+        assert_eq!(
+            call(&webview, "sequence_music_missing", json!({})).unwrap(),
+            Value::Null
         );
     }
 

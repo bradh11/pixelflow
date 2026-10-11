@@ -102,11 +102,18 @@ pub(crate) fn find(written: &str, folder: &Path) -> Option<PathBuf> {
 pub(crate) fn build(x: &XBackground, folder: &Path, notes: &mut Vec<String>) -> Option<Background> {
     let name = parts(&x.image).last().copied().unwrap_or(&x.image);
     let Some(found) = find(&x.image, folder) else {
-        notes.push(format!(
-            "The layout photo {name} wasn't found: xLights has it somewhere on another computer and it \
-             isn't in the xLights folder. Copy it into that folder and import again, or choose it on the \
-             Layout screen."
-        ));
+        notes.push(match pf_model::network_path_refusal(&x.image) {
+            // Not looked for where xLights says, and not in the xLights folder either.
+            Some(refusal) => format!(
+                "The layout photo wasn't brought in. {refusal} Copy it into the xLights folder and import \
+                 again, or choose it on the Layout screen."
+            ),
+            None => format!(
+                "The layout photo {name} wasn't found: xLights has it somewhere on another computer and it \
+                 isn't in the xLights folder. Copy it into that folder and import again, or choose it on \
+                 the Layout screen."
+            ),
+        });
         return None;
     };
     let found = std::path::absolute(&found).unwrap_or(found);
@@ -375,6 +382,21 @@ mod tests {
         );
         assert_eq!(notes.len(), 1);
         assert!(notes[0].contains("gone.jpg wasn't found"), "{notes:?}");
+        // One xLights kept on a network share says so: it was never looked for there.
+        notes.clear();
+        assert_eq!(
+            build(&settings("\\\\studio-nas\\xlights\\house.jpg"), &dir, &mut notes),
+            None
+        );
+        assert_eq!(
+            notes,
+            [
+                "The layout photo wasn't brought in. house.jpg is on a network share \
+                 (\\\\studio-nas\\xlights). PixelFlow opens files from a network folder only after you choose a \
+                 file in that folder yourself. Copy it into the xLights folder and import again, or choose it \
+                 on the Layout screen."
+            ]
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 

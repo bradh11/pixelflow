@@ -419,6 +419,8 @@ pub(super) fn icicles(cx: &mut Ctx) -> Raw {
         .map(strtol0)
         .filter(|&d| d >= 0)
         .collect();
+    // The height of its buffer: the longest drop the pattern names (`maxH`).
+    let max_h = drops.iter().copied().max().unwrap_or(0);
     if drops.is_empty() {
         drops.push(5);
     }
@@ -467,6 +469,10 @@ pub(super) fn icicles(cx: &mut Ctx) -> Raw {
                 y
             };
             nodes[cur_node].pts[cur_coord] = [width as f64, sy as f64, 0.0];
+            if cur_coord == 0 {
+                // Its buffer has a column a drop, the drops hanging from the top row.
+                nodes[cur_node].cell = Some([width, max_h - 1 - sy]);
+            }
             left -= 1;
             y += 1;
             cur_coord += 1;
@@ -476,7 +482,11 @@ pub(super) fn icicles(cx: &mut Ctx) -> Raw {
         for p in nodes.iter_mut().flat_map(|n| n.pts.iter_mut()) {
             p[0] = width as f64 - p[0];
         }
+        for cell in nodes.iter_mut().filter_map(|n| n.cell.as_mut()) {
+            cell[0] = width - cell[0];
+        }
     }
+    cx.buffer = Some([width + 1, max_h]);
     if width == 0 {
         for p in nodes.iter_mut().flat_map(|n| n.pts.iter_mut()) {
             p[0] = 0.5;

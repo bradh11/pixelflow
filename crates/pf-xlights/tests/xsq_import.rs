@@ -1,6 +1,9 @@
 //! Importing hand-written xLights sequences onto the sample show.
 
-use pf_model::{Generator, Group, GroupMember, OwnLayout, Prop, Provenance, ShapeSource, Show, Vec3};
+use pf_model::{
+    CubeStart, CubeStyle, Generator, Group, GroupMember, OwnLayout, Prop, Provenance, ShapeSource, Show,
+    StrandStyle, Vec3,
+};
 use pf_sequence::{
     Axis, BarsMotion, BarsParams, Blend, ChaseParams, ColorWashParams, Direction, Effect, EffectParams,
     FaceColorSource, FaceEyes, FacesParams, FireParams, FireStyle, Gradient, Mark, MeteorDirection,
@@ -306,6 +309,44 @@ fn an_effect_on_a_prop_xlights_lays_out_its_own_way_is_an_approximation() {
 }
 
 #[test]
+fn an_effect_on_a_cube_is_an_approximation() {
+    // xLights draws on a cube with its layers side by side; PixelFlow as it looks from the
+    // front, where they overlap. One layer deep, the two are the same.
+    let cube = |name: &str, depth: u32| {
+        Prop::new(
+            name,
+            ShapeSource::Generator(Generator::Cube {
+                width: 4,
+                height: 4,
+                depth,
+                spacing: 0.1,
+                start: CubeStart::FrontBottomLeft,
+                style: CubeStyle::VerticalFrontBack,
+                strand_style: StrandStyle::ZigZag,
+                strand_per_layer: false,
+            }),
+        )
+    };
+    let mut show = Show::new("Cubes");
+    show.props = vec![cube("Deep", 3), cube("Flat", 1)];
+    let bars = r#"<EffectLayer><Effect name="Bars" startTime="0" endTime="1000">E_CHOICE_Bars_Direction=Left</Effect></EffectLayer>"#;
+    let xml = format!(
+        r#"<xsequence FixedPointTiming="1"><head><sequenceTiming>50 ms</sequenceTiming><sequenceDuration>2</sequenceDuration></head>
+        <ElementEffects>
+          <Element type="model" name="Deep">{bars}</Element>
+          <Element type="model" name="Flat">{bars}</Element>
+        </ElementEffects></xsequence>"#
+    );
+    let i = build_sequence(&parse_xsq(&xml).unwrap(), &show, "x");
+    assert_opens(&i);
+    assert_eq!((i.summary.exact, i.summary.approximate), (1, 1));
+    assert_note(
+        &i,
+        "Bars (1 effect) approximated: drawn on the cube as it looks from the front, where xLights lays its layers side by side",
+    );
+}
+
+#[test]
 fn canvas_mode_is_an_approximation_above_the_bottom_layer() {
     // xLights draws the layers below into a canvas effect before the effect itself. On a row's
     // bottom layer there are none, and the effect is like any other.
@@ -570,7 +611,7 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
 
     assert_note(
         &i,
-        "Text (1 effect) approximated: 'default' font shown in PixelFlow's pixel font.",
+        "Text (1 effect) approximated: 'default' font shown in PixelFlow's pixel font, 10 pixels high",
     );
     assert_note(
         &i,

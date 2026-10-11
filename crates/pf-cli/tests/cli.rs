@@ -362,7 +362,9 @@ fn an_xlights_sequence_imports_onto_a_show_and_saves_as_a_sequence_file() {
         "{text}"
     );
     assert!(
-        text.contains("Text (1 effect) approximated: 'default' font shown in PixelFlow's pixel font."),
+        text.contains(
+            "Text (1 effect) approximated: 'default' font shown in PixelFlow's pixel font, 10 pixels high"
+        ),
         "{text}"
     );
     assert!(text.contains("Saved"), "{text}");

@@ -1455,7 +1455,8 @@ fn font_height(xl_font: &str, os_font: &str) -> Option<f64> {
 }
 
 /// Text (xLights' `TextEffect`), in PixelFlow's pixel font at about the font's size (10 pixels
-/// when the font doesn't say).
+/// when the font doesn't say, where xLights takes the size of the computer's own text: 13 on a
+/// Mac).
 fn text(r: &Reader, diff: &mut Diff) -> EffectParams {
     let words = r.s.text("E_TEXTCTRL_Text", "");
     if words.is_empty()
@@ -1474,8 +1475,20 @@ fn text(r: &Reader, diff: &mut Diff) -> EffectParams {
     } else {
         os_font.split('\'').nth(1).unwrap_or("default")
     };
-    diff.add(format!("'{font}' font shown in PixelFlow's pixel font"));
-    let size = font_height(xl_font, os_font).unwrap_or(10.0);
+    let size = font_height(xl_font, os_font);
+    diff.add(match size {
+        Some(_) => format!("'{font}' font shown in PixelFlow's pixel font"),
+        None => format!(
+            "'{font}' font shown in PixelFlow's pixel font, 10 pixels high where xLights uses the \
+             computer's own text size"
+        ),
+    });
+    let size = size.unwrap_or(10.0);
+    // The pixel font has the printable ASCII characters; xLights draws the rest (emoji too)
+    // with the computer's fonts.
+    if words.chars().any(|c| !matches!(c, ' '..='~' | '\n')) {
+        diff.add("characters PixelFlow's pixel font doesn't have (accents, emoji) shown as boxes");
+    }
     use TextMovement as M;
     let movement = match r.choice("Text_Dir", "none") {
         "none" => M::None,
@@ -3599,6 +3612,26 @@ mod tests {
                 "'word-flip' movement shown still".into(),
                 "'rotate up 45' text shown upright".into(),
                 "countdown 'to date 's'' shown as the text itself".into(),
+            ])
+        );
+        // A system font that doesn't give its size is drawn at the size of the computer's own
+        // text in xLights, and characters outside the pixel font are boxes here.
+        let s = Settings::parse(
+            "E_CHOICE_Text_Font=Use OS Fonts,E_FONTPICKER_Text_Font=bold 'arial narrow' utf-8,\
+             E_TEXTCTRL_Text=No\u{eb}l \u{2744}",
+        );
+        let t = translate("Text", &s, &palette(&[Rgb::RED]), 4000, 50).unwrap();
+        let EffectParams::Text(p) = &t.params else {
+            unreachable!()
+        };
+        assert_eq!(p.size, 10);
+        assert_eq!(
+            t.fidelity,
+            Fidelity::Approximate(vec![
+                "'arial narrow' font shown in PixelFlow's pixel font, 10 pixels high where xLights uses the \
+                 computer's own text size"
+                    .into(),
+                "characters PixelFlow's pixel font doesn't have (accents, emoji) shown as boxes".into(),
             ])
         );
     }

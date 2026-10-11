@@ -875,3 +875,23 @@ fn a_custom_models_buffer_is_its_grid_at_the_size_the_model_says() {
     // Other kinds of model don't have one worked out.
     assert_eq!(buffer(&geo("Arches", &[("parm1", "1"), ("parm2", "5")])), None);
 }
+
+#[test]
+fn an_icicle_runs_buffer_is_a_column_a_drop_hanging_from_the_top() {
+    // `SetBufferSize(maxH, width + 1)`, `bufX` the drop and `bufY = maxH - y - 1`: drops of 1
+    // and 3 lights, two of each pattern.
+    let a = [
+        ("parm1", "1"),
+        ("parm2", "8"),
+        ("DropPattern", "1,3"),
+        ("X2", "100"),
+    ];
+    let g = geo("Icicles", &a);
+    let cells = vec![[0, 2], [1, 2], [1, 1], [1, 0], [2, 2], [3, 2], [3, 1], [3, 0]];
+    assert_eq!(buffer(&g), Some((4, 3, cells.clone())));
+    // Wired from the far end ("Dir" R), the picture and the buffer are both turned round.
+    let mut back = a.to_vec();
+    back.push(("Dir", "R"));
+    let turned: Vec<[u32; 2]> = cells.iter().map(|&[c, r]| [3 - c, r]).collect();
+    assert_eq!(buffer(&geo("Icicles", &back)), Some((4, 3, turned)));
+}

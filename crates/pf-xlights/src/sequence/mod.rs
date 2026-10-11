@@ -189,8 +189,9 @@ fn with_note(fidelity: Fidelity, note: String) -> Fidelity {
 /// What to say of an effect drawn on `target` alone when PixelFlow doesn't lay the prop's pixels
 /// out the way xLights does: a line that runs up and down, a poly line, or a model imported as
 /// measured points is drawn as it looks from the front, where xLights lays its pixels out by how
-/// the model is strung. `None` when the two agree (as they do for a prop imported with xLights'
-/// layout of its own), and for a group or a submodel.
+/// the model is strung, and a cube's layers side by side (its "Default" render style is
+/// "Stacked Z Horizontally"). `None` when the two agree (as they do for a prop imported with
+/// xLights' layout of its own), and for a group or a submodel.
 fn own_layout_note(show: &Show, target: Target) -> Option<&'static str> {
     let Target::Prop(id) = target else {
         return None;
@@ -200,6 +201,11 @@ fn own_layout_note(show: &Show, target: Target) -> Option<&'static str> {
         return None;
     }
     let differs = match &prop.shape {
+        ShapeSource::Generator(Generator::Cube { depth, .. }) => {
+            return (*depth > 1).then_some(
+                "drawn on the cube as it looks from the front, where xLights lays its layers side by side",
+            );
+        }
         ShapeSource::Measured { .. } | ShapeSource::Generator(Generator::PolyLine { .. }) => true,
         ShapeSource::Generator(Generator::Line { .. }) => {
             let at = pf_geometry::world_positions(prop);

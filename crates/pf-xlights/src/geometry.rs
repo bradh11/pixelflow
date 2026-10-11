@@ -47,7 +47,7 @@ pub struct Geometry {
     /// model's start channel. xLights does this for a tree with a "first strand" set.
     pub absolute_channels: bool,
     /// The model's own render buffer, for the model types it's worked out for (Single Line,
-    /// Poly Line and Custom).
+    /// Poly Line, Icicles and Custom).
     pub buffer: Option<Buffer>,
 }
 

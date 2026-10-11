@@ -12,10 +12,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const HISTORY_SUFFIX: &str = ".pixelflow.json";
 
-/// The largest show file read, in bytes (the same as a sequence file). A show with hundreds of
-/// props is well under a megabyte; a file can be any size, and takes many times its size in
-/// memory once parsed.
-pub const MAX_SHOW_BYTES: u64 = 64 * 1024 * 1024;
+/// The largest show file read, in bytes. A show of props made from shapes is well under a
+/// megabyte, but one whose pixels are each placed by hand takes about 100 bytes a pixel as
+/// saved: this leaves room for more than two million of those, so that no show PixelFlow could
+/// reasonably have saved is ever refused. A file can be any size, and takes many times its size
+/// in memory once parsed.
+pub const MAX_SHOW_BYTES: u64 = 256 * 1024 * 1024;
 
 /// A file's text, or how large the file is when that's more than was asked to be read.
 pub(crate) enum TextRead {
@@ -341,7 +343,7 @@ mod tests {
             .unwrap();
         let error = read_show(&path).err().unwrap().to_string();
         assert!(
-            error.ends_with("huge.pixelflow.json is 64 MB; PixelFlow reads show files up to 64 MB."),
+            error.ends_with("huge.pixelflow.json is 256 MB; PixelFlow reads show files up to 256 MB."),
             "{error}"
         );
         // Its size is the file's own, whatever was asked for: here, a limit under a real show's.

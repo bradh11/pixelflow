@@ -163,13 +163,31 @@ user has to take first.
 | 4 | A wrapping curve brought a value into range by subtracting 1 until it was; `1e30 - 1` is `1e30`, so `P4=1e30|WRAP=TRUE` never finished, and an import cannot be cancelled | same | Worked out in one step, to the same answer (`curves.rs:293`). `wrapping_a_huge_value_ends`, `wrapping_lands_where_stepping_by_one_would` |
 | 5 | Each legacy `<network>` line could ask for 64,000 universes and the limit was per line: 10,000 lines (300 KB) asked for 7 GB | `crates/pf-xlights/src/networks.rs` | One limit of 64,000 outputs for the whole file (`networks.rs:85`). `a_file_has_no_more_outputs_than_there_are_universes` |
 | 6 | Splitting keys an old xLights bug fused together copied the rest of the string at every key, and looked for each key's `=` to the end of the string: a 16 MB string of one repeated key took tens of minutes | `crates/pf-xlights/src/sequence/settings.rs` | Walked without copying; a key's name is looked for only 200 characters far (`settings.rs:28`, `:65`). `a_long_run_of_fused_keys_is_read_in_one_pass` |
-| 7 | `fs::read_to_string` on a show file of any size, then parsed into a tree many times larger. Sequence files had a limit, checked on the size the file reported; a device named as one was read for ever | `crates/pf-engine/src/persist.rs`, `sequence_doc.rs` | One reader for both: an ordinary file only, at most 64 MB, counted as read (`persist.rs:18`, `:29`). `a_show_file_larger_than_any_show_is_not_read`, `only_an_ordinary_file_is_read_as_a_show` |
+| 7 | `fs::read_to_string` on a show file of any size, then parsed into a tree many times larger. Sequence files had a limit, checked on the size the file reported; a device named as one was read for ever | `crates/pf-engine/src/persist.rs`, `sequence_doc.rs` | One reader for both: an ordinary file only, counted as read, at most 256 MB for a show and 64 MB for a sequence (`persist.rs:20`, `:31`). `a_show_file_larger_than_any_show_is_not_read`, `only_an_ordinary_file_is_read_as_a_show`. This bounds the cost; it does not make a 256 MB file cheap to parse (see below) |
 | 8 | The picture decoder's 512 MB limit covers what the decoder allocates, not the buffer its pixels go into (`image` 0.25.10 notes this itself, `io/image_reader_type.rs:317`). A 16,384 square still, a few bytes of header, asked for 0.8 to 2 GB; an animated WebP's canvas had no limit | `crates/pf-render/src/picture/decode.rs` | Size checked before decoding: at most 64 million pixels and 512 MB decoded, for stills, GIFs, and animated WebPs (`decode.rs:18`, `:73`). Three tests in `decode.rs` |
 | 9 | Video export opened the show's photo by path with no size, type, or dimension limit: a 35-byte GIF claiming 65,535 square asked for about 17 GB, and a pipe was waited on | `crates/pf-video/src/export.rs` | Read through the Picture effect's reader (ordinary file, picture type, 64 MB), then the same size checks (`export.rs:98`, `:103`). `a_photo_whose_header_claims_a_huge_size_is_refused_before_decoding`, `only_a_real_picture_file_is_read_as_the_photo`, `a_pipe_named_like_a_photo_is_not_opened` |
 | 10 | The audio decoders panic on some malformed files. A WAV whose header says 0 Hz panics in every reader ("TimeBase cannot have 0 numerator or denominator"); reproduced. On the sound output's thread or the engine's audio-track thread nothing caught it, and the track's progress never finished | `crates/pf-audio/src/` | Opening, probing, tags, and waveforms report it as a file that cannot be decoded (`decode.rs:76`); a panic part way ends the sound (`decode.rs:113`); the audio-track thread ends its progress (`crates/pf-engine/src/audio.rs:144`). `crates/pf-audio/tests/malformed.rs`, and tests in `decode.rs` and `audio.rs` |
 | 11 | A header can claim any sample rate. 1 Hz made a few megabytes "four hours" of sound, upsampled 16,000 times for lyric recognition; 4 GHz made video export reserve room for that many samples a second | `crates/pf-audio/src/decode.rs`, `wav.rs`; `crates/pf-video/src/aac.rs`; `crates/pf-align/src/voice.rs` | Rates of 8,000 to 384,000 Hz and up to 8 channels only (`decode.rs:25`); lyric and alignment decoding stops at four hours (`wav.rs:14`); video export checks the rate before making room (`aac.rs:90`). `sound_at_a_rate_no_music_has_is_not_read` and others |
 | 12 | A sequence names its music by path. `/dev/zero` as the music hung an export (hashing it never ends); a pipe is waited on | `crates/pf-engine/src/audio.rs`, `crates/pf-ai/src/lyrics/cache.rs`, `transcribe.rs`, `crates/pf-devices/src/fpp_upload.rs` | One check that it is an ordinary file, before opening and on the open file, wherever music is opened (`crates/pf-audio/src/decode.rs:42`); a sequence's music must also be a music file by its extension (`find.rs:50`). `a_device_is_not_opened_as_music`, `a_device_named_as_music_has_no_track`, `only_an_ordinary_file_is_sent` |
 | 13 | A file downloaded from an FPP was copied to disk for as long as the device sent, with a time allowance that grew with the size the device claimed | `crates/pf-devices/src/http.rs` (`get_to`) | No more than the size the FPP listed (64 GB at most) is taken (`http.rs:312`). `a_file_that_runs_on_past_its_listed_size_is_stopped_and_leaves_nothing` |
+
+Three of these fixes add a limit a real file could, in principle, meet. Each is set well clear
+of real use, and each is one constant if it needs raising:
+
+- **Show files over 256 MB are refused** (`MAX_SHOW_BYTES`). A pixel placed by hand (not by a
+  shape) takes about 100 bytes in a saved show, so a show of 200,000 such pixels is about
+  20 MB and the limit leaves room for over two million. The show model itself allows ten
+  million pixels; a show that large with every pixel placed by hand would pass the limit, and
+  could then be saved but not reopened. The limit was set this high to keep that out of reach.
+  The price is that a hostile 256 MB show can still take a few gigabytes to parse: reading the
+  file as it streams, without building the whole tree first, would remove both problems.
+- **Music files over 2 GB, or outside 8 to 384 kHz, are refused** (`MAX_MUSIC_BYTES`,
+  `SAMPLE_RATES`).
+- **Pictures over 64 million pixels are refused** (`MAX_PIXELS`): 8,192 by 8,192, above any
+  current camera.
+
+Also changed: a sequence's music is only found automatically if its name ends in a music
+extension PixelFlow plays, and an FPP download must be a `.fseq` or one of FPP's music types.
 
 ### 4.3 Medium, not fixed
 
@@ -278,7 +296,8 @@ Not fixed:
     effect limit.
   - The XML parser reserves memory from the count of `<` before its node limit applies: a 64 MB
     file of small elements needs over 1 GB (estimated, not measured).
-  - Show and sequence limits (pixels, effects) are checked after the whole file is parsed.
+  - Show and sequence limits (pixels, effects) are checked after the whole file is parsed into
+    a tree, which takes several times the file's size in memory (up to 256 MB for a show).
   - A vendor zip's directory is read whole before the 20,000-entry limit; a music entry of up to
     500 MB is held in memory; Windows reserved names (`CON`, `NUL`) are not refused.
   - An FPP's listing drives one request per sequence and per playlist with no limit on how many.
@@ -437,7 +456,7 @@ After the fixes on this branch.
 
 | File | Reader | Size limit | Other limits |
 |---|---|---|---|
-| Show (`.pixelflow.json`) | `crates/pf-engine/src/persist.rs:29` | 64 MB, ordinary files only | Pixel and shape limits after parsing (`crates/pf-model/src/limits.rs`); JSON nesting 128 |
+| Show (`.pixelflow.json`) | `crates/pf-engine/src/persist.rs:31` | 256 MB, ordinary files only | Pixel and shape limits after parsing (`crates/pf-model/src/limits.rs`); JSON nesting 128 |
 | Sequence (`.pfseq.json`) | same reader, `sequence_doc.rs:1427` | 64 MB, ordinary files only | 4 hours, 200,000 effects, 10,000 rows, 500,000 marks (`crates/pf-sequence/src/limits.rs`) |
 | xLights `xlights_rgbeffects.xml`, `xlights_networks.xml` | `crates/pf-xlights/src/xml.rs` | 64 MB | 64 levels, 20 million nodes, no DTD (so no entities); 1 million lights per model; 64,000 outputs per file. No limit on models (finding 16) |
 | `.xsq` | `crates/pf-xlights/src/sequence/` | 64 MB, compressed blocks included | 2 million effects and marks read, 200,000 imported; 2,000 settings per string; 200 points per curve. No limit on elements (finding 17) |

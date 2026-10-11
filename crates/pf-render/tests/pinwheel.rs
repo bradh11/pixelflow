@@ -548,6 +548,114 @@ fn p06_thin_arms_never_vanish() {
     }
 }
 
+/// Property 6, where the rays of the spokes style stand apart: a twisted arm crosses from ray to
+/// ray, often in less than a cell, and must still be an unbroken run of lit cells. At every
+/// whole distance from 58 cells out to two short of the arm's end, the cell that holds the arm
+/// there (on the whole degree nearest its center line) is lit, at any twist; and the wheel
+/// lights within a tenth as many pixels as the picture imports were judged against, which grows
+/// with twist as the arm's path lengthens.
+#[test]
+fn p06_twisted_spokes_are_unbroken_where_the_rays_stand_apart() {
+    /// For each twist, the lit pixels of the picture judged against.
+    type Judged = [(f32, f64)];
+    // The buffer's size, the arms' thickness, and what was measured there.
+    let rigs: [(u32, f32, &Judged); 3] = [
+        (
+            400,
+            1.0,
+            &[
+                (0.0, 2672.0),
+                (90.0, 3111.0),
+                (-90.0, 3029.0),
+                (180.0, 3490.0),
+                (-180.0, 3477.0),
+                (360.0, 4284.0),
+                (-360.0, 4316.0),
+            ],
+        ),
+        (400, 0.0, &[(0.0, 2668.0), (180.0, 3386.0), (-360.0, 4300.0)]),
+        (
+            200,
+            1.0,
+            &[(0.0, 1352.0), (180.0, 1991.0), (360.0, 2214.0), (-360.0, 2208.0)],
+        ),
+    ];
+    for (cells, thickness, judged) in rigs {
+        let canvas = square(cells);
+        let (middle, size) = (f64::from(cells - 1) / 2.0, i64::from(cells));
+        for &(twist, lit_there) in judged {
+            let p = PinwheelParams {
+                arms: 12,
+                thickness,
+                twist,
+                speed: 0.0,
+                style: SPOKES,
+                ..defaults()
+            };
+            let what = format!("{cells} cells, thickness {thickness}, twist {twist}");
+            let alphas: Vec<f32> = Frame::new(p, &ONE, canvas, 0)
+                .pixels()
+                .iter()
+                .map(|c| c.a)
+                .collect();
+            let lit_at = |x: i64, y: i64| {
+                (0..size).contains(&x) && (0..size).contains(&y) && alphas[(y * size + x) as usize] >= 0.5
+            };
+            let length = arm_length(&p, canvas);
+            for arm in arms_of(&p, &ONE, 0) {
+                for r in 58..=(length - 2.0) as u32 {
+                    let r = f64::from(r);
+                    let line = arm.degrees + f64::from(twist) * r / length;
+                    // The whole degree nearest the center line (either, where it is half way).
+                    let half_way = (line - line.floor() - 0.5).abs() < 1e-3;
+                    let rays = if half_way {
+                        vec![line.floor(), line.ceil()]
+                    } else {
+                        vec![line.round()]
+                    };
+                    let held = rays.iter().any(|ray| {
+                        let (sin, cos) = ray.to_radians().sin_cos();
+                        let (x, y) = (middle + r * cos, middle + r * sin);
+                        // The pixel whose cell holds that place (either, on the line between two).
+                        (-1..=1).any(|dy| {
+                            (-1..=1).any(|dx| {
+                                let (px, py) = (x.round() as i64 + dx, y.round() as i64 + dy);
+                                (px as f64 - x).abs() <= 0.502
+                                    && (py as f64 - y).abs() <= 0.502
+                                    && lit_at(px, py)
+                            })
+                        })
+                    });
+                    assert!(held, "{what}: the arm at {} is broken {r} cells out", arm.degrees);
+                }
+            }
+            let lit = alphas.iter().filter(|a| **a >= 0.5).count() as f64;
+            assert!(
+                (lit / lit_there - 1.0).abs() <= 0.10,
+                "{what}: {lit} pixels lit, {lit_there} in the picture judged against"
+            );
+        }
+    }
+    // A wide arm wound right round narrows without breaking, and keeps its light.
+    let p = PinwheelParams {
+        arms: 4,
+        thickness: 30.0,
+        twist: 360.0,
+        speed: 0.0,
+        style: SPOKES,
+        ..defaults()
+    };
+    let lit = Frame::new(p, &ONE, RIG, 0)
+        .pixels()
+        .iter()
+        .filter(|c| lit(c))
+        .count() as f64;
+    assert!(
+        (lit / 2996.0 - 1.0).abs() <= 0.10,
+        "{lit} pixels lit, 2996 in the picture judged against"
+    );
+}
+
 /// Property 7: Thin arms stay thin.
 #[test]
 fn p07_thin_arms_stay_thin() {
@@ -1147,6 +1255,10 @@ fn p21_spokes_rays_separate_with_distance() {
         ring.iter().filter(|c| lit(c)).count() as f64 / ring.len() as f64
     };
     assert!(share(40.0) >= 0.98, "{}", share(40.0));
+    // Solid means solid: no pixel within 57 cells of the center is left out.
+    for (r, c) in frame.pixels_by_distance() {
+        assert!(r > 57.0 || c.a == 1.0, "a pixel {r} cells out has alpha {}", c.a);
+    }
     assert!((0.40..=0.70).contains(&share(115.0)), "{}", share(115.0));
     assert!((0.22..=0.40).contains(&share(190.0)), "{}", share(190.0));
     let separate = runs(&frame.ring_of(150.0, 7200)).len();
@@ -1643,12 +1755,12 @@ fn goal_fractions_are_honoured() {
 }
 
 /// Arms are evenly spaced, and as wide as each other, for every count, to a fraction of a degree.
-/// (Spokes are a ray's width, one cell, wider than their angle, and 40 cells out their edges
-/// are partly held to whole degrees.)
+/// (Spokes 40 cells out are their rays: up to a degree wider than their angle, and the cells the
+/// rays' marks fall in, which reach half a cell to 0.71 of one either side.)
 #[test]
 fn goal_every_arm_count_is_evenly_spaced() {
     let cell = (1.0f64 / 40.0).to_degrees();
-    for (style, wider, allowed) in [(SMOOTH, 0.0, 0.2), (SPOKES, cell, 0.6)] {
+    for (style, wider, allowed) in [(SMOOTH, 0.0, 0.2), (SPOKES, 1.2 * cell + 0.5, 0.85)] {
         for arms in 1..=20 {
             let p = PinwheelParams {
                 arms,
@@ -1686,10 +1798,14 @@ fn goal_true_center_and_exact_symmetry() {
     for shading in SHADINGS {
         for style in STYLES {
             // Arm counts that are multiples of four repeat every quarter turn, wherever the
-            // wheel has turned to and however it is twisted.
+            // wheel has turned to and however it is twisted. (For spokes that is so where they
+            // are solid, which arms 26 cells long are all the way: further out a ray's marks
+            // light cells, and a mark on the line between two cells lights the upper one, which
+            // a quarter turn makes another.)
             for arms in [4, 8, 12, 16, 20] {
                 let p = PinwheelParams {
                     arms,
+                    arm_size: if style == SPOKES { 80.0 } else { 100.0 },
                     thickness: 30.0,
                     twist: 45.0,
                     offset: 12.3,
@@ -1876,27 +1992,28 @@ fn goal_directions_are_true_all_the_way_round() {
             outside.a
         );
     }
-    // Every ray is a cell wide about its whole degree.
+    // Every ray sits on its whole degree: a sample just under half a cell to either side of it
+    // has one of its marks in its cell whichever way the ray points, one more than 0.71 of a cell
+    // away never has, and along a row or a column the line between is at half a cell exactly.
     let rays = PinwheelParams {
         thickness: 100.0,
         style: SPOKES,
         ..p
     };
     let frame = Frame::new(rays, &ONE, canvas, 0);
-    let (on, off) = ((0.49_f64 / 990.0).to_degrees(), (0.51_f64 / 990.0).to_degrees());
+    let turn = |cells: f64| (cells / 990.0).to_degrees();
     for ray in 0..360 {
-        let ray = f64::from(ray);
         for side in [-1.0, 1.0] {
-            let (inside, outside) = (
-                frame.sample(990.0, ray + side * on),
-                frame.sample(990.0, ray + side * off),
-            );
+            let at = |cells: f64| frame.sample(990.0, f64::from(ray) + side * turn(cells));
             assert!(
-                lit(&inside) && !lit(&outside),
+                lit(&at(0.49)) && !lit(&at(0.72)),
                 "ray {ray}: {} and {}",
-                inside.a,
-                outside.a
+                at(0.49).a,
+                at(0.72).a
             );
+            if ray % 90 == 0 {
+                assert!(!lit(&at(0.51)), "ray {ray}: {}", at(0.51).a);
+            }
         }
     }
 }
@@ -1930,8 +2047,9 @@ fn goal_spokes_glide_near_the_center() {
     assert!(values.len() >= 20, "only {} values: {alphas:?}", values.len());
 }
 
-/// Far from the center a thin spokes arm is the one ray nearest its center line: a cell wide,
-/// on a whole degree, and staying on it until the arm's center line is nearer the next.
+/// Far from the center a thin spokes arm is the one ray nearest its center line: the cells its
+/// marks fall in, on a whole degree, and staying on it until the arm's center line is nearer the
+/// next.
 #[test]
 fn goal_a_thin_spoke_is_the_nearest_ray() {
     let canvas = square(401);
@@ -1955,7 +2073,9 @@ fn goal_a_thin_spoke_is_the_nearest_ray() {
                 let want = ray + 30.0 * f64::from(k);
                 let run = run_near(&ring, want);
                 assert!(
-                    apart(run.center, want) <= 0.03 && (run.width - cell).abs() <= 0.06,
+                    apart(run.center, want) <= 0.03
+                        && run.width >= cell - 0.06
+                        && run.width <= 1.42 * cell + 0.06,
                     "start angle {offset}: {run:?}, not a ray at {want}"
                 );
             }
@@ -1991,9 +2111,15 @@ fn goal_an_arm_lights_its_width_in_rays_and_one_more() {
                 (arms * rays) as usize,
                 "{arms} arms, thickness {thickness}, start angle {offset}"
             );
+            // Each is a string of marks on a whole degree: a sample's cell holds one when the
+            // sample is within half a cell of the ray going along a row or a column, and up to
+            // 0.71 of a cell on a diagonal.
             let cell = (1.0f64 / 150.0).to_degrees();
             for run in found {
-                assert!((run.width - cell).abs() <= 0.06, "{run:?}");
+                assert!(
+                    run.width >= cell - 0.06 && run.width <= 1.42 * cell + 0.06,
+                    "{run:?}"
+                );
                 let ray = run.center.round();
                 assert!(apart(run.center, ray) <= 0.03, "{run:?} is not on a whole degree");
             }
@@ -2001,32 +2127,64 @@ fn goal_an_arm_lights_its_width_in_rays_and_one_more() {
     }
 }
 
-/// A swept arm drawn as rays runs from one part in its number of rays up to full, so its last
-/// ray is dim but there: 30 degrees wide, it is 31 rays at 1/31, 2/31, … 31/31 (as xLights'
-/// reference renders of the corpus show it).
+/// A shaded arm drawn as rays is shaded ray by ray, counting from its clockwise edge: the k-th of
+/// m rays takes the shading k/m of the way across. So a swept arm 30 degrees wide is 31 rays at
+/// 0, 1/31, … 30/31: its first ray is dark and its last falls one step short of full (as
+/// xLights' reference renders of the corpus show it). An arm of one ray is at full strength.
 #[test]
-fn goal_a_sweep_runs_over_an_arms_rays() {
-    let p = PinwheelParams {
-        arms: 6,
-        thickness: 50.0,
-        speed: 0.0,
-        shading: PinwheelShading::Sweep,
-        style: SPOKES,
-        ..defaults()
+fn goal_shading_runs_over_an_arms_rays() {
+    let wheel = |shading, thickness| {
+        let p = PinwheelParams {
+            arms: 6,
+            thickness,
+            speed: 0.0,
+            shading,
+            style: SPOKES,
+            ..defaults()
+        };
+        Frame::new(p, &PALETTE, square(401), 0)
     };
-    let frame = Frame::new(p, &PALETTE, square(401), 0);
     // The first arm is centered on 0 degrees: its rays are at -15 to 15.
-    for ray in -15..=15 {
-        let got = frame.sample(150.0, f64::from(ray));
-        let want = f64::from(ray + 16) / 31.0;
+    let ray = |frame: &Frame, k: i32| {
+        let got = frame.sample(150.0, f64::from(k - 15));
+        assert!(got.a == 0.0 || rgb(got) == GREEN);
+        f64::from(got.a)
+    };
+    let (sweep, raised, sunken) = (
+        wheel(PinwheelShading::Sweep, 50.0),
+        wheel(PinwheelShading::Raised, 50.0),
+        wheel(PinwheelShading::Sunken, 50.0),
+    );
+    for k in 0..=30 {
+        let across = f64::from(k) / 31.0;
+        let near = |got: f64, want: f64| (got - want).abs() <= 0.005;
+        assert!(near(ray(&sweep, k), across), "sweep, ray {k}: {}", ray(&sweep, k));
+        let peak = 1.0 - (2.0 * across - 1.0).abs();
         assert!(
-            (f64::from(got.a) - want).abs() <= 0.005,
-            "the ray at {ray}: {} not {want}",
-            got.a
+            near(ray(&raised, k), peak),
+            "raised, ray {k}: {}",
+            ray(&raised, k)
         );
-        assert_eq!(rgb(got), GREEN);
+        assert!(
+            near(ray(&sunken, k), 1.0 - peak),
+            "sunken, ray {k}: {}",
+            ray(&sunken, k)
+        );
     }
-    assert_eq!(frame.sample(150.0, -16.0).a, 0.0);
-    assert_eq!(frame.sample(150.0, 16.0).a, 0.0);
-    assert_eq!(frame.sample(150.0, 0.5).a, 0.0, "between two rays");
+    assert_eq!(ray(&sweep, 0), 0.0, "the clockwise ray of a sweep is dark");
+    for frame in [&sweep, &raised, &sunken] {
+        assert_eq!(ray(frame, -1), 0.0);
+        assert_eq!(ray(frame, 31), 0.0);
+        assert_eq!(frame.sample(150.0, 0.5).a, 0.0, "between two rays");
+    }
+    // Arms of a single ray (here 0.6 of a degree wide, and none at all) are at full strength.
+    for shading in SHADINGS {
+        for thickness in [0.0, 1.0] {
+            assert_eq!(
+                wheel(shading, thickness).sample(150.0, 0.0).a,
+                1.0,
+                "{shading:?}, {thickness}"
+            );
+        }
+    }
 }

@@ -29,19 +29,22 @@
 //!   twisted arm is judged by its true width. An arm is never thinner than one cell, so a
 //!   thin arm stays an unbroken line however it is twisted.
 //! - **Spokes** are rays (`Rays`): light falls only along the whole-degree directions out
-//!   from the center, each a cell wide, and an arm lights the rays within its width. Close to
-//!   the center the rays overlap and the arm is solid; far from it they stand apart with dark
-//!   between, and stay where they are while the arm's light passes from one to the next. A
-//!   pixel finds the one lit ray nearest it by rounding, however many rays the arm has.
+//!   from the center, and an arm lights the rays within its width. Each ray is a string of
+//!   marks half a cell apart, and a mark lights the cell it falls in. Close to the center the
+//!   rays share cells and the arm is solid; far from it they stand apart with dark between,
+//!   and stay where they are while the arm's light passes from one to the next. A twisted arm
+//!   crosses from ray to ray as it goes out, and every half cell of it lights a cell, so it is
+//!   an unbroken run of them. A pixel looks only at the marks that could fall in its own cell
+//!   (three steps of distance on the two rays either side of it), however many rays the arm
+//!   has.
 //!
 //! **Directions are whole numbers.** A full turn is 2^32 steps, so going round the circle wraps
 //! by itself, turning and twisting are additions, and multiplying by the number of arms (or by
 //! 360, for the rays) folds the circle onto one sector (or one degree) exactly. Nothing drifts
-//! however long the effect runs, and the picture is exactly as symmetric as the pixels it is
+//! however long the effect runs, and a solid wheel is exactly as symmetric as the pixels it is
 //! asked for: a smooth wheel with straight arms is the exact reflection of the one turning the
-//! other way, and a wheel whose arm count is a multiple of four repeats exactly every quarter
-//! turn. The arctangent is a short polynomial, so the same pixel gets the same bits on every
-//! machine.
+//! other way, and one whose arm count is a multiple of four repeats exactly every quarter turn.
+//! The arctangent is a short polynomial, so the same pixel gets the same bits on every machine.
 //!
 //! **Time is the clock's.** The wheel turns 20 degrees a second for each unit of speed, by the
 //! milliseconds since the effect started, worked out once a frame in double precision. A frame
@@ -81,13 +84,24 @@ const SOFT: f32 = 1.0;
 /// pixel).
 const SOFT_SHARE: f32 = 0.25;
 
-/// Half the width of the line a thin arm is kept at, and of a ray, in cells.
+/// Half the width of the line a thin arm is kept at, in cells.
 const HALF_LINE: f32 = 0.5;
 
-/// How sharp the side of a ray is once the rays stand apart: one over the width of its soft
-/// band in cells. Rays stay where they are, so there is no movement for a softer edge to
-/// smooth, and a ray lights the pixels within half a cell of it and hardly any other.
-const RAY_SHARP: f32 = 16.0;
+/// How far apart, in cells, the marks along a ray are: each lights the cell it falls in. Half a
+/// cell is how closely xLights' picture marks its rays: a twisted arm, which crosses many rays in
+/// a short distance, then lights as many cells as it does there.
+const MARK: f32 = 0.5;
+
+/// The furthest, in cells, a mark can be from the center of a cell it falls in is half the
+/// cell's diagonal, 0.71; marks no nearer than this are certainly outside it.
+const MARK_REACH: f32 = 0.75;
+
+/// A mark is in a cell when it is between these of the cell's center, across and up: half a
+/// cell either way, moved down a hair so that a mark on the line between two cells (a ray along
+/// a row of an even-sized buffer puts all its marks there) lights the upper one and not both,
+/// and stretched a smaller hair so that no mark falls between two cells however the sums round.
+const CELL_FROM: f32 = -0.5 - 1.0 / 1024.0;
+const CELL_TO: f32 = 0.5 - 1.0 / 1024.0 + 1.0 / 4096.0;
 
 /// How far from the center neighboring rays, a degree apart, are a cell apart: closer in they
 /// overlap, further out they stand apart.
@@ -230,7 +244,7 @@ impl Pinwheel {
             cells: [(columns - 1) as f32, (rows - 1) as f32],
             length: reach,
             reach_squared: if reach > 0.0 {
-                (reach + SOFT / 2.0).powi(2)
+                (reach + MARK_REACH.max(SOFT / 2.0)).powi(2)
             } else {
                 0.0
             },
@@ -243,7 +257,12 @@ impl Pinwheel {
             colors: places,
             drawn: match p.style {
                 PinwheelStyle::Smooth => Drawn::Wedges(Wedges::new(half, (twist * TAU) as f32, shade)),
-                PinwheelStyle::Spokes => Drawn::Rays(Rays::new(half, 360.0 / arms as f32)),
+                PinwheelStyle::Spokes => Drawn::Rays(Rays::new(
+                    half,
+                    360.0 / arms as f32,
+                    (twist * 360.0) as f32,
+                    length as f32,
+                )),
             },
         }
     }
@@ -358,132 +377,215 @@ fn line(off: f32, across: f32, r: f32, sharp: f32) -> f32 {
     unit(0.5 - ((off * across).min(r) - HALF_LINE) * sharp)
 }
 
-/// Arms drawn as rays: light only along the whole-degree directions out from the center, each a
-/// cell wide. Out to `RAYS_TOUCH` cells neighboring rays overlap and an arm is a solid wedge,
-/// half a cell wider each side than its angle; beyond, they stand apart.
+/// Arms drawn as rays: light only along the whole-degree directions out from the center. An arm
+/// lights the rays within its width, as many as it is whole degrees wide and one more, and each
+/// ray is a string of marks half a cell apart, each lighting the cell it falls in. Out to
+/// `RAYS_TOUCH` cells neighboring rays share cells and an arm is solid; beyond, they stand apart
+/// with dark between, and stay where they are while the wheel turns.
 ///
-/// The rays stay where they are while the wheel turns, so far out an arm's edge can only step
-/// from one to the next. Close to the center, where a degree is a small part of a cell, the
-/// edge glides instead: the nearest lit direction is anywhere within the arm there, and is
-/// held to whole degrees more and more firmly out to where the rays part.
+/// With twist an arm crosses from ray to ray as it goes out, often in less than a cell, and a
+/// mark belongs to the ray the arm is on at the mark's own distance: so every half cell of the
+/// arm's length lights a cell, and a twisted arm is an unbroken run of them however fast it
+/// crosses the rays.
+///
+/// Close to the center, where a degree is a small part of a cell, an arm is drawn as the solid
+/// wedge its rays make there, half a cell wider all round than its angle, with a soft edge that
+/// glides as the wheel turns instead of stepping from ray to ray. From half way out to where
+/// the rays part the wedge fades and the marks take over; the brighter of the two shows.
 struct Rays {
     /// One sector, in degrees.
     sector: f32,
-    /// Half an arm's width in degrees, and one over it.
+    /// Half an arm's width, in degrees.
     half: f32,
-    per_half: f32,
-    /// Half the stretch of directions within which an arm lights rays, in degrees. The stretch
-    /// is the arm's width in whole degrees and one more, so an arm lights that many rays, and
-    /// the thinnest arm lights the one ray nearest its center line.
-    lit_half: f32,
-    /// How far shading has taken hold: an arm `w` degrees wide is about `w + 1` rays, and its
-    /// shading runs over them from one part in `w + 1` up to full, so a single ray is at full
-    /// strength and no ray of a wide arm is quite dark.
-    shaded: f32,
+    /// How many rays an arm lights: its width in whole degrees, and one more.
+    count: f32,
+    /// How far the arms curl round for each cell out from the center, in degrees.
+    twist: f32,
+    /// The same in radians: how steeply an arm leans from the straight line out, for each cell
+    /// from the center.
+    lean: f32,
+    /// Where the arms end, in cells from the center: no ray is marked beyond it.
+    length: f32,
 }
 
 impl Rays {
-    fn new(half: f32, sector: f32) -> Self {
+    fn new(half: f32, sector: f32, twist: f32, length: f32) -> Self {
         let width = 2.0 * half * sector;
         Self {
             sector,
             half: width / 2.0,
-            per_half: if width > 0.0 { 2.0 / width } else { 0.0 },
-            lit_half: (width.floor() + 1.0) / 2.0,
-            shaded: width / (width + 1.0),
+            count: width.floor() + 1.0,
+            twist,
+            lean: twist * RADIANS_PER_DEGREE,
+            length,
         }
     }
 
-    /// How much of the wheel shows at a pixel `r` cells from the center, in `direction`, and `f`
-    /// sectors counterclockwise of the nearest arm's center line, and whether more of that is
-    /// the arm on the pixel's other side.
+    /// How much of the wheel shows at a pixel, and whether more of that is the arm on the
+    /// pixel's other side.
     #[inline]
-    fn shown(&self, wheel: &Pinwheel, direction: u32, f: f32, r: f32) -> (f32, bool) {
-        if self.clear(f, r) {
+    fn shown(&self, wheel: &Pinwheel, spot: &Spot) -> (f32, bool) {
+        if self.clear(spot.f, spot.r) {
             return (0.0, false);
         }
-        self.covered(wheel, direction, f, r)
+        self.covered(wheel, spot)
     }
 
-    /// Whether the pixel is well clear of every direction the nearest arm lights (and of the
-    /// center, where every arm starts), as most are: more than a ray's reach and the widest
-    /// soft band away. [`Self::covered`] would find nothing there too; this saves its sums.
+    /// Whether the pixel is well clear of everything the nearest arm lights (and of the center,
+    /// where every arm starts), as most are. [`Self::covered`] would find nothing there too;
+    /// this saves its sums.
     #[inline]
     fn clear(&self, f: f32, r: f32) -> bool {
-        let center = -f * self.sector;
-        let away = (center.abs() - self.lit_half - RAY_TIE) * RADIANS_PER_DEGREE * r;
-        away.min(r) >= HALF_LINE + SOFT / 2.0
+        self.out_of_reach(-f * self.sector, r)
+    }
+
+    /// Whether the arm whose center line is `center` degrees counterclockwise of a pixel `r`
+    /// cells out can light nothing there: neither a mark in the pixel's cell, at any distance a
+    /// mark in it could be at, nor the solid wedge with its soft edge.
+    #[inline]
+    fn out_of_reach(&self, center: f32, r: f32) -> bool {
+        // Degrees from the pixel to the nearest ray the arm lights at any of those distances.
+        let outside = center.abs() - self.count / 2.0 - RAY_TIE - self.twist.abs() * MARK_REACH;
+        let cells = outside * RADIANS_PER_DEGREE * (r - MARK_REACH).max(0.0);
+        if r >= RAYS_TOUCH {
+            cells >= MARK_REACH
+        } else {
+            (cells * self.square(r)).min(r) >= HALF_LINE + SOFT / 2.0
+        }
+    }
+
+    /// How much shorter a step round the circle is when measured square across an arm, `r`
+    /// cells out: a twisted arm leans, so it is narrower across than along the circle.
+    #[inline]
+    fn square(&self, r: f32) -> f32 {
+        if self.lean == 0.0 {
+            1.0
+        } else {
+            let lean = r * self.lean;
+            1.0 / (1.0 + lean * lean).sqrt()
+        }
     }
 
     /// [`Self::shown`], worked out in full.
     #[inline]
-    fn covered(&self, wheel: &Pinwheel, direction: u32, f: f32, r: f32) -> (f32, bool) {
-        // The nearest arm's center line, in degrees counterclockwise of the pixel.
-        let center = -f * self.sector;
-        // How far counterclockwise of its nearest ray the pixel is (-0.5 to 0.5 degrees): the
-        // fraction of its direction counted in degrees.
-        let beside = ((u64::from(direction) * 360) as u32 as i32) as f32 * STEP;
-        // How firmly lit directions are held to the rays here: not at all out to half way to
-        // where the rays part, fully from there on.
-        let held = unit(r * (2.0 / RAYS_TOUCH) - 1.0);
-        // The arm's width here in cells, and how sharp its edge is: as a solid wedge (a ray's
-        // reach wider each side), or as rays.
-        let width = 2.0 * wheel.half * wheel.sector * r;
-        let solid = sharpness(width + 2.0 * HALF_LINE);
-        let sharp = solid + held * (RAY_SHARP - solid);
-
-        // The neighboring arm's center line, likewise.
-        let next = if f < 0.0 {
+    fn covered(&self, wheel: &Pinwheel, spot: &Spot) -> (f32, bool) {
+        let r = spot.r;
+        // The nearest arm's center line and its neighbor's, in degrees counterclockwise of the
+        // pixel.
+        let center = -spot.f * self.sector;
+        let next = if spot.f < 0.0 {
             center - self.sector
         } else {
             center + self.sector
         };
-        let (near, near_at) = self.arm(center, beside, held, sharp, r);
-        let (far, far_at) = self.arm(next, beside, held, sharp, r);
-        if near + far <= 0.0 {
-            return (0.0, false);
-        }
+        // The arm's width here in cells along the circle: shading takes hold as it widens from
+        // one cell to two, and an arm of a single ray is at full strength anyway.
+        let width = 2.0 * self.half * RADIANS_PER_DEGREE * r;
+        let shaded = if self.count > 1.0 { unit(width - 1.0) } else { 0.0 };
+        // How far the marks have taken over from the solid wedge here: not at all out to half
+        // way to where the rays part, fully from there on.
+        let marked = unit(r * (2.0 / RAYS_TOUCH) - 1.0);
 
-        // An arm no wider than a cell is at full strength, as a single ray is.
-        let shaded = self.shaded.min(unit(width - 1.0));
-        let own = near * (1.0 - shaded * (1.0 - wheel.profile(near_at)));
-        let other = far * (1.0 - shaded * (1.0 - wheel.profile(far_at)));
-        // Where the wheel is solid the two arms are two shapes, and what each covers of the
-        // cell adds up; where the rays stand apart, two arms that both reach the pixel do it
-        // with the same ray.
-        let both = own.max(other) + (1.0 - held) * own.min(other);
-        let end = unit((wheel.length - r) * sharp + 0.5);
-        (both * end, other > own)
+        let mut shown = (0.0, false);
+        if marked < 0.6 {
+            let per_degree = RADIANS_PER_DEGREE * r * self.square(r);
+            let sharp = sharpness(2.0 * self.half * per_degree + 2.0 * HALF_LINE);
+            let own = self.wedge(wheel, center, r, per_degree, sharp, shaded);
+            let other = self.wedge(wheel, next, r, per_degree, sharp, shaded);
+            let end = unit((wheel.length - r) * sharp + 0.5);
+            // The two arms are two shapes, and what each covers of the cell adds up.
+            shown = (
+                (own + other).min(1.0) * end * unit(6.0 - 10.0 * marked),
+                other > own,
+            );
+        }
+        if marked > 0.4 {
+            // How far counterclockwise of its nearest ray the pixel is (-0.5 to 0.5 degrees):
+            // the fraction of its direction counted in degrees.
+            let beside = ((u64::from(spot.direction) * 360) as u32 as i32) as f32 * STEP;
+            let own = self.marks(wheel, center, beside, spot, shaded);
+            let other = if self.out_of_reach(next, r) {
+                0.0
+            } else {
+                self.marks(wheel, next, beside, spot, shaded)
+            };
+            // Two arms that both mark the cell do it with the same ray, or near enough.
+            let marks = own.max(other) * unit(10.0 * marked - 4.0);
+            if marks > shown.0 {
+                shown = (marks, other > own);
+            }
+        }
+        shown
     }
 
-    /// One arm: how much of the pixel's cell its nearest lit direction covers, and where across
-    /// the arm that direction is (-1 to 1). `center` is the arm's center line in degrees
-    /// counterclockwise of the pixel, and the pixel is `beside` degrees counterclockwise of its
-    /// own nearest ray.
+    /// One arm as a solid wedge: how much it shows at a pixel `r` cells out, for an arm whose
+    /// center line is `center` degrees counterclockwise of the pixel. A degree round the circle
+    /// is `per_degree` cells measured square across the arm.
     #[inline]
-    fn arm(&self, center: f32, beside: f32, held: f32, sharp: f32, r: f32) -> (f32, f32) {
-        // Degrees round from the pixel to the nearest direction the arm lights: any direction
-        // within the arm...
+    fn wedge(&self, wheel: &Pinwheel, center: f32, r: f32, per_degree: f32, sharp: f32, shaded: f32) -> f32 {
+        // Degrees round from the pixel to the nearest direction within the arm, and how far
+        // that is in cells: within half a cell the pixel is covered, as by a ray there.
         let within = (center - self.half).max(0.0) + (center + self.half).min(0.0);
-        // ...or the nearest of the rays it lights, counted in whole degrees from the pixel's
-        // own nearest ray.
-        let middle = beside + center + RAY_TIE;
-        let ray = whole_from(middle - self.lit_half) - whole_from(-(middle + self.lit_half)) - beside;
-        let turn = within + held * (ray - within);
-        let away = (turn.abs() * RADIANS_PER_DEGREE * r).min(r);
-        (
-            unit(0.5 - (away - HALF_LINE) * sharp),
-            (turn - center) * self.per_half,
-        )
+        let away = (within.abs() * per_degree).min(r);
+        let cover = unit(0.5 - (away - HALF_LINE) * sharp);
+        // Where across the arm that direction is, counted as its rays are: the first ray, on
+        // the clockwise edge, is at 0, and the last falls one ray short of 1.
+        let across = ((within - center) * 2.0 - 1.0) / self.count;
+        cover * (1.0 - shaded * (1.0 - wheel.profile(across)))
+    }
+
+    /// One arm as rays: how much it shows at a pixel, for an arm whose center line is `center`
+    /// degrees counterclockwise of the pixel at the pixel's own distance. The pixel is `beside`
+    /// degrees counterclockwise of its own nearest ray.
+    #[inline]
+    fn marks(&self, wheel: &Pinwheel, center: f32, beside: f32, spot: &Spot, shaded: f32) -> f32 {
+        let r = spot.r;
+        // The pixel's direction as a step of one cell: out from the center, and (turned a
+        // quarter turn) round it.
+        let (out_x, out_y) = (spot.x / r, spot.y / r);
+        // A mark that falls in the pixel's cell is at one of the three steps of distance
+        // nearest the pixel's own, on one of the two rays either side of the pixel.
+        let nearest = (r * (1.0 / MARK) + 0.5) as i32;
+        let side = if beside < 0.0 { -1 } else { 1 };
+        let mut best = 0.0f32;
+        for step in nearest - 1..=nearest + 1 {
+            let out = step as f32 * MARK;
+            if out > self.length {
+                break;
+            }
+            let along = out - r;
+            // The rays the arm lights at that distance, counted in whole degrees from the
+            // pixel's own nearest ray: the arm has curled on from where it is at the pixel's.
+            let middle = beside + center + self.twist * along + RAY_TIE;
+            let first = -floor(self.count / 2.0 - middle);
+            let last = floor(middle + self.count / 2.0);
+            for ray in [0, side] {
+                let ray = ray.clamp(first, last.max(first));
+                // The mark's place from the pixel's center: round the circle and out (the
+                // sine and cosine of the small angle between them, to their third and second
+                // powers), then across and up.
+                let turned = (ray as f32 - beside) * RADIANS_PER_DEGREE;
+                let squared = turned * turned;
+                let round = out * turned * (1.0 - squared * (1.0 / 6.0));
+                let further = along - out * squared * 0.5;
+                let (x, y) = (further * out_x - round * out_y, further * out_y + round * out_x);
+                if (CELL_FROM..=CELL_TO).contains(&x) && (CELL_FROM..=CELL_TO).contains(&y) {
+                    // The ray's place across the arm: the first is at 0, and the last falls
+                    // one ray short of 1.
+                    let across = (2 * (ray - first)) as f32 / self.count - 1.0;
+                    best = best.max(1.0 - shaded * (1.0 - wheel.profile(across)));
+                }
+            }
+        }
+        best
     }
 }
 
-/// The least whole number that is at least `x` and at least 0.
+/// The greatest whole number that is at most `x`.
 #[inline]
-fn whole_from(x: f32) -> f32 {
-    let x = x.max(0.0);
-    let whole = x as i32 as f32;
-    if whole < x { whole + 1.0 } else { whole }
+fn floor(x: f32) -> i32 {
+    let whole = x as i32;
+    if whole as f32 > x { whole - 1 } else { whole }
 }
 
 /// An angle in turns as steps round the circle.
@@ -537,7 +639,9 @@ fn place(at: f32) -> f32 {
 
 /// Where a pixel is on the wheel.
 struct Spot {
-    /// Cells from the center.
+    /// Cells across and up from the center, and its distance from it.
+    x: f32,
+    y: f32,
     r: f32,
     /// Its direction from the center, in steps counterclockwise from pointing right.
     direction: u32,
@@ -591,6 +695,8 @@ impl Pinwheel {
         let on_wheel = direction.wrapping_sub(self.first).wrapping_sub(curled);
         let sectors = u64::from(on_wheel) * self.arms;
         Some(Spot {
+            x,
+            y,
             r,
             direction,
             nearest: ((sectors + u64::from(HALF_TURN)) >> 32) as usize,
@@ -602,29 +708,23 @@ impl Pinwheel {
 impl Shade for Pinwheel {
     #[inline]
     fn shade(&self, px: &Pixel) -> Rgba {
-        let Some(Spot {
-            r,
-            direction,
-            nearest,
-            f,
-        }) = self.spot(px)
-        else {
+        let Some(spot) = self.spot(px) else {
             return Rgba::CLEAR;
         };
         // How much of the wheel shows at the pixel, and whether more of that is the arm on the
         // pixel's other side than the nearest one: the arm showing more gives the color.
         let (shown, neighbor) = match &self.drawn {
-            Drawn::Wedges(wedges) => wedges.shown(self, f, r),
-            Drawn::Rays(rays) => rays.shown(self, direction, f, r),
+            Drawn::Wedges(wedges) => wedges.shown(self, spot.f, spot.r),
+            Drawn::Rays(rays) => rays.shown(self, &spot),
         };
         let alpha = unit(shown);
         if alpha <= 0.0 {
             return Rgba::CLEAR;
         }
-        let place = match (neighbor, f < 0.0) {
-            (false, _) => nearest + 1,
-            (true, true) => nearest,
-            (true, false) => nearest + 2,
+        let place = match (neighbor, spot.f < 0.0) {
+            (false, _) => spot.nearest + 1,
+            (true, true) => spot.nearest,
+            (true, false) => spot.nearest + 2,
         };
         Rgba::with_alpha(self.colors[place % PLACES], alpha)
     }
@@ -639,10 +739,7 @@ mod tests {
     fn both_ways(wheel: &Pinwheel, spot: &Spot) -> (bool, (f32, bool)) {
         match &wheel.drawn {
             Drawn::Wedges(w) => (w.clear(wheel, spot.f, spot.r), w.covered(wheel, spot.f, spot.r)),
-            Drawn::Rays(rays) => (
-                rays.clear(spot.f, spot.r),
-                rays.covered(wheel, spot.direction, spot.f, spot.r),
-            ),
+            Drawn::Rays(rays) => (rays.clear(spot.f, spot.r), rays.covered(wheel, spot)),
         }
     }
 
@@ -688,7 +785,7 @@ mod tests {
         }
         let shown = match &wheel.drawn {
             Drawn::Wedges(w) => w.shown(wheel, spot.f, spot.r),
-            Drawn::Rays(rays) => rays.shown(wheel, spot.direction, spot.f, spot.r),
+            Drawn::Rays(rays) => rays.shown(wheel, &spot),
         };
         assert_eq!(
             (shown.0.to_bits(), shown.1),

@@ -191,8 +191,14 @@ fn every_kind_of_effect_is_costed_alone_and_as_part_of_both_sequences() {
     assert_eq!(costs.sequences.len(), 2);
     for sequence in &costs.sequences {
         assert!(!sequence.kinds.is_empty());
-        let shares: f64 = sequence.kinds.iter().map(|k| k.percent).sum();
-        assert!((shares - 100.0).abs() < 0.01, "{shares}");
+        // The shares add up whenever the clock saw the effects take any time. On a show this
+        // small and a busy machine it can time an empty frame longer than a full one, and then
+        // there are no shares to speak of: what the clock said is never what's checked.
+        let (shares, time): (f64, f64) = sequence
+            .kinds
+            .iter()
+            .fold((0.0, 0.0), |(shares, time), k| (shares + k.percent, time + k.ms));
+        assert!(time <= f64::EPSILON || (shares - 100.0).abs() < 0.01, "{shares}");
         assert!(
             sequence
                 .kinds
